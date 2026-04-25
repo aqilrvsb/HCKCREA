@@ -151,9 +151,9 @@ export default function CheckoutForm() {
               </span>
             </label>
             <div className="relative">
-              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-[var(--color-text-muted)] font-medium pointer-events-none">
-                🇲🇾 +60
-              </span>
+              <div className="absolute left-0 top-0 bottom-0 w-[68px] flex items-center justify-center text-sm text-[var(--color-text-secondary)] font-semibold pointer-events-none border-r border-[var(--color-border)]">
+                +60
+              </div>
               <input
                 type="tel"
                 required
@@ -162,7 +162,7 @@ export default function CheckoutForm() {
                 value={whatsapp}
                 onChange={(e) => setWhatsapp(e.target.value)}
                 placeholder="123456789"
-                className="input pl-[72px]"
+                className="input pl-[80px]"
               />
             </div>
             <p className="text-xs text-[var(--color-text-muted)] mt-1.5 flex items-start gap-1.5">
