@@ -11,6 +11,7 @@ import {
   CheckCircle2,
   XCircle,
   RefreshCw,
+  Plus,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import AutoContentTab from "../tabs/auto-content";
@@ -190,8 +191,29 @@ export default function StudioSection() {
 }
 
 function HistoryCard({ item }: { item: HistoryItem }) {
+  const [extending, setExtending] = useState(false);
   const isVideo = item.type === "video" || item.type === "auto-content" || item.type === "clone";
   const isImage = item.type === "image";
+  const canExtend = isVideo && item.status === "done" && item.output_url;
+
+  async function extend() {
+    setExtending(true);
+    try {
+      const r = await fetch("/api/generate/extend", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ parent_id: item.id }),
+      });
+      const d = await r.json();
+      if (!r.ok || !d?.ok) {
+        alert(d?.error || "Extend failed");
+      } else {
+        window.dispatchEvent(new CustomEvent("history:refresh"));
+      }
+    } finally {
+      setExtending(false);
+    }
+  }
 
   return (
     <div className="rounded-xl border border-[var(--color-border)] overflow-hidden bg-white">
@@ -211,11 +233,7 @@ function HistoryCard({ item }: { item: HistoryItem }) {
         {item.status === "done" && item.output_url && (
           <>
             {isImage && (
-              <img
-                src={item.output_url}
-                alt=""
-                className="w-full h-full object-cover"
-              />
+              <img src={item.output_url} alt="" className="w-full h-full object-cover" />
             )}
             {isVideo && (
               <video
@@ -249,16 +267,33 @@ function HistoryCard({ item }: { item: HistoryItem }) {
             {item.caption}
           </p>
         )}
-        {item.output_url && (
-          <a
-            href={item.output_url}
-            target="_blank"
-            rel="noreferrer"
-            className="text-[10px] text-orange font-bold underline"
-          >
-            Open
-          </a>
-        )}
+        <div className="flex items-center gap-2 mt-1">
+          {item.output_url && (
+            <a
+              href={item.output_url}
+              target="_blank"
+              rel="noreferrer"
+              className="text-[10px] text-orange font-bold underline"
+            >
+              Open
+            </a>
+          )}
+          {canExtend && (
+            <button
+              disabled={extending}
+              onClick={extend}
+              title="Generate another 8s continuation"
+              className="ml-auto inline-flex items-center gap-1 px-2 py-0.5 rounded bg-orange-50 border border-orange-100 text-[10px] font-bold text-orange hover:bg-orange-100 disabled:opacity-60"
+            >
+              {extending ? (
+                <Loader2 className="w-3 h-3 animate-spin" />
+              ) : (
+                <Plus className="w-3 h-3" />
+              )}
+              Extend
+            </button>
+          )}
+        </div>
       </div>
     </div>
   );

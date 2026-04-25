@@ -56,6 +56,55 @@ export async function sendWhatsApp(toPhone: string, message: string): Promise<bo
   }
 }
 
+// Send WhatsApp to ALL profiles where is_admin = true and whatsapp is set.
+// Used for new-customer alerts so admin's phone pings on every signup/topup.
+export async function notifyAdmins(message: string): Promise<number> {
+  const admin = createAdminClient();
+  const { data } = await admin
+    .from("profiles")
+    .select("whatsapp")
+    .eq("is_admin", true)
+    .not("whatsapp", "is", null);
+  let count = 0;
+  for (const row of (data || []) as Array<{ whatsapp: string | null }>) {
+    if (!row.whatsapp) continue;
+    if (await sendWhatsApp(row.whatsapp, message)) count++;
+  }
+  return count;
+}
+
+export function buildAdminPaymentAlert(opts: {
+  type: "subscription" | "topup";
+  customerName: string;
+  customerEmail: string;
+  customerWhatsapp: string;
+  plan?: string;
+  credits?: number;
+  amountMYR: number;
+  paymentId: string;
+}): string {
+  const heading =
+    opts.type === "subscription"
+      ? "💰 *Closing PeningLab — Subscription*"
+      : "💰 *Closing PeningLab — Top Up*";
+
+  const lines = [
+    heading,
+    "",
+    `Status   : Berjaya ✅`,
+    `Sales    : RM${opts.amountMYR.toFixed(2)}`,
+    `Name     : ${opts.customerName}`,
+    `Email    : ${opts.customerEmail}`,
+    `WhatsApp : ${opts.customerWhatsapp}`,
+  ];
+  if (opts.plan) lines.push(`Plan     : ${opts.plan.toUpperCase()}`);
+  if (opts.credits) lines.push(`Credits  : +${opts.credits}`);
+  lines.push(`Tarikh   : ${new Date().toLocaleString("ms-MY", { dateStyle: "short", timeStyle: "short" })}`);
+  lines.push(`Ref      : ${opts.paymentId.slice(0, 8)}`);
+
+  return lines.join("\n");
+}
+
 export function buildLoginMessage(opts: {
   name: string;
   email: string;

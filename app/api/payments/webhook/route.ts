@@ -1,7 +1,12 @@
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { fetchChipPurchase, mapChipStatus } from "@/lib/chip";
-import { sendWhatsApp, buildLoginMessage } from "@/lib/whatsapp";
+import {
+  sendWhatsApp,
+  buildLoginMessage,
+  notifyAdmins,
+  buildAdminPaymentAlert,
+} from "@/lib/whatsapp";
 
 // Chip success_callback hits this with purchase data. We re-verify against
 // Chip's API rather than trusting the webhook body, then update payment +
@@ -175,7 +180,7 @@ async function applyCheckoutSignup(admin: any, payment: any) {
     })
     .eq("id", payment.id);
 
-  // Send login info via WhatsApp Center (using admin device)
+  // Send login info to customer via WhatsApp Center
   try {
     const origin = process.env.APP_ORIGIN || "https://peninglab.vercel.app";
     const msg = buildLoginMessage({
@@ -205,6 +210,23 @@ async function applyCheckoutSignup(admin: any, payment: any) {
   } catch (e: any) {
     console.error("[checkout_signup] WhatsApp send threw:", e?.message);
   }
+
+  // Notify admin(s) of the new sale
+  try {
+    await notifyAdmins(
+      buildAdminPaymentAlert({
+        type: "subscription",
+        customerName: name,
+        customerEmail: email,
+        customerWhatsapp: whatsapp,
+        plan,
+        amountMYR: Number(payment.amount || 0),
+        paymentId: payment.id,
+      })
+    );
+  } catch (e: any) {
+    console.warn("[checkout_signup] admin notify failed:", e?.message);
+  }
 }
 
 function generatePassword(len: number): string {
@@ -224,7 +246,7 @@ async function applyCreditTopup(admin: any, payment: any) {
 
   const { data: profile } = await admin
     .from("profiles")
-    .select("credits")
+    .select("credits, full_name, whatsapp")
     .eq("id", userId)
     .single();
 
@@ -240,6 +262,24 @@ async function applyCreditTopup(admin: any, payment: any) {
     reason: `topup_${credits}`,
     metadata: { payment_id: payment.id, chip_purchase_id: payment.chip_purchase_id },
   });
+
+  // Notify admin
+  try {
+    const { data: authUser } = await admin.auth.admin.getUserById(userId);
+    await notifyAdmins(
+      buildAdminPaymentAlert({
+        type: "topup",
+        customerName: profile?.full_name || "User",
+        customerEmail: authUser?.user?.email || "",
+        customerWhatsapp: profile?.whatsapp || "",
+        credits,
+        amountMYR: Number(payment.amount || 0),
+        paymentId: payment.id,
+      })
+    );
+  } catch (e: any) {
+    console.warn("[topup] admin notify failed:", e?.message);
+  }
 }
 
 async function applySubscription(admin: any, payment: any) {
@@ -248,10 +288,9 @@ async function applySubscription(admin: any, payment: any) {
   const credits = Number(payment.metadata?.credits || 0);
   const days = Number(payment.metadata?.days || 30);
 
-  // Read current expiry — extend from later of (now, current expiry)
   const { data: profile } = await admin
     .from("profiles")
-    .select("plan_expires_at, credits")
+    .select("plan_expires_at, credits, full_name, whatsapp")
     .eq("id", userId)
     .single();
 
@@ -282,5 +321,23 @@ async function applySubscription(admin: any, payment: any) {
       reason: `plan_${plan}`,
       metadata: { payment_id: payment.id, plan, days },
     });
+  }
+
+  // Admin alert
+  try {
+    const { data: authUser } = await admin.auth.admin.getUserById(userId);
+    await notifyAdmins(
+      buildAdminPaymentAlert({
+        type: "subscription",
+        customerName: profile?.full_name || "User",
+        customerEmail: authUser?.user?.email || "",
+        customerWhatsapp: profile?.whatsapp || "",
+        plan,
+        amountMYR: Number(payment.amount || 0),
+        paymentId: payment.id,
+      })
+    );
+  } catch (e: any) {
+    console.warn("[subscription] admin notify failed:", e?.message);
   }
 }
