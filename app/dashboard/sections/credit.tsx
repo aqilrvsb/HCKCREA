@@ -1,7 +1,16 @@
 "use client";
 
-import { useState } from "react";
-import { Wallet, Zap, ArrowRight, Receipt, Sparkles } from "lucide-react";
+import { useEffect, useState } from "react";
+import {
+  Wallet,
+  Zap,
+  ArrowRight,
+  Receipt,
+  Sparkles,
+  Loader2,
+} from "lucide-react";
+import { createClient } from "@/lib/supabase/client";
+import CheckStatusButton from "./check-status-button";
 
 const PACKAGES = [
   { credits: 10, price: 10, label: "Starter pack" },
@@ -11,14 +20,66 @@ const PACKAGES = [
   { credits: 100, price: 100, label: "Power user" },
 ];
 
+type Topup = {
+  id: string;
+  credits?: number;
+  amount: number;
+  status: "pending" | "paid" | "failed" | "refunded";
+  chip_purchase_id?: string;
+  created_at: string;
+};
+
 export default function CreditSection({ credits }: { credits: number }) {
   const [selected, setSelected] = useState(50);
+  const [paying, setPaying] = useState(false);
+  const [topups, setTopups] = useState<Topup[]>([]);
 
   const pick = PACKAGES.find((p) => p.credits === selected) || PACKAGES[0];
 
+  useEffect(() => {
+    void loadTopups();
+  }, []);
+
+  async function loadTopups() {
+    const sb = createClient();
+    const {
+      data: { user },
+    } = await sb.auth.getUser();
+    if (!user) return;
+    const { data } = await sb
+      .from("payments")
+      .select("id,credits,amount,status,chip_purchase_id,created_at")
+      .eq("user_id", user.id)
+      .eq("type", "credit_topup")
+      .order("created_at", { ascending: false })
+      .limit(20);
+    setTopups((data as Topup[]) || []);
+  }
+
+  async function startTopup() {
+    setPaying(true);
+    try {
+      const res = await fetch("/api/credit/topup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ credits: pick.credits }),
+      });
+      const data = await res.json();
+      if (data?.checkout_url) {
+        window.location.href = data.checkout_url;
+      } else {
+        alert(data?.error || "Failed to start top-up");
+        setPaying(false);
+      }
+    } catch (e: any) {
+      alert(e?.message || "Network error");
+      setPaying(false);
+    }
+  }
+
   return (
     <div className="space-y-6">
-      {/* Hero balance — bold display */}
+      {/* Hero balance */}
       <div
         className="relative overflow-hidden rounded-3xl p-8 md:p-10"
         style={{
@@ -51,9 +112,7 @@ export default function CreditSection({ credits }: { credits: number }) {
               <span className="font-display font-extrabold text-7xl md:text-8xl tracking-tight text-amber-900 leading-none">
                 {credits.toFixed(2)}
               </span>
-              <span className="text-amber-700 font-semibold text-xl">
-                credits
-              </span>
+              <span className="text-amber-700 font-semibold text-xl">credits</span>
             </div>
             <p className="text-amber-800/80 text-base">
               Top up bila-bila. Kredit tak hangus.
@@ -107,7 +166,7 @@ export default function CreditSection({ credits }: { credits: number }) {
           </div>
           <div className="hidden md:flex items-center gap-1.5 text-xs font-mono uppercase tracking-wider text-[var(--color-text-muted)]">
             <Sparkles className="w-3.5 h-3.5 text-amber-500" />
-            Instant top-up
+            Instant top-up via Chip
           </div>
         </div>
 
@@ -145,20 +204,30 @@ export default function CreditSection({ credits }: { credits: number }) {
         </div>
 
         <button
-          className="w-full py-4 rounded-2xl font-bold text-base text-white shadow-xl shadow-amber-500/30 hover:scale-[1.01] transition-transform"
+          onClick={startTopup}
+          disabled={paying}
+          className="w-full py-4 rounded-2xl font-bold text-base text-white shadow-xl shadow-amber-500/30 hover:scale-[1.01] transition-transform disabled:opacity-70 disabled:scale-100"
           style={{
-            background:
-              "linear-gradient(135deg, #f59e0b 0%, #ea580c 100%)",
+            background: "linear-gradient(135deg, #f59e0b 0%, #ea580c 100%)",
           }}
         >
           <span className="flex items-center justify-center gap-2">
-            <Zap className="w-5 h-5" />
-            Pay RM{pick.price} for {pick.credits} Credits
-            <ArrowRight className="w-4 h-4" />
+            {paying ? (
+              <>
+                <Loader2 className="w-5 h-5 animate-spin" />
+                Redirecting to Chip…
+              </>
+            ) : (
+              <>
+                <Zap className="w-5 h-5" />
+                Pay RM{pick.price} for {pick.credits} Credits
+                <ArrowRight className="w-4 h-4" />
+              </>
+            )}
           </span>
         </button>
         <p className="text-center text-xs text-[var(--color-text-muted)] mt-3">
-          Secured payment via Billplz · Stripe · TouchnGo eWallet
+          Secured payment via Chip · FPX, e-wallet, card supported
         </p>
       </div>
 
@@ -168,14 +237,52 @@ export default function CreditSection({ credits }: { credits: number }) {
           <Receipt className="w-4 h-4 text-[var(--color-text-muted)]" />
           <h3 className="font-display font-bold text-lg">Top up history</h3>
         </div>
-        <div className="px-6 py-12 text-center">
-          <p className="text-[var(--color-text-secondary)] font-medium">
-            Tiada top up history lagi.
-          </p>
-          <p className="text-sm text-[var(--color-text-muted)] mt-1">
-            Top up pertama kali, transaction akan muncul di sini.
-          </p>
-        </div>
+        {topups.length === 0 ? (
+          <div className="px-6 py-12 text-center">
+            <p className="text-[var(--color-text-secondary)] font-medium">
+              Tiada top up history lagi.
+            </p>
+            <p className="text-sm text-[var(--color-text-muted)] mt-1">
+              Top up pertama kali, transaction akan muncul di sini.
+            </p>
+          </div>
+        ) : (
+          <ul className="divide-y divide-[var(--color-border)]">
+            {topups.map((t) => (
+              <li
+                key={t.id}
+                className="px-6 py-4 flex flex-col md:flex-row md:items-center gap-3"
+              >
+                <span className="w-32 text-sm text-[var(--color-text-secondary)] font-mono">
+                  {new Date(t.created_at).toLocaleDateString("ms-MY", {
+                    day: "numeric",
+                    month: "short",
+                    year: "2-digit",
+                  })}
+                </span>
+                <span className="flex-1 text-sm font-semibold">
+                  +{t.credits} credits
+                </span>
+                <span className="w-24 text-sm font-bold">
+                  RM{Number(t.amount).toFixed(2)}
+                </span>
+                <div className="md:w-44 md:flex md:justify-end">
+                  {t.chip_purchase_id ? (
+                    <CheckStatusButton
+                      chipPurchaseId={t.chip_purchase_id}
+                      initialStatus={t.status}
+                      onUpdate={() => void loadTopups()}
+                    />
+                  ) : (
+                    <span className="text-xs text-[var(--color-text-muted)] italic">
+                      no purchase id
+                    </span>
+                  )}
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
     </div>
   );

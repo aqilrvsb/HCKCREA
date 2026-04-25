@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import {
   CheckCircle2,
   Sparkles,
@@ -9,7 +10,22 @@ import {
   ArrowRight,
   Calendar,
   ShieldCheck,
+  Loader2,
 } from "lucide-react";
+import { createClient } from "@/lib/supabase/client";
+import CheckStatusButton from "./check-status-button";
+
+type Payment = {
+  id: string;
+  type: string;
+  plan?: string;
+  credits?: number;
+  amount: number;
+  status: "pending" | "paid" | "failed" | "refunded";
+  chip_purchase_id?: string;
+  chip_checkout_url?: string;
+  created_at: string;
+};
 
 const PLANS = [
   {
@@ -86,8 +102,78 @@ const ACCENT_MAP: Record<string, { bg: string; text: string; border: string; gra
 };
 
 export default function BillingSection() {
-  const currentPlan = "starter"; // TODO: read from profile
-  const renewalDate = "9 Jun 2026";
+  const [currentPlan, setCurrentPlan] = useState<string>("free");
+  const [renewalDate, setRenewalDate] = useState<string>("—");
+  const [payments, setPayments] = useState<Payment[]>([]);
+  const [loadingPlan, setLoadingPlan] = useState<string | null>(null);
+
+  useEffect(() => {
+    void loadProfile();
+    void loadPayments();
+  }, []);
+
+  async function loadProfile() {
+    const sb = createClient();
+    const {
+      data: { user },
+    } = await sb.auth.getUser();
+    if (!user) return;
+    const { data } = await sb
+      .from("profiles")
+      .select("plan, plan_expires_at")
+      .eq("id", user.id)
+      .single();
+    if (data) {
+      setCurrentPlan(data.plan || "free");
+      if (data.plan_expires_at) {
+        setRenewalDate(
+          new Date(data.plan_expires_at).toLocaleDateString("ms-MY", {
+            day: "numeric",
+            month: "short",
+            year: "numeric",
+          })
+        );
+      }
+    }
+  }
+
+  async function loadPayments() {
+    const sb = createClient();
+    const {
+      data: { user },
+    } = await sb.auth.getUser();
+    if (!user) return;
+    const { data } = await sb
+      .from("payments")
+      .select(
+        "id,type,plan,credits,amount,status,chip_purchase_id,chip_checkout_url,created_at"
+      )
+      .eq("user_id", user.id)
+      .order("created_at", { ascending: false })
+      .limit(20);
+    setPayments((data as Payment[]) || []);
+  }
+
+  async function startSubscribe(plan: string) {
+    setLoadingPlan(plan);
+    try {
+      const res = await fetch("/api/billing/subscribe", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ plan }),
+      });
+      const data = await res.json();
+      if (data?.checkout_url) {
+        window.location.href = data.checkout_url;
+      } else {
+        alert(data?.error || "Failed to start subscription");
+        setLoadingPlan(null);
+      }
+    } catch (e: any) {
+      alert(e?.message || "Network error");
+      setLoadingPlan(null);
+    }
+  }
 
   return (
     <div className="space-y-6">
@@ -284,8 +370,9 @@ export default function BillingSection() {
                   </ul>
 
                   <button
-                    disabled={isCurrent}
-                    className={`w-full py-3 rounded-full font-bold text-sm transition ${
+                    disabled={isCurrent || loadingPlan === plan.key}
+                    onClick={() => startSubscribe(plan.key)}
+                    className={`w-full py-3 rounded-full font-bold text-sm transition flex items-center justify-center gap-2 ${
                       isCurrent
                         ? "bg-gray-100 text-gray-400 cursor-default"
                         : plan.popular
@@ -293,7 +380,16 @@ export default function BillingSection() {
                         : "bg-white border border-[var(--color-border)] hover:border-violet-300"
                     }`}
                   >
-                    {isCurrent ? "Current Plan" : `Pilih ${plan.name}`}
+                    {loadingPlan === plan.key ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        Redirecting…
+                      </>
+                    ) : isCurrent ? (
+                      "Current Plan"
+                    ) : (
+                      `Pilih ${plan.name}`
+                    )}
                   </button>
                 </div>
               </div>
@@ -308,20 +404,63 @@ export default function BillingSection() {
           Payment history
         </h3>
         <div className="card p-0 overflow-hidden">
-          <div className="px-6 py-4 border-b border-[var(--color-border)] bg-gray-50/50 flex items-center text-xs font-bold uppercase tracking-wider text-[var(--color-text-muted)]">
-            <span className="flex-1">Date</span>
-            <span className="flex-1">Plan</span>
-            <span className="flex-1">Amount</span>
-            <span className="w-24 text-right">Status</span>
+          <div className="hidden md:flex px-6 py-4 border-b border-[var(--color-border)] bg-gray-50/50 items-center text-xs font-bold uppercase tracking-wider text-[var(--color-text-muted)]">
+            <span className="w-32">Date</span>
+            <span className="flex-1">Description</span>
+            <span className="w-24">Amount</span>
+            <span className="w-44 text-right">Status</span>
           </div>
-          <div className="px-6 py-16 text-center">
-            <p className="text-[var(--color-text-secondary)] font-medium">
-              Tiada payment history lagi.
-            </p>
-            <p className="text-sm text-[var(--color-text-muted)] mt-1">
-              Subscribe pertama kali, transaction akan muncul di sini.
-            </p>
-          </div>
+          {payments.length === 0 ? (
+            <div className="px-6 py-16 text-center">
+              <p className="text-[var(--color-text-secondary)] font-medium">
+                Tiada payment history lagi.
+              </p>
+              <p className="text-sm text-[var(--color-text-muted)] mt-1">
+                Subscribe pertama kali, transaction akan muncul di sini.
+              </p>
+            </div>
+          ) : (
+            <ul className="divide-y divide-[var(--color-border)]">
+              {payments.map((p) => (
+                <li
+                  key={p.id}
+                  className="px-6 py-4 flex flex-col md:flex-row md:items-center gap-3"
+                >
+                  <span className="w-32 text-sm text-[var(--color-text-secondary)] font-mono">
+                    {new Date(p.created_at).toLocaleDateString("ms-MY", {
+                      day: "numeric",
+                      month: "short",
+                      year: "2-digit",
+                    })}
+                  </span>
+                  <span className="flex-1 text-sm font-semibold">
+                    {p.type === "subscription"
+                      ? `Plan ${p.plan?.toUpperCase() || ""}`
+                      : `Top up ${p.credits} credits`}
+                  </span>
+                  <span className="w-24 text-sm font-bold">
+                    RM{Number(p.amount).toFixed(2)}
+                  </span>
+                  <div className="md:w-44 md:flex md:justify-end">
+                    {p.chip_purchase_id ? (
+                      <CheckStatusButton
+                        chipPurchaseId={p.chip_purchase_id}
+                        initialStatus={p.status}
+                        onUpdate={() => {
+                          void loadPayments();
+                          void loadProfile();
+                        }}
+                      />
+                    ) : (
+                      <span className="text-xs text-[var(--color-text-muted)] italic">
+                        no purchase id
+                      </span>
+                    )}
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
       </div>
     </div>

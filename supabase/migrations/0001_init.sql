@@ -105,6 +105,42 @@ create index if not exists history_batch_idx on public.history(batch_id);
 create index if not exists history_task_idx on public.history(task_id) where task_id is not null;
 
 -- ─────────────────────────────────────────────────────────────────────────────
+-- payments — Chip purchase records (subscription + credit topup)
+-- ─────────────────────────────────────────────────────────────────────────────
+create table if not exists public.payments (
+  id                  uuid primary key default uuid_generate_v4(),
+  user_id             uuid not null references auth.users(id) on delete cascade,
+  type                text not null, -- 'subscription' | 'credit_topup'
+  plan                text, -- 'starter' | 'growth' | 'empire' (for subscription)
+  credits             numeric(12,2), -- for credit_topup
+  amount              numeric(12,2) not null,
+  currency            text default 'MYR' not null,
+  status              text default 'pending' not null, -- 'pending' | 'paid' | 'failed' | 'refunded'
+  chip_purchase_id    text unique,
+  chip_checkout_url   text,
+  chip_transaction_id text,
+  paid_at             timestamptz,
+  metadata            jsonb default '{}' not null,
+  created_at          timestamptz default now() not null,
+  updated_at          timestamptz default now() not null
+);
+
+create index if not exists payments_user_idx on public.payments(user_id, created_at desc);
+create index if not exists payments_chip_idx on public.payments(chip_purchase_id) where chip_purchase_id is not null;
+
+drop trigger if exists payments_touch on public.payments;
+create trigger payments_touch
+  before update on public.payments
+  for each row execute function public.touch_updated_at();
+
+alter table public.payments enable row level security;
+
+drop policy if exists "payments_select_own" on public.payments;
+create policy "payments_select_own" on public.payments
+  for select using (auth.uid() = user_id);
+-- inserts/updates done server-side via service role
+
+-- ─────────────────────────────────────────────────────────────────────────────
 -- credit_transactions — audit trail for kredit movements
 -- ─────────────────────────────────────────────────────────────────────────────
 create table if not exists public.credit_transactions (
