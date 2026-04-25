@@ -26,6 +26,8 @@ import {
   Flame,
 } from "lucide-react";
 import CheckoutForm from "./(checkout)/checkout-form";
+import Countdown from "./components/countdown";
+import SocialProofToast from "./components/social-proof-toast";
 
 const STATS = [
   { num: "1,300+", label: "seller aktif" },
@@ -920,8 +922,118 @@ export default function Home() {
           </p>
         </div>
 
-        {/* How rate-deduction works — 3 steps */}
-        <div className="card max-w-4xl mx-auto mb-10 p-6 md:p-7 bg-orange-50/40 border-orange-100">
+        {/* Countdown timer */}
+        <Countdown />
+
+        {/* Single exclusive Pro plan */}
+        <div className="max-w-2xl mx-auto relative pt-6">
+          <div className="absolute top-0 left-1/2 -translate-x-1/2 z-10 px-5 py-2 rounded-full text-[11px] font-bold uppercase tracking-widest bg-gradient-to-r from-orange-500 to-orange-600 text-white shadow-lg shadow-orange-500/35 whitespace-nowrap">
+            ⚡ Limited offer · Save 75%
+          </div>
+          <div
+            className="card border-2 border-orange-300 shadow-2xl shadow-orange-500/15 p-8 md:p-12 relative"
+            style={{ overflow: "visible" }}
+          >
+            <div
+              className="absolute pointer-events-none rounded-3xl opacity-50"
+              style={{
+                top: -40,
+                right: -40,
+                width: 220,
+                height: 220,
+                background:
+                  "radial-gradient(circle, rgba(255,77,0,0.18), transparent 70%)",
+                filter: "blur(40px)",
+              }}
+            />
+            <div className="relative">
+              <div className="text-center mb-6">
+                <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white border border-orange-200 text-[11px] font-bold uppercase tracking-widest text-orange mb-4">
+                  <Sparkles className="w-3 h-3" />
+                  Exclusive PeningLab Pro
+                </div>
+                <h3 className="font-display font-extrabold text-3xl md:text-4xl tracking-tight mb-2">
+                  Akses penuh untuk seller serius.
+                </h3>
+                <p className="text-sm text-[var(--color-text-secondary)] max-w-md mx-auto">
+                  Satu plan, semua features. Tiada upsell, tiada hidden fee.
+                </p>
+              </div>
+
+              {/* Price block with markup */}
+              <div className="text-center mb-7">
+                <div className="flex items-center justify-center gap-3 mb-1">
+                  <span className="text-2xl font-display font-bold text-[var(--color-text-muted)] line-through decoration-red-500 decoration-[3px]">
+                    RM300
+                  </span>
+                  <span className="px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider bg-red-100 text-red-700 border border-red-200 rounded-md">
+                    Save RM225
+                  </span>
+                </div>
+                <div className="flex items-baseline justify-center gap-1">
+                  <span className="font-display font-extrabold text-7xl md:text-8xl tracking-tight gradient-text-warm leading-none">
+                    RM75
+                  </span>
+                  <span className="text-[var(--color-text-muted)] text-base">
+                    /bulan
+                  </span>
+                </div>
+                <div className="mt-3 text-sm font-semibold text-orange">
+                  Promo period — harga naik balik selepas countdown habis.
+                </div>
+              </div>
+
+              {/* Features grid */}
+              <div className="grid md:grid-cols-2 gap-x-6 gap-y-3 mb-8">
+                {[
+                  "Image (Banana Pro + GPT Image 2) — 20 sen",
+                  "Video Veo 3.1 — 40 sen",
+                  "Unlimited Generate",
+                  "Access Prompt Library",
+                  "Access Image Studio",
+                  "Access Video Studio",
+                  "Access Auto Content",
+                  "Access Clone Video",
+                  "Access Story Telling",
+                  "Access Group VIP",
+                ].map((f, j) => (
+                  <div key={j} className="flex items-start gap-2.5 text-sm">
+                    <CheckCircle2 className="w-5 h-5 text-emerald-500 flex-shrink-0 mt-0.5" />
+                    <span className="text-[var(--color-text-secondary)]">
+                      {f}
+                    </span>
+                  </div>
+                ))}
+              </div>
+
+              <a
+                href="#checkout"
+                className="btn-primary w-full justify-center text-base py-4"
+              >
+                Klaim harga RM75 sekarang
+                <ArrowRight className="w-4 h-4" />
+              </a>
+
+              <div className="mt-5 grid grid-cols-3 gap-2 text-center text-[11px] text-[var(--color-text-muted)]">
+                <div className="flex flex-col items-center gap-1">
+                  <ShieldCheck className="w-4 h-4 text-emerald-500" />
+                  <span>30-day money back</span>
+                </div>
+                <div className="flex flex-col items-center gap-1">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-500" />
+                  <span>Cancel bila-bila</span>
+                </div>
+                <div className="flex flex-col items-center gap-1">
+                  <Wallet className="w-4 h-4 text-emerald-500" />
+                  <span>FPX online banking</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Rate-deduction explainer */}
+        <div className="card max-w-3xl mx-auto mt-10 p-6 md:p-7 bg-orange-50/40 border-orange-100">
           <div className="grid md:grid-cols-3 gap-5">
             <div className="flex items-start gap-3">
               <div className="step-pill flex-shrink-0">1</div>
@@ -930,8 +1042,8 @@ export default function Home() {
                   Subscribe plan
                 </div>
                 <p className="text-sm text-[var(--color-text-secondary)] leading-relaxed">
-                  Pilih Light atau Pro. Subscription bulanan unlock akses +
-                  set rate per-generate anda.
+                  Bayar RM75 — unlock semua features + dapat rate generate
+                  paling rendah.
                 </p>
               </div>
             </div>
@@ -942,8 +1054,7 @@ export default function Home() {
                   Top up kredit
                 </div>
                 <p className="text-sm text-[var(--color-text-secondary)] leading-relaxed">
-                  RM1 = 1 kredit. Top up bila-bila dari dashboard. Kredit tak
-                  hangus.
+                  RM1 = 1 kredit. Top up bila perlu. Kredit tak hangus.
                 </p>
               </div>
             </div>
@@ -954,8 +1065,7 @@ export default function Home() {
                   Generate, auto-deduct
                 </div>
                 <p className="text-sm text-[var(--color-text-secondary)] leading-relaxed">
-                  Setiap image/video tolak dari kredit pada rate plan —
-                  contoh Pro: 20 sen image, 40 sen video.
+                  Image 20 sen, video 40 sen — auto-tolak setiap generate.
                 </p>
               </div>
             </div>
@@ -964,7 +1074,7 @@ export default function Home() {
             <span className="font-mono text-xs uppercase tracking-wider text-orange font-bold">
               Contoh
             </span>{" "}
-            — Plan Pro (RM75/bulan) + top up RM30 ={" "}
+            — RM75 plan + top up RM30 ={" "}
             <span className="font-bold text-[var(--color-text-primary)]">
               ~150 image
             </span>{" "}
@@ -972,91 +1082,8 @@ export default function Home() {
             <span className="font-bold text-[var(--color-text-primary)]">
               75 video 8s
             </span>
-            . Habis kredit? Top up je, plan tetap aktif.
+            .
           </div>
-        </div>
-
-
-        <div className="grid md:grid-cols-2 gap-5 max-w-4xl mx-auto">
-          {[
-            {
-              name: "Light",
-              price: "RM50",
-              period: "/bulan",
-              desc: "Untuk explore & test ringan",
-              features: [
-                "Image (Banana Pro + GPT Image 2) — 50 sen",
-                "Video Veo 3.1 — 70 sen",
-                "Unlimited Generate",
-                "Access Prompt",
-                "Access Image",
-                "Access Video",
-              ],
-              highlighted: false,
-            },
-            {
-              name: "Pro",
-              price: "RM75",
-              period: "/bulan",
-              desc: "Untuk seller serius nak scale",
-              features: [
-                "Image (Banana Pro + GPT Image 2) — 20 sen",
-                "Video Veo 3.1 — 40 sen",
-                "Unlimited Generate",
-                "Access Prompt",
-                "Access Image",
-                "Access Video",
-                "Access Auto Content",
-                "Access Clone Video",
-                "Access Story Telling",
-                "Access Group VIP",
-              ],
-              highlighted: true,
-              badge: "Paling popular",
-            },
-          ].map((plan, i) => (
-            <div key={i} className="relative pt-4">
-              {plan.badge && (
-                <div className="absolute top-0 left-1/2 -translate-x-1/2 z-10 px-4 py-1.5 rounded-full text-xs font-bold uppercase tracking-wider bg-gradient-to-r from-orange-500 to-orange-600 text-white shadow-lg shadow-orange-500/30 whitespace-nowrap">
-                  {plan.badge}
-                </div>
-              )}
-              <div
-                className={`card ${
-                  plan.highlighted
-                    ? "border-2 border-orange-300 shadow-xl shadow-orange-500/10"
-                    : ""
-                }`}
-              >
-              <div className="mb-5">
-                <h3 className="font-display font-bold text-2xl mb-1">
-                  {plan.name} Plan
-                </h3>
-                <p className="text-sm text-[var(--color-text-muted)]">
-                  {plan.desc}
-                </p>
-              </div>
-              <div className="mb-6">
-                <span className="font-display font-extrabold text-5xl tracking-tight">
-                  {plan.price}
-                </span>
-                <span className="text-[var(--color-text-muted)] text-base ml-1">
-                  {plan.period}
-                </span>
-              </div>
-              <ul className="space-y-3">
-                {plan.features.map((f, j) => (
-                  <li key={j} className="flex items-start gap-2.5 text-sm">
-                    <CheckCircle2 className="w-5 h-5 text-emerald-500 flex-shrink-0 mt-0.5" />
-                    <span className="text-[var(--color-text-secondary)]">
-                      {f}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-              </div>
-            </div>
-          ))}
         </div>
 
         <div className="mt-10 flex flex-wrap items-center justify-center gap-x-8 gap-y-3 text-sm text-[var(--color-text-muted)]">
@@ -1097,6 +1124,9 @@ export default function Home() {
           ))}
         </div>
       </section>
+
+      {/* Floating social proof */}
+      <SocialProofToast />
 
       {/* Footer */}
       <footer className="relative z-10 border-t border-[var(--color-border)] mt-12 bg-white/50">

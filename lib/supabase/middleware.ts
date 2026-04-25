@@ -31,10 +31,31 @@ export async function updateSession(request: NextRequest) {
 
   const path = request.nextUrl.pathname;
   const isAuthPage = path === "/login" || path === "/register";
-  const isProtected = path.startsWith("/dashboard");
+  const isProtected = path.startsWith("/dashboard") || path.startsWith("/admin");
 
   if (!user && isProtected) {
     return NextResponse.redirect(new URL("/login", request.url));
+  }
+
+  // Deactivated user check — kick them out + sign out
+  if (user && isProtected) {
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("is_active, is_admin")
+      .eq("id", user.id)
+      .maybeSingle();
+
+    if (profile && profile.is_active === false) {
+      await supabase.auth.signOut();
+      const url = new URL("/login", request.url);
+      url.searchParams.set("error", "account_deactivated");
+      return NextResponse.redirect(url);
+    }
+
+    // /admin requires admin flag
+    if (path.startsWith("/admin") && !profile?.is_admin) {
+      return NextResponse.redirect(new URL("/dashboard", request.url));
+    }
   }
 
   if (user && isAuthPage) {

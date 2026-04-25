@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { fetchChipPurchase, mapChipStatus } from "@/lib/chip";
+import { sendWhatsApp, buildLoginMessage } from "@/lib/whatsapp";
 
 // Chip success_callback hits this with purchase data. We re-verify against
 // Chip's API rather than trusting the webhook body, then update payment +
@@ -174,11 +175,36 @@ async function applyCheckoutSignup(admin: any, payment: any) {
     })
     .eq("id", payment.id);
 
-  // TODO: send WhatsApp message with login info once WA Business API integrated.
-  // For now: admin sees the row with metadata.temp_password and forwards manually.
-  console.log(
-    `[checkout_signup] User ${userId} created. Send via WhatsApp to ${whatsapp}: email=${email} password=${tempPassword}`
-  );
+  // Send login info via WhatsApp Center (using admin device)
+  try {
+    const origin = process.env.APP_ORIGIN || "https://peninglab.vercel.app";
+    const msg = buildLoginMessage({
+      name,
+      email,
+      password: tempPassword,
+      plan: plan.toUpperCase() + " Plan",
+      expiresAt: expiry,
+      loginUrl: `${origin}/login`,
+    });
+    const sent = await sendWhatsApp(whatsapp, msg);
+    await admin
+      .from("payments")
+      .update({
+        metadata: {
+          ...meta,
+          whatsapp_sent: sent,
+          whatsapp_sent_at: sent ? new Date().toISOString() : null,
+        },
+      })
+      .eq("id", payment.id);
+    if (!sent) {
+      console.warn(
+        `[checkout_signup] WhatsApp send failed for ${whatsapp} — admin can resend from /admin`
+      );
+    }
+  } catch (e: any) {
+    console.error("[checkout_signup] WhatsApp send threw:", e?.message);
+  }
 }
 
 function generatePassword(len: number): string {

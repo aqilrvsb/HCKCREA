@@ -26,13 +26,23 @@ create table if not exists public.profiles (
   id              uuid primary key references auth.users(id) on delete cascade,
   full_name       text,
   whatsapp        text,
-  credits         numeric(12,2) default 10 not null,
-  plan            text default 'free' not null, -- 'free' | 'starter' | 'growth' | 'empire'
+  credits         numeric(12,2) default 0 not null,
+  plan            text default 'free' not null, -- 'free' | 'light' | 'pro'
   plan_expires_at timestamptz,
   is_admin        boolean default false not null,
+  is_active       boolean default true not null,
   created_at      timestamptz default now() not null,
   updated_at      timestamptz default now() not null
 );
+
+-- For existing tables that pre-date is_active, add it idempotently.
+do $$ begin
+  if not exists (select 1 from information_schema.columns
+                 where table_schema = 'public' and table_name = 'profiles'
+                 and column_name = 'is_active') then
+    alter table public.profiles add column is_active boolean default true not null;
+  end if;
+end $$;
 
 -- Auto-create a profile row when a user signs up.
 -- The trigger reads name + whatsapp from raw_user_meta_data (set in our register flow).
@@ -245,6 +255,36 @@ create policy "history_delete_own" on public.history
 drop policy if exists "credit_tx_select_own" on public.credit_transactions;
 create policy "credit_tx_select_own" on public.credit_transactions
   for select using (auth.uid() = user_id);
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- admin_device — WhatsApp Center instance for admin-broadcast (login info,
+-- payment notifications). One row, instance is the device UUID at WhatsApp
+-- Center / Whacenter.
+-- ─────────────────────────────────────────────────────────────────────────────
+create table if not exists public.admin_device (
+  id           uuid primary key default uuid_generate_v4(),
+  instance     text not null,
+  label        text default 'Default',
+  active       boolean default true not null,
+  created_at   timestamptz default now() not null,
+  updated_at   timestamptz default now() not null
+);
+
+drop trigger if exists admin_device_touch on public.admin_device;
+create trigger admin_device_touch
+  before update on public.admin_device
+  for each row execute function public.touch_updated_at();
+
+alter table public.admin_device enable row level security;
+
+-- Read/write: admin only.
+drop policy if exists "admin_device_admin_only" on public.admin_device;
+create policy "admin_device_admin_only" on public.admin_device
+  for all using (
+    exists (select 1 from public.profiles p where p.id = auth.uid() and p.is_admin = true)
+  ) with check (
+    exists (select 1 from public.profiles p where p.id = auth.uid() and p.is_admin = true)
+  );
 
 -- ─────────────────────────────────────────────────────────────────────────────
 -- app_settings — admin-managed key/value config (mirrors extension's pattern).

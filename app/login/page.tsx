@@ -120,7 +120,16 @@ export default function LoginPage() {
             </button>
           </form>
 
-          <div className="mt-6 text-center text-sm text-[var(--color-text-secondary)]">
+          <div className="mt-5 text-center">
+            <Link
+              href="/forgot-password"
+              className="text-sm text-[var(--color-text-secondary)] hover:text-orange font-medium"
+            >
+              Lupa password? Hantar di WhatsApp →
+            </Link>
+          </div>
+
+          <div className="mt-4 pt-5 border-t border-[var(--color-border)] text-center text-sm text-[var(--color-text-secondary)]">
             Belum ada akaun?{" "}
             <Link
               href="/#checkout"

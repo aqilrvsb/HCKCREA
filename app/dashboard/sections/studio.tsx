@@ -15,7 +15,7 @@ const TABS: { key: TabKey; label: string; icon: any; color: string }[] = [
   { key: "image", label: "Image", icon: ImageIcon, color: "blue" },
   { key: "video", label: "Video", icon: Video, color: "pink" },
   { key: "clone", label: "Clone", icon: Layers, color: "amber" },
-  { key: "post", label: "Auto Post", icon: Send, color: "emerald" },
+  // Auto Post hidden until WhatsApp/TikTok integration is wired
 ];
 
 const COLOR_MAP: Record<string, { bg: string; text: string }> = {
