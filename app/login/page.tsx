@@ -35,14 +35,23 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="relative min-h-screen flex items-center justify-center px-6 overflow-hidden">
-      <div className="bg-aurora" />
-      <div className="grain" />
+    <div className="relative min-h-screen flex items-center justify-center px-6 py-12 overflow-hidden">
+      <div className="bg-sky" />
+      <div
+        className="bg-soft-glow"
+        style={{
+          background: "radial-gradient(circle, #c4b5fd, transparent 70%)",
+          width: 500,
+          height: 500,
+          top: -150,
+          right: -100,
+        }}
+      />
 
       <div className="relative z-10 w-full max-w-md">
         <Link
           href="/"
-          className="flex items-center gap-2.5 justify-center mb-10"
+          className="flex items-center gap-2.5 justify-center mb-8"
         >
           <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-violet-400 via-violet-500 to-blue-500 flex items-center justify-center shadow-lg shadow-violet-500/30">
             <Sparkles className="w-5 h-5 text-white" strokeWidth={2.5} />
@@ -87,7 +96,7 @@ export default function LoginPage() {
             </div>
 
             {error && (
-              <div className="text-sm text-[var(--color-danger)] bg-[rgba(255,71,87,0.1)] border border-[rgba(255,71,87,0.2)] rounded-lg px-4 py-3">
+              <div className="text-sm text-red-600 bg-red-50 border border-red-100 rounded-xl px-4 py-3">
                 {error}
               </div>
             )}
