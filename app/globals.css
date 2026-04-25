@@ -2,21 +2,37 @@
 @import "tailwindcss";
 
 @theme {
-  --color-bg: #fafbff;
-  --color-bg-soft: #eef2ff;
+  /* Light cream/white background — high-contrast canvas */
+  --color-bg: #ffffff;
+  --color-bg-soft: #fff7f2;
   --color-bg-card: #ffffff;
-  --color-border: #e2e6f5;
-  --color-border-bright: #c8cef0;
-  --color-text-primary: #0a0e2a;
-  --color-text-secondary: #4a5170;
-  --color-text-muted: #7a8198;
-  --color-accent-blue: #3b82f6;
-  --color-accent-violet: #8b5cf6;
-  --color-accent-pink: #ec4899;
-  --color-accent-amber: #f59e0b;
-  --color-accent-emerald: #10b981;
-  --color-success: #10b981;
+  --color-border: #f0e9e3;
+  --color-border-bright: #e8ddd3;
+
+  /* Near-black headlines, charcoal body */
+  --color-text-primary: #0a0a0a;
+  --color-text-secondary: #4a4a4a;
+  --color-text-muted: #8a8a8a;
+
+  /* Primary accent — vivid orange. Cream tints for backgrounds, deeper for hover */
+  --color-orange: #ff4d00;
+  --color-orange-hover: #e64500;
+  --color-orange-soft: #ffe8dc;
+  --color-orange-tint: #fff3eb;
+
+  /* Supporting accents */
+  --color-black: #0a0a0a;
+  --color-amber: #ffb700;
+  --color-emerald: #10b981;
   --color-danger: #ef4444;
+  --color-success: #10b981;
+
+  /* Aliases — keep old names working */
+  --color-accent-violet: var(--color-orange);
+  --color-accent-blue: var(--color-orange);
+  --color-accent-pink: var(--color-orange);
+  --color-accent-amber: var(--color-amber);
+  --color-accent-emerald: var(--color-emerald);
 
   --font-display: "Bricolage Grotesque", ui-sans-serif, system-ui, sans-serif;
   --font-body: "DM Sans", ui-sans-serif, system-ui, sans-serif;
@@ -51,22 +67,20 @@ h1, h2, h3, h4, h5, h6, .font-display {
   font-family: var(--font-mono);
 }
 
-.text-blue { color: var(--color-accent-blue); }
-.text-violet { color: var(--color-accent-violet); }
-.text-pink { color: var(--color-accent-pink); }
-.text-amber { color: var(--color-accent-amber); }
-.text-emerald { color: var(--color-accent-emerald); }
+/* Color helper classes — semantic names */
+.text-orange { color: var(--color-orange); }
+.text-violet { color: var(--color-orange); }
+.text-blue { color: var(--color-orange); }
+.text-pink { color: var(--color-orange); }
+.text-amber { color: var(--color-amber); }
+.text-emerald { color: var(--color-emerald); }
 
-.gradient-text-blue {
-  background: linear-gradient(135deg, #60a5fa, #3b82f6);
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-  display: inline-block;
-}
-
-.gradient-text-violet {
-  background: linear-gradient(135deg, #a78bfa, #8b5cf6);
+/* Single-direction orange gradient — keeps the brand cohesive */
+.gradient-text-violet,
+.gradient-text-blue,
+.gradient-text-multi,
+.gradient-text {
+  background: linear-gradient(135deg, #ff6a1a 0%, #ff4d00 60%, #d63800 100%);
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
@@ -74,15 +88,7 @@ h1, h2, h3, h4, h5, h6, .font-display {
 }
 
 .gradient-text-warm {
-  background: linear-gradient(135deg, #f59e0b, #ec4899);
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-  display: inline-block;
-}
-
-.gradient-text-multi {
-  background: linear-gradient(135deg, #8b5cf6 0%, #3b82f6 50%, #ec4899 100%);
+  background: linear-gradient(135deg, var(--color-amber) 0%, var(--color-orange) 100%);
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
@@ -94,18 +100,17 @@ h1, h2, h3, h4, h5, h6, .font-display {
   inset: 0;
   pointer-events: none;
   z-index: 0;
-  background: linear-gradient(180deg, #d8e3ff 0%, #eaf0ff 25%, #f5f7ff 50%, #ffffff 100%);
+  background: linear-gradient(180deg, #fff7f2 0%, #fffaf6 30%, #ffffff 100%);
 }
 
-/* Distinctive grid pattern background — gives the hero/bento sections texture */
 .bg-grid {
   position: absolute;
   inset: 0;
   pointer-events: none;
   z-index: 1;
   background-image:
-    linear-gradient(to right, rgba(139, 92, 246, 0.07) 1px, transparent 1px),
-    linear-gradient(to bottom, rgba(139, 92, 246, 0.07) 1px, transparent 1px);
+    linear-gradient(to right, rgba(255, 77, 0, 0.05) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(255, 77, 0, 0.05) 1px, transparent 1px);
   background-size: 56px 56px;
   mask-image: radial-gradient(ellipse 80% 60% at 50% 30%, black, transparent);
   -webkit-mask-image: radial-gradient(ellipse 80% 60% at 50% 30%, black, transparent);
@@ -116,7 +121,7 @@ h1, h2, h3, h4, h5, h6, .font-display {
   pointer-events: none;
   z-index: 0;
   filter: blur(80px);
-  opacity: 0.45;
+  opacity: 0.4;
 }
 
 .bg-noise {
@@ -134,25 +139,26 @@ h1, h2, h3, h4, h5, h6, .font-display {
   justify-content: center;
   gap: 8px;
   padding: 16px 32px;
-  background: linear-gradient(135deg, #8b5cf6 0%, #6366f1 100%);
+  background: var(--color-orange);
   color: white;
   font-weight: 700;
   font-size: 15px;
   border-radius: 999px;
   border: none;
   cursor: pointer;
-  transition: transform 0.2s, box-shadow 0.2s;
+  transition: transform 0.2s, background 0.2s, box-shadow 0.2s;
   box-shadow:
-    0 8px 24px rgba(139, 92, 246, 0.35),
-    inset 0 1px 0 rgba(255, 255, 255, 0.25);
+    0 6px 20px rgba(255, 77, 0, 0.32),
+    inset 0 1px 0 rgba(255, 255, 255, 0.2);
   letter-spacing: -0.01em;
 }
 
 .btn-primary:hover {
+  background: var(--color-orange-hover);
   transform: translateY(-2px);
   box-shadow:
-    0 14px 36px rgba(139, 92, 246, 0.5),
-    inset 0 1px 0 rgba(255, 255, 255, 0.3);
+    0 12px 30px rgba(255, 77, 0, 0.42),
+    inset 0 1px 0 rgba(255, 255, 255, 0.25);
 }
 
 .btn-primary:active {
@@ -165,21 +171,19 @@ h1, h2, h3, h4, h5, h6, .font-display {
   justify-content: center;
   gap: 8px;
   padding: 16px 32px;
-  background: white;
-  color: var(--color-text-primary);
+  background: var(--color-black);
+  color: white;
   font-weight: 600;
   font-size: 15px;
   border-radius: 999px;
-  border: 1px solid var(--color-border);
+  border: none;
   cursor: pointer;
   transition: all 0.2s;
-  box-shadow: 0 1px 3px rgba(10, 14, 42, 0.06);
 }
 
 .btn-secondary:hover {
-  border-color: var(--color-accent-violet);
   transform: translateY(-1px);
-  box-shadow: 0 6px 16px rgba(139, 92, 246, 0.15);
+  background: #1a1a1a;
 }
 
 .card {
@@ -188,7 +192,7 @@ h1, h2, h3, h4, h5, h6, .font-display {
   border-radius: 24px;
   padding: 28px;
   transition: transform 0.3s, box-shadow 0.3s, border-color 0.3s;
-  box-shadow: 0 1px 3px rgba(10, 14, 42, 0.04);
+  box-shadow: 0 1px 3px rgba(10, 10, 10, 0.04);
   position: relative;
   overflow: hidden;
 }
@@ -196,7 +200,7 @@ h1, h2, h3, h4, h5, h6, .font-display {
 .card:hover {
   transform: translateY(-4px);
   border-color: var(--color-border-bright);
-  box-shadow: 0 24px 48px -16px rgba(139, 92, 246, 0.18);
+  box-shadow: 0 24px 48px -16px rgba(255, 77, 0, 0.18);
 }
 
 .input {
@@ -213,8 +217,8 @@ h1, h2, h3, h4, h5, h6, .font-display {
 }
 
 .input:focus {
-  border-color: var(--color-accent-violet);
-  box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.15);
+  border-color: var(--color-orange);
+  box-shadow: 0 0 0 3px rgba(255, 77, 0, 0.15);
 }
 
 .input::placeholder {
@@ -226,14 +230,13 @@ h1, h2, h3, h4, h5, h6, .font-display {
   align-items: center;
   gap: 6px;
   padding: 8px 16px;
-  background: white;
-  border: 1px solid var(--color-border-bright);
+  background: var(--color-orange-tint);
+  border: 1px solid var(--color-orange-soft);
   border-radius: 999px;
   font-size: 13px;
   font-weight: 600;
-  color: var(--color-accent-violet);
+  color: var(--color-orange);
   letter-spacing: 0.01em;
-  box-shadow: 0 1px 2px rgba(10, 14, 42, 0.04);
 }
 
 .chip-pulse::before {
@@ -241,8 +244,8 @@ h1, h2, h3, h4, h5, h6, .font-display {
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: var(--color-accent-violet);
-  box-shadow: 0 0 8px var(--color-accent-violet);
+  background: var(--color-orange);
+  box-shadow: 0 0 8px var(--color-orange);
   animation: pulse 1.6s ease-in-out infinite;
 }
 
@@ -275,15 +278,9 @@ h1, h2, h3, h4, h5, h6, .font-display {
   animation: float-y 6s ease-in-out infinite;
 }
 
-/* Marquee for testimonials & TikTok preview strip */
 @keyframes marquee {
   0% { transform: translateX(0); }
   100% { transform: translateX(-50%); }
-}
-
-@keyframes marquee-vertical {
-  0% { transform: translateY(0); }
-  100% { transform: translateY(-50%); }
 }
 
 .marquee-track {
@@ -293,33 +290,19 @@ h1, h2, h3, h4, h5, h6, .font-display {
   width: max-content;
 }
 
-.marquee-track-vertical {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-  animation: marquee-vertical 30s linear infinite;
-  height: max-content;
-}
-
 .marquee-mask {
   mask-image: linear-gradient(90deg, transparent, black 8%, black 92%, transparent);
   -webkit-mask-image: linear-gradient(90deg, transparent, black 8%, black 92%, transparent);
 }
 
-.marquee-mask-y {
-  mask-image: linear-gradient(180deg, transparent, black 10%, black 90%, transparent);
-  -webkit-mask-image: linear-gradient(180deg, transparent, black 10%, black 90%, transparent);
-}
-
-/* Phone mockup with TikTok video shape */
 .phone-frame {
   position: relative;
   aspect-ratio: 9 / 19.5;
-  background: #0a0e2a;
+  background: #0a0a0a;
   border-radius: 36px;
   padding: 8px;
   box-shadow:
-    0 30px 80px -20px rgba(139, 92, 246, 0.4),
+    0 30px 80px -20px rgba(255, 77, 0, 0.35),
     0 0 0 2px rgba(255, 255, 255, 0.5),
     inset 0 0 0 2px rgba(255, 255, 255, 0.06);
 }
@@ -328,19 +311,18 @@ h1, h2, h3, h4, h5, h6, .font-display {
   position: relative;
   width: 100%;
   height: 100%;
-  background: linear-gradient(135deg, #0f1729 0%, #1e1b4b 50%, #312e81 100%);
+  background: linear-gradient(135deg, #1a0a05 0%, #2d1208 50%, #4d1f0a 100%);
   border-radius: 28px;
   overflow: hidden;
 }
 
-/* Bento grid item — used in the capabilities section for variety */
 .bento {
   background: white;
   border: 1px solid var(--color-border);
   border-radius: 28px;
   padding: 32px;
   transition: transform 0.3s, box-shadow 0.3s, border-color 0.3s;
-  box-shadow: 0 1px 3px rgba(10, 14, 42, 0.04);
+  box-shadow: 0 1px 3px rgba(10, 10, 10, 0.04);
   position: relative;
   overflow: hidden;
 }
@@ -348,7 +330,7 @@ h1, h2, h3, h4, h5, h6, .font-display {
 .bento:hover {
   transform: translateY(-4px);
   border-color: var(--color-border-bright);
-  box-shadow: 0 24px 48px -16px rgba(139, 92, 246, 0.18);
+  box-shadow: 0 24px 48px -16px rgba(255, 77, 0, 0.18);
 }
 
 .bento-deco {
@@ -357,7 +339,6 @@ h1, h2, h3, h4, h5, h6, .font-display {
   opacity: 0.7;
 }
 
-/* Numbered step pill — for workflow */
 .step-pill {
   display: inline-flex;
   align-items: center;
@@ -365,116 +346,66 @@ h1, h2, h3, h4, h5, h6, .font-display {
   width: 32px;
   height: 32px;
   border-radius: 999px;
-  background: linear-gradient(135deg, #8b5cf6, #6366f1);
+  background: var(--color-orange);
   color: white;
   font-weight: 800;
   font-size: 13px;
   font-family: var(--font-mono);
-  box-shadow: 0 4px 12px rgba(139, 92, 246, 0.3);
+  box-shadow: 0 4px 12px rgba(255, 77, 0, 0.32);
 }
 
-/* Sticker — for FAQ / FAQ-like emphasis */
 .sticker {
   display: inline-block;
   padding: 4px 10px;
-  background: #fef3c7;
-  border: 1.5px solid #fbbf24;
+  background: var(--color-orange-soft);
+  border: 1.5px solid var(--color-orange);
   border-radius: 6px;
   font-family: var(--font-mono);
   font-size: 11px;
   font-weight: 700;
-  color: #92400e;
+  color: var(--color-orange-hover);
   letter-spacing: 0.02em;
   transform: rotate(-2deg);
-  box-shadow: 2px 2px 0 rgba(180, 83, 9, 0.2);
+  box-shadow: 2px 2px 0 rgba(214, 56, 0, 0.2);
 }
 
-/* Dotted underline for emphasis spans */
-.underline-dotted {
-  background-image: radial-gradient(circle, currentColor 1px, transparent 1.5px);
-  background-size: 6px 6px;
-  background-repeat: repeat-x;
-  background-position: 0 100%;
-  padding-bottom: 6px;
-}
-
-/* Avatar stack used in social proof */
-.avatar-stack > * + * {
-  margin-left: -10px;
-}
-
-/* Number counter — large stats */
-.stat-num {
-  font-family: var(--font-display);
-  font-weight: 800;
-  font-size: clamp(2.5rem, 5vw, 4rem);
-  line-height: 1;
-  letter-spacing: -0.04em;
-}
-
-/* Section heading anchor — used on every section */
-.section-heading {
-  font-family: var(--font-display);
-  font-weight: 800;
-  letter-spacing: -0.03em;
-  line-height: 1.05;
-  font-size: clamp(2.25rem, 5vw, 4rem);
-}
-
-/* Tag used in bento + capabilities */
 .tag-mono {
   display: inline-flex;
   align-items: center;
   gap: 5px;
   padding: 4px 10px;
-  background: rgba(139, 92, 246, 0.1);
-  border: 1px solid rgba(139, 92, 246, 0.25);
+  background: var(--color-orange-tint);
+  border: 1px solid var(--color-orange-soft);
   border-radius: 6px;
   font-family: var(--font-mono);
   font-size: 11px;
   font-weight: 600;
-  color: var(--color-accent-violet);
+  color: var(--color-orange);
   letter-spacing: 0.04em;
   text-transform: uppercase;
 }
 
-.tag-mono-blue {
-  background: rgba(59, 130, 246, 0.1);
-  border-color: rgba(59, 130, 246, 0.25);
-  color: var(--color-accent-blue);
-}
-
-.tag-mono-pink {
-  background: rgba(236, 72, 153, 0.1);
-  border-color: rgba(236, 72, 153, 0.25);
-  color: var(--color-accent-pink);
-}
-
-.tag-mono-amber {
-  background: rgba(245, 158, 11, 0.1);
-  border-color: rgba(245, 158, 11, 0.25);
-  color: var(--color-accent-amber);
-}
-
+.tag-mono-blue,
+.tag-mono-pink,
+.tag-mono-amber,
 .tag-mono-emerald {
-  background: rgba(16, 185, 129, 0.1);
-  border-color: rgba(16, 185, 129, 0.25);
-  color: var(--color-accent-emerald);
+  background: var(--color-orange-tint);
+  border-color: var(--color-orange-soft);
+  color: var(--color-orange);
 }
 
-/* FAQ accordion */
 details.faq-item {
   background: white;
   border: 1px solid var(--color-border);
   border-radius: 16px;
   padding: 0;
   transition: border-color 0.2s;
-  box-shadow: 0 1px 3px rgba(10, 14, 42, 0.04);
+  box-shadow: 0 1px 3px rgba(10, 10, 10, 0.04);
 }
 
 details.faq-item[open] {
-  border-color: var(--color-border-bright);
-  box-shadow: 0 8px 20px -8px rgba(139, 92, 246, 0.15);
+  border-color: var(--color-orange-soft);
+  box-shadow: 0 8px 20px -8px rgba(255, 77, 0, 0.15);
 }
 
 details.faq-item summary {
@@ -498,7 +429,7 @@ details.faq-item summary::after {
   font-family: var(--font-mono);
   font-size: 22px;
   font-weight: 700;
-  color: var(--color-accent-violet);
+  color: var(--color-orange);
   transition: transform 0.2s;
 }
 
@@ -510,4 +441,24 @@ details.faq-item .faq-body {
   padding: 0 24px 20px;
   color: var(--color-text-secondary);
   line-height: 1.65;
+}
+
+.section-heading {
+  font-family: var(--font-display);
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  line-height: 1.05;
+  font-size: clamp(2.25rem, 5vw, 4rem);
+}
+
+.stat-num {
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: clamp(2.5rem, 5vw, 4rem);
+  line-height: 1;
+  letter-spacing: -0.04em;
+}
+
+.avatar-stack > * + * {
+  margin-left: -10px;
 }

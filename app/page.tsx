@@ -104,7 +104,7 @@ const TESTIMONIALS = [
     quote: "Dulu spend RM3k sebulan kat creator. Sekarang RM147 dapat video lagi banyak. Sales naik 40%.",
     name: "Aina R.",
     title: "Skincare seller, KL",
-    avatar: "from-violet-300 to-pink-300",
+    avatar: "from-orange-200 to-orange-400",
   },
   {
     quote: "Macam ada team UGC sendiri. Pagi paste link, lunch dah ada 10 video ready post.",
@@ -134,7 +134,7 @@ const TESTIMONIALS = [
     quote: "Clone mode best gila. Tengok video viral competitor, tukar produk aku, terus viral juga.",
     name: "Rahman T.",
     title: "Kitchenware seller",
-    avatar: "from-blue-300 to-violet-300",
+    avatar: "from-orange-300 to-amber-300",
   },
 ];
 
@@ -177,7 +177,7 @@ export default function Home() {
       <div
         className="bg-soft-glow"
         style={{
-          background: "radial-gradient(circle, #c4b5fd, transparent 70%)",
+          background: "radial-gradient(circle, #ffd4b8, transparent 70%)",
           width: 700,
           height: 700,
           top: -250,
@@ -187,7 +187,7 @@ export default function Home() {
       <div
         className="bg-soft-glow"
         style={{
-          background: "radial-gradient(circle, #93c5fd, transparent 70%)",
+          background: "radial-gradient(circle, #ffe0c4, transparent 70%)",
           width: 600,
           height: 600,
           top: 50,
@@ -199,7 +199,7 @@ export default function Home() {
       {/* Nav */}
       <nav className="relative z-20 mx-auto max-w-7xl px-6 py-5 flex items-center justify-between">
         <Link href="/" className="flex items-center gap-2.5">
-          <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-violet-400 via-violet-500 to-blue-500 flex items-center justify-center shadow-lg shadow-violet-500/30">
+          <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-orange-400 via-orange-500 to-orange-600 flex items-center justify-center shadow-lg shadow-orange-500/30">
             <Sparkles className="w-5 h-5 text-white" strokeWidth={2.5} />
           </div>
           <span className="font-display font-extrabold text-2xl tracking-tight">
@@ -566,7 +566,7 @@ export default function Home() {
             </div>
             <div className="relative">
               <div className="flex items-center gap-3 mb-4">
-                <div className="w-12 h-12 rounded-2xl bg-violet-50 border border-violet-100 flex items-center justify-center">
+                <div className="w-12 h-12 rounded-2xl bg-violet-50 border border-orange-100 flex items-center justify-center">
                   <Wand2 className="w-6 h-6 text-violet-600" strokeWidth={2.2} />
                 </div>
                 <div className="tag-mono">★ MOST USED</div>
@@ -584,8 +584,8 @@ export default function Home() {
               {/* Mini visual: 3 video thumbnail row */}
               <div className="flex gap-2.5">
                 {[
-                  "from-violet-300 to-pink-300",
-                  "from-blue-300 to-violet-300",
+                  "from-orange-200 to-orange-400",
+                  "from-orange-300 to-amber-300",
                   "from-pink-300 to-amber-300",
                 ].map((g, i) => (
                   <div
@@ -826,7 +826,7 @@ export default function Home() {
             className="card relative"
             style={{
               background: "linear-gradient(180deg, #f5f3ff 0%, #ffffff 100%)",
-              borderColor: "#c4b5fd",
+              borderColor: "#ffd4b8",
             }}
           >
             <div className="absolute top-4 right-4 sticker">2× lebih murah</div>
@@ -910,15 +910,52 @@ export default function Home() {
         id="pricing"
         className="relative z-10 mx-auto max-w-6xl px-6 py-24"
       >
-        <div className="text-center mb-14">
+        <div className="text-center mb-10">
           <div className="chip mb-5">Pricing</div>
           <h2 className="section-heading">
-            Pay per video.{" "}
-            <span className="gradient-text-warm">Tiada drama.</span>
+            Gambar serendah <span className="gradient-text-warm">20 sen</span>.
+            <br />
+            Video serendah <span className="gradient-text-warm">40 sen</span>.
           </h2>
           <p className="mt-5 text-lg text-[var(--color-text-secondary)] max-w-2xl mx-auto">
-            Kredit tak hangus. Top up bila perlu. Cancel bila-bila.
+            Pay per use. Kredit tak hangus. Cancel bila-bila.
           </p>
+        </div>
+
+        {/* Per-unit price callout */}
+        <div className="grid grid-cols-2 gap-3 max-w-2xl mx-auto mb-12">
+          <div className="card flex items-center gap-4 p-5">
+            <div className="w-12 h-12 rounded-2xl bg-orange-50 border border-orange-100 flex items-center justify-center flex-shrink-0">
+              <ImageIcon className="w-6 h-6 text-orange" strokeWidth={2.2} />
+            </div>
+            <div>
+              <div className="text-xs font-mono uppercase tracking-wider text-[var(--color-text-muted)] font-bold">
+                Gambar
+              </div>
+              <div className="font-display font-extrabold text-2xl tracking-tight">
+                Serendah <span className="text-orange">20 sen</span>
+              </div>
+              <div className="text-xs text-[var(--color-text-muted)]">
+                per generate
+              </div>
+            </div>
+          </div>
+          <div className="card flex items-center gap-4 p-5">
+            <div className="w-12 h-12 rounded-2xl bg-orange-50 border border-orange-100 flex items-center justify-center flex-shrink-0">
+              <Video className="w-6 h-6 text-orange" strokeWidth={2.2} />
+            </div>
+            <div>
+              <div className="text-xs font-mono uppercase tracking-wider text-[var(--color-text-muted)] font-bold">
+                Video 8s
+              </div>
+              <div className="font-display font-extrabold text-2xl tracking-tight">
+                Serendah <span className="text-orange">40 sen</span>
+              </div>
+              <div className="text-xs text-[var(--color-text-muted)]">
+                per generate
+              </div>
+            </div>
+          </div>
         </div>
 
         <div className="grid md:grid-cols-3 gap-5">
@@ -983,7 +1020,7 @@ export default function Home() {
               }`}
             >
               {plan.badge && (
-                <div className="absolute -top-3 left-1/2 -translate-x-1/2 px-4 py-1.5 rounded-full text-xs font-bold uppercase tracking-wider bg-gradient-to-r from-violet-500 to-blue-500 text-white shadow-lg shadow-violet-500/30">
+                <div className="absolute -top-3 left-1/2 -translate-x-1/2 px-4 py-1.5 rounded-full text-xs font-bold uppercase tracking-wider bg-gradient-to-r from-orange-500 to-orange-600 text-white shadow-lg shadow-orange-500/30">
                   {plan.badge}
                 </div>
               )}
@@ -1135,7 +1172,7 @@ export default function Home() {
       <footer className="relative z-10 border-t border-[var(--color-border)] mt-12 bg-white/50">
         <div className="mx-auto max-w-6xl px-6 py-10 flex flex-col md:flex-row items-center justify-between gap-6 text-sm text-[var(--color-text-muted)]">
           <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-violet-400 via-violet-500 to-blue-500 flex items-center justify-center shadow-lg shadow-violet-500/30">
+            <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-orange-400 via-orange-500 to-orange-600 flex items-center justify-center shadow-lg shadow-orange-500/30">
               <Sparkles className="w-4 h-4 text-white" strokeWidth={2.5} />
             </div>
             <span className="font-display font-bold text-[var(--color-text-primary)]">

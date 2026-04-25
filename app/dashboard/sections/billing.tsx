@@ -182,7 +182,7 @@ export default function BillingSection() {
         className="relative overflow-hidden rounded-3xl p-8 md:p-10"
         style={{
           background:
-            "linear-gradient(135deg, #4c1d95 0%, #6d28d9 40%, #8b5cf6 100%)",
+            "linear-gradient(135deg, #1a0a05 0%, #2d1208 50%, #4d1f0a 100%)",
         }}
       >
         <div
@@ -301,7 +301,7 @@ export default function BillingSection() {
                 }`}
               >
                 {plan.popular && (
-                  <div className="absolute top-0 right-0 px-3 py-1 text-[10px] font-bold uppercase tracking-wider bg-gradient-to-r from-violet-500 to-blue-500 text-white rounded-bl-2xl">
+                  <div className="absolute top-0 right-0 px-3 py-1 text-[10px] font-bold uppercase tracking-wider bg-gradient-to-r from-orange-500 to-orange-600 text-white rounded-bl-2xl">
                     Popular
                   </div>
                 )}
