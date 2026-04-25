@@ -7,6 +7,19 @@
 create extension if not exists "uuid-ossp";
 
 -- ─────────────────────────────────────────────────────────────────────────────
+-- Shared trigger function — must be defined before any table that uses it
+-- ─────────────────────────────────────────────────────────────────────────────
+create or replace function public.touch_updated_at()
+returns trigger
+language plpgsql
+as $$
+begin
+  new.updated_at = now();
+  return new;
+end;
+$$;
+
+-- ─────────────────────────────────────────────────────────────────────────────
 -- profiles — extends auth.users with our app fields
 -- ─────────────────────────────────────────────────────────────────────────────
 create table if not exists public.profiles (
@@ -158,17 +171,8 @@ create table if not exists public.credit_transactions (
 create index if not exists credit_tx_user_idx on public.credit_transactions(user_id, created_at desc);
 
 -- ─────────────────────────────────────────────────────────────────────────────
--- updated_at auto-touch trigger for profiles, batches, history
+-- updated_at auto-touch triggers (function defined at top of file)
 -- ─────────────────────────────────────────────────────────────────────────────
-create or replace function public.touch_updated_at()
-returns trigger
-language plpgsql
-as $$
-begin
-  new.updated_at = now();
-  return new;
-end;
-$$;
 
 drop trigger if exists profiles_touch on public.profiles;
 create trigger profiles_touch
