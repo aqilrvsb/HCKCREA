@@ -284,20 +284,21 @@ create policy "settings_write_admin" on public.app_settings
 -- Seed default settings — only the keys we actually use (P2 + fal + OpenRouter)
 -- ─────────────────────────────────────────────────────────────────────────────
 insert into public.app_settings (key, value, description, category) values
-  -- ── PROVIDERS ────────────────────────────────────────────────────────────
+  -- ── PROVIDERS (URLs + paths only — keys must be filled via /admin or
+  --     directly in this table; never commit real keys to this file) ──
   ('p2_base',           '{"url":"https://api.crun.ai"}',                                          'P2 (Crun.ai) API base URL',                       'provider'),
-  ('p2_key',            '{"key":"ak_yHqWrsaDFDmOBSWBvO7d7QmDjMlf2TCD"}',                          'P2 (Crun.ai) API key',                            'provider'),
+  ('p2_key',            '{"key":""}',                                                             'P2 (Crun.ai) API key — fill via admin',           'provider'),
   ('p2_create_path',    '{"path":"/api/v1/client/job/CreateTask"}',                               'P2 create-task endpoint',                         'provider'),
   ('p2_status_path',    '{"path":"/api/v1/client/job/TaskInfo"}',                                 'P2 task-status endpoint',                         'provider'),
 
   ('fal_base',          '{"url":"https://fal.run"}',                                              'fal.ai base URL (video utilities)',               'provider'),
-  ('fal_key',           '{"key":"ccb13c97-6fec-4d12-b00d-7ef086fa64e6:adf6a2bb7362d4515f0df1b4fb2f698e"}', 'fal.ai API key', 'provider'),
+  ('fal_key',           '{"key":""}',                                                             'fal.ai API key — fill via admin',                 'provider'),
   ('fal_merge_path',    '{"path":"/fal-ai/ffmpeg-api/merge-videos"}',                             'fal video merge endpoint',                        'provider'),
   ('fal_extract_path',  '{"path":"/fal-ai/ffmpeg-api/extract-frame"}',                            'fal frame extract endpoint',                      'provider'),
   ('fal_upscale_path',  '{"path":"/fal-ai/esrgan"}',                                              'fal image upscale endpoint',                      'provider'),
 
   ('or_base',           '{"url":"https://openrouter.ai/api/v1"}',                                 'OpenRouter base URL (chat models)',               'provider'),
-  ('or_key',            '{"key":"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"}', 'OpenRouter API key', 'provider'),
+  ('or_key',            '{"key":""}',                                                             'OpenRouter API key — fill via admin',             'provider'),
 
   -- ── MODELS (OpenRouter chat) ─────────────────────────────────────────────
   ('model_auto',        '{"model":"openai/gpt-5.4"}',         'Master Planner (Auto Content)',          'model'),

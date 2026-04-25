@@ -33,6 +33,12 @@ yarn-error.log*
 # env files (can opt-in for committing if needed)
 .env*
 
+# local-only secret seed files — never commit
+*.secrets.sql
+supabase/seeds/local*.sql
+.local-secrets/
+.playwright-mcp/
+
 # vercel
 .vercel
 
