@@ -322,7 +322,7 @@ insert into public.app_settings (key, value, description, category) values
   ('credit_topup_price','{"price":50,"currency":"MYR"}',      'Kredit top-up price',                    'pricing'),
 
   -- ── PLANS (admin-editable via /admin → app_settings) ────────────────────
-  ('plan_light', '{"price":35,"days":30,"credits":0,"currency":"MYR","label":"Light Plan","image_rate":0.50,"video_rate":0.70,"features":["Image (Banana Pro + GPT Image 2) — rate 50 sen","Video Veo 3.1 — rate 70 sen","Unlimited Generate","Access Prompt","Access Image","Access Video"]}', 'Light Plan — base tier', 'plan'),
+  ('plan_light', '{"price":50,"days":30,"credits":0,"currency":"MYR","label":"Light Plan","image_rate":0.50,"video_rate":0.70,"features":["Image (Banana Pro + GPT Image 2) — 50 sen","Video Veo 3.1 — 70 sen","Unlimited Generate","Access Prompt","Access Image","Access Video"]}', 'Light Plan — base tier', 'plan'),
   ('plan_pro',   '{"price":75,"days":30,"credits":0,"currency":"MYR","label":"Pro Plan","image_rate":0.20,"video_rate":0.40,"features":["Image (Banana Pro + GPT Image 2) — 20 sen","Video Veo 3.1 — 40 sen","Unlimited Generate","Access Prompt","Access Image","Access Video","Access Auto Content","Access Clone Video","Access Story Telling","Access Group VIP"]}', 'Pro Plan — full access', 'plan'),
   ('signup_bonus', '{"credits":0}', 'Free credits on signup (subscription unlocks access, not credit balance)', 'plan')
 on conflict (key) do update set value = excluded.value, description = excluded.description;

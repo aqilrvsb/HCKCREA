@@ -915,8 +915,65 @@ export default function Home() {
             <span className="gradient-text-warm">scale UGC</span>.
           </h2>
           <p className="mt-5 text-lg text-[var(--color-text-secondary)] max-w-2xl mx-auto">
-            Subscription bulanan dengan akses unlimited. Cancel bila-bila.
+            Subscription bulanan + top up kredit. Setiap generate auto-deduct
+            ikut rate plan anda.
           </p>
+        </div>
+
+        {/* How rate-deduction works — 3 steps */}
+        <div className="card max-w-4xl mx-auto mb-10 p-6 md:p-7 bg-orange-50/40 border-orange-100">
+          <div className="grid md:grid-cols-3 gap-5">
+            <div className="flex items-start gap-3">
+              <div className="step-pill flex-shrink-0">1</div>
+              <div>
+                <div className="font-display font-bold text-base mb-1">
+                  Subscribe plan
+                </div>
+                <p className="text-sm text-[var(--color-text-secondary)] leading-relaxed">
+                  Pilih Light atau Pro. Subscription bulanan unlock akses +
+                  set rate per-generate anda.
+                </p>
+              </div>
+            </div>
+            <div className="flex items-start gap-3">
+              <div className="step-pill flex-shrink-0">2</div>
+              <div>
+                <div className="font-display font-bold text-base mb-1">
+                  Top up kredit
+                </div>
+                <p className="text-sm text-[var(--color-text-secondary)] leading-relaxed">
+                  RM1 = 1 kredit. Top up bila-bila dari dashboard. Kredit tak
+                  hangus.
+                </p>
+              </div>
+            </div>
+            <div className="flex items-start gap-3">
+              <div className="step-pill flex-shrink-0">3</div>
+              <div>
+                <div className="font-display font-bold text-base mb-1">
+                  Generate, auto-deduct
+                </div>
+                <p className="text-sm text-[var(--color-text-secondary)] leading-relaxed">
+                  Setiap image/video tolak dari kredit pada rate plan —
+                  contoh Pro: 20 sen image, 40 sen video.
+                </p>
+              </div>
+            </div>
+          </div>
+          <div className="mt-5 pt-5 border-t border-orange-100 text-center text-sm text-[var(--color-text-secondary)]">
+            <span className="font-mono text-xs uppercase tracking-wider text-orange font-bold">
+              Contoh
+            </span>{" "}
+            — Plan Pro (RM75/bulan) + top up RM30 ={" "}
+            <span className="font-bold text-[var(--color-text-primary)]">
+              ~150 image
+            </span>{" "}
+            atau{" "}
+            <span className="font-bold text-[var(--color-text-primary)]">
+              75 video 8s
+            </span>
+            . Habis kredit? Top up je, plan tetap aktif.
+          </div>
         </div>
 
 
@@ -924,7 +981,7 @@ export default function Home() {
           {[
             {
               name: "Light",
-              price: "RM35",
+              price: "RM50",
               period: "/bulan",
               desc: "Untuk explore & test ringan",
               features: [

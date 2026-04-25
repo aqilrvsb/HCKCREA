@@ -15,7 +15,7 @@ const PLANS = [
   {
     key: "light",
     name: "Light Plan",
-    price: 35,
+    price: 50,
     desc: "Test & explore ringan",
     rate: "Image 50 sen · Video 70 sen",
     features: [
