@@ -1,8 +1,8 @@
-@import url("https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&family=DM+Sans:wght@400;500;600;700&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap");
 @import "tailwindcss";
 
 @theme {
-  --color-bg: #f5f7ff;
+  --color-bg: #fafbff;
   --color-bg-soft: #eef2ff;
   --color-bg-card: #ffffff;
   --color-border: #e2e6f5;
@@ -14,11 +14,13 @@
   --color-accent-violet: #8b5cf6;
   --color-accent-pink: #ec4899;
   --color-accent-amber: #f59e0b;
+  --color-accent-emerald: #10b981;
   --color-success: #10b981;
   --color-danger: #ef4444;
 
   --font-display: "Bricolage Grotesque", ui-sans-serif, system-ui, sans-serif;
   --font-body: "DM Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, monospace;
 }
 
 * {
@@ -32,6 +34,7 @@ body {
   font-family: var(--font-body);
   -webkit-font-smoothing: antialiased;
   letter-spacing: -0.011em;
+  scroll-behavior: smooth;
 }
 
 body {
@@ -44,10 +47,15 @@ h1, h2, h3, h4, h5, h6, .font-display {
   font-feature-settings: "ss01", "ss02";
 }
 
+.font-mono {
+  font-family: var(--font-mono);
+}
+
 .text-blue { color: var(--color-accent-blue); }
 .text-violet { color: var(--color-accent-violet); }
 .text-pink { color: var(--color-accent-pink); }
 .text-amber { color: var(--color-accent-amber); }
+.text-emerald { color: var(--color-accent-emerald); }
 
 .gradient-text-blue {
   background: linear-gradient(135deg, #60a5fa, #3b82f6);
@@ -73,13 +81,34 @@ h1, h2, h3, h4, h5, h6, .font-display {
   display: inline-block;
 }
 
+.gradient-text-multi {
+  background: linear-gradient(135deg, #8b5cf6 0%, #3b82f6 50%, #ec4899 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  display: inline-block;
+}
+
 .bg-sky {
   position: absolute;
   inset: 0;
   pointer-events: none;
   z-index: 0;
-  background:
-    linear-gradient(180deg, #cfe0ff 0%, #e8eeff 30%, #f5f7ff 60%, #ffffff 100%);
+  background: linear-gradient(180deg, #d8e3ff 0%, #eaf0ff 25%, #f5f7ff 50%, #ffffff 100%);
+}
+
+/* Distinctive grid pattern background — gives the hero/bento sections texture */
+.bg-grid {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 1;
+  background-image:
+    linear-gradient(to right, rgba(139, 92, 246, 0.07) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(139, 92, 246, 0.07) 1px, transparent 1px);
+  background-size: 56px 56px;
+  mask-image: radial-gradient(ellipse 80% 60% at 50% 30%, black, transparent);
+  -webkit-mask-image: radial-gradient(ellipse 80% 60% at 50% 30%, black, transparent);
 }
 
 .bg-soft-glow {
@@ -87,7 +116,16 @@ h1, h2, h3, h4, h5, h6, .font-display {
   pointer-events: none;
   z-index: 0;
   filter: blur(80px);
-  opacity: 0.5;
+  opacity: 0.45;
+}
+
+.bg-noise {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 1;
+  opacity: 0.025;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
 }
 
 .btn-primary {
@@ -96,7 +134,7 @@ h1, h2, h3, h4, h5, h6, .font-display {
   justify-content: center;
   gap: 8px;
   padding: 16px 32px;
-  background: linear-gradient(135deg, #a78bfa 0%, #8b5cf6 100%);
+  background: linear-gradient(135deg, #8b5cf6 0%, #6366f1 100%);
   color: white;
   font-weight: 700;
   font-size: 15px;
@@ -104,13 +142,17 @@ h1, h2, h3, h4, h5, h6, .font-display {
   border: none;
   cursor: pointer;
   transition: transform 0.2s, box-shadow 0.2s;
-  box-shadow: 0 8px 24px rgba(139, 92, 246, 0.35);
+  box-shadow:
+    0 8px 24px rgba(139, 92, 246, 0.35),
+    inset 0 1px 0 rgba(255, 255, 255, 0.25);
   letter-spacing: -0.01em;
 }
 
 .btn-primary:hover {
   transform: translateY(-2px);
-  box-shadow: 0 12px 32px rgba(139, 92, 246, 0.5);
+  box-shadow:
+    0 14px 36px rgba(139, 92, 246, 0.5),
+    inset 0 1px 0 rgba(255, 255, 255, 0.3);
 }
 
 .btn-primary:active {
@@ -131,27 +173,30 @@ h1, h2, h3, h4, h5, h6, .font-display {
   border: 1px solid var(--color-border);
   cursor: pointer;
   transition: all 0.2s;
-  box-shadow: 0 1px 2px rgba(10, 14, 42, 0.05);
+  box-shadow: 0 1px 3px rgba(10, 14, 42, 0.06);
 }
 
 .btn-secondary:hover {
   border-color: var(--color-accent-violet);
   transform: translateY(-1px);
+  box-shadow: 0 6px 16px rgba(139, 92, 246, 0.15);
 }
 
 .card {
   background: white;
   border: 1px solid var(--color-border);
   border-radius: 24px;
-  padding: 32px;
+  padding: 28px;
   transition: transform 0.3s, box-shadow 0.3s, border-color 0.3s;
   box-shadow: 0 1px 3px rgba(10, 14, 42, 0.04);
+  position: relative;
+  overflow: hidden;
 }
 
 .card:hover {
   transform: translateY(-4px);
   border-color: var(--color-border-bright);
-  box-shadow: 0 20px 40px -12px rgba(139, 92, 246, 0.15);
+  box-shadow: 0 24px 48px -16px rgba(139, 92, 246, 0.18);
 }
 
 .input {
@@ -209,7 +254,7 @@ h1, h2, h3, h4, h5, h6, .font-display {
 @keyframes fade-in-up {
   from {
     opacity: 0;
-    transform: translateY(20px);
+    transform: translateY(24px);
   }
   to {
     opacity: 1;
@@ -221,6 +266,248 @@ h1, h2, h3, h4, h5, h6, .font-display {
   animation: fade-in-up 0.7s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 
-.section-bg-soft {
-  background: linear-gradient(180deg, transparent, var(--color-bg-soft) 50%, transparent);
+@keyframes float-y {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-10px); }
+}
+
+.animate-float {
+  animation: float-y 6s ease-in-out infinite;
+}
+
+/* Marquee for testimonials & TikTok preview strip */
+@keyframes marquee {
+  0% { transform: translateX(0); }
+  100% { transform: translateX(-50%); }
+}
+
+@keyframes marquee-vertical {
+  0% { transform: translateY(0); }
+  100% { transform: translateY(-50%); }
+}
+
+.marquee-track {
+  display: flex;
+  gap: 16px;
+  animation: marquee 40s linear infinite;
+  width: max-content;
+}
+
+.marquee-track-vertical {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  animation: marquee-vertical 30s linear infinite;
+  height: max-content;
+}
+
+.marquee-mask {
+  mask-image: linear-gradient(90deg, transparent, black 8%, black 92%, transparent);
+  -webkit-mask-image: linear-gradient(90deg, transparent, black 8%, black 92%, transparent);
+}
+
+.marquee-mask-y {
+  mask-image: linear-gradient(180deg, transparent, black 10%, black 90%, transparent);
+  -webkit-mask-image: linear-gradient(180deg, transparent, black 10%, black 90%, transparent);
+}
+
+/* Phone mockup with TikTok video shape */
+.phone-frame {
+  position: relative;
+  aspect-ratio: 9 / 19.5;
+  background: #0a0e2a;
+  border-radius: 36px;
+  padding: 8px;
+  box-shadow:
+    0 30px 80px -20px rgba(139, 92, 246, 0.4),
+    0 0 0 2px rgba(255, 255, 255, 0.5),
+    inset 0 0 0 2px rgba(255, 255, 255, 0.06);
+}
+
+.phone-screen {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(135deg, #0f1729 0%, #1e1b4b 50%, #312e81 100%);
+  border-radius: 28px;
+  overflow: hidden;
+}
+
+/* Bento grid item — used in the capabilities section for variety */
+.bento {
+  background: white;
+  border: 1px solid var(--color-border);
+  border-radius: 28px;
+  padding: 32px;
+  transition: transform 0.3s, box-shadow 0.3s, border-color 0.3s;
+  box-shadow: 0 1px 3px rgba(10, 14, 42, 0.04);
+  position: relative;
+  overflow: hidden;
+}
+
+.bento:hover {
+  transform: translateY(-4px);
+  border-color: var(--color-border-bright);
+  box-shadow: 0 24px 48px -16px rgba(139, 92, 246, 0.18);
+}
+
+.bento-deco {
+  position: absolute;
+  pointer-events: none;
+  opacity: 0.7;
+}
+
+/* Numbered step pill — for workflow */
+.step-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 999px;
+  background: linear-gradient(135deg, #8b5cf6, #6366f1);
+  color: white;
+  font-weight: 800;
+  font-size: 13px;
+  font-family: var(--font-mono);
+  box-shadow: 0 4px 12px rgba(139, 92, 246, 0.3);
+}
+
+/* Sticker — for FAQ / FAQ-like emphasis */
+.sticker {
+  display: inline-block;
+  padding: 4px 10px;
+  background: #fef3c7;
+  border: 1.5px solid #fbbf24;
+  border-radius: 6px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 700;
+  color: #92400e;
+  letter-spacing: 0.02em;
+  transform: rotate(-2deg);
+  box-shadow: 2px 2px 0 rgba(180, 83, 9, 0.2);
+}
+
+/* Dotted underline for emphasis spans */
+.underline-dotted {
+  background-image: radial-gradient(circle, currentColor 1px, transparent 1.5px);
+  background-size: 6px 6px;
+  background-repeat: repeat-x;
+  background-position: 0 100%;
+  padding-bottom: 6px;
+}
+
+/* Avatar stack used in social proof */
+.avatar-stack > * + * {
+  margin-left: -10px;
+}
+
+/* Number counter — large stats */
+.stat-num {
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: clamp(2.5rem, 5vw, 4rem);
+  line-height: 1;
+  letter-spacing: -0.04em;
+}
+
+/* Section heading anchor — used on every section */
+.section-heading {
+  font-family: var(--font-display);
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  line-height: 1.05;
+  font-size: clamp(2.25rem, 5vw, 4rem);
+}
+
+/* Tag used in bento + capabilities */
+.tag-mono {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  background: rgba(139, 92, 246, 0.1);
+  border: 1px solid rgba(139, 92, 246, 0.25);
+  border-radius: 6px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--color-accent-violet);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.tag-mono-blue {
+  background: rgba(59, 130, 246, 0.1);
+  border-color: rgba(59, 130, 246, 0.25);
+  color: var(--color-accent-blue);
+}
+
+.tag-mono-pink {
+  background: rgba(236, 72, 153, 0.1);
+  border-color: rgba(236, 72, 153, 0.25);
+  color: var(--color-accent-pink);
+}
+
+.tag-mono-amber {
+  background: rgba(245, 158, 11, 0.1);
+  border-color: rgba(245, 158, 11, 0.25);
+  color: var(--color-accent-amber);
+}
+
+.tag-mono-emerald {
+  background: rgba(16, 185, 129, 0.1);
+  border-color: rgba(16, 185, 129, 0.25);
+  color: var(--color-accent-emerald);
+}
+
+/* FAQ accordion */
+details.faq-item {
+  background: white;
+  border: 1px solid var(--color-border);
+  border-radius: 16px;
+  padding: 0;
+  transition: border-color 0.2s;
+  box-shadow: 0 1px 3px rgba(10, 14, 42, 0.04);
+}
+
+details.faq-item[open] {
+  border-color: var(--color-border-bright);
+  box-shadow: 0 8px 20px -8px rgba(139, 92, 246, 0.15);
+}
+
+details.faq-item summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 20px 24px;
+  cursor: pointer;
+  list-style: none;
+  font-weight: 600;
+  font-size: 16px;
+  color: var(--color-text-primary);
+}
+
+details.faq-item summary::-webkit-details-marker {
+  display: none;
+}
+
+details.faq-item summary::after {
+  content: "+";
+  font-family: var(--font-mono);
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--color-accent-violet);
+  transition: transform 0.2s;
+}
+
+details.faq-item[open] summary::after {
+  transform: rotate(45deg);
+}
+
+details.faq-item .faq-body {
+  padding: 0 24px 20px;
+  color: var(--color-text-secondary);
+  line-height: 1.65;
 }
