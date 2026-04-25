@@ -28,6 +28,8 @@ import {
 import CheckoutForm from "./(checkout)/checkout-form";
 import Countdown from "./components/countdown";
 import SocialProofToast from "./components/social-proof-toast";
+import StickyCTABar from "./components/sticky-cta-bar";
+import DemoReel from "./components/demo-reel";
 
 const STATS = [
   { num: "1,300+", label: "seller aktif" },
@@ -477,22 +479,32 @@ export default function Home() {
           </h2>
         </div>
 
-        <div className="grid md:grid-cols-3 gap-5">
+        <div className="grid md:grid-cols-3 lg:grid-cols-5 gap-4">
           {[
             {
-              icon: Camera,
-              title: "Tiada team videographer",
-              desc: "Tak ada equipment. Tak ada talent UGC. Setiap kali nak buat video, kena cari freelancer baru — quality tak konsisten.",
-            },
-            {
               icon: Clock,
-              title: "1 video = 1 hari penuh",
-              desc: "Script, shoot, edit, upload. 30 video sebulan = burnout. Anda jadi videographer, bukan business owner.",
+              title: "Tak Cukup Masa",
+              desc: "Antara reply customer, pack barang, fikir ad — masa untuk shoot video memang takde.",
             },
             {
-              icon: Wallet,
-              title: "RM200–RM500 per video",
-              desc: "30 video = RM15,000 sebulan. Margin produk hancur. Belum lagi creator delay, revisi, drama.",
+              icon: Camera,
+              title: "Ketandusan Content",
+              desc: "Idea video dah habis. Recycle yang sama je. Algorithm tak suka — reach makin turun.",
+            },
+            {
+              icon: Brain,
+              title: "Zero Knowledge AI",
+              desc: "Banyak tool AI tapi semua kompleks. Setiap satu kena pelajari sendiri. Pening kepala.",
+            },
+            {
+              icon: TrendingUp,
+              title: "Susah Nak Grow",
+              desc: "Competitor post 5–10 video sehari. Anda sorang? Mustahil nak menang algorithm + impression.",
+            },
+            {
+              icon: Gauge,
+              title: "Production Slow",
+              desc: "Brief creator → 1 minggu. Edit → 2–3 hari. Dapat satu video, idea dah basi pulak.",
             },
           ].map((p, i) => {
             const Icon = p.icon;
@@ -535,7 +547,7 @@ export default function Home() {
         id="features"
         className="relative z-10 mx-auto max-w-7xl px-6 py-24"
       >
-        <div className="text-center mb-14">
+        <div className="text-center mb-10">
           <div className="chip mb-5">
             <Sparkles className="w-3.5 h-3.5" />
             <span>Stack penuh dalam satu platform</span>
@@ -548,6 +560,22 @@ export default function Home() {
           <p className="mt-5 text-lg text-[var(--color-text-secondary)] max-w-2xl mx-auto">
             5 capabilities. Satu dashboard. Tak perlu jump-jump tool lain.
           </p>
+        </div>
+
+        {/* Powered by trust strip — establishes legitimacy */}
+        <div className="flex flex-wrap items-center justify-center gap-x-6 gap-y-3 mb-12 px-4 py-3 rounded-2xl bg-orange-50/60 border border-orange-100 max-w-3xl mx-auto">
+          <span className="font-mono text-[10px] uppercase tracking-widest text-orange font-bold">
+            Powered by:
+          </span>
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+            <span className="font-display font-bold text-sm">Google Veo 3.1</span>
+            <span className="text-[var(--color-text-muted)]">·</span>
+            <span className="font-display font-bold text-sm">GPT Image 2</span>
+            <span className="text-[var(--color-text-muted)]">·</span>
+            <span className="font-display font-bold text-sm">Banana Pro</span>
+            <span className="text-[var(--color-text-muted)]">·</span>
+            <span className="font-display font-bold text-sm">OpenRouter</span>
+          </div>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
@@ -713,6 +741,9 @@ export default function Home() {
           </div>
         </div>
       </section>
+
+      {/* Live AI-generated demo reel */}
+      <DemoReel />
 
       {/* How it works — 4 step process */}
       <section id="how" className="relative z-10 py-24">
@@ -1125,8 +1156,9 @@ export default function Home() {
         </div>
       </section>
 
-      {/* Floating social proof */}
+      {/* Floating social proof + sticky bottom CTA bar (paid traffic anchors) */}
       <SocialProofToast />
+      <StickyCTABar />
 
       {/* Footer */}
       <footer className="relative z-10 border-t border-[var(--color-border)] mt-12 bg-white/50">

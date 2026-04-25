@@ -87,6 +87,7 @@ export async function p2GetStatus(taskId: string): Promise<P2StatusResp> {
 
   const result = json?.data?.result || json?.result || {};
   const outputUrl =
+    (Array.isArray(result?.media_urls) ? result.media_urls[0] : null) ||
     result?.video_url ||
     result?.image_url ||
     result?.url ||
