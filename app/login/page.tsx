@@ -123,10 +123,10 @@ export default function LoginPage() {
           <div className="mt-6 text-center text-sm text-[var(--color-text-secondary)]">
             Belum ada akaun?{" "}
             <Link
-              href="/register"
-              className="text-[var(--color-accent-violet)] font-semibold hover:underline"
+              href="/#checkout"
+              className="text-orange font-semibold hover:underline"
             >
-              Daftar percuma
+              Pilih plan & daftar
             </Link>
           </div>
         </div>

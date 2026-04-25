@@ -69,10 +69,126 @@ async function processPurchase(purchaseId: string) {
       await applyCreditTopup(admin, payment);
     } else if (payment.type === "subscription") {
       await applySubscription(admin, payment);
+    } else if (payment.type === "checkout_signup") {
+      await applyCheckoutSignup(admin, payment);
     }
   }
 
   return NextResponse.json({ ok: true, status: newStatus });
+}
+
+// Auto-register user + activate plan after a successful sign-up payment.
+// Idempotent: re-running on an already-processed payment is a no-op (the
+// short-circuit check above handles that).
+async function applyCheckoutSignup(admin: any, payment: any) {
+  const meta = payment.metadata || {};
+  const signup = meta.signup || {};
+  const email = String(signup.email || "").toLowerCase();
+  const name = String(signup.name || "");
+  const whatsapp = String(signup.whatsapp || "");
+  const plan = String(payment.plan || meta.plan || "light");
+  const days = Number(meta.days || 30);
+  const freeCredits = Number(meta.free_credits || 0);
+
+  if (!email) return;
+
+  // Generate a temporary password — to be sent via WhatsApp
+  const tempPassword = generatePassword(12);
+
+  // Create user (idempotent — if exists, fetch existing)
+  let userId: string | null = null;
+  const { data: created, error: createErr } = await admin.auth.admin.createUser({
+    email,
+    password: tempPassword,
+    email_confirm: true,
+    user_metadata: { full_name: name, whatsapp },
+  });
+
+  if (createErr) {
+    // Likely "User already registered" — look up existing
+    const { data: existingList } = await admin.auth.admin.listUsers({ page: 1, perPage: 200 });
+    const existing = existingList?.users?.find((u: any) => (u.email || "").toLowerCase() === email);
+    if (existing) {
+      userId = existing.id;
+      // Reset password so they can log in with the new temp creds
+      await admin.auth.admin.updateUserById(userId, { password: tempPassword });
+    } else {
+      console.error("auth create failed (no existing match):", createErr);
+      return;
+    }
+  } else {
+    userId = created.user?.id || null;
+  }
+
+  if (!userId) return;
+
+  // Ensure profile row + set plan + extend expiry
+  const now = new Date();
+  const expiry = new Date(now.getTime() + days * 24 * 60 * 60 * 1000);
+
+  // upsert profile
+  await admin.from("profiles").upsert(
+    {
+      id: userId,
+      full_name: name,
+      whatsapp,
+      plan,
+      plan_expires_at: expiry.toISOString(),
+      // Add free credits on top of whatever they had (likely 0 for new signup)
+    },
+    { onConflict: "id" }
+  );
+
+  // Add free credits if the plan grants any (currently 0 for both plans)
+  if (freeCredits > 0) {
+    const { data: profile } = await admin
+      .from("profiles")
+      .select("credits")
+      .eq("id", userId)
+      .single();
+    const next = Number(profile?.credits || 0) + freeCredits;
+    await admin.from("profiles").update({ credits: next }).eq("id", userId);
+    await admin.from("credit_transactions").insert({
+      user_id: userId,
+      amount: freeCredits,
+      balance_after: next,
+      reason: `signup_${plan}`,
+      metadata: { payment_id: payment.id, plan },
+    });
+  }
+
+  // Link the payment to the freshly created user
+  await admin
+    .from("payments")
+    .update({
+      user_id: userId,
+      metadata: {
+        ...meta,
+        signup_completed_at: new Date().toISOString(),
+        // NOTE: we store the temp password so admin can resend via WhatsApp
+        // until the WhatsApp Business API is wired. This is sensitive — only
+        // service-role can read this row; payments_select_own RLS prevents
+        // the user from reading their own metadata via anon key.
+        temp_password: tempPassword,
+      },
+    })
+    .eq("id", payment.id);
+
+  // TODO: send WhatsApp message with login info once WA Business API integrated.
+  // For now: admin sees the row with metadata.temp_password and forwards manually.
+  console.log(
+    `[checkout_signup] User ${userId} created. Send via WhatsApp to ${whatsapp}: email=${email} password=${tempPassword}`
+  );
+}
+
+function generatePassword(len: number): string {
+  const chars =
+    "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789";
+  let out = "";
+  for (let i = 0; i < len; i++) {
+    out += chars[Math.floor(Math.random() * chars.length)];
+  }
+  return out;
 }
 
 async function applyCreditTopup(admin: any, payment: any) {

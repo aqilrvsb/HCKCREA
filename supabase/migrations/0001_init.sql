@@ -122,9 +122,10 @@ create index if not exists history_task_idx on public.history(task_id) where tas
 -- ─────────────────────────────────────────────────────────────────────────────
 create table if not exists public.payments (
   id                  uuid primary key default uuid_generate_v4(),
-  user_id             uuid not null references auth.users(id) on delete cascade,
-  type                text not null, -- 'subscription' | 'credit_topup'
-  plan                text, -- 'starter' | 'growth' | 'empire' (for subscription)
+  -- user_id NULLABLE — populated after auto-register for checkout_signup type.
+  user_id             uuid references auth.users(id) on delete cascade,
+  type                text not null, -- 'subscription' | 'credit_topup' | 'checkout_signup'
+  plan                text, -- 'light' | 'pro'
   credits             numeric(12,2), -- for credit_topup
   amount              numeric(12,2) not null,
   currency            text default 'MYR' not null,
@@ -320,9 +321,8 @@ insert into public.app_settings (key, value, description, category) values
   ('credit_costs',      '{"image":0.20,"video_8s":0.40,"video_16s":0.80,"auto_plan":0.10,"clone_plan":0.05}', 'Kredit cost per action', 'pricing'),
   ('credit_topup_price','{"price":50,"currency":"MYR"}',      'Kredit top-up price',                    'pricing'),
 
-  -- ── PLANS ────────────────────────────────────────────────────────────────
-  ('plan_starter',      '{"price":47,"credits":100,"currency":"MYR"}', 'Starter plan',                  'plan'),
-  ('plan_growth',       '{"price":147,"credits":350,"currency":"MYR"}', 'Growth plan',                  'plan'),
-  ('plan_empire',       '{"price":397,"credits":1000,"currency":"MYR"}', 'Empire plan',                 'plan'),
-  ('signup_bonus',      '{"credits":10}',                     'Free credits on signup',                 'plan')
-on conflict (key) do nothing;
+  -- ── PLANS (admin-editable via /admin → app_settings) ────────────────────
+  ('plan_light', '{"price":35,"days":30,"credits":0,"currency":"MYR","label":"Light Plan","image_rate":0.50,"video_rate":0.70,"features":["Image (Banana Pro + GPT Image 2) — rate 50 sen","Video Veo 3.1 — rate 70 sen","Unlimited Generate","Access Prompt","Access Image","Access Video"]}', 'Light Plan — base tier', 'plan'),
+  ('plan_pro',   '{"price":75,"days":30,"credits":0,"currency":"MYR","label":"Pro Plan","image_rate":0.20,"video_rate":0.40,"features":["Image (Banana Pro + GPT Image 2) — 20 sen","Video Veo 3.1 — 40 sen","Unlimited Generate","Access Prompt","Access Image","Access Video","Access Auto Content","Access Clone Video","Access Story Telling","Access Group VIP"]}', 'Pro Plan — full access', 'plan'),
+  ('signup_bonus', '{"credits":0}', 'Free credits on signup (subscription unlocks access, not credit balance)', 'plan')
+on conflict (key) do update set value = excluded.value, description = excluded.description;

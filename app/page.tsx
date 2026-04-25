@@ -25,6 +25,7 @@ import {
   ChevronRight,
   Flame,
 } from "lucide-react";
+import CheckoutForm from "./(checkout)/checkout-form";
 
 const STATS = [
   { num: "1,300+", label: "seller aktif" },
@@ -213,9 +214,6 @@ export default function Home() {
             className="px-5 py-2.5 text-sm font-semibold text-[var(--color-text-primary)] hover:text-[var(--color-accent-violet)] transition"
           >
             Sign in
-          </Link>
-          <Link href="/register" className="btn-primary text-sm py-3 px-6">
-            Sign up
           </Link>
         </div>
       </nav>
@@ -913,109 +911,58 @@ export default function Home() {
         <div className="text-center mb-10">
           <div className="chip mb-5">Pricing</div>
           <h2 className="section-heading">
-            Gambar serendah <span className="gradient-text-warm">20 sen</span>.
-            <br />
-            Video serendah <span className="gradient-text-warm">40 sen</span>.
+            Pilih plan, mula{" "}
+            <span className="gradient-text-warm">scale UGC</span>.
           </h2>
           <p className="mt-5 text-lg text-[var(--color-text-secondary)] max-w-2xl mx-auto">
-            Pay per use. Kredit tak hangus. Cancel bila-bila.
+            Subscription bulanan dengan akses unlimited. Cancel bila-bila.
           </p>
         </div>
 
-        {/* Per-unit price callout */}
-        <div className="grid grid-cols-2 gap-3 max-w-2xl mx-auto mb-12">
-          <div className="card flex items-center gap-4 p-5">
-            <div className="w-12 h-12 rounded-2xl bg-orange-50 border border-orange-100 flex items-center justify-center flex-shrink-0">
-              <ImageIcon className="w-6 h-6 text-orange" strokeWidth={2.2} />
-            </div>
-            <div>
-              <div className="text-xs font-mono uppercase tracking-wider text-[var(--color-text-muted)] font-bold">
-                Gambar
-              </div>
-              <div className="font-display font-extrabold text-2xl tracking-tight">
-                Serendah <span className="text-orange">20 sen</span>
-              </div>
-              <div className="text-xs text-[var(--color-text-muted)]">
-                per generate
-              </div>
-            </div>
-          </div>
-          <div className="card flex items-center gap-4 p-5">
-            <div className="w-12 h-12 rounded-2xl bg-orange-50 border border-orange-100 flex items-center justify-center flex-shrink-0">
-              <Video className="w-6 h-6 text-orange" strokeWidth={2.2} />
-            </div>
-            <div>
-              <div className="text-xs font-mono uppercase tracking-wider text-[var(--color-text-muted)] font-bold">
-                Video 8s
-              </div>
-              <div className="font-display font-extrabold text-2xl tracking-tight">
-                Serendah <span className="text-orange">40 sen</span>
-              </div>
-              <div className="text-xs text-[var(--color-text-muted)]">
-                per generate
-              </div>
-            </div>
-          </div>
-        </div>
 
-        <div className="grid md:grid-cols-3 gap-5">
+        <div className="grid md:grid-cols-2 gap-5 max-w-4xl mx-auto">
           {[
             {
-              name: "Starter",
-              price: "RM47",
+              name: "Light",
+              price: "RM35",
               period: "/bulan",
-              desc: "Untuk seller mula auto-UGC",
-              credits: "100 kredit",
+              desc: "Untuk explore & test ringan",
               features: [
-                "~25 video 8 saat",
-                "Auto Content + Clone mode",
-                "Caption Bahasa Melayu auto",
-                "Download HD MP4",
-                "Email support",
+                "Image (Banana Pro + GPT Image 2) — rate 50 sen",
+                "Video Veo 3.1 — rate 70 sen",
+                "Unlimited Generate",
+                "Access Prompt",
+                "Access Image",
+                "Access Video",
               ],
-              cta: "Mula sekarang",
               highlighted: false,
             },
             {
-              name: "Growth",
-              price: "RM147",
+              name: "Pro",
+              price: "RM75",
               period: "/bulan",
-              desc: "Untuk seller serius scaling",
-              credits: "350 kredit",
+              desc: "Untuk seller serius nak scale",
               features: [
-                "~85 video 8 saat",
-                "Semua dalam Starter",
-                "Priority generation queue",
-                "Custom CTA setiap batch",
-                "Auto-post TikTok scheduler",
-                "WhatsApp support",
+                "Image (Banana Pro + GPT Image 2) — 20 sen",
+                "Video Veo 3.1 — 40 sen",
+                "Unlimited Generate",
+                "Access Prompt",
+                "Access Image",
+                "Access Video",
+                "Access Auto Content",
+                "Access Clone Video",
+                "Access Story Telling",
+                "Access Group VIP",
               ],
-              cta: "Pilih Growth",
               highlighted: true,
               badge: "Paling popular",
-            },
-            {
-              name: "Empire",
-              price: "RM397",
-              period: "/bulan",
-              desc: "Untuk team / agency",
-              credits: "1,000 kredit",
-              features: [
-                "~250 video 8 saat",
-                "Semua dalam Growth",
-                "Multi-account access",
-                "Dedicated account manager",
-                "API access (coming)",
-              ],
-              cta: "Hubungi kami",
-              highlighted: false,
             },
           ].map((plan, i) => (
             <div
               key={i}
               className={`card relative ${
                 plan.highlighted
-                  ? "border-2 border-violet-300 shadow-xl shadow-violet-500/10 scale-[1.02]"
+                  ? "border-2 border-orange-300 shadow-xl shadow-orange-500/10"
                   : ""
               }`}
             >
@@ -1025,25 +972,22 @@ export default function Home() {
                 </div>
               )}
               <div className="mb-5">
-                <h3 className="font-display font-bold text-xl mb-1">
-                  {plan.name}
+                <h3 className="font-display font-bold text-2xl mb-1">
+                  {plan.name} Plan
                 </h3>
                 <p className="text-sm text-[var(--color-text-muted)]">
                   {plan.desc}
                 </p>
               </div>
-              <div className="mb-5">
+              <div className="mb-6">
                 <span className="font-display font-extrabold text-5xl tracking-tight">
                   {plan.price}
                 </span>
                 <span className="text-[var(--color-text-muted)] text-base ml-1">
                   {plan.period}
                 </span>
-                <div className="text-sm text-[var(--color-accent-violet)] font-bold mt-1">
-                  {plan.credits}
-                </div>
               </div>
-              <ul className="space-y-3 mb-7">
+              <ul className="space-y-3">
                 {plan.features.map((f, j) => (
                   <li key={j} className="flex items-start gap-2.5 text-sm">
                     <CheckCircle2 className="w-5 h-5 text-emerald-500 flex-shrink-0 mt-0.5" />
@@ -1053,17 +997,17 @@ export default function Home() {
                   </li>
                 ))}
               </ul>
-              <Link
-                href="/register"
-                className={`block w-full text-center font-semibold py-3.5 rounded-full transition ${
-                  plan.highlighted ? "btn-primary" : "btn-secondary"
-                }`}
-              >
-                {plan.cta}
-              </Link>
             </div>
           ))}
         </div>
+
+        <p className="text-center mt-8 text-sm text-[var(--color-text-muted)]">
+          Pilih plan di bahagian{" "}
+          <a href="#checkout" className="text-orange font-semibold underline underline-offset-2">
+            checkout
+          </a>{" "}
+          di bawah untuk daftar dan bayar terus.
+        </p>
 
         <div className="mt-10 flex flex-wrap items-center justify-center gap-x-8 gap-y-3 text-sm text-[var(--color-text-muted)]">
           <div className="flex items-center gap-1.5">
@@ -1150,23 +1094,26 @@ export default function Home() {
               <span className="gradient-text-multi">Start scale dengan AI.</span>
             </h2>
             <p className="text-lg text-white/80 mb-8 max-w-xl mx-auto">
-              10 kredit free pertama anda — cukup untuk 2 video 8 saat. Tak
-              perlu credit card. Tak perlu komitmen.
+              Scroll ke bawah, pilih plan, daftar dalam 1 minit. Login info
+              dihantar di WhatsApp lepas pembayaran.
             </p>
-            <Link
-              href="/register"
+            <a
+              href="#checkout"
               className="inline-flex items-center justify-center gap-2 px-8 py-4 rounded-full bg-white text-[var(--color-text-primary)] font-bold text-base shadow-2xl hover:scale-105 transition-transform"
             >
-              Daftar Percuma — Sekarang
+              Pergi ke Checkout
               <ArrowRight className="w-4 h-4" />
-            </Link>
+            </a>
             <div className="mt-6 flex items-center justify-center gap-2 text-sm text-white/60">
               <ShieldCheck className="w-4 h-4 text-emerald-300" />
-              <span>30-day money back. Tiada drama.</span>
+              <span>FPX online banking via Chip · Secure</span>
             </div>
           </div>
         </div>
       </section>
+
+      {/* Checkout — sign-up via payment */}
+      <CheckoutForm />
 
       {/* Footer */}
       <footer className="relative z-10 border-t border-[var(--color-border)] mt-12 bg-white/50">
