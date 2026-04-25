@@ -126,16 +126,17 @@ export default function CheckoutForm() {
                 key={p.key}
                 type="button"
                 onClick={() => setPlan(p.key as any)}
-                className={`relative w-full text-left rounded-3xl p-6 border-2 transition-all ${
+                className={`relative w-full text-left rounded-3xl p-6 border-2 transition-all overflow-visible ${
                   isSelected
                     ? "border-orange-400 bg-gradient-to-br from-orange-50 via-white to-orange-50 shadow-xl shadow-orange-500/15"
                     : "border-[var(--color-border)] bg-white hover:border-orange-200"
                 }`}
+                style={{ marginTop: p.badge ? 12 : 0 }}
               >
                 {p.badge && (
-                  <div className="absolute -top-2 right-4 px-3 py-0.5 text-[10px] font-bold uppercase tracking-wider bg-gradient-to-r from-orange-500 to-orange-600 text-white rounded-md shadow-md">
+                  <span className="absolute -top-2 right-4 z-10 px-3 py-0.5 text-[10px] font-bold uppercase tracking-wider bg-gradient-to-r from-orange-500 to-orange-600 text-white rounded-md shadow-md whitespace-nowrap">
                     {p.badge}
-                  </div>
+                  </span>
                 )}
                 <div className="flex items-start justify-between gap-3 mb-3">
                   <div>

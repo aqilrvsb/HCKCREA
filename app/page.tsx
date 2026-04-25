@@ -958,19 +958,19 @@ export default function Home() {
               badge: "Paling popular",
             },
           ].map((plan, i) => (
-            <div
-              key={i}
-              className={`card relative ${
-                plan.highlighted
-                  ? "border-2 border-orange-300 shadow-xl shadow-orange-500/10"
-                  : ""
-              }`}
-            >
+            <div key={i} className="relative pt-4">
               {plan.badge && (
-                <div className="absolute -top-3 left-1/2 -translate-x-1/2 px-4 py-1.5 rounded-full text-xs font-bold uppercase tracking-wider bg-gradient-to-r from-orange-500 to-orange-600 text-white shadow-lg shadow-orange-500/30">
+                <div className="absolute top-0 left-1/2 -translate-x-1/2 z-10 px-4 py-1.5 rounded-full text-xs font-bold uppercase tracking-wider bg-gradient-to-r from-orange-500 to-orange-600 text-white shadow-lg shadow-orange-500/30 whitespace-nowrap">
                   {plan.badge}
                 </div>
               )}
+              <div
+                className={`card ${
+                  plan.highlighted
+                    ? "border-2 border-orange-300 shadow-xl shadow-orange-500/10"
+                    : ""
+                }`}
+              >
               <div className="mb-5">
                 <h3 className="font-display font-bold text-2xl mb-1">
                   {plan.name} Plan
@@ -997,6 +997,7 @@ export default function Home() {
                   </li>
                 ))}
               </ul>
+              </div>
             </div>
           ))}
         </div>
