@@ -928,8 +928,8 @@ export default function Home() {
               period: "/bulan",
               desc: "Untuk explore & test ringan",
               features: [
-                "Image (Banana Pro + GPT Image 2) — rate 50 sen",
-                "Video Veo 3.1 — rate 70 sen",
+                "Image (Banana Pro + GPT Image 2) — 50 sen",
+                "Video Veo 3.1 — 70 sen",
                 "Unlimited Generate",
                 "Access Prompt",
                 "Access Image",
@@ -1002,14 +1002,6 @@ export default function Home() {
           ))}
         </div>
 
-        <p className="text-center mt-8 text-sm text-[var(--color-text-muted)]">
-          Pilih plan di bahagian{" "}
-          <a href="#checkout" className="text-orange font-semibold underline underline-offset-2">
-            checkout
-          </a>{" "}
-          di bawah untuk daftar dan bayar terus.
-        </p>
-
         <div className="mt-10 flex flex-wrap items-center justify-center gap-x-8 gap-y-3 text-sm text-[var(--color-text-muted)]">
           <div className="flex items-center gap-1.5">
             <ShieldCheck className="w-4 h-4 text-emerald-500" />
@@ -1021,10 +1013,13 @@ export default function Home() {
           </div>
           <div className="flex items-center gap-1.5">
             <CheckCircle2 className="w-4 h-4 text-emerald-500" />
-            <span>Tiada credit card untuk trial</span>
+            <span>FPX online banking via Chip</span>
           </div>
         </div>
       </section>
+
+      {/* Checkout — direct continuation of pricing, same page */}
+      <CheckoutForm />
 
       {/* FAQ */}
       <section className="relative z-10 mx-auto max-w-3xl px-6 py-24">
@@ -1045,76 +1040,6 @@ export default function Home() {
           ))}
         </div>
       </section>
-
-      {/* Final CTA */}
-      <section className="relative z-10 mx-auto max-w-5xl px-6 py-24 text-center">
-        <div
-          className="relative overflow-hidden p-12 md:p-20 rounded-[36px]"
-          style={{
-            background:
-              "linear-gradient(135deg, #1e1b4b 0%, #312e81 50%, #5b21b6 100%)",
-            border: "1px solid #6d28d9",
-          }}
-        >
-          <div className="bg-noise" />
-          <div
-            className="absolute"
-            style={{
-              top: -100,
-              left: -100,
-              width: 400,
-              height: 400,
-              borderRadius: "50%",
-              background:
-                "radial-gradient(circle, rgba(236, 72, 153, 0.5), transparent 70%)",
-              filter: "blur(60px)",
-            }}
-          />
-          <div
-            className="absolute"
-            style={{
-              bottom: -100,
-              right: -100,
-              width: 400,
-              height: 400,
-              borderRadius: "50%",
-              background:
-                "radial-gradient(circle, rgba(59, 130, 246, 0.5), transparent 70%)",
-              filter: "blur(60px)",
-            }}
-          />
-
-          <div className="relative">
-            <div className="inline-flex items-center gap-2 mb-6 px-3 py-1.5 rounded-full bg-white/10 border border-white/20 backdrop-blur-md text-xs font-semibold text-white">
-              <Gauge className="w-3 h-3" />
-              <span>Mula dalam 60 saat</span>
-            </div>
-            <h2 className="font-display font-extrabold text-4xl sm:text-5xl md:text-6xl tracking-tight leading-[1.05] mb-5 text-white">
-              Stop bayar creator.
-              <br />
-              <span className="gradient-text-multi">Start scale dengan AI.</span>
-            </h2>
-            <p className="text-lg text-white/80 mb-8 max-w-xl mx-auto">
-              Scroll ke bawah, pilih plan, daftar dalam 1 minit. Login info
-              dihantar di WhatsApp lepas pembayaran.
-            </p>
-            <a
-              href="#checkout"
-              className="inline-flex items-center justify-center gap-2 px-8 py-4 rounded-full bg-white text-[var(--color-text-primary)] font-bold text-base shadow-2xl hover:scale-105 transition-transform"
-            >
-              Pergi ke Checkout
-              <ArrowRight className="w-4 h-4" />
-            </a>
-            <div className="mt-6 flex items-center justify-center gap-2 text-sm text-white/60">
-              <ShieldCheck className="w-4 h-4 text-emerald-300" />
-              <span>FPX online banking via Chip · Secure</span>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* Checkout — sign-up via payment */}
-      <CheckoutForm />
 
       {/* Footer */}
       <footer className="relative z-10 border-t border-[var(--color-border)] mt-12 bg-white/50">
