@@ -36,6 +36,8 @@ export default function Sidebar({
   email,
   name,
   credits,
+  planActive,
+  planExpiresAt,
   projects,
   projectLimit,
   onProjectsChange,
@@ -45,6 +47,8 @@ export default function Sidebar({
   email: string;
   name: string;
   credits: number;
+  planActive: boolean;
+  planExpiresAt: string | null;
   projects: Project[];
   projectLimit: number;
   onProjectsChange: (p: Project[]) => void;
@@ -385,8 +389,8 @@ export default function Sidebar({
         })}
       </div>
 
-      {/* Credit pill */}
-      <div className="px-4 pb-3 pt-3">
+      {/* Credit pill + subscription status */}
+      <div className="px-4 pb-3 pt-3 space-y-2">
         <div
           className="relative overflow-hidden rounded-2xl p-4 border"
           style={{
@@ -420,6 +424,12 @@ export default function Sidebar({
             + Top Up
           </button>
         </div>
+
+        <SubStatusPill
+          planActive={planActive}
+          planExpiresAt={planExpiresAt}
+          onClick={() => onViewChange({ kind: "billing" })}
+        />
       </div>
 
       {/* User card */}
@@ -463,5 +473,70 @@ export default function Sidebar({
         </div>
       </div>
     </aside>
+  );
+}
+
+// Subscription status pill shown under the Credit Balance card. Three
+// states: active (green dot, days-remaining), expired (red, expired-date),
+// no-plan (orange, prompt to subscribe). Tap routes to Billing.
+function SubStatusPill({
+  planActive,
+  planExpiresAt,
+  onClick,
+}: {
+  planActive: boolean;
+  planExpiresAt: string | null;
+  onClick: () => void;
+}) {
+  const expDate = planExpiresAt ? new Date(planExpiresAt) : null;
+  const expDateStr = expDate
+    ? expDate.toLocaleDateString("ms-MY", { day: "numeric", month: "short", year: "numeric" })
+    : null;
+  const daysLeft = expDate
+    ? Math.max(0, Math.ceil((expDate.getTime() - Date.now()) / 86400000))
+    : 0;
+
+  let dotColor = "#888";
+  let labelColor = "var(--color-text-secondary)";
+  let title = "No active plan";
+  let sub = "Subscribe Pro Plan";
+
+  if (planActive) {
+    dotColor = "#22c55e";
+    labelColor = "#22c55e";
+    title = `Pro · ${daysLeft} day${daysLeft === 1 ? "" : "s"} left`;
+    sub = expDateStr ? `Expires ${expDateStr}` : "Active";
+  } else if (planExpiresAt) {
+    dotColor = "#ef4444";
+    labelColor = "#ef4444";
+    title = "Subscription expired";
+    sub = expDateStr ? `Expired ${expDateStr}` : "Expired";
+  }
+
+  return (
+    <button
+      onClick={onClick}
+      className="w-full text-left rounded-xl p-3 border transition-colors hover:opacity-90"
+      style={{
+        background: "var(--color-bg-card)",
+        borderColor: "var(--color-border)",
+      }}
+    >
+      <div className="flex items-center gap-2 mb-0.5">
+        <span
+          className="w-1.5 h-1.5 rounded-full flex-shrink-0"
+          style={{ background: dotColor, boxShadow: planActive ? `0 0 0 3px ${dotColor}33` : "none" }}
+        />
+        <span
+          className="font-mono text-[10px] uppercase tracking-widest font-bold"
+          style={{ color: labelColor }}
+        >
+          {title}
+        </span>
+      </div>
+      <div className="text-[10px]" style={{ color: "var(--color-text-muted)" }}>
+        {sub}
+      </div>
+    </button>
   );
 }

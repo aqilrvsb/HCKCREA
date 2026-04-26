@@ -13,12 +13,12 @@ export default async function DashboardPage() {
     redirect("/login");
   }
 
-  // Read live credits + name from the profile row (admin client because RLS
-  // hits .single() before the trigger has populated everything).
+  // Read live credits + name + plan/expiry from the profile row (admin client
+  // because RLS hits .single() before the trigger has populated everything).
   const admin = createAdminClient();
   const { data: profile } = await admin
     .from("profiles")
-    .select("credits, full_name")
+    .select("credits, full_name, plan, plan_expires_at")
     .eq("id", user.id)
     .maybeSingle();
 
@@ -29,11 +29,20 @@ export default async function DashboardPage() {
     user.email?.split("@")[0] ||
     "User";
 
+  const plan = (profile?.plan as string) || "free";
+  const planExpiresAt = (profile?.plan_expires_at as string) || null;
+  const planActive =
+    plan === "pro" &&
+    !!planExpiresAt &&
+    new Date(planExpiresAt) > new Date();
+
   return (
     <DashboardShell
       email={user.email || ""}
       name={name}
       credits={credits}
+      planActive={planActive}
+      planExpiresAt={planExpiresAt}
     />
   );
 }

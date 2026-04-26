@@ -37,10 +37,14 @@ export default function DashboardShell({
   email,
   name,
   credits,
+  planActive,
+  planExpiresAt,
 }: {
   email: string;
   name: string;
   credits: number;
+  planActive: boolean;
+  planExpiresAt: string | null;
 }) {
   const [projects, setProjects] = useState<Project[]>([]);
   const [projectLimit, setProjectLimit] = useState(4);
@@ -89,6 +93,8 @@ export default function DashboardShell({
           email={email}
           name={name}
           credits={credits}
+          planActive={planActive}
+          planExpiresAt={planExpiresAt}
           projects={projects}
           projectLimit={projectLimit}
           onProjectsChange={setProjects}
@@ -140,6 +146,9 @@ export default function DashboardShell({
               project={activeProject}
               activeTab={activeTab}
               onTabChange={setActiveTab}
+              planActive={planActive}
+              planExpiresAt={planExpiresAt}
+              onGotoBilling={() => setView({ kind: "billing" })}
             />
           )}
 
@@ -200,10 +209,16 @@ function ProjectView({
   project,
   activeTab,
   onTabChange,
+  planActive,
+  planExpiresAt,
+  onGotoBilling,
 }: {
   project: Project;
   activeTab: TabKey;
   onTabChange: (t: TabKey) => void;
+  planActive: boolean;
+  planExpiresAt: string | null;
+  onGotoBilling: () => void;
 }) {
   const active = TABS.find((t) => t.key === activeTab)!;
   return (
@@ -226,7 +241,8 @@ function ProjectView({
         </div>
       </header>
 
-      {/* Tab pills — Image / Video / UGC / Clone / Auto Content */}
+      {/* Tab pills — Image / UGC / Cinema / Clone / Auto Content. When the
+          subscription is inactive every click routes to Billing instead. */}
       <div className="px-5 lg:px-10 pt-2">
         <div
           className="flex gap-2 overflow-x-auto pb-2 border-b"
@@ -235,13 +251,15 @@ function ProjectView({
           {TABS.map((t) => {
             const Icon = t.icon;
             const isActive = activeTab === t.key;
+            const locked = !planActive;
             return (
               <button
                 key={t.key}
-                onClick={() => onTabChange(t.key)}
+                onClick={() => (locked ? onGotoBilling() : onTabChange(t.key))}
+                title={locked ? "Subscribe to unlock" : t.label}
                 className="flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-bold whitespace-nowrap transition-all"
                 style={
-                  isActive
+                  isActive && !locked
                     ? {
                         background:
                           "linear-gradient(135deg, #ff6a1a 0%, #ff4d00 100%)",
@@ -252,6 +270,7 @@ function ProjectView({
                         background: "var(--color-bg-card)",
                         border: "1px solid var(--color-border)",
                         color: "var(--color-text-secondary)",
+                        opacity: locked ? 0.6 : 1,
                       }
                 }
               >
@@ -260,10 +279,10 @@ function ProjectView({
                 <span
                   className="font-mono text-[10px] tracking-wider"
                   style={{
-                    color: isActive ? "rgba(255,255,255,0.7)" : "var(--color-text-muted)",
+                    color: isActive && !locked ? "rgba(255,255,255,0.7)" : "var(--color-text-muted)",
                   }}
                 >
-                  {t.tag}
+                  {locked ? "🔒" : t.tag}
                 </span>
               </button>
             );
@@ -271,47 +290,128 @@ function ProjectView({
         </div>
       </div>
 
-      {/* Tab body — keyed on project.id so state resets per project */}
-      <div key={project.id} className="flex-1 px-5 lg:px-10 pt-6 pb-10 lg:pb-12 space-y-6">
-        {activeTab === "image" && (
-          <>
+      {/* Locked state — show a single Renew CTA in place of the tab body */}
+      {!planActive && (
+        <div className="flex-1 px-5 lg:px-10 pt-10 pb-12">
+          <SubscriptionLocked
+            expiresAt={planExpiresAt}
+            onGotoBilling={onGotoBilling}
+          />
+        </div>
+      )}
+
+      {/* Tab body — only rendered when subscription is active */}
+      {planActive && (
+        <div key={project.id} className="flex-1 px-5 lg:px-10 pt-6 pb-10 lg:pb-12 space-y-6">
+          {activeTab === "image" && (
+            <>
+              <div className="max-w-5xl mx-auto w-full">
+                <ImageTab projectId={project.id} />
+              </div>
+              <HistoryGrid tab="image" title={`Image — ${project.name}`} projectId={project.id} />
+            </>
+          )}
+          {activeTab === "video" && (
+            <>
+              <div className="max-w-5xl mx-auto w-full">
+                <VideoTab projectId={project.id} />
+              </div>
+              <HistoryGrid tab="video" title={`UGC — ${project.name}`} projectId={project.id} />
+            </>
+          )}
+          {activeTab === "cinema" && (
+            <>
+              <div className="max-w-5xl mx-auto w-full">
+                <CinemaTab projectId={project.id} />
+              </div>
+              <HistoryGrid tab="cinema" title={`Cinema — ${project.name}`} projectId={project.id} />
+            </>
+          )}
+          {activeTab === "clone" && (
             <div className="max-w-5xl mx-auto w-full">
-              <ImageTab projectId={project.id} />
+              <CloneTab projectId={project.id} />
             </div>
-            <HistoryGrid tab="image" title={`Image — ${project.name}`} projectId={project.id} />
-          </>
-        )}
-        {activeTab === "video" && (
-          <>
-            <div className="max-w-5xl mx-auto w-full">
-              <VideoTab projectId={project.id} />
-            </div>
-            <HistoryGrid tab="video" title={`UGC — ${project.name}`} projectId={project.id} />
-          </>
-        )}
-        {activeTab === "cinema" && (
-          <>
-            <div className="max-w-5xl mx-auto w-full">
-              <CinemaTab projectId={project.id} />
-            </div>
-            <HistoryGrid tab="cinema" title={`Cinema — ${project.name}`} projectId={project.id} />
-          </>
-        )}
-        {activeTab === "clone" && (
-          <div className="max-w-5xl mx-auto w-full">
-            <CloneTab projectId={project.id} />
-          </div>
-        )}
-        {activeTab === "auto" && (
-          <>
-            <div className="max-w-5xl mx-auto w-full">
-              <AutoContentTab projectId={project.id} />
-            </div>
-            <HistoryGrid tab="auto" title={`Auto Content — ${project.name}`} projectId={project.id} />
-          </>
-        )}
-      </div>
+          )}
+          {activeTab === "auto" && (
+            <>
+              <div className="max-w-5xl mx-auto w-full">
+                <AutoContentTab projectId={project.id} />
+              </div>
+              <HistoryGrid tab="auto" title={`Auto Content — ${project.name}`} projectId={project.id} />
+            </>
+          )}
+        </div>
+      )}
     </>
+  );
+}
+
+// Locked state when the subscription is missing/expired. Replaces the tab
+// body with a single CTA that routes to Billing.
+function SubscriptionLocked({
+  expiresAt,
+  onGotoBilling,
+}: {
+  expiresAt: string | null;
+  onGotoBilling: () => void;
+}) {
+  const expiredOn = expiresAt
+    ? new Date(expiresAt).toLocaleDateString("ms-MY", {
+        day: "numeric",
+        month: "short",
+        year: "numeric",
+      })
+    : null;
+  const wasOnce = !!expiresAt;
+  return (
+    <div className="max-w-2xl mx-auto w-full">
+      <div
+        className="rounded-3xl p-8 md:p-10 relative overflow-hidden"
+        style={{
+          background:
+            "linear-gradient(135deg, #1a0a05 0%, #2d1208 50%, #4d1f0a 100%)",
+        }}
+      >
+        <div
+          className="absolute"
+          style={{
+            top: -120,
+            right: -120,
+            width: 360,
+            height: 360,
+            borderRadius: "50%",
+            background:
+              "radial-gradient(circle, rgba(255, 87, 34, 0.35), transparent 70%)",
+            filter: "blur(60px)",
+          }}
+        />
+        <div className="relative">
+          <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white/15 border border-white/20 text-xs font-bold uppercase tracking-wider text-white mb-4">
+            🔒 {wasOnce ? "Subscription expired" : "No active plan"}
+          </div>
+          <h2 className="font-display font-extrabold text-4xl md:text-5xl tracking-tight text-white mb-3">
+            {wasOnce ? "Renew Pro Plan" : "Subscribe Pro Plan"}
+          </h2>
+          <p className="text-white/80 text-base mb-6 max-w-lg">
+            {wasOnce
+              ? `Subscription habis tempoh pada ${expiredOn}. Renew untuk akses balik Image, UGC, Cinema, Clone Prompt, dan Auto Content.`
+              : "Subscribe Pro Plan untuk unlock semua features — Image AI, UGC, Cinema, Clone Prompt, Auto Content. RM75/bulan, cancel bila-bila."}
+          </p>
+          <button
+            onClick={onGotoBilling}
+            className="inline-flex items-center gap-2 px-6 py-3 rounded-full font-extrabold text-sm transition-transform hover:-translate-y-0.5"
+            style={{
+              background: "linear-gradient(90deg, #ff6a1a 0%, #ff4d00 100%)",
+              color: "white",
+              boxShadow: "0 8px 24px rgba(255,87,34,0.35)",
+            }}
+          >
+            {wasOnce ? "Renew now" : "Subscribe RM75/bulan"}
+            →
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }
 
