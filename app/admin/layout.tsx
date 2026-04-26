@@ -103,14 +103,8 @@ export default async function AdminLayout({
                 <Link
                   key={item.href}
                   href={item.href}
-                  className="group flex items-center gap-4 px-5 py-4 rounded-xl font-bold text-base transition-all hover:translate-x-0.5"
+                  className="admin-nav-item group flex items-center gap-4 px-5 py-4 rounded-xl font-bold text-base transition-all hover:translate-x-0.5"
                   style={{ color: "var(--color-orange)" }}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.background = "rgba(255, 87, 34, 0.08)";
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.background = "transparent";
-                  }}
                 >
                   <Icon className="w-5 h-5" strokeWidth={2.4} />
                   {item.label}

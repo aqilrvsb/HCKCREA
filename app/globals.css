@@ -493,3 +493,9 @@ details.faq-item .faq-body {
 .avatar-stack > * + * {
   margin-left: -10px;
 }
+
+/* Admin sidebar nav hover — used by app/admin/layout.tsx
+   (server component cannot use onMouseEnter handlers, so this stays in CSS) */
+.admin-nav-item:hover {
+  background: rgba(255, 87, 34, 0.08);
+}
