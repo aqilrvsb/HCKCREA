@@ -21,6 +21,10 @@ export async function POST(req: Request) {
 
   const body = await req.json().catch(() => ({}));
   const parentId = String(body?.parent_id || "");
+  // Optional overrides — let the user steer the continuation
+  const userPrompt = String(body?.continuation_prompt || "").trim();
+  const startFrameOverride = body?.start_frame_url ? String(body.start_frame_url) : "";
+  const endFrameUrl = body?.end_frame_url ? String(body.end_frame_url) : "";
   if (!parentId) return NextResponse.json({ error: "Missing parent_id" }, { status: 400 });
 
   const admin = createAdminClient();
@@ -45,19 +49,31 @@ export async function POST(req: Request) {
   }
 
   const cfg = await getP2Config();
-  const refUrl = parent.reference_url || parent.output_url;
-  const model = parent.reference_url ? cfg.videoR2V : cfg.videoI2V;
+  // Start frame: user override > parent reference > parent output
+  const startUrl = startFrameOverride || parent.reference_url || parent.output_url;
+  // If user picked an end frame, this becomes a frame-mode (i2v) extension.
+  const useFrameMode = !!endFrameUrl;
+  const model = useFrameMode
+    ? cfg.videoI2V
+    : parent.reference_url
+      ? cfg.videoR2V
+      : cfg.videoI2V;
 
-  const continuationPrompt =
-    `${parent.prompt || ""}\n\n[CONTINUATION SHOT — extend the previous 8 seconds smoothly. Keep same character, outfit, scene, and lighting. New camera angle or action beat.]`;
+  const continuationPrompt = userPrompt
+    ? userPrompt
+    : `${parent.prompt || ""}\n\n[CONTINUATION SHOT — extend the previous 8 seconds smoothly. Keep same character, outfit, scene, and lighting. New camera angle or action beat.]`;
+
+  const imageUrls = useFrameMode
+    ? [startUrl, endFrameUrl].filter(Boolean)
+    : startUrl ? [startUrl] : [];
 
   const created = await p2CreateTask({
     model,
     prompt: continuationPrompt,
-    imageUrls: refUrl ? [refUrl] : [],
+    imageUrls,
     durationMode: "8",
     aspectRatio: "9:16",
-    imageMode: parent.reference_url ? "ingredient" : "frame",
+    imageMode: useFrameMode ? "frame" : parent.reference_url ? "ingredient" : "frame",
   });
   if (!created.ok || !created.task_id) {
     return NextResponse.json({ error: created.error || "P2 create failed" }, { status: 502 });
@@ -67,11 +83,12 @@ export async function POST(req: Request) {
     .from("history")
     .insert({
       user_id: user.id,
+      project_id: (parent as any).project_id || null,
       type: "video",
       tab: parent.tab, // keep in same tab as parent
       status: "pending",
       prompt: continuationPrompt,
-      reference_url: refUrl,
+      reference_url: startUrl,
       task_id: created.task_id,
       duration: 8,
       cost,
@@ -79,6 +96,7 @@ export async function POST(req: Request) {
         parent_id: parent.id,
         is_extension: true,
         model,
+        end_frame_url: endFrameUrl || null,
       },
     })
     .select()

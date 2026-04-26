@@ -221,7 +221,6 @@ const ACTION = {
 };
 
 function HistoryCard({ item }: { item: HistoryItem }) {
-  const [extending, setExtending] = useState(false);
   const [checking, setChecking] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [name, setName] = useState(item.metadata?.name || "");
@@ -230,29 +229,11 @@ function HistoryCard({ item }: { item: HistoryItem }) {
   const [showFullscreen, setShowFullscreen] = useState(false);
   const [showPromptModal, setShowPromptModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
+  const [showExtendModal, setShowExtendModal] = useState(false);
 
   const isVideo = item.type === "video" || item.type === "auto-content" || item.type === "clone";
   const isImage = item.type === "image";
   const canExtend = isVideo && item.status === "done" && item.output_url;
-
-  async function extend() {
-    setExtending(true);
-    try {
-      const r = await fetch("/api/generate/extend", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ parent_id: item.id }),
-      });
-      const d = await r.json();
-      if (!r.ok || !d?.ok) {
-        alert(d?.error || "Extend failed");
-      } else {
-        window.dispatchEvent(new CustomEvent("history:refresh"));
-      }
-    } finally {
-      setExtending(false);
-    }
-  }
 
   async function checkNow() {
     setChecking(true);
@@ -496,15 +477,18 @@ function HistoryCard({ item }: { item: HistoryItem }) {
             <>
               {canExtend && (
                 <button
-                  onClick={extend}
-                  disabled={extending}
+                  onClick={() => setShowExtendModal(true)}
                   title="Extend +8s"
-                  className="flex-1 h-7 rounded-lg text-[9px] font-extrabold uppercase tracking-wider text-white flex items-center justify-center gap-1 disabled:opacity-50 transition-transform hover:scale-105"
+                  className="flex-1 h-7 rounded-lg text-[9px] font-extrabold uppercase tracking-wider text-white flex items-center justify-center gap-1 transition-transform hover:scale-105"
                   style={{ background: ACTION.extend, boxShadow: "0 2px 6px rgba(245,158,11,0.4)" }}
                 >
-                  {extending ? <Loader2 className="w-3 h-3 animate-spin" /> : <><Plus className="w-3 h-3" />Extend</>}
+                  <Plus className="w-3 h-3" />
+                  Extend
                 </button>
               )}
+              <ActionBtn title="Improve Video" onClick={() => setShowEditModal(true)} bg={ACTION.edit}>
+                <Pencil className="w-3.5 h-3.5" strokeWidth={2.4} />
+              </ActionBtn>
               <ActionBtn title="Download" onClick={handleDownload} bg={ACTION.download}>
                 <Download className="w-3.5 h-3.5" strokeWidth={2.4} />
               </ActionBtn>
@@ -560,12 +544,33 @@ function HistoryCard({ item }: { item: HistoryItem }) {
         <PromptModal prompt={item.prompt} onClose={() => setShowPromptModal(false)} />
       )}
 
-      {/* Edit Image modal */}
-      {showEditModal && item.output_url && (
+      {/* Edit Image modal — image cards only */}
+      {showEditModal && isImage && item.output_url && (
         <EditImageModal
           referenceUrl={item.output_url}
           model={item.metadata?.model || "nano-banana-pro"}
           onClose={() => setShowEditModal(false)}
+        />
+      )}
+
+      {/* Improve Video modal — video cards only */}
+      {showEditModal && isVideo && item.output_url && (
+        <ImproveVideoModal
+          parentId={item.id}
+          referenceUrl={item.reference_url || item.output_url}
+          originalPrompt={item.prompt || ""}
+          onClose={() => setShowEditModal(false)}
+        />
+      )}
+
+      {/* Extend Video modal */}
+      {showExtendModal && canExtend && item.output_url && (
+        <ExtendVideoModal
+          parentId={item.id}
+          parentDuration={item.duration || 8}
+          parentReferenceUrl={item.reference_url || item.output_url}
+          parentOutputUrl={item.output_url}
+          onClose={() => setShowExtendModal(false)}
         />
       )}
     </div>
@@ -1076,5 +1081,547 @@ function ActionBtn({
     >
       {disabled ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : children}
     </button>
+  );
+}
+
+// ── Improve Video Modal ─────────────────────────────────────────────────────
+// Mirrors creative-hack-auto's "Improve Video" flow: take user's improvement
+// suggestion + image-role choice, build an improved prompt, and re-run the
+// video generation with the original reference image as the start frame.
+function ImproveVideoModal({
+  parentId,
+  referenceUrl,
+  originalPrompt,
+  onClose,
+}: {
+  parentId: string;
+  referenceUrl: string;
+  originalPrompt: string;
+  onClose: () => void;
+}) {
+  const [suggestion, setSuggestion] = useState("");
+  const [imageMode, setImageMode] = useState<"frame" | "ingredient">("frame");
+  const [submitting, setSubmitting] = useState(false);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    window.addEventListener("keydown", onKey);
+    document.body.style.overflow = "hidden";
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      document.body.style.overflow = "";
+    };
+  }, [onClose]);
+
+  async function generate() {
+    const text = suggestion.trim();
+    if (!text) return alert("Please write an improvement suggestion");
+    setSubmitting(true);
+
+    // Build improved prompt — verbatim from extension's flow.
+    let improvedPrompt =
+      originalPrompt + "\n\nIMPROVEMENT INSTRUCTIONS (apply these changes): " + text;
+    if (imageMode === "ingredient") {
+      improvedPrompt +=
+        "\n\n--- REFERENCE IMAGE LOCK (MANDATORY) ---\n" +
+        "CRITICAL PRODUCT LOCK: The product shown MUST be PIXEL-IDENTICAL to the first reference image. " +
+        "Do NOT change its color, shape, label, size, material, or any detail. Zero variation. " +
+        "Use ONLY the product from the reference image. Do NOT invent or alter the product appearance.\n" +
+        "CRITICAL AVATAR LOCK: The person/character MUST be IDENTICAL to the second reference image — " +
+        "same face, same skin tone, same hair, same outfit, same hijab (if any), same age. " +
+        "The avatar is the same person throughout. Zero variation in appearance.\n" +
+        "NEVER leak brand names, logos, or text visible on the product. Refer to the product generically as \"the product\" or \"the item\" only.\n" +
+        "Only the SCENE, motion, pose, background, and action may change per the improvement instructions above — " +
+        "product identity and avatar identity are LOCKED.";
+    }
+
+    try {
+      const r = await fetch("/api/generate/video", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          prompt: improvedPrompt,
+          image_urls: [referenceUrl],
+          duration: "8",
+          image_mode: imageMode,
+          aspect_ratio: "9:16",
+        }),
+      });
+      const d = await r.json();
+      if (r.ok && d?.ok) {
+        window.dispatchEvent(new CustomEvent("history:refresh"));
+        onClose();
+      } else {
+        alert(d?.error || "Improve failed");
+      }
+    } catch (e: any) {
+      alert(e?.message || "Network error");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      style={{ background: "rgba(0,0,0,0.7)", backdropFilter: "blur(8px)" }}
+      onClick={onClose}
+    >
+      <div
+        className="rounded-2xl max-w-md w-full max-h-[90vh] flex flex-col overflow-hidden"
+        style={{
+          background: "#fafaf7",
+          border: "2px solid #b388ff",
+          boxShadow: "0 20px 60px rgba(124,77,255,0.3)",
+        }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div
+          className="flex items-center justify-between px-5 py-4 border-b"
+          style={{ borderColor: "#e8e0d8" }}
+        >
+          <h2 className="font-display font-extrabold text-lg flex items-center gap-2" style={{ color: "#7c4dff" }}>
+            <Pencil className="w-5 h-5" />
+            Improve Video
+          </h2>
+          <button
+            onClick={onClose}
+            className="w-8 h-8 rounded-lg flex items-center justify-center hover:bg-gray-200 text-xs font-bold"
+            style={{ background: "#fafaf7", border: "1px solid #e8e0d8", color: "#1a1a1a" }}
+          >
+            X
+          </button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-5">
+          <div className="flex gap-3 mb-4">
+            <img
+              src={referenceUrl}
+              alt=""
+              className="w-20 h-24 object-cover rounded-lg flex-shrink-0"
+              style={{ border: "1px solid #e8e0d8" }}
+            />
+            <div>
+              <div className="text-[10px] font-bold uppercase tracking-wider mb-1" style={{ color: "#666" }}>
+                Reference Image
+              </div>
+              <div className="text-xs text-gray-600 leading-relaxed">
+                Will be reused as starting frame for the new video.
+              </div>
+            </div>
+          </div>
+
+          <label className="block text-[10px] font-bold uppercase tracking-wider mb-1.5" style={{ color: "#666" }}>
+            Original Prompt
+          </label>
+          <div
+            className="text-[11px] font-mono leading-relaxed whitespace-pre-wrap rounded-lg p-3 max-h-28 overflow-y-auto mb-4"
+            style={{ background: "#f0f5ec", color: "#1a1a1a", border: "1px solid #e8e0d8" }}
+          >
+            {originalPrompt}
+          </div>
+
+          <label className="block text-[10px] font-bold uppercase tracking-wider mb-1.5" style={{ color: "#666" }}>
+            Your Improvement Suggestion <span className="text-gray-400 font-normal">(required)</span>
+          </label>
+          <textarea
+            rows={4}
+            value={suggestion}
+            onChange={(e) => setSuggestion(e.target.value)}
+            placeholder="E.g., make the person smile more, add a zoom-in on product at the end, slower pacing, brighter lighting..."
+            className="w-full p-3 rounded-lg text-xs resize-y outline-none mb-4"
+            style={{
+              background: "#f0f5ec",
+              border: "1px solid #e8e0d8",
+              color: "#1a1a1a",
+              fontFamily: "monospace",
+            }}
+          />
+
+          <label className="block text-[10px] font-bold uppercase tracking-wider mb-1.5" style={{ color: "#666" }}>
+            Image Role
+          </label>
+          <select
+            value={imageMode}
+            onChange={(e) => setImageMode(e.target.value as any)}
+            className="w-full px-3 py-2 rounded-lg text-xs font-semibold outline-none"
+            style={{ background: "#fafaf7", border: "1px solid #e8e0d8", color: "#1a1a1a" }}
+          >
+            <option value="frame">First Frame (scene continues from image)</option>
+            <option value="ingredient">Avatar changes (new scene with same product + character)</option>
+          </select>
+        </div>
+
+        <div
+          className="px-5 py-4 border-t flex gap-3"
+          style={{ borderColor: "#e8e0d8", background: "#f5f5f0" }}
+        >
+          <button
+            onClick={onClose}
+            className="px-6 py-3 rounded-lg text-sm font-semibold"
+            style={{ background: "#fafaf7", border: "1px solid #e8e0d8", color: "#1a1a1a" }}
+          >
+            Cancel
+          </button>
+          <button
+            onClick={generate}
+            disabled={submitting}
+            className="flex-1 py-3 rounded-lg font-extrabold text-sm text-white transition-transform hover:-translate-y-0.5 disabled:opacity-50 inline-flex items-center justify-center gap-2"
+            style={{
+              background: "linear-gradient(135deg, #7c4dff, #b388ff)",
+              boxShadow: "0 4px 14px rgba(124,77,255,0.4)",
+            }}
+          >
+            {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : "🎬"}
+            {submitting ? "Submitting…" : "Generate Improved Video"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Extend Video Modal ──────────────────────────────────────────────────────
+// Single-scene 8s extension. Image mode (frame/ingredient/text) drives whether
+// start/end frame zones appear. Frames default to "auto" (server uses parent's
+// last frame) but the user can override via Upload or History pick.
+function ExtendVideoModal({
+  parentId,
+  parentDuration,
+  parentReferenceUrl,
+  parentOutputUrl,
+  onClose,
+}: {
+  parentId: string;
+  parentDuration: number;
+  parentReferenceUrl: string;
+  parentOutputUrl: string;
+  onClose: () => void;
+}) {
+  const [imageMode, setImageMode] = useState<"frame" | "ingredient" | "text">("frame");
+  const [startFrame, setStartFrame] = useState(""); // "" = auto
+  const [endFrame, setEndFrame] = useState("");
+  const [refImage, setRefImage] = useState("");
+  const [prompt, setPrompt] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [pickerSlot, setPickerSlot] = useState<"start" | "end" | "ref" | null>(null);
+
+  const startInputRef = useRef<HTMLInputElement | null>(null);
+  const endInputRef = useRef<HTMLInputElement | null>(null);
+  const refInputRef = useRef<HTMLInputElement | null>(null);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    window.addEventListener("keydown", onKey);
+    document.body.style.overflow = "hidden";
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      document.body.style.overflow = "";
+    };
+  }, [onClose]);
+
+  function readFile(f: File | null, set: (s: string) => void) {
+    if (!f) return;
+    const reader = new FileReader();
+    reader.onload = () => set(String(reader.result || ""));
+    reader.readAsDataURL(f);
+  }
+
+  async function ensurePublicUrl(v: string): Promise<string> {
+    if (!v) return "";
+    if (!v.startsWith("data:")) return v;
+    const blob = await (await fetch(v)).blob();
+    const fd = new FormData();
+    fd.append("file", blob, "extend-ref.png");
+    const r = await fetch("/api/upload/image", { method: "POST", body: fd });
+    const d = await r.json();
+    if (!r.ok || !d?.url) throw new Error(d?.error || "Upload failed");
+    return d.url;
+  }
+
+  async function generate() {
+    const text = prompt.trim();
+    if (!text) return alert("Continuation prompt is required");
+    if (imageMode === "ingredient" && !refImage)
+      return alert("Upload Image Reference for Product Ref mode");
+    setSubmitting(true);
+    try {
+      const [startPub, endPub, refPub] = await Promise.all([
+        ensurePublicUrl(startFrame),
+        ensurePublicUrl(endFrame),
+        ensurePublicUrl(refImage),
+      ]);
+
+      const body: any = {
+        parent_id: parentId,
+        continuation_prompt: text,
+      };
+      if (imageMode === "frame") {
+        if (startPub) body.start_frame_url = startPub;
+        if (endPub) body.end_frame_url = endPub;
+      } else if (imageMode === "ingredient") {
+        body.start_frame_url = refPub;
+      }
+      // For "text" mode: no frames sent, just the prompt.
+
+      const r = await fetch("/api/generate/extend", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const d = await r.json();
+      if (r.ok && d?.ok) {
+        window.dispatchEvent(new CustomEvent("history:refresh"));
+        onClose();
+      } else {
+        alert(d?.error || "Extend failed");
+      }
+    } catch (e: any) {
+      alert(e?.message || "Network error");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  function handlePickFromHistory(url: string) {
+    if (pickerSlot === "start") setStartFrame(url);
+    else if (pickerSlot === "end") setEndFrame(url);
+    else if (pickerSlot === "ref") setRefImage(url);
+    setPickerSlot(null);
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      style={{ background: "rgba(0,0,0,0.7)", backdropFilter: "blur(8px)" }}
+      onClick={onClose}
+    >
+      <div
+        className="rounded-2xl max-w-md w-full max-h-[90vh] flex flex-col overflow-hidden"
+        style={{
+          background: "#fafaf7",
+          border: "2px solid #f59e0b",
+          boxShadow: "0 20px 60px rgba(245,158,11,0.3)",
+        }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div
+          className="flex items-center justify-between px-5 py-4 border-b"
+          style={{ borderColor: "#e8e0d8" }}
+        >
+          <h2 className="font-display font-extrabold text-lg" style={{ color: "#1a1a1a" }}>
+            Extend Video <span className="text-xs font-mono text-gray-400">({parentDuration}s)</span>
+          </h2>
+          <button
+            onClick={onClose}
+            className="w-8 h-8 rounded-full flex items-center justify-center hover:bg-gray-200"
+            style={{ background: "#fafaf7", border: "1px solid #e8e0d8" }}
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-5">
+          {/* Duration — only 1 scene supported for now */}
+          <select
+            disabled
+            className="w-full px-3 py-2 rounded-lg text-xs font-semibold outline-none mb-4"
+            style={{ background: "#fafaf7", border: "1px solid #e8e0d8", color: "#1a1a1a" }}
+          >
+            <option>{parentDuration}-{parentDuration + 8}s (1 scene)</option>
+          </select>
+
+          <div
+            className="rounded-lg p-4"
+            style={{ background: "#f0f5ec", border: "1px solid #d8e8d0" }}
+          >
+            <div className="flex items-center justify-between mb-3">
+              <span className="text-xs font-extrabold" style={{ color: "#f59e0b" }}>
+                Scene ({parentDuration}-{parentDuration + 8}s)
+              </span>
+              <select
+                value={imageMode}
+                onChange={(e) => setImageMode(e.target.value as any)}
+                className="px-2 py-1 rounded text-[10px] font-semibold outline-none"
+                style={{ background: "#fafaf7", border: "1px solid #e8e0d8", color: "#1a1a1a" }}
+              >
+                <option value="frame">First Frame</option>
+                <option value="ingredient">Product Ref</option>
+                <option value="text">Text to Video</option>
+              </select>
+            </div>
+
+            {imageMode === "text" && (
+              <div
+                className="p-2.5 rounded mb-3 text-center text-[10px] font-semibold"
+                style={{ background: "#fafaf7", border: "1px dashed #d8e8d0", color: "#888" }}
+              >
+                📝 Text only — no image needed
+              </div>
+            )}
+
+            {imageMode === "ingredient" && (
+              <div className="mb-3">
+                <div className="text-[10px] font-bold mb-1.5" style={{ color: "#f59e0b" }}>
+                  Image Reference *
+                </div>
+                <ExtendFrameZone
+                  url={refImage}
+                  icon="📦"
+                  color="#f59e0b"
+                  required
+                  inputRef={refInputRef}
+                  onUpload={(f) => readFile(f, setRefImage)}
+                  onHistory={() => setPickerSlot("ref")}
+                  onClear={() => setRefImage("")}
+                />
+              </div>
+            )}
+
+            {imageMode === "frame" && (
+              <div className="grid grid-cols-2 gap-2 mb-3">
+                <div>
+                  <div className="text-[10px] font-bold mb-1.5" style={{ color: "#22c55e" }}>
+                    Start Frame {startFrame ? "" : "(auto)"}
+                  </div>
+                  <ExtendFrameZone
+                    url={startFrame}
+                    icon="auto"
+                    color="#22c55e"
+                    inputRef={startInputRef}
+                    onUpload={(f) => readFile(f, setStartFrame)}
+                    onHistory={() => setPickerSlot("start")}
+                    onClear={() => setStartFrame("")}
+                  />
+                </div>
+                <div>
+                  <div className="text-[10px] font-bold mb-1.5" style={{ color: "#888" }}>
+                    End Frame
+                  </div>
+                  <ExtendFrameZone
+                    url={endFrame}
+                    icon="🏁"
+                    color="#888"
+                    inputRef={endInputRef}
+                    onUpload={(f) => readFile(f, setEndFrame)}
+                    onHistory={() => setPickerSlot("end")}
+                    onClear={() => setEndFrame("")}
+                  />
+                </div>
+              </div>
+            )}
+
+            <textarea
+              rows={3}
+              value={prompt}
+              onChange={(e) => setPrompt(e.target.value)}
+              placeholder="Continuation prompt..."
+              className="w-full p-2.5 rounded-lg text-xs resize-y outline-none"
+              style={{ background: "#fafaf7", border: "1px solid #d8e8d0", color: "#1a1a1a" }}
+            />
+          </div>
+        </div>
+
+        <div
+          className="px-5 py-4 border-t"
+          style={{ borderColor: "#e8e0d8", background: "#f5f5f0" }}
+        >
+          <button
+            onClick={generate}
+            disabled={submitting}
+            className="w-full py-3 rounded-lg font-extrabold text-sm text-white transition-transform hover:-translate-y-0.5 disabled:opacity-50 inline-flex items-center justify-center gap-2"
+            style={{
+              background: "linear-gradient(135deg, #f59e0b, #fbbf24)",
+              boxShadow: "0 4px 14px rgba(245,158,11,0.4)",
+            }}
+          >
+            {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
+            {submitting ? "Submitting…" : "Generate +8s"}
+          </button>
+        </div>
+
+        {pickerSlot && (
+          <EditImagePicker
+            onPick={handlePickFromHistory}
+            onClose={() => setPickerSlot(null)}
+          />
+        )}
+      </div>
+    </div>
+  );
+}
+
+// Compact 60×60 frame zone with stacked History/Upload/x buttons — used by
+// the Extend Video modal to mirror the extension's frame-zone widget.
+function ExtendFrameZone({
+  url,
+  icon,
+  color,
+  required,
+  inputRef,
+  onUpload,
+  onHistory,
+  onClear,
+}: {
+  url: string;
+  icon: string;
+  color: string;
+  required?: boolean;
+  inputRef: React.RefObject<HTMLInputElement | null>;
+  onUpload: (f: File | null) => void;
+  onHistory: () => void;
+  onClear: () => void;
+}) {
+  return (
+    <div className="flex items-stretch gap-1.5">
+      <button
+        type="button"
+        onClick={() => inputRef.current?.click()}
+        className="relative w-[60px] h-[60px] rounded overflow-hidden flex-shrink-0 flex items-center justify-center"
+        style={{
+          border: `${required ? 2 : 1}px dashed ${url ? "transparent" : color}`,
+          background: url ? "#000" : "#fafaf7",
+        }}
+      >
+        {url ? (
+          <img src={url} alt="" className="w-full h-full object-cover" />
+        ) : (
+          <span className="text-[10px] font-semibold" style={{ color }}>{icon}</span>
+        )}
+      </button>
+      <input
+        ref={inputRef}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        onChange={(e) => onUpload(e.target.files?.[0] || null)}
+      />
+      <div className="flex flex-col gap-0.5 justify-between">
+        <button
+          type="button"
+          onClick={onHistory}
+          className="px-1.5 py-0.5 rounded text-[9px] font-bold"
+          style={{ background: "rgba(245,158,11,0.08)", border: "1px solid #f59e0b", color: "#f59e0b" }}
+        >
+          History
+        </button>
+        <button
+          type="button"
+          onClick={() => inputRef.current?.click()}
+          className="px-1.5 py-0.5 rounded text-[9px] font-bold"
+          style={{ background: "#fafaf7", border: "1px solid #e8e0d8", color: "#1a1a1a" }}
+        >
+          Upload
+        </button>
+        <button
+          type="button"
+          onClick={onClear}
+          className="px-1.5 py-0.5 rounded text-[9px] font-bold"
+          style={{ background: "rgba(244,67,54,0.08)", border: "1px solid rgba(244,67,54,0.4)", color: "#c62828" }}
+        >
+          x
+        </button>
+      </div>
+    </div>
   );
 }
