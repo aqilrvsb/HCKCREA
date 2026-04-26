@@ -465,11 +465,11 @@ export default function ImageTab() {
           </div>
         )}
 
-        <p className="text-center text-[11px] text-gray-500 mt-3">
-          {cost
-            ? `Tolak RM${(cost * count).toFixed(2)} bila ${count} image siap`
-            : "20 sen / 50 sen per generate (ikut plan)"}
-        </p>
+        {cost && (
+          <p className="text-center text-[11px] text-gray-500 mt-3">
+            Tolak RM{(cost * count).toFixed(2)} bila {count} image siap
+          </p>
+        )}
       </Card>
 
       {/* From History picker modal */}
