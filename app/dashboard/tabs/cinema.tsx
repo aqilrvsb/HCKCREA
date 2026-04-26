@@ -22,11 +22,29 @@ export default function CinemaTab({ projectId }: { projectId?: string } = {}) {
   const [aspect, setAspect] = useState("9:16");
   const [resolution, setResolution] = useState<"480p" | "720p">("720p");
   const [duration, setDuration] = useState(6);
+  const [ratePerSec, setRatePerSec] = useState<number | null>(null);
   const [status, setStatus] = useState<Status>("idle");
   const [error, setError] = useState<string | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
 
   const refInputRef = useRef<HTMLInputElement | null>(null);
+
+  // Pull admin-configurable rate once on mount so the cost preview stays in
+  // sync with /admin → cinema_rate_per_sec without a redeploy.
+  useEffect(() => {
+    let cancel = false;
+    fetch("/api/cinema/rate", { cache: "no-store" })
+      .then((r) => r.json())
+      .then((d) => {
+        if (!cancel && typeof d?.rate === "number") setRatePerSec(d.rate);
+      })
+      .catch(() => {});
+    return () => {
+      cancel = true;
+    };
+  }, []);
+
+  const cost = ratePerSec != null ? duration * ratePerSec : null;
 
   function readFile(f: File | null) {
     if (!f) return;
@@ -205,13 +223,30 @@ export default function CinemaTab({ projectId }: { projectId?: string } = {}) {
       </Card>
 
       <Card>
-        {/* Duration slider */}
+        {/* Duration slider + live cost preview */}
         <div className="mb-4">
           <div className="flex items-center justify-between mb-2">
             <Label>Duration (s)</Label>
-            <span className="text-sm font-extrabold" style={{ color: PURPLE }}>
-              {duration}s
-            </span>
+            <div className="flex items-center gap-2">
+              <span
+                className="text-sm font-extrabold"
+                style={{ color: PURPLE }}
+              >
+                {duration}s
+              </span>
+              {cost != null && (
+                <span
+                  className="text-[10px] font-mono uppercase tracking-wider px-2 py-1 rounded"
+                  style={{
+                    background: PURPLE_FAINT,
+                    color: PURPLE,
+                    border: `1px solid ${PURPLE_SOFT}`,
+                  }}
+                >
+                  ~RM{cost.toFixed(2)}
+                </span>
+              )}
+            </div>
           </div>
           <div className="flex items-center gap-3">
             <span className="text-[10px] text-gray-500 font-mono">6</span>
@@ -231,6 +266,11 @@ export default function CinemaTab({ projectId }: { projectId?: string } = {}) {
             />
             <span className="text-[10px] text-gray-500 font-mono">30</span>
           </div>
+          {ratePerSec != null && (
+            <p className="text-[10px] text-gray-500 mt-1.5">
+              Rate: RM{ratePerSec.toFixed(2)}/sec · admin-tunable
+            </p>
+          )}
         </div>
 
         <div className="grid grid-cols-2 gap-3 mb-4">
