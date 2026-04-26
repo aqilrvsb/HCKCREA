@@ -3,7 +3,7 @@
 import { useRef, useState } from "react";
 import { Layers, Sparkles, Upload, Video as VideoIcon, Loader2, X } from "lucide-react";
 
-export default function CloneTab() {
+export default function CloneTab({ projectId }: { projectId?: string } = {}) {
   const [refVideoUrl, setRefVideoUrl] = useState("");
   const [productImageUrl, setProductImageUrl] = useState("");
   const [customDialog, setCustomDialog] = useState("");
@@ -35,6 +35,7 @@ export default function CloneTab() {
           product_image_url: productImageUrl,
           custom_dialog: customDialog,
           segments,
+          project_id: projectId,
         }),
       });
       const d = await r.json();

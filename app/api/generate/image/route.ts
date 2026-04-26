@@ -18,6 +18,7 @@ export async function POST(req: Request) {
     : [];
   const aspectRatio = String(body?.aspect_ratio || "9:16");
   const requestedModel = body?.model ? String(body.model) : null; // 'nano-banana-pro' | 'gpt-image-2'
+  const projectId = body?.project_id ? String(body.project_id) : null;
 
   if (!prompt) return NextResponse.json({ error: "Prompt required" }, { status: 400 });
 
@@ -55,6 +56,7 @@ export async function POST(req: Request) {
     .from("history")
     .insert({
       user_id: user.id,
+      project_id: projectId,
       type: "image",
       tab: "image",
       status: "pending",

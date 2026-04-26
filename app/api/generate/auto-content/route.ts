@@ -28,6 +28,7 @@ export async function POST(req: Request) {
   const avatarAge = String(body?.avatar_age || "auto");
   const ctaMode = String(body?.cta_mode || "shop");
   const customCta = String(body?.custom_cta || "");
+  const projectId = body?.project_id ? String(body.project_id) : null;
 
   if (!productImageUrl && !productUrl) {
     return NextResponse.json(
@@ -127,6 +128,7 @@ ${productUrl ? `URL: ${productUrl}` : ""}`;
     .from("batches")
     .insert({
       user_id: user.id,
+      project_id: projectId,
       product_url: productUrl,
       product_name: productName,
       product_image_url: productImageUrl,
@@ -163,6 +165,7 @@ ${productUrl ? `URL: ${productUrl}` : ""}`;
         .from("history")
         .insert({
           user_id: user.id,
+          project_id: projectId,
           type: "auto-content",
           tab: "auto",
           status: created.ok && created.task_id ? "pending" : "failed",

@@ -12,7 +12,7 @@ import {
 
 type CtaMode = "shop" | "custom" | "none";
 
-export default function AutoContentTab() {
+export default function AutoContentTab({ projectId }: { projectId?: string } = {}) {
   const [productUrl, setProductUrl] = useState("");
   const [productName, setProductName] = useState("");
   const [productImageUrl, setProductImageUrl] = useState("");
@@ -59,6 +59,7 @@ export default function AutoContentTab() {
           avatar_age: avatarAge,
           cta_mode: ctaMode,
           custom_cta: ctaMode === "custom" ? customCta : "",
+          project_id: projectId,
         }),
       });
       const d = await r.json();

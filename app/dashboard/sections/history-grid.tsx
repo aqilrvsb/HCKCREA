@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   History,
   Loader2,
@@ -15,6 +15,8 @@ import {
   X,
   Copy,
   Palette,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 
@@ -52,33 +54,40 @@ function modelLabel(item: HistoryItem): string {
 export default function HistoryGrid({
   tab,
   title,
+  projectId,
 }: {
   tab: "image" | "video" | "clone" | "auto";
   title: string;
+  projectId?: string;
 }) {
   const [items, setItems] = useState<HistoryItem[]>([]);
   const [loading, setLoading] = useState(false);
+  const [page, setPage] = useState(0);
+  const PAGE_SIZE = 12;
 
   useEffect(() => {
     void load();
+    setPage(0);
     // Only refresh on explicit dispatch (webhook completes → user clicks
     // per-card refresh icon → user re-enters tab). No background polling.
     const onRefresh = () => load();
     window.addEventListener("history:refresh", onRefresh);
     return () => window.removeEventListener("history:refresh", onRefresh);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tab]);
+  }, [tab, projectId]);
 
   async function load() {
     setLoading(true);
     try {
       const sb = createClient();
-      const { data } = await sb
+      let q = sb
         .from("history")
         .select("*")
         .eq("tab", tab)
         .order("created_at", { ascending: false })
         .limit(60);
+      if (projectId) q = q.eq("project_id", projectId);
+      const { data } = await q;
       setItems((data as HistoryItem[]) || []);
     } finally {
       setLoading(false);
@@ -92,6 +101,11 @@ export default function HistoryGrid({
     }),
     [items]
   );
+
+  const totalPages = Math.max(1, Math.ceil(items.length / PAGE_SIZE));
+  // Clamp page if items shrink (e.g. after delete) so we never show empty page.
+  const safePage = Math.min(page, totalPages - 1);
+  const pageItems = items.slice(safePage * PAGE_SIZE, safePage * PAGE_SIZE + PAGE_SIZE);
 
   return (
     <section className="card">
@@ -126,11 +140,72 @@ export default function HistoryGrid({
           </p>
         </div>
       ) : (
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
-          {items.map((it) => (
-            <HistoryCard key={it.id} item={it} />
-          ))}
-        </div>
+        <>
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+            {pageItems.map((it) => (
+              <HistoryCard key={it.id} item={it} />
+            ))}
+          </div>
+
+          {totalPages > 1 && (
+            <div className="flex items-center justify-center gap-2 mt-5 pt-4 border-t border-[var(--color-border)]">
+              <button
+                onClick={() => setPage(Math.max(0, safePage - 1))}
+                disabled={safePage === 0}
+                className="w-9 h-9 rounded-lg flex items-center justify-center text-sm font-bold disabled:opacity-30 transition"
+                style={{
+                  background: "var(--color-bg-card)",
+                  border: "1px solid var(--color-border)",
+                  color: "var(--color-text-primary)",
+                }}
+                aria-label="Previous page"
+              >
+                <ChevronLeft className="w-4 h-4" />
+              </button>
+
+              {Array.from({ length: totalPages }).map((_, i) => {
+                const isActive = i === safePage;
+                return (
+                  <button
+                    key={i}
+                    onClick={() => setPage(i)}
+                    className="min-w-[36px] h-9 px-3 rounded-lg text-xs font-bold transition"
+                    style={
+                      isActive
+                        ? {
+                            background:
+                              "linear-gradient(135deg, #ff6a1a 0%, #ff4d00 100%)",
+                            color: "white",
+                            boxShadow: "0 4px 12px rgba(255,87,34,0.3)",
+                          }
+                        : {
+                            background: "var(--color-bg-card)",
+                            border: "1px solid var(--color-border)",
+                            color: "var(--color-text-secondary)",
+                          }
+                    }
+                  >
+                    {i + 1}
+                  </button>
+                );
+              })}
+
+              <button
+                onClick={() => setPage(Math.min(totalPages - 1, safePage + 1))}
+                disabled={safePage >= totalPages - 1}
+                className="w-9 h-9 rounded-lg flex items-center justify-center text-sm font-bold disabled:opacity-30 transition"
+                style={{
+                  background: "var(--color-bg-card)",
+                  border: "1px solid var(--color-border)",
+                  color: "var(--color-text-primary)",
+                }}
+                aria-label="Next page"
+              >
+                <ChevronRight className="w-4 h-4" />
+              </button>
+            </div>
+          )}
+        </>
       )}
     </section>
   );

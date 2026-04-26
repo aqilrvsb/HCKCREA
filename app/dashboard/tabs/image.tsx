@@ -53,7 +53,7 @@ const SALES_PROMPTS = [
 
 type RefSlot = "char" | "product" | "poster" | "virtProduct";
 
-export default function ImageTab() {
+export default function ImageTab({ projectId }: { projectId?: string } = {}) {
   const [model, setModel] = useState<ImageModel>("nano-banana-pro");
   const [mode, setMode] = useState<Mode>("create");
   const [prompt, setPrompt] = useState("");
@@ -154,6 +154,7 @@ export default function ImageTab() {
             reference_url: refs[0] || undefined,
             reference_urls: refs.length > 1 ? refs : undefined,
             aspect_ratio: "9:16",
+            project_id: projectId,
           }),
         }).then((r) => r.json())
       );

@@ -20,6 +20,7 @@ export async function POST(req: Request) {
   const productImageUrl = String(body?.product_image_url || "").trim();
   const customDialog = String(body?.custom_dialog || "");
   const segments = Math.min(4, Math.max(1, Number(body?.segments || 2)));
+  const projectId = body?.project_id ? String(body.project_id) : null;
 
   if (!refVideoUrl) {
     return NextResponse.json({ error: "Reference video URL required" }, { status: 400 });
@@ -82,6 +83,7 @@ ${customDialog ? `Required dialog (use verbatim where it fits): """${customDialo
     .from("batches")
     .insert({
       user_id: user.id,
+      project_id: projectId,
       product_image_url: productImageUrl,
       quantity: prompts.length,
       duration_mode: "8",
@@ -106,6 +108,7 @@ ${customDialog ? `Required dialog (use verbatim where it fits): """${customDialo
         .from("history")
         .insert({
           user_id: user.id,
+          project_id: projectId,
           type: "clone",
           tab: "clone",
           status: created.ok && created.task_id ? "pending" : "failed",

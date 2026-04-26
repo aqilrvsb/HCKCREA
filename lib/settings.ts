@@ -81,6 +81,14 @@ export async function getCreditCosts() {
   };
 }
 
+// Per-user project cap. Stored in app_settings as { value: N } so admins
+// can change it from /admin without a deploy. Default 4 if missing.
+export async function getProjectLimit(): Promise<number> {
+  const v = await getSetting<any>("project_limit");
+  const n = Number(v?.value ?? v?.limit ?? 4);
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : 4;
+}
+
 export async function getPlanRate(plan: string) {
   const v = await getSetting<any>(`plan_${plan}`);
   return {

@@ -19,6 +19,7 @@ export async function POST(req: Request) {
   const durationMode: "8" | "16" = body?.duration === "16" ? "16" : "8";
   const imageMode: "frame" | "ingredient" | "text" =
     body?.image_mode === "text" ? "text" : imageUrls.length ? "ingredient" : "text";
+  const projectId = body?.project_id ? String(body.project_id) : null;
 
   if (!prompt) return NextResponse.json({ error: "Prompt required" }, { status: 400 });
   if (imageMode !== "text" && !imageUrls.length) {
@@ -57,6 +58,7 @@ export async function POST(req: Request) {
     .from("history")
     .insert({
       user_id: user.id,
+      project_id: projectId,
       type: "video",
       tab: "video",
       status: "pending",

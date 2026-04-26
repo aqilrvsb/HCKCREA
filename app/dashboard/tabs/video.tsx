@@ -5,7 +5,7 @@ import { Video, Sparkles, Upload, Loader2, X } from "lucide-react";
 
 type Status = "idle" | "submitting" | "polling" | "done" | "failed";
 
-export default function VideoTab() {
+export default function VideoTab({ projectId }: { projectId?: string } = {}) {
   const [prompt, setPrompt] = useState("");
   const [duration] = useState<"8">("8"); // Veo 3.1 Fast supports 8s only
   const [aspect, setAspect] = useState("9:16");
@@ -87,6 +87,7 @@ export default function VideoTab() {
             duration,
             image_mode: imageMode,
             aspect_ratio: aspect,
+            project_id: projectId,
           }),
         }).then((r) => r.json())
       );
