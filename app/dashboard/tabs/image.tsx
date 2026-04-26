@@ -168,6 +168,9 @@ export default function ImageTab({ projectId }: { projectId?: string } = {}) {
       setHistoryId(first.history_id);
       setCost(first.cost);
       window.dispatchEvent(new CustomEvent("history:refresh"));
+      // Placeholder is now in history — fire-and-forget. Reset the button so
+      // the user can immediately fire the next generation.
+      setStatus("idle");
     } catch (e: any) {
       setError(e?.message || "Network error");
       setStatus("failed");
@@ -511,11 +514,6 @@ export default function ImageTab({ projectId }: { projectId?: string } = {}) {
           </div>
         )}
 
-        {cost && (
-          <p className="text-center text-[11px] text-gray-500 mt-3">
-            Tolak RM{(cost * count).toFixed(2)} bila {count} image siap
-          </p>
-        )}
       </Card>
 
       {/* From History picker modal */}
