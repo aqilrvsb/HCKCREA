@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Loader2 } from "lucide-react";
+import { Loader2, X } from "lucide-react";
+import { createClient } from "@/lib/supabase/client";
 
 // Image tab — 1:1 port of creative-hack-auto's image-mode-section.
 // Light/white cards on cream canvas, orange accents (was green).
@@ -47,6 +48,8 @@ const SALES_PROMPTS = [
   { label: "Hard Sell", color: "#f44336", val: "Bold high-impact image of the product with dramatic lighting, '50% OFF' or urgency feel, vibrant red and orange color palette, eye-catching commercial poster aesthetic, vertical 9:16, optimized for thumb-stop on TikTok feed" },
 ];
 
+type RefSlot = "char" | "product" | "poster" | "virtProduct";
+
 export default function ImageTab() {
   const [mode, setMode] = useState<Mode>("create");
   const [prompt, setPrompt] = useState("");
@@ -62,10 +65,21 @@ export default function ImageTab() {
   const [outputUrl, setOutputUrl] = useState<string | null>(null);
   const [cost, setCost] = useState<number | null>(null);
 
+  // History picker modal state — which slot is being filled
+  const [pickerSlot, setPickerSlot] = useState<RefSlot | null>(null);
+
   const charInputRef = useRef<HTMLInputElement | null>(null);
   const productInputRef = useRef<HTMLInputElement | null>(null);
   const posterInputRef = useRef<HTMLInputElement | null>(null);
   const virtProductInputRef = useRef<HTMLInputElement | null>(null);
+
+  function pickFromHistory(slot: RefSlot, url: string) {
+    if (slot === "char") setCharUrl(url);
+    else if (slot === "product") setProductUrl(url);
+    else if (slot === "poster") setPosterUrl(url);
+    else if (slot === "virtProduct") setVirtProductUrl(url);
+    setPickerSlot(null);
+  }
 
   // Poll status
   useEffect(() => {
@@ -170,7 +184,7 @@ export default function ImageTab() {
             <CardHeader
               icon="🧑"
               title="Character Reference"
-              right={<HistoryBtn>From History</HistoryBtn>}
+              right={<HistoryBtn onClick={() => setPickerSlot("char")}>From History</HistoryBtn>}
             />
             <RefZone
               url={charUrl}
@@ -193,7 +207,7 @@ export default function ImageTab() {
             <CardHeader
               icon="📦"
               title="Product Reference"
-              right={<HistoryBtn>From History</HistoryBtn>}
+              right={<HistoryBtn onClick={() => setPickerSlot("product")}>From History</HistoryBtn>}
             />
             <RefZone
               url={productUrl}
@@ -224,8 +238,13 @@ export default function ImageTab() {
           />
           <div className="grid grid-cols-2 gap-2">
             <div>
-              <div className="text-[10px] font-bold mb-1" style={{ color: "#e91e63" }}>
-                Poster / Ad Image
+              <div className="flex items-center justify-between mb-1">
+                <div className="text-[10px] font-bold" style={{ color: "#e91e63" }}>
+                  Poster / Ad Image
+                </div>
+                <HistoryBtn onClick={() => setPickerSlot("poster")}>
+                  From History
+                </HistoryBtn>
               </div>
               <RefZone
                 url={posterUrl}
@@ -245,8 +264,13 @@ export default function ImageTab() {
               />
             </div>
             <div>
-              <div className="text-[10px] font-bold mb-1" style={{ color: ORANGE }}>
-                Product Photo
+              <div className="flex items-center justify-between mb-1">
+                <div className="text-[10px] font-bold" style={{ color: ORANGE }}>
+                  Product Photo
+                </div>
+                <HistoryBtn onClick={() => setPickerSlot("virtProduct")}>
+                  From History
+                </HistoryBtn>
               </div>
               <RefZone
                 url={virtProductUrl}
@@ -423,6 +447,151 @@ export default function ImageTab() {
           {cost ? `Tolak RM${(cost * count).toFixed(2)} bila ${count} image siap` : "20 sen / 50 sen per generate (ikut plan)"}
         </p>
       </Card>
+
+      {/* From History picker modal */}
+      {pickerSlot && (
+        <HistoryPicker
+          onPick={(url) => pickFromHistory(pickerSlot, url)}
+          onClose={() => setPickerSlot(null)}
+        />
+      )}
+    </div>
+  );
+}
+
+// ── History Picker Modal ─────────────────────────────────────────────────────
+
+function HistoryPicker({
+  onPick,
+  onClose,
+}: {
+  onPick: (url: string) => void;
+  onClose: () => void;
+}) {
+  const [items, setItems] = useState<
+    { id: string; output_url: string; prompt: string | null; created_at: string }[]
+  >([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    void load();
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    window.addEventListener("keydown", onKey);
+    document.body.style.overflow = "hidden";
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      document.body.style.overflow = "";
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  async function load() {
+    setLoading(true);
+    try {
+      const sb = createClient();
+      const { data } = await sb
+        .from("history")
+        .select("id, output_url, prompt, created_at")
+        .eq("type", "image")
+        .eq("status", "done")
+        .not("output_url", "is", null)
+        .order("created_at", { ascending: false })
+        .limit(60);
+      setItems((data as any) || []);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      style={{ background: "rgba(0,0,0,0.7)", backdropFilter: "blur(8px)" }}
+      onClick={onClose}
+    >
+      <div
+        className="rounded-2xl max-w-3xl w-full max-h-[85vh] overflow-hidden flex flex-col"
+        style={{
+          background: "#ffffff",
+          border: `2px solid ${ORANGE}`,
+          boxShadow: "0 20px 60px rgba(255, 87, 34, 0.3)",
+        }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div
+          className="flex items-center justify-between px-5 py-4 border-b"
+          style={{ borderColor: "#d8e8d0" }}
+        >
+          <h2
+            className="font-display font-extrabold text-lg"
+            style={{ color: ORANGE }}
+          >
+            Pick Image from History
+          </h2>
+          <button
+            onClick={onClose}
+            className="w-8 h-8 rounded-full flex items-center justify-center hover:bg-gray-100 transition"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-4">
+          {loading ? (
+            <div className="py-16 text-center text-gray-500 text-sm">
+              <Loader2
+                className="w-5 h-5 animate-spin inline-block mr-2"
+                style={{ color: ORANGE }}
+              />
+              Loading…
+            </div>
+          ) : items.length === 0 ? (
+            <div className="py-16 text-center">
+              <div className="text-4xl mb-2">📭</div>
+              <p className="text-sm font-semibold text-gray-700 mb-1">
+                Belum ada image dalam history
+              </p>
+              <p className="text-xs text-gray-500">
+                Generate satu image dulu, lepas tu boleh pick dari sini.
+              </p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+              {items.map((it) => (
+                <button
+                  key={it.id}
+                  onClick={() => onPick(it.output_url)}
+                  className="rounded-lg overflow-hidden border-2 transition-all hover:-translate-y-0.5 text-left"
+                  style={{ borderColor: "#d8e8d0", background: "#fafaf7" }}
+                  onMouseEnter={(e) =>
+                    (e.currentTarget.style.borderColor = ORANGE)
+                  }
+                  onMouseLeave={(e) =>
+                    (e.currentTarget.style.borderColor = "#d8e8d0")
+                  }
+                >
+                  <div className="aspect-square bg-gray-100">
+                    <img
+                      src={it.output_url}
+                      alt=""
+                      className="w-full h-full object-cover"
+                    />
+                  </div>
+                  {it.prompt && (
+                    <div
+                      className="px-2 py-1.5 text-[10px] truncate"
+                      style={{ color: ORANGE }}
+                    >
+                      {it.prompt.substring(0, 40)}
+                      {it.prompt.length > 40 ? "…" : ""}
+                    </div>
+                  )}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
@@ -568,15 +737,22 @@ function RefZone({
   );
 }
 
-function HistoryBtn({ children }: { children: React.ReactNode }) {
+function HistoryBtn({
+  children,
+  onClick,
+}: {
+  children: React.ReactNode;
+  onClick?: () => void;
+}) {
   return (
     <button
       type="button"
-      className="text-[8px] px-2 py-0.5 rounded-md transition-colors"
+      onClick={onClick}
+      className="text-[10px] px-2.5 py-1 rounded-md transition-colors hover:opacity-80"
       style={{
-        background: "#f8fbf5",
-        border: "1px solid #d8e8d0",
-        color: "#666",
+        background: ORANGE_FAINT,
+        border: `1px solid ${ORANGE}`,
+        color: ORANGE,
       }}
     >
       {children}
