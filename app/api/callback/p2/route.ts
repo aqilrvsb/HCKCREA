@@ -60,6 +60,19 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: true, note: "No matching history row" });
   }
 
+  // Stamp the row so /api/admin/webhook-log can show "yes, the webhook fired
+  // at <ts> with status <x>" for debugging in the first weeks of production.
+  const incomingStatus = String(body?.data?.status || body?.status || "unknown");
+  const nextMeta = {
+    ...(hist.metadata || {}),
+    webhook_received_at: new Date().toISOString(),
+    webhook_status: incomingStatus,
+  };
+  await admin
+    .from("history")
+    .update({ metadata: nextMeta })
+    .eq("id", hist.id);
+
   await settleHistoryRow(hist);
   return NextResponse.json({ ok: true });
 }
