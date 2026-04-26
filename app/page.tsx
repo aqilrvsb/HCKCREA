@@ -226,9 +226,15 @@ export default function Home() {
         <div className="flex items-center gap-3">
           <Link
             href="/login"
-            className="px-5 py-2.5 text-sm font-semibold text-[var(--color-text-primary)] hover:text-[var(--color-accent-violet)] transition"
+            className="inline-flex items-center gap-2 px-6 py-3 rounded-2xl text-sm sm:text-base font-extrabold transition-transform hover:scale-[1.04] hover:-translate-y-0.5"
+            style={{
+              background: "var(--color-lime)",
+              color: "#0a0a0a",
+              boxShadow: "0 6px 20px rgba(200, 245, 62, 0.3)",
+            }}
           >
             Sign in
+            <ArrowRight className="w-4 h-4" strokeWidth={2.5} />
           </Link>
         </div>
       </nav>
@@ -1022,7 +1028,7 @@ export default function Home() {
                 "Edit + revise (2–3 hari)",
                 "Tulis caption + hashtag (30 min)",
                 "Upload manual setiap video",
-                "Total: ~7 hari, ~RM300/video",
+                "Total: ~7 hari, 10 video, ~RM300/video",
               ].map((t, i) => (
                 <li
                   key={i}
@@ -1067,7 +1073,7 @@ export default function Home() {
                 "Veo generate video parallel (2 min)",
                 "Caption + hashtag auto-tulis (auto)",
                 "Auto-post ke TikTok atau download MP4",
-                "Total: ~3 minit, ~40 sen/video",
+                "Total: ~3 minit, 100 video, ~40 sen/video",
               ].map((t, i) => (
                 <li
                   key={i}
