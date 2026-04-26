@@ -44,7 +44,6 @@ function modelLabel(item: HistoryItem): string {
   const m = item.metadata?.model || "";
   if (m.includes("nano-banana") || m === "nano-banana-pro") return "Banana Pro";
   if (m.includes("gpt-image") || m === "gpt-image-2") return "GPT Image 2";
-  if (m.includes("veo3-1-fast")) return "Veo 3.1 Fast";
   if (m.includes("veo")) return "Veo 3.1";
   return item.type;
 }
