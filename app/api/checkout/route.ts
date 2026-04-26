@@ -2,11 +2,10 @@ import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createChipPurchase } from "@/lib/chip";
 
-// Plan defaults — overridden at runtime by app_settings rows if present.
-// Layout: { price, days, free_credits } — `free_credits` ALWAYS 0 for now per
-// product decision (subscription unlocks access, not a credit pile).
+// Single Pro Plan — defaults overridden at runtime by app_settings.plan_pro.
+// `freeCredits` is 0 because subscription unlocks access, not a credit pile;
+// users top up credits separately via /api/credit/topup.
 const PLAN_DEFAULTS: Record<string, { price: number; days: number; freeCredits: number; label: string }> = {
-  light: { price: 35, days: 30, freeCredits: 0, label: "Light Plan" },
   pro: { price: 75, days: 30, freeCredits: 0, label: "Pro Plan" },
 };
 
@@ -48,8 +47,11 @@ export async function POST(req: Request) {
     const whatsappRaw = String(body?.whatsapp || "");
     const email = String(body?.email || "").trim().toLowerCase();
 
-    if (!plan || !["light", "pro"].includes(plan)) {
-      return NextResponse.json({ error: "Invalid plan" }, { status: 400 });
+    if (plan !== "pro") {
+      return NextResponse.json(
+        { error: "Only the Pro Plan is available" },
+        { status: 400 }
+      );
     }
     if (!name) return NextResponse.json({ error: "Name required" }, { status: 400 });
     const whatsapp = normalizeWhatsapp(whatsappRaw);
