@@ -88,10 +88,10 @@ export default function DemoReel() {
       </div>
 
       {videos.length > 0 && (
-        <div className="grid lg:grid-cols-5 gap-5 items-start">
-          {/* Featured video — TikTok-style 9:16 vertical, centered */}
-          <div className="lg:col-span-3 flex justify-center">
-            <div className="relative rounded-3xl overflow-hidden border border-[var(--color-border)] shadow-2xl shadow-orange-500/15 bg-black w-full max-w-[400px]">
+        <>
+          {/* Featured player — centered, 9:16 vertical */}
+          <div className="flex justify-center">
+            <div className="relative rounded-3xl overflow-hidden border border-[var(--color-border)] shadow-2xl shadow-orange-500/15 bg-black w-full max-w-[380px]">
               <video
                 key={featured?.file}
                 src={featured?.file}
@@ -114,51 +114,58 @@ export default function DemoReel() {
             </div>
           </div>
 
-          {/* Side rail — other videos */}
-          <div className="lg:col-span-2 space-y-3">
-            <div className="text-xs font-mono uppercase tracking-widest text-[var(--color-text-muted)] font-bold mb-2">
-              ─── More samples
+          {/* All variations — clickable grid */}
+          <div className="mt-10">
+            <div className="text-center mb-5">
+              <div className="text-xs font-mono uppercase tracking-widest text-[var(--color-text-muted)] font-bold mb-1">
+                ─── {videos.length} variations · klik untuk tukar
+              </div>
+              <h3 className="font-display font-bold text-xl">
+                Setiap satu dijana dari prompt berbeza.
+              </h3>
             </div>
-            {videos.map((v, i) => (
-              <button
-                key={v.id}
-                onClick={() => setActive(i)}
-                className={`w-full text-left rounded-2xl overflow-hidden border-2 transition-all ${
-                  i === active
-                    ? "border-orange shadow-lg shadow-orange-500/15"
-                    : "border-[var(--color-border)] hover:border-orange-200"
-                }`}
-              >
-                <div className="flex items-center gap-3">
-                  <div className="w-20 aspect-[9/16] flex-shrink-0 bg-black relative">
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
+              {videos.map((v, i) => (
+                <button
+                  key={v.id}
+                  onClick={() => setActive(i)}
+                  className={`group text-left rounded-2xl overflow-hidden border-2 transition-all ${
+                    i === active
+                      ? "border-orange shadow-lg shadow-orange-500/20 scale-[1.02]"
+                      : "border-[var(--color-border)] hover:border-orange-300 hover:-translate-y-0.5"
+                  }`}
+                >
+                  <div className="aspect-[9/16] bg-black relative">
                     <video
                       src={v.file + "#t=1"}
                       preload="metadata"
                       muted
+                      playsInline
                       className="w-full h-full object-cover"
                     />
-                    <div className="absolute inset-0 flex items-center justify-center bg-black/30">
-                      <Play
-                        className="w-5 h-5 text-white"
-                        strokeWidth={2.5}
-                        fill="white"
-                      />
+                    <div className="absolute inset-0 flex items-center justify-center bg-black/20 group-hover:bg-black/10 transition-colors">
+                      <div className="w-10 h-10 rounded-full bg-white/90 flex items-center justify-center shadow-lg">
+                        <Play className="w-4 h-4 text-orange" strokeWidth={2.5} fill="currentColor" />
+                      </div>
                     </div>
-                  </div>
-                  <div className="flex-1 min-w-0 py-3 pr-3">
-                    <div className="text-[10px] font-mono uppercase tracking-widest text-orange font-bold mb-0.5">
+                    <div className="absolute top-2 left-2 px-2 py-0.5 rounded-full bg-black/60 backdrop-blur-md text-[9px] font-mono font-bold text-white">
                       {String(i + 1).padStart(2, "0")}
                     </div>
-                    <div className="font-bold text-sm truncate">{v.label}</div>
-                    <div className="text-[10px] text-[var(--color-text-muted)] mt-0.5">
-                      8s · 9:16 · Veo 3.1
+                    {i === active && (
+                      <div className="absolute top-2 right-2 px-2 py-0.5 rounded-full bg-orange text-[9px] font-bold uppercase tracking-wider text-white">
+                        Playing
+                      </div>
+                    )}
+                    <div className="absolute bottom-0 left-0 right-0 p-2 bg-gradient-to-t from-black/80 to-transparent">
+                      <div className="text-[10px] font-bold text-white truncate">{v.label}</div>
+                      <div className="text-[9px] text-white/70">8s · Veo 3.1</div>
                     </div>
                   </div>
-                </div>
-              </button>
-            ))}
+                </button>
+              ))}
+            </div>
           </div>
-        </div>
+        </>
       )}
 
       {/* Avatar variations grid */}
