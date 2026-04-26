@@ -12,6 +12,9 @@ import {
   Trash2,
   Pencil,
   RotateCw,
+  X,
+  Copy,
+  Palette,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 
@@ -31,7 +34,18 @@ export type HistoryItem = {
   task_id: string | null;
   error_message: string | null;
   created_at: string;
+  metadata?: { model?: string; name?: string; [k: string]: any } | null;
 };
+
+// Pretty model name for the badge under each card
+function modelLabel(item: HistoryItem): string {
+  const m = item.metadata?.model || "";
+  if (m.includes("nano-banana") || m === "nano-banana-pro") return "Banana Pro";
+  if (m.includes("gpt-image") || m === "gpt-image-2") return "GPT Image 2";
+  if (m.includes("veo3-1-fast")) return "Veo 3.1 Fast";
+  if (m.includes("veo")) return "Veo 3.1";
+  return item.type;
+}
 
 // Reusable "history below the form" grid. Loads + auto-polls rows for one tab.
 // Used by Image, Video, Clone, Auto Content sections.
@@ -135,6 +149,13 @@ function HistoryCard({ item }: { item: HistoryItem }) {
   const [extending, setExtending] = useState(false);
   const [checking, setChecking] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [name, setName] = useState(item.metadata?.name || "");
+  const [editingName, setEditingName] = useState(false);
+  const [savingName, setSavingName] = useState(false);
+  const [showFullscreen, setShowFullscreen] = useState(false);
+  const [showPromptModal, setShowPromptModal] = useState(false);
+  const [showEditModal, setShowEditModal] = useState(false);
+
   const isVideo = item.type === "video" || item.type === "auto-content" || item.type === "clone";
   const isImage = item.type === "image";
   const canExtend = isVideo && item.status === "done" && item.output_url;
@@ -186,9 +207,12 @@ function HistoryCard({ item }: { item: HistoryItem }) {
 
   function handleDownload() {
     if (!item.output_url) return;
+    const safeName = (name || `${item.type}-${item.id.substring(0, 8)}`)
+      .replace(/[^a-z0-9_\-]/gi, "_")
+      .substring(0, 60);
     const a = document.createElement("a");
     a.href = item.output_url;
-    a.download = `${item.type}-${item.id.substring(0, 8)}.${isVideo ? "mp4" : "png"}`;
+    a.download = `${safeName}.${isVideo ? "mp4" : "png"}`;
     a.target = "_blank";
     a.rel = "noopener";
     document.body.appendChild(a);
@@ -196,16 +220,19 @@ function HistoryCard({ item }: { item: HistoryItem }) {
     document.body.removeChild(a);
   }
 
-  function handleEditPrompt() {
-    // Copy the prompt to clipboard so they can paste it into the form + tweak
-    if (!item.prompt) return;
-    navigator.clipboard.writeText(item.prompt).then(() => {
-      window.dispatchEvent(
-        new CustomEvent("toast", {
-          detail: { message: "Prompt copied — paste into form to edit & re-run" },
-        })
-      );
-    });
+  async function saveName() {
+    setSavingName(true);
+    try {
+      await fetch(`/api/history/rename`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: item.id, name: name.trim() }),
+      });
+      setEditingName(false);
+      window.dispatchEvent(new CustomEvent("history:refresh"));
+    } finally {
+      setSavingName(false);
+    }
   }
 
   async function handleRetry() {
@@ -213,7 +240,6 @@ function HistoryCard({ item }: { item: HistoryItem }) {
       alert("Tiada prompt asal — sila gunakan form untuk re-generate.");
       return;
     }
-    // Re-submit with same prompt
     setChecking(true);
     try {
       const endpoint = isImage ? "/api/generate/image" : "/api/generate/video";
@@ -293,7 +319,12 @@ function HistoryCard({ item }: { item: HistoryItem }) {
         {item.status === "done" && item.output_url && (
           <>
             {isImage && (
-              <img src={item.output_url} alt="" className="w-full h-full object-cover" />
+              <img
+                src={item.output_url}
+                alt=""
+                className="w-full h-full object-cover cursor-pointer"
+                onClick={() => setShowFullscreen(true)}
+              />
             )}
             {isVideo && (
               <video
@@ -301,12 +332,8 @@ function HistoryCard({ item }: { item: HistoryItem }) {
                 preload="metadata"
                 muted
                 playsInline
-                className="w-full h-full object-cover"
-                onClick={(e) => {
-                  const v = e.currentTarget;
-                  if (v.paused) v.play();
-                  else v.pause();
-                }}
+                className="w-full h-full object-cover cursor-pointer"
+                onClick={() => setShowFullscreen(true)}
               />
             )}
           </>
@@ -314,21 +341,62 @@ function HistoryCard({ item }: { item: HistoryItem }) {
       </div>
 
       <div className="p-2.5">
+        {/* Status + model badge (replaces RM cost) */}
         <div className="flex items-center gap-1.5 mb-1.5">
           {item.status === "done" && <CheckCircle2 className="w-3 h-3" style={{ color: "var(--color-lime)" }} />}
           {item.status === "pending" && <Loader2 className="w-3 h-3 animate-spin text-amber-400" />}
           {item.status === "failed" && <XCircle className="w-3 h-3 text-red-400" />}
-          <span className="text-[10px] font-mono uppercase tracking-wider text-[var(--color-text-muted)] font-bold">
-            {item.framework || item.type}
-          </span>
-          <span className="text-[10px] text-[var(--color-text-muted)] ml-auto font-mono">
-            RM{Number(item.cost).toFixed(2)}
+          <span
+            className="text-[10px] font-mono uppercase tracking-wider font-bold ml-auto"
+            style={{ color: "var(--color-orange)" }}
+          >
+            {modelLabel(item)}
           </span>
         </div>
-        {item.caption && (
-          <p className="text-[10px] text-[var(--color-text-secondary)] line-clamp-2 mb-2">
-            {item.caption}
-          </p>
+
+        {/* Editable name row — ✏️ Name */}
+        {item.status === "done" && (
+          <div className="flex items-center gap-1.5 mb-1.5">
+            <Pencil className="w-3 h-3 text-[var(--color-text-muted)] flex-shrink-0" />
+            {editingName ? (
+              <>
+                <input
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && saveName()}
+                  placeholder="Name…"
+                  autoFocus
+                  className="flex-1 min-w-0 text-[11px] font-semibold bg-transparent outline-none border-b border-[var(--color-border)] text-[var(--color-text-primary)]"
+                />
+                <button
+                  onClick={saveName}
+                  disabled={savingName}
+                  className="text-[9px] px-1.5 py-0.5 rounded font-bold disabled:opacity-50"
+                  style={{ background: "var(--color-orange)", color: "white" }}
+                >
+                  {savingName ? "…" : "Save"}
+                </button>
+              </>
+            ) : (
+              <button
+                onClick={() => setEditingName(true)}
+                className="flex-1 min-w-0 text-left text-[11px] font-semibold truncate text-[var(--color-text-secondary)] hover:text-[var(--color-orange)]"
+              >
+                {name || "Name"}
+              </button>
+            )}
+          </div>
+        )}
+
+        {/* Click prompt → modal */}
+        {item.prompt && item.status === "done" && (
+          <button
+            onClick={() => setShowPromptModal(true)}
+            className="w-full text-left text-[10px] text-[var(--color-text-secondary)] line-clamp-2 mb-2 hover:text-[var(--color-orange)] transition-colors"
+            title="Click to view full prompt"
+          >
+            {item.prompt}
+          </button>
         )}
 
         {/* Action row — extension's exact icon flow */}
@@ -336,8 +404,8 @@ function HistoryCard({ item }: { item: HistoryItem }) {
           {/* DONE — image: Edit + Download + Delete */}
           {item.status === "done" && isImage && (
             <>
-              <ActionBtn title="Copy prompt to edit" onClick={handleEditPrompt} bg={ACTION.edit}>
-                <Pencil className="w-3.5 h-3.5" strokeWidth={2.4} />
+              <ActionBtn title="Edit Image" onClick={() => setShowEditModal(true)} bg={ACTION.edit}>
+                <Palette className="w-3.5 h-3.5" strokeWidth={2.4} />
               </ActionBtn>
               <ActionBtn title="Download" onClick={handleDownload} bg={ACTION.download}>
                 <Download className="w-3.5 h-3.5" strokeWidth={2.4} />
@@ -390,6 +458,354 @@ function HistoryCard({ item }: { item: HistoryItem }) {
           )}
 
           {/* PENDING — no action row, just the refresh icon overlay on the media */}
+        </div>
+      </div>
+
+      {/* Fullscreen modal */}
+      {showFullscreen && item.output_url && (
+        <FullscreenModal
+          url={item.output_url}
+          isVideo={isVideo}
+          onClose={() => setShowFullscreen(false)}
+        />
+      )}
+
+      {/* Prompt modal */}
+      {showPromptModal && item.prompt && (
+        <PromptModal prompt={item.prompt} onClose={() => setShowPromptModal(false)} />
+      )}
+
+      {/* Edit Image modal */}
+      {showEditModal && item.output_url && (
+        <EditImageModal
+          referenceUrl={item.output_url}
+          model={item.metadata?.model || "nano-banana-pro"}
+          onClose={() => setShowEditModal(false)}
+        />
+      )}
+    </div>
+  );
+}
+
+// ── Modals ──────────────────────────────────────────────────────────────────
+
+function FullscreenModal({
+  url,
+  isVideo,
+  onClose,
+}: {
+  url: string;
+  isVideo: boolean;
+  onClose: () => void;
+}) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    window.addEventListener("keydown", onKey);
+    document.body.style.overflow = "hidden";
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      document.body.style.overflow = "";
+    };
+  }, [onClose]);
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      style={{ background: "rgba(0,0,0,0.92)", backdropFilter: "blur(8px)" }}
+      onClick={onClose}
+    >
+      <button
+        onClick={onClose}
+        className="absolute top-5 right-5 w-11 h-11 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center text-white transition"
+        aria-label="Close"
+      >
+        <X className="w-5 h-5" />
+      </button>
+      <div className="max-w-[90vw] max-h-[90vh]" onClick={(e) => e.stopPropagation()}>
+        {isVideo ? (
+          <video
+            src={url}
+            controls
+            autoPlay
+            playsInline
+            className="max-w-[90vw] max-h-[90vh] rounded-2xl"
+          />
+        ) : (
+          <img
+            src={url}
+            alt=""
+            className="max-w-[90vw] max-h-[90vh] rounded-2xl object-contain"
+          />
+        )}
+      </div>
+    </div>
+  );
+}
+
+function PromptModal({
+  prompt,
+  onClose,
+}: {
+  prompt: string;
+  onClose: () => void;
+}) {
+  const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    window.addEventListener("keydown", onKey);
+    document.body.style.overflow = "hidden";
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      document.body.style.overflow = "";
+    };
+  }, [onClose]);
+
+  async function copy() {
+    await navigator.clipboard.writeText(prompt);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1800);
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      style={{ background: "rgba(0,0,0,0.7)", backdropFilter: "blur(8px)" }}
+      onClick={onClose}
+    >
+      <div
+        className="rounded-2xl max-w-2xl w-full max-h-[85vh] flex flex-col overflow-hidden"
+        style={{
+          background: "#fafaf7",
+          border: `2px solid ${ACTION_GREEN_BORDER}`,
+          boxShadow: "0 20px 60px rgba(76,175,80,0.25)",
+        }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div
+          className="flex items-center justify-between px-5 py-4 border-b"
+          style={{ borderColor: "#d8e8d0" }}
+        >
+          <h2 className="font-display font-extrabold text-lg" style={{ color: "#2e7d32" }}>
+            Full Prompt
+          </h2>
+          <button
+            onClick={onClose}
+            className="w-8 h-8 rounded-lg flex items-center justify-center hover:bg-gray-200 text-xs font-bold"
+            style={{ background: "#fafaf7", border: "1px solid #d8e8d0", color: "#1a1a1a" }}
+          >
+            X
+          </button>
+        </div>
+        <div className="flex-1 overflow-y-auto p-5">
+          <pre
+            className="text-[11px] font-mono leading-relaxed whitespace-pre-wrap rounded-lg p-4"
+            style={{
+              background: "#f0f5ec",
+              color: "#1a1a1a",
+              border: "1px solid #d8e8d0",
+            }}
+          >
+            {prompt}
+          </pre>
+        </div>
+        <div className="px-5 pb-5">
+          <button
+            onClick={copy}
+            className="w-full py-3 rounded-lg font-extrabold text-sm text-white transition-transform hover:-translate-y-0.5 inline-flex items-center justify-center gap-2"
+            style={{
+              background: "linear-gradient(135deg, #4caf50, #66bb6a)",
+              boxShadow: "0 4px 14px rgba(76,175,80,0.3)",
+            }}
+          >
+            <Copy className="w-4 h-4" />
+            {copied ? "Copied!" : "Copy Prompt"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+const ACTION_GREEN_BORDER = "#4caf50";
+
+function EditImageModal({
+  referenceUrl,
+  model,
+  onClose,
+}: {
+  referenceUrl: string;
+  model: string;
+  onClose: () => void;
+}) {
+  const [edit, setEdit] = useState(
+    "\n\n🚫 Negative Prompt (VERY IMPORTANT)\nextra hands, extra fingers, deformed hands, mutated fingers, bad anatomy, blurry, low quality, duplicate limbs, poorly drawn hands, distorted face, unrealistic proportions, extra arms, cropped hands, missing fingers"
+  );
+  const [extraRefUrl, setExtraRefUrl] = useState<string>("");
+  const [uploading, setUploading] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const fileRef = useRef<HTMLInputElement | null>(null);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    window.addEventListener("keydown", onKey);
+    document.body.style.overflow = "hidden";
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      document.body.style.overflow = "";
+    };
+  }, [onClose]);
+
+  async function pickFile(f: File | null) {
+    if (!f) return;
+    setUploading(true);
+    try {
+      const fd = new FormData();
+      fd.append("file", f);
+      const r = await fetch("/api/upload/image", { method: "POST", body: fd });
+      const d = await r.json();
+      if (r.ok && d?.url) setExtraRefUrl(d.url);
+      else alert(d?.error || "Upload failed");
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  async function apply() {
+    if (!edit.trim()) return alert("Type an edit instruction first.");
+    setSubmitting(true);
+    try {
+      const refs = [referenceUrl, extraRefUrl].filter(Boolean);
+      const r = await fetch("/api/generate/image", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: model.includes("gpt-image") ? "gpt-image-2" : "nano-banana-pro",
+          prompt: edit.trim(),
+          reference_url: refs[0],
+          reference_urls: refs.length > 1 ? refs : undefined,
+          aspect_ratio: "9:16",
+        }),
+      });
+      const d = await r.json();
+      if (r.ok && d?.ok) {
+        window.dispatchEvent(new CustomEvent("history:refresh"));
+        onClose();
+      } else {
+        alert(d?.error || "Edit failed");
+      }
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      style={{ background: "rgba(0,0,0,0.7)", backdropFilter: "blur(8px)" }}
+      onClick={onClose}
+    >
+      <div
+        className="rounded-2xl max-w-lg w-full max-h-[90vh] flex flex-col overflow-hidden"
+        style={{
+          background: "#fafaf7",
+          border: "2px solid #b388ff",
+          boxShadow: "0 20px 60px rgba(124,77,255,0.3)",
+        }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div
+          className="flex items-center justify-between px-5 py-4 border-b"
+          style={{ borderColor: "#d8e8d0" }}
+        >
+          <h2 className="font-display font-extrabold text-lg flex items-center gap-2" style={{ color: "#7c4dff" }}>
+            <Palette className="w-5 h-5" />
+            Edit Image
+          </h2>
+          <button
+            onClick={onClose}
+            className="w-8 h-8 rounded-lg flex items-center justify-center hover:bg-gray-200 text-xs font-bold"
+            style={{ background: "#fafaf7", border: "1px solid #d8e8d0", color: "#1a1a1a" }}
+          >
+            X
+          </button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-5">
+          <div className="flex justify-center mb-4">
+            <img
+              src={referenceUrl}
+              alt=""
+              className="max-h-48 rounded-lg border"
+              style={{ borderColor: "#d8e8d0" }}
+            />
+          </div>
+
+          <label className="block text-[10px] font-bold uppercase tracking-wider mb-2" style={{ color: "#666" }}>
+            Edit Instruction
+          </label>
+          <textarea
+            rows={5}
+            value={edit}
+            onChange={(e) => setEdit(e.target.value)}
+            placeholder="Type your edit action here…"
+            className="w-full p-3 rounded-lg text-xs resize-y outline-none mb-4"
+            style={{
+              background: "#f0f5ec",
+              border: "1px solid #d8e8d0",
+              color: "#1a1a1a",
+              fontFamily: "monospace",
+            }}
+          />
+
+          <label className="block text-[10px] font-bold uppercase tracking-wider mb-2" style={{ color: "#666" }}>
+            Reference image (optional)
+          </label>
+          <div className="flex items-center gap-2">
+            <input
+              ref={fileRef}
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={(e) => pickFile(e.target.files?.[0] || null)}
+            />
+            <button
+              onClick={() => fileRef.current?.click()}
+              disabled={uploading}
+              className="px-3 py-2 rounded-lg text-xs font-semibold disabled:opacity-50"
+              style={{ background: "#fafaf7", border: "1px solid #d8e8d0", color: "#1a1a1a" }}
+            >
+              {uploading ? "Uploading…" : "Choose File"}
+            </button>
+            <span className="text-xs text-gray-500 truncate flex-1">
+              {extraRefUrl ? "Uploaded ✓" : "No file chosen"}
+            </span>
+          </div>
+        </div>
+
+        <div
+          className="px-5 py-4 border-t flex gap-3"
+          style={{ borderColor: "#d8e8d0", background: "#f5f5f0" }}
+        >
+          <button
+            onClick={apply}
+            disabled={submitting || uploading}
+            className="flex-1 py-3 rounded-lg font-extrabold text-sm text-white transition-transform hover:-translate-y-0.5 disabled:opacity-50 inline-flex items-center justify-center gap-2"
+            style={{
+              background: "linear-gradient(135deg, #7c4dff, #b388ff)",
+              boxShadow: "0 4px 14px rgba(124,77,255,0.4)",
+            }}
+          >
+            {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Palette className="w-4 h-4" />}
+            {submitting ? "Submitting…" : "Apply Edit"}
+          </button>
+          <button
+            onClick={onClose}
+            className="px-6 py-3 rounded-lg text-sm font-semibold"
+            style={{ background: "#fafaf7", border: "1px solid #d8e8d0", color: "#1a1a1a" }}
+          >
+            Cancel
+          </button>
         </div>
       </div>
     </div>
