@@ -150,8 +150,8 @@ export default function CheckoutForm() {
                 (untuk login + support)
               </span>
             </label>
-            <div className="relative">
-              <div className="absolute left-0 top-0 bottom-0 w-[68px] flex items-center justify-center text-sm text-[var(--color-text-secondary)] font-semibold pointer-events-none border-r border-[var(--color-border)]">
+            <div className="flex items-stretch w-full bg-white border border-[var(--color-border)] rounded-[14px] overflow-hidden focus-within:border-[var(--color-orange)] focus-within:shadow-[0_0_0_3px_rgba(255,107,53,0.12)] transition-all">
+              <div className="flex items-center justify-center px-4 text-sm font-semibold text-[var(--color-text-secondary)] bg-[var(--color-bg-soft,#faf7f2)] border-r border-[var(--color-border)] select-none">
                 +60
               </div>
               <input
@@ -162,7 +162,7 @@ export default function CheckoutForm() {
                 value={whatsapp}
                 onChange={(e) => setWhatsapp(e.target.value)}
                 placeholder="123456789"
-                className="input pl-[80px]"
+                className="flex-1 min-w-0 bg-transparent border-0 outline-none px-4 py-[14px] text-[15px] text-[var(--color-text-primary)] placeholder:text-[var(--color-text-muted)]"
               />
             </div>
             <p className="text-xs text-[var(--color-text-muted)] mt-1.5 flex items-start gap-1.5">
