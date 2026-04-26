@@ -9,6 +9,11 @@ import {
   Search,
   Loader2,
   Calendar,
+  X,
+  Copy,
+  Check,
+  Image as ImageIcon,
+  Video as VideoIcon,
 } from "lucide-react";
 
 type UsageRow = {
@@ -18,6 +23,14 @@ type UsageRow = {
   reason: string;
   amount: number;
   created_at: string;
+  history_id?: string | null;
+  type?: string | null;
+  tab?: string | null;
+  prompt?: string | null;
+  output_url?: string | null;
+  thumbnail_url?: string | null;
+  duration?: number | null;
+  metadata?: any;
 };
 
 type SummaryRow = {
@@ -32,6 +45,8 @@ export default function AdminUsage() {
   const [view, setView] = useState<"summary" | "detail">("summary");
   const [rows, setRows] = useState<UsageRow[]>([]);
   const [loading, setLoading] = useState(true);
+  const [promptModal, setPromptModal] = useState<UsageRow | null>(null);
+  const [previewModal, setPreviewModal] = useState<UsageRow | null>(null);
 
   const today = new Date();
   const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
@@ -368,68 +383,293 @@ export default function AdminUsage() {
                   }}
                 >
                   <th className="text-left px-5 py-4 w-12">#</th>
-                  <th className="text-left px-5 py-4">Date</th>
+                  <th className="text-left px-5 py-4 w-36">Date</th>
                   <th className="text-left px-5 py-4">Email</th>
-                  <th className="text-left px-5 py-4">Action</th>
-                  <th className="text-right px-5 py-4">Cost</th>
+                  <th className="text-left px-5 py-4 w-32">Action</th>
+                  <th className="text-left px-5 py-4">Prompt</th>
+                  <th className="text-center px-5 py-4 w-24">Preview</th>
+                  <th className="text-right px-5 py-4 w-24">Cost</th>
                 </tr>
               </thead>
               <tbody>
                 {generationRows.length === 0 ? (
                   <tr>
                     <td
-                      colSpan={5}
+                      colSpan={7}
                       className="px-4 py-16 text-center text-[var(--color-text-muted)] text-sm"
                     >
                       Tiada usage log.
                     </td>
                   </tr>
                 ) : (
-                  generationRows.map((r, i) => (
-                    <tr
-                      key={r.id}
-                      className="border-b last:border-b-0 transition-colors"
-                      style={{ borderColor: "var(--color-border)" }}
-                      onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(200,245,62,0.04)")}
-                      onMouseLeave={(e) => (e.currentTarget.style.background = "")}
-                    >
-                      <td className="px-5 py-4 text-[var(--color-text-muted)] font-mono text-xs">
-                        {String(i + 1).padStart(2, "0")}
-                      </td>
-                      <td className="px-5 py-4 text-[var(--color-text-secondary)] font-mono text-xs">
-                        {new Date(r.created_at).toLocaleString("ms-MY", {
-                          day: "2-digit",
-                          month: "short",
-                          year: "2-digit",
-                          hour: "2-digit",
-                          minute: "2-digit",
-                        })}
-                      </td>
-                      <td className="px-5 py-4 text-[var(--color-text-primary)]">{r.email}</td>
-                      <td className="px-5 py-4">
-                        <span
-                          className="px-2 py-0.5 rounded text-[10px] font-mono font-bold"
-                          style={{
-                            background: "rgba(200,245,62,0.1)",
-                            color: "var(--color-lime)",
-                            border: "1px solid rgba(200,245,62,0.25)",
-                          }}
-                        >
-                          {r.reason}
-                        </span>
-                      </td>
-                      <td
-                        className="px-5 py-4 text-right font-extrabold tabular-nums"
-                        style={{ color: "var(--color-orange)" }}
+                  generationRows.map((r, i) => {
+                    const isVid =
+                      r.type === "video" ||
+                      r.type === "auto-content" ||
+                      r.type === "clone" ||
+                      r.tab === "cinema";
+                    const isImg = r.type === "image";
+                    const promptShort = (r.prompt || "").trim().substring(0, 80);
+                    return (
+                      <tr
+                        key={r.id}
+                        className="border-b last:border-b-0 transition-colors"
+                        style={{ borderColor: "var(--color-border)" }}
+                        onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(200,245,62,0.04)")}
+                        onMouseLeave={(e) => (e.currentTarget.style.background = "")}
                       >
-                        RM{Math.abs(Number(r.amount)).toFixed(2)}
-                      </td>
-                    </tr>
-                  ))
+                        <td className="px-5 py-4 text-[var(--color-text-muted)] font-mono text-xs">
+                          {String(i + 1).padStart(2, "0")}
+                        </td>
+                        <td className="px-5 py-4 text-[var(--color-text-secondary)] font-mono text-xs">
+                          {new Date(r.created_at).toLocaleString("ms-MY", {
+                            day: "2-digit",
+                            month: "short",
+                            year: "2-digit",
+                            hour: "2-digit",
+                            minute: "2-digit",
+                          })}
+                        </td>
+                        <td className="px-5 py-4 text-[var(--color-text-primary)] truncate max-w-[180px]">
+                          {r.email}
+                        </td>
+                        <td className="px-5 py-4">
+                          <span
+                            className="px-2 py-0.5 rounded text-[10px] font-mono font-bold whitespace-nowrap"
+                            style={{
+                              background: "rgba(200,245,62,0.1)",
+                              color: "var(--color-lime)",
+                              border: "1px solid rgba(200,245,62,0.25)",
+                            }}
+                          >
+                            {r.reason}
+                          </span>
+                        </td>
+                        <td className="px-5 py-4 max-w-[320px]">
+                          {promptShort ? (
+                            <button
+                              onClick={() => setPromptModal(r)}
+                              className="text-left text-xs text-[var(--color-text-secondary)] hover:text-[var(--color-lime)] line-clamp-2 transition-colors"
+                              title="Click to view full prompt"
+                            >
+                              {promptShort}
+                              {r.prompt && r.prompt.length > 80 ? "…" : ""}
+                            </button>
+                          ) : (
+                            <span className="text-xs text-[var(--color-text-muted)]">—</span>
+                          )}
+                        </td>
+                        <td className="px-5 py-4 text-center">
+                          {r.output_url ? (
+                            <button
+                              onClick={() => setPreviewModal(r)}
+                              title={isVid ? "Play video" : "Open image"}
+                              className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[10px] font-bold transition-transform hover:scale-105"
+                              style={{
+                                background: "rgba(34,197,94,0.1)",
+                                border: "1px solid rgba(34,197,94,0.3)",
+                                color: "#22c55e",
+                              }}
+                            >
+                              {isVid ? (
+                                <VideoIcon className="w-3 h-3" strokeWidth={2.4} />
+                              ) : (
+                                <ImageIcon className="w-3 h-3" strokeWidth={2.4} />
+                              )}
+                              {isVid ? "Video" : "Image"}
+                            </button>
+                          ) : (
+                            <span className="text-[10px] text-[var(--color-text-muted)]">—</span>
+                          )}
+                        </td>
+                        <td
+                          className="px-5 py-4 text-right font-extrabold tabular-nums"
+                          style={{ color: "var(--color-orange)" }}
+                        >
+                          RM{Math.abs(Number(r.amount)).toFixed(2)}
+                        </td>
+                      </tr>
+                    );
+                  })
                 )}
               </tbody>
             </table>
           </div>
+        )}
+      </div>
+
+      {promptModal && (
+        <PromptModal
+          row={promptModal}
+          onClose={() => setPromptModal(null)}
+        />
+      )}
+      {previewModal && (
+        <PreviewModal
+          row={previewModal}
+          onClose={() => setPreviewModal(null)}
+        />
+      )}
+    </div>
+  );
+}
+
+// ── Modals ────────────────────────────────────────────────────────────────
+function PromptModal({
+  row,
+  onClose,
+}: {
+  row: UsageRow;
+  onClose: () => void;
+}) {
+  const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    window.addEventListener("keydown", onKey);
+    document.body.style.overflow = "hidden";
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      document.body.style.overflow = "";
+    };
+  }, [onClose]);
+
+  async function copy() {
+    if (!row.prompt) return;
+    await navigator.clipboard.writeText(row.prompt);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1800);
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      style={{ background: "rgba(0,0,0,0.8)", backdropFilter: "blur(8px)" }}
+      onClick={onClose}
+    >
+      <div
+        className="rounded-2xl max-w-2xl w-full max-h-[85vh] flex flex-col overflow-hidden"
+        style={{
+          background: "var(--color-bg-card)",
+          border: "1px solid var(--color-lime)",
+          boxShadow: "0 20px 60px rgba(200,245,62,0.18)",
+        }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div
+          className="flex items-center justify-between px-5 py-4 border-b"
+          style={{ borderColor: "var(--color-border)" }}
+        >
+          <div>
+            <h2
+              className="font-display font-extrabold text-lg"
+              style={{ color: "var(--color-lime)" }}
+            >
+              Full Prompt
+            </h2>
+            <div className="text-xs text-[var(--color-text-muted)] mt-0.5">
+              {row.email} · {row.reason} · {new Date(row.created_at).toLocaleString()}
+            </div>
+          </div>
+          <button
+            onClick={onClose}
+            className="w-8 h-8 rounded-lg flex items-center justify-center hover:bg-white/5"
+          >
+            <X className="w-4 h-4 text-[var(--color-text-secondary)]" />
+          </button>
+        </div>
+        <div className="flex-1 overflow-y-auto p-5">
+          <pre
+            className="text-[11px] font-mono leading-relaxed whitespace-pre-wrap rounded-lg p-4"
+            style={{
+              background: "var(--color-bg)",
+              border: "1px solid var(--color-border)",
+              color: "var(--color-text-primary)",
+            }}
+          >
+            {row.prompt || "(no prompt stored)"}
+          </pre>
+        </div>
+        <div
+          className="px-5 pb-5 pt-3 border-t flex gap-3"
+          style={{ borderColor: "var(--color-border)" }}
+        >
+          <button
+            onClick={copy}
+            className="flex-1 py-2.5 rounded-lg font-extrabold text-sm transition-transform hover:-translate-y-0.5 inline-flex items-center justify-center gap-2"
+            style={{
+              background: "var(--color-lime)",
+              color: "#0a0a0a",
+              boxShadow: "0 4px 14px rgba(200,245,62,0.3)",
+            }}
+          >
+            {copied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
+            {copied ? "Copied" : "Copy Prompt"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function PreviewModal({
+  row,
+  onClose,
+}: {
+  row: UsageRow;
+  onClose: () => void;
+}) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    window.addEventListener("keydown", onKey);
+    document.body.style.overflow = "hidden";
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      document.body.style.overflow = "";
+    };
+  }, [onClose]);
+
+  const isVid =
+    row.type === "video" ||
+    row.type === "auto-content" ||
+    row.type === "clone" ||
+    row.tab === "cinema";
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      style={{ background: "rgba(0,0,0,0.92)", backdropFilter: "blur(8px)" }}
+      onClick={onClose}
+    >
+      <button
+        onClick={onClose}
+        className="absolute top-5 right-5 w-11 h-11 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center text-white transition"
+        aria-label="Close"
+      >
+        <X className="w-5 h-5" />
+      </button>
+      <div
+        className="max-w-[90vw] max-h-[90vh]"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {row.output_url ? (
+          isVid ? (
+            <video
+              src={row.output_url}
+              controls
+              autoPlay
+              playsInline
+              className="max-w-[90vw] max-h-[90vh] rounded-2xl"
+            />
+          ) : (
+            <img
+              src={row.output_url}
+              alt=""
+              className="max-w-[90vw] max-h-[90vh] rounded-2xl object-contain"
+            />
+          )
+        ) : (
+          <div className="text-white text-sm">No preview available</div>
         )}
       </div>
     </div>

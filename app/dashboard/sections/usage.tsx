@@ -11,10 +11,25 @@ import {
   Filter as FilterIcon,
   Calendar,
   TrendingDown,
+  X,
+  Copy,
+  Check,
+  Image as ImageIcon2,
+  Video as VideoIcon,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 
 type Filter = "all" | "image" | "video" | "auto" | "clone" | "post";
+
+type HistoryJoin = {
+  id?: string;
+  type?: string | null;
+  tab?: string | null;
+  prompt?: string | null;
+  output_url?: string | null;
+  thumbnail_url?: string | null;
+  duration?: number | null;
+};
 
 type Tx = {
   id: string;
@@ -23,6 +38,7 @@ type Tx = {
   reason: string;
   created_at: string;
   metadata?: any;
+  history?: HistoryJoin | null; // joined via history_id FK
 };
 
 const FILTER_TABS: {
@@ -60,6 +76,8 @@ export default function UsageSection({ email: _email }: { email: string }) {
   const [filter, setFilter] = useState<Filter>("all");
   const [txs, setTxs] = useState<Tx[]>([]);
   const [loading, setLoading] = useState(true);
+  const [promptModal, setPromptModal] = useState<Tx | null>(null);
+  const [previewModal, setPreviewModal] = useState<Tx | null>(null);
 
   useEffect(() => {
     void load();
@@ -69,12 +87,17 @@ export default function UsageSection({ email: _email }: { email: string }) {
     setLoading(true);
     try {
       const sb = createClient();
+      // Nested select via PostgREST FK — credit_transactions.history_id →
+      // history.id. Both rows are RLS-scoped to the same user_id so the
+      // anon client can read them.
       const { data } = await sb
         .from("credit_transactions")
-        .select("id, amount, balance_after, reason, created_at, metadata")
+        .select(
+          "id, amount, balance_after, reason, created_at, metadata, history:history_id(id, type, tab, prompt, output_url, thumbnail_url, duration)"
+        )
         .order("created_at", { ascending: false })
         .limit(200);
-      setTxs((data as Tx[]) || []);
+      setTxs((data as any) || []);
     } finally {
       setLoading(false);
     }
@@ -192,8 +215,9 @@ export default function UsageSection({ email: _email }: { email: string }) {
           className="hidden md:flex px-6 py-3 border-b border-[var(--color-border)] text-xs font-mono uppercase tracking-wider text-[var(--color-text-muted)] font-bold"
           style={{ background: "rgba(200,245,62,0.04)" }}
         >
-          <span className="flex-1">Action</span>
-          <span className="flex-1">Description</span>
+          <span className="w-44">Action</span>
+          <span className="flex-1">Prompt</span>
+          <span className="w-20 text-center">Preview</span>
           <span className="w-32">Date</span>
           <span className="w-20 text-right">Credit</span>
           <span className="w-20 text-right">Balance</span>
@@ -222,16 +246,57 @@ export default function UsageSection({ email: _email }: { email: string }) {
             {filtered.map((t) => {
               const isPositive = t.amount > 0;
               const label = REASON_LABELS[t.reason] || t.reason;
+              const h = t.history;
+              const isVid =
+                h?.type === "video" ||
+                h?.type === "auto-content" ||
+                h?.type === "clone" ||
+                h?.tab === "cinema";
+              const promptShort = (h?.prompt || "").trim().substring(0, 60);
               return (
                 <li
                   key={t.id}
                   className="px-6 py-4 flex flex-col md:flex-row md:items-center gap-2 md:gap-3 text-sm"
                 >
-                  <span className="flex-1 font-semibold">{label}</span>
-                  <span className="flex-1 text-[var(--color-text-muted)] text-xs truncate">
-                    {t.metadata?.rate
-                      ? `Rate RM${Number(t.metadata.rate).toFixed(2)}`
-                      : t.reason}
+                  <span className="w-44 font-semibold text-[var(--color-text-primary)] truncate">
+                    {label}
+                  </span>
+                  <span className="flex-1 min-w-0">
+                    {promptShort ? (
+                      <button
+                        onClick={() => setPromptModal(t)}
+                        className="text-left text-xs text-[var(--color-text-secondary)] hover:text-[var(--color-orange)] line-clamp-1 transition-colors w-full"
+                        title="Click to view full prompt"
+                      >
+                        {promptShort}
+                        {h?.prompt && h.prompt.length > 60 ? "…" : ""}
+                      </button>
+                    ) : (
+                      <span className="text-xs text-[var(--color-text-muted)]">—</span>
+                    )}
+                  </span>
+                  <span className="w-20 text-center">
+                    {h?.output_url ? (
+                      <button
+                        onClick={() => setPreviewModal(t)}
+                        title={isVid ? "Play video" : "Open image"}
+                        className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-bold transition-transform hover:scale-105"
+                        style={{
+                          background: "rgba(34,197,94,0.1)",
+                          border: "1px solid rgba(34,197,94,0.3)",
+                          color: "#22c55e",
+                        }}
+                      >
+                        {isVid ? (
+                          <VideoIcon className="w-3 h-3" strokeWidth={2.4} />
+                        ) : (
+                          <ImageIcon2 className="w-3 h-3" strokeWidth={2.4} />
+                        )}
+                        {isVid ? "Video" : "Image"}
+                      </button>
+                    ) : (
+                      <span className="text-[10px] text-[var(--color-text-muted)]">—</span>
+                    )}
                   </span>
                   <span className="w-32 text-xs font-mono text-[var(--color-text-muted)]">
                     {new Date(t.created_at).toLocaleString("ms-MY", {
@@ -257,6 +322,171 @@ export default function UsageSection({ email: _email }: { email: string }) {
               );
             })}
           </ul>
+        )}
+      </div>
+
+      {promptModal && (
+        <ClientPromptModal
+          tx={promptModal}
+          onClose={() => setPromptModal(null)}
+        />
+      )}
+      {previewModal && (
+        <ClientPreviewModal
+          tx={previewModal}
+          onClose={() => setPreviewModal(null)}
+        />
+      )}
+    </div>
+  );
+}
+
+function ClientPromptModal({
+  tx,
+  onClose,
+}: {
+  tx: Tx;
+  onClose: () => void;
+}) {
+  const [copied, setCopied] = useState(false);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    window.addEventListener("keydown", onKey);
+    document.body.style.overflow = "hidden";
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      document.body.style.overflow = "";
+    };
+  }, [onClose]);
+  async function copy() {
+    if (!tx.history?.prompt) return;
+    await navigator.clipboard.writeText(tx.history.prompt);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1800);
+  }
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      style={{ background: "rgba(0,0,0,0.8)", backdropFilter: "blur(8px)" }}
+      onClick={onClose}
+    >
+      <div
+        className="rounded-2xl max-w-2xl w-full max-h-[85vh] flex flex-col overflow-hidden"
+        style={{
+          background: "var(--color-bg-card)",
+          border: "1px solid var(--color-orange)",
+          boxShadow: "0 20px 60px rgba(255,87,34,0.18)",
+        }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div
+          className="flex items-center justify-between px-5 py-4 border-b"
+          style={{ borderColor: "var(--color-border)" }}
+        >
+          <h2
+            className="font-display font-extrabold text-lg"
+            style={{ color: "var(--color-orange)" }}
+          >
+            Full Prompt
+          </h2>
+          <button
+            onClick={onClose}
+            className="w-8 h-8 rounded-lg flex items-center justify-center hover:bg-white/5"
+          >
+            <X className="w-4 h-4 text-[var(--color-text-secondary)]" />
+          </button>
+        </div>
+        <div className="flex-1 overflow-y-auto p-5">
+          <pre
+            className="text-[11px] font-mono leading-relaxed whitespace-pre-wrap rounded-lg p-4"
+            style={{
+              background: "var(--color-bg)",
+              border: "1px solid var(--color-border)",
+              color: "var(--color-text-primary)",
+            }}
+          >
+            {tx.history?.prompt || "(no prompt stored)"}
+          </pre>
+        </div>
+        <div
+          className="px-5 pb-5 pt-3 border-t flex"
+          style={{ borderColor: "var(--color-border)" }}
+        >
+          <button
+            onClick={copy}
+            className="flex-1 py-2.5 rounded-lg font-extrabold text-sm text-white transition-transform hover:-translate-y-0.5 inline-flex items-center justify-center gap-2"
+            style={{
+              background:
+                "linear-gradient(90deg, var(--color-orange) 0%, #ff6a1a 100%)",
+              boxShadow: "0 4px 14px rgba(255,87,34,0.3)",
+            }}
+          >
+            {copied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
+            {copied ? "Copied" : "Copy Prompt"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ClientPreviewModal({
+  tx,
+  onClose,
+}: {
+  tx: Tx;
+  onClose: () => void;
+}) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    window.addEventListener("keydown", onKey);
+    document.body.style.overflow = "hidden";
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      document.body.style.overflow = "";
+    };
+  }, [onClose]);
+  const h = tx.history;
+  const isVid =
+    h?.type === "video" ||
+    h?.type === "auto-content" ||
+    h?.type === "clone" ||
+    h?.tab === "cinema";
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      style={{ background: "rgba(0,0,0,0.92)", backdropFilter: "blur(8px)" }}
+      onClick={onClose}
+    >
+      <button
+        onClick={onClose}
+        className="absolute top-5 right-5 w-11 h-11 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center text-white transition"
+        aria-label="Close"
+      >
+        <X className="w-5 h-5" />
+      </button>
+      <div
+        className="max-w-[90vw] max-h-[90vh]"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {h?.output_url ? (
+          isVid ? (
+            <video
+              src={h.output_url}
+              controls
+              autoPlay
+              playsInline
+              className="max-w-[90vw] max-h-[90vh] rounded-2xl"
+            />
+          ) : (
+            <img
+              src={h.output_url}
+              alt=""
+              className="max-w-[90vw] max-h-[90vh] rounded-2xl object-contain"
+            />
+          )
+        ) : (
+          <div className="text-white text-sm">No preview available</div>
         )}
       </div>
     </div>
