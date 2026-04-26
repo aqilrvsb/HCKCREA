@@ -8,6 +8,17 @@ type Status = "idle" | "submitting" | "polling" | "done" | "failed";
 export default function VideoTab() {
   const [prompt, setPrompt] = useState("");
   const [duration, setDuration] = useState<"8" | "16">("8");
+
+  // Pick up a prompt handed off from the UGC Prompt Builder (Use in Video)
+  useEffect(() => {
+    try {
+      const stash = localStorage.getItem("ugc_prompt_stash");
+      if (stash && stash.trim()) {
+        setPrompt(stash);
+        localStorage.removeItem("ugc_prompt_stash");
+      }
+    } catch {}
+  }, []);
   const [imageMode, setImageMode] = useState<"ingredient" | "frame" | "text">("ingredient");
   const [refUrl, setRefUrl] = useState<string>("");
   const [historyId, setHistoryId] = useState<string | null>(null);

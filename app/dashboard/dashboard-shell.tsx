@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import { useEffect } from "react";
 import {
   Sparkles,
   Wallet,
@@ -11,11 +12,13 @@ import {
   Video,
   Layers,
   Wand2,
+  Mic,
   Settings,
 } from "lucide-react";
 import LogoutButton from "./logout-button";
 import ImageTab from "./tabs/image";
 import VideoTab from "./tabs/video";
+import UgcTab from "./tabs/ugc";
 import CloneTab from "./tabs/clone";
 import AutoContentTab from "./tabs/auto-content";
 import HistoryGrid from "./sections/history-grid";
@@ -26,6 +29,7 @@ import UsageSection from "./sections/usage";
 type SectionKey =
   | "image"
   | "video"
+  | "ugc"
   | "clone"
   | "auto"
   | "billing"
@@ -35,11 +39,12 @@ type SectionKey =
 const SECTIONS: { key: SectionKey; label: string; icon: any; tag: string }[] = [
   { key: "image", label: "Image", icon: ImageIcon, tag: "01" },
   { key: "video", label: "Video", icon: Video, tag: "02" },
-  { key: "clone", label: "Clone", icon: Layers, tag: "03" },
-  { key: "auto", label: "Auto Content", icon: Wand2, tag: "04" },
-  { key: "billing", label: "Billing", icon: CreditCard, tag: "05" },
-  { key: "credit", label: "Top Up", icon: Wallet, tag: "06" },
-  { key: "usage", label: "Usage", icon: Activity, tag: "07" },
+  { key: "ugc", label: "UGC", icon: Mic, tag: "03" },
+  { key: "clone", label: "Clone", icon: Layers, tag: "04" },
+  { key: "auto", label: "Auto Content", icon: Wand2, tag: "05" },
+  { key: "billing", label: "Billing", icon: CreditCard, tag: "06" },
+  { key: "credit", label: "Top Up", icon: Wallet, tag: "07" },
+  { key: "usage", label: "Usage", icon: Activity, tag: "08" },
 ];
 
 export default function DashboardShell({
@@ -52,6 +57,18 @@ export default function DashboardShell({
   credits: number;
 }) {
   const [section, setSection] = useState<SectionKey>("image");
+
+  // Listen for cross-tab navigation (e.g. UGC builder's "Use in Video" button)
+  useEffect(() => {
+    const onGoto = (e: any) => {
+      const target = e?.detail as SectionKey | undefined;
+      if (target && SECTIONS.find((s) => s.key === target)) {
+        setSection(target);
+      }
+    };
+    window.addEventListener("dashboard:goto", onGoto);
+    return () => window.removeEventListener("dashboard:goto", onGoto);
+  }, []);
   const active = SECTIONS.find((s) => s.key === section)!;
 
   return (
@@ -340,6 +357,11 @@ export default function DashboardShell({
                 </section>
                 <HistoryGrid tab="video" title="Video" />
               </>
+            )}
+            {section === "ugc" && (
+              <section className="card max-w-3xl mx-auto w-full">
+                <UgcTab />
+              </section>
             )}
             {section === "clone" && (
               <>
