@@ -201,6 +201,18 @@ export default function Home() {
       />
       <div className="bg-noise" />
 
+      {/* Top urgency banner — fear + scarcity, always visible */}
+      <div className="relative z-30 bg-gradient-to-r from-red-500 via-orange-500 to-red-500 text-white">
+        <div className="mx-auto max-w-7xl px-6 py-2 flex items-center justify-center gap-2 text-xs sm:text-sm font-semibold text-center">
+          <Flame className="w-3.5 h-3.5 animate-pulse flex-shrink-0" />
+          <span>
+            <strong>Promo RM75/bulan</strong> ditutup dalam{" "}
+            <Countdown />. Tinggal{" "}
+            <strong>13 slot</strong> dari 80 — 67 seller dah claim hari ni.
+          </span>
+        </div>
+      </div>
+
       {/* Nav */}
       <nav className="relative z-20 mx-auto max-w-7xl px-6 py-5 flex items-center justify-between">
         <Link href="/" className="flex items-center gap-2.5">
@@ -227,79 +239,100 @@ export default function Home() {
         <div className="grid lg:grid-cols-12 gap-12 items-center">
           {/* Left: copy */}
           <div className="lg:col-span-7">
+            {/* Social proof badge above H1 — number first, like rekalab */}
             <div
-              className="inline-flex items-center gap-2 mb-7 chip chip-pulse animate-fade-in-up"
+              className="inline-flex items-center gap-2 mb-7 px-3.5 py-1.5 rounded-full bg-emerald-50 border border-emerald-200 animate-fade-in-up"
               style={{ opacity: 0 }}
             >
-              <span>Live untuk seller TikTok Shop Malaysia</span>
+              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+              <span className="text-xs sm:text-sm font-bold text-emerald-700">
+                1,300+ seller TikTok Shop Malaysia dah scale UGC
+              </span>
             </div>
 
+            {/* Headline — fear/comparison hook (rekalab style) */}
             <h1
               className="font-display font-extrabold tracking-tight text-5xl sm:text-6xl md:text-7xl leading-[0.95] mb-7 animate-fade-in-up"
               style={{ animationDelay: "0.1s", opacity: 0 }}
             >
-              <span className="block">10 video UGC</span>
+              <span className="block">Kompetitor dah</span>
               <span className="block">
-                untuk produk anda,{" "}
-                <span className="gradient-text-multi">3 minit.</span>
+                <span className="gradient-text-multi">post 10 video.</span>
               </span>
+              <span className="block">Anda baru fikir.</span>
             </h1>
 
             <p
               className="text-lg sm:text-xl text-[var(--color-text-secondary)] mb-8 leading-relaxed max-w-xl animate-fade-in-up"
               style={{ animationDelay: "0.2s", opacity: 0 }}
             >
-              Tak perlu shoot. Tak perlu hire creator. Letak link produk TikTok
-              Shop — AI hasilkan 10 video UGC dengan dialog Bahasa Melayu, face
-              natural, dan caption siap untuk auto-post.
+              <strong className="text-[var(--color-text-primary)]">
+                PeningLab catch up dalam 3 minit.
+              </strong>{" "}
+              Letak link produk TikTok Shop — AI hasilkan 10 video UGC dengan
+              dialog Bahasa Melayu, muka avatar, caption auto-post siap. Tanpa
+              shoot, tanpa hire creator, tanpa muka anda tersebar.
             </p>
 
             <div
-              className="flex flex-col sm:flex-row items-start sm:items-center gap-4 mb-8 animate-fade-in-up"
+              className="flex flex-col sm:flex-row items-start sm:items-center gap-4 mb-6 animate-fade-in-up"
               style={{ animationDelay: "0.3s", opacity: 0 }}
             >
               <Link href="/register" className="btn-primary group">
-                Cuba Percuma — 10 Kredit
+                Mula Sekarang — 2 Video FREE
                 <ArrowRight className="w-4 h-4 group-hover:translate-x-0.5 transition" />
               </Link>
-              <a href="#how" className="btn-secondary">
+              <a href="#demo" className="btn-secondary">
                 <PlayCircle className="w-4 h-4" />
-                Tengok demo
+                Tengok 20 demo
               </a>
             </div>
 
+            {/* Scarcity activity strip — live signal */}
             <div
-              className="flex items-center gap-4 text-sm text-[var(--color-text-muted)] animate-fade-in-up"
+              className="flex flex-wrap items-center gap-x-5 gap-y-2 text-xs sm:text-sm animate-fade-in-up"
               style={{ animationDelay: "0.4s", opacity: 0 }}
             >
-              <div className="avatar-stack flex">
-                {[
-                  "from-violet-400 to-pink-400",
-                  "from-blue-400 to-violet-500",
-                  "from-pink-400 to-amber-300",
-                  "from-emerald-400 to-blue-400",
-                ].map((g, i) => (
-                  <div
-                    key={i}
-                    className={`w-8 h-8 rounded-full bg-gradient-to-br ${g} ring-2 ring-white`}
-                  />
-                ))}
-              </div>
               <div className="flex items-center gap-2">
-                <div className="flex">
-                  {[...Array(5)].map((_, i) => (
-                    <Star
+                <div className="avatar-stack flex">
+                  {[
+                    "from-violet-400 to-pink-400",
+                    "from-blue-400 to-violet-500",
+                    "from-pink-400 to-amber-300",
+                    "from-emerald-400 to-blue-400",
+                  ].map((g, i) => (
+                    <div
                       key={i}
-                      className="w-3.5 h-3.5 fill-amber-400 text-amber-400"
+                      className={`w-7 h-7 rounded-full bg-gradient-to-br ${g} ring-2 ring-white`}
                     />
                   ))}
                 </div>
+                <div className="flex items-center gap-1.5">
+                  <div className="flex">
+                    {[...Array(5)].map((_, i) => (
+                      <Star
+                        key={i}
+                        className="w-3 h-3 fill-amber-400 text-amber-400"
+                      />
+                    ))}
+                  </div>
+                  <span className="text-[var(--color-text-secondary)]">
+                    4.9 rating
+                  </span>
+                </div>
+              </div>
+              <div className="flex items-center gap-1.5 text-[var(--color-text-secondary)]">
+                <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" />
                 <span>
-                  <span className="text-[var(--color-text-primary)] font-bold">
-                    1,300+
-                  </span>{" "}
-                  seller dah scale UGC
+                  <strong className="text-[var(--color-text-primary)]">
+                    7 seller
+                  </strong>{" "}
+                  generate video sekarang
                 </span>
+              </div>
+              <div className="flex items-center gap-1.5 text-[var(--color-text-secondary)]">
+                <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
+                <span>30-day money-back</span>
               </div>
             </div>
           </div>
@@ -447,6 +480,83 @@ export default function Home() {
                 </div>
                 <div className="text-xs font-bold">Klik link bawah!</div>
               </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* Fear question hook — dark dramatic break, rekalab-style direct attack */}
+      <section className="relative z-10 my-12">
+        <div className="mx-auto max-w-6xl px-6">
+          <div
+            className="relative overflow-hidden rounded-3xl text-center py-14 sm:py-20 px-6"
+            style={{
+              background:
+                "linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #312e81 100%)",
+            }}
+          >
+            {/* Decorative glow */}
+            <div
+              className="absolute"
+              style={{
+                top: "20%",
+                left: "10%",
+                width: 300,
+                height: 300,
+                borderRadius: "50%",
+                background:
+                  "radial-gradient(circle, rgba(239,68,68,0.25), transparent 70%)",
+                filter: "blur(40px)",
+              }}
+            />
+            <div
+              className="absolute"
+              style={{
+                bottom: "10%",
+                right: "5%",
+                width: 250,
+                height: 250,
+                borderRadius: "50%",
+                background:
+                  "radial-gradient(circle, rgba(245,158,11,0.2), transparent 70%)",
+                filter: "blur(40px)",
+              }}
+            />
+
+            <div className="relative">
+              <div className="inline-flex items-center gap-2 mb-6 px-3 py-1.5 rounded-full bg-red-500/15 border border-red-400/30">
+                <span className="w-1.5 h-1.5 rounded-full bg-red-400 animate-pulse" />
+                <span className="text-xs font-bold uppercase tracking-widest text-red-300">
+                  Realiti pahit
+                </span>
+              </div>
+              <h2 className="font-display font-extrabold text-3xl sm:text-5xl md:text-6xl text-white leading-[1.1] mb-6 max-w-4xl mx-auto">
+                Orang lain dah pecut dengan AI.
+                <br />
+                <span
+                  style={{
+                    background:
+                      "linear-gradient(135deg, #f87171 0%, #fb923c 50%, #fbbf24 100%)",
+                    WebkitBackgroundClip: "text",
+                    WebkitTextFillColor: "transparent",
+                  }}
+                >
+                  Anda masih struggle?
+                </span>
+              </h2>
+              <p className="text-base sm:text-lg text-white/70 leading-relaxed max-w-2xl mx-auto mb-8">
+                Setiap pagi anda buka TikTok Shop. Sales lambat. Reach turun.
+                Energy habis. Sementara itu, kompetitor anda dah post 10 video
+                baru — guna AI yang anda belum jumpa.
+              </p>
+              <Link
+                href="/register"
+                className="inline-flex items-center gap-2 px-7 py-3.5 rounded-2xl bg-white text-[var(--color-text-primary)] font-bold text-sm sm:text-base shadow-2xl hover:scale-[1.03] transition-transform"
+              >
+                <Flame className="w-4 h-4 text-orange-500" />
+                Saya nak catch up sekarang
+                <ArrowRight className="w-4 h-4" />
+              </Link>
             </div>
           </div>
         </div>

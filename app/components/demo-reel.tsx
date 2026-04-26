@@ -37,7 +37,7 @@ export default function DemoReel() {
   const modalVideo = modalIndex !== null ? videos[modalIndex] : null;
 
   return (
-    <section className="relative z-10 mx-auto max-w-6xl px-6 py-20">
+    <section id="demo" className="relative z-10 mx-auto max-w-6xl px-6 py-20">
       <div className="text-center mb-10">
         <div className="chip mb-5">
           <Sparkles className="w-3.5 h-3.5" />
