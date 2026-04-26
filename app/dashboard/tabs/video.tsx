@@ -29,11 +29,6 @@ export default function VideoTab({ projectId }: { projectId?: string } = {}) {
   const [status, setStatus] = useState<Status>("idle");
   const [error, setError] = useState<string | null>(null);
 
-  const [uploadingStart, setUploadingStart] = useState(false);
-  const [uploadingEnd, setUploadingEnd] = useState(false);
-  const [uploadingRef, setUploadingRef] = useState(false);
-  const anyUploading = uploadingStart || uploadingEnd || uploadingRef;
-
   const startInputRef = useRef<HTMLInputElement | null>(null);
   const endInputRef = useRef<HTMLInputElement | null>(null);
   const refInputRef = useRef<HTMLInputElement | null>(null);
@@ -58,33 +53,26 @@ export default function VideoTab({ projectId }: { projectId?: string } = {}) {
     setPickerSlot(null);
   }
 
-  // Local preview instantly + background upload swap to Supabase URL.
-  async function readFile(
-    f: File | null,
-    set: (s: string) => void,
-    setUploading?: (b: boolean) => void
-  ) {
+  // Local preview only — no network call. Uploaded to RunningHub at submit
+  // time so a discarded preview never wastes RH bandwidth.
+  function readFile(f: File | null, set: (s: string) => void) {
     if (!f) return;
     const reader = new FileReader();
     reader.onload = () => set(String(reader.result || ""));
     reader.readAsDataURL(f);
+  }
 
-    setUploading?.(true);
-    try {
-      const fd = new FormData();
-      fd.append("file", f);
-      const r = await fetch("/api/upload/image", { method: "POST", body: fd });
-      const d = await r.json();
-      if (r.ok && d?.url) {
-        set(d.url);
-      } else {
-        setError(`Upload failed: ${d?.error || "unknown"}`);
-      }
-    } catch (e: any) {
-      setError(`Upload error: ${e?.message || "network"}`);
-    } finally {
-      setUploading?.(false);
-    }
+  // Upload-on-demand: data: URL -> public RH URL. Pass-through if already public.
+  async function ensurePublicUrl(v: string): Promise<string> {
+    if (!v) return "";
+    if (!v.startsWith("data:")) return v;
+    const blob = await (await fetch(v)).blob();
+    const fd = new FormData();
+    fd.append("file", blob, "upload.png");
+    const r = await fetch("/api/upload/image", { method: "POST", body: fd });
+    const d = await r.json();
+    if (!r.ok || !d?.url) throw new Error(d?.error || "Upload failed");
+    return d.url;
   }
 
   async function submit() {
@@ -96,14 +84,21 @@ export default function VideoTab({ projectId }: { projectId?: string } = {}) {
     setError(null);
     setStatus("submitting");
 
-    const imageUrls =
-      imageMode === "frame"
-        ? [startFrame, endFrame].filter(Boolean)
-        : imageMode === "ingredient"
-          ? [refImage]
-          : [];
-
     try {
+      // Upload local previews to RunningHub before hitting generate.
+      const [startPub, endPub, refPub] = await Promise.all([
+        ensurePublicUrl(startFrame),
+        ensurePublicUrl(endFrame),
+        ensurePublicUrl(refImage),
+      ]);
+
+      const imageUrls =
+        imageMode === "frame"
+          ? [startPub, endPub].filter(Boolean)
+          : imageMode === "ingredient"
+            ? [refPub]
+            : [];
+
       const calls = Array.from({ length: count }).map(() =>
         fetch("/api/generate/video", {
           method: "POST",
@@ -200,7 +195,6 @@ export default function VideoTab({ projectId }: { projectId?: string } = {}) {
               color={ORANGE}
               url={refImage}
               icon="📦"
-              uploading={uploadingRef}
               required
               onPick={() => refInputRef.current?.click()}
               onClear={() => setRefImage("")}
@@ -211,9 +205,7 @@ export default function VideoTab({ projectId }: { projectId?: string } = {}) {
               type="file"
               accept="image/*"
               className="hidden"
-              onChange={(e) =>
-                readFile(e.target.files?.[0] || null, setRefImage, setUploadingRef)
-              }
+              onChange={(e) => readFile(e.target.files?.[0] || null, setRefImage)}
             />
           </div>
         )}
@@ -226,7 +218,6 @@ export default function VideoTab({ projectId }: { projectId?: string } = {}) {
                 color={ORANGE}
                 url={startFrame}
                 icon="🖼️"
-                uploading={uploadingStart}
                 required
                 onPick={() => startInputRef.current?.click()}
                 onClear={() => setStartFrame("")}
@@ -237,9 +228,7 @@ export default function VideoTab({ projectId }: { projectId?: string } = {}) {
                 type="file"
                 accept="image/*"
                 className="hidden"
-                onChange={(e) =>
-                  readFile(e.target.files?.[0] || null, setStartFrame, setUploadingStart)
-                }
+                onChange={(e) => readFile(e.target.files?.[0] || null, setStartFrame)}
               />
             </div>
             <div>
@@ -248,7 +237,6 @@ export default function VideoTab({ projectId }: { projectId?: string } = {}) {
                 color="#888"
                 url={endFrame}
                 icon="🏁"
-                uploading={uploadingEnd}
                 onPick={() => endInputRef.current?.click()}
                 onClear={() => setEndFrame("")}
                 onHistory={() => setPickerSlot("end")}
@@ -258,9 +246,7 @@ export default function VideoTab({ projectId }: { projectId?: string } = {}) {
                 type="file"
                 accept="image/*"
                 className="hidden"
-                onChange={(e) =>
-                  readFile(e.target.files?.[0] || null, setEndFrame, setUploadingEnd)
-                }
+                onChange={(e) => readFile(e.target.files?.[0] || null, setEndFrame)}
               />
             </div>
           </div>
@@ -312,7 +298,7 @@ export default function VideoTab({ projectId }: { projectId?: string } = {}) {
 
         <button
           onClick={submit}
-          disabled={busy || anyUploading}
+          disabled={busy}
           className="w-full py-3.5 rounded-xl font-extrabold text-base text-white transition-all hover:-translate-y-0.5 disabled:opacity-50 disabled:transform-none"
           style={{
             background:
@@ -325,11 +311,6 @@ export default function VideoTab({ projectId }: { projectId?: string } = {}) {
             <span className="inline-flex items-center justify-center gap-2">
               <Loader2 className="w-4 h-4 animate-spin" />
               Submitting…
-            </span>
-          ) : anyUploading ? (
-            <span className="inline-flex items-center justify-center gap-2">
-              <Loader2 className="w-4 h-4 animate-spin" />
-              Uploading reference…
             </span>
           ) : (
             <>🎬 Generate {count > 1 ? `${count} Videos` : "Video"}</>

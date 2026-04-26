@@ -72,15 +72,6 @@ export default function ImageTab({ projectId }: { projectId?: string } = {}) {
   // History picker modal state — which slot is being filled
   const [pickerSlot, setPickerSlot] = useState<RefSlot | null>(null);
 
-  // Per-slot upload-in-progress flags — show spinner overlay while bytes
-  // travel to Supabase. Generate disabled while any are true.
-  const [uploadingChar, setUploadingChar] = useState(false);
-  const [uploadingProduct, setUploadingProduct] = useState(false);
-  const [uploadingPoster, setUploadingPoster] = useState(false);
-  const [uploadingVirtProduct, setUploadingVirtProduct] = useState(false);
-  const anyUploading =
-    uploadingChar || uploadingProduct || uploadingPoster || uploadingVirtProduct;
-
   const charInputRef = useRef<HTMLInputElement | null>(null);
   const productInputRef = useRef<HTMLInputElement | null>(null);
   const posterInputRef = useRef<HTMLInputElement | null>(null);
@@ -98,38 +89,28 @@ export default function ImageTab({ projectId }: { projectId?: string } = {}) {
   // settle pending rows. We just dispatch history:refresh after submit so
   // the placeholder appears immediately.
 
-  // Show local preview instantly, upload in background, swap to public URL.
-  // Crun.ai requires public HTTPS URLs (cannot accept data: URLs).
-  async function readFile(
-    f: File | null,
-    set: (s: string) => void,
-    setUploading?: (b: boolean) => void
-  ) {
+  // Local preview only — no network call. Files are kept as data URLs and
+  // uploaded to RunningHub at submit time (so a discarded preview never
+  // wastes RH bandwidth).
+  function readFile(f: File | null, set: (s: string) => void) {
     if (!f) return;
-    // 1. Local preview immediately
     const reader = new FileReader();
     reader.onload = () => set(String(reader.result || ""));
     reader.readAsDataURL(f);
+  }
 
-    // 2. Background upload → swap to Supabase public URL
-    setUploading?.(true);
-    try {
-      const fd = new FormData();
-      fd.append("file", f);
-      const r = await fetch("/api/upload/image", { method: "POST", body: fd });
-      const d = await r.json();
-      if (r.ok && d?.url) {
-        set(d.url);
-      } else {
-        // Keep the data URL preview but warn — generation will likely fail
-        console.error("Upload failed:", d?.error);
-        setError(`Upload failed: ${d?.error || "unknown"}. Generation may not work.`);
-      }
-    } catch (e: any) {
-      setError(`Upload error: ${e?.message || "network"}`);
-    } finally {
-      setUploading?.(false);
-    }
+  // Upload-on-demand: turns a data: URL into a public RunningHub URL.
+  // Pass-through if already public.
+  async function ensurePublicUrl(v: string): Promise<string> {
+    if (!v) return "";
+    if (!v.startsWith("data:")) return v;
+    const blob = await (await fetch(v)).blob();
+    const fd = new FormData();
+    fd.append("file", blob, "upload.png");
+    const r = await fetch("/api/upload/image", { method: "POST", body: fd });
+    const d = await r.json();
+    if (!r.ok || !d?.url) throw new Error(d?.error || "Upload failed");
+    return d.url;
   }
 
   async function submit() {
@@ -138,12 +119,21 @@ export default function ImageTab({ projectId }: { projectId?: string } = {}) {
     setStatus("submitting");
     setOutputUrl(null);
 
-    const refs =
-      mode === "virtualize"
-        ? [posterUrl, virtProductUrl].filter(Boolean)
-        : [charUrl, productUrl].filter(Boolean);
-
     try {
+      // Upload any locally-previewed images to RunningHub now (before we
+      // hit the generate endpoint). Pass-through for already-public URLs.
+      const [charPub, productPub, posterPub, virtProductPub] = await Promise.all([
+        ensurePublicUrl(charUrl),
+        ensurePublicUrl(productUrl),
+        ensurePublicUrl(posterUrl),
+        ensurePublicUrl(virtProductUrl),
+      ]);
+
+      const refs =
+        mode === "virtualize"
+          ? [posterPub, virtProductPub].filter(Boolean)
+          : [charPub, productPub].filter(Boolean);
+
       const calls = Array.from({ length: count }).map(() =>
         fetch("/api/generate/image", {
           method: "POST",
@@ -225,7 +215,6 @@ export default function ImageTab({ projectId }: { projectId?: string } = {}) {
               icon="📸"
               title="Click or drop character face image"
               subtitle="Face / person — used for all variations"
-              uploading={uploadingChar}
               onPick={() => charInputRef.current?.click()}
               onClear={() => setCharUrl("")}
             />
@@ -234,9 +223,7 @@ export default function ImageTab({ projectId }: { projectId?: string } = {}) {
               type="file"
               accept="image/*"
               className="hidden"
-              onChange={(e) =>
-                readFile(e.target.files?.[0] || null, setCharUrl, setUploadingChar)
-              }
+              onChange={(e) => readFile(e.target.files?.[0] || null, setCharUrl)}
             />
           </Card>
 
@@ -251,7 +238,6 @@ export default function ImageTab({ projectId }: { projectId?: string } = {}) {
               icon="📦"
               title="Click or drop product photo"
               subtitle="Keeps packaging, labels, colors accurate"
-              uploading={uploadingProduct}
               onPick={() => productInputRef.current?.click()}
               onClear={() => setProductUrl("")}
             />
@@ -260,9 +246,7 @@ export default function ImageTab({ projectId }: { projectId?: string } = {}) {
               type="file"
               accept="image/*"
               className="hidden"
-              onChange={(e) =>
-                readFile(e.target.files?.[0] || null, setProductUrl, setUploadingProduct)
-              }
+              onChange={(e) => readFile(e.target.files?.[0] || null, setProductUrl)}
             />
           </Card>
         </>
@@ -292,7 +276,6 @@ export default function ImageTab({ projectId }: { projectId?: string } = {}) {
                 title=""
                 subtitle="Upload existing poster or ad design"
                 small
-                uploading={uploadingPoster}
                 onPick={() => posterInputRef.current?.click()}
                 onClear={() => setPosterUrl("")}
               />
@@ -301,9 +284,7 @@ export default function ImageTab({ projectId }: { projectId?: string } = {}) {
                 type="file"
                 accept="image/*"
                 className="hidden"
-                onChange={(e) =>
-                  readFile(e.target.files?.[0] || null, setPosterUrl, setUploadingPoster)
-                }
+                onChange={(e) => readFile(e.target.files?.[0] || null, setPosterUrl)}
               />
             </div>
             <div>
@@ -321,7 +302,6 @@ export default function ImageTab({ projectId }: { projectId?: string } = {}) {
                 title=""
                 subtitle="Upload real product photo"
                 small
-                uploading={uploadingVirtProduct}
                 onPick={() => virtProductInputRef.current?.click()}
                 onClear={() => setVirtProductUrl("")}
               />
@@ -330,13 +310,7 @@ export default function ImageTab({ projectId }: { projectId?: string } = {}) {
                 type="file"
                 accept="image/*"
                 className="hidden"
-                onChange={(e) =>
-                  readFile(
-                    e.target.files?.[0] || null,
-                    setVirtProductUrl,
-                    setUploadingVirtProduct
-                  )
-                }
+                onChange={(e) => readFile(e.target.files?.[0] || null, setVirtProductUrl)}
               />
             </div>
           </div>
@@ -478,7 +452,7 @@ export default function ImageTab({ projectId }: { projectId?: string } = {}) {
 
         <button
           onClick={submit}
-          disabled={busy || anyUploading}
+          disabled={busy}
           className="w-full mt-5 py-3.5 rounded-xl font-extrabold text-base text-white transition-all hover:-translate-y-0.5 disabled:opacity-50 disabled:transform-none"
           style={{
             background: `linear-gradient(135deg, #ff5722 0%, #ff7043 100%)`,
@@ -489,12 +463,7 @@ export default function ImageTab({ projectId }: { projectId?: string } = {}) {
           {busy ? (
             <span className="inline-flex items-center justify-center gap-2">
               <Loader2 className="w-4 h-4 animate-spin" />
-              {status === "submitting" ? "Submitting…" : "Generating…"}
-            </span>
-          ) : anyUploading ? (
-            <span className="inline-flex items-center justify-center gap-2">
-              <Loader2 className="w-4 h-4 animate-spin" />
-              Uploading reference…
+              Submitting…
             </span>
           ) : (
             <>🖼️ Generate Image</>
