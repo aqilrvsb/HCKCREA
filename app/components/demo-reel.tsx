@@ -88,10 +88,10 @@ export default function DemoReel() {
       </div>
 
       {videos.length > 0 && (
-        <div className="grid lg:grid-cols-3 gap-5 items-start">
-          {/* Featured video — large */}
-          <div className="lg:col-span-2">
-            <div className="relative rounded-3xl overflow-hidden border border-[var(--color-border)] shadow-2xl shadow-orange-500/15 bg-black">
+        <div className="grid lg:grid-cols-5 gap-5 items-start">
+          {/* Featured video — TikTok-style 9:16 vertical, centered */}
+          <div className="lg:col-span-3 flex justify-center">
+            <div className="relative rounded-3xl overflow-hidden border border-[var(--color-border)] shadow-2xl shadow-orange-500/15 bg-black w-full max-w-[400px]">
               <video
                 key={featured?.file}
                 src={featured?.file}
@@ -100,27 +100,22 @@ export default function DemoReel() {
                 muted
                 loop
                 playsInline
-                className="w-full aspect-[9/16] md:aspect-video object-cover"
+                className="w-full aspect-[9/16] object-contain bg-black"
               />
-              <div className="absolute top-4 left-4 px-3 py-1.5 rounded-full bg-black/60 backdrop-blur-md text-[10px] font-bold uppercase tracking-widest text-white flex items-center gap-1.5">
+              <div className="absolute top-4 left-4 px-3 py-1.5 rounded-full bg-black/60 backdrop-blur-md text-[10px] font-bold uppercase tracking-widest text-white flex items-center gap-1.5 pointer-events-none">
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
                 AI generated · live
               </div>
               {featured?.label && (
-                <div className="absolute bottom-4 left-4 right-4 text-white">
-                  <div className="text-xs font-mono uppercase tracking-widest text-white/70">
-                    Sample
-                  </div>
-                  <div className="font-display font-bold text-xl">
-                    {featured.label}
-                  </div>
+                <div className="absolute top-4 right-4 px-3 py-1.5 rounded-full bg-black/60 backdrop-blur-md text-[10px] font-bold uppercase tracking-widest text-white pointer-events-none">
+                  {featured.label}
                 </div>
               )}
             </div>
           </div>
 
           {/* Side rail — other videos */}
-          <div className="space-y-3">
+          <div className="lg:col-span-2 space-y-3">
             <div className="text-xs font-mono uppercase tracking-widest text-[var(--color-text-muted)] font-bold mb-2">
               ─── More samples
             </div>
