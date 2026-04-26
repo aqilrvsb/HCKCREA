@@ -17,8 +17,17 @@ export async function POST(req: Request) {
   const imageUrls: string[] = Array.isArray(body?.image_urls) ? body.image_urls : [];
   const aspectRatio = String(body?.aspect_ratio || "9:16");
   const durationMode: "8" | "16" = body?.duration === "16" ? "16" : "8";
+  // Honor the user's image_mode choice; only fall back to a sensible default
+  // if none was sent (no images → text, otherwise ingredient).
+  const requestedMode = body?.image_mode as
+    | "frame"
+    | "ingredient"
+    | "text"
+    | undefined;
   const imageMode: "frame" | "ingredient" | "text" =
-    body?.image_mode === "text" ? "text" : imageUrls.length ? "ingredient" : "text";
+    requestedMode === "frame" || requestedMode === "ingredient" || requestedMode === "text"
+      ? requestedMode
+      : imageUrls.length ? "ingredient" : "text";
   const projectId = body?.project_id ? String(body.project_id) : null;
 
   if (!prompt) return NextResponse.json({ error: "Prompt required" }, { status: 400 });

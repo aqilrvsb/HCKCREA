@@ -49,6 +49,23 @@ function modelLabel(item: HistoryItem): string {
   return item.type;
 }
 
+// Which generation mode produced this video. Falls back to the model id —
+// google/veo3-1-fast-{t2v,i2v,r2v} — when metadata.imageMode is missing on
+// older rows.
+function videoModeLabel(item: HistoryItem): string | null {
+  if (!(item.type === "video" || item.type === "auto-content" || item.type === "clone"))
+    return null;
+  const meta = item.metadata?.imageMode;
+  if (meta === "text") return "Text to Video";
+  if (meta === "frame") return "First Frame";
+  if (meta === "ingredient") return "Product Ref";
+  const m = item.metadata?.model || "";
+  if (m.endsWith("-t2v") || m.includes("t2v")) return "Text to Video";
+  if (m.endsWith("-i2v") || m.includes("i2v")) return "First Frame";
+  if (m.endsWith("-r2v") || m.includes("r2v")) return "Product Ref";
+  return null;
+}
+
 // Reusable "history below the form" grid. Loads + auto-polls rows for one tab.
 // Used by Image, Video, Clone, Auto Content sections.
 export default function HistoryGrid({
@@ -397,16 +414,30 @@ function HistoryCard({ item }: { item: HistoryItem }) {
       </div>
 
       <div className="p-2.5">
-        {/* Status + model badge (replaces RM cost) */}
+        {/* Status + mode + model badges */}
         <div className="flex items-center gap-1.5 mb-1.5">
           {item.status === "done" && <CheckCircle2 className="w-3 h-3" style={{ color: "var(--color-lime)" }} />}
           {item.status === "pending" && <Loader2 className="w-3 h-3 animate-spin text-amber-400" />}
           {item.status === "failed" && <XCircle className="w-3 h-3 text-red-400" />}
-          <span
-            className="text-[10px] font-mono uppercase tracking-wider font-bold ml-auto"
-            style={{ color: "var(--color-orange)" }}
-          >
-            {modelLabel(item)}
+          <span className="ml-auto flex items-center gap-1.5">
+            {videoModeLabel(item) && (
+              <span
+                className="text-[9px] font-mono uppercase tracking-wider font-bold px-1.5 py-0.5 rounded"
+                style={{
+                  background: "rgba(34,197,94,0.1)",
+                  color: "#22c55e",
+                  border: "1px solid rgba(34,197,94,0.3)",
+                }}
+              >
+                {videoModeLabel(item)}
+              </span>
+            )}
+            <span
+              className="text-[10px] font-mono uppercase tracking-wider font-bold"
+              style={{ color: "var(--color-orange)" }}
+            >
+              {modelLabel(item)}
+            </span>
           </span>
         </div>
 
