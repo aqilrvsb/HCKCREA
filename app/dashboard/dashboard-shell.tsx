@@ -48,7 +48,8 @@ export default function DashboardShell({
   const [view, setView] = useState<SidebarView>({ kind: "tool", toolId: "url-to-ad" });
   const [activeTab, setActiveTab] = useState<TabKey>("image");
 
-  // Initial fetch — auto-select first project if any
+  // Initial fetch — list projects only. Don't auto-select; the user picks
+  // which project to open from the sidebar.
   useEffect(() => {
     (async () => {
       try {
@@ -57,9 +58,6 @@ export default function DashboardShell({
         if (r.ok && d?.ok) {
           setProjects(d.projects || []);
           if (typeof d.limit === "number") setProjectLimit(d.limit);
-          if (d.projects?.length) {
-            setView({ kind: "project", projectId: d.projects[0].id });
-          }
         }
       } finally {
         setProjectsLoaded(true);
