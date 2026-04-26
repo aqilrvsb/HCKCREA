@@ -207,7 +207,7 @@ export default function Home() {
           <Flame className="w-3.5 h-3.5 animate-pulse flex-shrink-0" />
           <span>
             <strong>Promo RM75/bulan</strong> ditutup dalam{" "}
-            <Countdown />. Tinggal{" "}
+            <Countdown inline />. Tinggal{" "}
             <strong>13 slot</strong> dari 80 — 67 seller dah claim hari ni.
           </span>
         </div>

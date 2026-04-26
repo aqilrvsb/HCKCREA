@@ -5,7 +5,13 @@ import { Clock } from "lucide-react";
 
 // 5-hour rolling countdown that resets when it hits 0 — keeps urgency fresh
 // for repeat visits without needing a server-side promo end date.
-export default function Countdown({ hoursTotal = 5 }: { hoursTotal?: number }) {
+export default function Countdown({
+  hoursTotal = 5,
+  inline = false,
+}: {
+  hoursTotal?: number;
+  inline?: boolean;
+}) {
   const [remaining, setRemaining] = useState(hoursTotal * 60 * 60);
 
   useEffect(() => {
@@ -39,6 +45,16 @@ export default function Countdown({ hoursTotal = 5 }: { hoursTotal?: number }) {
   const h = Math.floor(remaining / 3600);
   const m = Math.floor((remaining % 3600) / 60);
   const s = remaining % 60;
+
+  // Compact inline variant for the top urgency bar — single line, tabular nums
+  if (inline) {
+    return (
+      <span className="font-mono font-extrabold tabular-nums">
+        {String(h).padStart(2, "0")}:{String(m).padStart(2, "0")}:
+        {String(s).padStart(2, "0")}
+      </span>
+    );
+  }
 
   const Cell = ({ value, label }: { value: number; label: string }) => (
     <div className="flex flex-col items-center">
