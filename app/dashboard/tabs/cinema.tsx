@@ -217,8 +217,7 @@ export default function CinemaTab({ projectId }: { projectId?: string } = {}) {
             lineHeight: 1.5,
           }}
         />
-        <p className="text-[10px] text-gray-500 mt-2">
-          Cinematic, evocative — Grok handles 6–30s in one shot. ·{" "}
+        <p className="text-[10px] text-gray-500 mt-2 text-right">
           <span className={prompt.length > 4900 ? "text-red-500 font-bold" : ""}>
             {prompt.length}/5000
           </span>
