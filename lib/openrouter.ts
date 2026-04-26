@@ -65,7 +65,7 @@ export async function orChatVision(opts: {
   images: string[]; // data: URLs or https URLs
   temperature?: number;
   maxTokens?: number;
-}): Promise<{ ok: boolean; content?: string; error?: string }> {
+}): Promise<{ ok: boolean; content?: string; finishReason?: string; error?: string }> {
   const s = await getSettings([
     "or_base",
     "or_key",
@@ -114,5 +114,6 @@ export async function orChatVision(opts: {
   return {
     ok: true,
     content: json?.choices?.[0]?.message?.content || "",
+    finishReason: json?.choices?.[0]?.finish_reason,
   };
 }

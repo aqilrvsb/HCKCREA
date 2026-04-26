@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { p2CreateTask } from "@/lib/p2";
-import { orChat } from "@/lib/openrouter";
+import { orChat, orChatVision } from "@/lib/openrouter";
 import { priceFor, hasEnoughCredits } from "@/lib/deduct";
 import { getP2Config } from "@/lib/settings";
 
@@ -75,21 +75,78 @@ export async function POST(req: Request) {
   }
   const personaConstraint = personaParts.join(", ");
 
-  // 1. Master plan via OpenRouter
-  const systemPrompt = `You are a Malaysian TikTok Shop creative director. Output a JSON array of ${quantity} short UGC video plans. Each plan: { "framework": string, "prompt": string, "caption": string }. Prompts must be in Bahasa Melayu, 200-400 words, describing ONE ${personaConstraint} speaking to camera with the product, holding/using/showing it naturally. All ${quantity} plans must use the SAME persona type (${personaConstraint}) for consistency, but vary the scene, framework, hook, and emotion. The CTA ${ctaInstruction}. Aspect ratio: ${aspectRatio}. ONLY return the JSON array, no prose.`;
+  // 1a. Product OCR — when an image is provided, run a quick vision pass to
+  //     extract the product's main text/logo/color so the master planner can
+  //     bake those facts into the prompts (and Veo r2v keeps the label readable).
+  //     Mirrors creative-hack-auto's analyzeProductText helper.
+  let productMeta: {
+    main_text?: string;
+    subtitle?: string;
+    logo_description?: string;
+    package_color?: string;
+  } | null = null;
+  if (productImageUrl) {
+    const ocr = await orChatVision({
+      modelKey: "model_product_ocr",
+      systemPrompt:
+        "You are a product label reader. Output ONLY valid JSON describing what the camera sees on the package. Keys: main_text (most prominent text/brand), subtitle, logo_description, package_color. If a key is unknown, use empty string. No prose, no markdown.",
+      textPrompt:
+        "Read the product packaging in this image. Return JSON only: {\"main_text\":\"\",\"subtitle\":\"\",\"logo_description\":\"\",\"package_color\":\"\"}.",
+      images: [productImageUrl],
+      temperature: 0.1,
+      maxTokens: 400,
+    });
+    if (ocr.ok && ocr.content) {
+      try {
+        const s = ocr.content.indexOf("{");
+        const e = ocr.content.lastIndexOf("}");
+        if (s >= 0 && e > s) productMeta = JSON.parse(ocr.content.substring(s, e + 1));
+      } catch {
+        // OCR is best-effort — drop silently if parse fails
+      }
+    }
+  }
+
+  const productLockBlock = productMeta?.main_text
+    ? `\n\nPRODUCT LOCK (mandatory in every prompt):\n- Package main text: "${productMeta.main_text}"${productMeta.subtitle ? `\n- Subtitle: "${productMeta.subtitle}"` : ""}${productMeta.logo_description ? `\n- Logo: ${productMeta.logo_description}` : ""}${productMeta.package_color ? `\n- Package color: ${productMeta.package_color}` : ""}\n- Product MUST stay pixel-identical to reference: same exact text, logo, colors, layout. Sharp focus on label.`
+    : "";
+
+  // 1b. Master plan via OpenRouter (vision if product image present, text otherwise)
+  const systemPrompt = `You are a Malaysian TikTok Shop creative director. Output a JSON array of ${quantity} short UGC video plans. Each plan: { "framework": string, "prompt": string, "caption": string }. Prompts must be in Bahasa Melayu, 200-400 words, describing ONE ${personaConstraint} speaking to camera with the product, holding/using/showing it naturally. All ${quantity} plans must use the SAME persona type (${personaConstraint}) for consistency, but vary the scene, framework, hook, and emotion. The CTA ${ctaInstruction}. Aspect ratio: ${aspectRatio}.
+
+Each prompt MUST include:
+- A 0-2s viral hook (informal Malay — "eh korang", "serious ni", "tau tak")
+- Specific scene + framing (kitchen / car / vanity / cafe / bedroom / gym / etc.)
+- Mouth visibly open/close in sync with dialog (lip-sync lock)
+- Both hands visible in frame
+- Clean RAW UNEDITED FOOTAGE aesthetic — bottom 25% of frame empty, no subtitles, no captions, no overlays, no icons
+- Audio: ONE single voice only, no music, no SFX, no background chatter
+- Product stays sharp and unchanged — no warped label, no recolor, no text drift${productLockBlock}
+
+ONLY return the JSON array, no prose, no markdown.`;
 
   const userPrompt = `Product: ${productName || productUrl || "Malaysian product"}
 Quantity: ${quantity}
 Duration per video: ${durationMode}s
-${productUrl ? `URL: ${productUrl}` : ""}`;
+${productUrl ? `URL: ${productUrl}` : ""}
+${productMeta?.main_text ? `Product label reads: "${productMeta.main_text}"` : ""}`;
 
-  const plan = await orChat({
-    modelKey: "model_auto",
-    systemPrompt,
-    userPrompt,
-    temperature: 0.85,
-    maxTokens: Math.min(40000, quantity * 1800),
-  });
+  const plan = productImageUrl
+    ? await orChatVision({
+        modelKey: "model_auto",
+        systemPrompt,
+        textPrompt: userPrompt,
+        images: [productImageUrl],
+        temperature: 0.85,
+        maxTokens: Math.min(40000, quantity * 1800),
+      })
+    : await orChat({
+        modelKey: "model_auto",
+        systemPrompt,
+        userPrompt,
+        temperature: 0.85,
+        maxTokens: Math.min(40000, quantity * 1800),
+      });
   if (!plan.ok || !plan.content) {
     return NextResponse.json(
       { error: plan.error || "Master plan failed" },
