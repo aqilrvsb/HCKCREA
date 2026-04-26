@@ -254,7 +254,10 @@ function HistoryCard({ item }: { item: HistoryItem }) {
 
   const isVideo = item.type === "video" || item.type === "auto-content" || item.type === "clone";
   const isImage = item.type === "image";
-  const canExtend = isVideo && item.status === "done" && item.output_url;
+  // Cinema (Grok Imagine) videos don't support extend or improve flows yet —
+  // those are Veo-specific. Show only Download + Delete in the done row.
+  const isCinema = item.tab === "cinema";
+  const canExtend = isVideo && !isCinema && item.status === "done" && item.output_url;
 
   async function checkNow() {
     setChecking(true);
@@ -521,9 +524,11 @@ function HistoryCard({ item }: { item: HistoryItem }) {
                   Extend
                 </button>
               )}
-              <ActionBtn title="Improve Video" onClick={() => setShowEditModal(true)} bg={ACTION.edit}>
-                <Pencil className="w-3.5 h-3.5" strokeWidth={2.4} />
-              </ActionBtn>
+              {!isCinema && (
+                <ActionBtn title="Improve Video" onClick={() => setShowEditModal(true)} bg={ACTION.edit}>
+                  <Pencil className="w-3.5 h-3.5" strokeWidth={2.4} />
+                </ActionBtn>
+              )}
               <ActionBtn title="Download" onClick={handleDownload} bg={ACTION.download}>
                 <Download className="w-3.5 h-3.5" strokeWidth={2.4} />
               </ActionBtn>
@@ -551,17 +556,9 @@ function HistoryCard({ item }: { item: HistoryItem }) {
             </>
           )}
 
-          {/* PENDING — let user cancel/delete an in-flight generation */}
-          {item.status === "pending" && (
-            <ActionBtn
-              title="Delete"
-              onClick={handleDelete}
-              bg={ACTION.delete}
-              disabled={deleting}
-            >
-              <Trash2 className="w-3.5 h-3.5" strokeWidth={2.4} />
-            </ActionBtn>
-          )}
+          {/* PENDING — no action row; only the refresh icon overlay on the
+              media. Delete is intentionally hidden during in-flight to keep
+              the loading card clean. */}
         </div>
       </div>
 

@@ -33,7 +33,7 @@ const FILTER_TABS: {
 }[] = [
   { key: "all", label: "All", icon: Activity },
   { key: "image", label: "Image", icon: ImageIcon, match: (m) => m.startsWith("image") },
-  { key: "video", label: "Video", icon: Video, match: (m) => m.startsWith("video") },
+  { key: "video", label: "Video", icon: Video, match: (m) => m.startsWith("video") || m === "cinema" },
   { key: "auto", label: "Auto", icon: Wand2, match: (m) => m.startsWith("auto") },
   { key: "clone", label: "Clone", icon: Layers, match: (m) => m.startsWith("clone") },
   { key: "post", label: "Post", icon: Send, match: (m) => m.startsWith("post") },
@@ -44,6 +44,7 @@ const REASON_LABELS: Record<string, string> = {
   image_generate: "Image generated",
   video_8s: "Video 8s generated",
   video_16s: "Video 16s generated",
+  cinema: "Cinema video generated",
   auto_plan: "Auto Content plan",
   clone_plan: "Clone plan",
 };
@@ -93,7 +94,7 @@ export default function UsageSection({ email: _email }: { email: string }) {
     for (const t of txs) {
       if (t.amount < 0) totalSpend += -t.amount;
       if (t.reason === "image_generate") images++;
-      if (t.reason === "video_8s" || t.reason === "video_16s") videos++;
+      if (t.reason === "video_8s" || t.reason === "video_16s" || t.reason === "cinema") videos++;
       if (t.reason === "auto_plan") autoPlans++;
     }
     return [
