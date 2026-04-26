@@ -68,6 +68,15 @@ export default function ImageTab() {
   // History picker modal state — which slot is being filled
   const [pickerSlot, setPickerSlot] = useState<RefSlot | null>(null);
 
+  // Per-slot upload-in-progress flags — show spinner overlay while bytes
+  // travel to Supabase. Generate disabled while any are true.
+  const [uploadingChar, setUploadingChar] = useState(false);
+  const [uploadingProduct, setUploadingProduct] = useState(false);
+  const [uploadingPoster, setUploadingPoster] = useState(false);
+  const [uploadingVirtProduct, setUploadingVirtProduct] = useState(false);
+  const anyUploading =
+    uploadingChar || uploadingProduct || uploadingPoster || uploadingVirtProduct;
+
   const charInputRef = useRef<HTMLInputElement | null>(null);
   const productInputRef = useRef<HTMLInputElement | null>(null);
   const posterInputRef = useRef<HTMLInputElement | null>(null);
@@ -113,11 +122,38 @@ export default function ImageTab() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [historyId]);
 
-  function readFile(f: File | null, set: (s: string) => void) {
+  // Show local preview instantly, upload in background, swap to public URL.
+  // Crun.ai requires public HTTPS URLs (cannot accept data: URLs).
+  async function readFile(
+    f: File | null,
+    set: (s: string) => void,
+    setUploading?: (b: boolean) => void
+  ) {
     if (!f) return;
-    const r = new FileReader();
-    r.onload = () => set(String(r.result || ""));
-    r.readAsDataURL(f);
+    // 1. Local preview immediately
+    const reader = new FileReader();
+    reader.onload = () => set(String(reader.result || ""));
+    reader.readAsDataURL(f);
+
+    // 2. Background upload → swap to Supabase public URL
+    setUploading?.(true);
+    try {
+      const fd = new FormData();
+      fd.append("file", f);
+      const r = await fetch("/api/upload/image", { method: "POST", body: fd });
+      const d = await r.json();
+      if (r.ok && d?.url) {
+        set(d.url);
+      } else {
+        // Keep the data URL preview but warn — generation will likely fail
+        console.error("Upload failed:", d?.error);
+        setError(`Upload failed: ${d?.error || "unknown"}. Generation may not work.`);
+      }
+    } catch (e: any) {
+      setError(`Upload error: ${e?.message || "network"}`);
+    } finally {
+      setUploading?.(false);
+    }
   }
 
   async function submit() {
@@ -196,6 +232,7 @@ export default function ImageTab() {
               icon="📸"
               title="Click or drop character face image"
               subtitle="Face / person — used for all variations"
+              uploading={uploadingChar}
               onPick={() => charInputRef.current?.click()}
               onClear={() => setCharUrl("")}
             />
@@ -204,7 +241,9 @@ export default function ImageTab() {
               type="file"
               accept="image/*"
               className="hidden"
-              onChange={(e) => readFile(e.target.files?.[0] || null, setCharUrl)}
+              onChange={(e) =>
+                readFile(e.target.files?.[0] || null, setCharUrl, setUploadingChar)
+              }
             />
           </Card>
 
@@ -219,6 +258,7 @@ export default function ImageTab() {
               icon="📦"
               title="Click or drop product photo"
               subtitle="Keeps packaging, labels, colors accurate"
+              uploading={uploadingProduct}
               onPick={() => productInputRef.current?.click()}
               onClear={() => setProductUrl("")}
             />
@@ -227,7 +267,9 @@ export default function ImageTab() {
               type="file"
               accept="image/*"
               className="hidden"
-              onChange={(e) => readFile(e.target.files?.[0] || null, setProductUrl)}
+              onChange={(e) =>
+                readFile(e.target.files?.[0] || null, setProductUrl, setUploadingProduct)
+              }
             />
           </Card>
         </>
@@ -257,6 +299,7 @@ export default function ImageTab() {
                 title=""
                 subtitle="Upload existing poster or ad design"
                 small
+                uploading={uploadingPoster}
                 onPick={() => posterInputRef.current?.click()}
                 onClear={() => setPosterUrl("")}
               />
@@ -265,7 +308,9 @@ export default function ImageTab() {
                 type="file"
                 accept="image/*"
                 className="hidden"
-                onChange={(e) => readFile(e.target.files?.[0] || null, setPosterUrl)}
+                onChange={(e) =>
+                  readFile(e.target.files?.[0] || null, setPosterUrl, setUploadingPoster)
+                }
               />
             </div>
             <div>
@@ -283,6 +328,7 @@ export default function ImageTab() {
                 title=""
                 subtitle="Upload real product photo"
                 small
+                uploading={uploadingVirtProduct}
                 onPick={() => virtProductInputRef.current?.click()}
                 onClear={() => setVirtProductUrl("")}
               />
@@ -291,7 +337,13 @@ export default function ImageTab() {
                 type="file"
                 accept="image/*"
                 className="hidden"
-                onChange={(e) => readFile(e.target.files?.[0] || null, setVirtProductUrl)}
+                onChange={(e) =>
+                  readFile(
+                    e.target.files?.[0] || null,
+                    setVirtProductUrl,
+                    setUploadingVirtProduct
+                  )
+                }
               />
             </div>
           </div>
@@ -433,7 +485,7 @@ export default function ImageTab() {
 
         <button
           onClick={submit}
-          disabled={busy}
+          disabled={busy || anyUploading}
           className="w-full mt-5 py-3.5 rounded-xl font-extrabold text-base text-white transition-all hover:-translate-y-0.5 disabled:opacity-50 disabled:transform-none"
           style={{
             background: `linear-gradient(135deg, #ff5722 0%, #ff7043 100%)`,
@@ -445,6 +497,11 @@ export default function ImageTab() {
             <span className="inline-flex items-center justify-center gap-2">
               <Loader2 className="w-4 h-4 animate-spin" />
               {status === "submitting" ? "Submitting…" : "Generating…"}
+            </span>
+          ) : anyUploading ? (
+            <span className="inline-flex items-center justify-center gap-2">
+              <Loader2 className="w-4 h-4 animate-spin" />
+              Uploading reference…
             </span>
           ) : (
             <>🖼️ Generate Image</>
@@ -714,6 +771,7 @@ function RefZone({
   title,
   subtitle,
   small,
+  uploading,
   onPick,
   onClear,
 }: {
@@ -722,6 +780,7 @@ function RefZone({
   title: string;
   subtitle: string;
   small?: boolean;
+  uploading?: boolean;
   onPick: () => void;
   onClear: () => void;
 }) {
@@ -735,6 +794,20 @@ function RefZone({
         }}
       >
         <img src={url} alt="" className="w-full max-h-56 object-cover" />
+        {uploading && (
+          <div
+            className="absolute inset-0 flex items-center justify-center text-white"
+            style={{
+              background: "rgba(0,0,0,0.55)",
+              backdropFilter: "blur(2px)",
+            }}
+          >
+            <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-white/15 backdrop-blur-md text-xs font-bold">
+              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              Uploading…
+            </div>
+          </div>
+        )}
         <button
           onClick={onClear}
           className="absolute top-2 right-2 w-7 h-7 rounded-full text-white text-xs hover:bg-red-500 transition shadow-md"
