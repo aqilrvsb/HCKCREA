@@ -4,7 +4,7 @@ import "./globals.css";
 export const metadata: Metadata = {
   title: "PeningLab — UGC Video AI untuk Seller TikTok Shop",
   description:
-    "Hasilkan 10 video UGC TikTok Shop dalam 3 minit. AI Creative Director susun, Veo 3.1 generate. Tak perlu creator, tak perlu shoot.",
+    "Hasilkan 10 video UGC TikTok Shop dalam 3 minit. AI Creative Director susun framework, dialog, hook & CTA. Tak perlu creator, tak perlu shoot.",
   metadataBase: new URL("https://peninglab.com"),
   openGraph: {
     title: "PeningLab — UGC Video AI untuk Seller TikTok Shop",

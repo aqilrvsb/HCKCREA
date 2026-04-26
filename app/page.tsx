@@ -37,72 +37,6 @@ const STATS = [
   { num: "92%", label: "kadar kepuasan" },
 ];
 
-const CAPABILITIES = [
-  {
-    icon: Wand2,
-    tag: "AUTO CONTENT",
-    tagColor: "violet",
-    title: "10 video UGC dalam satu klik",
-    desc: "Letak link TikTok Shop. AI Director susun framework, hook, dialog, CTA berbeza setiap video. Dapat 10 video siap caption.",
-    size: "large",
-  },
-  {
-    icon: ImageIcon,
-    tag: "GEN IMAGE",
-    tagColor: "blue",
-    title: "Avatar UGC realistik",
-    desc: "Hijab/no-hijab, lelaki/perempuan, umur, outfit — pilih sendiri. Bukan AI plastik.",
-  },
-  {
-    icon: Video,
-    tag: "GEN VIDEO",
-    tagColor: "pink",
-    title: "Veo 3.1 — 8s & 16s",
-    desc: "Video quality TikTok-ready. Lip-sync sempurna, hand gesture natural, produk lock.",
-  },
-  {
-    icon: Layers,
-    tag: "CLONE MODE",
-    tagColor: "amber",
-    title: "Tiru video viral",
-    desc: "Upload video referensi. AI extract setiap shot, recreate dengan produk anda.",
-  },
-  {
-    icon: Send,
-    tag: "AUTO POST",
-    tagColor: "emerald",
-    title: "Auto-post ke TikTok Shop",
-    desc: "Schedule post automatik dengan caption + hashtag. Wake up, video dah live.",
-  },
-];
-
-const STEPS = [
-  {
-    num: "01",
-    title: "Letak link produk",
-    desc: "Paste TikTok Shop URL. AI scrape gambar, harga, deskripsi automatik.",
-    accent: "violet",
-  },
-  {
-    num: "02",
-    title: "AI Director susun plan",
-    desc: "10 video unique — hook, framework, dialog Bahasa Melayu, CTA. Semua auto.",
-    accent: "blue",
-  },
-  {
-    num: "03",
-    title: "Veo 3.1 generate video",
-    desc: "8 saat atau 16 saat. Lip-sync, hand gesture, produk lock — quality UGC sebenar.",
-    accent: "pink",
-  },
-  {
-    num: "04",
-    title: "Auto-post atau download",
-    desc: "Caption + 5 hashtag siap. Schedule auto-post atau download MP4.",
-    accent: "emerald",
-  },
-];
-
 const TESTIMONIALS = [
   {
     quote: "Dulu spend RM3k sebulan kat creator. Sekarang RM147 dapat video lagi banyak. Sales naik 40%.",
@@ -896,7 +830,7 @@ export default function Home() {
             </div>
           </div>
 
-          {/* Gen Video — Veo 3.1 (URGENCY: time decay) */}
+          {/* Gen Video (URGENCY: time decay) */}
           <div className="bento relative overflow-hidden">
             <div className="flex items-center gap-2 mb-4">
               <div className="w-10 h-10 rounded-xl bg-pink-50 border border-pink-100 flex items-center justify-center">
@@ -909,7 +843,7 @@ export default function Home() {
               <span className="text-pink-600">kompetitor post 3 video</span>.
             </h3>
             <p className="text-sm text-[var(--color-text-secondary)] leading-relaxed mb-3">
-              Veo 3.1 keluarkan video siap dalam 60 saat. Lambat sehari = kena 3× harder esok.
+              AI keluarkan video siap dalam 60 saat. Lambat sehari = kena 3× harder esok.
             </p>
             {/* Hero image — viral phone with notification bubbles */}
             <div className="relative aspect-[16/10] rounded-xl overflow-hidden border border-pink-100 mb-3 bg-gradient-to-br from-pink-50 to-orange-50">
@@ -922,7 +856,7 @@ export default function Home() {
             <div className="flex items-center gap-2 text-xs font-mono">
               <span className="px-2 py-1 rounded bg-pink-50 text-pink-700 border border-pink-100">8s</span>
               <span className="px-2 py-1 rounded bg-pink-50 text-pink-700 border border-pink-100">16s</span>
-              <span className="text-[var(--color-text-muted)]">9:16 · Real lip-sync</span>
+              <span className="text-[var(--color-text-muted)]">9:16 · Real lip-sync · UGC</span>
             </div>
           </div>
 
@@ -1070,7 +1004,7 @@ export default function Home() {
                 "Paste link produk (10 saat)",
                 "Pilih kuantiti + duration (5 saat)",
                 "AI Director plan 10 video (30 saat)",
-                "Veo generate video parallel (2 min)",
+                "AI generate 10 video parallel (2 min)",
                 "Caption + hashtag auto-tulis (auto)",
                 "Auto-post ke TikTok atau download MP4",
                 "Total: ~3 minit, 100 video, ~40 sen/video",
@@ -1217,8 +1151,8 @@ export default function Home() {
               {/* Features grid */}
               <div className="grid md:grid-cols-2 gap-x-6 gap-y-3 mb-8">
                 {[
-                  "Image (Banana Pro + GPT Image 2) — 20 sen",
-                  "Video Veo 3.1 — 40 sen",
+                  "Image AI — 20 sen",
+                  "Video AI — 40 sen",
                   "Unlimited Generate",
                   "Access Prompt Library",
                   "Access Image Studio",

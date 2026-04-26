@@ -132,7 +132,7 @@ export default function DemoReel() {
                       </div>
                       <div className="absolute bottom-0 left-0 right-0 p-2 bg-gradient-to-t from-black/80 to-transparent">
                         <div className="text-[10px] font-bold text-white truncate">{v.label}</div>
-                        <div className="text-[9px] text-white/70">8s · Veo 3.1</div>
+                        <div className="text-[9px] text-white/70">8s · AI</div>
                       </div>
                     </div>
                   </button>

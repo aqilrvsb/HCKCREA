@@ -19,8 +19,8 @@ const PLAN = {
   desc: "Akses penuh — semua features unlocked",
   rate: "Image 20 sen · Video 40 sen",
   features: [
-    "Image (Banana Pro + GPT Image 2)",
-    "Video Veo 3.1",
+    "Image AI",
+    "Video AI",
     "Unlimited generate",
     "Auto Content + Clone Video + Story Telling",
     "Access Group VIP",
