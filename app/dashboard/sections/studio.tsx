@@ -192,6 +192,7 @@ export default function StudioSection() {
 
 function HistoryCard({ item }: { item: HistoryItem }) {
   const [extending, setExtending] = useState(false);
+  const [checking, setChecking] = useState(false);
   const isVideo = item.type === "video" || item.type === "auto-content" || item.type === "clone";
   const isImage = item.type === "image";
   const canExtend = isVideo && item.status === "done" && item.output_url;
@@ -215,14 +216,44 @@ function HistoryCard({ item }: { item: HistoryItem }) {
     }
   }
 
+  async function checkNow() {
+    setChecking(true);
+    try {
+      await fetch(`/api/generate/status?id=${item.id}`, { cache: "no-store" });
+      window.dispatchEvent(new CustomEvent("history:refresh"));
+    } finally {
+      setChecking(false);
+    }
+  }
+
   return (
     <div className="rounded-xl border border-[var(--color-border)] overflow-hidden bg-white">
       <div className="aspect-[9/16] bg-gray-50 relative">
         {item.status === "pending" && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center text-amber-700 text-xs font-semibold gap-2">
-            <Loader2 className="w-5 h-5 animate-spin" />
-            <span>Generating…</span>
-          </div>
+          <>
+            <div className="absolute inset-0 flex flex-col items-center justify-center text-amber-700 text-xs font-semibold gap-2">
+              <Loader2 className="w-5 h-5 animate-spin" />
+              <span>Generating…</span>
+            </div>
+            <button
+              onClick={checkNow}
+              disabled={checking}
+              title="Check status now"
+              className="absolute top-2 right-2 w-7 h-7 rounded-full bg-white/95 border border-[var(--color-border)] hover:border-amber-400 shadow flex items-center justify-center disabled:opacity-50 transition"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${checking ? "animate-spin" : ""}`} />
+            </button>
+          </>
+        )}
+        {item.status === "failed" && (
+          <button
+            onClick={checkNow}
+            disabled={checking}
+            title="Re-check"
+            className="absolute top-2 right-2 z-10 w-7 h-7 rounded-full bg-white/95 border border-[var(--color-border)] hover:border-red-400 shadow flex items-center justify-center disabled:opacity-50 transition"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${checking ? "animate-spin" : ""}`} />
+          </button>
         )}
         {item.status === "failed" && (
           <div className="absolute inset-0 flex flex-col items-center justify-center text-red-600 text-xs font-semibold gap-2 px-3 text-center">

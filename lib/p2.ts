@@ -3,6 +3,7 @@
 // without redeploying.
 
 import { getP2Config } from "@/lib/settings";
+import { buildP2CallbackUrl } from "@/lib/p2-callback";
 
 export type P2CreateResp = {
   ok: boolean;
@@ -19,6 +20,7 @@ export async function p2CreateTask(input: {
   durationMode?: "8" | "16";
   aspectRatio?: string;
   imageMode?: "frame" | "ingredient" | "text";
+  callbackUrl?: string;
   extra?: Record<string, any>;
 }): Promise<P2CreateResp> {
   const cfg = await getP2Config();
@@ -34,6 +36,13 @@ export async function p2CreateTask(input: {
   if (input.imageUrls && input.imageUrls.length) {
     input.imageUrls.forEach((u, i) => fd.append(`image_url_${i}`, u));
   }
+  // Auto-attach the webhook URL so Crun POSTs back when a task completes —
+  // covers video (Veo) and image (Banana Pro / GPT Image) calls alike.
+  // Caller can override via `input.callbackUrl`. If APP_ORIGIN or
+  // CALLBACK_SECRET env vars are missing we silently skip and fall back to
+  // the cron poller.
+  const callbackUrl = input.callbackUrl ?? buildP2CallbackUrl();
+  if (callbackUrl) fd.append("callback_url", callbackUrl);
   if (input.extra) {
     for (const [k, v] of Object.entries(input.extra)) {
       fd.append(k, typeof v === "string" ? v : JSON.stringify(v));
