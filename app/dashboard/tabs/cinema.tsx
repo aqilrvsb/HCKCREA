@@ -20,7 +20,10 @@ export default function CinemaTab({ projectId }: { projectId?: string } = {}) {
   const [refImage, setRefImage] = useState("");
   const [prompt, setPrompt] = useState("");
   const [aspect, setAspect] = useState("9:16");
-  const [resolution, setResolution] = useState<"480p" | "720p">("720p");
+  // Resolution is hardcoded to 720p — admin/product call. UI dropdown removed
+  // intentionally; the value still flows through to the API body so the
+  // backend stays unchanged.
+  const resolution: "720p" = "720p";
   const [duration, setDuration] = useState(6);
   const [ratePerSec, setRatePerSec] = useState<number | null>(null);
   const [status, setStatus] = useState<Status>("idle");
@@ -273,27 +276,15 @@ export default function CinemaTab({ projectId }: { projectId?: string } = {}) {
           )}
         </div>
 
-        <div className="grid grid-cols-2 gap-3 mb-4">
-          <div>
-            <Label>Size</Label>
-            <Select value={aspect} onChange={(v) => setAspect(v)}>
-              <option value="9:16">9:16</option>
-              <option value="16:9">16:9</option>
-              <option value="1:1">1:1</option>
-              <option value="2:3">2:3</option>
-              <option value="3:2">3:2</option>
-            </Select>
-          </div>
-          <div>
-            <Label>Resolution</Label>
-            <Select
-              value={resolution}
-              onChange={(v) => setResolution(v as any)}
-            >
-              <option value="720p">720p</option>
-              <option value="480p">480p</option>
-            </Select>
-          </div>
+        <div className="mb-4">
+          <Label>Size</Label>
+          <Select value={aspect} onChange={(v) => setAspect(v)}>
+            <option value="9:16">9:16</option>
+            <option value="16:9">16:9</option>
+            <option value="1:1">1:1</option>
+            <option value="2:3">2:3</option>
+            <option value="3:2">3:2</option>
+          </Select>
         </div>
 
         <button
