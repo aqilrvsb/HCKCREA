@@ -25,6 +25,7 @@ import HistoryGrid from "./sections/history-grid";
 import BillingSection from "./sections/billing";
 import CreditSection from "./sections/credit";
 import UsageSection from "./sections/usage";
+import SettingsSection from "./sections/settings";
 
 type SectionKey =
   | "image"
@@ -34,7 +35,8 @@ type SectionKey =
   | "auto"
   | "billing"
   | "credit"
-  | "usage";
+  | "usage"
+  | "settings";
 
 const SECTIONS: { key: SectionKey; label: string; icon: any; tag: string }[] = [
   { key: "image", label: "Image", icon: ImageIcon, tag: "01" },
@@ -221,12 +223,17 @@ export default function DashboardShell({
           >
             <div className="flex items-center gap-3 px-2 py-2 mb-3">
               <div
-                className="w-10 h-10 rounded-full bg-gradient-to-br from-orange-300 to-orange-500 flex-shrink-0"
-                style={{ boxShadow: "0 0 0 2px var(--color-bg-card)" }}
-              />
+                className="w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 font-display font-extrabold text-sm text-white"
+                style={{
+                  background: "linear-gradient(135deg, #ff6a1a 0%, #ff4d00 100%)",
+                  boxShadow: "0 0 0 2px var(--color-bg-card), 0 4px 12px rgba(255,87,34,0.3)",
+                }}
+              >
+                {(name || email || "U").trim().charAt(0).toUpperCase()}
+              </div>
               <div className="flex-1 min-w-0">
                 <div className="text-sm font-bold truncate text-[var(--color-text-primary)]">
-                  {name}
+                  {name || "User"}
                 </div>
                 <div className="text-xs text-[var(--color-text-muted)] truncate">
                   {email}
@@ -235,7 +242,8 @@ export default function DashboardShell({
             </div>
             <div className="grid grid-cols-2 gap-1.5">
               <button
-                className="flex items-center justify-center gap-1.5 py-2.5 rounded-lg text-xs font-bold transition-colors"
+                onClick={() => setSection("settings")}
+                className="flex items-center justify-center gap-1.5 py-2.5 rounded-lg text-xs font-bold transition-colors hover:opacity-80"
                 style={{
                   background: "rgba(255,87,34,0.08)",
                   border: "1px solid rgba(255,87,34,0.25)",
@@ -324,15 +332,28 @@ export default function DashboardShell({
           <header className="hidden lg:flex items-end justify-between px-10 pt-8 pb-6">
             <div>
               <div className="flex items-center gap-2 mb-2">
-                <span className="font-mono text-[10px] uppercase tracking-[0.2em] text-violet-600 font-bold">
+                <span
+                  className="font-mono text-[10px] uppercase tracking-[0.2em] font-bold"
+                  style={{ color: "var(--color-orange)" }}
+                >
                   ─ {active.tag}
                 </span>
                 <span className="font-mono text-[10px] uppercase tracking-[0.2em] text-[var(--color-text-muted)] font-bold">
                   {active.label}
                 </span>
               </div>
-              <h1 className="font-display font-extrabold text-4xl tracking-tight leading-none">
-                Welcome back, <span className="gradient-text-violet">{name}</span>
+              <h1 className="font-display font-extrabold text-4xl tracking-tight leading-none text-[var(--color-text-primary)]">
+                Welcome back,{" "}
+                <span
+                  style={{
+                    background:
+                      "linear-gradient(135deg, #ff6a1a 0%, #ff4d00 60%, #d63800 100%)",
+                    WebkitBackgroundClip: "text",
+                    WebkitTextFillColor: "transparent",
+                  }}
+                >
+                  {name}
+                </span>
               </h1>
               <p className="text-sm text-[var(--color-text-secondary)] mt-2">
                 {email}
@@ -382,6 +403,9 @@ export default function DashboardShell({
             {section === "billing" && <BillingSection />}
             {section === "credit" && <CreditSection credits={credits} />}
             {section === "usage" && <UsageSection email={email} />}
+            {section === "settings" && (
+              <SettingsSection email={email} name={name} />
+            )}
           </div>
         </main>
       </div>
