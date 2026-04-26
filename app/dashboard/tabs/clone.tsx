@@ -128,31 +128,37 @@ export default function CloneTab({ projectId }: { projectId?: string } = {}) {
     setError(null);
     setStatus("extracting");
     setLog([]);
-    pushLog(`Extracting ${videoDuration} frames…`);
+    // Sample at 1 fps but cap at 16 frames to keep the request body sane.
+    const frameCount = Math.min(16, Math.max(2, videoDuration));
+    pushLog(`Extracting ${frameCount} frames…`);
 
     try {
-      const frames = await extractFrames(videoFile, videoDuration);
+      const frames = await extractFrames(videoFile, frameCount);
       pushLog(`${frames.length} frames extracted.`);
 
-      // Upload product image if local
+      // Product image: only upload if user picked from local. History-picked
+      // URLs are already public.
       setStatus("analyzing");
-      pushLog("Uploading product reference…");
-      const productPub = productImage ? await ensurePublicUrl(productImage) : "";
-      if (productPub) pushLog("Product uploaded ✓");
+      let productPub = "";
+      if (productImage) {
+        if (productImage.startsWith("data:")) {
+          pushLog("Uploading product reference to RunningHub…");
+          productPub = await ensurePublicUrl(productImage);
+          pushLog("Product uploaded ✓");
+        } else {
+          productPub = productImage;
+        }
+      }
 
-      pushLog("Sending to AI for scene analysis (deepseek)…");
+      pushLog(`Sending ${frames.length} frames + product to OpenRouter (deepseek vision)…`);
       const r = await fetch("/api/generate/clone", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          // We don't have a public URL for the source video — backend uses
-          // the OpenRouter model to plan based on duration + product +
-          // optional dialog. Frames are sent for richer vision context if
-          // the route supports it.
-          reference_video_url: "(uploaded locally)",
+          frames, // base64 data URLs — OpenRouter accepts directly
           product_image_url: productPub,
           custom_dialog: dialog,
-          segments: Math.max(1, Math.min(4, Math.round(videoDuration / 8))),
+          duration: videoDuration,
           mode,
           aspect_ratio: aspect,
           project_id: projectId,
@@ -165,11 +171,15 @@ export default function CloneTab({ projectId }: { projectId?: string } = {}) {
         setStatus("failed");
         return;
       }
-      pushLog(`Plan received — ${d.segments} segment(s).`);
-      pushLog(`Submitting ${d.segments} Veo generation(s)…`);
-      pushLog(`Done. Total cost RM${Number(d.total_cost || 0).toFixed(2)}.`);
+      if (mode === "prompt") {
+        pushLog(`Plan received — ${d.segments} prompt(s). (no video generated in Prompt mode)`);
+      } else {
+        pushLog(`Plan received — ${d.segments} segment(s).`);
+        pushLog(`Submitting ${d.segments} Veo generation(s)…`);
+        pushLog(`Done. Total cost RM${Number(d.total_cost || 0).toFixed(2)}.`);
+        window.dispatchEvent(new CustomEvent("history:refresh"));
+      }
       setStatus("idle");
-      window.dispatchEvent(new CustomEvent("history:refresh"));
     } catch (e: any) {
       pushLog(`✗ ${e?.message || "Network error"}`);
       setError(e?.message || "Network error");

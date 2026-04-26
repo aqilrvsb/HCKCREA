@@ -54,3 +54,65 @@ export async function orChat(opts: {
     finishReason: json?.choices?.[0]?.finish_reason,
   };
 }
+
+// Multimodal vision call. Pass an array of image URLs (data: URLs OR public
+// URLs both work). OpenRouter follows OpenAI's image_url content-block shape.
+// Used by Clone (frame analysis) and Product OCR.
+export async function orChatVision(opts: {
+  modelKey?: "model_clone" | "model_vision" | "model_product_ocr" | "model_auto";
+  systemPrompt: string;
+  textPrompt: string;
+  images: string[]; // data: URLs or https URLs
+  temperature?: number;
+  maxTokens?: number;
+}): Promise<{ ok: boolean; content?: string; error?: string }> {
+  const s = await getSettings([
+    "or_base",
+    "or_key",
+    opts.modelKey || "model_clone",
+  ]);
+  const base = s.or_base?.url;
+  const key = s.or_key?.key;
+  const model = s[opts.modelKey || "model_clone"]?.model;
+  if (!base || !key || !model) {
+    return { ok: false, error: "OpenRouter not configured" };
+  }
+
+  const content: any[] = [{ type: "text", text: opts.textPrompt }];
+  for (const img of opts.images) {
+    if (img) content.push({ type: "image_url", image_url: { url: img } });
+  }
+
+  const res = await fetch(`${base}/chat/completions`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${key}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model,
+      messages: [
+        { role: "system", content: opts.systemPrompt },
+        { role: "user", content },
+      ],
+      temperature: opts.temperature ?? 0.5,
+      max_tokens: opts.maxTokens ?? 4000,
+      stream: false,
+    }),
+  });
+
+  const text = await res.text().catch(() => "");
+  let json: any = null;
+  try {
+    json = JSON.parse(text);
+  } catch {}
+
+  if (!res.ok || !json) {
+    return { ok: false, error: json?.error?.message || `HTTP ${res.status}` };
+  }
+
+  return {
+    ok: true,
+    content: json?.choices?.[0]?.message?.content || "",
+  };
+}
