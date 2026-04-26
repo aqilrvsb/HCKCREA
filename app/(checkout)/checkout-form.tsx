@@ -99,34 +99,6 @@ export default function CheckoutForm() {
       </div>
 
       <form onSubmit={submit} className="card p-7 md:p-9">
-        <div className="rounded-2xl bg-orange-50 border border-orange-200 p-5 mb-6 flex items-center justify-between">
-          <div>
-            <div className="text-xs font-mono uppercase tracking-wider text-orange font-bold mb-1">
-              {PLAN.name}
-            </div>
-            <div className="flex items-baseline gap-2">
-              <span className="text-base text-[var(--color-text-muted)] line-through decoration-red-500 decoration-2">
-                RM{PLAN.markup}
-              </span>
-              <span className="font-display font-extrabold text-3xl tracking-tight">
-                RM{PLAN.price}
-              </span>
-              <span className="text-sm text-[var(--color-text-muted)]">
-                /bulan
-              </span>
-            </div>
-            <div className="text-[11px] font-mono text-orange font-bold uppercase tracking-wider mt-1">
-              {PLAN.rate}
-            </div>
-          </div>
-          <div className="text-right text-xs text-[var(--color-text-muted)]">
-            <div className="font-bold text-[var(--color-text-primary)]">
-              Auto-renew
-            </div>
-            <div>Cancel bila-bila</div>
-          </div>
-        </div>
-
         <div className="space-y-4 mb-5">
           <div>
             <label className="block text-sm font-semibold mb-2">

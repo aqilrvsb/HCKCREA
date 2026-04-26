@@ -12,9 +12,9 @@ import {
   MoreVertical,
   Pencil,
   Trash2,
-  Wrench,
-  Link2,
   Loader2,
+  CreditCard,
+  Activity,
 } from "lucide-react";
 import LogoutButton from "./logout-button";
 
@@ -141,7 +141,6 @@ export default function Sidebar({
   }
 
   const activeProjectId = view.kind === "project" ? view.projectId : null;
-  const activeTool = view.kind === "tool" ? view.toolId : null;
 
   return (
     <aside
@@ -218,43 +217,8 @@ export default function Sidebar({
         </div>
       </div>
 
-      {/* Tools */}
-      <div className="px-4 pt-3">
-        <div
-          className="flex items-center gap-2 px-2 mb-2 font-mono text-[10px] uppercase tracking-[0.18em] font-bold"
-          style={{ color: "var(--color-text-muted)" }}
-        >
-          <Wrench className="w-3 h-3" />
-          Tools
-        </div>
-        <button
-          onClick={() => onViewChange({ kind: "tool", toolId: "url-to-ad" })}
-          className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-bold transition-all"
-          style={
-            activeTool === "url-to-ad"
-              ? {
-                  background: "rgba(255,87,34,0.12)",
-                  color: "var(--color-orange)",
-                }
-              : {
-                  color: "var(--color-text-secondary)",
-                }
-          }
-        >
-          <div
-            className="w-7 h-7 rounded-lg flex items-center justify-center"
-            style={{
-              background: "linear-gradient(135deg, #ec4899 0%, #f43f5e 100%)",
-            }}
-          >
-            <Link2 className="w-3.5 h-3.5 text-white" strokeWidth={2.6} />
-          </div>
-          Url to Ad
-        </button>
-      </div>
-
       {/* Projects list */}
-      <div className="px-4 pt-4 flex-1 min-h-0 flex flex-col">
+      <div className="px-4 pt-3 flex-1 min-h-0 flex flex-col">
         <div
           className="flex items-center gap-2 px-2 mb-2 font-mono text-[10px] uppercase tracking-[0.18em] font-bold"
           style={{ color: "var(--color-text-muted)" }}
@@ -373,6 +337,52 @@ export default function Sidebar({
             );
           })}
         </div>
+      </div>
+
+      {/* Account nav — Billing / Credit / Usage */}
+      <div
+        className="px-4 pt-3 pb-2 border-t"
+        style={{ borderColor: "var(--color-border)" }}
+      >
+        <div
+          className="flex items-center gap-2 px-2 mt-2 mb-2 font-mono text-[10px] uppercase tracking-[0.18em] font-bold"
+          style={{ color: "var(--color-text-muted)" }}
+        >
+          Account
+        </div>
+        {(
+          [
+            { kind: "billing" as const, label: "Billing", Icon: CreditCard },
+            { kind: "credit" as const, label: "Top Up Credit", Icon: Wallet },
+            { kind: "usage" as const, label: "Usage", Icon: Activity },
+          ]
+        ).map(({ kind, label, Icon }) => {
+          const isActive = view.kind === kind;
+          return (
+            <button
+              key={kind}
+              onClick={() => onViewChange({ kind })}
+              className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-bold transition-all"
+              style={
+                isActive
+                  ? {
+                      background: "rgba(255,87,34,0.12)",
+                      color: "var(--color-orange)",
+                    }
+                  : { color: "var(--color-text-secondary)" }
+              }
+            >
+              <Icon
+                className="w-4 h-4 flex-shrink-0"
+                strokeWidth={2.4}
+                style={{
+                  color: isActive ? "var(--color-orange)" : "var(--color-text-muted)",
+                }}
+              />
+              {label}
+            </button>
+          );
+        })}
       </div>
 
       {/* Credit pill */}
