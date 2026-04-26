@@ -39,6 +39,12 @@ supabase/seeds/local*.sql
 .local-secrets/
 .playwright-mcp/
 
+# Demo binaries — uploaded to Supabase Storage, manifest references public URLs
+public/demos/*.mp4
+public/demos/*.png
+public/demos/*.jpg
+public/demos/*.webp
+
 # vercel
 .vercel
 

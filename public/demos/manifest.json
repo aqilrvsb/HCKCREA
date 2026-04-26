@@ -4,37 +4,37 @@
     {
       "id": "reel-1",
       "label": "Skincare review",
-      "file": "/demos/reel-1.mp4",
+      "file": "https://zoxgcqlqovkvlrmpcikt.supabase.co/storage/v1/object/public/demos/reel-1.mp4",
       "kind": "video"
     },
     {
       "id": "reel-2",
       "label": "Kitchen cooking",
-      "file": "/demos/reel-2.mp4",
+      "file": "https://zoxgcqlqovkvlrmpcikt.supabase.co/storage/v1/object/public/demos/reel-2.mp4",
       "kind": "video"
     },
     {
       "id": "reel-3",
       "label": "Gym supplement",
-      "file": "/demos/reel-3.mp4",
+      "file": "https://zoxgcqlqovkvlrmpcikt.supabase.co/storage/v1/object/public/demos/reel-3.mp4",
       "kind": "video"
     },
     {
       "id": "reel-4",
       "label": "Driving CTA",
-      "file": "/demos/reel-4.mp4",
+      "file": "https://zoxgcqlqovkvlrmpcikt.supabase.co/storage/v1/object/public/demos/reel-4.mp4",
       "kind": "video"
     },
     {
       "id": "reel-5",
       "label": "Bedroom unbox",
-      "file": "/demos/reel-5.mp4",
+      "file": "https://zoxgcqlqovkvlrmpcikt.supabase.co/storage/v1/object/public/demos/reel-5.mp4",
       "kind": "video"
     },
     {
       "id": "reel-6",
       "label": "Office desk",
-      "file": "/demos/reel-6.mp4",
+      "file": "https://zoxgcqlqovkvlrmpcikt.supabase.co/storage/v1/object/public/demos/reel-6.mp4",
       "kind": "video"
     }
   ],
@@ -42,25 +42,25 @@
     {
       "id": "avatar-hijab-young",
       "label": "Hijab young",
-      "file": "/demos/avatar-hijab-young.png",
+      "file": "https://zoxgcqlqovkvlrmpcikt.supabase.co/storage/v1/object/public/demos/avatar-hijab-young.png",
       "kind": "image"
     },
     {
       "id": "avatar-hijab-mature",
       "label": "Hijab mature",
-      "file": "/demos/avatar-hijab-mature.png",
+      "file": "https://zoxgcqlqovkvlrmpcikt.supabase.co/storage/v1/object/public/demos/avatar-hijab-mature.png",
       "kind": "image"
     },
     {
       "id": "avatar-male-young",
       "label": "Male young",
-      "file": "/demos/avatar-male-young.png",
+      "file": "https://zoxgcqlqovkvlrmpcikt.supabase.co/storage/v1/object/public/demos/avatar-male-young.png",
       "kind": "image"
     },
     {
       "id": "avatar-no-hijab",
       "label": "No-hijab",
-      "file": "/demos/avatar-no-hijab.png",
+      "file": "https://zoxgcqlqovkvlrmpcikt.supabase.co/storage/v1/object/public/demos/avatar-no-hijab.png",
       "kind": "image"
     }
   ],
