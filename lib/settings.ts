@@ -39,6 +39,8 @@ export async function getP2Config() {
     "p2_model_t2v",
     "p2_model_i2v",
     "p2_model_r2v",
+    "p2_model_grok_t2v",
+    "p2_model_grok_i2v",
     "image_default",
     "image_models",
   ]);
@@ -50,9 +52,20 @@ export async function getP2Config() {
     videoT2V: s.p2_model_t2v?.model || "",
     videoI2V: s.p2_model_i2v?.model || "",
     videoR2V: s.p2_model_r2v?.model || "",
+    grokT2V: s.p2_model_grok_t2v?.model || "grok-imagine/t2v",
+    grokI2V: s.p2_model_grok_i2v?.model || "grok-imagine/i2v",
     imageDefault: s.image_default?.model || "nano-banana-pro",
     imageModels: s.image_models || {},
   };
+}
+
+// Cinema (Grok Imagine) per-second pricing. Stored as { rate: number } in
+// app_settings; admin tunes in /admin. Default 0.03 RM/sec ≈ RM 0.18 for 6s,
+// RM 0.90 for 30s.
+export async function getCinemaRate(): Promise<number> {
+  const v = await getSetting<any>("cinema_rate_per_sec");
+  const n = Number(v?.rate ?? v?.value ?? 0.03);
+  return Number.isFinite(n) && n > 0 ? n : 0.03;
 }
 
 // RunningHub (P3) — used ONLY for hosting reference image uploads.

@@ -21,9 +21,9 @@ export async function p2CreateTask(input: {
   prompt?: string;
   imageUrl?: string;
   imageUrls?: string[];
-  durationMode?: "8" | "16";
+  durationMode?: "8" | "16" | string | number;
   aspectRatio?: string;
-  resolution?: "1K" | "2K" | "4K";
+  resolution?: "1K" | "2K" | "4K" | "480p" | "720p" | string;
   imageMode?: "frame" | "ingredient" | "text";
   callbackUrl?: string;
   extra?: Record<string, any>;
@@ -35,17 +35,36 @@ export async function p2CreateTask(input: {
   const imgUrls = (input.imageUrls || []).filter(Boolean);
   if (input.imageUrl) imgUrls.unshift(input.imageUrl);
 
-  // Build the `input` block per model type. The three families take very
-  // different params — copy-faithful to what the extension's background.js
-  // sends so a working extension call works here too.
-  const isVideo = input.model.includes("veo");
-  const isGptImage = input.model.includes("gpt-image");
-  const isBanana = !isVideo && !isGptImage;
+  // Build the `input` block per model type. Each family takes different
+  // params — copy-faithful to what the extension's background.js + Crun
+  // docs specify so a working call there works here too.
+  const isGrok = input.model.includes("grok-imagine");
+  const isVideo = !isGrok && input.model.includes("veo");
+  const isGptImage = !isGrok && input.model.includes("gpt-image");
+  const isBanana = !isVideo && !isGptImage && !isGrok;
 
   const innerInput: Record<string, any> = {};
   if (input.prompt) innerInput.prompt = input.prompt.substring(0, 5000);
 
-  if (isVideo) {
+  if (isGrok) {
+    // Grok Imagine — t2v takes aspect_ratio, i2v doesn't (inherits from img).
+    // Both take duration (6-30), resolution (480p|720p), mode (fun|normal|spicy).
+    const isI2V = input.model.includes("i2v");
+    if (isI2V) {
+      if (imgUrls.length > 0) innerInput.img_urls = imgUrls;
+    } else {
+      if (input.aspectRatio) innerInput.aspect_ratio = input.aspectRatio;
+    }
+    innerInput.duration = Number(input.durationMode || 6);
+    innerInput.resolution = input.resolution
+      ? String(input.resolution).toLowerCase()
+      : "720p";
+    innerInput.mode =
+      (input.extra?.mode as string) === "fun" ||
+      (input.extra?.mode as string) === "spicy"
+        ? input.extra!.mode
+        : "normal";
+  } else if (isVideo) {
     // Veo 3.1 fast: duration is a number, only 8 supported on -fast variants
     if (input.aspectRatio) innerInput.aspect_ratio = input.aspectRatio;
     if (imgUrls.length > 0) innerInput.img_urls = imgUrls;

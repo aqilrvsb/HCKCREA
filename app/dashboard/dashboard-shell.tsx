@@ -9,9 +9,11 @@ import {
   Folder,
   Loader2,
   Plus,
+  Film,
 } from "lucide-react";
 import ImageTab from "./tabs/image";
 import VideoTab from "./tabs/video";
+import CinemaTab from "./tabs/cinema";
 import CloneTab from "./tabs/clone";
 import AutoContentTab from "./tabs/auto-content";
 import HistoryGrid from "./sections/history-grid";
@@ -21,13 +23,14 @@ import UsageSection from "./sections/usage";
 import SettingsSection from "./sections/settings";
 import Sidebar, { type Project, type SidebarView } from "./sidebar";
 
-type TabKey = "image" | "video" | "clone" | "auto";
+type TabKey = "image" | "video" | "cinema" | "clone" | "auto";
 
 const TABS: { key: TabKey; label: string; icon: any; tag: string }[] = [
   { key: "image", label: "Image", icon: ImageIcon, tag: "01" },
-  { key: "video", label: "Video", icon: Video, tag: "02" },
-  { key: "clone", label: "Clone Prompt", icon: Layers, tag: "03" },
-  { key: "auto", label: "Auto Content", icon: Wand2, tag: "04" },
+  { key: "video", label: "UGC", icon: Video, tag: "02" },
+  { key: "cinema", label: "Cinema", icon: Film, tag: "03" },
+  { key: "clone", label: "Clone Prompt", icon: Layers, tag: "04" },
+  { key: "auto", label: "Auto Content", icon: Wand2, tag: "05" },
 ];
 
 export default function DashboardShell({
@@ -283,7 +286,15 @@ function ProjectView({
             <div className="max-w-5xl mx-auto w-full">
               <VideoTab projectId={project.id} />
             </div>
-            <HistoryGrid tab="video" title={`Video — ${project.name}`} projectId={project.id} />
+            <HistoryGrid tab="video" title={`UGC — ${project.name}`} projectId={project.id} />
+          </>
+        )}
+        {activeTab === "cinema" && (
+          <>
+            <div className="max-w-5xl mx-auto w-full">
+              <CinemaTab projectId={project.id} />
+            </div>
+            <HistoryGrid tab="cinema" title={`Cinema — ${project.name}`} projectId={project.id} />
           </>
         )}
         {activeTab === "clone" && (

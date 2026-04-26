@@ -19,7 +19,8 @@ const ORANGE_SOFT = "rgba(255, 87, 34, 0.18)";
 const ORANGE_FAINT = "rgba(255, 87, 34, 0.06)";
 
 export default function VideoTab({ projectId }: { projectId?: string } = {}) {
-  const [imageMode, setImageMode] = useState<ImageMode>("frame");
+  // Default to Product Reference (ingredient) — most common UGC flow.
+  const [imageMode, setImageMode] = useState<ImageMode>("ingredient");
   const [startFrame, setStartFrame] = useState("");
   const [endFrame, setEndFrame] = useState("");
   const [refImage, setRefImage] = useState("");
@@ -290,7 +291,8 @@ export default function VideoTab({ projectId }: { projectId?: string } = {}) {
         <textarea
           rows={5}
           value={prompt}
-          onChange={(e) => setPrompt(e.target.value)}
+          onChange={(e) => setPrompt(e.target.value.substring(0, 1000))}
+          maxLength={1000}
           placeholder="Scene description + spoken dialog 0-8s..."
           className="w-full p-3.5 rounded-xl text-sm resize-y outline-none focus:border-orange-400"
           style={{
@@ -301,11 +303,14 @@ export default function VideoTab({ projectId }: { projectId?: string } = {}) {
           }}
         />
         <p className="text-[10px] text-gray-500 mt-2">
-          Each shot = 8s. Write dialog with timestamps per shot.
+          Each shot = 8s. Write dialog with timestamps per shot. ·{" "}
+          <span className={prompt.length > 950 ? "text-red-500 font-bold" : ""}>
+            {prompt.length}/1000
+          </span>
         </p>
       </Card>
 
-      {/* SIZE + QTY + GENERATE */}
+      {/* SIZE + GENERATE */}
       <Card>
         <div className="flex items-end gap-4 mb-4">
           <div>
@@ -313,20 +318,6 @@ export default function VideoTab({ projectId }: { projectId?: string } = {}) {
             <Select value={aspect} onChange={(v) => setAspect(v)} width={100}>
               <option value="9:16">9:16</option>
               <option value="16:9">16:9</option>
-            </Select>
-          </div>
-          <div>
-            <Label>Qty</Label>
-            <Select
-              value={String(count)}
-              onChange={(v) => setCount(Number(v))}
-              width={80}
-            >
-              {[1, 2, 3, 4, 5].map((n) => (
-                <option key={n} value={n}>
-                  {n}
-                </option>
-              ))}
             </Select>
           </div>
         </div>
@@ -348,7 +339,7 @@ export default function VideoTab({ projectId }: { projectId?: string } = {}) {
               Submitting…
             </span>
           ) : (
-            <>🎬 Generate {count > 1 ? `${count} Videos` : "Video"}</>
+            <>🎬 Generate UGC</>
           )}
         </button>
 

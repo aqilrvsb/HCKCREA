@@ -45,6 +45,7 @@ function modelLabel(item: HistoryItem): string {
   const m = item.metadata?.model || "";
   if (m.includes("nano-banana") || m === "nano-banana-pro") return "Banana Pro";
   if (m.includes("gpt-image") || m === "gpt-image-2") return "GPT Image 2";
+  if (m.includes("grok-imagine")) return "Grok Imagine";
   if (m.includes("veo")) return "Veo 3.1";
   return item.type;
 }
@@ -57,9 +58,12 @@ function videoModeLabel(item: HistoryItem): string | null {
     return null;
   const meta = item.metadata?.imageMode;
   if (meta === "text") return "Text to Video";
+  if (meta === "image") return "Image to Video";
   if (meta === "frame") return "First Frame";
   if (meta === "ingredient") return "Product Ref";
   const m = item.metadata?.model || "";
+  if (m.includes("grok-imagine/i2v")) return "Image to Video";
+  if (m.includes("grok-imagine/t2v")) return "Text to Video";
   if (m.endsWith("-t2v") || m.includes("t2v")) return "Text to Video";
   if (m.endsWith("-i2v") || m.includes("i2v")) return "First Frame";
   if (m.endsWith("-r2v") || m.includes("r2v")) return "Product Ref";
@@ -73,7 +77,7 @@ export default function HistoryGrid({
   title,
   projectId,
 }: {
-  tab: "image" | "video" | "clone" | "auto";
+  tab: "image" | "video" | "cinema" | "clone" | "auto";
   title: string;
   projectId?: string;
 }) {
