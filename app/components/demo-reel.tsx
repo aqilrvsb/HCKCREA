@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Sparkles, Play, Loader2 } from "lucide-react";
+import { Sparkles, Play, Loader2, X } from "lucide-react";
 
 type Manifest = {
   generated_at: string;
@@ -15,7 +15,7 @@ type Manifest = {
 // hides itself — page still works without it.
 export default function DemoReel() {
   const [manifest, setManifest] = useState<Manifest | null>(null);
-  const [active, setActive] = useState(0);
+  const [modalIndex, setModalIndex] = useState<number | null>(null);
 
   useEffect(() => {
     fetch("/demos/manifest.json", { cache: "no-store" })
@@ -23,6 +23,17 @@ export default function DemoReel() {
       .then(setManifest)
       .catch(() => setManifest(null));
   }, []);
+
+  useEffect(() => {
+    if (modalIndex === null) return;
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && setModalIndex(null);
+    window.addEventListener("keydown", onKey);
+    document.body.style.overflow = "hidden";
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      document.body.style.overflow = "";
+    };
+  }, [modalIndex]);
 
   const videos = manifest?.videos || [];
   const images = manifest?.images || [];
@@ -68,7 +79,8 @@ export default function DemoReel() {
     );
   }
 
-  const featured = videos[active] || videos[0];
+  const featured = videos[0];
+  const modalVideo = modalIndex !== null ? videos[modalIndex] : null;
 
   return (
     <section className="relative z-10 mx-auto max-w-6xl px-6 py-20">
@@ -128,12 +140,8 @@ export default function DemoReel() {
               {videos.map((v, i) => (
                 <button
                   key={v.id}
-                  onClick={() => setActive(i)}
-                  className={`group text-left rounded-2xl overflow-hidden border-2 transition-all ${
-                    i === active
-                      ? "border-orange shadow-lg shadow-orange-500/20 scale-[1.02]"
-                      : "border-[var(--color-border)] hover:border-orange-300 hover:-translate-y-0.5"
-                  }`}
+                  onClick={() => setModalIndex(i)}
+                  className="group text-left rounded-2xl overflow-hidden border-2 border-[var(--color-border)] hover:border-orange-300 hover:-translate-y-0.5 transition-all"
                 >
                   <div className="aspect-[9/16] bg-black relative">
                     <video
@@ -144,18 +152,13 @@ export default function DemoReel() {
                       className="w-full h-full object-cover"
                     />
                     <div className="absolute inset-0 flex items-center justify-center bg-black/20 group-hover:bg-black/10 transition-colors">
-                      <div className="w-10 h-10 rounded-full bg-white/90 flex items-center justify-center shadow-lg">
-                        <Play className="w-4 h-4 text-orange" strokeWidth={2.5} fill="currentColor" />
+                      <div className="w-12 h-12 rounded-full bg-white/95 flex items-center justify-center shadow-lg group-hover:scale-110 transition-transform">
+                        <Play className="w-5 h-5 text-orange ml-0.5" strokeWidth={2.5} fill="currentColor" />
                       </div>
                     </div>
                     <div className="absolute top-2 left-2 px-2 py-0.5 rounded-full bg-black/60 backdrop-blur-md text-[9px] font-mono font-bold text-white">
                       {String(i + 1).padStart(2, "0")}
                     </div>
-                    {i === active && (
-                      <div className="absolute top-2 right-2 px-2 py-0.5 rounded-full bg-orange text-[9px] font-bold uppercase tracking-wider text-white">
-                        Playing
-                      </div>
-                    )}
                     <div className="absolute bottom-0 left-0 right-0 p-2 bg-gradient-to-t from-black/80 to-transparent">
                       <div className="text-[10px] font-bold text-white truncate">{v.label}</div>
                       <div className="text-[9px] text-white/70">8s · Veo 3.1</div>
@@ -164,6 +167,38 @@ export default function DemoReel() {
                 </button>
               ))}
             </div>
+
+            {/* Modal — plays clicked thumbnail */}
+            {modalVideo && (
+              <div
+                className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-4 animate-in fade-in duration-200"
+                onClick={() => setModalIndex(null)}
+              >
+                <button
+                  onClick={() => setModalIndex(null)}
+                  className="absolute top-5 right-5 w-11 h-11 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center text-white transition-colors"
+                  aria-label="Close"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+                <div
+                  className="relative rounded-3xl overflow-hidden shadow-2xl bg-black w-full max-w-[420px] aspect-[9/16]"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <video
+                    key={modalVideo.file}
+                    src={modalVideo.file}
+                    controls
+                    autoPlay
+                    playsInline
+                    className="w-full h-full object-contain bg-black"
+                  />
+                  <div className="absolute top-4 left-4 px-3 py-1.5 rounded-full bg-black/60 backdrop-blur-md text-[10px] font-bold uppercase tracking-widest text-white pointer-events-none">
+                    {String((modalIndex ?? 0) + 1).padStart(2, "0")} · {modalVideo.label}
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         </>
       )}
