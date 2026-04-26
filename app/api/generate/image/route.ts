@@ -13,6 +13,9 @@ export async function POST(req: Request) {
   const body = await req.json().catch(() => ({}));
   const prompt = String(body?.prompt || "").trim();
   const referenceUrl = body?.reference_url ? String(body.reference_url) : undefined;
+  const referenceUrls: string[] = Array.isArray(body?.reference_urls)
+    ? body.reference_urls.filter(Boolean).map(String)
+    : [];
   const aspectRatio = String(body?.aspect_ratio || "9:16");
 
   if (!prompt) return NextResponse.json({ error: "Prompt required" }, { status: 400 });
@@ -31,10 +34,12 @@ export async function POST(req: Request) {
   const modelKey = cfg.imageDefault || "nano-banana-pro";
   const modelId = (cfg.imageModels as any)?.[modelKey] || modelKey;
 
+  // Prefer multi-image array (character + product); fall back to single
+  const imageUrls = referenceUrls.length ? referenceUrls : (referenceUrl ? [referenceUrl] : []);
   const created = await p2CreateTask({
     model: modelId,
     prompt,
-    imageUrl: referenceUrl,
+    imageUrls,
     aspectRatio,
   });
   if (!created.ok || !created.task_id) {
