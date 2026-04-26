@@ -407,17 +407,16 @@ export default function ImageTab() {
         )}
 
         <textarea
-          rows={6}
+          rows={5}
           value={prompt}
           onChange={(e) => setPrompt(e.target.value)}
           placeholder="Describe your scene — or click a preset above for ready-made prompts"
-          className="w-full p-4 rounded-xl text-sm resize-y outline-none transition-colors focus:border-orange-400"
+          className="w-full p-3.5 rounded-xl text-sm resize-y outline-none transition-colors focus:border-orange-400"
           style={{
             background: "#fafaf7",
             border: "1px solid #e8e0d8",
             color: "#1a1a1a",
-            lineHeight: 1.6,
-            minHeight: "180px",
+            lineHeight: 1.5,
           }}
         />
 
@@ -696,7 +695,7 @@ function Select({
     <select
       value={value}
       onChange={(e) => onChange(e.target.value)}
-      className="px-4 py-3.5 rounded-lg text-sm font-semibold outline-none transition-colors focus:border-orange-400"
+      className="px-3.5 py-2.5 rounded-lg text-sm font-semibold outline-none transition-colors focus:border-orange-400"
       style={{
         width: width ? `${width}px` : "100%",
         background: "#fafaf7",
