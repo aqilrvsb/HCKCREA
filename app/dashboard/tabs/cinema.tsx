@@ -130,7 +130,7 @@ export default function CinemaTab({ projectId }: { projectId?: string } = {}) {
             className="text-[10px] font-mono uppercase tracking-wider px-2 py-1 rounded"
             style={{ background: PURPLE_FAINT, color: PURPLE, border: `1px solid ${PURPLE_SOFT}` }}
           >
-            Grok Imagine · 6–30s
+            6–30s
           </span>
         </div>
 
