@@ -73,12 +73,28 @@ export default function SocialProofToast() {
           : "opacity-0 translate-y-4 pointer-events-none"
       }`}
     >
-      <div className="flex items-center gap-3 p-3 pr-2 rounded-2xl bg-white border border-[var(--color-border)] shadow-2xl shadow-orange-500/15">
-        <div className="w-10 h-10 rounded-full bg-emerald-50 border border-emerald-100 flex items-center justify-center flex-shrink-0">
-          <CheckCircle2 className="w-5 h-5 text-emerald-600" />
+      <div
+        className="flex items-center gap-3 p-3 pr-2 rounded-2xl border shadow-2xl"
+        style={{
+          background: "var(--color-bg-card)",
+          borderColor: "rgba(200, 245, 62, 0.25)",
+          boxShadow: "0 20px 40px -12px rgba(200, 245, 62, 0.18)",
+        }}
+      >
+        <div
+          className="w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0"
+          style={{
+            background: "rgba(200, 245, 62, 0.12)",
+            border: "1px solid rgba(200, 245, 62, 0.35)",
+          }}
+        >
+          <CheckCircle2 className="w-5 h-5" style={{ color: "var(--color-lime)" }} />
         </div>
         <div className="flex-1 min-w-0">
-          <div className="text-xs font-bold text-[var(--color-text-primary)] truncate">
+          <div
+            className="text-xs font-extrabold truncate"
+            style={{ color: "var(--color-lime)" }}
+          >
             {toast.name} dari {toast.city}
           </div>
           <div className="text-xs text-[var(--color-text-secondary)] truncate">
@@ -90,7 +106,7 @@ export default function SocialProofToast() {
         </div>
         <button
           onClick={() => setDismissed(true)}
-          className="w-6 h-6 rounded-full hover:bg-gray-100 flex items-center justify-center flex-shrink-0"
+          className="w-6 h-6 rounded-full hover:bg-white/10 flex items-center justify-center flex-shrink-0 transition-colors"
           aria-label="Dismiss"
         >
           <X className="w-3.5 h-3.5 text-[var(--color-text-muted)]" />

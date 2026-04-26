@@ -2,12 +2,12 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "PeningLab — UGC Video AI untuk Seller TikTok Shop",
+  title: "Peninglab.com : Ultimate Hack Content",
   description:
     "Hasilkan 10 video UGC TikTok Shop dalam 3 minit. AI Creative Director susun framework, dialog, hook & CTA. Tak perlu creator, tak perlu shoot.",
   metadataBase: new URL("https://peninglab.com"),
   openGraph: {
-    title: "PeningLab — UGC Video AI untuk Seller TikTok Shop",
+    title: "Peninglab.com : Ultimate Hack Content",
     description:
       "Hasilkan 10 video UGC TikTok Shop dalam 3 minit dengan AI.",
     type: "website",
