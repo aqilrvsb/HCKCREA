@@ -35,7 +35,9 @@ export default function VideoTab({ projectId }: { projectId?: string } = {}) {
 
   const [pickerSlot, setPickerSlot] = useState<RefSlot | null>(null);
 
-  // Pick up a prompt handed off from the UGC Prompt Builder
+  // Pick up a prompt handed off from the UGC Prompt Builder rendered above
+  // us on the Video page (same-page handoff via custom event). Also reads
+  // any leftover localStorage stash for backwards compat.
   useEffect(() => {
     try {
       const stash = localStorage.getItem("ugc_prompt_stash");
@@ -44,6 +46,12 @@ export default function VideoTab({ projectId }: { projectId?: string } = {}) {
         localStorage.removeItem("ugc_prompt_stash");
       }
     } catch {}
+    const onHandoff = (e: any) => {
+      const text = typeof e?.detail === "string" ? e.detail : "";
+      if (text.trim()) setPrompt(text);
+    };
+    window.addEventListener("ugc:hand-off", onHandoff);
+    return () => window.removeEventListener("ugc:hand-off", onHandoff);
   }, []);
 
   function pickFromHistory(slot: RefSlot, url: string) {

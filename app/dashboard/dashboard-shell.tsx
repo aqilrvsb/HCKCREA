@@ -6,7 +6,6 @@ import {
   Video,
   Layers,
   Wand2,
-  Mic,
   Folder,
   Loader2,
   Plus,
@@ -23,14 +22,13 @@ import UsageSection from "./sections/usage";
 import SettingsSection from "./sections/settings";
 import Sidebar, { type Project, type SidebarView } from "./sidebar";
 
-type TabKey = "image" | "video" | "ugc" | "clone" | "auto";
+type TabKey = "image" | "video" | "clone" | "auto";
 
 const TABS: { key: TabKey; label: string; icon: any; tag: string }[] = [
   { key: "image", label: "Image", icon: ImageIcon, tag: "01" },
   { key: "video", label: "Video", icon: Video, tag: "02" },
-  { key: "ugc", label: "UGC", icon: Mic, tag: "03" },
-  { key: "clone", label: "Clone", icon: Layers, tag: "04" },
-  { key: "auto", label: "Auto Content", icon: Wand2, tag: "05" },
+  { key: "clone", label: "Clone", icon: Layers, tag: "03" },
+  { key: "auto", label: "Auto Content", icon: Wand2, tag: "04" },
 ];
 
 export default function DashboardShell({
@@ -284,15 +282,13 @@ function ProjectView({
         {activeTab === "video" && (
           <>
             <div className="max-w-5xl mx-auto w-full">
+              <UgcTab />
+            </div>
+            <div className="max-w-5xl mx-auto w-full">
               <VideoTab projectId={project.id} />
             </div>
             <HistoryGrid tab="video" title={`Video — ${project.name}`} projectId={project.id} />
           </>
-        )}
-        {activeTab === "ugc" && (
-          <section className="card max-w-3xl mx-auto w-full">
-            <UgcTab />
-          </section>
         )}
         {activeTab === "clone" && (
           <>

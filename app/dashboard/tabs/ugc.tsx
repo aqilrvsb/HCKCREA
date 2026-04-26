@@ -114,13 +114,31 @@ export default function UgcTab() {
   }
 
   function useInVideo() {
-    if (!output) {
-      build();
+    // Build the prompt if not already built, then push it directly into the
+    // Video Generator below us via a custom event. Same-page handoff — no
+    // tab switching needed because UGC is rendered above VideoTab.
+    let final = output;
+    if (!final) {
+      // Synthesize the same string build() would create (build() is async via
+      // setState so we can't read output immediately). Inline minimal version:
+      const dialog = [
+        hook ? `0-2s: "${hook}"` : "",
+        middle ? `2-6s: "${middle}"` : "",
+        cta ? `6-8s: "${cta}"` : "",
+      ].filter(Boolean).join("\n");
+      final = [
+        "[SHOT TYPE]", shot, "",
+        "[SUBJECT]", subject, "",
+        "[ACTION]", action, "",
+        "[DIALOG]", dialog || "(no dialog)", "",
+        `[TONE] ${tone}`,
+        `[VOICE] ${voice}`,
+        "",
+        "[STYLE]", style,
+      ].join("\n");
+      setOutput(final);
     }
-    try {
-      localStorage.setItem("ugc_prompt_stash", output || "");
-      window.dispatchEvent(new CustomEvent("dashboard:goto", { detail: "video" }));
-    } catch {}
+    window.dispatchEvent(new CustomEvent("ugc:hand-off", { detail: final }));
   }
 
   function saveTemplate() {
