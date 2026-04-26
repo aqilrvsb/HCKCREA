@@ -55,6 +55,21 @@ export async function getP2Config() {
   };
 }
 
+// RunningHub (P3) — used ONLY for hosting reference image uploads.
+// Generation still goes through Crun.ai (P2). RH gives back a public CDN
+// URL (download_url) that Crun.ai accepts as img_urls input. Mirrors
+// the creative-hack-auto extension's rhUploadImage flow.
+export async function getRunningHubConfig() {
+  const s = await getSettings(["hc_rh_base", "hc_rh_key", "hc_rh_upload"]);
+  return {
+    base: s.hc_rh_base?.url || "https://www.runninghub.ai/openapi/v2",
+    key: s.hc_rh_key?.key || "",
+    uploadUrl:
+      s.hc_rh_upload?.url ||
+      "https://www.runninghub.cn/openapi/v2/media/upload/binary",
+  };
+}
+
 export async function getCreditCosts() {
   const v = await getSetting<any>("credit_costs");
   return {
