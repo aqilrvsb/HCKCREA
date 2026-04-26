@@ -208,23 +208,6 @@ export default function DemoReel() {
         </div>
       )}
 
-      {/* Powered by */}
-      <div className="mt-10 flex flex-wrap items-center justify-center gap-x-6 gap-y-2 text-xs text-[var(--color-text-muted)]">
-        <span className="font-mono uppercase tracking-widest font-bold">
-          Powered by:
-        </span>
-        <span className="font-bold text-[var(--color-text-primary)]">
-          Google Veo 3.1
-        </span>
-        <span>·</span>
-        <span className="font-bold text-[var(--color-text-primary)]">
-          GPT Image 2
-        </span>
-        <span>·</span>
-        <span className="font-bold text-[var(--color-text-primary)]">
-          Banana Pro
-        </span>
-      </div>
     </section>
   );
 }

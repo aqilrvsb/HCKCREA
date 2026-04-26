@@ -596,9 +596,10 @@ export default function Home() {
               </p>
               <Link
                 href="/register"
-                className="inline-flex items-center gap-2 px-7 py-3.5 rounded-2xl bg-white text-[var(--color-text-primary)] font-bold text-sm sm:text-base shadow-2xl hover:scale-[1.03] transition-transform"
+                className="inline-flex items-center gap-2 px-7 py-3.5 rounded-2xl font-bold text-sm sm:text-base shadow-2xl hover:scale-[1.03] transition-transform"
+                style={{ background: "var(--color-lime)", color: "#0a0a0a" }}
               >
-                <Flame className="w-4 h-4 text-orange-500" />
+                <Flame className="w-4 h-4" style={{ color: "#0a0a0a" }} />
                 Saya nak catch up sekarang
                 <ArrowRight className="w-4 h-4" />
               </Link>
@@ -607,17 +608,39 @@ export default function Home() {
         </div>
       </section>
 
-      {/* Stats bar */}
+      {/* Stats bar — boxed container, lime accent numbers */}
       <section className="relative z-10 mx-auto max-w-6xl px-6 py-12">
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-6 md:gap-12 text-center md:text-left">
-          {STATS.map((s, i) => (
-            <div key={i} className="relative">
-              <div className="stat-num gradient-text-violet">{s.num}</div>
-              <div className="text-sm text-[var(--color-text-secondary)] mt-1">
-                {s.label}
+        <div
+          className="relative overflow-hidden rounded-3xl px-6 sm:px-10 py-8 sm:py-10 border"
+          style={{
+            background:
+              "linear-gradient(135deg, rgba(200,245,62,0.05) 0%, rgba(200,245,62,0.02) 100%)",
+            borderColor: "rgba(200,245,62,0.2)",
+          }}
+        >
+          <div
+            className="absolute -top-24 -right-24 w-72 h-72 rounded-full pointer-events-none"
+            style={{
+              background:
+                "radial-gradient(circle, rgba(200,245,62,0.15), transparent 70%)",
+              filter: "blur(40px)",
+            }}
+          />
+          <div className="relative grid grid-cols-2 md:grid-cols-4 gap-8 md:gap-12 text-center">
+            {STATS.map((s, i) => (
+              <div key={i}>
+                <div
+                  className="font-display font-extrabold text-4xl sm:text-5xl md:text-6xl tracking-tight"
+                  style={{ color: "var(--color-lime)" }}
+                >
+                  {s.num}
+                </div>
+                <div className="text-xs sm:text-sm text-[var(--color-text-secondary)] mt-2 font-medium">
+                  {s.label}
+                </div>
               </div>
-            </div>
-          ))}
+            ))}
+          </div>
         </div>
       </section>
 
@@ -763,23 +786,7 @@ export default function Home() {
           </p>
         </div>
 
-        {/* Powered by trust strip — establishes legitimacy */}
-        <div className="flex flex-wrap items-center justify-center gap-x-6 gap-y-3 mb-12 px-4 py-3 rounded-2xl bg-orange-50/60 border border-orange-100 max-w-3xl mx-auto">
-          <span className="font-mono text-[10px] uppercase tracking-widest text-orange font-bold">
-            Powered by:
-          </span>
-          <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
-            <span className="font-display font-bold text-sm">Google Veo 3.1</span>
-            <span className="text-[var(--color-text-muted)]">·</span>
-            <span className="font-display font-bold text-sm">GPT Image 2</span>
-            <span className="text-[var(--color-text-muted)]">·</span>
-            <span className="font-display font-bold text-sm">Banana Pro</span>
-            <span className="text-[var(--color-text-muted)]">·</span>
-            <span className="font-display font-bold text-sm">OpenRouter</span>
-          </div>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+        <div className="mt-12 grid grid-cols-1 md:grid-cols-3 gap-5">
           {/* Large card — Auto Content (FEAR: writer's block costs sales) */}
           <div className="md:col-span-2 bento relative overflow-hidden" style={{ minHeight: 380 }}>
             {/* Hero image overlay — subtle, behind content */}
@@ -806,23 +813,38 @@ export default function Home() {
               <p className="text-[var(--color-text-secondary)] leading-relaxed mb-6 max-w-md">
                 Stop fikir nak shoot apa esok. AI Creative Director plan 10 video — framework, hook, dialog BM, CTA — siap untuk minggu depan tanpa anda angkat phone.
               </p>
+              {/* Real video poster thumbnails — first frame from actual demo reels */}
               <div className="flex gap-2.5">
                 {[
-                  "from-orange-200 to-orange-400",
-                  "from-orange-300 to-amber-300",
-                  "from-pink-300 to-amber-300",
-                ].map((g, i) => (
+                  { src: "reel-1.mp4", label: "v1" },
+                  { src: "reel-2.mp4", label: "v2" },
+                  { src: "reel-7.mp4", label: "v3" },
+                ].map((v, i) => (
                   <div
                     key={i}
-                    className={`flex-1 aspect-[9/16] max-w-[80px] rounded-xl bg-gradient-to-br ${g} relative overflow-hidden border border-white/40 shadow-md`}
+                    className="flex-1 aspect-[9/16] max-w-[80px] rounded-xl overflow-hidden border border-white/10 shadow-md bg-black relative"
                   >
-                    <div className="absolute bottom-1.5 left-1.5 text-[8px] font-bold text-white/90">
-                      v{i + 1}
+                    <video
+                      src={`https://zoxgcqlqovkvlrmpcikt.supabase.co/storage/v1/object/public/demos/${v.src}#t=1`}
+                      preload="metadata"
+                      muted
+                      playsInline
+                      className="w-full h-full object-cover"
+                    />
+                    <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent" />
+                    <div className="absolute bottom-1.5 left-1.5 text-[8px] font-bold text-white">
+                      {v.label}
                     </div>
                   </div>
                 ))}
-                <div className="flex-1 aspect-[9/16] max-w-[80px] rounded-xl border-2 border-dashed border-violet-200 flex items-center justify-center text-[10px] text-violet-400 font-bold">
-                  +7
+                <div
+                  className="flex-1 aspect-[9/16] max-w-[80px] rounded-xl border-2 border-dashed flex items-center justify-center text-[10px] font-bold"
+                  style={{
+                    borderColor: "rgba(255,87,34,0.4)",
+                    color: "var(--color-orange)",
+                  }}
+                >
+                  +17
                 </div>
               </div>
             </div>
@@ -968,75 +990,6 @@ export default function Home() {
       {/* Live AI-generated demo reel */}
       <DemoReel />
 
-      {/* How it works — 4 step process */}
-      <section id="how" className="relative z-10 py-24">
-        <div className="relative mx-auto max-w-6xl px-6">
-          <div className="text-center mb-14">
-            <div className="chip mb-5">
-              <Zap className="w-3.5 h-3.5" />
-              <span>Cara guna</span>
-            </div>
-            <h2 className="section-heading">
-              Dari link produk →{" "}
-              <span className="gradient-text-blue">10 video viral</span>.
-            </h2>
-            <p className="mt-5 text-lg text-[var(--color-text-secondary)] max-w-xl mx-auto">
-              4 langkah. 3 minit. Auto.
-            </p>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-            {STEPS.map((s, i) => {
-              const accentMap: Record<
-                string,
-                { bg: string; border: string; text: string }
-              > = {
-                violet: {
-                  bg: "bg-violet-50",
-                  border: "border-violet-200",
-                  text: "text-violet-600",
-                },
-                blue: {
-                  bg: "bg-blue-50",
-                  border: "border-blue-200",
-                  text: "text-blue-600",
-                },
-                pink: {
-                  bg: "bg-pink-50",
-                  border: "border-pink-200",
-                  text: "text-pink-600",
-                },
-                emerald: {
-                  bg: "bg-emerald-50",
-                  border: "border-emerald-200",
-                  text: "text-emerald-600",
-                },
-              };
-              const a = accentMap[s.accent];
-              return (
-                <div
-                  key={i}
-                  className={`card ${a.bg} ${a.border}`}
-                  style={{ background: undefined }}
-                >
-                  <div className="flex items-start gap-4">
-                    <div className="step-pill flex-shrink-0">{s.num}</div>
-                    <div>
-                      <h3 className="font-display font-bold text-2xl mb-2">
-                        {s.title}
-                      </h3>
-                      <p className="text-[var(--color-text-secondary)] leading-relaxed">
-                        {s.desc}
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      </section>
-
       {/* Before / After */}
       <section className="relative z-10 mx-auto max-w-6xl px-6 py-20">
         <div className="text-center mb-12">
@@ -1046,12 +999,19 @@ export default function Home() {
         </div>
 
         <div className="grid md:grid-cols-2 gap-5">
-          {/* Manual */}
-          <div className="card border-red-100">
-            <div className="text-xs font-mono uppercase tracking-wider text-red-500 mb-3">
+          {/* Manual — red-tinted dark card */}
+          <div
+            className="card relative"
+            style={{
+              background:
+                "linear-gradient(180deg, rgba(239,68,68,0.06) 0%, var(--color-bg-card) 100%)",
+              borderColor: "rgba(239,68,68,0.25)",
+            }}
+          >
+            <div className="text-xs font-mono uppercase tracking-wider text-red-400 mb-3 font-bold">
               ❌ Cara lama
             </div>
-            <h3 className="font-display font-bold text-2xl mb-5">
+            <h3 className="font-display font-bold text-2xl mb-5 text-[var(--color-text-primary)]">
               Shoot manual
             </h3>
             <ul className="space-y-3">
@@ -1075,19 +1035,28 @@ export default function Home() {
             </ul>
           </div>
 
-          {/* PeningLab */}
+          {/* PeningLab — lime-tinted dark card */}
           <div
             className="card relative"
             style={{
-              background: "linear-gradient(180deg, #f5f3ff 0%, #ffffff 100%)",
-              borderColor: "#ffd4b8",
+              background:
+                "linear-gradient(180deg, rgba(200,245,62,0.06) 0%, var(--color-bg-card) 100%)",
+              borderColor: "rgba(200,245,62,0.3)",
             }}
           >
-            <div className="absolute top-4 right-4 sticker">2× lebih murah</div>
-            <div className="text-xs font-mono uppercase tracking-wider text-violet-600 mb-3">
+            <div
+              className="absolute top-4 right-4 px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider"
+              style={{ background: "var(--color-lime)", color: "#0a0a0a" }}
+            >
+              750× lebih murah
+            </div>
+            <div
+              className="text-xs font-mono uppercase tracking-wider mb-3 font-bold"
+              style={{ color: "var(--color-lime)" }}
+            >
               ✓ Cara PeningLab
             </div>
-            <h3 className="font-display font-bold text-2xl mb-5">
+            <h3 className="font-display font-bold text-2xl mb-5 text-[var(--color-text-primary)]">
               Auto dengan AI
             </h3>
             <ul className="space-y-3">
@@ -1098,13 +1067,16 @@ export default function Home() {
                 "Veo generate video parallel (2 min)",
                 "Caption + hashtag auto-tulis (auto)",
                 "Auto-post ke TikTok atau download MP4",
-                "Total: ~3 minit, ~RM5/video",
+                "Total: ~3 minit, ~40 sen/video",
               ].map((t, i) => (
                 <li
                   key={i}
                   className="flex items-start gap-2.5 text-sm text-[var(--color-text-primary)]"
                 >
-                  <CheckCircle2 className="w-4 h-4 text-emerald-500 mt-0.5 flex-shrink-0" />
+                  <CheckCircle2
+                    className="w-4 h-4 mt-0.5 flex-shrink-0"
+                    style={{ color: "var(--color-lime)" }}
+                  />
                   <span>{t}</span>
                 </li>
               ))}
@@ -1129,7 +1101,6 @@ export default function Home() {
               <div
                 key={i}
                 className="card flex-shrink-0 w-[340px]"
-                style={{ background: "white" }}
               >
                 <div className="flex items-center gap-0.5 mb-3">
                   {[...Array(5)].map((_, j) => (
@@ -1383,7 +1354,7 @@ export default function Home() {
       <SocialProofToast />
 
       {/* Footer */}
-      <footer className="relative z-10 border-t border-[var(--color-border)] mt-12 bg-white/50">
+      <footer className="relative z-10 border-t border-[var(--color-border)] mt-12">
         <div className="mx-auto max-w-6xl px-6 py-10 flex flex-col md:flex-row items-center justify-between gap-6 text-sm text-[var(--color-text-muted)]">
           <div className="flex items-center gap-2.5">
             <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-orange-400 via-orange-500 to-orange-600 flex items-center justify-center shadow-lg shadow-orange-500/30">
