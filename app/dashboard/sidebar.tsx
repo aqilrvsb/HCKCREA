@@ -144,7 +144,7 @@ export default function Sidebar({
 
   return (
     <aside
-      className="hidden lg:flex flex-col w-[280px] flex-shrink-0 border-r"
+      className="hidden lg:flex flex-col w-[280px] flex-shrink-0 border-r sticky top-0 self-start max-h-screen overflow-y-auto"
       style={{
         background: "var(--color-bg)",
         borderColor: "var(--color-border)",
@@ -217,8 +217,8 @@ export default function Sidebar({
         </div>
       </div>
 
-      {/* Projects list */}
-      <div className="px-4 pt-3 flex-1 min-h-0 flex flex-col">
+      {/* Projects list — sized to content; inner list scrolls if overflow */}
+      <div className="px-4 pt-3 flex flex-col">
         <div
           className="flex items-center gap-2 px-2 mb-2 font-mono text-[10px] uppercase tracking-[0.18em] font-bold"
           style={{ color: "var(--color-text-muted)" }}
@@ -226,7 +226,7 @@ export default function Sidebar({
           <Folder className="w-3 h-3" />
           Projects
         </div>
-        <div className="overflow-y-auto flex-1 space-y-1 pr-1">
+        <div className="space-y-1 pr-1 overflow-y-auto" style={{ maxHeight: "40vh" }}>
           {filtered.length === 0 && (
             <div
               className="px-3 py-4 text-center text-xs"

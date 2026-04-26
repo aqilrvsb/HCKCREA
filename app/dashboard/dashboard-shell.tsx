@@ -81,10 +81,10 @@ export default function DashboardShell({
     view.kind === "project" ? projects.find((p) => p.id === view.projectId) : null;
 
   return (
-    <div className="relative min-h-screen overflow-hidden">
+    <div className="relative min-h-screen">
       <div className="bg-sky" />
 
-      <div className="relative z-10 flex min-h-screen">
+      <div className="relative z-10 flex min-h-screen items-stretch">
         <Sidebar
           email={email}
           name={name}
@@ -283,9 +283,9 @@ function ProjectView({
         )}
         {activeTab === "video" && (
           <>
-            <section className="card max-w-3xl mx-auto w-full">
+            <div className="max-w-5xl mx-auto w-full">
               <VideoTab projectId={project.id} />
-            </section>
+            </div>
             <HistoryGrid tab="video" title={`Video — ${project.name}`} projectId={project.id} />
           </>
         )}
