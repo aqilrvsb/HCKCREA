@@ -11,6 +11,12 @@ import { createClient } from "@/lib/supabase/client";
 type Status = "idle" | "submitting" | "polling" | "done" | "failed";
 type Mode = "create" | "virtualize";
 type PromptCat = "avatar" | "product" | "sales";
+type ImageModel = "nano-banana-pro" | "gpt-image-2";
+
+const MODEL_OPTIONS: { key: ImageModel; label: string }[] = [
+  { key: "nano-banana-pro", label: "Banana Pro" },
+  { key: "gpt-image-2", label: "GPT Image 2" },
+];
 
 const ORANGE = "#ff5722";
 const ORANGE_SOFT = "rgba(255, 87, 34, 0.18)";
@@ -51,6 +57,7 @@ const SALES_PROMPTS = [
 type RefSlot = "char" | "product" | "poster" | "virtProduct";
 
 export default function ImageTab() {
+  const [model, setModel] = useState<ImageModel>("nano-banana-pro");
   const [mode, setMode] = useState<Mode>("create");
   const [prompt, setPrompt] = useState("");
   const [count, setCount] = useState(1);
@@ -173,6 +180,7 @@ export default function ImageTab() {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
+            model,
             prompt: prompt.trim(),
             reference_url: refs[0] || undefined,
             reference_urls: refs.length > 1 ? refs : undefined,
@@ -208,14 +216,26 @@ export default function ImageTab() {
 
   return (
     <div className="rounded-3xl p-6 md:p-8 space-y-5" style={sectionBg}>
-      {/* IMAGE GENERATOR — Mode selector */}
+      {/* IMAGE GENERATOR — Model + Mode selectors */}
       <Card borderColor={ORANGE}>
         <CardHeader icon="🖼️" title="Image Generator" />
-        <Label>Mode</Label>
-        <Select value={mode} onChange={(v) => setMode(v as Mode)}>
-          <option value="create">Create Image</option>
-          <option value="virtualize">Virtualize (Poster/Ad)</option>
-        </Select>
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <Label>Model</Label>
+            <Select value={model} onChange={(v) => setModel(v as ImageModel)}>
+              {MODEL_OPTIONS.map((m) => (
+                <option key={m.key} value={m.key}>{m.label}</option>
+              ))}
+            </Select>
+          </div>
+          <div>
+            <Label>Mode</Label>
+            <Select value={mode} onChange={(v) => setMode(v as Mode)}>
+              <option value="create">Create Image</option>
+              <option value="virtualize">Virtualize (Poster/Ad)</option>
+            </Select>
+          </div>
+        </div>
       </Card>
 
       {/* CREATE MODE — Character + Product references */}

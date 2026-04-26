@@ -12,6 +12,10 @@ export type P2CreateResp = {
   raw?: any;
 };
 
+// Crun.ai's CreateTask endpoint takes a JSON body with `model` at the top
+// and model-specific params nested under `input`. Image (nano-banana-pro,
+// gpt-image-2) and video (Veo 3.1 fast t2v/i2v/r2v) share this shape but
+// have different fields inside `input`. We auto-detect by model id.
 export async function p2CreateTask(input: {
   model: string;
   prompt?: string;
@@ -19,6 +23,7 @@ export async function p2CreateTask(input: {
   imageUrls?: string[];
   durationMode?: "8" | "16";
   aspectRatio?: string;
+  resolution?: "1K" | "2K" | "4K";
   imageMode?: "frame" | "ingredient" | "text";
   callbackUrl?: string;
   extra?: Record<string, any>;
@@ -26,39 +31,59 @@ export async function p2CreateTask(input: {
   const cfg = await getP2Config();
   if (!cfg.base || !cfg.key) return { ok: false, error: "P2 not configured" };
 
-  const fd = new FormData();
-  fd.append("model", input.model);
-  if (input.prompt) fd.append("prompt", input.prompt.substring(0, 2000));
-  if (input.aspectRatio) fd.append("aspect_ratio", input.aspectRatio);
-  if (input.imageMode) fd.append("image_mode", input.imageMode);
-  if (input.durationMode) fd.append("duration", input.durationMode);
-  if (input.imageUrl) fd.append("image_url", input.imageUrl);
-  if (input.imageUrls && input.imageUrls.length) {
-    input.imageUrls.forEach((u, i) => fd.append(`image_url_${i}`, u));
+  // Coerce single imageUrl into the imageUrls array — Crun expects `img_urls`
+  const imgUrls = (input.imageUrls || []).filter(Boolean);
+  if (input.imageUrl) imgUrls.unshift(input.imageUrl);
+
+  // Build the `input` block per model type
+  const isVideo = input.model.includes("veo");
+  const isImage = !isVideo;
+
+  const innerInput: Record<string, any> = {};
+  if (input.prompt) innerInput.prompt = input.prompt.substring(0, 5000);
+  if (input.aspectRatio) innerInput.aspect_ratio = input.aspectRatio;
+  if (imgUrls.length > 0) innerInput.img_urls = imgUrls;
+
+  if (isVideo) {
+    // Veo 3.1 fast: duration is a number, only 8 supported on -fast variants
+    innerInput.duration = Number(input.durationMode || 8);
   }
-  // Auto-attach the webhook URL so Crun POSTs back when a task completes —
-  // covers video (Veo) and image (Banana Pro / GPT Image) calls alike.
-  // Caller can override via `input.callbackUrl`. If APP_ORIGIN or
-  // CALLBACK_SECRET env vars are missing we silently skip and fall back to
-  // the cron poller.
+  if (isImage) {
+    // nano-banana-pro / gpt-image-2: resolution dial, default 2K
+    innerInput.resolution = input.resolution || "2K";
+  }
+
+  // Caller-supplied extras override model defaults
+  if (input.extra) Object.assign(innerInput, input.extra);
+
+  const body: Record<string, any> = {
+    model: input.model,
+    input: innerInput,
+  };
+
+  // Auto-attach webhook so Crun POSTs back the moment the task finishes.
+  // If APP_ORIGIN / CALLBACK_SECRET are missing we silently skip and fall
+  // back to the cron poller.
   const callbackUrl = input.callbackUrl ?? buildP2CallbackUrl();
-  if (callbackUrl) fd.append("callback_url", callbackUrl);
-  if (input.extra) {
-    for (const [k, v] of Object.entries(input.extra)) {
-      fd.append(k, typeof v === "string" ? v : JSON.stringify(v));
-    }
-  }
+  if (callbackUrl) body.callback_url = callbackUrl;
 
   const res = await fetch(cfg.base + cfg.createPath, {
     method: "POST",
-    headers: { "x-api-key": cfg.key },
-    body: fd,
+    headers: {
+      "x-api-key": cfg.key,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(body),
   });
   const text = await res.text().catch(() => "");
   let json: any = null;
   try { json = JSON.parse(text); } catch {}
   if (!res.ok) {
-    return { ok: false, error: json?.message || text.substring(0, 300) || `HTTP ${res.status}`, raw: json };
+    return {
+      ok: false,
+      error: json?.message || text.substring(0, 300) || `HTTP ${res.status}`,
+      raw: json,
+    };
   }
   const taskId = json?.data?.task_id || json?.task_id || null;
   if (!taskId) return { ok: false, error: "No task_id returned", raw: json };

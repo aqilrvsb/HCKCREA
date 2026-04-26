@@ -17,6 +17,7 @@ export async function POST(req: Request) {
     ? body.reference_urls.filter(Boolean).map(String)
     : [];
   const aspectRatio = String(body?.aspect_ratio || "9:16");
+  const requestedModel = body?.model ? String(body.model) : null; // 'nano-banana-pro' | 'gpt-image-2'
 
   if (!prompt) return NextResponse.json({ error: "Prompt required" }, { status: 400 });
 
@@ -29,9 +30,11 @@ export async function POST(req: Request) {
     );
   }
 
-  // Resolve image model
+  // Resolve image model — caller can override via body.model.
+  // imageModels is a registry like { "nano-banana-pro": "google/nano-banana-pro",
+  //   "gpt-image-2": "openai/gpt-image-2-stable" }
   const cfg = await getP2Config();
-  const modelKey = cfg.imageDefault || "nano-banana-pro";
+  const modelKey = requestedModel || cfg.imageDefault || "nano-banana-pro";
   const modelId = (cfg.imageModels as any)?.[modelKey] || modelKey;
 
   // Prefer multi-image array (character + product); fall back to single
