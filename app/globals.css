@@ -2,30 +2,35 @@
 @import "tailwindcss";
 
 @theme {
-  /* Light cream/white background — high-contrast canvas */
-  --color-bg: #ffffff;
-  --color-bg-soft: #fff7f2;
-  --color-bg-card: #ffffff;
-  --color-border: #f0e9e3;
-  --color-border-bright: #e8ddd3;
+  /* Higgsfield-style dark canvas — pure black, vibrant accents pop */
+  --color-bg: #0a0a0a;
+  --color-bg-soft: #131313;
+  --color-bg-card: #161616;
+  --color-border: #262626;
+  --color-border-bright: #3a3a3a;
 
-  /* Near-black headlines, charcoal body */
-  --color-text-primary: #0a0a0a;
-  --color-text-secondary: #4a4a4a;
-  --color-text-muted: #8a8a8a;
+  /* Off-white headlines, light-gray body — softer than pure white on black */
+  --color-text-primary: #fafafa;
+  --color-text-secondary: #b5b5b5;
+  --color-text-muted: #707070;
 
-  /* Primary accent — vivid orange. Cream tints for backgrounds, deeper for hover */
-  --color-orange: #ff4d00;
-  --color-orange-hover: #e64500;
-  --color-orange-soft: #ffe8dc;
-  --color-orange-tint: #fff3eb;
+  /* Primary accent — vivid orange (PeningLab brand). Dark tints for translucent fills */
+  --color-orange: #ff5722;
+  --color-orange-hover: #ff7043;
+  --color-orange-soft: rgba(255, 87, 34, 0.18);
+  --color-orange-tint: rgba(255, 87, 34, 0.08);
+
+  /* Higgsfield neon-lime — secondary attention CTA */
+  --color-lime: #c8f53e;
+  --color-lime-hover: #d8ff4e;
+  --color-lime-soft: rgba(200, 245, 62, 0.12);
 
   /* Supporting accents */
   --color-black: #0a0a0a;
   --color-amber: #ffb700;
-  --color-emerald: #10b981;
+  --color-emerald: #34d399;
   --color-danger: #ef4444;
-  --color-success: #10b981;
+  --color-success: #34d399;
 
   /* Aliases — keep old names working */
   --color-accent-violet: var(--color-orange);
@@ -100,7 +105,7 @@ h1, h2, h3, h4, h5, h6, .font-display {
   inset: 0;
   pointer-events: none;
   z-index: 0;
-  background: linear-gradient(180deg, #fff7f2 0%, #fffaf6 30%, #ffffff 100%);
+  background: linear-gradient(180deg, #0a0a0a 0%, #0d0d0d 30%, #0a0a0a 100%);
 }
 
 .bg-grid {
@@ -109,8 +114,8 @@ h1, h2, h3, h4, h5, h6, .font-display {
   pointer-events: none;
   z-index: 1;
   background-image:
-    linear-gradient(to right, rgba(255, 77, 0, 0.05) 1px, transparent 1px),
-    linear-gradient(to bottom, rgba(255, 77, 0, 0.05) 1px, transparent 1px);
+    linear-gradient(to right, rgba(255, 87, 34, 0.06) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(255, 87, 34, 0.06) 1px, transparent 1px);
   background-size: 56px 56px;
   mask-image: radial-gradient(ellipse 80% 60% at 50% 30%, black, transparent);
   -webkit-mask-image: radial-gradient(ellipse 80% 60% at 50% 30%, black, transparent);
@@ -171,28 +176,54 @@ h1, h2, h3, h4, h5, h6, .font-display {
   justify-content: center;
   gap: 8px;
   padding: 16px 32px;
-  background: var(--color-black);
-  color: white;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--color-text-primary);
   font-weight: 600;
+  font-size: 15px;
+  border-radius: 999px;
+  border: 1px solid var(--color-border);
+  cursor: pointer;
+  transition: all 0.2s;
+  backdrop-filter: blur(10px);
+}
+
+.btn-secondary:hover {
+  transform: translateY(-1px);
+  background: rgba(255, 255, 255, 0.1);
+  border-color: var(--color-border-bright);
+}
+
+.btn-lime {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 16px 32px;
+  background: var(--color-lime);
+  color: #0a0a0a;
+  font-weight: 800;
   font-size: 15px;
   border-radius: 999px;
   border: none;
   cursor: pointer;
   transition: all 0.2s;
+  box-shadow: 0 6px 20px rgba(200, 245, 62, 0.3);
+  letter-spacing: -0.01em;
 }
 
-.btn-secondary:hover {
-  transform: translateY(-1px);
-  background: #1a1a1a;
+.btn-lime:hover {
+  background: var(--color-lime-hover);
+  transform: translateY(-2px);
+  box-shadow: 0 12px 30px rgba(200, 245, 62, 0.45);
 }
 
 .card {
-  background: white;
+  background: var(--color-bg-card);
   border: 1px solid var(--color-border);
   border-radius: 24px;
   padding: 28px;
   transition: transform 0.3s, box-shadow 0.3s, border-color 0.3s;
-  box-shadow: 0 1px 3px rgba(10, 10, 10, 0.04);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
   position: relative;
   overflow: hidden;
 }
@@ -200,13 +231,13 @@ h1, h2, h3, h4, h5, h6, .font-display {
 .card:hover {
   transform: translateY(-4px);
   border-color: var(--color-border-bright);
-  box-shadow: 0 24px 48px -16px rgba(255, 77, 0, 0.18);
+  box-shadow: 0 24px 48px -16px rgba(255, 87, 34, 0.25);
 }
 
 .input {
   width: 100%;
   padding: 14px 18px;
-  background: white;
+  background: var(--color-bg-card);
   border: 1px solid var(--color-border);
   border-radius: 14px;
   color: var(--color-text-primary);
@@ -218,7 +249,7 @@ h1, h2, h3, h4, h5, h6, .font-display {
 
 .input:focus {
   border-color: var(--color-orange);
-  box-shadow: 0 0 0 3px rgba(255, 77, 0, 0.15);
+  box-shadow: 0 0 0 3px rgba(255, 87, 34, 0.2);
 }
 
 .input::placeholder {
@@ -317,12 +348,12 @@ h1, h2, h3, h4, h5, h6, .font-display {
 }
 
 .bento {
-  background: white;
+  background: var(--color-bg-card);
   border: 1px solid var(--color-border);
   border-radius: 28px;
   padding: 32px;
   transition: transform 0.3s, box-shadow 0.3s, border-color 0.3s;
-  box-shadow: 0 1px 3px rgba(10, 10, 10, 0.04);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
   position: relative;
   overflow: hidden;
 }
@@ -330,7 +361,7 @@ h1, h2, h3, h4, h5, h6, .font-display {
 .bento:hover {
   transform: translateY(-4px);
   border-color: var(--color-border-bright);
-  box-shadow: 0 24px 48px -16px rgba(255, 77, 0, 0.18);
+  box-shadow: 0 24px 48px -16px rgba(255, 87, 34, 0.25);
 }
 
 .bento-deco {

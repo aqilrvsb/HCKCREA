@@ -32,6 +32,12 @@ mkdirSync(OUT, { recursive: true });
 // advantage (clone), passive sales (autopost while you sleep).
 const BENTO_PROMPTS = [
   {
+    id: "hero-comparison",
+    aspectRatio: "9:16",
+    prompt:
+      "Cinematic photoreal 9:16 vertical split-screen luxury commercial composition. LEFT 40% of frame: an exhausted attractive Malay woman in her late 20s wearing soft modest beige hijab and plain home outfit, sitting alone at a small wooden desk in dim warm lamp light, chin resting on her palm, looking sideways with tired worried expression at her smartphone screen which shows an empty content planner notebook — sense of being stuck, overwhelmed, falling behind. RIGHT 60% of frame: a dramatic beautiful curved wall of 10 floating vertical smartphone screens arranged in a fan formation, each phone glowing brightly showing different vibrant TikTok-style vertical content (different faces, products, motion blur), all radiating warm golden-amber success light, viral feel. A subtle vertical glowing dividing line separates the two halves. Premium luxury cinematic aesthetic, cream-orange ambient warm background tone, shallow depth of field, sharp focus on the woman's tired expression on the left and the closest brightest phone on the right. Emotional contrast: her struggle vs the competitor's abundance. NO text overlays, NO logos, NO watermarks, NO subtitles. Photoreal hyperreal Octane render commercial cinematography quality.",
+  },
+  {
     id: "bento-auto-content",
     prompt:
       "Photoreal cinematic 3D product render. Ten iPhones arranged in a clean fan formation against a deep dark background, each phone screen glowing softly with vertical TikTok-style content. The center phone is brightest with warm orange rim light, the outer phones fade gradually into dramatic shadow. Premium luxury commercial aesthetic, sharp focus, shallow depth of field. Color palette: deep charcoal background with vivid orange and amber highlights. Sense of abundance and creative power. NO text, NO logos, NO watermarks. Square 1:1 composition.",
@@ -53,10 +59,10 @@ const BENTO_PROMPTS = [
   },
 ];
 
-async function p2Create({ model, prompt }) {
+async function p2Create({ model, prompt, aspectRatio = "1:1" }) {
   const body = {
     model,
-    input: { prompt, aspect_ratio: "1:1", resolution: "2K" },
+    input: { prompt, aspect_ratio: aspectRatio, resolution: "2K" },
   };
   const r = await fetch(`${P2_BASE}/api/v1/client/job/CreateTask`, {
     method: "POST",
@@ -105,14 +111,14 @@ async function downloadTo(url, dest) {
   writeFileSync(dest, buf);
 }
 
-async function generateOne({ id, prompt }) {
+async function generateOne({ id, prompt, aspectRatio }) {
   const dest = join(OUT, `${id}.png`);
   if (existsSync(dest)) {
     console.log(`  ${id}: skipped (exists)`);
     return;
   }
   console.log(`→ ${id} submitting…`);
-  const taskId = await p2Create({ model: IMAGE_MODEL, prompt });
+  const taskId = await p2Create({ model: IMAGE_MODEL, prompt, aspectRatio });
   const url = await p2Poll(taskId);
   await downloadTo(url, dest);
   console.log(`✓ ${id}: saved`);

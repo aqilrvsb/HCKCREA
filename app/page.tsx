@@ -337,149 +337,195 @@ export default function Home() {
             </div>
           </div>
 
-          {/* Right: phone mockup with TikTok-style preview */}
+          {/* Right: AI-generated hero comparison image (struggle vs abundance) */}
           <div className="lg:col-span-5 relative">
             <div
-              className="relative max-w-[320px] mx-auto animate-fade-in-up"
+              className="relative max-w-[440px] mx-auto animate-fade-in-up"
               style={{ animationDelay: "0.3s", opacity: 0 }}
             >
-              <div className="phone-frame animate-float">
-                <div className="phone-screen">
-                  {/* TikTok-style overlay UI */}
-                  <div className="absolute inset-0 flex flex-col">
-                    {/* Status bar mock */}
-                    <div className="flex items-center justify-between px-5 pt-3 text-[10px] text-white/80 font-mono">
-                      <span>9:41</span>
-                      <span>•••</span>
-                    </div>
-
-                    {/* Video content placeholder — gradient pretending to be a UGC video */}
-                    <div className="flex-1 relative">
-                      <div
-                        className="absolute inset-0"
-                        style={{
-                          background:
-                            "linear-gradient(135deg, #1e1b4b 0%, #312e81 30%, #5b21b6 60%, #9333ea 100%)",
-                        }}
-                      />
-                      {/* Soft "person silhouette" — abstract circle */}
-                      <div
-                        className="absolute"
-                        style={{
-                          top: "20%",
-                          left: "50%",
-                          transform: "translateX(-50%)",
-                          width: 110,
-                          height: 110,
-                          borderRadius: "50%",
-                          background:
-                            "radial-gradient(circle at 50% 40%, #fde68a, #f59e0b 60%, transparent 80%)",
-                          filter: "blur(2px)",
-                          opacity: 0.85,
-                        }}
-                      />
-                      {/* Product card hint at bottom */}
-                      <div
-                        className="absolute"
-                        style={{
-                          bottom: "16%",
-                          left: "10%",
-                          width: 70,
-                          height: 70,
-                          borderRadius: 12,
-                          background:
-                            "linear-gradient(135deg, #f59e0b, #ef4444)",
-                          boxShadow: "0 6px 18px rgba(245, 158, 11, 0.5)",
-                        }}
-                      />
-
-                      {/* Caption bubble */}
-                      <div className="absolute bottom-[24%] left-3 right-16 text-white">
-                        <div className="text-[11px] font-bold mb-1">
-                          @aqil.skincare
-                        </div>
-                        <div className="text-[10px] leading-tight opacity-90">
-                          Korang serius kena cuba ni 🔥 link beg kuning bawah!
-                        </div>
-                      </div>
-
-                      {/* Right-side TikTok-style action stack */}
-                      <div className="absolute right-2 bottom-[24%] flex flex-col items-center gap-3">
-                        {[
-                          { icon: "♥", label: "12k" },
-                          { icon: "💬", label: "892" },
-                          { icon: "⤴", label: "Share" },
-                        ].map((a, i) => (
-                          <div
-                            key={i}
-                            className="flex flex-col items-center gap-0.5"
-                          >
-                            <div className="w-8 h-8 rounded-full bg-white/15 backdrop-blur-sm flex items-center justify-center text-white text-sm">
-                              {a.icon}
-                            </div>
-                            <span className="text-[8px] text-white font-bold">
-                              {a.label}
-                            </span>
-                          </div>
-                        ))}
-                      </div>
-
-                      {/* AI chip floating */}
-                      <div className="absolute top-12 left-3 px-2 py-1 rounded-full bg-white/15 backdrop-blur-md flex items-center gap-1">
-                        <Sparkles className="w-2.5 h-2.5 text-white" />
-                        <span className="text-[9px] font-bold text-white">
-                          AI Generated
-                        </span>
-                      </div>
-                    </div>
-
-                    {/* Bottom nav mock */}
-                    <div className="h-12 bg-black/50 backdrop-blur-sm flex items-center justify-around px-4">
-                      {["Home", "Shop", "+", "Inbox", "Me"].map((t, i) => (
-                        <span
-                          key={i}
-                          className={`text-[9px] font-semibold ${
-                            i === 2 ? "text-white" : "text-white/60"
-                          }`}
-                        >
-                          {t}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Floating tags around phone */}
               <div
-                className="absolute -left-6 top-12 px-3 py-2 bg-white border border-[var(--color-border)] rounded-2xl shadow-lg animate-float"
-                style={{ animationDelay: "1s" }}
+                className="relative rounded-[28px] overflow-hidden border border-[var(--color-border)] shadow-2xl shadow-orange-500/25 animate-float"
+                style={{ aspectRatio: "9 / 14" }}
               >
-                <div className="text-[10px] text-[var(--color-text-muted)] font-mono uppercase tracking-wider mb-0.5">
-                  Hook
+                <img
+                  src="https://zoxgcqlqovkvlrmpcikt.supabase.co/storage/v1/object/public/demos/hero-comparison.png"
+                  alt="Kompetitor dah post 10 video. Anda baru fikir."
+                  className="w-full h-full object-cover"
+                />
+                {/* Subtle vignette so floating labels read clearly */}
+                <div
+                  className="absolute inset-0 pointer-events-none"
+                  style={{
+                    background:
+                      "linear-gradient(180deg, rgba(0,0,0,0.15) 0%, transparent 30%, transparent 70%, rgba(0,0,0,0.4) 100%)",
+                  }}
+                />
+              </div>
+
+              {/* Floating labels — emphasize the comparison */}
+              <div
+                className="absolute -left-4 top-10 px-3 py-2 rounded-2xl shadow-lg animate-float"
+                style={{
+                  background: "rgba(20, 20, 20, 0.85)",
+                  backdropFilter: "blur(12px)",
+                  border: "1px solid rgba(239, 68, 68, 0.3)",
+                  animationDelay: "1s",
+                }}
+              >
+                <div className="text-[10px] font-mono uppercase tracking-widest text-red-400 font-bold mb-0.5">
+                  Anda
                 </div>
-                <div className="text-xs font-bold">Eh korang tengok ni!</div>
+                <div className="text-xs font-bold text-white">1 video / hari</div>
               </div>
 
               <div
-                className="absolute -right-4 top-1/3 px-3 py-2 bg-white border border-[var(--color-border)] rounded-2xl shadow-lg animate-float"
-                style={{ animationDelay: "2s" }}
+                className="absolute -right-4 top-1/3 px-3 py-2 rounded-2xl shadow-lg animate-float"
+                style={{
+                  background: "rgba(20, 20, 20, 0.85)",
+                  backdropFilter: "blur(12px)",
+                  border: "1px solid rgba(200, 245, 62, 0.4)",
+                  animationDelay: "2s",
+                }}
+              >
+                <div className="text-[10px] font-mono uppercase tracking-widest font-bold mb-0.5" style={{ color: "var(--color-lime)" }}>
+                  Kompetitor
+                </div>
+                <div className="text-xs font-bold text-white">10 video / hari</div>
+              </div>
+
+              <div
+                className="absolute -left-6 bottom-10 px-3 py-2 rounded-2xl shadow-lg animate-float"
+                style={{
+                  background: "rgba(20, 20, 20, 0.85)",
+                  backdropFilter: "blur(12px)",
+                  border: "1px solid rgba(255, 87, 34, 0.4)",
+                  animationDelay: "3s",
+                }}
               >
                 <div className="flex items-center gap-1.5">
-                  <Zap className="w-3 h-3 text-amber-500" />
-                  <span className="text-xs font-bold">8 saat ready</span>
+                  <Zap className="w-3 h-3" style={{ color: "var(--color-orange)" }} />
+                  <span className="text-xs font-bold text-white">PeningLab catch up</span>
                 </div>
               </div>
+            </div>
+          </div>
+        </div>
+      </section>
 
-              <div
-                className="absolute -left-8 bottom-16 px-3 py-2 bg-white border border-[var(--color-border)] rounded-2xl shadow-lg animate-float"
-                style={{ animationDelay: "3s" }}
-              >
-                <div className="text-[10px] text-[var(--color-text-muted)] font-mono uppercase tracking-wider mb-0.5">
-                  CTA
+      {/* USP Strip — three killer differentiators, immediately after hero */}
+      <section className="relative z-10 mx-auto max-w-7xl px-6 -mt-4 mb-16">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          {/* USP 1 — Speed: 100 video / 1 minute */}
+          <div
+            className="relative overflow-hidden rounded-3xl p-7 border"
+            style={{
+              background:
+                "linear-gradient(135deg, rgba(255,87,34,0.08) 0%, rgba(255,87,34,0.02) 100%)",
+              borderColor: "rgba(255,87,34,0.25)",
+            }}
+          >
+            <div
+              className="absolute -top-12 -right-12 w-40 h-40 rounded-full pointer-events-none"
+              style={{
+                background:
+                  "radial-gradient(circle, rgba(255,87,34,0.25), transparent 70%)",
+                filter: "blur(30px)",
+              }}
+            />
+            <div className="relative">
+              <div className="flex items-center gap-2 mb-3">
+                <div
+                  className="w-10 h-10 rounded-xl flex items-center justify-center"
+                  style={{ background: "rgba(255,87,34,0.15)", border: "1px solid rgba(255,87,34,0.3)" }}
+                >
+                  <Zap className="w-5 h-5" style={{ color: "var(--color-orange)" }} strokeWidth={2.4} />
                 </div>
-                <div className="text-xs font-bold">Klik link bawah!</div>
+                <span className="text-[10px] font-mono uppercase tracking-widest font-bold" style={{ color: "var(--color-orange)" }}>
+                  Kelajuan
+                </span>
               </div>
+              <h3 className="font-display font-extrabold text-3xl mb-2 text-[var(--color-text-primary)]">
+                100 video <span style={{ color: "var(--color-orange)" }}>/ 1 minit</span>
+              </h3>
+              <p className="text-sm text-[var(--color-text-secondary)] leading-relaxed">
+                Generate seluruh content month plan dalam masa anda makan lunch. Kompetitor tak boleh catch up.
+              </p>
+            </div>
+          </div>
+
+          {/* USP 2 — Price: cheapest on planet */}
+          <div
+            className="relative overflow-hidden rounded-3xl p-7 border"
+            style={{
+              background:
+                "linear-gradient(135deg, rgba(200,245,62,0.08) 0%, rgba(200,245,62,0.02) 100%)",
+              borderColor: "rgba(200,245,62,0.3)",
+            }}
+          >
+            <div
+              className="absolute -top-12 -right-12 w-40 h-40 rounded-full pointer-events-none"
+              style={{
+                background:
+                  "radial-gradient(circle, rgba(200,245,62,0.25), transparent 70%)",
+                filter: "blur(30px)",
+              }}
+            />
+            <div className="relative">
+              <div className="flex items-center gap-2 mb-3">
+                <div
+                  className="w-10 h-10 rounded-xl flex items-center justify-center"
+                  style={{ background: "rgba(200,245,62,0.15)", border: "1px solid rgba(200,245,62,0.35)" }}
+                >
+                  <Wallet className="w-5 h-5" style={{ color: "var(--color-lime)" }} strokeWidth={2.4} />
+                </div>
+                <span className="text-[10px] font-mono uppercase tracking-widest font-bold" style={{ color: "var(--color-lime)" }}>
+                  Harga
+                </span>
+              </div>
+              <h3 className="font-display font-extrabold text-3xl mb-2 text-[var(--color-text-primary)]">
+                Termurah <span style={{ color: "var(--color-lime)" }}>di planet ni</span>
+              </h3>
+              <p className="text-sm text-[var(--color-text-secondary)] leading-relaxed">
+                RM75/bulan untuk akses penuh. Kompetitor charge RM500+. Maths senang — ROI dalam 1 video viral.
+              </p>
+            </div>
+          </div>
+
+          {/* USP 3 — Easy: simplest, best result */}
+          <div
+            className="relative overflow-hidden rounded-3xl p-7 border"
+            style={{
+              background:
+                "linear-gradient(135deg, rgba(255,183,0,0.08) 0%, rgba(255,183,0,0.02) 100%)",
+              borderColor: "rgba(255,183,0,0.3)",
+            }}
+          >
+            <div
+              className="absolute -top-12 -right-12 w-40 h-40 rounded-full pointer-events-none"
+              style={{
+                background:
+                  "radial-gradient(circle, rgba(255,183,0,0.25), transparent 70%)",
+                filter: "blur(30px)",
+              }}
+            />
+            <div className="relative">
+              <div className="flex items-center gap-2 mb-3">
+                <div
+                  className="w-10 h-10 rounded-xl flex items-center justify-center"
+                  style={{ background: "rgba(255,183,0,0.15)", border: "1px solid rgba(255,183,0,0.35)" }}
+                >
+                  <Sparkles className="w-5 h-5" style={{ color: "var(--color-amber)" }} strokeWidth={2.4} />
+                </div>
+                <span className="text-[10px] font-mono uppercase tracking-widest font-bold" style={{ color: "var(--color-amber)" }}>
+                  Senang
+                </span>
+              </div>
+              <h3 className="font-display font-extrabold text-3xl mb-2 text-[var(--color-text-primary)]">
+                Senang. <span style={{ color: "var(--color-amber)" }}>Hasil terbaik.</span>
+              </h3>
+              <p className="text-sm text-[var(--color-text-secondary)] leading-relaxed">
+                3 step: letak link → AI plan → download. Anak 12 tahun pun boleh handle. Hasil siap auto-post.
+              </p>
             </div>
           </div>
         </div>
