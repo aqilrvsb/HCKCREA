@@ -549,16 +549,16 @@ export default function Home() {
       >
         <div className="text-center mb-10">
           <div className="chip mb-5">
-            <Sparkles className="w-3.5 h-3.5" />
-            <span>Stack penuh dalam satu platform</span>
+            <Flame className="w-3.5 h-3.5" />
+            <span>Advantage anda — yang kompetitor tak nak anda jumpa</span>
           </div>
           <h2 className="section-heading max-w-3xl mx-auto">
-            Bukan satu tool —{" "}
-            <span className="gradient-text-violet">studio penuh</span> dalam
-            cloud.
+            5 senjata yang akan buat kompetitor anda{" "}
+            <span className="gradient-text-warm">menyesal lambat sehari</span>.
           </h2>
           <p className="mt-5 text-lg text-[var(--color-text-secondary)] max-w-2xl mx-auto">
-            5 capabilities. Satu dashboard. Tak perlu jump-jump tool lain.
+            Setiap saat anda baca ni, kompetitor post 1 video lagi. Algorithm tak tunggu —{" "}
+            <strong className="text-[var(--color-text-primary)]">yang lambat, kalah</strong>.
           </p>
         </div>
 
@@ -579,37 +579,32 @@ export default function Home() {
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
-          {/* Large card — Auto Content */}
-          <div className="md:col-span-2 bento" style={{ minHeight: 320 }}>
-            <div className="bento-deco" style={{ top: -40, right: -40, width: 200, height: 200 }}>
-              <div
-                style={{
-                  width: "100%",
-                  height: "100%",
-                  borderRadius: "50%",
-                  background:
-                    "radial-gradient(circle, rgba(139,92,246,0.25), transparent 70%)",
-                }}
+          {/* Large card — Auto Content (FEAR: writer's block costs sales) */}
+          <div className="md:col-span-2 bento relative overflow-hidden" style={{ minHeight: 380 }}>
+            {/* Hero image overlay — subtle, behind content */}
+            <div className="absolute inset-0 opacity-25 pointer-events-none">
+              <img
+                src="https://zoxgcqlqovkvlrmpcikt.supabase.co/storage/v1/object/public/demos/bento-auto-content.png"
+                alt=""
+                className="w-full h-full object-cover"
               />
+              <div className="absolute inset-0 bg-gradient-to-r from-white via-white/85 to-white/30" />
             </div>
             <div className="relative">
               <div className="flex items-center gap-3 mb-4">
                 <div className="w-12 h-12 rounded-2xl bg-violet-50 border border-orange-100 flex items-center justify-center">
                   <Wand2 className="w-6 h-6 text-violet-600" strokeWidth={2.2} />
                 </div>
-                <div className="tag-mono">★ MOST USED</div>
+                <div className="tag-mono">★ STOP THE PANIC</div>
               </div>
               <h3 className="font-display font-extrabold text-3xl md:text-4xl mb-3 leading-tight">
-                Auto Content
+                10 hari content.
                 <br />
-                <span className="gradient-text-violet">10 video, 1 klik.</span>
+                <span className="gradient-text-violet">Sekali klik.</span>
               </h3>
               <p className="text-[var(--color-text-secondary)] leading-relaxed mb-6 max-w-md">
-                AI Creative Director susun framework, hook, dialog Bahasa
-                Melayu, dan CTA berbeza setiap video. Optimized untuk pasaran
-                tempatan.
+                Stop fikir nak shoot apa esok. AI Creative Director plan 10 video — framework, hook, dialog BM, CTA — siap untuk minggu depan tanpa anda angkat phone.
               </p>
-              {/* Mini visual: 3 video thumbnail row */}
               <div className="flex gap-2.5">
                 {[
                   "from-orange-200 to-orange-400",
@@ -632,111 +627,138 @@ export default function Home() {
             </div>
           </div>
 
-          {/* Gen Image */}
-          <div className="bento">
+          {/* Gen Image — Avatar UGC (EMOTION: privacy + scale) */}
+          <div className="bento relative overflow-hidden">
             <div className="flex items-center gap-2 mb-4">
               <div className="w-10 h-10 rounded-xl bg-blue-50 border border-blue-100 flex items-center justify-center">
                 <ImageIcon className="w-5 h-5 text-blue-600" strokeWidth={2.2} />
               </div>
-              <div className="tag-mono tag-mono-blue">GEN IMAGE</div>
+              <div className="tag-mono tag-mono-blue">PROTECT IDENTITY</div>
             </div>
-            <h3 className="font-display font-bold text-2xl mb-2">
-              Avatar UGC realistik
+            <h3 className="font-display font-bold text-2xl mb-2 leading-tight">
+              Muka anda{" "}
+              <span className="text-blue-600">bukan jenama</span> anda.
             </h3>
             <p className="text-sm text-[var(--color-text-secondary)] leading-relaxed mb-4">
-              Hijab/no-hijab, gender, umur, outfit. Tukar ikut market anda.
+              Tak nak muka anda jadi viral di TikTok? Pakai avatar AI. Hijab, no-hijab, lelaki, perempuan — tukar ikut market sambil identity terlindung.
             </p>
+            {/* Real avatar faces — generated, not placeholder gradients */}
             <div className="flex gap-2">
               {[
-                "from-rose-200 to-rose-300",
-                "from-amber-200 to-amber-300",
-                "from-blue-200 to-blue-300",
-              ].map((g, i) => (
+                "avatar-hijab-young.png",
+                "avatar-hijab-mature.png",
+                "avatar-male-young.png",
+                "avatar-no-hijab.png",
+              ].map((file, i) => (
                 <div
                   key={i}
-                  className={`w-9 h-9 rounded-full bg-gradient-to-br ${g} border-2 border-white shadow-md`}
-                />
+                  className="w-12 h-12 rounded-full overflow-hidden border-2 border-white shadow-lg ring-2 ring-blue-100"
+                >
+                  <img
+                    src={`https://zoxgcqlqovkvlrmpcikt.supabase.co/storage/v1/object/public/demos/${file}`}
+                    alt=""
+                    className="w-full h-full object-cover"
+                  />
+                </div>
               ))}
-              <div className="w-9 h-9 rounded-full border-2 border-dashed border-blue-200 flex items-center justify-center text-[10px] text-blue-400 font-bold">
-                +
+              <div className="w-12 h-12 rounded-full border-2 border-dashed border-blue-300 flex items-center justify-center text-xs text-blue-500 font-bold">
+                +∞
               </div>
             </div>
           </div>
 
-          {/* Gen Video */}
-          <div className="bento">
+          {/* Gen Video — Veo 3.1 (URGENCY: time decay) */}
+          <div className="bento relative overflow-hidden">
             <div className="flex items-center gap-2 mb-4">
               <div className="w-10 h-10 rounded-xl bg-pink-50 border border-pink-100 flex items-center justify-center">
                 <Video className="w-5 h-5 text-pink-600" strokeWidth={2.2} />
               </div>
-              <div className="tag-mono tag-mono-pink">GEN VIDEO</div>
+              <div className="tag-mono tag-mono-pink">ALGORITHM TAK TUNGGU</div>
             </div>
-            <h3 className="font-display font-bold text-2xl mb-2">
-              Veo 3.1 — 8s & 16s
+            <h3 className="font-display font-bold text-2xl mb-2 leading-tight">
+              Sambil baca ni —{" "}
+              <span className="text-pink-600">kompetitor post 3 video</span>.
             </h3>
-            <p className="text-sm text-[var(--color-text-secondary)] leading-relaxed mb-4">
-              Lip-sync sempurna, hand gesture natural, produk pixel-locked.
+            <p className="text-sm text-[var(--color-text-secondary)] leading-relaxed mb-3">
+              Veo 3.1 keluarkan video siap dalam 60 saat. Lambat sehari = kena 3× harder esok.
             </p>
+            {/* Hero image — viral phone with notification bubbles */}
+            <div className="relative aspect-[16/10] rounded-xl overflow-hidden border border-pink-100 mb-3 bg-gradient-to-br from-pink-50 to-orange-50">
+              <img
+                src="https://zoxgcqlqovkvlrmpcikt.supabase.co/storage/v1/object/public/demos/bento-veo-viral.png"
+                alt=""
+                className="w-full h-full object-cover"
+              />
+            </div>
             <div className="flex items-center gap-2 text-xs font-mono">
-              <span className="px-2 py-1 rounded bg-pink-50 text-pink-700 border border-pink-100">
-                8s
-              </span>
-              <span className="px-2 py-1 rounded bg-pink-50 text-pink-700 border border-pink-100">
-                16s
-              </span>
-              <span className="text-[var(--color-text-muted)]">9:16 ratio</span>
+              <span className="px-2 py-1 rounded bg-pink-50 text-pink-700 border border-pink-100">8s</span>
+              <span className="px-2 py-1 rounded bg-pink-50 text-pink-700 border border-pink-100">16s</span>
+              <span className="text-[var(--color-text-muted)]">9:16 · Real lip-sync</span>
             </div>
           </div>
 
-          {/* Clone Mode */}
-          <div className="bento">
+          {/* Clone Mode (EMOTION: secret weapon) */}
+          <div className="bento relative overflow-hidden">
             <div className="flex items-center gap-2 mb-4">
               <div className="w-10 h-10 rounded-xl bg-amber-50 border border-amber-100 flex items-center justify-center">
                 <Layers className="w-5 h-5 text-amber-600" strokeWidth={2.2} />
               </div>
-              <div className="tag-mono tag-mono-amber">CLONE MODE</div>
+              <div className="tag-mono tag-mono-amber">REVERSE-ENGINEER</div>
             </div>
-            <h3 className="font-display font-bold text-2xl mb-2">
-              Tiru video viral
+            <h3 className="font-display font-bold text-2xl mb-2 leading-tight">
+              Video orang dah viral?{" "}
+              <span className="text-amber-600">Curi formula dia.</span>
             </h3>
-            <p className="text-sm text-[var(--color-text-secondary)] leading-relaxed mb-4">
-              Upload video referensi + produk anda. AI extract setiap shot,
-              recreate persis.
+            <p className="text-sm text-[var(--color-text-secondary)] leading-relaxed mb-3">
+              Upload video kompetitor yang hits. AI extract setiap shot, dialog, hook — recreate dengan produk dan muka anda.
             </p>
+            <div className="relative aspect-[16/10] rounded-xl overflow-hidden border border-amber-100 mb-3 bg-gradient-to-br from-amber-50 to-orange-50">
+              <img
+                src="https://zoxgcqlqovkvlrmpcikt.supabase.co/storage/v1/object/public/demos/bento-clone-spy.png"
+                alt=""
+                className="w-full h-full object-cover"
+              />
+            </div>
             <div className="flex items-center gap-1.5 text-xs">
               <span className="px-2 py-1 rounded-md bg-amber-50 border border-amber-100 text-amber-700 font-semibold">
-                Reference
+                Viral
               </span>
               <ChevronRight className="w-3 h-3 text-amber-400" />
               <span className="px-2 py-1 rounded-md bg-amber-100 border border-amber-200 text-amber-800 font-semibold">
-                Your version
+                Versi anda
               </span>
             </div>
           </div>
 
-          {/* Auto Post */}
-          <div className="bento">
+          {/* Auto Post (EMOTION: passive income while sleeping) */}
+          <div className="bento relative overflow-hidden">
             <div className="flex items-center gap-2 mb-4">
               <div className="w-10 h-10 rounded-xl bg-emerald-50 border border-emerald-100 flex items-center justify-center">
                 <Send className="w-5 h-5 text-emerald-600" strokeWidth={2.2} />
               </div>
-              <div className="tag-mono tag-mono-emerald">AUTO POST</div>
+              <div className="tag-mono tag-mono-emerald">SLEEP, AI WORKS</div>
             </div>
-            <h3 className="font-display font-bold text-2xl mb-2">
-              Schedule auto-post
+            <h3 className="font-display font-bold text-2xl mb-2 leading-tight">
+              Tidur. AI hantar.{" "}
+              <span className="text-emerald-600">Sales masuk pagi.</span>
             </h3>
-            <p className="text-sm text-[var(--color-text-secondary)] leading-relaxed mb-4">
-              Caption + hashtag siap. Drop ke TikTok Shop pada timing optimal.
+            <p className="text-sm text-[var(--color-text-secondary)] leading-relaxed mb-3">
+              Schedule 30 hari sekaligus. Kompetitor masih buat manual — anda dah dapat data peak hour.
             </p>
+            <div className="relative aspect-[16/10] rounded-xl overflow-hidden border border-emerald-100 mb-3 bg-gradient-to-br from-emerald-50 to-slate-50">
+              <img
+                src="https://zoxgcqlqovkvlrmpcikt.supabase.co/storage/v1/object/public/demos/bento-autopost-sales.png"
+                alt=""
+                className="w-full h-full object-cover"
+              />
+            </div>
             <div className="flex items-center gap-2">
               <div className="flex -space-x-1">
                 <div className="w-5 h-5 rounded bg-emerald-200 border border-white" />
                 <div className="w-5 h-5 rounded bg-emerald-300 border border-white" />
                 <div className="w-5 h-5 rounded bg-emerald-400 border border-white" />
               </div>
-              <span className="text-xs text-[var(--color-text-muted)] font-mono">
-                Mon→Sun • 24/7
-              </span>
+              <span className="text-xs text-[var(--color-text-muted)] font-mono">Mon→Sun • 24/7</span>
             </div>
           </div>
         </div>

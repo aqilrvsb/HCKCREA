@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Sparkles, Play, Loader2, X } from "lucide-react";
+import { Sparkles, Play, X } from "lucide-react";
+import manifestData from "../../public/demos/manifest.json";
 
 type Manifest = {
   generated_at: string;
@@ -14,15 +15,10 @@ type Manifest = {
 // + a 4-up grid of avatar images. If manifest is empty/missing, gracefully
 // hides itself — page still works without it.
 export default function DemoReel() {
-  const [manifest, setManifest] = useState<Manifest | null>(null);
+  // Manifest is bundled at build time — page renders instantly with full grid,
+  // no fetch, no loading flash. Updated via the generate + upload scripts.
+  const manifest = manifestData as Manifest;
   const [modalIndex, setModalIndex] = useState<number | null>(null);
-
-  useEffect(() => {
-    fetch("/demos/manifest.json", { cache: "no-store" })
-      .then((r) => (r.ok ? r.json() : null))
-      .then(setManifest)
-      .catch(() => setManifest(null));
-  }, []);
 
   useEffect(() => {
     if (modalIndex === null) return;
@@ -37,48 +33,6 @@ export default function DemoReel() {
 
   const videos = manifest?.videos || [];
   const images = manifest?.images || [];
-
-  if (videos.length === 0 && images.length === 0) {
-    // Nothing to show — render a strong placeholder section so the layout
-    // still feels intentional while we wait for assets.
-    return (
-      <section className="relative z-10 mx-auto max-w-6xl px-6 py-20">
-        <div className="text-center mb-10">
-          <div className="chip mb-5">
-            <Sparkles className="w-3.5 h-3.5" />
-            <span>Live Output Reel</span>
-          </div>
-          <h2 className="section-heading">
-            Output sebenar.{" "}
-            <span className="gradient-text-warm">Bukan mockup.</span>
-          </h2>
-          <p className="mt-5 text-lg text-[var(--color-text-secondary)] max-w-2xl mx-auto">
-            Setiap video di bawah dijana sepenuhnya oleh AI dalam 60–90 saat.
-            Real face, real Malay accent, real product anchoring.
-          </p>
-        </div>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 max-w-3xl mx-auto">
-          {[
-            "from-orange-300 to-pink-300",
-            "from-amber-300 to-orange-400",
-            "from-pink-300 to-orange-300",
-            "from-orange-200 to-amber-300",
-          ].map((g, i) => (
-            <div
-              key={i}
-              className={`aspect-[9/16] rounded-2xl bg-gradient-to-br ${g} relative overflow-hidden border border-white shadow-lg flex items-center justify-center`}
-            >
-              <Loader2 className="w-6 h-6 text-white animate-spin opacity-70" />
-            </div>
-          ))}
-        </div>
-        <p className="text-center text-xs text-[var(--color-text-muted)] mt-6 font-mono uppercase tracking-widest">
-          Generating live demos…
-        </p>
-      </section>
-    );
-  }
-
   const featured = videos[0];
   const modalVideo = modalIndex !== null ? videos[modalIndex] : null;
 
