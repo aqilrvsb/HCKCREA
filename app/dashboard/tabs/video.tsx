@@ -1,23 +1,44 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Video, Sparkles, Upload, Loader2, X } from "lucide-react";
+import { Loader2, X } from "lucide-react";
+import { createClient } from "@/lib/supabase/client";
 
-type Status = "idle" | "submitting" | "polling" | "done" | "failed";
+// Video tab — 1:1 port of creative-hack-auto's video-mode-section.
+// Three image modes (frame / ingredient / text), with a Scene card that
+// adapts to the mode (Start+End frames, single ref, or text-only).
+// Light cream canvas + orange accents (replaces extension's green).
+
+type Status = "idle" | "submitting" | "failed";
+type ImageMode = "frame" | "ingredient" | "text";
+type RefSlot = "start" | "end" | "ref";
+
+const ORANGE = "#ff5722";
+const ORANGE_SOFT = "rgba(255, 87, 34, 0.18)";
+const ORANGE_FAINT = "rgba(255, 87, 34, 0.06)";
 
 export default function VideoTab({ projectId }: { projectId?: string } = {}) {
+  const [imageMode, setImageMode] = useState<ImageMode>("frame");
+  const [startFrame, setStartFrame] = useState("");
+  const [endFrame, setEndFrame] = useState("");
+  const [refImage, setRefImage] = useState("");
   const [prompt, setPrompt] = useState("");
-  const [duration] = useState<"8">("8"); // Veo 3.1 Fast supports 8s only
   const [aspect, setAspect] = useState("9:16");
   const [count, setCount] = useState(1);
-  const [imageMode, setImageMode] = useState<"ingredient" | "frame" | "text">("ingredient");
-  const [refUrl, setRefUrl] = useState<string>("");
-  const [historyId, setHistoryId] = useState<string | null>(null);
+  const duration: "8" = "8"; // Veo 3.1 Fast — 8s only
   const [status, setStatus] = useState<Status>("idle");
   const [error, setError] = useState<string | null>(null);
-  const [outputUrl, setOutputUrl] = useState<string | null>(null);
-  const [cost, setCost] = useState<number | null>(null);
-  const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  const [uploadingStart, setUploadingStart] = useState(false);
+  const [uploadingEnd, setUploadingEnd] = useState(false);
+  const [uploadingRef, setUploadingRef] = useState(false);
+  const anyUploading = uploadingStart || uploadingEnd || uploadingRef;
+
+  const startInputRef = useRef<HTMLInputElement | null>(null);
+  const endInputRef = useRef<HTMLInputElement | null>(null);
+  const refInputRef = useRef<HTMLInputElement | null>(null);
+
+  const [pickerSlot, setPickerSlot] = useState<RefSlot | null>(null);
 
   // Pick up a prompt handed off from the UGC Prompt Builder
   useEffect(() => {
@@ -30,52 +51,58 @@ export default function VideoTab({ projectId }: { projectId?: string } = {}) {
     } catch {}
   }, []);
 
-  useEffect(() => {
-    if (!historyId || (status !== "polling" && status !== "submitting")) return;
-    let mounted = true;
-    const tick = async () => {
-      try {
-        const r = await fetch(`/api/generate/status?id=${historyId}`, { cache: "no-store" });
-        const d = await r.json();
-        if (!mounted) return;
-        const h = d?.history;
-        if (h?.status === "done") {
-          setOutputUrl(h.output_url);
-          setStatus("done");
-          window.dispatchEvent(new CustomEvent("history:refresh"));
-          return;
-        }
-        if (h?.status === "failed") {
-          setError(h.error_message || "Generation failed");
-          setStatus("failed");
-          return;
-        }
-      } catch {}
-      if (mounted && (status === "polling" || status === "submitting")) {
-        setTimeout(tick, 5000);
-      }
-    };
-    setStatus("polling");
-    tick();
-    return () => { mounted = false; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [historyId]);
+  function pickFromHistory(slot: RefSlot, url: string) {
+    if (slot === "start") setStartFrame(url);
+    else if (slot === "end") setEndFrame(url);
+    else if (slot === "ref") setRefImage(url);
+    setPickerSlot(null);
+  }
 
-  function onFile(f: File | null) {
+  // Local preview instantly + background upload swap to Supabase URL.
+  async function readFile(
+    f: File | null,
+    set: (s: string) => void,
+    setUploading?: (b: boolean) => void
+  ) {
     if (!f) return;
     const reader = new FileReader();
-    reader.onload = () => setRefUrl(String(reader.result || ""));
+    reader.onload = () => set(String(reader.result || ""));
     reader.readAsDataURL(f);
+
+    setUploading?.(true);
+    try {
+      const fd = new FormData();
+      fd.append("file", f);
+      const r = await fetch("/api/upload/image", { method: "POST", body: fd });
+      const d = await r.json();
+      if (r.ok && d?.url) {
+        set(d.url);
+      } else {
+        setError(`Upload failed: ${d?.error || "unknown"}`);
+      }
+    } catch (e: any) {
+      setError(`Upload error: ${e?.message || "network"}`);
+    } finally {
+      setUploading?.(false);
+    }
   }
 
   async function submit() {
-    if (!prompt.trim()) return setError("Sila masukkan prompt.");
-    if (imageMode !== "text" && !refUrl) return setError("Sila upload reference image.");
+    if (!prompt.trim()) return setError("Sila masukkan scene prompt.");
+    if (imageMode === "frame" && !startFrame)
+      return setError("Upload Start Frame dulu.");
+    if (imageMode === "ingredient" && !refImage)
+      return setError("Upload Image Reference dulu.");
     setError(null);
     setStatus("submitting");
-    setOutputUrl(null);
 
-    // Submit `count` parallel video generation calls — each lands as its own history row
+    const imageUrls =
+      imageMode === "frame"
+        ? [startFrame, endFrame].filter(Boolean)
+        : imageMode === "ingredient"
+          ? [refImage]
+          : [];
+
     try {
       const calls = Array.from({ length: count }).map(() =>
         fetch("/api/generate/video", {
@@ -83,7 +110,7 @@ export default function VideoTab({ projectId }: { projectId?: string } = {}) {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             prompt: prompt.trim(),
-            image_urls: refUrl ? [refUrl] : [],
+            image_urls: imageUrls,
             duration,
             image_mode: imageMode,
             aspect_ratio: aspect,
@@ -94,173 +121,557 @@ export default function VideoTab({ projectId }: { projectId?: string } = {}) {
       const results = await Promise.all(calls);
       const first = results.find((d) => d?.ok);
       if (!first) {
-        const err = results.find((d) => d?.error)?.error || "Generation failed";
-        setError(err);
+        setError(
+          results.find((d) => d?.error)?.error || "Generation failed"
+        );
         setStatus("failed");
         return;
       }
-      setHistoryId(first.history_id);
-      setCost(first.cost);
       window.dispatchEvent(new CustomEvent("history:refresh"));
+      setStatus("idle");
     } catch (e: any) {
       setError(e?.message || "Network error");
       setStatus("failed");
     }
   }
 
-  const busy = status === "submitting" || status === "polling";
+  const busy = status === "submitting";
+
+  const sectionBg: React.CSSProperties = {
+    background:
+      "radial-gradient(ellipse 1200px 800px at 50% 0%, #fff7f2 0%, #fafaf7 40%, #f5f5f0 100%)",
+    color: "#1a1a1a",
+    boxShadow: "0 0 0 1px rgba(255, 87, 34, 0.08)",
+  };
 
   return (
-    <div className="flex flex-col h-full">
-      <div className="flex items-center gap-3 mb-5 pb-4 border-b border-[var(--color-border)]">
-        <div
-          className="w-11 h-11 rounded-2xl flex items-center justify-center"
+    <div className="rounded-3xl p-6 md:p-8 space-y-5" style={sectionBg}>
+      {/* VIDEO GENERATOR — Duration + Image Mode */}
+      <Card borderColor={ORANGE}>
+        <CardHeader icon="🎬" title="Video Generator" />
+
+        <Label>Duration</Label>
+        <button
+          type="button"
+          className="w-full h-11 rounded-lg text-xs font-extrabold text-white mb-4"
           style={{
-            background: "rgba(255,87,34,0.1)",
-            border: "1px solid rgba(255,87,34,0.3)",
+            background:
+              "linear-gradient(135deg, #ff5722 0%, #ff7043 100%)",
+            boxShadow: "0 4px 14px rgba(255,87,34,0.3)",
           }}
         >
-          <Video className="w-5 h-5" style={{ color: "var(--color-orange)" }} strokeWidth={2.2} />
-        </div>
-        <div>
-          <h2 className="font-display font-bold text-xl text-[var(--color-text-primary)]">Generate Video</h2>
-          <p className="text-xs text-[var(--color-text-muted)]">8 saat per shot · UGC ready</p>
-        </div>
-      </div>
+          8s (1 shot)
+        </button>
 
-      <div className="space-y-5 flex-1">
-        <div>
-          <label className="block text-sm font-semibold mb-2">Prompt</label>
-          <textarea
-            rows={4}
-            value={prompt}
-            onChange={(e) => setPrompt(e.target.value)}
-            placeholder="A young Malay woman holds skincare bottle, smiles directly to camera, says 'Eh korang, serius kena cuba ni'..."
-            className="input resize-none"
-          />
-        </div>
+        <Label>Image Mode</Label>
+        <Select
+          value={imageMode}
+          onChange={(v) => setImageMode(v as ImageMode)}
+        >
+          <option value="frame">First Frame (animate from image)</option>
+          <option value="ingredient">
+            Product Reference (AI creates scene)
+          </option>
+          <option value="text">Text to Video (no image needed)</option>
+        </Select>
+      </Card>
 
-        <div>
-          <label className="block text-sm font-semibold mb-2">Reference image</label>
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept="image/*"
-            className="hidden"
-            onChange={(e) => onFile(e.target.files?.[0] || null)}
-          />
-          {refUrl ? (
-            <div className="relative inline-block">
-              <img src={refUrl} alt="ref" className="rounded-2xl max-h-48 border border-[var(--color-border)]" />
-              <button
-                type="button"
-                onClick={() => setRefUrl("")}
-                className="absolute -top-2 -right-2 w-7 h-7 rounded-full bg-white border border-[var(--color-border)] shadow flex items-center justify-center"
-              >
-                <X className="w-3.5 h-3.5" />
-              </button>
-            </div>
-          ) : (
-            <button
-              type="button"
-              onClick={() => fileInputRef.current?.click()}
-              className="w-full p-6 border-2 border-dashed border-[var(--color-border)] rounded-2xl hover:border-[var(--color-orange)] transition flex flex-col items-center gap-2 text-sm text-[var(--color-text-muted)] hover:text-[var(--color-orange)]"
-            >
-              <Upload className="w-6 h-6" />
-              Upload character / product image
-              <span className="text-xs">Optional — text-to-video also supported</span>
-            </button>
-          )}
-        </div>
+      {/* SCENE — adapts to image mode */}
+      <Card>
+        <CardHeader icon="🎞️" title="Scene" />
 
-        <div className="grid grid-cols-3 gap-3">
-          <div>
-            <label className="block text-sm font-semibold mb-2">Mode</label>
-            <select className="input text-sm" value={imageMode} onChange={(e) => setImageMode(e.target.value as any)}>
-              <option value="ingredient">r2v</option>
-              <option value="frame">i2v</option>
-              <option value="text">t2v</option>
-            </select>
+        {imageMode === "text" && (
+          <div
+            className="p-3 rounded-lg mb-3 text-center text-xs font-semibold"
+            style={{
+              background: ORANGE_FAINT,
+              border: `1px dashed ${ORANGE_SOFT}`,
+              color: ORANGE,
+            }}
+          >
+            📝 Text only — no image needed
           </div>
+        )}
+
+        {imageMode === "ingredient" && (
+          <div className="mb-3">
+            <FrameZoneRow
+              label="Image Reference *"
+              color={ORANGE}
+              url={refImage}
+              icon="📦"
+              uploading={uploadingRef}
+              required
+              onPick={() => refInputRef.current?.click()}
+              onClear={() => setRefImage("")}
+              onHistory={() => setPickerSlot("ref")}
+            />
+            <input
+              ref={refInputRef}
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={(e) =>
+                readFile(e.target.files?.[0] || null, setRefImage, setUploadingRef)
+              }
+            />
+          </div>
+        )}
+
+        {imageMode === "frame" && (
+          <div className="grid grid-cols-2 gap-3 mb-3">
+            <div>
+              <FrameZoneRow
+                label="Start Frame *"
+                color={ORANGE}
+                url={startFrame}
+                icon="🖼️"
+                uploading={uploadingStart}
+                required
+                onPick={() => startInputRef.current?.click()}
+                onClear={() => setStartFrame("")}
+                onHistory={() => setPickerSlot("start")}
+              />
+              <input
+                ref={startInputRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={(e) =>
+                  readFile(e.target.files?.[0] || null, setStartFrame, setUploadingStart)
+                }
+              />
+            </div>
+            <div>
+              <FrameZoneRow
+                label="End Frame"
+                color="#888"
+                url={endFrame}
+                icon="🏁"
+                uploading={uploadingEnd}
+                onPick={() => endInputRef.current?.click()}
+                onClear={() => setEndFrame("")}
+                onHistory={() => setPickerSlot("end")}
+              />
+              <input
+                ref={endInputRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={(e) =>
+                  readFile(e.target.files?.[0] || null, setEndFrame, setUploadingEnd)
+                }
+              />
+            </div>
+          </div>
+        )}
+
+        <textarea
+          rows={5}
+          value={prompt}
+          onChange={(e) => setPrompt(e.target.value)}
+          placeholder="Scene description + spoken dialog 0-8s..."
+          className="w-full p-3.5 rounded-xl text-sm resize-y outline-none focus:border-orange-400"
+          style={{
+            background: "#fafaf7",
+            border: "1px solid #e8e0d8",
+            color: "#1a1a1a",
+            lineHeight: 1.5,
+          }}
+        />
+        <p className="text-[10px] text-gray-500 mt-2">
+          Each shot = 8s. Write dialog with timestamps per shot.
+        </p>
+      </Card>
+
+      {/* SIZE + QTY + GENERATE */}
+      <Card>
+        <div className="flex items-end gap-4 mb-4">
           <div>
-            <label className="block text-sm font-semibold mb-2">Aspect</label>
-            <select className="input text-sm" value={aspect} onChange={(e) => setAspect(e.target.value)}>
+            <Label>Size</Label>
+            <Select value={aspect} onChange={(v) => setAspect(v)} width={100}>
               <option value="9:16">9:16</option>
               <option value="16:9">16:9</option>
-            </select>
+            </Select>
           </div>
           <div>
-            <label className="block text-sm font-semibold mb-2">Qty</label>
-            <select className="input text-sm" value={count} onChange={(e) => setCount(Number(e.target.value))}>
+            <Label>Qty</Label>
+            <Select
+              value={String(count)}
+              onChange={(v) => setCount(Number(v))}
+              width={80}
+            >
               {[1, 2, 3, 4, 5].map((n) => (
-                <option key={n} value={n}>{n}</option>
+                <option key={n} value={n}>
+                  {n}
+                </option>
               ))}
-            </select>
+            </Select>
           </div>
         </div>
 
-        <div
-          className="rounded-xl p-3 border text-xs"
+        <button
+          onClick={submit}
+          disabled={busy || anyUploading}
+          className="w-full py-3.5 rounded-xl font-extrabold text-base text-white transition-all hover:-translate-y-0.5 disabled:opacity-50 disabled:transform-none"
           style={{
-            background: "rgba(34,197,94,0.06)",
-            borderColor: "rgba(34,197,94,0.2)",
-            color: "#22c55e",
+            background:
+              "linear-gradient(135deg, #ff5722 0%, #ff7043 100%)",
+            boxShadow:
+              "0 6px 20px rgba(255, 87, 34, 0.35), inset 0 1px 0 rgba(255,255,255,0.2)",
           }}
         >
-          <strong>8 saat per shot</strong> · 1 video Veo 3.1 Fast — perfect untuk satu hook + dialog + CTA.
-        </div>
+          {busy ? (
+            <span className="inline-flex items-center justify-center gap-2">
+              <Loader2 className="w-4 h-4 animate-spin" />
+              Submitting…
+            </span>
+          ) : anyUploading ? (
+            <span className="inline-flex items-center justify-center gap-2">
+              <Loader2 className="w-4 h-4 animate-spin" />
+              Uploading reference…
+            </span>
+          ) : (
+            <>🎬 Generate {count > 1 ? `${count} Videos` : "Video"}</>
+          )}
+        </button>
 
         {error && (
           <div
-            className="text-sm rounded-xl px-4 py-3"
+            className="mt-3 px-4 py-2.5 rounded-lg text-xs font-semibold"
             style={{
-              color: "#fca5a5",
-              background: "rgba(239,68,68,0.1)",
-              border: "1px solid rgba(239,68,68,0.3)",
+              background: "rgba(244,67,54,0.08)",
+              border: "1px solid rgba(244,67,54,0.4)",
+              color: "#c62828",
             }}
           >
             {error}
           </div>
         )}
+      </Card>
 
-        {outputUrl && status === "done" && (
-          <div
-            className="rounded-2xl overflow-hidden border"
-            style={{ borderColor: "rgba(200,245,62,0.4)" }}
-          >
-            <video src={outputUrl} controls className="w-full" />
-            <div
-              className="p-3 text-xs font-semibold flex items-center justify-between"
-              style={{
-                background: "rgba(200,245,62,0.1)",
-                color: "var(--color-lime)",
-              }}
-            >
-              <span>✓ Generated</span>
-              <a href={outputUrl} target="_blank" rel="noreferrer" className="underline">
-                Download
-              </a>
-            </div>
-          </div>
-        )}
-      </div>
-
-      <button onClick={submit} disabled={busy} className="btn-primary w-full mt-6 disabled:opacity-60">
-        {busy ? (
-          <>
-            <Loader2 className="w-4 h-4 animate-spin" />
-            {status === "submitting" ? "Submitting…" : "Generating…"}
-          </>
-        ) : (
-          <>
-            <Sparkles className="w-4 h-4" />
-            Generate {count > 1 ? `${count} Videos` : "Video"}
-          </>
-        )}
-      </button>
-      <p className="text-center text-xs text-[var(--color-text-muted)] mt-2.5">
-        {cost ? `Tolak RM${(cost * count).toFixed(2)} bila ${count} video siap` : "40 sen / 70 sen per 8s · Pro / Light"}
-      </p>
+      {pickerSlot && (
+        <HistoryPicker
+          onPick={(url) => pickFromHistory(pickerSlot, url)}
+          onClose={() => setPickerSlot(null)}
+        />
+      )}
     </div>
+  );
+}
+
+// ── FrameZoneRow ────────────────────────────────────────────────────────────
+// 80×80 thumbnail zone + vertically stacked History/Upload/x action buttons,
+// matches the extension's video-shot frame zones.
+function FrameZoneRow({
+  label,
+  color,
+  url,
+  icon,
+  uploading,
+  required,
+  onPick,
+  onClear,
+  onHistory,
+}: {
+  label: string;
+  color: string;
+  url: string;
+  icon: string;
+  uploading?: boolean;
+  required?: boolean;
+  onPick: () => void;
+  onClear: () => void;
+  onHistory: () => void;
+}) {
+  return (
+    <div>
+      <div
+        className="text-[10px] font-extrabold uppercase tracking-[0.06em] mb-2"
+        style={{ color }}
+      >
+        {label}
+      </div>
+      <div className="flex items-stretch gap-2">
+        <button
+          type="button"
+          onClick={onPick}
+          className="relative w-20 h-20 rounded-lg overflow-hidden flex-shrink-0 flex items-center justify-center transition-all"
+          style={{
+            border: `${required ? 2 : 1}px dashed ${url ? "transparent" : color}`,
+            background: url ? "#000" : ORANGE_FAINT,
+          }}
+          aria-label={url ? "Replace image" : "Upload image"}
+        >
+          {url ? (
+            <img src={url} alt="" className="w-full h-full object-cover" />
+          ) : (
+            <span className="text-2xl opacity-75">{icon}</span>
+          )}
+          {uploading && (
+            <div
+              className="absolute inset-0 flex items-center justify-center text-white"
+              style={{ background: "rgba(0,0,0,0.55)" }}
+            >
+              <Loader2 className="w-4 h-4 animate-spin" />
+            </div>
+          )}
+        </button>
+        <div className="flex flex-col gap-1 justify-between">
+          <SmallBtn onClick={onHistory}>History</SmallBtn>
+          <SmallBtn onClick={onPick}>Upload</SmallBtn>
+          <SmallBtn onClick={onClear} danger>
+            x
+          </SmallBtn>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function SmallBtn({
+  children,
+  onClick,
+  danger,
+}: {
+  children: React.ReactNode;
+  onClick: () => void;
+  danger?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="px-2 py-1 rounded text-[10px] font-bold transition-colors hover:opacity-80"
+      style={
+        danger
+          ? {
+              background: "rgba(244,67,54,0.08)",
+              border: "1px solid rgba(244,67,54,0.4)",
+              color: "#c62828",
+            }
+          : {
+              background: ORANGE_FAINT,
+              border: `1px solid ${ORANGE}`,
+              color: ORANGE,
+            }
+      }
+    >
+      {children}
+    </button>
+  );
+}
+
+// ── History Picker ──────────────────────────────────────────────────────────
+// Filters for done images — used for Start/End frames and Image Reference.
+function HistoryPicker({
+  onPick,
+  onClose,
+}: {
+  onPick: (url: string) => void;
+  onClose: () => void;
+}) {
+  const [items, setItems] = useState<
+    { id: string; output_url: string; prompt: string | null; created_at: string }[]
+  >([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    void load();
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    window.addEventListener("keydown", onKey);
+    document.body.style.overflow = "hidden";
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      document.body.style.overflow = "";
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  async function load() {
+    setLoading(true);
+    try {
+      const sb = createClient();
+      const { data } = await sb
+        .from("history")
+        .select("id, output_url, prompt, created_at")
+        .eq("type", "image")
+        .eq("status", "done")
+        .not("output_url", "is", null)
+        .order("created_at", { ascending: false })
+        .limit(60);
+      setItems((data as any) || []);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      style={{ background: "rgba(0,0,0,0.7)", backdropFilter: "blur(8px)" }}
+      onClick={onClose}
+    >
+      <div
+        className="rounded-2xl max-w-3xl w-full max-h-[85vh] overflow-hidden flex flex-col"
+        style={{
+          background: "#ffffff",
+          border: `2px solid ${ORANGE}`,
+          boxShadow: "0 20px 60px rgba(255, 87, 34, 0.3)",
+        }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div
+          className="flex items-center justify-between px-5 py-4 border-b"
+          style={{ borderColor: "#e8e0d8" }}
+        >
+          <h2 className="font-display font-extrabold text-lg" style={{ color: ORANGE }}>
+            Pick Image from History
+          </h2>
+          <button
+            onClick={onClose}
+            className="w-8 h-8 rounded-full flex items-center justify-center hover:bg-gray-100 transition"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-4">
+          {loading ? (
+            <div className="py-16 text-center text-gray-500 text-sm">
+              <Loader2
+                className="w-5 h-5 animate-spin inline-block mr-2"
+                style={{ color: ORANGE }}
+              />
+              Loading…
+            </div>
+          ) : items.length === 0 ? (
+            <div className="py-16 text-center">
+              <div className="text-4xl mb-2">📭</div>
+              <p className="text-sm font-semibold text-gray-700 mb-1">
+                Belum ada image dalam history
+              </p>
+              <p className="text-xs text-gray-500">
+                Generate satu image dulu, lepas tu boleh pick dari sini.
+              </p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+              {items.map((it) => (
+                <button
+                  key={it.id}
+                  onClick={() => onPick(it.output_url)}
+                  className="rounded-lg overflow-hidden border-2 transition-all hover:-translate-y-0.5 text-left"
+                  style={{ borderColor: "#e8e0d8", background: "#fafaf7" }}
+                  onMouseEnter={(e) =>
+                    (e.currentTarget.style.borderColor = ORANGE)
+                  }
+                  onMouseLeave={(e) =>
+                    (e.currentTarget.style.borderColor = "#e8e0d8")
+                  }
+                >
+                  <div className="aspect-square bg-gray-100">
+                    <img
+                      src={it.output_url}
+                      alt=""
+                      className="w-full h-full object-cover"
+                    />
+                  </div>
+                  {it.prompt && (
+                    <div
+                      className="px-2 py-1.5 text-[10px] truncate"
+                      style={{ color: ORANGE }}
+                    >
+                      {it.prompt.substring(0, 40)}
+                      {it.prompt.length > 40 ? "…" : ""}
+                    </div>
+                  )}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Sub-components (mirror image.tsx) ────────────────────────────────────────
+
+function Card({
+  children,
+  borderColor,
+}: {
+  children: React.ReactNode;
+  borderColor?: string;
+}) {
+  return (
+    <div
+      className="rounded-2xl p-5"
+      style={{
+        background: "#ffffff",
+        border: `1px solid ${borderColor || "#e8e0d8"}`,
+        boxShadow:
+          "0 1px 2px rgba(0,0,0,0.03), 0 4px 16px -4px rgba(0,0,0,0.04)",
+        ...(borderColor
+          ? { borderTopWidth: 3, borderTopColor: borderColor }
+          : {}),
+      }}
+    >
+      {children}
+    </div>
+  );
+}
+
+function CardHeader({ icon, title }: { icon: string; title: string }) {
+  return (
+    <div className="flex items-center gap-2.5 mb-4">
+      <span className="text-lg">{icon}</span>
+      <span
+        className="text-[13px] font-extrabold uppercase tracking-[0.06em]"
+        style={{ color: "#1a1a1a" }}
+      >
+        {title}
+      </span>
+    </div>
+  );
+}
+
+function Label({ children }: { children: React.ReactNode }) {
+  return (
+    <div
+      className="text-[10px] font-extrabold uppercase tracking-[0.1em] mb-2"
+      style={{ color: "#888" }}
+    >
+      {children}
+    </div>
+  );
+}
+
+function Select({
+  value,
+  onChange,
+  children,
+  width,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  children: React.ReactNode;
+  width?: number;
+}) {
+  return (
+    <select
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      className="px-3.5 py-2.5 rounded-lg text-sm font-semibold outline-none focus:border-orange-400"
+      style={{
+        width: width ? `${width}px` : "100%",
+        background: "#fafaf7",
+        border: "1px solid #e8e0d8",
+        color: "#1a1a1a",
+      }}
+    >
+      {children}
+    </select>
   );
 }
