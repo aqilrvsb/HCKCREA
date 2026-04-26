@@ -10,12 +10,19 @@ import {
   X,
 } from "lucide-react";
 
+type CtaMode = "shop" | "custom" | "none";
+
 export default function AutoContentTab() {
   const [productUrl, setProductUrl] = useState("");
   const [productName, setProductName] = useState("");
   const [productImageUrl, setProductImageUrl] = useState("");
   const [quantity, setQuantity] = useState(5);
   const [duration, setDuration] = useState<"8" | "16">("8");
+  const [aspectRatio, setAspectRatio] = useState("9:16");
+  const [avatarGender, setAvatarGender] = useState("auto");
+  const [avatarHijab, setAvatarHijab] = useState("auto");
+  const [avatarAge, setAvatarAge] = useState("auto");
+  const [ctaMode, setCtaMode] = useState<CtaMode>("shop");
   const [customCta, setCustomCta] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -46,7 +53,12 @@ export default function AutoContentTab() {
           product_name: productName,
           quantity,
           duration,
-          custom_cta: customCta,
+          aspect_ratio: aspectRatio,
+          avatar_gender: avatarGender,
+          avatar_hijab: avatarHijab,
+          avatar_age: avatarAge,
+          cta_mode: ctaMode,
+          custom_cta: ctaMode === "custom" ? customCta : "",
         }),
       });
       const d = await r.json();
@@ -144,7 +156,7 @@ export default function AutoContentTab() {
           )}
         </div>
 
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-3 gap-3">
           <div>
             <label className="block text-sm font-semibold mb-2">Kuantiti</label>
             <select
@@ -164,19 +176,131 @@ export default function AutoContentTab() {
               <option value="16">16 saat</option>
             </select>
           </div>
+          <div>
+            <label className="block text-sm font-semibold mb-2">Aspect</label>
+            <select
+              className="input"
+              value={aspectRatio}
+              onChange={(e) => setAspectRatio(e.target.value)}
+            >
+              <option value="9:16">9:16</option>
+              <option value="16:9">16:9</option>
+              <option value="1:1">1:1</option>
+            </select>
+          </div>
         </div>
 
+        {/* Avatar persona — extension parity (gender / hijab / age) */}
+        <div
+          className="rounded-2xl p-4 border"
+          style={{
+            background: "rgba(255,87,34,0.04)",
+            borderColor: "rgba(255,87,34,0.2)",
+          }}
+        >
+          <div className="flex items-center gap-2 mb-3">
+            <span
+              className="text-[10px] font-mono uppercase tracking-widest font-bold"
+              style={{ color: "var(--color-orange)" }}
+            >
+              ─── Avatar persona
+            </span>
+          </div>
+          <div className="grid grid-cols-3 gap-3">
+            <div>
+              <label className="block text-xs font-semibold mb-1.5 text-[var(--color-text-secondary)]">
+                Gender
+              </label>
+              <select
+                className="input text-xs"
+                value={avatarGender}
+                onChange={(e) => setAvatarGender(e.target.value)}
+              >
+                <option value="auto">Auto</option>
+                <option value="female">Perempuan</option>
+                <option value="male">Lelaki</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-semibold mb-1.5 text-[var(--color-text-secondary)]">
+                Hijab
+              </label>
+              <select
+                className="input text-xs"
+                value={avatarHijab}
+                onChange={(e) => setAvatarHijab(e.target.value)}
+              >
+                <option value="auto">Auto</option>
+                <option value="hijab">Bertudung</option>
+                <option value="no-hijab">Tak bertudung</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-semibold mb-1.5 text-[var(--color-text-secondary)]">
+                Umur
+              </label>
+              <select
+                className="input text-xs"
+                value={avatarAge}
+                onChange={(e) => setAvatarAge(e.target.value)}
+              >
+                <option value="auto">Auto</option>
+                <option value="20s">20-an</option>
+                <option value="30s">30-an</option>
+                <option value="40s">40-an</option>
+                <option value="50s">50-an</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        {/* CTA mode — radios (shop / custom / none) */}
         <div>
-          <label className="block text-sm font-semibold mb-2">
-            Custom CTA <span className="text-[var(--color-text-muted)] text-xs font-normal">(optional)</span>
-          </label>
-          <input
-            type="text"
-            value={customCta}
-            onChange={(e) => setCustomCta(e.target.value)}
-            placeholder="Default: tekan beg kuning"
-            className="input"
-          />
+          <label className="block text-sm font-semibold mb-2">CTA Mode</label>
+          <div className="grid grid-cols-3 gap-2">
+            {(
+              [
+                { v: "shop", label: "🛒 Shop default", desc: "tekan beg kuning" },
+                { v: "custom", label: "✏️ Custom", desc: "your own text" },
+                { v: "none", label: "✕ None", desc: "no CTA" },
+              ] as { v: CtaMode; label: string; desc: string }[]
+            ).map((opt) => {
+              const active = ctaMode === opt.v;
+              return (
+                <button
+                  key={opt.v}
+                  type="button"
+                  onClick={() => setCtaMode(opt.v)}
+                  className="text-left rounded-xl px-3 py-2.5 border transition-all"
+                  style={
+                    active
+                      ? {
+                          background: "rgba(255,87,34,0.12)",
+                          borderColor: "var(--color-orange)",
+                          color: "var(--color-orange)",
+                        }
+                      : {
+                          background: "var(--color-bg-card)",
+                          borderColor: "var(--color-border)",
+                          color: "var(--color-text-secondary)",
+                        }
+                  }
+                >
+                  <div className="text-xs font-bold">{opt.label}</div>
+                  <div className="text-[10px] opacity-80">{opt.desc}</div>
+                </button>
+              );
+            })}
+          </div>
+          {ctaMode === "custom" && (
+            <input
+              type="text"
+              value={customCta}
+              onChange={(e) => setCustomCta(e.target.value)}
+              placeholder="e.g. WhatsApp kami sekarang!"
+              className="input mt-3"
+            />
+          )}
         </div>
 
         {error && (

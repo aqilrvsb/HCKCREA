@@ -22,6 +22,11 @@ export async function POST(req: Request) {
   const productName = String(body?.product_name || "").trim();
   const quantity = Math.min(10, Math.max(1, Number(body?.quantity || 5)));
   const durationMode: "8" | "16" = body?.duration === "16" ? "16" : "8";
+  const aspectRatio = String(body?.aspect_ratio || "9:16");
+  const avatarGender = String(body?.avatar_gender || "auto");
+  const avatarHijab = String(body?.avatar_hijab || "auto");
+  const avatarAge = String(body?.avatar_age || "auto");
+  const ctaMode = String(body?.cta_mode || "shop");
   const customCta = String(body?.custom_cta || "");
 
   if (!productImageUrl && !productUrl) {
@@ -44,8 +49,33 @@ export async function POST(req: Request) {
     );
   }
 
+  // Resolve CTA copy from mode
+  let ctaInstruction: string;
+  if (ctaMode === "none") {
+    ctaInstruction = "no explicit call-to-action — let the dialog feel organic";
+  } else if (ctaMode === "custom" && customCta.trim()) {
+    ctaInstruction = `should include: "${customCta.trim()}"`;
+  } else {
+    ctaInstruction = `should mention "tekan beg kuning bawah"`;
+  }
+
+  // Build avatar persona constraint from the dropdowns
+  const personaParts: string[] = [];
+  if (avatarGender !== "auto") {
+    personaParts.push(avatarGender === "male" ? "Malay man" : "Malay woman");
+  } else {
+    personaParts.push("Malay creator");
+  }
+  if (avatarHijab !== "auto") {
+    personaParts.push(avatarHijab === "hijab" ? "wearing a hijab" : "not wearing a hijab");
+  }
+  if (avatarAge !== "auto") {
+    personaParts.push(`in their ${avatarAge.replace("s", "")}s`);
+  }
+  const personaConstraint = personaParts.join(", ");
+
   // 1. Master plan via OpenRouter
-  const systemPrompt = `You are a Malaysian TikTok Shop creative director. Output a JSON array of ${quantity} short UGC video plans. Each plan: { "framework": string, "prompt": string, "caption": string }. Prompts must be in Bahasa Melayu, 200-400 words, describing one Malay UGC creator speaking to camera with the product. Diverse hooks/frameworks. The CTA${customCta ? ` should include: "${customCta}"` : ` should mention "tekan beg kuning bawah"`}. ONLY return the JSON array, no prose.`;
+  const systemPrompt = `You are a Malaysian TikTok Shop creative director. Output a JSON array of ${quantity} short UGC video plans. Each plan: { "framework": string, "prompt": string, "caption": string }. Prompts must be in Bahasa Melayu, 200-400 words, describing ONE ${personaConstraint} speaking to camera with the product, holding/using/showing it naturally. All ${quantity} plans must use the SAME persona type (${personaConstraint}) for consistency, but vary the scene, framework, hook, and emotion. The CTA ${ctaInstruction}. Aspect ratio: ${aspectRatio}. ONLY return the JSON array, no prose.`;
 
   const userPrompt = `Product: ${productName || productUrl || "Malaysian product"}
 Quantity: ${quantity}
@@ -102,8 +132,11 @@ ${productUrl ? `URL: ${productUrl}` : ""}`;
       product_image_url: productImageUrl,
       quantity: parsed.length,
       duration_mode: durationMode,
-      cta_mode: customCta ? "custom" : "shop",
-      custom_cta: customCta || null,
+      cta_mode: ctaMode,
+      custom_cta: ctaMode === "custom" ? customCta || null : null,
+      avatar_gender: avatarGender,
+      avatar_hijab: avatarHijab,
+      avatar_age: avatarAge,
       status: "generating",
       master_plan: parsed,
     })
@@ -122,7 +155,7 @@ ${productUrl ? `URL: ${productUrl}` : ""}`;
         prompt: String(item.prompt || ""),
         imageUrls: productImageUrl ? [productImageUrl] : [],
         durationMode,
-        aspectRatio: "9:16",
+        aspectRatio,
         imageMode: productImageUrl ? "ingredient" : "text",
       });
 
