@@ -280,9 +280,6 @@ export default function CinemaTab({ projectId }: { projectId?: string } = {}) {
           <Select value={aspect} onChange={(v) => setAspect(v)}>
             <option value="9:16">9:16</option>
             <option value="16:9">16:9</option>
-            <option value="1:1">1:1</option>
-            <option value="2:3">2:3</option>
-            <option value="3:2">3:2</option>
           </Select>
         </div>
 

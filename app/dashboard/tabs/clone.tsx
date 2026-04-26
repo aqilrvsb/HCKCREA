@@ -260,51 +260,13 @@ export default function CloneTab({ projectId }: { projectId?: string } = {}) {
           </div>
         )}
 
-        {/* Product Image */}
-        <Label>Product Image (optional)</Label>
-        <input
-          ref={productInputRef}
-          type="file"
-          accept="image/*"
-          className="hidden"
-          onChange={(e) => onProductFile(e.target.files?.[0] || null)}
-        />
-        <div className="flex items-stretch gap-2 mb-4">
-          <button
-            type="button"
-            onClick={() => productInputRef.current?.click()}
-            className="relative w-[60px] h-[60px] rounded-lg overflow-hidden flex-shrink-0 flex items-center justify-center"
-            style={{
-              border: `2px dashed ${productImage ? "transparent" : ORANGE}`,
-              background: productImage ? "#000" : "#fff8ef",
-            }}
-          >
-            {productImage ? (
-              <img src={productImage} alt="" className="w-full h-full object-cover" />
-            ) : (
-              <span className="text-2xl">📦</span>
-            )}
-          </button>
-          <div className="flex flex-col gap-1 justify-between">
-            <SmallBtn onClick={() => productInputRef.current?.click()} color={ORANGE}>
-              Upload
-            </SmallBtn>
-            <SmallBtn onClick={() => setShowHistoryPicker(true)} color={ORANGE}>
-              History
-            </SmallBtn>
-            <SmallBtn onClick={() => setProductImage("")} danger>
-              x
-            </SmallBtn>
-          </div>
-        </div>
-
         {/* Mode + Size */}
         <div className="flex items-center gap-4 mb-4">
           <div>
             <Label>Output</Label>
             <Select value={mode} onChange={(v) => setMode(v as Mode)} width={150}>
-              <option value="ugc">UGC (Veo 3.1, 8s)</option>
-              <option value="cinema">Cinema (Grok, 30s)</option>
+              <option value="ugc">UGC (8s segments)</option>
+              <option value="cinema">Cinema (30s segments)</option>
             </Select>
           </div>
           <div>
@@ -367,30 +329,6 @@ export default function CloneTab({ projectId }: { projectId?: string } = {}) {
             {error}
           </div>
         )}
-      </Card>
-
-      {/* Process Log */}
-      <Card>
-        <div className="flex items-center gap-2.5 mb-3">
-          <span className="text-lg">📋</span>
-          <span className="text-[13px] font-extrabold uppercase tracking-[0.06em]">
-            Process Log
-          </span>
-        </div>
-        <div
-          className="rounded-lg p-3 max-h-48 overflow-y-auto text-[11px] font-mono leading-relaxed"
-          style={{ background: "#f0f5ec", border: "1px solid #d8e8d0" }}
-        >
-          {log.length === 0 ? (
-            <span style={{ color: "#999" }}>Process log will appear here...</span>
-          ) : (
-            log.map((line, i) => (
-              <div key={i} style={{ color: "#1a1a1a" }}>
-                {line}
-              </div>
-            ))
-          )}
-        </div>
       </Card>
 
       {/* Result prompts */}
