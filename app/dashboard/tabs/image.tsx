@@ -145,13 +145,19 @@ export default function ImageTab() {
   return (
     <div className="flex flex-col h-full">
       <div className="flex items-center gap-3 mb-5 pb-4 border-b border-[var(--color-border)]">
-        <div className="w-11 h-11 rounded-2xl bg-orange-50 border border-orange-100 flex items-center justify-center">
-          <ImageIcon className="w-5 h-5 text-orange" strokeWidth={2.2} />
+        <div
+          className="w-11 h-11 rounded-2xl flex items-center justify-center"
+          style={{
+            background: "rgba(255,87,34,0.1)",
+            border: "1px solid rgba(255,87,34,0.3)",
+          }}
+        >
+          <ImageIcon className="w-5 h-5" style={{ color: "var(--color-orange)" }} strokeWidth={2.2} />
         </div>
         <div>
-          <h2 className="font-display font-bold text-xl">Generate Image</h2>
+          <h2 className="font-display font-bold text-xl text-[var(--color-text-primary)]">Generate Image</h2>
           <p className="text-xs text-[var(--color-text-muted)]">
-            Avatar UGC realistik — Banana Pro + GPT Image 2
+            Avatar UGC realistik · 1-4 images per generate
           </p>
         </div>
       </div>
@@ -261,15 +267,31 @@ export default function ImageTab() {
         </div>
 
         {error && (
-          <div className="text-sm text-red-600 bg-red-50 border border-red-100 rounded-xl px-4 py-3">
+          <div
+            className="text-sm rounded-xl px-4 py-3"
+            style={{
+              color: "#fca5a5",
+              background: "rgba(239,68,68,0.1)",
+              border: "1px solid rgba(239,68,68,0.3)",
+            }}
+          >
             {error}
           </div>
         )}
 
         {outputUrl && status === "done" && (
-          <div className="rounded-2xl overflow-hidden border border-emerald-200">
+          <div
+            className="rounded-2xl overflow-hidden border"
+            style={{ borderColor: "rgba(200,245,62,0.4)" }}
+          >
             <img src={outputUrl} alt="generated" className="w-full" />
-            <div className="p-3 bg-emerald-50 text-xs text-emerald-700 font-semibold flex items-center justify-between">
+            <div
+              className="p-3 text-xs font-semibold flex items-center justify-between"
+              style={{
+                background: "rgba(200,245,62,0.1)",
+                color: "var(--color-lime)",
+              }}
+            >
               <span>✓ Generated</span>
               <a href={outputUrl} target="_blank" rel="noreferrer" className="underline">
                 Open

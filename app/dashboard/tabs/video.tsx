@@ -7,9 +7,19 @@ type Status = "idle" | "submitting" | "polling" | "done" | "failed";
 
 export default function VideoTab() {
   const [prompt, setPrompt] = useState("");
-  const [duration, setDuration] = useState<"8" | "16">("8");
+  const [duration] = useState<"8">("8"); // Veo 3.1 Fast supports 8s only
+  const [aspect, setAspect] = useState("9:16");
+  const [count, setCount] = useState(1);
+  const [imageMode, setImageMode] = useState<"ingredient" | "frame" | "text">("ingredient");
+  const [refUrl, setRefUrl] = useState<string>("");
+  const [historyId, setHistoryId] = useState<string | null>(null);
+  const [status, setStatus] = useState<Status>("idle");
+  const [error, setError] = useState<string | null>(null);
+  const [outputUrl, setOutputUrl] = useState<string | null>(null);
+  const [cost, setCost] = useState<number | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
-  // Pick up a prompt handed off from the UGC Prompt Builder (Use in Video)
+  // Pick up a prompt handed off from the UGC Prompt Builder
   useEffect(() => {
     try {
       const stash = localStorage.getItem("ugc_prompt_stash");
@@ -19,14 +29,6 @@ export default function VideoTab() {
       }
     } catch {}
   }, []);
-  const [imageMode, setImageMode] = useState<"ingredient" | "frame" | "text">("ingredient");
-  const [refUrl, setRefUrl] = useState<string>("");
-  const [historyId, setHistoryId] = useState<string | null>(null);
-  const [status, setStatus] = useState<Status>("idle");
-  const [error, setError] = useState<string | null>(null);
-  const [outputUrl, setOutputUrl] = useState<string | null>(null);
-  const [cost, setCost] = useState<number | null>(null);
-  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     if (!historyId || (status !== "polling" && status !== "submitting")) return;
@@ -72,26 +74,33 @@ export default function VideoTab() {
     setError(null);
     setStatus("submitting");
     setOutputUrl(null);
+
+    // Submit `count` parallel video generation calls — each lands as its own history row
     try {
-      const r = await fetch("/api/generate/video", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          prompt: prompt.trim(),
-          image_urls: refUrl ? [refUrl] : [],
-          duration,
-          image_mode: imageMode,
-          aspect_ratio: "9:16",
-        }),
-      });
-      const d = await r.json();
-      if (!r.ok || !d?.ok) {
-        setError(d?.error || "Generation failed");
+      const calls = Array.from({ length: count }).map(() =>
+        fetch("/api/generate/video", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            prompt: prompt.trim(),
+            image_urls: refUrl ? [refUrl] : [],
+            duration,
+            image_mode: imageMode,
+            aspect_ratio: aspect,
+          }),
+        }).then((r) => r.json())
+      );
+      const results = await Promise.all(calls);
+      const first = results.find((d) => d?.ok);
+      if (!first) {
+        const err = results.find((d) => d?.error)?.error || "Generation failed";
+        setError(err);
         setStatus("failed");
         return;
       }
-      setHistoryId(d.history_id);
-      setCost(d.cost);
+      setHistoryId(first.history_id);
+      setCost(first.cost);
+      window.dispatchEvent(new CustomEvent("history:refresh"));
     } catch (e: any) {
       setError(e?.message || "Network error");
       setStatus("failed");
@@ -103,12 +112,18 @@ export default function VideoTab() {
   return (
     <div className="flex flex-col h-full">
       <div className="flex items-center gap-3 mb-5 pb-4 border-b border-[var(--color-border)]">
-        <div className="w-11 h-11 rounded-2xl bg-orange-50 border border-orange-100 flex items-center justify-center">
-          <Video className="w-5 h-5 text-orange" strokeWidth={2.2} />
+        <div
+          className="w-11 h-11 rounded-2xl flex items-center justify-center"
+          style={{
+            background: "rgba(255,87,34,0.1)",
+            border: "1px solid rgba(255,87,34,0.3)",
+          }}
+        >
+          <Video className="w-5 h-5" style={{ color: "var(--color-orange)" }} strokeWidth={2.2} />
         </div>
         <div>
-          <h2 className="font-display font-bold text-xl">Generate Video</h2>
-          <p className="text-xs text-[var(--color-text-muted)]">Veo 3.1 — 8 saat / 16 saat</p>
+          <h2 className="font-display font-bold text-xl text-[var(--color-text-primary)]">Generate Video</h2>
+          <p className="text-xs text-[var(--color-text-muted)]">8 saat per shot · UGC ready</p>
         </div>
       </div>
 
@@ -148,7 +163,7 @@ export default function VideoTab() {
             <button
               type="button"
               onClick={() => fileInputRef.current?.click()}
-              className="w-full p-6 border-2 border-dashed border-[var(--color-border)] rounded-2xl hover:border-orange-300 hover:bg-orange-50/40 transition flex flex-col items-center gap-2 text-sm text-[var(--color-text-muted)]"
+              className="w-full p-6 border-2 border-dashed border-[var(--color-border)] rounded-2xl hover:border-[var(--color-orange)] transition flex flex-col items-center gap-2 text-sm text-[var(--color-text-muted)] hover:text-[var(--color-orange)]"
             >
               <Upload className="w-6 h-6" />
               Upload character / product image
@@ -157,36 +172,73 @@ export default function VideoTab() {
           )}
         </div>
 
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <label className="block text-sm font-semibold mb-2">Duration</label>
-            <select className="input text-sm" value={duration} onChange={(e) => setDuration(e.target.value as any)}>
-              <option value="8">8 saat</option>
-              <option value="16">16 saat</option>
-            </select>
-          </div>
+        <div className="grid grid-cols-3 gap-3">
           <div>
             <label className="block text-sm font-semibold mb-2">Mode</label>
             <select className="input text-sm" value={imageMode} onChange={(e) => setImageMode(e.target.value as any)}>
-              <option value="ingredient">Reference-to-video (r2v)</option>
-              <option value="frame">Image-to-video (i2v)</option>
-              <option value="text">Text-to-video (t2v)</option>
+              <option value="ingredient">r2v</option>
+              <option value="frame">i2v</option>
+              <option value="text">t2v</option>
+            </select>
+          </div>
+          <div>
+            <label className="block text-sm font-semibold mb-2">Aspect</label>
+            <select className="input text-sm" value={aspect} onChange={(e) => setAspect(e.target.value)}>
+              <option value="9:16">9:16</option>
+              <option value="16:9">16:9</option>
+            </select>
+          </div>
+          <div>
+            <label className="block text-sm font-semibold mb-2">Qty</label>
+            <select className="input text-sm" value={count} onChange={(e) => setCount(Number(e.target.value))}>
+              {[1, 2, 3, 4, 5].map((n) => (
+                <option key={n} value={n}>{n}</option>
+              ))}
             </select>
           </div>
         </div>
 
+        <div
+          className="rounded-xl p-3 border text-xs"
+          style={{
+            background: "rgba(34,197,94,0.06)",
+            borderColor: "rgba(34,197,94,0.2)",
+            color: "#22c55e",
+          }}
+        >
+          <strong>8 saat per shot</strong> · 1 video Veo 3.1 Fast — perfect untuk satu hook + dialog + CTA.
+        </div>
+
         {error && (
-          <div className="text-sm text-red-600 bg-red-50 border border-red-100 rounded-xl px-4 py-3">
+          <div
+            className="text-sm rounded-xl px-4 py-3"
+            style={{
+              color: "#fca5a5",
+              background: "rgba(239,68,68,0.1)",
+              border: "1px solid rgba(239,68,68,0.3)",
+            }}
+          >
             {error}
           </div>
         )}
 
         {outputUrl && status === "done" && (
-          <div className="rounded-2xl overflow-hidden border border-emerald-200">
+          <div
+            className="rounded-2xl overflow-hidden border"
+            style={{ borderColor: "rgba(200,245,62,0.4)" }}
+          >
             <video src={outputUrl} controls className="w-full" />
-            <div className="p-3 bg-emerald-50 text-xs text-emerald-700 font-semibold flex items-center justify-between">
+            <div
+              className="p-3 text-xs font-semibold flex items-center justify-between"
+              style={{
+                background: "rgba(200,245,62,0.1)",
+                color: "var(--color-lime)",
+              }}
+            >
               <span>✓ Generated</span>
-              <a href={outputUrl} target="_blank" rel="noreferrer" className="underline">Download</a>
+              <a href={outputUrl} target="_blank" rel="noreferrer" className="underline">
+                Download
+              </a>
             </div>
           </div>
         )}
@@ -201,12 +253,12 @@ export default function VideoTab() {
         ) : (
           <>
             <Sparkles className="w-4 h-4" />
-            Generate Video
+            Generate {count > 1 ? `${count} Videos` : "Video"}
           </>
         )}
       </button>
       <p className="text-center text-xs text-[var(--color-text-muted)] mt-2.5">
-        {cost ? `Tolak RM${cost.toFixed(2)} bila siap` : "40 sen / 70 sen per 8s · Pro / Light"}
+        {cost ? `Tolak RM${(cost * count).toFixed(2)} bila ${count} video siap` : "40 sen / 70 sen per 8s · Pro / Light"}
       </p>
     </div>
   );

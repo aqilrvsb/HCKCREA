@@ -83,11 +83,17 @@ export default function AutoContentTab() {
   return (
     <div className="flex flex-col h-full">
       <div className="flex items-center gap-3 mb-5 pb-4 border-b border-[var(--color-border)]">
-        <div className="w-11 h-11 rounded-2xl bg-orange-50 border border-orange-100 flex items-center justify-center">
-          <Wand2 className="w-5 h-5 text-orange" strokeWidth={2.2} />
+        <div
+          className="w-11 h-11 rounded-2xl flex items-center justify-center"
+          style={{
+            background: "rgba(255,87,34,0.1)",
+            border: "1px solid rgba(255,87,34,0.3)",
+          }}
+        >
+          <Wand2 className="w-5 h-5" style={{ color: "var(--color-orange)" }} strokeWidth={2.2} />
         </div>
         <div>
-          <h2 className="font-display font-bold text-xl">Auto Content</h2>
+          <h2 className="font-display font-bold text-xl text-[var(--color-text-primary)]">Auto Content</h2>
           <p className="text-xs text-[var(--color-text-muted)]">
             Letak link produk → 10 video UGC siap caption
           </p>
@@ -148,7 +154,7 @@ export default function AutoContentTab() {
             <button
               type="button"
               onClick={() => fileInputRef.current?.click()}
-              className="w-full p-5 border-2 border-dashed border-[var(--color-border)] rounded-2xl hover:border-orange-300 hover:bg-orange-50/40 transition flex flex-col items-center gap-2 text-sm text-[var(--color-text-muted)]"
+              className="w-full p-5 border-2 border-dashed border-[var(--color-border)] rounded-2xl hover:border-[var(--color-orange)] transition flex flex-col items-center gap-2 text-sm text-[var(--color-text-muted)] hover:text-[var(--color-orange)]"
             >
               <Upload className="w-5 h-5" />
               Upload product image
@@ -304,18 +310,33 @@ export default function AutoContentTab() {
         </div>
 
         {error && (
-          <div className="text-sm text-red-600 bg-red-50 border border-red-100 rounded-xl px-4 py-3">
+          <div
+            className="text-sm rounded-xl px-4 py-3"
+            style={{
+              color: "#fca5a5",
+              background: "rgba(239,68,68,0.1)",
+              border: "1px solid rgba(239,68,68,0.3)",
+            }}
+          >
             {error}
           </div>
         )}
 
         {batchInfo && (
-          <div className="rounded-2xl bg-emerald-50 border border-emerald-200 p-4">
-            <div className="font-bold text-emerald-700 mb-1">Batch dah start! 🎉</div>
-            <p className="text-sm text-emerald-700">
-              {batchInfo.quantity} video sedang generate. Check Auto Content history di kanan dalam beberapa minit.
+          <div
+            className="rounded-2xl p-4 border"
+            style={{
+              background: "rgba(200,245,62,0.08)",
+              borderColor: "rgba(200,245,62,0.3)",
+            }}
+          >
+            <div className="font-bold mb-1" style={{ color: "var(--color-lime)" }}>
+              Batch dah start! 🎉
+            </div>
+            <p className="text-sm text-[var(--color-text-primary)]">
+              {batchInfo.quantity} video sedang generate. History akan muncul di bawah.
             </p>
-            <div className="text-xs font-mono text-emerald-700 mt-1.5">
+            <div className="text-xs font-mono mt-1.5" style={{ color: "var(--color-lime)" }}>
               Total cost: RM{batchInfo.total_cost.toFixed(2)}
             </div>
           </div>
