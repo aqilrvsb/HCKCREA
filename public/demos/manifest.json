@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-04-26T08:03:54.420Z",
+  "generated_at": "2026-04-26T09:11:09.805Z",
   "videos": [
     {
       "id": "reel-1",
@@ -108,45 +108,8 @@
       "label": "Documentary · Interview",
       "file": "https://zoxgcqlqovkvlrmpcikt.supabase.co/storage/v1/object/public/demos/reel-18.mp4",
       "kind": "video"
-    },
-    {
-      "id": "reel-19",
-      "label": "Before / After · Split",
-      "file": "https://zoxgcqlqovkvlrmpcikt.supabase.co/storage/v1/object/public/demos/reel-19.mp4",
-      "kind": "video"
-    },
-    {
-      "id": "reel-20",
-      "label": "Hyperreal · Splash hero",
-      "file": "https://zoxgcqlqovkvlrmpcikt.supabase.co/storage/v1/object/public/demos/reel-20.mp4",
-      "kind": "video"
     }
   ],
-  "images": [
-    {
-      "id": "avatar-hijab-young",
-      "label": "Hijab young",
-      "file": "https://zoxgcqlqovkvlrmpcikt.supabase.co/storage/v1/object/public/demos/avatar-hijab-young.png",
-      "kind": "image"
-    },
-    {
-      "id": "avatar-hijab-mature",
-      "label": "Hijab mature",
-      "file": "https://zoxgcqlqovkvlrmpcikt.supabase.co/storage/v1/object/public/demos/avatar-hijab-mature.png",
-      "kind": "image"
-    },
-    {
-      "id": "avatar-male-young",
-      "label": "Male young",
-      "file": "https://zoxgcqlqovkvlrmpcikt.supabase.co/storage/v1/object/public/demos/avatar-male-young.png",
-      "kind": "image"
-    },
-    {
-      "id": "avatar-no-hijab",
-      "label": "No-hijab",
-      "file": "https://zoxgcqlqovkvlrmpcikt.supabase.co/storage/v1/object/public/demos/avatar-no-hijab.png",
-      "kind": "image"
-    }
-  ],
+  "images": [],
   "failed": []
 }
