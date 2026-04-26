@@ -1,12 +1,13 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { p2GetStatus } from "@/lib/p2";
-import { deduct } from "@/lib/deduct";
+import { settleHistoryRow } from "@/lib/settle";
 
 // GET /api/generate/status?id=<history_id>
-// Server-side poller — verifies P2 status, marks history done/failed, and
-// applies the deduction once on the transition to 'done'. Idempotent.
+// Browser-driven poll. Reads the history row, settles it against P2 if
+// still pending, returns the (possibly updated) row. Same settle helper
+// is used by /api/worker/poll-pending so server-side and client-side
+// pollers stay in sync.
 export async function GET(req: Request) {
   const sb = await createClient();
   const { data: { user } } = await sb.auth.getUser();
@@ -26,40 +27,9 @@ export async function GET(req: Request) {
 
   if (!hist) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-  // Already settled — return as is
-  if (hist.status === "done" || hist.status === "failed") {
-    return NextResponse.json({ ok: true, history: hist });
-  }
-  if (!hist.task_id) {
-    return NextResponse.json({ ok: true, history: hist });
-  }
+  const settle = await settleHistoryRow(hist);
 
-  const r = await p2GetStatus(hist.task_id);
-
-  if (r.status === "succeeded" && r.outputUrl) {
-    // Apply deduction (only for image/video — clone segments use video reason
-    // too; auto_plan rows are deducted upstream by the auto-content route at 0
-    // since rate is 0 for auto_plan).
-    const reason =
-      hist.type === "image"
-        ? "image_generate"
-        : hist.duration === 16
-          ? "video_16s"
-          : "video_8s";
-
-    if (Number(hist.cost || 0) > 0) {
-      await deduct(user.id, reason as any, Number(hist.cost), hist.id);
-    }
-
-    await admin
-      .from("history")
-      .update({
-        status: "done",
-        output_url: r.outputUrl,
-        thumbnail_url: hist.type === "video" ? r.outputUrl : null,
-      })
-      .eq("id", hist.id);
-
+  if (settle.state === "settled" || settle.state === "skipped") {
     const { data: refreshed } = await admin
       .from("history")
       .select("*")
@@ -68,19 +38,6 @@ export async function GET(req: Request) {
     return NextResponse.json({ ok: true, history: refreshed });
   }
 
-  if (r.status === "failed") {
-    await admin
-      .from("history")
-      .update({ status: "failed", error_message: r.error || "Generation failed" })
-      .eq("id", hist.id);
-    const { data: refreshed } = await admin
-      .from("history")
-      .select("*")
-      .eq("id", id)
-      .single();
-    return NextResponse.json({ ok: true, history: refreshed });
-  }
-
-  // Still pending/running
-  return NextResponse.json({ ok: true, history: hist, p2_status: r.status });
+  // Still pending — return current row + remote P2 status for debug
+  return NextResponse.json({ ok: true, history: hist, p2_status: settle.p2Status });
 }
