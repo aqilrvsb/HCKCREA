@@ -79,13 +79,13 @@ export default function CreditSection({ credits }: { credits: number }) {
 
   return (
     <div className="space-y-6">
-      {/* Hero balance */}
+      {/* Hero balance — dark amber theme */}
       <div
         className="relative overflow-hidden rounded-3xl p-8 md:p-10"
         style={{
           background:
-            "linear-gradient(135deg, #fef3c7 0%, #fde68a 30%, #fce7f3 100%)",
-          border: "1px solid #fbbf24",
+            "linear-gradient(135deg, rgba(245,158,11,0.08) 0%, rgba(255,87,34,0.06) 100%)",
+          border: "1px solid rgba(245,158,11,0.3)",
         }}
       >
         <div
@@ -104,48 +104,87 @@ export default function CreditSection({ credits }: { credits: number }) {
 
         <div className="relative grid md:grid-cols-2 gap-8 items-center">
           <div>
-            <div className="inline-flex items-center gap-1.5 px-3 py-1.5 mb-5 rounded-full bg-white/80 border border-amber-300 backdrop-blur-md text-xs font-bold uppercase tracking-wider text-amber-800">
+            <div
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 mb-5 rounded-full text-xs font-bold uppercase tracking-wider"
+              style={{
+                background: "rgba(245,158,11,0.1)",
+                border: "1px solid rgba(245,158,11,0.3)",
+                color: "#fbbf24",
+              }}
+            >
               <Wallet className="w-3 h-3" />
               Credit Balance
             </div>
             <div className="flex items-baseline gap-2 mb-2">
-              <span className="font-display font-extrabold text-7xl md:text-8xl tracking-tight text-amber-900 leading-none">
+              <span
+                className="font-display font-extrabold text-7xl md:text-8xl tracking-tight leading-none"
+                style={{ color: "#fbbf24" }}
+              >
                 {credits.toFixed(2)}
               </span>
-              <span className="text-amber-700 font-semibold text-xl">credits</span>
+              <span className="font-semibold text-xl text-[var(--color-text-secondary)]">
+                credits
+              </span>
             </div>
-            <p className="text-amber-800/80 text-base">
+            <p className="text-base text-[var(--color-text-secondary)]">
               Top up bila-bila. Kredit tak hangus.
             </p>
           </div>
 
           <div className="grid grid-cols-2 gap-3">
-            <div className="rounded-2xl p-5 bg-white/70 border border-amber-200 backdrop-blur-md">
-              <div className="text-xs uppercase tracking-wider text-amber-700 font-bold mb-1.5">
+            <div
+              className="rounded-2xl p-5 border"
+              style={{
+                background: "rgba(245,158,11,0.05)",
+                borderColor: "rgba(245,158,11,0.25)",
+              }}
+            >
+              <div
+                className="text-xs uppercase tracking-wider font-bold mb-1.5"
+                style={{ color: "#fbbf24" }}
+              >
                 Image generate
               </div>
-              <div className="font-display font-extrabold text-2xl text-amber-900">
+              <div className="font-display font-extrabold text-2xl text-[var(--color-text-primary)]">
                 ~{Math.floor(credits / 0.2)}
               </div>
-              <div className="text-xs text-amber-700/70">images possible</div>
+              <div className="text-xs text-[var(--color-text-muted)]">images possible</div>
             </div>
-            <div className="rounded-2xl p-5 bg-white/70 border border-amber-200 backdrop-blur-md">
-              <div className="text-xs uppercase tracking-wider text-amber-700 font-bold mb-1.5">
+            <div
+              className="rounded-2xl p-5 border"
+              style={{
+                background: "rgba(245,158,11,0.05)",
+                borderColor: "rgba(245,158,11,0.25)",
+              }}
+            >
+              <div
+                className="text-xs uppercase tracking-wider font-bold mb-1.5"
+                style={{ color: "#fbbf24" }}
+              >
                 Video 8s
               </div>
-              <div className="font-display font-extrabold text-2xl text-amber-900">
+              <div className="font-display font-extrabold text-2xl text-[var(--color-text-primary)]">
                 ~{Math.floor(credits / 0.4)}
               </div>
-              <div className="text-xs text-amber-700/70">videos possible</div>
+              <div className="text-xs text-[var(--color-text-muted)]">videos possible</div>
             </div>
-            <div className="rounded-2xl p-5 bg-white/70 border border-amber-200 backdrop-blur-md col-span-2">
-              <div className="text-xs uppercase tracking-wider text-amber-700 font-bold mb-1.5">
+            <div
+              className="rounded-2xl p-5 border col-span-2"
+              style={{
+                background: "rgba(245,158,11,0.05)",
+                borderColor: "rgba(245,158,11,0.25)",
+              }}
+            >
+              <div
+                className="text-xs uppercase tracking-wider font-bold mb-1.5"
+                style={{ color: "#fbbf24" }}
+              >
                 Auto Content (10 video pack)
               </div>
-              <div className="font-display font-extrabold text-2xl text-amber-900">
+              <div className="font-display font-extrabold text-2xl text-[var(--color-text-primary)]">
                 ~{Math.floor(credits / 4.1)} batch
               </div>
-              <div className="text-xs text-amber-700/70">
+              <div className="text-xs text-[var(--color-text-muted)]">
                 10 video × 8s + 1 master plan
               </div>
             </div>
@@ -177,11 +216,21 @@ export default function CreditSection({ credits }: { credits: number }) {
               <button
                 key={p.credits}
                 onClick={() => setSelected(p.credits)}
-                className={`relative rounded-2xl p-5 border-2 text-left transition-all ${
+                className="relative rounded-2xl p-5 border-2 text-left transition-all"
+                style={
                   isSelected
-                    ? "border-amber-400 bg-gradient-to-br from-amber-50 to-orange-50 shadow-lg shadow-amber-500/20 scale-[1.03]"
-                    : "border-[var(--color-border)] bg-white hover:border-amber-200"
-                }`}
+                    ? {
+                        borderColor: "#fbbf24",
+                        background:
+                          "linear-gradient(135deg, rgba(245,158,11,0.1) 0%, rgba(255,87,34,0.06) 100%)",
+                        boxShadow: "0 8px 24px rgba(245,158,11,0.2)",
+                        transform: "scale(1.03)",
+                      }
+                    : {
+                        borderColor: "var(--color-border)",
+                        background: "var(--color-bg-card)",
+                      }
+                }
               >
                 {p.popular && (
                   <div className="absolute -top-2 right-3 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider bg-gradient-to-r from-amber-500 to-orange-500 text-white rounded-md">

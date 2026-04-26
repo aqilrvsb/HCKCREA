@@ -129,11 +129,20 @@ export default function UsageSection({ email }: { email: string }) {
                 <button
                   key={f.key}
                   onClick={() => setFilter(f.key)}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition ${
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all"
+                  style={
                     isActive
-                      ? "bg-violet-50 text-violet-700 border border-violet-200"
-                      : "bg-white border border-[var(--color-border)] text-[var(--color-text-secondary)] hover:border-violet-200"
-                  }`}
+                      ? {
+                          background: "var(--color-lime)",
+                          color: "#0a0a0a",
+                          boxShadow: "0 2px 8px rgba(200,245,62,0.3)",
+                        }
+                      : {
+                          background: "var(--color-bg-card)",
+                          border: "1px solid var(--color-border)",
+                          color: "var(--color-text-secondary)",
+                        }
+                  }
                 >
                   <Icon className="w-3 h-3" />
                   {f.label}
@@ -148,7 +157,10 @@ export default function UsageSection({ email }: { email: string }) {
         </div>
 
         {/* Table header */}
-        <div className="hidden md:flex px-6 py-3 border-b border-[var(--color-border)] bg-gray-50/50 text-xs font-mono uppercase tracking-wider text-[var(--color-text-muted)] font-bold">
+        <div
+          className="hidden md:flex px-6 py-3 border-b border-[var(--color-border)] text-xs font-mono uppercase tracking-wider text-[var(--color-text-muted)] font-bold"
+          style={{ background: "rgba(200,245,62,0.04)" }}
+        >
           <span className="flex-1">Action</span>
           <span className="flex-1">Description</span>
           <span className="w-32">Date</span>
@@ -158,8 +170,14 @@ export default function UsageSection({ email }: { email: string }) {
 
         {/* Empty state */}
         <div className="px-6 py-20 text-center">
-          <div className="w-16 h-16 mx-auto rounded-2xl bg-gray-50 border border-gray-100 flex items-center justify-center mb-4">
-            <TrendingDown className="w-7 h-7 text-gray-300" />
+          <div
+            className="w-16 h-16 mx-auto rounded-2xl flex items-center justify-center mb-4"
+            style={{
+              background: "var(--color-bg-card)",
+              border: "1px solid var(--color-border)",
+            }}
+          >
+            <TrendingDown className="w-7 h-7 text-[var(--color-text-muted)]" />
           </div>
           <p className="text-[var(--color-text-secondary)] font-medium mb-1">
             Belum ada usage history.

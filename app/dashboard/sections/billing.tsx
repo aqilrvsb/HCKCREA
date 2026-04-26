@@ -80,23 +80,23 @@ const PLANS = [
   },
 ];
 
-const ACCENT_MAP: Record<string, { bg: string; text: string; border: string; gradient: string }> = {
+const ACCENT_MAP: Record<
+  string,
+  { bgStyle: React.CSSProperties; text: string; gradient: string }
+> = {
   blue: {
-    bg: "bg-blue-50",
-    text: "text-blue-700",
-    border: "border-blue-200",
+    bgStyle: { background: "rgba(59,130,246,0.1)", border: "1px solid rgba(59,130,246,0.3)" },
+    text: "text-blue-400",
     gradient: "from-blue-500 to-cyan-500",
   },
   violet: {
-    bg: "bg-violet-50",
-    text: "text-violet-700",
-    border: "border-violet-200",
+    bgStyle: { background: "rgba(139,92,246,0.1)", border: "1px solid rgba(139,92,246,0.3)" },
+    text: "text-violet-400",
     gradient: "from-violet-500 via-fuchsia-500 to-pink-500",
   },
   amber: {
-    bg: "bg-amber-50",
-    text: "text-amber-700",
-    border: "border-amber-200",
+    bgStyle: { background: "rgba(245,158,11,0.1)", border: "1px solid rgba(245,158,11,0.3)" },
+    text: "text-amber-400",
     gradient: "from-amber-500 to-orange-500",
   },
 };
@@ -296,9 +296,12 @@ export default function BillingSection() {
             return (
               <div
                 key={plan.key}
-                className={`relative card overflow-hidden ${
-                  plan.popular ? "border-2 border-violet-300" : ""
-                }`}
+                className="relative card overflow-hidden"
+                style={
+                  plan.popular
+                    ? { borderColor: "var(--color-orange)", borderWidth: 2 }
+                    : undefined
+                }
               >
                 {plan.popular && (
                   <div className="absolute top-0 right-0 px-3 py-1 text-[10px] font-bold uppercase tracking-wider bg-gradient-to-r from-orange-500 to-orange-600 text-white rounded-bl-2xl">
@@ -328,7 +331,8 @@ export default function BillingSection() {
                 <div className="relative">
                   <div className="flex items-center gap-3 mb-5">
                     <div
-                      className={`w-11 h-11 rounded-2xl ${a.bg} ${a.border} border flex items-center justify-center`}
+                      className="w-11 h-11 rounded-2xl flex items-center justify-center"
+                      style={a.bgStyle}
                     >
                       <Icon className={`w-5 h-5 ${a.text}`} strokeWidth={2.2} />
                     </div>
@@ -374,11 +378,26 @@ export default function BillingSection() {
                     onClick={() => startSubscribe(plan.key)}
                     className={`w-full py-3 rounded-full font-bold text-sm transition flex items-center justify-center gap-2 ${
                       isCurrent
-                        ? "bg-gray-100 text-gray-400 cursor-default"
+                        ? "cursor-default opacity-60"
                         : plan.popular
                         ? `text-white bg-gradient-to-r ${a.gradient} hover:scale-[1.02] shadow-lg`
-                        : "bg-white border border-[var(--color-border)] hover:border-violet-300"
+                        : "hover:opacity-80"
                     }`}
+                    style={
+                      isCurrent
+                        ? {
+                            background: "var(--color-bg-card)",
+                            border: "1px solid var(--color-border)",
+                            color: "var(--color-text-muted)",
+                          }
+                        : !plan.popular
+                          ? {
+                              background: "rgba(255,87,34,0.08)",
+                              border: "1px solid rgba(255,87,34,0.3)",
+                              color: "var(--color-orange)",
+                            }
+                          : undefined
+                    }
                   >
                     {loadingPlan === plan.key ? (
                       <>
@@ -404,7 +423,10 @@ export default function BillingSection() {
           Payment history
         </h3>
         <div className="card p-0 overflow-hidden">
-          <div className="hidden md:flex px-6 py-4 border-b border-[var(--color-border)] bg-gray-50/50 items-center text-xs font-bold uppercase tracking-wider text-[var(--color-text-muted)]">
+          <div
+            className="hidden md:flex px-6 py-4 border-b border-[var(--color-border)] items-center text-xs font-bold uppercase tracking-wider text-[var(--color-text-muted)]"
+            style={{ background: "rgba(255,87,34,0.04)" }}
+          >
             <span className="w-32">Date</span>
             <span className="flex-1">Description</span>
             <span className="w-24">Amount</span>
