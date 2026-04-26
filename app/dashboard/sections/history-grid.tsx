@@ -532,7 +532,17 @@ function HistoryCard({ item }: { item: HistoryItem }) {
             </>
           )}
 
-          {/* PENDING — no action row, just the refresh icon overlay on the media */}
+          {/* PENDING — let user cancel/delete an in-flight generation */}
+          {item.status === "pending" && (
+            <ActionBtn
+              title="Delete"
+              onClick={handleDelete}
+              bg={ACTION.delete}
+              disabled={deleting}
+            >
+              <Trash2 className="w-3.5 h-3.5" strokeWidth={2.4} />
+            </ActionBtn>
+          )}
         </div>
       </div>
 
@@ -717,7 +727,6 @@ function EditImageModal({
     "\n\n🚫 Negative Prompt (VERY IMPORTANT)\nextra hands, extra fingers, deformed hands, mutated fingers, bad anatomy, blurry, low quality, duplicate limbs, poorly drawn hands, distorted face, unrealistic proportions, extra arms, cropped hands, missing fingers"
   );
   const [extraRefUrl, setExtraRefUrl] = useState<string>("");
-  const [uploading, setUploading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const fileRef = useRef<HTMLInputElement | null>(null);
 
@@ -731,26 +740,33 @@ function EditImageModal({
     };
   }, [onClose]);
 
-  async function pickFile(f: File | null) {
+  // Local preview only — upload happens at Apply Edit, not on file pick.
+  function pickFile(f: File | null) {
     if (!f) return;
-    setUploading(true);
-    try {
-      const fd = new FormData();
-      fd.append("file", f);
-      const r = await fetch("/api/upload/image", { method: "POST", body: fd });
-      const d = await r.json();
-      if (r.ok && d?.url) setExtraRefUrl(d.url);
-      else alert(d?.error || "Upload failed");
-    } finally {
-      setUploading(false);
-    }
+    const reader = new FileReader();
+    reader.onload = () => setExtraRefUrl(String(reader.result || ""));
+    reader.readAsDataURL(f);
+  }
+
+  // Pass-through if already a public URL; upload data: URLs to RunningHub now.
+  async function ensurePublicUrl(v: string): Promise<string> {
+    if (!v) return "";
+    if (!v.startsWith("data:")) return v;
+    const blob = await (await fetch(v)).blob();
+    const fd = new FormData();
+    fd.append("file", blob, "edit-ref.png");
+    const r = await fetch("/api/upload/image", { method: "POST", body: fd });
+    const d = await r.json();
+    if (!r.ok || !d?.url) throw new Error(d?.error || "Upload failed");
+    return d.url;
   }
 
   async function apply() {
     if (!edit.trim()) return alert("Type an edit instruction first.");
     setSubmitting(true);
     try {
-      const refs = [referenceUrl, extraRefUrl].filter(Boolean);
+      const extraPub = await ensurePublicUrl(extraRefUrl);
+      const refs = [referenceUrl, extraPub].filter(Boolean);
       const r = await fetch("/api/generate/image", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -769,6 +785,8 @@ function EditImageModal({
       } else {
         alert(d?.error || "Edit failed");
       }
+    } catch (e: any) {
+      alert(e?.message || "Edit failed");
     } finally {
       setSubmitting(false);
     }
@@ -846,14 +864,13 @@ function EditImageModal({
             />
             <button
               onClick={() => fileRef.current?.click()}
-              disabled={uploading}
-              className="px-3 py-2 rounded-lg text-xs font-semibold disabled:opacity-50"
+              className="px-3 py-2 rounded-lg text-xs font-semibold"
               style={{ background: "#fafaf7", border: "1px solid #d8e8d0", color: "#1a1a1a" }}
             >
-              {uploading ? "Uploading…" : "Choose File"}
+              Choose File
             </button>
             <span className="text-xs text-gray-500 truncate flex-1">
-              {extraRefUrl ? "Uploaded ✓" : "No file chosen"}
+              {extraRefUrl ? "Selected ✓" : "No file chosen"}
             </span>
           </div>
         </div>
@@ -864,7 +881,7 @@ function EditImageModal({
         >
           <button
             onClick={apply}
-            disabled={submitting || uploading}
+            disabled={submitting}
             className="flex-1 py-3 rounded-lg font-extrabold text-sm text-white transition-transform hover:-translate-y-0.5 disabled:opacity-50 inline-flex items-center justify-center gap-2"
             style={{
               background: "linear-gradient(135deg, #7c4dff, #b388ff)",
