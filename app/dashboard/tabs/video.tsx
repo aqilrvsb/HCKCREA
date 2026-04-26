@@ -302,8 +302,21 @@ export default function VideoTab({ projectId }: { projectId?: string } = {}) {
             lineHeight: 1.5,
           }}
         />
-        <p className="text-[10px] text-gray-500 mt-2">
-          Each shot = 8s. Write dialog with timestamps per shot. ·{" "}
+        <p className="text-[10px] text-gray-500 mt-2 leading-relaxed">
+          Each shot = 8s · Sweet spot{" "}
+          <span className="font-bold text-orange-600">18–22 words</span> of
+          spoken dialog (split: 0-2s hook ≤6 words · 2-6s middle ≤14 words ·
+          6-8s CTA ≤6 words) ·{" "}
+          <span
+            className={
+              prompt.trim().split(/\s+/).filter(Boolean).length > 26
+                ? "text-red-500 font-bold"
+                : "text-gray-700 font-semibold"
+            }
+          >
+            {prompt.trim().split(/\s+/).filter(Boolean).length} words
+          </span>{" "}
+          ·{" "}
           <span className={prompt.length > 950 ? "text-red-500 font-bold" : ""}>
             {prompt.length}/1000
           </span>
