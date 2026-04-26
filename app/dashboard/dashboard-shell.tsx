@@ -26,7 +26,7 @@ type TabKey = "image" | "video" | "clone" | "auto";
 const TABS: { key: TabKey; label: string; icon: any; tag: string }[] = [
   { key: "image", label: "Image", icon: ImageIcon, tag: "01" },
   { key: "video", label: "Video", icon: Video, tag: "02" },
-  { key: "clone", label: "Clone", icon: Layers, tag: "03" },
+  { key: "clone", label: "Clone Prompt", icon: Layers, tag: "03" },
   { key: "auto", label: "Auto Content", icon: Wand2, tag: "04" },
 ];
 
@@ -287,12 +287,9 @@ function ProjectView({
           </>
         )}
         {activeTab === "clone" && (
-          <>
-            <div className="max-w-5xl mx-auto w-full">
-              <CloneTab projectId={project.id} />
-            </div>
-            <HistoryGrid tab="clone" title={`Clone — ${project.name}`} projectId={project.id} />
-          </>
+          <div className="max-w-5xl mx-auto w-full">
+            <CloneTab projectId={project.id} />
+          </div>
         )}
         {activeTab === "auto" && (
           <>

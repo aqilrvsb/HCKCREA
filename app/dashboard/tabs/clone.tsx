@@ -1,42 +1,52 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Loader2, X, Pin } from "lucide-react";
+import { Loader2, X, Pin, Copy, Check } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 
-// Clone tab — 1:1 port of creative-hack-auto's pinterest-mode-section.
-// Light cream canvas + Pinterest-red accent (#e60023). User uploads a
-// reference video, we extract frames in-browser, send to OpenRouter for
-// scene analysis, then fan out N Veo r2v generations using the product
-// image as reference. Process Log streams what's happening so the client
-// can see it's working (deepseek analysis takes ~5-15s).
+// Clone Prompt — input: Pinterest-style reference video + product image →
+// output: list of segment prompts (no video generation). Two output models:
+//   • UGC    → Veo 3.1 (8s segments)
+//   • Cinema → Grok Imagine (up to 30s segments)
+// Browser extracts up to 60 frames at 1 fps; backend slices them per
+// segment and runs parallel vision calls.
 
-type Status = "idle" | "extracting" | "analyzing" | "generating" | "failed";
-type Mode = "video" | "prompt";
+type Status = "idle" | "extracting" | "analyzing" | "failed";
+type Mode = "ugc" | "cinema";
 
 const RED = "#e60023";
 const RED_SOFT = "rgba(230, 0, 35, 0.18)";
 const RED_FAINT = "rgba(230, 0, 35, 0.06)";
 const ORANGE = "#f59e0b";
 
+const MAX_FRAMES = 60;
+const SEG_DUR_UGC = 8;
+const SEG_DUR_CINEMA = 30;
+
 export default function CloneTab({ projectId }: { projectId?: string } = {}) {
   const [videoFile, setVideoFile] = useState<File | null>(null);
   const [videoPreviewUrl, setVideoPreviewUrl] = useState("");
   const [videoDuration, setVideoDuration] = useState(0);
-  const [productImage, setProductImage] = useState(""); // data: URL OR public URL
-  const [mode, setMode] = useState<Mode>("video");
+  const [productImage, setProductImage] = useState("");
+  const [mode, setMode] = useState<Mode>("ugc");
   const [aspect, setAspect] = useState("9:16");
   const [dialog, setDialog] = useState("");
   const [status, setStatus] = useState<Status>("idle");
   const [error, setError] = useState<string | null>(null);
   const [log, setLog] = useState<string[]>([]);
+  const [resultPrompts, setResultPrompts] = useState<string[]>([]);
+  const [resultMode, setResultMode] = useState<Mode>("ugc");
+  const [resultSegDur, setResultSegDur] = useState(8);
   const [showHistoryPicker, setShowHistoryPicker] = useState(false);
 
   const videoInputRef = useRef<HTMLInputElement | null>(null);
   const productInputRef = useRef<HTMLInputElement | null>(null);
 
   function pushLog(line: string) {
-    setLog((prev) => [...prev, `${new Date().toLocaleTimeString("ms-MY", { hour: "numeric", minute: "numeric", second: "numeric" })} · ${line}`]);
+    setLog((prev) => [
+      ...prev,
+      `${new Date().toLocaleTimeString("ms-MY", { hour: "numeric", minute: "numeric", second: "numeric" })} · ${line}`,
+    ]);
   }
 
   function onVideoFile(f: File | null) {
@@ -44,7 +54,6 @@ export default function CloneTab({ projectId }: { projectId?: string } = {}) {
     setVideoFile(f);
     const url = URL.createObjectURL(f);
     setVideoPreviewUrl(url);
-    // Detect duration
     const v = document.createElement("video");
     v.preload = "metadata";
     v.onloadedmetadata = () => {
@@ -61,7 +70,6 @@ export default function CloneTab({ projectId }: { projectId?: string } = {}) {
     reader.readAsDataURL(f);
   }
 
-  // Upload-on-demand: data: URL → public RH URL. Pass-through if already public.
   async function ensurePublicUrl(v: string): Promise<string> {
     if (!v) return "";
     if (!v.startsWith("data:")) return v;
@@ -74,7 +82,6 @@ export default function CloneTab({ projectId }: { projectId?: string } = {}) {
     return d.url;
   }
 
-  // Extract one frame per second from the uploaded video (canvas).
   async function extractFrames(file: File, count: number): Promise<string[]> {
     const url = URL.createObjectURL(file);
     const frames: string[] = [];
@@ -128,16 +135,20 @@ export default function CloneTab({ projectId }: { projectId?: string } = {}) {
     setError(null);
     setStatus("extracting");
     setLog([]);
-    // Sample at 1 fps but cap at 16 frames to keep the request body sane.
-    const frameCount = Math.min(16, Math.max(2, videoDuration));
-    pushLog(`Extracting ${frameCount} frames…`);
+    setResultPrompts([]);
+
+    const frameCount = Math.min(MAX_FRAMES, Math.max(2, videoDuration));
+    const segDur = mode === "cinema" ? SEG_DUR_CINEMA : SEG_DUR_UGC;
+    const segCount = Math.ceil(frameCount / (mode === "cinema" ? 30 : 8));
+
+    pushLog(`Extracting ${frameCount} frames (1 fps)…`);
+    pushLog(`Mode: ${mode === "cinema" ? "Cinema (Grok Imagine, 30s segments)" : "UGC (Veo 3.1, 8s segments)"}`);
+    pushLog(`Will plan ${segCount} segment(s) in parallel.`);
 
     try {
       const frames = await extractFrames(videoFile, frameCount);
-      pushLog(`${frames.length} frames extracted.`);
+      pushLog(`${frames.length} frames extracted ✓`);
 
-      // Product image: only upload if user picked from local. History-picked
-      // URLs are already public.
       setStatus("analyzing");
       let productPub = "";
       if (productImage) {
@@ -150,12 +161,12 @@ export default function CloneTab({ projectId }: { projectId?: string } = {}) {
         }
       }
 
-      pushLog(`Sending ${frames.length} frames + product to OpenRouter (deepseek vision)…`);
+      pushLog(`Sending ${segCount} parallel vision call(s) to OpenRouter (deepseek)…`);
       const r = await fetch("/api/generate/clone", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          frames, // base64 data URLs — OpenRouter accepts directly
+          frames,
           product_image_url: productPub,
           custom_dialog: dialog,
           duration: videoDuration,
@@ -167,18 +178,15 @@ export default function CloneTab({ projectId }: { projectId?: string } = {}) {
       const d = await r.json();
       if (!r.ok || !d?.ok) {
         pushLog(`✗ ${d?.error || "Failed"}`);
-        setError(d?.error || "Failed to start clone");
+        setError(d?.error || "Failed to plan");
         setStatus("failed");
         return;
       }
-      if (mode === "prompt") {
-        pushLog(`Plan received — ${d.segments} prompt(s). (no video generated in Prompt mode)`);
-      } else {
-        pushLog(`Plan received — ${d.segments} segment(s).`);
-        pushLog(`Submitting ${d.segments} Veo generation(s)…`);
-        pushLog(`Done. Total cost RM${Number(d.total_cost || 0).toFixed(2)}.`);
-        window.dispatchEvent(new CustomEvent("history:refresh"));
-      }
+      const got = (d.prompts as string[]) || [];
+      pushLog(`Plan received — ${got.length} prompt(s)${d.partial ? ` (${d.failures} segment(s) failed)` : ""}.`);
+      setResultPrompts(got);
+      setResultMode(d.mode);
+      setResultSegDur(d.seg_duration || segDur);
       setStatus("idle");
     } catch (e: any) {
       pushLog(`✗ ${e?.message || "Network error"}`);
@@ -187,7 +195,7 @@ export default function CloneTab({ projectId }: { projectId?: string } = {}) {
     }
   }
 
-  const busy = status === "extracting" || status === "analyzing" || status === "generating";
+  const busy = status === "extracting" || status === "analyzing";
 
   const sectionBg: React.CSSProperties = {
     background:
@@ -198,23 +206,19 @@ export default function CloneTab({ projectId }: { projectId?: string } = {}) {
 
   return (
     <div className="rounded-3xl p-6 md:p-8 space-y-5" style={sectionBg}>
-      {/* CLONE — header + main controls */}
       <Card borderColor={RED}>
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-2.5">
             <Pin className="w-5 h-5" style={{ color: RED }} strokeWidth={2.4} />
-            <span
-              className="text-[13px] font-extrabold uppercase tracking-[0.06em]"
-              style={{ color: "#1a1a1a" }}
-            >
-              Clone
+            <span className="text-[13px] font-extrabold uppercase tracking-[0.06em]">
+              Clone Prompt
             </span>
           </div>
           <span
             className="text-[10px] font-mono uppercase tracking-wider px-2 py-1 rounded"
             style={{ background: RED_FAINT, color: RED, border: `1px solid ${RED_SOFT}` }}
           >
-            Upload → Analyze → Generate
+            Frames → AI → Prompt(s)
           </span>
         </div>
 
@@ -251,12 +255,13 @@ export default function CloneTab({ projectId }: { projectId?: string } = {}) {
         </button>
         {videoDuration > 0 && (
           <div className="text-[10px] text-gray-500 mb-3">
-            {videoDuration}s detected
+            {videoDuration}s detected · will sample{" "}
+            {Math.min(MAX_FRAMES, videoDuration)} frames (max {MAX_FRAMES})
           </div>
         )}
 
         {/* Product Image */}
-        <Label>Product Image</Label>
+        <Label>Product Image (optional)</Label>
         <input
           ref={productInputRef}
           type="file"
@@ -281,10 +286,7 @@ export default function CloneTab({ projectId }: { projectId?: string } = {}) {
             )}
           </button>
           <div className="flex flex-col gap-1 justify-between">
-            <SmallBtn
-              onClick={() => productInputRef.current?.click()}
-              color={ORANGE}
-            >
+            <SmallBtn onClick={() => productInputRef.current?.click()} color={ORANGE}>
               Upload
             </SmallBtn>
             <SmallBtn onClick={() => setShowHistoryPicker(true)} color={ORANGE}>
@@ -299,10 +301,10 @@ export default function CloneTab({ projectId }: { projectId?: string } = {}) {
         {/* Mode + Size */}
         <div className="flex items-center gap-4 mb-4">
           <div>
-            <Label>Mode</Label>
-            <Select value={mode} onChange={(v) => setMode(v as Mode)} width={100}>
-              <option value="video">Video</option>
-              <option value="prompt">Prompt</option>
+            <Label>Output</Label>
+            <Select value={mode} onChange={(v) => setMode(v as Mode)} width={150}>
+              <option value="ugc">UGC (Veo 3.1, 8s)</option>
+              <option value="cinema">Cinema (Grok, 30s)</option>
             </Select>
           </div>
           <div>
@@ -346,14 +348,10 @@ export default function CloneTab({ projectId }: { projectId?: string } = {}) {
           {busy ? (
             <span className="inline-flex items-center justify-center gap-2">
               <Loader2 className="w-4 h-4 animate-spin" />
-              {status === "extracting"
-                ? "Extracting frames…"
-                : status === "analyzing"
-                  ? "Analyzing…"
-                  : "Generating…"}
+              {status === "extracting" ? "Extracting frames…" : "Analyzing…"}
             </span>
           ) : (
-            <>🎬 Generate Video</>
+            <>📋 Generate Prompt</>
           )}
         </button>
 
@@ -375,10 +373,7 @@ export default function CloneTab({ projectId }: { projectId?: string } = {}) {
       <Card>
         <div className="flex items-center gap-2.5 mb-3">
           <span className="text-lg">📋</span>
-          <span
-            className="text-[13px] font-extrabold uppercase tracking-[0.06em]"
-            style={{ color: "#1a1a1a" }}
-          >
+          <span className="text-[13px] font-extrabold uppercase tracking-[0.06em]">
             Process Log
           </span>
         </div>
@@ -398,6 +393,36 @@ export default function CloneTab({ projectId }: { projectId?: string } = {}) {
         </div>
       </Card>
 
+      {/* Result prompts */}
+      {resultPrompts.length > 0 && (
+        <Card>
+          <div className="flex items-center gap-2.5 mb-3">
+            <span className="text-lg">✨</span>
+            <span className="text-[13px] font-extrabold uppercase tracking-[0.06em]">
+              Generated Prompts
+            </span>
+            <span
+              className="ml-auto text-[10px] font-mono uppercase tracking-wider px-2 py-1 rounded"
+              style={{ background: RED_FAINT, color: RED }}
+            >
+              {resultPrompts.length} ×{" "}
+              {resultMode === "cinema" ? "Cinema" : "UGC"} {resultSegDur}s
+            </span>
+          </div>
+          <div className="space-y-3">
+            {resultPrompts.map((p, i) => (
+              <PromptCard
+                key={i}
+                idx={i}
+                prompt={p}
+                segDur={resultSegDur}
+                mode={resultMode}
+              />
+            ))}
+          </div>
+        </Card>
+      )}
+
       {showHistoryPicker && (
         <HistoryPicker
           onPick={(url) => {
@@ -411,8 +436,86 @@ export default function CloneTab({ projectId }: { projectId?: string } = {}) {
   );
 }
 
-// ── Sub-components (mirror image/video tab style) ─────────────────────────
+// ── PromptCard with copy + send-to-Video ────────────────────────────────
+function PromptCard({
+  idx,
+  prompt,
+  segDur,
+  mode,
+}: {
+  idx: number;
+  prompt: string;
+  segDur: number;
+  mode: Mode;
+}) {
+  const [copied, setCopied] = useState(false);
+  const startSec = idx * segDur;
+  const endSec = startSec + segDur;
 
+  async function copy() {
+    await navigator.clipboard.writeText(prompt);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1800);
+  }
+
+  function sendToVideo() {
+    // Reuses the UGC handoff event the Video tab already listens for.
+    window.dispatchEvent(new CustomEvent("ugc:hand-off", { detail: prompt }));
+  }
+
+  return (
+    <div
+      className="rounded-xl p-3"
+      style={{ background: "#fafaf7", border: "1px solid #e8e0d8" }}
+    >
+      <div className="flex items-center justify-between mb-2">
+        <span
+          className="text-[10px] font-mono uppercase tracking-wider font-bold px-2 py-1 rounded"
+          style={{ background: RED_FAINT, color: RED }}
+        >
+          Segment {idx + 1} · {startSec}-{endSec}s
+        </span>
+        <div className="flex items-center gap-1.5">
+          {mode === "ugc" && (
+            <button
+              type="button"
+              onClick={sendToVideo}
+              className="px-2.5 py-1 rounded-md text-[10px] font-bold transition-transform hover:scale-105"
+              style={{
+                background: "linear-gradient(135deg, #ff5722, #ff7043)",
+                color: "white",
+                boxShadow: "0 2px 6px rgba(255,87,34,0.3)",
+              }}
+            >
+              → Use in Video
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={copy}
+            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[10px] font-bold"
+            style={{
+              background: copied ? "rgba(34,197,94,0.1)" : "#f0f5ec",
+              border: `1px solid ${copied ? "#22c55e" : "#d8e8d0"}`,
+              color: copied ? "#22c55e" : "#1a1a1a",
+            }}
+          >
+            {copied ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
+            {copied ? "Copied" : "Copy"}
+          </button>
+        </div>
+      </div>
+      <pre
+        className="text-[11px] font-mono leading-relaxed whitespace-pre-wrap rounded p-2.5 max-h-72 overflow-y-auto"
+        style={{ background: "#fff", border: "1px solid #e8e0d8", color: "#1a1a1a" }}
+      >
+        {prompt}
+      </pre>
+    </div>
+  );
+}
+
+// ── Sub-components ─────────────────────────────────────────────────────────
 function Card({
   children,
   borderColor,
@@ -521,7 +624,7 @@ function HistoryPicker({
   onClose: () => void;
 }) {
   const [items, setItems] = useState<
-    { id: string; output_url: string; prompt: string | null }[]
+    { id: string; output_url: string }[]
   >([]);
   const [loading, setLoading] = useState(true);
 
@@ -539,7 +642,7 @@ function HistoryPicker({
       const sb = createClient();
       const { data } = await sb
         .from("history")
-        .select("id, output_url, prompt")
+        .select("id, output_url")
         .eq("type", "image")
         .eq("status", "done")
         .not("output_url", "is", null)
