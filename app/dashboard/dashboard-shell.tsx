@@ -12,7 +12,6 @@ import {
 } from "lucide-react";
 import ImageTab from "./tabs/image";
 import VideoTab from "./tabs/video";
-import UgcTab from "./tabs/ugc";
 import CloneTab from "./tabs/clone";
 import AutoContentTab from "./tabs/auto-content";
 import HistoryGrid from "./sections/history-grid";
@@ -281,9 +280,6 @@ function ProjectView({
         )}
         {activeTab === "video" && (
           <>
-            <div className="max-w-5xl mx-auto w-full">
-              <UgcTab />
-            </div>
             <div className="max-w-5xl mx-auto w-full">
               <VideoTab projectId={project.id} />
             </div>

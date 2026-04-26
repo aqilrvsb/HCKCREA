@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Loader2, X } from "lucide-react";
+import { Loader2, Sparkles, X } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
+import UgcTab from "./ugc";
 
 // Video tab — 1:1 port of creative-hack-auto's video-mode-section.
 // Three image modes (frame / ingredient / text), with a Scene card that
@@ -34,6 +35,7 @@ export default function VideoTab({ projectId }: { projectId?: string } = {}) {
   const refInputRef = useRef<HTMLInputElement | null>(null);
 
   const [pickerSlot, setPickerSlot] = useState<RefSlot | null>(null);
+  const [showUgcModal, setShowUgcModal] = useState(false);
 
   // Pick up a prompt handed off from the UGC Prompt Builder rendered above
   // us on the Video page (same-page handoff via custom event). Also reads
@@ -49,6 +51,7 @@ export default function VideoTab({ projectId }: { projectId?: string } = {}) {
     const onHandoff = (e: any) => {
       const text = typeof e?.detail === "string" ? e.detail : "";
       if (text.trim()) setPrompt(text);
+      setShowUgcModal(false);
     };
     window.addEventListener("ugc:hand-off", onHandoff);
     return () => window.removeEventListener("ugc:hand-off", onHandoff);
@@ -181,7 +184,31 @@ export default function VideoTab({ projectId }: { projectId?: string } = {}) {
 
       {/* SCENE — adapts to image mode */}
       <Card>
-        <CardHeader icon="🎞️" title="Scene" />
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-2.5">
+            <span className="text-lg">🎞️</span>
+            <span
+              className="text-[13px] font-extrabold uppercase tracking-[0.06em]"
+              style={{ color: "#1a1a1a" }}
+            >
+              Scene
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setShowUgcModal(true)}
+            title="UGC Prompt Builder — 5-block Veo formula"
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[10px] font-extrabold uppercase tracking-wider transition-transform hover:-translate-y-0.5"
+            style={{
+              background: "linear-gradient(135deg, #25f4ee, #00bfa5)",
+              color: "white",
+              boxShadow: "0 4px 12px rgba(37,244,238,0.3)",
+            }}
+          >
+            <Sparkles className="w-3.5 h-3.5" strokeWidth={2.6} />
+            Prompt Builder
+          </button>
+        </div>
 
         {imageMode === "text" && (
           <div
@@ -345,6 +372,66 @@ export default function VideoTab({ projectId }: { projectId?: string } = {}) {
           onClose={() => setPickerSlot(null)}
         />
       )}
+
+      {showUgcModal && <UgcModal onClose={() => setShowUgcModal(false)} />}
+    </div>
+  );
+}
+
+// ── UGC Prompt Builder Modal ───────────────────────────────────────────────
+// Wraps the existing UgcTab in a centered modal. UgcTab dispatches
+// `ugc:hand-off` on Use-in-Video; the parent VideoTab listens and closes the
+// modal when that fires (see useEffect above).
+function UgcModal({ onClose }: { onClose: () => void }) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    window.addEventListener("keydown", onKey);
+    document.body.style.overflow = "hidden";
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      document.body.style.overflow = "";
+    };
+  }, [onClose]);
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      style={{ background: "rgba(0,0,0,0.7)", backdropFilter: "blur(8px)" }}
+      onClick={onClose}
+    >
+      <div
+        className="rounded-2xl max-w-3xl w-full max-h-[92vh] flex flex-col overflow-hidden"
+        style={{
+          background: "var(--color-bg-card, #0f0f0f)",
+          border: "2px solid #25f4ee",
+          boxShadow: "0 20px 60px rgba(37,244,238,0.25)",
+        }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div
+          className="flex items-center justify-between px-5 py-4 border-b flex-shrink-0"
+          style={{ borderColor: "rgba(37,244,238,0.25)" }}
+        >
+          <div className="flex items-center gap-2.5">
+            <Sparkles className="w-5 h-5" style={{ color: "#25f4ee" }} strokeWidth={2.4} />
+            <h2 className="font-display font-extrabold text-lg" style={{ color: "#25f4ee" }}>
+              UGC Prompt Builder
+            </h2>
+          </div>
+          <button
+            onClick={onClose}
+            className="w-8 h-8 rounded-lg flex items-center justify-center hover:bg-white/10 transition"
+            style={{ color: "var(--color-text-secondary, #aaa)" }}
+            aria-label="Close"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-5">
+          <UgcTab />
+        </div>
+      </div>
     </div>
   );
 }
