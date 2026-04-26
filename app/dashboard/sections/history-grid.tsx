@@ -36,6 +36,7 @@ export type HistoryItem = {
   task_id: string | null;
   error_message: string | null;
   created_at: string;
+  project_id: string | null;
   metadata?: { model?: string; name?: string; [k: string]: any } | null;
 };
 
@@ -548,6 +549,7 @@ function HistoryCard({ item }: { item: HistoryItem }) {
         <EditImageModal
           referenceUrl={item.output_url}
           model={item.metadata?.model || "nano-banana-pro"}
+          projectId={item.project_id}
           onClose={() => setShowEditModal(false)}
         />
       )}
@@ -558,6 +560,7 @@ function HistoryCard({ item }: { item: HistoryItem }) {
           parentId={item.id}
           referenceUrl={item.reference_url || item.output_url}
           originalPrompt={item.prompt || ""}
+          projectId={item.project_id}
           onClose={() => setShowEditModal(false)}
         />
       )}
@@ -721,10 +724,12 @@ const ACTION_GREEN_BORDER = "#4caf50";
 function EditImageModal({
   referenceUrl,
   model,
+  projectId,
   onClose,
 }: {
   referenceUrl: string;
   model: string;
+  projectId: string | null;
   onClose: () => void;
 }) {
   const [edit, setEdit] = useState(
@@ -781,6 +786,7 @@ function EditImageModal({
           reference_url: refs[0],
           reference_urls: refs.length > 1 ? refs : undefined,
           aspect_ratio: "9:16",
+          project_id: projectId,
         }),
       });
       const d = await r.json();
@@ -1091,11 +1097,13 @@ function ImproveVideoModal({
   parentId,
   referenceUrl,
   originalPrompt,
+  projectId,
   onClose,
 }: {
   parentId: string;
   referenceUrl: string;
   originalPrompt: string;
+  projectId: string | null;
   onClose: () => void;
 }) {
   const [suggestion, setSuggestion] = useState("");
@@ -1144,6 +1152,7 @@ function ImproveVideoModal({
           duration: "8",
           image_mode: imageMode,
           aspect_ratio: "9:16",
+          project_id: projectId,
         }),
       });
       const d = await r.json();
