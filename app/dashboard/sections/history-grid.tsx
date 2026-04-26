@@ -728,6 +728,7 @@ function EditImageModal({
   );
   const [extraRefUrl, setExtraRefUrl] = useState<string>("");
   const [submitting, setSubmitting] = useState(false);
+  const [showHistoryPicker, setShowHistoryPicker] = useState(false);
   const fileRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
@@ -854,25 +855,71 @@ function EditImageModal({
           <label className="block text-[10px] font-bold uppercase tracking-wider mb-2" style={{ color: "#666" }}>
             Reference image (optional)
           </label>
-          <div className="flex items-center gap-2">
-            <input
-              ref={fileRef}
-              type="file"
-              accept="image/*"
-              className="hidden"
-              onChange={(e) => pickFile(e.target.files?.[0] || null)}
-            />
+          <input
+            ref={fileRef}
+            type="file"
+            accept="image/*"
+            className="hidden"
+            onChange={(e) => pickFile(e.target.files?.[0] || null)}
+          />
+          <div className="flex items-stretch gap-2">
+            {/* Preview thumbnail (uploaded data URL OR picked-from-history URL) */}
             <button
+              type="button"
               onClick={() => fileRef.current?.click()}
-              className="px-3 py-2 rounded-lg text-xs font-semibold"
-              style={{ background: "#fafaf7", border: "1px solid #d8e8d0", color: "#1a1a1a" }}
+              className="relative w-20 h-20 rounded-lg overflow-hidden flex-shrink-0 flex items-center justify-center"
+              style={{
+                border: extraRefUrl ? "2px solid #b388ff" : "2px dashed #d8e8d0",
+                background: extraRefUrl ? "#000" : "#fafaf7",
+              }}
+              aria-label={extraRefUrl ? "Replace image" : "Upload image"}
             >
-              Choose File
+              {extraRefUrl ? (
+                <img src={extraRefUrl} alt="" className="w-full h-full object-cover" />
+              ) : (
+                <span className="text-2xl opacity-60">📦</span>
+              )}
             </button>
-            <span className="text-xs text-gray-500 truncate flex-1">
-              {extraRefUrl ? "Selected ✓" : "No file chosen"}
-            </span>
+
+            <div className="flex flex-col gap-1.5 justify-center">
+              <button
+                type="button"
+                onClick={() => setShowHistoryPicker(true)}
+                className="px-3 py-1.5 rounded-md text-[10px] font-bold"
+                style={{ background: "rgba(124,77,255,0.08)", border: "1px solid #b388ff", color: "#7c4dff" }}
+              >
+                From History
+              </button>
+              <button
+                type="button"
+                onClick={() => fileRef.current?.click()}
+                className="px-3 py-1.5 rounded-md text-[10px] font-bold"
+                style={{ background: "#fafaf7", border: "1px solid #d8e8d0", color: "#1a1a1a" }}
+              >
+                Upload
+              </button>
+              {extraRefUrl && (
+                <button
+                  type="button"
+                  onClick={() => setExtraRefUrl("")}
+                  className="px-3 py-1.5 rounded-md text-[10px] font-bold"
+                  style={{ background: "rgba(244,67,54,0.08)", border: "1px solid rgba(244,67,54,0.4)", color: "#c62828" }}
+                >
+                  Clear
+                </button>
+              )}
+            </div>
           </div>
+
+          {showHistoryPicker && (
+            <EditImagePicker
+              onPick={(url) => {
+                setExtraRefUrl(url);
+                setShowHistoryPicker(false);
+              }}
+              onClose={() => setShowHistoryPicker(false)}
+            />
+          )}
         </div>
 
         <div
@@ -898,6 +945,107 @@ function EditImageModal({
           >
             Cancel
           </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Picks a previously-generated image URL — used by the Edit Image modal
+// for swapping in a reference. Filters to type=image, status=done.
+function EditImagePicker({
+  onPick,
+  onClose,
+}: {
+  onPick: (url: string) => void;
+  onClose: () => void;
+}) {
+  const [items, setItems] = useState<
+    { id: string; output_url: string; prompt: string | null }[]
+  >([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    void load();
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  async function load() {
+    setLoading(true);
+    try {
+      const sb = createClient();
+      const { data } = await sb
+        .from("history")
+        .select("id, output_url, prompt")
+        .eq("type", "image")
+        .eq("status", "done")
+        .not("output_url", "is", null)
+        .order("created_at", { ascending: false })
+        .limit(60);
+      setItems((data as any) || []);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-[60] flex items-center justify-center p-4"
+      style={{ background: "rgba(0,0,0,0.7)", backdropFilter: "blur(8px)" }}
+      onClick={onClose}
+    >
+      <div
+        className="rounded-2xl max-w-2xl w-full max-h-[80vh] overflow-hidden flex flex-col"
+        style={{
+          background: "#ffffff",
+          border: "2px solid #b388ff",
+          boxShadow: "0 20px 60px rgba(124,77,255,0.3)",
+        }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div
+          className="flex items-center justify-between px-5 py-4 border-b"
+          style={{ borderColor: "#e8e0d8" }}
+        >
+          <h3 className="font-display font-extrabold text-base" style={{ color: "#7c4dff" }}>
+            Pick from History
+          </h3>
+          <button
+            onClick={onClose}
+            className="w-8 h-8 rounded-full flex items-center justify-center hover:bg-gray-100"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+        <div className="flex-1 overflow-y-auto p-4">
+          {loading ? (
+            <div className="py-12 text-center text-sm text-gray-500">
+              <Loader2 className="w-5 h-5 animate-spin inline-block mr-2" style={{ color: "#7c4dff" }} />
+              Loading…
+            </div>
+          ) : items.length === 0 ? (
+            <div className="py-12 text-center text-sm text-gray-500">
+              Belum ada image dalam history.
+            </div>
+          ) : (
+            <div className="grid grid-cols-3 gap-3">
+              {items.map((it) => (
+                <button
+                  key={it.id}
+                  onClick={() => onPick(it.output_url)}
+                  className="aspect-square rounded-lg overflow-hidden border-2 transition-all hover:-translate-y-0.5"
+                  style={{ borderColor: "#e8e0d8", background: "#fafaf7" }}
+                  onMouseEnter={(e) => (e.currentTarget.style.borderColor = "#b388ff")}
+                  onMouseLeave={(e) => (e.currentTarget.style.borderColor = "#e8e0d8")}
+                >
+                  <img src={it.output_url} alt="" className="w-full h-full object-cover" />
+                </button>
+              ))}
+            </div>
+          )}
         </div>
       </div>
     </div>
