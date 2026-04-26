@@ -47,13 +47,11 @@ export default function HistoryGrid({
 
   useEffect(() => {
     void load();
+    // Only refresh on explicit dispatch (webhook completes → user clicks
+    // per-card refresh icon → user re-enters tab). No background polling.
     const onRefresh = () => load();
     window.addEventListener("history:refresh", onRefresh);
-    const interval = setInterval(load, 8000);
-    return () => {
-      window.removeEventListener("history:refresh", onRefresh);
-      clearInterval(interval);
-    };
+    return () => window.removeEventListener("history:refresh", onRefresh);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab]);
 
@@ -73,20 +71,6 @@ export default function HistoryGrid({
     }
   }
 
-  // Server-side settle for pending rows
-  useEffect(() => {
-    const pending = items.filter((i) => i.status === "pending" && i.task_id);
-    if (!pending.length) return;
-    const t = setTimeout(() => {
-      Promise.all(
-        pending.map((p) =>
-          fetch(`/api/generate/status?id=${p.id}`, { cache: "no-store" }).catch(() => null)
-        )
-      ).then(() => load());
-    }, 5000);
-    return () => clearTimeout(t);
-  }, [items]);
-
   const counts = useMemo(
     () => ({
       total: items.length,
@@ -104,24 +88,9 @@ export default function HistoryGrid({
             History — {title}
           </h2>
         </div>
-        <div className="flex items-center gap-2">
-          {counts.pending > 0 && (
-            <span className="text-xs font-bold flex items-center gap-1" style={{ color: "var(--color-orange)" }}>
-              <Loader2 className="w-3 h-3 animate-spin" />
-              {counts.pending} pending
-            </span>
-          )}
-          <span className="text-xs text-[var(--color-text-muted)] font-mono">
-            {counts.total} items
-          </span>
-          <button
-            onClick={load}
-            className="p-1.5 rounded-lg hover:bg-white/5"
-            title="Refresh"
-          >
-            <RefreshCw className="w-3.5 h-3.5" />
-          </button>
-        </div>
+        <span className="text-xs text-[var(--color-text-muted)] font-mono">
+          {counts.total} items
+        </span>
       </div>
 
       {items.length === 0 ? (

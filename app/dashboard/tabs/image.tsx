@@ -3,6 +3,15 @@
 import { useEffect, useRef, useState } from "react";
 import { Loader2, X } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
+import {
+  AVATAR_PROMPTS,
+  AVATAR_LABELS,
+  PRODUCT_PROMPTS as EXT_PRODUCT_PROMPTS,
+  PRODUCT_LABELS,
+  SOFT_SELL_PROMPT,
+  HARD_SELL_PROMPT,
+  VIRT_EXAMPLE_PROMPT,
+} from "@/lib/extension-prompts";
 
 // Image tab — 1:1 port of creative-hack-auto's image-mode-section.
 // Light/white cards on cream canvas, orange accents (was green).
@@ -23,35 +32,23 @@ const ORANGE_SOFT = "rgba(255, 87, 34, 0.18)";
 const ORANGE_FAINT = "rgba(255, 87, 34, 0.06)";
 
 // Avatar prompt presets — one chip per persona, color-coded like the extension
-const AVATAR_FEMALE = [
-  { label: "Kebaya 20s", color: "#e91e63", val: "Photoreal portrait of a young attractive Malay woman in her 20s wearing a traditional kebaya, soft natural lighting, holding the product elegantly, warm Malaysian aesthetic, vertical 9:16 composition" },
-  { label: "Casual 20s", color: "#e91e63", val: "Photoreal portrait of a young Malay woman in her 20s with shoulder-length wavy hair, casual cream blouse, holding the product naturally, soft daylight, authentic UGC vibe, vertical 9:16" },
-  { label: "Makcik", color: "#9c27b0", val: "Photoreal portrait of a warm middle-aged Malay woman in her 40s wearing a maroon hijab, motherly smile, holding the product, kitchen background in soft bokeh, vertical 9:16" },
-  { label: "Kitchen", color: "#9c27b0", val: "Photoreal portrait of a Malay woman in her 30s in a casual home outfit, standing in a sunlit kitchen, holding the product near a wok, warm tungsten lighting, vertical 9:16" },
-  { label: "Nenek", color: "#ff9800", val: "Photoreal portrait of an elderly gentle Malay grandmother in her 60s wearing a soft pastel hijab, warm wise smile, holding the product, soft window daylight, vertical 9:16" },
-  { label: "Nenek Garden", color: "#ff9800", val: "Photoreal portrait of an elderly Malay grandmother holding the product in a sunlit garden setting, plants and greenery in soft bokeh, golden hour, peaceful vibe, vertical 9:16" },
-];
+// Build chip lists from extension's exact prompts (idx-based)
+const AVATAR_FEMALE = AVATAR_LABELS
+  .filter((a) => !a.male && a.idx <= 5)
+  .map((a) => ({ label: a.label, color: a.color, val: AVATAR_PROMPTS[a.idx] }));
+const AVATAR_MALE = AVATAR_LABELS
+  .filter((a) => a.idx >= 6)
+  .map((a) => ({ label: a.label, color: a.color, val: AVATAR_PROMPTS[a.idx] }));
 
-const AVATAR_MALE = [
-  { label: "Baju Melayu 20s", color: "#2196f3", val: "Photoreal portrait of a young Malay man in his 20s wearing a baju melayu, neat appearance, holding the product, warm cultural aesthetic, soft daylight, vertical 9:16" },
-  { label: "Casual 20s", color: "#2196f3", val: "Photoreal portrait of a young Malay man in his 20s wearing a casual dark tee, confident genuine smile, holding the product, soft daylight, authentic UGC, vertical 9:16" },
-  { label: "Abang Pro", color: "#009688", val: "Photoreal portrait of a Malay man in his 30s in a smart-casual shirt, professional confident demeanor, holding the product, office or studio backdrop, vertical 9:16" },
-  { label: "Pakcik", color: "#795548", val: "Photoreal portrait of a friendly middle-aged Malay man in his 40s, casual short sleeve, warm welcoming smile, holding the product, soft daylight, vertical 9:16" },
-];
-
-const PRODUCT_PROMPTS = [
-  { label: "Smoke Rock", color: "#00bcd4", val: "Cinematic product shot of the product on a dark volcanic rock surface with wisps of smoke around it, dramatic side lighting, hyperreal commercial photography, 1:1 composition" },
-  { label: "Floating Wood", color: "#795548", val: "Cinematic product shot of the product floating above a polished wood surface with soft shadow beneath, warm spotlight, premium product photography, 1:1 composition" },
-  { label: "Burst Spice", color: "#ff9800", val: "Hyperreal product shot of the product surrounded by bursting spice particles mid-air, vibrant orange-red palette, dynamic energy, commercial photography, 1:1" },
-  { label: "Moss Garden", color: "#4caf50", val: "Cinematic product shot of the product nestled in lush green moss with dewdrops, soft natural light, organic premium feel, 1:1 composition" },
-  { label: "Water Drop", color: "#2196f3", val: "Hyperreal product shot of the product with a giant crystal-clear water splash erupting around it, frozen mid-action, cinematic backlighting, 1:1" },
-  { label: "Stone Leaf", color: "#9c27b0", val: "Cinematic product shot of the product placed on smooth stone slab with a single fresh leaf beside it, minimalist zen aesthetic, soft daylight, 1:1" },
-  { label: "Mist Powder", color: "#009688", val: "Hyperreal product shot of the product with fine powder mist drifting around it, dreamy atmospheric look, side lighting, premium feel, 1:1" },
-];
+const PRODUCT_PROMPTS = PRODUCT_LABELS.map((p) => ({
+  label: p.label,
+  color: p.color,
+  val: EXT_PRODUCT_PROMPTS[p.idx],
+}));
 
 const SALES_PROMPTS = [
-  { label: "Soft Sales", color: "#4caf50", val: "Authentic UGC-style image of a relatable everyday Malay person holding the product naturally, warm friendly expression, soft natural lighting, makes the viewer feel 'this is a real person who actually uses this' — gentle storytelling vibe, vertical 9:16" },
-  { label: "Hard Sell", color: "#f44336", val: "Bold high-impact image of the product with dramatic lighting, '50% OFF' or urgency feel, vibrant red and orange color palette, eye-catching commercial poster aesthetic, vertical 9:16, optimized for thumb-stop on TikTok feed" },
+  { label: "Soft Sales", color: "#4caf50", val: SOFT_SELL_PROMPT },
+  { label: "Hard Sell", color: "#f44336", val: HARD_SELL_PROMPT },
 ];
 
 type RefSlot = "char" | "product" | "poster" | "virtProduct";
@@ -97,37 +94,9 @@ export default function ImageTab() {
     setPickerSlot(null);
   }
 
-  // Poll status
-  useEffect(() => {
-    if (!historyId || (status !== "polling" && status !== "submitting")) return;
-    let mounted = true;
-    const tick = async () => {
-      try {
-        const r = await fetch(`/api/generate/status?id=${historyId}`, { cache: "no-store" });
-        const d = await r.json();
-        if (!mounted) return;
-        const h = d?.history;
-        if (h?.status === "done") {
-          setOutputUrl(h.output_url);
-          setStatus("done");
-          window.dispatchEvent(new CustomEvent("history:refresh"));
-          return;
-        }
-        if (h?.status === "failed") {
-          setError(h.error_message || "Generation failed");
-          setStatus("failed");
-          return;
-        }
-      } catch {}
-      if (mounted && (status === "polling" || status === "submitting")) {
-        setTimeout(tick, 4000);
-      }
-    };
-    setStatus("polling");
-    tick();
-    return () => { mounted = false; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [historyId]);
+  // No client poll — webhook + manual refresh icon on the history card
+  // settle pending rows. We just dispatch history:refresh after submit so
+  // the placeholder appears immediately.
 
   // Show local preview instantly, upload in background, swap to public URL.
   // Crun.ai requires public HTTPS URLs (cannot accept data: URLs).
@@ -371,7 +340,7 @@ export default function ImageTab() {
             AI will recreate the poster design with your actual product. Keep exact product details, labels, and packaging.
           </p>
           <button
-            onClick={() => setPrompt("Recreate the uploaded poster with the new product, keeping the exact original layout, typography, and design — only swap the product visual to match the second uploaded image. Preserve all text, colors, and composition.")}
+            onClick={() => setPrompt(VIRT_EXAMPLE_PROMPT)}
             className="mt-2 w-full py-1.5 rounded-md text-xs font-bold transition"
             style={{
               background: "rgba(233,30,99,0.08)",
