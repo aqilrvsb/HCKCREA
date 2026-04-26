@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import {
   Sparkles,
   CreditCard,
@@ -20,11 +21,39 @@ export default async function AdminLayout({
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) redirect("/login");
-  const { data: profile } = await supabase
+
+  // Use maybeSingle() so a missing profile row doesn't throw a 500
+  let { data: profile } = await supabase
     .from("profiles")
     .select("is_admin, full_name")
     .eq("id", user.id)
-    .single();
+    .maybeSingle();
+
+  // Self-heal: if the profiles row is missing (e.g. user was created via
+  // Supabase Dashboard before the handle_new_user trigger existed), insert
+  // a default row now via the admin client. They land in /dashboard until
+  // is_admin is flipped manually.
+  if (!profile) {
+    const admin = createAdminClient();
+    await admin.from("profiles").upsert(
+      {
+        id: user.id,
+        full_name:
+          (user.user_metadata?.full_name as string) ||
+          user.email?.split("@")[0] ||
+          null,
+        whatsapp: (user.user_metadata?.whatsapp as string) || null,
+      },
+      { onConflict: "id" }
+    );
+    const { data: refreshed } = await supabase
+      .from("profiles")
+      .select("is_admin, full_name")
+      .eq("id", user.id)
+      .maybeSingle();
+    profile = refreshed;
+  }
+
   if (!profile?.is_admin) redirect("/dashboard");
 
   const NAV = [
