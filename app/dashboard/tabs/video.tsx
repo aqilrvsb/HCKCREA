@@ -406,7 +406,7 @@ function UgcModal({ onClose }: { onClose: () => void }) {
       <div
         className="rounded-2xl max-w-3xl w-full max-h-[92vh] flex flex-col overflow-hidden"
         style={{
-          background: "var(--color-bg-card, #0f0f0f)",
+          background: "#fafaf7",
           border: "2px solid #25f4ee",
           boxShadow: "0 20px 60px rgba(37,244,238,0.25)",
         }}
@@ -414,18 +414,21 @@ function UgcModal({ onClose }: { onClose: () => void }) {
       >
         <div
           className="flex items-center justify-between px-5 py-4 border-b flex-shrink-0"
-          style={{ borderColor: "rgba(37,244,238,0.25)" }}
+          style={{ borderColor: "#d8e8d0", background: "#ffffff" }}
         >
           <div className="flex items-center gap-2.5">
             <Sparkles className="w-5 h-5" style={{ color: "#25f4ee" }} strokeWidth={2.4} />
-            <h2 className="font-display font-extrabold text-lg" style={{ color: "#25f4ee" }}>
+            <h2 className="font-display font-extrabold text-lg" style={{ color: "#1a1a1a" }}>
               UGC Prompt Builder
+              <span className="ml-2 text-xs font-normal text-gray-500">
+                5-Part Veo 3.1 Formula
+              </span>
             </h2>
           </div>
           <button
             onClick={onClose}
-            className="w-8 h-8 rounded-lg flex items-center justify-center hover:bg-white/10 transition"
-            style={{ color: "var(--color-text-secondary, #aaa)" }}
+            className="w-8 h-8 rounded-lg flex items-center justify-center hover:bg-gray-100 transition"
+            style={{ color: "#666" }}
             aria-label="Close"
           >
             <X className="w-4 h-4" />

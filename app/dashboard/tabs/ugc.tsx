@@ -1,12 +1,20 @@
 "use client";
 
 import { useState } from "react";
-import { Film, Mic, Sparkles, Copy, Save, Upload, ArrowRight } from "lucide-react";
+import { Sparkles, Copy, Save, Upload, ArrowRight } from "lucide-react";
 
-// UGC Prompt Builder — V2 Master JSON System (port from creative-hack-auto)
-// Five blocks the user fills: Shot Type / Subject / Action / Dialog (0-2 / 2-6 / 6-8) / Tone+Voice / Style
-// "Build Prompt" assembles into a polished Veo 3.1-ready string.
-// "Use in Video" stashes to localStorage so the Video tab picks it up.
+// UGC Prompt Builder — V2 (light theme, natural-language output).
+// 5-block builder: Shot Type / Subject / Action / Dialog (0-2 / 2-6 / 6-8) /
+// Tone+Voice+Style. "Build Prompt" assembles into a single Veo 3.1-ready
+// paragraph; "Use in Video" dispatches the same prompt into the Video tab
+// via a custom event.
+
+const TEAL = "#25f4ee";
+const TEAL_SOFT = "rgba(37, 244, 238, 0.18)";
+const TEAL_FAINT = "rgba(37, 244, 238, 0.06)";
+const ORANGE = "#ff5722";
+const GREEN = "#22c55e";
+const RED = "#f44336";
 
 const SHOT_PRESETS = [
   { label: "Medium", val: "Medium shot, waist up" },
@@ -55,6 +63,45 @@ const VOICES = [
 
 const TONES = ["santai", "excited", "confident", "friendly", "urgent", "storytelling"];
 
+// Always-appended "lock" paragraph keeping Veo on-brief.
+const LOCK_BLOCK =
+  "The character speaks directly to camera with clear voice. NO background music, NO instrumental, NO sound effects. All audio is spoken dialog only. NO subtitles or text overlays, NO on-screen dialogue text. Reduce contrast, natural skintone, soft highlights, low contrast, soft colors, natural tone, film look, soft light. Clean vertical video frame with no interface overlay, no icons, no overlay elements.";
+
+// Stitch all the inputs into a natural-language Veo 3.1 prompt. No bracketed
+// section tags — just flowing sentences, the way the user wants it.
+function buildPrompt(args: {
+  shot: string;
+  subject: string;
+  action: string;
+  hook: string;
+  middle: string;
+  cta: string;
+  tone: string;
+  voice: string;
+  style: string;
+}): string {
+  const sceneLine = [args.shot, args.subject].filter(Boolean).join(", ");
+  const head = [sceneLine, args.action].filter(Boolean).join(". ");
+  const dialogLines = [
+    args.hook ? `0–2s: "${args.hook}"` : "",
+    args.middle ? `2–6s: "${args.middle}"` : "",
+    args.cta ? `6–8s: "${args.cta}"` : "",
+  ].filter(Boolean);
+  const dialogBlock = dialogLines.length
+    ? "Spoken dialog:\n" + dialogLines.join("\n")
+    : "";
+  const tvs = [
+    args.tone ? `Tone: ${args.tone}` : "",
+    args.voice ? `Voice: ${args.voice}` : "",
+    args.style ? `Style: ${args.style}` : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
+  return [head, dialogBlock, tvs, LOCK_BLOCK]
+    .filter(Boolean)
+    .join("\n\n");
+}
+
 export default function UgcTab() {
   const [shot, setShot] = useState(SHOT_PRESETS[0].val);
   const [subject, setSubject] = useState(
@@ -71,38 +118,7 @@ export default function UgcTab() {
   const [copied, setCopied] = useState(false);
 
   function build() {
-    const dialog = [
-      hook ? `0-2s: "${hook}"` : "",
-      middle ? `2-6s: "${middle}"` : "",
-      cta ? `6-8s: "${cta}"` : "",
-    ]
-      .filter(Boolean)
-      .join("\n");
-
-    const prompt = [
-      `[SHOT TYPE]`,
-      shot,
-      ``,
-      `[SUBJECT]`,
-      subject,
-      ``,
-      `[ACTION]`,
-      action,
-      ``,
-      `[DIALOG SCRIPT — Bahasa Melayu]`,
-      dialog || "(no dialog)",
-      ``,
-      `[TONE]`,
-      tone,
-      ``,
-      `[VOICE]`,
-      voice,
-      ``,
-      `[STYLE]`,
-      style,
-    ].join("\n");
-
-    setOutput(prompt);
+    setOutput(buildPrompt({ shot, subject, action, hook, middle, cta, tone, voice, style }));
     setCopied(false);
   }
 
@@ -114,30 +130,9 @@ export default function UgcTab() {
   }
 
   function useInVideo() {
-    // Build the prompt if not already built, then push it directly into the
-    // Video Generator below us via a custom event. Same-page handoff — no
-    // tab switching needed because UGC is rendered above VideoTab.
-    let final = output;
-    if (!final) {
-      // Synthesize the same string build() would create (build() is async via
-      // setState so we can't read output immediately). Inline minimal version:
-      const dialog = [
-        hook ? `0-2s: "${hook}"` : "",
-        middle ? `2-6s: "${middle}"` : "",
-        cta ? `6-8s: "${cta}"` : "",
-      ].filter(Boolean).join("\n");
-      final = [
-        "[SHOT TYPE]", shot, "",
-        "[SUBJECT]", subject, "",
-        "[ACTION]", action, "",
-        "[DIALOG]", dialog || "(no dialog)", "",
-        `[TONE] ${tone}`,
-        `[VOICE] ${voice}`,
-        "",
-        "[STYLE]", style,
-      ].join("\n");
-      setOutput(final);
-    }
+    const final =
+      output || buildPrompt({ shot, subject, action, hook, middle, cta, tone, voice, style });
+    if (!output) setOutput(final);
     window.dispatchEvent(new CustomEvent("ugc:hand-off", { detail: final }));
   }
 
@@ -175,197 +170,178 @@ export default function UgcTab() {
   }
 
   return (
-    <div className="space-y-5">
-      {/* Header */}
-      <div className="flex items-center gap-3 pb-4 border-b border-[var(--color-border)]">
-        <div
-          className="w-11 h-11 rounded-2xl flex items-center justify-center"
-          style={{
-            background: "rgba(37,244,238,0.1)",
-            border: "1px solid rgba(37,244,238,0.3)",
-          }}
-        >
-          <Sparkles className="w-5 h-5" style={{ color: "#25f4ee" }} strokeWidth={2.4} />
-        </div>
-        <div>
-          <h2 className="font-display font-bold text-xl text-[var(--color-text-primary)]">
-            UGC Prompt Builder
-          </h2>
-          <p className="text-xs text-[var(--color-text-muted)]">
-            5-Part Veo 3.1 Formula — Shot, Subject, Action, Dialog, Style
-          </p>
-        </div>
-      </div>
-
+    <div className="space-y-4" style={{ color: "#1a1a1a" }}>
       {/* 1. Scene Setup */}
-      <Card title="Scene Setup" icon={<Film className="w-4 h-4" />}>
+      <Card borderColor={TEAL}>
+        <CardHeader icon="🎬" title="Scene Setup" badge="5-Part Veo Formula" badgeColor={TEAL} />
+
         <Label>Shot Type</Label>
-        <PresetRow presets={SHOT_PRESETS} active={shot} onPick={setShot} />
-        <input
-          className="input mt-2"
+        <PresetRow
+          presets={SHOT_PRESETS}
+          active={shot}
+          onPick={setShot}
+          activeColor={TEAL}
+          inactiveColor="#1a1a1a"
+        />
+        <Field
           value={shot}
-          onChange={(e) => setShot(e.target.value)}
+          onChange={setShot}
+          rows={1}
         />
 
         <Label className="mt-4">Subject (from reference image)</Label>
-        <input
-          className="input"
-          value={subject}
-          onChange={(e) => setSubject(e.target.value)}
-        />
-        <p className="text-[10px] text-[var(--color-text-muted)] mt-1">
-          Veo 3.1 follows the reference image for character + product
+        <Field value={subject} onChange={setSubject} rows={1} />
+        <p className="text-[10px] text-gray-500 mt-1">
+          Veo follows your reference image for character + product
         </p>
 
         <Label className="mt-4">Action</Label>
-        <PresetRow presets={ACTION_PRESETS} active={action} onPick={setAction} />
-        <textarea
-          className="input mt-2"
-          rows={2}
-          value={action}
-          onChange={(e) => setAction(e.target.value)}
+        <PresetRow
+          presets={ACTION_PRESETS}
+          active={action}
+          onPick={setAction}
+          activeColor={ORANGE}
+          inactiveColor="#1a1a1a"
         />
+        <Field value={action} onChange={setAction} rows={2} />
       </Card>
 
       {/* 2. Dialog Script */}
-      <Card title="Dialog Script" icon={<Mic className="w-4 h-4" />} badge="8 seconds">
-        <div className="space-y-3">
-          <div>
-            <Label color="#22d3ee">0-2s · Beginning (Hook)</Label>
-            <input
-              className="input"
-              placeholder='e.g. "Ini rahsia cik somi balik awal!"'
-              value={hook}
-              onChange={(e) => setHook(e.target.value)}
-            />
-          </div>
-          <div>
-            <Label color="#fb923c">2-6s · Middle (Value)</Label>
-            <textarea
-              className="input"
-              rows={2}
-              placeholder='e.g. "Ramai kawan complain cik somi dia selalu balik lewat..."'
-              value={middle}
-              onChange={(e) => setMiddle(e.target.value)}
-            />
-          </div>
-          <div>
-            <Label color="#f87171">6-8s · Closing (CTA)</Label>
-            <input
-              className="input"
-              placeholder='e.g. "Order yang ni, baru puas hati!"'
-              value={cta}
-              onChange={(e) => setCta(e.target.value)}
-            />
-            <div className="flex flex-wrap gap-1.5 mt-2">
-              {CTA_PRESETS.map((p) => (
-                <button
-                  key={p.label}
-                  onClick={() => setCta(p.val)}
-                  className="text-[10px] font-bold px-2 py-1 rounded-md transition-colors"
-                  style={{
-                    background: "rgba(255,87,34,0.1)",
-                    color: "var(--color-orange)",
-                    border: "1px solid rgba(255,87,34,0.3)",
-                  }}
-                >
-                  {p.label}
-                </button>
-              ))}
-            </div>
-          </div>
+      <Card borderColor={TEAL}>
+        <CardHeader icon="💬" title="Dialog Script" badge="8 seconds" badgeColor={TEAL} />
+
+        <Label color={GREEN}>0-2s: Beginning</Label>
+        <Field
+          value={hook}
+          onChange={setHook}
+          placeholder='e.g. "Ini rahsia cik somi balik awal!"'
+          rows={1}
+        />
+
+        <Label color={ORANGE} className="mt-3">
+          2-6s: Middle
+        </Label>
+        <Field
+          value={middle}
+          onChange={setMiddle}
+          placeholder='e.g. "Ramai kawan complain cik somi dia selalu balik lewat..."'
+          rows={2}
+        />
+
+        <Label color={RED} className="mt-3">
+          6-8s: Closing
+        </Label>
+        <Field
+          value={cta}
+          onChange={setCta}
+          placeholder='e.g. "Order yang ni, baru puas hati!"'
+          rows={1}
+        />
+        <div className="flex flex-wrap gap-1.5 mt-2">
+          {CTA_PRESETS.map((p) => (
+            <button
+              key={p.label}
+              type="button"
+              onClick={() => setCta(p.val)}
+              className="text-[10px] font-bold px-2.5 py-1 rounded-md transition-colors"
+              style={{
+                background: "#fafaf7",
+                color: "#1a1a1a",
+                border: "1px solid #e8e0d8",
+              }}
+            >
+              {p.label}
+            </button>
+          ))}
         </div>
       </Card>
 
-      {/* 3. Tone + Voice + Style */}
-      <Card title="Tone, Voice & Style" icon={<Mic className="w-4 h-4" />}>
+      {/* 3. Tone, Voice & Style */}
+      <Card borderColor={TEAL}>
+        <CardHeader icon="🎙️" title="Tone, Voice & Style" />
+
         <div className="grid grid-cols-2 gap-3">
           <div>
             <Label>Tone</Label>
-            <select className="input" value={tone} onChange={(e) => setTone(e.target.value)}>
+            <Select value={tone} onChange={setTone}>
               {TONES.map((t) => (
                 <option key={t} value={t}>
                   {t.charAt(0).toUpperCase() + t.slice(1)}
                 </option>
               ))}
-            </select>
+            </Select>
           </div>
           <div>
             <Label>Voice</Label>
-            <select className="input" value={voice} onChange={(e) => setVoice(e.target.value)}>
+            <Select value={voice} onChange={setVoice}>
               {VOICES.map((v) => (
                 <option key={v.label} value={v.val}>
                   {v.label}
                 </option>
               ))}
-            </select>
+            </Select>
           </div>
         </div>
 
         <Label className="mt-4">Style</Label>
-        <PresetRow presets={STYLE_PRESETS} active={style} onPick={setStyle} />
-        <textarea
-          className="input mt-2"
-          rows={2}
-          value={style}
-          onChange={(e) => setStyle(e.target.value)}
+        <PresetRow
+          presets={STYLE_PRESETS}
+          active={style}
+          onPick={setStyle}
+          activeColor={TEAL}
+          inactiveColor="#1a1a1a"
         />
+        <Field value={style} onChange={setStyle} rows={2} />
       </Card>
 
-      {/* Build + Output */}
-      <div
-        className="rounded-2xl p-5 border"
-        style={{
-          background:
-            "linear-gradient(135deg, rgba(37,244,238,0.06) 0%, rgba(37,244,238,0.02) 100%)",
-          borderColor: "rgba(37,244,238,0.3)",
-        }}
-      >
+      {/* 4. Build + Output */}
+      <Card borderColor={TEAL}>
         <button
+          type="button"
           onClick={build}
-          className="w-full py-3 rounded-xl font-extrabold text-base flex items-center justify-center gap-2 transition-transform hover:scale-[1.02]"
+          className="w-full py-3 rounded-xl font-extrabold text-base flex items-center justify-center gap-2 transition-transform hover:scale-[1.01]"
           style={{
-            background: "linear-gradient(135deg, #25f4ee 0%, #00bcd4 100%)",
-            color: "#000",
-            boxShadow: "0 6px 20px rgba(37,244,238,0.3)",
+            background: "linear-gradient(135deg, #d4f7d4, #a7e9a7)",
+            color: "#1a4f1a",
+            border: `1px solid ${GREEN}`,
           }}
         >
-          <Sparkles className="w-4 h-4" />
-          Build Prompt
+          ✍️ Build Prompt
         </button>
 
         <textarea
-          className="input mt-3 font-mono text-xs"
-          rows={14}
+          rows={12}
           readOnly
           value={output}
-          placeholder="Built prompt will appear here…"
+          placeholder="Built prompt will appear here..."
+          className="w-full mt-3 p-3 rounded-xl text-xs font-mono resize-y outline-none"
           style={{
-            background: "#0a0a0a",
-            color: "#25f4ee",
-            borderColor: "rgba(37,244,238,0.4)",
+            background: "#f0f5ec",
+            border: "1px solid #d8e8d0",
+            color: "#1a1a1a",
+            lineHeight: 1.5,
           }}
         />
 
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-3">
-          <ToolBtn onClick={copy} color="#25f4ee">
+          <ToolBtn onClick={copy} color={GREEN}>
             <Copy className="w-3.5 h-3.5" />
             {copied ? "Copied!" : "Copy"}
           </ToolBtn>
-          <ToolBtn onClick={useInVideo} color="#22c55e">
+          <ToolBtn onClick={useInVideo} color="#1a1a1a" plain>
             <ArrowRight className="w-3.5 h-3.5" />
             Use in Video
           </ToolBtn>
-          <ToolBtn onClick={saveTemplate} color="#f59e0b">
+          <ToolBtn onClick={saveTemplate} color={ORANGE}>
             <Save className="w-3.5 h-3.5" />
             Save
           </ToolBtn>
           <label
-            className="cursor-pointer flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-xs font-bold transition-colors"
+            className="cursor-pointer flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-xs font-bold"
             style={{
-              background: "rgba(136,136,136,0.1)",
-              color: "#a8a8a8",
-              border: "1px solid rgba(136,136,136,0.3)",
+              background: "#fafaf7",
+              color: "#888",
+              border: "1px solid #e8e0d8",
             }}
           >
             <Upload className="w-3.5 h-3.5" />
@@ -373,45 +349,65 @@ export default function UgcTab() {
             <input type="file" accept=".json" onChange={loadTemplate} className="hidden" />
           </label>
         </div>
-      </div>
+      </Card>
     </div>
   );
 }
 
+// ── Sub-components ──────────────────────────────────────────────────────
 function Card({
-  title,
-  icon,
-  badge,
   children,
+  borderColor,
 }: {
-  title: string;
-  icon: React.ReactNode;
-  badge?: string;
   children: React.ReactNode;
+  borderColor?: string;
 }) {
   return (
     <div
-      className="rounded-2xl p-4 border"
+      className="rounded-2xl p-5"
       style={{
-        background: "var(--color-bg-card)",
-        borderColor: "rgba(37,244,238,0.2)",
+        background: "#ffffff",
+        border: `1px solid ${borderColor ? `${borderColor}40` : "#e8e0d8"}`,
+        boxShadow: "0 1px 2px rgba(0,0,0,0.03), 0 4px 16px -4px rgba(0,0,0,0.04)",
       }}
     >
-      <div className="flex items-center gap-2 mb-3">
-        <div style={{ color: "#25f4ee" }}>{icon}</div>
-        <h3 className="font-display font-bold text-sm text-[var(--color-text-primary)]">
-          {title}
-        </h3>
-        {badge && (
-          <span
-            className="ml-auto text-[10px] font-mono uppercase tracking-wider font-bold px-2 py-0.5 rounded"
-            style={{ color: "#25f4ee", background: "rgba(37,244,238,0.1)" }}
-          >
-            {badge}
-          </span>
-        )}
-      </div>
       {children}
+    </div>
+  );
+}
+
+function CardHeader({
+  icon,
+  title,
+  badge,
+  badgeColor,
+}: {
+  icon: string;
+  title: string;
+  badge?: string;
+  badgeColor?: string;
+}) {
+  return (
+    <div className="flex items-center gap-2.5 mb-4">
+      <span className="text-lg">{icon}</span>
+      <span
+        className="text-[13px] font-extrabold uppercase tracking-[0.06em]"
+        style={{ color: "#1a1a1a" }}
+      >
+        {title}
+      </span>
+      {badge && (
+        <span
+          className="ml-auto text-[10px] font-mono uppercase tracking-wider px-2.5 py-1 rounded-full"
+          style={{
+            background: `${badgeColor || TEAL}10`,
+            color: badgeColor || TEAL,
+            border: `1px solid ${badgeColor || TEAL}50`,
+          }}
+        >
+          {badge}
+        </span>
+      )}
     </div>
   );
 }
@@ -427,11 +423,79 @@ function Label({
 }) {
   return (
     <div
-      className={`text-[10px] font-mono uppercase tracking-widest font-bold mb-1.5 ${className || ""}`}
-      style={{ color: color || "var(--color-text-muted)" }}
+      className={`text-[10px] font-extrabold uppercase tracking-[0.1em] mb-2 ${className || ""}`}
+      style={{ color: color || "#888" }}
     >
       {children}
     </div>
+  );
+}
+
+function Field({
+  value,
+  onChange,
+  rows,
+  placeholder,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  rows?: number;
+  placeholder?: string;
+}) {
+  if (rows && rows > 1) {
+    return (
+      <textarea
+        rows={rows}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        className="w-full p-3 rounded-lg text-sm resize-y outline-none"
+        style={{
+          background: "#f0f5ec",
+          border: "1px solid #d8e8d0",
+          color: "#1a1a1a",
+        }}
+      />
+    );
+  }
+  return (
+    <input
+      type="text"
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      placeholder={placeholder}
+      className="w-full p-3 rounded-lg text-sm outline-none"
+      style={{
+        background: "#f0f5ec",
+        border: "1px solid #d8e8d0",
+        color: "#1a1a1a",
+      }}
+    />
+  );
+}
+
+function Select({
+  value,
+  onChange,
+  children,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <select
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      className="w-full px-3 py-2.5 rounded-lg text-sm font-semibold outline-none"
+      style={{
+        background: "#fafaf7",
+        border: "1px solid #e8e0d8",
+        color: "#1a1a1a",
+      }}
+    >
+      {children}
+    </select>
   );
 }
 
@@ -439,33 +503,29 @@ function PresetRow({
   presets,
   active,
   onPick,
+  activeColor,
+  inactiveColor,
 }: {
   presets: { label: string; val: string }[];
   active: string;
   onPick: (v: string) => void;
+  activeColor: string;
+  inactiveColor: string;
 }) {
   return (
-    <div className="flex flex-wrap gap-1.5">
+    <div className="grid grid-cols-4 gap-2 mb-2">
       {presets.map((p) => {
         const isActive = active === p.val;
         return (
           <button
             key={p.label}
+            type="button"
             onClick={() => onPick(p.val)}
-            className="text-[10px] font-bold px-2.5 py-1.5 rounded-md transition-all"
-            style={
-              isActive
-                ? {
-                    background: "rgba(37,244,238,0.15)",
-                    color: "#25f4ee",
-                    border: "1px solid rgba(37,244,238,0.4)",
-                  }
-                : {
-                    background: "transparent",
-                    color: "var(--color-text-secondary)",
-                    border: "1px solid var(--color-border)",
-                  }
-            }
+            className="text-[11px] font-extrabold px-2 py-1.5 rounded-md transition-all text-center"
+            style={{
+              background: "transparent",
+              color: isActive ? activeColor : inactiveColor,
+            }}
           >
             {p.label}
           </button>
@@ -478,21 +538,32 @@ function PresetRow({
 function ToolBtn({
   onClick,
   color,
+  plain,
   children,
 }: {
   onClick: () => void;
   color: string;
+  plain?: boolean;
   children: React.ReactNode;
 }) {
   return (
     <button
+      type="button"
       onClick={onClick}
-      className="flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-xs font-bold transition-colors hover:opacity-80"
-      style={{
-        background: `${color}1a`,
-        color,
-        border: `1px solid ${color}55`,
-      }}
+      className="flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-xs font-extrabold"
+      style={
+        plain
+          ? {
+              background: "#ffffff",
+              color: "#1a1a1a",
+              border: "1px solid #e8e0d8",
+            }
+          : {
+              background: `${color}10`,
+              color,
+              border: `1px solid ${color}40`,
+            }
+      }
     >
       {children}
     </button>
