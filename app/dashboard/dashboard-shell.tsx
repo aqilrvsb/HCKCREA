@@ -7,22 +7,39 @@ import {
   Wallet,
   CreditCard,
   Activity,
-  LayoutGrid,
+  ImageIcon,
+  Video,
+  Layers,
+  Wand2,
   Settings,
 } from "lucide-react";
 import LogoutButton from "./logout-button";
-import StudioSection from "./sections/studio";
+import ImageTab from "./tabs/image";
+import VideoTab from "./tabs/video";
+import CloneTab from "./tabs/clone";
+import AutoContentTab from "./tabs/auto-content";
+import HistoryGrid from "./sections/history-grid";
 import BillingSection from "./sections/billing";
 import CreditSection from "./sections/credit";
 import UsageSection from "./sections/usage";
 
-type SectionKey = "studio" | "billing" | "credit" | "usage";
+type SectionKey =
+  | "image"
+  | "video"
+  | "clone"
+  | "auto"
+  | "billing"
+  | "credit"
+  | "usage";
 
 const SECTIONS: { key: SectionKey; label: string; icon: any; tag: string }[] = [
-  { key: "studio", label: "Studio", icon: LayoutGrid, tag: "01" },
-  { key: "billing", label: "Billing", icon: CreditCard, tag: "02" },
-  { key: "credit", label: "Top Up", icon: Wallet, tag: "03" },
-  { key: "usage", label: "Usage", icon: Activity, tag: "04" },
+  { key: "image", label: "Image", icon: ImageIcon, tag: "01" },
+  { key: "video", label: "Video", icon: Video, tag: "02" },
+  { key: "clone", label: "Clone", icon: Layers, tag: "03" },
+  { key: "auto", label: "Auto Content", icon: Wand2, tag: "04" },
+  { key: "billing", label: "Billing", icon: CreditCard, tag: "05" },
+  { key: "credit", label: "Top Up", icon: Wallet, tag: "06" },
+  { key: "usage", label: "Usage", icon: Activity, tag: "07" },
 ];
 
 export default function DashboardShell({
@@ -34,7 +51,7 @@ export default function DashboardShell({
   name: string;
   credits: number;
 }) {
-  const [section, setSection] = useState<SectionKey>("studio");
+  const [section, setSection] = useState<SectionKey>("image");
   const active = SECTIONS.find((s) => s.key === section)!;
 
   return (
@@ -306,9 +323,40 @@ export default function DashboardShell({
             </div>
           </header>
 
-          {/* Body */}
-          <div className="flex-1 px-5 lg:px-10 pb-10 lg:pb-12">
-            {section === "studio" && <StudioSection />}
+          {/* Body — form on top (capped width), history grid full-width below */}
+          <div className="flex-1 px-5 lg:px-10 pb-10 lg:pb-12 space-y-6">
+            {section === "image" && (
+              <>
+                <section className="card max-w-3xl mx-auto w-full">
+                  <ImageTab />
+                </section>
+                <HistoryGrid tab="image" title="Image" />
+              </>
+            )}
+            {section === "video" && (
+              <>
+                <section className="card max-w-3xl mx-auto w-full">
+                  <VideoTab />
+                </section>
+                <HistoryGrid tab="video" title="Video" />
+              </>
+            )}
+            {section === "clone" && (
+              <>
+                <section className="card max-w-3xl mx-auto w-full">
+                  <CloneTab />
+                </section>
+                <HistoryGrid tab="clone" title="Clone" />
+              </>
+            )}
+            {section === "auto" && (
+              <>
+                <section className="card max-w-3xl mx-auto w-full">
+                  <AutoContentTab />
+                </section>
+                <HistoryGrid tab="auto" title="Auto Content" />
+              </>
+            )}
             {section === "billing" && <BillingSection />}
             {section === "credit" && <CreditSection credits={credits} />}
             {section === "usage" && <UsageSection email={email} />}
