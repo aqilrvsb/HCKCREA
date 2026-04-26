@@ -35,22 +35,40 @@ export async function p2CreateTask(input: {
   const imgUrls = (input.imageUrls || []).filter(Boolean);
   if (input.imageUrl) imgUrls.unshift(input.imageUrl);
 
-  // Build the `input` block per model type
+  // Build the `input` block per model type. The three families take very
+  // different params — copy-faithful to what the extension's background.js
+  // sends so a working extension call works here too.
   const isVideo = input.model.includes("veo");
-  const isImage = !isVideo;
+  const isGptImage = input.model.includes("gpt-image");
+  const isBanana = !isVideo && !isGptImage;
 
   const innerInput: Record<string, any> = {};
   if (input.prompt) innerInput.prompt = input.prompt.substring(0, 5000);
-  if (input.aspectRatio) innerInput.aspect_ratio = input.aspectRatio;
-  if (imgUrls.length > 0) innerInput.img_urls = imgUrls;
 
   if (isVideo) {
     // Veo 3.1 fast: duration is a number, only 8 supported on -fast variants
+    if (input.aspectRatio) innerInput.aspect_ratio = input.aspectRatio;
+    if (imgUrls.length > 0) innerInput.img_urls = imgUrls;
     innerInput.duration = Number(input.durationMode || 8);
-  }
-  if (isImage) {
-    // nano-banana-pro / gpt-image-2: resolution dial, default 2K
-    innerInput.resolution = input.resolution || "2K";
+  } else if (isGptImage) {
+    // GPT Image 2: only supports 1:1 / 2:3 / 3:2. Map web aspects to those.
+    const ar =
+      input.aspectRatio === "16:9"
+        ? "3:2"
+        : input.aspectRatio === "1:1"
+          ? "1:1"
+          : "2:3"; // default for 9:16 + anything else
+    innerInput.aspect_ratio = ar;
+    innerInput.quality = "medium";
+    innerInput.background = "auto";
+    innerInput.output_format = "png";
+    innerInput.moderation = "low";
+    if (imgUrls.length > 0) innerInput.img_urls = imgUrls;
+  } else if (isBanana) {
+    // nano-banana-pro: resolution dial + native aspect ratio support.
+    if (input.aspectRatio) innerInput.aspect_ratio = input.aspectRatio;
+    innerInput.resolution = (input.resolution || "2K").toUpperCase();
+    if (imgUrls.length > 0) innerInput.img_urls = imgUrls;
   }
 
   // Caller-supplied extras override model defaults
