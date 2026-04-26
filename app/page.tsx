@@ -28,7 +28,6 @@ import {
 import CheckoutForm from "./(checkout)/checkout-form";
 import Countdown from "./components/countdown";
 import SocialProofToast from "./components/social-proof-toast";
-import StickyCTABar from "./components/sticky-cta-bar";
 import DemoReel from "./components/demo-reel";
 
 const STATS = [
@@ -665,36 +664,82 @@ export default function Home() {
           ].map((p, i) => {
             const Icon = p.icon;
             return (
-              <div key={i} className="card">
-                <div className="w-14 h-14 rounded-2xl bg-red-50 border border-red-100 flex items-center justify-center mb-5">
-                  <Icon className="w-7 h-7 text-red-500" strokeWidth={2} />
+              <div key={i} className="card group" style={{ borderColor: "rgba(239,68,68,0.18)" }}>
+                {/* Subtle red glow on hover */}
+                <div
+                  className="absolute -top-10 -right-10 w-32 h-32 rounded-full pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity"
+                  style={{
+                    background:
+                      "radial-gradient(circle, rgba(239,68,68,0.25), transparent 70%)",
+                    filter: "blur(20px)",
+                  }}
+                />
+                <div className="relative">
+                  <div
+                    className="w-14 h-14 rounded-2xl flex items-center justify-center mb-5"
+                    style={{
+                      background: "rgba(239,68,68,0.12)",
+                      border: "1px solid rgba(239,68,68,0.3)",
+                    }}
+                  >
+                    <Icon className="w-7 h-7 text-red-400" strokeWidth={2.2} />
+                  </div>
+                  <h3 className="font-display font-bold text-2xl mb-3 text-[var(--color-text-primary)]">
+                    {p.title}
+                  </h3>
+                  <p className="text-[var(--color-text-secondary)] leading-relaxed">
+                    {p.desc}
+                  </p>
                 </div>
-                <h3 className="font-display font-bold text-2xl mb-3">
-                  {p.title}
-                </h3>
-                <p className="text-[var(--color-text-secondary)] leading-relaxed">
-                  {p.desc}
-                </p>
               </div>
             );
           })}
         </div>
 
+        {/* Bottom callout — dark dramatic on dark theme */}
         <div
-          className="mt-12 mx-auto max-w-3xl text-center p-8 rounded-3xl"
+          className="relative mt-12 mx-auto max-w-3xl text-center p-8 sm:p-10 rounded-3xl overflow-hidden"
           style={{
             background:
-              "linear-gradient(135deg, #fef3c7 0%, #fce7f3 100%)",
-            border: "1px solid #fbbf24",
+              "linear-gradient(135deg, rgba(239,68,68,0.12) 0%, rgba(255,87,34,0.08) 100%)",
+            border: "1px solid rgba(255,87,34,0.35)",
           }}
         >
-          <div className="font-display font-extrabold text-2xl md:text-3xl mb-2">
-            Sementara anda fikir, competitor anda{" "}
-            <span className="text-pink">post 10 video sehari</span>.
+          <div
+            className="absolute -top-20 -left-20 w-64 h-64 rounded-full pointer-events-none"
+            style={{
+              background:
+                "radial-gradient(circle, rgba(239,68,68,0.3), transparent 70%)",
+              filter: "blur(40px)",
+            }}
+          />
+          <div
+            className="absolute -bottom-20 -right-20 w-64 h-64 rounded-full pointer-events-none"
+            style={{
+              background:
+                "radial-gradient(circle, rgba(255,87,34,0.3), transparent 70%)",
+              filter: "blur(40px)",
+            }}
+          />
+          <div className="relative">
+            <div className="font-display font-extrabold text-2xl md:text-3xl mb-3 text-[var(--color-text-primary)] leading-tight">
+              Sementara anda fikir, kompetitor anda{" "}
+              <span
+                style={{
+                  background:
+                    "linear-gradient(135deg, #f87171 0%, #fb923c 50%, #fbbf24 100%)",
+                  WebkitBackgroundClip: "text",
+                  WebkitTextFillColor: "transparent",
+                }}
+              >
+                post 10 video sehari
+              </span>
+              .
+            </div>
+            <p className="text-[var(--color-text-secondary)] leading-relaxed">
+              Algorithm TikTok suka volume + consistency. Yang lambat, kalah.
+            </p>
           </div>
-          <p className="text-[var(--color-text-secondary)]">
-            Algorithm TikTok suka volume + consistency. Yang lambat, kalah.
-          </p>
         </div>
       </section>
 
@@ -1334,9 +1379,8 @@ export default function Home() {
         </div>
       </section>
 
-      {/* Floating social proof + sticky bottom CTA bar (paid traffic anchors) */}
+      {/* Floating social proof toast */}
       <SocialProofToast />
-      <StickyCTABar />
 
       {/* Footer */}
       <footer className="relative z-10 border-t border-[var(--color-border)] mt-12 bg-white/50">
