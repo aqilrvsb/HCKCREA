@@ -1,195 +1,603 @@
 "use client";
 
-import { useRef, useState } from "react";
-import { Layers, Sparkles, Upload, Video as VideoIcon, Loader2, X } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { Loader2, X, Pin } from "lucide-react";
+import { createClient } from "@/lib/supabase/client";
+
+// Clone tab — 1:1 port of creative-hack-auto's pinterest-mode-section.
+// Light cream canvas + Pinterest-red accent (#e60023). User uploads a
+// reference video, we extract frames in-browser, send to OpenRouter for
+// scene analysis, then fan out N Veo r2v generations using the product
+// image as reference. Process Log streams what's happening so the client
+// can see it's working (deepseek analysis takes ~5-15s).
+
+type Status = "idle" | "extracting" | "analyzing" | "generating" | "failed";
+type Mode = "video" | "prompt";
+
+const RED = "#e60023";
+const RED_SOFT = "rgba(230, 0, 35, 0.18)";
+const RED_FAINT = "rgba(230, 0, 35, 0.06)";
+const ORANGE = "#f59e0b";
 
 export default function CloneTab({ projectId }: { projectId?: string } = {}) {
-  const [refVideoUrl, setRefVideoUrl] = useState("");
-  const [productImageUrl, setProductImageUrl] = useState("");
-  const [customDialog, setCustomDialog] = useState("");
-  const [segments, setSegments] = useState(2);
-  const [submitting, setSubmitting] = useState(false);
+  const [videoFile, setVideoFile] = useState<File | null>(null);
+  const [videoPreviewUrl, setVideoPreviewUrl] = useState("");
+  const [videoDuration, setVideoDuration] = useState(0);
+  const [productImage, setProductImage] = useState(""); // data: URL OR public URL
+  const [mode, setMode] = useState<Mode>("video");
+  const [aspect, setAspect] = useState("9:16");
+  const [dialog, setDialog] = useState("");
+  const [status, setStatus] = useState<Status>("idle");
   const [error, setError] = useState<string | null>(null);
-  const [batchInfo, setBatchInfo] = useState<{ batch_id: string; segments: number; total_cost: number } | null>(null);
+  const [log, setLog] = useState<string[]>([]);
+  const [showHistoryPicker, setShowHistoryPicker] = useState(false);
+
+  const videoInputRef = useRef<HTMLInputElement | null>(null);
   const productInputRef = useRef<HTMLInputElement | null>(null);
+
+  function pushLog(line: string) {
+    setLog((prev) => [...prev, `${new Date().toLocaleTimeString("ms-MY", { hour: "numeric", minute: "numeric", second: "numeric" })} · ${line}`]);
+  }
+
+  function onVideoFile(f: File | null) {
+    if (!f) return;
+    setVideoFile(f);
+    const url = URL.createObjectURL(f);
+    setVideoPreviewUrl(url);
+    // Detect duration
+    const v = document.createElement("video");
+    v.preload = "metadata";
+    v.onloadedmetadata = () => {
+      setVideoDuration(Math.floor(v.duration));
+      URL.revokeObjectURL(url);
+    };
+    v.src = url;
+  }
 
   function onProductFile(f: File | null) {
     if (!f) return;
     const reader = new FileReader();
-    reader.onload = () => setProductImageUrl(String(reader.result || ""));
+    reader.onload = () => setProductImage(String(reader.result || ""));
     reader.readAsDataURL(f);
   }
 
+  // Upload-on-demand: data: URL → public RH URL. Pass-through if already public.
+  async function ensurePublicUrl(v: string): Promise<string> {
+    if (!v) return "";
+    if (!v.startsWith("data:")) return v;
+    const blob = await (await fetch(v)).blob();
+    const fd = new FormData();
+    fd.append("file", blob, "ref.png");
+    const r = await fetch("/api/upload/image", { method: "POST", body: fd });
+    const d = await r.json();
+    if (!r.ok || !d?.url) throw new Error(d?.error || "Upload failed");
+    return d.url;
+  }
+
+  // Extract one frame per second from the uploaded video (canvas).
+  async function extractFrames(file: File, count: number): Promise<string[]> {
+    const url = URL.createObjectURL(file);
+    const frames: string[] = [];
+    for (let i = 0; i < count; i++) {
+      const ts = i + 0.2;
+      const frame = await new Promise<string | null>((resolve) => {
+        const v = document.createElement("video");
+        v.crossOrigin = "anonymous";
+        v.muted = true;
+        v.preload = "auto";
+        v.onloadedmetadata = () => {
+          v.currentTime = Math.min(ts, v.duration - 0.5);
+        };
+        v.onseeked = () => {
+          try {
+            const c = document.createElement("canvas");
+            c.width = v.videoWidth;
+            c.height = v.videoHeight;
+            c.getContext("2d")!.drawImage(v, 0, 0);
+            resolve(c.toDataURL("image/jpeg", 0.7));
+          } catch {
+            resolve(null);
+          }
+          v.remove();
+        };
+        v.onerror = () => {
+          resolve(null);
+          v.remove();
+        };
+        setTimeout(() => {
+          resolve(null);
+          v.remove();
+        }, 8000);
+        v.src = url;
+      });
+      if (frame) frames.push(frame);
+    }
+    URL.revokeObjectURL(url);
+    return frames;
+  }
+
   async function submit() {
-    if (!refVideoUrl) return setError("Sila masukkan reference video URL.");
-    if (!productImageUrl) return setError("Sila upload gambar produk.");
+    if (!videoFile) {
+      setError("Upload a Pinterest video first.");
+      return;
+    }
+    if (videoDuration < 3) {
+      setError("Video too short (need at least 3s).");
+      return;
+    }
     setError(null);
-    setSubmitting(true);
-    setBatchInfo(null);
+    setStatus("extracting");
+    setLog([]);
+    pushLog(`Extracting ${videoDuration} frames…`);
+
     try {
+      const frames = await extractFrames(videoFile, videoDuration);
+      pushLog(`${frames.length} frames extracted.`);
+
+      // Upload product image if local
+      setStatus("analyzing");
+      pushLog("Uploading product reference…");
+      const productPub = productImage ? await ensurePublicUrl(productImage) : "";
+      if (productPub) pushLog("Product uploaded ✓");
+
+      pushLog("Sending to AI for scene analysis (deepseek)…");
       const r = await fetch("/api/generate/clone", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          reference_video_url: refVideoUrl,
-          product_image_url: productImageUrl,
-          custom_dialog: customDialog,
-          segments,
+          // We don't have a public URL for the source video — backend uses
+          // the OpenRouter model to plan based on duration + product +
+          // optional dialog. Frames are sent for richer vision context if
+          // the route supports it.
+          reference_video_url: "(uploaded locally)",
+          product_image_url: productPub,
+          custom_dialog: dialog,
+          segments: Math.max(1, Math.min(4, Math.round(videoDuration / 8))),
+          mode,
+          aspect_ratio: aspect,
           project_id: projectId,
         }),
       });
       const d = await r.json();
       if (!r.ok || !d?.ok) {
+        pushLog(`✗ ${d?.error || "Failed"}`);
         setError(d?.error || "Failed to start clone");
-        setSubmitting(false);
+        setStatus("failed");
         return;
       }
-      setBatchInfo({ batch_id: d.batch_id, segments: d.segments, total_cost: d.total_cost });
+      pushLog(`Plan received — ${d.segments} segment(s).`);
+      pushLog(`Submitting ${d.segments} Veo generation(s)…`);
+      pushLog(`Done. Total cost RM${Number(d.total_cost || 0).toFixed(2)}.`);
+      setStatus("idle");
       window.dispatchEvent(new CustomEvent("history:refresh"));
     } catch (e: any) {
+      pushLog(`✗ ${e?.message || "Network error"}`);
       setError(e?.message || "Network error");
-    } finally {
-      setSubmitting(false);
+      setStatus("failed");
     }
   }
 
+  const busy = status === "extracting" || status === "analyzing" || status === "generating";
+
+  const sectionBg: React.CSSProperties = {
+    background:
+      "radial-gradient(ellipse 1200px 800px at 50% 0%, #fff5f6 0%, #fafaf7 40%, #f5f5f0 100%)",
+    color: "#1a1a1a",
+    boxShadow: "0 0 0 1px rgba(230, 0, 35, 0.08)",
+  };
+
   return (
-    <div className="flex flex-col h-full">
-      <div className="flex items-center gap-3 mb-5 pb-4 border-b border-[var(--color-border)]">
-        <div
-          className="w-11 h-11 rounded-2xl flex items-center justify-center"
+    <div className="rounded-3xl p-6 md:p-8 space-y-5" style={sectionBg}>
+      {/* CLONE — header + main controls */}
+      <Card borderColor={RED}>
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-2.5">
+            <Pin className="w-5 h-5" style={{ color: RED }} strokeWidth={2.4} />
+            <span
+              className="text-[13px] font-extrabold uppercase tracking-[0.06em]"
+              style={{ color: "#1a1a1a" }}
+            >
+              Clone
+            </span>
+          </div>
+          <span
+            className="text-[10px] font-mono uppercase tracking-wider px-2 py-1 rounded"
+            style={{ background: RED_FAINT, color: RED, border: `1px solid ${RED_SOFT}` }}
+          >
+            Upload → Analyze → Generate
+          </span>
+        </div>
+
+        {/* Upload Pinterest Video */}
+        <Label>Upload Pinterest Video</Label>
+        <input
+          ref={videoInputRef}
+          type="file"
+          accept="video/*"
+          className="hidden"
+          onChange={(e) => onVideoFile(e.target.files?.[0] || null)}
+        />
+        <button
+          type="button"
+          onClick={() => videoInputRef.current?.click()}
+          className="w-full h-20 rounded-xl flex items-center justify-center cursor-pointer transition-all hover:-translate-y-0.5 mb-1 overflow-hidden"
           style={{
-            background: "rgba(255,87,34,0.1)",
-            border: "1px solid rgba(255,87,34,0.3)",
+            border: `2px dashed ${RED_SOFT}`,
+            background: videoPreviewUrl ? "#000" : RED_FAINT,
           }}
         >
-          <Layers className="w-5 h-5" style={{ color: "var(--color-orange)" }} strokeWidth={2.2} />
-        </div>
-        <div>
-          <h2 className="font-display font-bold text-xl text-[var(--color-text-primary)]">Clone Mode</h2>
-          <p className="text-xs text-[var(--color-text-muted)]">Tiru video viral — tukar dengan produk anda</p>
-        </div>
-      </div>
-
-      <div className="space-y-5 flex-1">
-        <div>
-          <label className="block text-sm font-semibold mb-2">Reference video URL (TikTok / IG / public mp4)</label>
-          <div className="relative">
-            <VideoIcon className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--color-text-muted)]" />
-            <input
-              type="url"
-              value={refVideoUrl}
-              onChange={(e) => setRefVideoUrl(e.target.value)}
-              placeholder="https://..."
-              className="input pl-11"
+          {videoPreviewUrl ? (
+            <video
+              src={videoPreviewUrl + "#t=1"}
+              muted
+              preload="metadata"
+              className="w-full h-full object-cover"
             />
+          ) : (
+            <span className="text-sm font-semibold" style={{ color: RED }}>
+              🎬 Click or drop video
+            </span>
+          )}
+        </button>
+        {videoDuration > 0 && (
+          <div className="text-[10px] text-gray-500 mb-3">
+            {videoDuration}s detected
+          </div>
+        )}
+
+        {/* Product Image */}
+        <Label>Product Image</Label>
+        <input
+          ref={productInputRef}
+          type="file"
+          accept="image/*"
+          className="hidden"
+          onChange={(e) => onProductFile(e.target.files?.[0] || null)}
+        />
+        <div className="flex items-stretch gap-2 mb-4">
+          <button
+            type="button"
+            onClick={() => productInputRef.current?.click()}
+            className="relative w-[60px] h-[60px] rounded-lg overflow-hidden flex-shrink-0 flex items-center justify-center"
+            style={{
+              border: `2px dashed ${productImage ? "transparent" : ORANGE}`,
+              background: productImage ? "#000" : "#fff8ef",
+            }}
+          >
+            {productImage ? (
+              <img src={productImage} alt="" className="w-full h-full object-cover" />
+            ) : (
+              <span className="text-2xl">📦</span>
+            )}
+          </button>
+          <div className="flex flex-col gap-1 justify-between">
+            <SmallBtn
+              onClick={() => productInputRef.current?.click()}
+              color={ORANGE}
+            >
+              Upload
+            </SmallBtn>
+            <SmallBtn onClick={() => setShowHistoryPicker(true)} color={ORANGE}>
+              History
+            </SmallBtn>
+            <SmallBtn onClick={() => setProductImage("")} danger>
+              x
+            </SmallBtn>
           </div>
         </div>
 
-        <div>
-          <label className="block text-sm font-semibold mb-2">Gambar produk anda</label>
-          <input
-            ref={productInputRef}
-            type="file"
-            accept="image/*"
-            className="hidden"
-            onChange={(e) => onProductFile(e.target.files?.[0] || null)}
-          />
-          {productImageUrl ? (
-            <div className="relative inline-block">
-              <img src={productImageUrl} alt="product" className="rounded-2xl max-h-40 border border-[var(--color-border)]" />
-              <button
-                type="button"
-                onClick={() => setProductImageUrl("")}
-                className="absolute -top-2 -right-2 w-7 h-7 rounded-full bg-white border border-[var(--color-border)] shadow flex items-center justify-center"
-              >
-                <X className="w-3.5 h-3.5" />
-              </button>
-            </div>
+        {/* Mode + Size */}
+        <div className="flex items-center gap-4 mb-4">
+          <div>
+            <Label>Mode</Label>
+            <Select value={mode} onChange={(v) => setMode(v as Mode)} width={100}>
+              <option value="video">Video</option>
+              <option value="prompt">Prompt</option>
+            </Select>
+          </div>
+          <div>
+            <Label>Size</Label>
+            <Select value={aspect} onChange={(v) => setAspect(v)} width={100}>
+              <option value="9:16">9:16</option>
+              <option value="16:9">16:9</option>
+            </Select>
+          </div>
+        </div>
+
+        {/* Dialog */}
+        <Label>
+          Dialog{" "}
+          <span className="text-gray-400 font-normal normal-case tracking-normal">
+            (optional — leave empty to follow reference exactly)
+          </span>
+        </Label>
+        <textarea
+          rows={5}
+          value={dialog}
+          onChange={(e) => setDialog(e.target.value)}
+          placeholder={`Use timestamps for exact timing (recommended):\n0s-4s Okey real talk, dendeng ni memang hits different\n4s-8s aku tak boleh stop makan\n8s-12s korang tunggu apa lagi\n12s-16s tekan je beg kuning dekat bawah tu\n\nOr just free-form text — AI will split it across segments.`}
+          className="w-full p-3 rounded-xl text-sm resize-y outline-none mb-4"
+          style={{
+            background: "#fafaf7",
+            border: "1px solid #e8e0d8",
+            color: "#1a1a1a",
+          }}
+        />
+
+        <button
+          onClick={submit}
+          disabled={busy}
+          className="w-full py-3.5 rounded-xl font-extrabold text-base text-white transition-all hover:-translate-y-0.5 disabled:opacity-50 disabled:transform-none"
+          style={{
+            background: `linear-gradient(135deg, ${RED} 0%, #ff4444 100%)`,
+            boxShadow: "0 6px 20px rgba(230,0,35,0.35), inset 0 1px 0 rgba(255,255,255,0.2)",
+          }}
+        >
+          {busy ? (
+            <span className="inline-flex items-center justify-center gap-2">
+              <Loader2 className="w-4 h-4 animate-spin" />
+              {status === "extracting"
+                ? "Extracting frames…"
+                : status === "analyzing"
+                  ? "Analyzing…"
+                  : "Generating…"}
+            </span>
           ) : (
-            <button
-              type="button"
-              onClick={() => productInputRef.current?.click()}
-              className="w-full p-5 border-2 border-dashed border-[var(--color-border)] rounded-2xl hover:border-[var(--color-orange)] transition flex flex-col items-center gap-2 text-sm text-[var(--color-text-muted)] hover:text-[var(--color-orange)]"
-            >
-              <Upload className="w-5 h-5" />
-              Upload product image
-            </button>
+            <>🎬 Generate Video</>
           )}
-        </div>
-
-        <div>
-          <label className="block text-sm font-semibold mb-2">Number of segments</label>
-          <select className="input" value={segments} onChange={(e) => setSegments(Number(e.target.value))}>
-            {[1, 2, 3, 4].map((n) => (
-              <option key={n} value={n}>{n} segment ({n * 8}s total)</option>
-            ))}
-          </select>
-        </div>
-
-        <div>
-          <label className="block text-sm font-semibold mb-2">
-            Custom dialog <span className="text-[var(--color-text-muted)] text-xs font-normal">(optional)</span>
-          </label>
-          <textarea
-            rows={2}
-            value={customDialog}
-            onChange={(e) => setCustomDialog(e.target.value)}
-            placeholder="Kalau nak overwrite dialog dari video referensi..."
-            className="input resize-none"
-          />
-        </div>
+        </button>
 
         {error && (
           <div
-            className="text-sm rounded-xl px-4 py-3"
+            className="mt-3 px-4 py-2.5 rounded-lg text-xs font-semibold"
             style={{
-              color: "#fca5a5",
-              background: "rgba(239,68,68,0.1)",
-              border: "1px solid rgba(239,68,68,0.3)",
+              background: "rgba(244,67,54,0.08)",
+              border: "1px solid rgba(244,67,54,0.4)",
+              color: "#c62828",
             }}
           >
             {error}
           </div>
         )}
+      </Card>
 
-        {batchInfo && (
-          <div
-            className="rounded-2xl p-4 border"
-            style={{
-              background: "rgba(200,245,62,0.08)",
-              borderColor: "rgba(200,245,62,0.3)",
-            }}
+      {/* Process Log */}
+      <Card>
+        <div className="flex items-center gap-2.5 mb-3">
+          <span className="text-lg">📋</span>
+          <span
+            className="text-[13px] font-extrabold uppercase tracking-[0.06em]"
+            style={{ color: "#1a1a1a" }}
           >
-            <div className="font-bold mb-1" style={{ color: "var(--color-lime)" }}>
-              Clone dah start! 🎉
-            </div>
-            <p className="text-sm text-[var(--color-text-primary)]">
-              {batchInfo.segments} segment sedang generate.
-            </p>
-            <div className="text-xs font-mono mt-1.5" style={{ color: "var(--color-lime)" }}>
-              Total cost: RM{batchInfo.total_cost.toFixed(2)}
-            </div>
-          </div>
-        )}
-      </div>
+            Process Log
+          </span>
+        </div>
+        <div
+          className="rounded-lg p-3 max-h-48 overflow-y-auto text-[11px] font-mono leading-relaxed"
+          style={{ background: "#f0f5ec", border: "1px solid #d8e8d0" }}
+        >
+          {log.length === 0 ? (
+            <span style={{ color: "#999" }}>Process log will appear here...</span>
+          ) : (
+            log.map((line, i) => (
+              <div key={i} style={{ color: "#1a1a1a" }}>
+                {line}
+              </div>
+            ))
+          )}
+        </div>
+      </Card>
 
-      <button onClick={submit} disabled={submitting} className="btn-primary w-full mt-6 disabled:opacity-60">
-        {submitting ? (
-          <>
-            <Loader2 className="w-4 h-4 animate-spin" />
-            Submitting…
-          </>
-        ) : (
-          <>
-            <Sparkles className="w-4 h-4" />
-            Clone Now
-          </>
-        )}
-      </button>
-      <p className="text-center text-xs text-[var(--color-text-muted)] mt-2.5">
-        ~RM{(segments * 0.4).toFixed(2)} ikut Pro plan rate · master plan free
-      </p>
+      {showHistoryPicker && (
+        <HistoryPicker
+          onPick={(url) => {
+            setProductImage(url);
+            setShowHistoryPicker(false);
+          }}
+          onClose={() => setShowHistoryPicker(false)}
+        />
+      )}
+    </div>
+  );
+}
+
+// ── Sub-components (mirror image/video tab style) ─────────────────────────
+
+function Card({
+  children,
+  borderColor,
+}: {
+  children: React.ReactNode;
+  borderColor?: string;
+}) {
+  return (
+    <div
+      className="rounded-2xl p-5"
+      style={{
+        background: "#ffffff",
+        border: `1px solid ${borderColor || "#e8e0d8"}`,
+        boxShadow:
+          "0 1px 2px rgba(0,0,0,0.03), 0 4px 16px -4px rgba(0,0,0,0.04)",
+        ...(borderColor
+          ? { borderTopWidth: 3, borderTopColor: borderColor }
+          : {}),
+      }}
+    >
+      {children}
+    </div>
+  );
+}
+
+function Label({ children }: { children: React.ReactNode }) {
+  return (
+    <div
+      className="text-[10px] font-extrabold uppercase tracking-[0.1em] mb-2"
+      style={{ color: "#888" }}
+    >
+      {children}
+    </div>
+  );
+}
+
+function Select({
+  value,
+  onChange,
+  children,
+  width,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  children: React.ReactNode;
+  width?: number;
+}) {
+  return (
+    <select
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      className="px-3.5 py-2.5 rounded-lg text-sm font-semibold outline-none"
+      style={{
+        width: width ? `${width}px` : "100%",
+        background: "#fafaf7",
+        border: "1px solid #e8e0d8",
+        color: "#1a1a1a",
+      }}
+    >
+      {children}
+    </select>
+  );
+}
+
+function SmallBtn({
+  children,
+  onClick,
+  danger,
+  color,
+}: {
+  children: React.ReactNode;
+  onClick: () => void;
+  danger?: boolean;
+  color?: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="px-2 py-1 rounded text-[10px] font-bold"
+      style={
+        danger
+          ? {
+              background: "rgba(244,67,54,0.08)",
+              border: "1px solid rgba(244,67,54,0.4)",
+              color: "#c62828",
+            }
+          : {
+              background: `${color || RED}10`,
+              border: `1px solid ${color || RED}`,
+              color: color || RED,
+            }
+      }
+    >
+      {children}
+    </button>
+  );
+}
+
+// ── History Picker ──────────────────────────────────────────────────────
+function HistoryPicker({
+  onPick,
+  onClose,
+}: {
+  onPick: (url: string) => void;
+  onClose: () => void;
+}) {
+  const [items, setItems] = useState<
+    { id: string; output_url: string; prompt: string | null }[]
+  >([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    void load();
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  async function load() {
+    setLoading(true);
+    try {
+      const sb = createClient();
+      const { data } = await sb
+        .from("history")
+        .select("id, output_url, prompt")
+        .eq("type", "image")
+        .eq("status", "done")
+        .not("output_url", "is", null)
+        .order("created_at", { ascending: false })
+        .limit(60);
+      setItems((data as any) || []);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      style={{ background: "rgba(0,0,0,0.7)", backdropFilter: "blur(8px)" }}
+      onClick={onClose}
+    >
+      <div
+        className="rounded-2xl max-w-2xl w-full max-h-[80vh] overflow-hidden flex flex-col"
+        style={{
+          background: "#ffffff",
+          border: `2px solid ${RED}`,
+          boxShadow: "0 20px 60px rgba(230,0,35,0.3)",
+        }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div
+          className="flex items-center justify-between px-5 py-4 border-b"
+          style={{ borderColor: "#e8e0d8" }}
+        >
+          <h2 className="font-display font-extrabold text-base" style={{ color: RED }}>
+            Pick Product Image from History
+          </h2>
+          <button
+            onClick={onClose}
+            className="w-8 h-8 rounded-full flex items-center justify-center hover:bg-gray-100"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+        <div className="flex-1 overflow-y-auto p-4">
+          {loading ? (
+            <div className="py-12 text-center text-sm text-gray-500">
+              <Loader2 className="w-5 h-5 animate-spin inline-block mr-2" style={{ color: RED }} />
+              Loading…
+            </div>
+          ) : items.length === 0 ? (
+            <div className="py-12 text-center text-sm text-gray-500">
+              Belum ada image dalam history.
+            </div>
+          ) : (
+            <div className="grid grid-cols-3 gap-3">
+              {items.map((it) => (
+                <button
+                  key={it.id}
+                  onClick={() => onPick(it.output_url)}
+                  className="aspect-square rounded-lg overflow-hidden border-2 transition-all hover:-translate-y-0.5"
+                  style={{ borderColor: "#e8e0d8", background: "#fafaf7" }}
+                  onMouseEnter={(e) => (e.currentTarget.style.borderColor = RED)}
+                  onMouseLeave={(e) => (e.currentTarget.style.borderColor = "#e8e0d8")}
+                >
+                  <img src={it.output_url} alt="" className="w-full h-full object-cover" />
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   );
 }

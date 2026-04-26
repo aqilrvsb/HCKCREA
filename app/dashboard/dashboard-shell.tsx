@@ -288,17 +288,17 @@ function ProjectView({
         )}
         {activeTab === "clone" && (
           <>
-            <section className="card max-w-3xl mx-auto w-full">
+            <div className="max-w-5xl mx-auto w-full">
               <CloneTab projectId={project.id} />
-            </section>
+            </div>
             <HistoryGrid tab="clone" title={`Clone — ${project.name}`} projectId={project.id} />
           </>
         )}
         {activeTab === "auto" && (
           <>
-            <section className="card max-w-3xl mx-auto w-full">
+            <div className="max-w-5xl mx-auto w-full">
               <AutoContentTab projectId={project.id} />
-            </section>
+            </div>
             <HistoryGrid tab="auto" title={`Auto Content — ${project.name}`} projectId={project.id} />
           </>
         )}
