@@ -56,12 +56,6 @@
       "kind": "video"
     },
     {
-      "id": "reel-10",
-      "label": "Comedy · Reaction",
-      "file": "https://zoxgcqlqovkvlrmpcikt.supabase.co/storage/v1/object/public/demos/reel-10.mp4",
-      "kind": "video"
-    },
-    {
       "id": "reel-11",
       "label": "Confession · Story",
       "file": "https://zoxgcqlqovkvlrmpcikt.supabase.co/storage/v1/object/public/demos/reel-11.mp4",
@@ -83,12 +77,6 @@
       "id": "reel-14",
       "label": "Mom · Morning routine",
       "file": "https://zoxgcqlqovkvlrmpcikt.supabase.co/storage/v1/object/public/demos/reel-14.mp4",
-      "kind": "video"
-    },
-    {
-      "id": "reel-15",
-      "label": "POV · GoPro routine",
-      "file": "https://zoxgcqlqovkvlrmpcikt.supabase.co/storage/v1/object/public/demos/reel-15.mp4",
       "kind": "video"
     },
     {

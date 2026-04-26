@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Sparkles, Play, X } from "lucide-react";
 import manifestData from "../../public/demos/manifest.json";
 
@@ -19,6 +19,19 @@ export default function DemoReel() {
   // no fetch, no loading flash. Updated via the generate + upload scripts.
   const manifest = manifestData as Manifest;
   const [modalIndex, setModalIndex] = useState<number | null>(null);
+  const featuredVideoRef = useRef<HTMLVideoElement>(null);
+
+  useEffect(() => {
+    // Pause the featured player whenever a modal video is playing — no
+    // double audio. Resume autoplay when the modal closes.
+    const v = featuredVideoRef.current;
+    if (!v) return;
+    if (modalIndex !== null) {
+      v.pause();
+    } else {
+      v.play().catch(() => {});
+    }
+  }, [modalIndex]);
 
   useEffect(() => {
     if (modalIndex === null) return;
@@ -59,6 +72,7 @@ export default function DemoReel() {
           <div className="flex justify-center">
             <div className="relative rounded-3xl overflow-hidden border border-[var(--color-border)] shadow-2xl shadow-orange-500/15 bg-black w-full max-w-[380px]">
               <video
+                ref={featuredVideoRef}
                 key={featured?.file}
                 src={featured?.file}
                 controls
@@ -80,46 +94,50 @@ export default function DemoReel() {
             </div>
           </div>
 
-          {/* All variations — clickable grid */}
+          {/* All variations — clickable grid (excludes the featured-pinned video to avoid duplicate) */}
           <div className="mt-10">
             <div className="text-center mb-5">
               <div className="text-xs font-mono uppercase tracking-widest text-[var(--color-text-muted)] font-bold mb-1">
-                ─── {videos.length} variations · klik untuk tukar
+                ─── {videos.length - 1} variations lagi · klik untuk play
               </div>
               <h3 className="font-display font-bold text-xl">
                 Setiap satu dijana dari prompt berbeza.
               </h3>
             </div>
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
-              {videos.map((v, i) => (
-                <button
-                  key={v.id}
-                  onClick={() => setModalIndex(i)}
-                  className="group text-left rounded-2xl overflow-hidden border-2 border-[var(--color-border)] hover:border-orange-300 hover:-translate-y-0.5 transition-all"
-                >
-                  <div className="aspect-[9/16] bg-black relative">
-                    <video
-                      src={v.file + "#t=1"}
-                      preload="metadata"
-                      muted
-                      playsInline
-                      className="w-full h-full object-cover"
-                    />
-                    <div className="absolute inset-0 flex items-center justify-center bg-black/20 group-hover:bg-black/10 transition-colors">
-                      <div className="w-12 h-12 rounded-full bg-white/95 flex items-center justify-center shadow-lg group-hover:scale-110 transition-transform">
-                        <Play className="w-5 h-5 text-orange ml-0.5" strokeWidth={2.5} fill="currentColor" />
+              {videos.slice(1).map((v, originalOffset) => {
+                const i = originalOffset + 1; // index in original videos array (modal lookup)
+                const display = originalOffset + 1; // sequential 01..N for the grid label
+                return (
+                  <button
+                    key={v.id}
+                    onClick={() => setModalIndex(i)}
+                    className="group text-left rounded-2xl overflow-hidden border-2 border-[var(--color-border)] hover:border-orange-300 hover:-translate-y-0.5 transition-all"
+                  >
+                    <div className="aspect-[9/16] bg-black relative">
+                      <video
+                        src={v.file + "#t=1"}
+                        preload="metadata"
+                        muted
+                        playsInline
+                        className="w-full h-full object-cover"
+                      />
+                      <div className="absolute inset-0 flex items-center justify-center bg-black/20 group-hover:bg-black/10 transition-colors">
+                        <div className="w-12 h-12 rounded-full bg-white/95 flex items-center justify-center shadow-lg group-hover:scale-110 transition-transform">
+                          <Play className="w-5 h-5 text-orange ml-0.5" strokeWidth={2.5} fill="currentColor" />
+                        </div>
+                      </div>
+                      <div className="absolute top-2 left-2 px-2 py-0.5 rounded-full bg-black/60 backdrop-blur-md text-[9px] font-mono font-bold text-white">
+                        {String(display).padStart(2, "0")}
+                      </div>
+                      <div className="absolute bottom-0 left-0 right-0 p-2 bg-gradient-to-t from-black/80 to-transparent">
+                        <div className="text-[10px] font-bold text-white truncate">{v.label}</div>
+                        <div className="text-[9px] text-white/70">8s · Veo 3.1</div>
                       </div>
                     </div>
-                    <div className="absolute top-2 left-2 px-2 py-0.5 rounded-full bg-black/60 backdrop-blur-md text-[9px] font-mono font-bold text-white">
-                      {String(i + 1).padStart(2, "0")}
-                    </div>
-                    <div className="absolute bottom-0 left-0 right-0 p-2 bg-gradient-to-t from-black/80 to-transparent">
-                      <div className="text-[10px] font-bold text-white truncate">{v.label}</div>
-                      <div className="text-[9px] text-white/70">8s · Veo 3.1</div>
-                    </div>
-                  </div>
-                </button>
-              ))}
+                  </button>
+                );
+              })}
             </div>
 
             {/* Modal — plays clicked thumbnail */}
