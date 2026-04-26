@@ -162,11 +162,16 @@ export default function ImageTab() {
 
   const busy = status === "submitting" || status === "polling";
 
-  // Light theme — overrides the dark parent card
-  const sectionBg: React.CSSProperties = { background: "#fafaf7", color: "#1a1a1a" };
+  // Light cream canvas with very subtle radial — overrides the dark parent
+  const sectionBg: React.CSSProperties = {
+    background:
+      "radial-gradient(ellipse 1200px 800px at 50% 0%, #fff7f2 0%, #fafaf7 40%, #f5f5f0 100%)",
+    color: "#1a1a1a",
+    boxShadow: "0 0 0 1px rgba(255, 87, 34, 0.08)",
+  };
 
   return (
-    <div className="rounded-2xl p-4 space-y-3" style={sectionBg}>
+    <div className="rounded-3xl p-6 md:p-8 space-y-5" style={sectionBg}>
       {/* IMAGE GENERATOR — Mode selector */}
       <Card borderColor={ORANGE}>
         <CardHeader icon="🖼️" title="Image Generator" />
@@ -314,8 +319,8 @@ export default function ImageTab() {
 
         {/* Prompt category tabs (Avatar/Product/Sales) */}
         <div
-          className="flex rounded-lg overflow-hidden mb-2"
-          style={{ border: "1px solid #d8e8d0" }}
+          className="flex rounded-xl overflow-hidden mb-4"
+          style={{ border: "1px solid #e8e0d8", padding: 4, gap: 4, background: "#fafaf7" }}
         >
           {(
             [
@@ -323,18 +328,22 @@ export default function ImageTab() {
               { k: "product", icon: "📦", label: "Product" },
               { k: "sales", icon: "💰", label: "Sales" },
             ] as { k: PromptCat; icon: string; label: string }[]
-          ).map((t, i) => {
+          ).map((t) => {
             const active = promptCat === t.k;
             return (
               <button
                 key={t.k}
                 onClick={() => setPromptCat(t.k)}
-                className="flex-1 py-1.5 text-[10px] font-extrabold transition-colors"
-                style={{
-                  background: active ? ORANGE : "#f5f5f0",
-                  color: active ? "white" : "#666",
-                  borderLeft: i === 0 ? "none" : "1px solid #d8e8d0",
-                }}
+                className="flex-1 py-2.5 text-[12px] font-extrabold rounded-lg transition-all"
+                style={
+                  active
+                    ? {
+                        background: ORANGE,
+                        color: "white",
+                        boxShadow: "0 4px 12px rgba(255, 87, 34, 0.3)",
+                      }
+                    : { background: "transparent", color: "#666" }
+                }
               >
                 {t.icon} {t.label}
               </button>
@@ -344,42 +353,50 @@ export default function ImageTab() {
 
         {/* Avatar presets */}
         {promptCat === "avatar" && (
-          <>
-            <div className="text-[8px] text-gray-500 mb-1">👩 Female</div>
-            <div className="flex flex-wrap gap-1 mb-2">
-              {AVATAR_FEMALE.map((p) => (
-                <PresetChip key={p.label} {...p} onClick={() => setPrompt(p.val)} />
-              ))}
+          <div className="space-y-3 mb-4">
+            <div>
+              <div className="text-[10px] font-bold uppercase tracking-wider text-gray-500 mb-1.5">
+                👩 Female
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {AVATAR_FEMALE.map((p) => (
+                  <PresetChip key={p.label} {...p} onClick={() => setPrompt(p.val)} />
+                ))}
+              </div>
             </div>
-            <div className="text-[8px] text-gray-500 mb-1">👨 Male</div>
-            <div className="flex flex-wrap gap-1 mb-2">
-              {AVATAR_MALE.map((p) => (
-                <PresetChip key={p.label} {...p} onClick={() => setPrompt(p.val)} />
-              ))}
+            <div>
+              <div className="text-[10px] font-bold uppercase tracking-wider text-gray-500 mb-1.5">
+                👨 Male
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {AVATAR_MALE.map((p) => (
+                  <PresetChip key={p.label} {...p} onClick={() => setPrompt(p.val)} />
+                ))}
+              </div>
             </div>
-          </>
+          </div>
         )}
 
         {/* Product presets */}
         {promptCat === "product" && (
-          <div className="flex flex-wrap gap-1 mb-2">
+          <div className="flex flex-wrap gap-1.5 mb-4">
             {PRODUCT_PROMPTS.map((p) => (
               <PresetChip key={p.label} {...p} onClick={() => setPrompt(p.val)} />
             ))}
           </div>
         )}
 
-        {/* Sales presets — Soft Sales (green→keep green) + Hard Sell (red) */}
+        {/* Sales presets */}
         {promptCat === "sales" && (
-          <div className="flex gap-1 mb-2">
+          <div className="grid grid-cols-2 gap-2 mb-4">
             {SALES_PROMPTS.map((p) => (
               <button
                 key={p.label}
                 onClick={() => setPrompt(p.val)}
-                className="flex-1 py-1.5 rounded-md text-[10px] font-bold transition-colors"
+                className="py-3 rounded-lg text-sm font-extrabold transition-all hover:-translate-y-0.5"
                 style={{
-                  background: `${p.color}14`,
-                  border: `1px solid ${p.color}`,
+                  background: `${p.color}12`,
+                  border: `1.5px solid ${p.color}`,
                   color: p.color,
                 }}
               >
@@ -393,20 +410,23 @@ export default function ImageTab() {
           rows={5}
           value={prompt}
           onChange={(e) => setPrompt(e.target.value)}
-          placeholder="Describe your scene — or click Soft Sales / Hard Sell above for ready-made prompts"
-          className="w-full p-2 rounded-md text-xs resize-y outline-none"
+          placeholder="Describe your scene — or click a preset above for ready-made prompts"
+          className="w-full p-3.5 rounded-xl text-sm resize-y outline-none transition-colors focus:border-orange-400"
           style={{
-            background: "#f8fbf5",
-            border: "1px solid #d8e8d0",
+            background: "#fafaf7",
+            border: "1px solid #e8e0d8",
             color: "#1a1a1a",
+            lineHeight: 1.5,
           }}
         />
 
-        <div className="mt-3">
+        <div className="mt-4">
           <Label>Count</Label>
-          <Select value={String(count)} onChange={(v) => setCount(Number(v))} width={100}>
+          <Select value={String(count)} onChange={(v) => setCount(Number(v))} width={120}>
             {[1, 2, 3, 4].map((n) => (
-              <option key={n} value={n}>{n}</option>
+              <option key={n} value={n}>
+                {n}
+              </option>
             ))}
           </Select>
         </div>
@@ -414,10 +434,11 @@ export default function ImageTab() {
         <button
           onClick={submit}
           disabled={busy}
-          className="w-full mt-3 py-3 rounded-md font-extrabold text-[13px] text-white transition-all hover:-translate-y-0.5 disabled:opacity-50 disabled:transform-none"
+          className="w-full mt-5 py-3.5 rounded-xl font-extrabold text-base text-white transition-all hover:-translate-y-0.5 disabled:opacity-50 disabled:transform-none"
           style={{
-            background: `linear-gradient(135deg, #ff5722, #ff7043)`,
-            boxShadow: "0 2px 8px rgba(255, 87, 34, 0.25)",
+            background: `linear-gradient(135deg, #ff5722 0%, #ff7043 100%)`,
+            boxShadow:
+              "0 6px 20px rgba(255, 87, 34, 0.35), inset 0 1px 0 rgba(255,255,255,0.2)",
           }}
         >
           {busy ? (
@@ -432,7 +453,7 @@ export default function ImageTab() {
 
         {error && (
           <div
-            className="mt-2 px-3 py-2 rounded-md text-xs"
+            className="mt-3 px-4 py-2.5 rounded-lg text-xs font-semibold"
             style={{
               background: "rgba(244,67,54,0.08)",
               border: "1px solid rgba(244,67,54,0.4)",
@@ -443,8 +464,10 @@ export default function ImageTab() {
           </div>
         )}
 
-        <p className="text-center text-[10px] text-gray-500 mt-2">
-          {cost ? `Tolak RM${(cost * count).toFixed(2)} bila ${count} image siap` : "20 sen / 50 sen per generate (ikut plan)"}
+        <p className="text-center text-[11px] text-gray-500 mt-3">
+          {cost
+            ? `Tolak RM${(cost * count).toFixed(2)} bila ${count} image siap`
+            : "20 sen / 50 sen per generate (ikut plan)"}
         </p>
       </Card>
 
@@ -607,12 +630,15 @@ function Card({
 }) {
   return (
     <div
-      className="rounded-xl p-3.5"
+      className="rounded-2xl p-5"
       style={{
         background: "#ffffff",
-        border: `1px solid ${borderColor || "#d8e8d0"}`,
-        boxShadow: "0 1px 3px rgba(0,0,0,0.04)",
-        ...(borderColor ? { borderTopWidth: 2, borderTopColor: borderColor } : {}),
+        border: `1px solid ${borderColor || "#e8e0d8"}`,
+        boxShadow:
+          "0 1px 2px rgba(0,0,0,0.03), 0 4px 16px -4px rgba(0,0,0,0.04)",
+        ...(borderColor
+          ? { borderTopWidth: 3, borderTopColor: borderColor }
+          : {}),
       }}
     >
       {children}
@@ -630,9 +656,12 @@ function CardHeader({
   right?: React.ReactNode;
 }) {
   return (
-    <div className="flex items-center gap-2 mb-2.5">
-      <span className="text-base">{icon}</span>
-      <span className="text-[12px] font-extrabold uppercase tracking-wider" style={{ color: "#1a3a1a" }}>
+    <div className="flex items-center gap-2.5 mb-4">
+      <span className="text-lg">{icon}</span>
+      <span
+        className="text-[13px] font-extrabold uppercase tracking-[0.06em]"
+        style={{ color: "#1a1a1a" }}
+      >
         {title}
       </span>
       {right && <span className="ml-auto">{right}</span>}
@@ -642,7 +671,10 @@ function CardHeader({
 
 function Label({ children }: { children: React.ReactNode }) {
   return (
-    <div className="text-[10px] font-bold uppercase tracking-wider mb-1" style={{ color: "#666" }}>
+    <div
+      className="text-[10px] font-extrabold uppercase tracking-[0.1em] mb-2"
+      style={{ color: "#888" }}
+    >
       {children}
     </div>
   );
@@ -663,11 +695,11 @@ function Select({
     <select
       value={value}
       onChange={(e) => onChange(e.target.value)}
-      className="px-2 py-2 rounded-md text-xs outline-none"
+      className="px-3.5 py-2.5 rounded-lg text-sm font-semibold outline-none transition-colors focus:border-orange-400"
       style={{
         width: width ? `${width}px` : "100%",
-        background: "#f8fbf5",
-        border: "1px solid #d8e8d0",
+        background: "#fafaf7",
+        border: "1px solid #e8e0d8",
         color: "#1a1a1a",
       }}
     >
@@ -696,16 +728,17 @@ function RefZone({
   if (url) {
     return (
       <div
-        className="rounded-lg overflow-hidden relative"
+        className="rounded-xl overflow-hidden relative"
         style={{
           border: `2px solid ${ORANGE}`,
+          boxShadow: "0 4px 12px rgba(255, 87, 34, 0.15)",
         }}
       >
-        <img src={url} alt="" className="w-full max-h-48 object-cover" />
+        <img src={url} alt="" className="w-full max-h-56 object-cover" />
         <button
           onClick={onClear}
-          className="absolute top-1.5 right-1.5 w-6 h-6 rounded-full text-white text-xs hover:bg-red-500 transition"
-          style={{ background: "rgba(0,0,0,0.7)" }}
+          className="absolute top-2 right-2 w-7 h-7 rounded-full text-white text-xs hover:bg-red-500 transition shadow-md"
+          style={{ background: "rgba(0,0,0,0.75)", backdropFilter: "blur(4px)" }}
         >
           ✕
         </button>
@@ -716,23 +749,31 @@ function RefZone({
     <button
       type="button"
       onClick={onPick}
-      className={`w-full ${small ? "p-2.5" : "p-5"} rounded-lg text-center cursor-pointer transition-all hover:-translate-y-0.5`}
+      className={`w-full ${small ? "p-4" : "p-7 md:p-8"} rounded-xl text-center cursor-pointer transition-all hover:-translate-y-0.5`}
       style={{
         border: `2px dashed ${ORANGE_SOFT}`,
         background: ORANGE_FAINT,
       }}
       onMouseEnter={(e) => {
         e.currentTarget.style.borderColor = ORANGE;
-        e.currentTarget.style.background = "rgba(255, 87, 34, 0.1)";
+        e.currentTarget.style.background = "rgba(255, 87, 34, 0.08)";
+        e.currentTarget.style.boxShadow = "0 0 24px rgba(255, 87, 34, 0.1)";
       }}
       onMouseLeave={(e) => {
         e.currentTarget.style.borderColor = ORANGE_SOFT;
         e.currentTarget.style.background = ORANGE_FAINT;
+        e.currentTarget.style.boxShadow = "none";
       }}
     >
-      <div className={`${small ? "text-base" : "text-3xl"} mb-1 opacity-70`}>{icon}</div>
-      {title && <div className="text-[11px] text-gray-700">{title}</div>}
-      <div className="text-[8px] text-gray-500 mt-0.5">{subtitle}</div>
+      <div
+        className={`${small ? "text-2xl" : "text-4xl md:text-5xl"} mb-2 opacity-75`}
+      >
+        {icon}
+      </div>
+      {title && (
+        <div className="text-sm font-semibold text-gray-700 mb-1">{title}</div>
+      )}
+      <div className="text-[11px] text-gray-500">{subtitle}</div>
     </button>
   );
 }
@@ -787,11 +828,19 @@ function PresetChip({
   return (
     <button
       onClick={onClick}
-      className="px-2 py-1 rounded-md text-[8px] font-bold transition-colors flex-1 min-w-[55px] hover:opacity-80"
+      className="px-3 py-1.5 rounded-lg text-[11px] font-bold transition-all flex-1 min-w-[80px] hover:-translate-y-0.5"
       style={{
-        background: `${color}14`,
+        background: `${color}12`,
         border: `1px solid ${color}`,
         color,
+      }}
+      onMouseEnter={(e) => {
+        e.currentTarget.style.background = `${color}1f`;
+        e.currentTarget.style.boxShadow = `0 4px 12px ${color}25`;
+      }}
+      onMouseLeave={(e) => {
+        e.currentTarget.style.background = `${color}12`;
+        e.currentTarget.style.boxShadow = "none";
       }}
     >
       {label}

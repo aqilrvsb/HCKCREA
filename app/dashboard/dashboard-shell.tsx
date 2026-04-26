@@ -365,7 +365,9 @@ export default function DashboardShell({
           <div className="flex-1 px-5 lg:px-10 pb-10 lg:pb-12 space-y-6">
             {section === "image" && (
               <>
-                <ImageTab />
+                <div className="max-w-5xl mx-auto w-full">
+                  <ImageTab />
+                </div>
                 <HistoryGrid tab="image" title="Image" />
               </>
             )}
