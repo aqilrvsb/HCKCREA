@@ -94,6 +94,47 @@ export default function HistoryGrid({
   const [page, setPage] = useState(0);
   const PAGE_SIZE = 12;
 
+  // Combine/merge multi-select. Only enabled on video tabs (UGC/Auto/Cinema)
+  // — image tabs don't have a "combine" semantic. Reset whenever the tab or
+  // project switches (the parent re-keys this component, but extra-safe).
+  const supportsMerge = tab === "video" || tab === "auto" || tab === "cinema";
+  const [mergeSelection, setMergeSelection] = useState<string[]>([]);
+  const [merging, setMerging] = useState(false);
+  function toggleMergeSelection(id: string) {
+    setMergeSelection((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+    );
+  }
+  function clearMergeSelection() {
+    setMergeSelection([]);
+  }
+  async function fireMerge() {
+    if (mergeSelection.length < 2 || merging) return;
+    setMerging(true);
+    try {
+      const r = await fetch("/api/merge/videos", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ history_ids: mergeSelection }),
+      });
+      const d = await r.json();
+      if (!r.ok || !d?.ok) {
+        alert(d?.error || "Merge failed");
+      } else {
+        clearMergeSelection();
+        window.dispatchEvent(new CustomEvent("history:refresh"));
+      }
+    } catch (e: any) {
+      alert(e?.message || "Network error");
+    } finally {
+      setMerging(false);
+    }
+  }
+  // Clear selection on tab/project switch
+  useEffect(() => {
+    setMergeSelection([]);
+  }, [tab, projectId]);
+
   useEffect(() => {
     void load();
     setPage(0);
@@ -207,9 +248,80 @@ export default function HistoryGrid({
         </div>
       ) : (
         <>
+          {supportsMerge && mergeSelection.length >= 2 && (
+            <div
+              className="sticky top-0 z-10 flex items-center justify-between gap-3 mb-3 px-4 py-3 rounded-xl"
+              style={{
+                background:
+                  "linear-gradient(135deg, rgba(139,92,246,0.18) 0%, rgba(167,139,250,0.12) 100%)",
+                border: "1px solid rgba(139,92,246,0.45)",
+                backdropFilter: "blur(8px)",
+              }}
+            >
+              <div className="flex items-center gap-2">
+                <Layers className="w-4 h-4" style={{ color: "#a78bfa" }} />
+                <span className="text-sm font-bold text-[var(--color-text-primary)]">
+                  {mergeSelection.length} videos selected
+                </span>
+                <span className="text-[10px] font-mono uppercase tracking-wider text-[var(--color-text-muted)]">
+                  · click cards to add/remove
+                </span>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={clearMergeSelection}
+                  disabled={merging}
+                  className="px-3 py-1.5 rounded-lg text-xs font-bold disabled:opacity-50"
+                  style={{
+                    background: "var(--color-bg-card)",
+                    border: "1px solid var(--color-border)",
+                    color: "var(--color-text-secondary)",
+                  }}
+                >
+                  Clear
+                </button>
+                <button
+                  onClick={fireMerge}
+                  disabled={merging}
+                  className="px-4 py-1.5 rounded-lg text-xs font-extrabold uppercase tracking-wider text-white disabled:opacity-50 inline-flex items-center gap-2"
+                  style={{
+                    background:
+                      "linear-gradient(135deg, #8b5cf6 0%, #a78bfa 100%)",
+                    boxShadow: "0 4px 12px rgba(139,92,246,0.4)",
+                  }}
+                >
+                  {merging ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      Merging…
+                    </>
+                  ) : (
+                    <>
+                      <Layers className="w-3.5 h-3.5" />
+                      Merge
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+          )}
+
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
             {pageItems.map((it) => (
-              <HistoryCard key={it.id} item={it} seg2={childMap[it.id]} />
+              <HistoryCard
+                key={it.id}
+                item={it}
+                seg2={childMap[it.id]}
+                mergeSupported={supportsMerge}
+                mergeSelectedIdx={
+                  supportsMerge
+                    ? mergeSelection.indexOf(it.id)
+                    : -1
+                }
+                onToggleMerge={
+                  supportsMerge ? () => toggleMergeSelection(it.id) : undefined
+                }
+              />
             ))}
           </div>
 
@@ -287,7 +399,19 @@ const ACTION = {
   retry: "linear-gradient(135deg, #22c55e, #4ade80)",      // green — retry failed
 };
 
-function HistoryCard({ item, seg2 }: { item: HistoryItem; seg2?: HistoryItem }) {
+function HistoryCard({
+  item,
+  seg2,
+  mergeSupported,
+  mergeSelectedIdx,
+  onToggleMerge,
+}: {
+  item: HistoryItem;
+  seg2?: HistoryItem;
+  mergeSupported?: boolean;
+  mergeSelectedIdx?: number;
+  onToggleMerge?: () => void;
+}) {
   const [checking, setChecking] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [name, setName] = useState(item.metadata?.name || "");
@@ -694,7 +818,8 @@ function HistoryCard({ item, seg2 }: { item: HistoryItem; seg2?: HistoryItem }) 
             </>
           )}
 
-          {/* DONE — video: Extend (UGC/Auto) or Merge (Cinema) + Download + Delete */}
+          {/* DONE — video: Extend (UGC/Auto) + Combine (UGC/Auto/Cinema)
+              + Improve + Download + Delete */}
           {item.status === "done" && isVideo && (
             <>
               {canExtend && (
@@ -708,9 +833,36 @@ function HistoryCard({ item, seg2 }: { item: HistoryItem; seg2?: HistoryItem }) 
                   Extend
                 </button>
               )}
-              {/* Cinema merge button — hidden until the multi-select +
-                  merge endpoint ships. Cinema cards still get Improve /
-                  Download / Delete; Extend stays UGC-only. */}
+              {mergeSupported && onToggleMerge && (
+                <button
+                  onClick={onToggleMerge}
+                  title={
+                    (mergeSelectedIdx ?? -1) >= 0
+                      ? "Selected for merge — click to deselect"
+                      : "Select for merge"
+                  }
+                  className="flex-1 h-7 rounded-lg text-[9px] font-extrabold uppercase tracking-wider flex items-center justify-center gap-1 transition-all"
+                  style={
+                    (mergeSelectedIdx ?? -1) >= 0
+                      ? {
+                          background: ACTION.merge,
+                          color: "white",
+                          boxShadow: "0 2px 6px rgba(139,92,246,0.4)",
+                        }
+                      : {
+                          background: "var(--color-bg-card)",
+                          border: "1px solid var(--color-border)",
+                          color: "var(--color-text-secondary)",
+                        }
+                  }
+                >
+                  {(mergeSelectedIdx ?? -1) >= 0 ? (
+                    <>{(mergeSelectedIdx ?? 0) + 1} ✓</>
+                  ) : (
+                    <>☐ Combine</>
+                  )}
+                </button>
+              )}
               <ActionBtn title="Improve Video" onClick={() => setShowEditModal(true)} bg={ACTION.edit}>
                 <Pencil className="w-3.5 h-3.5" strokeWidth={2.4} />
               </ActionBtn>
