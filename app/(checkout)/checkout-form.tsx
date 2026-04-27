@@ -43,6 +43,21 @@ export default function CheckoutForm() {
     return "+60" + digits;
   }
 
+  // Sanitiser for the visible input — the +60 country code is rendered as
+  // a locked prefix, so the user is only typing the local part. Strip:
+  //   • any non-digit char (including "+", spaces, dashes)
+  //   • a leading "60" (full international prefix re-typed by mistake)
+  //   • a leading "0"  (national-format zero — Malaysian "012…" → "12…")
+  // After sanitising, cap to 10 digits — Malaysian mobile local part is
+  // 9-10 digits; allowing more would always fail normalizeWhatsapp anyway.
+  function sanitizeWhatsappInput(raw: string): string {
+    let v = raw.replace(/\D/g, "");
+    while (v.startsWith("60")) v = v.slice(2);
+    while (v.startsWith("0")) v = v.slice(1);
+    if (v.length > 10) v = v.slice(0, 10);
+    return v;
+  }
+
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
@@ -69,7 +84,8 @@ export default function CheckoutForm() {
       if (data?.checkout_url) {
         window.location.href = data.checkout_url;
       } else {
-        setError(data?.error || "Failed to start checkout");
+        const detail = data?.detail ? ` — ${data.detail}` : "";
+        setError(`${data?.error || "Failed to start checkout"}${detail}`);
         setLoading(false);
       }
     } catch (e: any) {
@@ -129,10 +145,11 @@ export default function CheckoutForm() {
               <input
                 type="tel"
                 required
-                inputMode="tel"
+                inputMode="numeric"
                 autoComplete="tel"
+                maxLength={10}
                 value={whatsapp}
-                onChange={(e) => setWhatsapp(e.target.value)}
+                onChange={(e) => setWhatsapp(sanitizeWhatsappInput(e.target.value))}
                 placeholder="123456789"
                 className="flex-1 min-w-0 bg-transparent border-0 outline-none px-4 py-[14px] text-[15px] text-[var(--color-text-primary)] placeholder:text-[var(--color-text-muted)]"
               />

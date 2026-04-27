@@ -89,8 +89,16 @@ export async function POST(req: Request) {
 
     if (payErr || !payment) {
       console.error("checkout payment insert failed:", payErr);
+      // Surface the underlying SQL error to the client so we can diagnose
+      // schema / RLS / constraint issues without having to grep Vercel logs.
+      // payErr fields from supabase-js: .message, .details, .hint, .code.
       return NextResponse.json(
-        { error: "Failed to create payment record" },
+        {
+          error: "Failed to create payment record",
+          detail: payErr?.message || null,
+          code: (payErr as any)?.code || null,
+          hint: (payErr as any)?.hint || null,
+        },
         { status: 500 }
       );
     }
