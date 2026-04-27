@@ -92,10 +92,6 @@ export default function SavedPromptsSection() {
   const [search, setSearch] = useState("");
   const [bucketFilter, setBucketFilter] = useState<
     | "all"
-    | "ugc"
-    | "cinema"
-    | "image"
-    | "auto"
     | "master-ugc"
     | "master-cinema"
     | "master-auto"
@@ -127,6 +123,13 @@ export default function SavedPromptsSection() {
 
   const filtered = useMemo(() => {
     return rows.filter((r) => {
+      // Saved Prompts is now a library of MASTER PLANS only. The
+      // per-generation auto-saves (bucket "ugc"/"cinema"/"image"/"auto")
+      // are noise here — the user has History for those. We keep them
+      // in the DB for `recall_starred_prompts` fetches by the agents
+      // but hide them from this UI.
+      if (!String(r.bucket).startsWith("master-")) return false;
+
       if (bucketFilter !== "all" && r.bucket !== bucketFilter) return false;
       if (projectFilter !== "all" && r.project_id !== projectFilter)
         return false;
@@ -230,10 +233,6 @@ export default function SavedPromptsSection() {
         <div className="flex gap-1.5 flex-wrap">
           {([
             "all",
-            "ugc",
-            "cinema",
-            "image",
-            "auto",
             "master-ugc",
             "master-cinema",
             "master-auto",
