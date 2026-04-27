@@ -299,8 +299,8 @@ export default function VideoTab({ projectId }: { projectId?: string } = {}) {
         <textarea
           rows={5}
           value={prompt}
-          onChange={(e) => setPrompt(e.target.value.substring(0, 1000))}
-          maxLength={1000}
+          onChange={(e) => setPrompt(e.target.value.substring(0, 1200))}
+          maxLength={1200}
           placeholder="Scene description + spoken dialog 0-8s..."
           className="w-full p-3.5 rounded-xl text-sm resize-y outline-none focus:border-orange-400"
           style={{
@@ -325,8 +325,8 @@ export default function VideoTab({ projectId }: { projectId?: string } = {}) {
             {prompt.trim().split(/\s+/).filter(Boolean).length} words
           </span>{" "}
           ·{" "}
-          <span className={prompt.length > 950 ? "text-red-500 font-bold" : ""}>
-            {prompt.length}/1000
+          <span className={prompt.length > 1140 ? "text-red-500 font-bold" : ""}>
+            {prompt.length}/1200
           </span>
         </p>
       </Card>

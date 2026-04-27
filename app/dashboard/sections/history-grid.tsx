@@ -17,6 +17,7 @@ import {
   Palette,
   ChevronLeft,
   ChevronRight,
+  Layers,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import Portal from "./portal";
@@ -40,7 +41,11 @@ export type HistoryItem = {
   error_message: string | null;
   created_at: string;
   project_id: string | null;
-  metadata?: { model?: string; name?: string; [k: string]: any } | null;
+  parent_history_id?: string | null;
+  segment_index?: number | null;
+  merged_url?: string | null;
+  frame_anchor?: string | null;
+  metadata?: { model?: string; name?: string; duration_mode?: string; seg1_url?: string; seg2_url?: string; [k: string]: any } | null;
 };
 
 // Pretty model name for the badge under each card
@@ -118,18 +123,31 @@ export default function HistoryGrid({
     }
   }
 
+  // Children (segment_index=2 with parent_history_id) live in the same query
+  // result. Pull them out into a lookup map so HistoryCard can build its
+  // segment slider, and only show parent rows in the grid.
+  const { parents, childMap } = useMemo(() => {
+    const parents: HistoryItem[] = [];
+    const childMap: Record<string, HistoryItem> = {};
+    for (const it of items) {
+      if (it.parent_history_id) childMap[it.parent_history_id] = it;
+      else parents.push(it);
+    }
+    return { parents, childMap };
+  }, [items]);
+
   const counts = useMemo(
     () => ({
-      total: items.length,
-      pending: items.filter((i) => i.status === "pending").length,
+      total: parents.length,
+      pending: parents.filter((i) => i.status === "pending").length,
     }),
-    [items]
+    [parents]
   );
 
-  const totalPages = Math.max(1, Math.ceil(items.length / PAGE_SIZE));
+  const totalPages = Math.max(1, Math.ceil(parents.length / PAGE_SIZE));
   // Clamp page if items shrink (e.g. after delete) so we never show empty page.
   const safePage = Math.min(page, totalPages - 1);
-  const pageItems = items.slice(safePage * PAGE_SIZE, safePage * PAGE_SIZE + PAGE_SIZE);
+  const pageItems = parents.slice(safePage * PAGE_SIZE, safePage * PAGE_SIZE + PAGE_SIZE);
 
   return (
     <section className="card">
@@ -167,7 +185,7 @@ export default function HistoryGrid({
         <>
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
             {pageItems.map((it) => (
-              <HistoryCard key={it.id} item={it} />
+              <HistoryCard key={it.id} item={it} seg2={childMap[it.id]} />
             ))}
           </div>
 
@@ -239,12 +257,13 @@ export default function HistoryGrid({
 const ACTION = {
   edit: "linear-gradient(135deg, #7c4dff, #b388ff)",       // purple — edit/improve
   extend: "linear-gradient(135deg, #f59e0b, #fbbf24)",     // amber — extend +8s
+  merge: "linear-gradient(135deg, #8b5cf6, #a78bfa)",      // violet — combine clips (cinema)
   download: "linear-gradient(135deg, #3b82f6, #60a5fa)",   // blue — download
   delete: "linear-gradient(135deg, #ef4444, #f87171)",     // red — delete
   retry: "linear-gradient(135deg, #22c55e, #4ade80)",      // green — retry failed
 };
 
-function HistoryCard({ item }: { item: HistoryItem }) {
+function HistoryCard({ item, seg2 }: { item: HistoryItem; seg2?: HistoryItem }) {
   const [checking, setChecking] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [name, setName] = useState(item.metadata?.name || "");
@@ -260,8 +279,65 @@ function HistoryCard({ item }: { item: HistoryItem }) {
   const isCinema = item.tab === "cinema";
   // Extend + Improve are available on every completed video, regardless of
   // which provider rendered it — fal.ai extracts the last frame from the
-  // output URL and feeds it to Veo i2v for the continuation.
-  const canExtend = isVideo && item.status === "done" && item.output_url;
+  // output URL and feeds it to Veo i2v for the continuation. Cinema cards get
+  // a Merge action instead (combine multiple cinema clips into one).
+  const canExtend = isVideo && !isCinema && item.status === "done" && item.output_url;
+
+  // Segment slider — UGC + Auto Content cards that went through the 16s
+  // pipeline (or were extended) have a parent row + a child seg-2 row. Build
+  // a [seg-1, seg-2, merged] slide list so the user can flip between them.
+  type Slide = {
+    id: "seg_0" | "seg_1" | "merged";
+    label: string;
+    url: string | null;
+    status: "ready" | "pending" | "failed";
+  };
+  const slides = useMemo<Slide[]>(() => {
+    const has16s = item.metadata?.duration_mode === "16s";
+    if (!has16s && !seg2) return [];
+    // Before merge: parent.output_url is the seg-1 URL, merged_url is null.
+    // After merge: parent.output_url is the merged URL, metadata.seg1_url
+    // preserves the original seg-1 URL.
+    const merged = item.merged_url || null;
+    const seg1Url = merged ? (item.metadata?.seg1_url ?? null) : item.output_url;
+    const seg2Url = seg2?.output_url || null;
+    const fail = item.status === "failed";
+    const seg1Status: Slide["status"] = seg1Url ? "ready" : fail ? "failed" : "pending";
+    const seg2Status: Slide["status"] = seg2
+      ? seg2.status === "done" && seg2Url
+        ? "ready"
+        : seg2.status === "failed"
+          ? "failed"
+          : "pending"
+      : "pending";
+    const mergedStatus: Slide["status"] = merged ? "ready" : fail ? "failed" : "pending";
+    return [
+      { id: "seg_0", label: "Seg 1", url: seg1Url, status: seg1Status },
+      { id: "seg_1", label: "Seg 2", url: seg2Url, status: seg2Status },
+      { id: "merged", label: "16s", url: merged, status: mergedStatus },
+    ];
+  }, [item, seg2]);
+
+  // Default to the merged slide when ready, else seg-1. Track whether the user
+  // has manually picked a slide so the auto-jump-to-merged doesn't yank their
+  // selection out from under them.
+  const [activeIdx, setActiveIdx] = useState(0);
+  const [userPicked, setUserPicked] = useState(false);
+  useEffect(() => {
+    if (slides.length === 0 || userPicked) return;
+    const mergedReady = slides.findIndex(
+      (s) => s.id === "merged" && s.status === "ready"
+    );
+    if (mergedReady !== -1) setActiveIdx(mergedReady);
+    else setActiveIdx(0);
+  }, [slides, userPicked]);
+
+  const activeSlide = slides[activeIdx];
+  // Player URL: when the slider is active, use the active slide's URL so
+  // clicking a thumbnail switches the main player. Otherwise fall back to
+  // item.output_url for plain (non-segmented) cards.
+  const playerUrl =
+    slides.length > 0 && activeSlide?.url ? activeSlide.url : item.output_url;
 
   async function checkNow() {
     setChecking(true);
@@ -400,11 +476,11 @@ function HistoryCard({ item }: { item: HistoryItem }) {
             </button>
           </>
         )}
-        {item.status === "done" && item.output_url && (
+        {item.status === "done" && playerUrl && (
           <>
             {isImage && (
               <img
-                src={item.output_url}
+                src={playerUrl}
                 alt=""
                 className="w-full h-full object-cover cursor-pointer"
                 onClick={() => setShowFullscreen(true)}
@@ -412,7 +488,7 @@ function HistoryCard({ item }: { item: HistoryItem }) {
             )}
             {isVideo && (
               <LazyVideo
-                src={item.output_url + "#t=1"}
+                src={playerUrl + "#t=1"}
                 muted
                 playsInline
                 className="w-full h-full object-cover cursor-pointer"
@@ -422,6 +498,87 @@ function HistoryCard({ item }: { item: HistoryItem }) {
           </>
         )}
       </div>
+
+      {/* Segment slider — only renders when the card has a seg-1 + seg-2 +
+          merged trio. Click a thumb to swap the main player. Pending segments
+          show a spinner; failed segments show a red X. */}
+      {slides.length >= 2 && (
+        <div className="flex gap-1 p-1.5 bg-black border-t border-[var(--color-border)]">
+          {slides.map((slide, i) => {
+            const isActive = i === activeIdx;
+            const ready = slide.status === "ready";
+            const lineageColor =
+              slide.id === "merged"
+                ? "#f59e0b"
+                : slide.id === "seg_0"
+                  ? "#3b82f6"
+                  : "#22c55e";
+            const borderColor = isActive
+              ? "var(--color-orange)"
+              : ready
+                ? lineageColor
+                : "#333";
+            return (
+              <button
+                key={slide.id}
+                onClick={() => {
+                  if (!ready) return;
+                  setActiveIdx(i);
+                  setUserPicked(true);
+                }}
+                disabled={!ready}
+                title={
+                  slide.label +
+                  (ready
+                    ? ""
+                    : slide.status === "failed"
+                      ? " (failed)"
+                      : slide.id === "merged"
+                        ? " (queued — merges after seg-2 lands)"
+                        : " (still generating)")
+                }
+                className="relative flex-1 min-w-0 aspect-[9/16] rounded overflow-hidden bg-black"
+                style={{
+                  border: `2px solid ${borderColor}`,
+                  opacity: ready ? 1 : 0.55,
+                  cursor: ready ? "pointer" : "not-allowed",
+                  maxHeight: 80,
+                }}
+              >
+                {ready && slide.url ? (
+                  <LazyVideo
+                    src={slide.url + "#t=1"}
+                    muted
+                    playsInline
+                    className="w-full h-full object-cover pointer-events-none"
+                  />
+                ) : (
+                  <div className="absolute inset-0 flex items-center justify-center">
+                    {slide.status === "failed" ? (
+                      <XCircle className="w-3.5 h-3.5 text-red-400" />
+                    ) : (
+                      <Loader2
+                        className="w-3.5 h-3.5 animate-spin"
+                        style={{ color: lineageColor }}
+                      />
+                    )}
+                  </div>
+                )}
+                <div
+                  className="absolute bottom-0 left-0 right-0 px-1 text-[8px] font-bold text-center truncate"
+                  style={{
+                    background: "rgba(0,0,0,0.75)",
+                    color: ready ? lineageColor : "#aaa",
+                    lineHeight: "12px",
+                  }}
+                >
+                  {slide.label}
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      )}
 
       <div className="p-2.5">
         {/* Status + mode + model badges */}
@@ -513,7 +670,7 @@ function HistoryCard({ item }: { item: HistoryItem }) {
             </>
           )}
 
-          {/* DONE — video: Extend + Download + Delete */}
+          {/* DONE — video: Extend (UGC/Auto) or Merge (Cinema) + Download + Delete */}
           {item.status === "done" && isVideo && (
             <>
               {canExtend && (
@@ -525,6 +682,17 @@ function HistoryCard({ item }: { item: HistoryItem }) {
                 >
                   <Plus className="w-3 h-3" />
                   Extend
+                </button>
+              )}
+              {isCinema && item.output_url && (
+                <button
+                  onClick={() => alert("Merge: select multiple cinema clips and combine — coming next.")}
+                  title="Merge with another cinema clip"
+                  className="flex-1 h-7 rounded-lg text-[9px] font-extrabold uppercase tracking-wider text-white flex items-center justify-center gap-1 transition-transform hover:scale-105"
+                  style={{ background: ACTION.merge, boxShadow: "0 2px 6px rgba(139,92,246,0.4)" }}
+                >
+                  <Layers className="w-3 h-3" />
+                  Merge
                 </button>
               )}
               <ActionBtn title="Improve Video" onClick={() => setShowEditModal(true)} bg={ACTION.edit}>
@@ -563,10 +731,11 @@ function HistoryCard({ item }: { item: HistoryItem }) {
         </div>
       </div>
 
-      {/* Fullscreen modal */}
-      {showFullscreen && item.output_url && (
+      {/* Fullscreen modal — opens whichever slide is currently active so the
+          user sees the same clip they were viewing on the card. */}
+      {showFullscreen && playerUrl && (
         <FullscreenModal
-          url={item.output_url}
+          url={playerUrl}
           isVideo={isVideo}
           onClose={() => setShowFullscreen(false)}
         />
