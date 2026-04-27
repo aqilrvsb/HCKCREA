@@ -66,18 +66,48 @@ export async function POST(req: Request) {
   const sourceVideoUrl = String(body?.source_video_url || "");
   const sourceDuration = Number(body?.source_duration || 8);
   const bucket = body?.bucket === "cinema" ? "cinema" : body?.bucket === "auto" ? "auto" : "ugc";
-  const frameAnchor = (["first", "middle", "last"].includes(body?.frame_anchor)
-    ? body.frame_anchor
-    : "last") as FrameAnchor;
+
+  // New frame picker shape (replaces frame_anchor radio):
+  //   start_frame_source: "first" | "middle" | "last" | "upload" | "history"
+  //   start_frame_url: present when source is "upload" or "history"
+  //   end_frame_source / end_frame_url: optional same shape
+  // Legacy frame_anchor still accepted as fallback for any old client.
+  const startFrameSource =
+    (["first", "middle", "last", "upload", "history"].includes(body?.start_frame_source)
+      ? body.start_frame_source
+      : ["first", "middle", "last"].includes(body?.frame_anchor)
+        ? body.frame_anchor
+        : "last") as "first" | "middle" | "last" | "upload" | "history";
+  const startFrameUrl = body?.start_frame_url ? String(body.start_frame_url) : "";
+  const endFrameSource = body?.end_frame_source
+    ? String(body.end_frame_source)
+    : null;
+  const endFrameUrl = body?.end_frame_url ? String(body.end_frame_url) : "";
+
+  // Extension duration ladder: 8→16, 16→24, 24→30 (cap).
+  const extendSeconds = ((): number => {
+    const requested = Number(body?.extend_seconds || 0);
+    if (requested === 6 || requested === 8) return requested;
+    if (sourceDuration < 16) return 8;
+    if (sourceDuration < 24) return 8;
+    if (sourceDuration < 30) return 6;
+    return 0; // can't extend further
+  })();
+
   const seg2Prompt = String(body?.seg2_prompt || "").trim();
-  // Product text lock — user-typed text/labels visible on the product
-  // packaging. Wins over OCR (user knows their product better). If empty,
-  // we fall back to OCR-derived lock block so power users who don't bother
-  // typing still get protection.
-  const productTextLock = String(body?.product_text_lock || "").trim();
+  // Product text lock UI removed from frontend — backend ALWAYS auto-runs
+  // OCR on productImageUrl when it's available, so the user never has to
+  // type the package text.
   const productImageUrl = String(body?.product_image_url || "");
   const voiceId = body?.voice ? String(body.voice) : "";
   const aspectRatio = String(body?.aspect_ratio || "9:16");
+
+  if (extendSeconds <= 0) {
+    return NextResponse.json(
+      { error: "This clip is already at the 30-second cap." },
+      { status: 400 }
+    );
+  }
 
   if (!sourceHistoryId || !sourceVideoUrl) {
     return NextResponse.json(
@@ -111,6 +141,10 @@ export async function POST(req: Request) {
   // Insert seg-2 placeholder row NOW. parent_history_id + segment_index=2
   // is what makes the parent card's slider render the seg-2 thumb (pending
   // state) immediately. task_id, cost, locks metadata filled by after().
+  const legacyAnchor: FrameAnchor =
+    startFrameSource === "first" || startFrameSource === "middle" || startFrameSource === "last"
+      ? startFrameSource
+      : "last";
   const { data: child, error: insErr } = await admin
     .from("history")
     .insert({
@@ -119,20 +153,23 @@ export async function POST(req: Request) {
       type: "video",
       tab: bucket === "cinema" ? "cinema" : bucket === "auto" ? "auto" : "video",
       status: "pending",
-      prompt: seg2Prompt, // raw prompt — full prompt with locks set in after()
-      reference_url: null, // anchor frame URL set in after()
+      prompt: seg2Prompt,
+      reference_url: null,
       task_id: null,
-      duration: 8,
+      duration: extendSeconds,
       cost: 0,
       segment_index: 2,
       parent_history_id: sourceHistoryId,
-      frame_anchor: frameAnchor,
+      frame_anchor: legacyAnchor,
       metadata: {
         agent: "extend",
         segment_role: "seg2",
         source_history_id: sourceHistoryId,
         bucket,
         aspectRatio,
+        extend_seconds: extendSeconds,
+        start_frame_source: startFrameSource,
+        end_frame_source: endFrameSource,
         upload_status: "queued",
       },
     })
@@ -150,46 +187,76 @@ export async function POST(req: Request) {
 
   after(async () => {
     try {
-      // 1. Resolve plan rate (extend = +8s = video_8s)
-      const cost = await priceFor(user.id, "video_8s");
+      // 1. Resolve plan rate. Extend cost is video_8s rate × (extendSeconds / 8).
+      const baseCost = await priceFor(user.id, "video_8s");
+      const cost = Number(((baseCost * extendSeconds) / 8).toFixed(4));
 
-      // 2. Extract frame from source video (fal, slow)
-      const frameRes = await falExtractFrame(sourceVideoUrl, frameAnchor, sourceDuration);
-      if (!frameRes.ok || !frameRes.url) {
+      // 2. Resolve start frame URL.
+      //    - upload/history → user provided a public URL, use directly
+      //    - first/middle/last → extract from source video via fal
+      let startUrl = "";
+      if (startFrameSource === "upload" || startFrameSource === "history") {
+        startUrl = startFrameUrl;
+      } else {
+        const frameRes = await falExtractFrame(
+          sourceVideoUrl,
+          startFrameSource as FrameAnchor,
+          sourceDuration
+        );
+        if (!frameRes.ok || !frameRes.url) {
+          await admin.from("history").update({
+            status: "failed",
+            cost,
+            error_message: `Start frame extract failed: ${frameRes.error}`,
+            metadata: {
+              agent: "extend", segment_role: "seg2",
+              source_history_id: sourceHistoryId, bucket, aspectRatio,
+              extend_seconds: extendSeconds,
+              start_frame_source: startFrameSource,
+              upload_status: "failed",
+            },
+          }).eq("id", childId);
+          return;
+        }
+        startUrl = frameRes.url;
+      }
+      if (!startUrl) {
         await admin.from("history").update({
           status: "failed",
           cost,
-          error_message: `Frame extract failed: ${frameRes.error}`,
+          error_message: "Start frame URL missing",
           metadata: {
             agent: "extend", segment_role: "seg2",
             source_history_id: sourceHistoryId, bucket, aspectRatio,
+            extend_seconds: extendSeconds,
             upload_status: "failed",
           },
         }).eq("id", childId);
         return;
       }
 
-      // 3. Build seg-2 prompt with product text lock. Character continuity
-      // comes from the frame anchor (we pass the literal seg-1 frame as the
-      // r2v/i2v reference, so the avatar's face is locked by pixels). The
-      // ONLY drift risk seg-2 has is package label text — which user-typed
-      // OR OCR-derived lock prevents.
-      const compose: string[] = [seg2Prompt];
-
-      let productOcr: any = null;
-      if (productTextLock) {
-        // User typed it — wrap their text in the same lock block shape so
-        // Veo treats it as a hard constraint (verbatim language matches the
-        // OCR-derived block, just with user-supplied content).
-        compose.push(
-          [
-            "── PRODUCT TEXT LOCK (character-perfect preservation — critical for seg 2+) ──",
-            productTextLock,
-            "Do NOT alter letters. Do NOT change the logo. Do NOT shift the layout. If product text appears in frame, it MUST match the description above character-for-character.",
-          ].join("\n")
+      // 2b. Resolve end frame URL (optional — Veo currently ignores it but
+      //     we extract + persist for future model support / debugging).
+      let endUrl = "";
+      if (endFrameSource && (endFrameSource === "upload" || endFrameSource === "history")) {
+        endUrl = endFrameUrl;
+      } else if (endFrameSource && ["first", "middle", "last"].includes(endFrameSource)) {
+        const endRes = await falExtractFrame(
+          sourceVideoUrl,
+          endFrameSource as FrameAnchor,
+          sourceDuration
         );
-      } else if (productImageUrl) {
-        // Fallback: OCR the product image. Same final block shape.
+        if (endRes.ok && endRes.url) endUrl = endRes.url;
+      }
+
+      // 3. Build seg-2 prompt with auto product text lock.
+      //    Character continuity comes from the frame itself (start frame is
+      //    the i2v/r2v reference, face locked by pixels). The drift risk is
+      //    package label text — auto-OCR'd whenever a product image is on
+      //    the source row. User no longer has to type it manually.
+      const compose: string[] = [seg2Prompt];
+      let productOcr: any = null;
+      if (productImageUrl) {
         productOcr = await getCachedProductOcr(user.id, productImageUrl).catch(() => null);
         const lockBlock = productTextLockBlock(productOcr);
         if (lockBlock) compose.push(lockBlock);
@@ -201,7 +268,7 @@ export async function POST(req: Request) {
         (voiceLine ? `\n\nVoice direction: ${voiceLine}` : "") +
         STANDARD_LOCKS;
 
-      // 4. Fire seg-2 Crun task
+      // 4. Fire seg-2 Crun task using the resolved start frame.
       const cfg = await getP2Config();
       const model = bucket === "cinema" ? cfg.grokI2V : cfg.videoR2V;
       if (!model) {
@@ -212,6 +279,7 @@ export async function POST(req: Request) {
           metadata: {
             agent: "extend", segment_role: "seg2",
             source_history_id: sourceHistoryId, bucket, aspectRatio,
+            extend_seconds: extendSeconds,
             upload_status: "failed",
           },
         }).eq("id", childId);
@@ -221,8 +289,8 @@ export async function POST(req: Request) {
       const created = await p2CreateTask({
         model,
         prompt: fullPrompt,
-        imageUrls: [frameRes.url],
-        durationMode: "8",
+        imageUrls: [startUrl],
+        durationMode: String(extendSeconds),
         aspectRatio,
         imageMode: bucket === "cinema" ? "frame" : "ingredient",
       });
@@ -235,17 +303,20 @@ export async function POST(req: Request) {
           task_id: created.task_id || null,
           cost,
           prompt: fullPrompt,
-          reference_url: frameRes.url,
+          reference_url: startUrl,
           error_message: created.ok ? null : created.error || "Extend P2 create failed",
           metadata: {
             agent: "extend",
             segment_role: "seg2",
             source_history_id: sourceHistoryId,
-            anchor_frame_url: frameRes.url,
+            anchor_frame_url: startUrl,
+            end_frame_url: endUrl || null,
             bucket,
             aspectRatio,
+            extend_seconds: extendSeconds,
+            start_frame_source: startFrameSource,
+            end_frame_source: endFrameSource,
             product_ocr: productOcr || null,
-            product_text_lock: productTextLock || null,
             voice: voiceId || null,
             voice_line: voiceLine || null,
             upload_status: created.ok ? "done" : "failed",
