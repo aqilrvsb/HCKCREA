@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Loader2, Wand2, X, Info } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import Portal from "../sections/portal";
@@ -17,7 +17,6 @@ import {
 // full apiMasterPlan-style submit body.
 
 type Status = "idle" | "planning" | "verifying" | "generating" | "failed";
-type ProductMode = "affiliate" | "manual";
 type CtaMode = "shop" | "custom" | "none";
 type PlanMode = "aiplan" | "verify" | "manual";
 
@@ -32,9 +31,9 @@ type ManualProduct = {
 };
 
 export default function AutoContentTab({ projectId }: { projectId?: string } = {}) {
-  // Product source
-  const [productMode, setProductMode] = useState<ProductMode>("affiliate");
-  const [productUrls, setProductUrls] = useState("");
+  // Manual product source — the affiliate-URL flow was removed; users always
+  // upload product image + info per slot. The API still receives
+  // product_mode: "manual" so the backend contract is unchanged.
   const [unitCount, setUnitCount] = useState(1);
   const [manualProducts, setManualProducts] = useState<ManualProduct[]>([
     { info: "", imageData: "" },
@@ -161,21 +160,11 @@ export default function AutoContentTab({ projectId }: { projectId?: string } = {
     setPendingPlan(null);
     setPendingPayload(null);
 
-    // Validate inputs
-    let urls: string[] = [];
+    // Validate inputs — manual mode only
     let manualPayload: any[] | null = null;
-    let firstProductUrl = "";
     let firstProductImage = "";
 
-    if (productMode === "affiliate") {
-      const rawUrls = productUrls
-        .split(/[\n,]+/)
-        .map((u) => u.trim())
-        .filter((u) => u.startsWith("http"));
-      if (rawUrls.length === 0) return setError("Paste at least 1 product URL.");
-      urls = Array.from({ length: quantity }, (_, i) => rawUrls[i % rawUrls.length]);
-      firstProductUrl = rawUrls[0];
-    } else {
+    {
       const valid = manualProducts.slice(0, unitCount);
       for (let i = 0; i < unitCount; i++) {
         if (!valid[i]?.info?.trim()) return setError(`Fill in Product ${i + 1} info`);
@@ -202,28 +191,26 @@ export default function AutoContentTab({ projectId }: { projectId?: string } = {
 
     setStatus("planning");
     pushLog(`Mode: ${planMode === "manual" ? "Manual Plan (JSON)" : planMode === "verify" ? "Verify Plan" : "AI Plan"}`);
-    pushLog(`Source: ${productMode === "affiliate" ? `${urls.length} URL slots from ${urls.length ? new Set(urls).size : 0} unique` : `${unitCount} manual product(s)`}`);
+    pushLog(`Source: ${unitCount} manual product(s)`);
 
     try {
-      // For manual mode, upload all manual product images
-      if (manualPayload) {
-        pushLog("Uploading manual product images…");
-        manualPayload = await Promise.all(
-          manualPayload.map(async (m) => ({
-            ...m,
-            imageData: m.imageData.startsWith("data:")
-              ? await ensurePublicUrl(m.imageData)
-              : m.imageData,
-          }))
-        );
-        firstProductImage = manualPayload[0].imageData;
-        pushLog("Images uploaded ✓");
-      }
+      // Upload all manual product images that are still data: URLs.
+      pushLog("Uploading manual product images…");
+      manualPayload = await Promise.all(
+        manualPayload.map(async (m) => ({
+          ...m,
+          imageData: m.imageData.startsWith("data:")
+            ? await ensurePublicUrl(m.imageData)
+            : m.imageData,
+        }))
+      );
+      firstProductImage = manualPayload[0].imageData;
+      pushLog("Images uploaded ✓");
 
       const body: any = {
-        product_mode: productMode,
-        product_url: firstProductUrl,
-        product_urls_all: productMode === "affiliate" ? urls : [],
+        product_mode: "manual",
+        product_url: "",
+        product_urls_all: [],
         product_image_url: firstProductImage,
         manual_products: manualPayload,
         product_name: manualPayload?.[0]?.info?.split("\n")[0] || "",
@@ -346,77 +333,48 @@ export default function AutoContentTab({ projectId }: { projectId?: string } = {
           </span>
         </div>
 
-        {/* Affiliate / Manual toggle */}
-        <div className="flex rounded-lg overflow-hidden mb-3" style={{ border: "1px solid #e8e0d8" }}>
-          <ToggleBtn
-            active={productMode === "affiliate"}
-            onClick={() => setProductMode("affiliate")}
+        {/* Product slots — manual product is the only source. */}
+        <div className="flex items-center gap-2 mb-3">
+          <Label>Products</Label>
+          <Select
+            value={String(unitCount)}
+            onChange={(v) => setUnitCount(Number(v))}
+            width={70}
           >
-            🔗 Affiliate
-          </ToggleBtn>
-          <ToggleBtn
-            active={productMode === "manual"}
-            onClick={() => setProductMode("manual")}
-            borderLeft
-          >
-            📦 Manual Product
-          </ToggleBtn>
+            {[1, 2, 3, 4, 5].map((n) => (
+              <option key={n} value={n}>
+                {n}
+              </option>
+            ))}
+          </Select>
+          <span className="text-[10px] text-gray-500 ml-2">
+            Plans rotate {unitCount} product{unitCount === 1 ? "" : "s"} across {quantity}{" "}
+            video{quantity === 1 ? "" : "s"}.
+          </span>
         </div>
 
-        {productMode === "manual" && (
-          <div className="flex items-center gap-2 mb-3">
-            <Label>Products</Label>
-            <Select
-              value={String(unitCount)}
-              onChange={(v) => setUnitCount(Number(v))}
-              width={70}
-            >
-              {[1, 2, 3, 4, 5].map((n) => (
-                <option key={n} value={n}>
-                  {n}
-                </option>
-              ))}
-            </Select>
-            <span className="text-[10px] text-gray-500 ml-2">
-              Plans rotate {unitCount} product{unitCount === 1 ? "" : "s"} across {quantity}{" "}
-              video{quantity === 1 ? "" : "s"}.
-            </span>
-          </div>
-        )}
-
-        {productMode === "affiliate" ? (
-          <textarea
-            rows={2}
-            value={productUrls}
-            onChange={(e) => setProductUrls(e.target.value)}
-            placeholder="Paste product URL(s) — one per line for multiple products"
-            className="w-full p-3 rounded-xl text-sm resize-y outline-none mb-4"
-            style={{ background: "#fafaf7", border: "1px solid #e8e0d8", color: "#1a1a1a" }}
-          />
-        ) : (
-          <div className="space-y-2 mb-4">
-            {manualProducts.map((p, i) => (
-              <ManualProductCard
-                key={i}
-                idx={i}
-                showLabel={unitCount > 1}
-                product={p}
-                onInfoChange={(info) =>
-                  setManualProducts((prev) =>
-                    prev.map((x, j) => (j === i ? { ...x, info } : x))
-                  )
-                }
-                onPickFile={(f) => pickFileForManual(i, f)}
-                onPickHistory={() => setPickerSlot(i)}
-                onClear={() =>
-                  setManualProducts((prev) =>
-                    prev.map((x, j) => (j === i ? { ...x, imageData: "" } : x))
-                  )
-                }
-              />
-            ))}
-          </div>
-        )}
+        <div className="space-y-2 mb-4">
+          {manualProducts.map((p, i) => (
+            <ManualProductCard
+              key={i}
+              idx={i}
+              showLabel={unitCount > 1}
+              product={p}
+              onInfoChange={(info) =>
+                setManualProducts((prev) =>
+                  prev.map((x, j) => (j === i ? { ...x, info } : x))
+                )
+              }
+              onPickFile={(f) => pickFileForManual(i, f)}
+              onPickHistory={() => setPickerSlot(i)}
+              onClear={() =>
+                setManualProducts((prev) =>
+                  prev.map((x, j) => (j === i ? { ...x, imageData: "" } : x))
+                )
+              }
+            />
+          ))}
+        </div>
 
         {/* Avatar persona */}
         <div
@@ -900,7 +858,7 @@ function FrameworkInfoModal({
   );
 }
 
-// ── Sub-components (Card, Label, Select, ToggleBtn, DurationBtn, CtaRadio,
+// ── Sub-components (Card, Label, Select, DurationBtn, CtaRadio,
 //                   SmallBtn, HistoryPicker) ────────────────────────────
 function Card({
   children,
@@ -963,41 +921,6 @@ function Select({
     >
       {children}
     </select>
-  );
-}
-
-function ToggleBtn({
-  active,
-  onClick,
-  borderLeft,
-  children,
-}: {
-  active: boolean;
-  onClick: () => void;
-  borderLeft?: boolean;
-  children: React.ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="flex-1 px-3 py-2 text-xs font-extrabold transition-all"
-      style={
-        active
-          ? {
-              background: GREEN,
-              color: "white",
-              borderLeft: borderLeft ? "1px solid #e8e0d8" : "none",
-            }
-          : {
-              background: "#fafaf7",
-              color: "#888",
-              borderLeft: borderLeft ? "1px solid #e8e0d8" : "none",
-            }
-      }
-    >
-      {children}
-    </button>
   );
 }
 
