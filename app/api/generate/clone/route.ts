@@ -5,35 +5,21 @@ import { orChatVision } from "@/lib/openrouter";
 
 // Clone Prompt — placeholder-first.
 //
-// Hot path (~300ms):
-//   1. getSession + minimal validation
-//   2. Insert pending history row with type='clone', tab='clone'. The card
-//      lives in the dashboard's clone HistoryGrid as a "Generating…" entry.
-//   3. Return history_id immediately.
+// Pattern matches the Chrome extension at creative-hack-auto/background.js:
+//   - ONE vision call analysing ALL frames of the source video.
+//   - Asks the model for a structured JSON response: { segments, prompts: [] }.
+//   - Robust parsing — strips markdown, regex-fallback for partial JSON,
+//     and final fallback that treats the entire response as one prompt.
+//   - Temperature 0.5 for structured output (extension uses the same).
 //
-// after() background:
-//   4. Slice frames into segments
-//   5. Run vision calls in parallel (1 per segment) via OpenRouter
-//   6. On success → update row with prompt = joined prompts, status=done.
-//      metadata.segments preserves the per-segment prompt array for the
-//      modal view.
-//   7. On failure → row flips to 'failed' with the error.
-//
-// Body:
-//   frames: string[]            // base64 data URLs (≤60)
-//   product_image_url?: string
-//   custom_dialog?: string
-//   duration?: number
-//   mode?: 'ugc' | 'cinema'
-//   project_id?: string
-//   aspect_ratio?: string
+// The previous parallel-per-segment approach was unreliable on Gemini 2.5
+// Flash (returned empty content sometimes, causing "vision call failed").
+// Single-call avoids that and is also cheaper (one round-trip, not N).
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
 export const dynamic = "force-dynamic";
 
-const SEG_FRAMES_UGC = 8;
-const SEG_FRAMES_CINEMA = 30;
 const MAX_FRAMES = 60;
 
 export async function POST(req: Request) {
@@ -60,16 +46,11 @@ export async function POST(req: Request) {
     );
   }
 
-  const segLen = mode === "cinema" ? SEG_FRAMES_CINEMA : SEG_FRAMES_UGC;
+  // Plan how many segments the user gets back. UGC = 8s each, Cinema = 30s each.
   const segDur = mode === "cinema" ? 30 : 8;
-  const segments: string[][] = [];
-  for (let i = 0; i < allFrames.length; i += segLen) {
-    segments.push(allFrames.slice(i, i + segLen));
-  }
-  const segCount = segments.length;
+  const segCount = Math.max(1, Math.ceil(refDuration / segDur));
 
-  // Insert placeholder NOW. status='pending' + tab='clone' so the dashboard
-  // clone HistoryGrid renders a Generating… card immediately.
+  // Insert placeholder NOW.
   const admin = createAdminClient();
   const { data: hist, error: insErr } = await admin
     .from("history")
@@ -109,7 +90,7 @@ export async function POST(req: Request) {
       const hasProduct = !!productImageUrl;
       const hasDialog = customDialog.length > 0;
 
-      const baseSystemPrompt =
+      const baseSystem =
         mode === "ugc"
           ? `You are a video director. Produce SHORT, SHARP, STRUCTURED prompts for an 8-second text-to-video model (Veo 3.1).
 
@@ -132,10 +113,10 @@ CONSTRAINTS:
 - Product: pixel-identical to reference — no warped label, no recolor, no text drift
 - AUDIO + VISUAL LOCK: speak directly to camera, NO music, NO SFX, dialog only. NO subtitles, captions, overlays. Bottom 25% of frame EMPTY. RAW UNEDITED FOOTAGE — never a TikTok post.
 
-The segment is SELF-CONTAINED — do NOT reference other segments. Keep prompt 300-600 chars.`
-          : `You are a cinematic director. Produce a structured prompt for a 30-second text-to-video model (Grok Imagine).
+Every segment is SELF-CONTAINED — do NOT write "same as segment 1". Only SCENE / TIMELINE / HANDS differ per segment.`
+          : `You are a cinematic director. Produce structured prompts for a 30-second text-to-video model (Grok Imagine).
 
-Use this structure:
+Use this structure per segment:
 
 SCENE: [location + subject + main action]
 TIMELINE:
@@ -149,82 +130,107 @@ CAMERA: [shot list — establishing, mediums, close-ups, movement]
 SOUND DESIGN: [atmosphere, ambient, music cues if any]
 PACING: [emotional rhythm across the 30s]
 
-Keep the prompt 600-1200 chars. Cinematic and evocative — paint the scene.`;
+Every segment is SELF-CONTAINED — do NOT cross-reference. Cinematic and evocative.`;
 
-      async function planSegment(
-        segIdx: number,
-        segFrames: string[]
-      ): Promise<{ idx: number; prompt: string; error?: string }> {
-        const startSec = segIdx * segDur;
-        const endSec = startSec + segDur;
-        const dialogBlock = hasDialog
-          ? `\n\nDIALOG (USER-PROVIDED, MUST USE VERBATIM):
-"""
-${customDialog.replace(/"""/g, '"""')}
-"""
-For this segment (${startSec}-${endSec}s), pick the matching slice of the user's dialog. Parse timestamps if present (e.g. ${startSec}s-${endSec}s). Otherwise pick the natural chunk for this time window. Never translate, never paraphrase.`
-          : "";
+      const dialogBlock = hasDialog
+        ? `\n\nDIALOG (USER-PROVIDED, MUST USE VERBATIM):\n"""\n${customDialog.replace(/"""/g, '"""')}\n"""\nSplit dialog naturally across segments by their time windows.`
+        : "";
 
-        const productBlock = hasProduct
-          ? `\n\nThe last image is the product reference. Keep it pixel-identical in the prompt — preserve label text, logo, colors exactly.`
-          : "";
+      const productBlock = hasProduct
+        ? `\n\nThe LAST image attached is the product reference. Keep it pixel-identical in every prompt — preserve label text, logo, colors exactly.`
+        : "";
 
-        const systemPrompt = baseSystemPrompt + dialogBlock + productBlock;
-        const textPrompt = `Segment ${segIdx + 1} of ${segCount} (${startSec}-${endSec}s window).
-These ${segFrames.length} frames are the reference for this segment, sampled 1 frame per second.
-Study them carefully and write ONE prompt that recreates this slice exactly.
+      const systemPrompt = baseSystem + dialogBlock + productBlock;
+      const textPrompt = `These are ${allFrames.length} frames extracted at 1 frame per second from a ${refDuration}s reference video. Study every frame carefully and produce ${segCount} segment prompt${segCount > 1 ? "s" : ""} that recreate the video.
 
-Return ONLY the prompt text — no JSON wrapping, no commentary, no markdown.`;
+Return JSON ONLY in this exact shape (no markdown, no commentary):
+{
+  "segments": ${segCount},
+  "prompts": [ "<segment 1 prompt>", "<segment 2 prompt>", ... ]
+}`;
 
-        const visionImages = [...segFrames];
-        if (productImageUrl) visionImages.push(productImageUrl);
+      const visionImages = [...allFrames];
+      if (productImageUrl) visionImages.push(productImageUrl);
 
-        const result = await orChatVision({
-          modelKey: "model_clone",
-          systemPrompt,
-          textPrompt,
-          images: visionImages,
-          temperature: 0.5,
-          maxTokens: 2000,
-        });
-        if (!result.ok || !result.content) {
-          return { idx: segIdx, prompt: "", error: result.error || "vision call failed" };
-        }
-        let cleaned = result.content.trim();
-        cleaned = cleaned.replace(/^```[a-z]*\s*/i, "").replace(/```\s*$/i, "").trim();
-        return { idx: segIdx, prompt: cleaned };
-      }
+      const result = await orChatVision({
+        modelKey: "model_clone",
+        systemPrompt,
+        textPrompt,
+        images: visionImages,
+        temperature: 0.5,
+        maxTokens: 4000,
+      });
 
-      const results = await Promise.all(
-        segments.map((segFrames, idx) => planSegment(idx, segFrames))
-      );
-
-      const failures = results.filter((r) => r.error);
-      const ordered = results
-        .filter((r) => !r.error && r.prompt && r.prompt.length > 30)
-        .sort((a, b) => a.idx - b.idx);
-
-      if (ordered.length === 0) {
-        await admin
-          .from("history")
-          .update({
-            status: "failed",
-            error_message:
-              failures[0]?.error || "All segment plans failed",
-            metadata: {
-              mode, seg_duration: segDur, seg_count: segCount, aspectRatio,
-              failures: failures.length,
-              upload_status: "failed",
-            },
-          })
-          .eq("id", historyId);
+      if (!result.ok || !result.content) {
+        // Surface the actual upstream error so the user (and Vercel logs)
+        // see what OpenRouter returned. "vision call failed" with no detail
+        // hides everything; this gives us the HTTP/model error.
+        const detail = result.error || "OpenRouter returned empty content";
+        console.error("[clone] vision call failed:", detail);
+        await admin.from("history").update({
+          status: "failed",
+          error_message: detail,
+          metadata: {
+            mode, seg_duration: segDur, seg_count: segCount, aspectRatio,
+            upload_status: "failed",
+            vision_error: detail,
+          },
+        }).eq("id", historyId);
         return;
       }
 
-      // Join segment prompts with a clear separator. Modal view can split
-      // on "── Segment N ──" if it wants the structured form.
-      const joined = ordered
-        .map((r) => `── Segment ${r.idx + 1} ──\n${r.prompt}`)
+      // Parse the model's response — expect JSON, but tolerate markdown
+      // code fences and plain text fallback.
+      const raw = result.content.trim();
+      let prompts: string[] = [];
+
+      function tryParse(s: string): string[] | null {
+        try {
+          const obj = JSON.parse(s);
+          if (obj && Array.isArray(obj.prompts)) {
+            return obj.prompts.filter((p: any) => typeof p === "string" && p.trim().length > 30);
+          }
+          if (obj && typeof obj.prompt === "string") return [obj.prompt];
+        } catch {}
+        return null;
+      }
+
+      // 1. Direct JSON parse
+      let parsed = tryParse(raw);
+      // 2. Strip markdown code fence
+      if (!parsed) {
+        const stripped = raw.replace(/^```[a-z]*\s*/i, "").replace(/```\s*$/i, "").trim();
+        parsed = tryParse(stripped);
+      }
+      // 3. Regex-extract a JSON object
+      if (!parsed) {
+        const m = raw.match(/\{[\s\S]*\}/);
+        if (m) parsed = tryParse(m[0]);
+      }
+      if (parsed && parsed.length > 0) {
+        prompts = parsed;
+      } else {
+        // 4. Plain-text fallback — treat the whole response as one prompt
+        if (raw.length > 30) {
+          prompts = [raw];
+        }
+      }
+
+      if (prompts.length === 0) {
+        await admin.from("history").update({
+          status: "failed",
+          error_message: "Model returned no usable prompts",
+          metadata: {
+            mode, seg_duration: segDur, seg_count: segCount, aspectRatio,
+            upload_status: "failed",
+            vision_raw_preview: raw.substring(0, 500),
+          },
+        }).eq("id", historyId);
+        return;
+      }
+
+      const joined = prompts
+        .map((p, i) => `── Segment ${i + 1} ──\n${p}`)
         .join("\n\n");
 
       await admin
@@ -235,16 +241,15 @@ Return ONLY the prompt text — no JSON wrapping, no commentary, no markdown.`;
           metadata: {
             mode,
             seg_duration: segDur,
-            seg_count: ordered.length,
+            seg_count: prompts.length,
             aspectRatio,
-            partial: failures.length > 0,
-            failures: failures.length,
-            segments: ordered.map((r) => ({ idx: r.idx, prompt: r.prompt })),
+            segments: prompts.map((p, i) => ({ idx: i, prompt: p })),
             upload_status: "done",
           },
         })
         .eq("id", historyId);
     } catch (e: any) {
+      console.error("[clone] background error:", e);
       await admin
         .from("history")
         .update({
@@ -253,6 +258,7 @@ Return ONLY the prompt text — no JSON wrapping, no commentary, no markdown.`;
           metadata: {
             mode, seg_duration: segDur, seg_count: segCount, aspectRatio,
             upload_status: "failed",
+            vision_error: String(e?.message || e),
           },
         })
         .eq("id", historyId);
@@ -263,8 +269,8 @@ Return ONLY the prompt text — no JSON wrapping, no commentary, no markdown.`;
     ok: true,
     history_id: historyId,
     mode,
-    segments: segCount,
     seg_duration: segDur,
+    seg_count: segCount,
     duration: refDuration,
   });
 }
