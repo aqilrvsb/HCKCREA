@@ -5,7 +5,7 @@ import { Loader2, X, Pin, Copy, Check } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import Portal from "../sections/portal";
 
-// Clone Prompt — input: Pinterest-style reference video + product image →
+// Clone Prompt — input: reference video + product image →
 // output: list of segment prompts (no video generation). Two output models:
 //   • UGC    → Veo 3.1 (8s segments)
 //   • Cinema → Grok Imagine (up to 30s segments)
@@ -52,16 +52,27 @@ export default function CloneTab({ projectId }: { projectId?: string } = {}) {
 
   function onVideoFile(f: File | null) {
     if (!f) return;
+    // Revoke the previous preview URL (if any) before swapping in a new
+    // one. Don't revoke this new URL until the next swap — the <video>
+    // element in the preview keeps using it for playback.
+    setVideoPreviewUrl((old) => {
+      if (old) {
+        try {
+          URL.revokeObjectURL(old);
+        } catch {}
+      }
+      return URL.createObjectURL(f);
+    });
     setVideoFile(f);
-    const url = URL.createObjectURL(f);
-    setVideoPreviewUrl(url);
-    const v = document.createElement("video");
-    v.preload = "metadata";
-    v.onloadedmetadata = () => {
-      setVideoDuration(Math.floor(v.duration));
-      URL.revokeObjectURL(url);
+    // Read duration via a separate hidden element so we don't disturb the
+    // preview's URL lifetime.
+    const probe = document.createElement("video");
+    probe.preload = "metadata";
+    probe.onloadedmetadata = () => {
+      setVideoDuration(Math.floor(probe.duration));
+      try { URL.revokeObjectURL(probe.src); } catch {}
     };
-    v.src = url;
+    probe.src = URL.createObjectURL(f);
   }
 
   function onProductFile(f: File | null) {
@@ -126,7 +137,7 @@ export default function CloneTab({ projectId }: { projectId?: string } = {}) {
 
   async function submit() {
     if (!videoFile) {
-      setError("Upload a Pinterest video first.");
+      setError("Upload a reference video first.");
       return;
     }
     if (videoDuration < 3) {
@@ -221,8 +232,8 @@ export default function CloneTab({ projectId }: { projectId?: string } = {}) {
           </span>
         </div>
 
-        {/* Upload Pinterest Video */}
-        <Label>Upload Pinterest Video</Label>
+        {/* Upload reference video */}
+        <Label>Upload Reference Video</Label>
         <input
           ref={videoInputRef}
           type="file"
