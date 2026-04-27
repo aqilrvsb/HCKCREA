@@ -107,15 +107,31 @@ export async function deduct(
   historyId?: string
 ) {
   const admin = createAdminClient();
-  const { data: profile } = await admin
-    .from("profiles")
-    .select("credits")
-    .eq("id", userId)
-    .single();
-  const before = Number(profile?.credits || 0);
-  const after = Math.max(0, before - amount);
 
-  await admin.from("profiles").update({ credits: after }).eq("id", userId);
+  // Atomic decrement via the decrement_credits RPC (migration 0009).
+  // Pre-fix: a read-then-write pattern raced when two generations
+  // finished simultaneously — both read the same `before` value, both
+  // wrote the same `after`, and the second deduction silently no-op'd.
+  // Symptom: two rows in credit_transactions with the same balance_after.
+  // RPC does UPDATE … RETURNING in one statement so each caller sees
+  // the actual post-decrement value.
+  const { data: newBalance, error } = await admin.rpc("decrement_credits", {
+    p_user_id: userId,
+    p_amount: amount,
+  });
+
+  if (error) {
+    // Surface the SQL error so it's visible in Vercel logs. The settle
+    // path swallows return values, so we don't throw here — the row will
+    // still flip to done; just no deduction will land. The pg_cron poll
+    // doesn't re-deduct on a row that's already done.
+    console.error("[deduct] decrement_credits RPC failed:", error.message);
+    return { before: 0, after: 0 };
+  }
+
+  const after = Number(newBalance ?? 0);
+  const before = Math.max(after, after + amount);
+
   await admin.from("credit_transactions").insert({
     user_id: userId,
     amount: -amount,
