@@ -4,6 +4,8 @@ import { useEffect, useRef, useState } from "react";
 import { Loader2, Sparkles, X } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import UgcTab from "./ugc";
+import AgentChatPanel from "../sections/agent-chat-panel";
+import ConfirmUgcDialog from "../sections/confirm-ugc-dialog";
 
 // Video tab — 1:1 port of creative-hack-auto's video-mode-section.
 // Three image modes (frame / ingredient / text), with a Scene card that
@@ -37,6 +39,11 @@ export default function VideoTab({ projectId }: { projectId?: string } = {}) {
 
   const [pickerSlot, setPickerSlot] = useState<RefSlot | null>(null);
   const [showUgcModal, setShowUgcModal] = useState(false);
+
+  // UGC Agent confirmation dialog payload (set when the agent fires a
+  // confirm_generation UI payload, cleared when user closes / fires).
+  const [agentConfirmPayload, setAgentConfirmPayload] = useState<any>(null);
+  const [agentConversationId, setAgentConversationId] = useState<string | null>(null);
 
   // Pick up a prompt handed off from the UGC Prompt Builder rendered above
   // us on the Video page (same-page handoff via custom event). Also reads
@@ -378,6 +385,37 @@ export default function VideoTab({ projectId }: { projectId?: string } = {}) {
       )}
 
       {showUgcModal && <UgcModal onClose={() => setShowUgcModal(false)} />}
+
+      {/* UGC Agent — floating chat panel + confirmation dialog */}
+      <AgentChatPanel
+        tab="ugc"
+        projectId={projectId || null}
+        onConfirmGeneration={(payload) => {
+          setAgentConfirmPayload(payload);
+          // The chat panel doesn't expose conversation_id directly — fetch it
+          // lazily via the GET endpoint when the dialog needs it.
+          fetch(`/api/agent/ugc/chat?project_id=${projectId || ""}`, {
+            cache: "no-store",
+          })
+            .then((r) => r.json())
+            .then((j) => {
+              if (j?.conversation_id) setAgentConversationId(j.conversation_id);
+            })
+            .catch(() => {});
+        }}
+      />
+      {agentConfirmPayload && (
+        <ConfirmUgcDialog
+          payload={agentConfirmPayload}
+          conversationId={agentConversationId}
+          projectId={projectId || null}
+          onClose={() => setAgentConfirmPayload(null)}
+          onFired={(historyIds, totalCost) => {
+            setAgentConfirmPayload(null);
+            window.dispatchEvent(new CustomEvent("history:refresh"));
+          }}
+        />
+      )}
     </div>
   );
 }
