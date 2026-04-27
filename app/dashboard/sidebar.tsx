@@ -535,9 +535,16 @@ function SubStatusPill({
   const expDateStr = expDate
     ? expDate.toLocaleDateString("ms-MY", { day: "numeric", month: "short", year: "numeric" })
     : null;
-  const daysLeft = expDate
-    ? Math.max(0, Math.ceil((expDate.getTime() - Date.now()) / 86400000))
-    : 0;
+  // daysLeft depends on Date.now() which differs between server and client by
+  // a few hundred ms — enough to flip the ceil() boundary and trigger React
+  // hydration error #418 ("text content does not match"). Defer the
+  // calculation to a post-mount effect so the initial render is stable.
+  const [daysLeft, setDaysLeft] = useState<number | null>(null);
+  useEffect(() => {
+    if (!expDate) return;
+    setDaysLeft(Math.max(0, Math.ceil((expDate.getTime() - Date.now()) / 86400000)));
+  }, [planExpiresAt]); // recompute if the prop changes
+  const daysLeftStr = daysLeft === null ? "" : ` · ${daysLeft} day${daysLeft === 1 ? "" : "s"} left`;
 
   let dotColor = "#888";
   let labelColor = "var(--color-text-secondary)";
@@ -547,7 +554,7 @@ function SubStatusPill({
   if (planActive) {
     dotColor = "#22c55e";
     labelColor = "#22c55e";
-    title = `Pro · ${daysLeft} day${daysLeft === 1 ? "" : "s"} left`;
+    title = `Pro${daysLeftStr}`;
     sub = expDateStr ? `Expires ${expDateStr}` : "Active";
   } else if (planExpiresAt) {
     dotColor = "#ef4444";

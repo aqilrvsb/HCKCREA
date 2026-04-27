@@ -708,17 +708,9 @@ function HistoryCard({ item, seg2 }: { item: HistoryItem; seg2?: HistoryItem }) 
                   Extend
                 </button>
               )}
-              {isCinema && item.output_url && (
-                <button
-                  onClick={() => alert("Merge: select multiple cinema clips and combine — coming next.")}
-                  title="Merge with another cinema clip"
-                  className="flex-1 h-7 rounded-lg text-[9px] font-extrabold uppercase tracking-wider text-white flex items-center justify-center gap-1 transition-transform hover:scale-105"
-                  style={{ background: ACTION.merge, boxShadow: "0 2px 6px rgba(139,92,246,0.4)" }}
-                >
-                  <Layers className="w-3 h-3" />
-                  Merge
-                </button>
-              )}
+              {/* Cinema merge button — hidden until the multi-select +
+                  merge endpoint ships. Cinema cards still get Improve /
+                  Download / Delete; Extend stays UGC-only. */}
               <ActionBtn title="Improve Video" onClick={() => setShowEditModal(true)} bg={ACTION.edit}>
                 <Pencil className="w-3.5 h-3.5" strokeWidth={2.4} />
               </ActionBtn>

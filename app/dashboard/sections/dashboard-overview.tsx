@@ -47,9 +47,7 @@ const SERIES = [
 // pickers; the API recomputes on each apply. All counts come from history
 // rows in `done` state.
 export default function DashboardOverview({ name }: { name: string }) {
-  const today = new Date();
-  const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
-  // fmt MUST use local getters, not toISOString(). On UTC+8 (Malaysia),
+  // fmt uses local getters, not toISOString(). On UTC+8 (Malaysia),
   // toISOString() of "April 1 00:00 local" = "March 31 16:00 UTC" → "2026-03-31"
   // which is wrong. Local getters give the user's actual date.
   const fmt = (d: Date) => {
@@ -59,8 +57,19 @@ export default function DashboardOverview({ name }: { name: string }) {
     return `${y}-${m}-${day}`;
   };
 
-  const [start, setStart] = useState(fmt(monthStart));
-  const [end, setEnd] = useState(fmt(today));
+  // Initial values are empty strings to avoid SSR/CSR timezone-skew
+  // hydration mismatch (server is UTC, client is the user's timezone — at
+  // certain hours the day boundary differs and React #418 fires). The
+  // useEffect below populates them on mount, before the user can interact.
+  const [start, setStart] = useState("");
+  const [end, setEnd] = useState("");
+  useEffect(() => {
+    const today = new Date();
+    const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
+    setStart(fmt(monthStart));
+    setEnd(fmt(today));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const [stats, setStats] = useState<Stats | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -87,6 +96,8 @@ export default function DashboardOverview({ name }: { name: string }) {
   }
 
   function resetFilter() {
+    const today = new Date();
+    const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
     const s = fmt(monthStart);
     const e = fmt(today);
     setStart(s);
