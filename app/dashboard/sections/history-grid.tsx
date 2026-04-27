@@ -497,7 +497,12 @@ function HistoryCard({
   async function checkNow() {
     setChecking(true);
     try {
-      await fetch(`/api/generate/status?id=${item.id}`, { cache: "no-store" });
+      // Clone rows have no Crun task — just re-fetch from DB to see if
+      // after() has updated the row. Other types poke the Crun status
+      // endpoint which can also flip pending → done if the webhook missed.
+      if (!isClonePrompt) {
+        await fetch(`/api/generate/status?id=${item.id}`, { cache: "no-store" });
+      }
       window.dispatchEvent(new CustomEvent("history:refresh"));
     } finally {
       setChecking(false);
