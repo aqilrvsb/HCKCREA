@@ -2,7 +2,7 @@
 //
 // Inputs (from source DB SQL editor exports — see commit message):
 //   ./hc-users.json   — output of users-to-migrate query
-//   ./hc-usage.json   — output of usage-history-5d query
+//   ./hc-usage.json   — last 3 days of SUCCESS usage rows (media_url IS NOT NULL)
 //
 // Defaults to DRY-RUN. Pass --commit to actually write.
 //
