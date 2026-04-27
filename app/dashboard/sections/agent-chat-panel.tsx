@@ -6,6 +6,7 @@ import {
   X,
   Send,
   Paperclip,
+  Package,
   Trash2,
   Sparkles,
   Loader2,
@@ -83,6 +84,13 @@ export default function AgentChatPanel({
   const [loadingHistory, setLoadingHistory] = useState(false);
   const [attachedImage, setAttachedImage] = useState<string>("");
   const [attachedImagePreview, setAttachedImagePreview] = useState<string>("");
+  // "general" → vision-describe to the agent (default for image agent + when
+  //   user attaches via paperclip).
+  // "product" → skip vision, pass straight as i2v/r2v reference (only on
+  //   UGC + Cinema; user attaches via the package icon).
+  const [attachedImageRole, setAttachedImageRole] = useState<"general" | "product">(
+    "general"
+  );
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
@@ -143,6 +151,9 @@ export default function AgentChatPanel({
     setAttachedImage("");
     setAttachedImagePreview("");
 
+    const sentRole = attachedImageRole;
+    setAttachedImageRole("general"); // reset for next attach
+
     try {
       const r = await fetch(`/api/agent/${tab}/chat`, {
         method: "POST",
@@ -151,6 +162,7 @@ export default function AgentChatPanel({
           project_id: projectId,
           message: text,
           image_url: sentImage || undefined,
+          image_role: sentImage ? sentRole : undefined,
         }),
       });
       const j = await r.json();
@@ -465,11 +477,21 @@ export default function AgentChatPanel({
                 className="w-12 h-12 object-cover rounded"
               />
               <div className="flex-1 min-w-0">
-                <div className="text-[10px] font-mono uppercase tracking-wider text-[var(--color-text-muted)]">
-                  Attached
+                <div
+                  className="text-[10px] font-mono uppercase tracking-wider"
+                  style={{
+                    color:
+                      attachedImageRole === "product"
+                        ? theme.color
+                        : "var(--color-text-muted)",
+                  }}
+                >
+                  {attachedImageRole === "product" ? "Product reference" : "Attached"}
                 </div>
                 <div className="text-xs text-[var(--color-text-primary)] truncate">
-                  Image will be analyzed and used as reference
+                  {attachedImageRole === "product"
+                    ? "Direct to video — no vision analysis"
+                    : "Image will be analyzed by the agent"}
                 </div>
               </div>
               <button
@@ -497,18 +519,46 @@ export default function AgentChatPanel({
                 border: "1px solid var(--color-border)",
               }}
             >
+              {/* Paperclip — general image. Runs vision describe so the
+                  agent can reason about what's in the picture (good for
+                  Image agent + when user attaches a moodboard / brand
+                  doc / mid-conversation reference). */}
               <button
-                onClick={() => fileInputRef.current?.click()}
+                onClick={() => {
+                  setAttachedImageRole("general");
+                  fileInputRef.current?.click();
+                }}
                 disabled={busy}
                 className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 disabled:opacity-50"
                 style={{
                   background: "var(--color-bg)",
                   color: "var(--color-text-secondary)",
                 }}
-                title="Attach product image"
+                title="Attach image (vision-described)"
               >
                 <Paperclip className="w-3.5 h-3.5" />
               </button>
+              {/* Package icon — product reference. Skips vision, passes
+                  straight to Veo (UGC) or Grok (Cinema) as the i2v/r2v
+                  reference. Only meaningful on UGC + Cinema agents. */}
+              {(tab === "ugc" || tab === "cinema") && (
+                <button
+                  onClick={() => {
+                    setAttachedImageRole("product");
+                    fileInputRef.current?.click();
+                  }}
+                  disabled={busy}
+                  className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 disabled:opacity-50"
+                  style={{
+                    background: `${theme.color}18`,
+                    color: theme.color,
+                    border: `1px solid ${theme.color}33`,
+                  }}
+                  title="Attach product reference (no vision — direct to video)"
+                >
+                  <Package className="w-3.5 h-3.5" />
+                </button>
+              )}
               <input
                 ref={fileInputRef}
                 type="file"
@@ -521,7 +571,7 @@ export default function AgentChatPanel({
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={handleKeyDown}
-                rows={1}
+                rows={2}
                 placeholder={
                   tab === "ugc"
                     ? "e.g. Make 3 UGC for hijab shampoo using PAS framework"
@@ -530,7 +580,7 @@ export default function AgentChatPanel({
                       : "e.g. Edit this image — replace background with sunlit kitchen"
                 }
                 disabled={busy}
-                className="flex-1 bg-transparent outline-none text-xs text-[var(--color-text-primary)] placeholder:text-[var(--color-text-muted)] resize-none max-h-32 leading-relaxed py-1.5"
+                className="flex-1 bg-transparent outline-none text-xs text-[var(--color-text-primary)] placeholder:text-[var(--color-text-muted)] resize-none max-h-36 leading-relaxed py-1.5"
               />
               <button
                 onClick={handleSend}

@@ -5,7 +5,6 @@ import { Loader2, Sparkles, X } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import Portal from "../sections/portal";
 import UgcTab from "./ugc";
-import AgentChatPanel from "../sections/agent-chat-panel";
 
 // Video tab — 1:1 port of creative-hack-auto's video-mode-section.
 // Three image modes (frame / ingredient / text), with a Scene card that
@@ -397,8 +396,8 @@ export default function VideoTab({ projectId }: { projectId?: string } = {}) {
 
       {showUgcModal && <UgcModal onClose={() => setShowUgcModal(false)} />}
 
-      {/* UGC Agent — floating chat panel. Approve/Reject is inline now. */}
-      <AgentChatPanel tab="ugc" projectId={projectId || null} />
+      {/* UGC Agent panel is mounted at dashboard-shell level so it
+          persists across tab switches — see DashboardShell. */}
     </div>
   );
 }

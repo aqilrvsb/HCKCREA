@@ -37,6 +37,9 @@ export async function POST(req: Request) {
   const projectId = body?.project_id ? String(body.project_id) : null;
   const userText = String(body?.message || "").trim();
   let attachedImageUrl = body?.image_url ? String(body.image_url) : "";
+  // "product" → skip vision, pass straight to Grok as i2v reference.
+  const imageRole: "general" | "product" =
+    body?.image_role === "product" ? "product" : "general";
 
   if (!userText && !attachedImageUrl) {
     return NextResponse.json({ error: "Empty message" }, { status: 400 });
@@ -67,6 +70,7 @@ export async function POST(req: Request) {
     tools: CINEMA_TOOLS,
     userText,
     attachedImageUrl: attachedImageUrl || undefined,
+    attachedImageRole: imageRole,
   });
 
   if (!result.ok) {

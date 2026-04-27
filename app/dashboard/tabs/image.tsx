@@ -4,7 +4,6 @@ import { useEffect, useRef, useState } from "react";
 import { Loader2, X } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import Portal from "../sections/portal";
-import AgentChatPanel from "../sections/agent-chat-panel";
 import {
   AVATAR_PROMPTS,
   AVATAR_LABELS,
@@ -497,9 +496,8 @@ export default function ImageTab({ projectId }: { projectId?: string } = {}) {
         />
       )}
 
-      {/* Image Agent — floating chat panel. Approve/Reject is rendered
-          INLINE inside the chat bubble now (no modal popup). */}
-      <AgentChatPanel tab="image" projectId={projectId || null} />
+      {/* Image Agent panel is mounted at dashboard-shell level so it
+          persists across tab switches — see DashboardShell. */}
     </div>
   );
 }

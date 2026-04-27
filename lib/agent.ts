@@ -448,6 +448,12 @@ type LoopOpts = {
   // The user's new message (text + optional attached image URL)
   userText: string;
   attachedImageUrl?: string;
+  // "general" → run vision pass + describe to the agent (default).
+  // "product" → skip vision; pass straight to the next i2v/r2v generation
+  //   as the reference image. Useful when user attaches a product photo
+  //   they want the video model to render verbatim (and vision-describing
+  //   it adds no value, just latency + token cost).
+  attachedImageRole?: "general" | "product";
 };
 
 export type LoopResult = {
@@ -501,23 +507,34 @@ export async function runAgentTurn(opts: LoopOpts): Promise<LoopResult> {
   const messages: Message[] = [...conv.messages];
   const state: Record<string, any> = { ...conv.state };
 
-  // 2. Vision pass if image attached
+  // 2. Vision pass if image attached AND role is "general". For "product"
+  //    role, skip vision entirely — the image just rides through to the
+  //    next generation as the i2v/r2v reference.
   let attachedImageDescription: string | undefined;
   if (opts.attachedImageUrl) {
-    const v = await describeImageForAgent(opts.attachedImageUrl);
-    if (v.ok && v.description) {
-      attachedImageDescription = v.description;
+    if (opts.attachedImageRole === "product") {
       state.last_attached_image_url = opts.attachedImageUrl;
-      state.last_attached_image_description = v.description;
+      state.last_attached_image_role = "product";
+    } else {
+      const v = await describeImageForAgent(opts.attachedImageUrl);
+      if (v.ok && v.description) {
+        attachedImageDescription = v.description;
+        state.last_attached_image_url = opts.attachedImageUrl;
+        state.last_attached_image_description = v.description;
+        state.last_attached_image_role = "general";
+      }
     }
   }
 
-  // Compose the user message — if image was attached, include the description
-  // inline so DeepSeek can reason about it (DeepSeek V4 Pro is text-only).
+  // Compose the user message — image description (general) or a short
+  // product-reference note (product). DeepSeek V4 Pro is text-only so the
+  // visible note is what it reasons about; the URL is in state for tools.
   const userContent =
-    attachedImageDescription
-      ? `${opts.userText}\n\n[Attached image — description from vision model: ${attachedImageDescription}]`
-      : opts.userText;
+    opts.attachedImageRole === "product" && opts.attachedImageUrl
+      ? `${opts.userText}\n\n[Product reference image attached — pass straight to the i2v/r2v generation as the reference. Skipped vision analysis per user choice.]`
+      : attachedImageDescription
+        ? `${opts.userText}\n\n[Attached image — description from vision model: ${attachedImageDescription}]`
+        : opts.userText;
 
   messages.push({
     role: "user",

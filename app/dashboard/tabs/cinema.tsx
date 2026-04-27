@@ -4,7 +4,6 @@ import { useEffect, useRef, useState } from "react";
 import { Loader2, X, Film } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import Portal from "../sections/portal";
-import AgentChatPanel from "../sections/agent-chat-panel";
 
 // Cinema — Grok Imagine via Crun.ai. Two image modes (Text to Video,
 // Image to Video), duration slider 6-30s, resolution 480p|720p, mode
@@ -344,8 +343,8 @@ export default function CinemaTab({ projectId }: { projectId?: string } = {}) {
         />
       )}
 
-      {/* Cinema Agent — floating chat panel. Approve/Reject is inline now. */}
-      <AgentChatPanel tab="cinema" projectId={projectId || null} />
+      {/* Cinema Agent panel is mounted at dashboard-shell level so it
+          persists across tab switches — see DashboardShell. */}
     </div>
   );
 }

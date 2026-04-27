@@ -23,6 +23,7 @@ import UsageSection from "./sections/usage";
 import SettingsSection from "./sections/settings";
 import DashboardOverview from "./sections/dashboard-overview";
 import SavedPromptsSection from "./sections/saved-prompts";
+import AgentChatPanel, { type AgentTab } from "./sections/agent-chat-panel";
 import Sidebar, { type Project, type SidebarView } from "./sidebar";
 
 type TabKey = "image" | "video" | "cinema" | "clone" | "auto";
@@ -349,6 +350,19 @@ function ProjectView({
             </>
           )}
         </div>
+      )}
+
+      {/* AI agent chat panel — mounted ONCE at this level so it survives
+          tab switches between image/video/cinema. Auto-content + clone tabs
+          don't get an agent (rigid framework), so we unmount there.
+          The component itself reloads its conversation when the `tab` prop
+          changes (per-tab DB rows), but its open/closed state and any
+          in-flight chat request live on. */}
+      {planActive && (activeTab === "image" || activeTab === "video" || activeTab === "cinema") && (
+        <AgentChatPanel
+          tab={(activeTab === "video" ? "ugc" : activeTab) as AgentTab}
+          projectId={project.id}
+        />
       )}
     </>
   );
