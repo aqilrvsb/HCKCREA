@@ -578,7 +578,7 @@ function PromptModal({
             <X className="w-4 h-4 text-[var(--color-text-secondary)]" />
           </button>
         </div>
-        <div className="flex-1 overflow-y-auto p-5">
+        <div className="flex-1 min-h-0 overflow-y-auto p-5">
           <pre
             className="text-[11px] font-mono leading-relaxed whitespace-pre-wrap rounded-lg p-4"
             style={{

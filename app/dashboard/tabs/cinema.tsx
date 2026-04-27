@@ -463,7 +463,7 @@ function HistoryPicker({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      className="fixed inset-0 lg:left-[280px] z-50 flex items-center justify-center p-4"
       style={{ background: "rgba(0,0,0,0.7)", backdropFilter: "blur(8px)" }}
       onClick={onClose}
     >
@@ -490,7 +490,7 @@ function HistoryPicker({
             <X className="w-4 h-4" />
           </button>
         </div>
-        <div className="flex-1 overflow-y-auto p-4">
+        <div className="flex-1 min-h-0 overflow-y-auto p-4">
           {loading ? (
             <div className="py-12 text-center text-sm text-gray-500">
               <Loader2

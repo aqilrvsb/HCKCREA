@@ -366,7 +366,7 @@ function ClientPromptModal({
   }
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      className="fixed inset-0 lg:left-[280px] z-50 flex items-center justify-center p-4"
       style={{ background: "rgba(0,0,0,0.8)", backdropFilter: "blur(8px)" }}
       onClick={onClose}
     >
@@ -396,7 +396,7 @@ function ClientPromptModal({
             <X className="w-4 h-4 text-[var(--color-text-secondary)]" />
           </button>
         </div>
-        <div className="flex-1 overflow-y-auto p-5">
+        <div className="flex-1 min-h-0 overflow-y-auto p-5">
           <pre
             className="text-[11px] font-mono leading-relaxed whitespace-pre-wrap rounded-lg p-4"
             style={{
@@ -454,7 +454,7 @@ function ClientPreviewModal({
     h?.tab === "cinema";
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      className="fixed inset-0 lg:left-[280px] z-50 flex items-center justify-center p-4"
       style={{ background: "rgba(0,0,0,0.92)", backdropFilter: "blur(8px)" }}
       onClick={onClose}
     >

@@ -25,6 +25,7 @@ export type Project = {
 };
 
 export type SidebarView =
+  | { kind: "dashboard" }
   | { kind: "project"; projectId: string }
   | { kind: "tool"; toolId: "url-to-ad" }
   | { kind: "billing" }
@@ -135,7 +136,7 @@ export default function Sidebar({
     // If we just deleted the active project, fall back to first remaining or empty state
     if (view.kind === "project" && view.projectId === id) {
       if (next.length) onViewChange({ kind: "project", projectId: next[0].id });
-      else onViewChange({ kind: "tool", toolId: "url-to-ad" });
+      else onViewChange({ kind: "dashboard" });
     }
     const r = await fetch(`/api/projects/${id}`, { method: "DELETE" });
     if (!r.ok) {
@@ -176,8 +177,33 @@ export default function Sidebar({
         </div>
       </Link>
 
-      {/* New project */}
+      {/* Dashboard landing */}
       <div className="px-4 pt-4">
+        <button
+          onClick={() => onViewChange({ kind: "dashboard" })}
+          className="w-full flex items-center gap-3 px-4 py-3 rounded-xl font-bold text-sm transition-all"
+          style={
+            view.kind === "dashboard"
+              ? {
+                  background:
+                    "linear-gradient(90deg, var(--color-orange) 0%, #ff6a1a 100%)",
+                  color: "white",
+                  boxShadow: "0 4px 14px rgba(255,87,34,0.3)",
+                }
+              : {
+                  background: "var(--color-bg-card)",
+                  border: "1px solid var(--color-border)",
+                  color: "var(--color-text-secondary)",
+                }
+          }
+        >
+          <Sparkles className="w-4 h-4" strokeWidth={2.4} />
+          Dashboard
+        </button>
+      </div>
+
+      {/* New project */}
+      <div className="px-4 pt-3">
         <button
           onClick={createProject}
           disabled={creating || atLimit}

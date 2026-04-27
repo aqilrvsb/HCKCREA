@@ -165,5 +165,22 @@ export async function p2GetStatus(taskId: string): Promise<P2StatusResp> {
     (Array.isArray(result?.urls) ? result.urls[0] : null) ||
     null;
 
-  return { ok: true, status, outputUrl: outputUrl || undefined, raw: json };
+  // Surface upstream provider error so the user sees "Server exception, please
+  // try again later" rather than a useless "Generation failed". Crun returns
+  // a non-200 code inside data.result.message on provider-side failures.
+  const upstreamError =
+    status === "failed"
+      ? result?.message ||
+        json?.data?.message ||
+        json?.message ||
+        undefined
+      : undefined;
+
+  return {
+    ok: true,
+    status,
+    outputUrl: outputUrl || undefined,
+    error: upstreamError,
+    raw: json,
+  };
 }

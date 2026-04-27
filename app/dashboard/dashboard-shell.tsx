@@ -21,6 +21,7 @@ import BillingSection from "./sections/billing";
 import CreditSection from "./sections/credit";
 import UsageSection from "./sections/usage";
 import SettingsSection from "./sections/settings";
+import DashboardOverview from "./sections/dashboard-overview";
 import Sidebar, { type Project, type SidebarView } from "./sidebar";
 
 type TabKey = "image" | "video" | "cinema" | "clone" | "auto";
@@ -49,7 +50,7 @@ export default function DashboardShell({
   const [projects, setProjects] = useState<Project[]>([]);
   const [projectLimit, setProjectLimit] = useState(4);
   const [projectsLoaded, setProjectsLoaded] = useState(false);
-  const [view, setView] = useState<SidebarView>({ kind: "tool", toolId: "url-to-ad" });
+  const [view, setView] = useState<SidebarView>({ kind: "dashboard" });
   const [activeTab, setActiveTab] = useState<TabKey>("image");
 
   // Initial fetch — list projects only. Don't auto-select; the user picks
@@ -160,7 +161,12 @@ export default function DashboardShell({
             />
           )}
 
-          {/* Tool view — Url to Ad placeholder, also default landing */}
+          {/* Dashboard landing — production summary with date filter */}
+          {view.kind === "dashboard" && (
+            <DashboardOverview name={name} />
+          )}
+
+          {/* Tool view — future Url to Ad placeholder */}
           {view.kind === "tool" && view.toolId === "url-to-ad" && (
             <ToolPlaceholder
               title="Url to Ad"

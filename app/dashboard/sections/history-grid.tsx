@@ -254,10 +254,11 @@ function HistoryCard({ item }: { item: HistoryItem }) {
 
   const isVideo = item.type === "video" || item.type === "auto-content" || item.type === "clone";
   const isImage = item.type === "image";
-  // Cinema (Grok Imagine) videos don't support extend or improve flows yet —
-  // those are Veo-specific. Show only Download + Delete in the done row.
   const isCinema = item.tab === "cinema";
-  const canExtend = isVideo && !isCinema && item.status === "done" && item.output_url;
+  // Extend + Improve are available on every completed video, regardless of
+  // which provider rendered it — fal.ai extracts the last frame from the
+  // output URL and feeds it to Veo i2v for the continuation.
+  const canExtend = isVideo && item.status === "done" && item.output_url;
 
   async function checkNow() {
     setChecking(true);
@@ -524,11 +525,9 @@ function HistoryCard({ item }: { item: HistoryItem }) {
                   Extend
                 </button>
               )}
-              {!isCinema && (
-                <ActionBtn title="Improve Video" onClick={() => setShowEditModal(true)} bg={ACTION.edit}>
-                  <Pencil className="w-3.5 h-3.5" strokeWidth={2.4} />
-                </ActionBtn>
-              )}
+              <ActionBtn title="Improve Video" onClick={() => setShowEditModal(true)} bg={ACTION.edit}>
+                <Pencil className="w-3.5 h-3.5" strokeWidth={2.4} />
+              </ActionBtn>
               <ActionBtn title="Download" onClick={handleDownload} bg={ACTION.download}>
                 <Download className="w-3.5 h-3.5" strokeWidth={2.4} />
               </ActionBtn>
@@ -634,7 +633,7 @@ function FullscreenModal({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      className="fixed inset-0 lg:left-[280px] z-50 flex items-center justify-center p-4"
       style={{ background: "rgba(0,0,0,0.92)", backdropFilter: "blur(8px)" }}
       onClick={onClose}
     >
@@ -693,7 +692,7 @@ function PromptModal({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      className="fixed inset-0 lg:left-[280px] z-50 flex items-center justify-center p-4"
       style={{ background: "rgba(0,0,0,0.7)", backdropFilter: "blur(8px)" }}
       onClick={onClose}
     >
@@ -721,7 +720,7 @@ function PromptModal({
             X
           </button>
         </div>
-        <div className="flex-1 overflow-y-auto p-5">
+        <div className="flex-1 min-h-0 overflow-y-auto p-5">
           <pre
             className="text-[11px] font-mono leading-relaxed whitespace-pre-wrap rounded-lg p-4"
             style={{
@@ -837,7 +836,7 @@ function EditImageModal({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      className="fixed inset-0 lg:left-[280px] z-50 flex items-center justify-center p-4"
       style={{ background: "rgba(0,0,0,0.7)", backdropFilter: "blur(8px)" }}
       onClick={onClose}
     >
@@ -867,7 +866,7 @@ function EditImageModal({
           </button>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-5">
+        <div className="flex-1 min-h-0 overflow-y-auto p-5">
           <div className="flex justify-center mb-4">
             <img
               src={referenceUrl}
@@ -1035,7 +1034,7 @@ function EditImagePicker({
 
   return (
     <div
-      className="fixed inset-0 z-[60] flex items-center justify-center p-4"
+      className="fixed inset-0 lg:left-[280px] z-[60] flex items-center justify-center p-4"
       style={{ background: "rgba(0,0,0,0.7)", backdropFilter: "blur(8px)" }}
       onClick={onClose}
     >
@@ -1062,7 +1061,7 @@ function EditImagePicker({
             <X className="w-4 h-4" />
           </button>
         </div>
-        <div className="flex-1 overflow-y-auto p-4">
+        <div className="flex-1 min-h-0 overflow-y-auto p-4">
           {loading ? (
             <div className="py-12 text-center text-sm text-gray-500">
               <Loader2 className="w-5 h-5 animate-spin inline-block mr-2" style={{ color: "#7c4dff" }} />
@@ -1175,17 +1174,22 @@ function ImproveVideoModal({
     }
 
     try {
-      const r = await fetch("/api/generate/video", {
+      // Route through /api/generate/extend so Improve gets the same fal.ai
+      // last-frame extract that Extend uses. "frame" mode → server extracts
+      // parent.output_url's last frame as start. "ingredient" → user-selected
+      // reference image flows through as start_frame_url for r2v.
+      const body: any = {
+        parent_id: parentId,
+        continuation_prompt: improvedPrompt,
+        image_mode: imageMode,
+      };
+      if (imageMode === "ingredient") {
+        body.start_frame_url = referenceUrl;
+      }
+      const r = await fetch("/api/generate/extend", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          prompt: improvedPrompt,
-          image_urls: [referenceUrl],
-          duration: "8",
-          image_mode: imageMode,
-          aspect_ratio: "9:16",
-          project_id: projectId,
-        }),
+        body: JSON.stringify(body),
       });
       const d = await r.json();
       if (r.ok && d?.ok) {
@@ -1203,7 +1207,7 @@ function ImproveVideoModal({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      className="fixed inset-0 lg:left-[280px] z-50 flex items-center justify-center p-4"
       style={{ background: "rgba(0,0,0,0.7)", backdropFilter: "blur(8px)" }}
       onClick={onClose}
     >
@@ -1233,7 +1237,7 @@ function ImproveVideoModal({
           </button>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-5">
+        <div className="flex-1 min-h-0 overflow-y-auto p-5">
           <div className="flex gap-3 mb-4">
             <img
               src={referenceUrl}
@@ -1395,8 +1399,12 @@ function ExtendVideoModal({
       const body: any = {
         parent_id: parentId,
         continuation_prompt: text,
+        image_mode: imageMode,
       };
       if (imageMode === "frame") {
+        // Empty start_frame_url is intentional — server falls back to fal.ai
+        // last-frame extract on parent.output_url. Only send when user picked
+        // or uploaded an explicit start frame.
         if (startPub) body.start_frame_url = startPub;
         if (endPub) body.end_frame_url = endPub;
       } else if (imageMode === "ingredient") {
@@ -1432,7 +1440,7 @@ function ExtendVideoModal({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      className="fixed inset-0 lg:left-[280px] z-50 flex items-center justify-center p-4"
       style={{ background: "rgba(0,0,0,0.7)", backdropFilter: "blur(8px)" }}
       onClick={onClose}
     >
@@ -1461,7 +1469,7 @@ function ExtendVideoModal({
           </button>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-5">
+        <div className="flex-1 min-h-0 overflow-y-auto p-5">
           {/* Duration — only 1 scene supported for now */}
           <select
             disabled

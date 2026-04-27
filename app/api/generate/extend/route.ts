@@ -4,16 +4,32 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { p2CreateTask } from "@/lib/p2";
 import { priceFor, hasEnoughCredits } from "@/lib/deduct";
 import { getP2Config } from "@/lib/settings";
+import { falExtractFrame } from "@/lib/fal";
 
 // POST /api/generate/extend
 // Takes an existing completed video (history_id) and generates another 8s
-// segment using the same prompt/reference. Result is a new history row tied
-// via metadata.parent_id so the UI can show them together.
+// segment. The continuation flow mirrors creative-hack-auto's apiExtractFrame
+// + slideType==='extend' path:
 //
-// Note: a true "extend" would extract the last frame of the parent video and
-// use it as i2v start frame. That requires fal.ai frame extract — wired as
-// a follow-up. For now we re-run the same r2v prompt which produces a
-// continuation-ish clip.
+// image_mode = "frame" (default for Extend / Improve):
+//   • start_frame_url uploaded → use it
+//   • start_frame_url empty   → fal.ai extracts last frame of parent.output_url
+//                                and uses that JPG as start frame
+//   • end_frame_url uploaded  → pass through (i2v with both bookends)
+//   • end_frame_url empty     → no end frame (i2v with start only)
+//   → model = videoI2V
+//
+// image_mode = "ingredient":
+//   • start_frame_url contains the product reference image
+//   → model = videoR2V
+//
+// image_mode = "text":
+//   • no frames at all
+//   → model = videoT2V
+//
+// Result is a new history row tied via metadata.parent_id so the UI shows the
+// extension under the same parent. Same endpoint serves Extend + Improve +
+// Auto Content extend (all three send the same body shape).
 export async function POST(req: Request) {
   const sb = await createClient();
   const { data: { user } } = await sb.auth.getUser();
@@ -21,10 +37,14 @@ export async function POST(req: Request) {
 
   const body = await req.json().catch(() => ({}));
   const parentId = String(body?.parent_id || "");
-  // Optional overrides — let the user steer the continuation
   const userPrompt = String(body?.continuation_prompt || "").trim();
   const startFrameOverride = body?.start_frame_url ? String(body.start_frame_url) : "";
   const endFrameUrl = body?.end_frame_url ? String(body.end_frame_url) : "";
+  const requestedMode = body?.image_mode as
+    | "frame"
+    | "ingredient"
+    | "text"
+    | undefined;
   if (!parentId) return NextResponse.json({ error: "Missing parent_id" }, { status: 400 });
 
   const admin = createAdminClient();
@@ -49,23 +69,69 @@ export async function POST(req: Request) {
   }
 
   const cfg = await getP2Config();
-  // Start frame: user override > parent reference > parent output
-  const startUrl = startFrameOverride || parent.reference_url || parent.output_url;
-  // If user picked an end frame, this becomes a frame-mode (i2v) extension.
-  const useFrameMode = !!endFrameUrl;
-  const model = useFrameMode
-    ? cfg.videoI2V
-    : parent.reference_url
-      ? cfg.videoR2V
-      : cfg.videoI2V;
 
+  // Resolve mode — default to "frame" (the Extend/Improve flow).
+  const imageMode: "frame" | "ingredient" | "text" =
+    requestedMode === "ingredient" || requestedMode === "text"
+      ? requestedMode
+      : "frame";
+
+  // Resolve the start frame for frame mode:
+  //   • user-uploaded override → use as-is
+  //   • else → fal.ai extracts last frame of parent.output_url
+  // Hard-fail if fal extract fails (matches extension's STRICT no-fallback
+  // rule — silently re-running r2v with the product image would produce a
+  // jarring scene cut, which is what we're trying to avoid).
+  let startUrl = startFrameOverride;
+  let extractedFromFal = false;
+
+  if (imageMode === "frame" && !startUrl) {
+    const ext = await falExtractFrame(parent.output_url, "last");
+    if (!ext.ok || !ext.url) {
+      return NextResponse.json(
+        {
+          error: `Last frame extraction failed: ${ext.error || "unknown"}. Please upload a start frame manually.`,
+        },
+        { status: 502 }
+      );
+    }
+    startUrl = ext.url;
+    extractedFromFal = true;
+  } else if (imageMode === "ingredient" && !startUrl) {
+    return NextResponse.json(
+      { error: "Product reference image required for ingredient mode" },
+      { status: 400 }
+    );
+  }
+
+  // Pick model by mode
+  const model =
+    imageMode === "text"
+      ? cfg.videoT2V
+      : imageMode === "ingredient"
+        ? cfg.videoR2V
+        : cfg.videoI2V;
+
+  if (!model) {
+    return NextResponse.json({ error: "P2 video model missing" }, { status: 500 });
+  }
+
+  // Build prompt — fall back to a smooth-continuation default if user didn't
+  // type anything (matches the modal which makes the field required, but the
+  // server stays defensive).
   const continuationPrompt = userPrompt
     ? userPrompt
-    : `${parent.prompt || ""}\n\n[CONTINUATION SHOT — extend the previous 8 seconds smoothly. Keep same character, outfit, scene, and lighting. New camera angle or action beat.]`;
+    : `${parent.prompt || ""}\n\n[CONTINUATION SHOT — extend the previous scene smoothly. Keep same character, outfit, scene, and lighting. New camera angle or action beat.]`;
 
-  const imageUrls = useFrameMode
-    ? [startUrl, endFrameUrl].filter(Boolean)
-    : startUrl ? [startUrl] : [];
+  // Frame mode: send [start, end?] for i2v bookends.
+  // Ingredient: single product image as r2v reference.
+  // Text: no images.
+  const imageUrls =
+    imageMode === "text"
+      ? []
+      : imageMode === "frame"
+        ? [startUrl, endFrameUrl].filter(Boolean)
+        : [startUrl].filter(Boolean);
 
   const created = await p2CreateTask({
     model,
@@ -73,7 +139,12 @@ export async function POST(req: Request) {
     imageUrls,
     durationMode: "8",
     aspectRatio: "9:16",
-    imageMode: useFrameMode ? "frame" : parent.reference_url ? "ingredient" : "frame",
+    imageMode:
+      imageMode === "frame"
+        ? "frame"
+        : imageMode === "ingredient"
+          ? "ingredient"
+          : "text",
   });
   if (!created.ok || !created.task_id) {
     return NextResponse.json({ error: created.error || "P2 create failed" }, { status: 502 });
@@ -85,10 +156,10 @@ export async function POST(req: Request) {
       user_id: user.id,
       project_id: (parent as any).project_id || null,
       type: "video",
-      tab: parent.tab, // keep in same tab as parent
+      tab: parent.tab, // keep in same tab as parent (ugc / cinema / auto)
       status: "pending",
       prompt: continuationPrompt,
-      reference_url: startUrl,
+      reference_url: startUrl || null,
       task_id: created.task_id,
       duration: 8,
       cost,
@@ -96,7 +167,13 @@ export async function POST(req: Request) {
         parent_id: parent.id,
         is_extension: true,
         model,
+        image_mode: imageMode,
         end_frame_url: endFrameUrl || null,
+        start_frame_source: extractedFromFal
+          ? "fal_extract_last"
+          : startFrameOverride
+            ? "user_upload"
+            : "none",
       },
     })
     .select()
@@ -108,5 +185,7 @@ export async function POST(req: Request) {
     task_id: created.task_id,
     cost,
     parent_id: parent.id,
+    image_mode: imageMode,
+    start_frame_extracted: extractedFromFal,
   });
 }
