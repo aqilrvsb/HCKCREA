@@ -333,26 +333,8 @@ export default function AutoContentTab({ projectId }: { projectId?: string } = {
           </span>
         </div>
 
-        {/* Product slots — manual product is the only source. */}
-        <div className="flex items-center gap-2 mb-3">
-          <Label>Products</Label>
-          <Select
-            value={String(unitCount)}
-            onChange={(v) => setUnitCount(Number(v))}
-            width={70}
-          >
-            {[1, 2, 3, 4, 5].map((n) => (
-              <option key={n} value={n}>
-                {n}
-              </option>
-            ))}
-          </Select>
-          <span className="text-[10px] text-gray-500 ml-2">
-            Plans rotate {unitCount} product{unitCount === 1 ? "" : "s"} across {quantity}{" "}
-            video{quantity === 1 ? "" : "s"}.
-          </span>
-        </div>
-
+        {/* Product slot — locked to a single manual product (UI shows just
+            the upload card). The legacy 1-5 product rotation is gone. */}
         <div className="space-y-2 mb-4">
           {manualProducts.map((p, i) => (
             <ManualProductCard
