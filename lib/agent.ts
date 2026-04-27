@@ -454,6 +454,11 @@ type LoopOpts = {
   //   they want the video model to render verbatim (and vision-describing
   //   it adds no value, just latency + token cost).
   attachedImageRole?: "general" | "product";
+  // Per-turn merges into conversation.state. Used today for the Image
+  // agent's model dropdown (image_model_override = "nano-banana-pro" |
+  // "gpt-image-2") so the generate_image tool handler can force the
+  // user's pick without the LLM having to fetch the decision-tree skill.
+  stateOverrides?: Record<string, any>;
 };
 
 export type LoopResult = {
@@ -478,7 +483,12 @@ export async function runAgentTurn(opts: LoopOpts): Promise<LoopResult> {
     "model_agent_vision",
   ]);
   const maxTurns = Number(settings.agent_max_turns?.value || 30);
-  const maxToolsPerTurn = Number(settings.agent_max_tools_per_turn?.value || 5);
+  // Cap of 5 used to be too tight: UGC fetches 5 skills (scene, persona,
+  // hook, framework, voice) just to BUILD the prompt, leaving zero budget
+  // for the generate_* call in the same turn. The agent would then ask the
+  // user to type SUBMIT again. Bumped to 12 so a SUBMIT can do 5+ skill
+  // fetches plus the generate in one turn comfortably.
+  const maxToolsPerTurn = Number(settings.agent_max_tools_per_turn?.value || 12);
 
   // Pre-resolved OpenRouter config — passed into orChatWithTools so it never
   // calls getSettings inside the loop.
@@ -505,7 +515,10 @@ export async function runAgentTurn(opts: LoopOpts): Promise<LoopResult> {
   }
 
   const messages: Message[] = [...conv.messages];
-  const state: Record<string, any> = { ...conv.state };
+  const state: Record<string, any> = {
+    ...conv.state,
+    ...(opts.stateOverrides || {}),
+  };
 
   // 2. Vision pass if image attached AND role is "general". For "product"
   //    role, skip vision entirely — the image just rides through to the

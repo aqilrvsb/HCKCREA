@@ -91,6 +91,12 @@ export default function AgentChatPanel({
   const [attachedImageRole, setAttachedImageRole] = useState<"general" | "product">(
     "general"
   );
+  // IMAGE agent only — user's explicit model pick from the dropdown next
+  // to the attach icons. Sent in the chat POST so the agent skips the
+  // banana-vs-gpt-2 decision-tree fetch and uses the chosen model.
+  const [imageModel, setImageModel] = useState<"nano-banana-pro" | "gpt-image-2">(
+    "nano-banana-pro"
+  );
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
@@ -166,6 +172,7 @@ export default function AgentChatPanel({
 
     const sentRole = attachedImageRole;
     setAttachedImageRole("general"); // reset for next attach
+    const sentImageModel = tab === "image" ? imageModel : undefined;
 
     try {
       const r = await fetch(`/api/agent/${tab}/chat`, {
@@ -176,6 +183,7 @@ export default function AgentChatPanel({
           message: text,
           image_url: sentImage || undefined,
           image_role: sentImage ? sentRole : undefined,
+          image_model: sentImageModel,
         }),
       });
       const j = await r.json();
@@ -571,6 +579,33 @@ export default function AgentChatPanel({
                 >
                   <Package className="w-3.5 h-3.5" />
                 </button>
+              )}
+              {/* Model dropdown — IMAGE agent only. Lets the user lock
+                  Banana Pro vs GPT Image 2 instead of leaving the LLM
+                  to decide via the banana-vs-gpt-2 skill. Sent in the
+                  chat POST as image_model; the chat route stores it on
+                  conversation state so the generate_image handler
+                  honours it. */}
+              {tab === "image" && (
+                <select
+                  value={imageModel}
+                  onChange={(e) =>
+                    setImageModel(
+                      e.target.value as "nano-banana-pro" | "gpt-image-2"
+                    )
+                  }
+                  disabled={busy}
+                  className="h-8 px-2 rounded-lg text-[10px] font-bold flex-shrink-0 disabled:opacity-50 outline-none cursor-pointer"
+                  style={{
+                    background: "var(--color-bg)",
+                    color: "var(--color-text-secondary)",
+                    border: "1px solid var(--color-border)",
+                  }}
+                  title="Image model"
+                >
+                  <option value="nano-banana-pro">Banana Pro</option>
+                  <option value="gpt-image-2">GPT Image 2</option>
+                </select>
               )}
               <input
                 ref={fileInputRef}

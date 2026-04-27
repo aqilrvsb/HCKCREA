@@ -37,6 +37,21 @@ export async function POST(req: Request) {
   const projectId = body?.project_id ? String(body.project_id) : null;
   const userText = String(body?.message || "").trim();
   let attachedImageUrl = body?.image_url ? String(body.image_url) : "";
+  // "general" → default vision describe; "product" → skip vision (same as
+  // ugc/cinema chat routes). On the image agent product attaches go through
+  // banana-pro/gpt-image-2 as image-to-image references.
+  const imageRole: "general" | "product" =
+    body?.image_role === "product" ? "product" : "general";
+  // User's explicit model pick from the dropdown next to the attach icons.
+  // When set, the agent loop stores it on conversation state so the
+  // generate_image tool uses it directly (skips banana-vs-gpt-2 decision
+  // tree fetch — saves a tool call).
+  const imageModelOverride: "nano-banana-pro" | "gpt-image-2" | null =
+    body?.image_model === "gpt-image-2"
+      ? "gpt-image-2"
+      : body?.image_model === "nano-banana-pro"
+        ? "nano-banana-pro"
+        : null;
 
   if (!userText && !attachedImageUrl) {
     return NextResponse.json({ error: "Empty message" }, { status: 400 });
@@ -67,6 +82,10 @@ export async function POST(req: Request) {
     tools: IMAGE_TOOLS,
     userText,
     attachedImageUrl: attachedImageUrl || undefined,
+    attachedImageRole: imageRole,
+    stateOverrides: imageModelOverride
+      ? { image_model_override: imageModelOverride }
+      : undefined,
   });
 
   if (!result.ok) {

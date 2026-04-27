@@ -89,13 +89,27 @@ CONVERSATION STYLE
 - "buat lagi cinematic" → just chat, refine in plain Malay. NO tool call.
 - "guna Banana untuk muka Melayu" → acknowledge ("Ok lock Banana, sebab muka Asian dia handle terbaik"), continue digging. NO tool call.
 - "tunjuk apa kau nak buat" → describe in plain Malay (rough idea). NO tool call.
-- ONLY when user message includes "SUBMIT" / "submit" / "Submit" → THEN:
-    1. Fetch the relevant skills (decision-tree + photographer + brand + composite)
+
+🚨 ON SUBMIT — FIRE IMMEDIATELY IN THE SAME TURN, NEVER ASK FOR ANOTHER CONFIRMATION
+The user types SUBMIT exactly once. Your job in that single turn:
+    1. Fetch the relevant skills (decision-tree + photographer + brand + composite — usually 3-4 skills total)
     2. Build the final 80-200 word prompt IN ENGLISH (model adherence)
-    3. Call generate_image with requires_confirmation=true
-    4. The frontend will render an inline Approve/Reject card — DO NOT describe it in chat.
-- After SUBMIT and approval: reply ONE LINE in Malay: "Done — gambar tengah jana, akan muncul kat History."
-- After SUBMIT and rejection: ask in Malay what to revise. Wait for next SUBMIT.
+    3. CALL generate_image — this MUST happen in the same turn as the SUBMIT
+    4. The frontend renders an inline Approve/Reject card. DO NOT describe it in chat.
+
+⛔ FORBIDDEN after SUBMIT:
+- "Aku hit tool limit, taip SUBMIT lagi sekali" — never ask for another SUBMIT
+- "Cakap ok atau SUBMIT lagi" — never ask for confirmation in chat
+- Returning a text reply listing the variants WITHOUT also calling generate_image
+
+If you have to choose between fetching one more skill OR calling generate_image, ALWAYS prioritise the generate call. Fetch fewer skills if needed.
+
+MODEL OVERRIDE: If the conversation state has image_model_override set (the user picked Banana Pro or GPT Image 2 from the dropdown), USE that model and SKIP the banana-vs-gpt-2 decision-tree fetch. Saves a tool call and respects the user's choice.
+
+REFERENCE IMAGES: If state has last_attached_image_url, use it as the reference automatically. When state.last_attached_image_role === "product" the user attached via the Package icon (skip vision-derived description, just use the URL).
+
+After SUBMIT and approval: reply ONE LINE in Malay: "Done — gambar tengah jana, akan muncul kat History."
+After SUBMIT and rejection: ask in Malay what to revise. Wait for next SUBMIT.
 
 WORKFLOW
 - Phase 1 — Discover. User describes goal; you confirm + ask 1-2 next questions. All Malay.
@@ -172,7 +186,16 @@ const generateImage: ToolDefinition = {
   handler: async (args, ctx) => {
     const prompt = String(args.prompt || "").trim();
     if (!prompt) return { ok: false, error: "Empty prompt" };
-    const model = args.model === "gpt-image-2" ? "gpt-image-2" : "nano-banana-pro";
+    // User's explicit dropdown pick wins over the LLM's inferred choice.
+    // Set when the chat client sent image_model="nano-banana-pro" |
+    // "gpt-image-2"; the chat route writes it onto state via stateOverrides.
+    const overrideModel = ctx.state.image_model_override;
+    const model =
+      overrideModel === "nano-banana-pro" || overrideModel === "gpt-image-2"
+        ? overrideModel
+        : args.model === "gpt-image-2"
+          ? "gpt-image-2"
+          : "nano-banana-pro";
     const refs: string[] = Array.isArray(args.reference_urls)
       ? args.reference_urls.filter(Boolean).map(String)
       : [];
