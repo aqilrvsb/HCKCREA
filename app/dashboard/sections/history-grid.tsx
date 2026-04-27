@@ -949,7 +949,6 @@ function HistoryCard({
                 : "ugc"
           }
           productImageUrl={item.reference_url || undefined}
-          characterLock={(item.metadata as any)?.character_lock || undefined}
           voice={(item.metadata as any)?.voice || undefined}
           aspectRatio={(item.metadata as any)?.aspectRatio || "9:16"}
           onClose={() => setShowExtendModal(false)}

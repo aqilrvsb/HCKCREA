@@ -39,7 +39,6 @@ export default function ExtendDialog({
   bucket,
   productImageUrl,
   productDescription,
-  characterLock,
   voice,
   aspectRatio,
   onClose,
@@ -51,7 +50,6 @@ export default function ExtendDialog({
   bucket: "ugc" | "cinema" | "auto";
   productImageUrl?: string;
   productDescription?: string;
-  characterLock?: string; // optional — for UGC continuity
   voice?: string;
   aspectRatio?: string;
   onClose: () => void;
@@ -59,7 +57,13 @@ export default function ExtendDialog({
 }) {
   const [frameAnchor, setFrameAnchor] = useState<FrameAnchor>("last");
   const [seg2Prompt, setSeg2Prompt] = useState("");
-  const [extraCharacterLock, setExtraCharacterLock] = useState(characterLock || "");
+  // Product text lock — user types the literal text/labels visible on the
+  // product packaging so seg-2 doesn't drift letters, logo, or layout. The
+  // backend wraps this in a "Do NOT alter letters" block and appends to the
+  // seg-2 prompt. Character continuity is handled by the frame anchor (we
+  // pass the actual seg-1 frame as the i2v reference, so the face is locked
+  // by pixels — no separate character text lock needed).
+  const [productTextLock, setProductTextLock] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -88,7 +92,7 @@ export default function ExtendDialog({
           bucket,
           frame_anchor: frameAnchor,
           seg2_prompt: seg2Prompt,
-          character_lock: extraCharacterLock,
+          product_text_lock: productTextLock,
           product_image_url: productImageUrl,
           product_description: productDescription,
           voice,
@@ -196,21 +200,34 @@ export default function ExtendDialog({
               />
             </div>
 
-            {/* UGC-only: character lock */}
-            {bucket === "ugc" && (
-              <div>
-                <label className="block text-xs font-bold uppercase tracking-wider text-gray-400 mb-1">
-                  Character Lock (optional — preserves identity across the cut)
-                </label>
-                <textarea
-                  rows={2}
-                  value={extraCharacterLock}
-                  onChange={(e) => setExtraCharacterLock(e.target.value)}
-                  placeholder="A 26-year-old Malay woman in soft pastel hijab, warm medium-brown skin, dewy minimal-makeup..."
-                  className="w-full p-2 rounded-lg text-[11px] font-mono leading-relaxed resize-y outline-none bg-gray-900 border border-gray-700 text-white"
-                />
+            {/* Product text lock — applies to ALL extend buckets (UGC, Auto,
+                Cinema). When seg-2 generates from a frame extracted out of
+                seg-1's pixels, package text drifts (DENDENG → DEMNNG, NYET
+                → NYUE). User types the visible text once; the backend
+                injects a hard lock instruction so seg-2 renders the label
+                character-perfect.
+                Character continuity is handled by the frame anchor itself
+                (the actual seg-1 frame is the i2v reference) — no separate
+                character lock textarea needed. */}
+            <div>
+              <label className="block text-xs font-bold uppercase tracking-wider text-gray-400 mb-1">
+                Product Text Lock (tulis tulisan kat product — preserves labels in seg 2)
+              </label>
+              <textarea
+                rows={3}
+                value={productTextLock}
+                onChange={(e) => setProductTextLock(e.target.value)}
+                placeholder={
+                  "Main text: NESTUM ORIGINAL\nLogo: 3 stars centered above text\nColor: bright yellow box\n(or just type free-form: 'kotak kuning, tulisan NESTUM ORIGINAL, ada 3 bintang')"
+                }
+                className="w-full p-2 rounded-lg text-[11px] font-mono leading-relaxed resize-y outline-none bg-gray-900 border border-gray-700 text-white"
+              />
+              <div className="text-[10px] text-gray-500 mt-1 leading-relaxed">
+                Tulisan, logo, warna packaging — supaya seg 2 tak garble label.
+                Boleh skip kalau product takde tulisan jelas.
               </div>
-            )}
+            </div>
+
 
             {error && <div className="text-xs text-red-400">{error}</div>}
           </div>

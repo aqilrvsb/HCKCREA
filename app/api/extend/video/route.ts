@@ -70,7 +70,11 @@ export async function POST(req: Request) {
     ? body.frame_anchor
     : "last") as FrameAnchor;
   const seg2Prompt = String(body?.seg2_prompt || "").trim();
-  const characterLock = String(body?.character_lock || "").trim();
+  // Product text lock — user-typed text/labels visible on the product
+  // packaging. Wins over OCR (user knows their product better). If empty,
+  // we fall back to OCR-derived lock block so power users who don't bother
+  // typing still get protection.
+  const productTextLock = String(body?.product_text_lock || "").trim();
   const productImageUrl = String(body?.product_image_url || "");
   const voiceId = body?.voice ? String(body.voice) : "";
   const aspectRatio = String(body?.aspect_ratio || "9:16");
@@ -165,12 +169,27 @@ export async function POST(req: Request) {
         return;
       }
 
-      // 3. Build seg-2 prompt with all available locks
+      // 3. Build seg-2 prompt with product text lock. Character continuity
+      // comes from the frame anchor (we pass the literal seg-1 frame as the
+      // r2v/i2v reference, so the avatar's face is locked by pixels). The
+      // ONLY drift risk seg-2 has is package label text — which user-typed
+      // OR OCR-derived lock prevents.
       const compose: string[] = [seg2Prompt];
-      if (characterLock) compose.push(characterLock);
 
       let productOcr: any = null;
-      if (productImageUrl) {
+      if (productTextLock) {
+        // User typed it — wrap their text in the same lock block shape so
+        // Veo treats it as a hard constraint (verbatim language matches the
+        // OCR-derived block, just with user-supplied content).
+        compose.push(
+          [
+            "── PRODUCT TEXT LOCK (character-perfect preservation — critical for seg 2+) ──",
+            productTextLock,
+            "Do NOT alter letters. Do NOT change the logo. Do NOT shift the layout. If product text appears in frame, it MUST match the description above character-for-character.",
+          ].join("\n")
+        );
+      } else if (productImageUrl) {
+        // Fallback: OCR the product image. Same final block shape.
         productOcr = await getCachedProductOcr(user.id, productImageUrl).catch(() => null);
         const lockBlock = productTextLockBlock(productOcr);
         if (lockBlock) compose.push(lockBlock);
@@ -226,7 +245,7 @@ export async function POST(req: Request) {
             bucket,
             aspectRatio,
             product_ocr: productOcr || null,
-            character_lock: characterLock || null,
+            product_text_lock: productTextLock || null,
             voice: voiceId || null,
             voice_line: voiceLine || null,
             upload_status: created.ok ? "done" : "failed",
