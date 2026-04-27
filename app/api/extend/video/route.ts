@@ -1,35 +1,34 @@
-import { NextResponse } from "next/server";
+import { NextResponse, after } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { p2CreateTask } from "@/lib/p2";
 import { getP2Config } from "@/lib/settings";
-import { priceFor, hasEnoughCredits } from "@/lib/deduct";
+import { priceFor } from "@/lib/deduct";
 import { falExtractFrame, type FrameAnchor } from "@/lib/fal";
 import { getCachedProductOcr, productTextLockBlock } from "@/lib/product-ocr";
 
-// POST /api/extend/video
+// POST /api/extend/video — placeholder-first.
 //
-// Triggered from the EXTEND button on a video history card. Reuses the same
-// segment-chain pipeline as 16s mode:
-//   1. extract anchor frame from source video
-//   2. build seg-2 prompt with character lock + product text lock
-//   3. fire Veo r2v with extracted frame as reference
-//   4. seg-2 settles → segment-chain auto-merges with source clip
+// Hot path (~500ms):
+//   1. getSession + verify source row belongs to user
+//   2. Insert seg-2 placeholder row with parent_history_id linking back
+//      to the source clip and segment_index=2. The dashboard's segment
+//      slider keys on this child row to render the seg-2 placeholder
+//      thumb on the parent card immediately — no waiting for fal frame
+//      extract, OCR, or Crun create_task.
+//   3. Return seg2_history_id
 //
-// Body shape:
-//   {
-//     source_history_id: string,    // history.id of the clip being extended
-//     source_video_url: string,     // current output_url of that clip
-//     source_duration: number,      // 8 or 16
-//     bucket: "ugc" | "cinema" | "auto",
-//     frame_anchor: "first" | "middle" | "last",
-//     seg2_prompt: string,          // user's continuation prompt
-//     character_lock?: string,      // optional, UGC continuity
-//     product_image_url?: string,   // optional, for product text lock
-//     product_description?: string,
-//     voice?: string,               // for Veo voice direction injection
-//     aspect_ratio?: string,        // default 9:16
-//   }
+// after() background:
+//   4. Resolve plan rate
+//   5. Extract anchor frame from source video (fal, ~3-5s)
+//   6. Run product OCR for text lock (if product image provided)
+//   7. Build full seg-2 prompt with locks
+//   8. Fire Crun seg-2 create_task
+//   9. Update seg-2 row with task_id, cost, locks metadata, ref frame URL
+//
+// On any failure during after(), the seg-2 row flips to 'failed' with the
+// error message so the slider thumb shows a red X instead of forever-spin.
+// pg_cron's 10-min stale cutoff catches orphan rows if after() never runs.
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -58,9 +57,8 @@ Negative: cartoon, anime, plastic skin, glam makeup, softbox studio lighting, du
 
 export async function POST(req: Request) {
   const sb = await createClient();
-  const {
-    data: { user },
-  } = await sb.auth.getUser();
+  const { data: { session } } = await sb.auth.getSession();
+  const user = session?.user;
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const body = await req.json().catch(() => ({}));
@@ -89,10 +87,11 @@ export async function POST(req: Request) {
 
   const admin = createAdminClient();
 
-  // Verify source history belongs to user + is settled
+  // Verify source row belongs to user + is settled (kept on hot path —
+  // small + needed to reject hostile callers before we insert).
   const { data: source } = await admin
     .from("history")
-    .select("id, user_id, type, tab, status, output_url, metadata, parent_history_id, segment_index")
+    .select("id, user_id, status, project_id")
     .eq("id", sourceHistoryId)
     .single();
   if (!source || source.user_id !== user.id) {
@@ -105,100 +104,149 @@ export async function POST(req: Request) {
     );
   }
 
-  // Pre-flight credit check (extend = +8s = video_8s rate)
-  const cost = await priceFor(user.id, "video_8s");
-  if (!(await hasEnoughCredits(user.id, cost))) {
-    return NextResponse.json(
-      { error: `Kredit tak cukup. Perlu RM ${cost.toFixed(2)}.` },
-      { status: 402 }
-    );
-  }
-
-  // 1. Extract frame from source video at anchor
-  const frameRes = await falExtractFrame(sourceVideoUrl, frameAnchor, sourceDuration);
-  if (!frameRes.ok || !frameRes.url) {
-    return NextResponse.json(
-      { error: `Frame extract failed: ${frameRes.error}` },
-      { status: 502 }
-    );
-  }
-
-  // 2. Build seg-2 prompt with all available locks
-  const compose: string[] = [seg2Prompt];
-  if (characterLock) compose.push(characterLock);
-
-  // Product text lock (if user provided product image — runs OCR cached)
-  let productOcr: any = null;
-  if (productImageUrl) {
-    productOcr = await getCachedProductOcr(user.id, productImageUrl).catch(() => null);
-    const lockBlock = productTextLockBlock(productOcr);
-    if (lockBlock) compose.push(lockBlock);
-  }
-
-  const voiceLine = voiceId ? VOICE_MAP[voiceId] : "";
-  const fullPrompt =
-    `${compose.join("\n\n").trim()}` +
-    (voiceLine ? `\n\nVoice direction: ${voiceLine}` : "") +
-    STANDARD_LOCKS;
-
-  // 3. Fire seg-2 task
-  const cfg = await getP2Config();
-  const model = bucket === "cinema" ? cfg.grokI2V : cfg.videoR2V;
-  if (!model) {
-    return NextResponse.json({ error: "Model not configured" }, { status: 500 });
-  }
-
-  const created = await p2CreateTask({
-    model,
-    prompt: fullPrompt,
-    imageUrls: [frameRes.url],
-    durationMode: "8",
-    aspectRatio,
-    imageMode: bucket === "cinema" ? "frame" : "ingredient",
-  });
-
-  // 4. Insert seg-2 history row (parent_history_id = source clip)
-  const { data: child } = await admin
+  // Insert seg-2 placeholder row NOW. parent_history_id + segment_index=2
+  // is what makes the parent card's slider render the seg-2 thumb (pending
+  // state) immediately. task_id, cost, locks metadata filled by after().
+  const { data: child, error: insErr } = await admin
     .from("history")
     .insert({
       user_id: user.id,
-      project_id: source.metadata?.project_id || null,
+      project_id: source.project_id || null,
       type: "video",
       tab: bucket === "cinema" ? "cinema" : bucket === "auto" ? "auto" : "video",
-      status: created.ok && created.task_id ? "pending" : "failed",
-      prompt: fullPrompt,
-      reference_url: frameRes.url,
-      task_id: created.task_id || null,
+      status: "pending",
+      prompt: seg2Prompt, // raw prompt — full prompt with locks set in after()
+      reference_url: null, // anchor frame URL set in after()
+      task_id: null,
       duration: 8,
-      cost,
+      cost: 0,
       segment_index: 2,
       parent_history_id: sourceHistoryId,
       frame_anchor: frameAnchor,
-      error_message: created.ok ? null : created.error || "Extend P2 create failed",
       metadata: {
         agent: "extend",
         segment_role: "seg2",
         source_history_id: sourceHistoryId,
-        anchor_frame_url: frameRes.url,
         bucket,
         aspectRatio,
-        product_ocr: productOcr || null,
-        character_lock: characterLock || null,
-        voice: voiceId || null,
-        voice_line: voiceLine || null,
+        upload_status: "queued",
       },
     })
-    .select()
+    .select("id")
     .single();
 
-  if (!child) {
-    return NextResponse.json({ error: "Failed to insert seg-2 row" }, { status: 500 });
+  if (insErr || !child) {
+    return NextResponse.json(
+      { error: "Failed to insert seg-2 placeholder", detail: insErr?.message },
+      { status: 500 }
+    );
   }
+
+  const childId = child.id;
+
+  after(async () => {
+    try {
+      // 1. Resolve plan rate (extend = +8s = video_8s)
+      const cost = await priceFor(user.id, "video_8s");
+
+      // 2. Extract frame from source video (fal, slow)
+      const frameRes = await falExtractFrame(sourceVideoUrl, frameAnchor, sourceDuration);
+      if (!frameRes.ok || !frameRes.url) {
+        await admin.from("history").update({
+          status: "failed",
+          cost,
+          error_message: `Frame extract failed: ${frameRes.error}`,
+          metadata: {
+            agent: "extend", segment_role: "seg2",
+            source_history_id: sourceHistoryId, bucket, aspectRatio,
+            upload_status: "failed",
+          },
+        }).eq("id", childId);
+        return;
+      }
+
+      // 3. Build seg-2 prompt with all available locks
+      const compose: string[] = [seg2Prompt];
+      if (characterLock) compose.push(characterLock);
+
+      let productOcr: any = null;
+      if (productImageUrl) {
+        productOcr = await getCachedProductOcr(user.id, productImageUrl).catch(() => null);
+        const lockBlock = productTextLockBlock(productOcr);
+        if (lockBlock) compose.push(lockBlock);
+      }
+
+      const voiceLine = voiceId ? VOICE_MAP[voiceId] : "";
+      const fullPrompt =
+        `${compose.join("\n\n").trim()}` +
+        (voiceLine ? `\n\nVoice direction: ${voiceLine}` : "") +
+        STANDARD_LOCKS;
+
+      // 4. Fire seg-2 Crun task
+      const cfg = await getP2Config();
+      const model = bucket === "cinema" ? cfg.grokI2V : cfg.videoR2V;
+      if (!model) {
+        await admin.from("history").update({
+          status: "failed",
+          cost,
+          error_message: "Model not configured",
+          metadata: {
+            agent: "extend", segment_role: "seg2",
+            source_history_id: sourceHistoryId, bucket, aspectRatio,
+            upload_status: "failed",
+          },
+        }).eq("id", childId);
+        return;
+      }
+
+      const created = await p2CreateTask({
+        model,
+        prompt: fullPrompt,
+        imageUrls: [frameRes.url],
+        durationMode: "8",
+        aspectRatio,
+        imageMode: bucket === "cinema" ? "frame" : "ingredient",
+      });
+
+      // 5. Update placeholder with task_id (or fail with upstream error)
+      await admin
+        .from("history")
+        .update({
+          status: created.ok && created.task_id ? "pending" : "failed",
+          task_id: created.task_id || null,
+          cost,
+          prompt: fullPrompt,
+          reference_url: frameRes.url,
+          error_message: created.ok ? null : created.error || "Extend P2 create failed",
+          metadata: {
+            agent: "extend",
+            segment_role: "seg2",
+            source_history_id: sourceHistoryId,
+            anchor_frame_url: frameRes.url,
+            bucket,
+            aspectRatio,
+            product_ocr: productOcr || null,
+            character_lock: characterLock || null,
+            voice: voiceId || null,
+            voice_line: voiceLine || null,
+            upload_status: created.ok ? "done" : "failed",
+          },
+        })
+        .eq("id", childId);
+    } catch (e: any) {
+      await admin
+        .from("history")
+        .update({
+          status: "failed",
+          error_message: e?.message || "Background error",
+        })
+        .eq("id", childId);
+    }
+  });
 
   return NextResponse.json({
     ok: true,
-    seg2_history_id: child.id,
+    seg2_history_id: childId,
     parent_history_id: sourceHistoryId,
-    cost,
   });
 }
