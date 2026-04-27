@@ -1,6 +1,6 @@
-"use client";
-
 import Link from "next/link";
+import Image from "next/image";
+import dynamic from "next/dynamic";
 import {
   Sparkles,
   ArrowRight,
@@ -27,8 +27,11 @@ import {
 } from "lucide-react";
 import CheckoutForm from "./(checkout)/checkout-form";
 import Countdown from "./components/countdown";
-import SocialProofToast from "./components/social-proof-toast";
-import DemoReel from "./components/demo-reel";
+
+const DemoReel = dynamic(() => import("./components/demo-reel"), { ssr: false });
+const SocialProofToast = dynamic(() => import("./components/social-proof-toast"), { ssr: false });
+
+export const revalidate = 3600;
 
 const STATS = [
   { num: "1,300+", label: "seller aktif" },
@@ -181,7 +184,7 @@ export default function Home() {
             {/* Social proof badge above H1 — number first, like rekalab */}
             <div
               className="inline-flex items-center gap-2 mb-7 px-3.5 py-1.5 rounded-full bg-emerald-50 border border-emerald-200 animate-fade-in-up"
-              style={{ opacity: 0 }}
+              style={{ opacity: 1 }}
             >
               <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
               <span className="text-xs sm:text-sm font-bold text-emerald-700">
@@ -192,7 +195,7 @@ export default function Home() {
             {/* Headline — fear/comparison hook (rekalab style) */}
             <h1
               className="font-display font-extrabold tracking-tight text-5xl sm:text-6xl md:text-7xl leading-[0.95] mb-7 animate-fade-in-up"
-              style={{ animationDelay: "0.1s", opacity: 0 }}
+              style={{ animationDelay: "0.1s", opacity: 1 }}
             >
               <span className="block">Kompetitor dah</span>
               <span className="block">
@@ -203,7 +206,7 @@ export default function Home() {
 
             <p
               className="text-lg sm:text-xl text-[var(--color-text-secondary)] mb-8 leading-relaxed max-w-xl animate-fade-in-up"
-              style={{ animationDelay: "0.2s", opacity: 0 }}
+              style={{ animationDelay: "0.2s", opacity: 1 }}
             >
               <strong className="text-[var(--color-text-primary)]">
                 PeningLab catch up dalam 3 minit.
@@ -215,7 +218,7 @@ export default function Home() {
 
             <div
               className="flex flex-col sm:flex-row items-start sm:items-center gap-4 mb-6 animate-fade-in-up"
-              style={{ animationDelay: "0.3s", opacity: 0 }}
+              style={{ animationDelay: "0.3s", opacity: 1 }}
             >
               <Link href="/register" className="btn-primary group">
                 Mula Sekarang — 2 Video FREE
@@ -230,7 +233,7 @@ export default function Home() {
             {/* Scarcity activity strip — live signal */}
             <div
               className="flex flex-wrap items-center gap-x-5 gap-y-2 text-xs sm:text-sm animate-fade-in-up"
-              style={{ animationDelay: "0.4s", opacity: 0 }}
+              style={{ animationDelay: "0.4s", opacity: 1 }}
             >
               <div className="flex items-center gap-2">
                 <div className="avatar-stack flex">
@@ -280,15 +283,19 @@ export default function Home() {
           <div className="lg:col-span-5 relative">
             <div
               className="relative max-w-[440px] mx-auto animate-fade-in-up"
-              style={{ animationDelay: "0.3s", opacity: 0 }}
+              style={{ animationDelay: "0.3s", opacity: 1 }}
             >
               <div
                 className="relative rounded-[28px] overflow-hidden border border-[var(--color-border)] shadow-2xl shadow-orange-500/25 animate-float"
                 style={{ aspectRatio: "9 / 14" }}
               >
-                <img
+                <Image
                   src="https://zoxgcqlqovkvlrmpcikt.supabase.co/storage/v1/object/public/demos/hero-comparison.png"
                   alt="Kompetitor dah post 10 video. Anda baru fikir."
+                  width={440}
+                  height={686}
+                  priority
+                  sizes="(max-width: 768px) 100vw, 440px"
                   className="w-full h-full object-cover"
                 />
                 {/* Subtle vignette so floating labels read clearly */}
@@ -731,9 +738,12 @@ export default function Home() {
           <div className="md:col-span-2 bento relative overflow-hidden" style={{ minHeight: 380 }}>
             {/* Hero image overlay — subtle, behind content */}
             <div className="absolute inset-0 opacity-25 pointer-events-none">
-              <img
+              <Image
                 src="https://zoxgcqlqovkvlrmpcikt.supabase.co/storage/v1/object/public/demos/bento-auto-content.png"
                 alt=""
+                width={600}
+                height={600}
+                style={{ width: "100%", height: "auto" }}
                 className="w-full h-full object-cover"
               />
               <div className="absolute inset-0 bg-gradient-to-r from-white via-white/85 to-white/30" />
@@ -766,7 +776,8 @@ export default function Home() {
                   >
                     <video
                       src={`https://zoxgcqlqovkvlrmpcikt.supabase.co/storage/v1/object/public/demos/${v.src}#t=1`}
-                      preload="metadata"
+                      preload="none"
+                      poster=""
                       muted
                       playsInline
                       className="w-full h-full object-cover"
@@ -817,9 +828,11 @@ export default function Home() {
                   key={i}
                   className="w-12 h-12 rounded-full overflow-hidden border-2 border-white shadow-lg ring-2 ring-blue-100"
                 >
-                  <img
+                  <Image
                     src={`https://zoxgcqlqovkvlrmpcikt.supabase.co/storage/v1/object/public/demos/${file}`}
                     alt=""
+                    width={48}
+                    height={48}
                     className="w-full h-full object-cover"
                   />
                 </div>
@@ -847,9 +860,12 @@ export default function Home() {
             </p>
             {/* Hero image — viral phone with notification bubbles */}
             <div className="relative aspect-[16/10] rounded-xl overflow-hidden border border-pink-100 mb-3 bg-gradient-to-br from-pink-50 to-orange-50">
-              <img
+              <Image
                 src="https://zoxgcqlqovkvlrmpcikt.supabase.co/storage/v1/object/public/demos/bento-veo-viral.png"
                 alt=""
+                width={600}
+                height={600}
+                style={{ width: "100%", height: "auto" }}
                 className="w-full h-full object-cover"
               />
             </div>
@@ -876,9 +892,12 @@ export default function Home() {
               Upload video kompetitor yang hits. AI extract setiap shot, dialog, hook — recreate dengan produk dan muka anda.
             </p>
             <div className="relative aspect-[16/10] rounded-xl overflow-hidden border border-amber-100 mb-3 bg-gradient-to-br from-amber-50 to-orange-50">
-              <img
+              <Image
                 src="https://zoxgcqlqovkvlrmpcikt.supabase.co/storage/v1/object/public/demos/bento-clone-spy.png"
                 alt=""
+                width={600}
+                height={600}
+                style={{ width: "100%", height: "auto" }}
                 className="w-full h-full object-cover"
               />
             </div>
@@ -909,9 +928,12 @@ export default function Home() {
               Schedule 30 hari sekaligus. Kompetitor masih buat manual — anda dah dapat data peak hour.
             </p>
             <div className="relative aspect-[16/10] rounded-xl overflow-hidden border border-emerald-100 mb-3 bg-gradient-to-br from-emerald-50 to-slate-50">
-              <img
+              <Image
                 src="https://zoxgcqlqovkvlrmpcikt.supabase.co/storage/v1/object/public/demos/bento-autopost-sales.png"
                 alt=""
+                width={600}
+                height={600}
+                style={{ width: "100%", height: "auto" }}
                 className="w-full h-full object-cover"
               />
             </div>

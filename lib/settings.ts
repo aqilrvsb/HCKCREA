@@ -1,32 +1,60 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 
-// Read a single setting from app_settings. Returns the value JSON or null.
-// Server-side only — uses service role.
+// In-memory cache. settings change only via /admin (rare). 60s TTL means
+// a stale read window of ≤60s is acceptable. Cache lives per Vercel function
+// instance — across cold starts it gets re-warmed.
+const cache = new Map<string, { value: any; expiresAt: number }>();
+const TTL_MS = 60_000;
+
 export async function getSetting<T = any>(key: string): Promise<T | null> {
+  const cached = cache.get(key);
+  if (cached && cached.expiresAt > Date.now()) return cached.value as T;
+
   const admin = createAdminClient();
   const { data } = await admin
     .from("app_settings")
     .select("value")
     .eq("key", key)
     .maybeSingle();
-  return (data?.value as T) ?? null;
+  const value = (data?.value ?? null) as T | null;
+  cache.set(key, { value, expiresAt: Date.now() + TTL_MS });
+  return value;
 }
 
-// Read multiple settings at once
-export async function getSettings(
-  keys: string[]
-): Promise<Record<string, any>> {
+export async function getSettings(keys: string[]): Promise<Record<string, any>> {
+  // Resolve cached keys without a DB call; only fetch the missing ones.
+  const out: Record<string, any> = {};
+  const missing: string[] = [];
+  const now = Date.now();
+  for (const k of keys) {
+    const c = cache.get(k);
+    if (c && c.expiresAt > now) out[k] = c.value;
+    else missing.push(k);
+  }
+  if (missing.length === 0) return out;
+
   const admin = createAdminClient();
   const { data } = await admin
     .from("app_settings")
-    .select("key,value")
-    .in("key", keys);
-  const out: Record<string, any> = {};
-  for (const k of keys) out[k] = null;
-  (data || []).forEach((r: any) => {
-    out[r.key] = r.value;
-  });
+    .select("key, value")
+    .in("key", missing);
+  for (const k of missing) {
+    const row = data?.find((r: any) => r.key === k);
+    const v = row?.value ?? null;
+    out[k] = v;
+    cache.set(k, { value: v, expiresAt: now + TTL_MS });
+  }
   return out;
+}
+
+// Helper for /admin update path — call this after writing to app_settings
+// so the next read sees the new value immediately instead of waiting for TTL.
+export function invalidateSettingsCache(keys?: string[]): void {
+  if (!keys) {
+    cache.clear();
+    return;
+  }
+  for (const k of keys) cache.delete(k);
 }
 
 // Convenience helpers for the providers we use server-side

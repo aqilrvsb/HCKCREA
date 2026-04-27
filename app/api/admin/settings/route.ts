@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { invalidateSettingsCache } from "@/lib/settings";
 
 async function adminGate() {
   const sb = await createClient();
@@ -39,6 +40,10 @@ export async function POST(req: Request) {
     .from("app_settings")
     .update({ value, updated_by: user.id })
     .eq("key", key);
+
+  // Invalidate the in-memory cache so the next read sees the new value
+  // immediately instead of waiting up to 60s for TTL expiry.
+  invalidateSettingsCache();
 
   return NextResponse.json({ ok: true });
 }

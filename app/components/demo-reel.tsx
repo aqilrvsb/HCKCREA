@@ -117,7 +117,8 @@ export default function DemoReel() {
                     <div className="aspect-[9/16] bg-black relative">
                       <video
                         src={v.file + "#t=1"}
-                        preload="metadata"
+                        preload="none"
+                        poster=""
                         muted
                         playsInline
                         className="w-full h-full object-cover"

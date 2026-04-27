@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { p2CreateTask } from "@/lib/p2";
-import { priceFor, hasEnoughCredits } from "@/lib/deduct";
+import { priceAndCheck } from "@/lib/deduct";
 import { getP2Config } from "@/lib/settings";
 
 // imageMode: 'frame' = i2v (start frame), 'ingredient' = r2v (ref product),
@@ -36,8 +36,8 @@ export async function POST(req: Request) {
   }
 
   const reason = durationMode === "16" ? "video_16s" : "video_8s";
-  const cost = await priceFor(user.id, reason as any);
-  if (!(await hasEnoughCredits(user.id, cost))) {
+  const { rate: cost, hasFunds } = await priceAndCheck(user.id, reason as any);
+  if (!hasFunds) {
     return NextResponse.json({ error: "Kredit tak cukup. Top up dulu." }, { status: 402 });
   }
 

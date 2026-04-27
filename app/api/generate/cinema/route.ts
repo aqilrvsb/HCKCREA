@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { p2CreateTask } from "@/lib/p2";
-import { hasEnoughCredits } from "@/lib/deduct";
+import { priceAndCheck } from "@/lib/deduct";
 import { getCinemaRate, getP2Config } from "@/lib/settings";
 
 // Cinema — Grok Imagine via Crun.ai. Two image modes:
@@ -34,10 +34,11 @@ export async function POST(req: Request) {
     );
   }
 
-  // Pricing
+  // Pricing — resolve rate and credits in one combined query
   const ratePerSec = await getCinemaRate();
   const cost = Number((ratePerSec * duration).toFixed(4));
-  if (!(await hasEnoughCredits(user.id, cost))) {
+  const { hasFunds } = await priceAndCheck(user.id, "cinema", cost);
+  if (!hasFunds) {
     return NextResponse.json(
       { error: `Kredit tak cukup. Perlu RM${cost.toFixed(2)}.` },
       { status: 402 }

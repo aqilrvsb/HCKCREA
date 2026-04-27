@@ -59,6 +59,47 @@ export async function hasEnoughCredits(
   return Number(data?.credits || 0) >= amount;
 }
 
+// Combined hot-path helper: reads (plan, credits) from profiles in ONE query,
+// then resolves the rate from cached settings. Replaces the sequential
+// priceFor() + hasEnoughCredits() pattern in generate routes (saves one
+// extra profiles round-trip per generation).
+//
+// amountOverride: pass a pre-computed cost (e.g. cinema's duration * rate)
+//   instead of looking it up by reason.
+export async function priceAndCheck(
+  userId: string,
+  reason: DeductReason,
+  amountOverride?: number
+): Promise<{ rate: number; hasFunds: boolean; plan: string; credits: number }> {
+  const admin = createAdminClient();
+  const { data: profile } = await admin
+    .from("profiles")
+    .select("plan, credits")
+    .eq("id", userId)
+    .single();
+  const plan = profile?.plan || "light";
+  const credits = Number(profile?.credits || 0);
+
+  let rate: number;
+  if (amountOverride !== undefined) {
+    rate = amountOverride;
+  } else if (reason === "image_generate") {
+    const r = await getPlanRate(plan);
+    rate = r.image;
+  } else if (reason === "video_8s") {
+    const r = await getPlanRate(plan);
+    rate = r.video;
+  } else if (reason === "video_16s") {
+    const r = await getPlanRate(plan);
+    rate = r.video * 2;
+  } else {
+    const cost = await getCreditCosts();
+    rate = reason === "auto_plan" ? cost.auto_plan : reason === "clone_plan" ? cost.clone_plan : 0;
+  }
+
+  return { rate, hasFunds: credits >= rate, plan, credits };
+}
+
 export async function deduct(
   userId: string,
   reason: DeductReason,

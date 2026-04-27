@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { p2CreateTask } from "@/lib/p2";
-import { priceFor, hasEnoughCredits } from "@/lib/deduct";
+import { priceAndCheck } from "@/lib/deduct";
 import { getP2Config } from "@/lib/settings";
 
 export async function POST(req: Request) {
@@ -22,9 +22,9 @@ export async function POST(req: Request) {
 
   if (!prompt) return NextResponse.json({ error: "Prompt required" }, { status: 400 });
 
-  // Pre-flight credit check
-  const cost = await priceFor(user.id, "image_generate");
-  if (!(await hasEnoughCredits(user.id, cost))) {
+  // Pre-flight credit check — single profiles query via priceAndCheck
+  const { rate: cost, hasFunds } = await priceAndCheck(user.id, "image_generate");
+  if (!hasFunds) {
     return NextResponse.json(
       { error: "Kredit tak cukup. Top up dulu." },
       { status: 402 }

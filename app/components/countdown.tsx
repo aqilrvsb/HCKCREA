@@ -28,6 +28,8 @@ export default function Countdown({
       try { localStorage.setItem(KEY, String(endAt)); } catch {}
     }
 
+    let id: number | null = null;
+
     const tick = () => {
       const diff = Math.max(0, Math.floor((endAt - Date.now()) / 1000));
       setRemaining(diff);
@@ -37,9 +39,15 @@ export default function Countdown({
         try { localStorage.setItem(KEY, String(endAt)); } catch {}
       }
     };
-    tick();
-    const id = setInterval(tick, 1000);
-    return () => clearInterval(id);
+
+    const start = () => { tick(); id = window.setInterval(tick, 1000); };
+    const stop = () => { if (id !== null) { clearInterval(id); id = null; } };
+
+    if (document.visibilityState === "visible") start();
+    const onVis = () => (document.visibilityState === "visible" ? start() : stop());
+    document.addEventListener("visibilitychange", onVis);
+
+    return () => { stop(); document.removeEventListener("visibilitychange", onVis); };
   }, [hoursTotal]);
 
   const h = Math.floor(remaining / 3600);

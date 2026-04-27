@@ -118,6 +118,9 @@ type OrChatToolCallOpts = {
   }>;
   temperature?: number;
   maxTokens?: number;
+  // Pre-resolved OpenRouter config — hoisted out of the agent loop so we only
+  // call getSettings once per runAgentTurn instead of once per iteration.
+  orConfig?: { base: string; key: string; model: string };
 };
 
 async function orChatWithTools(opts: OrChatToolCallOpts): Promise<{
@@ -127,10 +130,21 @@ async function orChatWithTools(opts: OrChatToolCallOpts): Promise<{
   tokensIn?: number;
   tokensOut?: number;
 }> {
-  const s = await getSettings(["or_base", "or_key", opts.modelKey]);
-  const base = s.or_base?.url;
-  const key = s.or_key?.key;
-  const model = s[opts.modelKey]?.model;
+  let base: string | undefined;
+  let key: string | undefined;
+  let model: string | undefined;
+
+  if (opts.orConfig) {
+    // Fast path: config was hoisted by runAgentTurn — no DB round-trip needed.
+    ({ base, key, model } = opts.orConfig);
+  } else {
+    // Fallback path (e.g. if called outside runAgentTurn).
+    const s = await getSettings(["or_base", "or_key", opts.modelKey]);
+    base = s.or_base?.url;
+    key = s.or_key?.key;
+    model = s[opts.modelKey]?.model;
+  }
+
   if (!base || !key || !model) {
     return { ok: false, error: "OpenRouter not configured" };
   }
@@ -445,13 +459,33 @@ export type LoopResult = {
 };
 
 export async function runAgentTurn(opts: LoopOpts): Promise<LoopResult> {
+  // Fetch ALL settings needed for this turn in ONE query — agent config AND
+  // OpenRouter config. This prevents getSettings from being called on every
+  // iteration of the tool-use loop below.
   const settings = await getSettings([
     "agent_max_turns",
     "agent_max_tools_per_turn",
     "agent_daily_message_cap",
+    "or_base",
+    "or_key",
+    "model_agent_text",
+    "model_agent_vision",
   ]);
   const maxTurns = Number(settings.agent_max_turns?.value || 30);
   const maxToolsPerTurn = Number(settings.agent_max_tools_per_turn?.value || 5);
+
+  // Pre-resolved OpenRouter config — passed into orChatWithTools so it never
+  // calls getSettings inside the loop.
+  const orConfigText = {
+    base: settings.or_base?.url as string,
+    key: settings.or_key?.key as string,
+    model: settings.model_agent_text?.model as string,
+  };
+  // model_agent_vision is fetched above so describeImageForAgent's getSettings
+  // call hits the in-memory cache (free). orConfigVision kept as a local for
+  // readability; unused directly because describeImageForAgent is exported and
+  // must remain self-contained.
+  void settings.model_agent_vision; // warm the cache; no separate variable needed
 
   // 1. Load conversation
   const conv = await loadConversation(opts.userId, opts.projectId, opts.tab);
@@ -522,6 +556,7 @@ export async function runAgentTurn(opts: LoopOpts): Promise<LoopResult> {
       // internal chain-of-thought before producing visible output. Cheaper
       // models (V3.2) won't use this much, so no waste — they stop early.
       maxTokens: 4000,
+      orConfig: orConfigText,
     });
 
     if (!llm.ok || !llm.message) {
@@ -651,12 +686,14 @@ export async function runAgentTurn(opts: LoopOpts): Promise<LoopResult> {
   }
 
   // 5. Persist + return
+  // Load existing token counters once (two separate awaits was 2 DB round-trips).
+  const prev = await loadTokensSafe(conv.id);
   await persistConversation(
     conv.id,
     messages,
     state,
-    (await loadTokensSafe(conv.id)).in + totalTokensIn,
-    (await loadTokensSafe(conv.id)).out + totalTokensOut,
+    prev.in + totalTokensIn,
+    prev.out + totalTokensOut,
     conv.total_messages + 1 // count one user turn
   );
 
