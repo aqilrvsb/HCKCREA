@@ -154,7 +154,7 @@ export default function CloneTab({ projectId }: { projectId?: string } = {}) {
     const segCount = Math.ceil(frameCount / (mode === "cinema" ? 30 : 8));
 
     pushLog(`Extracting ${frameCount} frames (1 fps)…`);
-    pushLog(`Mode: ${mode === "cinema" ? "Cinema (Grok Imagine, 30s segments)" : "UGC (Veo 3.1, 8s segments)"}`);
+    pushLog(`Mode: ${mode === "cinema" ? "Cinema (Grok Imagine)" : "UGC (Veo 3.1)"}`);
     pushLog(`Will plan ${segCount} segment(s) in parallel.`);
 
     try {
@@ -275,8 +275,8 @@ export default function CloneTab({ projectId }: { projectId?: string } = {}) {
           <div>
             <Label>Output</Label>
             <Select value={mode} onChange={(v) => setMode(v as Mode)} width={150}>
-              <option value="ugc">UGC (8s segments)</option>
-              <option value="cinema">Cinema (30s segments)</option>
+              <option value="ugc">UGC</option>
+              <option value="cinema">Cinema</option>
             </Select>
           </div>
           <div>
