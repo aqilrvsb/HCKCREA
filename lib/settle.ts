@@ -11,6 +11,7 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { p2GetStatus } from "@/lib/p2";
 import { deduct } from "@/lib/deduct";
+import { onSegmentSettled } from "@/lib/segment-chain";
 
 export type HistoryRow = {
   id: string;
@@ -27,6 +28,12 @@ export type HistoryRow = {
   reference_url?: string | null;
   project_id?: string | null;
   metadata?: any;
+  // 16s + Extend chain fields (read by onSegmentSettled hook)
+  segment_index?: number | null;
+  parent_history_id?: string | null;
+  frame_anchor?: string | null;
+  output_url?: string | null;
+  merged_url?: string | null;
 };
 
 // Map a history.tab value to the saved_prompts.bucket enum.
@@ -128,6 +135,14 @@ export async function settleHistoryRow(hist: HistoryRow): Promise<SettleResult> 
     // Auto-save the prompt to the user's library. Best-effort — a failure
     // here never breaks the generation path.
     await autoSavePrompt(admin, hist);
+
+    // Segment chain hook — for 16s clips and Extend chains. If this row is
+    // seg-1 of a 16s clip, fires seg-2. If it's seg-2 (or an Extend
+    // continuation), merges with the parent. No-op for everything else.
+    // Best-effort — chain failure never breaks the settle path.
+    await onSegmentSettled({ ...hist, output_url: r.outputUrl }, r.outputUrl).catch(
+      (e) => console.error("[settle] onSegmentSettled threw:", e)
+    );
 
     return { state: "settled", status: "done", outputUrl: r.outputUrl };
   }

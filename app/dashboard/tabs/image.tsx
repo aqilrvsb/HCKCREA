@@ -3,6 +3,9 @@
 import { useEffect, useRef, useState } from "react";
 import { Loader2, X } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
+import Portal from "../sections/portal";
+import AgentChatPanel from "../sections/agent-chat-panel";
+import ConfirmImageDialog from "../sections/confirm-image-dialog";
 import {
   AVATAR_PROMPTS,
   AVATAR_LABELS,
@@ -54,6 +57,8 @@ const SALES_PROMPTS = [
 type RefSlot = "char" | "product" | "poster" | "virtProduct";
 
 export default function ImageTab({ projectId }: { projectId?: string } = {}) {
+  const [agentConfirmPayload, setAgentConfirmPayload] = useState<any>(null);
+  const [agentConversationId, setAgentConversationId] = useState<string>("");
   const [model, setModel] = useState<ImageModel>("nano-banana-pro");
   const [mode, setMode] = useState<Mode>("create");
   const [prompt, setPrompt] = useState("");
@@ -492,6 +497,33 @@ export default function ImageTab({ projectId }: { projectId?: string } = {}) {
           onClose={() => setPickerSlot(null)}
         />
       )}
+
+      {/* Image Agent — floating chat panel + confirmation dialog */}
+      <AgentChatPanel
+        tab="image"
+        projectId={projectId || null}
+        onConfirmGeneration={(payload) => {
+          setAgentConfirmPayload(payload);
+          fetch(`/api/agent/image/chat?project_id=${projectId || ""}`, { cache: "no-store" })
+            .then((r) => r.json())
+            .then((j) => {
+              if (j?.conversation_id) setAgentConversationId(j.conversation_id);
+            })
+            .catch(() => {});
+        }}
+      />
+      {agentConfirmPayload && (
+        <ConfirmImageDialog
+          payload={agentConfirmPayload}
+          conversationId={agentConversationId}
+          projectId={projectId || null}
+          onClose={() => setAgentConfirmPayload(null)}
+          onFired={() => {
+            setAgentConfirmPayload(null);
+            window.dispatchEvent(new CustomEvent("history:refresh"));
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -541,6 +573,7 @@ function HistoryPicker({
   }
 
   return (
+    <Portal>
     <div
       className="fixed inset-0 lg:left-[280px] z-50 flex items-center justify-center p-4"
       style={{ background: "rgba(0,0,0,0.7)", backdropFilter: "blur(8px)" }}
@@ -630,6 +663,7 @@ function HistoryPicker({
         </div>
       </div>
     </div>
+    </Portal>
   );
 }
 

@@ -1,197 +1,94 @@
-// UGC Agent — Veo 3.1 fast specialist.
+// UGC Agent v2 — slim orchestrator + skill library architecture.
 //
-// This agent is the most knowledge-dense in the system. Its system prompt
-// encodes everything Auto Content does PLUS the entire MCSLA framework, 14
-// scene templates, 7 hooks × 5 structures × 8 CTAs × 6 personas combinatorial
-// space, voice presets, and full Malaysian localization vocabulary.
+// Replaces the monolithic ~5800-token system prompt with:
+//   • ~1000-token orchestrator (rules + tools + workflow)
+//   • SKILL INDEX listing every available skill id (~1100 tokens)
+//   • fetch_skill tool that loads ~400-700 token skill bodies just-in-time
 //
-// Goal: beat Auto Content head-to-head on every metric — diversity, voice
-// control, persona matching, conversion psychology, iteration.
+// Net: agent context per turn drops from ~6500 → ~2200 baseline.
+// When relevant skills are fetched (1-3 per generation), context lands at
+// ~3500-4500 — still well under the previous baseline. AND the agent now
+// has DEEP narrow knowledge (vs shallow broad) leading to better prompts.
+//
+// Why: Kimi K2.6 is a reasoning model — every turn it consumes tokens on
+// internal chain-of-thought. With a 6.5K-token system prompt + heavy
+// reasoning, every turn hit the 180s Vercel timeout. Slimming the orchestrator
+// + lazy skill fetch keeps each turn fast.
 
-import type { ToolDefinition, ToolContext, ToolResult } from "@/lib/agent";
+import type { ToolDefinition } from "@/lib/agent";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { p2CreateTask } from "@/lib/p2";
 import { priceFor, hasEnoughCredits } from "@/lib/deduct";
 import { getP2Config } from "@/lib/settings";
+import { renderSkillIndex } from "@/lib/skills/loader";
+import { makeFetchSkillTool } from "@/lib/skills/fetch-tool";
+import { getCachedProductOcr } from "@/lib/product-ocr";
 
 // ──────────────────────────────────────────────────────────────────────────
-// SYSTEM PROMPT — knowledge baked in
+// Slim orchestrator — ~1000 tokens of rules + tool list + workflow.
+// SKILL INDEX (~1100 tokens) is appended dynamically.
 // ──────────────────────────────────────────────────────────────────────────
 
-export const UGC_SYSTEM_PROMPT = `You are the UGC Agent — a Malaysian-market UGC content strategist powered by Google Veo 3.1 fast.
+const UGC_ORCHESTRATOR = `You are the UGC Agent — Malaysian TikTok UGC strategist powered by Veo 3.1 fast.
 
-ROLE LOCK
-- You ONLY work with Veo 3.1 fast (reference-to-video, image-to-video, text-to-video).
-- NEVER suggest Grok, Kling, Sora, or any other model. If user asks for cinematic / hyper motion / atmospheric mood, redirect them to the Cinema tab.
-- NEVER suggest still images — redirect to the Image tab.
-- Your one job: produce the best possible Veo-driven UGC, talking head, virtual try-on, tutorial, or product reveal for Malaysian TikTok creators.
+ROLE
+- Veo 3.1 fast only (r2v / i2v / t2v) for affiliate UGC, talking heads, virtual try-on, tutorials, product reveals.
+- If user asks for cinematic / atmospheric / hyper motion → redirect to Cinema tab.
+- If user asks for still images → redirect to Image tab.
+- Off-topic (recipes, jokes, code) → reply: "Saya specialist UGC sahaja — boleh tolong korang dengan video sahaja."
 
 LANGUAGE
-- Reply in whatever language the user writes in. Default to Malay-English mix if unclear.
-- When generating dialog inside prompts, use natural Malay slang: korang, aku, gila, memang, confirm, kan, tau, jap jap, eh, serious, betul-betul, nampak tak.
-- Mixed BM/EN code-switch is encouraged: "best gila", "confirm berbaloi", "game changer", "no joke".
-- NEVER use formal Malay (saya, anda, tuan, puan) for UGC dialog — sounds robotic.
+- Match user's language. Default Malay-EN code-switch.
+- INSIDE video dialog use slang: korang, aku, akak, gila, memang, confirm, kan, tau, jap, eh, padu, gempak, terbaik, syok.
+- NEVER formal Malay (saya/anda/tuan/puan) — sounds robotic.
+- NEVER dead phrases: "Hi guys! Harini aku nak review…", "Assalamualaikum dan selamat sejahtera…", "game changer!".
 
-────────────────────────────────────────
-MCSLA PROMPT FRAMEWORK (mandatory for every video prompt)
-────────────────────────────────────────
+AVAILABLE TOOLS
+1. fetch_skill({ id?, kind?, query? }) — load deep knowledge on one scene/persona/hook/framework/cta/voice/lock/cultural rule. Call this BEFORE building prompts to get the actual phrases, dialog patterns, failure modes, and Veo prompt skeletons. Use the SKILL INDEX below to pick exact ids; or pass a query for fuzzy search.
+2. recall_starred_prompts({ limit }) — read user's starred past wins ("make 3 more like the gym one"). Call FIRST when user references prior work.
+3. get_credits() — check user's balance before suggesting batches > 5 videos.
+4. generate_ugc_variants({ product_image_url, product_description, variants: [...], duration, aspect_ratio }) — plan N variants (max 10 per call) and return a confirmation dialog. User edits + fires from there.
 
-Every Veo prompt has 5 layers — output them in this order:
-  M = Model (always 'Veo 3.1 fast' for this tab)
-  C = Camera (named preset: Selfie POV / Handheld / Robo Arm / Dolly In / 360 Orbit / etc.)
-  S = Subject (specific character + product, with concrete details)
-  L = Look (style + lighting + mood — 'organic UGC iPhone' / 'cinematic three-point' / etc.)
-  A = Action (what unfolds across 8s — including dialog with quotes)
+WORKFLOW (Discover → Fetch → Generate)
+1. UNDERSTAND intent. If unclear (no product reference, no count, no scene direction) ASK ONE clarifying question. Don't guess across all dimensions.
+2. PICK skills. Once you know category/audience/tone, identify the best scene + persona + hook + framework + CTA + voice combo. Use the SKILL INDEX to find ids.
+3. FETCH skills. Call fetch_skill in parallel for each id you'll use (typically 3-5 skills: 1 scene + 1 persona + 1 hook + 1 framework + 1 voice). The skill bodies give you the EXACT phrases, dialog templates, and Veo prompt skeletons.
+4. BUILD prompts. Use the fetched skill skeletons. Replace placeholders. Keep prompts 80-140 words. Front-load Subject + Camera. Use colon syntax for dialog. TOTAL dialog 20-24 words across the 8s clip (BM/EN code-switch paces well at this length — see beat math below).
+5. CALL generate_ugc_variants with requires_confirmation=true. NEVER fire without user confirmation.
+6. After user confirms (next turn), reply ONE LINE: "Started X UGC videos. They'll appear in History."
 
-PROMPT STYLE: Full sentences, NOT bracket lists. 80-140 words. Use Veo's preferred order: Subject → Action → Setting → Camera → Lens → Lighting → Audio → Locks → Negatives.
+DIVERSITY RULE (key vs Auto Content)
+When count > 1, EACH variant differs on scene OR persona OR hook OR voice. Same product, different angles. Don't rotate one variable — vary multiple.
 
-8-SECOND BEAT MATH (write dialog to fit):
-  0.0 – 2.0s : Hook beat (face appears, max 6 Malay words)
-  2.0 – 5.5s : Core dialog or main action (max 14 words)
-  5.5 – 7.0s : Reaction / smile / product re-show
-  7.0 – 8.0s : Hold / soft outro (CTA, max 6 words)
+LIMITS
+- Max 10 variants per call. If user asks for more, propose 10 strongest + ask for second batch after.
+- For batches > 5, call get_credits first.
 
-────────────────────────────────────────
-14 SCENE TEMPLATES (use these as starting points, fill {{placeholders}})
-────────────────────────────────────────
+PROMPT WRITING (Veo conventions)
+- 9-slot order: Subject → Action → Setting → Visual style → Camera+lens → Lighting → Motion physics → Audio → Output.
+- Dialog: \`Character says: '<line>'\` (colon syntax — reduces subtitle hallucination).
+- Beat math 8s (target 20-24 total words BM/EN): 0-2s hook (4-6 words) | 2-5.5s core (10-14 words) | 5.5-7s reaction (mostly visual, 0-2 words) | 7-8s outro (4-6 words).
+- Camera: name preset (Selfie POV / Static medium close-up / Slow dolly-in / Handheld) — never "camera moves smoothly".
+- Light: name a source. Vague lighting = visual warping.
+- Audio: 5-layer (Dialogue / SFX / Ambience / Music / Negatives). Music ducks under dialog.
+- ONE speaker per clip. Multi-speaker = staggered shots.
+- Brand names blocked → describe by appearance ("matte black bottle with gold cap").
+- Locks (anatomy/audio/product/UGC-authenticity/visual) and negative block are AUTO-APPENDED by code. DO NOT include them in your prompt body.
 
-01 KITCHEN · SAMBAL — Malay woman cooking with product, kitchen ambient
-02 GYM · SUPPLEMENT — Post-workout sweat, supplement bottle, gym mirrors
-03 IN-CAR · DRIVING CTA — Driver seat, dash-mount POV, seatbelt visible
-04 VINTAGE VHS · UNBOX — Top-down hands, VHS grain, color bleed, retro
-05 OFFICE · VITAMIN C — Desk, fluorescent + screen glow, taking vitamin
-06 CARTOON · ANIME UGC — Studio Ghibli cel-shaded character holding product (use only if user explicitly wants stylized)
-07 TALKING PRODUCT · 3D — Product itself animates and speaks (creative niche)
-08 CAFE · ASPIRATIONAL — Cafe table, latte art, product casual placement
-09 CONFESSION · STORY — Bedroom, soft window light, personal storytelling tone
-10 STOP-MOTION · CLAY — Wallace & Gromit aesthetic, product transforms (stylized)
-11 BEACH · SUNSET — Wong Kar-wai golden hour beach, product reveal
-12 MOM · MORNING ROUTINE — Hijabi mom, kitchen at dawn, kids in background
-13 FOODIE · REACTION — Mukbang style, exaggerated taste reaction
-14 ASMR · PRODUCT — Top-down, NO dialog, tape rip + tissue paper SFX
+REPLIES: tight. Variants live in the confirmation dialog, not in chat.
 
-────────────────────────────────────────
-7 HOOK ARCHETYPES (pick to match user goal)
-────────────────────────────────────────
+SKILL INDEX (call fetch_skill with these ids)
+{{SKILL_INDEX}}`;
 
-H1 QUESTION — "Korang tau tak..." / "Penat tak macam ni?"
-H2 BOLD CLAIM — "Ni produk paling underrated tahun ni"
-H3 FEAR/LOSS — "Kalau korang tak guna ni, boleh menyesal"
-H4 CURIOSITY GAP — "Aku tak nak cakap pasal ni tapi..."
-H5 SOCIAL PROOF — "Ramai friends aku dah try, semua confirm best"
-H6 PATTERN INTERRUPT — "Wait jap, korang dengar ni dulu"
-H7 PROMISE — "Dalam 8 saat ni, aku akan ubah cara korang tengok ni"
-
-────────────────────────────────────────
-5 STORY STRUCTURES (pick by audience driver)
-────────────────────────────────────────
-
-S1 PAS — Problem → Agitate → Solve (best for pain-point products)
-S2 AIDA — Attention → Interest → Desire → Action (best for new-to-market)
-S3 BAB — Before → After → Bridge (best for transformation products)
-S4 HERO COMPRESSED — Struggle → Discovery → Transformation (storytelling)
-S5 STAR-STORY-SOLUTION — Personal star moment → backstory → product as solution
-
-────────────────────────────────────────
-8 CTA ARCHETYPES (pick to match audience driver)
-────────────────────────────────────────
-
-C1 URGENCY — "Stok tinggal sikit, buat cepat"
-C2 SCARCITY — "Last batch ni, lepas ni habis"
-C3 SOCIAL PROOF — "Join geng yang dah convert"
-C4 BONUS — "Beli sekarang, dapat free [bonus]"
-C5 FREE TRIAL — "Try dulu, kalau tak suka return"
-C6 PAIN REMOVAL — "Selesaikan masalah korang, sekali try"
-C7 STATUS — "Untuk yang serious nak upgrade"
-C8 DIRECT — "Tekan beg kuning, order sekarang"
-
-When user picks cta_mode='shop', append a "tekan beg kuning" CTA verbatim in the last 2s.
-
-────────────────────────────────────────
-6 INFLUENCER PERSONAS (vocabulary + tone signature)
-────────────────────────────────────────
-
-P1 CASUAL BESTIE — chatty, "aku-korang", filler words, mid-energy, laughs
-P2 POLISHED PRO — slower pace, polite-casual, eye contact, confident
-P3 COMEDIC — exaggerated reactions, pattern interrupts, punchlines
-P4 INSPIRATIONAL — soft tone, eye-mist, transformational language
-P5 CONFESSIONAL — close-up, lower voice, personal disclosure tone
-P6 EDUCATIONAL — measured, fact-driven, "ni macam mana ia kerja..."
-
-────────────────────────────────────────
-VOICE PRESETS (prompt-injection — confirmed working on Veo via Crun)
-────────────────────────────────────────
-
-Append "Voice direction: [Name] — [description]" to the prompt tail.
-- achernar : female, soft, high pitch (gentle airy)
-- achird   : male, friendly, mid pitch (warm)
-- algenib  : male, gravelly, low pitch (deep rough)
-- callirrhoe : female, mid pitch (neutral natural)
-- charon   : male, deep authoritative
-- enceladus : female, mature warm (mom-tone)
-- gacrux   : male, energetic excited (hype)
-- iapetus  : female, young upbeat (Gen Z)
-
-Match voice to character. Female no-hijab + Confessional persona → achernar. Male gym + Comedic persona → gacrux. Hijabi mom + Inspirational persona → enceladus.
-
-────────────────────────────────────────
-ANATOMY + AUDIO + PRODUCT LOCKS (append to every prompt)
-────────────────────────────────────────
-
-ANATOMY: "2 hands with 5 fingers each (both visible), symmetric face, no missing limbs, no plastic skin"
-AUDIO: "ONE single voice only, no chatter, no background voices"
-PRODUCT: "Product is pixel-identical to reference — same color, shape, label, typography, packaging. Sharp focus on label, no warping, no recoloring, no text drift."
-UGC AUTHENTICITY: "Authentic amateur iPhone UGC — handheld arm's-length, natural skin texture with pores and subtle T-zone shine (NOT airbrushed), no-makeup-makeup, loose hair, ordinary mixed lighting (NOT softbox), lived-in background with minor clutter"
-VISUAL: "RAW UNEDITED FOOTAGE — bottom 25% of frame COMPLETELY EMPTY. Zero subtitles, captions, animated TikTok captions, sticker text, icons, emojis, graphics, watermarks, UI elements, handles, hashtags."
-
-────────────────────────────────────────
-NEGATIVE BLOCK (always append at end)
-────────────────────────────────────────
-
-"Negative: cartoon, 3D cartoon, anime (unless template 06/10), airbrushed plastic skin, uncanny valley, glam makeup, salon hair, softbox studio lighting (unless template 05), tripod static shot, staged background, posed billboard framing, closed mouth while audio plays, duplicate limbs, distorted fingers, hand out of frame, warped product label, blurry product, motion-blurred product, text drift, subtitle burn-in, auto-captions, multiple speakers, voiceover narration, music score."
-
-────────────────────────────────────────
-WORKFLOW
-────────────────────────────────────────
-
-1. UNDERSTAND user's intent. If unclear (no product reference, no count, no scene hint), ASK ONE clarifying question. NEVER guess across all dimensions.
-
-2. PICK template + persona + hook + structure + CTA + voice based on:
-   - Product category (food / supplement / cosmetic / fashion / tech)
-   - Audience driver (status / belonging / safety / convenience / identity)
-   - Tone request (chatty / polished / comedic / inspirational / confessional / educational)
-
-3. WHEN GENERATING N>1 VARIANTS, make each one DISTINCT:
-   - Different scene OR different persona OR different hook archetype
-   - Different voice preset
-   - Different CTA type
-   - Same product, same core benefit, but 5 truly different angles
-   - This is the key differentiator vs Auto Content's rigid framework rotation.
-
-4. CALL the generate_ugc_variants tool. ALWAYS pass requires_confirmation=true so the user reviews + edits before firing. NEVER fire generations without confirmation.
-
-5. AFTER user confirms (next turn), the tool fires Veo r2v jobs in parallel and returns history_ids. Reply briefly: "Started X UGC videos. They'll appear in History as they finish."
-
-6. IF user references a saved prompt ("make 3 more like the gym one"), call recall_starred_prompts FIRST, then generate variations.
-
-────────────────────────────────────────
-HARD RULES (do not violate)
-────────────────────────────────────────
-
-- NEVER generate without showing a confirmation dialog first.
-- NEVER use brand names verbatim in prompts (Veo's filter blocks them) — describe by appearance: "matte black bottle with gold cap" not "Brand X Bottle".
-- NEVER mix Identity descriptors with Motion descriptors in the same paragraph if generating multi-shot — split them.
-- NEVER suggest Auto Content. The user is intentionally testing you AGAINST Auto Content.
-- NEVER use vague camera language ("the camera moves smoothly"). Always name the preset (Selfie POV / Handheld / Robo Arm / Dolly In).
-- ALWAYS append the negative block.
-- KEEP REPLIES TIGHT. Show the prompts in the confirmation dialog, not in chat.
-- IF the user asks anything OUTSIDE marketing content (food recipes, schoolwork, jokes, code), reply: "Saya specialist UGC sahaja — boleh tolong korang dengan video sahaja."`;
+export const UGC_SYSTEM_PROMPT = UGC_ORCHESTRATOR.replace(
+  "{{SKILL_INDEX}}",
+  renderSkillIndex("ugc")
+);
 
 // ──────────────────────────────────────────────────────────────────────────
-// Tools — what the UGC agent can DO
-// ──────────────────────────────────────────────────────────────────────────
-
 // Helper — append the universal locks + negatives to every prompt
+// ──────────────────────────────────────────────────────────────────────────
+
 function withLocks(corePrompt: string, voiceLine?: string): string {
   const locks = `
 
@@ -201,174 +98,148 @@ PRODUCT LOCK: Product is pixel-identical to reference — same color, shape, lab
 UGC AUTHENTICITY: Authentic amateur iPhone UGC — handheld arm's-length, natural skin texture with pores and subtle T-zone shine (NOT airbrushed), no-makeup-makeup, loose hair, ordinary mixed lighting (NOT softbox), lived-in background with minor clutter.
 VISUAL: RAW UNEDITED FOOTAGE — bottom 25% of frame COMPLETELY EMPTY. Zero subtitles, captions, animated TikTok captions, sticker text, icons, emojis, graphics, watermarks, UI elements, handles, hashtags.
 
-Negative: cartoon, 3D cartoon, anime, airbrushed plastic skin, uncanny valley, glam makeup, salon hair, softbox studio lighting, tripod static shot, staged background, posed billboard framing, closed mouth while audio plays, duplicate limbs, distorted fingers, hand out of frame, warped product label, blurry product, motion-blurred product, text drift, subtitle burn-in, auto-captions, multiple speakers, voiceover narration, music score.`;
+Negative: cartoon, 3D cartoon, anime, airbrushed plastic skin, uncanny valley, glam makeup, salon hair, softbox studio lighting, tripod static shot (unless explicitly chosen), staged background, posed billboard framing, closed mouth while audio plays, duplicate limbs, distorted fingers, hand out of frame, warped product label, blurry product, motion-blurred product, text drift, subtitle burn-in, auto-captions, multiple speakers, voiceover narration, music score.`;
   return `${corePrompt.trim()}${voiceLine ? `\n\nVoice direction: ${voiceLine}` : ""}${locks}`;
 }
 
-// generate_ugc_variants — core tool. Returns confirmation payload by default.
+// ──────────────────────────────────────────────────────────────────────────
+// generate_ugc_variants — same shape as v1, but no longer needs to bake
+// scene/persona/hook enums (those are in skill files now). The agent picks
+// freely; the validator just checks max-10-cap.
+// ──────────────────────────────────────────────────────────────────────────
+
 const generateUgcVariants: ToolDefinition = {
   name: "generate_ugc_variants",
   description:
-    "Plan one or more UGC video variants and return a confirmation dialog payload. The user reviews + edits the variants before they fire. Each variant is a complete MCSLA prompt for Veo 3.1 fast (reference-to-video). When count > 1, make each variant DISTINCT (different persona/hook/structure/CTA/voice).",
+    "Plan one or more UGC video variants (1-10 max per call) and return a confirmation dialog payload. " +
+    "Each variant must be a complete MCSLA Veo 3.1 fast prompt (80-140 words), built from skills you've " +
+    "already fetched via fetch_skill. When count > 1, make each variant DISTINCT (different scene OR persona " +
+    "OR hook OR voice). The user reviews + edits + fires from the confirmation dialog — never fire directly.",
   parameters: {
     type: "object",
     properties: {
       product_image_url: {
         type: "string",
-        description:
-          "Public URL of the product reference image. If user attached an image earlier in chat, use ctx state. Required for r2v mode.",
+        description: "Public URL of product reference image. Use ctx state if user attached earlier.",
       },
       product_description: {
         type: "string",
         description:
-          "Concrete physical description of the product (color, shape, packaging, label visible). Used inside prompts. Never use brand names — describe by appearance.",
+          "Concrete physical description (color, shape, packaging, label). Never use brand names — describe by appearance.",
       },
       variants: {
         type: "array",
+        minItems: 1,
+        maxItems: 10,
         description:
-          "List of variants to generate. Each one MUST be distinct in persona/hook/structure/CTA/voice when generating >1.",
+          "List of variants (1-10 max). Each MUST be distinct in scene/persona/hook/voice when count > 1.",
         items: {
           type: "object",
           properties: {
-            scene: {
-              type: "string",
-              enum: [
-                "kitchen-sambal",
-                "gym-supplement",
-                "in-car-driving-cta",
-                "vintage-vhs-unbox",
-                "office-vitamin-c",
-                "cartoon-anime",
-                "talking-product-3d",
-                "cafe-aspirational",
-                "confession-story",
-                "stop-motion-clay",
-                "beach-sunset",
-                "mom-morning-routine",
-                "foodie-reaction",
-                "asmr-product",
-                "custom",
-              ],
-              description: "Scene template ID (or 'custom' for free-form).",
-            },
-            persona: {
-              type: "string",
-              enum: [
-                "casual-bestie",
-                "polished-pro",
-                "comedic",
-                "inspirational",
-                "confessional",
-                "educational",
-              ],
-            },
-            hook: {
-              type: "string",
-              enum: [
-                "question",
-                "bold-claim",
-                "fear",
-                "curiosity",
-                "social-proof",
-                "pattern-interrupt",
-                "promise",
-              ],
-            },
-            structure: {
-              type: "string",
-              enum: ["pas", "aida", "bab", "hero", "star-story-solution"],
-            },
-            cta: {
-              type: "string",
-              enum: [
-                "urgency",
-                "scarcity",
-                "social-proof",
-                "bonus",
-                "free-trial",
-                "pain-removal",
-                "status",
-                "direct",
-              ],
-            },
+            scene: { type: "string", description: "Scene id (from SKILL INDEX) used to build this variant. e.g. 'kitchen-sambal', 'gym-supplement'." },
+            persona: { type: "string", description: "Persona id used. e.g. 'urban-hijabi-bestie', 'gym-bro'." },
+            hook: { type: "string", description: "Hook id used. e.g. 'pain-confession', 'pov'." },
+            framework: { type: "string", description: "Framework id used. e.g. 'pas', 'bab-extended'." },
+            cta: { type: "string", description: "CTA id used. e.g. 'tap-beg-kuning', 'urgency'." },
             voice: {
               type: "string",
-              enum: [
-                "achernar",
-                "achird",
-                "algenib",
-                "callirrhoe",
-                "charon",
-                "enceladus",
-                "gacrux",
-                "iapetus",
-              ],
-              description:
-                "Voice preset ID. Match to character — female=achernar/callirrhoe/enceladus/iapetus, male=achird/algenib/charon/gacrux.",
+              enum: ["achernar", "achird", "algenib", "callirrhoe", "charon", "enceladus", "gacrux", "iapetus"],
+              description: "Voice preset id. Match to character.",
             },
             gender: { type: "string", enum: ["female", "male"] },
             hijab: { type: "string", enum: ["yes", "no"] },
-            age: { type: "string", enum: ["20s", "30s", "40s"] },
-            // The actual prompt to fire
+            age: { type: "string", enum: ["20s", "30s", "40s", "50s"] },
             prompt: {
               type: "string",
               description:
-                "The complete MCSLA prompt for Veo (Subject → Action → Setting → Camera → Lighting → Audio → Locks). 80-140 words. Include dialog with quotes, fitted to 8s beat math.",
+                "For 8s: the complete Veo prompt (80-140 words). For 16s: this is the SEG-1 prompt (hook + setup, ~80-140 words). Include dialog with colon syntax (Character says: '<line>'). Front-load Subject + Camera. Don't include locks/negatives — auto-appended.",
             },
-            // Optional caption to save alongside
+            seg2_prompt: {
+              type: "string",
+              description:
+                "REQUIRED for 16s only. The seg-2 continuation prompt (~80-140 words). Picks up from the chosen frame_anchor moment. Same character + voice + lighting as seg-1 (continuity locks auto-injected). Should deliver the payoff/reveal/CTA. NEVER repeat seg-1's hook.",
+            },
+            character_lock: {
+              type: "string",
+              description:
+                "REQUIRED for 16s. ONE descriptor block reused VERBATIM in both seg-1 and seg-2 prompts to lock identity across the cut. Example: 'A 26-year-old Malay woman in soft pastel hijab, warm medium-brown skin, dewy minimal-makeup, modest cream-coloured top.' Code re-injects this into seg-2 along with voice + product text lock.",
+            },
+            frame_anchor: {
+              type: "string",
+              enum: ["first", "middle", "last"],
+              description:
+                "For 16s only. Which frame from seg-1 anchors seg-2's start. Pick based on the scene's recommended_anchor (mukbang=middle, before-after=last, gym=last, etc.). Default 'last'.",
+            },
             caption: { type: "string", description: "Short Malay TikTok caption with 2-4 hashtags." },
           },
-          required: ["scene", "persona", "hook", "structure", "cta", "voice", "gender", "prompt"],
+          required: ["scene", "persona", "voice", "gender", "prompt"],
         },
       },
-      duration: { type: "string", enum: ["8"], default: "8" },
+      duration: {
+        type: "string",
+        enum: ["8", "16"],
+        default: "8",
+        description:
+          "8 = single Veo gen, 1 round-trip. 16 = TWO segments (8s + 8s) auto-chained by the backend: seg-1 fires → settles → frame extracted at frame_anchor → seg-2 fires with character/voice/product locks → merges into final 16s WebM. For 16s each variant MUST also provide seg2_prompt + character_lock + frame_anchor.",
+      },
       aspect_ratio: { type: "string", default: "9:16" },
     },
     required: ["product_description", "variants"],
   },
   handler: async (args, ctx) => {
-    const variants = Array.isArray(args.variants) ? args.variants : [];
-    if (variants.length === 0) {
+    const rawVariants = Array.isArray(args.variants) ? args.variants : [];
+    if (rawVariants.length === 0) {
       return { ok: false, error: "No variants provided" };
     }
+    const variants = rawVariants.slice(0, 10);
 
-    // Resolve product image URL — agent's args > state.last_attached_image_url
     const productImageUrl =
       args.product_image_url || ctx.state.last_attached_image_url || "";
 
-    // Build the final prompts (with voice line + locks injected)
+    const voiceMap: Record<string, string> = {
+      achernar: "Achernar — soft, high-pitched, gentle female voice. Light airy timbre.",
+      achird: "Achird — friendly, mid-pitch, warm masculine voice.",
+      algenib: "Algenib — gravelly, low-pitched, masculine voice. Deep rough timbre.",
+      callirrhoe: "Callirrhoe — neutral mid-pitch female voice, natural conversational.",
+      charon: "Charon — deep authoritative masculine voice.",
+      enceladus: "Enceladus — mature warm female voice, mom-tone.",
+      gacrux: "Gacrux — energetic excited masculine voice, hype.",
+      iapetus: "Iapetus — young upbeat female voice, Gen Z energy.",
+    };
+
+    const duration = args.duration === "16" ? "16" : "8";
+
     const prepared = variants.map((v: any) => {
-      const voiceMap: Record<string, string> = {
-        achernar: "Achernar — soft, high-pitched, gentle female voice. Light airy timbre.",
-        achird: "Achird — friendly, mid-pitch, warm masculine voice.",
-        algenib: "Algenib — gravelly, low-pitched, masculine voice. Deep rough timbre.",
-        callirrhoe: "Callirrhoe — neutral mid-pitch female voice, natural conversational.",
-        charon: "Charon — deep authoritative masculine voice.",
-        enceladus: "Enceladus — mature warm female voice, mom-tone.",
-        gacrux: "Gacrux — energetic excited masculine voice, hype.",
-        iapetus: "Iapetus — young upbeat female voice, Gen Z energy.",
-      };
       const voiceLine = voiceMap[v.voice] || undefined;
       return {
-        scene: v.scene,
-        persona: v.persona,
-        hook: v.hook,
-        structure: v.structure,
-        cta: v.cta,
+        scene: v.scene || "custom",
+        persona: v.persona || "casual-bestie",
+        hook: v.hook || "",
+        framework: v.framework || "",
+        cta: v.cta || "",
         voice: v.voice,
         gender: v.gender,
         hijab: v.hijab,
         age: v.age,
         caption: v.caption || "",
-        prompt: withLocks(v.prompt || "", voiceLine),
+        // For 8s: prompt has locks applied immediately. For 16s: keep RAW so
+        // confirmAndFireUgc can compose seg-1 = prompt+character_lock+voice+locks
+        // and seg-2 = seg2_prompt+character_lock+voice+productLock+locks.
+        prompt: duration === "16" ? String(v.prompt || "") : withLocks(v.prompt || "", voiceLine),
+        seg2_prompt: duration === "16" ? String(v.seg2_prompt || "") : "",
+        character_lock: duration === "16" ? String(v.character_lock || "") : "",
+        frame_anchor:
+          duration === "16"
+            ? (["first", "middle", "last"].includes(v.frame_anchor) ? v.frame_anchor : "last")
+            : "",
+        voice_line: voiceLine || "",
       };
     });
 
-    // Estimate cost
-    const ratePerVideo = await priceFor(ctx.userId, "video_8s");
+    const priceKey = duration === "16" ? "video_16s" : "video_8s";
+    const ratePerVideo = await priceFor(ctx.userId, priceKey);
     const totalCost = ratePerVideo * prepared.length;
 
-    // Save to state so the confirm-and-fire endpoint can find them
     ctx.state.pending_ugc_batch = {
       product_image_url: productImageUrl,
       product_description: args.product_description,
@@ -377,7 +248,6 @@ const generateUgcVariants: ToolDefinition = {
       variants: prepared,
     };
 
-    // Return confirmation payload — frontend renders editable dialog
     return {
       ok: true,
       kind: "requires_confirmation",
@@ -402,21 +272,18 @@ const generateUgcVariants: ToolDefinition = {
   },
 };
 
-// recall_starred_prompts — agent reads user's starred history for memory
+// ──────────────────────────────────────────────────────────────────────────
+// recall_starred_prompts — read past wins from saved_prompts library
+// ──────────────────────────────────────────────────────────────────────────
+
 const recallStarredPrompts: ToolDefinition = {
   name: "recall_starred_prompts",
   description:
-    "Read the user's starred saved prompts so you can vary them or recreate. Use when user says 'make 3 more like the gym one' or references a past win.",
+    "Read the user's starred past UGC prompts. Call FIRST when user says 'like the gym one' or references a past win.",
   parameters: {
     type: "object",
     properties: {
       limit: { type: "number", default: 5 },
-      bucket: {
-        type: "string",
-        enum: ["ugc"],
-        default: "ugc",
-        description: "Always 'ugc' for this agent.",
-      },
     },
   },
   handler: async (args, ctx) => {
@@ -453,15 +320,11 @@ const recallStarredPrompts: ToolDefinition = {
   },
 };
 
-// get_credits — agent checks balance before suggesting big batches
 const getCredits: ToolDefinition = {
   name: "get_credits",
   description:
-    "Get the user's current credit balance + plan. Use this before suggesting batches > 5 videos to avoid unaffordable suggestions.",
-  parameters: {
-    type: "object",
-    properties: {},
-  },
+    "Get the user's current credit balance + plan. Use before suggesting batches > 5 videos.",
+  parameters: { type: "object", properties: {} },
   handler: async (_args, ctx) => {
     const admin = createAdminClient();
     const { data } = await admin
@@ -478,22 +341,31 @@ const getCredits: ToolDefinition = {
   },
 };
 
+// ──────────────────────────────────────────────────────────────────────────
+// Tool registry — exported to the chat route
+// ──────────────────────────────────────────────────────────────────────────
+
 export const UGC_TOOLS: ToolDefinition[] = [
-  generateUgcVariants,
+  makeFetchSkillTool("ugc"),
   recallStarredPrompts,
   getCredits,
+  generateUgcVariants,
 ];
 
 // ──────────────────────────────────────────────────────────────────────────
-// confirmAndFireUgc — called by /api/agent/ugc/confirm after user clicks
-// "Generate" in the confirmation dialog. Fires N Veo r2v jobs in parallel.
+// confirmAndFireUgc — fires N Veo r2v in parallel.
+//
+// 8s mode: each variant = ONE history row, ONE Veo gen.
+// 16s mode: each variant = ONE PARENT history row (segment_index=1) + the
+// first Veo gen. When seg-1 settles, settle-hook fires seg-2 with locks +
+// frame extracted at frame_anchor. When seg-2 settles, hook merges + sets
+// parent.merged_url.
 // ──────────────────────────────────────────────────────────────────────────
 
 export async function confirmAndFireUgc(opts: {
   userId: string;
   projectId: string | null;
   conversationId: string;
-  // Edited params from the user (may differ from what the agent proposed)
   product_image_url: string;
   product_description: string;
   duration: string;
@@ -501,14 +373,18 @@ export async function confirmAndFireUgc(opts: {
   variants: Array<{
     scene: string;
     persona: string;
-    hook: string;
-    structure: string;
-    cta: string;
+    hook?: string;
+    framework?: string;
+    cta?: string;
     voice: string;
     gender: string;
     hijab?: string;
     age?: string;
     prompt: string;
+    seg2_prompt?: string;
+    character_lock?: string;
+    frame_anchor?: string;
+    voice_line?: string;
     caption?: string;
   }>;
 }): Promise<{
@@ -520,13 +396,25 @@ export async function confirmAndFireUgc(opts: {
   const { variants } = opts;
   if (variants.length === 0) return { ok: false, error: "No variants" };
 
-  const ratePerVideo = await priceFor(opts.userId, "video_8s");
+  const is16s = opts.duration === "16";
+  const priceKey = is16s ? "video_16s" : "video_8s";
+  const ratePerVideo = await priceFor(opts.userId, priceKey);
   const totalCost = ratePerVideo * variants.length;
   if (!(await hasEnoughCredits(opts.userId, totalCost))) {
     return {
       ok: false,
       error: `Kredit tak cukup. Perlu RM ${totalCost.toFixed(2)}.`,
     };
+  }
+
+  // For 16s: run Product OCR once for the product image (cached). Result is
+  // saved on each variant's metadata so the seg-2 settle-hook can build the
+  // PRODUCT TEXT LOCK without re-running OCR.
+  let productOcr: any = null;
+  if (is16s && opts.product_image_url) {
+    productOcr = await getCachedProductOcr(opts.userId, opts.product_image_url).catch(
+      () => null
+    );
   }
 
   const cfg = await getP2Config();
@@ -539,11 +427,21 @@ export async function confirmAndFireUgc(opts: {
       const useIngredient = !!refImage;
       const model = useIngredient ? cfg.videoR2V : cfg.videoT2V;
 
+      // Build seg-1 prompt. For 16s, inject character_lock so the same identity
+      // descriptor appears in seg-1 (and will be re-pasted into seg-2 by the
+      // settle hook for continuity).
+      let seg1Prompt = v.prompt;
+      if (is16s && v.character_lock) {
+        seg1Prompt = `${v.prompt.trim()}\n\n${v.character_lock.trim()}`;
+        // Apply locks here since v.prompt arrived raw (handler skipped withLocks for 16s)
+        seg1Prompt = withLocks(seg1Prompt, v.voice_line || undefined);
+      }
+
       const created = await p2CreateTask({
         model,
-        prompt: v.prompt,
+        prompt: seg1Prompt,
         imageUrls: refImage ? [refImage] : [],
-        durationMode: opts.duration === "16" ? "16" : "8",
+        durationMode: "8", // ALWAYS 8s per Veo gen — 16s = TWO gens chained
         aspectRatio: opts.aspect_ratio,
         imageMode: useIngredient ? "ingredient" : "text",
       });
@@ -556,13 +454,18 @@ export async function confirmAndFireUgc(opts: {
           type: "video",
           tab: "video",
           status: created.ok && created.task_id ? "pending" : "failed",
-          prompt: v.prompt,
+          prompt: seg1Prompt,
           caption: v.caption || "",
-          framework: `${v.scene}/${v.persona}/${v.hook}/${v.structure}/${v.cta}`,
+          framework: `${v.scene}/${v.persona}/${v.hook || ""}/${v.framework || ""}/${v.cta || ""}`,
           reference_url: refImage || null,
           task_id: created.task_id || null,
-          duration: opts.duration === "16" ? 16 : 8,
+          duration: is16s ? 16 : 8,
           cost: ratePerVideo,
+          // For 16s: this row is the PARENT. segment_index=1 marks seg-1.
+          // No parent_history_id (it IS the parent). frame_anchor stored on
+          // the parent row so the settle hook knows where to extract.
+          segment_index: is16s ? 1 : null,
+          frame_anchor: is16s ? (v.frame_anchor || "last") : null,
           error_message: created.ok ? null : created.error || "P2 create failed",
           metadata: {
             idx,
@@ -572,14 +475,26 @@ export async function confirmAndFireUgc(opts: {
             scene: v.scene,
             persona: v.persona,
             hook: v.hook,
-            structure: v.structure,
+            framework: v.framework,
             cta: v.cta,
             voice: v.voice,
+            voice_line: v.voice_line || "",
             gender: v.gender,
             hijab: v.hijab,
             age: v.age,
             imageMode: useIngredient ? "ingredient" : "text",
             aspectRatio: opts.aspect_ratio,
+            // 16s-specific — settle hook reads these to fire seg-2 + merge
+            ...(is16s
+              ? {
+                  duration_mode: "16s",
+                  seg2_prompt: v.seg2_prompt || "",
+                  character_lock: v.character_lock || "",
+                  product_ocr: productOcr || null,
+                  product_image_url: refImage || "",
+                  product_description: opts.product_description,
+                }
+              : {}),
           },
         })
         .select()
@@ -588,7 +503,6 @@ export async function confirmAndFireUgc(opts: {
     })
   );
 
-  // Audit log
   await admin.from("agent_actions").insert({
     conversation_id: opts.conversationId,
     user_id: opts.userId,

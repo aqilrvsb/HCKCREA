@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Loader2, Sparkles, X } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
+import Portal from "../sections/portal";
 import UgcTab from "./ugc";
 import AgentChatPanel from "../sections/agent-chat-panel";
 import ConfirmUgcDialog from "../sections/confirm-ugc-dialog";
@@ -436,6 +437,7 @@ function UgcModal({ onClose }: { onClose: () => void }) {
   }, [onClose]);
 
   return (
+    <Portal>
     <div
       className="fixed inset-0 lg:left-[280px] z-50 flex items-center justify-center p-4"
       style={{ background: "rgba(0,0,0,0.7)", backdropFilter: "blur(8px)" }}
@@ -478,6 +480,7 @@ function UgcModal({ onClose }: { onClose: () => void }) {
         </div>
       </div>
     </div>
+    </Portal>
   );
 }
 
@@ -628,6 +631,7 @@ function HistoryPicker({
   }
 
   return (
+    <Portal>
     <div
       className="fixed inset-0 lg:left-[280px] z-50 flex items-center justify-center p-4"
       style={{ background: "rgba(0,0,0,0.7)", backdropFilter: "blur(8px)" }}
@@ -714,6 +718,7 @@ function HistoryPicker({
         </div>
       </div>
     </div>
+    </Portal>
   );
 }
 

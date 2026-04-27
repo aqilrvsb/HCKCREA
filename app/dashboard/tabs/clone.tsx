@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Loader2, X, Pin, Copy, Check } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
+import Portal from "../sections/portal";
 
 // Clone Prompt — input: Pinterest-style reference video + product image →
 // output: list of segment prompts (no video generation). Two output models:
@@ -593,6 +594,7 @@ function HistoryPicker({
   }
 
   return (
+    <Portal>
     <div
       className="fixed inset-0 lg:left-[280px] z-50 flex items-center justify-center p-4"
       style={{ background: "rgba(0,0,0,0.7)", backdropFilter: "blur(8px)" }}
@@ -650,5 +652,6 @@ function HistoryPicker({
         </div>
       </div>
     </div>
+    </Portal>
   );
 }

@@ -18,6 +18,7 @@ import {
   Video as VideoIcon,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
+import Portal from "./portal";
 
 type Filter = "all" | "image" | "video" | "auto" | "clone" | "post";
 
@@ -365,6 +366,7 @@ function ClientPromptModal({
     setTimeout(() => setCopied(false), 1800);
   }
   return (
+    <Portal>
     <div
       className="fixed inset-0 lg:left-[280px] z-50 flex items-center justify-center p-4"
       style={{ background: "rgba(0,0,0,0.8)", backdropFilter: "blur(8px)" }}
@@ -427,6 +429,7 @@ function ClientPromptModal({
         </div>
       </div>
     </div>
+    </Portal>
   );
 }
 
@@ -453,6 +456,7 @@ function ClientPreviewModal({
     h?.type === "clone" ||
     h?.tab === "cinema";
   return (
+    <Portal>
     <div
       className="fixed inset-0 lg:left-[280px] z-50 flex items-center justify-center p-4"
       style={{ background: "rgba(0,0,0,0.92)", backdropFilter: "blur(8px)" }}
@@ -490,5 +494,6 @@ function ClientPreviewModal({
         )}
       </div>
     </div>
+    </Portal>
   );
 }

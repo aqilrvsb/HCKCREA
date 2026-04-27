@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Loader2, Wand2, X, Info } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
+import Portal from "../sections/portal";
 import {
   FRAMEWORKS,
   TYPE_COLORS,
@@ -826,6 +827,7 @@ function FrameworkInfoModal({
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
   return (
+    <Portal>
     <div
       className="fixed inset-0 lg:left-[280px] z-50 flex items-center justify-center p-4"
       style={{ background: "rgba(0,0,0,0.6)", backdropFilter: "blur(8px)" }}
@@ -876,6 +878,7 @@ function FrameworkInfoModal({
         </button>
       </div>
     </div>
+    </Portal>
   );
 }
 
@@ -1151,6 +1154,7 @@ function HistoryPicker({
   }
 
   return (
+    <Portal>
     <div
       className="fixed inset-0 lg:left-[280px] z-50 flex items-center justify-center p-4"
       style={{ background: "rgba(0,0,0,0.7)", backdropFilter: "blur(8px)" }}
@@ -1208,5 +1212,6 @@ function HistoryPicker({
         </div>
       </div>
     </div>
+    </Portal>
   );
 }

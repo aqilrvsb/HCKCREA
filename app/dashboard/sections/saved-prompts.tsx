@@ -19,6 +19,7 @@ import {
   Search,
   RotateCw,
 } from "lucide-react";
+import Portal from "./portal";
 
 type SavedRow = {
   id: string;
@@ -596,6 +597,7 @@ function PromptDetailModal({
   }
 
   return (
+    <Portal>
     <div
       className="fixed inset-0 lg:left-[280px] z-50 flex items-center justify-center p-4"
       style={{ background: "rgba(0,0,0,0.7)", backdropFilter: "blur(8px)" }}
@@ -856,6 +858,7 @@ function PromptDetailModal({
         </div>
       </div>
     </div>
+    </Portal>
   );
 }
 

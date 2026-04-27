@@ -24,8 +24,23 @@ type Stats = {
     total: number;
   };
   total_cost: number;
-  daily: { date: string; count: number }[];
+  daily: {
+    date: string;
+    count: number;
+    image: number;
+    ugc: number;
+    cinema: number;
+    auto: number;
+  }[];
 };
+
+// Series colours match the stat-card accents up top
+const SERIES = [
+  { key: "image" as const, label: "Image", color: "#ff6a1a" },
+  { key: "ugc" as const, label: "UGC", color: "#22c55e" },
+  { key: "cinema" as const, label: "Cinema", color: "#7c4dff" },
+  { key: "auto" as const, label: "Auto Content", color: "#f59e0b" },
+];
 
 // Dashboard landing — replaces the "Url to Ad coming soon" placeholder.
 // Default range: 1st of current month → today. The user can adjust the date
@@ -71,11 +86,22 @@ export default function DashboardOverview({ name }: { name: string }) {
     void load(s, e);
   }
 
-  // Chart scaling — peak count drives bar height
+  // Toggle individual series on/off
+  const [hidden, setHidden] = useState<Record<string, boolean>>({});
+
+  // Chart scaling — peak across all visible series drives Y axis
   const chartMax = useMemo(() => {
-    const m = Math.max(1, ...(stats?.daily || []).map((d) => d.count));
+    const days = stats?.daily || [];
+    if (days.length === 0) return 1;
+    let m = 1;
+    for (const d of days) {
+      for (const s of SERIES) {
+        if (hidden[s.key]) continue;
+        if (d[s.key] > m) m = d[s.key];
+      }
+    }
     return m;
-  }, [stats]);
+  }, [stats, hidden]);
 
   return (
     <div className="px-5 lg:px-10 pt-8 pb-12 max-w-6xl mx-auto w-full">
@@ -244,39 +270,51 @@ export default function DashboardOverview({ name }: { name: string }) {
             No production in this range.
           </div>
         ) : (
-          <div className="flex items-end gap-1 h-44 overflow-x-auto pb-2">
-            {stats.daily.map((d) => {
-              const heightPct = (d.count / chartMax) * 100;
-              return (
-                <div
-                  key={d.date}
-                  className="flex flex-col items-center gap-1 min-w-[26px] flex-1"
-                  title={`${d.date}: ${d.count}`}
-                >
-                  <div
-                    className="w-full rounded-t flex items-end justify-center"
+          <>
+            {/* Series legend — clickable to toggle visibility */}
+            <div className="flex flex-wrap items-center gap-3 mb-3">
+              {SERIES.map((s) => {
+                const isHidden = hidden[s.key];
+                const total = (stats.daily || []).reduce(
+                  (a, d) => a + d[s.key],
+                  0
+                );
+                return (
+                  <button
+                    key={s.key}
+                    onClick={() =>
+                      setHidden((h) => ({ ...h, [s.key]: !h[s.key] }))
+                    }
+                    className="flex items-center gap-1.5 px-2 py-1 rounded-md transition-opacity"
                     style={{
-                      height: `${Math.max(heightPct, d.count > 0 ? 6 : 1)}%`,
-                      background:
-                        d.count > 0
-                          ? "linear-gradient(180deg, #ff6a1a 0%, #ff4d00 100%)"
-                          : "rgba(255,255,255,0.05)",
-                      transition: "height 0.4s ease",
+                      opacity: isHidden ? 0.35 : 1,
+                      background: isHidden
+                        ? "transparent"
+                        : "rgba(255,255,255,0.03)",
                     }}
+                    title={`${s.label}: ${total} total · click to ${isHidden ? "show" : "hide"}`}
                   >
-                    {d.count > 0 && heightPct > 25 && (
-                      <span className="text-[8px] font-bold text-white pb-0.5">
-                        {d.count}
-                      </span>
-                    )}
-                  </div>
-                  <span className="text-[8px] font-mono text-[var(--color-text-muted)] whitespace-nowrap">
-                    {d.date.slice(5)}
-                  </span>
-                </div>
-              );
-            })}
-          </div>
+                    <span
+                      className="w-2.5 h-2.5 rounded-full"
+                      style={{ background: s.color }}
+                    />
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-[var(--color-text-secondary)]">
+                      {s.label}
+                    </span>
+                    <span className="text-[10px] font-mono text-[var(--color-text-muted)]">
+                      {total}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+
+            <MultiLineChart
+              daily={stats.daily}
+              max={chartMax}
+              hidden={hidden}
+            />
+          </>
         )}
       </div>
     </div>
@@ -324,6 +362,215 @@ function StatCard({
       >
         {value}
       </div>
+    </div>
+  );
+}
+
+// ── Multi-line SVG chart ────────────────────────────────────────────────
+//
+// 4 series (Image / UGC / Cinema / Auto Content) plotted over the date range.
+// Pure SVG, no chart lib — keeps bundle small + theme tokens flow naturally.
+// Hover anywhere on the plot area to see the snap-tooltip with all 4 values
+// at the closest date.
+
+function MultiLineChart({
+  daily,
+  max,
+  hidden,
+}: {
+  daily: Stats["daily"];
+  max: number;
+  hidden: Record<string, boolean>;
+}) {
+  const [hoverIdx, setHoverIdx] = useState<number | null>(null);
+  const W = 1000; // viewBox width — scales to container via CSS
+  const H = 240;
+  const PAD_L = 32;
+  const PAD_R = 16;
+  const PAD_T = 16;
+  const PAD_B = 36;
+  const plotW = W - PAD_L - PAD_R;
+  const plotH = H - PAD_T - PAD_B;
+  const n = daily.length;
+
+  // Y-tick values — 5 evenly spaced ticks (0 → max), rounded up to nice int
+  const niceMax = max <= 1 ? 1 : Math.ceil(max);
+  const yTicks = Array.from({ length: 5 }, (_, i) => Math.round((niceMax * i) / 4));
+
+  // X position for index i; snap-rendering uses these
+  const xAt = (i: number) =>
+    n <= 1 ? PAD_L + plotW / 2 : PAD_L + (i / (n - 1)) * plotW;
+  const yAt = (v: number) => PAD_T + plotH - (v / niceMax) * plotH;
+
+  // Build path string for one series — line from point to point
+  function pathFor(seriesKey: "image" | "ugc" | "cinema" | "auto") {
+    if (n === 0) return "";
+    const points = daily.map((d, i) => `${xAt(i)},${yAt(d[seriesKey])}`);
+    return "M " + points.join(" L ");
+  }
+
+  // Show fewer x-axis labels when range is large (every Nth date)
+  const labelStride = Math.max(1, Math.ceil(n / 14));
+
+  return (
+    <div
+      className="relative w-full"
+      style={{ aspectRatio: `${W} / ${H}`, maxHeight: 280 }}
+      onMouseLeave={() => setHoverIdx(null)}
+    >
+      <svg
+        viewBox={`0 0 ${W} ${H}`}
+        className="w-full h-full"
+        style={{ overflow: "visible" }}
+      >
+        {/* Grid lines + Y labels */}
+        {yTicks.map((v, i) => {
+          const y = yAt(v);
+          return (
+            <g key={i}>
+              <line
+                x1={PAD_L}
+                x2={W - PAD_R}
+                y1={y}
+                y2={y}
+                stroke="rgba(255,255,255,0.06)"
+                strokeWidth={1}
+              />
+              <text
+                x={PAD_L - 6}
+                y={y + 3}
+                textAnchor="end"
+                fontSize={9}
+                fill="var(--color-text-muted)"
+                fontFamily="var(--font-geist-mono, monospace)"
+              >
+                {v}
+              </text>
+            </g>
+          );
+        })}
+
+        {/* X-axis labels (date) */}
+        {daily.map((d, i) => {
+          if (i % labelStride !== 0 && i !== n - 1) return null;
+          return (
+            <text
+              key={d.date}
+              x={xAt(i)}
+              y={H - PAD_B + 16}
+              textAnchor="middle"
+              fontSize={9}
+              fill="var(--color-text-muted)"
+              fontFamily="var(--font-geist-mono, monospace)"
+            >
+              {d.date.slice(5)}
+            </text>
+          );
+        })}
+
+        {/* Series lines */}
+        {SERIES.map((s) => {
+          if (hidden[s.key]) return null;
+          return (
+            <g key={s.key}>
+              <path
+                d={pathFor(s.key)}
+                fill="none"
+                stroke={s.color}
+                strokeWidth={2}
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+              {/* Dots at every data point */}
+              {daily.map((d, i) => (
+                <circle
+                  key={i}
+                  cx={xAt(i)}
+                  cy={yAt(d[s.key])}
+                  r={hoverIdx === i ? 4 : 2.5}
+                  fill={s.color}
+                  stroke="var(--color-bg-card)"
+                  strokeWidth={1}
+                />
+              ))}
+            </g>
+          );
+        })}
+
+        {/* Hover snap-line + invisible interaction band */}
+        {hoverIdx !== null && (
+          <line
+            x1={xAt(hoverIdx)}
+            x2={xAt(hoverIdx)}
+            y1={PAD_T}
+            y2={H - PAD_B}
+            stroke="rgba(255,255,255,0.18)"
+            strokeWidth={1}
+            strokeDasharray="3 3"
+          />
+        )}
+        {/* Wide invisible bands for hover detection */}
+        {daily.map((d, i) => {
+          const bandW = plotW / Math.max(1, n - 1);
+          const x = xAt(i) - bandW / 2;
+          return (
+            <rect
+              key={i}
+              x={x}
+              y={PAD_T}
+              width={bandW}
+              height={plotH}
+              fill="transparent"
+              onMouseEnter={() => setHoverIdx(i)}
+            />
+          );
+        })}
+      </svg>
+
+      {/* Tooltip overlay */}
+      {hoverIdx !== null && daily[hoverIdx] && (
+        <div
+          className="absolute pointer-events-none rounded-lg px-3 py-2 text-[10px] font-mono shadow-xl"
+          style={{
+            left: `${(xAt(hoverIdx) / W) * 100}%`,
+            top: 0,
+            transform:
+              hoverIdx > n / 2 ? "translate(-105%, 0)" : "translate(5%, 0)",
+            background: "rgba(20, 20, 24, 0.95)",
+            border: "1px solid rgba(255,255,255,0.1)",
+            color: "#fff",
+            minWidth: 140,
+          }}
+        >
+          <div className="text-[10px] font-bold uppercase tracking-wider mb-1.5 text-[var(--color-text-muted)]">
+            {daily[hoverIdx].date}
+          </div>
+          {SERIES.map((s) => {
+            if (hidden[s.key]) return null;
+            return (
+              <div
+                key={s.key}
+                className="flex items-center justify-between gap-3 py-0.5"
+              >
+                <span className="flex items-center gap-1.5">
+                  <span
+                    className="w-2 h-2 rounded-full"
+                    style={{ background: s.color }}
+                  />
+                  {s.label}
+                </span>
+                <span className="font-bold tabular-nums">
+                  {daily[hoverIdx][s.key]}
+                </span>
+              </div>
+            );
+          })}
+          <div className="mt-1 pt-1 border-t border-white/10 flex items-center justify-between text-[10px] font-bold uppercase">
+            <span>Total</span>
+            <span className="tabular-nums">{daily[hoverIdx].count}</span>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

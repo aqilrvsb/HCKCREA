@@ -273,9 +273,23 @@ export default function Sidebar({
             const isMenuOpen = openMenuId === p.id;
             return (
               <div key={p.id} className="relative" ref={isMenuOpen ? menuRef : null}>
-                <button
+                {/*
+                  div+role="button" instead of <button> so we can nest the
+                  Project Menu <button> inside without violating HTML nesting
+                  rules (which trigger a hydration error). a11y preserved via
+                  role + tabIndex + Enter/Space keyboard handler.
+                */}
+                <div
+                  role="button"
+                  tabIndex={0}
                   onClick={() => onViewChange({ kind: "project", projectId: p.id })}
-                  className="group w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-bold transition-all"
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      onViewChange({ kind: "project", projectId: p.id });
+                    }
+                  }}
+                  className="group w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-bold transition-all cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-orange)]"
                   style={
                     isActive
                       ? {
@@ -332,7 +346,7 @@ export default function Sidebar({
                   >
                     <MoreVertical className="w-3.5 h-3.5" />
                   </button>
-                </button>
+                </div>
 
                 {isMenuOpen && (
                   <div

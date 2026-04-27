@@ -11,6 +11,7 @@ import {
   ChevronDown,
   ChevronUp,
 } from "lucide-react";
+import Portal from "./portal";
 
 // Confirmation dialog shown by the UGC Agent before firing generations.
 // User can edit any variant's persona / hook / structure / CTA / voice /
@@ -29,6 +30,10 @@ type Variant = {
   age?: string;
   prompt: string;
   caption?: string;
+  // 16s-only fields — optional, ignored for 8s mode
+  seg2_prompt?: string;
+  character_lock?: string;
+  frame_anchor?: "first" | "middle" | "last";
 };
 
 type ConfirmPayload = {
@@ -183,6 +188,7 @@ export default function ConfirmUgcDialog({
   }
 
   return (
+    <Portal>
     <div
       className="fixed inset-0 lg:left-[280px] z-50 flex items-center justify-center p-4"
       style={{ background: "rgba(0,0,0,0.7)", backdropFilter: "blur(8px)" }}
@@ -273,8 +279,14 @@ export default function ConfirmUgcDialog({
                 color: "var(--color-text-primary)",
               }}
             >
-              <option value="8">8 seconds</option>
+              <option value="8">8 seconds (1 segment)</option>
+              <option value="16">16 seconds (2 segments)</option>
             </select>
+            {duration === "16" && (
+              <div className="text-[9px] text-[var(--color-text-muted)] mt-0.5 leading-tight">
+                Auto-chains seg-1 → frame anchor → seg-2 → merge
+              </div>
+            )}
           </div>
           <div>
             <Label>Aspect</Label>
@@ -429,7 +441,7 @@ export default function ConfirmUgcDialog({
                         />
                       </Field>
                     </div>
-                    <Field label="Prompt (the agent built this — edit if you want)">
+                    <Field label={duration === "16" ? "Seg-1 Prompt (hook + setup, ~80-140 words)" : "Prompt (the agent built this — edit if you want)"}>
                       <textarea
                         rows={6}
                         value={v.prompt}
@@ -444,6 +456,58 @@ export default function ConfirmUgcDialog({
                         }}
                       />
                     </Field>
+
+                    {/* 16s-only: Seg-2 prompt, character lock, frame anchor */}
+                    {duration === "16" && (
+                      <>
+                        <Field label="Character Lock (pasted verbatim into BOTH seg-1 + seg-2 to lock identity)">
+                          <textarea
+                            rows={2}
+                            placeholder="A 26-year-old Malay woman in soft pastel hijab, warm medium-brown skin, dewy minimal-makeup, modest cream-coloured top."
+                            value={(v as any).character_lock || ""}
+                            onChange={(e) =>
+                              patchVariant(i, { character_lock: e.target.value } as any)
+                            }
+                            className="w-full p-2 rounded-lg text-[11px] font-mono leading-relaxed resize-y outline-none"
+                            style={{
+                              background: "var(--color-bg-card)",
+                              border: "1px solid var(--color-border)",
+                              color: "var(--color-text-primary)",
+                            }}
+                          />
+                        </Field>
+                        <Field label="Seg-2 Prompt (continuation/payoff/CTA, ~80-140 words — DO NOT repeat the hook)">
+                          <textarea
+                            rows={6}
+                            placeholder="The character lifts the product to camera. 'Confirm korang akan repeat order.' Soft smile, picks up next bottle. Camera holds steady on label..."
+                            value={(v as any).seg2_prompt || ""}
+                            onChange={(e) =>
+                              patchVariant(i, { seg2_prompt: e.target.value } as any)
+                            }
+                            className="w-full p-2 rounded-lg text-[11px] font-mono leading-relaxed resize-y outline-none"
+                            style={{
+                              background: "var(--color-bg-card)",
+                              border: "1px solid var(--color-border)",
+                              color: "var(--color-text-primary)",
+                            }}
+                          />
+                        </Field>
+                        <Field label="Frame Anchor (which moment from seg-1 anchors seg-2's start)">
+                          <Select
+                            value={(v as any).frame_anchor || "last"}
+                            onChange={(val) =>
+                              patchVariant(i, { frame_anchor: val } as any)
+                            }
+                            options={[
+                              { id: "last", label: "Continue (last frame) — pure narrative continuation" },
+                              { id: "middle", label: "Mid-Beat (middle frame) — pick up at the peak moment" },
+                              { id: "first", label: "Alt Take (first frame) — parallel variation, not continuation" },
+                            ]}
+                          />
+                        </Field>
+                      </>
+                    )}
+
                     {v.caption !== undefined && (
                       <Field label="Caption">
                         <input
@@ -526,6 +590,7 @@ export default function ConfirmUgcDialog({
         </div>
       </div>
     </div>
+    </Portal>
   );
 }
 

@@ -13,6 +13,7 @@ import {
   CheckCircle2,
   Bot,
 } from "lucide-react";
+import Portal from "./portal";
 
 // Universal chat panel for the per-tab AI agents (UGC / Cinema / Image).
 // Floats as a bottom-right button; clicking opens a side drawer scoped to
@@ -222,6 +223,7 @@ export default function AgentChatPanel({
     <>
       {/* Floating launcher button (bottom-right of viewport, only inside main area) */}
       {!open && (
+        <Portal>
         <button
           onClick={() => setOpen(true)}
           className="fixed bottom-6 right-6 z-40 w-14 h-14 rounded-full flex items-center justify-center text-white transition-transform hover:scale-110"
@@ -233,10 +235,12 @@ export default function AgentChatPanel({
         >
           <MessageCircle className="w-6 h-6" strokeWidth={2.4} />
         </button>
+        </Portal>
       )}
 
       {/* Slide-out panel */}
       {open && (
+        <Portal>
         <div
           className="fixed top-0 right-0 bottom-0 lg:left-auto z-40 w-full lg:w-[420px] flex flex-col"
           style={{
@@ -416,6 +420,7 @@ export default function AgentChatPanel({
             </div>
           </div>
         </div>
+        </Portal>
       )}
     </>
   );

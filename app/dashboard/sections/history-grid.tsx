@@ -19,6 +19,8 @@ import {
   ChevronRight,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
+import Portal from "./portal";
+import ExtendDialog from "./extend-dialog";
 
 export type HistoryItem = {
   id: string;
@@ -596,14 +598,28 @@ function HistoryCard({ item }: { item: HistoryItem }) {
         />
       )}
 
-      {/* Extend Video modal */}
+      {/* Extend Video modal — new pipeline w/ frame_anchor + auto-merge */}
       {showExtendModal && canExtend && item.output_url && (
-        <ExtendVideoModal
-          parentId={item.id}
-          parentDuration={item.duration || 8}
-          parentReferenceUrl={item.reference_url || item.output_url}
-          parentOutputUrl={item.output_url}
+        <ExtendDialog
+          historyId={item.id}
+          videoUrl={item.output_url}
+          duration={item.duration || 8}
+          bucket={
+            item.tab === "cinema"
+              ? "cinema"
+              : item.tab === "auto"
+                ? "auto"
+                : "ugc"
+          }
+          productImageUrl={item.reference_url || undefined}
+          characterLock={(item.metadata as any)?.character_lock || undefined}
+          voice={(item.metadata as any)?.voice || undefined}
+          aspectRatio={(item.metadata as any)?.aspectRatio || "9:16"}
           onClose={() => setShowExtendModal(false)}
+          onFired={() => {
+            setShowExtendModal(false);
+            window.dispatchEvent(new CustomEvent("history:refresh"));
+          }}
         />
       )}
     </div>
@@ -632,6 +648,7 @@ function FullscreenModal({
   }, [onClose]);
 
   return (
+    <Portal>
     <div
       className="fixed inset-0 lg:left-[280px] z-50 flex items-center justify-center p-4"
       style={{ background: "rgba(0,0,0,0.92)", backdropFilter: "blur(8px)" }}
@@ -662,6 +679,7 @@ function FullscreenModal({
         )}
       </div>
     </div>
+    </Portal>
   );
 }
 
@@ -691,6 +709,7 @@ function PromptModal({
   }
 
   return (
+    <Portal>
     <div
       className="fixed inset-0 lg:left-[280px] z-50 flex items-center justify-center p-4"
       style={{ background: "rgba(0,0,0,0.7)", backdropFilter: "blur(8px)" }}
@@ -747,6 +766,7 @@ function PromptModal({
         </div>
       </div>
     </div>
+    </Portal>
   );
 }
 
@@ -835,6 +855,7 @@ function EditImageModal({
   }
 
   return (
+    <Portal>
     <div
       className="fixed inset-0 lg:left-[280px] z-50 flex items-center justify-center p-4"
       style={{ background: "rgba(0,0,0,0.7)", backdropFilter: "blur(8px)" }}
@@ -989,6 +1010,7 @@ function EditImageModal({
         </div>
       </div>
     </div>
+    </Portal>
   );
 }
 
@@ -1033,6 +1055,7 @@ function EditImagePicker({
   }
 
   return (
+    <Portal>
     <div
       className="fixed inset-0 lg:left-[280px] z-[60] flex items-center justify-center p-4"
       style={{ background: "rgba(0,0,0,0.7)", backdropFilter: "blur(8px)" }}
@@ -1090,6 +1113,7 @@ function EditImagePicker({
         </div>
       </div>
     </div>
+    </Portal>
   );
 }
 
@@ -1206,6 +1230,7 @@ function ImproveVideoModal({
   }
 
   return (
+    <Portal>
     <div
       className="fixed inset-0 lg:left-[280px] z-50 flex items-center justify-center p-4"
       style={{ background: "rgba(0,0,0,0.7)", backdropFilter: "blur(8px)" }}
@@ -1322,6 +1347,7 @@ function ImproveVideoModal({
         </div>
       </div>
     </div>
+    </Portal>
   );
 }
 
@@ -1439,6 +1465,7 @@ function ExtendVideoModal({
   }
 
   return (
+    <Portal>
     <div
       className="fixed inset-0 lg:left-[280px] z-50 flex items-center justify-center p-4"
       style={{ background: "rgba(0,0,0,0.7)", backdropFilter: "blur(8px)" }}
@@ -1596,6 +1623,7 @@ function ExtendVideoModal({
         )}
       </div>
     </div>
+    </Portal>
   );
 }
 
