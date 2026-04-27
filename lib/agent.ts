@@ -159,9 +159,19 @@ async function orChatWithTools(opts: OrChatToolCallOpts): Promise<{
     temperature: opts.temperature ?? 0.7,
     max_tokens: opts.maxTokens ?? 2000,
     stream: false,
+    // Cap reasoning budget for thinking models (Kimi K2.6, GPT-5,
+    // claude-sonnet-thinking, etc.). Without this they burn ALL tokens on
+    // internal chain-of-thought and return empty content/tool_calls. Effort
+    // 'low' keeps thinking under ~500 tokens — plenty for tool-call planning,
+    // none wasted. OpenRouter routes this to the model's native reasoning
+    // controls, and ignores it for non-reasoning models (V3.2, Gemini Flash).
+    reasoning: { effort: "low" },
   };
   if (opts.tools && opts.tools.length > 0) {
     body.tools = opts.tools;
+    // 'auto' lets the agent reply with text when no tool is needed (e.g.
+    // clarifying questions, status replies). The reasoning budget cap above
+    // prevents the model from spiraling.
     body.tool_choice = "auto";
   }
 
@@ -186,9 +196,24 @@ async function orChatWithTools(opts: OrChatToolCallOpts): Promise<{
   const choice = json?.choices?.[0]?.message;
   if (!choice) return { ok: false, error: "No choice in response" };
 
+  // Reasoning models (Kimi K2.6, GPT-5, etc.) put their thinking in
+  // `reasoning` or `reasoning_details`. If `content` is empty but we have
+  // reasoning text, surface it as fallback so the user sees something
+  // meaningful instead of silent failure.
+  let extractedContent = choice.content;
+  if (!extractedContent && typeof choice.reasoning === "string") {
+    extractedContent = choice.reasoning;
+  } else if (!extractedContent && Array.isArray(choice.reasoning_details)) {
+    const reasoningText = choice.reasoning_details
+      .map((rd: any) => rd?.text || rd?.content || "")
+      .filter(Boolean)
+      .join("\n\n");
+    if (reasoningText) extractedContent = reasoningText;
+  }
+
   const m: Message = {
     role: "assistant",
-    content: choice.content || null,
+    content: extractedContent || null,
   };
   if (Array.isArray(choice.tool_calls) && choice.tool_calls.length > 0) {
     m.tool_calls = choice.tool_calls.map((tc: any) => ({
