@@ -62,7 +62,6 @@ export default function ImageTab({ projectId }: { projectId?: string } = {}) {
   const [model, setModel] = useState<ImageModel>("nano-banana-pro");
   const [mode, setMode] = useState<Mode>("create");
   const [prompt, setPrompt] = useState("");
-  const [count, setCount] = useState(1);
   const [charUrl, setCharUrl] = useState("");
   const [productUrl, setProductUrl] = useState("");
   const [posterUrl, setPosterUrl] = useState("");
@@ -139,29 +138,26 @@ export default function ImageTab({ projectId }: { projectId?: string } = {}) {
           ? [posterPub, virtProductPub].filter(Boolean)
           : [charPub, productPub].filter(Boolean);
 
-      const calls = Array.from({ length: count }).map(() =>
-        fetch("/api/generate/image", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            model,
-            prompt: prompt.trim(),
-            reference_url: refs[0] || undefined,
-            reference_urls: refs.length > 1 ? refs : undefined,
-            aspect_ratio: "9:16",
-            project_id: projectId,
-          }),
-        }).then((r) => r.json())
-      );
-      const results = await Promise.all(calls);
-      const first = results.find((d) => d?.ok);
-      if (!first) {
-        setError(results.find((d) => d?.error)?.error || "Generation failed");
+      const r = await fetch("/api/generate/image", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model,
+          prompt: prompt.trim(),
+          reference_url: refs[0] || undefined,
+          reference_urls: refs.length > 1 ? refs : undefined,
+          aspect_ratio: "9:16",
+          project_id: projectId,
+        }),
+      });
+      const d = await r.json();
+      if (!d?.ok) {
+        setError(d?.error || "Generation failed");
         setStatus("failed");
         return;
       }
-      setHistoryId(first.history_id);
-      setCost(first.cost);
+      setHistoryId(d.history_id);
+      setCost(d.cost);
       window.dispatchEvent(new CustomEvent("history:refresh"));
       // Placeholder is now in history — fire-and-forget. Reset the button so
       // the user can immediately fire the next generation.
@@ -443,17 +439,6 @@ export default function ImageTab({ projectId }: { projectId?: string } = {}) {
             lineHeight: 1.5,
           }}
         />
-
-        <div className="mt-4">
-          <Label>Count</Label>
-          <Select value={String(count)} onChange={(v) => setCount(Number(v))} width={120}>
-            {[1, 2, 3, 4].map((n) => (
-              <option key={n} value={n}>
-                {n}
-              </option>
-            ))}
-          </Select>
-        </div>
 
         <button
           onClick={submit}
