@@ -97,13 +97,37 @@ export default function HistoryGrid({
   useEffect(() => {
     void load();
     setPage(0);
-    // Only refresh on explicit dispatch (webhook completes → user clicks
-    // per-card refresh icon → user re-enters tab). No background polling.
+    // Refresh on explicit dispatch (webhook completes → user clicks per-card
+    // refresh icon → user re-enters tab) AND on a 1-minute interval while
+    // pending rows are visible. The interval gates itself on items.some
+    // (status === "pending"), so once everything is settled the polling
+    // stops automatically — no battery drain on idle dashboards.
     const onRefresh = () => load();
     window.addEventListener("history:refresh", onRefresh);
     return () => window.removeEventListener("history:refresh", onRefresh);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab, projectId]);
+
+  // 1-minute auto-refresh when there's anything pending. Pauses when the
+  // tab is hidden (browser throttles intervals on hidden tabs anyway, but
+  // explicit pause keeps the logs clean) and stops entirely when no row
+  // is pending. The server's pg_cron does the actual settling — this just
+  // re-fetches so the UI mirrors what the DB already knows.
+  useEffect(() => {
+    const hasPending = items.some(
+      (i) => i.status === "pending" && !i.parent_history_id
+    ) ||
+      // Also keep ticking while any child seg-2 is pending — the parent
+      // looks "done" but the slider's seg-2 thumb is still spinning.
+      items.some((i) => i.parent_history_id && i.status === "pending");
+    if (!hasPending) return;
+
+    const id = window.setInterval(() => {
+      if (document.visibilityState === "visible") void load();
+    }, 60_000);
+    return () => window.clearInterval(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [items]);
 
   async function load() {
     setLoading(true);

@@ -25,7 +25,7 @@ export const maxDuration = 60; // seconds — Vercel Pro limit
 //     'failed' so the user isn't stuck on a "generating" spinner forever.
 
 const BATCH = 50; // max rows per cron tick
-const STALE_MIN = 30; // a pending row older than this minutes is considered lost
+const STALE_MIN = 10; // a pending row older than this many minutes is considered lost
 
 export async function GET(req: Request) {
   // Authorize cron / admin caller
