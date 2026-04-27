@@ -162,7 +162,7 @@ export default function CloneTab({ projectId }: { projectId?: string } = {}) {
         }
       }
 
-      pushLog(`Sending ${segCount} parallel vision call(s) to OpenRouter (deepseek)…`);
+      pushLog(`Submitting ${segCount} segment(s) — vision calls run in background.`);
       const r = await fetch("/api/generate/clone", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -179,15 +179,13 @@ export default function CloneTab({ projectId }: { projectId?: string } = {}) {
       const d = await r.json();
       if (!r.ok || !d?.ok) {
         pushLog(`✗ ${d?.error || "Failed"}`);
-        setError(d?.error || "Failed to plan");
+        setError(d?.error || "Failed to submit");
         setStatus("failed");
         return;
       }
-      const got = (d.prompts as string[]) || [];
-      pushLog(`Plan received — ${got.length} prompt(s)${d.partial ? ` (${d.failures} segment(s) failed)` : ""}.`);
-      setResultPrompts(got);
-      setResultMode(d.mode);
-      setResultSegDur(d.seg_duration || segDur);
+      pushLog(`✓ Cloning ${segCount} segment(s) in background — appears in History below when ready.`);
+      // Background placeholder is in History grid below — refresh it.
+      window.dispatchEvent(new CustomEvent("history:refresh"));
       setStatus("idle");
     } catch (e: any) {
       pushLog(`✗ ${e?.message || "Network error"}`);

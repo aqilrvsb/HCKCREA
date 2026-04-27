@@ -26,7 +26,14 @@ type SavedRow = {
   project_id: string | null;
   history_id: string | null;
   prompt_text: string;
-  bucket: "ugc" | "cinema" | "image" | "auto";
+  bucket:
+    | "ugc"
+    | "cinema"
+    | "image"
+    | "auto"
+    | "master-ugc"
+    | "master-cinema"
+    | "master-auto";
   model: string | null;
   scene_template: string | null;
   reference_url: string | null;
@@ -51,15 +58,29 @@ type SavedRow = {
 
 type Project = { id: string; name: string };
 
+// hideMedia = the bucket stores PROMPTS as the artifact (clone-extracted
+// prompts, master plans). No video/image to preview — render the card
+// with the prompt text front-and-centre instead of a thumbnail.
 const BUCKET_META: Record<
   string,
-  { label: string; color: string; icon: any }
+  { label: string; color: string; icon: any; hideMedia?: boolean }
 > = {
   ugc: { label: "UGC", color: "#22c55e", icon: Video },
   cinema: { label: "Cinema", color: "#7c4dff", icon: Film },
   image: { label: "Image", color: "#ff6a1a", icon: ImageIcon },
   auto: { label: "Auto", color: "#f59e0b", icon: Sparkles },
+  "master-ugc": { label: "UGC Plan", color: "#16a34a", icon: Sparkles, hideMedia: true },
+  "master-cinema": { label: "Cinema Plan", color: "#5b34d6", icon: Sparkles, hideMedia: true },
+  "master-auto": { label: "Auto Plan", color: "#d97706", icon: Sparkles, hideMedia: true },
 };
+
+// Buckets where the artifact is the prompt itself, not a generated media.
+// Used for filter ordering + card layout decisions.
+const PROMPT_ONLY_BUCKETS = new Set([
+  "master-ugc",
+  "master-cinema",
+  "master-auto",
+]);
 
 // Saved Prompts library — every successful generation auto-saves here. Users
 // can star their wins (those become memory for the AI agents), recreate
@@ -70,7 +91,14 @@ export default function SavedPromptsSection() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [bucketFilter, setBucketFilter] = useState<
-    "all" | "ugc" | "cinema" | "image" | "auto"
+    | "all"
+    | "ugc"
+    | "cinema"
+    | "image"
+    | "auto"
+    | "master-ugc"
+    | "master-cinema"
+    | "master-auto"
   >("all");
   const [projectFilter, setProjectFilter] = useState<string>("all");
   const [starredOnly, setStarredOnly] = useState(false);
@@ -200,7 +228,16 @@ export default function SavedPromptsSection() {
 
         {/* Bucket filter */}
         <div className="flex gap-1.5 flex-wrap">
-          {(["all", "ugc", "cinema", "image", "auto"] as const).map((b) => {
+          {([
+            "all",
+            "ugc",
+            "cinema",
+            "image",
+            "auto",
+            "master-ugc",
+            "master-cinema",
+            "master-auto",
+          ] as const).map((b) => {
             const isActive = bucketFilter === b;
             const meta = b === "all" ? null : BUCKET_META[b];
             return (
@@ -396,6 +433,7 @@ function PromptCard({
     day: "numeric",
     month: "short",
   });
+  const promptOnly = !!meta.hideMedia;
 
   return (
     <div
@@ -411,12 +449,30 @@ function PromptCard({
       }}
       onClick={onOpen}
     >
-      {/* Thumbnail */}
+      {/* Thumbnail OR prompt-first preview for prompt-only buckets */}
       <div
         className="relative aspect-video w-full overflow-hidden"
-        style={{ background: "var(--color-bg)" }}
+        style={{ background: promptOnly ? `${meta.color}10` : "var(--color-bg)" }}
       >
-        {thumb ? (
+        {promptOnly ? (
+          // Prompt-first preview: show the first ~6 lines of the prompt as
+          // the "thumbnail" — no media exists for these buckets.
+          <div className="absolute inset-0 p-3 flex flex-col gap-1.5 overflow-hidden">
+            <div
+              className="text-[10px] font-mono uppercase tracking-wider font-bold flex items-center gap-1.5 flex-shrink-0"
+              style={{ color: meta.color }}
+            >
+              <Icon className="w-3 h-3" />
+              {row.scene_template || meta.label}
+            </div>
+            <div
+              className="text-[10px] leading-snug font-mono line-clamp-6 flex-1"
+              style={{ color: "var(--color-text-secondary)" }}
+            >
+              {row.prompt_text}
+            </div>
+          </div>
+        ) : thumb ? (
           isVideo ? (
             <video
               src={thumb + (thumb.includes("#") ? "" : "#t=0.5")}

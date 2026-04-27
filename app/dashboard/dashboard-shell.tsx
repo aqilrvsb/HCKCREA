@@ -337,9 +337,12 @@ function ProjectView({
             </>
           )}
           {activeTab === "clone" && (
-            <div className="max-w-5xl mx-auto w-full">
-              <CloneTab projectId={project.id} />
-            </div>
+            <>
+              <div className="max-w-5xl mx-auto w-full">
+                <CloneTab projectId={project.id} />
+              </div>
+              <HistoryGrid tab="clone" title={`Clone — ${project.name}`} projectId={project.id} />
+            </>
           )}
           {activeTab === "auto" && (
             <>

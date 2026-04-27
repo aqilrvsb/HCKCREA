@@ -1,22 +1,36 @@
-import { NextResponse } from "next/server";
+import { NextResponse, after } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { orChatVision } from "@/lib/openrouter";
 
-// Clone Prompt — input: frames + product + mode (ugc|cinema). Output: a
-// list of segment prompts (no video generation). Per-segment vision calls
-// run in parallel so 60 frames don't blow the request size or token budget.
+// Clone Prompt — placeholder-first.
 //
-// UGC mode    → Veo 3.1 target, each segment = 8 frames (8s window)
-// Cinema mode → Grok Imagine target, each segment = up to 30 frames (30s)
+// Hot path (~300ms):
+//   1. getSession + minimal validation
+//   2. Insert pending history row with type='clone', tab='clone'. The card
+//      lives in the dashboard's clone HistoryGrid as a "Generating…" entry.
+//   3. Return history_id immediately.
+//
+// after() background:
+//   4. Slice frames into segments
+//   5. Run vision calls in parallel (1 per segment) via OpenRouter
+//   6. On success → update row with prompt = joined prompts, status=done.
+//      metadata.segments preserves the per-segment prompt array for the
+//      modal view.
+//   7. On failure → row flips to 'failed' with the error.
 //
 // Body:
 //   frames: string[]            // base64 data URLs (≤60)
-//   product_image_url?: string  // public URL (already uploaded)
+//   product_image_url?: string
 //   custom_dialog?: string
-//   duration?: number           // source video length in seconds
+//   duration?: number
 //   mode?: 'ugc' | 'cinema'
 //   project_id?: string
+//   aspect_ratio?: string
+
+export const runtime = "nodejs";
+export const maxDuration = 300;
+export const dynamic = "force-dynamic";
 
 const SEG_FRAMES_UGC = 8;
 const SEG_FRAMES_CINEMA = 30;
@@ -24,9 +38,8 @@ const MAX_FRAMES = 60;
 
 export async function POST(req: Request) {
   const sb = await createClient();
-  const {
-    data: { user },
-  } = await sb.auth.getUser();
+  const { data: { session } } = await sb.auth.getSession();
+  const user = session?.user;
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const body = await req.json().catch(() => ({}));
@@ -37,6 +50,8 @@ export async function POST(req: Request) {
   const customDialog = String(body?.custom_dialog || "").trim();
   const refDuration = Number(body?.duration || allFrames.length || 8);
   const mode: "ugc" | "cinema" = body?.mode === "cinema" ? "cinema" : "ugc";
+  const projectId = body?.project_id ? String(body.project_id) : null;
+  const aspectRatio = String(body?.aspect_ratio || "9:16");
 
   if (allFrames.length === 0) {
     return NextResponse.json(
@@ -45,7 +60,6 @@ export async function POST(req: Request) {
     );
   }
 
-  // Slice frames into segments
   const segLen = mode === "cinema" ? SEG_FRAMES_CINEMA : SEG_FRAMES_UGC;
   const segDur = mode === "cinema" ? 30 : 8;
   const segments: string[][] = [];
@@ -54,12 +68,50 @@ export async function POST(req: Request) {
   }
   const segCount = segments.length;
 
-  const hasProduct = !!productImageUrl;
-  const hasDialog = customDialog.length > 0;
+  // Insert placeholder NOW. status='pending' + tab='clone' so the dashboard
+  // clone HistoryGrid renders a Generating… card immediately.
+  const admin = createAdminClient();
+  const { data: hist, error: insErr } = await admin
+    .from("history")
+    .insert({
+      user_id: user.id,
+      project_id: projectId,
+      type: "clone",
+      tab: "clone",
+      status: "pending",
+      prompt: `Cloning ${segCount} segment${segCount > 1 ? "s" : ""}…`,
+      reference_url: productImageUrl || null,
+      task_id: null,
+      duration: refDuration,
+      cost: 0,
+      metadata: {
+        mode,
+        seg_duration: segDur,
+        seg_count: segCount,
+        aspectRatio,
+        upload_status: "queued",
+      },
+    })
+    .select("id")
+    .single();
 
-  const baseSystemPrompt =
-    mode === "ugc"
-      ? `You are a video director. Produce SHORT, SHARP, STRUCTURED prompts for an 8-second text-to-video model (Veo 3.1).
+  if (insErr || !hist) {
+    return NextResponse.json(
+      { error: "DB insert failed", detail: insErr?.message },
+      { status: 500 }
+    );
+  }
+
+  const historyId = hist.id;
+
+  after(async () => {
+    try {
+      const hasProduct = !!productImageUrl;
+      const hasDialog = customDialog.length > 0;
+
+      const baseSystemPrompt =
+        mode === "ugc"
+          ? `You are a video director. Produce SHORT, SHARP, STRUCTURED prompts for an 8-second text-to-video model (Veo 3.1).
 
 Each segment uses this EXACT structure (short lines, no prose paragraphs):
 
@@ -81,7 +133,7 @@ CONSTRAINTS:
 - AUDIO + VISUAL LOCK: speak directly to camera, NO music, NO SFX, dialog only. NO subtitles, captions, overlays. Bottom 25% of frame EMPTY. RAW UNEDITED FOOTAGE — never a TikTok post.
 
 The segment is SELF-CONTAINED — do NOT reference other segments. Keep prompt 300-600 chars.`
-      : `You are a cinematic director. Produce a structured prompt for a 30-second text-to-video model (Grok Imagine).
+          : `You are a cinematic director. Produce a structured prompt for a 30-second text-to-video model (Grok Imagine).
 
 Use this structure:
 
@@ -99,110 +151,120 @@ PACING: [emotional rhythm across the 30s]
 
 Keep the prompt 600-1200 chars. Cinematic and evocative — paint the scene.`;
 
-  // Each parallel call gets its own segment slice and a tiny variation of the
-  // user prompt that tells it which slice it's working on. Returns the prompt
-  // string for that segment — we aggregate at the end.
-  async function planSegment(
-    segIdx: number,
-    segFrames: string[]
-  ): Promise<{ idx: number; prompt: string; error?: string }> {
-    const startSec = segIdx * segDur;
-    const endSec = startSec + segDur;
-    const dialogBlock = hasDialog
-      ? `\n\nDIALOG (USER-PROVIDED, MUST USE VERBATIM):
+      async function planSegment(
+        segIdx: number,
+        segFrames: string[]
+      ): Promise<{ idx: number; prompt: string; error?: string }> {
+        const startSec = segIdx * segDur;
+        const endSec = startSec + segDur;
+        const dialogBlock = hasDialog
+          ? `\n\nDIALOG (USER-PROVIDED, MUST USE VERBATIM):
 """
 ${customDialog.replace(/"""/g, '"""')}
 """
 For this segment (${startSec}-${endSec}s), pick the matching slice of the user's dialog. Parse timestamps if present (e.g. ${startSec}s-${endSec}s). Otherwise pick the natural chunk for this time window. Never translate, never paraphrase.`
-      : "";
+          : "";
 
-    const productBlock = hasProduct
-      ? `\n\nThe last image is the product reference. Keep it pixel-identical in the prompt — preserve label text, logo, colors exactly.`
-      : "";
+        const productBlock = hasProduct
+          ? `\n\nThe last image is the product reference. Keep it pixel-identical in the prompt — preserve label text, logo, colors exactly.`
+          : "";
 
-    const systemPrompt = baseSystemPrompt + dialogBlock + productBlock;
-    const textPrompt = `Segment ${segIdx + 1} of ${segCount} (${startSec}-${endSec}s window).
+        const systemPrompt = baseSystemPrompt + dialogBlock + productBlock;
+        const textPrompt = `Segment ${segIdx + 1} of ${segCount} (${startSec}-${endSec}s window).
 These ${segFrames.length} frames are the reference for this segment, sampled 1 frame per second.
 Study them carefully and write ONE prompt that recreates this slice exactly.
 
 Return ONLY the prompt text — no JSON wrapping, no commentary, no markdown.`;
 
-    const visionImages = [...segFrames];
-    if (productImageUrl) visionImages.push(productImageUrl);
+        const visionImages = [...segFrames];
+        if (productImageUrl) visionImages.push(productImageUrl);
 
-    const result = await orChatVision({
-      modelKey: "model_clone",
-      systemPrompt,
-      textPrompt,
-      images: visionImages,
-      temperature: 0.5,
-      maxTokens: 2000,
-    });
-    if (!result.ok || !result.content) {
-      return { idx: segIdx, prompt: "", error: result.error || "vision call failed" };
+        const result = await orChatVision({
+          modelKey: "model_clone",
+          systemPrompt,
+          textPrompt,
+          images: visionImages,
+          temperature: 0.5,
+          maxTokens: 2000,
+        });
+        if (!result.ok || !result.content) {
+          return { idx: segIdx, prompt: "", error: result.error || "vision call failed" };
+        }
+        let cleaned = result.content.trim();
+        cleaned = cleaned.replace(/^```[a-z]*\s*/i, "").replace(/```\s*$/i, "").trim();
+        return { idx: segIdx, prompt: cleaned };
+      }
+
+      const results = await Promise.all(
+        segments.map((segFrames, idx) => planSegment(idx, segFrames))
+      );
+
+      const failures = results.filter((r) => r.error);
+      const ordered = results
+        .filter((r) => !r.error && r.prompt && r.prompt.length > 30)
+        .sort((a, b) => a.idx - b.idx);
+
+      if (ordered.length === 0) {
+        await admin
+          .from("history")
+          .update({
+            status: "failed",
+            error_message:
+              failures[0]?.error || "All segment plans failed",
+            metadata: {
+              mode, seg_duration: segDur, seg_count: segCount, aspectRatio,
+              failures: failures.length,
+              upload_status: "failed",
+            },
+          })
+          .eq("id", historyId);
+        return;
+      }
+
+      // Join segment prompts with a clear separator. Modal view can split
+      // on "── Segment N ──" if it wants the structured form.
+      const joined = ordered
+        .map((r) => `── Segment ${r.idx + 1} ──\n${r.prompt}`)
+        .join("\n\n");
+
+      await admin
+        .from("history")
+        .update({
+          status: "done",
+          prompt: joined,
+          metadata: {
+            mode,
+            seg_duration: segDur,
+            seg_count: ordered.length,
+            aspectRatio,
+            partial: failures.length > 0,
+            failures: failures.length,
+            segments: ordered.map((r) => ({ idx: r.idx, prompt: r.prompt })),
+            upload_status: "done",
+          },
+        })
+        .eq("id", historyId);
+    } catch (e: any) {
+      await admin
+        .from("history")
+        .update({
+          status: "failed",
+          error_message: e?.message || "Background error",
+          metadata: {
+            mode, seg_duration: segDur, seg_count: segCount, aspectRatio,
+            upload_status: "failed",
+          },
+        })
+        .eq("id", historyId);
     }
-    let cleaned = result.content.trim();
-    // Strip markdown if present
-    cleaned = cleaned.replace(/^```[a-z]*\s*/i, "").replace(/```\s*$/i, "").trim();
-    return { idx: segIdx, prompt: cleaned };
-  }
-
-  // Fire all segments in parallel
-  const results = await Promise.all(
-    segments.map((segFrames, idx) => planSegment(idx, segFrames))
-  );
-
-  const failures = results.filter((r) => r.error);
-  const prompts = results
-    .filter((r) => !r.error && r.prompt && r.prompt.length > 30)
-    .sort((a, b) => a.idx - b.idx)
-    .map((r) => r.prompt);
-
-  if (prompts.length === 0) {
-    return NextResponse.json(
-      {
-        error: failures[0]?.error || "All segment plans failed",
-        details: failures.map((f) => f.error).slice(0, 3),
-      },
-      { status: 502 }
-    );
-  }
-
-  // Persist each generated prompt to saved_prompts (bucket="clone") so the
-  // user can revisit / re-use past clone sessions. One row per segment.
-  // Failures are silent — never break the response on a logging hiccup.
-  try {
-    const projectId = body?.project_id ? String(body.project_id) : null;
-    const aspectRatio = String(body?.aspect_ratio || "9:16");
-    const admin = createAdminClient();
-    const rows = prompts.map((p, idx) => ({
-      user_id: user.id,
-      project_id: projectId,
-      bucket: "clone",
-      prompt_text: p,
-      model: mode === "cinema" ? "grok-imagine" : "veo-3.1",
-      scene_template: `Cloned ${mode} · seg ${idx + 1}/${prompts.length}`,
-      reference_url: productImageUrl || null,
-      duration: segDur,
-      aspect_ratio: aspectRatio,
-      cost: 0,
-      outcome: "success",
-      starred: false,
-      source: "clone",
-    }));
-    await admin.from("saved_prompts").insert(rows);
-  } catch (e) {
-    console.error("[clone] saved_prompts persist failed:", e);
-  }
+  });
 
   return NextResponse.json({
     ok: true,
+    history_id: historyId,
     mode,
-    segments: prompts.length,
+    segments: segCount,
     seg_duration: segDur,
     duration: refDuration,
-    prompts,
-    partial: failures.length > 0,
-    failures: failures.length,
   });
 }

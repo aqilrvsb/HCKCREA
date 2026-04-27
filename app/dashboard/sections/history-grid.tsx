@@ -422,14 +422,21 @@ function HistoryCard({
   const [showEditModal, setShowEditModal] = useState(false);
   const [showExtendModal, setShowExtendModal] = useState(false);
 
-  const isVideo = item.type === "video" || item.type === "auto-content" || item.type === "clone";
-  const isImage = item.type === "image";
+  // Clone Prompt cards have no media — just the generated prompt text. They
+  // live in the same HistoryGrid as image/video cards but render differently
+  // (prompt-first, no player, no extend/improve).
+  const isClonePrompt = item.tab === "clone";
+  const isVideo =
+    !isClonePrompt &&
+    (item.type === "video" || item.type === "auto-content" || item.type === "clone");
+  const isImage = !isClonePrompt && item.type === "image";
   const isCinema = item.tab === "cinema";
   // Extend + Improve are available on every completed video, regardless of
   // which provider rendered it — fal.ai extracts the last frame from the
   // output URL and feeds it to Veo i2v for the continuation. Cinema cards get
-  // a Merge action instead (combine multiple cinema clips into one).
-  const canExtend = isVideo && !isCinema && item.status === "done" && item.output_url;
+  // a Merge action instead. Clone cards get NEITHER (no media).
+  const canExtend =
+    isVideo && !isCinema && !isClonePrompt && item.status === "done" && item.output_url;
 
   // Segment slider — UGC + Auto Content cards that went through the 16s
   // pipeline (or were extended) have a parent row + a child seg-2 row. Build
@@ -624,7 +631,35 @@ function HistoryCard({
             </button>
           </>
         )}
-        {item.status === "done" && playerUrl && (
+        {item.status === "done" && isClonePrompt && (
+          // Clone prompt: no media, render the prompt as the "preview".
+          // Click expands the full prompt in a modal.
+          <button
+            onClick={() => setShowPromptModal(true)}
+            className="absolute inset-0 p-3 flex flex-col gap-1.5 text-left overflow-hidden cursor-pointer"
+            style={{ background: "rgba(6,182,212,0.08)" }}
+          >
+            <div
+              className="text-[9px] font-mono uppercase tracking-wider font-bold flex items-center gap-1.5"
+              style={{ color: "#06b6d4" }}
+            >
+              <Copy className="w-3 h-3" />
+              {item.metadata?.seg_count
+                ? `${item.metadata.seg_count} segment${(item.metadata as any).seg_count > 1 ? "s" : ""}`
+                : "Clone prompt"}
+              {item.metadata?.mode ? ` · ${item.metadata.mode}` : ""}
+            </div>
+            <div
+              className="text-[10px] leading-snug font-mono line-clamp-[10] flex-1 text-white/85"
+            >
+              {item.prompt}
+            </div>
+            <div className="text-[9px] text-white/40 mt-auto">
+              Click to view full prompt
+            </div>
+          </button>
+        )}
+        {item.status === "done" && !isClonePrompt && playerUrl && (
           <>
             {isImage && (
               <img
@@ -803,6 +838,31 @@ function HistoryCard({
 
         {/* Action row — extension's exact icon flow */}
         <div className="flex items-center gap-1 mt-1.5">
+          {/* DONE — clone prompt: Copy + Delete only (no media, no extend) */}
+          {item.status === "done" && isClonePrompt && (
+            <>
+              <button
+                onClick={async () => {
+                  try {
+                    await navigator.clipboard.writeText(item.prompt || "");
+                  } catch {}
+                }}
+                title="Copy prompt"
+                className="flex-1 h-7 rounded-lg text-[9px] font-extrabold uppercase tracking-wider text-white flex items-center justify-center gap-1 transition-transform hover:scale-105"
+                style={{
+                  background: "linear-gradient(135deg, #06b6d4, #22d3ee)",
+                  boxShadow: "0 2px 6px rgba(6,182,212,0.4)",
+                }}
+              >
+                <Copy className="w-3 h-3" />
+                Copy
+              </button>
+              <ActionBtn title="Delete" onClick={handleDelete} bg={ACTION.delete} disabled={deleting}>
+                <Trash2 className="w-3.5 h-3.5" strokeWidth={2.4} />
+              </ActionBtn>
+            </>
+          )}
+
           {/* DONE — image: Edit + Download + Delete */}
           {item.status === "done" && isImage && (
             <>
