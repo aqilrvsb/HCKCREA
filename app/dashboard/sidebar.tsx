@@ -15,6 +15,7 @@ import {
   Loader2,
   CreditCard,
   Activity,
+  Bookmark,
 } from "lucide-react";
 import LogoutButton from "./logout-button";
 
@@ -31,6 +32,7 @@ export type SidebarView =
   | { kind: "billing" }
   | { kind: "credit" }
   | { kind: "usage" }
+  | { kind: "saved-prompts" }
   | { kind: "settings" };
 
 export default function Sidebar({
@@ -385,6 +387,7 @@ export default function Sidebar({
             { kind: "billing" as const, label: "Billing", Icon: CreditCard },
             { kind: "credit" as const, label: "Top Up Credit", Icon: Wallet },
             { kind: "usage" as const, label: "Usage", Icon: Activity },
+            { kind: "saved-prompts" as const, label: "Saved Prompts", Icon: Bookmark },
           ]
         ).map(({ kind, label, Icon }) => {
           const isActive = view.kind === kind;

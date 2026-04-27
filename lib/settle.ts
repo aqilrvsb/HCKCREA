@@ -2,6 +2,11 @@
 // browser-driven /api/generate/status route AND the Vercel Cron worker
 // (/api/worker/poll-pending). Idempotent: only flips on the
 // pending → done|failed transition, deduct fires once.
+//
+// Side-effect on success: also auto-saves the prompt to saved_prompts so the
+// user's library builds up with every generation. Idempotent — only inserts
+// once per history_id (history_id has FK so duplicate inserts are caught by
+// the dedupe check).
 
 import { createAdminClient } from "@/lib/supabase/admin";
 import { p2GetStatus } from "@/lib/p2";
@@ -16,7 +21,70 @@ export type HistoryRow = {
   task_id: string | null;
   duration?: number | null;
   cost?: number | string | null;
+  // The fields below aren't always selected at every call site, but settle
+  // reads the whole row when it can — these are best-effort for auto-save.
+  prompt?: string | null;
+  reference_url?: string | null;
+  project_id?: string | null;
+  metadata?: any;
 };
+
+// Map a history.tab value to the saved_prompts.bucket enum.
+function bucketForTab(tab: string | null | undefined): string {
+  switch (tab) {
+    case "video":
+    case "ugc":
+      return "ugc";
+    case "cinema":
+      return "cinema";
+    case "image":
+      return "image";
+    case "auto":
+      return "auto";
+    case "clone":
+      return "ugc"; // clone outputs are UGC-style, library it under UGC
+    default:
+      return "ugc";
+  }
+}
+
+// Insert into saved_prompts after a successful generation. Best-effort —
+// failures here never break the settle path. Dedupes on history_id so the
+// poll-worker hitting the same row twice can't create duplicates.
+async function autoSavePrompt(
+  admin: ReturnType<typeof createAdminClient>,
+  hist: HistoryRow & { prompt?: string | null; reference_url?: string | null; project_id?: string | null; metadata?: any }
+): Promise<void> {
+  try {
+    if (!hist.prompt || !hist.prompt.trim()) return;
+
+    // Dedupe — if a row already exists for this history_id, skip
+    const { data: existing } = await admin
+      .from("saved_prompts")
+      .select("id")
+      .eq("history_id", hist.id)
+      .maybeSingle();
+    if (existing) return;
+
+    const meta = hist.metadata || {};
+    await admin.from("saved_prompts").insert({
+      user_id: hist.user_id,
+      project_id: hist.project_id || null,
+      history_id: hist.id,
+      prompt_text: hist.prompt,
+      bucket: bucketForTab(hist.tab),
+      model: meta.model || null,
+      reference_url: hist.reference_url || null,
+      duration: hist.duration ?? null,
+      aspect_ratio: meta.aspectRatio || meta.aspect_ratio || null,
+      cost: Number(hist.cost || 0),
+      outcome: "success",
+      source: "auto",
+    });
+  } catch {
+    // Library is a nice-to-have; don't break the settle path on any error.
+  }
+}
 
 export type SettleResult =
   | { state: "settled"; status: "done" | "failed"; outputUrl?: string; error?: string }
@@ -56,6 +124,10 @@ export async function settleHistoryRow(hist: HistoryRow): Promise<SettleResult> 
         thumbnail_url: hist.type === "video" ? r.outputUrl : null,
       })
       .eq("id", hist.id);
+
+    // Auto-save the prompt to the user's library. Best-effort — a failure
+    // here never breaks the generation path.
+    await autoSavePrompt(admin, hist);
 
     return { state: "settled", status: "done", outputUrl: r.outputUrl };
   }

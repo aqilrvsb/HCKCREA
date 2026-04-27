@@ -43,7 +43,7 @@ export async function GET(req: Request) {
   // Stage 1 — settle the rows that are young enough to still be alive on P2
   const { data: rows, error: fetchErr } = await admin
     .from("history")
-    .select("id, user_id, type, status, task_id, duration, cost, created_at")
+    .select("id, user_id, type, tab, status, task_id, duration, cost, prompt, reference_url, project_id, metadata, created_at")
     .eq("status", "pending")
     .not("task_id", "is", null)
     .gte("created_at", cutoffStaleIso)

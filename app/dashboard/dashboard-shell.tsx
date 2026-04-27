@@ -22,6 +22,7 @@ import CreditSection from "./sections/credit";
 import UsageSection from "./sections/usage";
 import SettingsSection from "./sections/settings";
 import DashboardOverview from "./sections/dashboard-overview";
+import SavedPromptsSection from "./sections/saved-prompts";
 import Sidebar, { type Project, type SidebarView } from "./sidebar";
 
 type TabKey = "image" | "video" | "cinema" | "clone" | "auto";
@@ -194,6 +195,7 @@ export default function DashboardShell({
               <UsageSection email={email} />
             </SectionWrap>
           )}
+          {view.kind === "saved-prompts" && <SavedPromptsSection />}
           {view.kind === "settings" && (
             <SectionWrap>
               <SettingsSection email={email} name={name} />
