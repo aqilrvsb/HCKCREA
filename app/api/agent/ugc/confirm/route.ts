@@ -227,6 +227,33 @@ export async function POST(req: Request) {
         history_ids: historyIds,
         cost: totalCost,
       });
+
+      // Save the master plan as a saved_prompts row so the user can revisit
+      // their multi-variant strategy from the Saved Prompts library. One row
+      // per fired batch — bucket "master-ugc" hides media in the library UI.
+      try {
+        const variantSummary = variants
+          .map((v: any, i: number) =>
+            `${i + 1}. [${v.scene || "?"}] ${v.persona || "?"} · hook=${v.hook || "?"} · framework=${v.framework || "?"} · voice=${v.voice || "?"}`
+          )
+          .join("\n");
+        await admin.from("saved_prompts").insert({
+          user_id: user.id,
+          project_id: projectId,
+          bucket: "master-ugc",
+          prompt_text: variantSummary || "(no variants)",
+          model: "veo-3.1",
+          scene_template: `UGC plan · ${variants.length} variants · ${duration}s`,
+          reference_url: productImageUrl || null,
+          duration: is16s ? 16 : 8,
+          aspect_ratio: aspectRatio,
+          cost: totalCost,
+          outcome: "success",
+          source: "agent-ugc",
+        });
+      } catch (e) {
+        console.error("[ugc/confirm] master-plan save failed:", e);
+      }
     } catch (e: any) {
       await admin
         .from("history")

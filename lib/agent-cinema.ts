@@ -368,5 +368,28 @@ export async function confirmAndFireCinema(opts: {
     cost,
   });
 
+  // Save the cinema master prompt as a saved_prompts row (bucket "master-cinema")
+  // so the user can revisit it from the Saved Prompts library — hidden media,
+  // prompt-first card.
+  try {
+    await admin.from("saved_prompts").insert({
+      user_id: opts.userId,
+      project_id: opts.projectId,
+      history_id: hist?.id || null,
+      bucket: "master-cinema",
+      prompt_text: opts.prompt,
+      model: "grok-imagine",
+      scene_template: `Cinema plan · ${duration}s · ${opts.image_mode}`,
+      reference_url: opts.image_url || null,
+      duration,
+      aspect_ratio: opts.aspect_ratio,
+      cost,
+      outcome: "success",
+      source: "agent-cinema",
+    });
+  } catch (e) {
+    console.error("[agent-cinema] master-plan save failed:", e);
+  }
+
   return { ok: true, history_id: hist?.id, cost };
 }
