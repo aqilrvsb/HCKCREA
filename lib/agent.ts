@@ -249,7 +249,10 @@ export async function describeImageForAgent(
         },
       ],
       temperature: 0.2,
-      max_tokens: 400,
+      // Bump for reasoning models that may consume tokens on internal thought
+      // before emitting the description. Non-reasoning models stop early so
+      // no cost penalty.
+      max_tokens: 1500,
     }),
   });
   const json = await res.json().catch(() => null);
@@ -490,7 +493,10 @@ export async function runAgentTurn(opts: LoopOpts): Promise<LoopResult> {
       messages,
       tools: toolDefs,
       temperature: 0.7,
-      maxTokens: 2000,
+      // 4000 covers reasoning models (Kimi K2.6 etc.) that consume tokens on
+      // internal chain-of-thought before producing visible output. Cheaper
+      // models (V3.2) won't use this much, so no waste — they stop early.
+      maxTokens: 4000,
     });
 
     if (!llm.ok || !llm.message) {

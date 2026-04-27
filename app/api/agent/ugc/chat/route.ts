@@ -6,7 +6,9 @@ import { UGC_SYSTEM_PROMPT, UGC_TOOLS } from "@/lib/agent-ugc";
 // Edge runtime: longer timeout for streaming + agent loops with tool calls
 // can take 15-40s. Edge gives us 300s ceiling.
 export const runtime = "nodejs"; // Keep nodejs since lib/p2 + admin client need full Node APIs
-export const maxDuration = 60;
+// V3.2 latency p50 ~8s, agent loop = 2 round trips + tool exec, complex
+// schemas can push past 60s. Vercel Pro allows up to 300s on Node runtime.
+export const maxDuration = 180;
 export const dynamic = "force-dynamic";
 
 // GET /api/agent/ugc/chat?project_id=
