@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { orChatVision } from "@/lib/openrouter";
 
 // Clone Prompt — input: frames + product + mode (ugc|cinema). Output: a
@@ -165,6 +166,33 @@ Return ONLY the prompt text — no JSON wrapping, no commentary, no markdown.`;
       },
       { status: 502 }
     );
+  }
+
+  // Persist each generated prompt to saved_prompts (bucket="clone") so the
+  // user can revisit / re-use past clone sessions. One row per segment.
+  // Failures are silent — never break the response on a logging hiccup.
+  try {
+    const projectId = body?.project_id ? String(body.project_id) : null;
+    const aspectRatio = String(body?.aspect_ratio || "9:16");
+    const admin = createAdminClient();
+    const rows = prompts.map((p, idx) => ({
+      user_id: user.id,
+      project_id: projectId,
+      bucket: "clone",
+      prompt_text: p,
+      model: mode === "cinema" ? "grok-imagine" : "veo-3.1",
+      scene_template: `Cloned ${mode} · seg ${idx + 1}/${prompts.length}`,
+      reference_url: productImageUrl || null,
+      duration: segDur,
+      aspect_ratio: aspectRatio,
+      cost: 0,
+      outcome: "success",
+      starred: false,
+      source: "clone",
+    }));
+    await admin.from("saved_prompts").insert(rows);
+  } catch (e) {
+    console.error("[clone] saved_prompts persist failed:", e);
   }
 
   return NextResponse.json({
