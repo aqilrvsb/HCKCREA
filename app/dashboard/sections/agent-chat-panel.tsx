@@ -389,20 +389,35 @@ export default function AgentChatPanel({
 
   return (
     <>
-      {/* Floating launcher button (bottom-right of viewport, only inside main area) */}
+      {/* Floating launcher (bottom-right). Stacks an AI AGENT badge on top
+          of the launcher button so the user immediately knows what the
+          floating chat circle is. */}
       {!open && (
         <Portal>
-        <button
-          onClick={() => setOpen(true)}
-          className="fixed bottom-6 right-6 z-40 w-14 h-14 rounded-full flex items-center justify-center text-white transition-transform hover:scale-110"
-          style={{
-            background: theme.gradient,
-            boxShadow: `0 8px 24px ${theme.color}66`,
-          }}
-          title={theme.label}
-        >
-          <MessageCircle className="w-6 h-6" strokeWidth={2.4} />
-        </button>
+          <div className="fixed bottom-6 right-6 z-40 flex flex-col items-center gap-1.5">
+            <span
+              className="text-[9px] font-mono font-extrabold uppercase tracking-[0.18em] px-2 py-1 rounded-md"
+              style={{
+                background: `${theme.color}1a`,
+                color: theme.color,
+                border: `1px solid ${theme.color}55`,
+                boxShadow: `0 4px 12px ${theme.color}26`,
+              }}
+            >
+              AI Agent
+            </span>
+            <button
+              onClick={() => setOpen(true)}
+              className="w-14 h-14 rounded-full flex items-center justify-center text-white transition-transform hover:scale-110"
+              style={{
+                background: theme.gradient,
+                boxShadow: `0 8px 24px ${theme.color}66`,
+              }}
+              title={theme.label}
+            >
+              <MessageCircle className="w-6 h-6" strokeWidth={2.4} />
+            </button>
+          </div>
         </Portal>
       )}
 
@@ -542,11 +557,32 @@ export default function AgentChatPanel({
             </div>
           )}
 
-          {/* Input */}
+          {/* Workflow hint — sits above the input so the user always sees
+              the canonical four-step path the agent expects. */}
           <div
-            className="p-3 border-t"
-            style={{ borderColor: "var(--color-border)" }}
+            className="px-3 pt-3"
+            style={{ borderTop: "1px solid var(--color-border)" }}
           >
+            <div
+              className="rounded-lg px-2.5 py-1.5 flex items-center justify-center gap-1.5 text-[9px] font-mono font-extrabold uppercase tracking-[0.12em] flex-wrap"
+              style={{
+                background: `${theme.color}10`,
+                border: `1px solid ${theme.color}33`,
+                color: theme.color,
+              }}
+            >
+              <span>Discuss</span>
+              <span style={{ opacity: 0.5 }}>→</span>
+              <span>Puas Hati</span>
+              <span style={{ opacity: 0.5 }}>→</span>
+              <span>Reply Submit</span>
+              <span style={{ opacity: 0.5 }}>→</span>
+              <span>Approve</span>
+            </div>
+          </div>
+
+          {/* Input */}
+          <div className="p-3">
             <div
               className="rounded-xl flex items-end gap-2 p-2"
               style={{
