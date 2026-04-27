@@ -53,22 +53,31 @@ type ChatMessage = {
   content: string;
   attached_image_url?: string;
   ui_payloads?: any[];
+  // Local-only UI state for inline confirmation cards. Set when the user
+  // clicks Approve/Reject on a confirm_generation payload. Not persisted
+  // — on reload the bubble reverts to "pending" but the actual generation
+  // (if approved + fired) is already in the history grid.
+  approval_state?: "pending" | "firing" | "fired" | "rejected";
+  approval_history_ids?: string[];
+  approval_error?: string;
   ts?: number;
 };
 
 export default function AgentChatPanel({
   tab,
   projectId,
-  onConfirmGeneration,
 }: {
   tab: AgentTab;
   projectId: string | null;
+  // Legacy prop kept for compatibility with existing call sites — they
+  // pass it but the panel no longer uses it. Approval is inline now.
   onConfirmGeneration?: (payload: any) => void;
 }) {
   const theme = TAB_THEME[tab];
 
   const [open, setOpen] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [conversationId, setConversationId] = useState<string>("");
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const [loadingHistory, setLoadingHistory] = useState(false);
@@ -98,9 +107,8 @@ export default function AgentChatPanel({
       const url = `/api/agent/${tab}/chat?project_id=${projectId || ""}`;
       const r = await fetch(url, { cache: "no-store" });
       const j = await r.json();
+      if (j?.conversation_id) setConversationId(j.conversation_id);
       if (j?.ok && Array.isArray(j.messages)) {
-        // Map server messages to UI messages — strip tool/system, keep only
-        // user + assistant text.
         const ui: ChatMessage[] = j.messages
           .filter((m: any) => m.role === "user" || m.role === "assistant")
           .filter((m: any) => m.content || m.attached_image_url)
@@ -158,24 +166,26 @@ export default function AgentChatPanel({
         return;
       }
 
+      if (j?.conversation_id) setConversationId(j.conversation_id);
+
+      // Confirmation requests render INLINE inside the assistant bubble (see
+      // ChatBubble below). No modal popup. Approve/Reject buttons fire when
+      // the user clicks them, calling /api/agent/{tab}/confirm directly.
+      const hasConfirm = (j.ui_payloads || []).some(
+        (p: any) => p?.type === "confirm_generation"
+      );
+
       setMessages((prev) => [
         ...prev,
         {
           role: "assistant",
           content: j.reply || "(no reply)",
           ui_payloads: j.ui_payloads || [],
+          approval_state: hasConfirm ? "pending" : undefined,
         },
       ]);
 
-      // If any UI payload is a confirmation request, pop the dialog
-      const confirmPayload = (j.ui_payloads || []).find(
-        (p: any) => p?.type === "confirm_generation"
-      );
-      if (confirmPayload && onConfirmGeneration) {
-        onConfirmGeneration(confirmPayload);
-      }
-
-      // If a generation was fired, refresh the history grid behind the panel
+      // If a generation was fired (e.g. legacy auto-fire path), refresh
       const fired = (j.ui_payloads || []).find(
         (p: any) => p?.type === "generation_started"
       );
@@ -199,6 +209,120 @@ export default function AgentChatPanel({
       method: "DELETE",
     });
     setMessages([]);
+  }
+
+  // Approve a pending confirm_generation card. Posts the payload to the
+  // tab's confirm endpoint and updates the bubble state so the user sees
+  // the result inline. On success, the conversation auto-clears 2.5s
+  // later — fresh slate for the next session, per user request.
+  async function handleApprove(messageIdx: number, payload: any) {
+    setMessages((prev) =>
+      prev.map((m, i) =>
+        i === messageIdx ? { ...m, approval_state: "firing" } : m
+      )
+    );
+    try {
+      const body =
+        tab === "ugc"
+          ? {
+              project_id: projectId,
+              conversation_id: conversationId,
+              product_image_url: payload.params?.product_image_url || "",
+              product_description: payload.params?.product_description || "",
+              duration: payload.params?.duration || "8",
+              aspect_ratio: payload.params?.aspect_ratio || "9:16",
+              variants: payload.params?.variants || [],
+            }
+          : tab === "cinema"
+            ? {
+                project_id: projectId,
+                conversation_id: conversationId,
+                prompt: payload.params?.prompt || "",
+                image_url: payload.params?.image_url || "",
+                image_mode: payload.params?.image_mode || "text",
+                aspect_ratio: payload.params?.aspect_ratio || "9:16",
+                duration: Number(payload.params?.duration || 8),
+                mood_skill_id: payload.params?.mood_skill_id,
+                director_skill_id: payload.params?.director_skill_id,
+                camera_skill_id: payload.params?.camera_skill_id,
+              }
+            : {
+                // image
+                project_id: projectId,
+                conversation_id: conversationId,
+                prompt: payload.params?.prompt || "",
+                model: payload.params?.model || "nano-banana-pro",
+                reference_urls: payload.params?.reference_urls || [],
+                aspect_ratio: payload.params?.aspect_ratio || "1:1",
+                count: payload.params?.count || 1,
+                photographer_skill_id: payload.params?.photographer_skill_id,
+                brand_skill_id: payload.params?.brand_skill_id,
+                composite_skill_id: payload.params?.composite_skill_id,
+              };
+      const r = await fetch(`/api/agent/${tab}/confirm`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok || !j?.ok) {
+        setMessages((prev) =>
+          prev.map((m, i) =>
+            i === messageIdx
+              ? {
+                  ...m,
+                  approval_state: "pending",
+                  approval_error: j?.error || `HTTP ${r.status}`,
+                }
+              : m
+          )
+        );
+        return;
+      }
+      setMessages((prev) =>
+        prev.map((m, i) =>
+          i === messageIdx
+            ? {
+                ...m,
+                approval_state: "fired",
+                approval_history_ids: j.history_ids || (j.history_id ? [j.history_id] : []),
+              }
+            : m
+        )
+      );
+      window.dispatchEvent(new CustomEvent("history:refresh"));
+
+      // Auto-clear conversation after a short pause so user sees the success.
+      // Fresh slate keeps each generation session focused, per user request.
+      setTimeout(async () => {
+        try {
+          await fetch(`/api/agent/${tab}/chat?project_id=${projectId || ""}`, {
+            method: "DELETE",
+          });
+        } catch {}
+        setMessages([]);
+      }, 2500);
+    } catch (e: any) {
+      setMessages((prev) =>
+        prev.map((m, i) =>
+          i === messageIdx
+            ? {
+                ...m,
+                approval_state: "pending",
+                approval_error: e?.message || "Network error",
+              }
+            : m
+        )
+      );
+    }
+  }
+
+  function handleReject(messageIdx: number) {
+    setMessages((prev) =>
+      prev.map((m, i) =>
+        i === messageIdx ? { ...m, approval_state: "rejected" } : m
+      )
+    );
   }
 
   function handleFile(file: File | null) {
@@ -309,7 +433,13 @@ export default function AgentChatPanel({
               <EmptyState tab={tab} />
             ) : (
               messages.map((m, i) => (
-                <ChatBubble key={i} message={m} theme={theme} />
+                <ChatBubble
+                  key={i}
+                  message={m}
+                  theme={theme}
+                  onApprove={(payload) => handleApprove(i, payload)}
+                  onReject={() => handleReject(i)}
+                />
               ))
             )}
             {busy && (
@@ -429,11 +559,18 @@ export default function AgentChatPanel({
 function ChatBubble({
   message,
   theme,
+  onApprove,
+  onReject,
 }: {
   message: ChatMessage;
   theme: { color: string; gradient: string; emoji: string };
+  onApprove?: (payload: any) => void;
+  onReject?: () => void;
 }) {
   const isUser = message.role === "user";
+  const confirmPayload = message.ui_payloads?.find(
+    (p: any) => p?.type === "confirm_generation"
+  );
 
   return (
     <div className={`flex ${isUser ? "justify-end" : "justify-start"} gap-2`}>
@@ -470,7 +607,21 @@ function ChatBubble({
         )}
         <div className="whitespace-pre-wrap">{message.content}</div>
 
-        {/* UI payloads — generation_started cards */}
+        {/* Inline confirmation card — replaces the modal popup. State drives
+            which buttons / status are shown. */}
+        {confirmPayload && (
+          <InlineConfirmCard
+            payload={confirmPayload}
+            state={message.approval_state || "pending"}
+            historyIds={message.approval_history_ids}
+            error={message.approval_error}
+            theme={theme}
+            onApprove={() => onApprove?.(confirmPayload)}
+            onReject={() => onReject?.()}
+          />
+        )}
+
+        {/* Legacy generation_started payload (e.g. fired without confirm) */}
         {message.ui_payloads?.map((p: any, i: number) =>
           p?.type === "generation_started" ? (
             <div
@@ -492,6 +643,139 @@ function ChatBubble({
             </div>
           ) : null
         )}
+      </div>
+    </div>
+  );
+}
+
+function InlineConfirmCard({
+  payload,
+  state,
+  historyIds,
+  error,
+  theme,
+  onApprove,
+  onReject,
+}: {
+  payload: any;
+  state: "pending" | "firing" | "fired" | "rejected";
+  historyIds?: string[];
+  error?: string;
+  theme: { color: string; gradient: string };
+  onApprove: () => void;
+  onReject: () => void;
+}) {
+  const cost = Number(payload.estimated_cost || 0).toFixed(2);
+  const bucket = payload.bucket as "image" | "ugc" | "cinema";
+  const params = payload.params || {};
+  // Build a one-line summary depending on bucket
+  let summary = "";
+  if (bucket === "image") {
+    summary = `${params.count || 1} image${(params.count || 1) > 1 ? "s" : ""} · ${params.model || "nano-banana-pro"}`;
+  } else if (bucket === "ugc") {
+    const variantCount = Array.isArray(params.variants) ? params.variants.length : 0;
+    summary = `${variantCount} UGC video${variantCount > 1 ? "s" : ""} · ${params.duration || 8}s · ${params.aspect_ratio || "9:16"}`;
+  } else if (bucket === "cinema") {
+    summary = `Cinema clip · ${params.duration || 8}s · ${params.image_mode === "image" ? "image-to-video" : "text-to-video"}`;
+  }
+
+  if (state === "fired") {
+    return (
+      <div
+        className="mt-2 rounded-lg p-2.5"
+        style={{
+          background: "rgba(34,197,94,0.12)",
+          border: "1px solid rgba(34,197,94,0.3)",
+        }}
+      >
+        <div className="flex items-center gap-1.5 text-[10px] font-extrabold uppercase tracking-wider text-green-500">
+          <CheckCircle2 className="w-3 h-3" />
+          Generation started
+        </div>
+        <div className="text-[10px] mt-1 text-[var(--color-text-secondary)]">
+          {historyIds?.length || 1} item{(historyIds?.length || 1) > 1 ? "s" : ""} · RM {cost}
+        </div>
+      </div>
+    );
+  }
+
+  if (state === "rejected") {
+    return (
+      <div
+        className="mt-2 rounded-lg p-2.5"
+        style={{
+          background: "rgba(239,68,68,0.08)",
+          border: "1px solid rgba(239,68,68,0.25)",
+        }}
+      >
+        <div className="text-[10px] font-bold uppercase tracking-wider text-red-400">
+          Cancelled
+        </div>
+        <div className="text-[10px] mt-1 text-[var(--color-text-muted)]">
+          Beritahu apa nak ubah, tulis SUBMIT bila dah ok.
+        </div>
+      </div>
+    );
+  }
+
+  // pending or firing
+  return (
+    <div
+      className="mt-2 rounded-lg p-3"
+      style={{
+        background: `${theme.color}10`,
+        border: `1px solid ${theme.color}40`,
+      }}
+    >
+      <div className="flex items-center gap-1.5 mb-1.5">
+        <Sparkles className="w-3 h-3" style={{ color: theme.color }} />
+        <span
+          className="text-[10px] font-extrabold uppercase tracking-wider"
+          style={{ color: theme.color }}
+        >
+          Confirm to generate
+        </span>
+      </div>
+      <div className="text-[11px] font-semibold text-[var(--color-text-primary)] mb-1">
+        {summary}
+      </div>
+      <div className="text-[10px] text-[var(--color-text-secondary)] mb-2.5">
+        Estimated cost: <span className="font-bold">RM {cost}</span>
+      </div>
+      {error && (
+        <div className="text-[10px] text-red-400 mb-2">⚠️ {error}</div>
+      )}
+      <div className="flex items-center gap-2">
+        <button
+          onClick={onReject}
+          disabled={state === "firing"}
+          className="flex-1 py-1.5 rounded text-[10px] font-bold uppercase tracking-wider disabled:opacity-50"
+          style={{
+            background: "var(--color-bg-card)",
+            border: "1px solid var(--color-border)",
+            color: "var(--color-text-secondary)",
+          }}
+        >
+          Reject
+        </button>
+        <button
+          onClick={onApprove}
+          disabled={state === "firing"}
+          className="flex-1 py-1.5 rounded text-[10px] font-extrabold uppercase tracking-wider text-white disabled:opacity-50 inline-flex items-center justify-center gap-1.5"
+          style={{
+            background: theme.gradient,
+            boxShadow: `0 2px 6px ${theme.color}66`,
+          }}
+        >
+          {state === "firing" ? (
+            <>
+              <Loader2 className="w-3 h-3 animate-spin" />
+              Firing…
+            </>
+          ) : (
+            <>Approve</>
+          )}
+        </button>
       </div>
     </div>
   );

@@ -5,7 +5,6 @@ import { Loader2, X, Film } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import Portal from "../sections/portal";
 import AgentChatPanel from "../sections/agent-chat-panel";
-import ConfirmCinemaDialog from "../sections/confirm-cinema-dialog";
 
 // Cinema — Grok Imagine via Crun.ai. Two image modes (Text to Video,
 // Image to Video), duration slider 6-30s, resolution 480p|720p, mode
@@ -19,8 +18,6 @@ const PURPLE_SOFT = "rgba(124, 77, 255, 0.18)";
 const PURPLE_FAINT = "rgba(124, 77, 255, 0.06)";
 
 export default function CinemaTab({ projectId }: { projectId?: string } = {}) {
-  const [agentConfirmPayload, setAgentConfirmPayload] = useState<any>(null);
-  const [agentConversationId, setAgentConversationId] = useState<string>("");
   const [imageMode, setImageMode] = useState<ImageMode>("text");
   const [refImage, setRefImage] = useState("");
   const [prompt, setPrompt] = useState("");
@@ -347,32 +344,8 @@ export default function CinemaTab({ projectId }: { projectId?: string } = {}) {
         />
       )}
 
-      {/* Cinema Agent — floating chat panel + confirmation dialog */}
-      <AgentChatPanel
-        tab="cinema"
-        projectId={projectId || null}
-        onConfirmGeneration={(payload) => {
-          setAgentConfirmPayload(payload);
-          fetch(`/api/agent/cinema/chat?project_id=${projectId || ""}`, { cache: "no-store" })
-            .then((r) => r.json())
-            .then((j) => {
-              if (j?.conversation_id) setAgentConversationId(j.conversation_id);
-            })
-            .catch(() => {});
-        }}
-      />
-      {agentConfirmPayload && (
-        <ConfirmCinemaDialog
-          payload={agentConfirmPayload}
-          conversationId={agentConversationId}
-          projectId={projectId || null}
-          onClose={() => setAgentConfirmPayload(null)}
-          onFired={() => {
-            setAgentConfirmPayload(null);
-            window.dispatchEvent(new CustomEvent("history:refresh"));
-          }}
-        />
-      )}
+      {/* Cinema Agent — floating chat panel. Approve/Reject is inline now. */}
+      <AgentChatPanel tab="cinema" projectId={projectId || null} />
     </div>
   );
 }
