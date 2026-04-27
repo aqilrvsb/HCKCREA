@@ -39,7 +39,7 @@ const TABS: { key: TabKey; label: string; icon: any; tag: string }[] = [
 export default function DashboardShell({
   email,
   name,
-  credits,
+  credits: initialCredits,
   planActive,
   planExpiresAt,
 }: {
@@ -54,6 +54,33 @@ export default function DashboardShell({
   const [projectsLoaded, setProjectsLoaded] = useState(false);
   const [view, setView] = useState<SidebarView>({ kind: "dashboard" });
   const [activeTab, setActiveTab] = useState<TabKey>("image");
+
+  // Live credit balance — initialised from the server-rendered prop, then
+  // refreshed via /api/me/credits whenever a generation settles or the user
+  // fires a new gen. Two triggers:
+  //   1. `history:refresh` event (dispatched by retry / submit / approve)
+  //   2. 30s interval backstop — catches webhook-driven deductions that
+  //      happen without a front-end action (P2 webhook → settle → deduct).
+  const [credits, setCredits] = useState<number>(initialCredits);
+  useEffect(() => {
+    let cancelled = false;
+    const refresh = async () => {
+      try {
+        const r = await fetch("/api/me/credits", { cache: "no-store" });
+        const d = await r.json();
+        if (!cancelled && r.ok && d?.ok) setCredits(Number(d.credits || 0));
+      } catch {
+        // Silent — stale display is fine until the next tick.
+      }
+    };
+    window.addEventListener("history:refresh", refresh);
+    const id = setInterval(refresh, 30_000);
+    return () => {
+      cancelled = true;
+      window.removeEventListener("history:refresh", refresh);
+      clearInterval(id);
+    };
+  }, []);
 
   // Initial fetch — list projects only. Don't auto-select; the user picks
   // which project to open from the sidebar.

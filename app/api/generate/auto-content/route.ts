@@ -914,6 +914,34 @@ CRITICAL: Respond with ONLY a JSON array. NO analysis, NO explanation, NO markdo
     .select()
     .single();
 
+  // Persist the master plan as a saved_prompts row in bucket "master-auto"
+  // so the user can revisit / star it from the Saved Prompts library.
+  // Best-effort — failure here never breaks the generation path.
+  try {
+    const planSummary = plans
+      .map(
+        (p, i) =>
+          `Video ${i + 1} — ${p.framework}\n  hook: ${p.hookAngle || "?"}\n  emotion: ${p.targetEmotion || "?"}\n  cover: ${p.coverTitle || "—"} / ${p.coverSubtitle || "—"}\n  shot1: ${(p.videoPromptShot1 || "").substring(0, 200)}…`
+      )
+      .join("\n\n");
+    await admin.from("saved_prompts").insert({
+      user_id: user.id,
+      project_id: projectId,
+      bucket: "master-auto",
+      prompt_text: planSummary || "(empty plan)",
+      model: "veo-3.1",
+      scene_template: `Auto Content plan · ${plans.length} videos · ${durationMode}s · ${ctaMode}`,
+      reference_url: productImageUrl || null,
+      duration: durationMode === "16" ? 16 : 8,
+      aspect_ratio: aspectRatio,
+      cost: videoRate * plans.length,
+      outcome: "success",
+      source: "auto-content",
+    });
+  } catch (e) {
+    console.error("[auto-content] master-plan saved_prompts insert failed:", e);
+  }
+
   // Build the prompt sent to Veo from the plan's per-shot prompts. For 16s
   // we concatenate Shot 1 and Shot 2 with a clear timeline header — the
   // extension generates them as separate 8s clips and ffmpeg-merges them,

@@ -556,21 +556,17 @@ function HistoryCard({
   }
 
   async function handleRetry() {
-    if (!item.prompt) {
-      alert("Tiada prompt asal — sila gunakan form untuk re-generate.");
-      return;
-    }
+    // /api/history/retry re-fires the SAME row in place — keeps the same
+    // history_id, original prompt, original reference image, original model
+    // (read from metadata so admin model rotations don't break retries).
+    // Status flips failed → pending immediately so the card morphs back into
+    // a Generating state without disappearing or duplicating.
     setChecking(true);
     try {
-      const endpoint = isImage ? "/api/generate/image" : "/api/generate/video";
-      const r = await fetch(endpoint, {
+      const r = await fetch("/api/history/retry", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          prompt: item.prompt,
-          reference_url: item.reference_url || undefined,
-          duration: item.duration || 8,
-        }),
+        body: JSON.stringify({ history_id: item.id }),
       });
       const d = await r.json();
       if (!r.ok || !d?.ok) {
