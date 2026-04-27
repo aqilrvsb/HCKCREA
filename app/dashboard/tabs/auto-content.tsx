@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Loader2, Wand2, X, Info } from "lucide-react";
+import { Loader2, Wand2, X, Info, Square } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import Portal from "../sections/portal";
 import {
@@ -69,6 +69,9 @@ export default function AutoContentTab({ projectId }: { projectId?: string } = {
   // Modals
   const [infoFw, setInfoFw] = useState<Framework | null>(null);
   const [pickerSlot, setPickerSlot] = useState<number | null>(null);
+
+  // Aborts the in-flight planning fetch when the user hits Stop.
+  const abortRef = useRef<AbortController | null>(null);
 
   // Ensure manualProducts array always matches unitCount
   useEffect(() => {
@@ -230,12 +233,14 @@ export default function AutoContentTab({ projectId }: { projectId?: string } = {
 
       pushLog(planMode === "manual"
         ? "Skipping master plan (using your JSON)…"
-        : "Master plan via deepseek vision…");
+        : "Generating master plan…");
 
+      abortRef.current = new AbortController();
       const r = await fetch("/api/generate/auto-content", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
+        signal: abortRef.current.signal,
       });
       const d = await r.json();
       if (!r.ok || !d?.ok) {
@@ -259,16 +264,30 @@ export default function AutoContentTab({ projectId }: { projectId?: string } = {
       setStatus("idle");
       window.dispatchEvent(new CustomEvent("history:refresh"));
     } catch (e: any) {
+      // User-initiated cancel — keep UX quiet.
+      if (e?.name === "AbortError") {
+        pushLog("Stopped by user.");
+        setStatus("idle");
+        return;
+      }
       pushLog(`✗ ${e?.message || "Network error"}`);
       setError(e?.message || "Network error");
       setStatus("failed");
+    } finally {
+      abortRef.current = null;
     }
+  }
+
+  function stop() {
+    abortRef.current?.abort();
+    abortRef.current = null;
   }
 
   async function approveVerifyPlan() {
     if (!pendingPlan || !pendingPayload) return;
     setStatus("generating");
     pushLog("Plan approved — firing Veo generations…");
+    abortRef.current = new AbortController();
     try {
       const r = await fetch("/api/generate/auto-content/approve", {
         method: "POST",
@@ -278,6 +297,7 @@ export default function AutoContentTab({ projectId }: { projectId?: string } = {
           preset_plan: pendingPlan,
           plan_mode: "approved",
         }),
+        signal: abortRef.current.signal,
       });
       const d = await r.json();
       if (!r.ok || !d?.ok) {
@@ -292,9 +312,16 @@ export default function AutoContentTab({ projectId }: { projectId?: string } = {
       setStatus("idle");
       window.dispatchEvent(new CustomEvent("history:refresh"));
     } catch (e: any) {
+      if (e?.name === "AbortError") {
+        pushLog("Stopped by user.");
+        setStatus("verifying");
+        return;
+      }
       pushLog(`✗ ${e?.message || "Network error"}`);
       setError(e?.message || "Network error");
       setStatus("failed");
+    } finally {
+      abortRef.current = null;
     }
   }
 
@@ -571,6 +598,21 @@ export default function AutoContentTab({ projectId }: { projectId?: string } = {
               <>🎬 {planMode === "verify" ? "Plan + Review" : "Generate"}</>
             )}
           </button>
+          {busy && (
+            <button
+              type="button"
+              onClick={stop}
+              title="Stop"
+              className="h-11 w-11 rounded-xl flex items-center justify-center transition-all hover:-translate-y-0.5"
+              style={{
+                background: "rgba(244,67,54,0.08)",
+                border: "1px solid rgba(244,67,54,0.4)",
+                color: "#c62828",
+              }}
+            >
+              <Square className="w-4 h-4" fill="#c62828" strokeWidth={0} />
+            </button>
+          )}
         </div>
 
         {error && (
