@@ -26,6 +26,7 @@ import {
   Flame,
 } from "lucide-react";
 import Countdown from "./components/countdown";
+import LazyVideo from "./components/lazy-video";
 
 // Dynamic-import every below-the-fold client component so they don't bloat
 // the first-5s payload. Each has "use client" of its own and ships as a
@@ -779,10 +780,8 @@ export default function Home() {
                     key={i}
                     className="flex-1 aspect-[9/16] max-w-[80px] rounded-xl overflow-hidden border border-white/10 shadow-md bg-black relative"
                   >
-                    <video
+                    <LazyVideo
                       src={`https://zoxgcqlqovkvlrmpcikt.supabase.co/storage/v1/object/public/demos/${v.src}#t=1`}
-                      preload="none"
-                      poster=""
                       muted
                       playsInline
                       className="w-full h-full object-cover"

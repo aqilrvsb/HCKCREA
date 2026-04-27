@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Sparkles, Play, X } from "lucide-react";
 import manifestData from "../../public/demos/manifest.json";
+import LazyVideo from "./lazy-video";
 
 // Intersection-observer gate — the section renders empty until it scrolls
 // near the viewport, then mounts the full reel. Saves 16 video-metadata
@@ -145,10 +146,8 @@ export default function DemoReel() {
                     className="group text-left rounded-2xl overflow-hidden border-2 border-[var(--color-border)] hover:border-orange-300 hover:-translate-y-0.5 transition-all"
                   >
                     <div className="aspect-[9/16] bg-black relative">
-                      <video
+                      <LazyVideo
                         src={v.file + "#t=1"}
-                        preload="none"
-                        poster=""
                         muted
                         playsInline
                         className="w-full h-full object-cover"
