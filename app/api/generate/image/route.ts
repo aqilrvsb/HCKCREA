@@ -2,26 +2,30 @@ import { NextResponse, after } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { p2CreateTask } from "@/lib/p2";
-import { priceAndCheck } from "@/lib/deduct";
+import { priceFor } from "@/lib/deduct";
 import { getP2Config } from "@/lib/settings";
 
-// POST /api/generate/image — placeholder-first.
+// POST /api/generate/image — placeholder-first, hot-path optimized.
 //
-// Old flow:  pre-check → call Crun (~1-2s) → insert row → return  (~2-3s perceived)
-// New flow:  pre-check → insert placeholder → return → after() calls Crun & updates row
+// Old flow:  getUser (~500-1000ms) → priceAndCheck (~300ms) → Crun (~1-2s)
+//            → insert row → return  (~2-3s perceived)
+// New flow:  getSession (local, ~5ms) → insert placeholder → return
+//            → after() runs priceFor + Crun + row update  (~300-500ms perceived)
 //
-// User sees the placeholder card the moment Vercel responds (~300ms typical).
-// The Crun create_task call happens on the same Vercel function invocation,
-// just *after* the response is sent — Next.js `after()` keeps the function
-// alive until the work completes.
+// Auth is the cookie-local getSession() call (no Supabase API roundtrip).
+// Funds check is dropped on the hot path — the dashboard nav gate already
+// blocks users with credits below RM1 from reaching the tab, so by the time
+// a Generate click reaches us, funds are guaranteed sufficient. priceFor
+// runs in after() purely to set the correct cost on the placeholder row
+// for accurate deduction at settle time.
 //
-// If Crun create fails, the row is flipped to status='failed' with the upstream
-// error so the user sees a useful message on the card instead of forever-spin.
+// If Crun create fails, the row flips to 'failed' with the upstream error.
 // pg_cron's 10-min stale cutoff is the final safety net for any orphan rows.
 
 export async function POST(req: Request) {
   const sb = await createClient();
-  const { data: { user } } = await sb.auth.getUser();
+  const { data: { session } } = await sb.auth.getSession();
+  const user = session?.user;
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const body = await req.json().catch(() => ({}));
@@ -36,23 +40,7 @@ export async function POST(req: Request) {
 
   if (!prompt) return NextResponse.json({ error: "Prompt required" }, { status: 400 });
 
-  // Pre-flight credit check (sync — must reject before placeholder is shown
-  // if user can't afford it, otherwise they'd see a placeholder that fails
-  // for a non-actionable reason)
-  const { rate: cost, hasFunds } = await priceAndCheck(user.id, "image_generate");
-  if (!hasFunds) {
-    return NextResponse.json(
-      { error: "Kredit tak cukup. Top up dulu." },
-      { status: 402 }
-    );
-  }
-
-  // Resolve model registry (sync — config read is cached, ~1ms)
-  const cfg = await getP2Config();
-  const modelKey = requestedModel || cfg.imageDefault || "nano-banana-pro";
-  const modelId = (cfg.imageModels as any)?.[modelKey] || modelKey;
-
-  // Insert placeholder NOW. task_id stays null until after() fires Crun.
+  // Insert placeholder NOW. task_id + cost both populated in after().
   // poll-pending's Stage-1 query requires task_id IS NOT NULL, so this row
   // won't be re-polled before after() updates it. The 10-min stale cutoff
   // catches it if after() never runs (Vercel kill, exception, etc).
@@ -68,9 +56,8 @@ export async function POST(req: Request) {
       prompt,
       reference_url: referenceUrl,
       task_id: null,
-      cost,
+      cost: 0, // overwritten with the plan-correct rate by after()
       metadata: {
-        model: modelKey,
         aspectRatio,
         upload_status: "queued",
       },
@@ -88,11 +75,20 @@ export async function POST(req: Request) {
   const historyId = hist.id;
   const imageUrls = referenceUrls.length ? referenceUrls : (referenceUrl ? [referenceUrl] : []);
 
-  // Background work — Crun create_task + row update. Runs after the response
-  // is sent to the client. Failure here flips the row to 'failed' with the
-  // error message so the dashboard card shows a useful state.
+  // Background work — model resolution + plan rate + Crun create_task + row
+  // update. All of this runs after the response is sent to the client, on
+  // the same Vercel function invocation (Next.js after() keeps it alive).
+  // Failure flips the row to 'failed' with the error so the card shows a
+  // useful state.
   after(async () => {
     try {
+      const [cfg, rate] = await Promise.all([
+        getP2Config(),
+        priceFor(user.id, "image_generate"),
+      ]);
+      const modelKey = requestedModel || cfg.imageDefault || "nano-banana-pro";
+      const modelId = (cfg.imageModels as any)?.[modelKey] || modelKey;
+
       const created = await p2CreateTask({
         model: modelId,
         prompt,
@@ -105,6 +101,7 @@ export async function POST(req: Request) {
           .from("history")
           .update({
             status: "failed",
+            cost: rate,
             error_message: created.error || "P2 create failed",
             metadata: {
               model: modelKey,
@@ -120,6 +117,7 @@ export async function POST(req: Request) {
         .from("history")
         .update({
           task_id: created.task_id,
+          cost: rate,
           metadata: {
             model: modelKey,
             aspectRatio,
@@ -134,7 +132,6 @@ export async function POST(req: Request) {
           status: "failed",
           error_message: e?.message || "Background error",
           metadata: {
-            model: modelKey,
             aspectRatio,
             upload_status: "failed",
           },
@@ -143,11 +140,10 @@ export async function POST(req: Request) {
     }
   });
 
-  // Return immediately — placeholder is already in the DB, dashboard refresh
-  // event will paint the spinner card within ~30s of the next client poll.
+  // Return immediately — placeholder is in the DB, dashboard refresh
+  // event will paint the spinner card on the next client poll.
   return NextResponse.json({
     ok: true,
     history_id: historyId,
-    cost,
   });
 }
