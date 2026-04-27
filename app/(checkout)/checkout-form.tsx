@@ -122,8 +122,8 @@ export default function CheckoutForm() {
                 (untuk login + support)
               </span>
             </label>
-            <div className="flex items-stretch w-full bg-white border border-[var(--color-border)] rounded-[14px] overflow-hidden focus-within:border-[var(--color-orange)] focus-within:shadow-[0_0_0_3px_rgba(255,107,53,0.12)] transition-all">
-              <div className="flex items-center justify-center px-4 text-sm font-semibold text-[var(--color-text-secondary)] bg-[var(--color-bg-soft,#faf7f2)] border-r border-[var(--color-border)] select-none">
+            <div className="flex items-stretch w-full bg-[var(--color-bg-card)] border border-[var(--color-border)] rounded-[14px] overflow-hidden focus-within:border-[var(--color-orange)] focus-within:shadow-[0_0_0_3px_rgba(255,107,53,0.12)] transition-all">
+              <div className="flex items-center justify-center px-4 text-sm font-semibold text-[var(--color-text-secondary)] bg-[var(--color-bg)] border-r border-[var(--color-border)] select-none">
                 +60
               </div>
               <input
