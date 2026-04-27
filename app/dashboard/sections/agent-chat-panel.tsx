@@ -119,11 +119,24 @@ export default function AgentChatPanel({
       if (j?.ok && Array.isArray(j.messages)) {
         const ui: ChatMessage[] = j.messages
           .filter((m: any) => m.role === "user" || m.role === "assistant")
-          .filter((m: any) => m.content || m.attached_image_url)
+          // Drop intermediate tool-call iterations the agent loop persisted
+          // (assistant turns with tool_calls but no user-visible text). Those
+          // would otherwise render as empty bot bubbles. We require either
+          // non-trivial text content, an attached image, or at least one
+          // visible UI payload (confirm_generation / generation_started).
+          .filter((m: any) => {
+            const text = typeof m.content === "string" ? m.content.trim() : "";
+            const hasText = text.length > 0;
+            const hasImage = !!m.attached_image_url;
+            const hasPayload =
+              Array.isArray(m.ui_payloads) && m.ui_payloads.length > 0;
+            return hasText || hasImage || hasPayload;
+          })
           .map((m: any) => ({
             role: m.role,
-            content: m.content || "",
+            content: typeof m.content === "string" ? m.content : "",
             attached_image_url: m.attached_image_url,
+            ui_payloads: Array.isArray(m.ui_payloads) ? m.ui_payloads : undefined,
           }));
         setMessages(ui);
       } else {
@@ -621,6 +634,16 @@ function ChatBubble({
   const confirmPayload = message.ui_payloads?.find(
     (p: any) => p?.type === "confirm_generation"
   );
+
+  // Skip render if there's nothing visible. Agent loop iterations with
+  // tool calls (no text content, no payload, no image) would otherwise
+  // render as a lonely bot avatar with an empty bubble.
+  const text = (message.content || "").trim();
+  const hasPayload = (message.ui_payloads?.length ?? 0) > 0;
+  const hasImage = !!message.attached_image_url;
+  if (!text && !hasPayload && !hasImage) {
+    return null;
+  }
 
   return (
     <div className={`flex ${isUser ? "justify-end" : "justify-start"} gap-2`}>
