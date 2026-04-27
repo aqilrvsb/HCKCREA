@@ -49,7 +49,15 @@ const SERIES = [
 export default function DashboardOverview({ name }: { name: string }) {
   const today = new Date();
   const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
-  const fmt = (d: Date) => d.toISOString().slice(0, 10);
+  // fmt MUST use local getters, not toISOString(). On UTC+8 (Malaysia),
+  // toISOString() of "April 1 00:00 local" = "March 31 16:00 UTC" → "2026-03-31"
+  // which is wrong. Local getters give the user's actual date.
+  const fmt = (d: Date) => {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
+    return `${y}-${m}-${day}`;
+  };
 
   const [start, setStart] = useState(fmt(monthStart));
   const [end, setEnd] = useState(fmt(today));
