@@ -93,13 +93,30 @@ export default function ImageTab({ projectId }: { projectId?: string } = {}) {
   // settle pending rows. We just dispatch history:refresh after submit so
   // the placeholder appears immediately.
 
-  // Local preview only — no network call. Files are kept as data URLs and
-  // uploaded to RunningHub at submit time (so a discarded preview never
-  // wastes RH bandwidth).
+  // Eager-upload: file pick → instant data: preview → background upload to
+  // RunningHub. By the time the user clicks Generate, the state already
+  // holds the public RH URL (so submit's ensurePublicUrl is a no-op and the
+  // generate POST fires immediately). If the upload fails, the data: URL
+  // stays in state and ensurePublicUrl will retry at submit time.
   function readFile(f: File | null, set: (s: string) => void) {
     if (!f) return;
     const reader = new FileReader();
-    reader.onload = () => set(String(reader.result || ""));
+    reader.onload = () => {
+      const dataUrl = String(reader.result || "");
+      set(dataUrl);
+      // Kick off background upload — fire-and-forget, swap state when ready
+      (async () => {
+        try {
+          const fd = new FormData();
+          fd.append("file", f, f.name || "upload.png");
+          const r = await fetch("/api/upload/image", { method: "POST", body: fd });
+          const d = await r.json();
+          if (r.ok && d?.url) set(d.url);
+        } catch {
+          // Silent — keep data: URL; submit's ensurePublicUrl handles retry
+        }
+      })();
+    };
     reader.readAsDataURL(f);
   }
 

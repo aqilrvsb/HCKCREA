@@ -54,10 +54,25 @@ export default function CinemaTab({ projectId }: { projectId?: string } = {}) {
 
   const cost = ratePerSec != null ? duration * ratePerSec : null;
 
+  // Eager-upload: file pick → instant data: preview → background upload to
+  // RunningHub. By submit time, refImage holds the public URL.
   function readFile(f: File | null) {
     if (!f) return;
     const reader = new FileReader();
-    reader.onload = () => setRefImage(String(reader.result || ""));
+    reader.onload = () => {
+      setRefImage(String(reader.result || ""));
+      (async () => {
+        try {
+          const fd = new FormData();
+          fd.append("file", f, f.name || "upload.png");
+          const r = await fetch("/api/upload/image", { method: "POST", body: fd });
+          const d = await r.json();
+          if (r.ok && d?.url) setRefImage(d.url);
+        } catch {
+          // Silent — submit's ensurePublicUrl handles retry
+        }
+      })();
+    };
     reader.readAsDataURL(f);
   }
 

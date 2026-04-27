@@ -75,10 +75,26 @@ export default function VideoTab({ projectId }: { projectId?: string } = {}) {
 
   // Local preview only — no network call. Uploaded to RunningHub at submit
   // time so a discarded preview never wastes RH bandwidth.
+  // Eager-upload: file pick → instant data: preview → background upload to
+  // RunningHub. Public URL replaces the data: URL once it lands, so submit
+  // doesn't have to wait for the upload round-trip on click.
   function readFile(f: File | null, set: (s: string) => void) {
     if (!f) return;
     const reader = new FileReader();
-    reader.onload = () => set(String(reader.result || ""));
+    reader.onload = () => {
+      set(String(reader.result || ""));
+      (async () => {
+        try {
+          const fd = new FormData();
+          fd.append("file", f, f.name || "upload.png");
+          const r = await fetch("/api/upload/image", { method: "POST", body: fd });
+          const d = await r.json();
+          if (r.ok && d?.url) set(d.url);
+        } catch {
+          // Silent — submit's ensurePublicUrl handles retry
+        }
+      })();
+    };
     reader.readAsDataURL(f);
   }
 

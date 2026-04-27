@@ -107,6 +107,9 @@ export default function AutoContentTab({ projectId }: { projectId?: string } = {
     });
   }
 
+  // Eager-upload: file pick → instant data: preview → background upload to
+  // RunningHub. By submit time, imageData on each manual product holds the
+  // public URL so ensurePublicUrl is a no-op for the hot path.
   function pickFileForManual(idx: number, f: File | null) {
     if (!f) return;
     const reader = new FileReader();
@@ -114,6 +117,21 @@ export default function AutoContentTab({ projectId }: { projectId?: string } = {
       setManualProducts((prev) =>
         prev.map((p, i) => (i === idx ? { ...p, imageData: String(reader.result || "") } : p))
       );
+      (async () => {
+        try {
+          const fd = new FormData();
+          fd.append("file", f, f.name || "upload.png");
+          const r = await fetch("/api/upload/image", { method: "POST", body: fd });
+          const d = await r.json();
+          if (r.ok && d?.url) {
+            setManualProducts((prev) =>
+              prev.map((p, i) => (i === idx ? { ...p, imageData: d.url } : p))
+            );
+          }
+        } catch {
+          // Silent — submit's ensurePublicUrl handles retry
+        }
+      })();
     };
     reader.readAsDataURL(f);
   }
