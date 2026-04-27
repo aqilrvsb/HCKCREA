@@ -21,6 +21,7 @@ import {
 import { createClient } from "@/lib/supabase/client";
 import Portal from "./portal";
 import ExtendDialog from "./extend-dialog";
+import LazyVideo from "@/app/components/lazy-video";
 
 export type HistoryItem = {
   id: string;
@@ -410,9 +411,8 @@ function HistoryCard({ item }: { item: HistoryItem }) {
               />
             )}
             {isVideo && (
-              <video
-                src={item.output_url + "#t=0.5"}
-                preload="metadata"
+              <LazyVideo
+                src={item.output_url + "#t=1"}
                 muted
                 playsInline
                 className="w-full h-full object-cover cursor-pointer"
