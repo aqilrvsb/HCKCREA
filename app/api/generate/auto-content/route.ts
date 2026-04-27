@@ -28,9 +28,8 @@ import {
 //   cta_mode (shop|custom|none), custom_cta?, project_id?
 export async function POST(req: Request) {
   const sb = await createClient();
-  const {
-    data: { user },
-  } = await sb.auth.getUser();
+  const { data: { session } } = await sb.auth.getSession();
+  const user = session?.user;
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const body = await req.json().catch(() => ({}));
