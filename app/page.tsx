@@ -103,10 +103,6 @@ const FAQ = [
     a: "Ya. Tiada kontrak, tiada drama. Cancel terus dari dashboard. Kredit yang dah ada tetap boleh guna sampai habis.",
   },
   {
-    q: "Kalau video tak best, ada money-back?",
-    a: "Ada 30-day money back guarantee. Kalau anda rasa tak berbaloi, email kami dalam 30 hari, refund penuh — tiada soalan.",
-  },
-  {
     q: "Wajib kena guna TikTok Shop ke?",
     a: "Tidak wajib. Anda boleh upload gambar produk sendiri. PeningLab akan generate video UGC walaupun anda tak ada link TikTok Shop. Sesuai untuk Shopee, Lazada, IG Shop, atau brand sendiri.",
   },
