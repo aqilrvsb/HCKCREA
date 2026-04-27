@@ -40,10 +40,18 @@ export async function POST(req: Request) {
   // "product" → skip vision, pass straight to Grok as i2v reference.
   const imageRole: "general" | "product" =
     body?.image_role === "product" ? "product" : "general";
+  // Plain-text USP / description that came in alongside a product image.
+  // Folded into the user turn so the LLM can anchor the prompt on it.
+  const productUsp = String(body?.product_usp || "").trim();
 
   if (!userText && !attachedImageUrl) {
     return NextResponse.json({ error: "Empty message" }, { status: 400 });
   }
+
+  const finalUserText =
+    imageRole === "product" && productUsp
+      ? `[Product reference attached. USP / description:\n${productUsp}\n]\n\n${userText}`
+      : userText;
 
   if (attachedImageUrl.startsWith("data:")) {
     try {
@@ -68,7 +76,7 @@ export async function POST(req: Request) {
     tab: "cinema",
     systemPrompt: CINEMA_SYSTEM_PROMPT,
     tools: CINEMA_TOOLS,
-    userText,
+    userText: finalUserText,
     attachedImageUrl: attachedImageUrl || undefined,
     attachedImageRole: imageRole,
   });

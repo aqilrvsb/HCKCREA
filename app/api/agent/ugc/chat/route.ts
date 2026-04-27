@@ -52,10 +52,21 @@ export async function POST(req: Request) {
   // "general" (or omitted) → existing behaviour with vision describe.
   const imageRole: "general" | "product" =
     body?.image_role === "product" ? "product" : "general";
+  // Optional plain-text USP / description the user typed alongside a
+  // product reference. Surfaced into the agent's user turn so the LLM
+  // has explicit context (price, claims, audience) on top of the image.
+  const productUsp = String(body?.product_usp || "").trim();
 
   if (!userText && !attachedImageUrl) {
     return NextResponse.json({ error: "Empty message" }, { status: 400 });
   }
+
+  // Fold the USP into the user message so the agent sees it. Front-loaded
+  // with a clear marker so the LLM can recognise the structure across turns.
+  const finalUserText =
+    imageRole === "product" && productUsp
+      ? `[Product reference attached. USP / description:\n${productUsp}\n]\n\n${userText}`
+      : userText;
 
   // If user uploaded a data: URL, host it via /api/upload/image first so the
   // vision pass + downstream Veo r2v can use a public URL.
@@ -90,7 +101,7 @@ export async function POST(req: Request) {
     tab: "ugc",
     systemPrompt: UGC_SYSTEM_PROMPT,
     tools: UGC_TOOLS,
-    userText,
+    userText: finalUserText,
     attachedImageUrl: attachedImageUrl || undefined,
     attachedImageRole: imageRole,
   });

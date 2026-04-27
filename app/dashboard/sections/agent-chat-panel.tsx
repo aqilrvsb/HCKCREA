@@ -91,6 +91,14 @@ export default function AgentChatPanel({
   const [attachedImageRole, setAttachedImageRole] = useState<"general" | "product">(
     "general"
   );
+  // USP / description text the user types alongside a product reference.
+  // Forwarded to the chat API as `product_usp` so the agent has plain-text
+  // context (price, claims, key features) on top of the photo. Only used
+  // when attachedImageRole === "product".
+  const [attachedProductUsp, setAttachedProductUsp] = useState<string>("");
+  // Controls the product-reference modal (image upload + USP textarea).
+  // Only mounted on UGC + Cinema agents.
+  const [productModalOpen, setProductModalOpen] = useState(false);
   // IMAGE agent only — user's explicit model pick from the dropdown next
   // to the attach icons. Sent in the chat POST so the agent skips the
   // banana-vs-gpt-2 decision-tree fetch and uses the chosen model.
@@ -173,6 +181,8 @@ export default function AgentChatPanel({
     const sentRole = attachedImageRole;
     setAttachedImageRole("general"); // reset for next attach
     const sentImageModel = tab === "image" ? imageModel : undefined;
+    const sentProductUsp = sentRole === "product" ? attachedProductUsp.trim() : "";
+    setAttachedProductUsp("");
 
     try {
       const r = await fetch(`/api/agent/${tab}/chat`, {
@@ -183,6 +193,7 @@ export default function AgentChatPanel({
           message: text,
           image_url: sentImage || undefined,
           image_role: sentImage ? sentRole : undefined,
+          product_usp: sentProductUsp || undefined,
           image_model: sentImageModel,
         }),
       });
@@ -511,7 +522,9 @@ export default function AgentChatPanel({
                 </div>
                 <div className="text-xs text-[var(--color-text-primary)] truncate">
                   {attachedImageRole === "product"
-                    ? "Direct to video — no vision analysis"
+                    ? attachedProductUsp
+                      ? attachedProductUsp
+                      : "Direct to video — no vision analysis"
                     : "Image will be analyzed by the agent"}
                 </div>
               </div>
@@ -519,6 +532,7 @@ export default function AgentChatPanel({
                 onClick={() => {
                   setAttachedImage("");
                   setAttachedImagePreview("");
+                  setAttachedProductUsp("");
                 }}
                 className="w-7 h-7 rounded flex items-center justify-center"
                 style={{ color: "var(--color-text-muted)" }}
@@ -559,15 +573,13 @@ export default function AgentChatPanel({
               >
                 <Paperclip className="w-3.5 h-3.5" />
               </button>
-              {/* Package icon — product reference. Skips vision, passes
-                  straight to Veo (UGC) or Grok (Cinema) as the i2v/r2v
-                  reference. Only meaningful on UGC + Cinema agents. */}
+              {/* Package icon — product reference. Opens a modal with
+                  image upload + USP description so the agent gets both
+                  the photo (passed to Veo/Grok as i2v/r2v ref) AND a
+                  plain-text USP block to anchor the prompt on. */}
               {(tab === "ugc" || tab === "cinema") && (
                 <button
-                  onClick={() => {
-                    setAttachedImageRole("product");
-                    fileInputRef.current?.click();
-                  }}
+                  onClick={() => setProductModalOpen(true)}
                   disabled={busy}
                   className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 disabled:opacity-50"
                   style={{
@@ -575,7 +587,7 @@ export default function AgentChatPanel({
                     color: theme.color,
                     border: `1px solid ${theme.color}33`,
                   }}
-                  title="Attach product reference (no vision — direct to video)"
+                  title="Attach product reference (image + USP)"
                 >
                   <Package className="w-3.5 h-3.5" />
                 </button>
@@ -650,7 +662,192 @@ export default function AgentChatPanel({
         </div>
         </Portal>
       )}
+
+      {/* Product reference modal — UGC + Cinema only. The agent gets BOTH
+          the photo (passed straight to Veo/Grok as i2v/r2v ref) AND the USP
+          textarea (forwarded as product_usp so the LLM has plain-text
+          context about price, claims, key features, target audience). */}
+      {productModalOpen && (
+        <ProductReferenceModal
+          theme={theme}
+          onClose={() => setProductModalOpen(false)}
+          onAttach={(dataUrl, usp) => {
+            setAttachedImage(dataUrl);
+            setAttachedImagePreview(dataUrl);
+            setAttachedImageRole("product");
+            setAttachedProductUsp(usp);
+            setProductModalOpen(false);
+          }}
+        />
+      )}
     </>
+  );
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// ProductReferenceModal — image upload + USP textarea, surfaced when the
+// user clicks the Package icon in the UGC / Cinema agent chat. Stays
+// presentational; the parent owns the attached state.
+// ──────────────────────────────────────────────────────────────────────────
+function ProductReferenceModal({
+  theme,
+  onClose,
+  onAttach,
+}: {
+  theme: { color: string; gradient: string };
+  onClose: () => void;
+  onAttach: (dataUrl: string, usp: string) => void;
+}) {
+  const [dataUrl, setDataUrl] = useState("");
+  const [usp, setUsp] = useState("");
+  const fileRef = useRef<HTMLInputElement | null>(null);
+
+  function handleFile(file: File | null) {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => setDataUrl(String(reader.result || ""));
+    reader.readAsDataURL(file);
+  }
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  return (
+    <Portal>
+      <div
+        className="fixed inset-0 lg:left-[280px] z-50 flex items-center justify-center p-4"
+        style={{ background: "rgba(0,0,0,0.7)", backdropFilter: "blur(8px)" }}
+        onClick={onClose}
+      >
+        <div
+          className="rounded-2xl max-w-md w-full p-5"
+          style={{
+            background: "var(--color-bg)",
+            border: `2px solid ${theme.color}`,
+            boxShadow: `0 20px 60px ${theme.color}33`,
+          }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <Package className="w-4 h-4" style={{ color: theme.color }} />
+              <h3
+                className="font-display font-extrabold text-base"
+                style={{ color: theme.color }}
+              >
+                Product Reference
+              </h3>
+            </div>
+            <button
+              onClick={onClose}
+              className="w-7 h-7 rounded flex items-center justify-center"
+              style={{ color: "var(--color-text-muted)" }}
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+
+          <p className="text-xs text-[var(--color-text-muted)] mb-3">
+            Upload product image + tulis USP / description. AI agent akan respect image 100% (label, warna, packaging) dan guna USP untuk context.
+          </p>
+
+          {/* Image uploader */}
+          <div
+            className="text-[10px] font-extrabold uppercase tracking-[0.1em] mb-1.5"
+            style={{ color: "var(--color-text-muted)" }}
+          >
+            Product Image
+          </div>
+          <input
+            ref={fileRef}
+            type="file"
+            accept="image/*"
+            className="hidden"
+            onChange={(e) => handleFile(e.target.files?.[0] || null)}
+          />
+          <button
+            type="button"
+            onClick={() => fileRef.current?.click()}
+            className="w-full rounded-lg overflow-hidden flex items-center justify-center mb-3"
+            style={{
+              height: dataUrl ? 180 : 100,
+              border: `2px dashed ${dataUrl ? "transparent" : `${theme.color}55`}`,
+              background: dataUrl ? "#000" : `${theme.color}0d`,
+            }}
+          >
+            {dataUrl ? (
+              <img src={dataUrl} alt="" className="w-full h-full object-contain" />
+            ) : (
+              <div className="text-center px-4">
+                <Package
+                  className="w-6 h-6 mx-auto mb-1"
+                  style={{ color: theme.color }}
+                />
+                <div
+                  className="text-xs font-bold"
+                  style={{ color: theme.color }}
+                >
+                  Click to upload product image
+                </div>
+                <div className="text-[10px] text-[var(--color-text-muted)] mt-0.5">
+                  PNG / JPG — packaging or hero shot
+                </div>
+              </div>
+            )}
+          </button>
+
+          {/* USP textarea */}
+          <div
+            className="text-[10px] font-extrabold uppercase tracking-[0.1em] mb-1.5"
+            style={{ color: "var(--color-text-muted)" }}
+          >
+            USP / Description
+          </div>
+          <textarea
+            value={usp}
+            onChange={(e) => setUsp(e.target.value)}
+            rows={5}
+            maxLength={1500}
+            placeholder={`What is this product? Key USP, price, claims, audience…\n\nExample:\nSambal Nyet Berapi — RM12.90\n• 100% halal, no MSG\n• Pedas extreme (level 5/5)\n• Best with rice / noodles\n• Target: spice lovers 20-40s`}
+            className="w-full rounded-lg p-3 text-xs font-mono leading-relaxed resize-y outline-none mb-3"
+            style={{
+              background: "var(--color-bg-card)",
+              border: "1px solid var(--color-border)",
+              color: "var(--color-text-primary)",
+            }}
+          />
+          <div className="text-[10px] text-[var(--color-text-muted)] mb-4 text-right">
+            {usp.length} / 1500
+          </div>
+
+          {/* Actions */}
+          <div className="flex gap-2">
+            <button
+              onClick={onClose}
+              className="flex-1 h-10 rounded-lg text-xs font-bold"
+              style={{
+                background: "var(--color-bg-card)",
+                border: "1px solid var(--color-border)",
+                color: "var(--color-text-secondary)",
+              }}
+            >
+              Cancel
+            </button>
+            <button
+              onClick={() => onAttach(dataUrl, usp.trim())}
+              disabled={!dataUrl}
+              className="flex-1 h-10 rounded-lg text-xs font-extrabold text-white disabled:opacity-40"
+              style={{ background: theme.gradient }}
+            >
+              Attach to chat
+            </button>
+          </div>
+        </div>
+      </div>
+    </Portal>
   );
 }
 
