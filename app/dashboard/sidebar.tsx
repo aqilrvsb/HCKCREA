@@ -531,19 +531,26 @@ function SubStatusPill({
   planExpiresAt: string | null;
   onClick: () => void;
 }) {
-  const expDate = planExpiresAt ? new Date(planExpiresAt) : null;
-  const expDateStr = expDate
-    ? expDate.toLocaleDateString("ms-MY", { day: "numeric", month: "short", year: "numeric" })
-    : null;
-  // daysLeft depends on Date.now() which differs between server and client by
-  // a few hundred ms — enough to flip the ceil() boundary and trigger React
-  // hydration error #418 ("text content does not match"). Defer the
-  // calculation to a post-mount effect so the initial render is stable.
+  // ALL date-derived text in this pill is deferred until after hydration.
+  // Both Date.now() (for daysLeft ceil math) and toLocaleDateString (for the
+  // human-readable expiry) can disagree between server (UTC, Vercel Node ICU)
+  // and client (user's timezone, browser ICU) by enough to trigger React
+  // hydration error #418. Server renders a stable shell ("Pro" or "No active
+  // plan") and the effect fills in the dynamic strings post-mount.
   const [daysLeft, setDaysLeft] = useState<number | null>(null);
+  const [expDateStr, setExpDateStr] = useState<string | null>(null);
   useEffect(() => {
-    if (!expDate) return;
-    setDaysLeft(Math.max(0, Math.ceil((expDate.getTime() - Date.now()) / 86400000)));
-  }, [planExpiresAt]); // recompute if the prop changes
+    if (!planExpiresAt) {
+      setDaysLeft(null);
+      setExpDateStr(null);
+      return;
+    }
+    const exp = new Date(planExpiresAt);
+    setDaysLeft(Math.max(0, Math.ceil((exp.getTime() - Date.now()) / 86400000)));
+    setExpDateStr(
+      exp.toLocaleDateString("ms-MY", { day: "numeric", month: "short", year: "numeric" })
+    );
+  }, [planExpiresAt]);
   const daysLeftStr = daysLeft === null ? "" : ` · ${daysLeft} day${daysLeft === 1 ? "" : "s"} left`;
 
   let dotColor = "#888";
