@@ -25,11 +25,16 @@ import {
   ChevronRight,
   Flame,
 } from "lucide-react";
-import CheckoutForm from "./(checkout)/checkout-form";
 import Countdown from "./components/countdown";
 
-const DemoReel = dynamic(() => import("./components/demo-reel"), { ssr: false });
-const SocialProofToast = dynamic(() => import("./components/social-proof-toast"), { ssr: false });
+// Dynamic-import every below-the-fold client component so they don't bloat
+// the first-5s payload. Each has "use client" of its own and ships as a
+// separate chunk, code-split out of the landing page bundle.
+// Note: ssr:false isn't allowed in Server Components in Next.js 15 — chunks
+// SSR their initial HTML (cheap) and hydrate as client islands.
+const DemoReel = dynamic(() => import("./components/demo-reel"));
+const SocialProofToast = dynamic(() => import("./components/social-proof-toast"));
+const CheckoutForm = dynamic(() => import("./(checkout)/checkout-form"));
 
 export const revalidate = 3600;
 

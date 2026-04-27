@@ -4,6 +4,29 @@ import { useEffect, useRef, useState } from "react";
 import { Sparkles, Play, X } from "lucide-react";
 import manifestData from "../../public/demos/manifest.json";
 
+// Intersection-observer gate — the section renders empty until it scrolls
+// near the viewport, then mounts the full reel. Saves 16 video-metadata
+// fetches and ~40KB of decoded JSON from the first-5s critical path.
+function useNearViewport<T extends HTMLElement>(rootMargin = "300px") {
+  const ref = useRef<T | null>(null);
+  const [near, setNear] = useState(false);
+  useEffect(() => {
+    if (near || !ref.current) return;
+    const obs = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((e) => e.isIntersecting)) {
+          setNear(true);
+          obs.disconnect();
+        }
+      },
+      { rootMargin }
+    );
+    obs.observe(ref.current);
+    return () => obs.disconnect();
+  }, [near, rootMargin]);
+  return [ref, near] as const;
+}
+
 type Manifest = {
   generated_at: string;
   videos: { id: string; label: string; file: string; kind: "video" }[];
@@ -20,6 +43,7 @@ export default function DemoReel() {
   const manifest = manifestData as Manifest;
   const [modalIndex, setModalIndex] = useState<number | null>(null);
   const featuredVideoRef = useRef<HTMLVideoElement>(null);
+  const [sectionRef, isNear] = useNearViewport<HTMLElement>("300px");
 
   useEffect(() => {
     // Pause the featured player whenever a modal video is playing — no
@@ -50,7 +74,11 @@ export default function DemoReel() {
   const modalVideo = modalIndex !== null ? videos[modalIndex] : null;
 
   return (
-    <section id="demo" className="relative z-10 mx-auto max-w-6xl px-6 py-20">
+    <section
+      ref={sectionRef}
+      id="demo"
+      className="relative z-10 mx-auto max-w-6xl px-6 py-20 min-h-[600px]"
+    >
       <div className="text-center mb-10">
         <div className="chip mb-5">
           <Sparkles className="w-3.5 h-3.5" />
@@ -66,7 +94,9 @@ export default function DemoReel() {
         </p>
       </div>
 
-      {videos.length > 0 && (
+      {/* Defer mounting the heavy video grid until the section is near the
+          viewport — keeps 16 mp4 metadata fetches off the first-5s budget. */}
+      {isNear && videos.length > 0 && (
         <>
           {/* Featured player — centered, 9:16 vertical */}
           <div className="flex justify-center">
