@@ -52,12 +52,12 @@ export const dynamic = "force-dynamic";
 const LOCKS_BLOCK = `
 
 ANATOMY: 2 hands with 5 fingers each (both visible), symmetric face, no missing limbs, no plastic skin.
-AUDIO: ONE single voice only, no chatter, no background voices.
+AUDIO: ONE single voice only, no chatter, no background voices. NO background music, NO instrumental, NO sound effects. All audio is spoken dialog only.
 PRODUCT LOCK: Product is pixel-identical to reference — same color, shape, label, typography, packaging. Sharp focus on label, no warping, no recoloring, no text drift.
 UGC AUTHENTICITY: Authentic amateur iPhone UGC — handheld arm's-length, natural skin texture with pores and subtle T-zone shine (NOT airbrushed), no-makeup-makeup, loose hair, ordinary mixed lighting (NOT softbox), lived-in background with minor clutter.
-VISUAL: RAW UNEDITED FOOTAGE — bottom 25% of frame COMPLETELY EMPTY. Zero subtitles, captions, animated TikTok captions, sticker text, icons, emojis, graphics, watermarks, UI elements, handles, hashtags.
+VISUAL: RAW UNEDITED FOOTAGE — bottom 25% of frame COMPLETELY EMPTY. NO subtitles or text overlays, NO on-screen dialogue text, NO captions, NO animated TikTok captions, NO sticker text, NO icons, NO emojis, NO graphics, NO watermarks, NO UI elements, NO handles, NO hashtags. Clean vertical video frame with no interface overlay, no icons, no overlay elements.
 
-Negative: cartoon, 3D cartoon, anime, airbrushed plastic skin, uncanny valley, glam makeup, salon hair, softbox studio lighting, tripod static shot (unless explicitly chosen), staged background, posed billboard framing, closed mouth while audio plays, duplicate limbs, distorted fingers, hand out of frame, warped product label, blurry product, motion-blurred product, text drift, subtitle burn-in, auto-captions, multiple speakers, voiceover narration, music score.`;
+Negative: cartoon, 3D cartoon, anime, airbrushed plastic skin, uncanny valley, glam makeup, salon hair, softbox studio lighting, tripod static shot (unless explicitly chosen), staged background, posed billboard framing, closed mouth while audio plays, duplicate limbs, distorted fingers, hand out of frame, warped product label, blurry product, motion-blurred product, text drift, subtitle burn-in, auto-captions, on-screen dialog text, burned-in lyrics, karaoke text, multiple speakers, voiceover narration, music score, background music, instrumental track, sound effects, ambient music, jingles, interface overlay, app overlay.`;
 
 function withLocks(corePrompt: string, voiceLine?: string): string {
   return `${corePrompt.trim()}${voiceLine ? `\n\nVoice direction: ${voiceLine}` : ""}${LOCKS_BLOCK}`;

@@ -329,9 +329,20 @@ export async function confirmAndFireCinema(opts: {
   const model = opts.image_mode === "image" ? cfg.grokI2V : cfg.grokT2V;
   if (!model) return { ok: false, error: "Cinema model not configured" };
 
+  // Hard audio + visual lock — appended to every Cinema generation so the
+  // model can't decide on its own to add background music, sound effects,
+  // or auto-burn subtitles. The user shipped a UGC clip with TikTok-style
+  // captions burned in; this prevents that recurring across both flows.
+  const finalPrompt = `${opts.prompt.trim()}
+
+AUDIO LOCK: NO background music, NO instrumental, NO sound effects, NO ambient music, NO score. All audio is spoken dialog only.
+VISUAL LOCK: NO subtitles or text overlays, NO on-screen dialogue text, NO captions, NO TikTok-style animated captions, NO sticker text, NO burned-in lyrics, NO karaoke text, NO watermarks, NO icons, NO emojis, NO graphics, NO UI elements, NO handles, NO hashtags. Clean vertical video frame with no interface overlay, no icons, no overlay elements.
+
+Negative: subtitle burn-in, auto-captions, on-screen dialog text, burned-in lyrics, karaoke text, music score, background music, instrumental track, sound effects, ambient music, jingles, voiceover narration, multiple speakers, interface overlay, app overlay, watermark, hashtag overlay, channel handle.`;
+
   const created = await p2CreateTask({
     model,
-    prompt: opts.prompt,
+    prompt: finalPrompt,
     imageUrls: opts.image_mode === "image" && opts.image_url ? [opts.image_url] : [],
     durationMode: String(duration),
     aspectRatio: opts.aspect_ratio,
@@ -348,7 +359,7 @@ export async function confirmAndFireCinema(opts: {
       type: "video",
       tab: "cinema",
       status: created.ok && created.task_id ? "pending" : "failed",
-      prompt: opts.prompt,
+      prompt: finalPrompt,
       reference_url: opts.image_url || null,
       task_id: created.task_id || null,
       duration,
