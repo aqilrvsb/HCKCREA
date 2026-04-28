@@ -730,13 +730,15 @@ export default function AgentChatPanel({
         </Portal>
       )}
 
-      {/* Product reference modal — UGC + Cinema only. The agent gets BOTH
-          the photo (passed straight to Veo/Grok as i2v/r2v ref) AND the USP
-          textarea (forwarded as product_usp so the LLM has plain-text
-          context about price, claims, key features, target audience). */}
+      {/* Reference modal — UGC + Cinema. UGC variant ("product") includes
+          the USP textarea since UGC content needs to anchor on what the
+          product IS. Cinema variant ("reference") is image-only — the
+          reference can be anything (mood, character, scene, palette) and
+          we just want it forwarded to Grok as the i2v ref. */}
       {productModalOpen && (
         <ProductReferenceModal
           theme={theme}
+          mode={tab === "cinema" ? "reference" : "product"}
           onClose={() => setProductModalOpen(false)}
           onAttach={(dataUrl, usp) => {
             setAttachedImage(dataUrl);
@@ -752,22 +754,32 @@ export default function AgentChatPanel({
 }
 
 // ──────────────────────────────────────────────────────────────────────────
-// ProductReferenceModal — image upload + USP textarea, surfaced when the
-// user clicks the Package icon in the UGC / Cinema agent chat. Stays
-// presentational; the parent owns the attached state.
+// ProductReferenceModal — surfaced when the user clicks the Package icon.
+// Two modes:
+//   "product"   — UGC variant. Image upload + USP/description textarea.
+//                 The agent uses both: image as i2v/r2v ref, USP as a
+//                 verbatim PRODUCT INFO LOCK in the final Veo prompt.
+//   "reference" — Cinema variant. Image-only. The reference can be
+//                 anything (mood, character, scene); we just forward it
+//                 to Grok as the i2v ref. No USP since cinema doesn't
+//                 anchor on a specific product.
+// Stays presentational; the parent owns the attached state.
 // ──────────────────────────────────────────────────────────────────────────
 function ProductReferenceModal({
   theme,
+  mode,
   onClose,
   onAttach,
 }: {
   theme: { color: string; gradient: string };
+  mode: "product" | "reference";
   onClose: () => void;
   onAttach: (dataUrl: string, usp: string) => void;
 }) {
   const [dataUrl, setDataUrl] = useState("");
   const [usp, setUsp] = useState("");
   const fileRef = useRef<HTMLInputElement | null>(null);
+  const isCinema = mode === "reference";
 
   function handleFile(file: File | null) {
     if (!file) return;
@@ -805,7 +817,7 @@ function ProductReferenceModal({
                 className="font-display font-extrabold text-base"
                 style={{ color: theme.color }}
               >
-                Product Reference
+                {isCinema ? "Image Reference" : "Product Reference"}
               </h3>
             </div>
             <button
@@ -818,7 +830,9 @@ function ProductReferenceModal({
           </div>
 
           <p className="text-xs text-[var(--color-text-muted)] mb-3">
-            Upload product image + tulis USP / description. AI agent akan respect image 100% (label, warna, packaging) dan guna USP untuk context.
+            {isCinema
+              ? "Upload mana-mana image untuk jadi reference. Grok akan guna image ni sebagai anchor — boleh mood, character, scene, palette, apa saja."
+              : "Upload product image + tulis USP / description. AI agent akan respect image 100% (label, warna, packaging) dan guna USP untuk context."}
           </p>
 
           {/* Image uploader */}
@@ -826,7 +840,7 @@ function ProductReferenceModal({
             className="text-[10px] font-extrabold uppercase tracking-[0.1em] mb-1.5"
             style={{ color: "var(--color-text-muted)" }}
           >
-            Product Image
+            {isCinema ? "Reference Image" : "Product Image"}
           </div>
           <input
             ref={fileRef}
@@ -857,38 +871,43 @@ function ProductReferenceModal({
                   className="text-xs font-bold"
                   style={{ color: theme.color }}
                 >
-                  Click to upload product image
+                  {isCinema ? "Click to upload reference image" : "Click to upload product image"}
                 </div>
                 <div className="text-[10px] text-[var(--color-text-muted)] mt-0.5">
-                  PNG / JPG — packaging or hero shot
+                  {isCinema ? "PNG / JPG — any image as scene anchor" : "PNG / JPG — packaging or hero shot"}
                 </div>
               </div>
             )}
           </button>
 
-          {/* USP textarea */}
-          <div
-            className="text-[10px] font-extrabold uppercase tracking-[0.1em] mb-1.5"
-            style={{ color: "var(--color-text-muted)" }}
-          >
-            USP / Description
-          </div>
-          <textarea
-            value={usp}
-            onChange={(e) => setUsp(e.target.value)}
-            rows={5}
-            maxLength={1500}
-            placeholder={`What is this product? Key USP, price, claims, audience…\n\nExample:\nSambal Nyet Berapi — RM12.90\n• 100% halal, no MSG\n• Pedas extreme (level 5/5)\n• Best with rice / noodles\n• Target: spice lovers 20-40s`}
-            className="w-full rounded-lg p-3 text-xs font-mono leading-relaxed resize-y outline-none mb-3"
-            style={{
-              background: "var(--color-bg-card)",
-              border: "1px solid var(--color-border)",
-              color: "var(--color-text-primary)",
-            }}
-          />
-          <div className="text-[10px] text-[var(--color-text-muted)] mb-4 text-right">
-            {usp.length} / 1500
-          </div>
+          {/* USP textarea — product mode only. Cinema reference is just
+              image-as-anchor; nothing to describe. */}
+          {!isCinema && (
+            <>
+              <div
+                className="text-[10px] font-extrabold uppercase tracking-[0.1em] mb-1.5"
+                style={{ color: "var(--color-text-muted)" }}
+              >
+                USP / Description
+              </div>
+              <textarea
+                value={usp}
+                onChange={(e) => setUsp(e.target.value)}
+                rows={5}
+                maxLength={1500}
+                placeholder={`What is this product? Key USP, price, claims, audience…\n\nExample:\nSambal Nyet Berapi — RM12.90\n• 100% halal, no MSG\n• Pedas extreme (level 5/5)\n• Best with rice / noodles\n• Target: spice lovers 20-40s`}
+                className="w-full rounded-lg p-3 text-xs font-mono leading-relaxed resize-y outline-none mb-3"
+                style={{
+                  background: "var(--color-bg-card)",
+                  border: "1px solid var(--color-border)",
+                  color: "var(--color-text-primary)",
+                }}
+              />
+              <div className="text-[10px] text-[var(--color-text-muted)] mb-4 text-right">
+                {usp.length} / 1500
+              </div>
+            </>
+          )}
 
           {/* Actions */}
           <div className="flex gap-2">
