@@ -386,6 +386,7 @@ export default function AdminUsage() {
                   <th className="text-left px-5 py-4 w-36">Date</th>
                   <th className="text-left px-5 py-4">Email</th>
                   <th className="text-left px-5 py-4 w-32">Action</th>
+                  <th className="text-center px-5 py-4 w-20">Engine</th>
                   <th className="text-left px-5 py-4">Prompt</th>
                   <th className="text-center px-5 py-4 w-24">Preview</th>
                   <th className="text-right px-5 py-4 w-24">Cost</th>
@@ -395,7 +396,7 @@ export default function AdminUsage() {
                 {generationRows.length === 0 ? (
                   <tr>
                     <td
-                      colSpan={7}
+                      colSpan={8}
                       className="px-4 py-16 text-center text-[var(--color-text-muted)] text-sm"
                     >
                       Tiada usage log.
@@ -410,6 +411,11 @@ export default function AdminUsage() {
                       r.tab === "cinema";
                     const isImg = r.type === "image";
                     const promptShort = (r.prompt || "").trim().substring(0, 80);
+                    // Which backend served this row. Stamped at create time
+                    // on history.metadata.provider. Old rows without it
+                    // default to p2 (Crun).
+                    const provider: "p1" | "p2" =
+                      r.metadata?.provider === "p1" ? "p1" : "p2";
                     return (
                       <tr
                         key={r.id}
@@ -443,6 +449,27 @@ export default function AdminUsage() {
                             }}
                           >
                             {r.reason}
+                          </span>
+                        </td>
+                        <td className="px-5 py-4 text-center">
+                          <span
+                            className="px-2 py-0.5 rounded text-[10px] font-mono font-bold whitespace-nowrap"
+                            style={
+                              provider === "p1"
+                                ? {
+                                    background: "rgba(99,102,241,0.12)",
+                                    color: "#6366f1",
+                                    border: "1px solid rgba(99,102,241,0.3)",
+                                  }
+                                : {
+                                    background: "rgba(245,158,11,0.12)",
+                                    color: "#d97706",
+                                    border: "1px solid rgba(245,158,11,0.3)",
+                                  }
+                            }
+                            title={provider === "p1" ? "GeminiGen.AI" : "Crun.ai"}
+                          >
+                            {provider}
                           </span>
                         </td>
                         <td className="px-5 py-4 max-w-[320px]">

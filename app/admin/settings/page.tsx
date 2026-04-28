@@ -42,6 +42,8 @@ export default function AdminSettings() {
     cinema: "p2",
   });
   const [savingProvider, setSavingProvider] = useState<AssetKind | null>(null);
+  const [syncing, setSyncing] = useState(false);
+  const [syncMsg, setSyncMsg] = useState<string | null>(null);
 
   useEffect(() => {
     void load();
@@ -85,6 +87,38 @@ export default function AdminSettings() {
       void load();
     } finally {
       setSavingProvider(null);
+    }
+  }
+
+  // Wipe every client's video_provider override so they all fall back to
+  // the admin's gen_provider_video setting. Used when admin wants to
+  // force a platform-wide video provider switch.
+  async function syncVideoProviderToAll() {
+    const target = providers.video === "p1" ? "P1" : "P2";
+    if (
+      !confirm(
+        `Apply "${target}" to ALL clients?\n\n` +
+          `This clears every client's per-user video provider override. ` +
+          `Their next video generation will use ${target}. ` +
+          `In-flight gens are unaffected.`
+      )
+    ) {
+      return;
+    }
+    setSyncing(true);
+    setSyncMsg(null);
+    try {
+      const r = await fetch("/api/admin/sync-video-provider", { method: "POST" });
+      const d = await r.json();
+      if (!r.ok || !d?.ok) {
+        setSyncMsg(`✗ ${d?.error || "Sync failed"}`);
+        return;
+      }
+      setSyncMsg(`✓ Cleared ${d.cleared} override${d.cleared === 1 ? "" : "s"}. All clients now on ${target}.`);
+    } finally {
+      setSyncing(false);
+      // Auto-clear the message after a few seconds.
+      setTimeout(() => setSyncMsg(null), 4500);
     }
   }
 
@@ -207,6 +241,34 @@ export default function AdminSettings() {
                   <option value="p2">P2 — Crun.ai</option>
                   <option value="p1">P1 — GeminiGen.AI</option>
                 </select>
+
+                {/* Video only — "Apply to all" wipes every client's
+                    profiles.video_provider override so they all fall back
+                    to whatever's selected above on their next gen. Image +
+                    Cinema have no per-user override, so no button needed. */}
+                {key === "video" && (
+                  <button
+                    type="button"
+                    onClick={syncVideoProviderToAll}
+                    disabled={syncing}
+                    title="Force every client to use this provider — clears all per-user overrides"
+                    className="mt-2 w-full text-xs font-bold py-2 rounded-lg transition-all disabled:opacity-50"
+                    style={{
+                      background: "rgba(245,158,11,0.12)",
+                      border: "1px solid rgba(245,158,11,0.4)",
+                      color: "#d97706",
+                    }}
+                  >
+                    {syncing ? (
+                      <span className="inline-flex items-center justify-center gap-1.5">
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        Applying…
+                      </span>
+                    ) : (
+                      "✓ Apply to all clients"
+                    )}
+                  </button>
+                )}
               </div>
             );
           })}
