@@ -56,11 +56,16 @@ export default function DashboardShell({
   const [activeTab, setActiveTab] = useState<TabKey>("image");
 
   // Live credit balance — initialised from the server-rendered prop, then
-  // refreshed via /api/me/credits whenever a generation settles or the user
-  // fires a new gen. Two triggers:
-  //   1. `history:refresh` event (dispatched by retry / submit / approve)
-  //   2. 30s interval backstop — catches webhook-driven deductions that
-  //      happen without a front-end action (P2 webhook → settle → deduct).
+  // refreshed via /api/me/credits. Triggers:
+  //   1. ON MOUNT — handles fresh-login case where the server-rendered prop
+  //      raced with a webhook deduction/topup that just landed.
+  //   2. `history:refresh` event — dispatched by retry / submit / approve.
+  //   3. 30s interval backstop — catches webhook-driven settlements that
+  //      happen with no front-end action.
+  //   4. POST-PAYMENT BURST — when ?topup=success or ?payment=success lands
+  //      (Chip success_redirect from credit topup / subscribe), we poll
+  //      /api/me/credits every 2s for 30s so the new balance appears the
+  //      moment the Chip webhook lands, instead of waiting for the 30s tick.
   const [credits, setCredits] = useState<number>(initialCredits);
   useEffect(() => {
     let cancelled = false;
@@ -73,12 +78,31 @@ export default function DashboardShell({
         // Silent — stale display is fine until the next tick.
       }
     };
+    void refresh(); // hydrate immediately on mount
+
+    // Post-payment burst — Chip's webhook can lag a few seconds behind the
+    // user's success_redirect, so poll aggressively to catch the moment it
+    // commits. Detected via ?topup=success or ?payment=success on the URL.
+    let burstInterval: number | null = null;
+    let burstStop: number | null = null;
+    if (typeof window !== "undefined") {
+      const qp = new URLSearchParams(window.location.search);
+      if (qp.get("topup") === "success" || qp.get("payment") === "success") {
+        burstInterval = window.setInterval(refresh, 2_000);
+        burstStop = window.setTimeout(() => {
+          if (burstInterval) window.clearInterval(burstInterval);
+        }, 30_000);
+      }
+    }
+
     window.addEventListener("history:refresh", refresh);
     const id = setInterval(refresh, 30_000);
     return () => {
       cancelled = true;
       window.removeEventListener("history:refresh", refresh);
       clearInterval(id);
+      if (burstInterval) window.clearInterval(burstInterval);
+      if (burstStop) window.clearTimeout(burstStop);
     };
   }, []);
 

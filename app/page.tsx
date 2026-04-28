@@ -92,7 +92,7 @@ const FAQ = [
   },
   {
     q: "Berapa cepat saya boleh dapat video pertama?",
-    a: "3 minit. Daftar sekarang, dapat 10 kredit free. Cukup untuk 2 video 8 saat. Tak perlu credit card.",
+    a: "3 minit. Subscribe Pro Plan, top-up kredit ikut kadar (image 20 sen, video 40 sen), terus generate. Tak ada minimum top-up.",
   },
   {
     q: "Bahasa Melayu betul ke? Bukan Indonesia?",
