@@ -7,9 +7,15 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 // POST /api/extension/verify
-// Body: { extension_version }
-// Auth: Authorization: Bearer <Supabase access_token>  (extension)
-//       OR Supabase session cookies                     (browser tab)
+// Body: { extension_version, email? }
+// Auth: x-pl-email header             (email-only mode — extension default)
+//       OR Authorization: Bearer ...   (token mode)
+//       OR Supabase session cookies    (browser tab)
+//
+// If `email` is in the body but no x-pl-email header is set, we promote
+// it to the header for this request. Lets the extension's first /verify
+// call work without forcing the user to round-trip the email through
+// chrome.storage before the first request.
 //
 // The PeningLab Chrome extension calls this on every launch to gate
 // access. The extension authenticates with the user's Supabase
@@ -26,16 +32,36 @@ export const dynamic = "force-dynamic";
 // Deliberately does NOT check credit balance — admin's subscription gate
 // is what unlocks the extension; per-generation cost is metered server-side.
 export async function POST(req: Request) {
-  const user = await authExtensionUser(req);
+  const body = await req.json().catch(() => ({}));
+  const clientVersion = String(body?.extension_version || "").trim();
+  const bodyEmail = String(body?.email || "").trim().toLowerCase();
+
+  // If body carries an email but the header doesn't, synthesize the
+  // header so authExtensionUser's mode-1 lookup picks it up.
+  let headersWithEmail = req.headers;
+  if (bodyEmail && !req.headers.get("x-pl-email")) {
+    const h = new Headers(req.headers);
+    h.set("x-pl-email", bodyEmail);
+    headersWithEmail = h;
+  }
+  const proxiedReq = new Request(req.url, {
+    method: req.method,
+    headers: headersWithEmail,
+  });
+
+  const user = await authExtensionUser(proxiedReq);
   if (!user) {
     return NextResponse.json(
-      { ok: false, error: "Not signed in. Login at peninglab.com first." },
+      {
+        ok: false,
+        error:
+          bodyEmail
+            ? `Email "${bodyEmail}" not found. Daftar di peninglab.com dulu.`
+            : "Email required.",
+      },
       { status: 401 }
     );
   }
-
-  const body = await req.json().catch(() => ({}));
-  const clientVersion = String(body?.extension_version || "").trim();
 
   // Pull plan + admin extension settings in parallel.
   const admin = createAdminClient();

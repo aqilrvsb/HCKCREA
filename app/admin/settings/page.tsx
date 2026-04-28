@@ -11,7 +11,7 @@ import {
   Image as ImageIcon,
   Video,
   Film,
-  Chrome,
+  Puzzle,
 } from "lucide-react";
 
 type Setting = { key: string; value: any; description: string | null; category: string };
@@ -337,7 +337,7 @@ export default function AdminSettings() {
           doesn't match this, it tells the user to update. */}
       <div className="card p-6 mb-6 border-2 border-blue-100 bg-blue-50/40">
         <div className="flex items-center gap-2 mb-1">
-          <Chrome className="w-5 h-5 text-blue-600" />
+          <Puzzle className="w-5 h-5 text-blue-600" />
           <h2 className="font-display font-bold text-lg">Chrome Extension</h2>
         </div>
         <p className="text-sm text-[var(--color-text-secondary)] mb-4">
