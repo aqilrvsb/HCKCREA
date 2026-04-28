@@ -1,25 +1,24 @@
-// Crawlbase scraper wrapper — pulls product details from affiliate URLs.
+// Affiliate-link scraper. Routes by URL host:
 //
-// Two paths:
-//   1. TikTok Shop / TikTok product URL → use Crawlbase's named scraper
-//      (`scraper=tiktok-product`). Returns structured JSON directly.
-//   2. Anything else (Shopee, Lazada, generic) → use Crawlbase JS token
-//      with ajax_wait so the SPA hydrates. Parse the rendered HTML for
-//      og:image, og:title, JSON-LD product schema.
+//   TikTok / TikTok Shop URL → TikHub.io
+//     - Native Asian IPs, no region-block (Crawlbase free tier returns
+//       enter_method=region_not_match for TikTok Shop MY).
+//     - Specialist API: GET /api/v1/tiktok/shop/product_detail?product_id={id}
+//     - $0.001 / scrape pay-as-you-go.
 //
-// Auth: Crawlbase needs the JavaScript token for SPA-rendered targets;
-// the named scrapers also accept the normal token. We prefer the JS
-// token for everything when both are configured — the named scrapers
-// still work and we get JS-rendered fallback "for free" when the URL
-// isn't a TikTok Shop link.
+//   Shopee / Lazada / generic → Crawlbase
+//     - Verified working on free tier (200 OK on shopee.com.my, og:meta present).
+//     - JS-rendered HTML + ajax_wait, then we parse og:title / og:image
+//       / JSON-LD product schema ourselves.
 //
-// Docs: https://crawlbase.com/docs/crawling-api/
+// Both paths return the same ScrapedProduct shape so downstream callers
+// don't need to care which provider answered.
 
-import { getCrawlbaseConfig } from "@/lib/settings";
+import { getCrawlbaseConfig, getTikHubConfig } from "@/lib/settings";
 
 export type ScrapedProduct = {
   ok: boolean;
-  source: "tiktok-product" | "ogmeta" | "jsonld";
+  source: "tikhub" | "crawlbase-html" | "ogmeta" | "jsonld";
   product_name: string;
   product_image_url: string;
   description: string;
@@ -27,9 +26,13 @@ export type ScrapedProduct = {
   rating?: string;
   total_sold?: string;
   category?: string;
-  raw_url: string; // original URL (post-redirect resolution if applicable)
+  raw_url: string;
   error?: string;
 };
+
+// ──────────────────────────────────────────────────────────────────────────
+// URL classification + product-id extraction
+// ──────────────────────────────────────────────────────────────────────────
 
 const TIKTOK_HOSTS = [
   "tiktok.com",
@@ -39,92 +42,236 @@ const TIKTOK_HOSTS = [
   "vm.tiktok.com",
 ];
 
-function isTikTokUrl(url: string): boolean {
+const SHOPEE_HOSTS = [
+  "shopee.com.my",
+  "shopee.com.sg",
+  "shopee.co.id",
+  "shopee.co.th",
+  "shopee.ph",
+  "shopee.vn",
+  "shopee.com.br",
+];
+
+function hostnameLower(url: string): string | null {
   try {
-    const h = new URL(url).hostname.toLowerCase();
-    return TIKTOK_HOSTS.some((t) => h === t || h.endsWith("." + t));
+    return new URL(url).hostname.toLowerCase();
   } catch {
-    return false;
+    return null;
   }
 }
 
-// Extract first match of a regex group from haystack. Used for og: meta
-// + JSON-LD parsing without a full HTML parser dependency.
-function extract(re: RegExp, html: string): string | null {
-  const m = html.match(re);
-  return m ? m[1].trim() : null;
+function isTikTokUrl(url: string): boolean {
+  const h = hostnameLower(url);
+  if (!h) return false;
+  return TIKTOK_HOSTS.some((t) => h === t || h.endsWith("." + t));
 }
 
-// Best-effort parser for the Crawlbase tiktok-product JSON response. Their
-// docs don't publish the exact schema, so we try common shapes.
-function parseTikTokProductBody(body: any, originalUrl: string): ScrapedProduct {
-  // Crawlbase often nests the parsed result under `body` or returns it
-  // at the top level.
-  const root = body?.body || body || {};
-  const product =
-    root.product ||
-    root.productInfo ||
-    root.data ||
-    root;
+function isShopeeUrl(url: string): boolean {
+  const h = hostnameLower(url);
+  if (!h) return false;
+  return SHOPEE_HOSTS.some((t) => h === t || h.endsWith("." + t));
+}
+
+// Pull the long numeric product_id out of any TikTok Shop PDP URL shape:
+//   .../shop/my/pdp/{slug}/1729703709970891793?…
+//   .../view/product/1729493620818874839
+//   .../shop/.../product/1729703709970891793
+// Returns null for short links (vt.tiktok.com/ABC) — caller follows
+// redirects and re-extracts from the resolved URL.
+function extractTikTokProductId(url: string): string | null {
+  // Last 13–20 digit run before the query string.
+  const m = url.match(/(?:product|pdp(?:\/[^/?]+)*)\/(\d{13,20})(?:[/?#]|$)/i);
+  if (m) return m[1];
+  // Fallback: any 15–20 digit run anywhere in the path.
+  const u = (() => {
+    try { return new URL(url); } catch { return null; }
+  })();
+  if (u) {
+    const m2 = u.pathname.match(/\/(\d{15,20})(?:\/|$)/);
+    if (m2) return m2[1];
+  }
+  return null;
+}
+
+// Resolve a TikTok share link (vt.tiktok.com / vm.tiktok.com / any
+// affiliate redirect URL) directly via TikHub's helper endpoint instead
+// of following HTTP redirects ourselves. TikHub does the unfurling
+// server-side and returns the product_id directly.
+async function resolveShareLinkToProductId(
+  shareUrl: string,
+  base: string,
+  token: string
+): Promise<string | null> {
+  const endpoint = `${base}/api/v1/tiktok/app/v3/fetch_product_id_by_share_link?share_link=${encodeURIComponent(shareUrl)}`;
+  try {
+    const res = await fetch(endpoint, {
+      method: "GET",
+      headers: { Authorization: `Bearer ${token}` },
+      signal: AbortSignal.timeout(20_000),
+    });
+    if (!res.ok) return null;
+    const json = await res.json().catch(() => null);
+    const pid =
+      json?.data?.product_id ||
+      json?.data?.id ||
+      json?.product_id ||
+      null;
+    return pid ? String(pid) : null;
+  } catch {
+    return null;
+  }
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// TikHub — TikTok / TikTok Shop specialist
+// ──────────────────────────────────────────────────────────────────────────
+
+async function scrapeViaTikHub(originalUrl: string): Promise<ScrapedProduct> {
+  const cfg = await getTikHubConfig();
+  if (!cfg.token) {
+    return errResult(
+      originalUrl,
+      "TikHub token missing — paste it into admin → tikhub_token to scrape TikTok URLs"
+    );
+  }
+
+  // Get a product_id we can pass to fetch_product_detail. Two paths:
+  //  - Short link (vt.tiktok.com / vm.tiktok.com) → TikHub's
+  //    fetch_product_id_by_share_link unfurls it server-side.
+  //  - Full PDP / view URL → extract numeric id from the path.
+  let productId: string | null = null;
+  const isShareLink = /^https?:\/\/(vt|vm)\.tiktok\.com\//i.test(originalUrl);
+  if (isShareLink) {
+    productId = await resolveShareLinkToProductId(originalUrl, cfg.base, cfg.token);
+  }
+  if (!productId) {
+    productId = extractTikTokProductId(originalUrl);
+  }
+  if (!productId) {
+    return errResult(
+      originalUrl,
+      "Couldn't extract TikTok product_id. Paste a /pdp/ or /view/product/ link, or a vt.tiktok.com share link."
+    );
+  }
+
+  // V3 of the web product detail endpoint = mobile rendering with full
+  // data. Better field coverage than V1 (desktop) for affiliate use.
+  const endpoint = `${cfg.base}/api/v1/tiktok/shop/web/fetch_product_detail_v3?product_id=${encodeURIComponent(productId)}`;
+
+  let res: Response;
+  try {
+    res = await fetch(endpoint, {
+      method: "GET",
+      headers: { Authorization: `Bearer ${cfg.token}` },
+      signal: AbortSignal.timeout(60_000),
+    });
+  } catch (e: any) {
+    return errResult(originalUrl, `TikHub fetch failed: ${e?.message || "network"}`);
+  }
+
+  const text = await res.text().catch(() => "");
+  if (!res.ok) {
+    return errResult(
+      originalUrl,
+      `TikHub HTTP ${res.status}: ${text.substring(0, 200)}`
+    );
+  }
+
+  let json: any;
+  try {
+    json = JSON.parse(text);
+  } catch {
+    return errResult(originalUrl, "TikHub returned non-JSON response");
+  }
+
+  // TikHub responses are typically { code, msg, data: {...} }. Extract
+  // defensively because their schema varies between v1/v2/v3 endpoints.
+  const root = json?.data || json?.result || json;
+  const product = root?.product || root?.product_info || root?.productInfo || root;
 
   const productName =
+    product.product_name ||
     product.title ||
     product.name ||
-    product.productName ||
-    product.product_name ||
+    product?.product_base?.title ||
     "";
 
-  const images: string[] =
+  // Image candidates: gallery first → main → cover → og fallback.
+  // TikTok APIs return image arrays in two shapes: plain string URLs OR
+  // [{ url_list: [...] }] wrappers. Coerce defensively.
+  const imageList: any[] =
     product.images ||
     product.image_urls ||
     product.gallery ||
+    product?.product_base?.images ||
     [];
+  const firstImage = Array.isArray(imageList) ? imageList[0] : null;
   const productImageUrl =
-    (Array.isArray(images) && images[0]) ||
+    (typeof firstImage === "string" ? firstImage : null) ||
+    firstImage?.url_list?.[0] ||
+    firstImage?.url ||
     product.image ||
     product.image_url ||
-    product.thumbnail ||
+    product.cover_image ||
+    product?.product_base?.cover_image ||
     "";
 
   const price =
     product.price?.toString?.() ||
-    product.salePrice?.toString?.() ||
-    product.discountPrice?.toString?.() ||
+    product?.price_info?.price?.toString?.() ||
+    product?.product_price?.toString?.() ||
+    product?.product_base?.price?.toString?.() ||
     "";
 
   const rating =
     product.rating?.toString?.() ||
-    product.reviewScore?.toString?.() ||
+    product?.review_info?.score?.toString?.() ||
+    product?.product_base?.rating?.toString?.() ||
     "";
 
   const totalSold =
     product.sold?.toString?.() ||
-    product.salesCount?.toString?.() ||
-    product.totalSold?.toString?.() ||
+    product?.sold_count?.toString?.() ||
+    product?.sales_count?.toString?.() ||
+    product?.product_base?.sold_count?.toString?.() ||
     "";
 
   const category =
     product.category ||
-    product.categoryName ||
+    product.category_name ||
+    product?.product_base?.category_name ||
     "";
 
-  const descriptionParts: string[] = [];
-  if (product.description) descriptionParts.push(String(product.description));
-  if (Array.isArray(product.features)) descriptionParts.push(...product.features.map(String));
+  const descParts: string[] = [];
+  const desc =
+    product.description ||
+    product.detail_text ||
+    product?.product_base?.description;
+  if (desc) descParts.push(typeof desc === "string" ? desc : JSON.stringify(desc));
   if (Array.isArray(product.specifications)) {
-    descriptionParts.push(
+    descParts.push(
       ...product.specifications
         .map((s: any) => `${s.name || s.key || ""}: ${s.value || ""}`)
         .filter((s: string) => s.length > 2)
     );
   }
-  const description = descriptionParts.join("\n").trim();
+  const description = descParts.join("\n").trim();
+
+  // If TikHub returned an error envelope, surface it cleanly.
+  if (json?.code && Number(json.code) !== 200 && !productName) {
+    return errResult(
+      originalUrl,
+      `TikHub error: ${json?.msg || JSON.stringify(json).substring(0, 200)}`
+    );
+  }
+
+  const finalImage = String(productImageUrl || "");
 
   return {
     ok: !!productName,
-    source: "tiktok-product",
+    source: "tikhub",
     product_name: String(productName),
-    product_image_url: String(productImageUrl),
+    product_image_url: String(finalImage),
     description,
     price: price || undefined,
     rating: rating || undefined,
@@ -134,11 +281,16 @@ function parseTikTokProductBody(body: any, originalUrl: string): ScrapedProduct 
   };
 }
 
-// Pull product fields out of a generic SPA's rendered HTML. og: meta
-// covers name + image + description on every well-marked page; JSON-LD
-// adds price / rating when present.
+// ──────────────────────────────────────────────────────────────────────────
+// Crawlbase — generic JS-rendered HTML for non-TikTok platforms
+// ──────────────────────────────────────────────────────────────────────────
+
+function extract(re: RegExp, html: string): string | null {
+  const m = html.match(re);
+  return m ? m[1].trim() : null;
+}
+
 function parseGenericHtml(html: string, originalUrl: string): ScrapedProduct {
-  // og:title / og:image / og:description — most marketplaces emit these.
   const ogTitle =
     extract(/<meta\s+property=["']og:title["']\s+content=["']([^"']+)["']/i, html) ||
     extract(/<meta\s+name=["']twitter:title["']\s+content=["']([^"']+)["']/i, html) ||
@@ -153,7 +305,6 @@ function parseGenericHtml(html: string, originalUrl: string): ScrapedProduct {
     extract(/<meta\s+name=["']description["']\s+content=["']([^"']+)["']/i, html) ||
     "";
 
-  // JSON-LD Product schema — pulls price + rating if present.
   let price = "";
   let rating = "";
   const ldMatches = html.matchAll(
@@ -166,8 +317,7 @@ function parseGenericHtml(html: string, originalUrl: string): ScrapedProduct {
       for (const c of candidates) {
         const type = String(c?.["@type"] || "").toLowerCase();
         if (type === "product") {
-          price =
-            String(c?.offers?.price ?? c?.offers?.[0]?.price ?? price);
+          price = String(c?.offers?.price ?? c?.offers?.[0]?.price ?? price);
           rating = String(c?.aggregateRating?.ratingValue ?? rating);
         }
       }
@@ -188,70 +338,90 @@ function parseGenericHtml(html: string, originalUrl: string): ScrapedProduct {
   };
 }
 
-// Public entry point. Hits Crawlbase, returns a normalized ScrapedProduct.
-export async function scrapeAffiliateUrl(rawUrl: string): Promise<ScrapedProduct> {
+async function scrapeViaCrawlbase(rawUrl: string): Promise<ScrapedProduct> {
   const cfg = await getCrawlbaseConfig();
-  if (!cfg.base) {
-    return errResult(rawUrl, "Crawlbase not configured");
-  }
   const token = cfg.tokenJs || cfg.token;
-  if (!token) {
-    return errResult(rawUrl, "Crawlbase token missing — set crawlbase_token_js in admin settings");
-  }
-
-  const isTikTok = isTikTokUrl(rawUrl);
-  const params = new URLSearchParams({
-    token,
-    url: rawUrl,
-  });
-  // For TikTok we use the dedicated scraper that returns parsed JSON.
-  // For everything else we just want the JS-rendered HTML and we'll
-  // extract og:meta / JSON-LD ourselves.
-  if (isTikTok) {
-    params.set("scraper", "tiktok-product");
-  } else {
-    // Wait for the SPA's first AJAX batch + give it a couple of extra
-    // seconds; tuned for Shopee/Lazada PDPs.
-    params.set("ajax_wait", "true");
-    params.set("page_wait", "5000");
-    params.set("country", "MY");
-  }
-
-  const endpoint = `${cfg.base}/?${params.toString()}`;
-
-  let res: Response;
-  try {
-    res = await fetch(endpoint, {
-      method: "GET",
-      // Crawlbase recommends a generous timeout; pages can take 10-15s.
-      signal: AbortSignal.timeout(60_000),
-    });
-  } catch (e: any) {
-    return errResult(rawUrl, `Crawlbase fetch failed: ${e?.message || "network"}`);
-  }
-
-  if (!res.ok) {
-    const body = await res.text().catch(() => "");
+  if (!cfg.base || !token) {
     return errResult(
       rawUrl,
-      `Crawlbase HTTP ${res.status}: ${body.substring(0, 200)}`
+      "Crawlbase token missing — paste crawlbase_token_js into admin to scrape non-TikTok URLs"
     );
   }
 
-  const text = await res.text().catch(() => "");
+  const params = new URLSearchParams({
+    token,
+    url: rawUrl,
+    ajax_wait: "true",
+    page_wait: "5000",
+  });
+  const endpoint = `${cfg.base}/?${params.toString()}`;
 
-  if (isTikTok) {
-    let json: any;
+  // Up to 3 attempts on transient pc_status 5xx (Crawlbase says retries
+  // are not charged).
+  const MAX_ATTEMPTS = 3;
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    let res: Response;
     try {
-      json = JSON.parse(text);
-    } catch {
-      return errResult(rawUrl, "Crawlbase returned non-JSON for tiktok-product scraper");
+      res = await fetch(endpoint, {
+        method: "GET",
+        signal: AbortSignal.timeout(60_000),
+      });
+    } catch (e: any) {
+      return errResult(rawUrl, `Crawlbase fetch failed: ${e?.message || "network"}`);
     }
-    return parseTikTokProductBody(json, rawUrl);
-  }
+    if (!res.ok) {
+      const body = await res.text().catch(() => "");
+      return errResult(
+        rawUrl,
+        `Crawlbase HTTP ${res.status}: ${body.substring(0, 200)}`
+      );
+    }
+    const text = await res.text().catch(() => "");
 
-  // Generic path — text is HTML.
-  return parseGenericHtml(text, rawUrl);
+    // Detect Crawlbase's error envelope (a JSON object containing
+    // pc_status). If present and 5xx, retry — otherwise treat as HTML
+    // even if it begins with `{` (rare site quirks).
+    if (text.startsWith("{") && text.includes("pc_status")) {
+      try {
+        const env = JSON.parse(text);
+        const pc = Number(env?.pc_status || 0);
+        if (pc >= 500 && attempt < MAX_ATTEMPTS) {
+          await new Promise((r) => setTimeout(r, 1500 * attempt));
+          continue;
+        }
+        if (pc >= 500) {
+          return errResult(
+            rawUrl,
+            `Crawlbase parser failed (pc_status ${pc}). ${String(env?.body || "").substring(0, 200)}`
+          );
+        }
+      } catch {
+        // Fall through to HTML parse
+      }
+    }
+
+    return parseGenericHtml(text, rawUrl);
+  }
+  return errResult(rawUrl, "Crawlbase exhausted retries");
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// Public entry point. Only TikTok + Shopee are supported right now —
+// everything else returns a clean error so the user knows up front
+// instead of getting a generic "Scrape returned no product data".
+// ──────────────────────────────────────────────────────────────────────────
+
+export async function scrapeAffiliateUrl(rawUrl: string): Promise<ScrapedProduct> {
+  if (isTikTokUrl(rawUrl)) {
+    return scrapeViaTikHub(rawUrl);
+  }
+  if (isShopeeUrl(rawUrl)) {
+    return scrapeViaCrawlbase(rawUrl);
+  }
+  return errResult(
+    rawUrl,
+    "Only TikTok Shop and Shopee links are supported for now. Use Manual Product for other platforms."
+  );
 }
 
 function errResult(url: string, error: string): ScrapedProduct {

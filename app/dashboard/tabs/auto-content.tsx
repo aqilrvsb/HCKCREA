@@ -445,7 +445,7 @@ export default function AutoContentTab({ projectId }: { projectId?: string } = {
                 type="url"
                 value={affiliateUrl}
                 onChange={(e) => setAffiliateUrl(e.target.value)}
-                placeholder="Paste TikTok Shop / Shopee / Lazada link..."
+                placeholder="Paste TikTok Shop / Shopee link..."
                 className="flex-1 p-3 rounded-xl text-sm outline-none"
                 style={{ background: "#fafaf7", border: "1px solid #e8e0d8", color: "#1a1a1a" }}
               />

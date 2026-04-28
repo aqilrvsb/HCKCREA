@@ -150,6 +150,17 @@ export async function getGenProvider(
   return choice === "p1" ? "p1" : "p2";
 }
 
+// TikHub config — TikTok / Douyin / TikTok Shop specialist with native
+// Asian IPs. Pay-as-you-go from $0.001 / request. Used for TikTok URLs
+// because Crawlbase's free tier can't reach TikTok Shop MY (region-locked).
+export async function getTikHubConfig() {
+  const s = await getSettings(["tikhub_base", "tikhub_token"]);
+  return {
+    base: s.tikhub_base?.url || "https://api.tikhub.io",
+    token: s.tikhub_token?.key || "",
+  };
+}
+
 // Crawlbase scraper config — used by /api/scrape/affiliate to pull
 // product details from TikTok Shop / Shopee / Lazada affiliate URLs.
 // Two tokens: normal (for static HTML + named scrapers like tiktok-shop)
