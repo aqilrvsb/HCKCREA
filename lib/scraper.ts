@@ -218,24 +218,40 @@ async function scrapeViaTikHub(originalUrl: string): Promise<ScrapedProduct> {
 
   const productName: string = pm.name || "";
 
-  // Cover image — TikTok ships TWO different image sets in pm.images:
-  //   • images[0] — a 1800×1800 "marketing hero" (often a bundle/social
-  //     card shot that doesn't match the actual product variant).
-  //   • images[1..N] — 1000×1000 SKU-aligned gallery thumbnails (what
-  //     the user actually sees scrolling the PDP).
-  // Picking images[0] gave us the bundle-promo card on a real product
-  // when the user expected the ORIGINAL bottle. Strategy: prefer the
-  // first image whose dimensions are <=1200 (= SKU gallery shot). Fall
-  // back to images[0] if everything is over 1200, then SKU image.
+  // Cover image — TikTok keeps two completely separate image sets:
+  //   • pm.images[]    — promo / lifestyle / hero shots used on home
+  //                      feed cards. NOT in PDP gallery order.
+  //   • pm.skus[].sku_image — variant-specific bottle shots. The
+  //                      first SKU is what TikTok renders as the
+  //                      default cover when the user lands on the PDP.
+  // We use the first SKU's sku_image as the canonical cover. sku_image
+  // only carries a `uri`, not a `url_list`, so we construct the CDN
+  // URL using the same transform template the other images use
+  // (verified live — the URL works without auth query tokens).
+  function buildTikTokImageUrl(uri: string): string {
+    if (!uri) return "";
+    // uri format: tos-{location}-i-{bucketId}-{region}/{hash}
+    // Extract bucketId so the transform path (~tplv-{bucketId}-...) matches.
+    const bucketMatch = uri.match(/^tos-[a-z]+-i-([a-z0-9]+)-/);
+    const bucketId = bucketMatch?.[1] || "aphluv4xwc";
+    return `https://p16-oec-sg.ibyteimg.com/${uri}~tplv-${bucketId}-crop-webp:1000:1000.webp`;
+  }
+
   const galleryImages: any[] = Array.isArray(pm.images) ? pm.images : [];
-  const skuShotImage = galleryImages.find(
+  const firstSkuImage = pm?.skus?.[0]?.sku_image;
+  const skuConstructedUrl = buildTikTokImageUrl(firstSkuImage?.uri || "");
+  // Fall back order:
+  //   1. Default SKU (variant 0) — what TikTok shows on PDP load
+  //   2. First gallery image with width <= 1200 (skip 1800-px hero)
+  //   3. First gallery image (any size)
+  const skuShotFromImages = galleryImages.find(
     (img: any) => img?.width && img.width <= 1200 && img?.url_list?.[0]
   );
-  const firstGalleryImg = skuShotImage || galleryImages[0] || null;
+  const firstGalleryImg = skuShotFromImages || galleryImages[0] || null;
   const finalImage: string =
+    skuConstructedUrl ||
     firstGalleryImg?.url_list?.[0] ||
     firstGalleryImg?.url_list?.[1] ||
-    pm?.skus?.[0]?.sku_image?.url_list?.[0] ||
     "";
 
   // Price — TikTok serves a `range_price` string ("12.00 - 13.00") when
