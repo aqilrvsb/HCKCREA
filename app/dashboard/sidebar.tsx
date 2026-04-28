@@ -16,6 +16,8 @@ import {
   CreditCard,
   Activity,
   Bookmark,
+  MessageCircle,
+  ArrowUpRight,
 } from "lucide-react";
 import LogoutButton from "./logout-button";
 
@@ -430,6 +432,27 @@ export default function Sidebar({
             </button>
           );
         })}
+
+        {/* External link — WhatsApp discussion group. Themed in green to
+            match WhatsApp brand and stand out as a non-nav item. */}
+        <a
+          href="https://chat.whatsapp.com/Ftz5oImqGJ17s9q39X3EdS?mode=gi_t"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-bold transition-all hover:bg-emerald-500/10"
+          style={{ color: "var(--color-text-secondary)" }}
+        >
+          <MessageCircle
+            className="w-4 h-4 flex-shrink-0"
+            strokeWidth={2.4}
+            style={{ color: "#22c55e" }}
+          />
+          <span>Join Discussion WhatsApp</span>
+          <ArrowUpRight
+            className="w-3.5 h-3.5 ml-auto opacity-60"
+            strokeWidth={2.4}
+          />
+        </a>
       </div>
 
       {/* Credit pill + subscription status */}
