@@ -11,6 +11,9 @@ import {
   Loader2,
   MessageCircle,
   FileText,
+  Phone,
+  Mail,
+  Send,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 
@@ -32,6 +35,31 @@ type Payment = {
   created_at: string;
 };
 
+type Profile = {
+  id: string;
+  full_name: string | null;
+  whatsapp: string | null;
+  email?: string | null;
+};
+
+// Normalise to wa.me-compatible (digits only, no plus, with Malaysia 60 prefix
+// when the number starts with a leading 0). e.g. "012-345 6789" → "60123456789".
+function waNumber(raw: string | null | undefined): string {
+  if (!raw) return "";
+  let n = String(raw).replace(/\D/g, "");
+  if (n.startsWith("0")) n = "60" + n.slice(1);
+  if (n.startsWith("6") && !n.startsWith("60")) n = "60" + n.slice(1);
+  return n;
+}
+
+function waFollowUpUrl(name: string, raw: string): string {
+  const num = waNumber(raw);
+  if (!num) return "";
+  const greeting = name && name.trim() ? `Cik ${name.trim().split(/\s+/)[0]}` : "Cik";
+  const msg = `Hi, ${greeting} — Saya dapati Cik ada masalah pembayaran PeningLab... Boleh tahu kenapa?`;
+  return `https://wa.me/${num}?text=${encodeURIComponent(msg)}`;
+}
+
 const STATUS_PILL: Record<Status, string> = {
   paid: "bg-emerald-50 text-emerald-700 border-emerald-200",
   pending: "bg-amber-50 text-amber-700 border-amber-200",
@@ -42,6 +70,7 @@ const STATUS_PILL: Record<Status, string> = {
 export default function AdminTransactions() {
   const [active, setActive] = useState<TxnType>("subscription");
   const [rows, setRows] = useState<Payment[]>([]);
+  const [profiles, setProfiles] = useState<Record<string, Profile>>({});
   const today = new Date();
   const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
   const [start, setStart] = useState(monthStart.toISOString().slice(0, 10));
@@ -69,7 +98,25 @@ export default function AdminTransactions() {
       .order("created_at", { ascending: false })
       .limit(500);
     const { data } = await q;
-    setRows((data as Payment[]) || []);
+    const list = (data as Payment[]) || [];
+    setRows(list);
+
+    // Fill in name + whatsapp from profiles for non-signup payments
+    // (signup metadata already has them). Single batched query keyed by id.
+    const userIds = Array.from(
+      new Set(list.map((p) => p.user_id).filter(Boolean) as string[])
+    );
+    if (userIds.length > 0) {
+      const { data: profs } = await sb
+        .from("profiles")
+        .select("id, full_name, whatsapp")
+        .in("id", userIds);
+      const map: Record<string, Profile> = {};
+      (profs || []).forEach((p: any) => {
+        map[p.id] = p;
+      });
+      setProfiles(map);
+    }
   }
 
   const filtered = useMemo(() => {
@@ -253,9 +300,17 @@ export default function AdminTransactions() {
               {filtered.map((p, i) => {
                 const meta = p.metadata || {};
                 const signup = meta.signup || {};
-                const customer =
-                  signup.name || signup.email || (p.user_id ? p.user_id.slice(0, 8) : "—");
-                const customerEmail = signup.email || "";
+                const profile = p.user_id ? profiles[p.user_id] : null;
+                // Prefer signup metadata (richest source), fall back to profile
+                const customerName =
+                  signup.name ||
+                  profile?.full_name ||
+                  (p.user_id ? p.user_id.slice(0, 8) : "—");
+                const customerEmail = signup.email || profile?.email || "";
+                const customerWhatsapp = signup.whatsapp || profile?.whatsapp || "";
+                const customerWaUrl = customerWhatsapp
+                  ? `https://wa.me/${waNumber(customerWhatsapp)}`
+                  : "";
                 const isSignup = p.type === "checkout_signup";
                 const waSent = !!meta.whatsapp_sent;
                 return (
@@ -275,11 +330,29 @@ export default function AdminTransactions() {
                         minute: "2-digit",
                       })}
                     </td>
-                    <td className="px-4 py-3">
-                      <div className="font-semibold">{customer}</div>
+                    <td className="px-4 py-3 align-top">
+                      <div className="font-semibold text-sm">{customerName}</div>
                       {customerEmail && (
-                        <div className="text-xs text-[var(--color-text-muted)]">
-                          {customerEmail}
+                        <div className="flex items-center gap-1 text-xs text-[var(--color-text-muted)] mt-0.5">
+                          <Mail className="w-3 h-3 shrink-0" />
+                          <span className="truncate">{customerEmail}</span>
+                        </div>
+                      )}
+                      {customerWhatsapp && (
+                        <div className="flex items-center gap-1 text-xs text-[var(--color-text-muted)] mt-0.5">
+                          <Phone className="w-3 h-3 shrink-0" />
+                          {customerWaUrl ? (
+                            <a
+                              href={customerWaUrl}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="hover:text-orange hover:underline"
+                            >
+                              {customerWhatsapp}
+                            </a>
+                          ) : (
+                            <span>{customerWhatsapp}</span>
+                          )}
                         </div>
                       )}
                     </td>
@@ -311,50 +384,69 @@ export default function AdminTransactions() {
                       </span>
                     </td>
                     <td className="px-4 py-3 text-right">
-                      <div className="inline-flex items-center gap-1.5">
+                      <div className="inline-flex items-center gap-1.5 justify-end">
+                        {/* Recheck — for any non-paid txn with a Chip purchase id (covers pending + failed) */}
                         {p.chip_purchase_id && p.status !== "paid" && (
                           <button
                             disabled={busy === p.id}
                             onClick={() => recheck(p)}
-                            title="Recheck status with Chip"
-                            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-white border border-[var(--color-border)] hover:border-orange-300 text-xs font-semibold disabled:opacity-50"
+                            title={p.status === "pending" ? "Check pending status with Chip" : "Recheck failed status"}
+                            aria-label="Recheck"
+                            className="inline-flex items-center justify-center w-8 h-8 rounded-lg bg-blue-50 border border-blue-200 text-blue-600 hover:bg-blue-100 disabled:opacity-50"
                           >
                             {busy === p.id ? (
-                              <Loader2 className="w-3 h-3 animate-spin" />
+                              <Loader2 className="w-4 h-4 animate-spin" />
+                            ) : p.status === "pending" ? (
+                              <CheckCircle2 className="w-4 h-4" />
                             ) : (
-                              <RefreshCw className="w-3 h-3" />
+                              <RefreshCw className="w-4 h-4" />
                             )}
-                            Recheck
                           </button>
                         )}
+                        {/* Send/Resend login WhatsApp — only on paid signup payments */}
                         {isSignup && p.status === "paid" && (
                           <button
                             disabled={busy === p.id}
                             onClick={() => resendWA(p)}
                             title={waSent ? "Resend login info via WhatsApp" : "Send login info via WhatsApp"}
-                            className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold disabled:opacity-50 border ${
+                            aria-label="Send login WA"
+                            className={`inline-flex items-center justify-center w-8 h-8 rounded-lg disabled:opacity-50 border ${
                               waSent
-                                ? "bg-white border-[var(--color-border)] hover:border-emerald-300"
+                                ? "bg-emerald-50 border-emerald-200 text-emerald-700 hover:bg-emerald-100"
                                 : "bg-emerald-500 text-white border-emerald-500 hover:bg-emerald-600"
                             }`}
                           >
                             {busy === p.id ? (
-                              <Loader2 className="w-3 h-3 animate-spin" />
+                              <Loader2 className="w-4 h-4 animate-spin" />
                             ) : (
-                              <MessageCircle className="w-3 h-3" />
+                              <Send className="w-4 h-4" />
                             )}
-                            {waSent ? "Resend WA" : "Send WA"}
                           </button>
                         )}
+                        {/* Follow-up WhatsApp — pre-filled BM message asking why payment failed/pending. */}
+                        {customerWhatsapp && p.status !== "paid" && (
+                          <a
+                            href={waFollowUpUrl(customerName, customerWhatsapp)}
+                            target="_blank"
+                            rel="noreferrer"
+                            title="WhatsApp follow-up to customer"
+                            aria-label="WhatsApp follow-up"
+                            className="inline-flex items-center justify-center w-8 h-8 rounded-lg bg-emerald-500 text-white border border-emerald-500 hover:bg-emerald-600"
+                          >
+                            <MessageCircle className="w-4 h-4" />
+                          </a>
+                        )}
+                        {/* Chip checkout link */}
                         {p.chip_checkout_url && (
                           <a
                             href={p.chip_checkout_url}
                             target="_blank"
                             rel="noreferrer"
                             title="Open Chip checkout"
-                            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-white border border-[var(--color-border)] text-xs font-semibold hover:border-orange-300"
+                            aria-label="Open Chip"
+                            className="inline-flex items-center justify-center w-8 h-8 rounded-lg bg-white border border-[var(--color-border)] hover:border-orange-300 text-[var(--color-text-secondary)]"
                           >
-                            <FileText className="w-3 h-3" />
+                            <FileText className="w-4 h-4" />
                           </a>
                         )}
                       </div>
