@@ -28,6 +28,9 @@ export type HistoryRow = {
   reference_url?: string | null;
   project_id?: string | null;
   metadata?: any;
+  // Read for the stale-recovery branch — settle uses this to decide
+  // whether a "failed" row was genuinely failed or just stale-cleaned.
+  error_message?: string | null;
   // 16s + Extend chain fields (read by onSegmentSettled hook)
   segment_index?: number | null;
   parent_history_id?: string | null;
@@ -99,9 +102,29 @@ export type SettleResult =
   | { state: "skipped"; reason: string };
 
 export async function settleHistoryRow(hist: HistoryRow): Promise<SettleResult> {
-  if (hist.status === "done" || hist.status === "failed") {
+  // Genuine done rows never re-settle — output already produced + credit
+  // already deducted.
+  if (hist.status === "done") {
     return { state: "skipped", reason: "already settled" };
   }
+
+  // Failed rows are usually genuine failures, but stale-cleanup
+  // (poll-pending forces 'failed' after 10 min when neither webhook nor
+  // cron landed in time) creates rows that look failed even though the
+  // upstream provider may have completed the job. We allow re-settling
+  // those: if the original task_id is still present and the row was
+  // never marked `done`, give it one more shot — credit deduction is
+  // gated on the row not already being `done`, so re-settling can't
+  // double-charge.
+  if (hist.status === "failed") {
+    const isStale = String(hist.error_message || "").startsWith("Stale");
+    const hasOutput = !!hist.output_url;
+    if (!isStale || hasOutput) {
+      return { state: "skipped", reason: "already settled" };
+    }
+    // Fall through — re-query upstream and recover if it succeeded.
+  }
+
   if (!hist.task_id) {
     return { state: "skipped", reason: "no task_id" };
   }
@@ -135,6 +158,9 @@ export async function settleHistoryRow(hist: HistoryRow): Promise<SettleResult> 
         status: "done",
         output_url: r.outputUrl,
         thumbnail_url: hist.type === "video" ? r.outputUrl : null,
+        // Wipe any stale error text the row picked up before recovery
+        // (e.g. "Stale — exceeded 10m without resolution").
+        error_message: null,
       })
       .eq("id", hist.id);
 
