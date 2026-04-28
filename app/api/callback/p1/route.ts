@@ -8,21 +8,20 @@ export const dynamic = "force-dynamic";
 // POST /api/callback/p1?secret=<CALLBACK_SECRET>
 // GeminiGen.AI webhook receiver.
 //
-// Per https://docs.geminigen.ai/getting-started/webhooks the payload is:
-//   { event, uuid, data }
-// Events:
-//   VIDEO_GENERATION_COMPLETED / VIDEO_GENERATION_FAILED
-//   IMAGE_GENERATION_COMPLETED / IMAGE_GENERATION_FAILED
+// GeminiGen actually ships TWO different payload shapes depending on
+// where you read their docs:
+//   1. API-docs page (/getting-started/webhooks):
+//      { event: "VIDEO_GENERATION_COMPLETED", uuid, data }
+//   2. Service-Integration UI:
+//      { event: "image.generated", timestamp, data: { id, status, url, user_id } }
+// We accept both and pull the resource id from whichever field is set.
 //
-// Auth: same query-secret pattern as /api/callback/p2 — only payloads
-// originating from URLs we generated for our own jobs settle anything.
-// (GeminiGen also signs the body via x-signature with a public key for
-// HMAC-SHA256 verification; we treat the secret query param as the
-// primary gate and leave the optional public-key verify as a TODO.)
+// Auth: query-secret gate — same pattern as /api/callback/p2. The route
+// also re-verifies via GET /uapi/v1/history/{uuid} inside settleHistoryRow
+// before flipping anything, so a spoofed body can't trick us.
 //
-// We don't trust the webhook body to flip the row directly — we resolve
-// by uuid → look up the history row → call settleHistoryRow which
-// re-verifies via /uapi/v1/history/{uuid} and is idempotent.
+// We always reply 200 (except on a failed secret check) so GeminiGen
+// doesn't retry-spam over rows we never tracked.
 export async function POST(req: Request) {
   const url = new URL(req.url);
   const secret = url.searchParams.get("secret");
@@ -37,8 +36,14 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: true, note: "Invalid JSON" });
   }
 
-  // GeminiGen identifies the resource by uuid at the top level.
-  const uuid = body?.uuid || body?.data?.uuid || body?.id || null;
+  // Resource id can land in any of these fields depending on which
+  // payload shape GeminiGen sent. We try them in order of specificity.
+  const uuid =
+    body?.uuid ||
+    body?.data?.uuid ||
+    body?.data?.id ||
+    body?.id ||
+    null;
   if (!uuid) {
     return NextResponse.json({ ok: true, note: "No uuid in payload" });
   }
