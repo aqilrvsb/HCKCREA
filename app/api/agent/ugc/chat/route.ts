@@ -104,6 +104,7 @@ export async function POST(req: Request) {
     userText: finalUserText,
     attachedImageUrl: attachedImageUrl || undefined,
     attachedImageRole: imageRole,
+    attachedProductUsp: imageRole === "product" ? productUsp : undefined,
   });
 
   if (!result.ok) {

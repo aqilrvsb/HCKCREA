@@ -5,6 +5,20 @@ import { p2CreateTask } from "@/lib/p2";
 import { priceFor } from "@/lib/deduct";
 import { getP2Config } from "@/lib/settings";
 import { getCachedProductOcr } from "@/lib/product-ocr";
+import { loadConversation } from "@/lib/agent";
+
+// Build a PRODUCT INFO LOCK block for the USP/description the user typed
+// in the product-reference modal. Pinned to the front of every variant
+// prompt at fire time so Veo sees it verbatim regardless of what the
+// agent's tool call did or didn't fold into product_description.
+function productInfoLockBlock(usp?: string | null): string {
+  const trimmed = String(usp || "").trim();
+  if (!trimmed) return "";
+  return `PRODUCT INFO (user-provided — respect verbatim, anchor scene around these facts):
+${trimmed}
+
+`;
+}
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -70,6 +84,15 @@ export async function POST(req: Request) {
   const is16s = duration === "16";
   const useIngredient = !!productImageUrl;
 
+  // Pull the USP the user typed in the product-reference modal — it lives
+  // on conversation state.last_product_usp (persisted in lib/agent.ts on
+  // each turn that brought a product image). We hard-inject it into every
+  // variant prompt so Veo sees the description verbatim regardless of what
+  // the agent's tool-call args contained.
+  const conv = await loadConversation(user.id, projectId, "ugc");
+  const productUsp = String(conv?.state?.last_product_usp || "").trim();
+  const productInfoBlock = productInfoLockBlock(productUsp);
+
   // Build per-variant seg-1 prompts upfront (fast — no I/O).
   type Prepared = { v: any; idx: number; seg1Prompt: string };
   const prepared: Prepared[] = variants.map((v: any, idx: number) => {
@@ -78,6 +101,9 @@ export async function POST(req: Request) {
       seg1Prompt = `${v.prompt.trim()}\n\n${v.character_lock.trim()}`;
       seg1Prompt = withLocks(seg1Prompt, v.voice_line || undefined);
     }
+    // Pin the user's USP/description to the front of the final prompt.
+    // No-op if no USP was typed.
+    if (productInfoBlock) seg1Prompt = `${productInfoBlock}${seg1Prompt}`;
     return { v, idx, seg1Prompt };
   });
 

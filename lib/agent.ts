@@ -454,6 +454,13 @@ type LoopOpts = {
   //   they want the video model to render verbatim (and vision-describing
   //   it adds no value, just latency + token cost).
   attachedImageRole?: "general" | "product";
+  // USP / description text the user typed alongside a product reference.
+  // Persisted into conversation.state.last_product_usp so the agent can
+  // recall it across turns AND injected verbatim into the final Veo /
+  // Grok prompt at fire time as a PRODUCT INFO LOCK block — gives us a
+  // hard guarantee the description reaches the upstream model regardless
+  // of what the LLM did or didn't fold into its tool-call args.
+  attachedProductUsp?: string;
   // Per-turn merges into conversation.state. Used today for the Image
   // agent's model dropdown (image_model_override = "nano-banana-pro" |
   // "gpt-image-2") so the generate_image tool handler can force the
@@ -528,6 +535,11 @@ export async function runAgentTurn(opts: LoopOpts): Promise<LoopResult> {
     if (opts.attachedImageRole === "product") {
       state.last_attached_image_url = opts.attachedImageUrl;
       state.last_attached_image_role = "product";
+      // Persist the typed USP/description so confirmAndFire* can fold it
+      // into the final Veo / Grok prompt verbatim. trim() so an empty
+      // string clears the previous turn's value.
+      const trimmedUsp = String(opts.attachedProductUsp || "").trim();
+      if (trimmedUsp) state.last_product_usp = trimmedUsp;
     } else {
       const v = await describeImageForAgent(opts.attachedImageUrl);
       if (v.ok && v.description) {
