@@ -30,6 +30,7 @@ type HistoryJoin = {
   output_url?: string | null;
   thumbnail_url?: string | null;
   duration?: number | null;
+  metadata?: any; // includes .provider ("p1" | "p2") so we can surface it
 };
 
 type Tx = {
@@ -94,7 +95,7 @@ export default function UsageSection({ email: _email }: { email: string }) {
       const { data } = await sb
         .from("credit_transactions")
         .select(
-          "id, amount, balance_after, reason, created_at, metadata, history:history_id(id, type, tab, prompt, output_url, thumbnail_url, duration)"
+          "id, amount, balance_after, reason, created_at, metadata, history:history_id(id, type, tab, prompt, output_url, thumbnail_url, duration, metadata)"
         )
         .order("created_at", { ascending: false })
         .limit(200);
@@ -254,13 +255,39 @@ export default function UsageSection({ email: _email }: { email: string }) {
                 h?.type === "clone" ||
                 h?.tab === "cinema";
               const promptShort = (h?.prompt || "").trim().substring(0, 60);
+              // Which backend fulfilled this generation. Stamped at create
+              // time on history.metadata.provider — "p1" (GeminiGen) or
+              // "p2" (Crun.ai). Older rows without the stamp are p2.
+              const provider: "p1" | "p2" =
+                h?.metadata?.provider === "p1" ? "p1" : "p2";
               return (
                 <li
                   key={t.id}
                   className="px-6 py-4 flex flex-col md:flex-row md:items-center gap-2 md:gap-3 text-sm"
                 >
-                  <span className="w-44 font-semibold text-[var(--color-text-primary)] truncate">
+                  <span className="w-44 font-semibold text-[var(--color-text-primary)] truncate flex items-center gap-1.5">
                     {label}
+                    {!isPositive && (
+                      <span
+                        className="font-mono text-[9px] uppercase tracking-wider px-1.5 py-0.5 rounded"
+                        style={
+                          provider === "p1"
+                            ? {
+                                background: "rgba(99,102,241,0.12)",
+                                color: "#6366f1",
+                                border: "1px solid rgba(99,102,241,0.3)",
+                              }
+                            : {
+                                background: "rgba(245,158,11,0.12)",
+                                color: "#d97706",
+                                border: "1px solid rgba(245,158,11,0.3)",
+                              }
+                        }
+                        title={provider === "p1" ? "GeminiGen.AI" : "Crun.ai"}
+                      >
+                        {provider}
+                      </span>
+                    )}
                   </span>
                   <span className="flex-1 min-w-0">
                     {promptShort ? (
