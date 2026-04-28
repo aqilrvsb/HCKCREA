@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { orChat } from "@/lib/openrouter";
+import { authExtensionUser } from "@/lib/extension-auth";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -27,10 +27,7 @@ export const dynamic = "force-dynamic";
 //           tiktok_product_id, product_name }, also persists them on
 // the row's metadata + caption column so re-asking is cheap.
 export async function POST(req: Request) {
-  const sb = await createClient();
-  const {
-    data: { user },
-  } = await sb.auth.getUser();
+  const user = await authExtensionUser(req);
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const body = await req.json().catch(() => ({}));

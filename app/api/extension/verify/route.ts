@@ -1,35 +1,32 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getSetting } from "@/lib/settings";
+import { authExtensionUser } from "@/lib/extension-auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 // POST /api/extension/verify
 // Body: { extension_version }
+// Auth: Authorization: Bearer <Supabase access_token>  (extension)
+//       OR Supabase session cookies                     (browser tab)
 //
-// The PeningLab Chrome extension calls this on every launch (and after
-// login) to gate access. We auth via the standard Supabase session
-// cookies — the extension forwards the user's PeningLab session to
-// this domain, so the user must be logged into peninglab.com first.
+// The PeningLab Chrome extension calls this on every launch to gate
+// access. The extension authenticates with the user's Supabase
+// access_token (obtained from peninglab Supabase auth.signInWithPassword)
+// and sends it as a Bearer header — Chrome extensions can't reliably
+// forward third-party session cookies.
 //
 // Auth model:
-//   1. Must have a Supabase session (signed-in user)
+//   1. Must resolve to a valid user (Bearer or cookie)
 //   2. plan_active must be true (paid Pro subscription, not expired)
-//   3. extension_version must match the admin's app_settings value
-//
-// Returns:
-//   { ok: true, user, plan, extension }
-//   on any failure → 401/403 with reason
+//   3. extension_version is reported as match/mismatch but doesn't hard-fail
+//      so the extension can still boot and show the update prompt.
 //
 // Deliberately does NOT check credit balance — admin's subscription gate
 // is what unlocks the extension; per-generation cost is metered server-side.
 export async function POST(req: Request) {
-  const sb = await createClient();
-  const {
-    data: { user },
-  } = await sb.auth.getUser();
+  const user = await authExtensionUser(req);
   if (!user) {
     return NextResponse.json(
       { ok: false, error: "Not signed in. Login at peninglab.com first." },

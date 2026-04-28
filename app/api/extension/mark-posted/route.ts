@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { authExtensionUser } from "@/lib/extension-auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -14,10 +14,7 @@ export const dynamic = "force-dynamic";
 // Auth: must own the row. The extension passes its session cookie so
 // auth.getUser() resolves the same user the row belongs to.
 export async function POST(req: Request) {
-  const sb = await createClient();
-  const {
-    data: { user },
-  } = await sb.auth.getUser();
+  const user = await authExtensionUser(req);
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const body = await req.json().catch(() => ({}));
