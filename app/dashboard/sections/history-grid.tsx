@@ -154,6 +154,9 @@ export default function HistoryGrid({
   // explicit pause keeps the logs clean) and stops entirely when no row
   // is pending. The server's pg_cron does the actual settling — this just
   // re-fetches so the UI mirrors what the DB already knows.
+  // Cadence: 15s while anything is pending. Webhooks land in ~30-90s, cron
+  // every 30s — so a 15s UI poll catches the flip within one tick of the
+  // DB write and the user never has to F5.
   useEffect(() => {
     const hasPending = items.some(
       (i) => i.status === "pending" && !i.parent_history_id
@@ -164,14 +167,17 @@ export default function HistoryGrid({
     if (!hasPending) return;
 
     const id = window.setInterval(() => {
-      if (document.visibilityState === "visible") void load();
-    }, 60_000);
+      if (document.visibilityState === "visible") void load({ silent: true });
+    }, 15_000);
     return () => window.clearInterval(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [items]);
 
-  async function load() {
-    setLoading(true);
+  async function load(opts: { silent?: boolean } = {}) {
+    // Initial load shows the grid skeleton; poll-driven loads keep the
+    // existing cards on screen and just swap the data underneath, so a
+    // pending card flipping to done doesn't make the whole grid blink.
+    if (!opts.silent) setLoading(true);
     try {
       const sb = createClient();
       let q = sb
@@ -184,7 +190,7 @@ export default function HistoryGrid({
       const { data } = await q;
       setItems((data as HistoryItem[]) || []);
     } finally {
-      setLoading(false);
+      if (!opts.silent) setLoading(false);
     }
   }
 
