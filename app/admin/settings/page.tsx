@@ -11,6 +11,7 @@ import {
   Image as ImageIcon,
   Video,
   Film,
+  Chrome,
 } from "lucide-react";
 
 type Setting = { key: string; value: any; description: string | null; category: string };
@@ -45,6 +46,14 @@ export default function AdminSettings() {
   const [syncing, setSyncing] = useState(false);
   const [syncMsg, setSyncMsg] = useState<string | null>(null);
 
+  // Extension settings — surfaced as a dedicated card (matches the
+  // image 3 reference). Stored under app_settings keys
+  // `extension_version` and `extension_download_url`.
+  const [extVersion, setExtVersion] = useState("");
+  const [extDownloadUrl, setExtDownloadUrl] = useState("");
+  const [savingExt, setSavingExt] = useState(false);
+  const [extMsg, setExtMsg] = useState<string | null>(null);
+
   useEffect(() => {
     void load();
     void loadAdminDevice();
@@ -66,8 +75,47 @@ export default function AdminSettings() {
         if (row.key === "gen_provider_cinema") next.cinema = row.value?.provider === "p1" ? "p1" : "p2";
       }
       setProviders(next);
+      // Hydrate the extension card from app_settings.
+      for (const row of list) {
+        if (row.key === "extension_version") {
+          setExtVersion(String(row.value?.value || row.value?.version || ""));
+        }
+        if (row.key === "extension_download_url") {
+          setExtDownloadUrl(String(row.value?.url || ""));
+        }
+      }
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function saveExtensionSettings() {
+    setSavingExt(true);
+    setExtMsg(null);
+    try {
+      await Promise.all([
+        fetch("/api/admin/settings", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            key: "extension_version",
+            value: { value: extVersion.trim() },
+          }),
+        }),
+        fetch("/api/admin/settings", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            key: "extension_download_url",
+            value: { url: extDownloadUrl.trim() },
+          }),
+        }),
+      ]);
+      setExtMsg("✓ Saved. Extension will read the new values on its next /api/extension/verify call.");
+      void load();
+      setTimeout(() => setExtMsg(null), 5000);
+    } finally {
+      setSavingExt(false);
     }
   }
 
@@ -281,6 +329,66 @@ export default function AdminSettings() {
             GPT Image 2 is hidden in the Image agent when image is on P1.
           </span>
         </div>
+      </div>
+
+      {/* Chrome Extension settings — dedicated card so admin can rotate
+          the version + download URL the extension reads. The extension
+          calls /api/extension/verify on launch; if its bundled version
+          doesn't match this, it tells the user to update. */}
+      <div className="card p-6 mb-6 border-2 border-blue-100 bg-blue-50/40">
+        <div className="flex items-center gap-2 mb-1">
+          <Chrome className="w-5 h-5 text-blue-600" />
+          <h2 className="font-display font-bold text-lg">Chrome Extension</h2>
+        </div>
+        <p className="text-sm text-[var(--color-text-secondary)] mb-4">
+          Bump the version when you ship a new build. Clients with an
+          older bundled version will see an update prompt on their next
+          extension load.
+        </p>
+
+        <div className="grid md:grid-cols-2 gap-4 mb-3">
+          <div>
+            <label className="block text-xs font-mono uppercase tracking-widest text-[var(--color-text-muted)] font-bold mb-2">
+              Extension Version
+            </label>
+            <input
+              value={extVersion}
+              onChange={(e) => setExtVersion(e.target.value)}
+              placeholder="3.0.0"
+              className="input"
+            />
+            <p className="text-[10px] text-[var(--color-text-muted)] mt-1">
+              Semver string shown to users in Profile and SOP modal.
+            </p>
+          </div>
+
+          <div>
+            <label className="block text-xs font-mono uppercase tracking-widest text-[var(--color-text-muted)] font-bold mb-2">
+              Chrome Extension Download URL
+            </label>
+            <input
+              value={extDownloadUrl}
+              onChange={(e) => setExtDownloadUrl(e.target.value)}
+              placeholder="https://drive.google.com/..."
+              className="input"
+            />
+            <p className="text-[10px] text-[var(--color-text-muted)] mt-1">
+              Google Drive or direct download link clients install from.
+            </p>
+          </div>
+        </div>
+
+        <button
+          onClick={saveExtensionSettings}
+          disabled={savingExt || !extVersion.trim()}
+          className="btn-primary disabled:opacity-50"
+        >
+          {savingExt ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+          Save extension settings
+        </button>
+        {extMsg && (
+          <div className="text-xs mt-2 text-emerald-700">{extMsg}</div>
+        )}
       </div>
 
       {/* WhatsApp device — special case (separate table) */}
