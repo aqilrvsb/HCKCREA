@@ -51,10 +51,15 @@ export async function POST(req: Request) {
 
   // Validate all sources: owned by caller, done, have output_url. Same query
   // also gives us tab/project_id/duration so the placeholder inherits cleanly.
+  // caption + metadata pulled too so the merged Auto Content row carries
+  // caption / cover_title / cover_subtitle / tiktok_product_id / product_name
+  // from the first source — needed by the extension's auto-post step.
   const admin = createAdminClient();
   const { data: sources, error: srcErr } = await admin
     .from("history")
-    .select("id, user_id, tab, status, output_url, project_id, duration")
+    .select(
+      "id, user_id, tab, status, output_url, project_id, duration, caption, metadata"
+    )
     .in("id", ids);
 
   if (srcErr || !sources || sources.length !== ids.length) {
@@ -93,6 +98,17 @@ export async function POST(req: Request) {
   const tab = ordered[0].tab;
   const projectId = ordered[0].project_id || null;
 
+  // Inherit auto-post payload from first source. Auto Content rows already
+  // carry caption + cover_title/subtitle + tiktok_product_id + product_name
+  // (stamped at master-plan generation time); merge would otherwise drop
+  // those, breaking the extension's auto-post step.
+  const firstMeta = (ordered[0].metadata || {}) as Record<string, any>;
+  const inheritedCaption = String(ordered[0].caption || "").trim();
+  const inheritedCoverTitle = firstMeta.cover_title || null;
+  const inheritedCoverSubtitle = firstMeta.cover_subtitle || null;
+  const inheritedProductId = firstMeta.tiktok_product_id || null;
+  const inheritedProductName = firstMeta.product_name || null;
+
   // Insert merged placeholder NOW. status='pending', task_id stays null
   // because there's no Crun task — fal merge happens inline in after().
   // Setting task_id=null + status=pending means pg_cron's stale-cleanup will
@@ -107,6 +123,7 @@ export async function POST(req: Request) {
       tab,
       status: "pending",
       prompt: `Merge of ${ordered.length} clips`,
+      caption: inheritedCaption || null,
       reference_url: null,
       task_id: null,
       duration: totalDuration,
@@ -115,6 +132,10 @@ export async function POST(req: Request) {
         merged_from: ids,
         merge_count: ordered.length,
         merge_status: "queued",
+        cover_title: inheritedCoverTitle,
+        cover_subtitle: inheritedCoverSubtitle,
+        tiktok_product_id: inheritedProductId,
+        product_name: inheritedProductName,
       },
     })
     .select("id")
@@ -142,6 +163,10 @@ export async function POST(req: Request) {
               merged_from: ids,
               merge_count: ordered.length,
               merge_status: "failed",
+              cover_title: inheritedCoverTitle,
+              cover_subtitle: inheritedCoverSubtitle,
+              tiktok_product_id: inheritedProductId,
+              product_name: inheritedProductName,
             },
           })
           .eq("id", historyId);
@@ -159,6 +184,10 @@ export async function POST(req: Request) {
             merge_count: ordered.length,
             merge_status: "done",
             merged_at: new Date().toISOString(),
+            cover_title: inheritedCoverTitle,
+            cover_subtitle: inheritedCoverSubtitle,
+            tiktok_product_id: inheritedProductId,
+            product_name: inheritedProductName,
           },
         })
         .eq("id", historyId);
@@ -172,6 +201,10 @@ export async function POST(req: Request) {
             merged_from: ids,
             merge_count: ordered.length,
             merge_status: "failed",
+            cover_title: inheritedCoverTitle,
+            cover_subtitle: inheritedCoverSubtitle,
+            tiktok_product_id: inheritedProductId,
+            product_name: inheritedProductName,
           },
         })
         .eq("id", historyId);
