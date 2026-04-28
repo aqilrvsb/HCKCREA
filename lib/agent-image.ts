@@ -352,6 +352,7 @@ export async function confirmAndFireImage(opts: {
             conversation_id: opts.conversationId,
             model: opts.model,
             modelId,
+            provider: created.provider || "p2",
             reference_count: opts.reference_urls.length,
             photographer_skill_id: opts.photographer_skill_id,
             brand_skill_id: opts.brand_skill_id,

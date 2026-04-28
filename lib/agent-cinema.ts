@@ -357,6 +357,7 @@ export async function confirmAndFireCinema(opts: {
         agent: "cinema",
         conversation_id: opts.conversationId,
         model,
+        provider: created.provider || "p2",
         mood_skill_id: opts.mood_skill_id,
         director_skill_id: opts.director_skill_id,
         camera_skill_id: opts.camera_skill_id,

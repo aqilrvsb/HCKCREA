@@ -106,7 +106,13 @@ export async function settleHistoryRow(hist: HistoryRow): Promise<SettleResult> 
     return { state: "skipped", reason: "no task_id" };
   }
 
-  const r = await p2GetStatus(hist.task_id);
+  // Pick the backend the row was originally created on. metadata.provider
+  // is "p1" (GeminiGen) or "p2" (Crun.ai). Defaults to p2 if missing —
+  // rows inserted before the multi-provider dispatcher landed all came
+  // from Crun.
+  const rowProvider =
+    (hist.metadata?.provider as "p1" | "p2" | undefined) === "p1" ? "p1" : "p2";
+  const r = await p2GetStatus(hist.task_id, rowProvider);
   const admin = createAdminClient();
 
   if (r.status === "succeeded" && r.outputUrl) {

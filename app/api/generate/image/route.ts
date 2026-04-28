@@ -96,6 +96,7 @@ export async function POST(req: Request) {
         aspectRatio,
       });
 
+      const provider = created.provider || "p2";
       if (!created.ok || !created.task_id) {
         await admin
           .from("history")
@@ -106,6 +107,7 @@ export async function POST(req: Request) {
             metadata: {
               model: modelKey,
               aspectRatio,
+              provider,
               upload_status: "failed",
             },
           })
@@ -121,6 +123,7 @@ export async function POST(req: Request) {
           metadata: {
             model: modelKey,
             aspectRatio,
+            provider,
             upload_status: "done",
           },
         })

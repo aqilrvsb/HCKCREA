@@ -96,6 +96,43 @@ export async function getCinemaRate(): Promise<number> {
   return Number.isFinite(n) && n > 0 ? n : 0.03;
 }
 
+// P1 — GeminiGen.AI config. Sister of getP2Config. Admin can flip
+// gen_provider_<asset> between "p1" and "p2" to rotate backends per asset
+// type without redeploying. Endpoint paths are configurable in case
+// GeminiGen rotates their routes.
+export async function getP1Config() {
+  const s = await getSettings([
+    "p1_base",
+    "p1_key",
+    "p1_veo_path",
+    "p1_grok_path",
+    "p1_image_path",
+    "p1_status_path",
+  ]);
+  return {
+    base: s.p1_base?.url || "https://api.geminigen.ai",
+    key: s.p1_key?.key || "",
+    veoPath: s.p1_veo_path?.path || "/uapi/v1/video-gen/veo",
+    grokPath: s.p1_grok_path?.path || "/uapi/v1/video-gen/grok",
+    imagePath: s.p1_image_path?.path || "/uapi/v1/generate_image",
+    statusPath: s.p1_status_path?.path || "/uapi/v1/history/{uuid}",
+  };
+}
+
+// Active gen provider — drives which backend (p1 = GeminiGen, p2 = Crun.ai)
+// receives the create-task call. Default p2 keeps existing deployments
+// unchanged. Per-asset toggles (image / video / cinema) so a single
+// outage on one asset doesn't cascade across the whole stack.
+export type GenProvider = "p1" | "p2";
+
+export async function getGenProvider(
+  asset: "image" | "video" | "cinema"
+): Promise<GenProvider> {
+  const v = await getSetting<any>(`gen_provider_${asset}`);
+  const choice = String(v?.provider || "p2").toLowerCase();
+  return choice === "p1" ? "p1" : "p2";
+}
+
 // RunningHub (P3) — used ONLY for hosting reference image uploads.
 // Generation still goes through Crun.ai (P2). RH gives back a public CDN
 // URL (download_url) that Crun.ai accepts as img_urls input. Mirrors

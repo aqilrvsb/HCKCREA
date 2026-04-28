@@ -182,6 +182,7 @@ export async function POST(req: Request) {
               metadata: {
                 idx: v.idx,
                 model,
+                provider: created.provider || "p2",
                 agent: "ugc",
                 conversation_id: conversationId,
                 scene: v.scene,

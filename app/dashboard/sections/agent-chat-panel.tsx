@@ -105,6 +105,10 @@ export default function AgentChatPanel({
   const [imageModel, setImageModel] = useState<"nano-banana-pro" | "gpt-image-2">(
     "nano-banana-pro"
   );
+  // Active image-gen provider — when admin sets gen_provider_image to "p1"
+  // (GeminiGen), GPT Image 2 is hidden because it's a Crun-only model.
+  // Fetched once on mount via the read-only /api/me/gen-provider endpoint.
+  const [imageProvider, setImageProvider] = useState<"p1" | "p2">("p2");
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
@@ -122,6 +126,29 @@ export default function AgentChatPanel({
     if (!scrollRef.current) return;
     scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
   }, [messages]);
+
+  // Fetch active image provider once so we know whether to show the GPT
+  // Image 2 option in the dropdown (Crun-only). Best-effort — defaults
+  // to p2 (Crun) so the dropdown stays full if the fetch fails.
+  useEffect(() => {
+    if (tab !== "image") return;
+    (async () => {
+      try {
+        const r = await fetch("/api/me/gen-provider", { cache: "no-store" });
+        const d = await r.json();
+        if (r.ok && d?.ok && (d.image === "p1" || d.image === "p2")) {
+          setImageProvider(d.image);
+          // Reset to banana if active provider doesn't support gpt-image-2.
+          if (d.image === "p1" && imageModel === "gpt-image-2") {
+            setImageModel("nano-banana-pro");
+          }
+        }
+      } catch {
+        // Silent — defaults to p2 already.
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab]);
 
   async function loadConversation() {
     setLoadingHistory(true);
@@ -652,7 +679,11 @@ export default function AgentChatPanel({
                   title="Image model"
                 >
                   <option value="nano-banana-pro">Banana Pro</option>
-                  <option value="gpt-image-2">GPT Image 2</option>
+                  {/* GPT Image 2 is Crun-only. Hide when image is routed
+                      through GeminiGen (p1) — they don't host it. */}
+                  {imageProvider !== "p1" && (
+                    <option value="gpt-image-2">GPT Image 2</option>
+                  )}
                 </select>
               )}
               <input

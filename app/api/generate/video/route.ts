@@ -108,12 +108,13 @@ export async function POST(req: Request) {
         imageMode,
       });
 
+      const provider = created.provider || "p2";
       if (!created.ok || !created.task_id) {
         await admin.from("history").update({
           status: "failed",
           cost: rate,
           error_message: created.error || "P2 create failed",
-          metadata: { aspectRatio, imageMode, model, upload_status: "failed" },
+          metadata: { aspectRatio, imageMode, model, provider, upload_status: "failed" },
         }).eq("id", historyId);
         return;
       }
@@ -121,7 +122,7 @@ export async function POST(req: Request) {
       await admin.from("history").update({
         task_id: created.task_id,
         cost: rate,
-        metadata: { aspectRatio, imageMode, model, upload_status: "done" },
+        metadata: { aspectRatio, imageMode, model, provider, upload_status: "done" },
       }).eq("id", historyId);
     } catch (e: any) {
       await admin.from("history").update({

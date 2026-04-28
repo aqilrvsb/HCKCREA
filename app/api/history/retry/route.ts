@@ -100,7 +100,10 @@ export async function POST(req: Request) {
     }
   }
 
-  // Fire P2 again with the same params
+  // Fire again with the same params. p2CreateTask is the unified
+  // dispatcher — it picks p1 / p2 based on the active gen_provider_<asset>
+  // admin setting. Result.provider tells us which backend handled it so
+  // we can stamp the (possibly new) provider onto the row's metadata.
   const created = await p2CreateTask({
     model,
     prompt: row.prompt,
@@ -135,6 +138,9 @@ export async function POST(req: Request) {
   // Flip the row back to pending with the new task_id so the existing
   // settle / poll path (webhook + cron) picks up the result on the
   // SAME card. Wipe error_message so the failure UI clears immediately.
+  // Stamp the dispatcher's chosen provider — admin may have rotated
+  // p1/p2 between the original fire and this retry, so the new task
+  // belongs to whichever backend the dispatcher just used.
   await admin
     .from("history")
     .update({
@@ -143,6 +149,7 @@ export async function POST(req: Request) {
       error_message: null,
       metadata: {
         ...meta,
+        provider: created.provider || meta.provider || "p2",
         retried_at: new Date().toISOString(),
         retry_count: Number(meta.retry_count || 0) + 1,
         last_retry_error: null,

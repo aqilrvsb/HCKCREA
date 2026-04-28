@@ -104,6 +104,7 @@ export async function POST(req: Request) {
         extra: { mode: "normal" },
       });
 
+      const provider = created.provider || "p2";
       if (!created.ok || !created.task_id) {
         await admin.from("history").update({
           status: "failed",
@@ -113,6 +114,7 @@ export async function POST(req: Request) {
             model, imageMode, resolution,
             aspectRatio: imageMode === "image" ? null : aspectRatio,
             cinemaProvider: "grok-imagine",
+            provider,
             upload_status: "failed",
           },
         }).eq("id", historyId);
@@ -126,6 +128,7 @@ export async function POST(req: Request) {
           model, imageMode, resolution,
           aspectRatio: imageMode === "image" ? null : aspectRatio,
           cinemaProvider: "grok-imagine",
+          provider,
           upload_status: "done",
         },
       }).eq("id", historyId);

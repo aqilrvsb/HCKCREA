@@ -999,6 +999,7 @@ CRITICAL: Respond with ONLY a JSON array. NO analysis, NO explanation, NO markdo
           metadata: {
             idx,
             model,
+            provider: created.provider || "p2",
             batch_id: batch?.id,
             framework: item.framework,
             framework_type: item.frameworkType,

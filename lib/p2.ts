@@ -1,21 +1,42 @@
 // Crun.ai (P2) job creation + task status polling helper.
 // All keys/URLs read from app_settings via lib/settings.ts so admin can rotate
 // without redeploying.
+//
+// PROVIDER ROUTING — `p2CreateTask` is the single entry point every generation
+// route uses. Internally it dispatches to either Crun.ai (P2) or
+// GeminiGen.AI based on the `gen_provider_<asset>` admin setting. The
+// chosen provider is returned as `provider` so callers can stamp it onto
+// `history.metadata.provider` for the settle path.
 
-import { getP2Config } from "@/lib/settings";
+import { getP2Config, getGenProvider } from "@/lib/settings";
 import { buildP2CallbackUrl } from "@/lib/p2-callback";
+import { p1CreateTask, p1GetStatus } from "@/lib/p1";
 
 export type P2CreateResp = {
   ok: boolean;
   task_id?: string;
+  /** Which backend actually fulfilled this create call. Caller should
+   *  persist this on the history row's metadata so status polls dispatch
+   *  to the right backend after the fact. */
+  provider?: "p1" | "p2";
   error?: string;
   raw?: any;
 };
 
-// Crun.ai's CreateTask endpoint takes a JSON body with `model` at the top
-// and model-specific params nested under `input`. Image (nano-banana-pro,
-// gpt-image-2) and video (Veo 3.1 fast t2v/i2v/r2v) share this shape but
-// have different fields inside `input`. We auto-detect by model id.
+// Pick a gen-provider based on the model name + admin toggle. Image vs
+// video vs cinema each have their own gen_provider_<asset> setting so
+// admin can rotate backends per asset class.
+async function pickProvider(model: string): Promise<"p1" | "p2"> {
+  const isGrok = model.includes("grok");
+  const isVideo = !isGrok && model.includes("veo");
+  const asset = isGrok ? "cinema" : isVideo ? "video" : "image";
+  return await getGenProvider(asset);
+}
+
+// Public entry point — dispatches to either P1 (GeminiGen) or P2 (Crun.ai)
+// based on the gen_provider_<asset> admin setting. Returns the same shape
+// regardless of backend, plus a `provider` field so callers can persist
+// it on history.metadata for status polls later.
 export async function p2CreateTask(input: {
   model: string;
   prompt?: string;
@@ -28,8 +49,45 @@ export async function p2CreateTask(input: {
   callbackUrl?: string;
   extra?: Record<string, any>;
 }): Promise<P2CreateResp> {
+  const provider = await pickProvider(input.model);
+  if (provider === "p1") {
+    const r = await p1CreateTask({
+      model: input.model,
+      prompt: input.prompt,
+      imageUrls: input.imageUrls,
+      durationMode: input.durationMode,
+      aspectRatio: input.aspectRatio,
+      resolution: input.resolution,
+      imageMode: input.imageMode,
+      extra: input.extra,
+    });
+    return {
+      ok: r.ok,
+      task_id: r.task_id,
+      error: r.error,
+      raw: r.raw,
+      provider: "p1",
+    };
+  }
+  return p2CreateTaskInternal(input);
+}
+
+// P2 (Crun.ai) — original implementation. Untouched call shape so any
+// existing tests / call sites still work via the dispatcher above.
+async function p2CreateTaskInternal(input: {
+  model: string;
+  prompt?: string;
+  imageUrl?: string;
+  imageUrls?: string[];
+  durationMode?: "8" | "16" | string | number;
+  aspectRatio?: string;
+  resolution?: "1K" | "2K" | "4K" | "480p" | "720p" | string;
+  imageMode?: "frame" | "ingredient" | "text";
+  callbackUrl?: string;
+  extra?: Record<string, any>;
+}): Promise<P2CreateResp> {
   const cfg = await getP2Config();
-  if (!cfg.base || !cfg.key) return { ok: false, error: "P2 not configured" };
+  if (!cfg.base || !cfg.key) return { ok: false, error: "P2 not configured", provider: "p2" };
 
   // Coerce single imageUrl into the imageUrls array — Crun expects `img_urls`
   const imgUrls = (input.imageUrls || []).filter(Boolean);
@@ -120,11 +178,12 @@ export async function p2CreateTask(input: {
       ok: false,
       error: json?.message || text.substring(0, 300) || `HTTP ${res.status}`,
       raw: json,
+      provider: "p2",
     };
   }
   const taskId = json?.data?.task_id || json?.task_id || null;
-  if (!taskId) return { ok: false, error: "No task_id returned", raw: json };
-  return { ok: true, task_id: String(taskId), raw: json };
+  if (!taskId) return { ok: false, error: "No task_id returned", raw: json, provider: "p2" };
+  return { ok: true, task_id: String(taskId), raw: json, provider: "p2" };
 }
 
 export type P2StatusResp = {
@@ -135,7 +194,25 @@ export type P2StatusResp = {
   raw?: any;
 };
 
-export async function p2GetStatus(taskId: string): Promise<P2StatusResp> {
+// Status dispatcher — picks the backend by the row's `metadata.provider`
+// (set at create-task time). Defaults to p2 for backward compat with rows
+// inserted before the dispatcher landed.
+export async function p2GetStatus(
+  taskId: string,
+  provider?: "p1" | "p2"
+): Promise<P2StatusResp> {
+  const useP1 = provider === "p1";
+  if (useP1) {
+    const r = await p1GetStatus(taskId);
+    return {
+      ok: r.ok,
+      status: r.status,
+      outputUrl: r.outputUrl,
+      error: r.error,
+      raw: r.raw,
+    };
+  }
+
   const cfg = await getP2Config();
   if (!cfg.base || !cfg.key) return { ok: false, status: "failed", error: "P2 not configured" };
 
