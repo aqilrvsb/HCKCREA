@@ -122,7 +122,7 @@ LIMITS
 PROMPT WRITING (Veo conventions)
 - 9-slot order: Subject → Action → Setting → Visual style → Camera+lens → Lighting → Motion physics → Audio → Output.
 - Dialog: \`Character says: '<line>'\` (colon syntax — reduces subtitle hallucination).
-- Beat math 8s (target 20-24 total words BM/EN): 0-2s hook (4-6 words) | 2-5.5s core (10-14 words) | 5.5-7s reaction (mostly visual, 0-2 words) | 7-8s outro (4-6 words).
+- 🚨 DIALOG LENGTH (HARDCODED — NON-NEGOTIABLE): Every 8s clip's spoken dialog is EXACTLY 20-24 words BM. Beat budget: hook 4-6 / core 10-14 / reaction 0-2 / outro 4-6. Under 18 = character freezes at end. Over 26 = rushed audio. COUNT THE WORDS before you finalise the prompt and adjust if you're outside 20-24.
 - Camera: name preset (Selfie POV / Static medium close-up / Slow dolly-in / Handheld) — never "camera moves smoothly".
 - Light: name a source. Vague lighting = visual warping.
 - Audio: 5-layer (Dialogue / SFX / Ambience / Music / Negatives). Music ducks under dialog.
@@ -149,6 +149,7 @@ function withLocks(corePrompt: string, voiceLine?: string): string {
 
 ANATOMY LOCK: ONE human only — exactly 2 hands with 5 fingers each (both clearly visible when in frame), symmetric face, normal proportions, no missing limbs, no extra limbs, no fused fingers, no warped joints, no plastic / waxy skin, no uncanny-valley features, no morphing face, no asymmetric eyes, no doubled facial features.
 AUDIO LOCK: ONE single voice only — no chatter, no background voices, no whispered second voice, no echo doubles, NO ghost sound, NO phantom audio, NO unexplained noise. NO background music, NO instrumental, NO sound effects, NO ambient music, NO score, NO jingles. All audio is spoken dialog only.
+DIALOG LENGTH LOCK: Total spoken dialog in this 8-second clip MUST be 20-24 words (Bahasa Melayu). Beat budget: hook 4-6 words / core message 10-14 words / reaction 0-2 words / outro 4-6 words. Under 18 words = the character will look frozen at the end. Over 26 words = rushed delivery + clipped audio. Hit 20-24 every time.
 LANGUAGE LOCK: Spoken dialog is BAHASA MELAYU (Malaysian Malay) ONLY. NEVER Bahasa Indonesia. Use Malaysian markers: korang, aku, ni, tu, memang, gila, kau, lah, je, dah, eh. FORBIDDEN Indonesian words: kalian, gue, lo, banget, sih, dong, kayak, gimana, ngapain, kasihan, doang, mau, nih, tuh.
 VOICE CONSISTENCY LOCK: The character's voice has fixed identity — same gender, same age range, same pitch, same Malaysian accent, same speaking rhythm and energy across the entire clip and any future continuation. Voice MUST stay locked so seg-2 / Extend continuations can match seg-1 seamlessly.
 PRODUCT LOCK: Product visual is pixel-identical to reference — same color, shape, label, typography, layout, packaging, finish. Sharp focus on label, no warping, no recoloring, no text drift, no relabel, no re-illustration. When a reference image is attached, the reference is the SINGLE source of truth for the product — anchor framing, lighting, and hand-holding around it.
@@ -210,12 +211,12 @@ const generateUgcVariants: ToolDefinition = {
             prompt: {
               type: "string",
               description:
-                "For 8s: the complete Veo prompt (80-140 words). For 16s: this is the SEG-1 prompt (hook + setup, ~80-140 words). Include dialog with colon syntax (Character says: '<line>'). Front-load Subject + Camera. Don't include locks/negatives — auto-appended.",
+                "For 8s: the complete Veo prompt (80-140 words). For 16s: this is the SEG-1 prompt (hook + setup, ~80-140 words). Include dialog with colon syntax (Character says: '<line>'). 🚨 SPOKEN DIALOG INSIDE THE PROMPT MUST BE 20-24 WORDS BM (hook 4-6 / core 10-14 / reaction 0-2 / outro 4-6) — count before submitting. Front-load Subject + Camera. Don't include locks/negatives — auto-appended.",
             },
             seg2_prompt: {
               type: "string",
               description:
-                "REQUIRED for 16s only. The seg-2 continuation prompt (~80-140 words). Picks up from the chosen frame_anchor moment. Same character + voice + lighting as seg-1 (continuity locks auto-injected). Should deliver the payoff/reveal/CTA. NEVER repeat seg-1's hook.",
+                "REQUIRED for 16s only. The seg-2 continuation prompt (~80-140 words). Picks up from the chosen frame_anchor moment. Same character + voice + lighting as seg-1 (continuity locks auto-injected). 🚨 SPOKEN DIALOG INSIDE THIS SEG-2 PROMPT MUST ALSO BE 20-24 WORDS BM. Should deliver the payoff/reveal/CTA. NEVER repeat seg-1's hook.",
             },
             character_lock: {
               type: "string",
