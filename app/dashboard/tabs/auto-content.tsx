@@ -19,6 +19,7 @@ import {
 type Status = "idle" | "planning" | "verifying" | "generating" | "failed";
 type CtaMode = "shop" | "custom" | "none";
 type PlanMode = "aiplan" | "verify" | "manual";
+type ProductMode = "affiliate" | "manual";
 
 const AMBER = "#f59e0b";
 const AMBER_SOFT = "rgba(245, 158, 11, 0.18)";
@@ -31,9 +32,16 @@ type ManualProduct = {
 };
 
 export default function AutoContentTab({ projectId }: { projectId?: string } = {}) {
-  // Manual product source — the affiliate-URL flow was removed; users always
-  // upload product image + info per slot. The API still receives
-  // product_mode: "manual" so the backend contract is unchanged.
+  // Product source — Affiliate (paste URL → scrape via Crawlbase →
+  // auto-fills info + image) OR Manual (upload directly). Both end up
+  // submitting product_mode "manual" downstream because the same
+  // manual_products[] payload shape is used either way; the affiliate
+  // path just pre-fills it.
+  const [productMode, setProductMode] = useState<ProductMode>("affiliate");
+  const [affiliateUrl, setAffiliateUrl] = useState("");
+  const [scraping, setScraping] = useState(false);
+  const [scrapeMsg, setScrapeMsg] = useState<{ ok: boolean; text: string } | null>(null);
+
   const [unitCount, setUnitCount] = useState(1);
   const [manualProducts, setManualProducts] = useState<ManualProduct[]>([
     { info: "", imageData: "" },
@@ -143,6 +151,56 @@ export default function AutoContentTab({ projectId }: { projectId?: string } = {
       prev.map((p, i) => (i === idx ? { ...p, imageData: url } : p))
     );
     setPickerSlot(null);
+  }
+
+  // Affiliate URL → Crawlbase scrape → prefill manual_products[0]. The
+  // server returns a normalised payload + already-hosted RunningHub URL
+  // for the product image, so the downstream submit path is unchanged
+  // (it sees a public URL, no upload step needed).
+  async function fetchAffiliate() {
+    const url = affiliateUrl.trim();
+    if (!url) return;
+    setScraping(true);
+    setScrapeMsg(null);
+    try {
+      const r = await fetch("/api/scrape/affiliate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url }),
+      });
+      const d = await r.json();
+      if (!r.ok || !d?.ok) {
+        setScrapeMsg({ ok: false, text: d?.error || "Scrape failed" });
+        return;
+      }
+      // Compose a clean info textarea from the scraped fields. First
+      // line is the product name (used downstream as productName); the
+      // rest is description + meta.
+      const lines = [d.product_name];
+      if (d.price) lines.push(`Price: ${d.price}`);
+      if (d.rating) lines.push(`Rating: ${d.rating}`);
+      if (d.total_sold) lines.push(`Sold: ${d.total_sold}`);
+      if (d.category) lines.push(`Category: ${d.category}`);
+      if (d.description) lines.push("", d.description);
+      const info = lines.filter((l) => l !== undefined).join("\n");
+
+      setManualProducts((prev) => {
+        const next = [...prev];
+        next[0] = {
+          info,
+          imageData: d.product_image_url || "",
+        };
+        return next;
+      });
+      setScrapeMsg({
+        ok: true,
+        text: `✓ Loaded "${d.product_name.substring(0, 60)}${d.product_name.length > 60 ? "…" : ""}" — edit below if needed.`,
+      });
+    } catch (e: any) {
+      setScrapeMsg({ ok: false, text: e?.message || "Network error" });
+    } finally {
+      setScraping(false);
+    }
   }
 
   async function ensurePublicUrl(v: string): Promise<string> {
@@ -360,8 +418,84 @@ export default function AutoContentTab({ projectId }: { projectId?: string } = {
           </span>
         </div>
 
-        {/* Product slot — locked to a single manual product (UI shows just
-            the upload card). The legacy 1-5 product rotation is gone. */}
+        {/* Affiliate / Manual toggle. Affiliate = paste URL, scrape via
+            Crawlbase, auto-fill manual_products[0]. Manual = upload
+            directly. The submit body is identical either way (both paths
+            populate manual_products[]). */}
+        <div className="flex rounded-lg overflow-hidden mb-3" style={{ border: "1px solid #e8e0d8" }}>
+          <ToggleBtn
+            active={productMode === "affiliate"}
+            onClick={() => setProductMode("affiliate")}
+          >
+            🔗 Affiliate
+          </ToggleBtn>
+          <ToggleBtn
+            active={productMode === "manual"}
+            onClick={() => setProductMode("manual")}
+            borderLeft
+          >
+            📦 Manual Product
+          </ToggleBtn>
+        </div>
+
+        {productMode === "affiliate" && (
+          <div className="space-y-2 mb-4">
+            <div className="flex gap-2">
+              <input
+                type="url"
+                value={affiliateUrl}
+                onChange={(e) => setAffiliateUrl(e.target.value)}
+                placeholder="Paste TikTok Shop / Shopee / Lazada link..."
+                className="flex-1 p-3 rounded-xl text-sm outline-none"
+                style={{ background: "#fafaf7", border: "1px solid #e8e0d8", color: "#1a1a1a" }}
+              />
+              <button
+                onClick={fetchAffiliate}
+                disabled={scraping || !affiliateUrl.trim()}
+                className="px-4 rounded-xl text-sm font-extrabold text-white disabled:opacity-50"
+                style={{
+                  background: `linear-gradient(135deg, ${AMBER}, #fbbf24)`,
+                  boxShadow: "0 2px 8px rgba(245,158,11,0.3)",
+                }}
+              >
+                {scraping ? (
+                  <span className="inline-flex items-center gap-1.5">
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    Fetching…
+                  </span>
+                ) : (
+                  "Fetch Product"
+                )}
+              </button>
+            </div>
+            {scrapeMsg && (
+              <div
+                className="text-xs px-3 py-2 rounded-lg"
+                style={
+                  scrapeMsg.ok
+                    ? {
+                        background: "rgba(34,197,94,0.08)",
+                        border: "1px solid rgba(34,197,94,0.4)",
+                        color: "#15803d",
+                      }
+                    : {
+                        background: "rgba(244,67,54,0.08)",
+                        border: "1px solid rgba(244,67,54,0.4)",
+                        color: "#c62828",
+                      }
+                }
+              >
+                {scrapeMsg.text}
+              </div>
+            )}
+            <div className="text-[10px] text-gray-500">
+              Auto-fills product card below. You can edit info before generating.
+            </div>
+          </div>
+        )}
+
+        {/* Manual product slots. In affiliate mode the slot stays visible
+            so the user can edit / replace the scraped fields before firing. */}
         <div className="space-y-2 mb-4">
           {manualProducts.map((p, i) => (
             <ManualProductCard
@@ -882,8 +1016,44 @@ function FrameworkInfoModal({
   );
 }
 
-// ── Sub-components (Card, Label, Select, DurationBtn, CtaRadio,
+// ── Sub-components (Card, Label, Select, ToggleBtn, DurationBtn, CtaRadio,
 //                   SmallBtn, HistoryPicker) ────────────────────────────
+
+function ToggleBtn({
+  active,
+  onClick,
+  borderLeft,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  borderLeft?: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="flex-1 px-3 py-2 text-xs font-extrabold transition-all"
+      style={
+        active
+          ? {
+              background: GREEN,
+              color: "white",
+              borderLeft: borderLeft ? "1px solid #e8e0d8" : "none",
+            }
+          : {
+              background: "#fafaf7",
+              color: "#888",
+              borderLeft: borderLeft ? "1px solid #e8e0d8" : "none",
+            }
+      }
+    >
+      {children}
+    </button>
+  );
+}
+
 function Card({
   children,
   borderColor,

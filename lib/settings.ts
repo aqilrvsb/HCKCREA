@@ -150,6 +150,24 @@ export async function getGenProvider(
   return choice === "p1" ? "p1" : "p2";
 }
 
+// Crawlbase scraper config — used by /api/scrape/affiliate to pull
+// product details from TikTok Shop / Shopee / Lazada affiliate URLs.
+// Two tokens: normal (for static HTML + named scrapers like tiktok-shop)
+// and JavaScript (for SPA-rendered pages where we fall back to og-meta /
+// JSON-LD parsing).
+export async function getCrawlbaseConfig() {
+  const s = await getSettings([
+    "crawlbase_base",
+    "crawlbase_token",
+    "crawlbase_token_js",
+  ]);
+  return {
+    base: s.crawlbase_base?.url || "https://api.crawlbase.com",
+    token: s.crawlbase_token?.key || "",
+    tokenJs: s.crawlbase_token_js?.key || "",
+  };
+}
+
 // RunningHub (P3) — used ONLY for hosting reference image uploads.
 // Generation still goes through Crun.ai (P2). RH gives back a public CDN
 // URL (download_url) that Crun.ai accepts as img_urls input. Mirrors
