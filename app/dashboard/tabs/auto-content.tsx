@@ -24,7 +24,10 @@ type ProductMode = "affiliate" | "manual";
 const AMBER = "#f59e0b";
 const AMBER_SOFT = "rgba(245, 158, 11, 0.18)";
 const AMBER_FAINT = "rgba(245, 158, 11, 0.06)";
-const GREEN = "#22c55e";
+// Highfield yellow — bright safety-vest yellow used for primary accents.
+// Replaces the previous green so all action surfaces in Auto Content are
+// in the same warm-yellow family as the rest of the tab.
+const GREEN = "#facc15";
 
 type ManualProduct = {
   info: string;          // textarea content
@@ -474,8 +477,8 @@ export default function AutoContentTab({ projectId }: { projectId?: string } = {
                 style={
                   scrapeMsg.ok
                     ? {
-                        background: "rgba(34,197,94,0.08)",
-                        border: "1px solid rgba(34,197,94,0.4)",
+                        background: "rgba(250,204,21,0.12)",
+                        border: "1px solid rgba(250,204,21,0.5)",
                         color: "#15803d",
                       }
                     : {
@@ -494,30 +497,37 @@ export default function AutoContentTab({ projectId }: { projectId?: string } = {
           </div>
         )}
 
-        {/* Manual product slots. In affiliate mode the slot stays visible
-            so the user can edit / replace the scraped fields before firing. */}
-        <div className="space-y-2 mb-4">
-          {manualProducts.map((p, i) => (
-            <ManualProductCard
-              key={i}
-              idx={i}
-              showLabel={unitCount > 1}
-              product={p}
-              onInfoChange={(info) =>
-                setManualProducts((prev) =>
-                  prev.map((x, j) => (j === i ? { ...x, info } : x))
-                )
-              }
-              onPickFile={(f) => pickFileForManual(i, f)}
-              onPickHistory={() => setPickerSlot(i)}
-              onClear={() =>
-                setManualProducts((prev) =>
-                  prev.map((x, j) => (j === i ? { ...x, imageData: "" } : x))
-                )
-              }
-            />
-          ))}
-        </div>
+        {/* Manual product slots. In affiliate mode the slot is hidden
+            until a successful scrape populates it — keeps the UI clean
+            and signals "paste link first" to the user. Once the scrape
+            fills slot 0, the card appears so they can edit / replace
+            the auto-filled fields before firing. */}
+        {(productMode === "manual" ||
+          manualProducts[0]?.imageData ||
+          manualProducts[0]?.info?.trim()) && (
+          <div className="space-y-2 mb-4">
+            {manualProducts.map((p, i) => (
+              <ManualProductCard
+                key={i}
+                idx={i}
+                showLabel={unitCount > 1}
+                product={p}
+                onInfoChange={(info) =>
+                  setManualProducts((prev) =>
+                    prev.map((x, j) => (j === i ? { ...x, info } : x))
+                  )
+                }
+                onPickFile={(f) => pickFileForManual(i, f)}
+                onPickHistory={() => setPickerSlot(i)}
+                onClear={() =>
+                  setManualProducts((prev) =>
+                    prev.map((x, j) => (j === i ? { ...x, imageData: "" } : x))
+                  )
+                }
+              />
+            ))}
+          </div>
+        )}
 
         {/* Avatar persona */}
         <div
@@ -795,7 +805,7 @@ export default function AutoContentTab({ projectId }: { projectId?: string } = {
                 <div className="flex items-center justify-between mb-1">
                   <span
                     className="text-[10px] font-mono uppercase tracking-wider font-bold px-2 py-0.5 rounded"
-                    style={{ background: "rgba(34,197,94,0.1)", color: GREEN }}
+                    style={{ background: "rgba(250,204,21,0.15)", color: GREEN }}
                   >
                     {i + 1} · {p.framework || "Plan"}
                   </span>
@@ -814,10 +824,11 @@ export default function AutoContentTab({ projectId }: { projectId?: string } = {
           </div>
           <button
             onClick={approveVerifyPlan}
-            className="w-full py-3 rounded-xl font-extrabold text-sm text-white"
+            className="w-full py-3 rounded-xl font-extrabold text-sm"
             style={{
-              background: `linear-gradient(135deg, ${GREEN}, #4ade80)`,
-              boxShadow: "0 4px 14px rgba(34,197,94,0.4)",
+              background: `linear-gradient(135deg, ${GREEN}, #fde047)`,
+              boxShadow: "0 4px 14px rgba(250,204,21,0.5)",
+              color: "#1a1a1a",
             }}
           >
             ✓ Approve & Generate {pendingPlan.length} Videos
@@ -1005,8 +1016,11 @@ function FrameworkInfoModal({
         )}
         <button
           onClick={onClose}
-          className="w-full py-2 rounded-lg text-xs font-extrabold text-white"
-          style={{ background: `linear-gradient(135deg, ${GREEN}, #4ade80)` }}
+          className="w-full py-2 rounded-lg text-xs font-extrabold"
+          style={{
+            background: `linear-gradient(135deg, ${GREEN}, #fde047)`,
+            color: "#1a1a1a",
+          }}
         >
           Got it
         </button>
@@ -1039,7 +1053,7 @@ function ToggleBtn({
         active
           ? {
               background: GREEN,
-              color: "white",
+              color: "#1a1a1a",
               borderLeft: borderLeft ? "1px solid #e8e0d8" : "none",
             }
           : {
@@ -1135,9 +1149,9 @@ function DurationBtn({
       style={
         active
           ? {
-              background: `linear-gradient(135deg, ${GREEN}, #4ade80)`,
-              color: "white",
-              boxShadow: "0 4px 14px rgba(34,197,94,0.3)",
+              background: `linear-gradient(135deg, ${GREEN}, #fde047)`,
+              color: "#1a1a1a",
+              boxShadow: "0 4px 14px rgba(250,204,21,0.4)",
             }
           : {
               background: "#fafaf7",
@@ -1168,9 +1182,9 @@ function PlanModeBtn({
       style={
         active
           ? {
-              background: `linear-gradient(135deg, ${GREEN}, #4ade80)`,
-              color: "white",
-              boxShadow: "0 4px 14px rgba(34,197,94,0.3)",
+              background: `linear-gradient(135deg, ${GREEN}, #fde047)`,
+              color: "#1a1a1a",
+              boxShadow: "0 4px 14px rgba(250,204,21,0.4)",
             }
           : {
               background: "#fafaf7",
@@ -1200,7 +1214,7 @@ function CtaRadio({
       className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded text-[11px] font-bold text-left transition-all"
       style={
         active
-          ? { background: "rgba(34,197,94,0.1)", color: "#1a1a1a" }
+          ? { background: "rgba(250,204,21,0.15)", color: "#1a1a1a" }
           : { color: "#666" }
       }
     >
