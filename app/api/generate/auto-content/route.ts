@@ -661,17 +661,27 @@ Style: Premium product lighting, shallow depth of field, cinematic film look, vo
 NO person on screen. Product only. NO background music, NO instrumental. Voiceover audio only. NO subtitles or text overlays. ZERO shopping bag icons, ZERO yellow bag icons, ZERO beg kuning icons, ZERO buttons, ZERO UI elements, ZERO emojis, ZERO graphics — "beg kuning" is SPOKEN WORDS ONLY, never rendered as a visual icon or graphic. Reduce contrast, soft highlights, soft colors, film look. Clean vertical video frame.
 
 LANGUAGE RULE (CRITICAL):
-- ALL dialog MUST be in BAHASA MELAYU / MALAY language
+- ALL dialog MUST be in BAHASA MELAYU / MALAY language — NEVER Bahasa Indonesia
 - NEVER write English dialog
-- Use informal Malay: korang, aku, tau, kan, ni, tu, macam, serious, confirm
+- Use Malaysian markers ONLY: korang, aku, tau, kan, ni, tu, memang, gila, kau, lah, je, dah, eh, macam, serious, confirm
+- FORBIDDEN Indonesian words: kalian, gue, lo, banget, sih, dong, kayak, gimana, ngapain, kasihan, doang, mau, nih, tuh
 - Dialog must match timing — too many words = Veo cuts off mid-sentence
-- WORD LIMITS (Bahasa Melayu — short syllable words):
-  - 2-second slot: MAX 6-8 words
-  - 4-second slot: MAX 20-25 words
-  - 6-second slot: MAX 30 words
-- Example GOOD 2s: "Ini rahsia cik somi balik awal!" (6 words) ✓
-- Example GOOD 4s: "Ramai kawan complain cik somi dia selalu balik lewat. Sebenarnya kalau nak si dia lekat kat rumah, akak-akak kena ada ni dalam bilik." (23 words) ✓
-- Example BAD 2s: "Kena tumis lama, kena blend, berpeluh kat dapur, satu jam baru siap" (12 words for 2s) ✗
+
+🚨 TOTAL DIALOG LENGTH PER 8-SECOND SHOT = 20-24 WORDS BM (HARDCODED):
+- 0-2s hook: 4-6 words
+- 2-6s core message: 10-14 words
+- 6-8s outro/CTA: 4-6 words
+- Sum across the shot MUST land in the 20-24 word window. Under 18 = character freezes at end. Over 26 = rushed audio + clipped delivery.
+- For 16s = TWO shots × 20-24 words each (40-48 total). Shot 2 inherits Shot 1's voice — same gender/age/pitch/accent — so the merge sounds like one continuous take.
+
+PER-SLOT WORD CAPS (do NOT exceed):
+  - 2-second slot: 4-6 words
+  - 4-second slot: 10-14 words
+  - 6-second slot: 14-18 words
+
+Example GOOD 8s shot (22 words): "Korang tau tak rahsia muka glow ni? Aku pakai serum ni 2 minggu, kulit dah anjal balik. Cuba la, korang!" ✓
+Example BAD 8s shot (32 words — overshoots): rushed, clipped at end ✗
+Example BAD 8s shot (12 words — undershoots): character freezes for 3 seconds ✗
 </video_prompt_rules>
 
 <video_action_rules>
@@ -1009,9 +1019,28 @@ CRITICAL: Respond with ONLY a JSON array. NO analysis, NO explanation, NO markdo
   // extension generates them as separate 8s clips and ffmpeg-merges them,
   // but we don't have that segment chain wired for auto-content yet, so we
   // hand the model both shots and let it stitch a 16s output if it can.
+  //
+  // After composition we APPEND the same lock block UGC uses. The system
+  // prompt above tells the LLM what to write; the locks tell the video
+  // model itself what's non-negotiable regardless of phrasing.
+  const AUTO_CONTENT_LOCKS = `
+
+ANATOMY LOCK: ONE human only — exactly 2 hands with 5 fingers each (both clearly visible when in frame), symmetric face, normal proportions, no missing limbs, no extra limbs, no fused fingers, no warped joints, no plastic / waxy skin, no uncanny-valley features, no morphing face, no asymmetric eyes, no doubled facial features.
+AUDIO LOCK: ONE single voice only — no chatter, no background voices, no whispered second voice, no echo doubles, NO ghost sound, NO phantom audio, NO unexplained noise. NO background music, NO instrumental, NO sound effects, NO ambient music, NO score, NO jingles. All audio is spoken dialog only.
+DIALOG LENGTH LOCK: Total spoken dialog per 8-second shot MUST be 20-24 words (Bahasa Melayu). Beat budget: hook 4-6 / core 10-14 / reaction 0-2 / outro 4-6. Under 18 = character will look frozen at end. Over 26 = rushed delivery + clipped audio. Hit 20-24 every shot.
+LANGUAGE LOCK: Spoken dialog is BAHASA MELAYU (Malaysian Malay) ONLY. NEVER Bahasa Indonesia. Use Malaysian markers: korang, aku, ni, tu, memang, gila, kau, lah, je, dah, eh. FORBIDDEN Indonesian words: kalian, gue, lo, banget, sih, dong, kayak, gimana, ngapain, kasihan, doang, mau, nih, tuh.
+VOICE CONSISTENCY LOCK: The character's voice has fixed identity — same gender, same age range, same pitch, same Malaysian accent, same speaking rhythm and energy across both shots and any future continuation. Voice MUST stay locked so SHOT 2 + Extend continuations match SHOT 1 seamlessly.
+PRODUCT LOCK: Product visual is pixel-identical to reference — same color, shape, label, typography, layout, packaging, finish. Sharp focus on label, no warping, no recoloring, no text drift, no relabel, no re-illustration. The reference image is the SINGLE source of truth — anchor framing, lighting, and hand-holding around it.
+BEG KUNING LOCK: The phrase "beg kuning" (and any equivalent: yellow bag, shopping bag, affiliate icon, shop button) is SPOKEN DIALOG ONLY — NEVER rendered as a visual icon, yellow bag graphic, shopping cart icon, TikTok Shop button, sticker, or any on-screen element. Zero shop icons, zero yellow-bag graphics, zero buttons, zero affiliate stickers anywhere in frame.
+UGC AUTHENTICITY: Authentic amateur iPhone UGC — handheld arm's-length, natural skin texture with pores and subtle T-zone shine (NOT airbrushed), no-makeup-makeup, loose hair, ordinary mixed lighting (NOT softbox), lived-in background with minor clutter.
+VISUAL LOCK: RAW UNEDITED FOOTAGE — bottom 25% of frame COMPLETELY EMPTY. NO subtitles or text overlays, NO on-screen dialogue text, NO captions, NO animated TikTok captions, NO sticker text, NO icons, NO emojis, NO graphics, NO watermarks, NO UI elements, NO handles, NO hashtags, NO TikTok Shop badges. Clean vertical video frame with no interface overlay, no icons, no overlay elements.
+
+Negative: cartoon, 3D cartoon, anime, airbrushed plastic skin, uncanny valley, glam makeup, salon hair, softbox studio lighting, tripod static shot (unless explicitly chosen), staged background, posed billboard framing, closed mouth while audio plays, duplicate limbs, extra fingers, fused fingers, distorted fingers, deformed hand, hand out of frame, warped product label, blurry product, motion-blurred product, text drift, subtitle burn-in, auto-captions, on-screen dialog text, burned-in lyrics, karaoke text, multiple speakers, second voice, whispered overdub, ghost voice, phantom audio, ambient noise, voiceover narration, music score, background music, instrumental track, sound effects, ambient music, jingles, interface overlay, app overlay, TikTok shop button, yellow bag icon, shopping bag icon, beg kuning icon, affiliate sticker, Bahasa Indonesia, Indonesian accent, Indonesian slang.`;
+
   function veoPromptFor(p: Plan): string {
+    let composed: string;
     if (durationMode === "16" && p.videoPromptShot2) {
-      return [
+      composed = [
         "16-second video — ONE continuous story split into 2 shots:",
         "",
         "SHOT 1 (0-8s):",
@@ -1020,8 +1049,10 @@ CRITICAL: Respond with ONLY a JSON array. NO analysis, NO explanation, NO markdo
         "SHOT 2 (8-16s):",
         p.videoPromptShot2,
       ].join("\n");
+    } else {
+      composed = p.videoPromptShot1;
     }
-    return p.videoPromptShot1;
+    return composed + AUTO_CONTENT_LOCKS;
   }
 
   const histories: any[] = [];
