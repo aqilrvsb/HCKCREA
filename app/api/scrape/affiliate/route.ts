@@ -83,5 +83,8 @@ export async function POST(req: Request) {
     rating: scraped.rating || null,
     total_sold: scraped.total_sold || null,
     category: scraped.category || null,
+    // TikTok product_id (when known) so the auto-content fan-out can
+    // stamp it on every history row's metadata for later auto-post.
+    product_id: scraped.product_id || null,
   });
 }

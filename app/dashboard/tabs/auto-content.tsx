@@ -44,6 +44,10 @@ export default function AutoContentTab({ projectId }: { projectId?: string } = {
   const [affiliateUrl, setAffiliateUrl] = useState("");
   const [scraping, setScraping] = useState(false);
   const [scrapeMsg, setScrapeMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  // TikTok product_id pulled from the affiliate scrape. Forwarded with
+  // submit so each generated history row can stamp it on metadata,
+  // enabling auto-post deep-linking later. Empty for manual mode.
+  const [tiktokProductId, setTiktokProductId] = useState<string>("");
 
   const [unitCount, setUnitCount] = useState(1);
   const [manualProducts, setManualProducts] = useState<ManualProduct[]>([
@@ -195,6 +199,10 @@ export default function AutoContentTab({ projectId }: { projectId?: string } = {
         };
         return next;
       });
+      // Capture the TikTok product_id from the scrape result so we can
+      // stamp it on every generated history row for auto-post later.
+      // Manual mode resets this to empty.
+      setTiktokProductId(d.product_id ? String(d.product_id) : "");
       setScrapeMsg({
         ok: true,
         text: `✓ Loaded "${d.product_name.substring(0, 60)}${d.product_name.length > 60 ? "…" : ""}" — edit below if needed.`,
@@ -278,6 +286,11 @@ export default function AutoContentTab({ projectId }: { projectId?: string } = {
         product_image_url: firstProductImage,
         manual_products: manualPayload,
         product_name: manualPayload?.[0]?.info?.split("\n")[0] || "",
+        // TikTok product_id from the affiliate scrape (empty for manual
+        // mode). Persisted on each history row's metadata so the
+        // existing creative-hack-auto extension's auto-post handler
+        // can deep-link back to the original product page.
+        tiktok_product_id: tiktokProductId || "",
         quantity,
         duration,
         aspect_ratio: aspect,
@@ -434,7 +447,13 @@ export default function AutoContentTab({ projectId }: { projectId?: string } = {
           </ToggleBtn>
           <ToggleBtn
             active={productMode === "manual"}
-            onClick={() => setProductMode("manual")}
+            onClick={() => {
+              setProductMode("manual");
+              // Manual flow has no TikTok ID — clear so it doesn't
+              // accidentally ride through with leftover data from a
+              // previous Affiliate fetch.
+              setTiktokProductId("");
+            }}
             borderLeft
           >
             📦 Manual Product

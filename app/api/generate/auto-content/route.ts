@@ -70,6 +70,10 @@ export async function POST(req: Request) {
   const ctaMode = String(body?.cta_mode || "shop");
   const customCta = String(body?.custom_cta || "");
   const projectId = body?.project_id ? String(body.project_id) : null;
+  // TikTok product_id from the Affiliate scrape — stamped on every
+  // generated history row so the creative-hack-auto extension's
+  // auto-post step can deep-link back to the original product page.
+  const tiktokProductId = String(body?.tiktok_product_id || "").trim();
 
   // Validate
   if (planMode !== "manual" && planMode !== "approved" && selectedFrameworks.length === 0) {
@@ -867,6 +871,64 @@ CRITICAL: Respond with ONLY a JSON array. NO analysis, NO explanation, NO markdo
     if (plans.length === 0 || plans.every((p) => !p.videoPromptShot1)) {
       return NextResponse.json({ error: "Empty master plan" }, { status: 502 });
     }
+
+    // Caption + hashtag normalization — port of creative-hack-auto's
+    // post-LLM repair pass. Empty or short captions get auto-filled
+    // from coverTitle + coverSubtitle + product name + 5 generic
+    // hashtags so the auto-post step never breaks. Captions with fewer
+    // than 5 hashtags get padded; captions with more than 5 get
+    // trimmed (extension's behaviour: EXACTLY 5).
+    const FALLBACK_HASHTAGS = [
+      "#TikTokShopMalaysia",
+      "#ViralMY",
+      "#MestiCuba",
+      "#ReviewJujur",
+      "#FYPMalaysia",
+    ];
+    plans = plans.map((p, i) => {
+      let caption = String(p.caption || "").trim();
+
+      // Fallback if missing/too short.
+      if (caption.length < 20) {
+        const title = (p.coverTitle || "").trim();
+        const sub = (p.coverSubtitle || "").trim();
+        const prodShort = (productName || "Product").substring(0, 40);
+        caption = [
+          title && sub ? `${title} ${sub}` : "Korang kena try ni!",
+          `Aku pakai ${prodShort}, memang berbaloi!`,
+          FALLBACK_HASHTAGS.join(" "),
+        ].join(" ");
+      }
+
+      // Enforce exactly 5 hashtags. Walk hash tokens from the end of
+      // the caption. If <5 → pad with fallbacks (skipping duplicates).
+      // If >5 → keep the first 5 in document order.
+      const tokens = caption.split(/\s+/);
+      const hashIdxs = tokens
+        .map((t, idx) => (t.startsWith("#") ? idx : -1))
+        .filter((idx) => idx >= 0);
+
+      if (hashIdxs.length > 5) {
+        const drop = new Set(hashIdxs.slice(5));
+        caption = tokens.filter((_, idx) => !drop.has(idx)).join(" ");
+      } else if (hashIdxs.length < 5) {
+        const existing = new Set(
+          hashIdxs.map((idx) => tokens[idx].toLowerCase())
+        );
+        const need = 5 - hashIdxs.length;
+        const pad: string[] = [];
+        for (const tag of FALLBACK_HASHTAGS) {
+          if (!existing.has(tag.toLowerCase())) pad.push(tag);
+          if (pad.length === need) break;
+        }
+        caption = `${caption.trim()} ${pad.join(" ")}`.trim();
+      }
+
+      return {
+        ...p,
+        caption,
+      };
+    });
   }
 
   // ── Verify mode → return plan, don't fire Veo ──
@@ -1009,6 +1071,13 @@ CRITICAL: Respond with ONLY a JSON array. NO analysis, NO explanation, NO markdo
             image_prompt: item.imagePrompt,
             video_prompt_shot1: item.videoPromptShot1,
             video_prompt_shot2: item.videoPromptShot2,
+            // Fields the creative-hack-auto extension's auto-post step
+            // reads: cover_title, cover_subtitle, caption (on the row
+            // itself), product_name, tiktok_product_id. Saved here so
+            // the extension can post directly from history without
+            // round-tripping through any intermediate state.
+            product_name: productName || null,
+            tiktok_product_id: tiktokProductId || null,
             cover_title: item.coverTitle,
             cover_subtitle: item.coverSubtitle,
             imageMode: useIngredient ? "ingredient" : "text",

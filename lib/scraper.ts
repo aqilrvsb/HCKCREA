@@ -26,6 +26,10 @@ export type ScrapedProduct = {
   rating?: string;
   total_sold?: string;
   category?: string;
+  /** TikTok Shop product_id, when known. Stored on history rows so the
+   *  auto-post step later can deep-link back to the product page
+   *  (https://www.tiktok.com/shop/my/pdp/{slug}/{id}). */
+  product_id?: string;
   raw_url: string;
   error?: string;
 };
@@ -275,6 +279,7 @@ async function scrapeViaTikHub(originalUrl: string): Promise<ScrapedProduct> {
     rating: rating || undefined,
     total_sold: totalSold || undefined,
     category: category || undefined,
+    product_id: productId,
     raw_url: originalUrl,
   };
 }
