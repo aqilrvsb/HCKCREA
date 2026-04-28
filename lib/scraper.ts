@@ -156,7 +156,10 @@ async function scrapeViaTikHub(originalUrl: string): Promise<ScrapedProduct> {
 
   // V3 of the web product detail endpoint = mobile rendering with full
   // data. Better field coverage than V1 (desktop) for affiliate use.
-  const endpoint = `${cfg.base}/api/v1/tiktok/shop/web/fetch_product_detail_v3?product_id=${encodeURIComponent(productId)}`;
+  // region=MY is REQUIRED — without it TikHub's default IP region
+  // (Singapore) triggers TikTok's region_not_match redirect and the
+  // response contains no product data.
+  const endpoint = `${cfg.base}/api/v1/tiktok/shop/web/fetch_product_detail_v3?product_id=${encodeURIComponent(productId)}&region=MY`;
 
   let res: Response;
   try {
@@ -184,88 +187,83 @@ async function scrapeViaTikHub(originalUrl: string): Promise<ScrapedProduct> {
     return errResult(originalUrl, "TikHub returned non-JSON response");
   }
 
-  // TikHub responses are typically { code, msg, data: {...} }. Extract
-  // defensively because their schema varies between v1/v2/v3 endpoints.
-  const root = json?.data || json?.result || json;
-  const product = root?.product || root?.product_info || root?.productInfo || root;
-
-  const productName =
-    product.product_name ||
-    product.title ||
-    product.name ||
-    product?.product_base?.title ||
-    "";
-
-  // Image candidates: gallery first → main → cover → og fallback.
-  // TikTok APIs return image arrays in two shapes: plain string URLs OR
-  // [{ url_list: [...] }] wrappers. Coerce defensively.
-  const imageList: any[] =
-    product.images ||
-    product.image_urls ||
-    product.gallery ||
-    product?.product_base?.images ||
-    [];
-  const firstImage = Array.isArray(imageList) ? imageList[0] : null;
-  const productImageUrl =
-    (typeof firstImage === "string" ? firstImage : null) ||
-    firstImage?.url_list?.[0] ||
-    firstImage?.url ||
-    product.image ||
-    product.image_url ||
-    product.cover_image ||
-    product?.product_base?.cover_image ||
-    "";
-
-  const price =
-    product.price?.toString?.() ||
-    product?.price_info?.price?.toString?.() ||
-    product?.product_price?.toString?.() ||
-    product?.product_base?.price?.toString?.() ||
-    "";
-
-  const rating =
-    product.rating?.toString?.() ||
-    product?.review_info?.score?.toString?.() ||
-    product?.product_base?.rating?.toString?.() ||
-    "";
-
-  const totalSold =
-    product.sold?.toString?.() ||
-    product?.sold_count?.toString?.() ||
-    product?.sales_count?.toString?.() ||
-    product?.product_base?.sold_count?.toString?.() ||
-    "";
-
-  const category =
-    product.category ||
-    product.category_name ||
-    product?.product_base?.category_name ||
-    "";
-
-  const descParts: string[] = [];
-  const desc =
-    product.description ||
-    product.detail_text ||
-    product?.product_base?.description;
-  if (desc) descParts.push(typeof desc === "string" ? desc : JSON.stringify(desc));
-  if (Array.isArray(product.specifications)) {
-    descParts.push(
-      ...product.specifications
-        .map((s: any) => `${s.name || s.key || ""}: ${s.value || ""}`)
-        .filter((s: string) => s.length > 2)
-    );
-  }
-  const description = descParts.join("\n").trim();
-
-  // If TikHub returned an error envelope, surface it cleanly.
-  if (json?.code && Number(json.code) !== 200 && !productName) {
+  // Surface TikHub error envelopes cleanly (quota exceeded, bad params,
+  // upstream block) before we try to parse the success shape.
+  if (json?.code && Number(json.code) !== 200) {
     return errResult(
       originalUrl,
-      `TikHub error: ${json?.msg || JSON.stringify(json).substring(0, 200)}`
+      `TikHub error (code ${json.code}): ${json?.message || json?.msg || "unknown"}`
     );
   }
 
-  const finalImage = String(productImageUrl || "");
+  // The web/fetch_product_detail_v3 success shape:
+  //   data.product_data.page_config.components_map[]
+  //     → find component_name === "product_info"
+  //     → component_data.product_info.product_model    (name, sold, images, description)
+  //     → component_data.product_info.promotion_model  (price + discount)
+  // Confirmed against a live MY Shop product (verified live via
+  // Playwright before shipping this parser).
+  const components: any[] =
+    json?.data?.product_data?.page_config?.components_map || [];
+  const productInfoComp = components.find(
+    (c: any) => c?.component_name === "product_info"
+  );
+  const productInfo = productInfoComp?.component_data?.product_info;
+  const pm = productInfo?.product_model || {};
+  const promo = productInfo?.promotion_model?.promotion_product_price;
+
+  const productName: string = pm.name || "";
+
+  // Cover image — first gallery image's first CDN URL. Falls back to
+  // the first SKU's image if the gallery is empty.
+  const firstGalleryImg = Array.isArray(pm.images) ? pm.images[0] : null;
+  const finalImage: string =
+    firstGalleryImg?.url_list?.[0] ||
+    firstGalleryImg?.url_list?.[1] ||
+    pm?.skus?.[0]?.sku_image?.url_list?.[0] ||
+    "";
+
+  // Price — TikTok serves a `range_price` string ("12.00 - 13.00") when
+  // SKUs differ, plus a single `min_price.sale_price_format`. Prefer the
+  // range when SKUs vary, else the min sale price. Prepend the symbol
+  // ("RM") so the user-facing card shows a complete value.
+  const minSale = promo?.min_price?.sale_price_format;
+  const rangeStr = promo?.range_price?.range_price;
+  const symbol =
+    promo?.min_price?.currency_symbol ||
+    promo?.range_price?.currency_symbol ||
+    "";
+  const priceText =
+    rangeStr && rangeStr.includes("-") ? rangeStr : minSale || "";
+  const price = priceText ? `${symbol} ${priceText}`.trim() : "";
+
+  const totalSold: string = pm.sold_count ? String(pm.sold_count) : "";
+
+  // description is a JSON-encoded array of structured blocks:
+  //   [{type:"text", text:"..."}, {type:"image", ...}, ...]
+  // Pull just the text entries and join — those are the user-readable
+  // marketing copy. Falls back to raw if it isn't JSON-encoded.
+  const description = (() => {
+    if (!pm.description) return "";
+    try {
+      const blocks = JSON.parse(pm.description);
+      if (Array.isArray(blocks)) {
+        return blocks
+          .filter((b: any) => b?.type === "text" && typeof b.text === "string")
+          .map((b: any) => b.text.trim())
+          .filter(Boolean)
+          .join("\n");
+      }
+    } catch {
+      // Fall through
+    }
+    return String(pm.description);
+  })();
+
+  // V3 web shape doesn't include a rating or category — leave blank;
+  // master-plan generation does fine without them.
+  const rating = "";
+  const category = "";
 
   return {
     ok: !!productName,
