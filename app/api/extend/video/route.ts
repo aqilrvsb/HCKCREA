@@ -288,6 +288,7 @@ export async function POST(req: Request) {
 
       const created = await p2CreateTask({
         model,
+        userId: user.id,
         prompt: fullPrompt,
         imageUrls: [startUrl],
         durationMode: String(extendSeconds),
