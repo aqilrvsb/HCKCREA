@@ -7,28 +7,25 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 60; // seconds — Vercel Pro limit
 
 // GET /api/worker/poll-pending
-// Server-side background worker — wakes every minute via Vercel Cron and
-// drains pending history rows by polling P2 for each. Replaces the Chrome
-// extension's persistent service-worker pattern: even if the user closes
-// the browser tab, this keeps marking videos done/failed and deducting
-// credits, so when they come back the dashboard reflects reality.
 //
-// Auth: Vercel Cron sends `Authorization: Bearer ${CRON_SECRET}`. Reject
-// anything else so this route can't be hammered by random callers.
+// Background worker. Mirrors the manual refresh-icon path 1:1 — fetches
+// every pending row that has a task_id, calls settleHistoryRow on each,
+// and lets the upstream provider's status drive the outcome:
+//   - succeeded  → row flips done, credits deduct, library auto-save
+//   - failed     → row flips failed with the upstream error_message
+//   - pending    → row stays pending (next tick re-checks)
 //
-// Strategy:
-//   - Pick max BATCH rows that are pending, have a task_id, and were
-//     created < STALE_MIN minutes ago (avoid wasting calls on very-old
-//     rows P2 has already garbage-collected).
-//   - Settle them in parallel (P2 TaskInfo is independent per task).
-//   - Stale cleanup: pending rows older than STALE_MIN are forced to
-//     'failed' so the user isn't stuck on a "generating" spinner forever.
+// No artificial stale-fail. If a row truly never resolves upstream
+// (provider lost the task), it stays pending until the user clicks the
+// refresh icon — which runs the exact same settleHistoryRow logic and
+// can recover the row if upstream eventually returns succeeded.
+//
+// Auth: Vercel Cron sends `Authorization: Bearer ${CRON_SECRET}`. We
+// reject anything else.
 
-const BATCH = 50; // max rows per cron tick
-const STALE_MIN = 5; // a pending row older than this many minutes is considered lost
+const BATCH = 50; // max rows per cron tick — keeps the function under 60s
 
 export async function GET(req: Request) {
-  // Authorize cron / admin caller
   const authHeader = req.headers.get("authorization") || "";
   const expected = `Bearer ${process.env.CRON_SECRET || ""}`;
   if (!process.env.CRON_SECRET || authHeader !== expected) {
@@ -37,22 +34,26 @@ export async function GET(req: Request) {
 
   const admin = createAdminClient();
 
-  const cutoffStaleIso = new Date(Date.now() - STALE_MIN * 60_000).toISOString();
-  const cutoffYoungIso = new Date(Date.now() - 5_000).toISOString(); // 5s after submit
+  // Skip rows that just inserted (5s grace) so we don't race the create
+  // call's own UPDATE that stamps the task_id.
+  const cutoffYoungIso = new Date(Date.now() - 5_000).toISOString();
 
-  // Stage 1 — settle the rows that are young enough to still be alive on P2
   const { data: rows, error: fetchErr } = await admin
     .from("history")
-    .select("id, user_id, type, tab, status, task_id, duration, cost, prompt, reference_url, project_id, metadata, created_at, segment_index, parent_history_id, frame_anchor, output_url, merged_url")
+    .select(
+      "id, user_id, type, tab, status, task_id, duration, cost, prompt, reference_url, project_id, metadata, error_message, created_at, segment_index, parent_history_id, frame_anchor, output_url, merged_url"
+    )
     .eq("status", "pending")
     .not("task_id", "is", null)
-    .gte("created_at", cutoffStaleIso)
     .lte("created_at", cutoffYoungIso)
     .order("created_at", { ascending: true })
     .limit(BATCH);
 
   if (fetchErr) {
-    return NextResponse.json({ error: "DB fetch failed", detail: fetchErr.message }, { status: 500 });
+    return NextResponse.json(
+      { error: "DB fetch failed", detail: fetchErr.message },
+      { status: 500 }
+    );
   }
 
   const settled = { done: 0, failed: 0, pending: 0, errors: 0 };
@@ -72,34 +73,10 @@ export async function GET(req: Request) {
     }
   }
 
-  // Stage 2 — stale cleanup. Anything still pending beyond STALE_MIN gets
-  // force-failed so the UI un-sticks. Don't deduct credits for these (no
-  // output produced).
-  const { data: stale } = await admin
-    .from("history")
-    .select("id")
-    .eq("status", "pending")
-    .lt("created_at", cutoffStaleIso)
-    .limit(200);
-
-  let staleFailed = 0;
-  if (stale && stale.length > 0) {
-    const ids = stale.map((s) => s.id);
-    await admin
-      .from("history")
-      .update({
-        status: "failed",
-        error_message: `Stale — exceeded ${STALE_MIN}m without resolution`,
-      })
-      .in("id", ids);
-    staleFailed = ids.length;
-  }
-
   return NextResponse.json({
     ok: true,
     scanned: rows?.length || 0,
     ...settled,
-    stale_failed: staleFailed,
     ts: new Date().toISOString(),
   });
 }
