@@ -52,6 +52,47 @@ function quantizeGrokDuration(seconds: number): 6 | 10 | 15 {
   return 15;
 }
 
+// Translate the model name we got from p2-style admin settings (e.g.
+// "veo3.1-fast/r2v" or "grok-imagine/i2v") into the bare model GeminiGen
+// expects (e.g. "veo-3.1-fast", "grok-3"). The user passes whatever they
+// configured in p2_model_t2v / p2_model_r2v / p2_model_grok_t2v /
+// image_default; we normalise here so admin can flip providers without
+// also rewriting the model strings.
+//
+// Aspect-ratio guard: GeminiGen Veo 3.1 / Veo 3.1 Fast / Veo 3.1 Lite
+// only support 16:9 widescreen. For 9:16 portrait (our default for UGC /
+// TikTok), only veo-2 will accept the request — so we auto-downgrade to
+// veo-2 in that case.
+function normaliseModelForP1(model: string, aspectRatio?: string): string {
+  const m = model.toLowerCase();
+
+  // Grok — only "grok-3" is supported on GeminiGen.
+  if (m.includes("grok")) return "grok-3";
+
+  if (m.includes("veo")) {
+    const wantsPortrait = aspectRatio === "9:16";
+    // Force veo-2 for portrait — it's the only Veo on GeminiGen that
+    // accepts 9:16. Veo 3.1 / 3.1-fast / 3.1-lite are all widescreen-only.
+    if (wantsPortrait) return "veo-2";
+
+    if (m.includes("fast")) return "veo-3.1-fast";
+    if (m.includes("lite")) return "veo-3.1-lite";
+    if (m.includes("3.1")) return "veo-3.1";
+    if (m.includes("veo2") || m.includes("veo-2")) return "veo-2";
+    return "veo-3.1-fast"; // sensible widescreen default
+  }
+
+  // Image — nano-banana-pro / nano-banana-2 / imagen-4 are the supported
+  // names on GeminiGen.
+  if (m.includes("nano-banana-pro") || m.includes("banana-pro")) return "nano-banana-pro";
+  if (m.includes("nano-banana") || m.includes("banana-2")) return "nano-banana-2";
+  if (m.includes("imagen")) return "imagen-4";
+
+  // gpt-image-2 is Crun-only — return original so the caller can
+  // surface a clean error.
+  return model;
+}
+
 export async function p1CreateTask(input: {
   model: string;
   prompt?: string;
@@ -67,8 +108,8 @@ export async function p1CreateTask(input: {
     return { ok: false, error: "GeminiGen not configured" };
   }
 
-  const isGrok = input.model.includes("grok");
-  const isVideo = !isGrok && input.model.includes("veo");
+  const isGrok = input.model.toLowerCase().includes("grok");
+  const isVideo = !isGrok && input.model.toLowerCase().includes("veo");
   const isImage = !isVideo && !isGrok;
 
   // Endpoint path varies per asset type.
@@ -78,9 +119,21 @@ export async function p1CreateTask(input: {
       ? cfg.veoPath
       : cfg.imagePath;
 
+  // Normalise the Crun-style model name to GeminiGen's bare-name format
+  // (e.g. "veo3.1-fast/r2v" → "veo-3.1-fast", "grok-imagine/i2v" → "grok-3").
+  // Aspect-ratio is fed in so the Veo branch can auto-pick veo-2 for the
+  // 9:16 portrait case (3.1 tiers are widescreen-only on GeminiGen).
+  const normalisedModel = normaliseModelForP1(input.model, input.aspectRatio);
+  if (normalisedModel.includes("gpt-image")) {
+    return {
+      ok: false,
+      error: "GeminiGen (P1) does not support gpt-image-2 — switch image provider to P2 (Crun) or pick another model.",
+    };
+  }
+
   const fd = new FormData();
   if (input.prompt) fd.append("prompt", input.prompt.substring(0, 5000));
-  fd.append("model", input.model);
+  fd.append("model", normalisedModel);
 
   const imgUrls = (input.imageUrls || []).filter(Boolean);
 
