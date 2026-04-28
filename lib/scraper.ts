@@ -218,9 +218,20 @@ async function scrapeViaTikHub(originalUrl: string): Promise<ScrapedProduct> {
 
   const productName: string = pm.name || "";
 
-  // Cover image — first gallery image's first CDN URL. Falls back to
-  // the first SKU's image if the gallery is empty.
-  const firstGalleryImg = Array.isArray(pm.images) ? pm.images[0] : null;
+  // Cover image — TikTok ships TWO different image sets in pm.images:
+  //   • images[0] — a 1800×1800 "marketing hero" (often a bundle/social
+  //     card shot that doesn't match the actual product variant).
+  //   • images[1..N] — 1000×1000 SKU-aligned gallery thumbnails (what
+  //     the user actually sees scrolling the PDP).
+  // Picking images[0] gave us the bundle-promo card on a real product
+  // when the user expected the ORIGINAL bottle. Strategy: prefer the
+  // first image whose dimensions are <=1200 (= SKU gallery shot). Fall
+  // back to images[0] if everything is over 1200, then SKU image.
+  const galleryImages: any[] = Array.isArray(pm.images) ? pm.images : [];
+  const skuShotImage = galleryImages.find(
+    (img: any) => img?.width && img.width <= 1200 && img?.url_list?.[0]
+  );
+  const firstGalleryImg = skuShotImage || galleryImages[0] || null;
   const finalImage: string =
     firstGalleryImg?.url_list?.[0] ||
     firstGalleryImg?.url_list?.[1] ||
