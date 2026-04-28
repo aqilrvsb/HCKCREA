@@ -1,8 +1,24 @@
 "use client";
 
-import { useState } from "react";
-import { Lock, MessageCircle, Loader2, CheckCircle2, AlertCircle, User } from "lucide-react";
+import { useEffect, useState } from "react";
+import {
+  Lock,
+  MessageCircle,
+  Loader2,
+  CheckCircle2,
+  AlertCircle,
+  User,
+  Video,
+} from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
+
+// Video provider preference. Labels are deliberately neutral — clients
+// don't need to know about the underlying upstream brand names.
+type VideoProvider = "p1" | "p2" | null;
+const VIDEO_PROVIDER_LABEL: Record<"p1" | "p2", string> = {
+  p2: "P2 (Default)",
+  p1: "P1",
+};
 
 export default function SettingsSection({
   email,
@@ -22,6 +38,60 @@ export default function SettingsSection({
   const [pwNewConfirm, setPwNewConfirm] = useState("");
   const [savingPw, setSavingPw] = useState(false);
   const [pwMsg, setPwMsg] = useState<{ ok: boolean; text: string } | null>(null);
+
+  // Video provider — null means "use platform default", otherwise an
+  // explicit override the client picked. We surface the effective value
+  // in the dropdown so the user always sees what's currently active.
+  const [videoProvider, setVideoProvider] = useState<VideoProvider>(null);
+  const [adminDefault, setAdminDefault] = useState<"p1" | "p2">("p2");
+  const [savingVp, setSavingVp] = useState(false);
+  const [vpMsg, setVpMsg] = useState<{ ok: boolean; text: string } | null>(null);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const r = await fetch("/api/me/provider-video", { cache: "no-store" });
+        const d = await r.json();
+        if (r.ok && d?.ok) {
+          setVideoProvider(d.user_pref || null);
+          if (d.admin_default === "p1" || d.admin_default === "p2") {
+            setAdminDefault(d.admin_default);
+          }
+        }
+      } catch {
+        // Silent — defaults stay
+      }
+    })();
+  }, []);
+
+  async function saveVideoProvider(next: VideoProvider) {
+    setSavingVp(true);
+    setVpMsg(null);
+    try {
+      const r = await fetch("/api/me/provider-video", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ provider: next }),
+      });
+      const d = await r.json();
+      if (!r.ok || !d?.ok) {
+        setVpMsg({ ok: false, text: d?.error || "Update failed" });
+        return;
+      }
+      setVideoProvider(next);
+      setVpMsg({
+        ok: true,
+        text:
+          next === null
+            ? "Video provider reset to default."
+            : `Video provider set to ${VIDEO_PROVIDER_LABEL[next]}.`,
+      });
+    } catch (e: any) {
+      setVpMsg({ ok: false, text: e?.message || "Update failed" });
+    } finally {
+      setSavingVp(false);
+    }
+  }
 
   async function saveWhatsapp() {
     setSavingWA(true);
@@ -162,6 +232,81 @@ export default function SettingsSection({
               "Save WhatsApp"
             )}
           </button>
+        </div>
+      </section>
+
+      {/* Video Provider — per-user override. Client-facing labels are
+          deliberately neutral (P2 / P1) — no upstream brand names. */}
+      <section className="card">
+        <div className="flex items-center gap-3 mb-5 pb-4 border-b border-[var(--color-border)]">
+          <div
+            className="w-11 h-11 rounded-2xl flex items-center justify-center"
+            style={{
+              background: "rgba(245,158,11,0.1)",
+              border: "1px solid rgba(245,158,11,0.3)",
+            }}
+          >
+            <Video className="w-5 h-5" style={{ color: "#f59e0b" }} />
+          </div>
+          <div>
+            <h2 className="font-display font-bold text-xl text-[var(--color-text-primary)]">
+              Video Provider
+            </h2>
+            <p className="text-xs text-[var(--color-text-muted)]">
+              Pick which engine handles your video generations (Veo). Image
+              + Cinema stay on the platform default.
+            </p>
+          </div>
+        </div>
+
+        <div className="space-y-3">
+          <div className="grid grid-cols-2 gap-2">
+            {([
+              { val: null as VideoProvider, label: "P2 (Default)" },
+              { val: "p1" as VideoProvider, label: "P1" },
+            ]).map(({ val, label }) => {
+              const active =
+                val === null
+                  ? videoProvider === null || videoProvider === "p2"
+                  : videoProvider === val;
+              return (
+                <button
+                  key={String(val)}
+                  type="button"
+                  onClick={() => saveVideoProvider(val)}
+                  disabled={savingVp}
+                  className="rounded-xl px-4 py-3 font-bold text-sm transition-all disabled:opacity-50"
+                  style={
+                    active
+                      ? {
+                          background: "rgba(245,158,11,0.15)",
+                          border: "2px solid #f59e0b",
+                          color: "#f59e0b",
+                        }
+                      : {
+                          background: "var(--color-bg-card)",
+                          border: "1px solid var(--color-border)",
+                          color: "var(--color-text-secondary)",
+                        }
+                  }
+                >
+                  {savingVp && active ? (
+                    <span className="inline-flex items-center gap-2">
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      Saving…
+                    </span>
+                  ) : (
+                    label
+                  )}
+                </button>
+              );
+            })}
+          </div>
+          <p className="text-[11px] text-[var(--color-text-muted)]">
+            Berlaku untuk video baru sahaja. Yang sedang generate masih ikut
+            engine asal.
+          </p>
+          {vpMsg && <Notice ok={vpMsg.ok} text={vpMsg.text} />}
         </div>
       </section>
 

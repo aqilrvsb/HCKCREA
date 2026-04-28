@@ -123,11 +123,28 @@ export async function getP1Config() {
 // receives the create-task call. Default p2 keeps existing deployments
 // unchanged. Per-asset toggles (image / video / cinema) so a single
 // outage on one asset doesn't cascade across the whole stack.
+//
+// VIDEO ONLY — supports a per-user override stored on profiles.video_provider.
+// If the user picked a provider in their /settings page, that wins; else
+// falls back to the admin's gen_provider_video setting. Image + Cinema
+// stay admin-controlled across all users.
 export type GenProvider = "p1" | "p2";
 
 export async function getGenProvider(
-  asset: "image" | "video" | "cinema"
+  asset: "image" | "video" | "cinema",
+  userId?: string
 ): Promise<GenProvider> {
+  if (asset === "video" && userId) {
+    const admin = createAdminClient();
+    const { data } = await admin
+      .from("profiles")
+      .select("video_provider")
+      .eq("id", userId)
+      .maybeSingle();
+    const userPref = String(data?.video_provider || "").toLowerCase();
+    if (userPref === "p1" || userPref === "p2") return userPref as GenProvider;
+  }
+
   const v = await getSetting<any>(`gen_provider_${asset}`);
   const choice = String(v?.provider || "p2").toLowerCase();
   return choice === "p1" ? "p1" : "p2";

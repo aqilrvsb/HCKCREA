@@ -106,6 +106,7 @@ export async function POST(req: Request) {
   // we can stamp the (possibly new) provider onto the row's metadata.
   const created = await p2CreateTask({
     model,
+    userId: user.id,
     prompt: row.prompt,
     imageUrls: refImage ? [refImage] : [],
     durationMode,

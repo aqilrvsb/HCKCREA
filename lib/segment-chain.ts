@@ -163,6 +163,7 @@ async function fireSeg2(parent: Settled, parentOutputUrl: string): Promise<void>
   const cfg = await getP2Config();
   const created = await p2CreateTask({
     model: cfg.videoR2V,
+    userId: parent.user_id,
     prompt: seg2Prompt,
     imageUrls: [anchorFrameUrl],
     durationMode: "8",

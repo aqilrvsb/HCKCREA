@@ -165,6 +165,7 @@ export async function POST(req: Request) {
         live.map(async ({ id, v, seg1Prompt }) => {
           const created = await p2CreateTask({
             model,
+            userId: user.id,
             prompt: seg1Prompt,
             imageUrls: productImageUrl ? [productImageUrl] : [],
             durationMode: "8", // ALWAYS 8 — 16s = TWO 8s gens chained

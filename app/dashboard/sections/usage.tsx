@@ -283,7 +283,7 @@ export default function UsageSection({ email: _email }: { email: string }) {
                                 border: "1px solid rgba(245,158,11,0.3)",
                               }
                         }
-                        title={provider === "p1" ? "GeminiGen.AI" : "Crun.ai"}
+                        title={provider === "p1" ? "Engine P1" : "Engine P2"}
                       >
                         {provider}
                       </span>

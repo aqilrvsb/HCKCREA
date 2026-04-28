@@ -25,20 +25,27 @@ export type P2CreateResp = {
 
 // Pick a gen-provider based on the model name + admin toggle. Image vs
 // video vs cinema each have their own gen_provider_<asset> setting so
-// admin can rotate backends per asset class.
-async function pickProvider(model: string): Promise<"p1" | "p2"> {
+// admin can rotate backends per asset class. For video specifically, a
+// per-user preference (profiles.video_provider) takes precedence over
+// the admin default — pass userId so the user override is honoured.
+async function pickProvider(model: string, userId?: string): Promise<"p1" | "p2"> {
   const isGrok = model.includes("grok");
   const isVideo = !isGrok && model.includes("veo");
   const asset = isGrok ? "cinema" : isVideo ? "video" : "image";
-  return await getGenProvider(asset);
+  return await getGenProvider(asset, userId);
 }
 
 // Public entry point — dispatches to either P1 (GeminiGen) or P2 (Crun.ai)
 // based on the gen_provider_<asset> admin setting. Returns the same shape
 // regardless of backend, plus a `provider` field so callers can persist
 // it on history.metadata for status polls later.
+//
+// userId is optional but recommended for video calls — it lets the
+// dispatcher respect the per-user video_provider preference set in the
+// client's /settings page. Image + cinema currently ignore it.
 export async function p2CreateTask(input: {
   model: string;
+  userId?: string;
   prompt?: string;
   imageUrl?: string;
   imageUrls?: string[];
@@ -49,7 +56,7 @@ export async function p2CreateTask(input: {
   callbackUrl?: string;
   extra?: Record<string, any>;
 }): Promise<P2CreateResp> {
-  const provider = await pickProvider(input.model);
+  const provider = await pickProvider(input.model, input.userId);
   if (provider === "p1") {
     const r = await p1CreateTask({
       model: input.model,

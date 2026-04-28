@@ -972,6 +972,7 @@ CRITICAL: Respond with ONLY a JSON array. NO analysis, NO explanation, NO markdo
 
       const created = await p2CreateTask({
         model,
+        userId: user.id,
         prompt: veoPrompt,
         imageUrls: refImage ? [refImage] : [],
         durationMode,
