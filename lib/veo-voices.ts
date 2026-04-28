@@ -1,0 +1,94 @@
+// Veo 3.1 voice catalog — single source of truth.
+//
+// Matches the UI dropdown shown in the manual UGC tab and the agent
+// confirmation dialog. Each entry combines the Veo voice ID with a
+// short tonal description (gender, character, pitch). When a voice is
+// chosen the prompt's AUDIO LOCK embeds this description verbatim so
+// the video model uses the exact same voice across the entire clip and
+// any future continuation (seg-2 / Extend chain).
+//
+// Order matches the UI dropdown alphabetically by display name.
+
+export type VeoVoice = {
+  id: string;             // lowercase key — what the API persists
+  label: string;          // display name in the dropdown
+  description: string;    // full tonal description embedded in AUDIO LOCK
+};
+
+export const VEO_VOICES: VeoVoice[] = [
+  { id: "achernar",     label: "Achernar — Female, soft, high pitch",          description: "Achernar — Female, soft, high pitch. Light airy timbre, gentle delivery." },
+  { id: "achird",       label: "Achird — Male, friendly, mid pitch",           description: "Achird — Male, friendly, mid-pitch. Warm conversational tone." },
+  { id: "algenib",      label: "Algenib — Male, gravelly, low pitch",          description: "Algenib — Male, gravelly, low pitch. Deep rough timbre." },
+  { id: "algieba",      label: "Algieba — Male, easy-going, mid-low pitch",    description: "Algieba — Male, easy-going, mid-low pitch. Relaxed casual delivery." },
+  { id: "alnilam",      label: "Alnilam — Male, firm, mid-low pitch",          description: "Alnilam — Male, firm, mid-low pitch. Steady authoritative tone." },
+  { id: "aoede",        label: "Aoede — Female, breezy, mid pitch",            description: "Aoede — Female, breezy, mid-pitch. Light, airy, conversational." },
+  { id: "autonoe",      label: "Autonoe — Female, bright, mid pitch",          description: "Autonoe — Female, bright, mid-pitch. Cheerful upbeat delivery." },
+  { id: "callirrhoe",   label: "Callirrhoe — Female, easy-going, mid pitch",   description: "Callirrhoe — Female, easy-going, mid-pitch. Natural conversational tone." },
+  { id: "charon",       label: "Charon — Male, informative, lower pitch",      description: "Charon — Male, informative, lower pitch. Deep authoritative delivery." },
+  { id: "despina",      label: "Despina — Female, smooth, mid pitch",          description: "Despina — Female, smooth, mid-pitch. Polished even delivery." },
+  { id: "enceladus",    label: "Enceladus — Male, breathy, lower pitch",       description: "Enceladus — Male, breathy, lower pitch. Soft intimate delivery." },
+  { id: "erinome",      label: "Erinome — Female, clear, mid pitch",           description: "Erinome — Female, clear, mid-pitch. Bright clean enunciation." },
+  { id: "fenrir",       label: "Fenrir — Male, excitable, younger pitch",      description: "Fenrir — Male, excitable, younger pitch. Energetic Gen-Z hype delivery." },
+  { id: "gacrux",       label: "Gacrux — Female, mature, mid pitch",           description: "Gacrux — Female, mature, mid-pitch. Warm motherly tone." },
+  { id: "iapetus",      label: "Iapetus — Male, clear, mid-low pitch",         description: "Iapetus — Male, clear, mid-low pitch. Crisp confident delivery." },
+  { id: "kore",         label: "Kore — Female, firm, mid pitch",               description: "Kore — Female, firm, mid-pitch. Steady assertive delivery." },
+  { id: "laomedeia",    label: "Laomedeia — Female, upbeat, mid-high pitch",   description: "Laomedeia — Female, upbeat, mid-high pitch. Energetic cheerful tone." },
+  { id: "leda",         label: "Leda — Female, youthful, mid-high pitch",      description: "Leda — Female, youthful, mid-high pitch. Trendy Gen-Z energy." },
+  { id: "orus",         label: "Orus — Male, firm, mid-low pitch",             description: "Orus — Male, firm, mid-low pitch. Direct confident delivery." },
+  { id: "puck",         label: "Puck — Male, upbeat, mid pitch",               description: "Puck — Male, upbeat, mid-pitch. Energetic hype delivery." },
+  { id: "pulcherrima",  label: "Pulcherrima — Ungendered, forward, mid-high pitch", description: "Pulcherrima — Ungendered, forward, mid-high pitch. Direct neutral delivery." },
+  { id: "rasalgethi",   label: "Rasalgethi — Male, informative, mid pitch",    description: "Rasalgethi — Male, informative, mid-pitch. Clear teaching delivery." },
+  { id: "sadachbia",    label: "Sadachbia — Male, lively, low pitch",          description: "Sadachbia — Male, lively, low pitch. Animated grounded delivery." },
+  { id: "sadaltager",   label: "Sadaltager — Male, knowledgeable, mid pitch",  description: "Sadaltager — Male, knowledgeable, mid-pitch. Expert calm delivery." },
+  { id: "schedar",      label: "Schedar — Male, even, mid-low pitch",          description: "Schedar — Male, even, mid-low pitch. Balanced steady delivery." },
+  { id: "sulafat",      label: "Sulafat — Female, warm, mid pitch",            description: "Sulafat — Female, warm, mid-pitch. Friendly approachable tone." },
+  { id: "umbriel",      label: "Umbriel — Male, smooth, lower pitch",          description: "Umbriel — Male, smooth, lower pitch. Polished mature delivery." },
+  { id: "vindemiatrix", label: "Vindemiatrix — Female, gentle, mid pitch",     description: "Vindemiatrix — Female, gentle, mid-pitch. Soft caring delivery." },
+  { id: "zephyr",       label: "Zephyr — Female, bright, mid-high pitch",      description: "Zephyr — Female, bright, mid-high pitch. Cheerful clear delivery." },
+  { id: "zubenelgenubi",label: "Zubenelgenubi — Male, casual, mid-low pitch",  description: "Zubenelgenubi — Male, casual, mid-low pitch. Relaxed friendly delivery." },
+];
+
+const VOICE_BY_ID: Record<string, VeoVoice> = Object.fromEntries(
+  VEO_VOICES.map((v) => [v.id, v])
+);
+
+export const VEO_VOICE_IDS = VEO_VOICES.map((v) => v.id);
+
+export function getVoice(id?: string | null): VeoVoice | undefined {
+  if (!id) return undefined;
+  return VOICE_BY_ID[String(id).toLowerCase()];
+}
+
+export function getVoiceDescription(id?: string | null): string {
+  return getVoice(id)?.description || "";
+}
+
+// The full lock block appended to every Veo prompt — same wording across
+// manual UGC, the UGC AI agent, and Auto Content. When a voice is chosen
+// its description is embedded inside the AUDIO LOCK as VOICE CHARACTER
+// (LOCKED) so the model treats it as a hard constraint.
+export function buildVeoLocks(opts: {
+  voiceId?: string | null;
+  voiceLine?: string | null; // legacy free-text fallback (auto-content's gender/age block)
+}): string {
+  const voiceDesc =
+    getVoiceDescription(opts.voiceId) ||
+    String(opts.voiceLine || "").trim();
+  const voiceCharLine = voiceDesc
+    ? `\nVOICE CHARACTER (LOCKED — use this exact voice for the entire clip and all continuations): ${voiceDesc}`
+    : "";
+
+  return `
+
+ANATOMY LOCK: ONE human only — exactly 2 hands with 5 fingers each (both clearly visible when in frame), symmetric face, normal proportions, no missing limbs, no extra limbs, no fused fingers, no warped joints, no plastic / waxy skin, no uncanny-valley features, no morphing face, no asymmetric eyes, no doubled facial features.
+AUDIO LOCK: ONE single voice only — no chatter, no background voices, no whispered second voice, no echo doubles, NO ghost sound, NO phantom audio, NO unexplained noise. NO background music, NO instrumental, NO sound effects, NO ambient music, NO score, NO jingles. All audio is spoken dialog only.${voiceCharLine}
+DIALOG LENGTH LOCK: Total spoken dialog per 8-second shot MUST be 20-24 words (Bahasa Melayu). Beat budget: hook 4-6 words / core 10-14 words / reaction 0-2 words / outro 4-6 words. Under 18 = character freezes at end. Over 26 = rushed audio. Hit 20-24 every shot.
+LANGUAGE LOCK: Spoken dialog is BAHASA MELAYU (Malaysian Malay) ONLY. NEVER Bahasa Indonesia. Use Malaysian markers: korang, aku, ni, tu, memang, gila, kau, lah, je, dah, eh. FORBIDDEN Indonesian words: kalian, gue, lo, banget, sih, dong, kayak, gimana, ngapain, kasihan, doang, mau, nih, tuh.
+VOICE CONSISTENCY LOCK: The character's voice has fixed identity — same gender, same age range, same pitch, same Malaysian accent, same speaking rhythm and energy across the entire clip and any future continuation. Voice MUST stay locked so seg-2 / Extend continuations match seg-1 seamlessly.
+PRODUCT LOCK: Product visual is pixel-identical to reference — same color, shape, label, typography, layout, packaging, finish. Sharp focus on label, no warping, no recoloring, no text drift, no relabel, no re-illustration. When a reference image is attached, the reference is the SINGLE source of truth for the product — anchor framing, lighting, and hand-holding around it.
+BEG KUNING LOCK: The phrase "beg kuning" (and any equivalent: yellow bag, shopping bag, affiliate icon, shop button) is SPOKEN DIALOG ONLY — NEVER rendered as a visual icon, yellow bag graphic, shopping cart icon, TikTok Shop button, sticker, or any on-screen element. Zero shop icons, zero yellow-bag graphics, zero buttons, zero affiliate stickers anywhere in frame.
+UGC AUTHENTICITY: Authentic amateur iPhone UGC — handheld arm's-length, natural skin texture with pores and subtle T-zone shine (NOT airbrushed), no-makeup-makeup, loose hair, ordinary mixed lighting (NOT softbox), lived-in background with minor clutter.
+VISUAL LOCK: RAW UNEDITED FOOTAGE — bottom 25% of frame COMPLETELY EMPTY. NO subtitles or text overlays, NO on-screen dialogue text, NO captions, NO animated TikTok captions, NO sticker text, NO icons, NO emojis, NO graphics, NO watermarks, NO UI elements, NO handles, NO hashtags, NO TikTok Shop badges. Clean vertical video frame with no interface overlay, no icons, no overlay elements.
+
+Negative: cartoon, 3D cartoon, anime, airbrushed plastic skin, uncanny valley, glam makeup, salon hair, softbox studio lighting, tripod static shot (unless explicitly chosen), staged background, posed billboard framing, closed mouth while audio plays, duplicate limbs, extra fingers, fused fingers, distorted fingers, deformed hand, hand out of frame, warped product label, blurry product, motion-blurred product, text drift, subtitle burn-in, auto-captions, on-screen dialog text, burned-in lyrics, karaoke text, multiple speakers, second voice, whispered overdub, ghost voice, phantom audio, ambient noise, voiceover narration, music score, background music, instrumental track, sound effects, ambient music, jingles, interface overlay, app overlay, TikTok shop button, yellow bag icon, shopping bag icon, beg kuning icon, affiliate sticker, Bahasa Indonesia, Indonesian accent, Indonesian slang.`;
+}

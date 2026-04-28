@@ -4,6 +4,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { p2CreateTask } from "@/lib/p2";
 import { priceFor } from "@/lib/deduct";
 import { getP2Config } from "@/lib/settings";
+import { buildVeoLocks, getVoiceDescription } from "@/lib/veo-voices";
 
 // POST /api/generate/video — UGC tab. Placeholder-first + auth-light.
 //
@@ -22,7 +23,7 @@ export async function POST(req: Request) {
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const body = await req.json().catch(() => ({}));
-  const prompt = String(body?.prompt || "").trim();
+  const rawPrompt = String(body?.prompt || "").trim();
   const imageUrls: string[] = Array.isArray(body?.image_urls) ? body.image_urls : [];
   const aspectRatio = String(body?.aspect_ratio || "9:16");
   const durationMode: "8" | "16" = body?.duration === "16" ? "16" : "8";
@@ -36,11 +37,22 @@ export async function POST(req: Request) {
       ? requestedMode
       : imageUrls.length ? "ingredient" : "text";
   const projectId = body?.project_id ? String(body.project_id) : null;
+  // Optional Veo voice id from the manual UI dropdown — used to lock the
+  // exact voice character into the AUDIO LOCK.
+  const voiceId = body?.voice ? String(body.voice).toLowerCase() : "";
+  const voiceDesc = getVoiceDescription(voiceId);
 
-  if (!prompt) return NextResponse.json({ error: "Prompt required" }, { status: 400 });
+  if (!rawPrompt) return NextResponse.json({ error: "Prompt required" }, { status: 400 });
   if (imageMode !== "text" && !imageUrls.length) {
     return NextResponse.json({ error: "Reference image required" }, { status: 400 });
   }
+
+  // Append the canonical Veo lock block (same one used by UGC agent + Auto
+  // Content). Voice character — when picked — embeds into the AUDIO LOCK
+  // so the model uses the exact same voice across the clip and any
+  // future Extend continuation.
+  const prompt =
+    rawPrompt + buildVeoLocks({ voiceId, voiceLine: voiceDesc || undefined });
 
   const reason = durationMode === "16" ? "video_16s" : "video_8s";
 

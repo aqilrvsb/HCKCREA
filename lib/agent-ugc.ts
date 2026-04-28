@@ -1,3 +1,5 @@
+import { VEO_VOICE_IDS, getVoiceDescription, buildVeoLocks } from "@/lib/veo-voices";
+
 // UGC Agent v2 — slim orchestrator + skill library architecture.
 //
 // Replaces the monolithic ~5800-token system prompt with:
@@ -144,21 +146,11 @@ export const UGC_SYSTEM_PROMPT = UGC_ORCHESTRATOR.replace(
 // Helper — append the universal locks + negatives to every prompt
 // ──────────────────────────────────────────────────────────────────────────
 
+// Append the canonical Veo lock block (lib/veo-voices.ts buildVeoLocks)
+// to a UGC core prompt. voiceLine is the voice description string already
+// resolved upstream (caller used getVoiceDescription on the voice id).
 function withLocks(corePrompt: string, voiceLine?: string): string {
-  const locks = `
-
-ANATOMY LOCK: ONE human only — exactly 2 hands with 5 fingers each (both clearly visible when in frame), symmetric face, normal proportions, no missing limbs, no extra limbs, no fused fingers, no warped joints, no plastic / waxy skin, no uncanny-valley features, no morphing face, no asymmetric eyes, no doubled facial features.
-AUDIO LOCK: ONE single voice only — no chatter, no background voices, no whispered second voice, no echo doubles, NO ghost sound, NO phantom audio, NO unexplained noise. NO background music, NO instrumental, NO sound effects, NO ambient music, NO score, NO jingles. All audio is spoken dialog only.
-DIALOG LENGTH LOCK: Total spoken dialog in this 8-second clip MUST be 20-24 words (Bahasa Melayu). Beat budget: hook 4-6 words / core message 10-14 words / reaction 0-2 words / outro 4-6 words. Under 18 words = the character will look frozen at the end. Over 26 words = rushed delivery + clipped audio. Hit 20-24 every time.
-LANGUAGE LOCK: Spoken dialog is BAHASA MELAYU (Malaysian Malay) ONLY. NEVER Bahasa Indonesia. Use Malaysian markers: korang, aku, ni, tu, memang, gila, kau, lah, je, dah, eh. FORBIDDEN Indonesian words: kalian, gue, lo, banget, sih, dong, kayak, gimana, ngapain, kasihan, doang, mau, nih, tuh.
-VOICE CONSISTENCY LOCK: The character's voice has fixed identity — same gender, same age range, same pitch, same Malaysian accent, same speaking rhythm and energy across the entire clip and any future continuation. Voice MUST stay locked so seg-2 / Extend continuations can match seg-1 seamlessly.
-PRODUCT LOCK: Product visual is pixel-identical to reference — same color, shape, label, typography, layout, packaging, finish. Sharp focus on label, no warping, no recoloring, no text drift, no relabel, no re-illustration. When a reference image is attached, the reference is the SINGLE source of truth for the product — anchor framing, lighting, and hand-holding around it.
-BEG KUNING LOCK: The phrase "beg kuning" (and any equivalent: yellow bag, shopping bag, affiliate icon, shop button) is SPOKEN DIALOG ONLY — NEVER rendered as a visual icon, yellow bag graphic, shopping cart icon, TikTok Shop button, sticker, or any on-screen element. Zero shop icons, zero yellow-bag graphics, zero buttons, zero affiliate stickers anywhere in frame.
-UGC AUTHENTICITY: Authentic amateur iPhone UGC — handheld arm's-length, natural skin texture with pores and subtle T-zone shine (NOT airbrushed), no-makeup-makeup, loose hair, ordinary mixed lighting (NOT softbox), lived-in background with minor clutter.
-VISUAL LOCK: RAW UNEDITED FOOTAGE — bottom 25% of frame COMPLETELY EMPTY. NO subtitles or text overlays, NO on-screen dialogue text, NO captions, NO animated TikTok captions, NO sticker text, NO icons, NO emojis, NO graphics, NO watermarks, NO UI elements, NO handles, NO hashtags, NO TikTok Shop badges. Clean vertical video frame with no interface overlay, no icons, no overlay elements.
-
-Negative: cartoon, 3D cartoon, anime, airbrushed plastic skin, uncanny valley, glam makeup, salon hair, softbox studio lighting, tripod static shot (unless explicitly chosen), staged background, posed billboard framing, closed mouth while audio plays, duplicate limbs, extra fingers, fused fingers, distorted fingers, deformed hand, hand out of frame, warped product label, blurry product, motion-blurred product, text drift, subtitle burn-in, auto-captions, on-screen dialog text, burned-in lyrics, karaoke text, multiple speakers, second voice, whispered overdub, ghost voice, phantom audio, ambient noise, voiceover narration, music score, background music, instrumental track, sound effects, ambient music, jingles, interface overlay, app overlay, TikTok shop button, yellow bag icon, shopping bag icon, beg kuning icon, affiliate sticker, Bahasa Indonesia, Indonesian accent, Indonesian slang.`;
-  return `${corePrompt.trim()}${voiceLine ? `\n\nVoice direction (KEEP IDENTICAL across any continuation): ${voiceLine}` : ""}${locks}`;
+  return `${corePrompt.trim()}${buildVeoLocks({ voiceLine })}`;
 }
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -202,8 +194,8 @@ const generateUgcVariants: ToolDefinition = {
             cta: { type: "string", description: "CTA id used. e.g. 'tap-beg-kuning', 'urgency'." },
             voice: {
               type: "string",
-              enum: ["achernar", "achird", "algenib", "callirrhoe", "charon", "enceladus", "gacrux", "iapetus"],
-              description: "Voice preset id. Match to character.",
+              enum: VEO_VOICE_IDS,
+              description: "Veo voice preset id (lowercase). Pick the one whose gender / pitch / vibe matches the character. Description gets locked into the prompt's AUDIO LOCK.",
             },
             gender: { type: "string", enum: ["female", "male"] },
             hijab: { type: "string", enum: ["yes", "no"] },
@@ -255,21 +247,13 @@ const generateUgcVariants: ToolDefinition = {
     const productImageUrl =
       args.product_image_url || ctx.state.last_attached_image_url || "";
 
-    const voiceMap: Record<string, string> = {
-      achernar: "Achernar — soft, high-pitched, gentle female voice. Light airy timbre.",
-      achird: "Achird — friendly, mid-pitch, warm masculine voice.",
-      algenib: "Algenib — gravelly, low-pitched, masculine voice. Deep rough timbre.",
-      callirrhoe: "Callirrhoe — neutral mid-pitch female voice, natural conversational.",
-      charon: "Charon — deep authoritative masculine voice.",
-      enceladus: "Enceladus — mature warm female voice, mom-tone.",
-      gacrux: "Gacrux — energetic excited masculine voice, hype.",
-      iapetus: "Iapetus — young upbeat female voice, Gen Z energy.",
-    };
+    // Voice descriptions sourced from lib/veo-voices.ts — single source of
+    // truth across UGC agent, manual UGC route, Auto Content, and Extend.
 
     const duration = args.duration === "16" ? "16" : "8";
 
     const prepared = variants.map((v: any) => {
-      const voiceLine = voiceMap[v.voice] || undefined;
+      const voiceLine = getVoiceDescription(v.voice) || undefined;
       return {
         scene: v.scene || "custom",
         persona: v.persona || "casual-bestie",
