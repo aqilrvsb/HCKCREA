@@ -12,6 +12,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { p2GetStatus } from "@/lib/p2";
 import { deduct } from "@/lib/deduct";
 import { onSegmentSettled } from "@/lib/segment-chain";
+import { generateUgcPostMeta } from "@/lib/ugc-post-meta";
 
 export type HistoryRow = {
   id: string;
@@ -175,6 +176,21 @@ export async function settleHistoryRow(hist: HistoryRow): Promise<SettleResult> 
     await onSegmentSettled({ ...hist, output_url: r.outputUrl }, r.outputUrl).catch(
       (e) => console.error("[settle] onSegmentSettled threw:", e)
     );
+
+    // UGC auto-meta — fire-and-forget. When a UGC video row finishes,
+    // generate caption + 5 hashtags + cover_title + cover_subtitle so
+    // the extension's auto-post step has a complete payload without
+    // requiring the user to click "Generate caption + cover" by hand.
+    // Auto Content already has these stamped at master-plan generation,
+    // so we skip those rows. Skip seg-1 of a 16s chain (seg-2 will trigger
+    // onSegmentSettled → merge → meta lands on the merged row instead).
+    const isUgcRow = hist.tab === "video";
+    const isSeg1 = hist.segment_index === 1 && !hist.parent_history_id;
+    if (isUgcRow && !isSeg1) {
+      void generateUgcPostMeta(hist.id, { force: false }).catch((e) =>
+        console.error("[settle] generateUgcPostMeta threw:", e)
+      );
+    }
 
     return { state: "settled", status: "done", outputUrl: r.outputUrl };
   }
