@@ -1,9 +1,21 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Loader2, Save, KeyRound, Cpu, Package, MessageCircle } from "lucide-react";
+import {
+  Loader2,
+  Save,
+  KeyRound,
+  Cpu,
+  Package,
+  MessageCircle,
+  Image as ImageIcon,
+  Video,
+  Film,
+} from "lucide-react";
 
 type Setting = { key: string; value: any; description: string | null; category: string };
+type Provider = "p1" | "p2";
+type AssetKind = "image" | "video" | "cinema";
 
 const CATEGORY_INFO: Record<string, { label: string; icon: any; color: string }> = {
   provider: { label: "Provider Keys & URLs", icon: KeyRound, color: "text-orange" },
@@ -22,6 +34,15 @@ export default function AdminSettings() {
   const [waLabel, setWaLabel] = useState("Default");
   const [savingWa, setSavingWa] = useState(false);
 
+  // Active provider per asset class — surfaced as plain dropdowns in
+  // the top card so admin doesn't have to edit JSON to flip backends.
+  const [providers, setProviders] = useState<Record<AssetKind, Provider>>({
+    image: "p2",
+    video: "p2",
+    cinema: "p2",
+  });
+  const [savingProvider, setSavingProvider] = useState<AssetKind | null>(null);
+
   useEffect(() => {
     void load();
     void loadAdminDevice();
@@ -32,9 +53,38 @@ export default function AdminSettings() {
     try {
       const r = await fetch("/api/admin/settings", { cache: "no-store" });
       const d = await r.json();
-      setRows(d?.rows || []);
+      const list: Setting[] = d?.rows || [];
+      setRows(list);
+      // Derive the currently-active provider per asset from the
+      // gen_provider_<asset> rows so the top dropdowns reflect reality.
+      const next = { image: "p2" as Provider, video: "p2" as Provider, cinema: "p2" as Provider };
+      for (const row of list) {
+        if (row.key === "gen_provider_image") next.image = row.value?.provider === "p1" ? "p1" : "p2";
+        if (row.key === "gen_provider_video") next.video = row.value?.provider === "p1" ? "p1" : "p2";
+        if (row.key === "gen_provider_cinema") next.cinema = row.value?.provider === "p1" ? "p1" : "p2";
+      }
+      setProviders(next);
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function saveProvider(asset: AssetKind, next: Provider) {
+    setSavingProvider(asset);
+    try {
+      await fetch("/api/admin/settings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          key: `gen_provider_${asset}`,
+          value: { provider: next },
+        }),
+      });
+      setProviders((p) => ({ ...p, [asset]: next }));
+      // Refetch so the bottom JSON editors stay in sync with the new value.
+      void load();
+    } finally {
+      setSavingProvider(null);
     }
   }
 
@@ -109,6 +159,66 @@ export default function AdminSettings() {
         <p className="text-sm text-[var(--color-text-secondary)] mt-1">
           Edit values directly. Changes apply immediately on next request.
         </p>
+      </div>
+
+      {/* AI Generation Providers — three dropdowns, one per asset class.
+          Admin flips here to rotate Crun.ai (p2) ↔ GeminiGen.AI (p1)
+          without touching raw JSON. The dropdown state is derived from
+          the gen_provider_<asset> rows on load and posts back to the
+          same setting key on change. */}
+      <div className="card p-6 mb-6 border-2 border-orange-100 bg-orange-50/40">
+        <div className="flex items-center gap-2 mb-1">
+          <Cpu className="w-5 h-5 text-orange" />
+          <h2 className="font-display font-bold text-lg">AI Generation Providers</h2>
+        </div>
+        <p className="text-sm text-[var(--color-text-secondary)] mb-4">
+          Pick which backend handles each asset class. Changes apply on the
+          next generation; in-flight rows continue against whichever provider
+          they were originally fired on.
+        </p>
+        <div className="grid md:grid-cols-3 gap-3">
+          {([
+            { key: "image" as AssetKind, label: "Image",  Icon: ImageIcon, hint: "Banana Pro / Imagen / GPT Image 2" },
+            { key: "video" as AssetKind, label: "Video (Veo)", Icon: Video,    hint: "Veo 3.1 / 3.1 Fast / Veo 2" },
+            { key: "cinema" as AssetKind, label: "Cinema (Grok)", Icon: Film, hint: "Grok 3 / grok-imagine" },
+          ]).map(({ key, label, Icon, hint }) => {
+            const current = providers[key];
+            const isSaving = savingProvider === key;
+            return (
+              <div
+                key={key}
+                className="rounded-xl p-4"
+                style={{ background: "white", border: "1px solid var(--color-border)" }}
+              >
+                <div className="flex items-center gap-2 mb-1">
+                  <Icon className="w-4 h-4 text-orange" />
+                  <span className="font-bold text-sm">{label}</span>
+                  {isSaving && <Loader2 className="w-3.5 h-3.5 animate-spin ml-auto text-orange" />}
+                </div>
+                <div className="text-[11px] text-[var(--color-text-muted)] mb-2.5">
+                  {hint}
+                </div>
+                <select
+                  value={current}
+                  disabled={isSaving}
+                  onChange={(e) => saveProvider(key, e.target.value as Provider)}
+                  className="input text-sm font-bold"
+                >
+                  <option value="p2">P2 — Crun.ai</option>
+                  <option value="p1">P1 — GeminiGen.AI</option>
+                </select>
+              </div>
+            );
+          })}
+        </div>
+        <div className="mt-3 text-[11px] text-[var(--color-text-muted)] flex items-start gap-1.5">
+          <span>ⓘ</span>
+          <span>
+            P1 / P2 endpoint URLs + API keys live in the Provider Keys & URLs
+            section below (<code>p1_base</code>, <code>p1_key</code>, <code>p2_base</code>, <code>p2_key</code>).
+            GPT Image 2 is hidden in the Image agent when image is on P1.
+          </span>
+        </div>
       </div>
 
       {/* WhatsApp device — special case (separate table) */}
