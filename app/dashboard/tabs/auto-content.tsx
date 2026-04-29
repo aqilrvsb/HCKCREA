@@ -677,21 +677,35 @@ export default function AutoContentTab({ projectId }: { projectId?: string } = {
           className="rounded-xl p-3 mb-4"
           style={{ background: AMBER_FAINT, border: `1px solid ${AMBER_SOFT}` }}
         >
-          <div className="grid grid-cols-3 gap-3">
+          {/* Style (hijab) only applies to female personas. When user
+              flips to male, hide the column and force hijab=no so it
+              never rides through to the avatar prompt as a stray flag.
+              Grid collapses 3→2 cols so the remaining fields fill the
+              row evenly. */}
+          <div className={`grid gap-3 ${gender === "male" ? "grid-cols-2" : "grid-cols-3"}`}>
             <div>
               <Label>Gender</Label>
-              <Select value={gender} onChange={(v) => setGender(v as any)}>
+              <Select
+                value={gender}
+                onChange={(v) => {
+                  const next = v as "female" | "male";
+                  setGender(next);
+                  if (next === "male") setHijab("no");
+                }}
+              >
                 <option value="female">Female</option>
                 <option value="male">Male</option>
               </Select>
             </div>
-            <div>
-              <Label>Style</Label>
-              <Select value={hijab} onChange={(v) => setHijab(v as any)}>
-                <option value="yes">Hijab</option>
-                <option value="no">No Hijab</option>
-              </Select>
-            </div>
+            {gender === "female" && (
+              <div>
+                <Label>Style</Label>
+                <Select value={hijab} onChange={(v) => setHijab(v as any)}>
+                  <option value="yes">Hijab</option>
+                  <option value="no">No Hijab</option>
+                </Select>
+              </div>
+            )}
             <div>
               <Label>Age</Label>
               <Select value={age} onChange={(v) => setAge(v as any)}>
