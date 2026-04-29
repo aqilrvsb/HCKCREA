@@ -96,10 +96,22 @@ export async function POST(req: Request) {
     );
   }
 
-  // Version mismatch isn't a hard fail — we want the extension to still
-  // boot so the user can SEE the update prompt. Return ok with a flag.
+  // Version check uses semver comparison — admin's extension_version is
+  // the MINIMUM required version. A client running the same or newer
+  // version is fine; older clients get flagged so the side panel + popup
+  // can show the update prompt with a download link.
+  function cmpSemver(a: string, b: string): number {
+    const pa = a.split(".").map((x) => parseInt(x, 10) || 0);
+    const pb = b.split(".").map((x) => parseInt(x, 10) || 0);
+    for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+      const av = pa[i] || 0;
+      const bv = pb[i] || 0;
+      if (av !== bv) return av < bv ? -1 : 1;
+    }
+    return 0;
+  }
   const versionOk =
-    !requiredVersion || !clientVersion || clientVersion === requiredVersion;
+    !requiredVersion || !clientVersion || cmpSemver(clientVersion, requiredVersion) >= 0;
 
   return NextResponse.json({
     ok: true,
