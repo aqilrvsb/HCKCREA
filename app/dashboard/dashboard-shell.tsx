@@ -29,17 +29,18 @@ import Sidebar, { type Project, type SidebarView } from "./sidebar";
 
 type TabKey = "image" | "video" | "cinema" | "seedance" | "clone" | "auto";
 
-// Tab order: UGC → Auto Content → Story (was Cinema, Grok-driven) →
-// Cinema (NEW Seedance, Bytedance-driven) → Image → Clone Prompt.
-// "Story" keeps the legacy "cinema" key + route paths internally to
-// avoid a giant rename across api/agent/cinema/* and lib/agent-cinema.ts.
+// Tab order: Image → UGC → Story → Cinema (Seedance) → Clone Prompt
+// → Auto Content. "Story" keeps the legacy "cinema" key + the
+// /api/agent/cinema route paths internally so we don't have to rename
+// agent-cinema.ts. Auto Content lands at the end since it's a batch
+// workflow rather than a primary single-asset tab.
 const TABS: { key: TabKey; label: string; icon: any; tag: string }[] = [
-  { key: "video", label: "UGC", icon: Video, tag: "01" },
-  { key: "auto", label: "Auto Content", icon: Wand2, tag: "02" },
-  { key: "cinema", label: "Story", icon: Film, tag: "03" },
-  { key: "seedance", label: "Cinema", icon: Film, tag: "04" },
-  { key: "image", label: "Image", icon: ImageIcon, tag: "05" },
-  { key: "clone", label: "Clone Prompt", icon: Layers, tag: "06" },
+  { key: "image",    label: "Image",        icon: ImageIcon, tag: "01" },
+  { key: "video",    label: "UGC",          icon: Video,     tag: "02" },
+  { key: "cinema",   label: "Story",        icon: Film,      tag: "03" },
+  { key: "seedance", label: "Cinema",       icon: Film,      tag: "04" },
+  { key: "clone",    label: "Clone Prompt", icon: Layers,    tag: "05" },
+  { key: "auto",     label: "Auto Content", icon: Wand2,     tag: "06" },
 ];
 
 export default function DashboardShell({
