@@ -515,6 +515,24 @@ function HistoryCard({
     }
   }
 
+  // Per-segment recheck — pokes the right Crun status endpoint based on
+  // which slide is stuck. seg_0 + merged share the parent row's id (the
+  // merge runs in the parent's after() and writes back to it). seg_1
+  // is the child row, so we ping seg2.id for that one.
+  const [recheckingId, setRecheckingId] = useState<string | null>(null);
+  async function recheckSlide(slide: Slide) {
+    const targetId =
+      slide.id === "seg_1" ? seg2?.id : item.id;
+    if (!targetId) return;
+    setRecheckingId(slide.id);
+    try {
+      await fetch(`/api/generate/status?id=${targetId}`, { cache: "no-store" });
+      window.dispatchEvent(new CustomEvent("history:refresh"));
+    } finally {
+      setRecheckingId(null);
+    }
+  }
+
   async function handleDelete() {
     if (!confirm("Padam item ni?")) return;
     setDeleting(true);
@@ -757,6 +775,32 @@ function HistoryCard({
                       />
                     )}
                   </div>
+                )}
+                {/* Manual recheck overlay — surfaces on pending or failed
+                    segments so the user can prod the status endpoint when
+                    the webhook drops. seg_0 + merged ping the parent row;
+                    seg_1 pings the child seg2 row. */}
+                {!ready && (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      void recheckSlide(slide);
+                    }}
+                    disabled={recheckingId === slide.id}
+                    title="Re-check status"
+                    className="absolute top-1 right-1 w-5 h-5 rounded-full flex items-center justify-center disabled:opacity-50"
+                    style={{
+                      background: "rgba(20,20,20,0.85)",
+                      border: "1px solid rgba(255,255,255,0.25)",
+                      color: lineageColor,
+                      pointerEvents: "auto",
+                    }}
+                  >
+                    <RefreshCw
+                      className={`w-3 h-3 ${recheckingId === slide.id ? "animate-spin" : ""}`}
+                    />
+                  </button>
                 )}
                 <div
                   className="absolute bottom-0 left-0 right-0 px-1 text-[8px] font-bold text-center truncate"
