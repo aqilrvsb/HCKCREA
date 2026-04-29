@@ -163,7 +163,11 @@ export default function SeedanceTab({ projectId }: { projectId: string }) {
       const d = await r.json();
       if (!r.ok) throw new Error(d?.error || "Generation failed");
       // Trigger history refresh so the placeholder appears immediately.
-      window.dispatchEvent(new CustomEvent("pl-history-refresh"));
+      // Event name MUST match history-grid.tsx's listener: "history:refresh".
+      // Previous code dispatched "pl-history-refresh" which the grid
+      // ignored, so cinema tab generations never showed a pending card
+      // until the next 15s poll tick.
+      window.dispatchEvent(new CustomEvent("history:refresh"));
       setPrompt("");
       setImageUrls([]);
       setVideoUrls([]);
