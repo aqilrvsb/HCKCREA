@@ -29,18 +29,17 @@ import Sidebar, { type Project, type SidebarView } from "./sidebar";
 
 type TabKey = "image" | "video" | "cinema" | "seedance" | "clone" | "auto";
 
-// Tab order: Image → UGC → Story → Cinema (Seedance) → Clone Prompt
-// → Auto Content. "Story" keeps the legacy "cinema" key + the
+// Tab order: Image → UGC → Auto Content → Story → Cinema (Seedance) →
+// Clone Prompt. "Story" keeps the legacy "cinema" key + the
 // /api/agent/cinema route paths internally so we don't have to rename
-// agent-cinema.ts. Auto Content lands at the end since it's a batch
-// workflow rather than a primary single-asset tab.
+// agent-cinema.ts.
 const TABS: { key: TabKey; label: string; icon: any; tag: string }[] = [
   { key: "image",    label: "Image",        icon: ImageIcon, tag: "01" },
   { key: "video",    label: "UGC",          icon: Video,     tag: "02" },
-  { key: "cinema",   label: "Story",        icon: Film,      tag: "03" },
-  { key: "seedance", label: "Cinema",       icon: Film,      tag: "04" },
-  { key: "clone",    label: "Clone Prompt", icon: Layers,    tag: "05" },
-  { key: "auto",     label: "Auto Content", icon: Wand2,     tag: "06" },
+  { key: "auto",     label: "Auto Content", icon: Wand2,     tag: "03" },
+  { key: "cinema",   label: "Story",        icon: Film,      tag: "04" },
+  { key: "seedance", label: "Cinema",       icon: Film,      tag: "05" },
+  { key: "clone",    label: "Clone Prompt", icon: Layers,    tag: "06" },
 ];
 
 export default function DashboardShell({
