@@ -330,6 +330,17 @@ export default function AdminSettings() {
     "rate_seedance",
     "seedance_rate",
     "cinema_rate_per_sec",
+    // Both pricing keys below are noise in the admin UI — credit_topup_price
+    // is an unused orphan (only seeded in 0001_init, no code reads it),
+    // and credit_costs is consumed only as a fallback for auto_plan /
+    // clone_plan reasons in priceFor() with sensible defaults; admin
+    // shouldn't need to touch the JSON directly.
+    "credit_topup_price",
+    "credit_costs",
+    // Already exposed via the dedicated "Chrome Extension" card above —
+    // editing them as raw JSON in the General section is duplication.
+    "extension_version",
+    "extension_download_url",
   ]);
 
   const grouped = useMemo(() => {
