@@ -358,7 +358,7 @@ export default function HistoryGrid({
                       isActive
                         ? {
                             background:
-                              "linear-gradient(135deg, #ff6a1a 0%, #ff4d00 100%)",
+                              "linear-gradient(135deg, #facc15 0%, #eab308 100%)",
                             color: "white",
                             boxShadow: "0 4px 12px rgba(255,87,34,0.3)",
                           }

@@ -183,7 +183,7 @@ export default function DashboardShell({
                     isActive
                       ? {
                           background:
-                            "linear-gradient(90deg, var(--color-orange) 0%, #ff6a1a 100%)",
+                            "linear-gradient(90deg, var(--color-orange) 0%, #facc15 100%)",
                           color: "white",
                         }
                       : {
@@ -328,7 +328,7 @@ function ProjectView({
                   isActive && !locked
                     ? {
                         background:
-                          "linear-gradient(135deg, #ff6a1a 0%, #ff4d00 100%)",
+                          "linear-gradient(135deg, #facc15 0%, #eab308 100%)",
                         color: "white",
                         boxShadow: "0 4px 14px rgba(255,87,34,0.3)",
                       }
@@ -491,9 +491,9 @@ function SubscriptionLocked({
             onClick={onGotoBilling}
             className="inline-flex items-center gap-2 px-6 py-3 rounded-full font-extrabold text-sm transition-transform hover:-translate-y-0.5"
             style={{
-              background: "linear-gradient(90deg, #ff6a1a 0%, #ff4d00 100%)",
-              color: "white",
-              boxShadow: "0 8px 24px rgba(255,87,34,0.35)",
+              background: "linear-gradient(90deg, #facc15 0%, #eab308 100%)",
+              color: "#000",
+              boxShadow: "0 8px 24px rgba(250,204,21,0.35)",
             }}
           >
             {wasOnce ? "Renew now" : "Subscribe RM75/bulan"}
@@ -550,7 +550,7 @@ function ToolPlaceholder({
             className="inline-flex items-center gap-2 px-5 py-3 rounded-xl font-extrabold text-sm text-white transition-transform hover:-translate-y-0.5"
             style={{
               background:
-                "linear-gradient(90deg, var(--color-orange) 0%, #ff6a1a 100%)",
+                "linear-gradient(90deg, var(--color-orange) 0%, #facc15 100%)",
               boxShadow: "0 4px 14px rgba(255,87,34,0.3)",
             }}
           >

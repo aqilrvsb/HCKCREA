@@ -43,8 +43,8 @@ const TAB_THEME: Record<
   },
   image: {
     label: "Image Agent",
-    color: "#ff6a1a",
-    gradient: "linear-gradient(135deg, #ff6a1a 0%, #ff4d00 100%)",
+    color: "#facc15",
+    gradient: "linear-gradient(135deg, #facc15 0%, #eab308 100%)",
     emoji: "🖼️",
   },
 };

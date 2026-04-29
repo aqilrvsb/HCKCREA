@@ -36,7 +36,7 @@ type Stats = {
 
 // Series colours match the stat-card accents up top
 const SERIES = [
-  { key: "image" as const, label: "Image", color: "#ff6a1a" },
+  { key: "image" as const, label: "Image", color: "#facc15" },
   { key: "ugc" as const, label: "UGC", color: "#22c55e" },
   { key: "cinema" as const, label: "Cinema", color: "#7c4dff" },
   { key: "auto" as const, label: "Auto Content", color: "#f59e0b" },
@@ -148,7 +148,7 @@ export default function DashboardOverview({ name }: { name: string }) {
         <StatCard
           label="Image"
           value={loading ? "—" : String(stats?.counts.image ?? 0)}
-          accent="#ff6a1a"
+          accent="#facc15"
           icon={<ImageIcon className="w-4 h-4" />}
         />
         <StatCard
@@ -236,7 +236,7 @@ export default function DashboardOverview({ name }: { name: string }) {
               className="flex-1 px-4 py-2 rounded-lg text-xs font-extrabold uppercase tracking-wider text-white disabled:opacity-50 transition-transform hover:-translate-y-0.5"
               style={{
                 background:
-                  "linear-gradient(135deg, #ff6a1a 0%, #ff4d00 100%)",
+                  "linear-gradient(135deg, #facc15 0%, #eab308 100%)",
                 boxShadow: "0 4px 14px rgba(255,77,0,0.3)",
               }}
             >

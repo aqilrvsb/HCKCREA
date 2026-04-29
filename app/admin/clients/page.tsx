@@ -600,7 +600,7 @@ function EditClientModal({
             className="flex-1 py-2.5 rounded-lg text-sm font-extrabold text-white inline-flex items-center justify-center gap-2 disabled:opacity-50"
             style={{
               background:
-                "linear-gradient(90deg, var(--color-orange) 0%, #ff6a1a 100%)",
+                "linear-gradient(90deg, var(--color-orange) 0%, #facc15 100%)",
               boxShadow: "0 4px 14px rgba(255,87,34,0.3)",
             }}
           >

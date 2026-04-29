@@ -430,7 +430,7 @@ function PromptCard({
               onClick={sendToVideo}
               className="px-2.5 py-1 rounded-md text-[10px] font-bold transition-transform hover:scale-105"
               style={{
-                background: "linear-gradient(135deg, #ff5722, #ff7043)",
+                background: "linear-gradient(135deg, #facc15, #fde047)",
                 color: "white",
                 boxShadow: "0 2px 6px rgba(255,87,34,0.3)",
               }}

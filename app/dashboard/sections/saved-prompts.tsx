@@ -67,7 +67,7 @@ const BUCKET_META: Record<
 > = {
   ugc: { label: "UGC", color: "#22c55e", icon: Video },
   cinema: { label: "Cinema", color: "#7c4dff", icon: Film },
-  image: { label: "Image", color: "#ff6a1a", icon: ImageIcon },
+  image: { label: "Image", color: "#facc15", icon: ImageIcon },
   auto: { label: "Auto", color: "#f59e0b", icon: Sparkles },
   "master-ugc": { label: "UGC Plan", color: "#16a34a", icon: Sparkles, hideMedia: true },
   "master-cinema": { label: "Cinema Plan", color: "#5b34d6", icon: Sparkles, hideMedia: true },
@@ -249,7 +249,7 @@ export default function SavedPromptsSection() {
                     ? b === "all"
                       ? {
                           background:
-                            "linear-gradient(135deg, #ff6a1a 0%, #ff4d00 100%)",
+                            "linear-gradient(135deg, #facc15 0%, #eab308 100%)",
                           color: "white",
                           boxShadow: "0 2px 8px rgba(255,77,0,0.3)",
                         }
@@ -841,7 +841,7 @@ function PromptDetailModal({
                     className="px-4 py-2 rounded-lg text-xs font-extrabold uppercase tracking-wider text-white disabled:opacity-50"
                     style={{
                       background:
-                        "linear-gradient(135deg, #ff6a1a 0%, #ff4d00 100%)",
+                        "linear-gradient(135deg, #facc15 0%, #eab308 100%)",
                     }}
                   >
                     {savingNotes ? "Saving…" : "Save"}

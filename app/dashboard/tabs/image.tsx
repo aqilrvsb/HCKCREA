@@ -28,7 +28,7 @@ const MODEL_OPTIONS: { key: ImageModel; label: string }[] = [
   { key: "gpt-image-2", label: "GPT Image 2" },
 ];
 
-const ORANGE = "#ff5722";
+const ORANGE = "#facc15";
 const ORANGE_SOFT = "rgba(255, 87, 34, 0.18)";
 const ORANGE_FAINT = "rgba(255, 87, 34, 0.06)";
 
@@ -458,7 +458,7 @@ export default function ImageTab({ projectId }: { projectId?: string } = {}) {
           disabled={busy}
           className="w-full mt-5 py-3.5 rounded-xl font-extrabold text-base text-white transition-all hover:-translate-y-0.5 disabled:opacity-50 disabled:transform-none"
           style={{
-            background: `linear-gradient(135deg, #ff5722 0%, #ff7043 100%)`,
+            background: `linear-gradient(135deg, #facc15 0%, #fde047 100%)`,
             boxShadow:
               "0 6px 20px rgba(255, 87, 34, 0.35), inset 0 1px 0 rgba(255,255,255,0.2)",
           }}

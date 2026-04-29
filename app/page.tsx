@@ -139,10 +139,12 @@ export default function Home() {
       />
       <div className="bg-noise" />
 
-      {/* Top urgency banner — fear + scarcity, always visible */}
-      <div className="relative z-30 bg-gradient-to-r from-red-500 via-orange-500 to-red-500 text-white">
+      {/* Top urgency banner — solid highfield yellow + black text for max
+          legibility. Countdown gets a vivid orange override so the
+          dwindling time pops visually against the otherwise-black row. */}
+      <div className="relative z-30" style={{ background: "#ffff00", color: "#000" }}>
         <div className="mx-auto max-w-7xl px-6 py-2 flex items-center justify-center gap-2 text-xs sm:text-sm font-semibold text-center">
-          <Flame className="w-3.5 h-3.5 animate-pulse flex-shrink-0" />
+          <Flame className="w-3.5 h-3.5 animate-pulse flex-shrink-0" style={{ color: "#ea580c" }} />
           <span>
             <strong>Promo RM75/bulan</strong> ditutup dalam{" "}
             <Countdown inline />. Tinggal{" "}

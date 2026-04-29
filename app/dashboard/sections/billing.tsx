@@ -357,9 +357,9 @@ function NoPlanHero({
           disabled={loading}
           className="inline-flex items-center gap-2 px-6 py-3 rounded-full font-extrabold text-sm transition-transform hover:-translate-y-0.5 disabled:opacity-60"
           style={{
-            background: "linear-gradient(90deg, #ff6a1a 0%, #ff4d00 100%)",
-            color: "white",
-            boxShadow: "0 8px 24px rgba(255,87,34,0.35)",
+            background: "linear-gradient(90deg, #facc15 0%, #eab308 100%)",
+            color: "#000",
+            boxShadow: "0 8px 24px rgba(250,204,21,0.35)",
           }}
         >
           {loading ? (
@@ -390,10 +390,10 @@ function ProPlanCard({
   return (
     <div className="max-w-2xl mx-auto relative pt-6">
       <div
-        className="absolute top-0 left-1/2 -translate-x-1/2 z-10 px-5 py-2 rounded-full text-[11px] font-bold uppercase tracking-widest text-white shadow-lg whitespace-nowrap"
+        className="absolute top-0 left-1/2 -translate-x-1/2 z-10 px-5 py-2 rounded-full text-[11px] font-bold uppercase tracking-widest text-black shadow-lg whitespace-nowrap"
         style={{
-          background: "linear-gradient(90deg, #ff6a1a 0%, #ff4d00 100%)",
-          boxShadow: "0 8px 24px rgba(255,87,34,0.35)",
+          background: "linear-gradient(90deg, #facc15 0%, #eab308 100%)",
+          boxShadow: "0 8px 24px rgba(250,204,21,0.35)",
         }}
       >
         ⚡ Limited offer · Save 75%
@@ -439,7 +439,7 @@ function ProPlanCard({
               className="font-display font-extrabold text-7xl md:text-8xl tracking-tight leading-none"
               style={{
                 background:
-                  "linear-gradient(135deg, #ff6a1a 0%, #ff4d00 60%, #d63800 100%)",
+                  "linear-gradient(135deg, #facc15 0%, #eab308 60%, #ca8a04 100%)",
                 WebkitBackgroundClip: "text",
                 WebkitTextFillColor: "transparent",
               }}
@@ -468,10 +468,10 @@ function ProPlanCard({
         <button
           onClick={onSubscribe}
           disabled={loading}
-          className="w-full py-4 rounded-2xl font-extrabold text-base text-white transition-transform hover:-translate-y-0.5 disabled:opacity-60 inline-flex items-center justify-center gap-2"
+          className="w-full py-4 rounded-2xl font-extrabold text-base text-black transition-transform hover:-translate-y-0.5 disabled:opacity-60 inline-flex items-center justify-center gap-2"
           style={{
-            background: "linear-gradient(90deg, #ff6a1a 0%, #ff4d00 100%)",
-            boxShadow: "0 8px 24px rgba(255,87,34,0.35)",
+            background: "linear-gradient(90deg, #facc15 0%, #eab308 100%)",
+            boxShadow: "0 8px 24px rgba(250,204,21,0.35)",
           }}
         >
           {loading ? (

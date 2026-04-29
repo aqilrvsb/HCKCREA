@@ -165,8 +165,14 @@ export default function Sidebar({
         className="flex items-center gap-3 px-6 py-6 border-b"
         style={{ borderColor: "var(--color-border)" }}
       >
-        <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-orange-400 via-orange-500 to-orange-600 flex items-center justify-center shadow-lg shadow-orange-500/30 flex-shrink-0">
-          <Sparkles className="w-5 h-5 text-white" strokeWidth={2.5} />
+        <div
+          className="w-10 h-10 rounded-2xl flex items-center justify-center shadow-lg flex-shrink-0"
+          style={{
+            background: "linear-gradient(135deg, #fde047 0%, #facc15 100%)",
+            boxShadow: "0 8px 24px rgba(250, 204, 21, 0.35)",
+          }}
+        >
+          <Sparkles className="w-5 h-5 text-black" strokeWidth={2.5} />
         </div>
         <div>
           <div
@@ -190,7 +196,7 @@ export default function Sidebar({
             view.kind === "dashboard"
               ? {
                   background:
-                    "linear-gradient(90deg, var(--color-orange) 0%, #ff6a1a 100%)",
+                    "linear-gradient(90deg, var(--color-orange) 0%, #facc15 100%)",
                   color: "white",
                   boxShadow: "0 4px 14px rgba(255,87,34,0.3)",
                 }
@@ -305,7 +311,7 @@ export default function Sidebar({
                     className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0"
                     style={{
                       background: isActive
-                        ? "linear-gradient(135deg, #ff6a1a 0%, #ff4d00 100%)"
+                        ? "linear-gradient(135deg, #facc15 0%, #eab308 100%)"
                         : "var(--color-bg-card)",
                       border: isActive ? "none" : "1px solid var(--color-border)",
                     }}
@@ -482,7 +488,7 @@ export default function Sidebar({
             className="mt-2 w-full py-2 rounded-lg text-xs font-extrabold transition-transform hover:scale-[1.02]"
             style={{
               background:
-                "linear-gradient(90deg, var(--color-orange) 0%, #ff6a1a 100%)",
+                "linear-gradient(90deg, var(--color-orange) 0%, #facc15 100%)",
               color: "white",
               boxShadow: "0 4px 14px rgba(255,87,34,0.3)",
             }}
@@ -507,7 +513,7 @@ export default function Sidebar({
           <div
             className="w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0 font-display font-extrabold text-sm text-white"
             style={{
-              background: "linear-gradient(135deg, #ff6a1a 0%, #ff4d00 100%)",
+              background: "linear-gradient(135deg, #facc15 0%, #eab308 100%)",
               boxShadow: "0 0 0 2px var(--color-bg-card), 0 4px 12px rgba(255,87,34,0.3)",
             }}
           >

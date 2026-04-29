@@ -80,8 +80,14 @@ export default async function AdminLayout({
             className="flex items-center gap-3 px-7 py-7 border-b"
             style={{ borderColor: "var(--color-border)" }}
           >
-            <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-orange-400 via-orange-500 to-orange-600 flex items-center justify-center shadow-lg shadow-orange-500/30 flex-shrink-0">
-              <Sparkles className="w-5 h-5 text-white" strokeWidth={2.5} />
+            <div
+              className="w-11 h-11 rounded-2xl flex items-center justify-center shadow-lg flex-shrink-0"
+              style={{
+                background: "linear-gradient(135deg, #fde047 0%, #facc15 100%)",
+                boxShadow: "0 8px 24px rgba(250, 204, 21, 0.35)",
+              }}
+            >
+              <Sparkles className="w-5 h-5 text-black" strokeWidth={2.5} />
             </div>
             <div>
               <div className="font-display font-extrabold text-2xl tracking-tight leading-none text-[var(--color-text-primary)]">

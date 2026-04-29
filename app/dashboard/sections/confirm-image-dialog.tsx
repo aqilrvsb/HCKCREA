@@ -18,7 +18,7 @@ type ImagePayload = {
   composite_skill_id?: string;
 };
 
-const ORANGE = "#ff6a1a";
+const ORANGE = "#facc15";
 
 export default function ConfirmImageDialog({
   payload,

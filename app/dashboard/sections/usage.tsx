@@ -446,7 +446,7 @@ function ClientPromptModal({
             className="flex-1 py-2.5 rounded-lg font-extrabold text-sm text-white transition-transform hover:-translate-y-0.5 inline-flex items-center justify-center gap-2"
             style={{
               background:
-                "linear-gradient(90deg, var(--color-orange) 0%, #ff6a1a 100%)",
+                "linear-gradient(90deg, var(--color-orange) 0%, #facc15 100%)",
               boxShadow: "0 4px 14px rgba(255,87,34,0.3)",
             }}
           >

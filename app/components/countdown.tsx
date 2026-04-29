@@ -54,10 +54,15 @@ export default function Countdown({
   const m = Math.floor((remaining % 3600) / 60);
   const s = remaining % 60;
 
-  // Compact inline variant for the top urgency bar — single line, tabular nums
+  // Compact inline variant for the top urgency bar — single line, tabular nums.
+  // Vivid orange (#ea580c) so the countdown pops against the yellow banner
+  // background even surrounded by black text.
   if (inline) {
     return (
-      <span className="font-mono font-extrabold tabular-nums">
+      <span
+        className="font-mono font-extrabold tabular-nums"
+        style={{ color: "#ea580c" }}
+      >
         {String(h).padStart(2, "0")}:{String(m).padStart(2, "0")}:
         {String(s).padStart(2, "0")}
       </span>

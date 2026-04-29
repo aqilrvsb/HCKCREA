@@ -12,7 +12,7 @@ import { Sparkles, Copy, Save, Upload, ArrowRight } from "lucide-react";
 const TEAL = "#25f4ee";
 const TEAL_SOFT = "rgba(37, 244, 238, 0.18)";
 const TEAL_FAINT = "rgba(37, 244, 238, 0.06)";
-const ORANGE = "#ff5722";
+const ORANGE = "#facc15";
 const GREEN = "#22c55e";
 const RED = "#f44336";
 
