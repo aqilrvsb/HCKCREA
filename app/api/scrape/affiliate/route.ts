@@ -1,10 +1,16 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { scrapeAffiliateUrl } from "@/lib/scraper";
+import {
+  scrapeAffiliateUrl,
+  cacheTikTokProduct,
+  recordUserHistory,
+} from "@/lib/scraper";
 import { getRunningHubConfig } from "@/lib/settings";
 
 export const runtime = "nodejs";
-export const maxDuration = 90; // Crawlbase responses can be 10-15s
+// Up to 5 TikHub retries with backoff = ~15s, plus RH upload ~5s, plus
+// cache write — give ourselves headroom over the previous 90s budget.
+export const maxDuration = 120;
 export const dynamic = "force-dynamic";
 
 // POST /api/scrape/affiliate { url }
@@ -38,11 +44,17 @@ export async function POST(req: Request) {
     );
   }
 
-  // Re-host the scraped product image on RunningHub so Crun.ai / GeminiGen
-  // can fetch it reliably (the original CDN URLs from TikTok / Shopee
-  // sometimes block hot-link requests from Crun's region).
+  // Cache hit short-circuit — scrapeAffiliateUrl already returned the
+  // RH-hosted image URL stored on the cache row. Skip the re-upload step
+  // entirely (saves 3-5s of latency + bandwidth on every viral product).
+  // Still bump the user's history so the dropdown stays current.
   let hostedImageUrl = scraped.product_image_url;
-  if (hostedImageUrl) {
+  const isCacheHit = scraped.source === "cache";
+
+  if (!isCacheHit && hostedImageUrl) {
+    // Fresh scrape — re-host the scraped product image on RunningHub so
+    // Crun.ai / GeminiGen can fetch it reliably (TikTok / Shopee CDN URLs
+    // sometimes block hot-link requests from Crun's region).
     try {
       const rhCfg = await getRunningHubConfig();
       if (rhCfg.key && rhCfg.uploadUrl) {
@@ -71,6 +83,18 @@ export async function POST(req: Request) {
       // Best-effort — fall back to the original CDN URL if RunningHub
       // upload fails. Auto Content will still try to use it.
     }
+  }
+
+  // Persist to cache + user history. On cache hits we only need to
+  // bump the user's history (the cache row itself was already touched
+  // by scrapeAffiliateUrl). On fresh scrapes we upsert the full row
+  // including the just-rehosted image URL.
+  if (isCacheHit) {
+    if (scraped.product_id) {
+      recordUserHistory(user.id, scraped.product_id).catch(() => {});
+    }
+  } else {
+    cacheTikTokProduct(scraped, hostedImageUrl, user.id).catch(() => {});
   }
 
   return NextResponse.json({

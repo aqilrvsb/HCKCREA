@@ -34,6 +34,15 @@ type ManualProduct = {
   imageData: string;     // data: URL or public URL
 };
 
+type RecentProduct = {
+  product_id: string;
+  raw_url: string;
+  product_name: string;
+  product_image_url: string;
+  price: string | null;
+  last_used_at: string;
+};
+
 export default function AutoContentTab({ projectId }: { projectId?: string } = {}) {
   // Product source — Affiliate (paste URL → scrape via Crawlbase →
   // auto-fills info + image) OR Manual (upload directly). Both end up
@@ -48,6 +57,12 @@ export default function AutoContentTab({ projectId }: { projectId?: string } = {
   // submit so each generated history row can stamp it on metadata,
   // enabling auto-post deep-linking later. Empty for manual mode.
   const [tiktokProductId, setTiktokProductId] = useState<string>("");
+
+  // "Your recent products" dropdown — populated from /api/scrape/recent
+  // on mount. Click → re-runs fetchAffiliate with the cached URL, which
+  // hits the global tiktok_product_cache and returns instantly.
+  const [recentProducts, setRecentProducts] = useState<RecentProduct[]>([]);
+  const [showRecent, setShowRecent] = useState(false);
 
   const [unitCount, setUnitCount] = useState(1);
   const [manualProducts, setManualProducts] = useState<ManualProduct[]>([
@@ -105,6 +120,23 @@ export default function AutoContentTab({ projectId }: { projectId?: string } = {
     );
   }, [quantity]);
 
+  // Load this user's recent fetched products once on mount. Cheap query
+  // (returns ≤20 rows joined to cached image/price metadata) — surfaces
+  // a dropdown so users can re-pick a previously scraped product
+  // without burning another TikHub call.
+  useEffect(() => {
+    (async () => {
+      try {
+        const r = await fetch("/api/scrape/recent");
+        if (!r.ok) return;
+        const d = await r.json();
+        if (Array.isArray(d?.items)) setRecentProducts(d.items);
+      } catch {
+        // Non-fatal — dropdown just stays empty.
+      }
+    })();
+  }, []);
+
   function pushLog(line: string) {
     setLog((p) => [
       ...p,
@@ -160,13 +192,22 @@ export default function AutoContentTab({ projectId }: { projectId?: string } = {
     setPickerSlot(null);
   }
 
-  // Affiliate URL → Crawlbase scrape → prefill manual_products[0]. The
-  // server returns a normalised payload + already-hosted RunningHub URL
-  // for the product image, so the downstream submit path is unchanged
-  // (it sees a public URL, no upload step needed).
-  async function fetchAffiliate() {
-    const url = affiliateUrl.trim();
+  // Affiliate URL → cache-or-scrape → prefill manual_products[0]. The
+  // server-side flow is:
+  //   1. Extract product_id from URL → look up tiktok_product_cache
+  //   2. Cache hit → return cached row instantly (no TikHub call)
+  //   3. Cache miss → TikHub scrape with up to 5 retries, then re-host
+  //      the image on RunningHub and upsert into the cache
+  //
+  // Optional `url` arg lets the recent-products dropdown pass a URL
+  // directly instead of relying on the input state (avoids a render
+  // round-trip race when the user clicks a row and we want to fetch
+  // immediately).
+  async function fetchAffiliate(overrideUrl?: string) {
+    const url = (overrideUrl ?? affiliateUrl).trim();
     if (!url) return;
+    if (overrideUrl) setAffiliateUrl(overrideUrl);
+    setShowRecent(false);
     setScraping(true);
     setScrapeMsg(null);
     try {
@@ -207,6 +248,18 @@ export default function AutoContentTab({ projectId }: { projectId?: string } = {
         ok: true,
         text: `✓ Loaded "${d.product_name.substring(0, 60)}${d.product_name.length > 60 ? "…" : ""}" — edit below if needed.`,
       });
+      // Refresh the recent list so this product appears at the top
+      // (server already wrote to user_product_history). Best-effort —
+      // ignore failures.
+      try {
+        const rr = await fetch("/api/scrape/recent");
+        if (rr.ok) {
+          const dd = await rr.json();
+          if (Array.isArray(dd?.items)) setRecentProducts(dd.items);
+        }
+      } catch {
+        // Non-fatal
+      }
     } catch (e: any) {
       setScrapeMsg({ ok: false, text: e?.message || "Network error" });
     } finally {
@@ -462,17 +515,88 @@ export default function AutoContentTab({ projectId }: { projectId?: string } = {
 
         {productMode === "affiliate" && (
           <div className="space-y-2 mb-4">
-            <div className="flex gap-2">
-              <input
-                type="url"
-                value={affiliateUrl}
-                onChange={(e) => setAffiliateUrl(e.target.value)}
-                placeholder="Paste TikTok Shop / Shopee link..."
-                className="flex-1 p-3 rounded-xl text-sm outline-none"
-                style={{ background: "#fafaf7", border: "1px solid #e8e0d8", color: "#1a1a1a" }}
-              />
+            <div className="flex gap-2 relative">
+              <div className="flex-1 relative">
+                <input
+                  type="url"
+                  value={affiliateUrl}
+                  onChange={(e) => {
+                    setAffiliateUrl(e.target.value);
+                    // Hide dropdown as soon as user types — they want
+                    // to paste a fresh URL, not pick from history.
+                    if (e.target.value.length > 0) setShowRecent(false);
+                  }}
+                  onFocus={() => {
+                    if (!affiliateUrl.trim() && recentProducts.length > 0) {
+                      setShowRecent(true);
+                    }
+                  }}
+                  // Delay blur so the dropdown's onMouseDown click can
+                  // fire before the panel disappears.
+                  onBlur={() => setTimeout(() => setShowRecent(false), 150)}
+                  placeholder={
+                    recentProducts.length > 0
+                      ? "Paste link or pick from recent…"
+                      : "Paste TikTok Shop / Shopee link..."
+                  }
+                  className="w-full p-3 rounded-xl text-sm outline-none"
+                  style={{ background: "#fafaf7", border: "1px solid #e8e0d8", color: "#1a1a1a" }}
+                />
+                {showRecent && recentProducts.length > 0 && (
+                  <div
+                    className="absolute left-0 right-0 top-full mt-1 z-30 max-h-72 overflow-y-auto rounded-xl shadow-lg"
+                    style={{
+                      background: "#ffffff",
+                      border: "1px solid #e8e0d8",
+                    }}
+                  >
+                    <div
+                      className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider"
+                      style={{ color: "#8a7a6a", borderBottom: "1px solid #f0e8de" }}
+                    >
+                      Your recent products
+                    </div>
+                    {recentProducts.map((p) => (
+                      <button
+                        key={p.product_id}
+                        type="button"
+                        // onMouseDown so click registers BEFORE input
+                        // blur (which would dismiss the panel).
+                        onMouseDown={(e) => {
+                          e.preventDefault();
+                          fetchAffiliate(p.raw_url);
+                        }}
+                        className="w-full flex items-center gap-2.5 px-3 py-2 text-left hover:bg-yellow-50"
+                        style={{ borderBottom: "1px solid #f7f0e6" }}
+                      >
+                        {p.product_image_url ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img
+                            src={p.product_image_url}
+                            alt=""
+                            className="w-9 h-9 rounded-md object-cover flex-shrink-0"
+                            style={{ background: "#f0e8de" }}
+                          />
+                        ) : (
+                          <div className="w-9 h-9 rounded-md flex-shrink-0" style={{ background: "#f0e8de" }} />
+                        )}
+                        <div className="flex-1 min-w-0">
+                          <div className="text-xs font-semibold truncate" style={{ color: "#1a1a1a" }}>
+                            {p.product_name}
+                          </div>
+                          {p.price && (
+                            <div className="text-[10px] mt-0.5" style={{ color: "#8a7a6a" }}>
+                              {p.price}
+                            </div>
+                          )}
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
               <button
-                onClick={fetchAffiliate}
+                onClick={() => fetchAffiliate()}
                 disabled={scraping || !affiliateUrl.trim()}
                 className="px-4 rounded-xl text-sm font-extrabold text-white disabled:opacity-50"
                 style={{
