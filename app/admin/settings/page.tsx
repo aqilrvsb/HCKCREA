@@ -341,6 +341,13 @@ export default function AdminSettings() {
     // editing them as raw JSON in the General section is duplication.
     "extension_version",
     "extension_download_url",
+    // All four gen_provider_<asset> rows are controlled by the
+    // "AI Generation Providers" card at the top of the page; showing
+    // them again as raw JSON in the provider section is duplication.
+    "gen_provider_image",
+    "gen_provider_video",
+    "gen_provider_cinema",
+    "gen_provider_seedance",
   ]);
 
   const grouped = useMemo(() => {
