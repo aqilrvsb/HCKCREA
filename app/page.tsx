@@ -157,7 +157,7 @@ export default function Home() {
       <nav className="relative z-20 mx-auto max-w-7xl px-6 py-5 flex items-center justify-between">
         <Link href="/" className="flex items-center gap-2.5">
           <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-orange-400 via-orange-500 to-orange-600 flex items-center justify-center shadow-lg shadow-orange-500/30">
-            <Sparkles className="w-5 h-5 text-white" strokeWidth={2.5} />
+            <Sparkles className="w-5 h-5 text-black" strokeWidth={2.5} />
           </div>
           <span className="font-display font-extrabold text-2xl tracking-tight">
             PeningLab
@@ -1330,7 +1330,7 @@ export default function Home() {
         <div className="mx-auto max-w-6xl px-6 py-10 flex flex-col md:flex-row items-center justify-between gap-6 text-sm text-[var(--color-text-muted)]">
           <div className="flex items-center gap-2.5">
             <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-orange-400 via-orange-500 to-orange-600 flex items-center justify-center shadow-lg shadow-orange-500/30">
-              <Sparkles className="w-4 h-4 text-white" strokeWidth={2.5} />
+              <Sparkles className="w-4 h-4 text-black" strokeWidth={2.5} />
             </div>
             <span className="font-display font-bold text-[var(--color-text-primary)]">
               PeningLab

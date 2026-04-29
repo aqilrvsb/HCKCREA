@@ -516,5 +516,5 @@ details.faq-item .faq-body {
 /* Admin sidebar nav hover — used by app/admin/layout.tsx
    (server component cannot use onMouseEnter handlers, so this stays in CSS) */
 .admin-nav-item:hover {
-  background: rgba(255, 87, 34, 0.08);
+  background: rgba(250, 204, 21, 0.10);
 }

@@ -197,8 +197,8 @@ export default function Sidebar({
               ? {
                   background:
                     "linear-gradient(90deg, var(--color-orange) 0%, #facc15 100%)",
-                  color: "white",
-                  boxShadow: "0 4px 14px rgba(255,87,34,0.3)",
+                  color: "#000",
+                  boxShadow: "0 4px 14px rgba(250,204,21,0.3)",
                 }
               : {
                   background: "var(--color-bg-card)",
@@ -489,8 +489,8 @@ export default function Sidebar({
             style={{
               background:
                 "linear-gradient(90deg, var(--color-orange) 0%, #facc15 100%)",
-              color: "white",
-              boxShadow: "0 4px 14px rgba(255,87,34,0.3)",
+              color: "#000",
+              boxShadow: "0 4px 14px rgba(250,204,21,0.3)",
             }}
           >
             + Top Up

@@ -184,7 +184,7 @@ export default function DashboardShell({
                       ? {
                           background:
                             "linear-gradient(90deg, var(--color-orange) 0%, #facc15 100%)",
-                          color: "white",
+                          color: "#000",
                         }
                       : {
                           background: "var(--color-bg-card)",
@@ -329,8 +329,8 @@ function ProjectView({
                     ? {
                         background:
                           "linear-gradient(135deg, #facc15 0%, #eab308 100%)",
-                        color: "white",
-                        boxShadow: "0 4px 14px rgba(255,87,34,0.3)",
+                        color: "#000",
+                        boxShadow: "0 4px 14px rgba(250,204,21,0.3)",
                       }
                     : {
                         background: "var(--color-bg-card)",

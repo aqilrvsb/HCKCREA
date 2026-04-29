@@ -12,7 +12,7 @@ export default function PaymentFailedPage() {
           className="flex items-center gap-2.5 justify-center mb-8"
         >
           <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-orange-400 via-orange-500 to-orange-600 flex items-center justify-center shadow-lg">
-            <Sparkles className="w-5 h-5 text-white" strokeWidth={2.5} />
+            <Sparkles className="w-5 h-5 text-black" strokeWidth={2.5} />
           </div>
           <span className="font-display font-extrabold text-2xl tracking-tight">
             PeningLab

@@ -173,7 +173,7 @@ export default function AdminClients() {
                           className="inline-block mt-1 px-1.5 py-0.5 text-[10px] font-bold uppercase rounded"
                           style={{
                             background: "var(--color-orange)",
-                            color: "white",
+                            color: "#000",
                           }}
                         >
                           Admin
