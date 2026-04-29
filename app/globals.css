@@ -280,6 +280,45 @@ h1, h2, h3, h4, h5, h6, .font-display {
   color: var(--color-text-muted);
 }
 
+/* Date input cleanup — Chrome renders each segment of <input type="date">
+   (day / month / year) as its own focusable subfield with a default
+   light-grey focus box. On the dark theme that box ghosts in front of
+   the value as a small bracket-like artefact. Remove the subfield
+   backgrounds + outlines, brighten the calendar icon for dark mode. */
+.input::-webkit-datetime-edit,
+.input::-webkit-datetime-edit-fields-wrapper {
+  padding: 0;
+  background: transparent;
+}
+.input::-webkit-datetime-edit-text {
+  color: var(--color-text-muted);
+  padding: 0 2px;
+}
+.input::-webkit-datetime-edit-day-field,
+.input::-webkit-datetime-edit-month-field,
+.input::-webkit-datetime-edit-year-field {
+  color: var(--color-text-primary);
+  background: transparent;
+  outline: none;
+  padding: 0 2px;
+  border-radius: 3px;
+}
+.input::-webkit-datetime-edit-day-field:focus,
+.input::-webkit-datetime-edit-month-field:focus,
+.input::-webkit-datetime-edit-year-field:focus {
+  background: var(--color-orange-soft);
+  color: var(--color-text-primary);
+  outline: none;
+}
+.input::-webkit-calendar-picker-indicator {
+  cursor: pointer;
+  opacity: 0.6;
+  filter: invert(0.8);
+}
+.input::-webkit-calendar-picker-indicator:hover {
+  opacity: 1;
+}
+
 .chip {
   display: inline-flex;
   align-items: center;
