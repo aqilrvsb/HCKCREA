@@ -593,7 +593,11 @@ function HistoryCard({
         borderColor: "var(--color-border)",
       }}
     >
-      <div className="aspect-[9/16] bg-black relative">
+      <div
+        className={`bg-black relative ${
+          isClonePrompt ? "aspect-[1/1]" : "aspect-[9/16]"
+        }`}
+      >
         {item.status === "pending" && (
           <>
             <div className="absolute inset-0 flex flex-col items-center justify-center text-amber-400 text-xs font-bold gap-2">
@@ -1565,7 +1569,7 @@ function ImproveVideoModal({
   onClose: () => void;
 }) {
   const [suggestion, setSuggestion] = useState("");
-  const [imageMode, setImageMode] = useState<"frame" | "ingredient">("frame");
+  const [imageMode, setImageMode] = useState<"frame" | "ingredient">("ingredient");
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
@@ -1719,8 +1723,8 @@ function ImproveVideoModal({
             className="w-full px-3 py-2 rounded-lg text-xs font-semibold outline-none"
             style={{ background: "#fafaf7", border: "1px solid #e8e0d8", color: "#1a1a1a" }}
           >
+            <option value="ingredient">Product Reference (AI creates new scene)</option>
             <option value="frame">First Frame (scene continues from image)</option>
-            <option value="ingredient">Avatar changes (new scene with same product + character)</option>
           </select>
         </div>
 
@@ -1771,7 +1775,7 @@ function ExtendVideoModal({
   parentOutputUrl: string;
   onClose: () => void;
 }) {
-  const [imageMode, setImageMode] = useState<"frame" | "ingredient" | "text">("frame");
+  const [imageMode, setImageMode] = useState<"frame" | "ingredient" | "text">("ingredient");
   const [startFrame, setStartFrame] = useState(""); // "" = auto
   const [endFrame, setEndFrame] = useState("");
   const [refImage, setRefImage] = useState("");
@@ -1923,8 +1927,8 @@ function ExtendVideoModal({
                 className="px-2 py-1 rounded text-[10px] font-semibold outline-none"
                 style={{ background: "#fafaf7", border: "1px solid #e8e0d8", color: "#1a1a1a" }}
               >
-                <option value="frame">First Frame</option>
                 <option value="ingredient">Product Ref</option>
+                <option value="frame">First Frame</option>
                 <option value="text">Text to Video</option>
               </select>
             </div>

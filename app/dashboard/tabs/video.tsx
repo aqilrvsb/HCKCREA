@@ -192,10 +192,10 @@ export default function VideoTab({ projectId }: { projectId?: string } = {}) {
           value={imageMode}
           onChange={(v) => setImageMode(v as ImageMode)}
         >
-          <option value="frame">First Frame (animate from image)</option>
           <option value="ingredient">
             Product Reference (AI creates scene)
           </option>
+          <option value="frame">First Frame (animate from image)</option>
           <option value="text">Text to Video (no image needed)</option>
         </Select>
       </Card>

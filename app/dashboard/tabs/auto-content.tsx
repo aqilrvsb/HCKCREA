@@ -598,14 +598,12 @@ export default function AutoContentTab({ projectId }: { projectId?: string } = {
           </Select>
         </div>
 
-        {/* Plan mode buttons */}
+        {/* Plan mode buttons — Verify Plan removed per design;
+            AI Plan and Manual Plan only. */}
         <Label>Plan Mode</Label>
         <div className="flex gap-2 mb-3">
           <PlanModeBtn active={planMode === "aiplan"} onClick={() => setPlanMode("aiplan")}>
             AI Plan
-          </PlanModeBtn>
-          <PlanModeBtn active={planMode === "verify"} onClick={() => setPlanMode("verify")}>
-            Verify Plan
           </PlanModeBtn>
           <PlanModeBtn active={planMode === "manual"} onClick={() => setPlanMode("manual")}>
             Manual Plan
