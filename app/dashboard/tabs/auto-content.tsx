@@ -527,30 +527,46 @@ export default function AutoContentTab({ projectId }: { projectId?: string } = {
                   value={affiliateUrl}
                   onChange={(e) => setAffiliateUrl(e.target.value)}
                   placeholder="Paste TikTok Shop / Shopee link..."
-                  className="w-full p-3 pr-11 rounded-xl text-sm outline-none"
+                  className={`w-full p-3 ${recentProducts.length > 0 ? "pr-20" : ""} rounded-xl text-sm outline-none`}
                   style={{ background: "#fafaf7", border: "1px solid #e8e0d8", color: "#1a1a1a" }}
                 />
-                {/* History icon — toggles the recent-products dropdown.
-                    Only renders when the user has at least one saved
-                    product. Click → opens; click again or click an
-                    item → closes. */}
+                {/* History icon + count — toggles the recent-products
+                    dropdown. Only renders when the user has at least
+                    one saved product. The number to the right of the
+                    clock is the total saved-product count for this
+                    user (max 20 from the API). */}
                 {recentProducts.length > 0 && (
                   <button
                     type="button"
                     onClick={() => setShowRecent((s) => !s)}
-                    title="Pick from saved products"
+                    title={`${recentProducts.length} saved product${recentProducts.length === 1 ? "" : "s"} — click to pick`}
                     aria-label="Pick from saved products"
-                    className="absolute top-1/2 right-2 -translate-y-1/2 flex items-center justify-center rounded-lg hover:bg-yellow-100"
+                    className="absolute top-1/2 right-2 -translate-y-1/2 flex items-center justify-center gap-1 rounded-lg hover:bg-yellow-100"
                     style={{
-                      width: "32px",
                       height: "32px",
+                      padding: "0 8px",
                       border: "1px solid #e8e0d8",
                       background: showRecent ? "#fff8d6" : "#ffffff",
                       color: "#1a1a1a",
-                      fontSize: "16px",
+                      fontSize: "14px",
+                      fontWeight: 700,
                     }}
                   >
-                    🕐
+                    <span style={{ fontSize: "15px" }}>🕐</span>
+                    <span
+                      style={{
+                        fontSize: "11px",
+                        color: "#1a1a1a",
+                        background: "#facc15",
+                        borderRadius: "999px",
+                        padding: "1px 6px",
+                        minWidth: "18px",
+                        textAlign: "center",
+                        lineHeight: "1.4",
+                      }}
+                    >
+                      {recentProducts.length}
+                    </span>
                   </button>
                 )}
                 {showRecent && recentProducts.length > 0 && (
