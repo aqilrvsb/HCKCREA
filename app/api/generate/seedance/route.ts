@@ -2,7 +2,7 @@ import { NextResponse, after } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { p2CreateTask } from "@/lib/p2";
-import { hasEnoughCredits, deduct } from "@/lib/deduct";
+import { hasEnoughCredits } from "@/lib/deduct";
 import { getSeedanceRate } from "@/lib/settings";
 
 // POST /api/generate/seedance — manual Seedance 2.0 Fast generation.
@@ -155,10 +155,9 @@ export async function POST(req: Request) {
         },
       }).eq("id", historyId);
 
-      // Charge after task accepted by provider.
-      if (cost > 0) {
-        await deduct(user.id, "seedance", cost, historyId).catch(() => {});
-      }
+      // Deduction happens in lib/settle.ts when status flips pending →
+      // done. Settle reads the live rate_seedance × duration so admin
+      // pricing changes apply even if this row was queued earlier.
     } catch (e: any) {
       await admin.from("history").update({
         status: "failed",

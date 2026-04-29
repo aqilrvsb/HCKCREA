@@ -10,9 +10,25 @@
 
 import { createAdminClient } from "@/lib/supabase/admin";
 import { p2GetStatus } from "@/lib/p2";
-import { deduct } from "@/lib/deduct";
+import { deduct, priceFor, type PriceModelHint } from "@/lib/deduct";
 import { onSegmentSettled } from "@/lib/segment-chain";
 import { generateUgcPostMeta } from "@/lib/ugc-post-meta";
+
+// Map a model string (from history.metadata.model) to a per-model rate
+// hint. Used at settle time so the live admin rate (rate_<model>) is
+// applied even if the row was inserted before the rate was changed.
+// Returns undefined when we can't recognise the model — caller falls
+// back to the row's stored cost in that case.
+function inferModelHint(model?: string | null): PriceModelHint | undefined {
+  const m = String(model || "").toLowerCase();
+  if (!m) return undefined;
+  if (m.includes("seedance")) return "seedance";
+  if (m.includes("grok")) return "grok";
+  if (m.includes("veo")) return "veo";
+  if (m.includes("nano-banana") || m.includes("banana")) return "banana_pro";
+  if (m.includes("gpt-image")) return "gpt_image";
+  return undefined;
+}
 
 export type HistoryRow = {
   id: string;
@@ -145,12 +161,32 @@ export async function settleHistoryRow(hist: HistoryRow): Promise<SettleResult> 
         ? "image_generate"
         : hist.tab === "cinema"
           ? "cinema"
-          : hist.duration === 16
-            ? "video_16s"
-            : "video_8s";
+          : hist.tab === "seedance"
+            ? "seedance"
+            : hist.duration === 16
+              ? "video_16s"
+              : "video_8s";
 
-    if (Number(hist.cost || 0) > 0) {
-      await deduct(hist.user_id, reason as any, Number(hist.cost), hist.id);
+    // Live cost at the moment of settlement. Inspect the row's recorded
+    // model to pick the per-model rate (rate_<model> in app_settings),
+    // multiply by duration for per-second models, and use that as the
+    // deduct amount. Falls back to the row's stored cost only when we
+    // can't infer the model — keeps backward compat with rows from
+    // before this wiring landed.
+    const modelHint = inferModelHint(hist.metadata?.model);
+    let chargeAmount = Number(hist.cost || 0);
+    if (modelHint) {
+      const baseRate = await priceFor(hist.user_id, reason as any, modelHint);
+      const durationSec = Number(hist.duration) || 8;
+      // Grok + Seedance bill per second; Veo + image models are flat.
+      chargeAmount =
+        modelHint === "grok" || modelHint === "seedance"
+          ? Number((baseRate * durationSec).toFixed(4))
+          : Number(baseRate.toFixed(4));
+    }
+
+    if (chargeAmount > 0) {
+      await deduct(hist.user_id, reason as any, chargeAmount, hist.id);
     }
 
     await admin
@@ -159,6 +195,9 @@ export async function settleHistoryRow(hist: HistoryRow): Promise<SettleResult> 
         status: "done",
         output_url: r.outputUrl,
         thumbnail_url: hist.type === "video" ? r.outputUrl : null,
+        // Persist the actual charged amount so admin reports show what
+        // the user was billed (not the stale insert-time estimate).
+        cost: chargeAmount,
         // Wipe any stale error text the row picked up before recovery
         // (e.g. "Stale — exceeded 10m without resolution").
         error_message: null,
