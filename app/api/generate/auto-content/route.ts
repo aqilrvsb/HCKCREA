@@ -526,7 +526,7 @@ ONE avatar for ALL videos:
 - Gender: ${gender.toUpperCase()} — LOCKED, NEVER change
 - ${hijabMode ? "HIJAB: YES — hijab tudung labuh in EVERY image/video. NON-NEGOTIABLE." : "NO HIJAB — hair visible. MODESTY REQUIRED: short-sleeve T-shirts OK for female (loose fit only), but NO tight tops showing breast shape, NO cleavage, NO crop tops, NO midriff/navel, NO short shorts, NO mini skirts, NO thigh exposure. NON-NEGOTIABLE."}
 - Age: ${ageRange}
-- BEAUTY LOCK: ${gender === "male" ? "Handsome attractive Malay man — sharp jawline, clear skin, confident friendly presence, well-groomed. State \"handsome attractive Malay man with sharp features and clear skin\" in every imagePrompt and videoPrompt." : "Beautiful attractive Malay woman — clear glowing skin, warm natural smile, confident gentle presence, well-groomed. State \"beautiful attractive Malay woman with clear glowing skin\" in every imagePrompt and videoPrompt."}
+- BEAUTY LOCK (applies ONLY when frameworkType === "ugc" — product/lifestyle frameworks have NO character and IGNORE this lock): ${gender === "male" ? "Handsome attractive Malay man — sharp jawline, clear skin, confident friendly presence, well-groomed. State \"handsome attractive Malay man with sharp features and clear skin\" in every UGC-framework imagePrompt and videoPrompt." : "Beautiful attractive Malay woman — clear glowing skin, warm natural smile, confident gentle presence, well-groomed. State \"beautiful attractive Malay woman with clear glowing skin\" in every UGC-framework imagePrompt and videoPrompt."}
 - SAME person in ALL videos within this batch. Only change: outfit + setting.
 </locked_avatar>
 
@@ -569,6 +569,13 @@ These CHANGE per video (dynamic):
 </locked_elements>
 
 <video_prompt_rules>
+🚨 FRAMEWORK-TYPE → TEMPLATE (NON-NEGOTIABLE — read this first for EVERY framework):
+- frameworkType === "ugc"        → Template A. Character on screen speaking to camera. Holds the product. Same locked avatar as the LOCKED AVATAR block above.
+- frameworkType === "product"    → Template B. PRODUCT-ONLY shot. NO person, NO face, NO hands, NO body. Pure product visual + voiceover. The locked-avatar block is IGNORED for these — there is no character on screen.
+- frameworkType === "lifestyle"  → Template B variant. Product in a lifestyle scene. NO person on screen. Voiceover only.
+
+The frameworkType for each plan item is provided in your input — pick the correct template for each video. NEVER write a Template-A prompt for a "product"/"lifestyle" framework. NEVER write a Template-B prompt for a "ugc" framework.
+
 ${is16s ? `
 16-SECOND VIDEO = ONE continuous story, split into 2 shots that will be merged.
 Both shots MUST share: same setting, same product, same framework, same lighting.
@@ -616,6 +623,7 @@ Product only, voiceover only, NO person, NO music.
 ` : `
 8-SECOND VIDEO = ONE complete shot.
 
+FOR UGC FRAMEWORKS (8s — character on screen):
 videoPromptShot1 (max 1200 chars):
 - Start: "[Shot type], same person from reference image, same appearance, holding the same product."
 - ONE action + camera movement
@@ -628,6 +636,22 @@ MUST have this EXACT spoken dialog structure:
   6-8s: "${shopMode ? `${SHOP_CTA_VARIATIONS[0]}" (or similar beg kuning variation — MUST mention beg kuning)` : customCtaResolved ? `${customCtaResolved}" (use this EXACT text)` : '[your CTA — max 8 words]"'}`}
 
 ${noCta ? "" : "CRITICAL: The 6-8s CTA line MUST be present. Without it, the video is INCOMPLETE."}
+
+FOR PRODUCT / LIFESTYLE FRAMEWORKS (8s — NO person on screen):
+videoPromptShot1 (max 1200 chars):
+- Start: "[Shot type] of the product [${productData.productName || "product"}] on [elegant surface/setting]." NO person, NO face, NO hands, NO body in frame.
+- ONE smooth motion: slow rotation / zoom in / floating reveal / volumetric reveal / dramatic lighting shift
+- The avatar block is IGNORED — this video is product-only
+
+MUST have voiceover-only audio (no character on screen):
+  ${noCta ? `0-3s: "[hook voiceover — max 10 words, informal Bahasa Malaysia]"
+  3-8s: "[feature/benefit voiceover — max 30 words, informal Bahasa Malaysia]"` : `0-2s: "[hook voiceover — max 8 words, informal Bahasa Malaysia]"
+  2-6s: "[feature/benefit voiceover — max 20 words, informal Bahasa Malaysia]"
+  6-8s: "${shopMode ? `${SHOP_CTA_VARIATIONS[0]}" voiceover (or similar beg kuning variation — MUST mention beg kuning)` : customCtaResolved ? `${customCtaResolved}" voiceover (use this EXACT text)` : '[CTA voiceover — max 8 words]"'}`}
+
+Voice: ${gender === "male" ? "male Malay voiceover" : "female Malay voiceover"}, warm confident tone.
+Style: Premium product lighting, shallow depth of field, cinematic film look. Voiceover audio only — no character speaking on screen because there IS no character on screen. NO background music. NO subtitles.
+${noCta ? "" : "CRITICAL: The 6-8s CTA voiceover line MUST be present. Without it, the video is INCOMPLETE."}
 `}
 
 EVERY videoPrompt MUST follow ONE of these 2 templates:
