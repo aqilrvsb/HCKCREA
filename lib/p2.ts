@@ -151,6 +151,10 @@ async function p2CreateTaskInternal(input: {
   } else if (isSeedance) {
     // Seedance 2.0 Fast — Crun ships t2v and r2v as separate endpoints
     // identified by the model name. Auto-switch: any ref → r2v.
+    // We use the Fast variant explicitly (cheaper + faster than the
+    // base Seedance 2.0 model). Confirmed model names per Crun docs:
+    //   bytedance/seedance2-0-fast-r2v   (reference-to-video)
+    //   bytedance/seedance2-0-fast-t2v   (text-to-video)
     const hasRef = imgUrls.length > 0 || vidUrls.length > 0 || audUrls.length > 0;
     if (hasRef) {
       input.model = "bytedance/seedance2-0-fast-r2v";
@@ -226,7 +230,19 @@ async function p2CreateTaskInternal(input: {
     };
   }
   const taskId = json?.data?.task_id || json?.task_id || null;
-  if (!taskId) return { ok: false, error: "No task_id returned", raw: json, provider: "p2" };
+  if (!taskId) {
+    // Crun sometimes returns 200 with an embedded error envelope (e.g.
+    // 422 validation, 402 insufficient credits, 404 model not found).
+    // Surface those instead of the useless "No task_id returned".
+    const code = json?.code;
+    const msg = json?.message;
+    const errs = Array.isArray(json?.errors) ? json.errors.join("; ") : "";
+    let composed = "No task_id returned";
+    if (code && code !== 200) composed = `Crun ${code}: ${msg || "unknown"}${errs ? " — " + errs : ""}`;
+    else if (msg && msg !== "success") composed = `Crun: ${msg}${errs ? " — " + errs : ""}`;
+    else composed = `No task_id. Raw: ${JSON.stringify(json).substring(0, 300)}`;
+    return { ok: false, error: composed, raw: json, provider: "p2" };
+  }
   return { ok: true, task_id: String(taskId), raw: json, provider: "p2" };
 }
 
