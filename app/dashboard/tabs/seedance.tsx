@@ -57,42 +57,83 @@ export default function SeedanceTab({ projectId }: { projectId: string }) {
 
   // ─────────── Upload handlers ───────────
 
-  async function uploadImage(file: File) {
-    if (imageUrls.length >= MAX_REF_IMAGES) {
-      setErr(`Max ${MAX_REF_IMAGES} reference images.`);
-      return;
-    }
+  // Generic uploader used for image / video / audio. Routes to the right
+  // /api/upload/{kind} endpoint, all of which proxy to RunningHub binary
+  // upload and return a public download URL.
+  async function uploadFile(
+    file: File,
+    kind: "image" | "video" | "audio",
+    onUrl: (url: string) => void
+  ) {
     setErr(null);
     try {
       const fd = new FormData();
-      fd.append("file", file, file.name || "ref.png");
-      const r = await fetch("/api/upload/image", { method: "POST", body: fd });
+      fd.append("file", file, file.name || `ref.${kind}`);
+      const r = await fetch(`/api/upload/${kind}`, { method: "POST", body: fd });
       const d = await r.json();
       if (!r.ok || !d?.url) throw new Error(d?.error || "Upload failed");
-      setImageUrls((prev) => [...prev, d.url]);
+      onUrl(d.url);
     } catch (e: any) {
       setErr(e?.message || "Upload failed");
     }
   }
 
-  function pasteVideoUrl() {
-    const url = window.prompt("Paste a public reference video URL (mp4/webm, ≤15s):");
-    if (!url) return;
+  function uploadImage(file: File) {
+    if (imageUrls.length >= MAX_REF_IMAGES) {
+      setErr(`Max ${MAX_REF_IMAGES} reference images.`);
+      return;
+    }
+    void uploadFile(file, "image", (url) =>
+      setImageUrls((prev) => [...prev, url])
+    );
+  }
+  function uploadVideo(file: File) {
     if (videoUrls.length >= MAX_REF_VIDEOS) {
       setErr(`Max ${MAX_REF_VIDEOS} reference videos.`);
       return;
     }
-    setVideoUrls((prev) => [...prev, url.trim()]);
+    void uploadFile(file, "video", (url) =>
+      setVideoUrls((prev) => [...prev, url])
+    );
   }
-
-  function pasteAudioUrl() {
-    const url = window.prompt("Paste a public reference audio URL (mp3/wav, ≤15s):");
-    if (!url) return;
+  function uploadAudio(file: File) {
     if (audioUrls.length >= MAX_REF_AUDIOS) {
       setErr(`Max ${MAX_REF_AUDIOS} reference audios.`);
       return;
     }
-    setAudioUrls((prev) => [...prev, url.trim()]);
+    void uploadFile(file, "audio", (url) =>
+      setAudioUrls((prev) => [...prev, url])
+    );
+  }
+
+  // Pick a past video from history as a reference. Lazy-loads on open.
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [historyRows, setHistoryRows] = useState<Array<{ id: string; output_url: string; thumbnail_url?: string | null; tab?: string | null; prompt?: string | null }>>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+
+  async function openHistoryPicker() {
+    setHistoryOpen(true);
+    if (historyRows.length > 0) return;
+    setHistoryLoading(true);
+    try {
+      const r = await fetch("/api/history?type=video&status=done&limit=60", { cache: "no-store" });
+      const d = await r.json();
+      const rows = Array.isArray(d?.rows) ? d.rows : Array.isArray(d) ? d : [];
+      setHistoryRows(rows.filter((x: any) => !!x?.output_url));
+    } catch {
+      // Silent — user can still upload local
+    } finally {
+      setHistoryLoading(false);
+    }
+  }
+
+  function pickFromHistory(url: string) {
+    if (videoUrls.length >= MAX_REF_VIDEOS) {
+      setErr(`Max ${MAX_REF_VIDEOS} reference videos.`);
+      return;
+    }
+    setVideoUrls((prev) => [...prev, url]);
+    setHistoryOpen(false);
   }
 
   // ─────────── Submit ───────────
@@ -202,62 +243,66 @@ export default function SeedanceTab({ projectId }: { projectId: string }) {
         </div>
       </div>
 
-      {/* Reference videos (URL paste) */}
+      {/* Reference videos — local upload OR pick from history */}
       <div>
         <div className="flex items-center justify-between mb-2">
           <label className="flex items-center gap-2 text-xs font-mono uppercase tracking-wider text-[var(--color-text-muted)] font-bold">
             <Video className="w-3.5 h-3.5" />
-            Reference Videos <span className="text-[10px] font-normal">(up to {MAX_REF_VIDEOS}, ≤15s each)</span>
+            Reference Videos <span className="text-[10px] font-normal">(up to {MAX_REF_VIDEOS}, mp4/webm ≤15s, ≤60MB)</span>
           </label>
           {videoUrls.length < MAX_REF_VIDEOS && (
             <button
               type="button"
-              onClick={pasteVideoUrl}
+              onClick={openHistoryPicker}
               className="text-[11px] font-bold text-orange hover:underline"
             >
-              + Add URL
+              From history
             </button>
           )}
         </div>
-        <div className="space-y-1">
+        <div className="flex flex-wrap gap-2">
           {videoUrls.map((u, i) => (
-            <div key={i} className="flex items-center gap-2 text-[11px] font-mono bg-[var(--color-card-2,#1a1a1a)] px-3 py-1.5 rounded-md border border-[var(--color-border)]">
-              <Video className="w-3 h-3 shrink-0 text-orange" />
-              <span className="truncate flex-1">{u}</span>
+            <div key={i} className="relative w-24 h-32 rounded-lg overflow-hidden border border-[var(--color-border)] bg-black">
+              <video src={u + "#t=0.5"} muted preload="metadata" className="w-full h-full object-cover" />
               <button
                 type="button"
                 onClick={() => setVideoUrls((p) => p.filter((_, j) => j !== i))}
-                className="text-[var(--color-text-muted)] hover:text-red-400"
+                className="absolute top-1 right-1 w-5 h-5 rounded-full bg-black/70 text-white flex items-center justify-center hover:bg-red-500"
               >
-                <X className="w-3.5 h-3.5" />
+                <X className="w-3 h-3" />
               </button>
             </div>
           ))}
+          {videoUrls.length < MAX_REF_VIDEOS && (
+            <label className="w-24 h-32 rounded-lg border-2 border-dashed border-[var(--color-border)] flex flex-col items-center justify-center gap-1 cursor-pointer hover:border-orange-400 text-[10px] text-[var(--color-text-muted)]">
+              <input
+                type="file"
+                accept="video/mp4,video/webm,video/quicktime"
+                className="hidden"
+                onChange={(e) => {
+                  const f = e.target.files?.[0];
+                  if (f) uploadVideo(f);
+                  e.currentTarget.value = "";
+                }}
+              />
+              <Video className="w-5 h-5" />
+              <span>Upload</span>
+            </label>
+          )}
         </div>
       </div>
 
-      {/* Reference audios (URL paste) */}
+      {/* Reference audios — local upload */}
       <div>
-        <div className="flex items-center justify-between mb-2">
-          <label className="flex items-center gap-2 text-xs font-mono uppercase tracking-wider text-[var(--color-text-muted)] font-bold">
-            <Music className="w-3.5 h-3.5" />
-            Reference Audios <span className="text-[10px] font-normal">(up to {MAX_REF_AUDIOS}, ≤15s each)</span>
-          </label>
-          {audioUrls.length < MAX_REF_AUDIOS && (
-            <button
-              type="button"
-              onClick={pasteAudioUrl}
-              className="text-[11px] font-bold text-orange hover:underline"
-            >
-              + Add URL
-            </button>
-          )}
-        </div>
-        <div className="space-y-1">
+        <label className="flex items-center gap-2 text-xs font-mono uppercase tracking-wider text-[var(--color-text-muted)] font-bold mb-2">
+          <Music className="w-3.5 h-3.5" />
+          Reference Audios <span className="text-[10px] font-normal">(up to {MAX_REF_AUDIOS}, mp3/wav ≤15s, ≤15MB)</span>
+        </label>
+        <div className="space-y-1.5">
           {audioUrls.map((u, i) => (
-            <div key={i} className="flex items-center gap-2 text-[11px] font-mono bg-[var(--color-card-2,#1a1a1a)] px-3 py-1.5 rounded-md border border-[var(--color-border)]">
+            <div key={i} className="flex items-center gap-2 text-[11px] font-mono bg-[var(--color-card-2,#1a1a1a)] px-3 py-2 rounded-md border border-[var(--color-border)]">
               <Music className="w-3 h-3 shrink-0 text-orange" />
-              <span className="truncate flex-1">{u}</span>
+              <audio src={u} controls className="flex-1 h-7" style={{ maxWidth: 280 }} />
               <button
                 type="button"
                 onClick={() => setAudioUrls((p) => p.filter((_, j) => j !== i))}
@@ -267,8 +312,82 @@ export default function SeedanceTab({ projectId }: { projectId: string }) {
               </button>
             </div>
           ))}
+          {audioUrls.length < MAX_REF_AUDIOS && (
+            <label className="inline-flex items-center gap-2 px-3 py-1.5 rounded-md border border-dashed border-[var(--color-border)] cursor-pointer hover:border-orange-400 text-[11px] font-semibold text-[var(--color-text-secondary)]">
+              <input
+                type="file"
+                accept="audio/mpeg,audio/mp3,audio/wav"
+                className="hidden"
+                onChange={(e) => {
+                  const f = e.target.files?.[0];
+                  if (f) uploadAudio(f);
+                  e.currentTarget.value = "";
+                }}
+              />
+              <Music className="w-3.5 h-3.5" />
+              <span>Upload audio</span>
+            </label>
+          )}
         </div>
       </div>
+
+      {/* History picker modal */}
+      {historyOpen && (
+        <div
+          className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-6"
+          onClick={() => setHistoryOpen(false)}
+        >
+          <div
+            className="bg-[var(--color-bg,#0d0d0d)] border border-[var(--color-border)] rounded-xl w-full max-w-3xl max-h-[80vh] overflow-hidden flex flex-col"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="p-4 border-b border-[var(--color-border)] flex items-center justify-between">
+              <h3 className="font-display font-extrabold text-base">Pick a video from your history</h3>
+              <button
+                type="button"
+                onClick={() => setHistoryOpen(false)}
+                className="text-[var(--color-text-muted)] hover:text-white"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="p-4 overflow-y-auto flex-1">
+              {historyLoading ? (
+                <div className="flex items-center justify-center py-12 text-[var(--color-text-muted)] text-sm">
+                  <Loader2 className="w-4 h-4 animate-spin mr-2" /> Loading…
+                </div>
+              ) : historyRows.length === 0 ? (
+                <div className="text-center py-12 text-[var(--color-text-muted)] text-sm">
+                  No past videos yet — upload a local file instead.
+                </div>
+              ) : (
+                <div className="grid grid-cols-3 sm:grid-cols-4 gap-3">
+                  {historyRows.map((r) => (
+                    <button
+                      type="button"
+                      key={r.id}
+                      onClick={() => pickFromHistory(r.output_url)}
+                      className="relative aspect-[9/16] rounded-lg overflow-hidden border border-[var(--color-border)] bg-black hover:border-orange transition"
+                    >
+                      <video
+                        src={r.output_url + "#t=0.5"}
+                        muted
+                        preload="metadata"
+                        className="w-full h-full object-cover pointer-events-none"
+                      />
+                      {r.tab && (
+                        <span className="absolute top-1 left-1 text-[9px] font-bold uppercase bg-black/70 text-white px-1.5 py-0.5 rounded">
+                          {r.tab}
+                        </span>
+                      )}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Aspect + duration */}
       <div className="grid grid-cols-2 gap-3">

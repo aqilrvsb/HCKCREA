@@ -216,12 +216,12 @@ export async function getProjectLimit(): Promise<number> {
 }
 
 // Seedance Fast — billed per second of video. Admin sets the rate so
-// pricing can rotate without redeploy. Default 0.10 / sec keeps an 8s
-// clip at RM0.80 — same ballpark as the video_8s rate.
+// pricing can rotate without redeploy. Default RM0.40 / sec — an 8s
+// clip costs RM3.20, a 15s clip costs RM6.00.
 export async function getSeedanceRate(): Promise<number> {
   const v = await getSetting<any>("seedance_rate");
-  const n = Number(v?.per_second ?? 0.10);
-  return Number.isFinite(n) && n > 0 ? n : 0.10;
+  const n = Number(v?.per_second ?? 0.40);
+  return Number.isFinite(n) && n > 0 ? n : 0.40;
 }
 
 export async function getPlanRate(plan: string) {

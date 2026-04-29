@@ -25,7 +25,7 @@ INSERT INTO app_settings (key, value, description, category) VALUES
    'GeminiGen Seedance create-task path. Seedance 2 Omni Fast.',
    'provider'),
   ('seedance_rate',
-   '{"per_second":0.10}',
-   'Seedance Fast rate per second (used to compute cost for any duration 4-15s).',
+   '{"per_second":0.40}',
+   'Seedance Fast rate per second — RM0.40/sec. 8s clip = RM3.20, 15s = RM6.00.',
    'pricing')
 ON CONFLICT (key) DO NOTHING;
