@@ -31,6 +31,32 @@ export default function AdminClients() {
   const [search, setSearch] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
   const [editing, setEditing] = useState<Client | null>(null);
+  const [impersonatingId, setImpersonatingId] = useState<string | null>(null);
+
+  // Click an email → server generates a one-time magic-link that auto-
+  // signs-in as the target user. Opens in a new tab so the admin's own
+  // session in the original tab stays intact.
+  async function impersonate(c: Client) {
+    if (!confirm(`Login as ${c.full_name || c.email}?\n\nThis opens a new tab with that user's session so you can see exactly what they see. Your admin session in this tab stays.`)) {
+      return;
+    }
+    setImpersonatingId(c.id);
+    try {
+      const r = await fetch("/api/admin/impersonate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ user_id: c.id }),
+      });
+      const d = await r.json();
+      if (!r.ok || !d?.url) {
+        alert(`Impersonate failed: ${d?.error || "unknown error"}`);
+        return;
+      }
+      window.open(d.url, "_blank", "noopener,noreferrer");
+    } finally {
+      setImpersonatingId(null);
+    }
+  }
 
   useEffect(() => {
     void load();
@@ -165,9 +191,15 @@ export default function AdminClients() {
                       <div className="font-semibold text-[var(--color-text-primary)]">
                         {c.full_name || "—"}
                       </div>
-                      <div className="text-xs text-[var(--color-text-muted)]">
-                        {c.email}
-                      </div>
+                      <button
+                        type="button"
+                        onClick={() => void impersonate(c)}
+                        disabled={impersonatingId === c.id}
+                        title="Click to log in as this user (opens in new tab)"
+                        className="text-xs text-[var(--color-text-muted)] hover:text-orange hover:underline transition disabled:opacity-50"
+                      >
+                        {impersonatingId === c.id ? "Generating link…" : c.email}
+                      </button>
                       {c.is_admin && (
                         <span
                           className="inline-block mt-1 px-1.5 py-0.5 text-[10px] font-bold uppercase rounded"
