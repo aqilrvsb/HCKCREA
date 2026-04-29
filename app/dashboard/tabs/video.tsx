@@ -177,11 +177,11 @@ export default function VideoTab({ projectId }: { projectId?: string } = {}) {
         <Label>Duration</Label>
         <button
           type="button"
-          className="w-full h-11 rounded-lg text-xs font-extrabold text-white mb-4"
+          className="w-full h-11 rounded-lg text-xs font-extrabold text-black mb-4"
           style={{
             background:
               "linear-gradient(135deg, #facc15 0%, #fde047 100%)",
-            boxShadow: "0 4px 14px rgba(255,87,34,0.3)",
+            boxShadow: "0 4px 14px rgba(250,204,21,0.3)",
           }}
         >
           8s (1 shot)
@@ -355,12 +355,12 @@ export default function VideoTab({ projectId }: { projectId?: string } = {}) {
         <button
           onClick={submit}
           disabled={busy}
-          className="w-full py-3.5 rounded-xl font-extrabold text-base text-white transition-all hover:-translate-y-0.5 disabled:opacity-50 disabled:transform-none"
+          className="w-full py-3.5 rounded-xl font-extrabold text-base text-black transition-all hover:-translate-y-0.5 disabled:opacity-50 disabled:transform-none"
           style={{
             background:
               "linear-gradient(135deg, #facc15 0%, #fde047 100%)",
             boxShadow:
-              "0 6px 20px rgba(255, 87, 34, 0.35), inset 0 1px 0 rgba(255,255,255,0.2)",
+              "0 6px 20px rgba(250, 204, 21, 0.35), inset 0 1px 0 rgba(255,255,255,0.2)",
           }}
         >
           {busy ? (

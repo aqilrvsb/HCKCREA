@@ -372,8 +372,8 @@ export default function ImageTab({ projectId }: { projectId?: string } = {}) {
                   active
                     ? {
                         background: ORANGE,
-                        color: "white",
-                        boxShadow: "0 4px 12px rgba(255, 87, 34, 0.3)",
+                        color: "#000",
+                        boxShadow: "0 4px 12px rgba(250, 204, 21, 0.3)",
                       }
                     : { background: "transparent", color: "#666" }
                 }
@@ -456,11 +456,11 @@ export default function ImageTab({ projectId }: { projectId?: string } = {}) {
         <button
           onClick={submit}
           disabled={busy}
-          className="w-full mt-5 py-3.5 rounded-xl font-extrabold text-base text-white transition-all hover:-translate-y-0.5 disabled:opacity-50 disabled:transform-none"
+          className="w-full mt-5 py-3.5 rounded-xl font-extrabold text-base text-black transition-all hover:-translate-y-0.5 disabled:opacity-50 disabled:transform-none"
           style={{
             background: `linear-gradient(135deg, #facc15 0%, #fde047 100%)`,
             boxShadow:
-              "0 6px 20px rgba(255, 87, 34, 0.35), inset 0 1px 0 rgba(255,255,255,0.2)",
+              "0 6px 20px rgba(250, 204, 21, 0.35), inset 0 1px 0 rgba(255,255,255,0.2)",
           }}
         >
           {busy ? (

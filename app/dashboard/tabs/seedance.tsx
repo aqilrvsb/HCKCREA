@@ -360,7 +360,7 @@ export default function SeedanceTab({ projectId }: { projectId: string }) {
           type="button"
           disabled={busy || !prompt.trim()}
           onClick={submit}
-          className="px-5 py-2.5 rounded-xl font-bold text-sm bg-orange text-white hover:bg-orange-600 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+          className="px-5 py-2.5 rounded-xl font-bold text-sm bg-orange text-black hover:bg-orange-600 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
         >
           {busy && <Loader2 className="w-4 h-4 animate-spin" />}
           Generate
