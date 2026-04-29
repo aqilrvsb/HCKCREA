@@ -333,7 +333,7 @@ export default function SeedanceTab({ projectId }: { projectId: string }) {
           </label>
           <input
             type="range"
-            min={4}
+            min={8}
             max={15}
             step={1}
             value={duration}

@@ -50,7 +50,9 @@ export async function POST(req: Request) {
     : [];
   const rawAspect = String(body?.aspect_ratio || "9:16");
   const aspectRatio = rawAspect === "16:9" ? "16:9" : "9:16";
-  const duration = Math.max(4, Math.min(15, Math.round(Number(body?.duration || 8))));
+  // Cinema minimum is 8s — Seedance under 8s tends to produce truncated
+  // motion that doesn't justify the per-second cost.
+  const duration = Math.max(8, Math.min(15, Math.round(Number(body?.duration || 8))));
   const projectId = body?.project_id ? String(body.project_id) : null;
 
   if (!prompt) {
