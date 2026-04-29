@@ -353,9 +353,12 @@ MUST be a product-only shot (no person at all) and the videoPrompt MUST be
 voiceover-only with the product on screen.
 
 ${fwPoolFinal.map((fw, i) => {
-  const template = fw.type === "ugc"
-    ? "→ TEMPLATE A (UGC: character on screen, holds the product, speaks to camera)"
-    : "→ TEMPLATE B (PRODUCT ONLY: NO person, NO face, NO hands, NO body anywhere — pure product shot + voiceover)";
+  // Only "product"-type frameworks use Template B (product-only shot).
+  // Lifestyle frameworks behave as UGC — character on screen interacting
+  // with the product in an aspirational scene, NOT a product-only shot.
+  const template = fw.type === "product"
+    ? "→ TEMPLATE B (PRODUCT ONLY: NO person, NO face, NO hands, NO body anywhere — pure product shot + voiceover)"
+    : "→ TEMPLATE A (UGC: character on screen, holds the product, speaks to camera)";
   return `${i + 1}. ${fw.name} [${fw.type.toUpperCase()}] — ${fw.focus}\n   ${template}`;
 }).join("\n")}
 
@@ -542,7 +545,7 @@ ONE avatar for ALL videos:
 - Gender: ${gender.toUpperCase()} — LOCKED, NEVER change
 - ${hijabMode ? "HIJAB: YES — hijab tudung labuh in EVERY image/video. NON-NEGOTIABLE." : "NO HIJAB — hair visible. MODESTY REQUIRED: short-sleeve T-shirts OK for female (loose fit only), but NO tight tops showing breast shape, NO cleavage, NO crop tops, NO midriff/navel, NO short shorts, NO mini skirts, NO thigh exposure. NON-NEGOTIABLE."}
 - Age: ${ageRange}
-- BEAUTY LOCK (applies ONLY when frameworkType === "ugc" — product/lifestyle frameworks have NO character and IGNORE this lock): ${gender === "male" ? "Handsome attractive Malay man — sharp jawline, clear skin, confident friendly presence, well-groomed. State \"handsome attractive Malay man with sharp features and clear skin\" in every UGC-framework imagePrompt and videoPrompt." : "Beautiful attractive Malay woman — clear glowing skin, warm natural smile, confident gentle presence, well-groomed. State \"beautiful attractive Malay woman with clear glowing skin\" in every UGC-framework imagePrompt and videoPrompt."}
+- BEAUTY LOCK (applies to UGC + LIFESTYLE frameworks — product frameworks have NO character and IGNORE this lock): ${gender === "male" ? "Handsome attractive Malay man — sharp jawline, clear skin, confident friendly presence, well-groomed. State \"handsome attractive Malay man with sharp features and clear skin\" in every UGC + lifestyle framework imagePrompt and videoPrompt." : "Beautiful attractive Malay woman — clear glowing skin, warm natural smile, confident gentle presence, well-groomed. State \"beautiful attractive Malay woman with clear glowing skin\" in every UGC + lifestyle framework imagePrompt and videoPrompt."}
 - SAME person in ALL videos within this batch. Only change: outfit + setting.
 </locked_avatar>
 
@@ -587,10 +590,10 @@ These CHANGE per video (dynamic):
 <video_prompt_rules>
 🚨 FRAMEWORK-TYPE → TEMPLATE (NON-NEGOTIABLE — read this first for EVERY framework):
 - frameworkType === "ugc"        → Template A. Character on screen speaking to camera. Holds the product. Same locked avatar as the LOCKED AVATAR block above.
+- frameworkType === "lifestyle"  → Template A. Character on screen in an aspirational scene with the product. Same locked avatar applies.
 - frameworkType === "product"    → Template B. PRODUCT-ONLY shot. NO person, NO face, NO hands, NO body. Pure product visual + voiceover. The locked-avatar block is IGNORED for these — there is no character on screen.
-- frameworkType === "lifestyle"  → Template B variant. Product in a lifestyle scene. NO person on screen. Voiceover only.
 
-The frameworkType for each plan item is provided in your input — pick the correct template for each video. NEVER write a Template-A prompt for a "product"/"lifestyle" framework. NEVER write a Template-B prompt for a "ugc" framework.
+The frameworkType for each plan item is provided in your input — pick the correct template for each video. NEVER write a Template-A prompt for a "product" framework. NEVER write a Template-B prompt for a "ugc" or "lifestyle" framework.
 
 ${is16s ? `
 16-SECOND VIDEO = ONE continuous story, split into 2 shots that will be merged.

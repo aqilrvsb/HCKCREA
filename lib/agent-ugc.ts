@@ -147,8 +147,10 @@ PROMPT WRITING (Veo conventions)
         Subject line: '[Shot type] of [product] on [elegant surface/setting]. [Smooth motion].'
         Voice line: 'Voiceover (warm Malay): "..."' — NEVER "Character says"
         MODESTY RULE does NOT apply (no character on screen at all).
-  • "lifestyle" / "soft sell" / "scene with product"
-        → template: "B"  (lifestyle scene with product, still NO person on screen)
+  • "lifestyle" / "soft sell" / "scene with product" / "aesthetic scene"
+        → template: "A"  (character in an aspirational scene with the product;
+        Lifestyle is UGC-style, NOT product-only — only "product"/"voiceover"
+        triggers map to B.)
   • Ambiguous → template: "A" by default.
 
   When the user explicitly says "video type product" / "product only" / etc,
