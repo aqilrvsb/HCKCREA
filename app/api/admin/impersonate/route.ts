@@ -65,33 +65,54 @@ export async function POST(req: Request) {
     );
   }
 
-  // Generate one-time magic link. Supabase returns an action_link the
-  // browser can navigate to; the link consumes the token + sets the
-  // session cookies for the target user.
+  // Mint a session for the target user — peningbot pattern:
+  //   1. generateLink({ type: 'magiclink' }) → returns action_link with
+  //      a one-time token in its query string
+  //   2. parse the token from the action_link
+  //   3. verifyOtp() server-side using the service-role admin client →
+  //      consumes the token, returns a real { access_token, refresh_token }
+  //   4. return the session JSON to the caller
   //
-  // redirectTo points at /auth/handoff (a client component) instead of
-  // /dashboard directly because Supabase magic links return tokens in
-  // the URL hash (#access_token=...). Server components can't read the
-  // hash, so /dashboard alone would 401-redirect. /auth/handoff parses
-  // the hash, writes session cookies, then forwards to /dashboard.
-  const origin =
-    req.headers.get("x-forwarded-host") || req.headers.get("host");
-  const proto =
-    req.headers.get("x-forwarded-proto") ||
-    (origin?.includes("localhost") ? "http" : "https");
-  const redirectTo = origin
-    ? `${proto}://${origin}/auth/handoff?next=/dashboard`
-    : undefined;
-
+  // The browser then calls supabase.auth.setSession() with these tokens
+  // to log in as the target user. No URL-hash round-trip needed; no
+  // need for a /auth/callback bounce.
   const { data: linkData, error: linkErr } =
     await admin.auth.admin.generateLink({
       type: "magiclink",
       email: targetEmail,
-      options: redirectTo ? { redirectTo } : undefined,
     });
   if (linkErr || !linkData?.properties?.action_link) {
     return NextResponse.json(
       { error: linkErr?.message || "Failed to generate login link" },
+      { status: 500 }
+    );
+  }
+
+  // Pull the OTP token out of the action_link's query string.
+  let tokenHash: string | null = null;
+  try {
+    const linkUrl = new URL(linkData.properties.action_link);
+    tokenHash = linkUrl.searchParams.get("token");
+  } catch {
+    // fall through
+  }
+  if (!tokenHash) {
+    return NextResponse.json(
+      { error: "Failed to parse token from magic link" },
+      { status: 500 }
+    );
+  }
+
+  // Verify the OTP server-side to get the actual session tokens. Uses
+  // the service-role admin client so we don't burn the OTP via the
+  // user-scoped supabase ssr client.
+  const { data: verifyData, error: verifyErr } = await admin.auth.verifyOtp({
+    token_hash: tokenHash,
+    type: "magiclink",
+  });
+  if (verifyErr || !verifyData?.session) {
+    return NextResponse.json(
+      { error: verifyErr?.message || "Failed to verify magic-link token" },
       { status: 500 }
     );
   }
@@ -110,7 +131,10 @@ export async function POST(req: Request) {
 
   return NextResponse.json({
     ok: true,
-    url: linkData.properties.action_link,
+    session: {
+      access_token: verifyData.session.access_token,
+      refresh_token: verifyData.session.refresh_token,
+    },
     target_email: targetEmail,
   });
 }

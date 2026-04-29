@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { createClient } from "@/lib/supabase/client";
 import {
   Search,
   CheckCircle2,
@@ -33,11 +34,17 @@ export default function AdminClients() {
   const [editing, setEditing] = useState<Client | null>(null);
   const [impersonatingId, setImpersonatingId] = useState<string | null>(null);
 
-  // Click an email → server generates a one-time magic-link that auto-
-  // signs-in as the target user. Opens in a new tab so the admin's own
-  // session in the original tab stays intact.
+  // Click an email → server mints a session for the target user via
+  // verifyOtp (peningbot pattern), client signs out the admin and
+  // setSession()'s the new tokens, redirect to /dashboard. Same-origin
+  // cookie auth means we can't keep TWO sessions live in the same
+  // browser — admin will need to re-login afterwards to come back.
   async function impersonate(c: Client) {
-    if (!confirm(`Login as ${c.full_name || c.email}?\n\nThis opens a new tab with that user's session so you can see exactly what they see. Your admin session in this tab stays.`)) {
+    if (
+      !confirm(
+        `Login as ${c.full_name || c.email}?\n\nYour admin session will be replaced. Re-login at /admin to come back.`
+      )
+    ) {
       return;
     }
     setImpersonatingId(c.id);
@@ -48,11 +55,24 @@ export default function AdminClients() {
         body: JSON.stringify({ user_id: c.id }),
       });
       const d = await r.json();
-      if (!r.ok || !d?.url) {
+      if (!r.ok || !d?.session) {
         alert(`Impersonate failed: ${d?.error || "unknown error"}`);
         return;
       }
-      window.open(d.url, "_blank", "noopener,noreferrer");
+      const sb = createClient();
+      // Sign out current admin first so cookies get cleared cleanly.
+      await sb.auth.signOut();
+      // Set the target user's session tokens.
+      const res = await sb.auth.setSession({
+        access_token: d.session.access_token,
+        refresh_token: d.session.refresh_token,
+      });
+      if (res.error) {
+        alert(`Impersonate setSession failed: ${res.error.message}`);
+        return;
+      }
+      // Hard navigate so the dashboard server component re-reads cookies.
+      window.location.href = "/dashboard";
     } finally {
       setImpersonatingId(null);
     }
