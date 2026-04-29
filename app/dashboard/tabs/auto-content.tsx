@@ -61,8 +61,31 @@ export default function AutoContentTab({ projectId }: { projectId?: string } = {
   // "Your recent products" dropdown — populated from /api/scrape/recent
   // on mount. Click → re-runs fetchAffiliate with the cached URL, which
   // hits the global tiktok_product_cache and returns instantly.
-  const [recentProducts, setRecentProducts] = useState<RecentProduct[]>([]);
-  const [showRecent, setShowRecent] = useState(false);
+  // Hydrate from sessionStorage on first render so the dropdown is
+  // INSTANT on every tab open. The /api/scrape/recent fetch still runs
+  // in the background to pick up any new products fetched in another
+  // tab, but the user never has to wait for it.
+  const [recentProducts, setRecentProducts] = useState<RecentProduct[]>(
+    () => {
+      if (typeof window === "undefined") return [];
+      try {
+        const raw = window.sessionStorage.getItem("pl_recent_products");
+        const parsed = raw ? JSON.parse(raw) : null;
+        return Array.isArray(parsed) ? parsed : [];
+      } catch {
+        return [];
+      }
+    }
+  );
+  // Track focus separately from "should the dropdown render". This lets
+  // the dropdown auto-appear the instant recentProducts finishes loading
+  // — even if the user clicked the input BEFORE the fetch returned.
+  // Prior version used a setShowRecent inside onFocus, which read a
+  // stale (empty) recentProducts and didn't re-trigger when data
+  // arrived → user had to click 3-4 times before it showed.
+  const [inputFocused, setInputFocused] = useState(false);
+  const showRecent =
+    inputFocused && recentProducts.length > 0 && !affiliateUrl.trim();
 
   const [unitCount, setUnitCount] = useState(1);
   const [manualProducts, setManualProducts] = useState<ManualProduct[]>([
@@ -120,19 +143,30 @@ export default function AutoContentTab({ projectId }: { projectId?: string } = {
     );
   }, [quantity]);
 
-  // Load this user's recent fetched products once on mount. Cheap query
-  // (returns ≤20 rows joined to cached image/price metadata) — surfaces
-  // a dropdown so users can re-pick a previously scraped product
-  // without burning another TikHub call.
+  // Refresh recent products from the DB on mount. The dropdown is
+  // already populated synchronously from sessionStorage above, so this
+  // background refresh just picks up new products fetched in other
+  // tabs. Result is also written to sessionStorage so the next mount
+  // is instant.
   useEffect(() => {
     (async () => {
       try {
         const r = await fetch("/api/scrape/recent");
         if (!r.ok) return;
         const d = await r.json();
-        if (Array.isArray(d?.items)) setRecentProducts(d.items);
+        if (Array.isArray(d?.items)) {
+          setRecentProducts(d.items);
+          try {
+            window.sessionStorage.setItem(
+              "pl_recent_products",
+              JSON.stringify(d.items)
+            );
+          } catch {
+            // Quota / private-mode failures are non-fatal.
+          }
+        }
       } catch {
-        // Non-fatal — dropdown just stays empty.
+        // Non-fatal — dropdown falls back to the sessionStorage cache.
       }
     })();
   }, []);
@@ -207,7 +241,7 @@ export default function AutoContentTab({ projectId }: { projectId?: string } = {
     const url = (overrideUrl ?? affiliateUrl).trim();
     if (!url) return;
     if (overrideUrl) setAffiliateUrl(overrideUrl);
-    setShowRecent(false);
+    setInputFocused(false);
     setScraping(true);
     setScrapeMsg(null);
     try {
@@ -249,13 +283,23 @@ export default function AutoContentTab({ projectId }: { projectId?: string } = {
         text: `✓ Loaded "${d.product_name.substring(0, 60)}${d.product_name.length > 60 ? "…" : ""}" — edit below if needed.`,
       });
       // Refresh the recent list so this product appears at the top
-      // (server already wrote to user_product_history). Best-effort —
-      // ignore failures.
+      // (server already wrote to user_product_history). Persist to
+      // sessionStorage too so the next tab open is instant.
       try {
         const rr = await fetch("/api/scrape/recent");
         if (rr.ok) {
           const dd = await rr.json();
-          if (Array.isArray(dd?.items)) setRecentProducts(dd.items);
+          if (Array.isArray(dd?.items)) {
+            setRecentProducts(dd.items);
+            try {
+              window.sessionStorage.setItem(
+                "pl_recent_products",
+                JSON.stringify(dd.items)
+              );
+            } catch {
+              // Non-fatal
+            }
+          }
         }
       } catch {
         // Non-fatal
@@ -520,20 +564,14 @@ export default function AutoContentTab({ projectId }: { projectId?: string } = {
                 <input
                   type="url"
                   value={affiliateUrl}
-                  onChange={(e) => {
-                    setAffiliateUrl(e.target.value);
-                    // Hide dropdown as soon as user types — they want
-                    // to paste a fresh URL, not pick from history.
-                    if (e.target.value.length > 0) setShowRecent(false);
-                  }}
-                  onFocus={() => {
-                    if (!affiliateUrl.trim() && recentProducts.length > 0) {
-                      setShowRecent(true);
-                    }
-                  }}
+                  onChange={(e) => setAffiliateUrl(e.target.value)}
+                  // showRecent is derived state (inputFocused + has data
+                  // + empty input). The moment recentProducts finishes
+                  // loading, the dropdown appears without a re-click.
+                  onFocus={() => setInputFocused(true)}
                   // Delay blur so the dropdown's onMouseDown click can
                   // fire before the panel disappears.
-                  onBlur={() => setTimeout(() => setShowRecent(false), 150)}
+                  onBlur={() => setTimeout(() => setInputFocused(false), 150)}
                   placeholder={
                     recentProducts.length > 0
                       ? "Paste link or pick from recent…"
