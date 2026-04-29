@@ -1137,7 +1137,15 @@ export default function Home() {
             />
             <div className="relative">
               <div className="text-center mb-6">
-                <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white border border-orange-200 text-[11px] font-bold uppercase tracking-widest text-orange mb-4">
+                <div
+                  className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-full text-[11px] font-bold uppercase tracking-widest text-white mb-4"
+                  style={{
+                    background:
+                      "linear-gradient(135deg, #f97316 0%, #ea580c 100%)",
+                    boxShadow:
+                      "0 4px 12px rgba(234, 88, 12, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.18)",
+                  }}
+                >
                   <Sparkles className="w-3 h-3" />
                   Exclusive PeningLab Pro
                 </div>
