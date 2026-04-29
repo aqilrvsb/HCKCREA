@@ -215,13 +215,58 @@ export async function getProjectLimit(): Promise<number> {
   return Number.isFinite(n) && n > 0 ? Math.floor(n) : 4;
 }
 
-// Seedance Fast — billed per second of video. Admin sets the rate so
-// pricing can rotate without redeploy. Default RM0.40 / sec — an 8s
-// clip costs RM3.20, a 15s clip costs RM6.00.
+// Seedance Fast — billed per second of video. Reads rate_seedance
+// (the new per-model rate row) first; falls back to legacy seedance_rate
+// for backward compat with deployments that ran 0018+0019 but not 0020.
+// Default RM0.40 / sec.
 export async function getSeedanceRate(): Promise<number> {
-  const v = await getSetting<any>("seedance_rate");
-  const n = Number(v?.per_second ?? 0.40);
+  const newRate = await getSetting<any>("rate_seedance");
+  if (Number.isFinite(Number(newRate?.per_second)) && Number(newRate?.per_second) > 0) {
+    return Number(newRate.per_second);
+  }
+  const legacy = await getSetting<any>("seedance_rate");
+  const n = Number(legacy?.per_second ?? 0.40);
   return Number.isFinite(n) && n > 0 ? n : 0.40;
+}
+
+// ────────────────────────────────────────────────────────────────────
+// Per-model rates — one knob per generation model so admin can price
+// each independently. priceFor() / generation routes consult these
+// first; absence falls through to the plan-tier rate. Migration 0020
+// seeds defaults; 0019 keeps the old seedance_rate around as fallback.
+// ────────────────────────────────────────────────────────────────────
+
+export async function getBananaProRate(): Promise<number> {
+  const v = await getSetting<any>("rate_banana_pro");
+  const n = Number(v?.per_image);
+  if (Number.isFinite(n) && n > 0) return n;
+  const cost = await getCreditCosts();
+  return cost.image;
+}
+
+export async function getGptImageRate(): Promise<number> {
+  const v = await getSetting<any>("rate_gpt_image");
+  const n = Number(v?.per_image);
+  if (Number.isFinite(n) && n > 0) return n;
+  const cost = await getCreditCosts();
+  return cost.image;
+}
+
+export async function getVeoRate(durationMode: "8" | "16" = "8"): Promise<number> {
+  const v = await getSetting<any>("rate_veo");
+  const key = durationMode === "16" ? "per_video_16s" : "per_video_8s";
+  const n = Number(v?.[key]);
+  if (Number.isFinite(n) && n > 0) return n;
+  const cost = await getCreditCosts();
+  return durationMode === "16" ? cost.video_16s : cost.video_8s;
+}
+
+export async function getGrokRate(): Promise<number> {
+  const v = await getSetting<any>("rate_grok");
+  const n = Number(v?.per_second);
+  if (Number.isFinite(n) && n > 0) return n;
+  // Fall back to legacy cinema_rate.
+  return await getCinemaRate();
 }
 
 export async function getPlanRate(plan: string) {

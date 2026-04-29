@@ -3,7 +3,15 @@
 // excluded from "Usage" stats (per product decision).
 
 import { createAdminClient } from "@/lib/supabase/admin";
-import { getCreditCosts, getPlanRate } from "@/lib/settings";
+import {
+  getCreditCosts,
+  getPlanRate,
+  getBananaProRate,
+  getGptImageRate,
+  getVeoRate,
+  getGrokRate,
+  getSeedanceRate,
+} from "@/lib/settings";
 
 export type DeductReason =
   | "image_generate"
@@ -14,13 +22,37 @@ export type DeductReason =
   | "cinema"
   | "seedance";
 
-// What rate applies for the given user + reason. For image/video the rate is
-// the user's plan rate (lower for Pro). Other reasons fall back to global
-// credit_costs (auto_plan / clone_plan are flat).
+// Optional model hint to pick a per-model rate. Pass when the caller
+// knows which provider/model the generation used so priceFor can read
+// from rate_<model> in app_settings instead of falling back to the
+// plan-tier rate. Backward compatible — omit and pricing works as before.
+export type PriceModelHint =
+  | "banana_pro"
+  | "gpt_image"
+  | "veo"
+  | "grok"
+  | "seedance";
+
+// What rate applies for the given user + reason. Per-model rates
+// (rate_banana_pro / rate_gpt_image / rate_veo / rate_grok / rate_seedance)
+// take priority when the caller passes a model hint. Without a hint,
+// falls back to plan-tier rates so existing call sites stay correct.
 export async function priceFor(
   userId: string,
-  reason: DeductReason
+  reason: DeductReason,
+  modelHint?: PriceModelHint
 ): Promise<number> {
+  // Per-model rate path — bypasses plan tier entirely. Useful when the
+  // caller knows which model produced the asset (e.g. extension, agent).
+  if (modelHint === "banana_pro") return await getBananaProRate();
+  if (modelHint === "gpt_image") return await getGptImageRate();
+  if (modelHint === "veo") {
+    return await getVeoRate(reason === "video_16s" ? "16" : "8");
+  }
+  if (modelHint === "grok") return await getGrokRate();
+  if (modelHint === "seedance") return await getSeedanceRate();
+
+  // Reason-based fallback paths preserved for backward compat.
   const admin = createAdminClient();
   const { data: profile } = await admin
     .from("profiles")
@@ -41,6 +73,8 @@ export async function priceFor(
     const rate = await getPlanRate(plan);
     return rate.video * 2;
   }
+  if (reason === "cinema") return await getGrokRate();
+  if (reason === "seedance") return await getSeedanceRate();
   const cost = await getCreditCosts();
   if (reason === "auto_plan") return cost.auto_plan;
   if (reason === "clone_plan") return cost.clone_plan;

@@ -54,6 +54,17 @@ export default function AdminSettings() {
   const [savingExt, setSavingExt] = useState(false);
   const [extMsg, setExtMsg] = useState<string | null>(null);
 
+  // Per-model pricing — one editable knob per model (rate_<model>).
+  // Loaded from app_settings on mount; saved on Apply.
+  const [rateBananaPro, setRateBananaPro] = useState("");
+  const [rateGptImage, setRateGptImage] = useState("");
+  const [rateVeo8, setRateVeo8] = useState("");
+  const [rateVeo16, setRateVeo16] = useState("");
+  const [rateGrok, setRateGrok] = useState("");
+  const [rateSeedance, setRateSeedance] = useState("");
+  const [savingRates, setSavingRates] = useState(false);
+  const [ratesMsg, setRatesMsg] = useState<string | null>(null);
+
   useEffect(() => {
     void load();
     void loadAdminDevice();
@@ -84,8 +95,82 @@ export default function AdminSettings() {
           setExtDownloadUrl(String(row.value?.url || ""));
         }
       }
+      // Hydrate the per-model pricing card.
+      const fmt = (n: any) =>
+        Number.isFinite(Number(n)) ? Number(n).toFixed(2) : "";
+      for (const row of list) {
+        if (row.key === "rate_banana_pro") setRateBananaPro(fmt(row.value?.per_image));
+        if (row.key === "rate_gpt_image") setRateGptImage(fmt(row.value?.per_image));
+        if (row.key === "rate_veo") {
+          setRateVeo8(fmt(row.value?.per_video_8s));
+          setRateVeo16(fmt(row.value?.per_video_16s));
+        }
+        if (row.key === "rate_grok") setRateGrok(fmt(row.value?.per_second));
+        if (row.key === "rate_seedance") setRateSeedance(fmt(row.value?.per_second));
+      }
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function saveModelRates() {
+    setSavingRates(true);
+    setRatesMsg(null);
+    try {
+      const num = (s: string, fb: number) => {
+        const n = Number(s);
+        return Number.isFinite(n) && n >= 0 ? n : fb;
+      };
+      await Promise.all([
+        fetch("/api/admin/settings", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            key: "rate_banana_pro",
+            value: { per_image: num(rateBananaPro, 0.15) },
+          }),
+        }),
+        fetch("/api/admin/settings", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            key: "rate_gpt_image",
+            value: { per_image: num(rateGptImage, 0.30) },
+          }),
+        }),
+        fetch("/api/admin/settings", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            key: "rate_veo",
+            value: {
+              per_video_8s: num(rateVeo8, 0.40),
+              per_video_16s: num(rateVeo16, 0.80),
+            },
+          }),
+        }),
+        fetch("/api/admin/settings", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            key: "rate_grok",
+            value: { per_second: num(rateGrok, 0.10) },
+          }),
+        }),
+        fetch("/api/admin/settings", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            key: "rate_seedance",
+            value: { per_second: num(rateSeedance, 0.40) },
+          }),
+        }),
+      ]);
+      setRatesMsg("✓ Rates saved. New generations will use these immediately.");
+      void load();
+      setTimeout(() => setRatesMsg(null), 5000);
+    } finally {
+      setSavingRates(false);
     }
   }
 
@@ -328,6 +413,138 @@ export default function AdminSettings() {
             section below (<code>p1_base</code>, <code>p1_key</code>, <code>p2_base</code>, <code>p2_key</code>).
             GPT Image 2 is hidden in the Image agent when image is on P1.
           </span>
+        </div>
+      </div>
+
+      {/* Per-model pricing — one editable knob per generation model so
+          admin can tune costs without editing JSON. Values persist as
+          app_settings rows (rate_<model>); priceFor() reads them with
+          plan-tier fallback so unset fields keep working as before. */}
+      <div className="card p-6 mb-6 border-2 border-violet-100 bg-violet-50/40">
+        <div className="flex items-center gap-2 mb-1">
+          <Package className="w-5 h-5 text-violet-600" />
+          <h2 className="font-display font-bold text-lg">Model Pricing</h2>
+        </div>
+        <p className="text-xs text-[var(--color-text-secondary)] mb-4">
+          Per-model rates for image and video generation. RM (Malaysian Ringgit). Changes apply to new generations immediately.
+        </p>
+        <div className="grid md:grid-cols-2 gap-4">
+          <div>
+            <label className="block text-xs font-mono uppercase tracking-wider text-[var(--color-text-muted)] font-bold mb-1.5 flex items-center gap-1.5">
+              <ImageIcon className="w-3.5 h-3.5" /> Banana Pro <span className="text-[10px] font-normal text-[var(--color-text-muted)]">/ image</span>
+            </label>
+            <div className="relative">
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs font-bold text-[var(--color-text-muted)]">RM</span>
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                value={rateBananaPro}
+                onChange={(e) => setRateBananaPro(e.target.value)}
+                className="input pl-10"
+                placeholder="0.15"
+              />
+            </div>
+          </div>
+          <div>
+            <label className="block text-xs font-mono uppercase tracking-wider text-[var(--color-text-muted)] font-bold mb-1.5 flex items-center gap-1.5">
+              <ImageIcon className="w-3.5 h-3.5" /> GPT Image <span className="text-[10px] font-normal text-[var(--color-text-muted)]">/ image</span>
+            </label>
+            <div className="relative">
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs font-bold text-[var(--color-text-muted)]">RM</span>
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                value={rateGptImage}
+                onChange={(e) => setRateGptImage(e.target.value)}
+                className="input pl-10"
+                placeholder="0.30"
+              />
+            </div>
+          </div>
+          <div>
+            <label className="block text-xs font-mono uppercase tracking-wider text-[var(--color-text-muted)] font-bold mb-1.5 flex items-center gap-1.5">
+              <Video className="w-3.5 h-3.5" /> Veo 8s <span className="text-[10px] font-normal text-[var(--color-text-muted)]">/ video</span>
+            </label>
+            <div className="relative">
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs font-bold text-[var(--color-text-muted)]">RM</span>
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                value={rateVeo8}
+                onChange={(e) => setRateVeo8(e.target.value)}
+                className="input pl-10"
+                placeholder="0.40"
+              />
+            </div>
+          </div>
+          <div>
+            <label className="block text-xs font-mono uppercase tracking-wider text-[var(--color-text-muted)] font-bold mb-1.5 flex items-center gap-1.5">
+              <Video className="w-3.5 h-3.5" /> Veo 16s <span className="text-[10px] font-normal text-[var(--color-text-muted)]">/ video</span>
+            </label>
+            <div className="relative">
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs font-bold text-[var(--color-text-muted)]">RM</span>
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                value={rateVeo16}
+                onChange={(e) => setRateVeo16(e.target.value)}
+                className="input pl-10"
+                placeholder="0.80"
+              />
+            </div>
+          </div>
+          <div>
+            <label className="block text-xs font-mono uppercase tracking-wider text-[var(--color-text-muted)] font-bold mb-1.5 flex items-center gap-1.5">
+              <Film className="w-3.5 h-3.5" /> Grok <span className="text-[10px] font-normal text-[var(--color-text-muted)]">(Story) / second</span>
+            </label>
+            <div className="relative">
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs font-bold text-[var(--color-text-muted)]">RM</span>
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                value={rateGrok}
+                onChange={(e) => setRateGrok(e.target.value)}
+                className="input pl-10"
+                placeholder="0.10"
+              />
+            </div>
+          </div>
+          <div>
+            <label className="block text-xs font-mono uppercase tracking-wider text-[var(--color-text-muted)] font-bold mb-1.5 flex items-center gap-1.5">
+              <Film className="w-3.5 h-3.5" /> Seedance <span className="text-[10px] font-normal text-[var(--color-text-muted)]">(Cinema) / second</span>
+            </label>
+            <div className="relative">
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs font-bold text-[var(--color-text-muted)]">RM</span>
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                value={rateSeedance}
+                onChange={(e) => setRateSeedance(e.target.value)}
+                className="input pl-10"
+                placeholder="0.40"
+              />
+            </div>
+          </div>
+        </div>
+        <div className="flex items-center gap-3 mt-5">
+          <button
+            type="button"
+            onClick={() => void saveModelRates()}
+            disabled={savingRates}
+            className="px-5 py-2 rounded-lg bg-violet-600 text-white font-bold text-sm hover:bg-violet-700 disabled:opacity-50 flex items-center gap-2"
+          >
+            {savingRates && <Loader2 className="w-4 h-4 animate-spin" />}
+            <Save className="w-4 h-4" /> Save Rates
+          </button>
+          {ratesMsg && (
+            <span className="text-xs text-emerald-700 font-semibold">{ratesMsg}</span>
+          )}
         </div>
       </div>
 
