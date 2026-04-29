@@ -68,12 +68,20 @@ export async function POST(req: Request) {
   // Generate one-time magic link. Supabase returns an action_link the
   // browser can navigate to; the link consumes the token + sets the
   // session cookies for the target user.
+  //
+  // redirectTo points at /auth/handoff (a client component) instead of
+  // /dashboard directly because Supabase magic links return tokens in
+  // the URL hash (#access_token=...). Server components can't read the
+  // hash, so /dashboard alone would 401-redirect. /auth/handoff parses
+  // the hash, writes session cookies, then forwards to /dashboard.
   const origin =
     req.headers.get("x-forwarded-host") || req.headers.get("host");
   const proto =
     req.headers.get("x-forwarded-proto") ||
     (origin?.includes("localhost") ? "http" : "https");
-  const redirectTo = origin ? `${proto}://${origin}/dashboard` : undefined;
+  const redirectTo = origin
+    ? `${proto}://${origin}/auth/handoff?next=/dashboard`
+    : undefined;
 
   const { data: linkData, error: linkErr } =
     await admin.auth.admin.generateLink({
