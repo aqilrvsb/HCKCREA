@@ -59,6 +59,70 @@ const TABS: { key: TabKey; label: string; icon: any; tag: string; theme: keyof t
   { key: "clone",    label: "Clone Prompt", icon: Layers,    tag: "06", theme: "yellow" },
 ];
 
+// Per-tab body theming — wraps the active tab's content in a div that
+// overrides the --color-orange* CSS variable family. Every component
+// inside (buttons, badges, borders, Tailwind orange-* classes) reads
+// from those variables, so flipping them at the wrapper auto-recolours
+// the entire workspace without touching any individual component.
+//
+// Only Image / UGC / Auto Content get overrides; Story / Cinema /
+// Clone Prompt fall through to the global yellow theme.
+const TAB_BODY_VARS: Record<string, Record<string, string>> = {
+  green: {
+    "--color-orange": "#22c55e",
+    "--color-orange-hover": "#16a34a",
+    "--color-orange-soft": "rgba(34,197,94,0.18)",
+    "--color-orange-tint": "rgba(34,197,94,0.08)",
+    "--color-orange-50": "#f0fdf4",
+    "--color-orange-100": "#dcfce7",
+    "--color-orange-200": "#bbf7d0",
+    "--color-orange-300": "#86efac",
+    "--color-orange-400": "#4ade80",
+    "--color-orange-500": "#22c55e",
+    "--color-orange-600": "#16a34a",
+    "--color-orange-700": "#15803d",
+    "--color-orange-800": "#166534",
+    "--color-orange-900": "#14532d",
+  },
+  cyan: {
+    // User-specified gradient anchors: rgb(37,244,238) → rgb(0,191,165)
+    "--color-orange": "#06b6d4",
+    "--color-orange-hover": "#00bfa5",
+    "--color-orange-soft": "rgba(6,182,212,0.18)",
+    "--color-orange-tint": "rgba(6,182,212,0.08)",
+    "--color-orange-50": "#ecfeff",
+    "--color-orange-100": "#cffafe",
+    "--color-orange-200": "#a5f3fc",
+    "--color-orange-300": "#67e8f9",
+    "--color-orange-400": "#25f4ee",
+    "--color-orange-500": "#06b6d4",
+    "--color-orange-600": "#00bfa5",
+    "--color-orange-700": "#0e7490",
+    "--color-orange-800": "#155e75",
+    "--color-orange-900": "#164e63",
+  },
+  orange: {
+    "--color-orange": "#f97316",
+    "--color-orange-hover": "#ea580c",
+    "--color-orange-soft": "rgba(249,115,22,0.18)",
+    "--color-orange-tint": "rgba(249,115,22,0.08)",
+    "--color-orange-50": "#fff7ed",
+    "--color-orange-100": "#ffedd5",
+    "--color-orange-200": "#fed7aa",
+    "--color-orange-300": "#fdba74",
+    "--color-orange-400": "#fb923c",
+    "--color-orange-500": "#f97316",
+    "--color-orange-600": "#ea580c",
+    "--color-orange-700": "#c2410c",
+    "--color-orange-800": "#9a3412",
+    "--color-orange-900": "#7c2d12",
+  },
+};
+
+function bodyVarsFor(themeKey: string): Record<string, string> | undefined {
+  return TAB_BODY_VARS[themeKey];
+}
+
 export default function DashboardShell({
   email,
   name,
@@ -388,9 +452,21 @@ function ProjectView({
         </div>
       )}
 
-      {/* Tab body — only rendered when subscription is active */}
+      {/* Tab body — only rendered when subscription is active. The
+          outer div carries the per-tab CSS-var override so every yellow
+          element inside auto-recolours when the active tab changes
+          (Image → green, UGC → cyan, Auto Content → orange, others
+          fall through to the global yellow theme). */}
       {planActive && (
-        <div key={project.id} className="flex-1 px-5 lg:px-10 pt-6 pb-10 lg:pb-12 space-y-6">
+        <div
+          key={project.id}
+          className="flex-1 px-5 lg:px-10 pt-6 pb-10 lg:pb-12 space-y-6"
+          style={
+            (bodyVarsFor(
+              TABS.find((t) => t.key === activeTab)?.theme || "yellow"
+            ) as React.CSSProperties) || undefined
+          }
+        >
           {activeTab === "image" && (
             <>
               <div className="max-w-5xl mx-auto w-full">
