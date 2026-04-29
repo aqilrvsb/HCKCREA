@@ -18,6 +18,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Layers,
+  Clock,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import Portal from "./portal";
@@ -447,11 +448,19 @@ function HistoryCard({
   // Segment slider — UGC + Auto Content cards that went through the 16s
   // pipeline (or were extended) have a parent row + a child seg-2 row. Build
   // a [seg-1, seg-2, merged] slide list so the user can flip between them.
+  // status semantics:
+  //   queued   — upstream dependency still running; this slide hasn't
+  //              even started. No spinner, no recheck button (nothing
+  //              to ping).
+  //   pending  — actively running (Veo task / merge step). Spinner +
+  //              recheck button (in case the webhook drops).
+  //   ready    — final URL available, playable.
+  //   failed   — give up, X icon.
   type Slide = {
     id: "seg_0" | "seg_1" | "merged";
     label: string;
     url: string | null;
-    status: "ready" | "pending" | "failed";
+    status: "ready" | "pending" | "queued" | "failed";
   };
   const slides = useMemo<Slide[]>(() => {
     const has16s = item.metadata?.duration_mode === "16s";
@@ -464,14 +473,26 @@ function HistoryCard({
     const seg2Url = seg2?.output_url || null;
     const fail = item.status === "failed";
     const seg1Status: Slide["status"] = seg1Url ? "ready" : fail ? "failed" : "pending";
+    const seg2Ready = !!seg2 && seg2.status === "done" && !!seg2Url;
     const seg2Status: Slide["status"] = seg2
-      ? seg2.status === "done" && seg2Url
+      ? seg2Ready
         ? "ready"
         : seg2.status === "failed"
           ? "failed"
           : "pending"
-      : "pending";
-    const mergedStatus: Slide["status"] = merged ? "ready" : fail ? "failed" : "pending";
+      : "queued"; // seg-2 hasn't been kicked off yet (seg-1 still running)
+    // Merged slide:
+    //   ready  — merge URL exists
+    //   failed — parent flagged failed
+    //   pending — seg-2 is ready, merge step is actively running
+    //   queued — seg-2 not done yet, so the merge hasn't started
+    const mergedStatus: Slide["status"] = merged
+      ? "ready"
+      : fail
+        ? "failed"
+        : seg2Ready
+          ? "pending"
+          : "queued";
     return [
       { id: "seg_0", label: "Seg 1", url: seg1Url, status: seg1Status },
       { id: "seg_1", label: "Seg 2", url: seg2Url, status: seg2Status },
@@ -745,8 +766,10 @@ function HistoryCard({
                     ? ""
                     : slide.status === "failed"
                       ? " (failed)"
-                      : slide.id === "merged"
-                        ? " (queued — merges after seg-2 lands)"
+                      : slide.status === "queued"
+                        ? slide.id === "seg_1"
+                          ? " (queued — waits for Seg 1 to finish)"
+                          : " (queued — merges after Seg 2 finishes)"
                         : " (still generating)")
                 }
                 className="relative flex-1 min-w-0 aspect-[9/16] rounded overflow-hidden bg-black"
@@ -768,6 +791,13 @@ function HistoryCard({
                   <div className="absolute inset-0 flex items-center justify-center">
                     {slide.status === "failed" ? (
                       <XCircle className="w-3.5 h-3.5 text-red-400" />
+                    ) : slide.status === "queued" ? (
+                      // Upstream dep still running — show a static clock
+                      // (no spinner, since this slide hasn't started yet).
+                      <Clock
+                        className="w-3.5 h-3.5"
+                        style={{ color: "#666" }}
+                      />
                     ) : (
                       <Loader2
                         className="w-3.5 h-3.5 animate-spin"
@@ -776,11 +806,12 @@ function HistoryCard({
                     )}
                   </div>
                 )}
-                {/* Manual recheck overlay — surfaces on pending or failed
-                    segments so the user can prod the status endpoint when
-                    the webhook drops. seg_0 + merged ping the parent row;
-                    seg_1 pings the child seg2 row. */}
-                {!ready && (
+                {/* Manual recheck overlay — only on slides that have
+                    actually been kicked off (pending / failed). Hidden
+                    for queued slides since there's nothing to ping yet.
+                    seg_0 + merged ping the parent row; seg_1 pings the
+                    child seg2 row. */}
+                {(slide.status === "pending" || slide.status === "failed") && (
                   <button
                     type="button"
                     onClick={(e) => {
