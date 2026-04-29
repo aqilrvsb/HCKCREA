@@ -130,17 +130,32 @@ PROMPT WRITING (Veo conventions)
 - Audio: 5-layer (Dialogue / SFX / Ambience / Music / Negatives). Music ducks under dialog.
 - ONE speaker per clip. Multi-speaker = staggered shots.
 - Brand names blocked → describe by appearance ("matte black bottle with gold cap").
-- 🎬 VIDEO TYPE — listen to the user. They tell you which:
-  • "ugc" / "person speaking" / "character" / "review" / "testimonial" → Template A (UGC):
-      Character on screen, holds the product, speaks to camera. Apply MODESTY RULE below.
-  • "product" / "product shot" / "product hero" / "product only" / "no person" / "voiceover" → Template B (PRODUCT-ONLY):
-      NO person, NO face, NO hands, NO body in frame. Pure product visual + voiceover audio only.
-      Subject = "[Shot type] of the product on [elegant surface/setting]". Smooth motion (slow rotation / zoom in / floating reveal). Voice = warm Malay voiceover; never "Character says".
-      The MODESTY RULE below does NOT apply because there is no character on screen.
-  • "lifestyle" / "soft sell" / "scene with product" → Template B variant:
-      Product placed in an aspirational scene. Still NO person on screen. Voiceover only.
-  • Default if ambiguous → Template A (UGC).
-  Honour the user's explicit request — if they say "make video type product", do NOT generate a person speaking even if it's a UGC tab.
+- 🎬 VIDEO TYPE — listen to the user, then DECLARE the template per variant:
+  Each variant in your generate_ugc_variants call MUST set the "template" field
+  to "A" or "B" matching what the user asked for. The prompt body MUST match
+  the declared template. NEVER cross-wire — declaring "A" while writing a
+  product-only prompt (or vice versa) will fail validation.
+
+  Trigger words → template mapping:
+  • "ugc" / "person speaking" / "character" / "review" / "testimonial"
+        → template: "A"  (UGC: character on screen, holds product, speaks to camera)
+        Subject line: 'A [persona] holding [product] in [setting]. Character says: "..."'
+        Apply MODESTY RULE below to the character's outfit.
+  • "product" / "product shot" / "product hero" / "product only" /
+    "no person" / "voiceover" / "tanpa orang" / "no face"
+        → template: "B"  (PRODUCT ONLY: NO person, NO face, NO hands, NO body)
+        Subject line: '[Shot type] of [product] on [elegant surface/setting]. [Smooth motion].'
+        Voice line: 'Voiceover (warm Malay): "..."' — NEVER "Character says"
+        MODESTY RULE does NOT apply (no character on screen at all).
+  • "lifestyle" / "soft sell" / "scene with product"
+        → template: "B"  (lifestyle scene with product, still NO person on screen)
+  • Ambiguous → template: "A" by default.
+
+  When the user explicitly says "video type product" / "product only" / etc,
+  ALL variants in that batch MUST be template "B" — do NOT mix in any
+  Template A "for variety". Variety in Template B comes from different
+  shot styles (flat lay / floating / dramatic surface / macro detail), not
+  from sneaking in a person.
 - 🧕 MODESTY RULE (Malaysian-Muslim audience — NON-NEGOTIABLE for ALL personas):
   • hijab=yes → tudung labuh + long-sleeve modest outfit (baju kurung / kaftan / blouse+long skirt).
   • hijab=no FEMALE → hair visible is the ONLY allowance. Short-sleeve T-shirts OK if loose fit. NO tight tops showing breast/chest shape, NO cleavage, NO V-necks low to chest, NO crop tops, NO midriff or navel exposure, NO short shorts, NO mini skirts, NO thigh exposure. Bottoms cover thighs (long pants / jeans / maxi or midi skirts).
@@ -203,8 +218,14 @@ const generateUgcVariants: ToolDefinition = {
         items: {
           type: "object",
           properties: {
-            scene: { type: "string", description: "Scene id (from SKILL INDEX) used to build this variant. e.g. 'kitchen-sambal', 'gym-supplement'." },
-            persona: { type: "string", description: "Persona id used. e.g. 'urban-hijabi-bestie', 'gym-bro'." },
+            template: {
+              type: "string",
+              enum: ["A", "B"],
+              description:
+                "REQUIRED. Which template this variant uses. 'A' = UGC (character on screen, speaks to camera). 'B' = product-only (no person, voiceover). The prompt body MUST match — declaring 'A' while writing a product-only prompt (or vice versa) is forbidden. See VIDEO TYPE rules in the system prompt for trigger-word mapping. Default to 'A' only when the user gave no clear product/voiceover signal.",
+            },
+            scene: { type: "string", description: "Scene id (from SKILL INDEX) used to build this variant. For Template B, persona/scene fields can be filled with neutral placeholders ('product-shot', 'studio') since there's no character; the actual content lives in the prompt body." },
+            persona: { type: "string", description: "Persona id used. For Template B (no person), use 'none' or 'product-shot'." },
             hook: { type: "string", description: "Hook id used. e.g. 'pain-confession', 'pov'." },
             framework: { type: "string", description: "Framework id used. e.g. 'pas', 'bab-extended'." },
             cta: { type: "string", description: "CTA id used. e.g. 'tap-beg-kuning', 'urgency'." },
