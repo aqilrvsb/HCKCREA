@@ -18,6 +18,9 @@ import {
   Bookmark,
   MessageCircle,
   ArrowUpRight,
+  Download,
+  X,
+  Send,
 } from "lucide-react";
 import LogoutButton from "./logout-button";
 
@@ -65,6 +68,26 @@ export default function Sidebar({
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
+  // Install-SOP modal for the Auto Post TikTok extension. Lazy-fetched
+  // version + download URL from /api/extension/info on first open.
+  const [autoPostModalOpen, setAutoPostModalOpen] = useState(false);
+  const [extInfo, setExtInfo] = useState<{ version: string; download_url: string } | null>(null);
+
+  async function openAutoPostModal() {
+    setAutoPostModalOpen(true);
+    if (!extInfo) {
+      try {
+        const r = await fetch("/api/extension/info", { cache: "no-store" });
+        const d = await r.json();
+        setExtInfo({
+          version: String(d?.version || ""),
+          download_url: String(d?.download_url || ""),
+        });
+      } catch {
+        setExtInfo({ version: "", download_url: "" });
+      }
+    }
+  }
   const menuRef = useRef<HTMLDivElement | null>(null);
 
   // Close 3-dot menu on outside click
@@ -439,6 +462,23 @@ export default function Sidebar({
           );
         })}
 
+        {/* Auto Post TikTok — opens install SOP modal (matches the
+            Hack Creative Extension SOP style). Click pulls the current
+            extension version + download URL from /api/extension/info. */}
+        <button
+          type="button"
+          onClick={() => void openAutoPostModal()}
+          className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-bold transition-all hover:bg-orange-500/10"
+          style={{ color: "var(--color-text-secondary)" }}
+        >
+          <Send
+            className="w-4 h-4 flex-shrink-0"
+            strokeWidth={2.4}
+            style={{ color: "var(--color-orange)" }}
+          />
+          Auto Post TikTok
+        </button>
+
         {/* External link — WhatsApp discussion group. Themed in green to
             match WhatsApp brand and stand out as a non-nav item. */}
         <a
@@ -544,6 +584,140 @@ export default function Sidebar({
           <LogoutButton compact />
         </div>
       </div>
+
+      {/* Auto Post TikTok install SOP — full-screen modal with the
+          download button + step-by-step "Load Unpacked" instructions.
+          Visual port of the Hack Creative Extension SOP. */}
+      {autoPostModalOpen && (
+        <div
+          className="fixed inset-0 z-[100] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4"
+          onClick={() => setAutoPostModalOpen(false)}
+        >
+          <div
+            className="bg-white rounded-2xl w-full max-w-md max-h-[92vh] overflow-y-auto shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Orange-gradient header */}
+            <div
+              className="px-6 py-5 flex items-center justify-between text-white rounded-t-2xl"
+              style={{
+                background:
+                  "linear-gradient(135deg, #f97316 0%, #ea580c 100%)",
+              }}
+            >
+              <div className="flex items-center gap-2.5">
+                <span className="text-xl">🎬</span>
+                <h3 className="font-display font-extrabold text-base">
+                  PeningLab Auto Post — SOP
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setAutoPostModalOpen(false)}
+                className="text-white/80 hover:text-white"
+                aria-label="Close"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Body */}
+            <div className="p-6 text-gray-900">
+              <div className="flex items-center gap-3 mb-4">
+                <div
+                  className="w-7 h-7 rounded-full flex items-center justify-center font-bold text-orange-700 text-sm"
+                  style={{ background: "#fed7aa" }}
+                >
+                  1
+                </div>
+                <h4 className="font-display font-extrabold text-lg">
+                  Install Extension
+                </h4>
+              </div>
+
+              <p className="text-sm font-bold mb-4" style={{ color: "#ea580c" }}>
+                Current Version: v{extInfo?.version || "…"}
+              </p>
+
+              <ul className="space-y-3 text-sm leading-relaxed">
+                <li className="flex items-start gap-2.5">
+                  <span
+                    className="mt-1.5 w-1.5 h-1.5 rounded-full flex-shrink-0"
+                    style={{ background: "#ea580c" }}
+                  />
+                  <div>
+                    <div>Download extension</div>
+                    {extInfo?.download_url ? (
+                      <a
+                        href={extInfo.download_url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex items-center gap-1.5 mt-2 px-4 py-2 rounded-lg font-bold text-sm transition-transform hover:-translate-y-0.5"
+                        style={{
+                          background: "#fff7ed",
+                          border: "1px solid #fdba74",
+                          color: "#ea580c",
+                        }}
+                      >
+                        <Download className="w-4 h-4" />
+                        Download Extension <ArrowUpRight className="w-3.5 h-3.5" />
+                      </a>
+                    ) : (
+                      <div className="text-xs text-gray-500 italic mt-1">
+                        Admin belum sediakan link download. Hubungi support.
+                      </div>
+                    )}
+                  </div>
+                </li>
+                <li className="flex items-start gap-2.5">
+                  <span
+                    className="mt-1.5 w-1.5 h-1.5 rounded-full flex-shrink-0"
+                    style={{ background: "#ea580c" }}
+                  />
+                  <div>Extract Folder</div>
+                </li>
+                <li className="flex items-start gap-2.5">
+                  <span
+                    className="mt-1.5 w-1.5 h-1.5 rounded-full flex-shrink-0"
+                    style={{ background: "#ea580c" }}
+                  />
+                  <div>
+                    Open Chrome, type{" "}
+                    <span className="font-mono font-bold bg-gray-100 px-1.5 py-0.5 rounded">
+                      chrome://extensions/
+                    </span>
+                  </div>
+                </li>
+                <li className="flex items-start gap-2.5">
+                  <span
+                    className="mt-1.5 w-1.5 h-1.5 rounded-full flex-shrink-0"
+                    style={{ background: "#ea580c" }}
+                  />
+                  <div>
+                    Enable <span className="font-bold">Developer Mode</span>
+                  </div>
+                </li>
+                <li className="flex items-start gap-2.5">
+                  <span
+                    className="mt-1.5 w-1.5 h-1.5 rounded-full flex-shrink-0"
+                    style={{ background: "#ea580c" }}
+                  />
+                  <div>
+                    Click <span className="font-bold">Load Unpacked</span>
+                  </div>
+                </li>
+                <li className="flex items-start gap-2.5">
+                  <span
+                    className="mt-1.5 w-1.5 h-1.5 rounded-full flex-shrink-0"
+                    style={{ background: "#ea580c" }}
+                  />
+                  <div>Select the extracted extension folder</div>
+                </li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      )}
     </aside>
   );
 }
