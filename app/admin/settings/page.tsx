@@ -314,9 +314,28 @@ export default function AdminSettings() {
     }
   }
 
+  // Keys hidden from the raw category cards because they're either
+  // dead/orphan or already exposed via a friendlier dedicated UI above.
+  // - price_video_16s: legacy orphan, no code reads it.
+  // - rate_*: covered by the Model Pricing card.
+  // - seedance_rate / cinema_rate_per_sec: legacy fallbacks for the new
+  //   rate_seedance / rate_grok keys; admin shouldn't need to touch them
+  //   directly anymore.
+  const HIDDEN_KEYS = new Set<string>([
+    "price_video_16s",
+    "rate_banana_pro",
+    "rate_gpt_image",
+    "rate_veo",
+    "rate_grok",
+    "rate_seedance",
+    "seedance_rate",
+    "cinema_rate_per_sec",
+  ]);
+
   const grouped = useMemo(() => {
     const m = new Map<string, Setting[]>();
     for (const r of rows) {
+      if (HIDDEN_KEYS.has(r.key)) continue;
       const cat = r.category || "general";
       if (!m.has(cat)) m.set(cat, []);
       m.get(cat)!.push(r);
