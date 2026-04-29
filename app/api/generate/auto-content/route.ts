@@ -347,7 +347,23 @@ Keep EACH shot prompt under 1000 characters. Do NOT repeat the voice description
 ` : ""}
 
 <frameworks>
-${fwPoolFinal.map((fw, i) => `${i + 1}. ${fw.name} (${fw.type}) — ${fw.focus}`).join("\n")}
+For EACH video below, you MUST use the matching TEMPLATE specified at the
+end of the line. NEVER cross-wire — if it says TEMPLATE B, the imagePrompt
+MUST be a product-only shot (no person at all) and the videoPrompt MUST be
+voiceover-only with the product on screen.
+
+${fwPoolFinal.map((fw, i) => {
+  const template = fw.type === "ugc"
+    ? "→ TEMPLATE A (UGC: character on screen, holds the product, speaks to camera)"
+    : "→ TEMPLATE B (PRODUCT ONLY: NO person, NO face, NO hands, NO body anywhere — pure product shot + voiceover)";
+  return `${i + 1}. ${fw.name} [${fw.type.toUpperCase()}] — ${fw.focus}\n   ${template}`;
+}).join("\n")}
+
+🚨 LOCKED-AVATAR BLOCK ABOVE APPLIES ONLY TO TEMPLATE A VIDEOS. For
+TEMPLATE B videos the locked-avatar is IGNORED — there is NO person on
+screen, period. The imagePrompt for those videos describes ONLY the
+product (e.g. "the yoga pants laid flat on textured concrete with soft
+sidelight, 100mm macro, shallow DOF") — no woman, no man, no hands.
 </frameworks>
 
 <dialog_style_rules>
