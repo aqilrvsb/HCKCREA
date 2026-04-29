@@ -14,7 +14,7 @@
 // toggle in the UI per the design choice.
 
 import { useEffect, useState } from "react";
-import { Loader2, X, Image as ImageIcon, Video, Music } from "lucide-react";
+import { Loader2, X, Image as ImageIcon } from "lucide-react";
 
 const MAX_REF_IMAGES = 4;
 const MAX_REF_VIDEOS = 3;
@@ -243,93 +243,15 @@ export default function SeedanceTab({ projectId }: { projectId: string }) {
         </div>
       </div>
 
-      {/* Reference videos — local upload OR pick from history */}
-      <div>
-        <div className="flex items-center justify-between mb-2">
-          <label className="flex items-center gap-2 text-xs font-mono uppercase tracking-wider text-[var(--color-text-muted)] font-bold">
-            <Video className="w-3.5 h-3.5" />
-            Reference Videos <span className="text-[10px] font-normal">(up to {MAX_REF_VIDEOS}, mp4/webm ≤15s, ≤60MB)</span>
-          </label>
-          {videoUrls.length < MAX_REF_VIDEOS && (
-            <button
-              type="button"
-              onClick={openHistoryPicker}
-              className="text-[11px] font-bold text-orange hover:underline"
-            >
-              From history
-            </button>
-          )}
+      {/* Reference Videos + Reference Audios — hidden for now. Backend
+          + upload endpoints stay in place; re-enable by removing the
+          `false &&` guard once the user is ready to expose them. */}
+      {false && (
+        <div className="hidden" aria-hidden="true">
+          {/* placeholder — see git history (commit d9b007d) for the
+              video + audio upload UI when re-enabling */}
         </div>
-        <div className="flex flex-wrap gap-2">
-          {videoUrls.map((u, i) => (
-            <div key={i} className="relative w-24 h-32 rounded-lg overflow-hidden border border-[var(--color-border)] bg-black">
-              <video src={u + "#t=0.5"} muted preload="metadata" className="w-full h-full object-cover" />
-              <button
-                type="button"
-                onClick={() => setVideoUrls((p) => p.filter((_, j) => j !== i))}
-                className="absolute top-1 right-1 w-5 h-5 rounded-full bg-black/70 text-white flex items-center justify-center hover:bg-red-500"
-              >
-                <X className="w-3 h-3" />
-              </button>
-            </div>
-          ))}
-          {videoUrls.length < MAX_REF_VIDEOS && (
-            <label className="w-24 h-32 rounded-lg border-2 border-dashed border-[var(--color-border)] flex flex-col items-center justify-center gap-1 cursor-pointer hover:border-orange-400 text-[10px] text-[var(--color-text-muted)]">
-              <input
-                type="file"
-                accept="video/mp4,video/webm,video/quicktime"
-                className="hidden"
-                onChange={(e) => {
-                  const f = e.target.files?.[0];
-                  if (f) uploadVideo(f);
-                  e.currentTarget.value = "";
-                }}
-              />
-              <Video className="w-5 h-5" />
-              <span>Upload</span>
-            </label>
-          )}
-        </div>
-      </div>
-
-      {/* Reference audios — local upload */}
-      <div>
-        <label className="flex items-center gap-2 text-xs font-mono uppercase tracking-wider text-[var(--color-text-muted)] font-bold mb-2">
-          <Music className="w-3.5 h-3.5" />
-          Reference Audios <span className="text-[10px] font-normal">(up to {MAX_REF_AUDIOS}, mp3/wav ≤15s, ≤15MB)</span>
-        </label>
-        <div className="space-y-1.5">
-          {audioUrls.map((u, i) => (
-            <div key={i} className="flex items-center gap-2 text-[11px] font-mono bg-[var(--color-card-2,#1a1a1a)] px-3 py-2 rounded-md border border-[var(--color-border)]">
-              <Music className="w-3 h-3 shrink-0 text-orange" />
-              <audio src={u} controls className="flex-1 h-7" style={{ maxWidth: 280 }} />
-              <button
-                type="button"
-                onClick={() => setAudioUrls((p) => p.filter((_, j) => j !== i))}
-                className="text-[var(--color-text-muted)] hover:text-red-400"
-              >
-                <X className="w-3.5 h-3.5" />
-              </button>
-            </div>
-          ))}
-          {audioUrls.length < MAX_REF_AUDIOS && (
-            <label className="inline-flex items-center gap-2 px-3 py-1.5 rounded-md border border-dashed border-[var(--color-border)] cursor-pointer hover:border-orange-400 text-[11px] font-semibold text-[var(--color-text-secondary)]">
-              <input
-                type="file"
-                accept="audio/mpeg,audio/mp3,audio/wav"
-                className="hidden"
-                onChange={(e) => {
-                  const f = e.target.files?.[0];
-                  if (f) uploadAudio(f);
-                  e.currentTarget.value = "";
-                }}
-              />
-              <Music className="w-3.5 h-3.5" />
-              <span>Upload audio</span>
-            </label>
-          )}
-        </div>
-      </div>
+      )}
 
       {/* History picker modal */}
       {historyOpen && (
