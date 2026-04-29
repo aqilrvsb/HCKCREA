@@ -107,7 +107,7 @@ export async function p1CreateTask(input: {
 }): Promise<P1CreateResp> {
   const cfg = await getP1Config();
   if (!cfg.base || !cfg.key) {
-    return { ok: false, error: "GeminiGen not configured" };
+    return { ok: false, error: "P1 not configured" };
   }
 
   const m = input.model.toLowerCase();
@@ -134,7 +134,7 @@ export async function p1CreateTask(input: {
   if (normalisedModel.includes("gpt-image")) {
     return {
       ok: false,
-      error: "GeminiGen (P1) does not support gpt-image-2 — switch image provider to P2 (Crun) or pick another model.",
+      error: "P1 does not support gpt-image-2 — switch image provider to P2 or pick another model.",
     };
   }
 
@@ -214,7 +214,7 @@ export async function p1CreateTask(input: {
 export async function p1GetStatus(uuid: string): Promise<P1StatusResp> {
   const cfg = await getP1Config();
   if (!cfg.base || !cfg.key) {
-    return { ok: false, status: "failed", error: "GeminiGen not configured" };
+    return { ok: false, status: "failed", error: "P1 not configured" };
   }
 
   const url = `${cfg.base}${cfg.statusPath.replace("{uuid}", encodeURIComponent(uuid))}`;

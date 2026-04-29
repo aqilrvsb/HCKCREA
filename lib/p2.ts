@@ -231,16 +231,16 @@ async function p2CreateTaskInternal(input: {
   }
   const taskId = json?.data?.task_id || json?.task_id || null;
   if (!taskId) {
-    // Crun sometimes returns 200 with an embedded error envelope (e.g.
+    // P2 sometimes returns 200 with an embedded error envelope (e.g.
     // 422 validation, 402 insufficient credits, 404 model not found).
     // Surface those instead of the useless "No task_id returned".
     const code = json?.code;
     const msg = json?.message;
     const errs = Array.isArray(json?.errors) ? json.errors.join("; ") : "";
     let composed = "No task_id returned";
-    if (code && code !== 200) composed = `Crun ${code}: ${msg || "unknown"}${errs ? " — " + errs : ""}`;
-    else if (msg && msg !== "success") composed = `Crun: ${msg}${errs ? " — " + errs : ""}`;
-    else composed = `No task_id. Raw: ${JSON.stringify(json).substring(0, 300)}`;
+    if (code && code !== 200) composed = `P2 ${code}: ${msg || "unknown"}${errs ? " — " + errs : ""}`;
+    else if (msg && msg !== "success") composed = `P2: ${msg}${errs ? " — " + errs : ""}`;
+    else composed = `P2: no task_id. Raw: ${JSON.stringify(json).substring(0, 300)}`;
     return { ok: false, error: composed, raw: json, provider: "p2" };
   }
   return { ok: true, task_id: String(taskId), raw: json, provider: "p2" };
