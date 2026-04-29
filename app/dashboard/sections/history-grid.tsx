@@ -806,12 +806,14 @@ function HistoryCard({
                     )}
                   </div>
                 )}
-                {/* Manual recheck overlay — only on slides that have
-                    actually been kicked off (pending / failed). Hidden
-                    for queued slides since there's nothing to ping yet.
+                {/* Manual recheck overlay — only visible while the slide
+                    is actively loading (status === "pending"). Hidden
+                    when queued (upstream still running, nothing to
+                    ping), ready (already done), or failed (it already
+                    concluded; a kick won't change the result).
                     seg_0 + merged ping the parent row; seg_1 pings the
                     child seg2 row. */}
-                {(slide.status === "pending" || slide.status === "failed") && (
+                {slide.status === "pending" && (
                   <button
                     type="button"
                     onClick={(e) => {
