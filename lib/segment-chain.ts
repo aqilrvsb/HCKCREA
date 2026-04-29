@@ -73,8 +73,14 @@ export async function onSegmentSettled(
   hist: Settled,
   outputUrl: string
 ): Promise<void> {
-  // Only video tab clips go through this chain
-  if (hist.type !== "video" && hist.type !== "ugc") return;
+  // Video / UGC / Auto Content rows are eligible. Image / clone are not.
+  if (
+    hist.type !== "video" &&
+    hist.type !== "ugc" &&
+    hist.type !== "auto-content"
+  ) {
+    return;
+  }
 
   // Branch 1: this is seg-1 of a 16s clip — fire seg-2
   if (
@@ -171,12 +177,15 @@ async function fireSeg2(parent: Settled, parentOutputUrl: string): Promise<void>
     imageMode: "ingredient",
   });
 
-  // 4. Insert seg-2 history row (cost=0, parent already charged)
+  // 4. Insert seg-2 history row (cost=0, parent already charged).
+  // Inherit type + tab from the parent so Auto Content seg-2 lands in
+  // the auto grid, manual UGC seg-2 lands in the video grid, and the
+  // AI Agent UGC seg-2 stays in video too.
   await admin.from("history").insert({
     user_id: parent.user_id,
     project_id: parent.project_id,
-    type: "video",
-    tab: "video",
+    type: parent.type || "video",
+    tab: parent.tab || "video",
     status: created.ok && created.task_id ? "pending" : "failed",
     prompt: seg2Prompt,
     framework: `seg2/${meta.scene || ""}/${meta.persona || ""}`,

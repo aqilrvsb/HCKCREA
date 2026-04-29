@@ -1015,28 +1015,18 @@ CRITICAL: Respond with ONLY a JSON array. NO analysis, NO explanation, NO markdo
     console.error("[auto-content] master-plan saved_prompts insert failed:", e);
   }
 
-  // Build the prompt sent to Veo from the plan's per-shot prompts. For 16s
-  // we concatenate Shot 1 and Shot 2 with a clear timeline header.
-  // After composition we APPEND the canonical lock block from
-  // lib/veo-voices.ts — same set of locks used by manual UGC, the UGC
-  // agent, and Extend. Caller passes the resolved voice description so
-  // it can embed inside the AUDIO LOCK (SHOT 1 ↔ SHOT 2 ↔ Extend match).
-  function veoPromptFor(p: Plan, voiceLine: string): string {
-    let composed: string;
-    if (durationMode === "16" && p.videoPromptShot2) {
-      composed = [
-        "16-second video — ONE continuous story split into 2 shots:",
-        "",
-        "SHOT 1 (0-8s):",
-        p.videoPromptShot1,
-        "",
-        "SHOT 2 (8-16s):",
-        p.videoPromptShot2,
-      ].join("\n");
-    } else {
-      composed = p.videoPromptShot1;
-    }
-    return composed + buildVeoLocks({ voiceLine });
+  // For 16s clips we now use the segment chain (lib/segment-chain.ts):
+  // fire seg-1 with Shot 1 only, store Shot 2 in metadata.seg2_prompt,
+  // and let onSegmentSettled pick it up after seg-1 lands. The chain
+  // handles the frame extract + seg-2 fire + ffmpeg merge automatically.
+  // For 8s clips, Shot 1 is the only prompt. Locks appended either way.
+  function veoSeg1PromptFor(p: Plan, voiceLine: string): string {
+    return p.videoPromptShot1 + buildVeoLocks({ voiceLine });
+  }
+  function veoSeg2PromptFor(p: Plan, voiceLine: string): string {
+    // Stored raw in metadata; segment-chain.ts will append its own
+    // locks + character continuity block when it builds the seg-2 prompt.
+    return (p.videoPromptShot2 || p.videoPromptShot1) + buildVeoLocks({ voiceLine });
   }
 
   // Resolve the locked voice description at the outer scope so every
@@ -1058,20 +1048,25 @@ CRITICAL: Respond with ONLY a JSON array. NO analysis, NO explanation, NO markdo
       : `Malay woman voice in her ${lockedAgeRange}, warm friendly tone, casual pace, mid-range pitch`) +
     ". Clear studio-quality recording, crisp consonants, natural treble, no muffling.";
 
+  const is16s = durationMode === "16";
   const histories: any[] = [];
   await Promise.all(
     plans.map(async (item, idx) => {
       const refImage = imageForVideo(idx);
       const useIngredient = !!refImage;
       const model = useIngredient ? cfg.videoR2V : cfg.videoT2V;
-      const veoPrompt = veoPromptFor(item, lockedVoiceLine);
+      const seg1Prompt = veoSeg1PromptFor(item, lockedVoiceLine);
+      const seg2Prompt = is16s
+        ? veoSeg2PromptFor(item, lockedVoiceLine)
+        : "";
 
+      // For 16s, fire seg-1 only at 8s — chain handles seg-2 + merge.
       const created = await p2CreateTask({
         model,
         userId: user.id,
-        prompt: veoPrompt,
+        prompt: seg1Prompt,
         imageUrls: refImage ? [refImage] : [],
-        durationMode,
+        durationMode: is16s ? "8" : durationMode,
         aspectRatio,
         imageMode: useIngredient ? "ingredient" : "text",
       });
@@ -1084,14 +1079,17 @@ CRITICAL: Respond with ONLY a JSON array. NO analysis, NO explanation, NO markdo
           type: "auto-content",
           tab: "auto",
           status: created.ok && created.task_id ? "pending" : "failed",
-          prompt: veoPrompt,
+          prompt: seg1Prompt,
           caption: item.caption || "",
           framework: item.framework || `Video ${idx + 1}`,
           reference_url: refImage || null,
           task_id: created.task_id || null,
-          duration: durationMode === "16" ? 16 : 8,
+          duration: is16s ? 16 : 8,
           cost: videoRate,
           batch_id: batch?.id,
+          // 16s chain fields — onSegmentSettled reads these to fire seg-2.
+          segment_index: is16s ? 1 : null,
+          frame_anchor: is16s ? "last" : null,
           error_message: created.ok ? null : created.error || "P2 create failed",
           metadata: {
             idx,
@@ -1105,6 +1103,17 @@ CRITICAL: Respond with ONLY a JSON array. NO analysis, NO explanation, NO markdo
             image_prompt: item.imagePrompt,
             video_prompt_shot1: item.videoPromptShot1,
             video_prompt_shot2: item.videoPromptShot2,
+            // Segment chain — duration_mode + seg2_prompt + voice_line
+            // are what segment-chain.ts onSegmentSettled needs to fire
+            // seg-2 automatically when seg-1 settles.
+            ...(is16s
+              ? {
+                  duration_mode: "16s",
+                  seg2_prompt: seg2Prompt,
+                  voice_line: lockedVoiceLine,
+                  aspectRatio,
+                }
+              : {}),
             // Fields the creative-hack-auto extension's auto-post step
             // reads: cover_title, cover_subtitle, caption (on the row
             // itself), product_name, tiktok_product_id. Saved here so

@@ -55,8 +55,14 @@ export async function POST(req: Request) {
     rawPrompt + buildVeoLocks({ voiceId, voiceLine: voiceDesc || undefined });
 
   const reason = durationMode === "16" ? "video_16s" : "video_8s";
+  const is16s = durationMode === "16";
 
   // Insert placeholder NOW. task_id + cost populated by after().
+  // For 16s: this row IS seg-1 of a chained 16s clip. The settle hook
+  // (lib/segment-chain.ts onSegmentSettled) reads metadata.duration_mode +
+  // segment_index + seg2_prompt + frame_anchor to fire seg-2 + merge
+  // automatically when seg-1 finishes. Manual UGC reuses the same prompt
+  // for seg-2 since the user only typed one prompt body.
   const admin = createAdminClient();
   const { data: hist, error: insErr } = await admin
     .from("history")
@@ -69,12 +75,23 @@ export async function POST(req: Request) {
       prompt,
       reference_url: imageUrls[0] || null,
       task_id: null,
-      duration: durationMode === "16" ? 16 : 8,
+      duration: is16s ? 16 : 8,
       cost: 0,
+      segment_index: is16s ? 1 : null,
+      frame_anchor: is16s ? "last" : null,
       metadata: {
         aspectRatio,
         imageMode,
         upload_status: "queued",
+        ...(is16s
+          ? {
+              duration_mode: "16s",
+              // Reuse the same prompt body for seg-2 — same character + scene,
+              // continuation handled by the frame-anchor reference image
+              // extracted from seg-1's last frame.
+              seg2_prompt: rawPrompt,
+            }
+          : {}),
       },
     })
     .select("id")
@@ -111,12 +128,14 @@ export async function POST(req: Request) {
         return;
       }
 
+      // For 16s clips fire Veo at 8s only — seg-2 + merge are handled
+      // by lib/segment-chain.ts onSegmentSettled when this row settles.
       const created = await p2CreateTask({
         model,
         userId: user.id,
         prompt,
         imageUrls,
-        durationMode,
+        durationMode: is16s ? "8" : durationMode,
         aspectRatio,
         imageMode,
       });
