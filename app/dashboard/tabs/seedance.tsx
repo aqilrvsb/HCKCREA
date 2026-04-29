@@ -14,7 +14,7 @@
 // toggle in the UI per the design choice.
 
 import { useEffect, useState } from "react";
-import { Loader2, X, Image as ImageIcon } from "lucide-react";
+import { Loader2, X, Image as ImageIcon, Info } from "lucide-react";
 
 const MAX_REF_IMAGES = 4;
 const MAX_REF_VIDEOS = 3;
@@ -26,6 +26,7 @@ const ASPECT_OPTIONS = [
 
 export default function SeedanceTab({ projectId }: { projectId: string }) {
   const [prompt, setPrompt] = useState("");
+  const [tipOpen, setTipOpen] = useState(false);
   const [imageUrls, setImageUrls] = useState<string[]>([]);
   const [videoUrls, setVideoUrls] = useState<string[]>([]);
   const [audioUrls, setAudioUrls] = useState<string[]>([]);
@@ -178,15 +179,104 @@ export default function SeedanceTab({ projectId }: { projectId: string }) {
 
   return (
     <div className="space-y-4">
-      {/* Mode pill */}
+      {/* Mode pill + face-block tip */}
       <div className="flex items-center justify-between">
-        <h2 className="font-display font-extrabold text-lg tracking-tight">
-          Cinema · <span className="text-orange">Seedance 2.0</span>
-        </h2>
+        <div className="flex items-center gap-2">
+          <h2 className="font-display font-extrabold text-lg tracking-tight">
+            Cinema · <span className="text-orange">Seedance 2.0</span>
+          </h2>
+          <button
+            type="button"
+            onClick={() => setTipOpen(true)}
+            title="Face-block bypass tip"
+            aria-label="Face-block bypass tip"
+            className="inline-flex items-center justify-center w-6 h-6 rounded-full text-[var(--color-text-muted)] hover:text-orange hover:bg-orange-50/30 transition"
+          >
+            <Info className="w-4 h-4" />
+          </button>
+        </div>
         <span className="text-xs font-mono uppercase tracking-wider text-[var(--color-text-muted)] font-bold">
           {mode}
         </span>
       </div>
+
+      {/* Face-block bypass tip — pops on Info icon click */}
+      {tipOpen && (
+        <div
+          className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-6"
+          onClick={() => setTipOpen(false)}
+        >
+          <div
+            className="bg-[#0d0d0d] border border-[var(--color-border)] rounded-xl w-full max-w-lg max-h-[90vh] overflow-y-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="p-5 border-b border-[var(--color-border)] flex items-start justify-between gap-3">
+              <div>
+                <div className="flex items-center gap-2">
+                  <Info className="w-4 h-4 text-orange" />
+                  <h3 className="font-display font-extrabold text-base">
+                    Face-block bypass — Canva trick
+                  </h3>
+                </div>
+                <p className="text-[11px] text-[var(--color-text-muted)] mt-1">
+                  Use this when Seedance refuses to render a real face.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setTipOpen(false)}
+                className="text-[var(--color-text-muted)] hover:text-white shrink-0"
+                aria-label="Close"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="p-5 space-y-3 text-sm leading-relaxed text-[var(--color-text-secondary)]">
+              <p>
+                <span className="font-bold text-white">Most people give up</span>{" "}
+                when Seedance blocks their face. But there is a smarter way.
+              </p>
+              <ol className="space-y-2 list-decimal list-inside marker:text-orange marker:font-extrabold">
+                <li>
+                  Open <span className="font-bold text-white">Canva</span> (free)
+                </li>
+                <li>Upload your photo</li>
+                <li>
+                  Draw a big{" "}
+                  <span className="font-bold text-red-500">RED X</span> across
+                  your face{" "}
+                  <span className="text-[var(--color-text-muted)] text-xs">
+                    (make sure it covers at least one eye)
+                  </span>
+                </li>
+                <li>
+                  Add text at the top:{" "}
+                  <span className="font-mono font-bold text-white">
+                    "CHARACTER REFERENCE SHEET"
+                  </span>
+                </li>
+                <li>Download it</li>
+                <li>
+                  Upload to Seedance 2.0 as your reference image
+                </li>
+              </ol>
+              <p className="text-[var(--color-text-muted)] text-xs italic pt-2">
+                Done. The face detector gets confused. Your character data stays
+                intact. Your video generates normally.
+              </p>
+              <a
+                href="https://www.facebook.com/reel/1907392529914647/"
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-1.5 mt-2 text-xs font-bold text-orange hover:underline"
+              >
+                Watch the demo reel
+                <span aria-hidden="true">↗</span>
+              </a>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Prompt */}
       <div>
