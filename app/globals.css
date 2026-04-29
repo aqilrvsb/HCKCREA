@@ -264,6 +264,11 @@ h1, h2, h3, h4, h5, h6, .font-display {
   font-family: var(--font-body);
   outline: none;
   transition: border-color 0.2s, box-shadow 0.2s;
+  /* Tells the browser to render type="date" / type="time" picker UI
+     in dark mode so the calendar icon + spinner controls don't render
+     with a light-on-light overlay (the cause of the "double 31"
+     ghosting on the admin date filters). */
+  color-scheme: dark;
 }
 
 .input:focus {

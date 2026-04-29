@@ -15,6 +15,7 @@ import {
   Image as ImageIcon,
   Video as VideoIcon,
 } from "lucide-react";
+import { localDateStr, startOfMonthLocal } from "@/lib/date-util";
 
 type UsageRow = {
   id: string;
@@ -48,10 +49,9 @@ export default function AdminUsage() {
   const [promptModal, setPromptModal] = useState<UsageRow | null>(null);
   const [previewModal, setPreviewModal] = useState<UsageRow | null>(null);
 
-  const today = new Date();
-  const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
-  const [start, setStart] = useState(monthStart.toISOString().slice(0, 10));
-  const [end, setEnd] = useState(today.toISOString().slice(0, 10));
+  // Malaysia-local dates (UTC+8) — toISOString would off-by-one to UTC.
+  const [start, setStart] = useState(startOfMonthLocal());
+  const [end, setEnd] = useState(localDateStr());
   const [search, setSearch] = useState("");
 
   useEffect(() => {

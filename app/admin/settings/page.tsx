@@ -468,7 +468,7 @@ export default function AdminSettings() {
                 step="0.01"
                 value={rateBananaPro}
                 onChange={(e) => setRateBananaPro(e.target.value)}
-                className="input pl-10"
+                className="input !pl-10"
                 placeholder="0.15"
               />
             </div>
@@ -485,7 +485,7 @@ export default function AdminSettings() {
                 step="0.01"
                 value={rateGptImage}
                 onChange={(e) => setRateGptImage(e.target.value)}
-                className="input pl-10"
+                className="input !pl-10"
                 placeholder="0.30"
               />
             </div>
@@ -502,7 +502,7 @@ export default function AdminSettings() {
                 step="0.01"
                 value={rateVeo8}
                 onChange={(e) => setRateVeo8(e.target.value)}
-                className="input pl-10"
+                className="input !pl-10"
                 placeholder="0.40"
               />
             </div>
@@ -519,7 +519,7 @@ export default function AdminSettings() {
                 step="0.01"
                 value={rateVeo16}
                 onChange={(e) => setRateVeo16(e.target.value)}
-                className="input pl-10"
+                className="input !pl-10"
                 placeholder="0.80"
               />
             </div>
@@ -536,7 +536,7 @@ export default function AdminSettings() {
                 step="0.01"
                 value={rateGrok}
                 onChange={(e) => setRateGrok(e.target.value)}
-                className="input pl-10"
+                className="input !pl-10"
                 placeholder="0.10"
               />
             </div>
@@ -553,7 +553,7 @@ export default function AdminSettings() {
                 step="0.01"
                 value={rateSeedance}
                 onChange={(e) => setRateSeedance(e.target.value)}
-                className="input pl-10"
+                className="input !pl-10"
                 placeholder="0.40"
               />
             </div>
