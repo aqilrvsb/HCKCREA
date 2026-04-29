@@ -201,10 +201,23 @@ async function orChatWithTools(opts: OrChatToolCallOpts): Promise<{
   let json: any = null;
   try { json = JSON.parse(text); } catch {}
   if (!res.ok || !json) {
-    return {
-      ok: false,
-      error: json?.error?.message || `HTTP ${res.status}: ${text.substring(0, 200)}`,
-    };
+    // OpenRouter's error envelope:
+    //   { error: { message, code, metadata: { raw, provider_name } } }
+    // The top-level `message` is usually generic ("Provider returned
+    // error"); the real upstream failure lives in metadata.raw +
+    // metadata.provider_name. Surface all three so the user sees WHICH
+    // provider failed and WHY instead of a useless wrapper string.
+    const err = json?.error;
+    const provider = err?.metadata?.provider_name;
+    const raw = err?.metadata?.raw;
+    const baseMsg =
+      err?.message || `HTTP ${res.status}: ${text.substring(0, 200)}`;
+    let composed = baseMsg;
+    if (provider) composed = `${provider}: ${composed}`;
+    if (raw && typeof raw === "string" && !composed.includes(raw)) {
+      composed = `${composed} — ${raw.substring(0, 300)}`;
+    }
+    return { ok: false, error: composed };
   }
 
   const choice = json?.choices?.[0]?.message;
