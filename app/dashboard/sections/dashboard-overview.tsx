@@ -233,11 +233,11 @@ export default function DashboardOverview({ name }: { name: string }) {
             <button
               onClick={applyFilter}
               disabled={loading}
-              className="flex-1 px-4 py-2 rounded-lg text-xs font-extrabold uppercase tracking-wider text-white disabled:opacity-50 transition-transform hover:-translate-y-0.5"
+              className="flex-1 px-4 py-2 rounded-lg text-xs font-extrabold uppercase tracking-wider text-black disabled:opacity-50 transition-transform hover:-translate-y-0.5"
               style={{
                 background:
                   "linear-gradient(135deg, #facc15 0%, #eab308 100%)",
-                boxShadow: "0 4px 14px rgba(255,77,0,0.3)",
+                boxShadow: "0 4px 14px rgba(250,204,21,0.3)",
               }}
             >
               Apply
