@@ -15,11 +15,26 @@
   --color-text-secondary: #b5b5b5;
   --color-text-muted: #707070;
 
-  /* Primary accent — vivid orange (PeningLab brand). Dark tints for translucent fills */
-  --color-orange: #ff5722;
-  --color-orange-hover: #ff7043;
-  --color-orange-soft: rgba(255, 87, 34, 0.18);
-  --color-orange-tint: rgba(255, 87, 34, 0.08);
+  /* Primary accent — highfield yellow (PeningLab brand). The legacy
+     "orange" naming is kept so every `text-orange` / `bg-orange-50`
+     / `from-orange-400` class across the app renders yellow without
+     a JSX-wide rename. Numeric shades remap Tailwind's orange palette
+     to yellow-{50..900} values so gradients + hover states stay
+     coherent. */
+  --color-orange: #facc15;
+  --color-orange-hover: #fde047;
+  --color-orange-soft: rgba(250, 204, 21, 0.18);
+  --color-orange-tint: rgba(250, 204, 21, 0.08);
+  --color-orange-50:  #fefce8;
+  --color-orange-100: #fef9c3;
+  --color-orange-200: #fef08a;
+  --color-orange-300: #fde047;
+  --color-orange-400: #facc15;
+  --color-orange-500: #eab308;
+  --color-orange-600: #ca8a04;
+  --color-orange-700: #a16207;
+  --color-orange-800: #854d0e;
+  --color-orange-900: #713f12;
 
   /* Higgsfield neon-lime — secondary attention CTA */
   --color-lime: #c8f53e;
