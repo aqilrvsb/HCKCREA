@@ -29,34 +29,17 @@ import Sidebar, { type Project, type SidebarView } from "./sidebar";
 
 type TabKey = "image" | "video" | "cinema" | "seedance" | "clone" | "auto";
 
-// Per-tab accent colour for the active pill. Each tab gets its own
-// gradient so the user can tell at a glance which workflow they're in.
-// `solid` is used for the icon fab and shadow tint; `gradient` is the
-// active-pill background; `text` is what reads on top of that gradient.
-type TabTheme = {
-  solid: string;
-  gradient: string;
-  shadow: string;
-  text: string;
-};
-const TAB_THEMES: Record<string, TabTheme> = {
-  green:  { solid: "#22c55e", gradient: "linear-gradient(135deg, #4ade80 0%, #16a34a 100%)", shadow: "rgba(34,197,94,0.35)",   text: "#fff" },
-  cyan:   { solid: "#06b6d4", gradient: "linear-gradient(135deg, #22d3ee 0%, #0891b2 100%)", shadow: "rgba(6,182,212,0.35)",   text: "#fff" },
-  orange: { solid: "#f97316", gradient: "linear-gradient(135deg, #fb923c 0%, #ea580c 100%)", shadow: "rgba(234,88,12,0.35)",   text: "#fff" },
-  yellow: { solid: "#facc15", gradient: "linear-gradient(135deg, #facc15 0%, #eab308 100%)", shadow: "rgba(250,204,21,0.35)",  text: "#000" },
-};
-
-// Tab order: Image → UGC → Auto Content → Story → Cinema (Seedance) →
-// Clone Prompt. Image + UGC + Auto Content each carry their own brand
-// colour; the rest fall back to highfield yellow. "Story" keeps the
-// legacy "cinema" key + /api/agent/cinema route paths internally.
-const TABS: { key: TabKey; label: string; icon: any; tag: string; theme: keyof typeof TAB_THEMES }[] = [
-  { key: "image",    label: "Image",        icon: ImageIcon, tag: "01", theme: "green" },
-  { key: "video",    label: "UGC",          icon: Video,     tag: "02", theme: "cyan" },
-  { key: "auto",     label: "Auto Content", icon: Wand2,     tag: "03", theme: "orange" },
-  { key: "cinema",   label: "Story",        icon: Film,      tag: "04", theme: "yellow" },
-  { key: "seedance", label: "Cinema",       icon: Film,      tag: "05", theme: "yellow" },
-  { key: "clone",    label: "Clone Prompt", icon: Layers,    tag: "06", theme: "yellow" },
+// Tab order: UGC → Auto Content → Story (was Cinema, Grok-driven) →
+// Cinema (NEW Seedance, Bytedance-driven) → Image → Clone Prompt.
+// "Story" keeps the legacy "cinema" key + route paths internally to
+// avoid a giant rename across api/agent/cinema/* and lib/agent-cinema.ts.
+const TABS: { key: TabKey; label: string; icon: any; tag: string }[] = [
+  { key: "video", label: "UGC", icon: Video, tag: "01" },
+  { key: "auto", label: "Auto Content", icon: Wand2, tag: "02" },
+  { key: "cinema", label: "Story", icon: Film, tag: "03" },
+  { key: "seedance", label: "Cinema", icon: Film, tag: "04" },
+  { key: "image", label: "Image", icon: ImageIcon, tag: "05" },
+  { key: "clone", label: "Clone Prompt", icon: Layers, tag: "06" },
 ];
 
 export default function DashboardShell({
@@ -335,7 +318,6 @@ function ProjectView({
             const Icon = t.icon;
             const isActive = activeTab === t.key;
             const locked = !planActive;
-            const theme = TAB_THEMES[t.theme];
             return (
               <button
                 key={t.key}
@@ -345,9 +327,10 @@ function ProjectView({
                 style={
                   isActive && !locked
                     ? {
-                        background: theme.gradient,
-                        color: theme.text,
-                        boxShadow: `0 4px 14px ${theme.shadow}`,
+                        background:
+                          "linear-gradient(135deg, #facc15 0%, #eab308 100%)",
+                        color: "#000",
+                        boxShadow: "0 4px 14px rgba(250,204,21,0.3)",
                       }
                     : {
                         background: "var(--color-bg-card)",
@@ -362,12 +345,7 @@ function ProjectView({
                 <span
                   className="font-mono text-[10px] tracking-wider"
                   style={{
-                    color:
-                      isActive && !locked
-                        ? theme.text === "#000"
-                          ? "rgba(0,0,0,0.55)"
-                          : "rgba(255,255,255,0.7)"
-                        : "var(--color-text-muted)",
+                    color: isActive && !locked ? "rgba(255,255,255,0.7)" : "var(--color-text-muted)",
                   }}
                 >
                   {locked ? "🔒" : t.tag}
