@@ -63,16 +63,11 @@ export default function AutoContentTab({ projectId }: { projectId?: string } = {
   // hits the global tiktok_product_cache and returns instantly.
   // Recent products live in the database (user_product_history joined
   // to tiktok_product_cache). Loaded once on mount via /api/scrape/recent.
+  // Surfaced via an explicit history icon next to the input — no
+  // auto-popout on focus. User clicks the icon → dropdown opens →
+  // pick a row → re-runs fetch (which hits the cache → instant).
   const [recentProducts, setRecentProducts] = useState<RecentProduct[]>([]);
-  // Track focus separately from "should the dropdown render". This lets
-  // the dropdown auto-appear the instant recentProducts finishes loading
-  // — even if the user clicked the input BEFORE the fetch returned.
-  // Prior version used a setShowRecent inside onFocus, which read a
-  // stale (empty) recentProducts and didn't re-trigger when data
-  // arrived → user had to click 3-4 times before it showed.
-  const [inputFocused, setInputFocused] = useState(false);
-  const showRecent =
-    inputFocused && recentProducts.length > 0 && !affiliateUrl.trim();
+  const [showRecent, setShowRecent] = useState(false);
 
   const [unitCount, setUnitCount] = useState(1);
   const [manualProducts, setManualProducts] = useState<ManualProduct[]>([
@@ -217,7 +212,7 @@ export default function AutoContentTab({ projectId }: { projectId?: string } = {
     const url = (overrideUrl ?? affiliateUrl).trim();
     if (!url) return;
     if (overrideUrl) setAffiliateUrl(overrideUrl);
-    setInputFocused(false);
+    setShowRecent(false);
     setScraping(true);
     setScrapeMsg(null);
     try {
@@ -531,21 +526,33 @@ export default function AutoContentTab({ projectId }: { projectId?: string } = {
                   type="url"
                   value={affiliateUrl}
                   onChange={(e) => setAffiliateUrl(e.target.value)}
-                  // showRecent is derived state (inputFocused + has data
-                  // + empty input). The moment recentProducts finishes
-                  // loading, the dropdown appears without a re-click.
-                  onFocus={() => setInputFocused(true)}
-                  // Delay blur so the dropdown's onMouseDown click can
-                  // fire before the panel disappears.
-                  onBlur={() => setTimeout(() => setInputFocused(false), 150)}
-                  placeholder={
-                    recentProducts.length > 0
-                      ? "Paste link or pick from recent…"
-                      : "Paste TikTok Shop / Shopee link..."
-                  }
-                  className="w-full p-3 rounded-xl text-sm outline-none"
+                  placeholder="Paste TikTok Shop / Shopee link..."
+                  className="w-full p-3 pr-11 rounded-xl text-sm outline-none"
                   style={{ background: "#fafaf7", border: "1px solid #e8e0d8", color: "#1a1a1a" }}
                 />
+                {/* History icon — toggles the recent-products dropdown.
+                    Only renders when the user has at least one saved
+                    product. Click → opens; click again or click an
+                    item → closes. */}
+                {recentProducts.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setShowRecent((s) => !s)}
+                    title="Pick from saved products"
+                    aria-label="Pick from saved products"
+                    className="absolute top-1/2 right-2 -translate-y-1/2 flex items-center justify-center rounded-lg hover:bg-yellow-100"
+                    style={{
+                      width: "32px",
+                      height: "32px",
+                      border: "1px solid #e8e0d8",
+                      background: showRecent ? "#fff8d6" : "#ffffff",
+                      color: "#1a1a1a",
+                      fontSize: "16px",
+                    }}
+                  >
+                    🕐
+                  </button>
+                )}
                 {showRecent && recentProducts.length > 0 && (
                   <div
                     className="absolute left-0 right-0 top-full mt-1 z-30 max-h-72 overflow-y-auto rounded-xl shadow-lg"
@@ -564,10 +571,8 @@ export default function AutoContentTab({ projectId }: { projectId?: string } = {
                       <button
                         key={p.product_id}
                         type="button"
-                        // onMouseDown so click registers BEFORE input
-                        // blur (which would dismiss the panel).
-                        onMouseDown={(e) => {
-                          e.preventDefault();
+                        onClick={() => {
+                          setShowRecent(false);
                           fetchAffiliate(p.raw_url);
                         }}
                         className="w-full flex items-center gap-2.5 px-3 py-2 text-left hover:bg-yellow-50"
