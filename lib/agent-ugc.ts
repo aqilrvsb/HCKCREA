@@ -130,6 +130,11 @@ PROMPT WRITING (Veo conventions)
 - Audio: 5-layer (Dialogue / SFX / Ambience / Music / Negatives). Music ducks under dialog.
 - ONE speaker per clip. Multi-speaker = staggered shots.
 - Brand names blocked → describe by appearance ("matte black bottle with gold cap").
+- 🧕 MODESTY RULE (Malaysian-Muslim audience — NON-NEGOTIABLE for ALL personas):
+  • hijab=yes → tudung labuh + long-sleeve modest outfit (baju kurung / kaftan / blouse+long skirt).
+  • hijab=no  → hair visible is the ONLY allowance. Body STILL covered: long sleeves only, fully covered neckline, NO cleavage, NO short shorts, NO mini skirt above knee, NO midriff, NO crop tops, NO sexy/revealing fits.
+  • Male personas → long sleeves and modest fit regardless. No tank tops, no shirtless, no tight/revealing.
+  • Apply this even when persona-skill text says "casual" or "trendy" — modesty overrides persona styling cues.
 - Locks (anatomy/audio/product/UGC-authenticity/visual) and negative block are AUTO-APPENDED by code. DO NOT include them in your prompt body.
 
 REPLIES: tight. Variants approved/rejected inline in chat — not via popup.
