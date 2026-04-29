@@ -265,15 +265,15 @@ export async function POST(req: Request) {
     // video model gets only the product image as ref (Veo r2v).
     const noImageMode = true;
     // Modesty rule applies regardless of hijab choice — Malaysian-Muslim
-    // audience requirement. Non-hijab personas still wear long sleeves
-    // and covered clothing. No cleavage, no short shorts, no midriff.
+    // audience requirement. Female allows short-sleeve T-shirts (loose
+    // fit, no chest contour) but never cleavage / midriff / thighs.
     const outfitDescription = hijabMode
       ? gender === "male"
-        ? "neat modern casual outfit, long sleeves, modest"
+        ? "neat modern casual outfit, modest fit"
         : "hijab and modest long-sleeve outfit (planner picks color + pattern to match scene)"
       : gender === "male"
-        ? "casual modern outfit, short hair neatly styled, long sleeves, modest fit"
-        : "casual modern outfit, hair visible, no hijab — BUT long sleeves only, fully covered neckline, no cleavage, no short shorts, no midriff, modest fit";
+        ? "casual modern outfit, short hair neatly styled, modest fit (no tank tops, no shirtless)"
+        : "casual modern outfit, hair visible, no hijab — short-sleeve T-shirts and loose blouses are OK, but loose fit only, NO tight tops showing breast shape, NO cleavage, NO crop tops / midriff / navel exposure, NO short shorts / mini skirts / thigh exposure. Bottoms must cover thighs.";
     const characterBlock =
       (gender === "male"
         ? "a handsome attractive Malay man with sharp features and clear skin"
@@ -524,7 +524,7 @@ Example: product = "dompet lelaki" but user chose Female avatar → use FEMALE a
 
 ONE avatar for ALL videos:
 - Gender: ${gender.toUpperCase()} — LOCKED, NEVER change
-- ${hijabMode ? "HIJAB: YES — hijab tudung labuh in EVERY image/video. NON-NEGOTIABLE." : "NO HIJAB — hair visible, BUT MODEST CLOTHING REQUIRED: long sleeves only, fully covered neckline, no cleavage, no short shorts, no midriff, no sexy/revealing outfits. NON-NEGOTIABLE."}
+- ${hijabMode ? "HIJAB: YES — hijab tudung labuh in EVERY image/video. NON-NEGOTIABLE." : "NO HIJAB — hair visible. MODESTY REQUIRED: short-sleeve T-shirts OK for female (loose fit only), but NO tight tops showing breast shape, NO cleavage, NO crop tops, NO midriff/navel, NO short shorts, NO mini skirts, NO thigh exposure. NON-NEGOTIABLE."}
 - Age: ${ageRange}
 - BEAUTY LOCK: ${gender === "male" ? "Handsome attractive Malay man — sharp jawline, clear skin, confident friendly presence, well-groomed. State \"handsome attractive Malay man with sharp features and clear skin\" in every imagePrompt and videoPrompt." : "Beautiful attractive Malay woman — clear glowing skin, warm natural smile, confident gentle presence, well-groomed. State \"beautiful attractive Malay woman with clear glowing skin\" in every imagePrompt and videoPrompt."}
 - SAME person in ALL videos within this batch. Only change: outfit + setting.
@@ -535,12 +535,12 @@ EVERY video MUST have an imagePrompt (max 600 chars).
 
 FOR UGC FRAMEWORKS (character ONLY — NO product in image):
 - Use the LOCKED AVATAR above — same person every time
-- ${hijabMode ? "Character MUST wear hijab tudung labuh in EVERY image — NO exceptions" : "Character has visible hair, casual modern look — BUT clothing MUST be modest: long sleeves only, fully covered neckline, no cleavage, no short shorts, no midriff. Hair visible is the ONLY allowance — body stays covered."}
+- ${hijabMode ? "Character MUST wear hijab tudung labuh in EVERY image — NO exceptions" : "Character has visible hair, casual modern look. Short-sleeve T-shirts OK for female (loose fit). MUST be modest: NO tight tops showing breast shape, NO cleavage, NO crop tops / midriff / navel, NO short shorts / mini skirts / thigh exposure."}
 - CHARACTER ONLY — do NOT include any product, phone, or object in the image. HANDS MUST BE EMPTY — not holding anything. No phone, no selfie, no product, no bag, no prop. Hands gently placed in front or relaxed at sides.
 - MUST be STANDING or MEDIUM SHOT (waist up minimum) — show body, arms, hands visible. NEVER close-up face only. Facing slightly to the side while looking at camera.
 - FACE: Invent a UNIQUE specific attractive face — describe smooth glowing skin, natural makeup (blush, glossy lips, defined brows), specific features (dimples, face shape, skin tone). Make this person look like a REAL beautiful individual. NEVER use generic "oval face, warm brown eyes".
 - BACKGROUND: Softly lit elegant indoor setting — warm tones, subtle drapery, soft gradient, or blurred aesthetic backdrop. No mirrors, no reflections, no glass. Clean and premium feel.
-- Outfit: ${gender === "male" ? "smart casual — polo shirt / button-up / casual jacket / hoodie (different each video), well-fitted, stylish, long sleeves, modest fit" : hijabMode ? "elegant modest wear — baju kurung kebaya / blouse+skirt / cardigan / kaftan / modest dress with intricate detailing + ALWAYS hijab (different color each video)" : "elegant modest casual — long-sleeve blouse / cardigan / loose midi/maxi dress / modest cut top + long pants or maxi skirt (different each video). NEVER short sleeves, NEVER cleavage, NEVER shorts above knee, NEVER midriff."}
+- Outfit: ${gender === "male" ? "smart casual — polo shirt / button-up / casual jacket / hoodie (different each video), well-fitted, stylish, modest fit (no tank tops, no shirtless)" : hijabMode ? "elegant modest wear — baju kurung kebaya / blouse+skirt / cardigan / kaftan / modest dress with intricate detailing + ALWAYS hijab (different color each video)" : "modest casual — short-sleeve T-shirt (loose) / long-sleeve blouse / cardigan / loose midi or maxi dress / modest top + long pants or maxi skirt (different each video). Short sleeves OK; NEVER cleavage, NEVER tight tops showing breast shape, NEVER shorts/skirts above knee, NEVER midriff."}
 - DIFFERENT pose, emotion + outfit per image
 - Lighting: soft, diffused, warm, natural glow highlighting face and outfit. Cinematic.
 - Style: photorealistic, luxury portrait, high-end editorial, ultra-realistic skin texture, sharp focus, depth of field with soft bokeh, 85mm lens, f/1.8

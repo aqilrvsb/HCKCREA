@@ -132,8 +132,8 @@ PROMPT WRITING (Veo conventions)
 - Brand names blocked → describe by appearance ("matte black bottle with gold cap").
 - 🧕 MODESTY RULE (Malaysian-Muslim audience — NON-NEGOTIABLE for ALL personas):
   • hijab=yes → tudung labuh + long-sleeve modest outfit (baju kurung / kaftan / blouse+long skirt).
-  • hijab=no  → hair visible is the ONLY allowance. Body STILL covered: long sleeves only, fully covered neckline, NO cleavage, NO short shorts, NO mini skirt above knee, NO midriff, NO crop tops, NO sexy/revealing fits.
-  • Male personas → long sleeves and modest fit regardless. No tank tops, no shirtless, no tight/revealing.
+  • hijab=no FEMALE → hair visible is the ONLY allowance. Short-sleeve T-shirts OK if loose fit. NO tight tops showing breast/chest shape, NO cleavage, NO V-necks low to chest, NO crop tops, NO midriff or navel exposure, NO short shorts, NO mini skirts, NO thigh exposure. Bottoms cover thighs (long pants / jeans / maxi or midi skirts).
+  • MALE personas → smart short-sleeve shirts/polos OK. NO shirtless, NO tank tops, NO tight muscle-tees.
   • Apply this even when persona-skill text says "casual" or "trendy" — modesty overrides persona styling cues.
 - Locks (anatomy/audio/product/UGC-authenticity/visual) and negative block are AUTO-APPENDED by code. DO NOT include them in your prompt body.
 
