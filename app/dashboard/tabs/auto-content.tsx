@@ -61,22 +61,9 @@ export default function AutoContentTab({ projectId }: { projectId?: string } = {
   // "Your recent products" dropdown — populated from /api/scrape/recent
   // on mount. Click → re-runs fetchAffiliate with the cached URL, which
   // hits the global tiktok_product_cache and returns instantly.
-  // Hydrate from sessionStorage on first render so the dropdown is
-  // INSTANT on every tab open. The /api/scrape/recent fetch still runs
-  // in the background to pick up any new products fetched in another
-  // tab, but the user never has to wait for it.
-  const [recentProducts, setRecentProducts] = useState<RecentProduct[]>(
-    () => {
-      if (typeof window === "undefined") return [];
-      try {
-        const raw = window.sessionStorage.getItem("pl_recent_products");
-        const parsed = raw ? JSON.parse(raw) : null;
-        return Array.isArray(parsed) ? parsed : [];
-      } catch {
-        return [];
-      }
-    }
-  );
+  // Recent products live in the database (user_product_history joined
+  // to tiktok_product_cache). Loaded once on mount via /api/scrape/recent.
+  const [recentProducts, setRecentProducts] = useState<RecentProduct[]>([]);
   // Track focus separately from "should the dropdown render". This lets
   // the dropdown auto-appear the instant recentProducts finishes loading
   // — even if the user clicked the input BEFORE the fetch returned.
@@ -143,30 +130,19 @@ export default function AutoContentTab({ projectId }: { projectId?: string } = {
     );
   }, [quantity]);
 
-  // Refresh recent products from the DB on mount. The dropdown is
-  // already populated synchronously from sessionStorage above, so this
-  // background refresh just picks up new products fetched in other
-  // tabs. Result is also written to sessionStorage so the next mount
-  // is instant.
+  // Load recent products from the database once on mount. The dropdown
+  // shows the instant data arrives — derived state (showRecent) means
+  // there's no stale-closure race even if the user clicked the input
+  // before the fetch returned.
   useEffect(() => {
     (async () => {
       try {
         const r = await fetch("/api/scrape/recent");
         if (!r.ok) return;
         const d = await r.json();
-        if (Array.isArray(d?.items)) {
-          setRecentProducts(d.items);
-          try {
-            window.sessionStorage.setItem(
-              "pl_recent_products",
-              JSON.stringify(d.items)
-            );
-          } catch {
-            // Quota / private-mode failures are non-fatal.
-          }
-        }
+        if (Array.isArray(d?.items)) setRecentProducts(d.items);
       } catch {
-        // Non-fatal — dropdown falls back to the sessionStorage cache.
+        // Non-fatal — dropdown stays empty until next mount.
       }
     })();
   }, []);
@@ -282,24 +258,14 @@ export default function AutoContentTab({ projectId }: { projectId?: string } = {
         ok: true,
         text: `✓ Loaded "${d.product_name.substring(0, 60)}${d.product_name.length > 60 ? "…" : ""}" — edit below if needed.`,
       });
-      // Refresh the recent list so this product appears at the top
-      // (server already wrote to user_product_history). Persist to
-      // sessionStorage too so the next tab open is instant.
+      // Refresh the recent list from the database so this product
+      // appears at the top — server already wrote to
+      // user_product_history during the affiliate scrape.
       try {
         const rr = await fetch("/api/scrape/recent");
         if (rr.ok) {
           const dd = await rr.json();
-          if (Array.isArray(dd?.items)) {
-            setRecentProducts(dd.items);
-            try {
-              window.sessionStorage.setItem(
-                "pl_recent_products",
-                JSON.stringify(dd.items)
-              );
-            } catch {
-              // Non-fatal
-            }
-          }
+          if (Array.isArray(dd?.items)) setRecentProducts(dd.items);
         }
       } catch {
         // Non-fatal
