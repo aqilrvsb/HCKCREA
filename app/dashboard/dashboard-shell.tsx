@@ -14,6 +14,7 @@ import {
 import ImageTab from "./tabs/image";
 import VideoTab from "./tabs/video";
 import CinemaTab from "./tabs/cinema";
+import SeedanceTab from "./tabs/seedance";
 import CloneTab from "./tabs/clone";
 import AutoContentTab from "./tabs/auto-content";
 import HistoryGrid from "./sections/history-grid";
@@ -26,14 +27,19 @@ import SavedPromptsSection from "./sections/saved-prompts";
 import AgentChatPanel, { type AgentTab } from "./sections/agent-chat-panel";
 import Sidebar, { type Project, type SidebarView } from "./sidebar";
 
-type TabKey = "image" | "video" | "cinema" | "clone" | "auto";
+type TabKey = "image" | "video" | "cinema" | "seedance" | "clone" | "auto";
 
+// Tab order: UGC → Auto Content → Story (was Cinema, Grok-driven) →
+// Cinema (NEW Seedance, Bytedance-driven) → Image → Clone Prompt.
+// "Story" keeps the legacy "cinema" key + route paths internally to
+// avoid a giant rename across api/agent/cinema/* and lib/agent-cinema.ts.
 const TABS: { key: TabKey; label: string; icon: any; tag: string }[] = [
-  { key: "image", label: "Image", icon: ImageIcon, tag: "01" },
-  { key: "video", label: "UGC", icon: Video, tag: "02" },
-  { key: "cinema", label: "Cinema", icon: Film, tag: "03" },
-  { key: "clone", label: "Clone Prompt", icon: Layers, tag: "04" },
-  { key: "auto", label: "Auto Content", icon: Wand2, tag: "05" },
+  { key: "video", label: "UGC", icon: Video, tag: "01" },
+  { key: "auto", label: "Auto Content", icon: Wand2, tag: "02" },
+  { key: "cinema", label: "Story", icon: Film, tag: "03" },
+  { key: "seedance", label: "Cinema", icon: Film, tag: "04" },
+  { key: "image", label: "Image", icon: ImageIcon, tag: "05" },
+  { key: "clone", label: "Clone Prompt", icon: Layers, tag: "06" },
 ];
 
 export default function DashboardShell({
@@ -384,7 +390,15 @@ function ProjectView({
               <div className="max-w-5xl mx-auto w-full">
                 <CinemaTab projectId={project.id} />
               </div>
-              <HistoryGrid tab="cinema" title={`Cinema — ${project.name}`} projectId={project.id} />
+              <HistoryGrid tab="cinema" title={`Story — ${project.name}`} projectId={project.id} />
+            </>
+          )}
+          {activeTab === "seedance" && (
+            <>
+              <div className="max-w-5xl mx-auto w-full">
+                <SeedanceTab projectId={project.id} />
+              </div>
+              <HistoryGrid tab="seedance" title={`Cinema — ${project.name}`} projectId={project.id} />
             </>
           )}
           {activeTab === "clone" && (

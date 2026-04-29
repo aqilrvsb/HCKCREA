@@ -11,7 +11,8 @@ export type DeductReason =
   | "video_16s"
   | "auto_plan"
   | "clone_plan"
-  | "cinema";
+  | "cinema"
+  | "seedance";
 
 // What rate applies for the given user + reason. For image/video the rate is
 // the user's plan rate (lower for Pro). Other reasons fall back to global
