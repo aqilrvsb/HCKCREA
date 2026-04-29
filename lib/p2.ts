@@ -29,9 +29,17 @@ export type P2CreateResp = {
 // per-user preference (profiles.video_provider) takes precedence over
 // the admin default — pass userId so the user override is honoured.
 async function pickProvider(model: string, userId?: string): Promise<"p1" | "p2"> {
-  const isGrok = model.includes("grok");
-  const isVideo = !isGrok && model.includes("veo");
-  const asset = isGrok ? "cinema" : isVideo ? "video" : "image";
+  const m = model.toLowerCase();
+  const isGrok = m.includes("grok");
+  const isSeedance = !isGrok && m.includes("seedance");
+  const isVideo = !isGrok && !isSeedance && m.includes("veo");
+  const asset = isSeedance
+    ? "seedance"
+    : isGrok
+      ? "cinema"
+      : isVideo
+        ? "video"
+        : "image";
   return await getGenProvider(asset, userId);
 }
 
@@ -49,6 +57,9 @@ export async function p2CreateTask(input: {
   prompt?: string;
   imageUrl?: string;
   imageUrls?: string[];
+  // Seedance-only (P1 omni + P2 r2v): reference video / audio URLs.
+  videoUrls?: string[];
+  audioUrls?: string[];
   durationMode?: "8" | "16" | string | number;
   aspectRatio?: string;
   resolution?: "1K" | "2K" | "4K" | "480p" | "720p" | string;
@@ -62,6 +73,8 @@ export async function p2CreateTask(input: {
       model: input.model,
       prompt: input.prompt,
       imageUrls: input.imageUrls,
+      videoUrls: input.videoUrls,
+      audioUrls: input.audioUrls,
       durationMode: input.durationMode,
       aspectRatio: input.aspectRatio,
       resolution: input.resolution,
@@ -86,6 +99,8 @@ async function p2CreateTaskInternal(input: {
   prompt?: string;
   imageUrl?: string;
   imageUrls?: string[];
+  videoUrls?: string[];
+  audioUrls?: string[];
   durationMode?: "8" | "16" | string | number;
   aspectRatio?: string;
   resolution?: "1K" | "2K" | "4K" | "480p" | "720p" | string;
@@ -99,14 +114,18 @@ async function p2CreateTaskInternal(input: {
   // Coerce single imageUrl into the imageUrls array — Crun expects `img_urls`
   const imgUrls = (input.imageUrls || []).filter(Boolean);
   if (input.imageUrl) imgUrls.unshift(input.imageUrl);
+  const vidUrls = (input.videoUrls || []).filter(Boolean);
+  const audUrls = (input.audioUrls || []).filter(Boolean);
 
   // Build the `input` block per model type. Each family takes different
   // params — copy-faithful to what the extension's background.js + Crun
   // docs specify so a working call there works here too.
-  const isGrok = input.model.includes("grok-imagine");
-  const isVideo = !isGrok && input.model.includes("veo");
-  const isGptImage = !isGrok && input.model.includes("gpt-image");
-  const isBanana = !isVideo && !isGptImage && !isGrok;
+  const m = input.model.toLowerCase();
+  const isGrok = m.includes("grok-imagine");
+  const isSeedance = !isGrok && m.includes("seedance");
+  const isVideo = !isGrok && !isSeedance && m.includes("veo");
+  const isGptImage = !isGrok && !isSeedance && m.includes("gpt-image");
+  const isBanana = !isVideo && !isGptImage && !isGrok && !isSeedance;
 
   const innerInput: Record<string, any> = {};
   if (input.prompt) innerInput.prompt = input.prompt.substring(0, 5000);
@@ -129,6 +148,24 @@ async function p2CreateTaskInternal(input: {
       (input.extra?.mode as string) === "spicy"
         ? input.extra!.mode
         : "normal";
+  } else if (isSeedance) {
+    // Seedance 2.0 Fast — Crun ships t2v and r2v as separate endpoints
+    // identified by the model name. Auto-switch: any ref → r2v.
+    const hasRef = imgUrls.length > 0 || vidUrls.length > 0 || audUrls.length > 0;
+    if (hasRef) {
+      input.model = "bytedance/seedance2-0-fast-r2v";
+      if (imgUrls.length > 0) innerInput.reference_images = imgUrls;
+      if (vidUrls.length > 0) innerInput.reference_videos = vidUrls;
+      if (audUrls.length > 0) innerInput.reference_audios = audUrls;
+    } else {
+      input.model = "bytedance/seedance2-0-fast-t2v";
+    }
+    innerInput.duration = Math.max(4, Math.min(15, Math.round(Number(input.durationMode || 8))));
+    innerInput.aspect_ratio = input.aspectRatio || "9:16";
+    innerInput.resolution = String(input.resolution || "720p").toLowerCase();
+    // Seedance generates audio natively — always on, no toggle.
+    innerInput.audio = true;
+    innerInput.return_last_frame = false;
   } else if (isVideo) {
     // Veo 3.1 fast: duration is a number, only 8 supported on -fast variants
     if (input.aspectRatio) innerInput.aspect_ratio = input.aspectRatio;

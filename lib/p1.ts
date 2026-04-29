@@ -70,6 +70,10 @@ function normaliseModelForP1(model: string): string {
   // Grok — only "grok-3" is supported on GeminiGen.
   if (m.includes("grok")) return "grok-3";
 
+  // Seedance — GeminiGen exposes `seedance-2-omni`. Fast mode is the
+  // billing tier we're starting on.
+  if (m.includes("seedance")) return "seedance-2-omni";
+
   if (m.includes("veo")) {
     if (m.includes("fast")) return "veo-3.1-fast";
     if (m.includes("lite")) return "veo-3.1-lite";
@@ -93,6 +97,8 @@ export async function p1CreateTask(input: {
   model: string;
   prompt?: string;
   imageUrls?: string[];
+  videoUrls?: string[];
+  audioUrls?: string[];
   durationMode?: "8" | "16" | string | number;
   aspectRatio?: string;
   resolution?: string;
@@ -104,16 +110,20 @@ export async function p1CreateTask(input: {
     return { ok: false, error: "GeminiGen not configured" };
   }
 
-  const isGrok = input.model.toLowerCase().includes("grok");
-  const isVideo = !isGrok && input.model.toLowerCase().includes("veo");
-  const isImage = !isVideo && !isGrok;
+  const m = input.model.toLowerCase();
+  const isGrok = m.includes("grok");
+  const isSeedance = !isGrok && m.includes("seedance");
+  const isVideo = !isGrok && !isSeedance && m.includes("veo");
+  const isImage = !isVideo && !isGrok && !isSeedance;
 
   // Endpoint path varies per asset type.
   const path = isGrok
     ? cfg.grokPath
-    : isVideo
-      ? cfg.veoPath
-      : cfg.imagePath;
+    : isSeedance
+      ? cfg.seedancePath
+      : isVideo
+        ? cfg.veoPath
+        : cfg.imagePath;
 
   // Normalise the Crun-style model name to GeminiGen's bare-name format
   // (e.g. "veo3.1-fast/r2v" → "veo-3.1-fast", "grok-imagine/i2v" → "grok-3").
@@ -143,6 +153,17 @@ export async function p1CreateTask(input: {
     fd.append("aspect_ratio", mapGrokAspect(input.aspectRatio || "9:16"));
     fd.append("mode", String(input.extra?.mode || "normal"));
     for (const url of imgUrls) fd.append("file_urls", url);
+  } else if (isSeedance) {
+    // Seedance 2 Omni — Fast mode by default. One endpoint handles both
+    // text-to-video (omit ref_*) and reference-to-video (pass ref_images /
+    // ref_videos / ref_audios). Native audio always on (no toggle).
+    const duration = Math.max(4, Math.min(15, Math.round(Number(input.durationMode || 8))));
+    fd.append("duration", String(duration));
+    fd.append("aspect_ratio", input.aspectRatio || "9:16");
+    fd.append("mode", String(input.extra?.mode || "fast"));
+    for (const url of imgUrls) fd.append("ref_images", url);
+    for (const url of input.videoUrls || []) fd.append("ref_videos", url);
+    for (const url of input.audioUrls || []) fd.append("ref_audios", url);
   } else if (isVideo) {
     // Veo 3.1 / 3.1 Fast / 2 — fixed 8s duration (server-side).
     fd.append("aspect_ratio", input.aspectRatio || "9:16");

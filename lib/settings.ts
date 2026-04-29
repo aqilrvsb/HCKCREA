@@ -107,6 +107,7 @@ export async function getP1Config() {
     "p1_veo_path",
     "p1_grok_path",
     "p1_image_path",
+    "p1_seedance_path",
     "p1_status_path",
   ]);
   return {
@@ -115,6 +116,7 @@ export async function getP1Config() {
     veoPath: s.p1_veo_path?.path || "/uapi/v1/video-gen/veo",
     grokPath: s.p1_grok_path?.path || "/uapi/v1/video-gen/grok",
     imagePath: s.p1_image_path?.path || "/uapi/v1/generate_image",
+    seedancePath: s.p1_seedance_path?.path || "/uapi/v1/video-gen/seedance",
     statusPath: s.p1_status_path?.path || "/uapi/v1/history/{uuid}",
   };
 }
@@ -131,7 +133,7 @@ export async function getP1Config() {
 export type GenProvider = "p1" | "p2";
 
 export async function getGenProvider(
-  asset: "image" | "video" | "cinema",
+  asset: "image" | "video" | "cinema" | "seedance",
   userId?: string
 ): Promise<GenProvider> {
   if (asset === "video" && userId) {
@@ -211,6 +213,15 @@ export async function getProjectLimit(): Promise<number> {
   const v = await getSetting<any>("project_limit");
   const n = Number(v?.value ?? v?.limit ?? 4);
   return Number.isFinite(n) && n > 0 ? Math.floor(n) : 4;
+}
+
+// Seedance Fast — billed per second of video. Admin sets the rate so
+// pricing can rotate without redeploy. Default 0.10 / sec keeps an 8s
+// clip at RM0.80 — same ballpark as the video_8s rate.
+export async function getSeedanceRate(): Promise<number> {
+  const v = await getSetting<any>("seedance_rate");
+  const n = Number(v?.per_second ?? 0.10);
+  return Number.isFinite(n) && n > 0 ? n : 0.10;
 }
 
 export async function getPlanRate(plan: string) {
