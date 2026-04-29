@@ -16,7 +16,7 @@ import {
 
 type Setting = { key: string; value: any; description: string | null; category: string };
 type Provider = "p1" | "p2";
-type AssetKind = "image" | "video" | "cinema";
+type AssetKind = "image" | "video" | "cinema" | "seedance";
 
 const CATEGORY_INFO: Record<string, { label: string; icon: any; color: string }> = {
   provider: { label: "Provider Keys & URLs", icon: KeyRound, color: "text-orange" },
@@ -41,6 +41,7 @@ export default function AdminSettings() {
     image: "p2",
     video: "p2",
     cinema: "p2",
+    seedance: "p2",
   });
   const [savingProvider, setSavingProvider] = useState<AssetKind | null>(null);
   const [syncing, setSyncing] = useState(false);
@@ -79,11 +80,17 @@ export default function AdminSettings() {
       setRows(list);
       // Derive the currently-active provider per asset from the
       // gen_provider_<asset> rows so the top dropdowns reflect reality.
-      const next = { image: "p2" as Provider, video: "p2" as Provider, cinema: "p2" as Provider };
+      const next = {
+        image: "p2" as Provider,
+        video: "p2" as Provider,
+        cinema: "p2" as Provider,
+        seedance: "p2" as Provider,
+      };
       for (const row of list) {
         if (row.key === "gen_provider_image") next.image = row.value?.provider === "p1" ? "p1" : "p2";
         if (row.key === "gen_provider_video") next.video = row.value?.provider === "p1" ? "p1" : "p2";
         if (row.key === "gen_provider_cinema") next.cinema = row.value?.provider === "p1" ? "p1" : "p2";
+        if (row.key === "gen_provider_seedance") next.seedance = row.value?.provider === "p1" ? "p1" : "p2";
       }
       setProviders(next);
       // Hydrate the extension card from app_settings.
@@ -343,11 +350,12 @@ export default function AdminSettings() {
           next generation; in-flight rows continue against whichever provider
           they were originally fired on.
         </p>
-        <div className="grid md:grid-cols-3 gap-3">
+        <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-3">
           {([
-            { key: "image" as AssetKind, label: "Image",  Icon: ImageIcon, hint: "Banana Pro / Imagen / GPT Image 2" },
-            { key: "video" as AssetKind, label: "Video (Veo)", Icon: Video,    hint: "Veo 3.1 / 3.1 Fast / Veo 2" },
-            { key: "cinema" as AssetKind, label: "Cinema (Grok)", Icon: Film, hint: "Grok 3 / grok-imagine" },
+            { key: "image" as AssetKind,    label: "Image",            Icon: ImageIcon, hint: "Banana Pro / Imagen / GPT Image 2" },
+            { key: "video" as AssetKind,    label: "Video (Veo)",      Icon: Video,     hint: "Veo 3.1 / 3.1 Fast / Veo 2" },
+            { key: "cinema" as AssetKind,   label: "Story (Grok)",     Icon: Film,      hint: "Grok 3 / grok-imagine" },
+            { key: "seedance" as AssetKind, label: "Cinema (Seedance)", Icon: Film,     hint: "Seedance 2.0 Fast (Bytedance)" },
           ]).map(({ key, label, Icon, hint }) => {
             const current = providers[key];
             const isSaving = savingProvider === key;
