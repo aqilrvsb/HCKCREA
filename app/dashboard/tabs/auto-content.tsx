@@ -702,16 +702,19 @@ export default function AutoContentTab({ projectId }: { projectId?: string } = {
                       </div>
                     )}
                     {recentProducts.map((p) => (
-                      <button
+                      <div
                         key={p.product_id}
-                        type="button"
-                        onClick={() => {
-                          setShowRecent(false);
-                          fetchAffiliate(p.raw_url);
-                        }}
-                        className="w-full flex items-center gap-2.5 px-3 py-2 text-left hover:bg-yellow-50"
+                        className="w-full flex items-center gap-2.5 px-3 py-2 hover:bg-yellow-50"
                         style={{ borderBottom: "1px solid #f7f0e6" }}
                       >
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setShowRecent(false);
+                            fetchAffiliate(p.raw_url);
+                          }}
+                          className="flex-1 min-w-0 flex items-center gap-2.5 text-left"
+                        >
                         {p.product_image_url ? (
                           // eslint-disable-next-line @next/next/no-img-element
                           <img
@@ -739,7 +742,40 @@ export default function AutoContentTab({ projectId }: { projectId?: string } = {
                             </div>
                           )}
                         </div>
-                      </button>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={async (e) => {
+                            e.stopPropagation();
+                            // Optimistically remove from local list
+                            const pid = p.product_id;
+                            setRecentProducts((prev) =>
+                              prev.filter((x) => x.product_id !== pid)
+                            );
+                            try {
+                              await fetch("/api/scrape/delete", {
+                                method: "POST",
+                                headers: { "Content-Type": "application/json" },
+                                body: JSON.stringify({ productId: pid }),
+                              });
+                            } catch {
+                              // Best-effort — local list already updated
+                            }
+                          }}
+                          title="Remove from list"
+                          aria-label="Delete saved product"
+                          className="flex items-center justify-center rounded-md hover:bg-red-100 flex-shrink-0"
+                          style={{
+                            width: "28px",
+                            height: "28px",
+                            color: "#dc2626",
+                            fontSize: "16px",
+                            fontWeight: 700,
+                          }}
+                        >
+                          ✕
+                        </button>
+                      </div>
                     ))}
                   </div>
                 )}
