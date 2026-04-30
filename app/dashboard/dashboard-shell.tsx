@@ -333,6 +333,7 @@ function resolveActiveSop(view: SidebarView, activeTab: TabKey) {
   else if (view.kind === "usage") key = "usage";
   else if (view.kind === "saved-prompts") key = "saved-prompts";
   else if (view.kind === "settings") key = "settings";
+  else if (view.kind === "dashboard") key = "dashboard";
   return key ? SOP_CONTENT[key] || null : null;
 }
 

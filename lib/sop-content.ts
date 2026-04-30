@@ -38,6 +38,133 @@ export type SopPage = {
 
 export const SOP_CONTENT: Record<string, SopPage> = {
   // ─────────────────────────────────────────────────────────────────
+  // DASHBOARD / PROJECT — landing page with project picker
+  // ─────────────────────────────────────────────────────────────────
+  dashboard: {
+    pageKey: "dashboard",
+    title: "Dashboard — Project & Production Summary",
+    subtitle: "Welcome screen · pick / create project · daily stats",
+    intro:
+      "Dashboard ialah landing page bila korang first kali login. Dia tunjuk ringkasan production keseluruhan (total Image / UGC / Cinema / Auto Content + Total Cost) dan jadi launchpad untuk pilih project mana yang nak kerja. Semua tab generation (Image / UGC / Auto Content / Story / Cinema / Clone) live DALAM satu project — korang mesti pilih atau buat project dulu sebelum generate apa-apa.",
+    whenToUse:
+      "Setiap kali korang login. Atau bila nak switch antara client / campaign berbeza. Atau bila nak tengok overall production stats — berapa banyak generated bulan ni, total cost, daily breakdown.",
+    sections: [
+      {
+        heading: "Cara guna",
+        steps: [
+          {
+            title: "Step 1 — Dashboard overview",
+            image: "/sop/dashboard/overview.png",
+            imageAlt: "Dashboard with stats cards + filter + daily production chart",
+            description:
+              "Atas: 5 stats cards (Image / UGC / Cinema / Auto Content / Total Cost) untuk date range yang dipilih. Tengah: Filter by Date Range — set From + To + Apply. Bawah: Daily Production line chart — tunjuk activity per day.",
+          },
+          {
+            title: "Step 2 — Apa itu PROJECT?",
+            description:
+              "Project = bekas (folder) untuk satu client / satu campaign / satu produk. SEMUA generation korang (image, video, auto content, dll) live dalam satu project specific. History grid kat setiap tab show data project tu sahaja.\n\nContoh:\n• Project 'meow' — untuk client A skincare brand\n• Project 'Project 1' — untuk client B yoga pants\n\nTukar project kat sidebar = tukar context. Stats + history beralih ikut project yang aktif.",
+          },
+          {
+            title: "Step 3 — Buat New Project",
+            description:
+              "Sidebar atas ada button '+ New project' (orange). Tekan → modal popup. Masukkan project name (e.g. 'Brand X Campaign Q1') → Create. Project baru muncul kat sidebar Projects list.\n\nLimit max 4 projects per akaun (badge '2/4' tunjuk current usage). Untuk lebih, perlu hubungi admin upgrade plan.",
+            tip:
+              "Naming tip: pakai nama yang specific. 'Skincare-A-Aug-Campaign' lebih clear dari 'Project 5'.",
+          },
+          {
+            title: "Step 4 — Switch antara Projects",
+            description:
+              "Sidebar 'PROJECTS' section senaraikan semua project korang. Tekan project name → semua tab generation switch ke project tu. URL update ke ?view=<tab> dan history grid reload.\n\nKalau project tak ada (deleted), 'Project not found' message muncul — tekan project lain dari sidebar.",
+          },
+          {
+            title: "Step 5 — Search Projects (kalau dah banyak)",
+            description:
+              "Search bar kat atas sidebar — type nama project untuk filter. Useful bila dah ada 10+ projects (tapi limit 4 default, jadi rare).",
+          },
+          {
+            title: "Step 6 — Project menu (3-dot)",
+            description:
+              "Hover atas project name → 3-dot menu muncul → boleh Rename atau Delete project.\n\nDelete project = WARNING. Semua history dalam tu hilang permanently. Confirm dialog akan tanya dulu. Tak ada undo.",
+            tip:
+              "Rename anytime safe. Delete cuma kalau project memang dah expired / abandoned.",
+          },
+        ],
+      },
+      {
+        heading: "Detail — Stats Cards & Filter",
+        steps: [
+          {
+            title: "Card 'IMAGE / UGC / CINEMA / AUTO CONTENT'",
+            description:
+              "Total count generation per asset type dalam date range yang dipilih.\n\n• IMAGE — gambar yang di-generate kat Image tab\n• UGC — video Veo 8s/16s dari UGC tab\n• CINEMA — video Seedance dari Cinema tab + video Grok dari Story tab combined\n• AUTO CONTENT — total videos dari Auto Content batches\n\nClick stats card (kalau interactive) → drill down ke specific tab history.",
+          },
+          {
+            title: "Card 'TOTAL COST'",
+            description:
+              "Sum credit deducted untuk semua generation dalam date range. Format RM. Useful untuk monthly accounting / billing client.",
+            tip:
+              "Untuk monthly invoice: set From=01 + To=last day of month, Apply, screenshot Total Cost.",
+          },
+          {
+            title: "FILTER BY DATE RANGE",
+            description:
+              "FROM DATE — earliest date to include.\nTO DATE — latest date to include.\nAPPLY button — refresh stats with new range.\nReset button — back to default (current month).\n\nKL timezone (UTC+8) — tarikh local Malaysia.",
+          },
+          {
+            title: "DAILY PRODUCTION chart",
+            description:
+              "Line chart untuk visual trend. Setiap line satu asset type (color-coded). X-axis = dates. Y-axis = count generated.\n\n'42 total in range' = jumlah keseluruhan untuk filter aktif.\n\nClick legend (Image / UGC / Cinema / Auto Content) untuk toggle line on/off.",
+            tip:
+              "Useful untuk identify spike days (campaign launches) atau gap (vacation / sakit).",
+          },
+        ],
+      },
+      {
+        heading: "Sidebar Layout — Apa Setiap Section",
+        steps: [
+          {
+            title: "Top — Logo & Dashboard button",
+            description:
+              "PeningLab Studio logo (click → balik ke dashboard view ini). Dashboard button (active highlighted bila kat dashboard).",
+          },
+          {
+            title: "+ New project (orange button)",
+            description:
+              "Create project baru. Badge '2/4' = current count vs max limit.",
+          },
+          {
+            title: "Projects list (search + project rows)",
+            description:
+              "Senarai semua project dengan icon folder. Click row → switch ke project tu. Hover → 3-dot menu (Rename / Delete).",
+          },
+          {
+            title: "ACCOUNT section",
+            description:
+              "Billing — manage Pro plan + payment history\nTop Up Credit — beli credit packages\nUsage — tracking spend & activity\nSaved Prompts — library prompt history\nAuto Post TikTok — install Chrome extension SOP\nJoin Discussion WhatsApp — community group",
+          },
+          {
+            title: "CREDIT BALANCE card",
+            description:
+              "Current credit balance + Top Up shortcut button. Auto-refresh setiap 30 saat.",
+          },
+          {
+            title: "PRO · 57 DAYS LEFT badge",
+            description:
+              "Plan status + days till renewal. Hover atau click → Billing page untuk manage.",
+          },
+          {
+            title: "User card bawah sekali",
+            description:
+              "Display name + email. Settings + Sign out buttons.",
+          },
+        ],
+      },
+    ],
+    closing:
+      "Workflow tip: buat 1 project per client. Generate 1 batch monthly content (5-10 videos via Auto Content). Review kat history grid → mark posted via extension. Bulan baru → reset counter + reuse project. Dashboard stats akan tunjuk progression korang merentasi bulan.",
+  },
+
+  // ─────────────────────────────────────────────────────────────────
   // IMAGE tab — Banana Pro / GPT Image / Imagen
   // ─────────────────────────────────────────────────────────────────
   image: {

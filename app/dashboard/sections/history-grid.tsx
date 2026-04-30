@@ -648,9 +648,24 @@ function HistoryCard({
       >
         {item.status === "pending" && (
           <>
-            <div className="absolute inset-0 flex flex-col items-center justify-center text-amber-400 text-xs font-bold gap-2">
+            <div className="absolute inset-0 flex flex-col items-center justify-center text-amber-400 text-xs font-bold gap-2 px-2 text-center">
               <Loader2 className="w-5 h-5 animate-spin" />
               <span>Generating…</span>
+              {/* Seedance + Cinema (Grok) take a lot longer than Veo
+                  UGC. Surface the expected wait so clients don't think
+                  the pipeline is stuck. */}
+              {item.tab === "seedance" && (
+                <span className="text-[10px] font-mono text-amber-300/80 mt-1 leading-tight">
+                  Seedance 2.0
+                  <br />~ 15–30 minit
+                </span>
+              )}
+              {item.tab === "cinema" && (
+                <span className="text-[10px] font-mono text-amber-300/80 mt-1 leading-tight">
+                  Grok Imagine
+                  <br />~ 5–15 minit
+                </span>
+              )}
             </div>
             <button
               onClick={checkNow}
