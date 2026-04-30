@@ -407,6 +407,29 @@ export default function AgentChatPanel({
     reader.readAsDataURL(file);
   }
 
+  // Paste-image handler — lets the user Cmd/Ctrl+V an image directly
+  // into the chat textarea. Same flow as the paperclip attach: reads
+  // first image item from clipboard → handleFile() → sets data: URL
+  // preview + attachment state. Text paste continues to insert
+  // normally. Multi-item clipboards (e.g. Cmd-C from a screenshot
+  // tool) just take the first image and ignore the rest.
+  function handlePaste(e: React.ClipboardEvent<HTMLTextAreaElement>) {
+    const items = e.clipboardData?.items;
+    if (!items || items.length === 0) return;
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i];
+      if (item.kind === "file" && item.type.startsWith("image/")) {
+        const file = item.getAsFile();
+        if (file) {
+          e.preventDefault(); // stop the image from also pasting as text
+          handleFile(file);
+          return;
+        }
+      }
+    }
+    // No image — let default text-paste behaviour proceed.
+  }
+
   function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
@@ -698,13 +721,14 @@ export default function AgentChatPanel({
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={handleKeyDown}
+                onPaste={handlePaste}
                 rows={2}
                 placeholder={
                   tab === "ugc"
-                    ? "e.g. Make 3 UGC for hijab shampoo using PAS framework"
+                    ? "e.g. Make 3 UGC for hijab shampoo… (paste image OK)"
                     : tab === "cinema"
-                      ? "e.g. Cinematic drone shot of a rainy Kuala Lumpur"
-                      : "e.g. Edit this image — replace background with sunlit kitchen"
+                      ? "e.g. Cinematic drone shot of KL… (paste image OK)"
+                      : "e.g. Edit this image — replace background… (paste image OK)"
                 }
                 disabled={busy}
                 className="flex-1 bg-transparent outline-none text-xs text-[var(--color-text-primary)] placeholder:text-[var(--color-text-muted)] resize-none max-h-36 leading-relaxed py-1.5"
