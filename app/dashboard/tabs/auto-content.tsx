@@ -548,50 +548,51 @@ export default function AutoContentTab({ projectId }: { projectId?: string } = {
                   readOnly
                   placeholder="Pick a product from the dropdown →"
                   title="Use the Chrome extension's Affiliate tab to fetch new products. They will appear in the dropdown."
-                  className={`w-full p-3 ${recentProducts.length > 0 ? "pr-20" : ""} rounded-xl text-sm outline-none cursor-pointer`}
+                  className="w-full p-3 pr-20 rounded-xl text-sm outline-none cursor-pointer"
                   style={{ background: "#fafaf7", border: "1px solid #e8e0d8", color: "#1a1a1a" }}
-                  onClick={() => recentProducts.length > 0 && setShowRecent((s) => !s)}
+                  onClick={() => setShowRecent((s) => !s)}
                 />
-                {/* History icon + count — toggles the recent-products
-                    dropdown. Only renders when the user has at least
-                    one saved product. The number to the right of the
-                    clock is the total saved-product count for this
-                    user (max 20 from the API). */}
-                {recentProducts.length > 0 && (
-                  <button
-                    type="button"
-                    onClick={() => setShowRecent((s) => !s)}
-                    title={`${recentProducts.length} saved product${recentProducts.length === 1 ? "" : "s"} — click to pick`}
-                    aria-label="Pick from saved products"
-                    className="absolute top-1/2 right-2 -translate-y-1/2 flex items-center justify-center gap-1 rounded-lg hover:bg-yellow-100"
+                {/* History icon + count — always visible so users can
+                    open the dropdown even when empty (shows the
+                    fetch-via-extension hint inside). Count shows 0
+                    initially, updates as products are saved. */}
+                <button
+                  type="button"
+                  onClick={() => setShowRecent((s) => !s)}
+                  title={
+                    recentProducts.length === 0
+                      ? "No saved products yet — use the Chrome extension's Affiliate tab"
+                      : `${recentProducts.length} saved product${recentProducts.length === 1 ? "" : "s"} — click to pick`
+                  }
+                  aria-label="Open saved products dropdown"
+                  className="absolute top-1/2 right-2 -translate-y-1/2 flex items-center justify-center gap-1 rounded-lg hover:bg-yellow-100"
+                  style={{
+                    height: "32px",
+                    padding: "0 8px",
+                    border: "1px solid #e8e0d8",
+                    background: showRecent ? "#fff8d6" : "#ffffff",
+                    color: "#1a1a1a",
+                    fontSize: "14px",
+                    fontWeight: 700,
+                  }}
+                >
+                  <span style={{ fontSize: "15px" }}>🕐</span>
+                  <span
                     style={{
-                      height: "32px",
-                      padding: "0 8px",
-                      border: "1px solid #e8e0d8",
-                      background: showRecent ? "#fff8d6" : "#ffffff",
+                      fontSize: "11px",
                       color: "#1a1a1a",
-                      fontSize: "14px",
-                      fontWeight: 700,
+                      background: "#facc15",
+                      borderRadius: "999px",
+                      padding: "1px 6px",
+                      minWidth: "18px",
+                      textAlign: "center",
+                      lineHeight: "1.4",
                     }}
                   >
-                    <span style={{ fontSize: "15px" }}>🕐</span>
-                    <span
-                      style={{
-                        fontSize: "11px",
-                        color: "#1a1a1a",
-                        background: "#facc15",
-                        borderRadius: "999px",
-                        padding: "1px 6px",
-                        minWidth: "18px",
-                        textAlign: "center",
-                        lineHeight: "1.4",
-                      }}
-                    >
-                      {recentProducts.length}
-                    </span>
-                  </button>
-                )}
-                {showRecent && recentProducts.length > 0 && (
+                    {recentProducts.length}
+                  </span>
+                </button>
+                {showRecent && (
                   <div
                     className="absolute left-0 right-0 top-full mt-1 z-30 max-h-72 overflow-y-auto rounded-xl shadow-lg"
                     style={{
@@ -603,8 +604,13 @@ export default function AutoContentTab({ projectId }: { projectId?: string } = {
                       className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider"
                       style={{ color: "#8a7a6a", borderBottom: "1px solid #f0e8de" }}
                     >
-                      Your recent products
+                      Your saved products ({recentProducts.length})
                     </div>
+                    {recentProducts.length === 0 && (
+                      <div className="px-3 py-4 text-[11px] leading-relaxed" style={{ color: "#5b21b6", background: "rgba(124,58,237,0.04)" }}>
+                        💡 Belum ada produk saved. Buka <strong>Chrome extension → 🔗 Affiliate tab</strong>, paste TikTok/Shopee link, click <strong>Fetch Product</strong>. Produk akan muncul di sini.
+                      </div>
+                    )}
                     {recentProducts.map((p) => (
                       <button
                         key={p.product_id}
@@ -646,19 +652,6 @@ export default function AutoContentTab({ projectId }: { projectId?: string } = {
                   Chrome extension's Affiliate tab and appear in the
                   dropdown above. URL input is readonly here. */}
             </div>
-            {recentProducts.length === 0 && (
-              <div
-                className="text-[11px] px-3 py-2 rounded-lg leading-relaxed"
-                style={{
-                  background: "rgba(124,58,237,0.08)",
-                  border: "1px solid rgba(124,58,237,0.25)",
-                  color: "#5b21b6",
-                }}
-              >
-                💡 Use the Chrome extension's <strong>🔗 Affiliate</strong> tab
-                to fetch products. They will appear here as a dropdown.
-              </div>
-            )}
             {scrapeMsg && (
               <div
                 className="text-xs px-3 py-2 rounded-lg"

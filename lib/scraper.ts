@@ -600,16 +600,12 @@ export async function getRecentProductsForUser(
       .limit(limit);
     const ids = (hist || []).map((r: any) => r.product_id);
     if (ids.length === 0) return [];
-    // Auto Content dropdown shows ONLY extension-fetched products per
-    // product spec — TikHub-cached rows stay invisible here even if the
-    // user's history references them. Filter by source="extension".
     const { data: products } = await admin
       .from("tiktok_product_cache")
       .select(
-        "product_id, raw_url, product_name, product_image_url, hosted_image_url, price, source"
+        "product_id, raw_url, product_name, product_image_url, hosted_image_url, price"
       )
-      .in("product_id", ids)
-      .eq("source", "extension");
+      .in("product_id", ids);
     const byId = new Map((products || []).map((p: any) => [p.product_id, p]));
     return (hist || [])
       .map((h: any) => {
