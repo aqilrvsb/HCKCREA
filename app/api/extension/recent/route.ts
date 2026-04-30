@@ -32,6 +32,10 @@ export async function GET(req: Request) {
     )
     .eq("user_id", user.id)
     .eq("status", "done")
+    // Hide rows the user has dismissed from the extension. Migration
+    // 0023 adds this column with default FALSE so existing rows are
+    // unaffected.
+    .eq("dismissed_from_extension", false)
     .order("created_at", { ascending: false })
     .limit(limit);
 
