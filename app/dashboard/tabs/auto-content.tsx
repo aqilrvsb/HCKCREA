@@ -125,21 +125,24 @@ export default function AutoContentTab({ projectId }: { projectId?: string } = {
     );
   }, [quantity]);
 
-  // Load recent products from the database once on mount. The dropdown
-  // shows the instant data arrives — derived state (showRecent) means
-  // there's no stale-closure race even if the user clicked the input
-  // before the fetch returned.
+  // Load recent products from the database. Called on mount AND whenever
+  // the user clicks the 🕐 icon — so newly fetched extension products
+  // appear without a page reload. cache: 'no-store' bypasses any browser
+  // memory cache that might otherwise serve a stale copy.
+  const loadRecentProducts = async () => {
+    try {
+      const r = await fetch("/api/scrape/recent", { cache: "no-store" });
+      if (!r.ok) return;
+      const d = await r.json();
+      if (Array.isArray(d?.items)) setRecentProducts(d.items);
+    } catch {
+      // Non-fatal — dropdown keeps the previous list.
+    }
+  };
+
   useEffect(() => {
-    (async () => {
-      try {
-        const r = await fetch("/api/scrape/recent");
-        if (!r.ok) return;
-        const d = await r.json();
-        if (Array.isArray(d?.items)) setRecentProducts(d.items);
-      } catch {
-        // Non-fatal — dropdown stays empty until next mount.
-      }
-    })();
+    loadRecentProducts();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   function pushLog(line: string) {
@@ -602,7 +605,10 @@ export default function AutoContentTab({ projectId }: { projectId?: string } = {
                   title="Use the Chrome extension's Affiliate tab to fetch new products. They will appear in the dropdown."
                   className={`w-full p-3 ${affiliateUrl ? "pr-28" : "pr-20"} rounded-xl text-sm outline-none cursor-pointer`}
                   style={{ background: "#fafaf7", border: "1px solid #e8e0d8", color: "#1a1a1a" }}
-                  onClick={() => setShowRecent((s) => !s)}
+                  onClick={() => {
+                    if (!showRecent) loadRecentProducts();
+                    setShowRecent((s) => !s);
+                  }}
                 />
                 {/* Clear button — only shows when a product is currently
                     loaded. Resets the URL + product card so the user can
@@ -642,11 +648,17 @@ export default function AutoContentTab({ projectId }: { projectId?: string } = {
                     initially, updates as products are saved. */}
                 <button
                   type="button"
-                  onClick={() => setShowRecent((s) => !s)}
+                  onClick={() => {
+                    // Always refetch on click so the dropdown reflects
+                    // products that were just fetched in the extension —
+                    // no stale "0 saved" state if user just added one.
+                    loadRecentProducts();
+                    setShowRecent((s) => !s);
+                  }}
                   title={
                     recentProducts.length === 0
-                      ? "No saved products yet — use the Chrome extension's Affiliate tab"
-                      : `${recentProducts.length} saved product${recentProducts.length === 1 ? "" : "s"} — click to pick`
+                      ? "No saved products yet — use the Chrome extension's Affiliate tab. Click to refresh."
+                      : `${recentProducts.length} saved product${recentProducts.length === 1 ? "" : "s"} — click to pick / refresh`
                   }
                   aria-label="Open saved products dropdown"
                   className="absolute top-1/2 right-2 -translate-y-1/2 flex items-center justify-center gap-1 rounded-lg hover:bg-yellow-100"
