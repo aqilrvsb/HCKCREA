@@ -517,7 +517,16 @@ export default function AutoContentTab({ projectId }: { projectId?: string } = {
         <div className="flex rounded-lg overflow-hidden mb-3" style={{ border: "1px solid #e8e0d8" }}>
           <ToggleBtn
             active={productMode === "affiliate"}
-            onClick={() => setProductMode("affiliate")}
+            onClick={() => {
+              setProductMode("affiliate");
+              // Switching to Affiliate clears any manual product data so
+              // the user starts with a clean slate. Affiliate flow re-
+              // populates manual_products[0] when a product is picked.
+              setManualProducts((prev) =>
+                prev.map(() => ({ info: "", imageData: "" }))
+              );
+              setScrapeMsg(null);
+            }}
           >
             🔗 Affiliate
           </ToggleBtn>
@@ -527,8 +536,15 @@ export default function AutoContentTab({ projectId }: { projectId?: string } = {
               setProductMode("manual");
               // Manual flow has no TikTok ID — clear so it doesn't
               // accidentally ride through with leftover data from a
-              // previous Affiliate fetch.
+              // previous Affiliate fetch. Also clear the affiliate URL +
+              // any prefilled product card so user starts fresh.
               setTiktokProductId("");
+              setAffiliateUrl("");
+              setScrapeMsg(null);
+              setShowRecent(false);
+              setManualProducts((prev) =>
+                prev.map(() => ({ info: "", imageData: "" }))
+              );
             }}
             borderLeft
           >
@@ -548,10 +564,42 @@ export default function AutoContentTab({ projectId }: { projectId?: string } = {
                   readOnly
                   placeholder="Pick a product from the dropdown →"
                   title="Use the Chrome extension's Affiliate tab to fetch new products. They will appear in the dropdown."
-                  className="w-full p-3 pr-20 rounded-xl text-sm outline-none cursor-pointer"
+                  className={`w-full p-3 ${affiliateUrl ? "pr-28" : "pr-20"} rounded-xl text-sm outline-none cursor-pointer`}
                   style={{ background: "#fafaf7", border: "1px solid #e8e0d8", color: "#1a1a1a" }}
                   onClick={() => setShowRecent((s) => !s)}
                 />
+                {/* Clear button — only shows when a product is currently
+                    loaded. Resets the URL + product card so the user can
+                    pick a different product without manually clearing. */}
+                {affiliateUrl && (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setAffiliateUrl("");
+                      setScrapeMsg(null);
+                      setTiktokProductId("");
+                      setShowRecent(false);
+                      setManualProducts((prev) =>
+                        prev.map(() => ({ info: "", imageData: "" }))
+                      );
+                    }}
+                    title="Clear selection"
+                    aria-label="Clear product selection"
+                    className="absolute top-1/2 right-[88px] -translate-y-1/2 flex items-center justify-center rounded-lg hover:bg-red-50"
+                    style={{
+                      width: "32px",
+                      height: "32px",
+                      border: "1px solid #e8e0d8",
+                      background: "#ffffff",
+                      color: "#dc2626",
+                      fontSize: "16px",
+                      fontWeight: 700,
+                    }}
+                  >
+                    ✕
+                  </button>
+                )}
                 {/* History icon + count — always visible so users can
                     open the dropdown even when empty (shows the
                     fetch-via-extension hint inside). Count shows 0
@@ -1126,7 +1174,29 @@ function ManualProductCard({
           }}
         >
           {product.imageData ? (
-            <img src={product.imageData} alt="" className="w-full h-full object-cover" />
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={product.imageData}
+              alt=""
+              className="w-full h-full object-cover"
+              referrerPolicy="no-referrer"
+              crossOrigin="anonymous"
+              onError={(e) => {
+                // TikTok CDN sometimes blocks hot-link via Referer/region.
+                // Fall back to a small package emoji so the card stays
+                // tidy instead of showing a broken-image icon.
+                const img = e.currentTarget as HTMLImageElement;
+                img.style.display = "none";
+                const parent = img.parentElement;
+                if (parent && !parent.querySelector(".img-fallback")) {
+                  const span = document.createElement("span");
+                  span.className = "img-fallback text-2xl";
+                  span.textContent = "📦";
+                  span.style.cssText = "display:flex;align-items:center;justify-content:center;width:100%;height:100%;";
+                  parent.appendChild(span);
+                }
+              }}
+            />
           ) : (
             <span className="text-2xl">📦</span>
           )}
