@@ -31,7 +31,9 @@ const GREEN = "#facc15";
 
 type ManualProduct = {
   info: string;          // textarea content
-  imageData: string;     // data: URL or public URL
+  imageData: string;     // current display URL (RH if alive, TikTok CDN if RH expired, or data: URL for upload)
+  hostedImageUrl?: string;   // RunningHub URL (24h signed) — preferred for AI gen, may be expired
+  tiktokImageUrl?: string;   // TikTok CDN URL (permanent) — fallback when RH dies
 };
 
 type RecentProduct = {
@@ -257,9 +259,18 @@ export default function AutoContentTab({ projectId }: { projectId?: string } = {
 
       setManualProducts((prev) => {
         const next = [...prev];
+        // Try the RH-hosted URL first for display + AI gen. If the RH
+        // signed URL has expired (24h), the <img> onError handler will
+        // swap imageData to tiktokImageUrl so the thumbnail still loads.
+        // On submit, if we ended up using tiktokImageUrl, the rehost
+        // endpoint converts it back to a fresh RH URL for AI generation.
+        const hosted = d.hosted_image_url || "";
+        const tiktok = d.product_image_url || "";
         next[0] = {
           info,
-          imageData: d.product_image_url || "",
+          imageData: hosted || tiktok,
+          hostedImageUrl: hosted || undefined,
+          tiktokImageUrl: tiktok || undefined,
         };
         return next;
       });
@@ -342,18 +353,49 @@ export default function AutoContentTab({ projectId }: { projectId?: string } = {
     pushLog(`Source: ${unitCount} manual product(s)`);
 
     try {
-      // Upload all manual product images that are still data: URLs.
-      pushLog("Uploading manual product images…");
+      // Resolve every manual product image to an AI-generation-friendly
+      // URL (a fresh RunningHub-hosted URL that Crun/GeminiGen can fetch).
+      // Three input states:
+      //   1. data: URL  → user uploaded a file → POST to /api/upload/image
+      //   2. RH URL     → already hosted → use as-is (skip rehost)
+      //   3. TikTok URL → permanent CDN but Crun's region may block →
+      //                   POST to /api/scrape/rehost to get fresh RH URL
+      pushLog("Resolving product images…");
       manualPayload = await Promise.all(
-        manualPayload.map(async (m) => ({
-          ...m,
-          imageData: m.imageData.startsWith("data:")
-            ? await ensurePublicUrl(m.imageData)
-            : m.imageData,
-        }))
+        manualPayload.map(async (m, idx) => {
+          let url = m.imageData;
+          if (!url) return m;
+          if (url.startsWith("data:")) {
+            // File upload — convert to public URL
+            url = await ensurePublicUrl(url);
+          } else if (
+            !url.includes("rh-images-switch") &&
+            !url.includes("running-hub")
+          ) {
+            // Looks like a TikTok CDN URL (or anything non-RH). Rehost on
+            // demand so AI generation gets a region-friendly URL.
+            try {
+              const r = await fetch("/api/scrape/rehost", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ url }),
+              });
+              const d = await r.json();
+              if (r.ok && d?.url) {
+                url = d.url;
+                pushLog(`Product ${idx + 1}: rehosted to RH ✓`);
+              } else {
+                pushLog(`Product ${idx + 1}: rehost failed, using original URL`);
+              }
+            } catch {
+              pushLog(`Product ${idx + 1}: rehost network error, using original URL`);
+            }
+          }
+          return { ...m, imageData: url };
+        })
       );
       firstProductImage = manualPayload[0].imageData;
-      pushLog("Images uploaded ✓");
+      pushLog("Images resolved ✓");
 
       const body: any = {
         product_mode: "manual",
@@ -759,6 +801,20 @@ export default function AutoContentTab({ projectId }: { projectId?: string } = {
                     prev.map((x, j) => (j === i ? { ...x, imageData: "" } : x))
                   )
                 }
+                onImageError={() => {
+                  // RH signed URL expired (or hot-link block) — swap to
+                  // permanent TikTok CDN URL so the user sees a thumbnail
+                  // instead of a broken icon.
+                  setManualProducts((prev) =>
+                    prev.map((x, j) => {
+                      if (j !== i) return x;
+                      if (x.tiktokImageUrl && x.imageData !== x.tiktokImageUrl) {
+                        return { ...x, imageData: x.tiktokImageUrl };
+                      }
+                      return x;
+                    })
+                  );
+                }}
               />
             ))}
           </div>
@@ -1130,6 +1186,7 @@ function ManualProductCard({
   onPickFile,
   onPickHistory,
   onClear,
+  onImageError,
 }: {
   idx: number;
   showLabel: boolean;
@@ -1138,6 +1195,7 @@ function ManualProductCard({
   onPickFile: (f: File | null) => void;
   onPickHistory: () => void;
   onClear: () => void;
+  onImageError?: () => void;
 }) {
   const fileRef = useRef<HTMLInputElement | null>(null);
   return (
@@ -1187,19 +1245,13 @@ function ManualProductCard({
               className="w-full h-full object-cover"
               referrerPolicy="no-referrer"
               crossOrigin="anonymous"
-              onError={(e) => {
-                // TikTok CDN sometimes blocks hot-link via Referer/region.
-                // Fall back to a small package emoji so the card stays
-                // tidy instead of showing a broken-image icon.
-                const img = e.currentTarget as HTMLImageElement;
-                img.style.display = "none";
-                const parent = img.parentElement;
-                if (parent && !parent.querySelector(".img-fallback")) {
-                  const span = document.createElement("span");
-                  span.className = "img-fallback text-2xl";
-                  span.textContent = "📦";
-                  span.style.cssText = "display:flex;align-items:center;justify-content:center;width:100%;height:100%;";
-                  parent.appendChild(span);
+              onError={() => {
+                // First fail (likely RH signed URL expired) — let the
+                // parent swap imageData to the TikTok CDN URL fallback.
+                // If that ALSO fails (e.g. hot-link block survives
+                // referrerPolicy), we just show 📦 fallback below.
+                if (onImageError) {
+                  onImageError();
                 }
               }}
             />
