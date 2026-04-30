@@ -322,7 +322,7 @@ export default function HistoryGrid({
             </div>
           )}
 
-          <div className="grid grid-cols-1 sm:grid-cols-3 md:grid-cols-4 gap-3">
+          <div className="grid grid-cols-3 md:grid-cols-4 gap-3">
             {pageItems.map((it) => (
               <HistoryCard
                 key={it.id}
