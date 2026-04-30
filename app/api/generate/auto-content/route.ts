@@ -353,12 +353,18 @@ MUST be a product-only shot (no person at all) and the videoPrompt MUST be
 voiceover-only with the product on screen.
 
 ${fwPoolFinal.map((fw, i) => {
-  // Only "product"-type frameworks use Template B (product-only shot).
-  // Lifestyle frameworks behave as UGC — character on screen interacting
-  // with the product in an aspirational scene, NOT a product-only shot.
-  const template = fw.type === "product"
-    ? "→ TEMPLATE B (PRODUCT ONLY: NO person, NO face, NO hands, NO body anywhere — pure product shot + voiceover)"
-    : "→ TEMPLATE A (UGC: character on screen, holds the product, speaks to camera)";
+  // Three template types based on framework flags:
+  //   • handPov → Template C: hand visible holding product, NO face/body, luxury vehicle bg
+  //   • type "product" → Template B: zero person/hand, pure product showcase
+  //   • else (ugc/lifestyle) → Template A: full character on screen
+  let template: string;
+  if (fw.handPov) {
+    template = "→ TEMPLATE C (HAND-POV: ONE female hand visible holding the product — NO face, NO body, NO arm above wrist — pure hand+product hero against rotating LUXURY VEHICLE INTERIOR background. Voiceover only, no on-screen speaker.)";
+  } else if (fw.type === "product") {
+    template = "→ TEMPLATE B (PRODUCT ONLY: NO person, NO face, NO hands, NO body anywhere — pure product shot + voiceover)";
+  } else {
+    template = "→ TEMPLATE A (UGC: character on screen, holds the product, speaks to camera)";
+  }
   const strictTag = fw.strictUsp
     ? "  🔒 STRICT USP MODE — read <strict_usp_rules> below. ZERO drift allowed."
     : "";
@@ -370,6 +376,41 @@ TEMPLATE B videos the locked-avatar is IGNORED — there is NO person on
 screen, period. The imagePrompt for those videos describes ONLY the
 product (e.g. "the yoga pants laid flat on textured concrete with soft
 sidelight, 100mm macro, shallow DOF") — no woman, no man, no hands.
+
+🚨 TEMPLATE C HAND-POV RULES (PROD Goyang2 / hand-only frameworks):
+- ONE hand only visible in frame, MATCHING the avatar gender chosen by
+  the user (gender = "${gender}"):
+    • female → Malay female hand, modest, light skin, simple manicure,
+      delicate proportions, optional thin bracelet, no flashy jewelry
+    • male → Malay male hand, slightly broader, no manicure, optional
+      simple wristwatch or leather strap, masculine proportions
+  Hand grips the product firmly with label facing camera.
+- The hand gently shakes/sways the product in a slow relaxed rhythm
+  (5-10° tilts, small horizontal motion). This is the hero animation.
+- ABSOLUTELY NO face visible, NO body visible, NO arm above the wrist,
+  NO shoulder, NO head. Camera frames hand+product only.
+- BACKGROUND VARIETY (CRITICAL — pick ONE setting per video, rotate
+  across the batch so each video has a DIFFERENT background):
+  Luxury vehicle interior: Lamborghini Urus / Mercedes-Benz S-Class /
+    Ferrari 488 / Porsche 911 / Bentley Continental / BMW M5
+  Everyday Malaysian car: Honda Civic / Perodua Myvi / Toyota Vios
+  Aesthetic indoor: cozy bedroom with curtain+plant / marble bathroom
+    counter / coffee shop wooden table / vanity table with mirror+pampas
+  Retail discovery: Watsons skincare aisle / Aeon supermarket /
+    Korean cosmetics store with pastel shelves
+  Studio clean: beige backdrop diffused / white marble flat surface
+  Outdoor lifestyle: beach cabana / rooftop infinity pool
+  Mix categories across batch (1 luxury car, 1 retail, 1 cozy, 1 outdoor,
+  etc.) — variety is the scroll-stop hook.
+- Audio: voiceover only (warm Malay female, casual bestie tone). Voice is
+  NOT from a visible character — it's narration over the hand+product.
+- imagePrompt for Template C: "Single female hand holding [product] —
+  hand-only POV close-up, NO face, NO body. Background: [chosen authentic
+  setting from the rotation above]." Match product reference pixel-identical.
+- The locked-avatar block is IGNORED for Template C (no character is shown).
+- ANATOMY constraint: ONE hand, 5 fingers, no extra limbs, no face/body
+  in frame. Negatives must include: face visible, body visible, arm
+  visible, shoulder visible, full character, head in frame.
 </frameworks>
 
 ${fwPoolFinal.some((fw) => fw.strictUsp) ? `

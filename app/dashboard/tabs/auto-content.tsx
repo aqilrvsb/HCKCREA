@@ -1234,6 +1234,15 @@ function FrameworkInfoModal({
               🔒 STRICT
             </span>
           )}
+          {fw.handPov && (
+            <span
+              className="text-[10px] font-extrabold px-2 py-1 rounded flex-shrink-0"
+              style={{ color: "#7c3aed", background: "#f5f3ff", border: "1px solid #ddd6fe" }}
+              title="Hand-POV — hand visible holding product, no face/body, rotating authentic backgrounds"
+            >
+              ✋ HAND POV
+            </span>
+          )}
         </div>
 
         {/* Body — scrollable */}
@@ -1253,6 +1262,27 @@ function FrameworkInfoModal({
               yang takde dalam product info korang. Setiap dialog & caption WAJIB tied
               to actual USP yang korang provide. Best untuk client yang bagi clear
               product details.
+            </div>
+          )}
+
+          {/* Hand POV callout — explain the unique visual style */}
+          {fw.handPov && (
+            <div
+              className="rounded-lg p-3 mb-3 text-xs leading-relaxed"
+              style={{
+                background: "#f5f3ff",
+                border: "1px solid #ddd6fe",
+                color: "#5b21b6",
+              }}
+            >
+              <div className="font-extrabold mb-1">✋ Hand POV Mode</div>
+              Tangan sahaja yang nampak (no face, no body) pegang produk dengan
+              gentle shake animation. Background rotate antara <strong>luxury cars</strong>
+              {" "}(Lambo / Mercedes / Ferrari) / <strong>everyday cars</strong> (Honda /
+              Perodua) / <strong>aesthetic indoor</strong> (cozy curtain+plant) /
+              {" "}<strong>retail aisles</strong> (Watsons / Aeon) / <strong>cozy lifestyle</strong>
+              {" "}(coffee shop / vanity table). Hand gender ikut avatar pilihan korang
+              (male/female).
             </div>
           )}
 

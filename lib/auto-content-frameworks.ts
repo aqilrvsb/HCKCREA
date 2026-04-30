@@ -18,6 +18,7 @@ export type Framework = {
   emotion: string;        // arc tag, "none" for product-only frames
   ctaStyle: string;       // fallback CTA when shopMode=false
   strictUsp?: boolean;    // when true: dialog/caption MUST stay narrow to user's product info, no drift
+  handPov?: boolean;      // when true: hand-only POV — hand visible holding product, NO face/body, luxury vehicle bg
   strategy: {
     purpose: string;      // why this framework exists, what problem it solves
     bestFor: string;      // when to use — product types / scenarios
@@ -379,7 +380,123 @@ export const FRAMEWORKS: Framework[] = [
       example: "Voiceover: \"S-Ninety — tambah selera makan, bantu BMI stabil. Formulated untuk Malaysia.\"",
     },
   },
+  // ─────────────────────────────────────────────────────────────────
+  // HAND-POV FRAMEWORK — single hand holding product against rotating
+  // luxury vehicle interiors. NO face, NO body. The "wow" comes from
+  // the aspirational background (Lamborghini / Mercedes / Ferrari /
+  // etc.) creating implicit "if you buy this, you live this life".
+  // Product gently shakes/rotates to draw the eye. Voiceover sells.
+  // ─────────────────────────────────────────────────────────────────
+  {
+    id: 17,
+    name: "PROD Goyang2 (Hand POV)",
+    short: "POV",
+    type: "product",
+    needsCharacterImage: false,
+    handPov: true,
+    focus: "Hand-only POV holding product, gentle shake animation, rotating authentic scroll-stopping background",
+    shot1: "Extreme close-up — single female hand (modest, light skin, simple manicure, NO face/body/arm-above-wrist visible) holding the product firmly with label facing camera. Product gently shakes/sways back-and-forth in slow casual rhythm (5-10° tilts). Background: ROTATE through authentic scroll-stopping settings (luxury vehicle interior / regular Malaysian car / aesthetic indoor cozy / retail store aisle / studio clean / outdoor lifestyle) — soft-focus bokeh behind product. Pick ONE setting per video, vary across batch for max variety.",
+    shot2: "Continued hand-product hero framing. Slight angle shift / closer zoom to product label. Product rotation continues. Same background bokeh. Voiceover delivers CTA over the gentle motion.",
+    emotion: "none",
+    ctaStyle: "Tekan beg kuning, jangan lepas!",
+    strategy: {
+      purpose: "Selfie-POV close-up of hand holding product against ROTATING authentic backgrounds — luxury cars (Lambo/Mercedes), everyday Malaysian cars (Honda/Perodua), aesthetic indoor (curtain+plant), retail store aisles, cozy lifestyle scenes. Each video pakai different background = visual variety stops scroll. The background does emotional work; product hero stays consistent.",
+      bestFor: "Any product (skincare, F&B, gadgets, accessories) yang user nak high-volume content output. Each video looks different (varied bg) but pattern is locked (hand+product+shake) — perfect for batch generation. Audience scrolls slow when background changes scene-to-scene.",
+      avoidWhen: "Product yang dah ada own visual identity strong (brand campaigns, fashion editorial). PROD Goyang2 lebih untuk discovery + viral commerce, not brand-building.",
+      psychology: "Pattern interrupt — viewer expects \"product ad\" but each scene background is unexpected (luxury car → store aisle → cozy bedroom). Background rotation feels like \"finds\" not \"ads\". Hand-only POV = relatable (could be viewer's own hand). Combined: stop-scroll + low-resistance entry to sales message.",
+      dialogShape: "Voiceover (no on-screen speaker). Opening: viral hook 4-6 words. Middle: product benefit / USP 10-14 words. Close: CTA 4-6 words. Total 20-24 BM words.",
+      example: "Voiceover: \"Dah viral kat FYP — Sambal X tu memang sedap gila. Tekan beg kuning sekarang.\"",
+    },
+  },
 ];
+
+// List of authentic scroll-stopping backgrounds that PROD Goyang2 rotates
+// through. Categories balance aspirational (luxury cars), relatable
+// (regular cars), aesthetic (cozy indoor), discovery (retail store), and
+// premium (studio). Mix-and-match to cover variety in any batch size.
+export const HAND_POV_BACKGROUNDS: string[] = [
+  // ── Luxury vehicles (wealth aspiration) ──
+  "Lamborghini Urus interior — black leather dashboard, carbon fiber accents, premium steering wheel, ambient blue lighting",
+  "Mercedes-Benz S-Class interior — beige Nappa leather, wood trim dashboard, illuminated star logo on steering, tasteful cabin",
+  "Ferrari 488 GTB cockpit — racing-inspired dashboard, carbon fiber center console, prancing horse on red leather steering wheel",
+  "Porsche 911 Turbo interior — black sport seats, carbon fiber dashboard, sport steering wheel, minimalist tachometer",
+  "Bentley Continental GT interior — quilted diamond leather, polished wood veneer, opulent cabin atmosphere",
+  "BMW M5 Competition interior — alcantara dashboard, M-sport steering wheel, red contrast stitching",
+  // ── Everyday Malaysian cars (relatability) ──
+  "Honda Civic FK7 interior — black sport dashboard, Honda H logo on steering wheel, manual gear shifter, daily driver feel",
+  "Perodua Myvi interior — practical compact dashboard, Perodua emblem visible, Malaysian everyday vibe",
+  "Toyota Vios interior — neat black dashboard, Toyota steering, urban commuter setting",
+  // ── Aesthetic indoor (cozy/lifestyle) ──
+  "Cozy bedroom corner — soft beige curtain, green leafy plant, warm afternoon golden light, minimalist Pinterest aesthetic",
+  "Marble bathroom counter — subway tile bokeh, soft natural light through window, hand cream / skincare retail vibe",
+  "Coffee shop wooden table — exposed brick wall bokeh, warm Edison bulb lighting, latte art saucer in soft focus",
+  "Aesthetic vanity table — gold-framed mirror, dried pampas grass, soft pink wall, beauty creator vibe",
+  // ── Retail / discovery context ──
+  "Watsons skincare aisle — bright shelves with pastel skincare products in soft focus, retail discovery vibe",
+  "Aeon supermarket beauty section — colorful product shelves bokeh, fluorescent retail lighting",
+  "Korean cosmetics store — pastel pink shelves with K-beauty products, soft focus, viral retail look",
+  // ── Studio / clean ──
+  "Clean beige studio backdrop — soft diffused lighting, minimal shadow, Instagram-style flat composition",
+  "White marble flat surface — soft natural sidelight, clean minimalist composition, premium product photo aesthetic",
+  // ── Outdoor lifestyle ──
+  "Beach cabana lounge — turquoise sea bokeh, golden sunset light, palm leaf shadow, vacation aspirational",
+  "Rooftop infinity pool — city skyline bokeh, golden hour light, holiday luxury vibe",
+  // ── Nature scenic (scroll-stop awe) ──
+  "Tropical waterfall — lush jungle ferns and moss-covered rocks bokeh, mist rising, soft natural daylight, nature awe",
+  "Mountain sunrise — misty alpine peaks in soft focus, warm golden first light spilling across ridges, dewy fresh air vibe",
+  "Sunset beach silhouette — orange-pink horizon glow bokeh, gentle waves, palm tree silhouettes, end-of-day calm",
+  "Cherry blossom park — soft pink petals falling bokeh, dappled spring light, romantic Japan aesthetic",
+  "Misty pine forest — towering evergreens in fog bokeh, cool morning mist, soft diffused daylight, Pacific Northwest mood",
+  "Lavender field — endless purple rows in soft focus, golden hour light, Provence countryside aesthetic",
+  "Lake reflection at dawn — glassy water mirroring mountains bokeh, pastel pink-blue sky, serene morning calm",
+  "Snow-capped peak overlook — alpine vista with crisp clean snow bokeh, blue-sky midday clarity, summit conquest vibe",
+  "Tropical island infinity — turquoise lagoon and palm fronds bokeh, sun flare, paradise vacation feel",
+  "Autumn forest path — golden-orange leaves bokeh, dappled afternoon sun rays through canopy, cosy fall mood",
+  // ── Travel / experience contexts ──
+  "Airplane window seat — cotton clouds and blue sky bokeh, soft natural diffused window light, jetset vibe",
+  "Luxury hotel balcony — infinity ocean view bokeh, marble railing, golden sunrise spilling across, holiday luxury",
+  "Yacht deck — open sea horizon bokeh, polished wood deck, golden hour Mediterranean glow, super-yacht aspirational",
+  "Mountain cable car cabin — alpine peaks framed by window bokeh, soft daylight, adventure travel vibe",
+  // ── Iconic beautiful destinations (scroll-stop awe) ──
+  "Santorini white-and-blue cliffs — whitewashed Greek architecture and cobalt domes bokeh, Aegean Sea horizon, sunset golden hour",
+  "Maldives overwater bungalow deck — turquoise lagoon bokeh, thatched roof villa, ladder into crystal water, paradise tropical",
+  "Bali rice terraces — emerald green paddy field steps bokeh, palm trees, soft equatorial morning mist, Ubud aesthetic",
+  "Mount Fuji with cherry blossoms — iconic snow-capped peak bokeh, pink sakura petals foreground, springtime Japan postcard",
+  "Bamboo forest Arashiyama Kyoto — towering green bamboo grove bokeh, soft sunbeams piercing through, zen Japanese aesthetic",
+  "Eiffel Tower from Trocadéro — iron lattice silhouette bokeh, Parisian cobblestones, golden sunset sky, romantic France",
+  "Amalfi Coast cliffside — pastel Italian villas tumbling to sea bokeh, lemon trees, Mediterranean turquoise water, dolce vita",
+  "Iceland glacier ice cave — translucent blue ice walls bokeh, soft cool daylight filtering through, otherworldly arctic",
+  "Aurora borealis cabin — green northern lights dancing across sky bokeh, snow-covered log cabin, magical winter night",
+  "Tulip fields Netherlands — rainbow stripes of blooming tulips bokeh, traditional windmill silhouette, springtime Holland",
+  "Cappadocia hot air balloons — pink-orange sunrise sky filled with dozens of balloons bokeh, fairy chimney rocks, Turkey magic",
+  "Plitvice Lakes waterfall — turquoise cascading lakes bokeh, lush emerald forest, mineral-blue mountain water, Croatia dream",
+  "Banff Canadian Rockies — Lake Louise turquoise water bokeh, sharp mountain peaks reflection, evergreen forest, alpine perfection",
+  "Istanbul Bosphorus rooftop — Blue Mosque and Hagia Sophia minarets silhouette bokeh, Bosphorus strait below, golden hour call-to-prayer ambience, Turkish heritage",
+  "Istanbul Galata Tower view — historic stone tower bokeh, red-tiled rooftops cascading to the strait, soft afternoon light, Turkey romantic",
+  "Pamukkale white travertine terraces — cascading mineral pools bokeh, turquoise thermal water, soft sunset light, Turkish natural wonder",
+  "Cappadocia cave hotel terrace — fairy chimney rock formations bokeh, sunrise glow on tuff stone, hot air balloons in distance, Turkey magic",
+  "Dubai Burj Khalifa skyline — world's tallest tower bokeh, sleek desert metropolis, golden hour glow on glass towers, modern luxury Middle East",
+  "Petra Treasury Jordan — rose-red carved sandstone facade bokeh, narrow Siq passage, soft warm light, ancient wonder",
+  // ── Malaysian iconic beautiful spots ──
+  "Petronas Twin Towers KL — illuminated steel skyscrapers bokeh, KLCC park fountain foreground, Malaysian skyline pride",
+  "Penang heritage shophouses — colorful pre-war facades and street art bokeh, Georgetown nostalgia, soft afternoon light",
+  "Langkawi Sky Bridge — curved cable bridge over rainforest canopy bokeh, mountain mist, adventure travel vibe",
+  "Cameron Highlands tea plantation — endless rolling green tea bushes bokeh, soft mist, cool Malaysian highland air",
+  "Pulau Redang turquoise beach — crystal water and white sand bokeh, palm trees, Malaysian island paradise",
+  "Mount Kinabalu sunrise summit — orange-pink dawn sky over Borneo peaks bokeh, achievement vibe, Malaysian highest point",
+  "Melaka River waterfront — colorful murals and red-roof shophouses bokeh, twilight golden lanterns reflecting on water, heritage charm",
+];
+
+// Helper to pick a hand-POV background for PROD Goyang2 videos.
+// Rotates through the list deterministically by index so a batch of 5
+// videos covers 5 different settings. Wraps around for larger batches.
+export function pickHandPovBackground(videoIdx: number): string {
+  return HAND_POV_BACKGROUNDS[videoIdx % HAND_POV_BACKGROUNDS.length];
+}
+
+// Backward-compat alias — old name kept exported in case anything else imports it
+export const LUXURY_VEHICLE_BACKGROUNDS = HAND_POV_BACKGROUNDS;
+export const pickLuxuryBackground = pickHandPovBackground;
 
 // 30-line rotation pool for shopMode=true. Master planner picks one per
 // video index (modulo 30) so consecutive videos never duplicate the line.
