@@ -1171,59 +1171,174 @@ function FrameworkInfoModal({
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
+
+  // Reusable section block — colored heading + content. Used to visually
+  // separate the 6 strategy parts so the modal doesn't read like a wall.
+  const Section = ({ icon, title, body, accent }: {
+    icon: string;
+    title: string;
+    body: string;
+    accent?: string;
+  }) => (
+    <div
+      className="rounded-lg p-3 mb-2"
+      style={{
+        background: "#fafaf7",
+        border: `1px solid ${accent || "#e8e0d8"}`,
+      }}
+    >
+      <div
+        className="text-[10px] font-extrabold uppercase tracking-wider mb-1.5 flex items-center gap-1.5"
+        style={{ color: accent || color }}
+      >
+        <span>{icon}</span>
+        <span>{title}</span>
+      </div>
+      <div className="text-xs leading-relaxed text-gray-800">{body}</div>
+    </div>
+  );
+
   return (
     <Portal>
     <div
-      className="fixed inset-0 lg:left-[280px] z-50 flex items-center justify-center p-4"
+      className="fixed inset-0 lg:left-[280px] z-50 flex items-stretch md:items-center justify-center md:p-4"
       style={{ background: "rgba(0,0,0,0.6)", backdropFilter: "blur(8px)" }}
       onClick={onClose}
     >
       <div
-        className="rounded-2xl max-w-md w-full p-5"
+        className="md:rounded-2xl max-w-lg w-full md:max-h-[90vh] flex flex-col"
         style={{ background: "#ffffff", border: `2px solid ${color}` }}
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center justify-between mb-3">
-          <h3 className="font-display font-extrabold text-base">{fw.name}</h3>
+        {/* Header — sticky */}
+        <div
+          className="flex items-center justify-between gap-2 px-5 py-4 flex-shrink-0"
+          style={{ borderBottom: "1px solid #e8e0d8" }}
+        >
+          <div className="flex-1 min-w-0">
+            <h3 className="font-display font-extrabold text-base truncate">{fw.name}</h3>
+            <p className="text-[11px] text-gray-600 truncate">{fw.focus}</p>
+          </div>
           <span
-            className="text-[10px] font-bold px-2 py-0.5 rounded"
+            className="text-[10px] font-bold px-2 py-1 rounded flex-shrink-0"
             style={{ color, background: `${color}20` }}
           >
             {tlabel}
           </span>
+          {fw.strictUsp && (
+            <span
+              className="text-[10px] font-extrabold px-2 py-1 rounded flex-shrink-0"
+              style={{ color: "#dc2626", background: "#fef2f2", border: "1px solid #fecaca" }}
+              title="Strict mode — AI cannot drift from product info"
+            >
+              🔒 STRICT
+            </span>
+          )}
         </div>
-        <p className="text-xs text-gray-600 mb-3">{fw.focus}</p>
-        <div
-          className="rounded p-3 mb-2"
-          style={{ background: "#fafaf7", border: "1px solid #e8e0d8" }}
-        >
-          <div className="text-[10px] font-bold mb-1" style={{ color }}>
-            SHOT 1 (0-8s) — Hook
+
+        {/* Body — scrollable */}
+        <div className="flex-1 overflow-y-auto px-5 py-4">
+          {/* Strict warning callout — highlight no-drift behavior */}
+          {fw.strictUsp && (
+            <div
+              className="rounded-lg p-3 mb-3 text-xs leading-relaxed"
+              style={{
+                background: "#fef2f2",
+                border: "1px solid #fecaca",
+                color: "#7f1d1d",
+              }}
+            >
+              <div className="font-extrabold mb-1">🔒 Strict USP Mode</div>
+              AI tak boleh invent benefits / numbers / ingredients / personal stories
+              yang takde dalam product info korang. Setiap dialog & caption WAJIB tied
+              to actual USP yang korang provide. Best untuk client yang bagi clear
+              product details.
+            </div>
+          )}
+
+          <Section
+            icon="🎯"
+            title="Purpose — Apa framework ni buat"
+            body={fw.strategy.purpose}
+          />
+          <Section
+            icon="✅"
+            title="Best For — Bila pakai"
+            body={fw.strategy.bestFor}
+            accent="#16a34a"
+          />
+          <Section
+            icon="❌"
+            title="Avoid When — Bila JANGAN pakai"
+            body={fw.strategy.avoidWhen}
+            accent="#dc2626"
+          />
+          <Section
+            icon="🧠"
+            title="Psychology — Kenapa berkesan"
+            body={fw.strategy.psychology}
+            accent="#9333ea"
+          />
+          <Section
+            icon="💬"
+            title="Dialog Shape — Struktur ayat"
+            body={fw.strategy.dialogShape}
+            accent="#0891b2"
+          />
+          <Section
+            icon="📝"
+            title="Example — Contoh dialog"
+            body={fw.strategy.example}
+            accent="#ea580c"
+          />
+
+          {/* Original shot directions kept at bottom for reference */}
+          <div className="mt-4 pt-3" style={{ borderTop: "1px solid #e8e0d8" }}>
+            <div className="text-[10px] font-extrabold uppercase tracking-wider text-gray-400 mb-2">
+              Shot directions (technical)
+            </div>
+            <div
+              className="rounded p-3 mb-2"
+              style={{ background: "#f9fafb", border: "1px solid #e8e0d8" }}
+            >
+              <div className="text-[10px] font-bold mb-1" style={{ color }}>
+                SHOT 1 (0-8s) — Hook
+              </div>
+              <div className="text-xs leading-relaxed text-gray-700">{fw.shot1}</div>
+            </div>
+            <div
+              className="rounded p-3"
+              style={{ background: "#f9fafb", border: "1px solid #e8e0d8" }}
+            >
+              <div className="text-[10px] font-bold mb-1" style={{ color }}>
+                SHOT 2 (8-16s) — CTA
+              </div>
+              <div className="text-xs leading-relaxed text-gray-700">{fw.shot2}</div>
+            </div>
+            {fw.emotion !== "none" && (
+              <div className="text-[10px] text-gray-500 mt-2">
+                Emotion arc: <span className="font-bold">{fw.emotion}</span>
+              </div>
+            )}
           </div>
-          <div className="text-xs leading-relaxed">{fw.shot1}</div>
         </div>
+
+        {/* Footer — sticky CTA */}
         <div
-          className="rounded p-3 mb-3"
-          style={{ background: "#fafaf7", border: "1px solid #e8e0d8" }}
+          className="px-5 py-3 flex-shrink-0"
+          style={{ borderTop: "1px solid #e8e0d8" }}
         >
-          <div className="text-[10px] font-bold mb-1" style={{ color }}>
-            SHOT 2 (8-16s) — CTA
-          </div>
-          <div className="text-xs leading-relaxed">{fw.shot2}</div>
+          <button
+            onClick={onClose}
+            className="w-full py-2.5 rounded-lg text-xs font-extrabold"
+            style={{
+              background: `linear-gradient(135deg, ${GREEN}, #fde047)`,
+              color: "#1a1a1a",
+            }}
+          >
+            Faham — tutup
+          </button>
         </div>
-        {fw.emotion !== "none" && (
-          <div className="text-[10px] text-gray-500 mb-3">Emotion: {fw.emotion}</div>
-        )}
-        <button
-          onClick={onClose}
-          className="w-full py-2 rounded-lg text-xs font-extrabold"
-          style={{
-            background: `linear-gradient(135deg, ${GREEN}, #fde047)`,
-            color: "#1a1a1a",
-          }}
-        >
-          Got it
-        </button>
       </div>
     </div>
     </Portal>

@@ -276,19 +276,38 @@ export default function SopModal({
   );
 }
 
-// SopButton — floating ? icon that opens SopModal for the given page.
-// Small enough to live alongside the AI Agent button without crowding.
-// Top-right of viewport on mobile, alongside content on desktop via flex.
+// Maps pageKey → short label shown next to the BookOpen icon. Keeps the
+// label consistent regardless of the long Malay title in SOP_CONTENT.
+const SOP_SHORT_LABEL: Record<string, string> = {
+  dashboard: "Dashboard",
+  image: "Image",
+  ugc: "UGC",
+  "auto-content": "Auto Content",
+  story: "Story",
+  cinema: "Cinema",
+  "clone-prompt": "Clone",
+  billing: "Billing",
+  "top-up": "Top Up",
+  usage: "Usage",
+  "saved-prompts": "Saved Prompts",
+  settings: "Settings",
+};
+
+// SopButton — floating pill that opens SopModal for the given page.
+// Shows "SOP <label>" so users know which panduan they're about to open
+// (e.g. SOP Dashboard, SOP Image, SOP UGC). Updates automatically as the
+// active tab/view changes.
 export function SopButton({ sop }: { sop: SopPage | null }) {
   const [open, setOpen] = useState(false);
   if (!sop) return null;
+  const label = SOP_SHORT_LABEL[sop.pageKey] || "Panduan";
   return (
     <>
       <button
         onClick={() => setOpen(true)}
-        title="Panduan tab ini"
-        aria-label="Buka panduan"
-        className="fixed top-3 right-3 z-30 w-10 h-10 lg:w-11 lg:h-11 rounded-full flex items-center justify-center transition-transform hover:scale-105"
+        title={`Panduan ${label}`}
+        aria-label={`Buka panduan ${label}`}
+        className="fixed top-3 right-3 z-30 h-10 lg:h-11 px-3 lg:px-4 rounded-full flex items-center gap-2 transition-transform hover:scale-105"
         style={{
           background:
             "linear-gradient(135deg, #fde047 0%, #facc15 100%)",
@@ -297,7 +316,10 @@ export function SopButton({ sop }: { sop: SopPage | null }) {
           border: "2px solid rgba(0,0,0,0.15)",
         }}
       >
-        <BookOpen className="w-5 h-5" strokeWidth={2.5} />
+        <BookOpen className="w-5 h-5 flex-shrink-0" strokeWidth={2.5} />
+        <span className="font-extrabold text-xs lg:text-sm tracking-tight whitespace-nowrap">
+          SOP {label}
+        </span>
       </button>
       {open && <SopModal sop={sop} onClose={() => setOpen(false)} />}
     </>

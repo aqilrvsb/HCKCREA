@@ -359,7 +359,10 @@ ${fwPoolFinal.map((fw, i) => {
   const template = fw.type === "product"
     ? "→ TEMPLATE B (PRODUCT ONLY: NO person, NO face, NO hands, NO body anywhere — pure product shot + voiceover)"
     : "→ TEMPLATE A (UGC: character on screen, holds the product, speaks to camera)";
-  return `${i + 1}. ${fw.name} [${fw.type.toUpperCase()}] — ${fw.focus}\n   ${template}`;
+  const strictTag = fw.strictUsp
+    ? "  🔒 STRICT USP MODE — read <strict_usp_rules> below. ZERO drift allowed."
+    : "";
+  return `${i + 1}. ${fw.name} [${fw.type.toUpperCase()}] — ${fw.focus}\n   ${template}${strictTag ? "\n" + strictTag : ""}`;
 }).join("\n")}
 
 🚨 LOCKED-AVATAR BLOCK ABOVE APPLIES ONLY TO TEMPLATE A VIDEOS. For
@@ -368,6 +371,43 @@ screen, period. The imagePrompt for those videos describes ONLY the
 product (e.g. "the yoga pants laid flat on textured concrete with soft
 sidelight, 100mm macro, shallow DOF") — no woman, no man, no hands.
 </frameworks>
+
+${fwPoolFinal.some((fw) => fw.strictUsp) ? `
+<strict_usp_rules>
+🔒 STRICT USP MODE — APPLIES ONLY TO FRAMEWORKS MARKED 🔒 ABOVE.
+For any video using "UGC USP (Strict)" or "Product USP (Strict)":
+
+ABSOLUTE RULES:
+1. EVERY claim, benefit, ingredient, problem, result, timeframe, or number
+   in the dialog/voiceover/caption MUST appear in <product_data> below.
+   If <product_data> doesn't mention X, you CANNOT mention X.
+
+2. DO NOT invent:
+   - Specific timeframes ("30 hari", "2 minggu", "5 tahun")
+   - Money amounts ("RM200 saved", "save 50%")
+   - Personal stories unrelated to the product's actual use case
+   - Ingredients or formulations not stated
+   - Percentages, ratings, or stats not given
+   - Generic "viral" claims ("best skincare 2024") not in source
+
+3. PICK ONE SPECIFIC USP from <product_data> for each strict video.
+   Bind the entire video (hook, dialog, caption, cover) to that ONE USP.
+   Do NOT mix multiple USPs in one strict video.
+
+4. If <product_data> is too vague to make a strong video, write the
+   simplest accurate dialog (just product name + the actual stated benefit
+   + CTA). DO NOT compensate by adding fluff or invented context.
+
+5. CAPTION must directly mention the actual USP from product_data.
+   Hashtags can be generic, but the caption sentence(s) must be factual.
+
+6. COVER TITLE = product name. COVER SUBTITLE = the actual USP claim
+   from product_data (in caps, max 5-6 words).
+
+REMEMBER: Strict mode prioritizes ACCURACY over CREATIVITY. If forced to
+choose between "boring but true" and "viral but invented" — pick TRUE.
+</strict_usp_rules>
+` : ""}
 
 <dialog_style_rules>
 ALL dialog MUST sound like a real Malaysian friend talking — NEVER like a script:
