@@ -25,6 +25,8 @@ import SettingsSection from "./sections/settings";
 import DashboardOverview from "./sections/dashboard-overview";
 import SavedPromptsSection from "./sections/saved-prompts";
 import AgentChatPanel, { type AgentTab } from "./sections/agent-chat-panel";
+import { SopButton } from "./sections/sop-modal";
+import { SOP_CONTENT } from "@/lib/sop-content";
 import Sidebar, { type Project, type SidebarView } from "./sidebar";
 
 type TabKey = "image" | "video" | "cinema" | "seedance" | "clone" | "auto";
@@ -302,8 +304,36 @@ export default function DashboardShell({
           )}
         </main>
       </div>
+
+      {/* Floating SOP help button — mounts once globally, picks the
+          right SOP page based on current view / activeTab. Returns null
+          (renders nothing) for pages that don't have SOP content yet. */}
+      <SopButton sop={resolveActiveSop(view, activeTab)} />
     </div>
   );
+}
+
+// Map dashboard view+tab to a SOP page key. Tab keys aren't 1:1 with
+// SOP keys ("video" tab is shown as "UGC", "cinema" tab is "Story",
+// "seedance" tab is "Cinema") so we translate explicitly.
+function resolveActiveSop(view: SidebarView, activeTab: TabKey) {
+  let key: string | null = null;
+  if (view.kind === "project") {
+    const map: Record<TabKey, string> = {
+      image: "image",
+      video: "ugc",
+      auto: "auto-content",
+      cinema: "story",
+      seedance: "cinema",
+      clone: "clone-prompt",
+    };
+    key = map[activeTab];
+  } else if (view.kind === "billing") key = "billing";
+  else if (view.kind === "credit") key = "top-up";
+  else if (view.kind === "usage") key = "usage";
+  else if (view.kind === "saved-prompts") key = "saved-prompts";
+  else if (view.kind === "settings") key = "settings";
+  return key ? SOP_CONTENT[key] || null : null;
 }
 
 function ProjectView({
