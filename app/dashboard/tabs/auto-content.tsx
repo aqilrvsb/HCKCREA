@@ -213,6 +213,24 @@ export default function AutoContentTab({ projectId }: { projectId?: string } = {
     if (!url) return;
     if (overrideUrl) setAffiliateUrl(overrideUrl);
     setShowRecent(false);
+
+    // Guard against TikTok short-share links (vt.tiktok.com /
+    // vm.tiktok.com). These don't expose a product_id in the URL —
+    // they need a redirect resolve which TikHub sometimes can't do
+    // reliably, leading to opaque "Could not resolve product ID"
+    // errors for the user. Bail out early with a clear instruction
+    // to paste the full PDP URL instead.
+    if (/^https?:\/\/(vt|vm)\.tiktok\.com\//i.test(url)) {
+      setScrapeMsg({
+        ok: false,
+        text:
+          "Link pendek tak boleh fetch. Buka link ni dalam browser dulu, " +
+          "tunggu redirect ke /pdp/... URL penuh, copy URL tu balik dan paste " +
+          "kat sini.",
+      });
+      return;
+    }
+
     setScraping(true);
     setScrapeMsg(null);
     try {
