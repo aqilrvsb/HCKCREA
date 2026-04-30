@@ -545,10 +545,12 @@ export default function AutoContentTab({ projectId }: { projectId?: string } = {
                 <input
                   type="url"
                   value={affiliateUrl}
-                  onChange={(e) => setAffiliateUrl(e.target.value)}
-                  placeholder="Paste TikTok Shop / Shopee link..."
-                  className={`w-full p-3 ${recentProducts.length > 0 ? "pr-20" : ""} rounded-xl text-sm outline-none`}
+                  readOnly
+                  placeholder="Pick a product from the dropdown →"
+                  title="Use the Chrome extension's Affiliate tab to fetch new products. They will appear in the dropdown."
+                  className={`w-full p-3 ${recentProducts.length > 0 ? "pr-20" : ""} rounded-xl text-sm outline-none cursor-pointer`}
                   style={{ background: "#fafaf7", border: "1px solid #e8e0d8", color: "#1a1a1a" }}
+                  onClick={() => recentProducts.length > 0 && setShowRecent((s) => !s)}
                 />
                 {/* History icon + count — toggles the recent-products
                     dropdown. Only renders when the user has at least
@@ -640,25 +642,23 @@ export default function AutoContentTab({ projectId }: { projectId?: string } = {
                   </div>
                 )}
               </div>
-              <button
-                onClick={() => fetchAffiliate()}
-                disabled={scraping || !affiliateUrl.trim()}
-                className="px-4 rounded-xl text-sm font-extrabold text-white disabled:opacity-50"
+              {/* Fetch button hidden — products are now scraped via the
+                  Chrome extension's Affiliate tab and appear in the
+                  dropdown above. URL input is readonly here. */}
+            </div>
+            {recentProducts.length === 0 && (
+              <div
+                className="text-[11px] px-3 py-2 rounded-lg leading-relaxed"
                 style={{
-                  background: `linear-gradient(135deg, ${AMBER}, #fbbf24)`,
-                  boxShadow: "0 2px 8px rgba(245,158,11,0.3)",
+                  background: "rgba(124,58,237,0.08)",
+                  border: "1px solid rgba(124,58,237,0.25)",
+                  color: "#5b21b6",
                 }}
               >
-                {scraping ? (
-                  <span className="inline-flex items-center gap-1.5">
-                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                    Fetching…
-                  </span>
-                ) : (
-                  "Fetch Product"
-                )}
-              </button>
-            </div>
+                💡 Use the Chrome extension's <strong>🔗 Affiliate</strong> tab
+                to fetch products. They will appear here as a dropdown.
+              </div>
+            )}
             {scrapeMsg && (
               <div
                 className="text-xs px-3 py-2 rounded-lg"
