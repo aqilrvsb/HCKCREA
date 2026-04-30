@@ -520,8 +520,10 @@ export default function AutoContentTab({ projectId }: { projectId?: string } = {
 
         {productMode === "affiliate" && (
           <div className="space-y-2 mb-4">
-            <div className="flex gap-2 relative">
-              <div className="flex-1 relative">
+            {/* Stack input + Fetch Product vertically on mobile so the URL
+                field has full width. Side-by-side on sm+ stays as before. */}
+            <div className="flex flex-col sm:flex-row gap-2 relative">
+              <div className="flex-1 relative min-w-0">
                 <input
                   type="url"
                   value={affiliateUrl}
@@ -707,7 +709,7 @@ export default function AutoContentTab({ projectId }: { projectId?: string } = {
               never rides through to the avatar prompt as a stray flag.
               Grid collapses 3→2 cols so the remaining fields fill the
               row evenly. */}
-          <div className={`grid gap-3 ${gender === "male" ? "grid-cols-2" : "grid-cols-3"}`}>
+          <div className={`grid gap-3 grid-cols-2 ${gender === "male" ? "sm:grid-cols-2" : "sm:grid-cols-3"}`}>
             <div>
               <Label>Gender</Label>
               <Select

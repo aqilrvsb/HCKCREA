@@ -416,8 +416,8 @@ export default function AdminSettings() {
                   onChange={(e) => saveProvider(key, e.target.value as Provider)}
                   className="input text-sm font-bold"
                 >
-                  <option value="p2">P2 — Crun.ai</option>
-                  <option value="p1">P1 — GeminiGen.AI</option>
+                  <option value="p2">P2</option>
+                  <option value="p1">P1</option>
                 </select>
 
                 {/* Video only — "Apply to all" wipes every client's
