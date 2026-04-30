@@ -135,7 +135,7 @@ export default function DemoReel() {
                 Setiap satu dijana dari prompt berbeza.
               </h3>
             </div>
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
+            <div className="grid grid-cols-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
               {videos.slice(1).map((v, originalOffset) => {
                 const i = originalOffset + 1; // index in original videos array (modal lookup)
                 const display = originalOffset + 1; // sequential 01..N for the grid label
@@ -216,7 +216,7 @@ export default function DemoReel() {
               Pilih ikut market anda.
             </h3>
           </div>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 max-w-3xl mx-auto">
+          <div className="grid grid-cols-3 md:grid-cols-4 gap-3 max-w-3xl mx-auto">
             {images.map((img) => (
               <div
                 key={img.id}
