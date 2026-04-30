@@ -673,7 +673,7 @@ export default function AutoContentTab({ projectId }: { projectId?: string } = {
               </div>
             )}
             <div className="text-[10px] text-gray-500">
-              Auto-fills product card below. You can edit info before generating.
+              Untuk Fetch Buka Extension Auto Post Tab Affliate
             </div>
           </div>
         )}
