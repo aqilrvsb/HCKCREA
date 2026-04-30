@@ -21,7 +21,8 @@ export type ScrapedProduct = {
   ok: boolean;
   source: "tikhub" | "crawlbase-html" | "ogmeta" | "jsonld" | "cache";
   product_name: string;
-  product_image_url: string;
+  product_image_url: string;        // ORIGINAL TikTok CDN URL — permanent
+  hosted_image_url?: string | null; // RH-rehosted URL — 24h expiry, used for AI gen
   description: string;
   price?: string;
   rating?: string;
@@ -474,9 +475,13 @@ async function readCache(productId: string): Promise<ScrapedProduct | null> {
       ok: true,
       source: "cache",
       product_name: data.product_name,
-      // Prefer the RH-hosted URL when present so the API route can skip
-      // its own re-upload step; falls back to the original CDN URL.
-      product_image_url: data.hosted_image_url || data.product_image_url || "",
+      // Keep TikTok CDN URL (permanent) as product_image_url for display.
+      // hosted_image_url stays separate — used by AI generation flows
+      // because some Crun/GeminiGen regions can't fetch TikTok CDN.
+      // Display layer prefers product_image_url to avoid broken thumbnails
+      // when the RH signed URL expires after 24h.
+      product_image_url: data.product_image_url || data.hosted_image_url || "",
+      hosted_image_url: data.hosted_image_url || null,
       description: data.description || "",
       price: data.price || undefined,
       rating: data.rating || undefined,
@@ -615,8 +620,12 @@ export async function getRecentProductsForUser(
           product_id: p.product_id,
           raw_url: p.raw_url || "",
           product_name: p.product_name,
+          // Prefer the original TikTok CDN URL (permanent) over the
+          // RH-hosted URL (24h signed expiry — broken images after 1 day).
+          // Frontend renders with referrerPolicy="no-referrer" so TikTok's
+          // hot-link Referer block doesn't kill the thumbnail.
           product_image_url:
-            p.hosted_image_url || p.product_image_url || "",
+            p.product_image_url || p.hosted_image_url || "",
           price: p.price || null,
           last_used_at: h.last_used_at,
         };

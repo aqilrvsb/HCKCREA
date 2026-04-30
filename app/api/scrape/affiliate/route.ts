@@ -101,7 +101,13 @@ export async function POST(req: Request) {
     ok: true,
     source: scraped.source,
     product_name: scraped.product_name,
-    product_image_url: hostedImageUrl,
+    // ORIGINAL TikTok CDN URL — used by frontend for thumbnail display
+    // (permanent, doesn't expire). Frontend renders with
+    // referrerPolicy="no-referrer" to bypass TikTok's hot-link block.
+    product_image_url: scraped.product_image_url || hostedImageUrl,
+    // RH-rehosted URL — used for AI generation pipelines. Expires after
+    // 24h; backend regenerates it on next fetch when stale.
+    hosted_image_url: hostedImageUrl,
     description: scraped.description,
     price: scraped.price || null,
     rating: scraped.rating || null,
