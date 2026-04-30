@@ -142,7 +142,7 @@ export default async function AdminLayout({
 
         <main className="flex-1 min-w-0 px-5 lg:px-10 py-6 lg:py-10 overflow-x-hidden lg:overflow-x-visible">
           {/* Mobile nav */}
-          <div className="lg:hidden flex gap-2 overflow-x-auto mb-5">
+          <div className="lg:hidden flex gap-2 overflow-x-auto scrollbar-hide mb-5">
             {NAV.map((item) => {
               const Icon = item.icon;
               return (

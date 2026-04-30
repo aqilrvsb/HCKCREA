@@ -126,6 +126,18 @@ h1, h2, h3, h4, h5, h6, .font-display {
   background: linear-gradient(180deg, #0a0a0a 0%, #0d0d0d 30%, #0a0a0a 100%);
 }
 
+/* Hide horizontal scrollbar on mobile nav rows that use overflow-x-auto.
+   The scroll behaviour stays — only the visible scrollbar (and the
+   gutter space it claims under the row) is removed. Used by the admin
+   tab nav and the dashboard mobile project chip row. */
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+
 .bg-grid {
   position: absolute;
   inset: 0;

@@ -184,7 +184,7 @@ export default function DashboardShell({
               scrolling project chips. Sidebar is hidden by default on mobile;
               this is the only entry point to nav. */}
           <div
-            className="lg:hidden flex items-center gap-2 px-3 py-3 overflow-x-auto border-b"
+            className="lg:hidden flex items-center gap-2 px-3 py-3 overflow-x-auto scrollbar-hide border-b"
             style={{
               background: "var(--color-bg)",
               borderColor: "var(--color-border)",
