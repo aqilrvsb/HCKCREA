@@ -160,7 +160,7 @@ export default function AdminClients() {
         }}
       >
         <div className="overflow-x-auto">
-          <table className="w-full text-sm">
+          <table className="w-full text-sm min-w-[720px]">
             <thead>
               <tr
                 className="text-xs font-mono uppercase tracking-wider text-[var(--color-text-muted)] font-bold border-b"

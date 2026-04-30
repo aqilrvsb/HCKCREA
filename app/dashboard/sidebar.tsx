@@ -40,6 +40,13 @@ export type SidebarView =
   | { kind: "saved-prompts" }
   | { kind: "settings" };
 
+export type SidebarTab = {
+  key: string;
+  label: string;
+  icon: any;
+  tag: string;
+};
+
 export default function Sidebar({
   email,
   name,
@@ -51,6 +58,11 @@ export default function Sidebar({
   onProjectsChange,
   view,
   onViewChange,
+  tabs,
+  activeTab,
+  onTabChange,
+  mobileOpen,
+  onMobileClose,
 }: {
   email: string;
   name: string;
@@ -62,6 +74,16 @@ export default function Sidebar({
   onProjectsChange: (p: Project[]) => void;
   view: SidebarView;
   onViewChange: (v: SidebarView) => void;
+  // Project tabs (Image / UGC / Auto Content / etc.) — rendered inside the
+  // sidebar when a project is active. Replaces the top tab pills so mobile
+  // users can navigate from the same drawer they use for everything else.
+  tabs: SidebarTab[];
+  activeTab: string;
+  onTabChange: (k: string) => void;
+  // Mobile drawer state — controlled by parent. On lg+ the sidebar is
+  // always visible so these become no-ops.
+  mobileOpen: boolean;
+  onMobileClose: () => void;
 }) {
   const [search, setSearch] = useState("");
   const [creating, setCreating] = useState(false);
@@ -175,13 +197,40 @@ export default function Sidebar({
   const activeProjectId = view.kind === "project" ? view.projectId : null;
 
   return (
-    <aside
-      className="hidden lg:flex flex-col w-[280px] flex-shrink-0 border-r sticky top-0 self-start max-h-screen overflow-y-auto"
-      style={{
-        background: "var(--color-bg)",
-        borderColor: "var(--color-border)",
-      }}
-    >
+    <>
+      {/* Mobile backdrop — only shown when drawer is open. Click closes. */}
+      {mobileOpen && (
+        <div
+          className="lg:hidden fixed inset-0 z-40 bg-black/60 backdrop-blur-sm"
+          onClick={onMobileClose}
+        />
+      )}
+      <aside
+        className={
+          "flex flex-col w-[280px] flex-shrink-0 border-r overflow-y-auto " +
+          // Mobile: fixed slide-in drawer. Desktop: sticky in-flow column.
+          "fixed inset-y-0 left-0 z-50 transform transition-transform " +
+          (mobileOpen ? "translate-x-0 " : "-translate-x-full ") +
+          "lg:translate-x-0 lg:static lg:z-auto lg:sticky lg:top-0 lg:self-start lg:max-h-screen"
+        }
+        style={{
+          background: "var(--color-bg)",
+          borderColor: "var(--color-border)",
+        }}
+      >
+        {/* Mobile-only close button (top-right of drawer) */}
+        <button
+          onClick={onMobileClose}
+          aria-label="Close menu"
+          className="lg:hidden absolute top-3 right-3 z-10 w-9 h-9 rounded-lg flex items-center justify-center"
+          style={{
+            background: "var(--color-bg-card)",
+            border: "1px solid var(--color-border)",
+            color: "var(--color-text-secondary)",
+          }}
+        >
+          <X className="w-4 h-4" />
+        </button>
       {/* Logo */}
       <Link
         href="/dashboard"
@@ -416,6 +465,56 @@ export default function Sidebar({
         </div>
       </div>
 
+      {/* Project tabs (mobile-only) — Image / UGC / Auto Content / Story /
+          Cinema / Clone Prompt. Only renders when a project is active AND
+          on mobile, where the top tab pill bar is hidden. Desktop keeps
+          its top tab pills intact (zero behavioural change for desktop). */}
+      {view.kind === "project" && tabs.length > 0 && (
+        <div
+          className="lg:hidden px-4 pt-3 pb-2 border-t"
+          style={{ borderColor: "var(--color-border)" }}
+        >
+          <div
+            className="flex items-center gap-2 px-2 mt-2 mb-2 font-mono text-[10px] uppercase tracking-[0.18em] font-bold"
+            style={{ color: "var(--color-text-muted)" }}
+          >
+            Tools
+          </div>
+          {tabs.map((t) => {
+            const Icon = t.icon;
+            const isActive = activeTab === t.key;
+            return (
+              <button
+                key={t.key}
+                onClick={() => {
+                  onTabChange(t.key);
+                  onMobileClose();
+                }}
+                className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-bold transition-all"
+                style={
+                  isActive
+                    ? {
+                        background:
+                          "linear-gradient(135deg, rgba(250,204,21,0.18), rgba(234,179,8,0.10))",
+                        color: "var(--color-orange)",
+                      }
+                    : { color: "var(--color-text-secondary)" }
+                }
+              >
+                <Icon className="w-4 h-4 flex-shrink-0" strokeWidth={2.4} />
+                <span className="flex-1 text-left">{t.label}</span>
+                <span
+                  className="font-mono text-[10px] tracking-wider"
+                  style={{ color: "var(--color-text-muted)" }}
+                >
+                  {t.tag}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      )}
+
       {/* Account nav — Billing / Credit / Usage */}
       <div
         className="px-4 pt-3 pb-2 border-t"
@@ -439,7 +538,10 @@ export default function Sidebar({
           return (
             <button
               key={kind}
-              onClick={() => onViewChange({ kind })}
+              onClick={() => {
+                onViewChange({ kind });
+                onMobileClose();
+              }}
               className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-bold transition-all"
               style={
                 isActive
@@ -718,7 +820,8 @@ export default function Sidebar({
           </div>
         </div>
       )}
-    </aside>
+      </aside>
+    </>
   );
 }
 

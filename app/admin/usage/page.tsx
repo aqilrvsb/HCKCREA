@@ -296,7 +296,7 @@ export default function AdminUsage() {
 
         {!loading && view === "summary" && (
           <div className="overflow-x-auto">
-            <table className="w-full text-sm">
+            <table className="w-full text-sm min-w-[640px]">
               <thead>
                 <tr
                   className="text-[10px] font-mono uppercase tracking-widest text-[var(--color-text-muted)] font-bold border-b"
@@ -373,7 +373,7 @@ export default function AdminUsage() {
 
         {!loading && view === "detail" && (
           <div className="overflow-x-auto">
-            <table className="w-full text-sm">
+            <table className="w-full text-sm min-w-[640px]">
               <thead>
                 <tr
                   className="text-[10px] font-mono uppercase tracking-widest text-[var(--color-text-muted)] font-bold border-b"

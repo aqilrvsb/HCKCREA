@@ -60,6 +60,9 @@ export default function DashboardShell({
   const [projectsLoaded, setProjectsLoaded] = useState(false);
   const [view, setView] = useState<SidebarView>({ kind: "dashboard" });
   const [activeTab, setActiveTab] = useState<TabKey>("image");
+  // Mobile drawer state — controls whether the sidebar is slid in. Closes
+  // automatically when the user picks a tab / view from inside the drawer.
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
 
   // Live credit balance — initialised from the server-rendered prop, then
   // refreshed via /api/me/credits. Triggers:
@@ -160,18 +163,50 @@ export default function DashboardShell({
           onProjectsChange={setProjects}
           view={view}
           onViewChange={setView}
+          tabs={TABS}
+          activeTab={activeTab}
+          onTabChange={(k) => {
+            // If subscription is inactive, route ALL tab clicks to billing
+            // — same gate the old top-pill bar enforced.
+            if (!planActive) {
+              setView({ kind: "billing" });
+              return;
+            }
+            setActiveTab(k as TabKey);
+          }}
+          mobileOpen={mobileSidebarOpen}
+          onMobileClose={() => setMobileSidebarOpen(false)}
         />
 
         {/* MAIN */}
         <main className="flex-1 min-w-0 flex flex-col">
-          {/* Mobile project picker (no sidebar on mobile) */}
+          {/* Mobile top bar — hamburger opens sidebar drawer + horizontally
+              scrolling project chips. Sidebar is hidden by default on mobile;
+              this is the only entry point to nav. */}
           <div
-            className="lg:hidden flex gap-2 px-5 py-3 overflow-x-auto border-b"
+            className="lg:hidden flex items-center gap-2 px-3 py-3 overflow-x-auto border-b"
             style={{
               background: "var(--color-bg)",
               borderColor: "var(--color-border)",
             }}
           >
+            <button
+              onClick={() => setMobileSidebarOpen(true)}
+              aria-label="Open menu"
+              className="flex-shrink-0 w-10 h-10 rounded-lg flex items-center justify-center"
+              style={{
+                background: "var(--color-bg-card)",
+                border: "1px solid var(--color-border)",
+                color: "var(--color-text-primary)",
+              }}
+            >
+              {/* Inline hamburger so we don't depend on another lucide import */}
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <line x1="3" y1="6" x2="21" y2="6" />
+                <line x1="3" y1="12" x2="21" y2="12" />
+                <line x1="3" y1="18" x2="21" y2="18" />
+              </svg>
+            </button>
             {projects.map((p) => {
               const isActive = view.kind === "project" && view.projectId === p.id;
               return (
@@ -289,7 +324,8 @@ function ProjectView({
   const active = TABS.find((t) => t.key === activeTab)!;
   return (
     <>
-      {/* Project header */}
+      {/* Project header — desktop unchanged (lg+ only) + mobile gets a
+          compact version below the hamburger bar. */}
       <header className="hidden lg:flex items-end justify-between px-10 pt-8 pb-4">
         <div>
           <div className="flex items-center gap-2 mb-2">
@@ -307,9 +343,18 @@ function ProjectView({
         </div>
       </header>
 
-      {/* Tab pills — Image / UGC / Cinema / Clone / Auto Content. When the
-          subscription is inactive every click routes to Billing instead. */}
-      <div className="px-5 lg:px-10 pt-2">
+      {/* Mobile project header — slimmer, hidden on desktop */}
+      <header className="lg:hidden flex items-center gap-2 px-5 pt-4 pb-2">
+        <Folder className="w-3.5 h-3.5 flex-shrink-0" style={{ color: "var(--color-orange)" }} />
+        <h1 className="font-display font-extrabold text-lg tracking-tight leading-none text-[var(--color-text-primary)] truncate">
+          {project.name}
+        </h1>
+      </header>
+
+      {/* Tab pills — desktop-only (hidden on mobile, where tabs live in
+          sidebar Tools section instead). Behaviour preserved 1:1 with the
+          pre-mobile-pass version. */}
+      <div className="hidden lg:block px-5 lg:px-10 pt-2">
         <div
           className="flex gap-2 overflow-x-auto pb-2 border-b"
           style={{ borderColor: "var(--color-border)" }}
@@ -355,6 +400,22 @@ function ProjectView({
           })}
         </div>
       </div>
+
+      {/* Mobile inactive-subscription notice — desktop's locked path is
+          handled by the tab pill onClick routing to billing. */}
+      {!planActive && (
+        <button
+          onClick={onGotoBilling}
+          className="lg:hidden mx-5 mb-2 px-4 py-2 rounded-lg text-xs font-bold"
+          style={{
+            background: "rgba(255,87,34,0.12)",
+            color: "var(--color-orange)",
+            border: "1px solid rgba(255,87,34,0.3)",
+          }}
+        >
+          🔒 Subscription inactive — tap to renew
+        </button>
+      )}
 
       {/* Locked state — show a single Renew CTA in place of the tab body */}
       {!planActive && (
