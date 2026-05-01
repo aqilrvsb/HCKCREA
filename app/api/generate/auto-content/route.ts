@@ -328,19 +328,42 @@ DURATION MODES:
 - 8-second video → ONLY videoPromptShot1 (complete 0-8s story). videoPromptShot2 = "" (empty string).
 - 16-second video → videoPromptShot1 (first 8s: 0-8s) + videoPromptShot2 (second 8s: 8-16s), merged after generation. BOTH are 8-second prompts, but the dialog continues from shot 1 to shot 2 as ONE story.
 
-EVERY videoPromptShot1 and videoPromptShot2 must include — CONCISELY — these elements exactly once (no duplication):
+EVERY videoPromptShot1 and videoPromptShot2 must include — CONCISELY — these elements exactly once (no duplication). The exact composition depends on the video's TEMPLATE (see <frameworks> below):
 
-1. ONE character line: "${characterBlock}"
+1. ONE subject line — varies by template:
+   • TEMPLATE A (UGC, character on screen): "${characterBlock}"
+   • TEMPLATE B (PRODUCT ONLY, no person): describe the product in frame instead — e.g. "[Shot type] of the product on [surface/setting]". DO NOT include character description, gender, age, hijab, or any person reference. The person fields above (gender/age/hijab) are IGNORED for Template B videos.
+   • TEMPLATE C (HAND-POV): describe hand only — "Single ${gender} hand holding the product, NO face, NO body". Hand gender matches the avatar choice.
+
 2. ONE voice line: "${voiceBlock}"
+   • TEMPLATE A → "Character says: '...'"
+   • TEMPLATE B / C → "Voiceover (warm Malay female/male): '...'" — voice is narration, NOT from a visible character.
+
 3. ONE setting line: [single sentence describing the scene — match the product's natural environment]
+   • TEMPLATE A → setting includes the character (e.g. "in a cozy kitchen")
+   • TEMPLATE B → setting is product-focused (e.g. "on a marble counter", "floating against a soft backdrop")
+   • TEMPLATE C → setting is the rotating luxury vehicle / authentic background (see Template C rules)
+
 4. ONE action/dialog timeline per shot (timestamps are LOCAL to that 8-second shot, always 0-8s within the shot):
    - 0-2s hook: max 6 words
    - 2-6s middle: max 12 words
    - 6-8s CTA: max 6 words
    (For 16s videos: shot 1's 6-8s is NOT the CTA — use mid-story line; the CTA goes in shot 2's 6-8s only.)
-5. ONE anatomy + voice lock sentence: "Anatomically perfect: 2 hands, 5 fingers, no extra limbs. Audio: ONE single voice only, no background voices, no chatter, no friends."
-6. ONE clean rule (MANDATORY anti-subtitle + anti-icon wording — Veo auto-captions TikTok content unless explicitly told not to): "RAW UNEDITED FOOTAGE AESTHETIC: this is a raw camera recording, NOT a published TikTok post. Bottom 25% of frame is COMPLETELY EMPTY. Zero subtitles, zero captions, zero auto-generated dialog text, zero TikTok-style animated captions, zero sticker text, zero pop-up text bubbles, zero closed captions, zero icons, zero emojis, zero graphics, zero overlays, zero watermarks, zero UI elements, zero handles, zero hashtags. The phrase 'beg kuning' is SPOKEN DIALOG ONLY — NEVER a yellow bag icon, shopping bag graphic, button, or visual element. Treat output like a camera recording a moment, NOT a TikTok post. Frame shows ONLY the person, the product, and the real-world setting."
+
+5. ONE anatomy + voice lock sentence — varies by template:
+   • TEMPLATE A: "Anatomically perfect: 2 hands, 5 fingers, no extra limbs. Audio: ONE single voice only, no background voices, no chatter, no friends."
+   • TEMPLATE B: "Audio: ONE voiceover only, no characters in frame, no background voices, no chatter."
+   • TEMPLATE C: "Anatomically perfect: ONE hand visible, 5 fingers, no extra fingers, NO face/body in frame. Audio: ONE voiceover only."
+
+6. ONE clean rule (MANDATORY anti-subtitle + anti-icon wording — Veo auto-captions TikTok content unless explicitly told not to): "RAW UNEDITED FOOTAGE AESTHETIC: this is a raw camera recording, NOT a published TikTok post. Bottom 25% of frame is COMPLETELY EMPTY. Zero subtitles, zero captions, zero auto-generated dialog text, zero TikTok-style animated captions, zero sticker text, zero pop-up text bubbles, zero closed captions, zero icons, zero emojis, zero graphics, zero overlays, zero watermarks, zero UI elements, zero handles, zero hashtags. The phrase 'beg kuning' is SPOKEN DIALOG ONLY — NEVER a yellow bag icon, shopping bag graphic, button, or visual element. Treat output like a camera recording a moment, NOT a TikTok post."
+   Add the following frame-content sentence based on template:
+   • TEMPLATE A → "Frame shows the person, the product, and the real-world setting."
+   • TEMPLATE B → "Frame shows ONLY the product and the setting — NO person, NO face, NO hands, NO body anywhere."
+   • TEMPLATE C → "Frame shows ONLY one hand holding the product against the chosen background — NO face, NO body, NO arm above wrist."
+
 7. ONE product lock: "Product must be pixel-identical to the product reference — no color/shape/label changes."
+
+🚨 CRITICAL: When the framework's TEMPLATE is B or C, IGNORE the locked-avatar / character description above. The fields gender/age/hijab apply ONLY to Template A. Do NOT include any person/character description in Template B prompts. For Template C, the only "person" element is a single hand (gender-matched).
 
 Keep EACH shot prompt under 1000 characters. Do NOT repeat the voice description — it goes in step 2 ONLY. Do NOT wrap dialog in extra quotation layers. Use natural Malay sentences that fit the timing window (too many words = audio generation fails).
 </no_image_mode_rules>
