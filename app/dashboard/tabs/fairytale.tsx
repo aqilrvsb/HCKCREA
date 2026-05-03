@@ -333,7 +333,12 @@ export default function FairytaleTab({ projectId }: { projectId?: string } = {})
       const d = await r.json();
       if (!r.ok || !d?.ok) throw new Error(d?.error || `HTTP ${r.status}`);
       setRenderStatus("done");
+      // Bump the history grid 3 times so the user sees the placeholder
+      // immediately, the row appearing once Modal accepts, and the final
+      // mp4 swap-in when render completes (~30-60s later).
       window.dispatchEvent(new CustomEvent("history:refresh"));
+      setTimeout(() => window.dispatchEvent(new CustomEvent("history:refresh")), 5000);
+      setTimeout(() => window.dispatchEvent(new CustomEvent("history:refresh")), 60_000);
     } catch (e: any) {
       setRenderError(e?.message || "Render failed");
       setRenderStatus("failed");
@@ -849,18 +854,18 @@ function Step3(props: any) {
           <button
             onClick={onSubmit}
             disabled={!allDone || renderStatus === "submitting"}
-            className="flex-1 max-w-xs px-6 py-2.5 rounded-xl font-bold text-sm text-white inline-flex items-center justify-center gap-2 disabled:opacity-50"
+            className="flex-1 max-w-sm px-6 py-2.5 rounded-xl font-bold text-sm text-white inline-flex items-center justify-center gap-2 disabled:opacity-50"
             style={{
               background: "linear-gradient(135deg, #c084fc 0%, #818cf8 100%)",
               boxShadow: "0 4px 12px rgba(168,85,247,0.3)",
             }}
           >
             {renderStatus === "submitting" ? (
-              <><Loader2 className="w-4 h-4 animate-spin" /> Submitting…</>
+              <><Loader2 className="w-4 h-4 animate-spin" /> Merging scenes…</>
             ) : renderStatus === "done" ? (
-              <><Check className="w-4 h-4" /> Submitted — check history</>
+              <><Check className="w-4 h-4" /> Merged — see Fairytale history below</>
             ) : (
-              <><Sparkles className="w-4 h-4" /> Generate Video</>
+              <><Sparkles className="w-4 h-4" /> Merge All Scenes → 1 Video</>
             )}
           </button>
         </div>
@@ -871,7 +876,12 @@ function Step3(props: any) {
         )}
         {!allDone && scenes.length > 0 && (
           <p className="text-[11px] text-gray-500 text-center">
-            Generate Video unlocks once all scene images finish loading.
+            Merge button unlocks once all scene images finish loading.
+          </p>
+        )}
+        {allDone && renderStatus === "idle" && (
+          <p className="text-[11px] text-gray-500 text-center">
+            All {scenes.length} scenes ready. Click Merge to combine them into one MP4 (audio + karaoke text + Ken Burns motion). Render takes ~{Math.ceil(scenes.length * 6)}s.
           </p>
         )}
       </div>
