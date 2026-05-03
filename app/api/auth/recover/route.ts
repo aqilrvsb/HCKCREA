@@ -10,6 +10,21 @@ function normalizeWhatsapp(raw: string): string | null {
   return "+60" + digits;
 }
 
+// Compare two whatsapp numbers loosely — strips +, leading 0, leading 60
+// so "+60136712256" / "60136712256" / "0136712256" / "136712256" all
+// match. Handles legacy stored formats from before normalizeWhatsapp existed.
+function whatsappMatches(a: string, b: string): boolean {
+  const strip = (s: string) => {
+    const d = (s || "").replace(/\D/g, "");
+    if (d.startsWith("60")) return d.slice(2);
+    if (d.startsWith("0")) return d.slice(1);
+    return d;
+  };
+  const aa = strip(a);
+  const bb = strip(b);
+  return !!aa && aa === bb;
+}
+
 function generatePassword(len: number): string {
   const chars = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789";
   let out = "";
@@ -59,15 +74,15 @@ export async function POST(req: Request) {
       .eq("id", user.id)
       .single();
 
-    if (!profile?.whatsapp || profile.whatsapp !== whatsapp) {
-      return generic; // silent failure — same response
+    if (!profile?.whatsapp || !whatsappMatches(profile.whatsapp, whatsapp)) {
+      return generic; // silent failure for security (don't reveal account existence)
     }
 
     // Generate new temp password and update
     const tempPassword = generatePassword(12);
     await admin.auth.admin.updateUserById(user.id, { password: tempPassword });
 
-    // Send via WhatsApp
+    // Send via WhatsApp — use the stored profile number (canonical format)
     const origin =
       req.headers.get("origin") ||
       process.env.APP_ORIGIN ||
@@ -85,7 +100,21 @@ export async function POST(req: Request) {
       expiresAt: expiry,
       loginUrl: `${origin}/login`,
     });
-    await sendWhatsApp(whatsapp, msg);
+    const sent = await sendWhatsApp(profile.whatsapp, msg);
+
+    // Surface a service-level failure (WhatsApp Center down, no admin_device,
+    // etc.) so the user knows to contact support instead of waiting forever.
+    // Email/whatsapp mismatch still falls through to the generic message
+    // above for security — only this branch tells the truth.
+    if (!sent) {
+      return NextResponse.json(
+        {
+          error:
+            "WhatsApp gateway sedang down — sila cuba lagi dalam beberapa minit atau hubungi support.",
+        },
+        { status: 502 }
+      );
+    }
 
     return generic;
   } catch (e: any) {
