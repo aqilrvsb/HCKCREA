@@ -309,13 +309,16 @@ export default function AdminTransactions() {
                 const meta = p.metadata || {};
                 const signup = meta.signup || {};
                 const profile = p.user_id ? profiles[p.user_id] : null;
-                // Prefer signup metadata (richest source), fall back to profile
+                // Prefer the live profile (admin-editable source of truth) so
+                // edits in /admin/clients show up here. Fall back to signup
+                // metadata only when the profile field is empty (e.g. legacy
+                // signups before profile.whatsapp was captured).
                 const customerName =
-                  signup.name ||
                   profile?.full_name ||
+                  signup.name ||
                   (p.user_id ? p.user_id.slice(0, 8) : "—");
-                const customerEmail = signup.email || profile?.email || "";
-                const customerWhatsapp = signup.whatsapp || profile?.whatsapp || "";
+                const customerEmail = profile?.email || signup.email || "";
+                const customerWhatsapp = profile?.whatsapp || signup.whatsapp || "";
                 const customerWaUrl = customerWhatsapp
                   ? `https://wa.me/${waNumber(customerWhatsapp)}`
                   : "";
