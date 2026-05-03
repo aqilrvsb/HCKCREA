@@ -1,52 +1,32 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
-import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
+import { uploadFromUrl } from "@/lib/b2";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-// Diagnostic — returns the exact presigned URL we generate so we can
-// inspect SignedHeaders and other query params. Admin only.
+// Diagnostic — uploads a tiny synthetic file to B2 to isolate whether
+// the upload pipeline is broken (auth/signing) vs whether large-body
+// transmission is the problem. Admin only.
+//
+// We host the test bytes via data: URL ... actually data: isn't fetchable.
+// Use a known tiny public URL instead.
 export async function GET() {
   const sb = await createClient();
   const { data: { user } } = await sb.auth.getUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const c = new S3Client({
-    region: process.env.B2_REGION || "us-east-005",
-    endpoint: process.env.B2_ENDPOINT,
-    credentials: {
-      accessKeyId: process.env.B2_KEY_ID || "",
-      secretAccessKey: process.env.B2_APP_KEY || "",
-    },
-    forcePathStyle: false,
-    requestChecksumCalculation: "WHEN_REQUIRED",
-    responseChecksumValidation: "WHEN_REQUIRED",
-  });
+  // 1x1 transparent PNG hosted on a fast CDN — ~70 bytes.
+  const tinyUrl = "https://upload.wikimedia.org/wikipedia/commons/c/ca/1x1.png";
 
-  const url = await getSignedUrl(
-    c,
-    new PutObjectCommand({
-      Bucket: process.env.B2_BUCKET_PRIVATE || "",
-      Key: `users/${user.id}/test/debug.bin`,
-    }),
-    {
-      expiresIn: 300,
-      signableHeaders: new Set(["host", "x-amz-content-sha256"]),
-    }
-  );
-
-  const parsed = new URL(url);
-  const params: Record<string, string> = {};
-  parsed.searchParams.forEach((v, k) => { params[k] = v; });
-
-  return NextResponse.json({
-    ok: true,
-    url,
-    host: parsed.host,
-    path: parsed.pathname,
-    queryParams: params,
-    signedHeaders: params["X-Amz-SignedHeaders"],
-  });
+  try {
+    const res = await uploadFromUrl({
+      url: tinyUrl,
+      key: `users/${user.id}/test/tiny-${Date.now()}.png`,
+      contentType: "image/png",
+    });
+    return NextResponse.json({ ok: true, ...res });
+  } catch (e: any) {
+    return NextResponse.json({ ok: false, error: e?.message }, { status: 500 });
+  }
 }
