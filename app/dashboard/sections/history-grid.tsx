@@ -1777,17 +1777,17 @@ function SaveTrafficLight({
   const tierTitle = saved
     ? "Saved permanently to Storage"
     : expired
-      ? "Crun deleted this file (14-day TTL passed) — can't save"
+      ? "This file has expired (14-day TTL passed) — can't save"
       : urgent
         ? `⚠ Only ${expiryDays} day${expiryDays === 1 ? "" : "s"} left! Save NOW.`
-        : `${expiryDays}d left before Crun auto-deletes — click to save permanently`;
+        : `${expiryDays}d left before this file auto-deletes — click to save permanently`;
 
   function handleClick() {
     if (saved || saving || expired) return;
     const lines = [
       `Save this to your permanent Storage?`,
       ``,
-      `This file expires from Crun in ${expiryDays} day${expiryDays === 1 ? "" : "s"}.`,
+      `This file expires in ${expiryDays} day${expiryDays === 1 ? "" : "s"}.`,
       `Once saved, it stays forever in your Storage page.`,
       ``,
       `Counts toward your storage quota.`,

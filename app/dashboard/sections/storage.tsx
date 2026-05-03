@@ -110,7 +110,7 @@ export default function StorageSection() {
           </h1>
         </div>
         <p className="text-sm text-[var(--color-text-secondary)]">
-          Permanent backup of your generations. Saved files stay even after the 14-day Crun TTL.
+          Permanent backup of your generations. Saved files stay even after the 14-day TTL.
         </p>
       </div>
 
@@ -179,7 +179,7 @@ export default function StorageSection() {
           <div className="font-bold mb-1 text-[var(--color-text-primary)]">No saved files yet</div>
           <p className="text-xs text-[var(--color-text-secondary)] max-w-md mx-auto">
             Click the cloud icon ☁️ on any history card to save it here permanently.
-            Files in Storage stay forever — temp Crun URLs in History expire after 14 days.
+            Files in Storage stay forever — temp URLs in History expire after 14 days.
           </p>
         </div>
       )}
