@@ -162,6 +162,10 @@ export async function uploadFromUrl(opts: {
     `AWS4-HMAC-SHA256 Credential=${accessKeyId}/${credentialScope}, ` +
     `SignedHeaders=${signedHeaders}, Signature=${signature}`;
 
+  // Pass the raw ArrayBuffer (not Buffer) — Vercel/undici fetch handles
+  // ArrayBuffer reliably; Buffer-as-body has hit truncation issues.
+  const bodyForFetch = ab;
+
   const putResp = await fetch(`https://${host}${canonicalUri}`, {
     method: "PUT",
     headers: {
@@ -172,13 +176,15 @@ export async function uploadFromUrl(opts: {
       Authorization: authorization,
       Host: host,
     },
-    body,
+    body: bodyForFetch,
+    // @ts-ignore - undici-specific option to allow body on PUT
+    duplex: "half",
   });
 
   if (!putResp.ok) {
     const errText = await putResp.text().catch(() => "");
     throw new Error(
-      `B2 PUT failed: HTTP ${putResp.status} ${errText.slice(0, 300)}`
+      `B2 PUT failed: HTTP ${putResp.status} (body=${body.length}b, ab=${ab.byteLength}b, sha=${payloadHash.slice(0, 12)}) ${errText.slice(0, 250)}`
     );
   }
 
