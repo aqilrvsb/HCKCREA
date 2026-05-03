@@ -19,6 +19,7 @@ import {
   ListObjectsV2Command,
 } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
+import crypto from "crypto";
 
 let _client: S3Client | null = null;
 function client(): S3Client {
@@ -64,16 +65,20 @@ export function bucketPrivate(): string {
   return b;
 }
 
-// Upload a remote URL into B2.
-//
-// Uses s3.send(PutObjectCommand) with explicit Buffer body + ContentLength.
-// With requestChecksumCalculation: "WHEN_REQUIRED" set on the client,
-// the SDK signs with the actual SHA256 of the body (single-chunk PUT)
-// instead of STREAMING-AWS4-HMAC-SHA256-PAYLOAD. B2 accepts this format.
-//
-// We tried: presigned PUT + plain fetch — but B2 demands x-amz-content-sha256
-// be in SignedHeaders, and the SDK presigner hoists it to the URL query
-// string instead, which B2 rejects with InvalidRequest.
+// Manual SigV4 PUT — no AWS SDK upload path. The SDK's PutObject signs
+// with STREAMING-AWS4-HMAC-SHA256-PAYLOAD on Vercel's runtime regardless
+// of requestChecksumCalculation, and B2 rejects chunked uploads with
+// "The request body was too small". We sign and PUT manually so we
+// control exactly what goes on the wire: a single-shot PUT with the
+// actual sha256 of the body in x-amz-content-sha256 (signed). This is
+// the canonical AWS Signature V4 spec, and B2 accepts it.
+function hmac(key: Buffer | string, data: string): Buffer {
+  return crypto.createHmac("sha256", key).update(data, "utf8").digest();
+}
+function sha256Hex(data: Buffer | string): string {
+  return crypto.createHash("sha256").update(data).digest("hex");
+}
+
 export async function uploadFromUrl(opts: {
   url: string;
   key: string;
@@ -92,15 +97,90 @@ export async function uploadFromUrl(opts: {
     throw new Error(`Source URL returned 0 bytes: ${opts.url}`);
   }
 
-  await client().send(
-    new PutObjectCommand({
-      Bucket: opts.bucket || bucketPrivate(),
-      Key: opts.key,
-      Body: body,
-      ContentType: ct,
-      ContentLength: body.length,
-    })
-  );
+  const endpoint = process.env.B2_ENDPOINT!;
+  const region = process.env.B2_REGION || "us-east-005";
+  const accessKeyId = process.env.B2_KEY_ID!;
+  const secretAccessKey = process.env.B2_APP_KEY!;
+  const bucket = opts.bucket || bucketPrivate();
+
+  const endpointUrl = new URL(endpoint);
+  // Virtual-hosted style: bucket.s3.region.backblazeb2.com
+  const host = `${bucket}.${endpointUrl.host}`;
+  // Encode each segment of the key per RFC 3986 (slashes preserved).
+  const canonicalUri =
+    "/" + opts.key.split("/").map(encodeURIComponent).join("/");
+
+  const now = new Date();
+  const amzDate =
+    now.toISOString().replace(/[:-]|\.\d{3}/g, ""); // YYYYMMDDTHHMMSSZ
+  const dateStamp = amzDate.slice(0, 8);             // YYYYMMDD
+
+  const payloadHash = sha256Hex(body);
+
+  // Headers we will sign (alphabetical, lowercased keys).
+  const headers: Record<string, string> = {
+    "content-length": String(body.length),
+    "content-type": ct,
+    host,
+    "x-amz-content-sha256": payloadHash,
+    "x-amz-date": amzDate,
+  };
+  const signedHeaders = Object.keys(headers).sort().join(";");
+  const canonicalHeaders =
+    Object.keys(headers)
+      .sort()
+      .map((k) => `${k}:${headers[k].trim()}`)
+      .join("\n") + "\n";
+
+  const canonicalRequest = [
+    "PUT",
+    canonicalUri,
+    "", // query string
+    canonicalHeaders,
+    signedHeaders,
+    payloadHash,
+  ].join("\n");
+
+  const credentialScope = `${dateStamp}/${region}/s3/aws4_request`;
+  const stringToSign = [
+    "AWS4-HMAC-SHA256",
+    amzDate,
+    credentialScope,
+    sha256Hex(canonicalRequest),
+  ].join("\n");
+
+  const kDate = hmac("AWS4" + secretAccessKey, dateStamp);
+  const kRegion = hmac(kDate, region);
+  const kService = hmac(kRegion, "s3");
+  const kSigning = hmac(kService, "aws4_request");
+  const signature = crypto
+    .createHmac("sha256", kSigning)
+    .update(stringToSign, "utf8")
+    .digest("hex");
+
+  const authorization =
+    `AWS4-HMAC-SHA256 Credential=${accessKeyId}/${credentialScope}, ` +
+    `SignedHeaders=${signedHeaders}, Signature=${signature}`;
+
+  const putResp = await fetch(`https://${host}${canonicalUri}`, {
+    method: "PUT",
+    headers: {
+      "Content-Type": ct,
+      "Content-Length": String(body.length),
+      "x-amz-content-sha256": payloadHash,
+      "x-amz-date": amzDate,
+      Authorization: authorization,
+      Host: host,
+    },
+    body,
+  });
+
+  if (!putResp.ok) {
+    const errText = await putResp.text().catch(() => "");
+    throw new Error(
+      `B2 PUT failed: HTTP ${putResp.status} ${errText.slice(0, 300)}`
+    );
+  }
 
   return { key: opts.key, size: body.length };
 }
