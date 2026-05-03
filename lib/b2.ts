@@ -116,7 +116,10 @@ export async function uploadFromUrl(opts: {
     now.toISOString().replace(/[:-]|\.\d{3}/g, ""); // YYYYMMDDTHHMMSSZ
   const dateStamp = amzDate.slice(0, 8);             // YYYYMMDD
 
-  const payloadHash = sha256Hex(body);
+  // Use UNSIGNED-PAYLOAD instead of sha256(body) — B2 accepts this and
+  // it sidesteps any body-byte mismatch issues. The actual body integrity
+  // is still protected by HTTPS + Content-Length.
+  const payloadHash = "UNSIGNED-PAYLOAD";
 
   // Headers we will sign (alphabetical, lowercased keys).
   const headers: Record<string, string> = {
