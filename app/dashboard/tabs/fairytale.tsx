@@ -1078,46 +1078,212 @@ function FontConfig(props: any) {
   );
 }
 
+// Map ffmpeg/Modal animation names → CSS animation names declared below
+const SCENE_CSS_ANIM: Record<string, string> = {
+  "zoom-in":            "ftKenBurnsZoomIn",
+  "zoom-out":           "ftKenBurnsZoomOut",
+  "pan-right":          "ftKenBurnsPanRight",
+  "pan-left":           "ftKenBurnsPanLeft",
+  "pan-down":           "ftKenBurnsPanDown",
+  "zoom-pan":           "ftKenBurnsZoomPan",
+  "slide-reveal-left":  "ftSlideRevealLeft",
+  "fade-in":            "ftFadeInZoom",
+  "scale-pulse":        "ftScalePulse",
+  "color-shift":        "ftColorShift",
+  "none":               "",
+};
+
+const TRANSITION_CSS: Record<string, string> = {
+  "fade":         "ftFade",
+  "slide-left":   "ftSlideLeft",
+  "wipe-left":    "ftWipeLeft",
+  "circle-open":  "ftCircleOpen",
+  "dissolve":     "ftDissolve",
+  "radial":       "ftRadial",
+};
+
 function PreviewPanel(props: any) {
   const { scene, sceneCount, previewIdx, voiceEnabled, transition, sceneAnimation,
     textAnimation, textPlacement, fontType, textSize, textColor, uppercase, textBackground, enableText } = props;
   const sizePx = TEXT_SIZES.find((s: any) => s.id === textSize)?.px ?? 36;
-  const previewText = scene?.narration ? (uppercase ? scene.narration.toUpperCase() : scene.narration).split(/\s+/).slice(0, 4).join(" ") : "Preview";
+
+  const fullText = scene?.narration ? (uppercase ? scene.narration.toUpperCase() : scene.narration) : "Preview text";
+  const words = useMemo(() => fullText.split(/\s+/).filter(Boolean), [fullText]);
+
+  // Per-scene fake duration — scales with word count so karaoke pacing feels real
+  const sceneDurationMs = Math.max(2500, Math.min(7000, words.length * 380));
+
+  // Karaoke / progressive reveal — bumps every (sceneDuration / wordCount) ms
+  const [revealedCount, setRevealedCount] = useState(words.length);
+  useEffect(() => {
+    if (!enableText) return;
+    if (textAnimation === "none" || textAnimation === "highlight") {
+      setRevealedCount(words.length);
+      return;
+    }
+    setRevealedCount(0);
+    if (words.length === 0) return;
+    const perWord = sceneDurationMs / words.length;
+    let i = 0;
+    const id = setInterval(() => {
+      i += 1;
+      setRevealedCount(i);
+      if (i >= words.length) clearInterval(id);
+    }, perWord);
+    return () => clearInterval(id);
+    // Re-run on EVERY relevant change so user sees effect live
+  }, [textAnimation, fullText, sceneDurationMs, enableText, words.length, scene?.idx]);
+
+  // Highlight cursor for the "highlight" mode — one word at a time pulses
+  const [highlightIdx, setHighlightIdx] = useState(0);
+  useEffect(() => {
+    if (textAnimation !== "highlight" || words.length === 0) return;
+    setHighlightIdx(0);
+    const perWord = sceneDurationMs / words.length;
+    const id = setInterval(() => {
+      setHighlightIdx((p) => (p + 1) % words.length);
+    }, perWord);
+    return () => clearInterval(id);
+  }, [textAnimation, fullText, sceneDurationMs, words.length, scene?.idx]);
+
+  // Cycle scene animation every render-cycle so the user sees it loop. We
+  // bump a "cycle" key whenever sceneAnimation/scene changes so the CSS
+  // animation restarts from frame 0 — that's how live preview demos feel
+  // responsive when the user picks Pan Right vs Zoom In.
+  const [animCycle, setAnimCycle] = useState(0);
+  useEffect(() => {
+    setAnimCycle((c) => c + 1);
+    const id = setInterval(() => setAnimCycle((c) => c + 1), sceneDurationMs + 400);
+    return () => clearInterval(id);
+  }, [sceneAnimation, scene?.idx, sceneDurationMs]);
+
+  const cssAnim = SCENE_CSS_ANIM[sceneAnimation] || "";
+  const fontStack =
+    fontType.includes("Serif") || fontType.includes("Times") ? "Georgia, 'Times New Roman', serif" :
+    fontType.includes("Mono") ? "ui-monospace, SFMono-Regular, monospace" :
+    fontType.includes("Carter") ? "Georgia, serif" :
+    fontType === "Lato" || fontType === "Roboto" || fontType.includes("Modern") || fontType.includes("Montserrat") ? "system-ui, sans-serif" :
+    "system-ui, sans-serif";
+
+  const placementTop =
+    textPlacement === "top" ? "10%" :
+    textPlacement === "middle" ? "45%" :
+    "75%";
 
   return (
     <div>
-      <div className="aspect-[9/16] rounded-xl overflow-hidden relative" style={{ background: "#1a1a1a" }}>
+      <style>{previewKeyframes}</style>
+      <div
+        className="aspect-[9/16] rounded-xl overflow-hidden relative"
+        style={{ background: "#1a1a1a" }}
+      >
         {scene?.imageUrl ? (
-          <img src={scene.imageUrl} alt="" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+          <div
+            key={`img-${scene.idx}-${animCycle}`}
+            className="absolute inset-0"
+            style={{
+              background: `url(${scene.imageUrl}) center/cover no-repeat`,
+              animation: cssAnim
+                ? `${cssAnim} ${sceneDurationMs}ms ease-in-out forwards`
+                : "none",
+              transformOrigin: "center center",
+            }}
+          />
         ) : (
           <div className="w-full h-full flex items-center justify-center text-gray-500 text-xs">
             {scene ? "Generating…" : "No scene"}
           </div>
         )}
-        {/* Caption overlay */}
+
+        {/* Crossfade scrim that flashes whenever the scene changes — communicates "transition between scenes" */}
+        <div
+          key={`trans-${scene?.idx}-${transition}`}
+          className="absolute inset-0 pointer-events-none"
+          style={{
+            animation: `${TRANSITION_CSS[transition] || "ftFade"} 700ms ease-in-out forwards`,
+            background: "black",
+            opacity: 0,
+          }}
+        />
+
+        {/* Caption overlay — animates per textAnimation mode */}
         {enableText && scene && (
           <div
             className="absolute left-0 right-0 px-3 text-center"
             style={{
-              top: textPlacement === "top" ? "10%" : textPlacement === "middle" ? "45%" : "75%",
+              top: placementTop,
+              transition: "top 200ms ease",
             }}
           >
             <span
               style={{
+                display: "inline-block",
                 color: textColor,
-                fontSize: Math.min(sizePx / 1.8, 26),
-                fontFamily: fontType.includes("Serif") ? "Georgia, serif" : fontType.includes("Mono") ? "monospace" : "system-ui, sans-serif",
+                fontSize: Math.min(sizePx / 1.6, 28),
+                fontFamily: fontStack,
                 fontWeight: 800,
                 background: textBackground ? "rgba(0,0,0,0.55)" : "transparent",
-                padding: textBackground ? "2px 8px" : 0,
-                textShadow: !textBackground ? "1px 1px 2px black" : "none",
+                padding: textBackground ? "3px 10px" : 0,
+                borderRadius: textBackground ? 4 : 0,
+                textShadow: !textBackground ? "1.5px 1.5px 3px rgba(0,0,0,0.85)" : "none",
+                lineHeight: 1.25,
+                maxWidth: "92%",
+                wordWrap: "break-word",
+                transition: "color 150ms ease, font-size 150ms ease",
               }}
             >
-              {previewText}
+              {textAnimation === "karaoke" || textAnimation === "word-by-word" ? (
+                <>
+                  {words.slice(0, revealedCount).join(" ")}
+                  {revealedCount < words.length && (
+                    <span
+                      key={`cursor-${revealedCount}`}
+                      style={{
+                        marginLeft: 4,
+                        animation: "ftBlink 600ms steps(1) infinite",
+                      }}
+                    >|</span>
+                  )}
+                </>
+              ) : textAnimation === "highlight" ? (
+                <>
+                  {words.map((w: string, i: number) => (
+                    <span
+                      key={i}
+                      style={{
+                        background: i === highlightIdx ? `${textColor}33` : "transparent",
+                        color: i === highlightIdx ? textColor : "white",
+                        padding: "0 2px",
+                        borderRadius: 3,
+                        transition: "background 100ms ease, color 100ms ease",
+                      }}
+                    >
+                      {w}{i < words.length - 1 ? " " : ""}
+                    </span>
+                  ))}
+                </>
+              ) : (
+                fullText
+              )}
             </span>
           </div>
         )}
-        <div className="absolute bottom-2 right-2 px-2 py-0.5 rounded text-[10px] text-white" style={{ background: "rgba(0,0,0,0.6)" }}>
+
+        {/* Voice icon when voice is enabled — subtle pulse to imply audio playing */}
+        {voiceEnabled && (
+          <div
+            className="absolute top-2 left-2 px-2 py-0.5 rounded-full text-[10px] text-white inline-flex items-center gap-1"
+            style={{ background: "rgba(0,0,0,0.55)" }}
+          >
+            <span style={{ animation: "ftPulse 1s ease-in-out infinite" }}>🔊</span>
+            Audio
+          </div>
+        )}
+
+        <div
+          className="absolute bottom-2 right-2 px-2 py-0.5 rounded text-[10px] text-white"
+          style={{ background: "rgba(0,0,0,0.6)" }}
+        >
           {Math.min(previewIdx + 1, sceneCount)} / {sceneCount}
         </div>
       </div>
@@ -1138,6 +1304,91 @@ function PreviewPanel(props: any) {
     </div>
   );
 }
+
+// Keyframes used by the live preview. Injected via a single <style> tag
+// inside the preview so a tab without preview doesn't leak the rules.
+// Names are prefixed `ft` to avoid colliding with anything else.
+const previewKeyframes = `
+@keyframes ftKenBurnsZoomIn {
+  from { transform: scale(1.0); }
+  to   { transform: scale(1.18); }
+}
+@keyframes ftKenBurnsZoomOut {
+  from { transform: scale(1.18); }
+  to   { transform: scale(1.0); }
+}
+@keyframes ftKenBurnsPanRight {
+  from { transform: scale(1.15) translateX(-3%); }
+  to   { transform: scale(1.15) translateX(3%); }
+}
+@keyframes ftKenBurnsPanLeft {
+  from { transform: scale(1.15) translateX(3%); }
+  to   { transform: scale(1.15) translateX(-3%); }
+}
+@keyframes ftKenBurnsPanDown {
+  from { transform: scale(1.15) translateY(-3%); }
+  to   { transform: scale(1.15) translateY(3%); }
+}
+@keyframes ftKenBurnsZoomPan {
+  from { transform: scale(1.0) translateX(-2%); }
+  to   { transform: scale(1.18) translateX(2%); }
+}
+@keyframes ftSlideRevealLeft {
+  from { transform: translateX(8%) scale(1.05); opacity: 0.5; }
+  to   { transform: translateX(0) scale(1.05); opacity: 1; }
+}
+@keyframes ftFadeInZoom {
+  from { transform: scale(1.05); opacity: 0; }
+  to   { transform: scale(1.10); opacity: 1; }
+}
+@keyframes ftScalePulse {
+  0%   { transform: scale(1.05); }
+  50%  { transform: scale(1.15); }
+  100% { transform: scale(1.05); }
+}
+@keyframes ftColorShift {
+  0%   { filter: hue-rotate(0deg) saturate(1); }
+  50%  { filter: hue-rotate(20deg) saturate(1.3); }
+  100% { filter: hue-rotate(0deg) saturate(1); }
+}
+@keyframes ftFade {
+  0%   { opacity: 0.85; }
+  40%  { opacity: 0.0; }
+  100% { opacity: 0.0; }
+}
+@keyframes ftSlideLeft {
+  0%   { transform: translateX(0); opacity: 0.85; }
+  60%  { transform: translateX(-100%); opacity: 0; }
+  100% { transform: translateX(-100%); opacity: 0; }
+}
+@keyframes ftWipeLeft {
+  0%   { clip-path: inset(0 0 0 0); opacity: 0.6; }
+  60%  { clip-path: inset(0 100% 0 0); opacity: 0; }
+  100% { clip-path: inset(0 100% 0 0); opacity: 0; }
+}
+@keyframes ftCircleOpen {
+  0%   { clip-path: circle(70% at 50% 50%); opacity: 0.8; }
+  60%  { clip-path: circle(0% at 50% 50%); opacity: 0; }
+  100% { clip-path: circle(0% at 50% 50%); opacity: 0; }
+}
+@keyframes ftDissolve {
+  0%   { opacity: 0.9; backdrop-filter: blur(4px); }
+  60%  { opacity: 0; backdrop-filter: blur(0px); }
+  100% { opacity: 0; }
+}
+@keyframes ftRadial {
+  0%   { background: radial-gradient(circle at 50% 50%, transparent 0%, black 100%); opacity: 0.85; }
+  60%  { background: radial-gradient(circle at 50% 50%, transparent 80%, black 100%); opacity: 0; }
+  100% { opacity: 0; }
+}
+@keyframes ftBlink {
+  50% { opacity: 0; }
+}
+@keyframes ftPulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.2); }
+}
+`;
 
 function Chip({ children }: { children: React.ReactNode }) {
   return (
