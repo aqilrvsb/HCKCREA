@@ -50,7 +50,6 @@ const FONT_FAMILIES = [
   { id: "sans",         label: "Sans Regular" },
   { id: "serif",        label: "Serif" },
   { id: "mono",         label: "Monospace" },
-  { id: "handwriting",  label: "Handwriting" },
   { id: "roboto",       label: "Roboto" },
 ];
 

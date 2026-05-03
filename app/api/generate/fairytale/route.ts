@@ -60,7 +60,7 @@ export async function POST(req: Request) {
   const fontSize = Math.max(28, Math.min(96, Number(body?.font_size) || 56));
   // Subtitle styling — all dynamic per render. Validated against safe enums
   // so a malicious client can't inject arbitrary ffmpeg expressions.
-  const ALLOWED_FONTS = ["bold-display","sans","sans-bold","serif","mono","handwriting","roboto"];
+  const ALLOWED_FONTS = ["bold-display","sans","sans-bold","serif","mono","roboto"];
   const ALLOWED_COLORS = ["white","yellow","orange","red","pink","cyan","black"];
   const ALLOWED_BG = ["box","outline","shadow","outline+shadow","none"];
   const ALLOWED_SUB_ANIM = ["static","karaoke","fade"];

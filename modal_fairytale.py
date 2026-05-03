@@ -46,9 +46,8 @@ image = (
         "fonts-liberation",         # liberation sans/serif/mono
         "fonts-noto-core",          # multilingual incl. accented chars
         "fonts-roboto",             # modern sans
-        "fonts-dancing-script",     # handwriting
     )
-    .pip_install("requests==2.31.0", "supabase==2.3.0")
+    .pip_install("requests==2.31.0", "supabase==2.3.0", "fastapi[standard]==0.115.0")
 )
 
 # Font catalog — maps UI value → installed .ttf path. Keep in sync with
@@ -59,7 +58,6 @@ FONT_PATHS: dict = {
     "sans-bold":     "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
     "serif":         "/usr/share/fonts/truetype/liberation/LiberationSerif-Bold.ttf",
     "mono":          "/usr/share/fonts/truetype/liberation/LiberationMono-Bold.ttf",
-    "handwriting":   "/usr/share/fonts/truetype/dancing-script/DancingScript-Bold.ttf",
     "roboto":        "/usr/share/fonts/truetype/roboto/unhinted/RobotoTTF/Roboto-Bold.ttf",
 }
 
@@ -415,11 +413,9 @@ def _update_history(history_id: str, **fields):
     cpu=8.0,
     memory=4096,
     timeout=300,
-    scaledown_window=30,
-    max_containers=50,
     secrets=[modal.Secret.from_name("fairytale-secrets")],
 )
-@modal.fastapi_endpoint(method="POST", docs=True)
+@modal.fastapi_endpoint(method="POST")
 def render_story(payload: dict):
     """
     Payload shape:
