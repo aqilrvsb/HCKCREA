@@ -197,8 +197,9 @@ export async function uploadFromUrl(opts: {
       }
     );
     req.on("error", reject);
-    req.write(body);
-    req.end();
+    // end(buffer) writes + closes atomically — avoids any backpressure
+    // edge case where req.end() races ahead of the buffered write.
+    req.end(body);
   });
 
   if (putStatus < 200 || putStatus >= 300) {
