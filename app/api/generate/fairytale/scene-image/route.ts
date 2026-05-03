@@ -2,7 +2,7 @@ import { NextResponse, after } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { p2CreateTask } from "@/lib/p2";
-import { getP2Config } from "@/lib/settings";
+import { getP2Config, getSetting } from "@/lib/settings";
 import { priceFor } from "@/lib/deduct";
 
 // POST /api/generate/fairytale/scene-image
@@ -72,12 +72,20 @@ export async function POST(req: Request) {
 
   after(async () => {
     try {
-      const [cfg, rate] = await Promise.all([
+      // Per-fairytale image model + rate overrides via admin settings:
+      //   fairytale_image_model: { model: "z-image" }  (any Crun model id)
+      //   fairytale_image_rate:  { rate: 0.05 }        (RM per image)
+      // Both fall back to the global imageDefault + image_generate rate
+      // when not set, so existing installs keep working unchanged.
+      const [cfg, defaultRate, ftModelSetting, ftRateSetting] = await Promise.all([
         getP2Config(),
         priceFor(user.id, "image_generate"),
+        getSetting<{ model: string }>("fairytale_image_model"),
+        getSetting<{ rate: number }>("fairytale_image_rate"),
       ]);
-      const modelKey = cfg.imageDefault || "nano-banana-pro";
+      const modelKey = ftModelSetting?.model || cfg.imageDefault || "nano-banana-pro";
       const modelId = (cfg.imageModels as any)?.[modelKey] || modelKey;
+      const rate = typeof ftRateSetting?.rate === "number" ? ftRateSetting.rate : defaultRate;
 
       const created = await p2CreateTask({
         model: modelId,

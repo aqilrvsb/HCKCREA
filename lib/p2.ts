@@ -125,7 +125,8 @@ async function p2CreateTaskInternal(input: {
   const isSeedance = !isGrok && m.includes("seedance");
   const isVideo = !isGrok && !isSeedance && m.includes("veo");
   const isGptImage = !isGrok && !isSeedance && m.includes("gpt-image");
-  const isBanana = !isVideo && !isGptImage && !isGrok && !isSeedance;
+  const isZImage = !isGrok && !isSeedance && !isVideo && !isGptImage && m === "z-image";
+  const isBanana = !isVideo && !isGptImage && !isGrok && !isSeedance && !isZImage;
 
   const innerInput: Record<string, any> = {};
   if (input.prompt) innerInput.prompt = input.prompt.substring(0, 5000);
@@ -189,6 +190,11 @@ async function p2CreateTaskInternal(input: {
     innerInput.output_format = "png";
     innerInput.moderation = "low";
     if (imgUrls.length > 0) innerInput.img_urls = imgUrls;
+  } else if (isZImage) {
+    // z-image (Crun): prompt + aspect_ratio + prompt_extend (auto-enhance).
+    // No resolution / img_urls fields — pure t2i. Optional seed via extras.
+    if (input.aspectRatio) innerInput.aspect_ratio = input.aspectRatio;
+    if (innerInput.prompt_extend === undefined) innerInput.prompt_extend = true;
   } else if (isBanana) {
     // nano-banana-pro: resolution dial + native aspect ratio support.
     if (input.aspectRatio) innerInput.aspect_ratio = input.aspectRatio;
