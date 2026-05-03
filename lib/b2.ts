@@ -121,10 +121,11 @@ export async function uploadFromUrl(opts: {
   // is still protected by HTTPS + Content-Length.
   const payloadHash = "UNSIGNED-PAYLOAD";
 
-  // Headers we will sign (alphabetical, lowercased keys).
+  // Sign only host + x-amz-* — the minimum SigV4 requires. content-length
+  // and content-type can be munged by intermediaries (Vercel, undici) on
+  // the wire, which would invalidate the signature even though we set
+  // them correctly. Skip them entirely from signing.
   const headers: Record<string, string> = {
-    "content-length": String(body.length),
-    "content-type": ct,
     host,
     "x-amz-content-sha256": payloadHash,
     "x-amz-date": amzDate,
