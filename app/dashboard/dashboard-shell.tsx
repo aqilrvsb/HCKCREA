@@ -10,6 +10,7 @@ import {
   Loader2,
   Plus,
   Film,
+  BookOpen,
 } from "lucide-react";
 import ImageTab from "./tabs/image";
 import VideoTab from "./tabs/video";
@@ -17,6 +18,7 @@ import CinemaTab from "./tabs/cinema";
 import SeedanceTab from "./tabs/seedance";
 import CloneTab from "./tabs/clone";
 import AutoContentTab from "./tabs/auto-content";
+import FairytaleTab from "./tabs/fairytale";
 import HistoryGrid from "./sections/history-grid";
 import BillingSection from "./sections/billing";
 import CreditSection from "./sections/credit";
@@ -29,19 +31,20 @@ import { SopButton } from "./sections/sop-modal";
 import { SOP_CONTENT } from "@/lib/sop-content";
 import Sidebar, { type Project, type SidebarView } from "./sidebar";
 
-type TabKey = "image" | "video" | "cinema" | "seedance" | "clone" | "auto";
+type TabKey = "image" | "video" | "cinema" | "seedance" | "clone" | "auto" | "fairytale";
 
 // Tab order: Image → UGC → Auto Content → Story → Cinema (Seedance) →
-// Clone Prompt. "Story" keeps the legacy "cinema" key + the
+// Clone Prompt → Fairytale. "Story" keeps the legacy "cinema" key + the
 // /api/agent/cinema route paths internally so we don't have to rename
 // agent-cinema.ts.
 const TABS: { key: TabKey; label: string; icon: any; tag: string }[] = [
-  { key: "image",    label: "Image",        icon: ImageIcon, tag: "01" },
-  { key: "video",    label: "UGC",          icon: Video,     tag: "02" },
-  { key: "auto",     label: "Auto Content", icon: Wand2,     tag: "03" },
-  { key: "cinema",   label: "Story",        icon: Film,      tag: "04" },
-  { key: "seedance", label: "Cinema",       icon: Film,      tag: "05" },
-  { key: "clone",    label: "Clone Prompt", icon: Layers,    tag: "06" },
+  { key: "image",     label: "Image",        icon: ImageIcon, tag: "01" },
+  { key: "video",     label: "UGC",          icon: Video,     tag: "02" },
+  { key: "auto",      label: "Auto Content", icon: Wand2,     tag: "03" },
+  { key: "cinema",    label: "Story",        icon: Film,      tag: "04" },
+  { key: "seedance",  label: "Cinema",       icon: Film,      tag: "05" },
+  { key: "clone",     label: "Clone Prompt", icon: Layers,    tag: "06" },
+  { key: "fairytale", label: "Fairytale",    icon: BookOpen,  tag: "07" },
 ];
 
 export default function DashboardShell({
@@ -326,6 +329,7 @@ function resolveActiveSop(view: SidebarView, activeTab: TabKey) {
       cinema: "story",
       seedance: "cinema",
       clone: "clone-prompt",
+      fairytale: "fairytale",
     };
     key = map[activeTab];
   } else if (view.kind === "billing") key = "billing";
@@ -507,6 +511,14 @@ function ProjectView({
                 <AutoContentTab projectId={project.id} />
               </div>
               <HistoryGrid tab="auto" title={`Auto Content — ${project.name}`} projectId={project.id} />
+            </>
+          )}
+          {activeTab === "fairytale" && (
+            <>
+              <div className="max-w-6xl mx-auto w-full">
+                <FairytaleTab projectId={project.id} />
+              </div>
+              <HistoryGrid tab="fairytale" title={`Fairytale — ${project.name}`} projectId={project.id} />
             </>
           )}
         </div>
