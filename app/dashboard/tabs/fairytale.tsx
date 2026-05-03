@@ -975,10 +975,10 @@ function VoiceConfig({
 }) {
   return (
     <div className="space-y-3">
-      <Toggle label="Enable Voice" sub="Add MiniMax narration to each scene" value={enableVoice} onChange={setEnableVoice} />
+      <Toggle label="Enable Voice" sub="Add AI narration to each scene" value={enableVoice} onChange={setEnableVoice} />
       {enableVoice && (
         <>
-          <Field label="Voice (MiniMax)">
+          <Field label="Voice">
             <select value={voiceId} onChange={(e) => setVoiceId(e.target.value)} className="w-full p-2.5 rounded-lg text-xs outline-none" style={{ background: "#fafafa", border: "1px solid #e5e7eb", color: "#1a1a1a" }}>
               {VOICES.map((v) => <option key={v.id} value={v.id}>{v.label}</option>)}
             </select>
