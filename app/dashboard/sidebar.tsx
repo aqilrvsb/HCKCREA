@@ -5,6 +5,7 @@ import Link from "next/link";
 import {
   Sparkles,
   Wallet,
+  HardDrive,
   Settings,
   Search,
   Plus,
@@ -38,6 +39,7 @@ export type SidebarView =
   | { kind: "credit" }
   | { kind: "usage" }
   | { kind: "saved-prompts" }
+  | { kind: "storage" }
   | { kind: "settings" };
 
 export type SidebarTab = {
@@ -532,6 +534,7 @@ export default function Sidebar({
             { kind: "credit" as const, label: "Top Up Credit", Icon: Wallet },
             { kind: "usage" as const, label: "Usage", Icon: Activity },
             { kind: "saved-prompts" as const, label: "Saved Prompts", Icon: Bookmark },
+            { kind: "storage" as const, label: "Storage", Icon: HardDrive },
           ]
         ).map(({ kind, label, Icon }) => {
           const isActive = view.kind === kind;

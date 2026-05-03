@@ -19,6 +19,8 @@ import {
   ChevronRight,
   Layers,
   Clock,
+  HardDrive,
+  CloudUpload,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import Portal from "./portal";
@@ -217,6 +219,33 @@ export default function HistoryGrid({
     return { parents, childMap };
   }, [items]);
 
+  // Save-to-storage status — single batched POST to /api/storage/status with
+  // all parent ids on screen, so each card knows whether to render Save vs
+  // Saved without N round-trips. Refresh whenever items change OR a save
+  // event fires (the SaveButton dispatches `storage:saved` on success).
+  const [saveStatus, setSaveStatus] = useState<Record<string, { saved: boolean; storage_id?: string; url?: string }>>({});
+  useEffect(() => {
+    const ids = parents.map((p) => p.id);
+    if (ids.length === 0) { setSaveStatus({}); return; }
+    let cancelled = false;
+    const refresh = async () => {
+      try {
+        const r = await fetch("/api/storage/status", {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ history_ids: ids }),
+        });
+        const d = await r.json();
+        if (!cancelled && d?.ok) setSaveStatus(d.statuses || {});
+      } catch {}
+    };
+    void refresh();
+    const onSaved = () => void refresh();
+    window.addEventListener("storage:saved", onSaved);
+    return () => { cancelled = true; window.removeEventListener("storage:saved", onSaved); };
+  }, [parents.map((p) => p.id).join("|")]);
+
   const counts = useMemo(
     () => ({
       total: parents.length,
@@ -328,6 +357,7 @@ export default function HistoryGrid({
                 key={it.id}
                 item={it}
                 seg2={childMap[it.id]}
+                saveStatus={saveStatus[it.id]}
                 mergeSupported={supportsMerge}
                 mergeSelectedIdx={
                   supportsMerge
@@ -418,12 +448,14 @@ const ACTION = {
 function HistoryCard({
   item,
   seg2,
+  saveStatus,
   mergeSupported,
   mergeSelectedIdx,
   onToggleMerge,
 }: {
   item: HistoryItem;
   seg2?: HistoryItem;
+  saveStatus?: { saved: boolean; storage_id?: string; url?: string };
   mergeSupported?: boolean;
   mergeSelectedIdx?: number;
   onToggleMerge?: () => void;
@@ -562,6 +594,43 @@ function HistoryCard({
       setRecheckingId(null);
     }
   }
+
+  // Save-to-Storage: copies the temp Crun URL into the user's permanent B2
+  // folder so it survives the 14-day Crun TTL. Status is provided by parent
+  // via the saveStatus prop (one /api/storage/status call per grid render).
+  const saved = !!saveStatus?.saved;
+  const [saving, setSaving] = useState(false);
+  const [saveErr, setSaveErr] = useState<string | null>(null);
+  async function handleSave() {
+    if (saved || saving) return;
+    setSaving(true);
+    setSaveErr(null);
+    try {
+      const r = await fetch("/api/storage/save", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ history_id: item.id }),
+      });
+      const d = await r.json();
+      if (!r.ok || !d?.ok) throw new Error(d?.error || `HTTP ${r.status}`);
+      window.dispatchEvent(new CustomEvent("storage:saved"));
+    } catch (e: any) {
+      setSaveErr(e?.message || "Save failed");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  // 14-day countdown — Crun deletes its temp files 14 days after creation.
+  // Show a small badge on each unsaved card so users know to Save before TTL.
+  const expiryDays = useMemo(() => {
+    if (!item.created_at) return null;
+    const created = new Date(item.created_at).getTime();
+    const expiresAt = created + 14 * 24 * 60 * 60 * 1000;
+    const remainingMs = expiresAt - Date.now();
+    return Math.ceil(remainingMs / (24 * 60 * 60 * 1000));
+  }, [item.created_at]);
 
   async function handleDelete() {
     if (!confirm("Padam item ni?")) return;
@@ -751,6 +820,34 @@ function HistoryCard({
                 className="w-full h-full object-cover cursor-pointer"
                 onClick={() => setShowFullscreen(true)}
               />
+            )}
+            {/* Countdown / Saved badge — top-left corner of player */}
+            {expiryDays !== null && (
+              <div
+                className="absolute top-1.5 left-1.5 px-2 py-0.5 rounded-md text-[9px] font-extrabold uppercase tracking-wider flex items-center gap-1 pointer-events-none"
+                style={
+                  saved
+                    ? { background: "rgba(16,185,129,0.92)", color: "white" }
+                    : expiryDays <= 0
+                      ? { background: "rgba(239,68,68,0.92)", color: "white" }
+                      : expiryDays <= 3
+                        ? { background: "rgba(249,115,22,0.92)", color: "white" }
+                        : { background: "rgba(0,0,0,0.6)", color: "white" }
+                }
+              >
+                {saved ? (
+                  <>
+                    <HardDrive className="w-2.5 h-2.5" /> Saved
+                  </>
+                ) : expiryDays <= 0 ? (
+                  <>⚠ Expired</>
+                ) : (
+                  <>
+                    <Clock className="w-2.5 h-2.5" />
+                    {expiryDays}d left
+                  </>
+                )}
+              </div>
             )}
           </>
         )}
@@ -975,11 +1072,21 @@ function HistoryCard({
             </>
           )}
 
-          {/* DONE — image: Edit + Download + Delete */}
+          {/* DONE — image: Edit + Save + Download + Delete */}
           {item.status === "done" && isImage && (
             <>
               <ActionBtn title="Edit Image" onClick={() => setShowEditModal(true)} bg={ACTION.edit}>
                 <Palette className="w-3.5 h-3.5" strokeWidth={2.4} />
+              </ActionBtn>
+              <ActionBtn
+                title={saved ? "Saved to Storage" : saving ? "Saving…" : "Save to Storage (keeps after 14d Crun TTL)"}
+                onClick={handleSave}
+                bg={saved ? "#10b981" : "#7c3aed"}
+                disabled={saved || saving}
+              >
+                {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> :
+                  saved ? <HardDrive className="w-3.5 h-3.5" strokeWidth={2.4} /> :
+                  <CloudUpload className="w-3.5 h-3.5" strokeWidth={2.4} />}
               </ActionBtn>
               <ActionBtn title="Download" onClick={handleDownload} bg={ACTION.download}>
                 <Download className="w-3.5 h-3.5" strokeWidth={2.4} />
@@ -1037,6 +1144,16 @@ function HistoryCard({
               )}
               <ActionBtn title="Improve Video" onClick={() => setShowEditModal(true)} bg={ACTION.edit}>
                 <Pencil className="w-3.5 h-3.5" strokeWidth={2.4} />
+              </ActionBtn>
+              <ActionBtn
+                title={saved ? "Saved to Storage" : saving ? "Saving…" : "Save to Storage (keeps after 14d Crun TTL)"}
+                onClick={handleSave}
+                bg={saved ? "#10b981" : "#7c3aed"}
+                disabled={saved || saving}
+              >
+                {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> :
+                  saved ? <HardDrive className="w-3.5 h-3.5" strokeWidth={2.4} /> :
+                  <CloudUpload className="w-3.5 h-3.5" strokeWidth={2.4} />}
               </ActionBtn>
               <ActionBtn title="Download" onClick={handleDownload} bg={ACTION.download}>
                 <Download className="w-3.5 h-3.5" strokeWidth={2.4} />

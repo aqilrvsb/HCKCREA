@@ -26,6 +26,7 @@ import UsageSection from "./sections/usage";
 import SettingsSection from "./sections/settings";
 import DashboardOverview from "./sections/dashboard-overview";
 import SavedPromptsSection from "./sections/saved-prompts";
+import StorageSection from "./sections/storage";
 import AgentChatPanel, { type AgentTab } from "./sections/agent-chat-panel";
 import { SopButton } from "./sections/sop-modal";
 import { SOP_CONTENT } from "@/lib/sop-content";
@@ -294,6 +295,11 @@ export default function DashboardShell({
             </SectionWrap>
           )}
           {view.kind === "saved-prompts" && <SavedPromptsSection />}
+          {view.kind === "storage" && (
+            <SectionWrap>
+              <StorageSection />
+            </SectionWrap>
+          )}
           {view.kind === "settings" && (
             <SectionWrap>
               <SettingsSection email={email} name={name} />
