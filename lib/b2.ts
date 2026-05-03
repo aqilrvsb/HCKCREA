@@ -66,14 +66,14 @@ export function bucketPrivate(): string {
 
 // Upload a remote URL into B2.
 //
-// We use a presigned PUT + plain fetch(), NOT s3.send(PutObjectCommand).
-// AWS SDK v3 (any flavor) signs the PUT with x-amz-content-sha256 =
-// STREAMING-AWS4-HMAC-SHA256-PAYLOAD, which makes the request body a
-// chunked, per-chunk-signed stream. Backblaze B2 rejects that with
-// "The request body was too small" no matter what flexible-checksum
-// flags we pass to S3Client. A presigned URL signs a single, fixed-length
-// payload, so the actual upload is a vanilla single-shot HTTP PUT — and
-// B2 accepts it cleanly.
+// Uses s3.send(PutObjectCommand) with explicit Buffer body + ContentLength.
+// With requestChecksumCalculation: "WHEN_REQUIRED" set on the client,
+// the SDK signs with the actual SHA256 of the body (single-chunk PUT)
+// instead of STREAMING-AWS4-HMAC-SHA256-PAYLOAD. B2 accepts this format.
+//
+// We tried: presigned PUT + plain fetch — but B2 demands x-amz-content-sha256
+// be in SignedHeaders, and the SDK presigner hoists it to the URL query
+// string instead, which B2 rejects with InvalidRequest.
 export async function uploadFromUrl(opts: {
   url: string;
   key: string;
@@ -92,44 +92,15 @@ export async function uploadFromUrl(opts: {
     throw new Error(`Source URL returned 0 bytes: ${opts.url}`);
   }
 
-  const bucket = opts.bucket || bucketPrivate();
-
-  // B2 requires x-amz-content-sha256 to be in SignedHeaders, otherwise it
-  // returns "header 'x-amz-content-sha256' must be included in signature".
-  // We include it as a signable header so the presigner adds it to the
-  // signed-headers list, then send "UNSIGNED-PAYLOAD" on the wire to skip
-  // body hashing.
-  const presignedPut = await getSignedUrl(
-    client(),
+  await client().send(
     new PutObjectCommand({
-      Bucket: bucket,
+      Bucket: opts.bucket || bucketPrivate(),
       Key: opts.key,
-    }),
-    {
-      expiresIn: 300,
-      signableHeaders: new Set(["host", "x-amz-content-sha256"]),
-    }
+      Body: body,
+      ContentType: ct,
+      ContentLength: body.length,
+    })
   );
-
-  // The SDK signs the URL assuming x-amz-content-sha256: UNSIGNED-PAYLOAD.
-  // We must echo that header on the wire — without it B2 hashes the body
-  // and the signature check fails with SignatureDoesNotMatch.
-  const putResp = await fetch(presignedPut, {
-    method: "PUT",
-    headers: {
-      "Content-Type": ct,
-      "Content-Length": String(body.length),
-      "x-amz-content-sha256": "UNSIGNED-PAYLOAD",
-    },
-    body,
-  });
-
-  if (!putResp.ok) {
-    const errText = await putResp.text().catch(() => "");
-    throw new Error(
-      `B2 PUT failed: HTTP ${putResp.status} ${errText.slice(0, 300)}`
-    );
-  }
 
   return { key: opts.key, size: body.length };
 }
