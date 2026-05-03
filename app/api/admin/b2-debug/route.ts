@@ -5,18 +5,25 @@ import { uploadFromUrl } from "@/lib/b2";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-// Diagnostic — uploads a tiny synthetic file to B2 to isolate whether
-// the upload pipeline is broken (auth/signing) vs whether large-body
-// transmission is the problem. Admin only.
-//
-// We host the test bytes via data: URL ... actually data: isn't fetchable.
-// Use a known tiny public URL instead.
+function fingerprint(s: string | undefined): string {
+  if (!s) return "MISSING";
+  return `${s.slice(0, 4)}…${s.slice(-4)} (len=${s.length})`;
+}
+
 export async function GET() {
   const sb = await createClient();
   const { data: { user } } = await sb.auth.getUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  // 1x1 transparent PNG hosted on a fast CDN — ~70 bytes.
+  const env = {
+    B2_ENDPOINT: fingerprint(process.env.B2_ENDPOINT),
+    B2_REGION: fingerprint(process.env.B2_REGION),
+    B2_KEY_ID: fingerprint(process.env.B2_KEY_ID),
+    B2_APP_KEY: fingerprint(process.env.B2_APP_KEY),
+    B2_BUCKET_PRIVATE: fingerprint(process.env.B2_BUCKET_PRIVATE),
+  };
+
+  // 1x1 PNG — public URL.
   const tinyUrl = "https://upload.wikimedia.org/wikipedia/commons/c/ca/1x1.png";
 
   try {
@@ -25,8 +32,8 @@ export async function GET() {
       key: `users/${user.id}/test/tiny-${Date.now()}.png`,
       contentType: "image/png",
     });
-    return NextResponse.json({ ok: true, ...res });
+    return NextResponse.json({ ok: true, env, ...res });
   } catch (e: any) {
-    return NextResponse.json({ ok: false, error: e?.message }, { status: 500 });
+    return NextResponse.json({ ok: false, env, error: e?.message }, { status: 500 });
   }
 }
