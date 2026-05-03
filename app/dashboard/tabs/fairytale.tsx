@@ -489,7 +489,7 @@ function Step1(props: {
           <button
             onClick={() => props.setStyleDropdownOpen(!props.styleDropdownOpen)}
             className="w-full px-3 py-2.5 rounded-xl text-sm font-semibold flex items-center justify-between"
-            style={{ background: "white", border: "1px solid #e5e7eb" }}
+            style={{ background: "white", border: "1px solid #e5e7eb", color: "#1a1a1a" }}
           >
             <span>
               {styleObj.icon} {styleObj.label} <span className="mx-1 text-gray-300">|</span> {toneObj.icon} {toneObj.label}
@@ -499,7 +499,7 @@ function Step1(props: {
           {props.styleDropdownOpen && (
             <div
               className="absolute left-0 top-full mt-1 w-full md:w-[400px] z-30 rounded-xl p-4 grid grid-cols-2 gap-4"
-              style={{ background: "white", border: "1px solid #e5e7eb", boxShadow: "0 10px 30px rgba(0,0,0,0.08)" }}
+              style={{ background: "white", border: "1px solid #e5e7eb", boxShadow: "0 10px 30px rgba(0,0,0,0.08)", color: "#1a1a1a" }}
             >
               <div>
                 <div className="text-xs font-bold mb-2">Select Style</div>
@@ -585,7 +585,7 @@ function SelectBtn({
       <button
         onClick={() => setOpen(!open)}
         className="w-full px-3 py-2.5 rounded-xl text-sm font-semibold flex items-center justify-between"
-        style={{ background: "white", border: "1px solid #e5e7eb" }}
+        style={{ background: "white", border: "1px solid #e5e7eb", color: "#1a1a1a" }}
       >
         <span>{value}</span>
         <ChevronDown className="w-4 h-4 text-gray-400" />
@@ -593,7 +593,7 @@ function SelectBtn({
       {open && (
         <div
           className="absolute left-0 top-full mt-1 w-full z-30 rounded-xl py-1"
-          style={{ background: "white", border: "1px solid #e5e7eb", boxShadow: "0 10px 30px rgba(0,0,0,0.08)" }}
+          style={{ background: "white", border: "1px solid #e5e7eb", boxShadow: "0 10px 30px rgba(0,0,0,0.08)", color: "#1a1a1a" }}
         >
           {options.map((o) => (
             <button
@@ -979,7 +979,7 @@ function VoiceConfig({
       {enableVoice && (
         <>
           <Field label="Voice (MiniMax)">
-            <select value={voiceId} onChange={(e) => setVoiceId(e.target.value)} className="w-full p-2.5 rounded-lg text-xs outline-none" style={{ background: "#fafafa", border: "1px solid #e5e7eb" }}>
+            <select value={voiceId} onChange={(e) => setVoiceId(e.target.value)} className="w-full p-2.5 rounded-lg text-xs outline-none" style={{ background: "#fafafa", border: "1px solid #e5e7eb", color: "#1a1a1a" }}>
               {VOICES.map((v) => <option key={v.id} value={v.id}>{v.label}</option>)}
             </select>
           </Field>
@@ -1001,12 +1001,12 @@ function AnimationConfig({
   return (
     <div className="space-y-3">
       <Field label="Scene Transition ⓘ">
-        <select value={transition} onChange={(e) => setTransition(e.target.value)} className="w-full p-2.5 rounded-lg text-xs outline-none" style={{ background: "#fafafa", border: "1px solid #e5e7eb" }}>
+        <select value={transition} onChange={(e) => setTransition(e.target.value)} className="w-full p-2.5 rounded-lg text-xs outline-none" style={{ background: "#fafafa", border: "1px solid #e5e7eb", color: "#1a1a1a" }}>
           {TRANSITIONS.map((t) => <option key={t} value={t}>{t.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())}</option>)}
         </select>
       </Field>
       <Field label="Scene Animation ⓘ">
-        <select value={sceneAnimation} onChange={(e) => setSceneAnimation(e.target.value)} className="w-full p-2.5 rounded-lg text-xs outline-none" style={{ background: "#fafafa", border: "1px solid #e5e7eb" }}>
+        <select value={sceneAnimation} onChange={(e) => setSceneAnimation(e.target.value)} className="w-full p-2.5 rounded-lg text-xs outline-none" style={{ background: "#fafafa", border: "1px solid #e5e7eb", color: "#1a1a1a" }}>
           {SCENE_ANIMS.map((a) => <option key={a} value={a}>{a.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())}</option>)}
         </select>
       </Field>
@@ -1021,17 +1021,17 @@ function FontConfig(props: any) {
       {props.enableText && (
         <>
           <Field label="Text Animation">
-            <select value={props.textAnimation} onChange={(e) => props.setTextAnimation(e.target.value)} className="w-full p-2.5 rounded-lg text-xs outline-none" style={{ background: "#fafafa", border: "1px solid #e5e7eb" }}>
+            <select value={props.textAnimation} onChange={(e) => props.setTextAnimation(e.target.value)} className="w-full p-2.5 rounded-lg text-xs outline-none" style={{ background: "#fafafa", border: "1px solid #e5e7eb", color: "#1a1a1a" }}>
               {TEXT_ANIMS.map((a) => <option key={a} value={a}>{a.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())}</option>)}
             </select>
           </Field>
           <Field label="Text Placement">
-            <select value={props.textPlacement} onChange={(e) => props.setTextPlacement(e.target.value)} className="w-full p-2.5 rounded-lg text-xs outline-none" style={{ background: "#fafafa", border: "1px solid #e5e7eb" }}>
+            <select value={props.textPlacement} onChange={(e) => props.setTextPlacement(e.target.value)} className="w-full p-2.5 rounded-lg text-xs outline-none" style={{ background: "#fafafa", border: "1px solid #e5e7eb", color: "#1a1a1a" }}>
               {TEXT_PLACEMENTS.map((p) => <option key={p} value={p}>{p.charAt(0).toUpperCase() + p.slice(1)}</option>)}
             </select>
           </Field>
           <Field label="Font Type">
-            <select value={props.fontType} onChange={(e) => props.setFontType(e.target.value)} className="w-full p-2.5 rounded-lg text-xs outline-none" style={{ background: "#fafafa", border: "1px solid #e5e7eb" }}>
+            <select value={props.fontType} onChange={(e) => props.setFontType(e.target.value)} className="w-full p-2.5 rounded-lg text-xs outline-none" style={{ background: "#fafafa", border: "1px solid #e5e7eb", color: "#1a1a1a" }}>
               {FONT_TYPES.map((f) => <option key={f} value={f}>{f}</option>)}
             </select>
           </Field>

@@ -47,7 +47,14 @@ image = (
         "fonts-noto-core",          # multilingual incl. accented chars
         "fonts-roboto",             # modern sans
     )
-    .pip_install("requests==2.31.0", "supabase==2.3.0", "fastapi[standard]==0.115.0")
+    # supabase 2.3.0 + newer httpx breaks with `Client.__init__() got unexpected
+    # keyword argument 'proxy'`. Pin the working trio.
+    .pip_install(
+        "requests==2.31.0",
+        "supabase==2.10.0",
+        "httpx==0.27.2",
+        "fastapi[standard]==0.115.0",
+    )
 )
 
 # Font catalog — maps UI value → installed .ttf path. Keep in sync with
