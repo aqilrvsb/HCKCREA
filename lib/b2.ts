@@ -35,6 +35,12 @@ function client(): S3Client {
     endpoint,
     credentials: { accessKeyId, secretAccessKey },
     forcePathStyle: false,
+    // AWS SDK v3.729+ defaults to flexible checksums (CRC32) which use
+    // STREAMING-AWS4-HMAC-SHA256-PAYLOAD + chunked transfer encoding.
+    // Backblaze B2 rejects that with "The request body was too small".
+    // Force WHEN_REQUIRED so we send a plain PUT with Content-Length.
+    requestChecksumCalculation: "WHEN_REQUIRED",
+    responseChecksumValidation: "WHEN_REQUIRED",
   });
   return _client;
 }
