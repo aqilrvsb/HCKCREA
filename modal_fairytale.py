@@ -724,11 +724,15 @@ def render_story(payload: dict):
         signed_url = _presign_b2_get(b2_key, expires_sec=7 * 86400)
 
         elapsed = time.time() - started
+        # Clear error_message too — if Vercel's after() previously stamped a
+        # timeout / 422, that stale message would otherwise stay on a row
+        # whose status is now 'done'.
         _update_history(
             history_id,
             status="done",
             output_url=signed_url,
             thumbnail_url=signed_url,
+            error_message=None,
         )
         return {
             "ok": True,
