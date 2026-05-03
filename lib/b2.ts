@@ -94,16 +94,21 @@ export async function uploadFromUrl(opts: {
 
   const bucket = opts.bucket || bucketPrivate();
 
-  // Don't include ContentType in the signed command — that would force the
-  // actual PUT to send the exact same header. We send Content-Type at upload
-  // time as an unsigned header; B2 still stores it correctly.
+  // B2 requires x-amz-content-sha256 to be in SignedHeaders, otherwise it
+  // returns "header 'x-amz-content-sha256' must be included in signature".
+  // We include it as a signable header so the presigner adds it to the
+  // signed-headers list, then send "UNSIGNED-PAYLOAD" on the wire to skip
+  // body hashing.
   const presignedPut = await getSignedUrl(
     client(),
     new PutObjectCommand({
       Bucket: bucket,
       Key: opts.key,
     }),
-    { expiresIn: 300 }
+    {
+      expiresIn: 300,
+      signableHeaders: new Set(["host", "x-amz-content-sha256"]),
+    }
   );
 
   // The SDK signs the URL assuming x-amz-content-sha256: UNSIGNED-PAYLOAD.
