@@ -79,13 +79,13 @@ export async function POST(req: Request) {
   const email = authUser?.user?.email || (payment.metadata?.signup?.email ?? "");
 
   const origin = req.headers.get("origin") || process.env.APP_ORIGIN || "https://peninglab.vercel.app";
-  const expiry = profile.plan_expires_at ? new Date(profile.plan_expires_at) : new Date(Date.now() + 30 * 86400000);
+  const expiry = profile?.plan_expires_at ? new Date(profile.plan_expires_at) : new Date(Date.now() + 30 * 86400000);
 
   const msg = buildLoginMessage({
-    name: profile.full_name || "User",
+    name: profile?.full_name || "User",
     email,
     password: newPwd,
-    plan: (profile.plan || "free").toUpperCase() + " Plan",
+    plan: (profile?.plan || "free").toUpperCase() + " Plan",
     expiresAt: expiry,
     loginUrl: `${origin}/login`,
   });
