@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { uploadFromUrl } from "@/lib/b2";
+import { uploadFromUrl, listUserObjects, head, bucketPrivate } from "@/lib/b2";
+import { S3Client, ListBucketsCommand } from "@aws-sdk/client-s3";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -23,17 +24,38 @@ export async function GET() {
     B2_BUCKET_PRIVATE: fingerprint(process.env.B2_BUCKET_PRIVATE),
   };
 
-  // 1x1 PNG — public URL.
-  const tinyUrl = "https://upload.wikimedia.org/wikipedia/commons/c/ca/1x1.png";
+  const probes: Record<string, any> = {};
 
+  // 1) ListObjectsV2 — needs listFiles permission
+  try {
+    const items = await listUserObjects(user.id);
+    probes.list_objects = { ok: true, count: items.length };
+  } catch (e: any) {
+    probes.list_objects = { ok: false, error: e?.message?.slice(0, 200), name: e?.name };
+  }
+
+  // 2) HEAD on a non-existent key — needs readFiles permission
+  // (404 = read perm OK, 403 = no perm)
+  try {
+    await head({ key: `users/${user.id}/test/__nonexistent__.png` });
+    probes.head_object = { ok: true, note: "exists somehow" };
+  } catch (e: any) {
+    const status = e?.$metadata?.httpStatusCode;
+    probes.head_object = { ok: status === 404, status, error: e?.name };
+  }
+
+  // 3) PUT — needs writeFiles permission
+  const tinyUrl = "https://upload.wikimedia.org/wikipedia/commons/c/ca/1x1.png";
   try {
     const res = await uploadFromUrl({
       url: tinyUrl,
       key: `users/${user.id}/test/tiny-${Date.now()}.png`,
       contentType: "image/png",
     });
-    return NextResponse.json({ ok: true, env, ...res });
+    probes.put_object = { ok: true, ...res };
   } catch (e: any) {
-    return NextResponse.json({ ok: false, env, error: e?.message }, { status: 500 });
+    probes.put_object = { ok: false, error: e?.message?.slice(0, 250) };
   }
+
+  return NextResponse.json({ ok: true, env, bucket: bucketPrivate(), probes });
 }
