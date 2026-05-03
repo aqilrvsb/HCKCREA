@@ -60,11 +60,17 @@ export async function POST(req: Request) {
   const fontSize = Math.max(28, Math.min(96, Number(body?.font_size) || 56));
   // Subtitle styling — all dynamic per render. Validated against safe enums
   // so a malicious client can't inject arbitrary ffmpeg expressions.
-  const ALLOWED_FONTS = ["bold-display","sans","sans-bold","serif","mono","roboto"];
+  const ALLOWED_FONTS = [
+    "bold-display","sans","sans-bold","serif","mono","roboto",
+    // Wizard-friendly aliases (UI shows these labels)
+    "Lato","Times New Roman","Modern Sans","Classic Serif","Bold Display",
+    "Grobold","Montserrat","Roboto","Carter One",
+  ];
   const ALLOWED_COLORS = ["white","yellow","orange","red","pink","cyan","black"];
   const ALLOWED_BG = ["box","outline","shadow","outline+shadow","none"];
-  const ALLOWED_SUB_ANIM = ["static","karaoke","fade"];
+  const ALLOWED_SUB_ANIM = ["static","karaoke","fade","none","word-by-word","highlight"];
   const ALLOWED_ALIGN = ["left","center","right"];
+  const ALLOWED_TRANSITIONS = ["fade","slide-left","wipe-left","circle-open","dissolve","radial"];
   const fontFamily = ALLOWED_FONTS.includes(String(body?.font_family || ""))
     ? String(body.font_family) : "bold-display";
   const fontColor = ALLOWED_COLORS.includes(String(body?.font_color || ""))
@@ -76,6 +82,12 @@ export async function POST(req: Request) {
   const textAlign = ALLOWED_ALIGN.includes(String(body?.text_align || ""))
     ? String(body.text_align) : "center";
   const yOffsetPct = Math.max(-30, Math.min(30, Number(body?.y_offset_pct) || 0));
+  // Wizard params (optional — Modal can ignore unknown ones)
+  const transition = ALLOWED_TRANSITIONS.includes(String(body?.transition || ""))
+    ? String(body.transition) : "fade";
+  const enableVoice = body?.enable_voice !== false;
+  const enableText = body?.enable_text !== false;
+  const uppercase = !!body?.uppercase;
 
   const modalEndpoint = process.env.MODAL_FAIRYTALE_ENDPOINT;
   if (!modalEndpoint) {
@@ -133,7 +145,9 @@ export async function POST(req: Request) {
           user_id: user.id,
           voice_id: voiceId,
           voice_speed: voiceSpeed,
+          enable_voice: enableVoice,
           animation,
+          transition,
           placement,
           font_size: fontSize,
           font_family: fontFamily,
@@ -142,6 +156,8 @@ export async function POST(req: Request) {
           subtitle_animation: subtitleAnimation,
           text_align: textAlign,
           y_offset_pct: yOffsetPct,
+          uppercase,
+          enable_text: enableText,
           scenes,
         }),
       });
