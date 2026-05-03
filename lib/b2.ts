@@ -19,7 +19,9 @@ import {
   ListObjectsV2Command,
 } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
-import crypto from "crypto";
+import { SignatureV4 } from "@smithy/signature-v4";
+import { Sha256 } from "@aws-crypto/sha256-js";
+import { HttpRequest } from "@smithy/protocol-http";
 import https from "https";
 
 let _client: S3Client | null = null;
@@ -66,20 +68,11 @@ export function bucketPrivate(): string {
   return b;
 }
 
-// Manual SigV4 PUT — no AWS SDK upload path. The SDK's PutObject signs
-// with STREAMING-AWS4-HMAC-SHA256-PAYLOAD on Vercel's runtime regardless
-// of requestChecksumCalculation, and B2 rejects chunked uploads with
-// "The request body was too small". We sign and PUT manually so we
-// control exactly what goes on the wire: a single-shot PUT with the
-// actual sha256 of the body in x-amz-content-sha256 (signed). This is
-// the canonical AWS Signature V4 spec, and B2 accepts it.
-function hmac(key: Buffer | string, data: string): Buffer {
-  return crypto.createHmac("sha256", key).update(data, "utf8").digest();
-}
-function sha256Hex(data: Buffer | string): string {
-  return crypto.createHash("sha256").update(data).digest("hex");
-}
-
+// Use the SDK's own SignatureV4 signer (same one HEAD/GET/LIST/DELETE
+// use successfully) — but apply it to a hand-constructed PUT request
+// and send it via Node's raw https module. This bypasses the SDK's
+// PutObject middleware chain that was forcing chunked upload encoding
+// (which B2 rejects with "The request body was too small").
 export async function uploadFromUrl(opts: {
   url: string;
   key: string;
@@ -105,72 +98,33 @@ export async function uploadFromUrl(opts: {
   const bucket = opts.bucket || bucketPrivate();
 
   const endpointUrl = new URL(endpoint);
-  // Virtual-hosted style: bucket.s3.region.backblazeb2.com
   const host = `${bucket}.${endpointUrl.host}`;
-  // Encode each segment of the key per RFC 3986 (slashes preserved).
-  const canonicalUri =
-    "/" + opts.key.split("/").map(encodeURIComponent).join("/");
+  const path = "/" + opts.key.split("/").map(encodeURIComponent).join("/");
 
-  const now = new Date();
-  const amzDate =
-    now.toISOString().replace(/[:-]|\.\d{3}/g, ""); // YYYYMMDDTHHMMSSZ
-  const dateStamp = amzDate.slice(0, 8);             // YYYYMMDD
+  const signer = new SignatureV4({
+    credentials: { accessKeyId, secretAccessKey },
+    region,
+    service: "s3",
+    sha256: Sha256,
+    applyChecksum: false,
+  });
 
-  // Use UNSIGNED-PAYLOAD instead of sha256(body) — B2 accepts this and
-  // it sidesteps any body-byte mismatch issues. The actual body integrity
-  // is still protected by HTTPS + Content-Length.
-  const payloadHash = "UNSIGNED-PAYLOAD";
+  const reqToSign = new HttpRequest({
+    method: "PUT",
+    protocol: "https:",
+    hostname: host,
+    path,
+    headers: {
+      host,
+      "content-length": String(body.length),
+      "content-type": ct,
+      "x-amz-content-sha256": "UNSIGNED-PAYLOAD",
+    },
+    body,
+  });
 
-  // Sign only host + x-amz-* — the minimum SigV4 requires. content-length
-  // and content-type can be munged by intermediaries (Vercel, undici) on
-  // the wire, which would invalidate the signature even though we set
-  // them correctly. Skip them entirely from signing.
-  const headers: Record<string, string> = {
-    host,
-    "x-amz-content-sha256": payloadHash,
-    "x-amz-date": amzDate,
-  };
-  const signedHeaders = Object.keys(headers).sort().join(";");
-  const canonicalHeaders =
-    Object.keys(headers)
-      .sort()
-      .map((k) => `${k}:${headers[k].trim()}`)
-      .join("\n") + "\n";
+  const signedReq = await signer.sign(reqToSign, { unsignableHeaders: new Set() });
 
-  const canonicalRequest = [
-    "PUT",
-    canonicalUri,
-    "", // query string
-    canonicalHeaders,
-    signedHeaders,
-    payloadHash,
-  ].join("\n");
-
-  const credentialScope = `${dateStamp}/${region}/s3/aws4_request`;
-  const stringToSign = [
-    "AWS4-HMAC-SHA256",
-    amzDate,
-    credentialScope,
-    sha256Hex(canonicalRequest),
-  ].join("\n");
-
-  const kDate = hmac("AWS4" + secretAccessKey, dateStamp);
-  const kRegion = hmac(kDate, region);
-  const kService = hmac(kRegion, "s3");
-  const kSigning = hmac(kService, "aws4_request");
-  const signature = crypto
-    .createHmac("sha256", kSigning)
-    .update(stringToSign, "utf8")
-    .digest("hex");
-
-  const authorization =
-    `AWS4-HMAC-SHA256 Credential=${accessKeyId}/${credentialScope}, ` +
-    `SignedHeaders=${signedHeaders}, Signature=${signature}`;
-
-  // Use Node's https module directly. Vercel's undici fetch was sending
-  // chunked transfer encoding regardless of our explicit Content-Length,
-  // and B2 saw the body as smaller than expected. Node's raw https.request
-  // honors Content-Length and sends a single fixed-length body.
   const { status: putStatus, body: putBody } = await new Promise<{
     status: number;
     body: string;
@@ -179,15 +133,8 @@ export async function uploadFromUrl(opts: {
       {
         method: "PUT",
         host,
-        path: canonicalUri,
-        headers: {
-          "Content-Type": ct,
-          "Content-Length": body.length,
-          "x-amz-content-sha256": payloadHash,
-          "x-amz-date": amzDate,
-          Authorization: authorization,
-          Host: host,
-        },
+        path,
+        headers: signedReq.headers as Record<string, string>,
       },
       (res) => {
         const chunks: Buffer[] = [];
@@ -201,16 +148,13 @@ export async function uploadFromUrl(opts: {
       }
     );
     req.on("error", reject);
-    // end(buffer) writes + closes atomically — avoids any backpressure
-    // edge case where req.end() races ahead of the buffered write.
     req.end(body);
   });
 
   if (putStatus < 200 || putStatus >= 300) {
-    // Dump enough to debug: the canonical request and signature.
-    const canonReqB64 = Buffer.from(canonicalRequest).toString("base64").slice(0, 400);
+    const sentHeaders = JSON.stringify(signedReq.headers).slice(0, 400);
     throw new Error(
-      `B2 PUT failed: HTTP ${putStatus} (body=${body.length}b, sha=${payloadHash.slice(0, 12)}, sig=${signature.slice(0, 12)}, host=${host}, sH=${signedHeaders}, canonB64=${canonReqB64}) ${putBody.slice(0, 200)}`
+      `B2 PUT failed: HTTP ${putStatus} (body=${body.length}b, host=${host}, headers=${sentHeaders}) ${putBody.slice(0, 200)}`
     );
   }
 
