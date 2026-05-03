@@ -356,9 +356,9 @@ export default function FairytaleTab({ projectId }: { projectId?: string } = {})
     <div className="rounded-3xl p-6 md:p-10 bg-white" style={{ minHeight: "60vh" }}>
       {/* Header */}
       <div className="text-center mb-6">
-        <h2 className="font-display font-extrabold text-2xl text-[#1a1a1a]">Video</h2>
+        <h2 className="font-display font-extrabold text-2xl text-[#1a1a1a]">Fairytale</h2>
         <p className="text-xs text-gray-500 mt-1">
-          Create stunning videos with AI-powered generation
+          AI-narrated storytelling videos in Bahasa Melayu
         </p>
       </div>
 
