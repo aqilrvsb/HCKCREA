@@ -64,8 +64,16 @@ export function bucketPrivate(): string {
   return b;
 }
 
-// Stream a remote URL straight into B2 — avoids buffering whole file in memory.
-// Returns the B2 object key on success.
+// Upload a remote URL into B2.
+//
+// We use a presigned PUT + plain fetch(), NOT s3.send(PutObjectCommand).
+// AWS SDK v3 (any flavor) signs the PUT with x-amz-content-sha256 =
+// STREAMING-AWS4-HMAC-SHA256-PAYLOAD, which makes the request body a
+// chunked, per-chunk-signed stream. Backblaze B2 rejects that with
+// "The request body was too small" no matter what flexible-checksum
+// flags we pass to S3Client. A presigned URL signs a single, fixed-length
+// payload, so the actual upload is a vanilla single-shot HTTP PUT — and
+// B2 accepts it cleanly.
 export async function uploadFromUrl(opts: {
   url: string;
   key: string;
@@ -77,10 +85,6 @@ export async function uploadFromUrl(opts: {
     throw new Error(`Source URL fetch failed: HTTP ${r.status}`);
   }
   const ct = opts.contentType || r.headers.get("content-type") || "application/octet-stream";
-  // Read body as a Node Buffer. B2's S3 API rejects multipart chunks
-  // smaller than 5 MB, and the AWS SDK was splitting our Uint8Array body
-  // into 2 chunks which violated that. Buffer + explicit ContentLength
-  // forces a single-PUT upload that B2 accepts.
   const ab = await r.arrayBuffer();
   const body = Buffer.from(ab);
 
@@ -88,15 +92,36 @@ export async function uploadFromUrl(opts: {
     throw new Error(`Source URL returned 0 bytes: ${opts.url}`);
   }
 
-  await client().send(
+  const bucket = opts.bucket || bucketPrivate();
+
+  // Don't include ContentType in the signed command — that would force the
+  // actual PUT to send the exact same header. We send Content-Type at upload
+  // time as an unsigned header; B2 still stores it correctly.
+  const presignedPut = await getSignedUrl(
+    client(),
     new PutObjectCommand({
-      Bucket: opts.bucket || bucketPrivate(),
+      Bucket: bucket,
       Key: opts.key,
-      Body: body,
-      ContentType: ct,
-      ContentLength: body.length,
-    })
+    }),
+    { expiresIn: 300 }
   );
+
+  const putResp = await fetch(presignedPut, {
+    method: "PUT",
+    headers: {
+      "Content-Type": ct,
+      "Content-Length": String(body.length),
+    },
+    body,
+  });
+
+  if (!putResp.ok) {
+    const errText = await putResp.text().catch(() => "");
+    throw new Error(
+      `B2 PUT failed: HTTP ${putResp.status} ${errText.slice(0, 300)}`
+    );
+  }
+
   return { key: opts.key, size: body.length };
 }
 
