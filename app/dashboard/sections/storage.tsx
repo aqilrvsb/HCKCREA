@@ -94,10 +94,17 @@ export default function StorageSection() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ storage_id: id }),
       });
-      if (r.ok) {
-        setItems((prev) => prev.filter((i) => i.id !== id));
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok || !d?.ok) {
+        alert(`Failed to delete: ${d?.error || `HTTP ${r.status}`}`);
+        return;
       }
-    } catch {}
+      // Optimistic remove + refresh quota numbers from server
+      setItems((prev) => prev.filter((i) => i.id !== id));
+      void load();
+    } catch (e: any) {
+      alert(`Failed to delete: ${e?.message || "network error"}`);
+    }
   }
 
   return (
@@ -114,15 +121,26 @@ export default function StorageSection() {
         </p>
       </div>
 
-      {/* Quota bar */}
+      {/* Quota bar — Total / Used / Remaining */}
       <div className="card p-5 mb-5">
-        <div className="flex items-center justify-between mb-2">
+        <div className="flex items-center justify-between mb-3 gap-3 flex-wrap">
           <span className="text-xs font-mono uppercase tracking-wider font-bold text-[var(--color-text-muted)]">
-            Storage Used
+            Storage
           </span>
-          <span className="text-xs font-mono text-[var(--color-text-secondary)]">
-            {fmtMB(items.reduce((acc, i) => acc + i.size_bytes, 0) * (1024*1024) / (1024*1024))} MB / {quotaMb} MB
-          </span>
+          <div className="flex items-center gap-4 text-xs font-mono">
+            <span className="text-[var(--color-text-secondary)]">
+              <span className="opacity-60">Total</span> <span className="font-bold">{quotaMb} MB</span>
+            </span>
+            <span className="text-[var(--color-text-secondary)]">
+              <span className="opacity-60">Used</span> <span className="font-bold">{usedMb.toFixed(2)} MB</span>
+            </span>
+            <span className="text-[var(--color-text-secondary)]">
+              <span className="opacity-60">Free</span>{" "}
+              <span className="font-bold" style={{ color: usedPct > 90 ? "#ef4444" : "var(--color-orange)" }}>
+                {Math.max(0, quotaMb - usedMb).toFixed(2)} MB
+              </span>
+            </span>
+          </div>
         </div>
         <div className="w-full h-2 rounded-full overflow-hidden" style={{ background: "var(--color-bg-card)" }}>
           <div
@@ -134,7 +152,7 @@ export default function StorageSection() {
           />
         </div>
         <div className="text-[10px] text-[var(--color-text-muted)] mt-1.5">
-          {items.length} files saved · quota set by admin
+          {items.length} files saved · {usedPct.toFixed(1)}% of quota used · quota set by admin
         </div>
       </div>
 
@@ -219,9 +237,10 @@ function StorageCard({
         )}
         {item.cached_url && isVideo && (
           <video
-            src={item.cached_url + "#t=1"}
-            muted
+            src={item.cached_url}
+            controls
             playsInline
+            preload="metadata"
             className="w-full h-full object-cover"
           />
         )}
@@ -242,13 +261,15 @@ function StorageCard({
           {fmtMB(item.size_bytes)} MB
         </div>
         <div className="flex gap-1">
-          {item.cached_url && (
+          {/* Download icon — images only. Videos get native download via the
+              video element's controls when the user plays them. */}
+          {isImage && item.cached_url && (
             <a
               href={item.cached_url}
               target="_blank"
               rel="noreferrer"
-              title="Open / Download"
-              className="w-6 h-6 rounded flex items-center justify-center"
+              title="Download image"
+              className="w-6 h-6 rounded flex items-center justify-center hover:scale-110 transition-transform"
               style={{ background: "var(--color-bg-card)", border: "1px solid var(--color-border)", color: "var(--color-text-secondary)" }}
             >
               <Download className="w-3 h-3" />
@@ -257,7 +278,7 @@ function StorageCard({
           <button
             onClick={onDelete}
             title="Delete from Storage"
-            className="w-6 h-6 rounded flex items-center justify-center"
+            className="w-6 h-6 rounded flex items-center justify-center hover:scale-110 transition-transform"
             style={{ background: "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.4)", color: "#fca5a5" }}
           >
             <Trash2 className="w-3 h-3" />
