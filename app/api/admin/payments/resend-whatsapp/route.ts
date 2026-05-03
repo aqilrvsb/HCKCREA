@@ -47,8 +47,27 @@ export async function POST(req: Request) {
     .select("full_name, whatsapp, plan, plan_expires_at")
     .eq("id", userId)
     .single();
-  if (!profile?.whatsapp) {
-    return NextResponse.json({ error: "User has no WhatsApp" }, { status: 400 });
+
+  // Fallback to signup metadata when profile.whatsapp is empty (legacy rows
+  // where the upsert didn't capture whatsapp, or admins created users
+  // manually without filling it in). Backfill the profile so future
+  // resends + admin lookups have it.
+  const signupMeta = (payment.metadata?.signup || {}) as { whatsapp?: string };
+  const whatsapp =
+    (profile?.whatsapp && String(profile.whatsapp).trim()) ||
+    (signupMeta.whatsapp && String(signupMeta.whatsapp).trim()) ||
+    "";
+
+  if (!whatsapp) {
+    return NextResponse.json(
+      { error: "User has no WhatsApp number — neither profile nor payment metadata has one." },
+      { status: 400 }
+    );
+  }
+
+  // Backfill profile.whatsapp if it was missing
+  if (!profile?.whatsapp && whatsapp) {
+    await admin.from("profiles").update({ whatsapp }).eq("id", userId);
   }
 
   // Generate fresh password and update
@@ -71,7 +90,7 @@ export async function POST(req: Request) {
     loginUrl: `${origin}/login`,
   });
 
-  const sent = await sendWhatsApp(profile.whatsapp, msg);
+  const sent = await sendWhatsApp(whatsapp, msg);
 
   await admin
     .from("payments")
@@ -86,5 +105,16 @@ export async function POST(req: Request) {
     })
     .eq("id", payment.id);
 
-  return NextResponse.json({ ok: true, sent });
+  if (!sent) {
+    return NextResponse.json(
+      {
+        ok: false,
+        sent: false,
+        error: "WhatsApp send failed. Check that admin_device has an active row + WhatsApp Center API is reachable.",
+      },
+      { status: 502 }
+    );
+  }
+
+  return NextResponse.json({ ok: true, sent: true });
 }

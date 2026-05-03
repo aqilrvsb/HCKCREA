@@ -152,12 +152,20 @@ export default function AdminTransactions() {
   async function resendWA(p: Payment) {
     setBusy(p.id);
     try {
-      await fetch("/api/admin/payments/resend-whatsapp", {
+      const r = await fetch("/api/admin/payments/resend-whatsapp", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ payment_id: p.id }),
       });
+      const d = await r.json().catch(() => ({}));
+      if (r.ok && d?.sent) {
+        alert("✅ WhatsApp dihantar — login info sudah dihantar ke customer.");
+      } else {
+        alert(`❌ Gagal hantar WhatsApp\n\n${d?.error || `HTTP ${r.status}`}`);
+      }
       await load();
+    } catch (e: any) {
+      alert(`❌ Network error: ${e?.message || "unknown"}`);
     } finally {
       setBusy(null);
     }
