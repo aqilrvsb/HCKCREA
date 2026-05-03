@@ -7,7 +7,9 @@ Pipeline:
      Burns ffmpeg filter (zoom-pan), burn captions
   3. Concat all scene clips with xfade transitions
   4. Mix narration audio + optional background music
-  5. Upload final mp4 to Supabase Storage
+  5. Upload final mp4 directly to Backblaze B2 at the user's permanent
+     storage path (users/{user_id}/fairytale/{history_id}.mp4) — same
+     bucket the Storage tab uses, no Supabase Storage involved
   6. Update history row directly via service-role key (Pattern A — Vercel
      never waits)
 
@@ -18,7 +20,12 @@ Secrets (one-time):
     modal secret create fairytale-secrets \
       MINIMAX_API_KEY=... \
       SUPABASE_URL=https://zoxgcqlqovkvlrmpcikt.supabase.co \
-      SUPABASE_SERVICE_ROLE_KEY=...
+      SUPABASE_SERVICE_ROLE_KEY=... \
+      B2_ENDPOINT=https://s3.us-east-005.backblazeb2.com \
+      B2_REGION=us-east-005 \
+      B2_KEY_ID=... \
+      B2_APP_KEY=... \
+      B2_BUCKET_PRIVATE=peninglab-storage
 
 Pricing (per 1-min story, 10 scenes):
   - Modal CPU 8 vCPU × 30s = ~$0.003
@@ -71,7 +78,10 @@ FONT_PATHS: dict = {
 def _font_path(family: str) -> str:
     return FONT_PATHS.get(family, FONT_PATHS["bold-display"])
 
-SUPABASE_BUCKET = "fairytale"
+# Permanent media path on Backblaze B2 — same convention as lib/b2.ts
+# `buildKey()` so the file ends up where the Storage tab expects it.
+def _b2_key_for(user_id: str, history_id: str) -> str:
+    return f"users/{user_id}/fairytale/{history_id}.mp4"
 
 # ──────────────────────────────────────────────────────────────────────────
 # Helpers (run inside the container)
@@ -455,19 +465,157 @@ def _concat_scenes(scene_paths: list, out_path: Path) -> Path:
     return out_path
 
 
-def _upload_supabase(local_path: Path, remote_name: str) -> str:
-    """Upload mp4 to Supabase Storage and return a long-lived signed URL."""
-    from supabase import create_client
-    sb = create_client(
-        os.environ["SUPABASE_URL"],
-        os.environ["SUPABASE_SERVICE_ROLE_KEY"],
+def _b2_sign_v4(method: str, b2_key: str, body: bytes | None, content_type: str | None):
+    """Produce SigV4 authorization headers for a B2 S3-compatible request.
+
+    Returns (host, canonical_uri, headers_dict_for_request).
+
+    We use manual SigV4 because boto3/aws-sdk variants force chunked
+    transfer encoding which B2 rejects with 'request body too small'.
+    See lib/b2.ts for the same pattern in TypeScript.
+    """
+    import hashlib
+    import hmac
+    import datetime
+    from urllib.parse import urlparse, quote
+
+    endpoint = os.environ["B2_ENDPOINT"]
+    region = os.environ.get("B2_REGION", "us-east-005")
+    access_key = os.environ["B2_KEY_ID"]
+    secret_key = os.environ["B2_APP_KEY"]
+    bucket = os.environ["B2_BUCKET_PRIVATE"]
+
+    endpoint_host = urlparse(endpoint).netloc
+    host = f"{bucket}.{endpoint_host}"
+    canonical_uri = "/" + quote(b2_key, safe="/")
+
+    now = datetime.datetime.utcnow()
+    amz_date = now.strftime("%Y%m%dT%H%M%SZ")
+    date_stamp = now.strftime("%Y%m%d")
+
+    payload_hash = hashlib.sha256(body).hexdigest() if body is not None else hashlib.sha256(b"").hexdigest()
+
+    headers = {"host": host, "x-amz-content-sha256": payload_hash, "x-amz-date": amz_date}
+    if body is not None:
+        headers["content-length"] = str(len(body))
+    if content_type:
+        headers["content-type"] = content_type
+
+    sorted_keys = sorted(headers)
+    signed_headers = ";".join(sorted_keys)
+    canonical_headers = "".join(f"{k}:{headers[k].strip()}\n" for k in sorted_keys)
+
+    canonical_request = "\n".join([
+        method, canonical_uri, "", canonical_headers, signed_headers, payload_hash,
+    ])
+    credential_scope = f"{date_stamp}/{region}/s3/aws4_request"
+    string_to_sign = "\n".join([
+        "AWS4-HMAC-SHA256", amz_date, credential_scope,
+        hashlib.sha256(canonical_request.encode()).hexdigest(),
+    ])
+
+    def _hmac(key: bytes, msg: str) -> bytes:
+        return hmac.new(key, msg.encode(), hashlib.sha256).digest()
+
+    k_date = _hmac(("AWS4" + secret_key).encode(), date_stamp)
+    k_region = _hmac(k_date, region)
+    k_service = _hmac(k_region, "s3")
+    k_signing = _hmac(k_service, "aws4_request")
+    signature = hmac.new(k_signing, string_to_sign.encode(), hashlib.sha256).hexdigest()
+
+    auth = (
+        f"AWS4-HMAC-SHA256 Credential={access_key}/{credential_scope}, "
+        f"SignedHeaders={signed_headers}, Signature={signature}"
     )
-    bucket = sb.storage.from_(SUPABASE_BUCKET)
+
+    out_headers = {
+        "x-amz-content-sha256": payload_hash,
+        "x-amz-date": amz_date,
+        "Authorization": auth,
+        "Host": host,
+    }
+    if body is not None:
+        out_headers["Content-Length"] = str(len(body))
+    if content_type:
+        out_headers["Content-Type"] = content_type
+
+    return host, canonical_uri, out_headers
+
+
+def _upload_b2(local_path: Path, b2_key: str) -> None:
+    """PUT the local file to Backblaze B2 at the given key."""
+    import requests
     with open(local_path, "rb") as f:
-        bucket.upload(remote_name, f, {"content-type": "video/mp4", "upsert": "true"})
-    # 30-day signed URL (storytelling videos rarely need permanent public)
-    signed = bucket.create_signed_url(remote_name, 60 * 60 * 24 * 30)
-    return signed["signedURL"] if isinstance(signed, dict) else signed.get("signed_url", "")
+        body = f.read()
+    host, canonical_uri, headers = _b2_sign_v4("PUT", b2_key, body, "video/mp4")
+    r = requests.put(
+        f"https://{host}{canonical_uri}",
+        data=body,
+        headers=headers,
+        timeout=180,
+    )
+    if r.status_code < 200 or r.status_code >= 300:
+        raise RuntimeError(
+            f"B2 upload failed: HTTP {r.status_code} {r.text[:300]}"
+        )
+
+
+def _presign_b2_get(b2_key: str, expires_sec: int = 7 * 86400) -> str:
+    """Build a presigned GET URL for a B2 object (default 7-day expiry).
+
+    Frontend caches the URL; refresh via /api/storage/refresh-url when it
+    nears expiry.
+    """
+    import hashlib
+    import hmac
+    import datetime
+    from urllib.parse import urlparse, quote
+
+    endpoint = os.environ["B2_ENDPOINT"]
+    region = os.environ.get("B2_REGION", "us-east-005")
+    access_key = os.environ["B2_KEY_ID"]
+    secret_key = os.environ["B2_APP_KEY"]
+    bucket = os.environ["B2_BUCKET_PRIVATE"]
+
+    endpoint_host = urlparse(endpoint).netloc
+    host = f"{bucket}.{endpoint_host}"
+    canonical_uri = "/" + quote(b2_key, safe="/")
+
+    now = datetime.datetime.utcnow()
+    amz_date = now.strftime("%Y%m%dT%H%M%SZ")
+    date_stamp = now.strftime("%Y%m%d")
+    credential_scope = f"{date_stamp}/{region}/s3/aws4_request"
+
+    query_params = [
+        ("X-Amz-Algorithm", "AWS4-HMAC-SHA256"),
+        ("X-Amz-Credential", f"{access_key}/{credential_scope}"),
+        ("X-Amz-Date", amz_date),
+        ("X-Amz-Expires", str(expires_sec)),
+        ("X-Amz-SignedHeaders", "host"),
+    ]
+    canonical_query = "&".join(
+        f"{quote(k, safe='')}={quote(v, safe='')}" for k, v in sorted(query_params)
+    )
+
+    canonical_request = "\n".join([
+        "GET", canonical_uri, canonical_query,
+        f"host:{host}\n", "host", "UNSIGNED-PAYLOAD",
+    ])
+    string_to_sign = "\n".join([
+        "AWS4-HMAC-SHA256", amz_date, credential_scope,
+        hashlib.sha256(canonical_request.encode()).hexdigest(),
+    ])
+
+    def _hmac(key: bytes, msg: str) -> bytes:
+        return hmac.new(key, msg.encode(), hashlib.sha256).digest()
+
+    k_date = _hmac(("AWS4" + secret_key).encode(), date_stamp)
+    k_region = _hmac(k_date, region)
+    k_service = _hmac(k_region, "s3")
+    k_signing = _hmac(k_service, "aws4_request")
+    signature = hmac.new(k_signing, string_to_sign.encode(), hashlib.sha256).hexdigest()
+
+    return f"https://{host}{canonical_uri}?{canonical_query}&X-Amz-Signature={signature}"
 
 
 def _update_history(history_id: str, **fields):
@@ -567,8 +715,13 @@ def render_story(payload: dict):
         else:
             _concat_scenes(scene_clips, final_path)
 
-        remote_name = f"{payload.get('user_id', 'anon')}/{history_id}.mp4"
-        signed_url = _upload_supabase(final_path, remote_name)
+        # Upload merged mp4 directly to B2 at the user's permanent path.
+        # output_url becomes a 7-day presigned GET — same shape as Crun
+        # temp URLs other tabs use, so the Storage save flow stays uniform.
+        user_id = payload.get("user_id") or "anon"
+        b2_key = _b2_key_for(user_id, history_id)
+        _upload_b2(final_path, b2_key)
+        signed_url = _presign_b2_get(b2_key, expires_sec=7 * 86400)
 
         elapsed = time.time() - started
         _update_history(
