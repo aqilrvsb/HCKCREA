@@ -109,9 +109,6 @@ export async function uploadFromUrl(opts: {
     applyChecksum: false,
   });
 
-  // Compute the actual sha256 of the body — B2 may reject UNSIGNED-PAYLOAD
-  // for non-presigned PUT requests. We pre-set x-amz-content-sha256 so the
-  // signer uses that value (instead of recomputing or using UNSIGNED-PAYLOAD).
   const { createHash } = await import("crypto");
   const bodyHash = createHash("sha256").update(body).digest("hex");
 
@@ -131,12 +128,9 @@ export async function uploadFromUrl(opts: {
 
   const signedReq = (await signer.sign(reqToSign, { unsignableHeaders: new Set() })) as HttpRequest;
 
-  // Send via the SDK's NodeHttpHandler — exact same code path that
-  // delivers the working HEAD/GET/LIST/DELETE requests.
   const handler = new NodeHttpHandler();
   const { response } = await handler.handle(signedReq);
 
-  // Drain the response stream to a string for status + error body.
   const respBody: string = await new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
     response.body.on("data", (c: Buffer) => chunks.push(c));
@@ -145,9 +139,8 @@ export async function uploadFromUrl(opts: {
   });
 
   if (response.statusCode < 200 || response.statusCode >= 300) {
-    const sentHeaders = JSON.stringify(signedReq.headers).slice(0, 400);
     throw new Error(
-      `B2 PUT failed: HTTP ${response.statusCode} (body=${body.length}b, host=${host}, sentHeaders=${sentHeaders}) ${respBody.slice(0, 200)}`
+      `B2 PUT failed: HTTP ${response.statusCode} ${respBody.slice(0, 200)}`
     );
   }
 
