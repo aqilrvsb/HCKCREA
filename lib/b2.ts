@@ -22,7 +22,7 @@ import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { SignatureV4 } from "@smithy/signature-v4";
 import { Sha256 } from "@aws-crypto/sha256-js";
 import { HttpRequest } from "@smithy/protocol-http";
-import https from "https";
+import { NodeHttpHandler } from "@smithy/node-http-handler";
 
 let _client: S3Client | null = null;
 function client(): S3Client {
@@ -109,6 +109,12 @@ export async function uploadFromUrl(opts: {
     applyChecksum: false,
   });
 
+  // Compute the actual sha256 of the body — B2 may reject UNSIGNED-PAYLOAD
+  // for non-presigned PUT requests. We pre-set x-amz-content-sha256 so the
+  // signer uses that value (instead of recomputing or using UNSIGNED-PAYLOAD).
+  const { createHash } = await import("crypto");
+  const bodyHash = createHash("sha256").update(body).digest("hex");
+
   const reqToSign = new HttpRequest({
     method: "PUT",
     protocol: "https:",
@@ -118,43 +124,30 @@ export async function uploadFromUrl(opts: {
       host,
       "content-length": String(body.length),
       "content-type": ct,
-      "x-amz-content-sha256": "UNSIGNED-PAYLOAD",
+      "x-amz-content-sha256": bodyHash,
     },
     body,
   });
 
-  const signedReq = await signer.sign(reqToSign, { unsignableHeaders: new Set() });
+  const signedReq = (await signer.sign(reqToSign, { unsignableHeaders: new Set() })) as HttpRequest;
 
-  const { status: putStatus, body: putBody } = await new Promise<{
-    status: number;
-    body: string;
-  }>((resolve, reject) => {
-    const req = https.request(
-      {
-        method: "PUT",
-        host,
-        path,
-        headers: signedReq.headers as Record<string, string>,
-      },
-      (res) => {
-        const chunks: Buffer[] = [];
-        res.on("data", (c) => chunks.push(c));
-        res.on("end", () => {
-          resolve({
-            status: res.statusCode || 0,
-            body: Buffer.concat(chunks).toString("utf8"),
-          });
-        });
-      }
-    );
-    req.on("error", reject);
-    req.end(body);
+  // Send via the SDK's NodeHttpHandler — exact same code path that
+  // delivers the working HEAD/GET/LIST/DELETE requests.
+  const handler = new NodeHttpHandler();
+  const { response } = await handler.handle(signedReq);
+
+  // Drain the response stream to a string for status + error body.
+  const respBody: string = await new Promise((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    response.body.on("data", (c: Buffer) => chunks.push(c));
+    response.body.on("end", () => resolve(Buffer.concat(chunks).toString("utf8")));
+    response.body.on("error", reject);
   });
 
-  if (putStatus < 200 || putStatus >= 300) {
+  if (response.statusCode < 200 || response.statusCode >= 300) {
     const sentHeaders = JSON.stringify(signedReq.headers).slice(0, 400);
     throw new Error(
-      `B2 PUT failed: HTTP ${putStatus} (body=${body.length}b, host=${host}, headers=${sentHeaders}) ${putBody.slice(0, 200)}`
+      `B2 PUT failed: HTTP ${response.statusCode} (body=${body.length}b, host=${host}, sentHeaders=${sentHeaders}) ${respBody.slice(0, 200)}`
     );
   }
 
