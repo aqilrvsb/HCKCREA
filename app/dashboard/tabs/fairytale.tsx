@@ -14,14 +14,19 @@ const ORANGE = "#facc15";
 const ORANGE_SOFT = "rgba(250, 204, 21, 0.18)";
 const PURPLE = "#a855f7";
 
-// MiniMax voice catalog — Malay-friendly voices (defaults work cross-language
-// because language_boost: "Malay" is set server-side).
+// MiniMax t2a_v2 system voice IDs. MiniMax has no native Malay voices —
+// these English / Mandarin storytelling voices speak BM with a slight
+// foreign accent when paired with language_boost: "Malay" (set server-side
+// in modal_fairytale.py + /api/tts/minimax). Real IDs verified from
+// https://platform.minimax.io/docs/faq/system-voice-id (May 2026).
 const VOICES = [
-  { id: "Malay_BellaSoothing",   label: "Bella — Female, soft, warm" },
-  { id: "Malay_FemaleNarrator",  label: "Aisyah — Female, narrator tone" },
-  { id: "Malay_MaleStoryteller", label: "Hakim — Male, storyteller" },
-  { id: "Malay_YoungFemale",     label: "Nadia — Female, youthful" },
-  { id: "Malay_MaleAnnouncer",   label: "Faizal — Male, announcer" },
+  { id: "English_CaptivatingStoryteller", label: "Storyteller — Engaging narrator (gender-neutral)" },
+  { id: "English_Graceful_Lady",          label: "Aisyah — Female, elegant, refined" },
+  { id: "English_Soft-spokenGirl",        label: "Nadia — Female, soft, intimate (bedtime stories)" },
+  { id: "English_radiant_girl",           label: "Bella — Female, youthful, bright" },
+  { id: "English_Gentle-voiced_man",      label: "Hakim — Male, soft, soothing" },
+  { id: "English_WiseScholar",            label: "Pak Cik — Male, authoritative (myths/legends)" },
+  { id: "English_expressive_narrator",    label: "Faizal — Male, mature, dramatic" },
 ];
 
 const ANIMATIONS = [
@@ -183,6 +188,26 @@ export default function FairytaleTab({ projectId }: { projectId?: string } = {})
 
   return (
     <div className="rounded-3xl p-6 md:p-8 space-y-5" style={sectionBg}>
+      {/* COMING SOON BANNER */}
+      <div
+        className="rounded-2xl p-4 flex items-start gap-3"
+        style={{
+          background: "linear-gradient(135deg, rgba(168, 85, 247, 0.10) 0%, rgba(250, 204, 21, 0.10) 100%)",
+          border: "1px solid rgba(168, 85, 247, 0.3)",
+        }}
+      >
+        <div className="text-2xl">🚧</div>
+        <div className="flex-1">
+          <div className="font-display font-extrabold text-sm" style={{ color: "#7c3aed" }}>
+            Coming Soon — Beta Testing
+          </div>
+          <p className="text-xs text-gray-700 mt-1 leading-relaxed">
+            Storytelling video generator masih dalam ujian. UI siap, backend pipeline (MiniMax TTS + Modal Ken Burns render) sedang dikonfigurasi.
+            Cuba je — kalau Generate gagal, anda akan dapat error message yang jelas.
+          </p>
+        </div>
+      </div>
+
       {/* HEADER */}
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
