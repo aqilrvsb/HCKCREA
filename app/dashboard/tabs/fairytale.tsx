@@ -64,13 +64,19 @@ const ASPECTS: { id: Aspect; label: string }[] = [
 // ─── Step 2 visuals ─────────────────────────────────────────────
 type VisualStyle = "realistic" | "3d" | "fantasy" | "minimalist" | "nature" | "anime";
 
-const VISUAL_STYLES: { id: VisualStyle; label: string; gradient: string }[] = [
-  { id: "realistic",  label: "Realistic",  gradient: "linear-gradient(135deg, #8b5e3c 0%, #d4a574 100%)" },
-  { id: "3d",         label: "3D",         gradient: "linear-gradient(135deg, #f97316 0%, #fbbf24 100%)" },
-  { id: "fantasy",    label: "Fantasy",    gradient: "linear-gradient(135deg, #7c3aed 0%, #ec4899 100%)" },
-  { id: "minimalist", label: "Minimalist", gradient: "linear-gradient(135deg, #d4d4d8 0%, #fafafa 100%)" },
-  { id: "nature",     label: "Nature",     gradient: "linear-gradient(135deg, #f59e0b 0%, #ea580c 100%)" },
-  { id: "anime",      label: "Anime",      gradient: "linear-gradient(135deg, #06b6d4 0%, #f472b6 100%)" },
+const VISUAL_STYLES: { id: VisualStyle; label: string; gradient: string; sample?: string }[] = [
+  { id: "realistic",  label: "Realistic",  gradient: "linear-gradient(135deg, #8b5e3c 0%, #d4a574 100%)",
+    sample: "https://tempfile.aiquickdraw.com/images/1777806206916-2a5942wnvl3.png" },
+  { id: "3d",         label: "3D",         gradient: "linear-gradient(135deg, #f97316 0%, #fbbf24 100%)",
+    sample: "https://tempfile.aiquickdraw.com/images/1777806197874-h4qzfh5x9wg.png" },
+  { id: "fantasy",    label: "Fantasy",    gradient: "linear-gradient(135deg, #7c3aed 0%, #ec4899 100%)",
+    sample: "https://tempfile.aiquickdraw.com/workers/nano/image_1777806223290_9xkbpu.png" },
+  { id: "minimalist", label: "Minimalist", gradient: "linear-gradient(135deg, #d4d4d8 0%, #fafafa 100%)",
+    sample: "https://tempfile.aiquickdraw.com/images/1777806187348-0410od3jrwht.png" },
+  { id: "nature",     label: "Nature",     gradient: "linear-gradient(135deg, #f59e0b 0%, #ea580c 100%)",
+    sample: "https://tempfile.aiquickdraw.com/images/1777806217679-40suvb4a1b3.png" },
+  { id: "anime",      label: "Anime",      gradient: "linear-gradient(135deg, #06b6d4 0%, #f472b6 100%)",
+    sample: "https://tempfile.aiquickdraw.com/images/1777806209200-havbrshlbwb.png" },
 ];
 
 // ─── Step 3 config ─────────────────────────────────────────────
@@ -640,16 +646,24 @@ function Step2({
               onClick={() => setVisualStyle(v.id)}
               className="relative aspect-video rounded-2xl overflow-hidden text-left transition-all hover:scale-[1.02]"
               style={{
-                background: v.gradient,
+                background: v.sample ? "#000" : v.gradient,
                 outline: active ? `3px solid ${PURPLE}` : "none",
                 outlineOffset: active ? 2 : 0,
               }}
             >
+              {v.sample && (
+                <img
+                  src={v.sample}
+                  alt={v.label}
+                  className="absolute inset-0 w-full h-full object-cover"
+                  referrerPolicy="no-referrer"
+                />
+              )}
               <div
                 className="absolute inset-0"
-                style={{ background: "linear-gradient(180deg, transparent 50%, rgba(0,0,0,0.5) 100%)" }}
+                style={{ background: "linear-gradient(180deg, transparent 50%, rgba(0,0,0,0.6) 100%)" }}
               />
-              <div className="absolute bottom-3 left-4 text-white font-extrabold text-base drop-shadow">
+              <div className="absolute bottom-3 left-4 text-white font-extrabold text-base drop-shadow-lg">
                 {v.label}
               </div>
             </button>
@@ -710,23 +724,13 @@ function Step3(props: any) {
   const allDone = scenes.length > 0 && scenes.every((s: Scene) => s.imageStatus === "done");
   const inProgress = scenes.length > 0 && scenes.some((s: Scene) => s.imageStatus === "generating" || s.imageStatus === "queued");
 
-  // Loading overlay during script generation
+  // Loading overlay during script generation — matches the reference layout:
+  // big title, subtitle, real progress bar with "X/N scenes" counter and
+  // percentage, then a separate light-grey card with doc icon + "Writing
+  // scene N…" + "Crafting compelling narration".
   if (scriptLoading) {
-    const writing = Math.min(10, Math.floor(((Date.now() / 1500) % 100) / 10) + 1);
     return (
-      <div className="max-w-md mx-auto py-16 text-center">
-        <div className="rounded-2xl p-6 inline-flex flex-col items-center" style={{ background: "white", boxShadow: "0 10px 30px rgba(0,0,0,0.08)" }}>
-          <Loader2 className="w-6 h-6 animate-spin text-gray-700 mb-3" />
-          <div className="font-bold text-sm">Creating Video Script</div>
-          <p className="text-xs text-gray-500 mt-1 mb-4 max-w-xs">
-            AI is writing engaging captions for each scene in your video
-          </p>
-          <div className="w-full bg-gray-100 rounded-full h-1.5 overflow-hidden mb-2">
-            <div className="h-full" style={{ width: "48%", background: "#1a1a1a", transition: "width 1s" }} />
-          </div>
-          <div className="text-xs text-gray-500">Writing scene…</div>
-        </div>
-      </div>
+      <ScriptLoadingModal totalScenes={10} />
     );
   }
 
@@ -754,7 +758,7 @@ function Step3(props: any) {
       <div className="space-y-4">
         {/* Video Configuration */}
         <div className="rounded-2xl p-5" style={{ background: "white", border: "1px solid #e5e7eb" }}>
-          <div className="font-bold text-sm mb-3">Video Configuration</div>
+          <div className="font-bold text-sm mb-3" style={{ color: "#1a1a1a" }}>Video Configuration</div>
           {/* Tabs */}
           <div className="flex gap-1 p-1 rounded-xl bg-gray-100 mb-4">
             {(["voice", "animation", "font"] as ConfigTab[]).map((t) => {
@@ -994,20 +998,19 @@ function VoiceConfig({
   voiceId: string; setVoiceId: (v: string) => void;
   voiceSpeed: number; setVoiceSpeed: (v: number) => void;
 }) {
+  // Voice Speed slider removed — locked to 1.0x ("normal") for now so the
+  // narration always reads at the AI's intended pacing. The slider used to
+  // be wired through to the MiniMax `speed` param but the user prefers a
+  // single normal-speed default for v1.
   return (
     <div className="space-y-3">
-      <Toggle label="Enable Voice" sub="Add AI narration to each scene" value={enableVoice} onChange={setEnableVoice} />
+      <Toggle label="Enable Voice" premium sub="Add AI narration to each scene" value={enableVoice} onChange={setEnableVoice} />
       {enableVoice && (
-        <>
-          <Field label="Voice">
-            <select value={voiceId} onChange={(e) => setVoiceId(e.target.value)} className="w-full p-2.5 rounded-lg text-xs outline-none" style={{ background: "#fafafa", border: "1px solid #e5e7eb", color: "#1a1a1a" }}>
-              {VOICES.map((v) => <option key={v.id} value={v.id}>{v.label}</option>)}
-            </select>
-          </Field>
-          <Field label={`Voice Speed: ${voiceSpeed.toFixed(2)}x`}>
-            <input type="range" min={0.5} max={2.0} step={0.05} value={voiceSpeed} onChange={(e) => setVoiceSpeed(Number(e.target.value))} className="w-full" />
-          </Field>
-        </>
+        <Field label="Voice">
+          <select value={voiceId} onChange={(e) => setVoiceId(e.target.value)} className="w-full p-2.5 rounded-lg text-xs outline-none" style={{ background: "#fafafa", border: "1px solid #e5e7eb", color: "#1a1a1a" }}>
+            {VOICES.map((v) => <option key={v.id} value={v.id}>{v.label}</option>)}
+          </select>
+        </Field>
       )}
     </div>
   );
@@ -1128,6 +1131,92 @@ const TRANSITION_CSS: Record<string, string> = {
 // final mp4 will play.
 const SCENE_DURATION_MS = 10_000;
 
+// Animated loading card shown while the AI is generating the 10-scene
+// script. Fakes a smooth progress bar that reaches ~95% over 14s and
+// holds there until the actual API call completes (then component
+// unmounts because scriptLoading flips to false). Cycles the
+// "Writing scene N…" label in step with the progress.
+function ScriptLoadingModal({ totalScenes = 10 }: { totalScenes?: number }) {
+  const [pct, setPct] = useState(0);
+  const [sceneNum, setSceneNum] = useState(1);
+  useEffect(() => {
+    const start = Date.now();
+    const total_ms = 14_000;
+    const id = setInterval(() => {
+      const elapsed = Date.now() - start;
+      // Ease-out curve so progress moves quickly at first then slows
+      const linear = Math.min(1, elapsed / total_ms);
+      const eased = 1 - Math.pow(1 - linear, 2);
+      const next = Math.min(95, Math.round(eased * 100));
+      setPct(next);
+      const scene = Math.min(totalScenes, Math.max(1, Math.ceil((next / 95) * totalScenes)));
+      setSceneNum(scene);
+    }, 200);
+    return () => clearInterval(id);
+  }, [totalScenes]);
+
+  return (
+    <div className="max-w-md mx-auto py-12">
+      <div
+        className="rounded-2xl p-6"
+        style={{
+          background: "white",
+          boxShadow: "0 12px 40px rgba(0,0,0,0.10)",
+          border: "1px solid #e5e7eb",
+        }}
+      >
+        <div className="flex items-start gap-3 mb-1">
+          <Loader2 className="w-5 h-5 text-gray-700 animate-spin mt-0.5 flex-shrink-0" />
+          <div>
+            <div className="font-display font-extrabold text-base text-[#1a1a1a]">
+              Creating Video Script
+            </div>
+            <p className="text-xs text-gray-500 mt-0.5">
+              AI is writing engaging captions for each scene in your video
+            </p>
+          </div>
+        </div>
+
+        <div className="mt-5">
+          <div className="flex items-center justify-between mb-1.5">
+            <span className="text-[11px] font-bold text-gray-700">Progress</span>
+            <span className="text-[11px] text-gray-500 font-mono">
+              {sceneNum}/{totalScenes} scenes
+            </span>
+          </div>
+          <div className="w-full h-2 rounded-full overflow-hidden" style={{ background: "#f3f4f6" }}>
+            <div
+              className="h-full rounded-full"
+              style={{
+                width: `${pct}%`,
+                background: "#1a1a1a",
+                transition: "width 0.2s linear",
+              }}
+            />
+          </div>
+          <div className="text-[10px] text-gray-400 text-right mt-1 font-mono">{pct}%</div>
+        </div>
+
+        <div
+          className="mt-4 flex items-center gap-3 rounded-xl p-3"
+          style={{ background: "#f8fafc", border: "1px solid #e5e7eb" }}
+        >
+          <div
+            className="w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0"
+            style={{ background: "#e5e7eb" }}
+          >
+            <Type className="w-4 h-4 text-gray-700" />
+          </div>
+          <div>
+            <div className="text-xs font-bold text-[#1a1a1a]">Writing scene {sceneNum}…</div>
+            <div className="text-[10px] text-gray-500 mt-0.5">Crafting compelling narration</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function PreviewPanel(props: any) {
   const { scenes, sceneCount, previewIdx, voiceEnabled, transition, sceneAnimation,
     textAnimation, textPlacement, fontType, textSize, textColor, uppercase, textBackground, enableText } = props;
@@ -1211,8 +1300,21 @@ function PreviewPanel(props: any) {
     <div>
       <style>{previewKeyframes}</style>
       <div
-        className="aspect-[9/16] rounded-xl overflow-hidden relative"
-        style={{ background: "#1a1a1a" }}
+        className="rounded-xl overflow-hidden relative mx-auto"
+        style={{
+          background: "#1a1a1a",
+          // Cap the preview frame so it never pushes the chips below the
+          // viewport. We aim for the largest 9:16 box that fits in:
+          //   max-height = viewport - top sticky offset - chip block.
+          // calc(100vh - 280px) leaves room for header + step indicator
+          // + chips + bottom nav. Width derives from height to maintain
+          // 9:16 (height * 9/16). Min width 220 so it doesn't collapse
+          // on short viewports.
+          aspectRatio: "9 / 16",
+          maxHeight: "calc(100vh - 280px)",
+          width: "min(100%, calc((100vh - 280px) * 9 / 16))",
+          minHeight: 360,
+        }}
       >
         {scene?.imageUrl ? (
           <div
@@ -1458,18 +1560,31 @@ function Chip({ children }: { children: React.ReactNode }) {
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div>
-      <div className="text-[11px] font-bold text-gray-700 mb-1.5">{label}</div>
+      <div className="text-[11px] font-bold mb-1.5" style={{ color: "#1a1a1a" }}>{label}</div>
       {children}
     </div>
   );
 }
 
-function Toggle({ label, sub, value, onChange }: { label: string; sub?: string; value: boolean; onChange: (v: boolean) => void }) {
+function Toggle({
+  label, sub, value, onChange, premium,
+}: {
+  label: string;
+  sub?: string;
+  value: boolean;
+  onChange: (v: boolean) => void;
+  premium?: boolean;
+}) {
   return (
     <div className="flex items-start justify-between gap-2">
       <div>
-        <div className="text-xs font-bold">{label}</div>
-        {sub && <div className="text-[10px] text-gray-500">{sub}</div>}
+        <div className="text-xs font-bold flex items-center gap-1.5" style={{ color: "#1a1a1a" }}>
+          {label}
+          {premium && (
+            <span title="Premium feature" style={{ fontSize: 14 }}>👑</span>
+          )}
+        </div>
+        {sub && <div className="text-[10px] mt-0.5" style={{ color: "#6b7280" }}>{sub}</div>}
       </div>
       <button
         onClick={() => onChange(!value)}
