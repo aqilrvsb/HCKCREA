@@ -20,6 +20,7 @@ import {
 } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import crypto from "crypto";
+import https from "https";
 
 let _client: S3Client | null = null;
 function client(): S3Client {
@@ -162,29 +163,47 @@ export async function uploadFromUrl(opts: {
     `AWS4-HMAC-SHA256 Credential=${accessKeyId}/${credentialScope}, ` +
     `SignedHeaders=${signedHeaders}, Signature=${signature}`;
 
-  // Pass the raw ArrayBuffer (not Buffer) — Vercel/undici fetch handles
-  // ArrayBuffer reliably; Buffer-as-body has hit truncation issues.
-  const bodyForFetch = ab;
-
-  const putResp = await fetch(`https://${host}${canonicalUri}`, {
-    method: "PUT",
-    headers: {
-      "Content-Type": ct,
-      "Content-Length": String(body.length),
-      "x-amz-content-sha256": payloadHash,
-      "x-amz-date": amzDate,
-      Authorization: authorization,
-      Host: host,
-    },
-    body: bodyForFetch,
-    // @ts-ignore - undici-specific option to allow body on PUT
-    duplex: "half",
+  // Use Node's https module directly. Vercel's undici fetch was sending
+  // chunked transfer encoding regardless of our explicit Content-Length,
+  // and B2 saw the body as smaller than expected. Node's raw https.request
+  // honors Content-Length and sends a single fixed-length body.
+  const { status: putStatus, body: putBody } = await new Promise<{
+    status: number;
+    body: string;
+  }>((resolve, reject) => {
+    const req = https.request(
+      {
+        method: "PUT",
+        host,
+        path: canonicalUri,
+        headers: {
+          "Content-Type": ct,
+          "Content-Length": body.length,
+          "x-amz-content-sha256": payloadHash,
+          "x-amz-date": amzDate,
+          Authorization: authorization,
+          Host: host,
+        },
+      },
+      (res) => {
+        const chunks: Buffer[] = [];
+        res.on("data", (c) => chunks.push(c));
+        res.on("end", () => {
+          resolve({
+            status: res.statusCode || 0,
+            body: Buffer.concat(chunks).toString("utf8"),
+          });
+        });
+      }
+    );
+    req.on("error", reject);
+    req.write(body);
+    req.end();
   });
 
-  if (!putResp.ok) {
-    const errText = await putResp.text().catch(() => "");
+  if (putStatus < 200 || putStatus >= 300) {
     throw new Error(
-      `B2 PUT failed: HTTP ${putResp.status} (body=${body.length}b, ab=${ab.byteLength}b, sha=${payloadHash.slice(0, 12)}) ${errText.slice(0, 250)}`
+      `B2 PUT failed: HTTP ${putStatus} (body=${body.length}b, sha=${payloadHash.slice(0, 12)}) ${putBody.slice(0, 250)}`
     );
   }
 
