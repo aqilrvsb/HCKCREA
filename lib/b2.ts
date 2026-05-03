@@ -106,11 +106,15 @@ export async function uploadFromUrl(opts: {
     { expiresIn: 300 }
   );
 
+  // The SDK signs the URL assuming x-amz-content-sha256: UNSIGNED-PAYLOAD.
+  // We must echo that header on the wire — without it B2 hashes the body
+  // and the signature check fails with SignatureDoesNotMatch.
   const putResp = await fetch(presignedPut, {
     method: "PUT",
     headers: {
       "Content-Type": ct,
       "Content-Length": String(body.length),
+      "x-amz-content-sha256": "UNSIGNED-PAYLOAD",
     },
     body,
   });
