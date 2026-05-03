@@ -98,10 +98,10 @@ export async function uploadFromUrl(opts: {
     throw new Error(`Source URL returned 0 bytes: ${opts.url}`);
   }
 
-  const endpoint = process.env.B2_ENDPOINT!;
-  const region = process.env.B2_REGION || "us-east-005";
-  const accessKeyId = process.env.B2_KEY_ID!;
-  const secretAccessKey = process.env.B2_APP_KEY!;
+  const endpoint = (process.env.B2_ENDPOINT || "").trim();
+  const region = (process.env.B2_REGION || "us-east-005").trim();
+  const accessKeyId = (process.env.B2_KEY_ID || "").trim();
+  const secretAccessKey = (process.env.B2_APP_KEY || "").trim();
   const bucket = opts.bucket || bucketPrivate();
 
   const endpointUrl = new URL(endpoint);
