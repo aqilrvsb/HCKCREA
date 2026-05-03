@@ -13,8 +13,12 @@ export const runtime = "nodejs";
 export const maxDuration = 60;
 export const dynamic = "force-dynamic";
 
+// Only types with a final user-facing media output are savable.
+// Excluded: fairytale-scene (intermediate frames merged into the final
+// mp4 — user should save the merged result, not the per-scene images),
+// clone (text-only prompt, no media file).
 const ALLOWED_TYPES: StorageType[] = [
-  "image", "video", "ugc", "auto", "cinema", "fairytale", "fairytale-scene", "clone", "seedance",
+  "image", "video", "ugc", "auto", "cinema", "fairytale", "seedance",
 ];
 
 function extFromUrlOrType(url: string, type: StorageType): string {
@@ -62,7 +66,13 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Asset not ready yet" }, { status: 400 });
   }
 
-  const type = (ALLOWED_TYPES.includes(hist.type as StorageType) ? hist.type : "image") as StorageType;
+  if (!ALLOWED_TYPES.includes(hist.type as StorageType)) {
+    return NextResponse.json(
+      { error: `'${hist.type}' rows can't be saved. Save the merged final asset instead.` },
+      { status: 400 }
+    );
+  }
+  const type = hist.type as StorageType;
 
   // Idempotency — already saved?
   const { data: existing } = await admin

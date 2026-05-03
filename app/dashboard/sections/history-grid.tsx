@@ -821,34 +821,6 @@ function HistoryCard({
                 onClick={() => setShowFullscreen(true)}
               />
             )}
-            {/* Countdown / Saved badge — top-left corner of player */}
-            {expiryDays !== null && (
-              <div
-                className="absolute top-1.5 left-1.5 px-2 py-0.5 rounded-md text-[9px] font-extrabold uppercase tracking-wider flex items-center gap-1 pointer-events-none"
-                style={
-                  saved
-                    ? { background: "rgba(16,185,129,0.92)", color: "white" }
-                    : expiryDays <= 0
-                      ? { background: "rgba(239,68,68,0.92)", color: "white" }
-                      : expiryDays <= 3
-                        ? { background: "rgba(249,115,22,0.92)", color: "white" }
-                        : { background: "rgba(0,0,0,0.6)", color: "white" }
-                }
-              >
-                {saved ? (
-                  <>
-                    <HardDrive className="w-2.5 h-2.5" /> Saved
-                  </>
-                ) : expiryDays <= 0 ? (
-                  <>⚠ Expired</>
-                ) : (
-                  <>
-                    <Clock className="w-2.5 h-2.5" />
-                    {expiryDays}d left
-                  </>
-                )}
-              </div>
-            )}
           </>
         )}
       </div>
@@ -1072,22 +1044,18 @@ function HistoryCard({
             </>
           )}
 
-          {/* DONE — image: Edit + Save + Download + Delete */}
+          {/* DONE — image: Edit + Save (with countdown badge) + Download + Delete */}
           {item.status === "done" && isImage && (
             <>
               <ActionBtn title="Edit Image" onClick={() => setShowEditModal(true)} bg={ACTION.edit}>
                 <Palette className="w-3.5 h-3.5" strokeWidth={2.4} />
               </ActionBtn>
-              <ActionBtn
-                title={saved ? "Saved to Storage" : saving ? "Saving…" : "Save to Storage (keeps after 14d Crun TTL)"}
-                onClick={handleSave}
-                bg={saved ? "#10b981" : "#7c3aed"}
-                disabled={saved || saving}
-              >
-                {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> :
-                  saved ? <HardDrive className="w-3.5 h-3.5" strokeWidth={2.4} /> :
-                  <CloudUpload className="w-3.5 h-3.5" strokeWidth={2.4} />}
-              </ActionBtn>
+              <SaveTrafficLight
+                saved={saved}
+                saving={saving}
+                expiryDays={expiryDays}
+                onSave={handleSave}
+              />
               <ActionBtn title="Download" onClick={handleDownload} bg={ACTION.download}>
                 <Download className="w-3.5 h-3.5" strokeWidth={2.4} />
               </ActionBtn>
@@ -1145,16 +1113,12 @@ function HistoryCard({
               <ActionBtn title="Improve Video" onClick={() => setShowEditModal(true)} bg={ACTION.edit}>
                 <Pencil className="w-3.5 h-3.5" strokeWidth={2.4} />
               </ActionBtn>
-              <ActionBtn
-                title={saved ? "Saved to Storage" : saving ? "Saving…" : "Save to Storage (keeps after 14d Crun TTL)"}
-                onClick={handleSave}
-                bg={saved ? "#10b981" : "#7c3aed"}
-                disabled={saved || saving}
-              >
-                {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> :
-                  saved ? <HardDrive className="w-3.5 h-3.5" strokeWidth={2.4} /> :
-                  <CloudUpload className="w-3.5 h-3.5" strokeWidth={2.4} />}
-              </ActionBtn>
+              <SaveTrafficLight
+                saved={saved}
+                saving={saving}
+                expiryDays={expiryDays}
+                onSave={handleSave}
+              />
               <ActionBtn title="Download" onClick={handleDownload} bg={ACTION.download}>
                 <Download className="w-3.5 h-3.5" strokeWidth={2.4} />
               </ActionBtn>
@@ -1765,6 +1729,93 @@ function ActionBtn({
       style={{ background: bg, boxShadow: "0 2px 4px rgba(0,0,0,0.3)" }}
     >
       {disabled ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : children}
+    </button>
+  );
+}
+
+// Save-to-Storage TRAFFIC LIGHT button.
+// Single icon that color-codes the file's expiry urgency and asks for
+// confirmation before saving:
+//   GREEN  — already saved to permanent Storage (no action needed)
+//   YELLOW — fresh file, plenty of TTL time left (>3 days), can save anytime
+//   RED    — close to Crun's 14-day delete (≤3 days) — save NOW
+//   DARK   — already expired (Crun deleted; can't save anymore)
+//
+// Click → swal-style confirm dialog with file ETA + Save / Cancel.
+function SaveTrafficLight({
+  saved,
+  saving,
+  expiryDays,
+  onSave,
+}: {
+  saved: boolean;
+  saving: boolean;
+  expiryDays: number | null;
+  onSave: () => void;
+}) {
+  // Resolve color tier
+  const expired = expiryDays !== null && expiryDays <= 0;
+  const urgent = !expired && expiryDays !== null && expiryDays <= 3;
+  const tierBg = saved
+    ? "#10b981"           // green — saved
+    : expired
+      ? "#52525b"         // dark gray — expired
+      : urgent
+        ? "#ef4444"       // red — soon expires
+        : "#facc15";      // yellow — default unsaved
+  const tierTitle = saved
+    ? "Saved permanently to Storage"
+    : expired
+      ? "Crun deleted this file (14-day TTL passed) — can't save"
+      : urgent
+        ? `⚠ Only ${expiryDays} day${expiryDays === 1 ? "" : "s"} left! Save NOW.`
+        : `${expiryDays}d left before Crun auto-deletes — click to save permanently`;
+
+  function handleClick() {
+    if (saved || saving || expired) return;
+    const lines = [
+      `Save this to your permanent Storage?`,
+      ``,
+      `This file expires from Crun in ${expiryDays} day${expiryDays === 1 ? "" : "s"}.`,
+      `Once saved, it stays forever in your Storage page.`,
+      ``,
+      `Counts toward your storage quota.`,
+    ];
+    if (window.confirm(lines.join("\n"))) {
+      onSave();
+    }
+  }
+
+  return (
+    <button
+      onClick={handleClick}
+      disabled={saved || saving || expired}
+      title={tierTitle}
+      className="w-7 h-7 rounded-lg flex items-center justify-center text-white disabled:opacity-70 transition-transform hover:scale-105 relative"
+      style={{
+        background: tierBg,
+        boxShadow: urgent && !saved ? "0 0 0 2px rgba(239,68,68,0.35), 0 2px 4px rgba(0,0,0,0.3)" : "0 2px 4px rgba(0,0,0,0.3)",
+        color: tierBg === "#facc15" ? "#1a1a1a" : "white",
+      }}
+    >
+      {saving
+        ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+        : saved
+          ? <HardDrive className="w-3.5 h-3.5" strokeWidth={2.4} />
+          : <CloudUpload className="w-3.5 h-3.5" strokeWidth={2.4} />}
+      {/* Tiny day-count chip in the corner for unsaved + not-yet-expired files */}
+      {!saved && !expired && expiryDays !== null && (
+        <span
+          className="absolute -top-1 -right-1 text-[8px] font-extrabold rounded-full min-w-[14px] h-[14px] flex items-center justify-center px-1 leading-none"
+          style={{
+            background: urgent ? "#7f1d1d" : "#854d0e",
+            color: "white",
+            border: "1.5px solid var(--color-bg)",
+          }}
+        >
+          {expiryDays}d
+        </span>
+      )}
     </button>
   );
 }

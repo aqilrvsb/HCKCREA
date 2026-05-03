@@ -28,6 +28,11 @@ type StorageItem = {
   created_at: string;
 };
 
+// Only types that produce a final user-facing media asset are savable.
+// Fairytale SCENES (the 10 per-scene image generations that the wizard
+// concatenates into the merged mp4) are intentionally NOT savable —
+// users should save the merged final video, not the intermediate frames.
+// Clone Prompt rows have no media at all, so no Save button + no filter.
 const TYPE_FILTERS: { id: string; label: string }[] = [
   { id: "all",        label: "All" },
   { id: "image",      label: "Image" },
@@ -35,8 +40,6 @@ const TYPE_FILTERS: { id: string; label: string }[] = [
   { id: "auto",       label: "Auto Content" },
   { id: "cinema",     label: "Cinema/Story" },
   { id: "fairytale",  label: "Fairytale" },
-  { id: "fairytale-scene", label: "Fairytale scenes" },
-  { id: "clone",      label: "Clone" },
   { id: "seedance",   label: "Seedance" },
 ];
 
