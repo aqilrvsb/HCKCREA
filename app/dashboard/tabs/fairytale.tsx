@@ -805,11 +805,21 @@ function Step3(props: any) {
         <div className="rounded-2xl p-5" style={{ background: "white", border: "1px solid #e5e7eb" }}>
           <div className="flex items-center justify-between mb-3">
             <div className="font-bold text-sm">Video Scene</div>
-            {inProgress && (
-              <div className="text-xs text-gray-500 inline-flex items-center gap-1.5">
-                <RotateCw className="w-3 h-3 animate-spin" /> Generating…
-              </div>
-            )}
+            <div className="flex items-center gap-2">
+              {inProgress && (
+                <div className="text-xs text-gray-500 inline-flex items-center gap-1.5">
+                  <RotateCw className="w-3 h-3 animate-spin" /> Generating…
+                </div>
+              )}
+              <button
+                onClick={props.onRetryScript}
+                disabled={inProgress}
+                className="text-[11px] font-bold px-3 py-1.5 rounded-lg inline-flex items-center gap-1.5 disabled:opacity-50"
+                style={{ background: "#fafafa", border: "1px solid #e5e7eb", color: "#1a1a1a" }}
+              >
+                <RotateCw className="w-3 h-3" /> Regenerate All Scenes
+              </button>
+            </div>
           </div>
 
           <div className="space-y-3">
@@ -1278,6 +1288,26 @@ function PreviewPanel(props: any) {
             <span style={{ animation: "ftPulse 1s ease-in-out infinite" }}>🔊</span>
             Audio
           </div>
+        )}
+
+        {/* Prev / Next scene arrows — let user step through scenes in preview */}
+        {sceneCount > 1 && (
+          <>
+            <button
+              onClick={() => props.setPreviewIdx(Math.max(0, previewIdx - 1))}
+              disabled={previewIdx === 0}
+              aria-label="Previous scene"
+              className="absolute top-1/2 -translate-y-1/2 left-2 w-7 h-7 rounded-full flex items-center justify-center disabled:opacity-30 transition-opacity"
+              style={{ background: "rgba(0,0,0,0.55)", color: "white" }}
+            >‹</button>
+            <button
+              onClick={() => props.setPreviewIdx(Math.min(sceneCount - 1, previewIdx + 1))}
+              disabled={previewIdx >= sceneCount - 1}
+              aria-label="Next scene"
+              className="absolute top-1/2 -translate-y-1/2 right-2 w-7 h-7 rounded-full flex items-center justify-center disabled:opacity-30 transition-opacity"
+              style={{ background: "rgba(0,0,0,0.55)", color: "white" }}
+            >›</button>
+          </>
         )}
 
         <div
