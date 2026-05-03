@@ -181,18 +181,16 @@ def _ken_burns_filter(animation: str, duration: float, fps: int = 30) -> str:
 
 
 def _escape_drawtext(text: str) -> str:
-    # ffmpeg drawtext interprets the 2-char sequence "\n" (backslash + n)
-    # as a line break inside the text param. Convert literal newline bytes
-    # in the input to that escape sequence — but escape backslashes FIRST
-    # so we don't double-escape the new "\n" we just inserted.
-    escaped = (
+    # Note: this function is for SINGLE-LINE text only. Multi-line wrapping
+    # is handled upstream by emitting one drawtext filter per line via
+    # _emit_wrapped_drawtexts() — that side-steps ffmpeg's filter-graph
+    # backslash-escape ambiguity entirely.
+    return (
         text.replace("\\", "\\\\")
         .replace(":", "\\:")
         .replace("'", "\\'")
         .replace("%", "\\%")
     )
-    # Now substitute real newline bytes with the drawtext line-break escape.
-    return escaped.replace("\n", "\\n")
 
 
 def _placement_y(placement: str, y_offset_pct: int) -> str:
@@ -244,19 +242,57 @@ def _bg_style(style: str, fontcolor: str) -> str:
     return ""  # "none"
 
 
-def _wrap_text(text: str, font_size: int, video_width: int = 1080, side_padding_pct: float = 0.10) -> str:
+def _wrap_text(text: str, font_size: int, video_width: int = 1080, side_padding_pct: float = 0.12) -> str:
     """Word-wrap caption to multiple lines so it never bleeds off the
-    video frame. Heuristic: average glyph width ≈ font_size * 0.55 for
-    sans-serif bold. Reserves `side_padding_pct` of width on each side.
+    video frame. Heuristic uses 0.62 glyph width (was 0.55) since bold
+    Grobold/DejaVu sans-bold glyphs run wider than plain sans, and 12%
+    side padding leaves comfortable breathing room.
     Returns a string with literal newlines that ffmpeg drawtext renders
-    as multi-line text (with line_spacing applied)."""
+    as multi-line text via the `\\n` escape."""
     import textwrap
     usable_px = video_width * (1 - 2 * side_padding_pct)
-    char_px = max(1, font_size * 0.55)
-    max_chars = max(12, int(usable_px / char_px))
+    char_px = max(1, font_size * 0.62)
+    max_chars = max(10, int(usable_px / char_px))
     if len(text) <= max_chars:
         return text
-    return "\n".join(textwrap.wrap(text, width=max_chars, break_long_words=False))
+    return "\n".join(textwrap.wrap(text, width=max_chars, break_long_words=False, break_on_hyphens=False))
+
+
+def _emit_wrapped_drawtexts(
+    text: str,
+    font_size: int,
+    font_path: str,
+    color: str,
+    bg_snippet: str,
+    x_expr: str,
+    y_expr: str,
+    extra: str = "",
+) -> list:
+    """Wrap `text` to multiple lines and emit ONE drawtext filter per line,
+    each at its own y position. Centers the block vertically around
+    y_expr. Sidesteps the ffmpeg filter-graph \\n escape ambiguity by
+    never embedding a newline in the text param.
+
+    `extra` is appended to every drawtext (e.g. enable=… or alpha=…)."""
+    wrapped = _wrap_text(text, font_size)
+    lines = wrapped.split("\n")
+    line_height = font_size + 12  # font + line gap
+    block_height = len(lines) * line_height
+    out = []
+    for i, line in enumerate(lines):
+        if not line.strip():
+            continue
+        safe = _escape_drawtext(line)
+        # Vertical offset so the multi-line block is centered around y_expr
+        y_offset = (i - (len(lines) - 1) / 2.0) * line_height
+        line_y = f"({y_expr})+({y_offset:.1f})"
+        bg = f":{bg_snippet}" if bg_snippet else ""
+        ex = f":{extra}" if extra else ""
+        out.append(
+            f"drawtext=text='{safe}':fontsize={font_size}:fontcolor={color}{bg}:"
+            f"x={x_expr}:y={line_y}:fontfile={font_path}{ex}"
+        )
+    return out
 
 
 def _karaoke_drawtexts(
@@ -268,32 +304,33 @@ def _karaoke_drawtexts(
     bg_snippet: str,
     x_expr: str,
     y_expr: str,
+    hold_until: float | None = None,
 ) -> str:
-    """Generate N drawtext layers for word-by-word progressive reveal.
-    Each successive layer shows one more word and is enabled only during
-    its time window — at any moment exactly one layer is visible.
-    The cumulative text is word-wrapped per step so layout never bleeds
-    off-frame; the wrap recomputes per step which can cause minor reflow,
-    but for typical 25-32 word scenes the wrap stays stable."""
+    """Word-by-word progressive reveal. Pacing distributes word reveals
+    over `duration` (which should be the TTS audio length, not the
+    padded scene length, so subtitles stay in sync with the voice).
+    Once the last word reveals, the full wrapped text stays visible
+    until `hold_until` (the scene length) so the user keeps seeing the
+    sentence during the silent tail of the slide."""
     words = text.split()
     if not words:
         return ""
     per_word = duration / len(words)
-    parts = []
-    cumulative_words: list = []
+    end_full = hold_until if (hold_until and hold_until > duration) else duration
+    parts: list = []
+    cumulative: list = []
     for i, w in enumerate(words):
-        cumulative_words.append(w)
-        wrapped = _wrap_text(" ".join(cumulative_words), font_size)
-        safe = _escape_drawtext(wrapped)
+        cumulative.append(w)
         start = i * per_word
-        end = (i + 1) * per_word if i < len(words) - 1 else duration
-        bg = f":{bg_snippet}" if bg_snippet else ""
-        parts.append(
-            f"drawtext=text='{safe}':fontsize={font_size}:fontcolor={color}{bg}:"
-            f"x={x_expr}:y={y_expr}:line_spacing=8:fontfile={font_path}:"
-            f"enable='between(t,{start:.3f},{end:.3f})'"
+        # Last reveal stays on until the end of the entire slide
+        end = (i + 1) * per_word if i < len(words) - 1 else end_full
+        enable = f"enable='between(t,{start:.3f},{end:.3f})'"
+        line_filters = _emit_wrapped_drawtexts(
+            " ".join(cumulative), font_size, font_path, color, bg_snippet,
+            x_expr, y_expr, extra=enable,
         )
-    return "," + ",".join(parts)
+        parts.extend(line_filters)
+    return "," + ",".join(parts) if parts else ""
 
 
 def _static_drawtext(
@@ -305,13 +342,8 @@ def _static_drawtext(
     x_expr: str,
     y_expr: str,
 ) -> str:
-    wrapped = _wrap_text(text[:400], font_size)
-    safe = _escape_drawtext(wrapped)
-    bg = f":{bg_snippet}" if bg_snippet else ""
-    return (
-        f",drawtext=text='{safe}':fontsize={font_size}:fontcolor={color}{bg}:"
-        f"x={x_expr}:y={y_expr}:line_spacing=8:fontfile={font_path}"
-    )
+    parts = _emit_wrapped_drawtexts(text[:400], font_size, font_path, color, bg_snippet, x_expr, y_expr)
+    return "," + ",".join(parts) if parts else ""
 
 
 def _fade_drawtext(
@@ -325,19 +357,13 @@ def _fade_drawtext(
     y_expr: str,
 ) -> str:
     """Fade-in 0.5s, hold, fade-out last 0.5s."""
-    wrapped = _wrap_text(text[:400], font_size)
-    safe = _escape_drawtext(wrapped)
-    bg = f":{bg_snippet}" if bg_snippet else ""
     fade_out_start = max(0.5, duration - 0.5)
-    alpha = (
-        f"if(lt(t,0.5),t/0.5,"
-        f"if(gt(t,{fade_out_start:.2f}),1-(t-{fade_out_start:.2f})/0.5,1))"
+    alpha_expr = (
+        f"alpha='if(lt(t,0.5),t/0.5,"
+        f"if(gt(t,{fade_out_start:.2f}),1-(t-{fade_out_start:.2f})/0.5,1))'"
     )
-    return (
-        f",drawtext=text='{safe}':fontsize={font_size}:fontcolor={color}{bg}:"
-        f"x={x_expr}:y={y_expr}:line_spacing=8:fontfile={font_path}:"
-        f"alpha='{alpha}'"
-    )
+    parts = _emit_wrapped_drawtexts(text[:400], font_size, font_path, color, bg_snippet, x_expr, y_expr, extra=alpha_expr)
+    return "," + ",".join(parts) if parts else ""
 
 
 def _render_scene(
@@ -371,7 +397,13 @@ def _render_scene(
         mode = subtitle_style.get("animation_mode", "static")
 
         if mode == "karaoke":
-            drawtext = _karaoke_drawtexts(caption, duration, font_size, font_path, color, bg, x_expr, y_expr)
+            # Karaoke MUST sync to actual TTS audio length, not the padded
+            # 10s scene duration. Otherwise words reveal slower than the
+            # voice speaks them. After the audio ends, the final wrapped
+            # block stays on screen for the rest of the scene via the last
+            # word's enable window extending to `duration`.
+            karaoke_span = max(0.5, audio_dur)
+            drawtext = _karaoke_drawtexts(caption, karaoke_span, font_size, font_path, color, bg, x_expr, y_expr, hold_until=duration)
         elif mode == "fade":
             drawtext = _fade_drawtext(caption, duration, font_size, font_path, color, bg, x_expr, y_expr)
         else:  # static
