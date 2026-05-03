@@ -203,8 +203,10 @@ export async function uploadFromUrl(opts: {
   });
 
   if (putStatus < 200 || putStatus >= 300) {
+    // Dump enough to debug: the canonical request and signature.
+    const canonReqB64 = Buffer.from(canonicalRequest).toString("base64").slice(0, 400);
     throw new Error(
-      `B2 PUT failed: HTTP ${putStatus} (body=${body.length}b, sha=${payloadHash.slice(0, 12)}) ${putBody.slice(0, 250)}`
+      `B2 PUT failed: HTTP ${putStatus} (body=${body.length}b, sha=${payloadHash.slice(0, 12)}, sig=${signature.slice(0, 12)}, host=${host}, sH=${signedHeaders}, canonB64=${canonReqB64}) ${putBody.slice(0, 200)}`
     );
   }
 
