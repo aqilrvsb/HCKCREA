@@ -40,9 +40,31 @@ app = modal.App("peninglab-fairytale")
 
 image = (
     modal.Image.debian_slim(python_version="3.11")
-    .apt_install("ffmpeg", "fonts-dejavu-core")
+    .apt_install(
+        "ffmpeg",
+        "fonts-dejavu-core",       # bold display fallback
+        "fonts-liberation",         # liberation sans/serif/mono
+        "fonts-noto-core",          # multilingual incl. accented chars
+        "fonts-roboto",             # modern sans
+        "fonts-dancing-script",     # handwriting
+    )
     .pip_install("requests==2.31.0", "supabase==2.3.0")
 )
+
+# Font catalog — maps UI value → installed .ttf path. Keep in sync with
+# fairytale.tsx FONT_FAMILIES list.
+FONT_PATHS: dict = {
+    "bold-display":  "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+    "sans":          "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+    "sans-bold":     "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
+    "serif":         "/usr/share/fonts/truetype/liberation/LiberationSerif-Bold.ttf",
+    "mono":          "/usr/share/fonts/truetype/liberation/LiberationMono-Bold.ttf",
+    "handwriting":   "/usr/share/fonts/truetype/dancing-script/DancingScript-Bold.ttf",
+    "roboto":        "/usr/share/fonts/truetype/roboto/unhinted/RobotoTTF/Roboto-Bold.ttf",
+}
+
+def _font_path(family: str) -> str:
+    return FONT_PATHS.get(family, FONT_PATHS["bold-display"])
 
 SUPABASE_BUCKET = "fairytale"
 
@@ -162,12 +184,128 @@ def _escape_drawtext(text: str) -> str:
     )
 
 
-def _placement_y(placement: str) -> str:
-    if placement == "top":
-        return "h*0.12"
-    if placement == "bottom":
-        return "h*0.78"
-    return "(h-text_h)/2"  # middle
+def _placement_y(placement: str, y_offset_pct: int) -> str:
+    """Resolve Y position: placement preset + fine-tune offset (-50 to +50%).
+    Returns a ffmpeg-evaluable expression in pixels."""
+    base = {
+        "top":          "h*0.10",
+        "top-third":    "h*0.30",
+        "middle":       "(h-text_h)/2",
+        "bottom-third": "h*0.65",
+        "bottom":       "h*0.82",
+    }.get(placement, "h*0.82")
+    if y_offset_pct == 0:
+        return base
+    return f"({base})+(h*{y_offset_pct/100:.3f})"
+
+
+def _alignment_x(align: str) -> str:
+    """Resolve X position. Always anchored with text width-aware math."""
+    if align == "left":   return "w*0.05"
+    if align == "right":  return "w*0.95-text_w"
+    return "(w-text_w)/2"  # center default
+
+
+COLOR_MAP = {
+    "white":  "white",
+    "yellow": "0xfde047",
+    "orange": "0xfb923c",
+    "red":    "0xef4444",
+    "black":  "black",
+    "pink":   "0xf9a8d4",
+    "cyan":   "0x67e8f9",
+}
+
+def _color(name: str) -> str:
+    return COLOR_MAP.get(name, "white")
+
+
+def _bg_style(style: str, fontcolor: str) -> str:
+    """Returns the ffmpeg drawtext snippet for the background style."""
+    if style == "box":
+        return "box=1:boxcolor=black@0.55:boxborderw=18"
+    if style == "outline":
+        return "borderw=4:bordercolor=black"
+    if style == "shadow":
+        return "shadowcolor=black@0.7:shadowx=3:shadowy=3"
+    if style == "outline+shadow":
+        return "borderw=3:bordercolor=black:shadowcolor=black@0.5:shadowx=2:shadowy=2"
+    return ""  # "none"
+
+
+def _karaoke_drawtexts(
+    text: str,
+    duration: float,
+    font_size: int,
+    font_path: str,
+    color: str,
+    bg_snippet: str,
+    x_expr: str,
+    y_expr: str,
+) -> str:
+    """Generate N drawtext layers for word-by-word progressive reveal.
+    Each successive layer shows one more word and is enabled only during
+    its time window — at any moment exactly one layer is visible."""
+    words = text.split()
+    if not words:
+        return ""
+    per_word = duration / len(words)
+    parts = []
+    cumulative = ""
+    for i, w in enumerate(words):
+        cumulative = (cumulative + " " + w).strip() if cumulative else w
+        safe = _escape_drawtext(cumulative)
+        start = i * per_word
+        end = (i + 1) * per_word if i < len(words) - 1 else duration
+        bg = f":{bg_snippet}" if bg_snippet else ""
+        parts.append(
+            f"drawtext=text='{safe}':fontsize={font_size}:fontcolor={color}{bg}:"
+            f"x={x_expr}:y={y_expr}:line_spacing=8:fontfile={font_path}:"
+            f"enable='between(t,{start:.3f},{end:.3f})'"
+        )
+    return "," + ",".join(parts)
+
+
+def _static_drawtext(
+    text: str,
+    font_size: int,
+    font_path: str,
+    color: str,
+    bg_snippet: str,
+    x_expr: str,
+    y_expr: str,
+) -> str:
+    safe = _escape_drawtext(text[:300])
+    bg = f":{bg_snippet}" if bg_snippet else ""
+    return (
+        f",drawtext=text='{safe}':fontsize={font_size}:fontcolor={color}{bg}:"
+        f"x={x_expr}:y={y_expr}:line_spacing=8:fontfile={font_path}"
+    )
+
+
+def _fade_drawtext(
+    text: str,
+    duration: float,
+    font_size: int,
+    font_path: str,
+    color: str,
+    bg_snippet: str,
+    x_expr: str,
+    y_expr: str,
+) -> str:
+    """Fade-in 0.5s, hold, fade-out last 0.5s."""
+    safe = _escape_drawtext(text[:300])
+    bg = f":{bg_snippet}" if bg_snippet else ""
+    fade_out_start = max(0.5, duration - 0.5)
+    alpha = (
+        f"if(lt(t,0.5),t/0.5,"
+        f"if(gt(t,{fade_out_start:.2f}),1-(t-{fade_out_start:.2f})/0.5,1))"
+    )
+    return (
+        f",drawtext=text='{safe}':fontsize={font_size}:fontcolor={color}{bg}:"
+        f"x={x_expr}:y={y_expr}:line_spacing=8:fontfile={font_path}:"
+        f"alpha='{alpha}'"
+    )
 
 
 def _render_scene(
@@ -178,21 +316,29 @@ def _render_scene(
     placement: str,
     font_size: int,
     out_path: Path,
+    subtitle_style: dict,
 ) -> Path:
-    """Render ONE scene clip — image + Ken Burns + audio + caption burn."""
+    """Render ONE scene clip — image + Ken Burns + audio + caption burn.
+    subtitle_style keys: animation_mode, font_family, color, bg_style,
+    align, y_offset_pct."""
     duration = max(_ffprobe_duration(audio_path), 1.5)
     zoompan = _ken_burns_filter(animation, duration)
 
     drawtext = ""
     if caption:
-        safe = _escape_drawtext(caption[:200])
-        y = _placement_y(placement)
-        drawtext = (
-            f",drawtext=text='{safe}':fontsize={font_size}:fontcolor=white:"
-            f"box=1:boxcolor=black@0.55:boxborderw=18:"
-            f"x=(w-text_w)/2:y={y}:line_spacing=8:"
-            f"fontfile=/usr/share/fonts/truetype/dejavu/DejaVu-Sans-Bold.ttf"
-        )
+        font_path = _font_path(subtitle_style.get("font_family", "bold-display"))
+        color = _color(subtitle_style.get("color", "white"))
+        bg = _bg_style(subtitle_style.get("bg_style", "box"), color)
+        x_expr = _alignment_x(subtitle_style.get("align", "center"))
+        y_expr = _placement_y(placement, int(subtitle_style.get("y_offset_pct", 0)))
+        mode = subtitle_style.get("animation_mode", "static")
+
+        if mode == "karaoke":
+            drawtext = _karaoke_drawtexts(caption, duration, font_size, font_path, color, bg, x_expr, y_expr)
+        elif mode == "fade":
+            drawtext = _fade_drawtext(caption, duration, font_size, font_path, color, bg, x_expr, y_expr)
+        else:  # static
+            drawtext = _static_drawtext(caption, font_size, font_path, color, bg, x_expr, y_expr)
 
     # Use loop=1 to extend a still image to audio duration
     cmd = [
@@ -300,11 +446,19 @@ def render_story(payload: dict):
         _update_history(history_id, status="failed", error_message="No scenes provided")
         return {"ok": False, "error": "scenes required"}
 
-    voice_id = payload.get("voice_id") or "Malay_BellaSoothing"
+    voice_id = payload.get("voice_id") or "English_CaptivatingStoryteller"
     voice_speed = float(payload.get("voice_speed") or 1.0)
     animation = payload.get("animation") or "zoom-in"
     placement = payload.get("placement") or "bottom"
     font_size = int(payload.get("font_size") or 56)
+    subtitle_style = {
+        "animation_mode": payload.get("subtitle_animation") or "static",
+        "font_family":    payload.get("font_family") or "bold-display",
+        "color":          payload.get("font_color") or "white",
+        "bg_style":       payload.get("subtitle_bg") or "box",
+        "align":          payload.get("text_align") or "center",
+        "y_offset_pct":   int(payload.get("y_offset_pct") or 0),
+    }
 
     started = time.time()
     workdir = Path(tempfile.mkdtemp(prefix="fairytale-"))
@@ -325,6 +479,7 @@ def render_story(payload: dict):
                 img_path, audio_path, narration,
                 animation, placement, font_size,
                 workdir / f"clip-{idx}.mp4",
+                subtitle_style,
             )
             scene_clips.append(clip_path)
 

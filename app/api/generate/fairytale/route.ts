@@ -53,11 +53,29 @@ export async function POST(req: Request) {
     );
   }
 
-  const voiceId = String(body?.voice_id || "Malay_BellaSoothing");
+  const voiceId = String(body?.voice_id || "English_CaptivatingStoryteller");
   const voiceSpeed = Math.max(0.5, Math.min(2.0, Number(body?.voice_speed) || 1.0));
   const animation = String(body?.animation || "zoom-in");
   const placement = String(body?.placement || "bottom");
   const fontSize = Math.max(28, Math.min(96, Number(body?.font_size) || 56));
+  // Subtitle styling — all dynamic per render. Validated against safe enums
+  // so a malicious client can't inject arbitrary ffmpeg expressions.
+  const ALLOWED_FONTS = ["bold-display","sans","sans-bold","serif","mono","handwriting","roboto"];
+  const ALLOWED_COLORS = ["white","yellow","orange","red","pink","cyan","black"];
+  const ALLOWED_BG = ["box","outline","shadow","outline+shadow","none"];
+  const ALLOWED_SUB_ANIM = ["static","karaoke","fade"];
+  const ALLOWED_ALIGN = ["left","center","right"];
+  const fontFamily = ALLOWED_FONTS.includes(String(body?.font_family || ""))
+    ? String(body.font_family) : "bold-display";
+  const fontColor = ALLOWED_COLORS.includes(String(body?.font_color || ""))
+    ? String(body.font_color) : "white";
+  const subtitleBg = ALLOWED_BG.includes(String(body?.subtitle_bg || ""))
+    ? String(body.subtitle_bg) : "box";
+  const subtitleAnimation = ALLOWED_SUB_ANIM.includes(String(body?.subtitle_animation || ""))
+    ? String(body.subtitle_animation) : "static";
+  const textAlign = ALLOWED_ALIGN.includes(String(body?.text_align || ""))
+    ? String(body.text_align) : "center";
+  const yOffsetPct = Math.max(-30, Math.min(30, Number(body?.y_offset_pct) || 0));
 
   const modalEndpoint = process.env.MODAL_FAIRYTALE_ENDPOINT;
   if (!modalEndpoint) {
@@ -118,6 +136,12 @@ export async function POST(req: Request) {
           animation,
           placement,
           font_size: fontSize,
+          font_family: fontFamily,
+          font_color: fontColor,
+          subtitle_bg: subtitleBg,
+          subtitle_animation: subtitleAnimation,
+          text_align: textAlign,
+          y_offset_pct: yOffsetPct,
           scenes,
         }),
       });

@@ -37,9 +37,51 @@ const ANIMATIONS = [
 ];
 
 const PLACEMENTS = [
-  { id: "top",    label: "Top" },
-  { id: "middle", label: "Middle" },
-  { id: "bottom", label: "Bottom" },
+  { id: "top",          label: "Top" },
+  { id: "top-third",    label: "Upper Third" },
+  { id: "middle",       label: "Middle" },
+  { id: "bottom-third", label: "Lower Third" },
+  { id: "bottom",       label: "Bottom" },
+];
+
+const FONT_FAMILIES = [
+  { id: "bold-display", label: "Bold Display" },
+  { id: "sans-bold",    label: "Sans Bold" },
+  { id: "sans",         label: "Sans Regular" },
+  { id: "serif",        label: "Serif" },
+  { id: "mono",         label: "Monospace" },
+  { id: "handwriting",  label: "Handwriting" },
+  { id: "roboto",       label: "Roboto" },
+];
+
+const FONT_COLORS = [
+  { id: "white",  hex: "#ffffff" },
+  { id: "yellow", hex: "#fde047" },
+  { id: "orange", hex: "#fb923c" },
+  { id: "red",    hex: "#ef4444" },
+  { id: "pink",   hex: "#f9a8d4" },
+  { id: "cyan",   hex: "#67e8f9" },
+  { id: "black",  hex: "#000000" },
+];
+
+const SUBTITLE_BG = [
+  { id: "box",             label: "Solid Box" },
+  { id: "outline",         label: "Outline" },
+  { id: "shadow",          label: "Drop Shadow" },
+  { id: "outline+shadow",  label: "Outline + Shadow" },
+  { id: "none",            label: "None" },
+];
+
+const SUBTITLE_ANIMATIONS = [
+  { id: "static",   label: "Static (full text)" },
+  { id: "karaoke",  label: "Karaoke (word-by-word)" },
+  { id: "fade",     label: "Fade In/Out" },
+];
+
+const TEXT_ALIGNS = [
+  { id: "left",   label: "Left" },
+  { id: "center", label: "Center" },
+  { id: "right",  label: "Right" },
 ];
 
 type Scene = {
@@ -63,6 +105,13 @@ export default function FairytaleTab({ projectId }: { projectId?: string } = {})
   const [animation, setAnimation] = useState("zoom-in");
   const [placement, setPlacement] = useState("bottom");
   const [fontSize, setFontSize] = useState(56);
+  // Subtitle styling — all dynamic per-render
+  const [fontFamily, setFontFamily] = useState("bold-display");
+  const [fontColor, setFontColor] = useState("white");
+  const [subtitleBg, setSubtitleBg] = useState("box");
+  const [subtitleAnimation, setSubtitleAnimation] = useState("static");
+  const [textAlign, setTextAlign] = useState("center");
+  const [yOffsetPct, setYOffsetPct] = useState(0);
 
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -162,6 +211,12 @@ export default function FairytaleTab({ projectId }: { projectId?: string } = {})
           animation,
           placement,
           font_size: fontSize,
+          font_family: fontFamily,
+          font_color: fontColor,
+          subtitle_bg: subtitleBg,
+          subtitle_animation: subtitleAnimation,
+          text_align: textAlign,
+          y_offset_pct: yOffsetPct,
           scenes: valid.map((s) => ({
             image_url: s.imageUrl,
             narration: s.narration,
@@ -340,6 +395,141 @@ export default function FairytaleTab({ projectId }: { projectId?: string } = {})
                 className="w-full"
               />
             </Field>
+
+            {/* SUBTITLE STYLE — dedicated subsection */}
+            <div className="pt-3 border-t" style={{ borderColor: "#e8e0d8" }}>
+              <div className="text-[10px] font-bold uppercase tracking-wider mb-2" style={{ color: PURPLE }}>
+                ✨ Subtitle Style
+              </div>
+
+              <div className="space-y-3">
+                <Field label="Subtitle Animation">
+                  <select
+                    value={subtitleAnimation}
+                    onChange={(e) => setSubtitleAnimation(e.target.value)}
+                    className="w-full p-2.5 rounded-lg text-xs outline-none"
+                    style={{ background: "#fafaf7", border: "1px solid #e8e0d8" }}
+                  >
+                    {SUBTITLE_ANIMATIONS.map((a) => (
+                      <option key={a.id} value={a.id}>{a.label}</option>
+                    ))}
+                  </select>
+                </Field>
+
+                <Field label="Font Family">
+                  <select
+                    value={fontFamily}
+                    onChange={(e) => setFontFamily(e.target.value)}
+                    className="w-full p-2.5 rounded-lg text-xs outline-none"
+                    style={{ background: "#fafaf7", border: "1px solid #e8e0d8" }}
+                  >
+                    {FONT_FAMILIES.map((f) => (
+                      <option key={f.id} value={f.id}>{f.label}</option>
+                    ))}
+                  </select>
+                </Field>
+
+                <Field label="Font Color">
+                  <div className="flex gap-1.5 flex-wrap">
+                    {FONT_COLORS.map((c) => (
+                      <button
+                        key={c.id}
+                        onClick={() => setFontColor(c.id)}
+                        title={c.id}
+                        className="w-7 h-7 rounded-lg transition-transform hover:scale-110"
+                        style={{
+                          background: c.hex,
+                          border: fontColor === c.id ? "2px solid #1a1a1a" : "1px solid #e8e0d8",
+                          boxShadow: fontColor === c.id ? "0 0 0 2px rgba(168,85,247,0.4)" : undefined,
+                        }}
+                      />
+                    ))}
+                  </div>
+                </Field>
+
+                <Field label="Background Style">
+                  <select
+                    value={subtitleBg}
+                    onChange={(e) => setSubtitleBg(e.target.value)}
+                    className="w-full p-2.5 rounded-lg text-xs outline-none"
+                    style={{ background: "#fafaf7", border: "1px solid #e8e0d8" }}
+                  >
+                    {SUBTITLE_BG.map((b) => (
+                      <option key={b.id} value={b.id}>{b.label}</option>
+                    ))}
+                  </select>
+                </Field>
+
+                <Field label="Text Align">
+                  <div className="flex gap-1">
+                    {TEXT_ALIGNS.map((a) => (
+                      <button
+                        key={a.id}
+                        onClick={() => setTextAlign(a.id)}
+                        className="flex-1 py-2 rounded-md text-[10px] font-bold transition-all"
+                        style={
+                          textAlign === a.id
+                            ? { background: PURPLE, color: "white" }
+                            : { background: "#fafaf7", border: "1px solid #e8e0d8", color: "#666" }
+                        }
+                      >
+                        {a.label}
+                      </button>
+                    ))}
+                  </div>
+                </Field>
+
+                <Field label={`Y Position Offset: ${yOffsetPct > 0 ? "+" : ""}${yOffsetPct}%`}>
+                  <input
+                    type="range" min={-30} max={30} step={1}
+                    value={yOffsetPct}
+                    onChange={(e) => setYOffsetPct(Number(e.target.value))}
+                    className="w-full"
+                  />
+                  <div className="text-[9px] text-gray-500 mt-0.5">
+                    Fine-tune up/down from the chosen Placement (negative = up, positive = down)
+                  </div>
+                </Field>
+
+                {/* LIVE PREVIEW SWATCH */}
+                <div
+                  className="rounded-lg p-3 text-center"
+                  style={{
+                    background: "linear-gradient(135deg, #1a1a1a 0%, #333 100%)",
+                    minHeight: 60,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: textAlign === "left" ? "flex-start" : textAlign === "right" ? "flex-end" : "center",
+                    paddingLeft: 12,
+                    paddingRight: 12,
+                  }}
+                >
+                  <span
+                    style={{
+                      color: FONT_COLORS.find((c) => c.id === fontColor)?.hex || "#fff",
+                      fontSize: Math.min(fontSize / 2.5, 22),
+                      fontFamily:
+                        fontFamily === "serif" ? "Georgia, serif" :
+                        fontFamily === "mono" ? "monospace" :
+                        fontFamily === "handwriting" ? "cursive" :
+                        "system-ui, sans-serif",
+                      fontWeight: fontFamily.includes("bold") || fontFamily === "bold-display" ? 800 : 400,
+                      background: subtitleBg === "box" ? "rgba(0,0,0,0.55)" : "transparent",
+                      padding: subtitleBg === "box" ? "4px 10px" : 0,
+                      borderRadius: subtitleBg === "box" ? 4 : 0,
+                      textShadow:
+                        subtitleBg === "outline" || subtitleBg === "outline+shadow"
+                          ? "-1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000, 1px 1px 0 #000"
+                          : subtitleBg === "shadow"
+                          ? "2px 2px 4px rgba(0,0,0,0.7)"
+                          : "none",
+                    }}
+                  >
+                    Preview teks subtitle
+                  </span>
+                </div>
+              </div>
+            </div>
 
             <button
               onClick={generateStory}
