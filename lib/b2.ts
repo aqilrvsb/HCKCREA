@@ -71,11 +71,16 @@ export async function uploadFromUrl(opts: {
     throw new Error(`Source URL fetch failed: HTTP ${r.status}`);
   }
   const ct = opts.contentType || r.headers.get("content-type") || "application/octet-stream";
-  const len = Number(r.headers.get("content-length") || 0);
-  // Read into a buffer — for files <100MB this is fine. For larger we'd
-  // switch to multipart streaming via @aws-sdk/lib-storage.
+  // Read body as a Node Buffer. B2's S3 API rejects multipart chunks
+  // smaller than 5 MB, and the AWS SDK was splitting our Uint8Array body
+  // into 2 chunks which violated that. Buffer + explicit ContentLength
+  // forces a single-PUT upload that B2 accepts.
   const ab = await r.arrayBuffer();
-  const body = new Uint8Array(ab);
+  const body = Buffer.from(ab);
+
+  if (body.length === 0) {
+    throw new Error(`Source URL returned 0 bytes: ${opts.url}`);
+  }
 
   await client().send(
     new PutObjectCommand({
@@ -86,7 +91,7 @@ export async function uploadFromUrl(opts: {
       ContentLength: body.length,
     })
   );
-  return { key: opts.key, size: body.length || len };
+  return { key: opts.key, size: body.length };
 }
 
 // Generate a presigned GET URL — defaults to 7 days.
