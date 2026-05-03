@@ -17,7 +17,9 @@ import { createAdminClient } from "@/lib/supabase/admin";
 // Cost per story: ~$0.045 (Modal $0.003 + MiniMax TTS $0.04 + storage $0.0001)
 
 export const runtime = "nodejs";
-export const maxDuration = 30;
+// Modal can take 60-120s to render 10 scenes (each ~10s). Vercel after()
+// must outlive the Modal fetch or the row gets marked HTTP 422 on timeout.
+export const maxDuration = 300;
 export const dynamic = "force-dynamic";
 
 type Scene = { image_url?: string; narration?: string };
