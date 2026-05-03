@@ -71,17 +71,24 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "prompt required" }, { status: 400 });
   }
 
+  // Target ~10 seconds of TTS audio per scene. Bahasa Melayu is spoken at
+  // ~2.5-3.0 words/second by MiniMax speech-2.6-turbo, so 25-32 words per
+  // scene fills exactly one 10-second slide. Going below 22 leaves the
+  // Ken Burns motion hanging on a still frame; over 35 forces the TTS to
+  // rush and run past the slide.
+  const targetWords = language === "ms" ? "25-32" : "28-36";
   const systemPrompt = `You are a story script writer for short-form video. You produce scene-by-scene scripts where each scene is exactly one short sentence of narration plus a vivid image generation prompt.
 
 OUTPUT RULES — STRICT:
 - Output a JSON object: { "scenes": [ { "narration": "...", "image_prompt": "..." }, ... ] }
 - Exactly ${sceneCount} scenes.
-- Each "narration" is ${language === "ms" ? "BAHASA MELAYU (Malaysian Malay), NOT Indonesian" : "English"}, 10-20 words, designed for one ~5-second TTS clip.
+- Each "narration" is ${language === "ms" ? "BAHASA MELAYU (Malaysian Malay), NOT Indonesian" : "English"}, **${targetWords} words** (this is critical — every scene plays for exactly 10 seconds of audio + Ken Burns motion, so under-${targetWords.split("-")[0]} words leaves dead air at the end of the slide and over-${targetWords.split("-")[1]} words forces the TTS to rush past the next slide).
 - Each "image_prompt" is in ENGLISH, 30-60 words, vivid visual description with subject + setting + atmosphere + lighting. Always END the image_prompt with: "${VISUAL_HINTS[visualStyle]}"
 - Story arc must be coherent across the ${sceneCount} scenes — beginning, middle, end.
 - ${STYLE_HINTS[style]}.
 - ${TONE_HINTS[tone]}.
 - Language for narration: ${LANG_HINTS[language]}.
+- Count your words for every narration before returning. Reject any scene shorter than ${targetWords.split("-")[0]} words and rewrite it longer.
 - Do NOT include any text other than the JSON. No markdown fences, no commentary.`;
 
   const userMsg = `Story prompt: ${userPrompt}

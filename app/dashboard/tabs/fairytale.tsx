@@ -881,9 +881,10 @@ function Step3(props: any) {
         <div className="rounded-2xl p-4" style={{ background: "white", border: "1px solid #e5e7eb" }}>
           <div className="text-xs font-bold mb-2">Preview ⓘ</div>
           <PreviewPanel
-            scene={scenes[previewIdx]}
+            scenes={scenes}
             sceneCount={scenes.length}
             previewIdx={previewIdx}
+            setPreviewIdx={setPreviewIdx}
             voiceEnabled={enableVoice}
             transition={transition}
             sceneAnimation={sceneAnimation}
@@ -1112,16 +1113,32 @@ const TRANSITION_CSS: Record<string, string> = {
   "radial":       "ftRadial",
 };
 
+// Each scene is rendered for ~10 seconds (matches Modal render). Use 10s
+// in the live preview so the karaoke pacing + auto-cycle match what the
+// final mp4 will play.
+const SCENE_DURATION_MS = 10_000;
+
 function PreviewPanel(props: any) {
-  const { scene, sceneCount, previewIdx, voiceEnabled, transition, sceneAnimation,
+  const { scenes, sceneCount, previewIdx, voiceEnabled, transition, sceneAnimation,
     textAnimation, textPlacement, fontType, textSize, textColor, uppercase, textBackground, enableText } = props;
   const sizePx = TEXT_SIZES.find((s: any) => s.id === textSize)?.px ?? 36;
 
+  // Auto-play through ALL scenes — advance previewIdx every 10s (with a 700ms
+  // transition window already baked in). User can still click ‹/› to override
+  // — we resume cycling from wherever they land.
+  useEffect(() => {
+    if (!scenes || sceneCount <= 1) return;
+    const id = setInterval(() => {
+      props.setPreviewIdx((p: number) => (p + 1) % sceneCount);
+    }, SCENE_DURATION_MS);
+    return () => clearInterval(id);
+  }, [sceneCount]);
+
+  const scene = scenes?.[previewIdx] || null;
+
   const fullText = scene?.narration ? (uppercase ? scene.narration.toUpperCase() : scene.narration) : "Preview text";
   const words = useMemo(() => fullText.split(/\s+/).filter(Boolean), [fullText]);
-
-  // Per-scene fake duration — scales with word count so karaoke pacing feels real
-  const sceneDurationMs = Math.max(2500, Math.min(7000, words.length * 380));
+  const sceneDurationMs = SCENE_DURATION_MS;
 
   // Karaoke / progressive reveal — bumps every (sceneDuration / wordCount) ms
   const [revealedCount, setRevealedCount] = useState(words.length);

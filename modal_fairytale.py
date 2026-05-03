@@ -326,7 +326,12 @@ def _render_scene(
     """Render ONE scene clip — image + Ken Burns + audio + caption burn.
     subtitle_style keys: animation_mode, font_family, color, bg_style,
     align, y_offset_pct."""
-    duration = max(_ffprobe_duration(audio_path), 1.5)
+    # Each scene plays for at least 10 seconds — matches the wizard's
+    # auto-cycle pacing + the AI prompt's word target. If the TTS audio is
+    # shorter than 10s (rare, only on very short narration), the Ken Burns
+    # motion holds on the last frame for the remainder.
+    audio_dur = _ffprobe_duration(audio_path)
+    duration = max(audio_dur, 10.0)
     zoompan = _ken_burns_filter(animation, duration)
 
     drawtext = ""
@@ -346,16 +351,20 @@ def _render_scene(
             drawtext = _static_drawtext(caption, font_size, font_path, color, bg, x_expr, y_expr)
 
     # Use loop=1 to extend a still image to audio duration
+    # Pad audio with silence to match the 10s scene length when narration
+    # is shorter — apad+atrim ensures the audio track is exactly `duration`
+    # long without -shortest cutting the video early.
     cmd = [
         "ffmpeg", "-y",
         "-loop", "1", "-framerate", "30", "-i", str(image_path),
         "-i", str(audio_path),
-        "-filter_complex", f"[0:v]{zoompan}{drawtext}[v]",
-        "-map", "[v]", "-map", "1:a",
+        "-filter_complex",
+        f"[0:v]{zoompan}{drawtext}[v];"
+        f"[1:a]apad,atrim=0:{duration:.2f},asetpts=N/SR/TB[a]",
+        "-map", "[v]", "-map", "[a]",
         "-c:v", "libx264", "-preset", "ultrafast", "-crf", "23",
         "-pix_fmt", "yuv420p",
         "-c:a", "aac", "-b:a", "128k",
-        "-shortest",
         "-t", f"{duration:.2f}",
         str(out_path),
     ]
