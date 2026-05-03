@@ -181,12 +181,18 @@ def _ken_burns_filter(animation: str, duration: float, fps: int = 30) -> str:
 
 
 def _escape_drawtext(text: str) -> str:
-    return (
+    # ffmpeg drawtext interprets the 2-char sequence "\n" (backslash + n)
+    # as a line break inside the text param. Convert literal newline bytes
+    # in the input to that escape sequence — but escape backslashes FIRST
+    # so we don't double-escape the new "\n" we just inserted.
+    escaped = (
         text.replace("\\", "\\\\")
         .replace(":", "\\:")
         .replace("'", "\\'")
         .replace("%", "\\%")
     )
+    # Now substitute real newline bytes with the drawtext line-break escape.
+    return escaped.replace("\n", "\\n")
 
 
 def _placement_y(placement: str, y_offset_pct: int) -> str:
@@ -238,6 +244,21 @@ def _bg_style(style: str, fontcolor: str) -> str:
     return ""  # "none"
 
 
+def _wrap_text(text: str, font_size: int, video_width: int = 1080, side_padding_pct: float = 0.10) -> str:
+    """Word-wrap caption to multiple lines so it never bleeds off the
+    video frame. Heuristic: average glyph width ≈ font_size * 0.55 for
+    sans-serif bold. Reserves `side_padding_pct` of width on each side.
+    Returns a string with literal newlines that ffmpeg drawtext renders
+    as multi-line text (with line_spacing applied)."""
+    import textwrap
+    usable_px = video_width * (1 - 2 * side_padding_pct)
+    char_px = max(1, font_size * 0.55)
+    max_chars = max(12, int(usable_px / char_px))
+    if len(text) <= max_chars:
+        return text
+    return "\n".join(textwrap.wrap(text, width=max_chars, break_long_words=False))
+
+
 def _karaoke_drawtexts(
     text: str,
     duration: float,
@@ -250,16 +271,20 @@ def _karaoke_drawtexts(
 ) -> str:
     """Generate N drawtext layers for word-by-word progressive reveal.
     Each successive layer shows one more word and is enabled only during
-    its time window — at any moment exactly one layer is visible."""
+    its time window — at any moment exactly one layer is visible.
+    The cumulative text is word-wrapped per step so layout never bleeds
+    off-frame; the wrap recomputes per step which can cause minor reflow,
+    but for typical 25-32 word scenes the wrap stays stable."""
     words = text.split()
     if not words:
         return ""
     per_word = duration / len(words)
     parts = []
-    cumulative = ""
+    cumulative_words: list = []
     for i, w in enumerate(words):
-        cumulative = (cumulative + " " + w).strip() if cumulative else w
-        safe = _escape_drawtext(cumulative)
+        cumulative_words.append(w)
+        wrapped = _wrap_text(" ".join(cumulative_words), font_size)
+        safe = _escape_drawtext(wrapped)
         start = i * per_word
         end = (i + 1) * per_word if i < len(words) - 1 else duration
         bg = f":{bg_snippet}" if bg_snippet else ""
@@ -280,7 +305,8 @@ def _static_drawtext(
     x_expr: str,
     y_expr: str,
 ) -> str:
-    safe = _escape_drawtext(text[:300])
+    wrapped = _wrap_text(text[:400], font_size)
+    safe = _escape_drawtext(wrapped)
     bg = f":{bg_snippet}" if bg_snippet else ""
     return (
         f",drawtext=text='{safe}':fontsize={font_size}:fontcolor={color}{bg}:"
@@ -299,7 +325,8 @@ def _fade_drawtext(
     y_expr: str,
 ) -> str:
     """Fade-in 0.5s, hold, fade-out last 0.5s."""
-    safe = _escape_drawtext(text[:300])
+    wrapped = _wrap_text(text[:400], font_size)
+    safe = _escape_drawtext(wrapped)
     bg = f":{bg_snippet}" if bg_snippet else ""
     fade_out_start = max(0.5, duration - 0.5)
     alpha = (
