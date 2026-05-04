@@ -1441,20 +1441,29 @@ function Step1(props: {
         )}
       </div>
 
-      {/* Slide pacing — seconds per slide + slide count + estimated total */}
+      {/* Slide pacing — locked to 5s/slide × 10 slides per product spec.
+          Rendered as read-only chips so the user can SEE the cadence
+          they'll get without being able to change it. The state values
+          (secondsPerSlide=5, sceneCount=10) come from the useState
+          defaults; the SelectBtn dropdowns were removed because TikTok
+          pacing is non-negotiable for this tool. */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-5">
-        <SelectBtn
-          value={secObj.label}
-          options={SECONDS_PER_SLIDE.map((s) => ({ id: String(s.id), label: s.label }))}
-          onChange={(id) => props.setSecondsPerSlide(Number(id))}
-          activeId={String(props.secondsPerSlide)}
-        />
-        <SelectBtn
-          value={countObj.label}
-          options={SLIDE_COUNTS.map((s) => ({ id: String(s.id), label: s.label }))}
-          onChange={(id) => props.setSceneCount(Number(id))}
-          activeId={String(props.sceneCount)}
-        />
+        <div
+          className="w-full p-3 rounded-xl text-sm font-semibold flex items-center justify-between cursor-not-allowed select-none"
+          style={{ background: "#f9fafb", border: "1px solid #e5e7eb", color: "#6b7280" }}
+          title="Slide duration is locked to 5s for TikTok pace"
+        >
+          <span>{secObj.label}</span>
+          <span className="text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded" style={{ background: "#e5e7eb", color: "#6b7280" }}>Locked</span>
+        </div>
+        <div
+          className="w-full p-3 rounded-xl text-sm font-semibold flex items-center justify-between cursor-not-allowed select-none"
+          style={{ background: "#f9fafb", border: "1px solid #e5e7eb", color: "#6b7280" }}
+          title="Story length is locked to 10 slides for optimal viewer retention"
+        >
+          <span>{countObj.label}</span>
+          <span className="text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded" style={{ background: "#e5e7eb", color: "#6b7280" }}>Locked</span>
+        </div>
       </div>
       <div
         className="mt-3 px-4 py-2.5 rounded-xl text-xs font-semibold flex items-center justify-between"
