@@ -424,9 +424,10 @@ export default function FairytaleTab({ projectId }: { projectId?: string } = {})
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step, enableVoice, voiceId, voiceSpeed, scenes.map((s) => s.narration).join("|")]);
 
-  // Poll scene image rows every 4s until all done or failed
+  // Poll scene image rows every 4s until all done or failed.
+  // Triggers on Step 2 entry (was Step 3 in the 3-step wizard).
   useEffect(() => {
-    if (step !== 3) return;
+    if (step !== 2) return;
     const pendingIds = scenes
       .filter((s) => s.imageStatus === "generating" && s.imageHistoryId)
       .map((s) => s.imageHistoryId as string);
