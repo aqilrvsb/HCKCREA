@@ -407,10 +407,18 @@ export default function FairytaleTab({ projectId }: { projectId?: string } = {})
   const [voiceId, setVoiceId] = useState(voicesForLang("ms")[0].id);
   const [voiceSpeed, setVoiceSpeed] = useState(1.2);
 
-  // CTA — when enabled, the AI weaves a 12-word call-to-action into
-  // the LAST scene's narration. Off = story rides to its natural close.
-  const [ctaEnabled, setCtaEnabled] = useState(false);
-  const [ctaText, setCtaText] = useState("");
+  // CTA — three modes:
+  //   • none — story rides to its natural emotional close, no CTA
+  //   • engagement — AI ends with a topic-relevant question that
+  //     bait viewers to comment ("apa pendapat korang?")
+  //   • follow — AI appends a fixed user-typed follow CTA verbatim
+  // Default = engagement: comment-bait endings drive higher reach
+  // on TikTok/IG short-form than passive endings.
+  type CtaMode = "none" | "engagement" | "follow";
+  const [ctaMode, setCtaMode] = useState<CtaMode>("engagement");
+  const [ctaText, setCtaText] = useState(
+    "Kalau Berminat Dengan Content Begini, Jemput Follow"
+  );
 
   // When the user switches language in Step 1, the previously-selected
   // voice id likely doesn't exist in the new language pack — auto-reset
@@ -465,9 +473,11 @@ export default function FairytaleTab({ projectId }: { projectId?: string } = {})
           // Target narration duration per scene — helps the LLM size each
           // beat to match the slide it'll be paired with.
           scene_duration_sec: secondsPerSlide,
-          // CTA flow — when enabled, AI weaves the 12-word call-to-action
-          // into the final scene's narration (story-close + CTA blended).
-          cta: ctaEnabled && !!ctaText.trim(),
+          // CTA flow — three modes:
+          //   none = natural story close, no CTA
+          //   engagement = AI ends with topic-relevant comment-bait question
+          //   follow = AI appends the user-typed follow CTA verbatim
+          cta_mode: ctaMode,
           cta_text: ctaText.trim(),
         }),
       });
@@ -769,7 +779,7 @@ export default function FairytaleTab({ projectId }: { projectId?: string } = {})
           sceneCount={sceneCount} setSceneCount={setSceneCount}
           voiceId={voiceId} setVoiceId={setVoiceId}
           voiceSpeed={voiceSpeed}
-          ctaEnabled={ctaEnabled} setCtaEnabled={setCtaEnabled}
+          ctaMode={ctaMode} setCtaMode={setCtaMode}
           ctaText={ctaText} setCtaText={setCtaText}
           pricing={pricing}
           styleDropdownOpen={styleDropdownOpen} setStyleDropdownOpen={setStyleDropdownOpen}
@@ -1073,7 +1083,7 @@ function Step1(props: {
   sceneCount: number; setSceneCount: (v: number) => void;
   voiceId: string; setVoiceId: (v: string) => void;
   voiceSpeed: number;
-  ctaEnabled: boolean; setCtaEnabled: (v: boolean) => void;
+  ctaMode: "none" | "engagement" | "follow"; setCtaMode: (v: "none" | "engagement" | "follow") => void;
   ctaText: string; setCtaText: (v: string) => void;
   pricing: { per_image: number; per_audio_sec: number };
   styleDropdownOpen: boolean; setStyleDropdownOpen: (v: boolean) => void;
@@ -1245,47 +1255,79 @@ function Step1(props: {
         />
       </div>
 
-      {/* Call-to-Action — when enabled, AI weaves the 12-word CTA into
-          the LAST scene's narration (story-close + CTA blended). Off =
-          AI lands a natural emotional ending. */}
+      {/* Call-to-Action — three modes:
+          • None        → AI lands the story at its natural emotional close
+          • Engagement  → AI ends with a topic-relevant comment-bait question
+          • Follow      → AI appends the user-typed follow CTA verbatim
+          Default is Engagement because comment-bait endings drive the
+          highest reach on TikTok / IG short-form. */}
       <div
-        className="mt-5 rounded-xl p-3.5"
-        style={{ background: "white", border: "1px solid #e5e7eb" }}
+        className="mt-5 rounded-2xl p-4"
+        style={{
+          background: "linear-gradient(135deg, #eff6ff 0%, #faf5ff 100%)",
+          border: "1px solid #bfdbfe",
+        }}
       >
-        <div className="flex items-center justify-between mb-2">
+        <div className="flex items-center gap-2 mb-3">
+          <span className="text-base">🎯</span>
           <div>
             <div className="text-sm font-bold text-gray-800">
               Call-to-Action (final slide)
             </div>
-            <div className="text-[11px] text-gray-500 mt-0.5">
-              When on, AI lands the story then segues into your CTA in the same last slide.
+            <div className="text-[11px] text-gray-600">
+              How should the AI close the last slide?
             </div>
           </div>
-          <button
-            type="button"
-            onClick={() => props.setCtaEnabled(!props.ctaEnabled)}
-            className="relative w-11 h-6 rounded-full transition-colors"
-            style={{
-              background: props.ctaEnabled ? "#a855f7" : "#d1d5db",
-            }}
-          >
-            <span
-              className="absolute top-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform"
-              style={{
-                transform: props.ctaEnabled ? "translateX(22px)" : "translateX(2px)",
-              }}
-            />
-          </button>
         </div>
-        {props.ctaEnabled && (
-          <div className="mt-2">
+        <div className="grid grid-cols-3 gap-2">
+          {([
+            { id: "none",       icon: "🌊", label: "None",       sub: "Natural close" },
+            { id: "engagement", icon: "💬", label: "Engagement", sub: "Bait comments" },
+            { id: "follow",     icon: "👥", label: "Follow",     sub: "Custom text" },
+          ] as const).map((m) => {
+            const active = props.ctaMode === m.id;
+            return (
+              <button
+                key={m.id}
+                type="button"
+                onClick={() => props.setCtaMode(m.id)}
+                className="relative rounded-xl p-3 text-left transition-all"
+                style={{
+                  background: active ? "#3b82f6" : "white",
+                  border: active ? "2px solid #3b82f6" : "1px solid #e5e7eb",
+                  color: active ? "white" : "#1f2937",
+                  boxShadow: active ? "0 4px 12px rgba(59,130,246,0.3)" : "none",
+                }}
+              >
+                <div className="text-lg mb-0.5">{m.icon}</div>
+                <div className="text-[12px] font-bold">{m.label}</div>
+                <div
+                  className="text-[10px] mt-0.5"
+                  style={{ color: active ? "rgba(255,255,255,0.85)" : "#6b7280" }}
+                >
+                  {m.sub}
+                </div>
+                {active && (
+                  <div
+                    className="absolute top-1.5 right-1.5 w-4 h-4 rounded-full flex items-center justify-center"
+                    style={{ background: "white", color: "#3b82f6", fontSize: 10, fontWeight: 800 }}
+                  >
+                    ✓
+                  </div>
+                )}
+              </button>
+            );
+          })}
+        </div>
+        {props.ctaMode === "follow" && (
+          <div className="mt-3">
             <div className="flex items-center justify-between mb-1">
-              <span className="text-[10px] font-bold text-gray-500 uppercase tracking-wide">
-                Your CTA (max 12 words)
+              <span className="text-[10px] font-bold text-gray-600 uppercase tracking-wide">
+                Your follow CTA (max 12 words)
               </span>
               <span
                 className="text-[10px] font-mono"
-                style={{ color: ctaWordCount > 12 ? "#dc2626" : "#9ca3af" }}
+                style={{ color: ctaWordCount > 12 ? "#dc2626" : "#6b7280" }}
               >
                 {ctaWordCount} / 12
               </span>
@@ -1298,14 +1340,23 @@ function Step1(props: {
                 if (words.length <= 12) props.setCtaText(next);
                 else props.setCtaText(words.slice(0, 12).join(" "));
               }}
-              placeholder="Follow for more story drops weekly!"
+              placeholder="Kalau Berminat Dengan Content Begini, Jemput Follow"
               className="w-full px-3 py-2 rounded-lg text-sm outline-none"
               style={{
-                background: "#fafafa",
-                border: "1px solid #e5e7eb",
+                background: "white",
+                border: "1px solid #bfdbfe",
                 color: "#1a1a1a",
               }}
             />
+          </div>
+        )}
+        {props.ctaMode === "engagement" && (
+          <div
+            className="mt-3 px-3 py-2 rounded-lg text-[11px]"
+            style={{ background: "white", border: "1px solid #bfdbfe", color: "#475569" }}
+          >
+            AI will end the last slide with a topic-relevant question that
+            invites viewers to comment with their answer or experience.
           </div>
         )}
       </div>

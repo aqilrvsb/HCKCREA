@@ -94,12 +94,19 @@ export async function POST(req: Request) {
     : "realistic") as VisualStyle;
   const sceneCount = Math.max(3, Math.min(15, Number(body?.scene_count) || 10));
   const sceneDurationSec = Math.max(3, Math.min(20, Number(body?.scene_duration_sec) || 10));
-  // CTA mode: when true, the AI weaves the user's call-to-action into
-  // the LAST scene's narration so the slide ends with story-close +
-  // CTA blended naturally. CTA text is capped at 12 words so the AI
-  // has room to land the story emotionally before the call. When the
-  // toggle is off, story rides its arc to a natural ending instead.
-  const ctaEnabled = body?.cta === true;
+  // CTA mode (3-way):
+  //   • none       — story rides to its natural emotional close
+  //   • engagement — AI ends with a topic-relevant comment-bait question
+  //   • follow     — AI appends user's typed follow CTA verbatim (12-word cap)
+  // Legacy support: body.cta === true (boolean) maps to "follow" so any
+  // in-flight wizard state from the old UI still works.
+  type CtaMode = "none" | "engagement" | "follow";
+  let ctaMode: CtaMode = "none";
+  if (body?.cta_mode === "engagement" || body?.cta_mode === "follow" || body?.cta_mode === "none") {
+    ctaMode = body.cta_mode;
+  } else if (body?.cta === true) {
+    ctaMode = "follow";
+  }
   // Cap to 12 words — count words, not chars, since user-typed CTAs
   // tend to be short imperatives ("Follow for daily story drops",
   // "Comment YES if you agree").
@@ -123,13 +130,20 @@ export async function POST(req: Request) {
   const lowWords  = Math.round(sceneDurationSec * wpsLow);
   const highWords = Math.round(sceneDurationSec * wpsHigh);
   const targetWords = `${lowWords}-${highWords}`;
-  // CTA blending instruction injected into the prompt only when enabled.
-  // The AI must land the story arc THEN segue into the CTA in the same
-  // final-scene narration — not a separate slide. 12-word cap leaves
-  // room for the story-close in the same word window.
-  const ctaInstruction = ctaEnabled && ctaText
-    ? `\nFINAL-SCENE CTA RULE (CRITICAL): Scene ${sceneCount} (the last scene) must END with this call-to-action woven naturally into the narration: "${ctaText}". Land the emotional resolution of the story FIRST in the same narration, THEN segue into the CTA. The CTA must feel like the natural reward for watching the story, not a tacked-on plug. Do not weaken or paraphrase the CTA — keep its core verbs ("follow", "comment", "share", "try", whatever the user wrote) intact. The full last-scene narration should still be ${targetWords} words including the CTA portion.`
-    : `\nFINAL-SCENE RULE: Scene ${sceneCount} (the last scene) must deliver the emotional payoff — the moment the viewer rewinds for, the line that makes them save the video or send it to a friend. Avoid weak filler endings like "Sekian" or "That's all". End with a feeling, a fact, or a question that lingers.`;
+  // Final-scene instruction varies by CTA mode. The instruction is
+  // injected into the master system prompt below.
+  let ctaInstruction: string;
+  if (ctaMode === "follow" && ctaText) {
+    ctaInstruction = `\nFINAL-SCENE CTA RULE (CRITICAL): Scene ${sceneCount} (the last scene) must END with this exact call-to-action woven naturally into the narration: "${ctaText}". Land the emotional resolution of the story FIRST in the same narration, THEN segue into the CTA. The CTA must feel like the natural reward for watching the story, not a tacked-on plug. Do not weaken or paraphrase the CTA — keep its core verbs ("follow", "comment", "share", whatever the user wrote) intact. The full last-scene narration should still be ${targetWords} words including the CTA portion.`;
+  } else if (ctaMode === "engagement") {
+    ctaInstruction = `\nFINAL-SCENE ENGAGEMENT-CTA RULE (CRITICAL): Scene ${sceneCount} (the last scene) must end with a SHORT, OPEN-ENDED QUESTION that bait viewers to comment with their answer or experience. The question must be specific to the story's TOPIC — not a generic "what do you think?". Examples of strong engagement questions for ${language === "ms" ? "Bahasa Melayu" : "English"}:
+- "${language === "ms" ? "Korang pernah kena macam ni jugak? Drop dalam komen." : "Has this happened to you too? Drop it in the comments."}"
+- "${language === "ms" ? "Apa korang akan buat kalau jadi dia? Comment bawah." : "What would you do in their shoes? Comment below."}"
+- "${language === "ms" ? "Setuju ke tak setuju? Type 1 atau 2 dalam komen." : "Agree or disagree? Type 1 or 2 in the comments."}"
+The story-close happens FIRST in the same narration, THEN the question — both fit within ${targetWords} words total. Make the question feel like a natural extension of the story, not a tacked-on prompt.`;
+  } else {
+    ctaInstruction = `\nFINAL-SCENE RULE: Scene ${sceneCount} (the last scene) must deliver the emotional payoff — the moment the viewer rewinds for, the line that makes them save the video or send it to a friend. Avoid weak filler endings like "Sekian" or "That's all". End with a feeling, a fact, or a question that lingers.`;
+  }
 
   const systemPrompt = `You are an elite short-form-video story writer. You write the kind of scripts that make people stop scrolling, watch the full video, then follow the creator for more. Your scripts go viral because they hook fast, escalate emotionally, and reward attention.
 
