@@ -37,7 +37,7 @@ const PURPLE_SOFT = "rgba(168, 85, 247, 0.10)";
 
 // ─── Step 1 options ─────────────────────────────────────────────
 type Style = "storytelling" | "sharing" | "selling";
-type Tone = "formal" | "happy" | "sad" | "scary" | "bold";
+type Tone = "auto" | "formal" | "happy" | "sad" | "scary" | "bold";
 type Language = "ms" | "en";
 type Aspect = "9:16" | "1:1" | "16:9";
 
@@ -304,7 +304,10 @@ export default function FairytaleTab({ projectId }: { projectId?: string } = {})
   // Step 1 state
   const [prompt, setPrompt] = useState("");
   const [style, setStyle] = useState<Style>("storytelling");
-  const [tone, setTone] = useState<Tone>("formal");
+  // Tone is now AI-decided. Picker removed from UI; this state stays so
+  // the API call shape is unchanged. "auto" tells the backend to infer
+  // mood from the user's prompt rather than imposing one.
+  const [tone, setTone] = useState<Tone>("auto");
   const [language, setLanguage] = useState<Language>("ms");
   const [aspect, setAspect] = useState<Aspect>("9:16");
   const [styleDropdownOpen, setStyleDropdownOpen] = useState(false);
@@ -1037,8 +1040,8 @@ function Step1(props: {
     .trim()
     .split(/\s+/)
     .filter(Boolean).length;
-  const styleObj = STYLES.find((s) => s.id === props.style)!;
-  const toneObj = TONES.find((t) => t.id === props.tone)!;
+  // styleObj/toneObj no longer rendered — pickers were removed by request.
+  // Style is locked to storytelling, tone is AI-decided from the prompt.
   const langObj = LANGUAGES.find((l) => l.id === props.language)!;
   const aspectObj = ASPECTS.find((a) => a.id === props.aspect)!;
   const secObj = SECONDS_PER_SLIDE.find((s) => s.id === props.secondsPerSlide) || SECONDS_PER_SLIDE[2];
@@ -1071,59 +1074,13 @@ function Step1(props: {
         style={{ background: "white", border: "1px solid #e5e7eb", color: "#1a1a1a" }}
       />
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mt-5">
-        {/* Style + Tone combined dropdown */}
-        <div className="relative">
-          <button
-            onClick={() => props.setStyleDropdownOpen(!props.styleDropdownOpen)}
-            className="w-full px-3 py-2.5 rounded-xl text-sm font-semibold flex items-center justify-between"
-            style={{ background: "white", border: "1px solid #e5e7eb", color: "#1a1a1a" }}
-          >
-            <span>
-              {styleObj.icon} {styleObj.label} <span className="mx-1 text-gray-300">|</span> {toneObj.icon} {toneObj.label}
-            </span>
-            <ChevronDown className="w-4 h-4 text-gray-400" />
-          </button>
-          {props.styleDropdownOpen && (
-            <div
-              className="absolute left-0 top-full mt-1 w-full md:w-[400px] z-30 rounded-xl p-4 grid grid-cols-2 gap-4"
-              style={{ background: "white", border: "1px solid #e5e7eb", boxShadow: "0 10px 30px rgba(0,0,0,0.08)", color: "#1a1a1a" }}
-            >
-              <div>
-                <div className="text-xs font-bold mb-2">Select Style</div>
-                {STYLES.map((s) => (
-                  <button
-                    key={s.id}
-                    onClick={() => { props.setStyle(s.id); }}
-                    className="w-full text-left flex items-center gap-2 py-1.5 text-xs"
-                  >
-                    <span className="w-3 h-3 rounded-full" style={{
-                      border: "2px solid #1a1a1a",
-                      background: props.style === s.id ? "#1a1a1a" : "transparent",
-                    }} />
-                    {s.icon} {s.label}
-                  </button>
-                ))}
-              </div>
-              <div>
-                <div className="text-xs font-bold mb-2">Select Tone</div>
-                {TONES.map((t) => (
-                  <button
-                    key={t.id}
-                    onClick={() => { props.setTone(t.id); }}
-                    className="w-full text-left flex items-center gap-2 py-1.5 text-xs"
-                  >
-                    <span className="w-3 h-3 rounded-full" style={{
-                      border: "2px solid #1a1a1a",
-                      background: props.tone === t.id ? "#1a1a1a" : "transparent",
-                    }} />
-                    {t.icon} {t.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-5">
+        {/* Style + Tone pickers were removed by request — Style is now
+            locked to "storytelling" (the only one we ship) and Tone is
+            inferred by the AI from the prompt content (sad story → sad
+            tone, comedic prompt → comedic tone, etc). The state values
+            still exist so the API call shape doesn't change but the
+            user doesn't see them. */}
 
         {/* Language */}
         <SelectBtn

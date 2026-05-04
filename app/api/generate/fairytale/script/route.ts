@@ -20,7 +20,7 @@ export const maxDuration = 60;
 export const dynamic = "force-dynamic";
 
 type Style = "storytelling" | "sharing" | "selling";
-type Tone = "formal" | "happy" | "sad" | "scary" | "bold";
+type Tone = "auto" | "formal" | "happy" | "sad" | "scary" | "bold";
 type Language = "ms" | "en";
 type VisualStyle =
   | "realistic"
@@ -38,7 +38,13 @@ const STYLE_HINTS: Record<Style, string> = {
   selling: "Build interest in a product or idea — hook, problem, solution, call to action",
 };
 
+// Tone is now AI-decided — the LLM reads the user's prompt and picks
+// the mood (sad / suspenseful / happy / etc) that fits. The legacy
+// keys remain accepted for backward compat with old draft state, but
+// "auto" is the canonical signal that tells the prompt to stop
+// imposing tone constraints.
 const TONE_HINTS: Record<Tone, string> = {
+  auto: "Read the user's prompt carefully and choose the SINGLE tone that best fits the story (suspenseful, melancholic, joyful, ominous, tender, etc). Commit to that tone fully across all scenes — no mood-mixing within one story.",
   formal: "Use a measured, respectful, neutral tone",
   happy: "Use cheerful, upbeat, warm tone with light humor",
   sad: "Use melancholic, reflective, tender tone — slow pacing",
@@ -51,27 +57,28 @@ const LANG_HINTS: Record<Language, string> = {
   en: "English — natural conversational",
 };
 
-// Detailed visual hints — appended to every scene's image_prompt so the
-// AI image model (RunningHub/Crun nano-banana) locks consistent style
-// across all N scenes. Each hint specifies medium + palette + lighting
-// + composition + reference style so the model has unambiguous targets.
+// Per-style suffix appended to every scene's image_prompt. Tuned for
+// nano-banana / Gemini 2.5 Flash Image based on Google's official
+// guide and community research: real camera/lens names beat empty
+// adjectives; semantic negatives + "no text, no watermark" inline;
+// named lighting (key+fill+color temp) instead of "cinematic look".
 const VISUAL_HINTS: Record<VisualStyle, string> = {
   realistic:
-    "cinematic film still, 35mm anamorphic lens, teal-and-orange color grade, dramatic side lighting, shallow depth of field with creamy bokeh, painterly composition rule of thirds, atmospheric haze, modern blockbuster aesthetic, 4K detail",
+    "Shot on ARRI Alexa with 40mm anamorphic lens at f/1.8, oval bokeh, subtle horizontal lens flare. Color graded with teal shadows and warm-orange highlights, lifted blacks. Hard side key light, soft bounce fill, atmospheric haze with visible god-rays. Composition rule of thirds, deep negative space. Avoid: plastic skin, extra fingers, modern signage, watermark, captions, rendered text.",
   "3d":
-    "Pixar-style 3D animated render, soft global illumination, expressive character with oversized eyes, warm saturated colors, subtle subsurface scattering on skin, plush fabrics, hero-pose composition, family-friendly Disney aesthetic",
+    "3D animated feature-film render in the warmth of a Pixar / DreamWorks production. Subsurface-scattering skin, large expressive eyes, plush fabric folds, hand-painted PBR textures. Three-point softbox lighting with warm rim light, soft global illumination. Family-film color palette, shallow depth of field. Avoid: stiff CGI plastic, dead eyes, watermark, captions, rendered text.",
   anime:
-    "Studio Ghibli anime style by Hayao Miyazaki, soft watercolor backgrounds, warm pastel palette of cream/sage/sky-blue, expressive eyes with subtle highlights, lush hand-drawn detail, gentle whimsical atmosphere, painterly clouds",
+    "Hand-painted anime background in the feel of a Studio Ghibli (Hayao Miyazaki) film. Watercolor wash on textured paper, gouache cloud rendering, gentle cel-shaded characters, soft natural light filtering through foliage, dust motes in sunlight, muted pastel palette of cream / sage / sky-blue. Avoid: digital airbrush gloss, anime-fan-art over-rendering, watermark, captions, rendered text.",
   fantasy:
-    "epic fantasy concept art, oil-painted texture, magical god-rays piercing the scene, rich jewel-tone palette of emerald/sapphire/gold, dramatic chiaroscuro, mythological grandeur, ArtStation trending, Frank Frazetta meets Greg Rutkowski",
+    "Epic fantasy matte painting, oil-on-canvas brushwork, low-angle hero shot. Volumetric god-rays through ancient arches, painterly chiaroscuro, ember particles drifting through air. Desaturated palette with a single accent color (emerald, sapphire, or gold). 50mm lens compression, ArtStation-trending feel of Frank Frazetta meets Greg Rutkowski. Avoid: generic dragon-slayer kitsch, AI-poster sheen, watermark, captions, rendered text.",
   watercolor:
-    "hand-painted watercolor illustration, soft bleeding edges, warm muted palette of cream/peach/sage, visible cold-press paper texture, gentle ink line work over wash, children's storybook aesthetic, dreamy light, Quentin Blake meets Beatrix Potter",
+    "Traditional watercolor illustration on cold-press paper. Visible paper grain, wet-on-wet bleeding edges, soft pigment pooling, hand-drawn graphite underline, white paper used as negative space. Limited 4-color palette of cream / peach / sage / soft pink. Storybook feel of Quentin Blake meets Beatrix Potter. Avoid: digital airbrush, vector smoothness, watermark, captions, rendered text.",
   noir:
-    "cinematic film noir, high-contrast black-and-white with selective spot-color accent, dramatic single-source lighting, deep shadows with venetian-blind patterns, 1940s detective atmosphere, smoke and rain, low-angle dramatic composition, Sin City aesthetic",
+    "Black-and-white film noir still, hard venetian-blind shadow patterns slicing across the subject. Single tungsten key light from low angle, deep silver highlights, bleach-bypass contrast. 1940s Kodak Tri-X grain, smoke-filled air, Dutch tilt. Single accent color allowed (red rose, neon sign). Avoid: generic black-and-white filter look, watermark, captions, rendered text.",
   vintage:
-    "vintage 1970s 35mm film photograph, warm sepia-and-amber color grade, visible film grain, light leaks at frame edges, faded contrast like aged Kodachrome, nostalgic documentary feel, sun-bleached palette, Wes Anderson meets old family album",
+    "1970s Kodak Portra 400 film still, warm magenta cast, soft halation around highlights, fine organic grain, slightly faded blacks, light leak in upper-right corner. 50mm prime lens at f/2 photographed on a Pentax K1000. Sun-bleached palette with Wes Anderson symmetry, old-family-album mood. Avoid: digital sharpness, modern signage, watermark, captions, rendered text.",
   minimalist:
-    "editorial minimalist photography, clean negative space, single subject in sharp focus, soft natural window light, neutral palette of cream/charcoal/dove-grey, magazine-quality composition, premium fashion photography aesthetic, NYT Sunday Magazine feel",
+    "High-fashion editorial photograph, Vogue / NYT Sunday Magazine composition. Beauty-dish key light with subtle clamshell fill, large negative space, glossy magazine paper feel. Shot on Hasselblad medium format, 80mm lens at f/4, neutral palette of cream / charcoal / dove-grey. Avoid: cluttered staging, stock-photo blandness, watermark, captions, rendered text.",
 };
 
 export async function POST(req: Request) {
@@ -84,7 +91,10 @@ export async function POST(req: Request) {
   const body = await req.json().catch(() => ({}));
   const userPrompt = String(body?.prompt || "").trim().slice(0, 1000);
   const style = (["storytelling", "sharing", "selling"].includes(body?.style) ? body.style : "storytelling") as Style;
-  const tone = (["formal", "happy", "sad", "scary", "bold"].includes(body?.tone) ? body.tone : "formal") as Tone;
+  // Tone defaults to "auto" — UI no longer exposes the picker, AI infers
+  // mood from the user's prompt. Old explicit values still accepted for
+  // any draft state in flight.
+  const tone = (["auto", "formal", "happy", "sad", "scary", "bold"].includes(body?.tone) ? body.tone : "auto") as Tone;
   const language = (["ms", "en"].includes(body?.language) ? body.language : "ms") as Language;
   // Map legacy "nature" style (removed in favor of more distinct viral
   // styles) to "realistic" so any draft state in flight keeps working.
@@ -145,42 +155,112 @@ The story-close happens FIRST in the same narration, THEN the question — both 
     ctaInstruction = `\nFINAL-SCENE RULE: Scene ${sceneCount} (the last scene) must deliver the emotional payoff — the moment the viewer rewinds for, the line that makes them save the video or send it to a friend. Avoid weak filler endings like "Sekian" or "That's all". End with a feeling, a fact, or a question that lingers.`;
   }
 
-  const systemPrompt = `You are an elite short-form-video story writer. You write the kind of scripts that make people stop scrolling, watch the full video, then follow the creator for more. Your scripts go viral because they hook fast, escalate emotionally, and reward attention.
+  const systemPrompt = `You are a senior short-form-video scriptwriter. Your scripts go viral because they sound like a human who actually lived the story — never like a content farm. Specific, sensory, varied in rhythm. Real voice. No AI-stink.
 
 OUTPUT FORMAT — STRICT:
 - Output a JSON object: { "scenes": [ { "narration": "...", "image_prompt": "..." }, ... ] }
 - Exactly ${sceneCount} scenes.
-- Do NOT include any text other than the JSON. No markdown fences, no commentary.
+- No markdown fences, no commentary. JSON only.
 
-NARRATION RULES:
-- Each "narration" is ${language === "ms" ? "BAHASA MELAYU (Malaysian Malay), NOT Indonesian — natural casual phrasing, words like korang, aku, ni, tu, memang, je, dah" : "English — natural conversational"}.
-- Each narration is **${targetWords} words** (this is critical — every scene plays for exactly ${sceneDurationSec} seconds of audio + Ken Burns motion, so under-${lowWords} words leaves dead air and over-${highWords} words forces TTS to rush past the next slide).
-- Count your words for every narration before returning. Reject any scene outside ${targetWords} words and rewrite it.
+══════════════════════════════════════════════════════════════════
+NARRATION RULES (the voice your viewers actually hear)
+══════════════════════════════════════════════════════════════════
 
-VIRAL STORY STRUCTURE — APPLY ACROSS ALL ${sceneCount} SCENES:
-- Scene 1 = HOOK. Open with a curiosity gap, shocking fact, bold claim, or unexpected question. Make scrolling impossible. Examples that work: "Tahu tak satu fakta gila pasal X yang ramai tak perasan?" / "I almost didn't survive what happened next." Bad: "Hari ini saya nak cerita…" (boring, gets scrolled past).
-- Scenes 2-3 = AGITATE. Deepen the curiosity. Add a specific detail, a number, a name, a vivid sensory image. Make the viewer FEEL invested.
-- Middle scenes = ESCALATE. Each scene raises the stakes or the surprise factor. End each middle scene on a small cliffhanger ("…tapi yang lagi pelik…", "…and then we noticed something") so the viewer needs the next slide to resolve it.
-- Last 2 scenes = PAYOFF. Deliver the resolution, the answer, the "aha". Reward the viewer's attention with a real beat — emotional, factual, or both.${ctaInstruction}
+LANGUAGE: ${language === "ms"
+    ? `BAHASA MELAYU — Malaysian KL register, NOT Indonesian.
+   Use freely: aku, korang, kitorang, je, dah, ni, tu, kan, lah, weh, memang, jom, kena, tak, gerak, nampak.
+   FORBIDDEN (Indonesian-leaning): banget, gue, lo, deh, sih, kok, loh, aja, banget, butuh.
+   Drop the formal "yang" where Malaysians drop it in speech ("kereta hitam tu" not "kereta yang berwarna hitam").`
+    : `ENGLISH — natural conversational, first-person preferred for personal stories.`}
 
-ENGAGEMENT TECHNIQUES — USE LIBERALLY:
-- Specific numbers > vague claims. "3 saat" beats "cepat". "RM 2,847" beats "banyak duit".
-- Sensory details > abstract description. "Bau hangit" / "tangan menggeletar" > "perasaan tak best".
-- Pattern interrupts: short punchy sentence after a longer one. Or a one-word scene if the punch lands.
-- Stakes — make the viewer care WHY this matters to them, not just to the character.
-- Avoid filler: "ramai orang", "macam-macam", "pelbagai", "etc". Pick ONE concrete example instead.
+WORD COUNT: Each narration is **${targetWords} words** (audio plays ${sceneDurationSec}s at 1.2x; under-${lowWords} = dead air, over-${highWords} = rushed). Count before returning.
 
-STYLE: ${STYLE_HINTS[style]}.
-TONE: ${TONE_HINTS[tone]}.
+SENTENCE RHYTHM (Gary Provost rule — use this verbatim as a model):
+"This sentence has five words. Here are five more words. Five-word sentences are fine. But several together become monotonous. Listen to what's happening. The writing is getting boring."
+→ Each scene must mix sentence lengths. Some scenes: one short punchy line. Others: one flowing sentence. Never two consecutive scenes with identical rhythm.
 
-IMAGE PROMPT RULES:
-- Each "image_prompt" is in ENGLISH, 30-60 words.
-- Structure: subject + action + setting + atmosphere + lighting + camera angle.
-- Show the EMOTION of the scene's narration moment, not just literal objects. If the narration is shocking, the image should feel charged. If reflective, the image should feel still.
-- Always END the image_prompt with: "${VISUAL_HINTS[visualStyle]}"
-- For 9:16 vertical video, frame composition vertically — main subject in upper-third, environment context in lower-thirds.
+SHOW DON'T TELL (this is the highest-leverage rule):
+- Replace abstract emotion with body language + sensory detail + concrete object.
+- BAD: "She felt sad." / "Dia rasa sedih."
+- GOOD: "Tangan dia terketar pegang surat tu." / "Her hand trembled around the cup."
+- Every narration MUST contain at least one concrete sensory detail (sight, sound, smell, touch, or specific named object — not adjective).
 
-Generate the JSON now. The viewer should still be watching at scene ${sceneCount}.`;
+SPECIFICITY OVER GENERIC:
+- Numbers: "RM 47,300" not "banyak duit". "Selasa pukul 3 pagi" not "satu hari".
+- Named objects: "kerusi rotan" not "kerusi". "Toyota Vios biru" not "kereta".
+- Power verbs: "menerkam" not "lari laju". "menggeletar" not "takut sangat".
+
+DIFFERENTIATION OF VOICE:
+- If multiple characters speak or are described, each must sound different (vocabulary, rhythm, mannerisms).
+- A 60-year-old auntie does not speak like a 22-year-old graduate.
+
+══════════════════════════════════════════════════════════════════
+VIRAL STRUCTURE — applied across ${sceneCount} scenes
+══════════════════════════════════════════════════════════════════
+
+SCENE 1 (HOOK, <8 words ideal). Pick ONE proven formula:
+  • Mid-action / mid-sentence: ${language === "ms" ? "\"...dan masa tu, baki dalam akaun aku tinggal RM 12.\"" : "\"...and that's when I realised she'd been lying for twenty years.\""}
+  • Confession with cost: "${language === "ms" ? "Aku habis RM 18,000, baru sedar aku salah." : "I lost RM 18,000 before I realised I was wrong."}"
+  • Stat-punch: "${language === "ms" ? "9 daripada 10 orang Malaysia tak tahu fakta ni." : "9 out of 10 Malaysians don't know this."}"
+  • Bold contrarian: "${language === "ms" ? "Korang yang bangun pukul 5 pagi tu, sebenarnya tipu diri sendiri." : "If you wake up at 5am, you've been lying to yourself."}"
+  • Curiosity gap: "${language === "ms" ? "Apa yang berlaku lepas tu, sampai sekarang aku tak boleh tidur." : "What happened next, I still can't sleep over."}"
+
+BANNED OPENERS (scroll-killers — never use):
+  ${language === "ms" ? "\"Pada zaman dahulu...\", \"Hari ini saya nak cerita...\", \"Dalam dunia yang...\", \"Perjalanan emosi...\"" : "\"Today I want to tell you a story...\", \"In a world where...\", \"Imagine if...\", \"Little did they know...\""}
+
+SCENES 2–3 (SETUP + AGITATE). Add the FIRST specific number, FIRST named place, FIRST sensory anchor. Get the viewer invested in this exact world.
+
+MIDDLE SCENES (ESCALATE — Zeigarnik open loops). Every middle scene must end on an unresolved beat that makes the next scene unmissable. ${language === "ms" ? "Use cliffhanger phrases like \"...tapi yang lagi pelik...\", \"...kemudian dia cakap satu ayat...\", \"...sampai aku tengok bawah meja tu...\"" : "Use cliffhanger phrases like \"...and then we noticed something...\", \"...but the strangest part was...\", \"...what she said next changed everything...\""}.
+
+SCENE ${sceneCount - 1} (PIVOT). The reveal, the insight, the moment everything makes sense.
+
+SCENE ${sceneCount} (PAYOFF). The line viewers rewind for. ${ctaMode === "follow" ? "" : "Land emotional first, THEN open a soft loop or pose a question that flips the story to the viewer."}${ctaInstruction}
+
+══════════════════════════════════════════════════════════════════
+BANNED WORDS / PHRASES (immediate fail — rewrite the line)
+══════════════════════════════════════════════════════════════════
+
+ENGLISH (Wikipedia "Signs of AI writing" + community ban lists):
+delve, tapestry, testament, pivotal, crucial, landscape, realm, journey, harness, leverage, unlock, robust, seamless, vibrant, intricate, nuanced, holistic, transformative, ethereal, resonance, ephemeral, paradigm, synergy, framework, dynamic, comprehensive, profound, groundbreaking, cutting-edge, revolutionize, multifaceted, underscore, showcase, foster, boast, navigate, embark, mosaic, symphony, labyrinth, crescendo, flicker, "heart pounded".
+
+PHRASE PATTERNS (banned regardless of language):
+"It's not X — it's Y", "In a world where", "Most people X. The few who Y", "Stop doing X, start doing Y", "Imagine if", "Little did they know", "At the end of the day", "Here's the truth nobody tells you".
+
+CLOSERS (banned): "In summary", "In conclusion", "${language === "ms" ? "Akhir kata" : "And that's the end"}", "${language === "ms" ? "Pada akhirnya" : "In closing"}", "${language === "ms" ? "Sekian" : "That's all"}".
+
+${language === "ms" ? `BM SPECIFIC (sounds AI / sounds Indonesian):
+menyelami, permaidani kehidupan, perjalanan yang penuh makna, butuh, banget, gue, lo.` : ""}
+
+══════════════════════════════════════════════════════════════════
+TONE
+══════════════════════════════════════════════════════════════════
+
+${TONE_HINTS[tone]}
+
+══════════════════════════════════════════════════════════════════
+IMAGE_PROMPT RULES (these become nano-banana inputs — 9:16 vertical)
+══════════════════════════════════════════════════════════════════
+
+Each "image_prompt" follows the verb-first sentence structure that nano-banana (Gemini 2.5 Flash Image) responds to. NOT a keyword salad — narrative sentences with real photographic vocabulary.
+
+TEMPLATE (60–110 words):
+[Shot type / strong verb] of [Subject + Trait Lock — describe physical traits in EXACTLY the same words across all ${sceneCount} scenes for character consistency].
+[Action verb] in [Setting + time of day + atmosphere].
+Lit with [key + fill light + color temperature].
+Captured on [camera/lens + f-stop OR film stock if relevant].
+Composition: [framing rule, negative space, where the subject sits in the 9:16 frame].
+Avoid: [semantic negatives — "no text overlay, no watermark, no extra fingers, no plastic skin"].
+Then append the style block: "${VISUAL_HINTS[visualStyle]}"
+
+CRITICAL nano-banana rules:
+1. Verb-first opener ("Cinematic medium close-up of...", "Hand-painted watercolor of..."). Never start with an article.
+2. Use real camera/lens names (ARRI Alexa, 40mm anamorphic, 85mm portrait at f/1.8) — not "professional camera" or "high quality".
+3. Repeat the protagonist's TRAIT LOCK verbatim across all scenes — same hair color, eye colour, scar, clothing fabric. This is how nano-banana keeps the same person across 10 images.
+4. Use semantic negatives ("empty street" not "no cars"), but DO add "no text, no watermark, no captions" so the model doesn't render words on the image.
+5. For 9:16 vertical, place the subject in the upper-two-thirds, leave headroom for caption overlay area.
+6. Show the EMOTION of the moment (charged for shock, still for reflection), not just the literal action.
+
+Generate the JSON now. The viewer must still be watching at scene ${sceneCount}, AND the post-watch comment section must light up.`;
 
   const userMsg = `Story prompt: ${userPrompt}
 
