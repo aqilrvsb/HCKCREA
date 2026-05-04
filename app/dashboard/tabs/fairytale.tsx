@@ -3126,14 +3126,19 @@ function PreviewModal(props: {
   const [historyPickerForIdx, setHistoryPickerForIdx] = useState<number | null>(null);
 
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && props.onClose();
+    // Esc closes the modal — but ONLY once script gen has finished.
+    // Mid-generation we want users to wait for the AI to commit work
+    // they're paying for, not bail and waste the OpenRouter call.
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && !props.scriptLoading) props.onClose();
+    };
     window.addEventListener("keydown", onKey);
     document.body.style.overflow = "hidden";
     return () => {
       window.removeEventListener("keydown", onKey);
       document.body.style.overflow = "";
     };
-  }, [props.onClose]);
+  }, [props.onClose, props.scriptLoading]);
 
   function setNarration(idx: number, value: string) {
     props.setScenes((prev) =>
@@ -3198,7 +3203,10 @@ function PreviewModal(props: {
     <div
       className="fixed inset-0 z-50 flex items-center justify-center p-4"
       style={{ background: "rgba(0,0,0,0.7)", backdropFilter: "blur(8px)" }}
-      onClick={props.onClose}
+      // Backdrop click closes — but NOT during script generation, so
+      // the user can't accidentally lose the AI call they paid for by
+      // clicking outside the modal.
+      onClick={() => { if (!props.scriptLoading) props.onClose(); }}
     >
       <div
         className="rounded-2xl max-w-3xl w-full max-h-[92vh] flex flex-col"
@@ -3215,15 +3223,21 @@ function PreviewModal(props: {
               Preview Scenes
             </h2>
             <p className="text-[11px] text-gray-500 mt-0.5">
-              Edit dialogs · supply your own images per scene · close to keep changes
+              {props.scriptLoading
+                ? "Hang on — the AI is writing your 10 scenes. Don't close this window."
+                : "Edit dialogs · supply your own images per scene · close to keep changes"}
             </p>
           </div>
-          <button
-            onClick={props.onClose}
-            className="w-8 h-8 rounded-full flex items-center justify-center hover:bg-gray-100"
-          >
-            <X className="w-4 h-4 text-gray-700" />
-          </button>
+          {/* X button hides during script generation so the user can't
+              cancel the call mid-flight. Re-appears once scenes land. */}
+          {!props.scriptLoading && (
+            <button
+              onClick={props.onClose}
+              className="w-8 h-8 rounded-full flex items-center justify-center hover:bg-gray-100"
+            >
+              <X className="w-4 h-4 text-gray-700" />
+            </button>
+          )}
         </div>
 
         <div className="flex-1 overflow-y-auto p-5 space-y-3">
@@ -3372,14 +3386,18 @@ function PreviewModal(props: {
             {props.scenes.filter((s) => s.userImageUrl || s.userImageFile).length} of {props.scenes.length} scenes have a user image
           </span>
           <div className="flex items-center gap-2">
-            {/* Cancel — keep the dialog edits but stay in Step 1. */}
-            <button
-              onClick={props.onClose}
-              className="px-4 py-2 rounded-lg text-sm font-bold"
-              style={{ background: "white", border: "1px solid #d8b4fe", color: "#7c3aed" }}
-            >
-              Close
-            </button>
+            {/* Close — keep dialog edits, stay in Step 1. Hidden during
+                script generation so the user waits out the AI call
+                they paid for instead of bailing halfway. */}
+            {!props.scriptLoading && (
+              <button
+                onClick={props.onClose}
+                className="px-4 py-2 rounded-lg text-sm font-bold"
+                style={{ background: "white", border: "1px solid #d8b4fe", color: "#7c3aed" }}
+              >
+                Close
+              </button>
+            )}
             {/* Continue — closes the modal AND advances to Step 2.
                 Disabled until script generation finishes; you can't
                 proceed to Generate without scenes. */}
