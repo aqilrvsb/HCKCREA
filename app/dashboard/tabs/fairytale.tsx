@@ -266,15 +266,16 @@ export default function FairytaleTab({ projectId }: { projectId?: string } = {})
   const [transition, setTransition] = useState("fade");
   const [sceneAnimation, setSceneAnimation] = useState("zoom-pan");
 
-  // Font config
+  // Font config — defaults tuned for readable yellow-on-image with no
+  // background block: 16px (S) + yellow (#fde047) + textBackground off.
   const [enableText, setEnableText] = useState(true);
   const [textAnimation, setTextAnimation] = useState("karaoke");
   const [textPlacement, setTextPlacement] = useState("middle");
   const [fontType, setFontType] = useState("Grobold");
-  const [textSize, setTextSize] = useState("L");
-  const [textColor, setTextColor] = useState("#f97316");
+  const [textSize, setTextSize] = useState("S");
+  const [textColor, setTextColor] = useState("#fde047");
   const [uppercase, setUppercase] = useState(true);
-  const [textBackground, setTextBackground] = useState(true);
+  const [textBackground, setTextBackground] = useState(false);
 
   // Step 3 → start AI script generation when entering
   async function generateScript() {
@@ -1649,8 +1650,15 @@ function PreviewPanel(props: any) {
   // Auto-advance: prefer audio.ended event when audio is loaded, else fall
   // back to a setInterval at SCENE_DURATION_MS (silent fallback for when
   // voice is disabled or the cache isn't ready yet).
+  //
+  // GATING: don't start the auto-cycle until Scene 1's image is actually
+  // ready. Otherwise the preview spins through empty placeholders and the
+  // user can't tell anything is happening. The cycle takes over the moment
+  // Scene 1 lands.
+  const scene1Ready = !!scenes?.[0]?.imageUrl;
   useEffect(() => {
     if (!scenes || sceneCount <= 1) return;
+    if (!scene1Ready) return;
     if (sceneAudioUrl && audioRef.current) {
       const el = audioRef.current;
       const onEnded = () =>
@@ -1662,7 +1670,7 @@ function PreviewPanel(props: any) {
       props.setPreviewIdx((p: number) => (p + 1) % sceneCount);
     }, SCENE_DURATION_MS);
     return () => clearInterval(id);
-  }, [sceneCount, sceneAudioUrl]);
+  }, [sceneCount, sceneAudioUrl, scene1Ready]);
 
   const scene = scenes?.[previewIdx] || null;
 
@@ -1672,7 +1680,13 @@ function PreviewPanel(props: any) {
   // so karaoke / highlight stays in sync as the user changes speed.
   const sceneDurationMs = sceneAudioUrl ? effectiveAudioMs : SCENE_DURATION_MS;
 
-  // Karaoke / progressive reveal — bumps every (sceneDuration / wordCount) ms
+  // Karaoke / progressive reveal — paced to audio so subtitle never runs
+  // ahead of the voice. When audio is in play, we hook the <audio>'s
+  // `play` event and start the timer ONLY then; without audio (voice
+  // disabled or cache loading) we fall back to scene-duration pacing.
+  // Without this gate, scene change kicks the timer immediately while
+  // the browser is still buffering the MP3 — user sees subtitle finish,
+  // then audio starts and "rewinds" the karaoke.
   const [revealedCount, setRevealedCount] = useState(words.length);
   useEffect(() => {
     if (!enableText) return;
@@ -1682,16 +1696,33 @@ function PreviewPanel(props: any) {
     }
     setRevealedCount(0);
     if (words.length === 0) return;
-    const perWord = sceneDurationMs / words.length;
-    let i = 0;
-    const id = setInterval(() => {
-      i += 1;
-      setRevealedCount(i);
-      if (i >= words.length) clearInterval(id);
-    }, perWord);
-    return () => clearInterval(id);
-    // Re-run on EVERY relevant change so user sees effect live
-  }, [textAnimation, fullText, sceneDurationMs, enableText, words.length, scene?.idx]);
+    const startReveal = () => {
+      const perWord = sceneDurationMs / words.length;
+      let i = 0;
+      const id = setInterval(() => {
+        i += 1;
+        setRevealedCount(i);
+        if (i >= words.length) clearInterval(id);
+      }, perWord);
+      cleanupRef.current = () => clearInterval(id);
+    };
+    const cleanupRef = { current: () => {} } as { current: () => void };
+    const el = audioRef.current;
+    if (sceneAudioUrl && el) {
+      // If audio already playing (cached + buffered), start now; else wait
+      // for the `play` event so words begin exactly when voice begins.
+      if (!el.paused && el.currentTime > 0) {
+        startReveal();
+      } else {
+        const onPlay = () => startReveal();
+        el.addEventListener("play", onPlay, { once: true });
+        cleanupRef.current = () => el.removeEventListener("play", onPlay);
+      }
+    } else {
+      startReveal();
+    }
+    return () => cleanupRef.current();
+  }, [textAnimation, fullText, sceneDurationMs, enableText, words.length, scene?.idx, sceneAudioUrl]);
 
   // Highlight cursor for the "highlight" mode — one word at a time pulses
   const [highlightIdx, setHighlightIdx] = useState(0);
