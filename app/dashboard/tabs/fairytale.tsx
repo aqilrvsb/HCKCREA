@@ -612,6 +612,7 @@ export default function FairytaleTab({ projectId }: { projectId?: string } = {})
           scriptError={scriptError}
           onRetryScript={generateScript}
           onClose={() => setPreviewModalOpen(false)}
+          secondsPerSlide={secondsPerSlide}
         />
       )}
 
@@ -2075,6 +2076,7 @@ function PreviewModal(props: {
   scriptError: string | null;
   onRetryScript: () => void;
   onClose: () => void;
+  secondsPerSlide: number;
 }) {
   const [historyPickerForIdx, setHistoryPickerForIdx] = useState<number | null>(null);
 
@@ -2091,6 +2093,12 @@ function PreviewModal(props: {
   function setNarration(idx: number, value: string) {
     props.setScenes((prev) =>
       prev.map((s) => (s.idx === idx ? { ...s, narration: value } : s))
+    );
+  }
+
+  function setImagePrompt(idx: number, value: string) {
+    props.setScenes((prev) =>
+      prev.map((s) => (s.idx === idx ? { ...s, imagePrompt: value } : s))
     );
   }
 
@@ -2206,64 +2214,61 @@ function PreviewModal(props: {
                 className="rounded-xl p-4"
                 style={{ background: "#fafaf7", border: "1px solid #e5e7eb" }}
               >
-                <div className="flex items-center gap-2 mb-2">
+                <div className="flex items-center gap-2 mb-3">
                   <span
                     className="px-2 py-0.5 rounded-md text-[10px] font-extrabold uppercase tracking-wider"
                     style={{ background: "#a855f7", color: "white" }}
                   >
                     Scene {s.idx + 1}
                   </span>
-                  <span className="text-[10px] font-mono text-gray-400">
+                  <span
+                    className="px-2 py-0.5 rounded-md text-[10px] font-bold"
+                    style={{ background: "#fef3c7", color: "#92400e", border: "1px solid #fde68a" }}
+                  >
+                    {props.secondsPerSlide}s
+                  </span>
+                  <span className="text-[10px] font-mono text-gray-400 ml-auto">
                     {wordCount(s.narration)} words
                   </span>
                 </div>
 
-                {/* Editable narration */}
+                {/* Image — placeholder/preview FIRST so users see the visual
+                    plan before reading the dialog. Description prompt is
+                    editable too — users can rewrite what the AI will draw. */}
                 <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-wide mb-1">
-                  Dialog
+                  {userOverride ? "Your Image (will be used as-is)" : "Image Description (AI will generate)"}
                 </label>
-                <textarea
-                  rows={2}
-                  value={s.narration}
-                  onChange={(e) => setNarration(s.idx, e.target.value)}
-                  className="w-full p-2.5 rounded-lg text-sm outline-none mb-3"
-                  style={{ background: "white", border: "1px solid #d8e8d0", color: "#1a1a1a" }}
-                />
-
-                {/* Image — description text OR user-supplied thumbnail */}
-                <div className="flex items-start gap-3">
-                  <div className="flex-1 min-w-0">
-                    <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-wide mb-1">
-                      {userOverride ? "Your Image (will be used as-is)" : "Image Description (AI will generate)"}
-                    </label>
-                    {userOverride ? (
-                      <div className="flex items-center gap-2">
-                        <img
-                          src={s.userImagePreview || s.userImageUrl}
-                          alt=""
-                          className="w-16 h-16 rounded-lg object-cover"
-                          style={{ border: "1px solid #d1d5db" }}
-                          referrerPolicy="no-referrer"
-                        />
-                        <div className="text-[11px] text-gray-600">
-                          {s.userImageFile
-                            ? `${s.userImageFile.name} · uploads at Generate time`
-                            : "Picked from history"}
-                        </div>
-                      </div>
-                    ) : (
-                      <p
-                        className="text-[11px] leading-relaxed text-gray-600 italic"
-                        style={{ background: "white", border: "1px dashed #d1d5db", borderRadius: 8, padding: 10 }}
-                      >
-                        {s.imagePrompt || "(no description)"}
-                      </p>
-                    )}
+                {userOverride ? (
+                  <div
+                    className="flex items-center gap-3 p-2.5 rounded-lg mb-3"
+                    style={{ background: "white", border: "1px solid #d1d5db" }}
+                  >
+                    <img
+                      src={s.userImagePreview || s.userImageUrl}
+                      alt=""
+                      className="w-20 h-20 rounded-lg object-cover flex-shrink-0"
+                      style={{ border: "1px solid #d1d5db" }}
+                      referrerPolicy="no-referrer"
+                    />
+                    <div className="text-[11px] text-gray-600 min-w-0">
+                      {s.userImageFile
+                        ? `${s.userImageFile.name} · uploads at Generate time`
+                        : "Picked from history"}
+                    </div>
                   </div>
-                </div>
+                ) : (
+                  <textarea
+                    rows={3}
+                    value={s.imagePrompt}
+                    onChange={(e) => setImagePrompt(s.idx, e.target.value)}
+                    placeholder="Describe what the image should show…"
+                    className="w-full p-2.5 rounded-lg text-[12px] leading-relaxed outline-none mb-3 italic"
+                    style={{ background: "white", border: "1px dashed #d1d5db", color: "#374151" }}
+                  />
+                )}
 
                 {/* Per-scene image controls */}
-                <div className="flex items-center gap-2 mt-3">
+                <div className="flex items-center gap-2 mb-3">
                   <label
                     className="cursor-pointer px-3 py-1.5 rounded-lg text-[11px] font-bold inline-flex items-center gap-1.5"
                     style={{ background: "#fff7ed", color: "#c2410c", border: "1px solid #fed7aa" }}
@@ -2297,6 +2302,21 @@ function PreviewModal(props: {
                     </button>
                   )}
                 </div>
+
+                {/* Dialog (narration) — shown after the image so the user
+                    sees the visual plan first, then writes the line that
+                    plays over it. Duration badge above already conveys
+                    the per-slide length the audio must fit. */}
+                <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-wide mb-1">
+                  Dialog · {props.secondsPerSlide}s narration
+                </label>
+                <textarea
+                  rows={2}
+                  value={s.narration}
+                  onChange={(e) => setNarration(s.idx, e.target.value)}
+                  className="w-full p-2.5 rounded-lg text-sm outline-none"
+                  style={{ background: "white", border: "1px solid #d8e8d0", color: "#1a1a1a" }}
+                />
               </div>
             );
           })}
