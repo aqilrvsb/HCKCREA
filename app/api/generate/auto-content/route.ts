@@ -1139,12 +1139,31 @@ CRITICAL: Respond with ONLY a JSON array. NO analysis, NO explanation, NO markdo
 
   // Persist the master plan as a saved_prompts row in bucket "master-auto"
   // so the user can revisit / star it from the Saved Prompts library.
-  // Stored as the EXACT plans array the AI returned (pretty-printed JSON)
-  // so the Copy button hands the user JSON they can paste straight back
-  // into the master plan input — no envelope, no metadata wrapping.
+  //
+  // Shape MATCHES the reference creative-hack-auto extension exactly:
+  // bare array, key order { imagePrompt, videoPromptShot1, videoPromptShot2,
+  // caption, frameworkName, frameworkType, needsCharacterImage, hookAngle,
+  // targetEmotion, coverTitle, coverSubtitle }. The reference renames our
+  // `framework` field to `frameworkName` — we map at save-time so the
+  // copied JSON pastes straight into the extension's manual auto-plan
+  // textarea without any field renaming.
+  //
   // Best-effort — failure here never breaks the generation path.
   try {
-    const planJson = JSON.stringify(plans, null, 2);
+    const exportShape = plans.map((p) => ({
+      imagePrompt: p.imagePrompt || "",
+      videoPromptShot1: p.videoPromptShot1 || "",
+      videoPromptShot2: p.videoPromptShot2 || "",
+      caption: p.caption || "",
+      frameworkName: p.framework || "",
+      frameworkType: p.frameworkType || "ugc",
+      needsCharacterImage: p.needsCharacterImage ?? true,
+      hookAngle: p.hookAngle || "",
+      targetEmotion: p.targetEmotion || "",
+      coverTitle: (p.coverTitle || "").toUpperCase(),
+      coverSubtitle: (p.coverSubtitle || "").toUpperCase(),
+    }));
+    const planJson = JSON.stringify(exportShape, null, 2);
     await admin.from("saved_prompts").insert({
       user_id: user.id,
       project_id: projectId,
