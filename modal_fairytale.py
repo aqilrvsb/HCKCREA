@@ -415,16 +415,19 @@ def _render_scene(
     font_size: int,
     out_path: Path,
     subtitle_style: dict,
+    min_duration: float = 10.0,
 ) -> Path:
     """Render ONE scene clip — image + Ken Burns + audio + caption burn.
     subtitle_style keys: animation_mode, font_family, color, bg_style,
-    align, y_offset_pct."""
-    # Each scene plays for at least 10 seconds — matches the wizard's
-    # auto-cycle pacing + the AI prompt's word target. If the TTS audio is
-    # shorter than 10s (rare, only on very short narration), the Ken Burns
-    # motion holds on the last frame for the remainder.
+    align, y_offset_pct.
+
+    min_duration sets the floor for scene length (wizard slide duration).
+    If TTS audio is shorter, Ken Burns holds + audio is silence-padded to
+    fill. If audio is longer than min_duration, scene runs the full audio
+    length — we don't truncate narration mid-word.
+    """
     audio_dur = _ffprobe_duration(audio_path)
-    duration = max(audio_dur, 10.0)
+    duration = max(audio_dur, float(min_duration))
     zoompan = _ken_burns_filter(animation, duration)
 
     drawtext = ""
@@ -700,6 +703,10 @@ def render_story(payload: dict):
     animation = payload.get("animation") or "zoom-in"
     placement = payload.get("placement") or "bottom"
     font_size = int(payload.get("font_size") or 56)
+    # Fixed per-scene visual length in seconds. Wizard sends 5/8/10/12/15s.
+    # Audio shorter than this gets padded with silence; longer audio gets
+    # clamped. Bound 3-20s for safety.
+    scene_duration = max(3, min(20, int(payload.get("scene_duration_sec") or 10)))
     subtitle_style = {
         "animation_mode": payload.get("subtitle_animation") or "static",
         "font_family":    payload.get("font_family") or "bold-display",
@@ -741,6 +748,7 @@ def render_story(payload: dict):
                 animation, placement, font_size,
                 workdir / f"clip-{idx}.mp4",
                 subtitle_style,
+                min_duration=scene_duration,
             )
             scene_clips.append(clip_path)
 

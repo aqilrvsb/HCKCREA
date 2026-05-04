@@ -66,23 +66,27 @@ export async function POST(req: Request) {
   const language = (["ms", "en"].includes(body?.language) ? body.language : "ms") as Language;
   const visualStyle = (["realistic", "3d", "fantasy", "minimalist", "nature", "anime"].includes(body?.visual_style) ? body.visual_style : "realistic") as VisualStyle;
   const sceneCount = Math.max(3, Math.min(15, Number(body?.scene_count) || 10));
+  const sceneDurationSec = Math.max(3, Math.min(20, Number(body?.scene_duration_sec) || 10));
 
   if (!userPrompt) {
     return NextResponse.json({ error: "prompt required" }, { status: 400 });
   }
 
-  // Target ~10 seconds of TTS audio per scene. Bahasa Melayu is spoken at
-  // ~2.5-3.0 words/second by MiniMax speech-2.6-turbo, so 25-32 words per
-  // scene fills exactly one 10-second slide. Going below 22 leaves the
-  // Ken Burns motion hanging on a still frame; over 35 forces the TTS to
-  // rush and run past the slide.
-  const targetWords = language === "ms" ? "25-32" : "28-36";
+  // Pace narration to fit the slide: MiniMax speech-2.6-turbo speaks BM at
+  // ~2.7 words/sec and EN at ~3.0 words/sec. Compute a target word window
+  // that lands at ~85-105% of the slide duration — under-fills leave dead
+  // air at the end of the slide, over-fills run past the next slide.
+  const wpsLow  = language === "ms" ? 2.5 : 2.8;
+  const wpsHigh = language === "ms" ? 3.2 : 3.6;
+  const lowWords  = Math.round(sceneDurationSec * wpsLow);
+  const highWords = Math.round(sceneDurationSec * wpsHigh);
+  const targetWords = `${lowWords}-${highWords}`;
   const systemPrompt = `You are a story script writer for short-form video. You produce scene-by-scene scripts where each scene is exactly one short sentence of narration plus a vivid image generation prompt.
 
 OUTPUT RULES — STRICT:
 - Output a JSON object: { "scenes": [ { "narration": "...", "image_prompt": "..." }, ... ] }
 - Exactly ${sceneCount} scenes.
-- Each "narration" is ${language === "ms" ? "BAHASA MELAYU (Malaysian Malay), NOT Indonesian" : "English"}, **${targetWords} words** (this is critical — every scene plays for exactly 10 seconds of audio + Ken Burns motion, so under-${targetWords.split("-")[0]} words leaves dead air at the end of the slide and over-${targetWords.split("-")[1]} words forces the TTS to rush past the next slide).
+- Each "narration" is ${language === "ms" ? "BAHASA MELAYU (Malaysian Malay), NOT Indonesian" : "English"}, **${targetWords} words** (this is critical — every scene plays for exactly ${sceneDurationSec} seconds of audio + Ken Burns motion, so under-${lowWords} words leaves dead air at the end of the slide and over-${highWords} words forces the TTS to rush past the next slide).
 - Each "image_prompt" is in ENGLISH, 30-60 words, vivid visual description with subject + setting + atmosphere + lighting. Always END the image_prompt with: "${VISUAL_HINTS[visualStyle]}"
 - Story arc must be coherent across the ${sceneCount} scenes — beginning, middle, end.
 - ${STYLE_HINTS[style]}.

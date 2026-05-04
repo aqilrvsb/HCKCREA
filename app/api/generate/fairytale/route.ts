@@ -93,6 +93,13 @@ export async function POST(req: Request) {
   const enableVoice = body?.enable_voice !== false;
   const enableText = body?.enable_text !== false;
   const uppercase = !!body?.uppercase;
+  // Per-scene visual length in seconds. Modal pads short narrations with
+  // silence and clamps long ones to this duration. Range 3-20s; defaults
+  // to the legacy 10s for backwards compatibility.
+  const sceneDurationSec = Math.max(
+    3,
+    Math.min(20, Number(body?.scene_duration_sec) || 10)
+  );
 
   const modalEndpoint = process.env.MODAL_FAIRYTALE_ENDPOINT;
   if (!modalEndpoint) {
@@ -163,6 +170,7 @@ export async function POST(req: Request) {
           y_offset_pct: yOffsetPct,
           uppercase,
           enable_text: enableText,
+          scene_duration_sec: sceneDurationSec,
           scenes,
         }),
       });

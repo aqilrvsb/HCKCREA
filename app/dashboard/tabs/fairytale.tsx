@@ -61,6 +61,33 @@ const ASPECTS: { id: Aspect; label: string }[] = [
   { id: "16:9",  label: "16:9 Landscape" },
 ];
 
+// Per-scene duration options (seconds). Drives the AI script-writer's
+// target word count AND the merged mp4's per-scene length. Audio is
+// padded with silence if narration is shorter, trimmed if longer.
+const SECONDS_PER_SLIDE: { id: number; label: string }[] = [
+  { id: 5,  label: "5s per slide" },
+  { id: 8,  label: "8s per slide" },
+  { id: 10, label: "10s per slide" },
+  { id: 12, label: "12s per slide" },
+  { id: 15, label: "15s per slide" },
+];
+
+// Total scene count. The AI splits the user prompt into N narrative beats.
+const SLIDE_COUNTS: { id: number; label: string }[] = [
+  { id: 5,  label: "5 slides" },
+  { id: 8,  label: "8 slides" },
+  { id: 10, label: "10 slides" },
+  { id: 12, label: "12 slides" },
+  { id: 15, label: "15 slides" },
+];
+
+function fmtMmSs(totalSec: number): string {
+  const m = Math.floor(totalSec / 60);
+  const s = Math.round(totalSec % 60);
+  if (m === 0) return `${s}s`;
+  return `${m}m ${s}s`;
+}
+
 // ─── Step 2 visuals ─────────────────────────────────────────────
 type VisualStyle = "realistic" | "3d" | "fantasy" | "minimalist" | "nature" | "anime";
 
@@ -134,6 +161,10 @@ export default function FairytaleTab({ projectId }: { projectId?: string } = {})
   const [language, setLanguage] = useState<Language>("ms");
   const [aspect, setAspect] = useState<Aspect>("9:16");
   const [styleDropdownOpen, setStyleDropdownOpen] = useState(false);
+  // Slide-pacing controls (added per user request — show estimated total
+  // duration before generation so they can plan word count + cost).
+  const [secondsPerSlide, setSecondsPerSlide] = useState<number>(10);
+  const [sceneCount, setSceneCount] = useState<number>(10);
 
   // Step 2 state
   const [visualStyle, setVisualStyle] = useState<VisualStyle>("realistic");
@@ -190,7 +221,10 @@ export default function FairytaleTab({ projectId }: { projectId?: string } = {})
           tone,
           language,
           visual_style: visualStyle,
-          scene_count: 10,
+          scene_count: sceneCount,
+          // Target narration duration per scene — helps the LLM size each
+          // beat to match the slide it'll be paired with.
+          scene_duration_sec: secondsPerSlide,
         }),
       });
       const d = await r.json();
@@ -384,6 +418,9 @@ export default function FairytaleTab({ projectId }: { projectId?: string } = {})
           uppercase,
           enable_text: enableText,
           aspect_ratio: aspect,
+          // Per-scene visual length in seconds. Modal's ffmpeg pads short
+          // narrations with silence and clamps long ones to this duration.
+          scene_duration_sec: secondsPerSlide,
           scenes: valid.map((s) => ({
             image_url: s.imageUrl,
             narration: uppercase ? s.narration.toUpperCase() : s.narration,
@@ -429,6 +466,8 @@ export default function FairytaleTab({ projectId }: { projectId?: string } = {})
           tone={tone} setTone={setTone}
           language={language} setLanguage={setLanguage}
           aspect={aspect} setAspect={setAspect}
+          secondsPerSlide={secondsPerSlide} setSecondsPerSlide={setSecondsPerSlide}
+          sceneCount={sceneCount} setSceneCount={setSceneCount}
           styleDropdownOpen={styleDropdownOpen} setStyleDropdownOpen={setStyleDropdownOpen}
           onNext={goNext}
         />
@@ -530,6 +569,8 @@ function Step1(props: {
   tone: Tone; setTone: (v: Tone) => void;
   language: Language; setLanguage: (v: Language) => void;
   aspect: Aspect; setAspect: (v: Aspect) => void;
+  secondsPerSlide: number; setSecondsPerSlide: (v: number) => void;
+  sceneCount: number; setSceneCount: (v: number) => void;
   styleDropdownOpen: boolean; setStyleDropdownOpen: (v: boolean) => void;
   onNext: () => void;
 }) {
@@ -537,6 +578,12 @@ function Step1(props: {
   const toneObj = TONES.find((t) => t.id === props.tone)!;
   const langObj = LANGUAGES.find((l) => l.id === props.language)!;
   const aspectObj = ASPECTS.find((a) => a.id === props.aspect)!;
+  const secObj = SECONDS_PER_SLIDE.find((s) => s.id === props.secondsPerSlide) || SECONDS_PER_SLIDE[2];
+  const countObj = SLIDE_COUNTS.find((s) => s.id === props.sceneCount) || SLIDE_COUNTS[2];
+  // Rough estimate — actual duration depends on TTS length per scene + the
+  // ~0.5s xfade transition Modal adds between scenes. We show the simple
+  // (sec * count) so the user can plan; the merged mp4 lands within ~5s.
+  const estTotalSec = props.secondsPerSlide * props.sceneCount;
 
   return (
     <div className="max-w-3xl mx-auto">
@@ -624,6 +671,31 @@ function Step1(props: {
           onChange={(id) => props.setAspect(id as Aspect)}
           activeId={props.aspect}
         />
+      </div>
+
+      {/* Slide pacing — seconds per slide + slide count + estimated total */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-3">
+        <SelectBtn
+          value={secObj.label}
+          options={SECONDS_PER_SLIDE.map((s) => ({ id: String(s.id), label: s.label }))}
+          onChange={(id) => props.setSecondsPerSlide(Number(id))}
+          activeId={String(props.secondsPerSlide)}
+        />
+        <SelectBtn
+          value={countObj.label}
+          options={SLIDE_COUNTS.map((s) => ({ id: String(s.id), label: s.label }))}
+          onChange={(id) => props.setSceneCount(Number(id))}
+          activeId={String(props.sceneCount)}
+        />
+      </div>
+      <div
+        className="mt-3 px-4 py-2.5 rounded-xl text-xs font-semibold flex items-center justify-between"
+        style={{ background: "#faf5ff", border: "1px solid #e9d5ff", color: "#6d28d9" }}
+      >
+        <span>Estimated video duration</span>
+        <span className="font-mono">
+          {props.secondsPerSlide}s × {props.sceneCount} = <strong>{fmtMmSs(estTotalSec)}</strong>
+        </span>
       </div>
 
       <div className="flex justify-end mt-8">
