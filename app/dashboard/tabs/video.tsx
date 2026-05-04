@@ -6,6 +6,7 @@ import { createClient } from "@/lib/supabase/client";
 import Portal from "../sections/portal";
 import UgcTab from "./ugc";
 import { uploadImage, dataUrlToFile } from "@/lib/upload-image";
+import { isVisibleAfterTtl, fetchSavedSet } from "@/lib/history-filter";
 
 // Video tab — 1:1 port of creative-hack-auto's video-mode-section.
 // Three image modes (frame / ingredient / text), with a Scene card that
@@ -666,7 +667,9 @@ function HistoryPicker({
         .not("output_url", "is", null)
         .order("created_at", { ascending: false })
         .limit(60);
-      setItems((data as any) || []);
+      const rows = (data as any[]) || [];
+      const saved = await fetchSavedSet(rows.map((r: any) => r.id));
+      setItems(rows.filter((r: any) => isVisibleAfterTtl(r.created_at, saved.has(r.id))) as any);
     } finally {
       setLoading(false);
     }

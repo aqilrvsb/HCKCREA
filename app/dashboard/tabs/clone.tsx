@@ -5,6 +5,7 @@ import { Loader2, X, Pin, Copy, Check } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import Portal from "../sections/portal";
 import { uploadImage, dataUrlToFile } from "@/lib/upload-image";
+import { isVisibleAfterTtl, fetchSavedSet } from "@/lib/history-filter";
 
 // Clone Prompt — input: reference video + product image →
 // output: list of segment prompts (no video generation). Two output models:
@@ -587,13 +588,15 @@ function HistoryPicker({
       const sb = createClient();
       const { data } = await sb
         .from("history")
-        .select("id, output_url")
+        .select("id, output_url, created_at")
         .eq("type", "image")
         .eq("status", "done")
         .not("output_url", "is", null)
         .order("created_at", { ascending: false })
         .limit(60);
-      setItems((data as any) || []);
+      const rows = (data as any[]) || [];
+      const saved = await fetchSavedSet(rows.map((r: any) => r.id));
+      setItems(rows.filter((r: any) => isVisibleAfterTtl(r.created_at, saved.has(r.id))) as any);
     } finally {
       setLoading(false);
     }

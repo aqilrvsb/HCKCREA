@@ -5,6 +5,7 @@ import { Loader2, X } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import Portal from "../sections/portal";
 import { uploadImage, dataUrlToFile } from "@/lib/upload-image";
+import { isVisibleAfterTtl, fetchSavedSet } from "@/lib/history-filter";
 import {
   AVATAR_PROMPTS,
   AVATAR_LABELS,
@@ -541,7 +542,13 @@ function HistoryPicker({
         .not("output_url", "is", null)
         .order("created_at", { ascending: false })
         .limit(60);
-      setItems((data as any) || []);
+      const rows = (data as any[]) || [];
+      // Hide rows whose 14-day TTL is up AND that weren't saved to
+      // Storage — same rule the main HistoryGrid applies, so a row
+      // gone from the grid is also gone from the picker.
+      const saved = await fetchSavedSet(rows.map((r: any) => r.id));
+      const visible = rows.filter((r: any) => isVisibleAfterTtl(r.created_at, saved.has(r.id)));
+      setItems(visible as any);
     } finally {
       setLoading(false);
     }
