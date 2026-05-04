@@ -240,12 +240,19 @@ export async function settleHistoryRow(hist: HistoryRow): Promise<SettleResult> 
     return { state: "skipped", reason: "no task_id" };
   }
 
-  // Pick the backend the row was originally created on. metadata.provider
-  // is "p1" (GeminiGen) or "p2" (Crun.ai). Defaults to p2 if missing —
-  // rows inserted before the multi-provider dispatcher landed all came
-  // from Crun.
-  const rowProvider =
-    (hist.metadata?.provider as "p1" | "p2" | undefined) === "p1" ? "p1" : "p2";
+  // Pick the backend the row was originally created on. Two metadata keys
+  // may carry the provider tag depending on which insert path created the
+  // row: `provider` is set by the original dispatcher; `webhook_provider`
+  // is stamped by the extend/seg2/segment-chain inserts (those rows go
+  // through a different code path that historically only wrote
+  // webhook_provider). Prefer either — whichever is "p1" wins. Defaults
+  // to p2 if neither is set (legacy rows from before multi-provider).
+  const metaProvider = String(hist.metadata?.provider || "").toLowerCase();
+  const metaWebhookProvider = String(
+    hist.metadata?.webhook_provider || ""
+  ).toLowerCase();
+  const rowProvider: "p1" | "p2" =
+    metaProvider === "p1" || metaWebhookProvider === "p1" ? "p1" : "p2";
   const r = await p2GetStatus(hist.task_id, rowProvider);
   const admin = createAdminClient();
 

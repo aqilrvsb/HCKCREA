@@ -201,6 +201,10 @@ async function fireSeg2(parent: Settled, parentOutputUrl: string): Promise<void>
       ...meta,
       segment_role: "seg2",
       anchor_frame_url: anchorFrameUrl,
+      // Stamp provider per-row so settle/recheck queries the correct
+      // upstream (P1 vs P2). Without this the recheck path defaults to
+      // P2 and a P1 seg-2 stays "pending" forever even when P1 is done.
+      provider: created.provider || meta.provider || "p2",
     },
   });
 }

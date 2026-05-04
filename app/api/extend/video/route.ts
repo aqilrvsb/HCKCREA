@@ -296,7 +296,11 @@ export async function POST(req: Request) {
         imageMode: bucket === "cinema" ? "frame" : "ingredient",
       });
 
-      // 5. Update placeholder with task_id (or fail with upstream error)
+      // 5. Update placeholder with task_id (or fail with upstream error).
+      // Stamp `provider` so settle/recheck queries the correct upstream
+      // (P1 vs P2) when this seg-2 row is polled later. Without this, the
+      // recheck path defaults to P2 and the row stays "pending" forever
+      // even though P1 already finished it.
       await admin
         .from("history")
         .update({
@@ -321,6 +325,7 @@ export async function POST(req: Request) {
             voice: voiceId || null,
             voice_line: voiceLine || null,
             upload_status: created.ok ? "done" : "failed",
+            provider: created.provider || "p2",
           },
         })
         .eq("id", childId);
