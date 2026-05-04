@@ -964,7 +964,11 @@ function HistoryCard({
                     className="w-full h-full object-cover pointer-events-none"
                   />
                 ) : (
-                  <div className="absolute inset-0 flex items-center justify-center">
+                  // pointer-events-none so the icon container doesn't
+                  // intercept clicks — the action button at top-right
+                  // sits at the SAME absolute layer and would otherwise
+                  // lose the hit test on its corner.
+                  <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
                     {slide.status === "failed" ? (
                       <XCircle className="w-3.5 h-3.5 text-red-400" />
                     ) : slide.status === "queued" ? (
@@ -984,13 +988,17 @@ function HistoryCard({
                 )}
                 {/* Action overlay on the slide thumb:
                     - pending → "recheck status" (calls /api/generate/status)
+                    - queued  → also "recheck status" (sometimes seg-1 done
+                      flag hasn't propagated yet; a poke kicks it)
                     - failed  → "retry segment" (calls /api/history/retry on
                       the right row — parent for seg_0, child for seg_1).
                       merged failures don't get a retry button because the
                       merge is just download+concat; retrying without inputs
                       is meaningless.
-                    Both states use the SAME button slot to avoid layout shift. */}
+                    24×24 hit area + z-10 + pointer-events:auto so this is
+                    always the topmost clickable element on the thumb. */}
                 {(slide.status === "pending" ||
+                  slide.status === "queued" ||
                   (slide.status === "failed" && slide.id !== "merged")) && (
                   <button
                     type="button"
@@ -1003,12 +1011,14 @@ function HistoryCard({
                     title={
                       slide.status === "failed"
                         ? `Retry ${slide.label}`
-                        : "Re-check status"
+                        : slide.status === "queued"
+                          ? "Re-check (sometimes the upstream finished but didn't notify)"
+                          : "Re-check status"
                     }
-                    className="absolute top-1 right-1 w-5 h-5 rounded-full flex items-center justify-center disabled:opacity-50"
+                    className="absolute top-1 right-1 w-6 h-6 rounded-full flex items-center justify-center disabled:opacity-50 z-10"
                     style={{
-                      background: "rgba(20,20,20,0.85)",
-                      border: `1px solid ${slide.status === "failed" ? "rgba(239,68,68,0.5)" : "rgba(255,255,255,0.25)"}`,
+                      background: "rgba(20,20,20,0.92)",
+                      border: `1px solid ${slide.status === "failed" ? "rgba(239,68,68,0.5)" : "rgba(255,255,255,0.35)"}`,
                       color: slide.status === "failed" ? "#fca5a5" : lineageColor,
                       pointerEvents: "auto",
                     }}
