@@ -1,14 +1,17 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { uploadBuffer, signedGetUrl, head as headObject } from "@/lib/b2";
+import { getStorytellingVoiceSpeed } from "@/lib/settings";
 
 // POST /api/fairytale/voice-sample
 // Body: { voice_id: "Malay_male_1_v1", language: "ms" | "en" }
 //
 // Returns a signed B2 URL for a ~6-second sample of the requested voice
-// reading a fixed sentence. Cached on B2 by voice_id so the FIRST request
-// for a voice synthesizes via MiniMax (~RM 0.05) and every subsequent
-// request — across all users + sessions — returns the cached MP3 for free.
+// reading a fixed sentence. Synthesized at the admin-configured speed
+// (storytelling_voice_speed) so the preview matches what the user will
+// hear in the final video — no client-side playbackRate tricks needed.
+// Cached on B2 keyed by voice_id + language + speed so each speed gets
+// its own permanent cache. First user pays once, everyone else free.
 //
 // Used by the Step 1 voice picker so clients can preview each voice
 // before committing. Decoupled from /api/fairytale/tts-cache so playing
@@ -45,14 +48,18 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "voice_id required" }, { status: 400 });
   }
 
-  // Shared cache key — NO user prefix so the synthesis cost is amortized
-  // across the whole platform. Once any user previews voice X, every
-  // future preview of X is free.
-  const b2Key = `_voice-samples/${voiceId}-${language}.mp3`;
+  // Synthesize at admin-tuned speed so the sample sounds exactly like
+  // the final video narration (no playbackRate hack needed at the
+  // client). Speed becomes part of the cache key so 1.0 / 1.2 / 1.5
+  // each get their own permanent cache without colliding.
+  const speed = await getStorytellingVoiceSpeed();
+  const speedTag = speed.toFixed(2).replace(".", "_"); // "1.20" -> "1_20"
 
-  // Check if cached. headObject returns null on 404 — that's the signal
-  // to synthesize. Any other error bubbles up so we don't accidentally
-  // hammer MiniMax on transient B2 failures.
+  // Shared cache key — NO user prefix so the synthesis cost is amortized
+  // across the whole platform. Once any user previews voice X at speed Y,
+  // every future preview at the same speed is free.
+  const b2Key = `_voice-samples/${voiceId}-${language}-${speedTag}.mp3`;
+
   // headObject throws on 404 — that's our cache-miss signal. Any
   // success response means the MP3 is already in B2 and we can skip the
   // MiniMax call entirely. Other errors fall through to synthesis too,
@@ -78,7 +85,7 @@ export async function POST(req: Request) {
         stream: false,
         language_boost: language === "en" ? "English" : "Malay",
         output_format: "hex",
-        voice_setting: { voice_id: voiceId, speed: 1.0, vol: 1, pitch: 0 },
+        voice_setting: { voice_id: voiceId, speed, vol: 1, pitch: 0 },
         audio_setting: { format: "mp3", sample_rate: 32000, channel: 1 },
       }),
     });
@@ -108,5 +115,5 @@ export async function POST(req: Request) {
   }
 
   const url = await signedGetUrl({ key: b2Key, expiresInSec: SAMPLE_TTL_SEC });
-  return NextResponse.json({ ok: true, url, cached: !needsSynthesis });
+  return NextResponse.json({ ok: true, url, cached: !needsSynthesis, speed });
 }

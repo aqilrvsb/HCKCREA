@@ -210,6 +210,38 @@ const VOICES: VoiceEntry[] = [
     gender: "female",
     label: "Easygoing Neighbor — Female, warm (Narrator)",
   },
+  // Custom-cloned voices on the platform's MiniMax account. IDs come from
+  // MiniMax voice cloning ("Instant Clone") — they only work for our key.
+  {
+    id: "moss_audio_cf82d8cb-4799-11f1-aea0-d66da573c477",
+    name: "Mira",
+    description:
+      "Custom-cloned Malay female voice — natural conversational tone with native cadence and warmth. Tuned for relatable storytelling, day-to-day narration, friendly host style.",
+    tags: ["Malay", "Female", "Cloned", "Natural"],
+    lang: "ms",
+    gender: "female",
+    label: "Mira — Cloned, natural female",
+  },
+  {
+    id: "moss_audio_60caaba6-4799-11f1-bb39-7aa70590506b",
+    name: "Jamal",
+    description:
+      "Custom-cloned Malay male voice — warm authoritative delivery with native phrasing. Great for serious storytelling, branded explainer, news-style narration in Bahasa.",
+    tags: ["Malay", "Male", "Cloned", "Warm"],
+    lang: "ms",
+    gender: "male",
+    label: "Jamal — Cloned, warm male",
+  },
+  {
+    id: "moss_audio_b4d54c5a-225f-11f1-bf6e-065823da7bf2",
+    name: "Afifah",
+    description:
+      "Custom-cloned Malay female voice — expressive and engaging with rich emotional range. Ideal for dramatic narration, viral content hooks, character-driven stories.",
+    tags: ["Malay", "Female", "Cloned", "Expressive"],
+    lang: "ms",
+    gender: "female",
+    label: "Afifah — Cloned, expressive female",
+  },
   // English
   {
     id: "English_Resonant_Man",
@@ -852,11 +884,9 @@ function VoicePickerList(props: {
   language: VoiceLang;
   voiceId: string;
   setVoiceId: (id: string) => void;
-  // Sample MP3s are cached at 1.0x natural speed (so the B2 cache stays
-  // reusable across speed changes). We apply admin's configured speed
-  // at PLAYBACK time via <audio>.playbackRate — same trick the live
-  // preview uses. This way each preview sounds exactly like what users
-  // will hear in the final video.
+  // voiceSpeed is fed to the sample API so MiniMax synthesizes at the
+  // correct speed natively. No client-side playbackRate manipulation
+  // needed — the cached MP3 already IS the right speed.
   voiceSpeed: number;
 }) {
   const list = voicesForLang(props.language);
@@ -918,20 +948,15 @@ function VoicePickerList(props: {
       return;
     }
     el.src = url;
-    // Match the admin-configured narration speed. Clamp to the browser's
-    // safe playbackRate range (Chrome accepts 0.0625–16, but values above
-    // 2.5 sound chipmunky for narration).
-    el.playbackRate = Math.max(0.5, Math.min(2.0, Number(props.voiceSpeed) || 1.0));
+    el.playbackRate = 1.0; // file is already synthesized at admin speed
     setPlayingId(voiceId);
     el.play().catch(() => setErrorId(voiceId));
   }
 
-  // If admin (or pricing API) changes voiceSpeed mid-play, update the
-  // currently-playing element so the user hears the change immediately.
+  // If admin speed changes, drop the in-memory URL cache so the next
+  // play fetches a freshly-synthesized sample at the new speed.
   useEffect(() => {
-    const el = audioRef.current;
-    if (!el || el.paused) return;
-    el.playbackRate = Math.max(0.5, Math.min(2.0, Number(props.voiceSpeed) || 1.0));
+    setSampleCache({});
   }, [props.voiceSpeed]);
 
   return (
