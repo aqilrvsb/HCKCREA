@@ -21,15 +21,19 @@ export async function GET(req: Request) {
   // failures (Crun/Mountsea/Gemini errors land in the scene rows, not
   // the merge row).
   const kind = url.searchParams.get("kind") || "merged";
+  const onlyFailed = url.searchParams.get("failed") === "1";
   const filterType = kind === "scene" ? "fairytale-scene" : "fairytale";
+  const limit = Math.min(50, Math.max(1, Number(url.searchParams.get("limit")) || 15));
 
-  const { data, error } = await admin
+  let q = admin
     .from("history")
     .select("id, type, status, output_url, error_message, metadata, created_at")
     .eq("user_id", user.id)
     .eq("type", filterType)
     .order("created_at", { ascending: false })
-    .limit(15);
+    .limit(limit);
+  if (onlyFailed) q = q.eq("status", "failed");
+  const { data, error } = await q;
 
   return NextResponse.json({
     ok: !error,
