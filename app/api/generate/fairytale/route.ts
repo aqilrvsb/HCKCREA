@@ -24,7 +24,13 @@ export const runtime = "nodejs";
 export const maxDuration = 300;
 export const dynamic = "force-dynamic";
 
-type Scene = { image_url?: string; narration?: string; audio_url?: string };
+type Scene = {
+  image_url?: string;
+  narration?: string;
+  audio_url?: string;
+  animation?: string;
+  transition?: string;
+};
 
 export async function POST(req: Request) {
   const sb = await createClient();
@@ -45,6 +51,10 @@ export async function POST(req: Request) {
       // Optional pre-generated TTS — if present Modal downloads instead
       // of regenerating via MiniMax (saves cost + ~5s render time).
       audio_url: s.audio_url ? String(s.audio_url) : undefined,
+      // Per-scene Ken Burns + transition override. Modal falls back to
+      // payload-level `animation` / `transition` when these are absent.
+      animation: s.animation ? String(s.animation) : undefined,
+      transition: s.transition ? String(s.transition) : undefined,
     }));
 
   if (!scenes.length) {

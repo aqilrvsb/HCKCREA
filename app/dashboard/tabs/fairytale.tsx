@@ -286,6 +286,11 @@ type Scene = {
   userImageUrl?: string;
   userImageFile?: File;
   userImagePreview?: string;
+  // Per-scene animation + transition OVERRIDE. When set, this scene
+  // uses its own value instead of the global render-wide one. undefined
+  // means "inherit global". Empty string is treated the same as undefined.
+  animation?: string;
+  transition?: string;
 };
 
 const wordCount = (s: string) => (s.trim() ? s.trim().split(/\s+/).length : 0);
@@ -587,6 +592,109 @@ export default function FairytaleTab({ projectId }: { projectId?: string } = {})
     );
   }
 
+  // ─── Per-scene actions (Upload / Regenerate / History) ────
+  // These wire the SceneRow icon buttons. Upload swaps in a local file
+  // (uploaded to B2 at merge-time); History uses an already-public URL;
+  // Regenerate re-fires /scene-image with a (possibly edited) prompt
+  // and tracks the new placeholder row so the same poller flips its
+  // status to 'done' when the new image lands.
+  function attachUploadedFileForScene(idx: number, file: File) {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const dataUrl = String(reader.result || "");
+      setScenes((prev) =>
+        prev.map((s) =>
+          s.idx === idx
+            ? {
+                ...s,
+                userImageFile: file,
+                userImagePreview: dataUrl,
+                userImageUrl: undefined,
+                imageUrl: dataUrl,
+                imageStatus: "done" as const,
+                imageHistoryId: null,
+              }
+            : s
+        )
+      );
+    };
+    reader.readAsDataURL(file);
+  }
+
+  function attachHistoryPickForScene(idx: number, url: string) {
+    setScenes((prev) =>
+      prev.map((s) =>
+        s.idx === idx
+          ? {
+              ...s,
+              userImageUrl: url,
+              userImagePreview: url,
+              userImageFile: undefined,
+              imageUrl: url,
+              imageStatus: "done" as const,
+              imageHistoryId: null,
+            }
+          : s
+      )
+    );
+  }
+
+  async function regenerateScene(idx: number, newPrompt: string) {
+    // Flip to "generating" immediately so the spinner shows; clear any
+    // user override so the new AI image actually displays.
+    setScenes((prev) =>
+      prev.map((s) =>
+        s.idx === idx
+          ? {
+              ...s,
+              imagePrompt: newPrompt,
+              imageStatus: "generating" as const,
+              userImageFile: undefined,
+              userImageUrl: undefined,
+              userImagePreview: undefined,
+              imageUrl: "",
+              imageHistoryId: null,
+            }
+          : s
+      )
+    );
+    try {
+      const r = await fetch("/api/generate/fairytale/scene-image", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          prompt: newPrompt,
+          aspect_ratio: aspect,
+          project_id: projectId,
+          scene_idx: idx,
+          group_id: groupId,
+        }),
+      });
+      const d = await r.json();
+      if (r.ok && d?.history_id) {
+        setScenes((prev) =>
+          prev.map((s) =>
+            s.idx === idx
+              ? { ...s, imageHistoryId: d.history_id as string }
+              : s
+          )
+        );
+      } else {
+        setScenes((prev) =>
+          prev.map((s) =>
+            s.idx === idx ? { ...s, imageStatus: "failed" as const } : s
+          )
+        );
+      }
+    } catch {
+      setScenes((prev) =>
+        prev.map((s) =>
+          s.idx === idx ? { ...s, imageStatus: "failed" as const } : s
+        )
+      );
+    }
+  }
+
   // ─── TTS preview cache ────────────────────────────────────
   // When all scene narrations are present (after script gen), pre-generate
   // MP3 audio for each scene via MiniMax → upload to B2. The live preview
@@ -773,6 +881,10 @@ export default function FairytaleTab({ projectId }: { projectId?: string } = {})
             // Reuse the pre-generated TTS so Modal skips MiniMax round-trip.
             // If empty/missing Modal falls back to generating fresh.
             audio_url: audioCache[s.idx] || undefined,
+            // Per-scene overrides — undefined means "inherit global"
+            // (Modal's payload-level animation/transition).
+            animation: s.animation || undefined,
+            transition: s.transition || undefined,
           })),
         }),
       });
@@ -848,6 +960,9 @@ export default function FairytaleTab({ projectId }: { projectId?: string } = {})
       {step === 2 && (
         <Step3
           scenes={scenes} setScenes={setScenes}
+          onSceneUpload={attachUploadedFileForScene}
+          onSceneHistoryPick={attachHistoryPickForScene}
+          onSceneRegenerate={regenerateScene}
           scriptLoading={scriptLoading} scriptError={scriptError}
           configTab={configTab} setConfigTab={setConfigTab}
           language={language}
@@ -1519,6 +1634,7 @@ function Step2({
 function Step3(props: any) {
   const {
     scenes, setScenes,
+    onSceneUpload, onSceneHistoryPick, onSceneRegenerate,
     scriptLoading, scriptError,
     configTab, setConfigTab,
     language,
@@ -1545,6 +1661,11 @@ function Step3(props: any) {
     renderStatus, renderError,
     onBack, onSubmit, onRetryScript,
   } = props;
+
+  // Per-scene history-picker — when set, opens the PreviewHistoryPicker
+  // modal scoped to ONE scene index. We reuse the same picker the
+  // Preview modal uses; setting back to null closes it.
+  const [historyPickerIdx, setHistoryPickerIdx] = useState<number | null>(null);
 
   // Merge gate: every scene has SETTLED (done or failed). Failed scenes
   // get filtered out by submitRender's `valid` check — Modal renders
@@ -1710,9 +1831,29 @@ function Step3(props: any) {
                 )}
                 onPreviewMe={() => setPreviewIdx(idx)}
                 isActive={previewIdx === idx}
+                onUpload={(file) => onSceneUpload?.(s.idx, file)}
+                onRegenerate={(newPrompt) => onSceneRegenerate?.(s.idx, newPrompt)}
+                onPickHistory={() => setHistoryPickerIdx(s.idx)}
+                onSetAnimation={(v) => setScenes((prev: Scene[]) =>
+                  prev.map((x) => x.idx === s.idx ? { ...x, animation: v } : x)
+                )}
+                onSetTransition={(v) => setScenes((prev: Scene[]) =>
+                  prev.map((x) => x.idx === s.idx ? { ...x, transition: v } : x)
+                )}
+                globalAnimation={sceneAnimation}
+                globalTransition={transition}
               />
             ))}
           </div>
+          {historyPickerIdx !== null && (
+            <PreviewHistoryPicker
+              onPick={(url) => {
+                onSceneHistoryPick?.(historyPickerIdx, url);
+                setHistoryPickerIdx(null);
+              }}
+              onClose={() => setHistoryPickerIdx(null)}
+            />
+          )}
         </div>
 
         {/* Bottom nav */}
@@ -1811,13 +1952,37 @@ function Step3(props: any) {
 
 function SceneRow({
   scene, onChange, onPreviewMe, isActive,
+  onUpload, onRegenerate, onPickHistory,
+  onSetAnimation, onSetTransition,
+  globalAnimation, globalTransition,
 }: {
   scene: Scene;
   onChange: (v: string) => void;
   onPreviewMe: () => void;
   isActive: boolean;
+  onUpload: (file: File) => void;
+  onRegenerate: (newPrompt: string) => void;
+  onPickHistory: () => void;
+  onSetAnimation: (v: string | undefined) => void;
+  onSetTransition: (v: string | undefined) => void;
+  globalAnimation: string;
+  globalTransition: string;
 }) {
   const wc = wordCount(scene.narration);
+  const fileRef = useRef<HTMLInputElement | null>(null);
+  // What the thumbnail actually shows. User upload preview wins over the
+  // AI-generated imageUrl so the swap feels instant.
+  const thumb = scene.userImagePreview || scene.userImageUrl || scene.imageUrl;
+  const hasThumb = !!thumb && (scene.imageStatus === "done" || scene.userImagePreview || scene.userImageUrl);
+
+  const animValue = scene.animation || globalAnimation;
+  const transValue = scene.transition || globalTransition;
+
+  // Stop click bubbling so pressing a button doesn't also fire onPreviewMe
+  // (which would jump the live preview every time the user adjusts a
+  // dropdown). Buttons get their own handlers via stopPropagation.
+  const stop = (e: React.MouseEvent | React.ChangeEvent) => e.stopPropagation();
+
   return (
     <div
       onClick={onPreviewMe}
@@ -1828,11 +1993,11 @@ function SceneRow({
       }}
     >
       <div
-        className="aspect-[9/16] rounded-lg overflow-hidden flex items-center justify-center"
+        className="aspect-[9/16] rounded-lg overflow-hidden flex items-center justify-center relative"
         style={{ background: "#f3f4f6" }}
       >
-        {scene.imageStatus === "done" && scene.imageUrl ? (
-          <img src={scene.imageUrl} alt="" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+        {hasThumb ? (
+          <img src={thumb} alt="" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
         ) : scene.imageStatus === "failed" ? (
           <div className="text-center text-[10px] text-red-500 px-2">
             <X className="w-4 h-4 mx-auto mb-1" />
@@ -1859,20 +2024,102 @@ function SceneRow({
         <textarea
           value={scene.narration}
           onChange={(e) => onChange(e.target.value)}
+          onClick={stop}
           rows={2}
           className="w-full px-2.5 py-1.5 rounded-md text-xs resize-none outline-none flex-1"
           style={{ background: "white", border: "1px solid #e5e7eb", color: "#1a1a1a", lineHeight: 1.4 }}
         />
-        <div className="flex gap-1.5">
-          <button className="px-2 py-1 rounded text-[10px] font-bold inline-flex items-center gap-1" style={{ background: "white", border: "1px solid #e5e7eb", color: "#1a1a1a" }}>
+
+        {/* Action row 1 — image actions (Upload / Regenerate / History) */}
+        <div className="flex gap-1.5 flex-wrap">
+          <input
+            ref={fileRef}
+            type="file"
+            accept="image/*"
+            className="hidden"
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (file) onUpload(file);
+              e.target.value = "";
+            }}
+            onClick={stop}
+          />
+          <button
+            type="button"
+            title="Upload your own image for this scene"
+            onClick={(e) => { e.stopPropagation(); fileRef.current?.click(); }}
+            className="px-2 py-1 rounded text-[10px] font-bold inline-flex items-center gap-1"
+            style={{ background: "white", border: "1px solid #e5e7eb", color: "#1a1a1a" }}
+          >
             <Upload className="w-2.5 h-2.5" /> Upload
           </button>
-          <button className="px-2 py-1 rounded text-[10px] font-bold inline-flex items-center gap-1" style={{ background: "white", border: "1px solid #e5e7eb", color: "#1a1a1a" }}>
+          <button
+            type="button"
+            title="Re-generate this scene's image (you can edit the prompt)"
+            onClick={(e) => {
+              e.stopPropagation();
+              const next = window.prompt(
+                "Edit prompt for Scene " + (scene.idx + 1) + ":",
+                scene.imagePrompt || ""
+              );
+              if (next && next.trim()) onRegenerate(next.trim());
+            }}
+            className="px-2 py-1 rounded text-[10px] font-bold inline-flex items-center gap-1"
+            style={{ background: "white", border: "1px solid #e5e7eb", color: "#1a1a1a" }}
+          >
             <RotateCw className="w-2.5 h-2.5" /> Regenerate
           </button>
-          <button className="px-2 py-1 rounded text-[10px] font-bold inline-flex items-center gap-1" style={{ background: "white", border: "1px solid #e5e7eb", color: "#1a1a1a" }}>
-            <VideoIcon className="w-2.5 h-2.5" /> Motion
+          <button
+            type="button"
+            title="Pick an image from your history"
+            onClick={(e) => { e.stopPropagation(); onPickHistory(); }}
+            className="px-2 py-1 rounded text-[10px] font-bold inline-flex items-center gap-1"
+            style={{ background: "white", border: "1px solid #e5e7eb", color: "#1a1a1a" }}
+          >
+            <ImageIcon className="w-2.5 h-2.5" /> History
           </button>
+        </div>
+
+        {/* Action row 2 — per-scene Animation + Transition overrides */}
+        <div className="flex gap-1.5 flex-wrap items-center">
+          <div className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded" style={{ background: "white", border: "1px solid #e5e7eb" }}>
+            <VideoIcon className="w-2.5 h-2.5 text-gray-500" />
+            <select
+              value={animValue}
+              onChange={(e) => {
+                stop(e);
+                const v = e.target.value;
+                onSetAnimation(v === globalAnimation ? undefined : v);
+              }}
+              onClick={stop}
+              title="Animation for this scene only"
+              className="text-[10px] font-bold outline-none bg-transparent"
+              style={{ color: scene.animation ? PURPLE : "#1a1a1a" }}
+            >
+              {SCENE_ANIMS.map((a) => (
+                <option key={a} value={a}>{a.replace(/-/g, " ")}</option>
+              ))}
+            </select>
+          </div>
+          <div className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded" style={{ background: "white", border: "1px solid #e5e7eb" }}>
+            <ArrowRight className="w-2.5 h-2.5 text-gray-500" />
+            <select
+              value={transValue}
+              onChange={(e) => {
+                stop(e);
+                const v = e.target.value;
+                onSetTransition(v === globalTransition ? undefined : v);
+              }}
+              onClick={stop}
+              title="Transition INTO this scene"
+              className="text-[10px] font-bold outline-none bg-transparent"
+              style={{ color: scene.transition ? PURPLE : "#1a1a1a" }}
+            >
+              {TRANSITIONS.map((t) => (
+                <option key={t} value={t}>{t.replace(/-/g, " ")}</option>
+              ))}
+            </select>
+          </div>
         </div>
       </div>
     </div>
@@ -2175,6 +2422,10 @@ function PreviewPanel(props: any) {
   // Background-music playback effect — independent of which scene is
   // active. Track ID change → swap src; play/pause follows the same
   // previewPlaying flag as narration so the user has ONE control.
+  // Music duration must MATCH the scene-set total: we always set
+  // loop=true so a 30s track wraps under a 90s story (same behaviour
+  // as Modal's aloop+amix with duration=first). On Play-from-pause
+  // we DON'T reset currentTime, so resuming feels natural.
   useEffect(() => {
     const el = musicRef.current;
     if (!el) return;
@@ -2186,8 +2437,9 @@ function PreviewPanel(props: any) {
     const targetSrc = `/music/${musicTrackId}.mp3`;
     if (!el.src.endsWith(targetSrc)) {
       el.src = targetSrc;
-      el.loop = true;
+      el.currentTime = 0; // start fresh when user picks a new track
     }
+    el.loop = true; // always — matches Modal's aloop in final merge
     el.volume = Math.max(0, Math.min(1, musicVolume ?? 0.25));
     el.muted = !!previewMuted; // global mute respects narration mute too
     if (previewPlaying) {
@@ -2238,61 +2490,63 @@ function PreviewPanel(props: any) {
     }
     return -1;
   };
+  // ── Effect A: snap-to-ready ──
+  // If previewIdx happens to point at a scene whose image/audio isn't
+  // ready yet, hop to the first ready scene. Runs whenever readiness
+  // map changes (new image lands, audio cache populates) but does NOT
+  // advance through the slideshow — that's Effect B's job. Keeping the
+  // two responsibilities separate is what fixes the rapid-cycle bug:
+  // before, we had ONE effect that ran on every readiness change AND
+  // called advance(), so 10 image-loads triggered 10 advances back-to-back.
+  useEffect(() => {
+    if (!scenes || !previewPlaying) return;
+    if (isSceneReady(scenes[props.previewIdx], props.previewIdx)) return;
+    const firstReady = findNextReadyIdx(-1);
+    if (firstReady !== -1 && firstReady !== props.previewIdx) {
+      props.setPreviewIdx(firstReady);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [previewPlaying, props.previewIdx,
+      scenes.map((s: any) => s.imageUrl).join("|"),
+      Object.keys(audioCache || {}).sort().join(",")]);
+
+  // ── Effect B: auto-advance ──
+  // Single one-shot timer per scene. Fires once on audio.ended OR after
+  // a fallback timeout. When previewIdx changes, the effect cleans up
+  // and sets up the next timer — never two timers racing.
   useEffect(() => {
     if (!scenes || sceneCount <= 1) return;
+    if (!previewPlaying) return;
     if (!anySceneReady) return;
-    if (!previewPlaying) return; // user-controlled — no auto-cycle when paused
-    // Helper: jump to a ready scene from `from`, OR if `from` itself
-    // is unready, snap to the first ready scene from index 0.
+
     const advance = () => {
       props.setPreviewIdx((p: number) => {
-        const currentReady = isSceneReady(scenes[p], p);
-        if (!currentReady) {
-          const firstReady = findNextReadyIdx(-1); // search from -1 → 0,1,2,...
-          return firstReady === -1 ? p : firstReady;
-        }
         const next = findNextReadyIdx(p);
         return next === -1 ? p : next;
       });
     };
-    // If preview currently points at an unready scene, snap immediately
-    // so the user doesn't stare at a black slide while waiting for the
-    // first watchdog tick.
-    Promise.resolve().then(advance);
-    if (sceneAudioUrl && audioRef.current) {
-      const el = audioRef.current;
-      // CATCH-UP: if audio already ENDED before this effect attached
-      // (happens when a new image lands AFTER audio finished — effect
-      // re-runs due to imageUrl-deps change but the `ended` event won't
-      // fire again), advance immediately so we don't get stuck.
-      if (
-        el.paused &&
-        el.duration > 0 &&
-        Math.abs(el.currentTime - el.duration) < 0.25
-      ) {
-        // queue a microtask so we don't run setState during render
-        Promise.resolve().then(advance);
-      }
+
+    const el = audioRef.current;
+    // Effective audio length + 1.5s buffer is the watchdog window —
+    // long enough that `ended` fires first under normal conditions, but
+    // short enough that a stuck/blocked audio still advances the cycle.
+    const watchdogMs = sceneAudioUrl
+      ? Math.max(2000, effectiveAudioMs + 1500)
+      : SCENE_DURATION_MS;
+
+    if (sceneAudioUrl && el) {
       el.addEventListener("ended", advance);
-      // Watchdog: even if `ended` doesn't fire (autoplay blocked, audio
-      // never played), tick every SCENE_DURATION_MS to advance through
-      // the slideshow. Without this the preview gets stuck on slide 1.
-      const watchdog = setInterval(advance, SCENE_DURATION_MS);
+      const watchdog = setTimeout(advance, watchdogMs);
       return () => {
         el.removeEventListener("ended", advance);
-        clearInterval(watchdog);
+        clearTimeout(watchdog);
       };
     }
-    const id = setInterval(advance, SCENE_DURATION_MS);
-    return () => clearInterval(id);
-    // scenes is in deps so when a new image lands the effect re-runs
-    // and the next-ready lookup picks it up.
+    const id = setTimeout(advance, SCENE_DURATION_MS);
+    return () => clearTimeout(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sceneCount, sceneAudioUrl, anySceneReady, previewPlaying,
-      scenes.map((s: any) => s.imageUrl).join("|"),
-      // Re-run when audio cache updates so newly-cached scenes join
-      // the eligibility list immediately.
-      Object.keys(audioCache || {}).sort().join(",")]);
+  }, [sceneCount, sceneAudioUrl, effectiveAudioMs, anySceneReady,
+      previewPlaying, props.previewIdx]);
 
   const scene = scenes?.[previewIdx] || null;
 
@@ -2401,13 +2655,17 @@ function PreviewPanel(props: any) {
       document.body.style.overflow = "";
     };
   }, [isFullscreen]);
+  // Per-scene animation override — when this scene has its own animation
+  // set, use that; else fall back to the global setting. Same fallback
+  // logic Modal applies during merge so live preview matches the final mp4.
+  const effectiveAnim: string = scene?.animation || sceneAnimation;
   useEffect(() => {
     setAnimCycle((c) => c + 1);
     const id = setInterval(() => setAnimCycle((c) => c + 1), sceneDurationMs + 400);
     return () => clearInterval(id);
-  }, [sceneAnimation, scene?.idx, sceneDurationMs]);
+  }, [effectiveAnim, scene?.idx, sceneDurationMs]);
 
-  const cssAnim = SCENE_CSS_ANIM[sceneAnimation] || "";
+  const cssAnim = SCENE_CSS_ANIM[effectiveAnim] || "";
   const fontStack =
     fontType.includes("Serif") || fontType.includes("Times") ? "Georgia, 'Times New Roman', serif" :
     fontType.includes("Mono") ? "ui-monospace, SFMono-Regular, monospace" :

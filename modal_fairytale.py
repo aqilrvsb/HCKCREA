@@ -453,14 +453,28 @@ def _render_scene(
         else:  # static
             drawtext = _static_drawtext(caption, font_size, font_path, color, bg, x_expr, y_expr)
 
-    # Use loop=1 to extend a still image to audio duration
-    # Pad audio with silence to match the 10s scene length when narration
-    # is shorter — apad+atrim ensures the audio track is exactly `duration`
-    # long without -shortest cutting the video early.
+    # Use loop=1 to extend a still image to audio duration. Pad audio with
+    # silence to match the wizard scene length when narration is shorter —
+    # apad+atrim ensures the audio track is exactly `duration` long
+    # without -shortest cutting the video early.
+    #
+    # `-map_metadata -1` strips ALL input metadata before encoding. This
+    # is critical for MP3s from MiniMax / Mountsea which embed an `aigc`
+    # ID3 tag containing nested JSON ({"aigc": {"Label": "1", ...}}).
+    # ffmpeg's lavf demuxer can crash mid-parse on those values when the
+    # nested quotes/colons collide with downstream filter graph parsing,
+    # leaving stderr at "Metadata: aigc : {..." with no error line —
+    # which is exactly what we saw in production. Stripping metadata
+    # sidesteps the issue entirely; we don't need the tags anyway.
+    #
+    # `-fflags +genpts` regenerates packet timestamps if the source MP3
+    # has gaps (Mountsea sometimes does), preventing apad/atrim drift.
     cmd = [
         "ffmpeg", "-y",
+        "-fflags", "+genpts",
         "-loop", "1", "-framerate", "30", "-i", str(image_path),
         "-i", str(audio_path),
+        "-map_metadata", "-1",
         "-filter_complex",
         f"[0:v]{zoompan}{drawtext}[v];"
         f"[1:a]apad,atrim=0:{duration:.2f},asetpts=N/SR/TB[a]",
@@ -471,9 +485,21 @@ def _render_scene(
         "-t", f"{duration:.2f}",
         str(out_path),
     ]
-    res = subprocess.run(cmd, capture_output=True, text=True)
+    # errors="replace" so a non-UTF8 byte in the MP3's binary metadata
+    # (Mountsea sometimes embeds raw bytes) doesn't blow up Python's
+    # subprocess decode. Without this, capture_output fails before we
+    # even see the ffmpeg returncode.
+    res = subprocess.run(
+        cmd, capture_output=True, text=True, errors="replace"
+    )
     if res.returncode != 0:
-        raise RuntimeError(f"ffmpeg scene render failed: {res.stderr[-800:]}")
+        # 2500-char stderr window. The previous 800-char window was being
+        # consumed entirely by AIGC metadata dumps, hiding the real error
+        # line from us. Include returncode so we can spot OOM kills (-9).
+        raise RuntimeError(
+            f"ffmpeg scene render failed (rc={res.returncode}): "
+            f"{res.stderr[-2500:]}"
+        )
     return out_path
 
 
@@ -783,9 +809,14 @@ def render_story(payload: dict):
             audio_path = _apply_audio_speed(
                 raw_audio_path, voice_speed, workdir / f"scene-{idx}.mp3"
             )
+            # Per-scene animation override — wizard sends `animation` on
+            # individual scene objects when the user has tweaked them
+            # via the per-scene picker. Falls back to the payload-level
+            # `animation` (the global default) otherwise.
+            scene_anim = (scene.get("animation") or animation).strip() or animation
             clip_path = _render_scene(
                 img_path, audio_path, narration,
-                animation, placement, font_size,
+                scene_anim, placement, font_size,
                 workdir / f"clip-{idx}.mp4",
                 subtitle_style,
                 min_duration=scene_duration,
