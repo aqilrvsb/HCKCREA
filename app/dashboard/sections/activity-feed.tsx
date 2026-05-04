@@ -56,6 +56,17 @@ function inferKind(item: FeedItem): "image" | "video" | "other" {
   return "other";
 }
 
+// Friendly badge label so users see "Storytelling" instead of the raw
+// DB type "fairytale" (and "Cinema" instead of "seedance" etc).
+function tabLabel(item: FeedItem): string {
+  const key = String(item.type || item.tab || "").toLowerCase();
+  if (key === "fairytale") return "Storytelling";
+  if (key === "seedance") return "Cinema";
+  if (key === "auto-content" || key === "auto") return "Auto";
+  if (key === "video") return "UGC";
+  return key;
+}
+
 export default function ActivityFeed() {
   const [open, setOpen] = useState(false);
   const [items, setItems] = useState<FeedItem[]>([]);
@@ -177,7 +188,7 @@ export default function ActivityFeed() {
                     </div>
                     <div className="text-[10px] text-gray-400 flex items-center gap-1.5">
                       <span className="px-1.5 py-0.5 rounded font-mono uppercase font-bold tracking-wide" style={{ background: "rgba(250,204,21,0.12)", color: "#fde68a" }}>
-                        {it.tab}
+                        {tabLabel(it)}
                       </span>
                       <span className="font-mono text-gray-500">{fmtMyTime(it.created_at)}</span>
                     </div>
@@ -221,7 +232,7 @@ function WatermarkedPreview({ item, onClose }: { item: FeedItem; onClose: () => 
       onClick={onClose}
     >
       <div className="absolute top-4 right-4 flex items-center gap-2">
-        <span className="text-xs font-mono text-gray-300">{item.display_name} · {item.tab}</span>
+        <span className="text-xs font-mono text-gray-300">{item.display_name} · {tabLabel(item)}</span>
         <button
           onClick={onClose}
           className="w-8 h-8 rounded-full flex items-center justify-center bg-white/10 hover:bg-white/20 text-white"
