@@ -76,7 +76,7 @@ export default function ActivityFeed() {
 
   async function load() {
     try {
-      const r = await fetch("/api/activity-feed?limit=30", {
+      const r = await fetch("/api/activity-feed?limit=10", {
         credentials: "include",
         cache: "no-store",
       });
