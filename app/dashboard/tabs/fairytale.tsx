@@ -406,6 +406,11 @@ export default function FairytaleTab({ projectId }: { projectId?: string } = {})
   const [audioCache, setAudioCache] = useState<Record<number, string>>({});
   const [audioCacheStatus, setAudioCacheStatus] = useState<"idle" | "loading" | "ready" | "failed">("idle");
   const [previewMuted, setPreviewMuted] = useState(false);
+  // Live preview play/pause — gates audio playback AND the auto-cycle.
+  // Default false so the preview waits for the user's first click
+  // (browsers block autoplay anyway). Once toggled on, audio plays +
+  // cycle advances; toggle off pauses both immediately.
+  const [previewPlaying, setPreviewPlaying] = useState(false);
 
   // Animation config
   const [transition, setTransition] = useState("fade");
@@ -799,6 +804,8 @@ export default function FairytaleTab({ projectId }: { projectId?: string } = {})
           audioCacheStatus={audioCacheStatus}
           previewMuted={previewMuted}
           setPreviewMuted={setPreviewMuted}
+          previewPlaying={previewPlaying}
+          setPreviewPlaying={setPreviewPlaying}
           renderStatus={renderStatus} renderError={renderError}
           onBack={goBack}
           onSubmit={submitRender}
@@ -1545,6 +1552,7 @@ function Step3(props: any) {
     previewIdx, setPreviewIdx,
     audioCache, audioCacheStatus,
     previewMuted, setPreviewMuted,
+    previewPlaying, setPreviewPlaying,
     renderStatus, renderError,
     onBack, onSubmit, onRetryScript,
   } = props;
@@ -1744,6 +1752,8 @@ function Step3(props: any) {
             audioCacheStatus={audioCacheStatus}
             previewMuted={previewMuted}
             setPreviewMuted={setPreviewMuted}
+            previewPlaying={previewPlaying}
+            setPreviewPlaying={setPreviewPlaying}
             transition={transition}
             sceneAnimation={sceneAnimation}
             textAnimation={textAnimation}
@@ -2067,7 +2077,8 @@ function ScriptLoadingModal({ totalScenes = 10 }: { totalScenes?: number }) {
 function PreviewPanel(props: any) {
   const { scenes, sceneCount, previewIdx, voiceEnabled, transition, sceneAnimation,
     textAnimation, textPlacement, fontType, textSize, textColor, uppercase, textBackground, enableText,
-    audioCache, audioCacheStatus, previewMuted, setPreviewMuted, voiceSpeed } = props;
+    audioCache, audioCacheStatus, previewMuted, setPreviewMuted,
+    previewPlaying, setPreviewPlaying, voiceSpeed } = props;
   const sizePx = TEXT_SIZES.find((s: any) => s.id === textSize)?.px ?? 36;
 
   // The actual <audio> element we control — one per panel, src swaps as
@@ -2087,7 +2098,10 @@ function PreviewPanel(props: any) {
   const sceneAudioUrl: string | undefined =
     voiceEnabled && audioCache ? audioCache[previewIdx] : undefined;
 
-  // When previewIdx changes, swap audio src + autoplay (if not muted).
+  // Audio src + play/pause is gated on previewPlaying. The user's first
+  // click on the play button is the gesture browsers require to
+  // unblock autoplay; subsequent slides play automatically once that
+  // gesture has been recorded.
   useEffect(() => {
     const el = audioRef.current;
     if (!el) return;
@@ -2096,12 +2110,17 @@ function PreviewPanel(props: any) {
       el.removeAttribute("src");
       return;
     }
-    el.src = sceneAudioUrl;
+    if (el.src !== sceneAudioUrl) {
+      el.src = sceneAudioUrl;
+    }
     el.muted = !!previewMuted;
     el.playbackRate = playbackRate;
-    // Browsers block autoplay until user gesture; ignore promise rejection.
-    el.play().catch(() => {});
-  }, [sceneAudioUrl, previewIdx, previewMuted, playbackRate]);
+    if (previewPlaying) {
+      el.play().catch(() => {});
+    } else {
+      el.pause();
+    }
+  }, [sceneAudioUrl, previewIdx, previewMuted, playbackRate, previewPlaying]);
 
   // Re-apply playbackRate live if the slider moves while audio is playing.
   useEffect(() => {
@@ -2140,6 +2159,7 @@ function PreviewPanel(props: any) {
   useEffect(() => {
     if (!scenes || sceneCount <= 1) return;
     if (!anySceneReady) return;
+    if (!previewPlaying) return; // user-controlled — no auto-cycle when paused
     // Helper: jump to a ready scene from `from`, OR if `from` itself
     // is unready, snap to the first ready scene from index 0.
     const advance = () => {
@@ -2186,7 +2206,7 @@ function PreviewPanel(props: any) {
     // scenes is in deps so when a new image lands the effect re-runs
     // and the next-ready lookup picks it up.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sceneCount, sceneAudioUrl, anySceneReady, scenes.map((s: any) => s.imageUrl).join("|")]);
+  }, [sceneCount, sceneAudioUrl, anySceneReady, previewPlaying, scenes.map((s: any) => s.imageUrl).join("|")]);
 
   const scene = scenes?.[previewIdx] || null;
 
@@ -2447,6 +2467,42 @@ function PreviewPanel(props: any) {
           preload="metadata"
           style={{ display: "none" }}
         />
+
+        {/* Big centered Play/Pause button. Hidden once playback is rolling
+            (only fades in on hover). Doubles as the gesture browsers
+            need to unblock autoplay — first click both starts the cycle
+            AND lets the audio play through. */}
+        {setPreviewPlaying && (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              setPreviewPlaying(!previewPlaying);
+            }}
+            aria-label={previewPlaying ? "Pause preview" : "Play preview"}
+            className="absolute top-1/2 left-1/2 flex items-center justify-center rounded-full transition-all duration-200"
+            style={{
+              transform: "translate(-50%, -50%)",
+              width: previewPlaying ? 56 : 72,
+              height: previewPlaying ? 56 : 72,
+              background: "rgba(0,0,0,0.65)",
+              color: "white",
+              border: "2px solid rgba(255,255,255,0.85)",
+              boxShadow: "0 6px 20px rgba(0,0,0,0.5)",
+              opacity: previewPlaying ? 0 : 1,
+              cursor: "pointer",
+              fontSize: previewPlaying ? 24 : 30,
+            }}
+            onMouseEnter={(e) => { e.currentTarget.style.opacity = "1"; }}
+            onMouseLeave={(e) => {
+              if (previewPlaying) e.currentTarget.style.opacity = "0";
+            }}
+          >
+            <span style={{ marginLeft: previewPlaying ? 0 : 4 }}>
+              {previewPlaying ? "❚❚" : "▶"}
+            </span>
+          </button>
+        )}
 
         {/* Prev / Next scene arrows — let user step through scenes in preview */}
         {sceneCount > 1 && (
