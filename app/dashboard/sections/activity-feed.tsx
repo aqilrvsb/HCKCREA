@@ -188,7 +188,7 @@ export default function ActivityFeed() {
           </div>
 
           <div className="px-3 py-2 text-[9px] font-mono text-gray-600 text-center border-t" style={{ borderColor: "rgba(255,255,255,0.04)" }}>
-            top 10 today (Malaysia time) · names anonymized · previews watermarked
+            top 10 video renders today (MY time) · anonymized · watermarked
           </div>
         </div>
       )}

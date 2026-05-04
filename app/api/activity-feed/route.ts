@@ -67,15 +67,19 @@ export async function GET(req: Request) {
   }).format(new Date());
   const todayMyMidnightUtc = new Date(`${todayMyDate}T00:00:00+08:00`).toISOString();
 
+  // Video-only feed: UGC (video) / Auto Content (auto-content) /
+  // Cinema (seedance) / Storytelling (fairytale). Plain images don't
+  // sell the platform's value as well as a finished video — feed
+  // stays focused on the polished outputs.
+  const VIDEO_TYPES = ["video", "auto-content", "seedance", "fairytale"];
+
   const admin = createAdminClient();
   const { data: rows, error } = await admin
     .from("history")
     .select("id, user_id, type, tab, output_url, thumbnail_url, created_at")
     .eq("status", "done")
     .not("output_url", "is", null)
-    // Skip noisy intermediate scene rows — only the merged storytelling
-    // shows up in the feed, not its 10 individual scene images.
-    .neq("type", "fairytale-scene")
+    .in("type", VIDEO_TYPES)
     .gte("created_at", todayMyMidnightUtc)
     .order("created_at", { ascending: false })
     .limit(limit);
