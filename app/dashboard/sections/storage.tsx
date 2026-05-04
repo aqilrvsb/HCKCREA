@@ -34,11 +34,12 @@ type StorageItem = {
   thumbnail_url?: string | null;
 };
 
-// Filter chips. Storytelling has TWO virtual filter chips because the
-// final merged mp4 (type='fairytale') and the per-scene images
-// (type='fairytale-scene') are now both surfaced in Storage — the
-// scene images auto-appear from history rows so the user doesn't have
-// to click Save 10 times.
+// Filter chips. Storytelling rows ONLY appear here once the user
+// clicks Save on a card — auto-synthesis was reverted because users
+// wanted Storage to be "things I chose to keep", not "everything I
+// ever generated". So we keep the two storytelling chips so saved
+// rows can be filtered, but Storage won't be pre-populated with
+// every scene image automatically.
 // Cinema/Story chip — old "cinema" rows still queryable via "All".
 const TYPE_FILTERS: { id: string; label: string }[] = [
   { id: "all",                label: "All" },

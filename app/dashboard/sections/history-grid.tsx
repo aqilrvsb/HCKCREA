@@ -286,19 +286,28 @@ export default function HistoryGrid({
     [parents]
   );
 
-  // Hide rows whose 14-day TTL is already expired AND were never saved
-  // to permanent Storage. These rows have a dead temp URL that gen
-  // workers + the player can no longer reach. Saved rows stay visible
-  // because we have a permanent B2 URL we can swap in (see HistoryCard).
+  // Visibility rules (two flavours):
+  //   • Default rows (image / video / cinema / auto / clone): hide
+  //     when 14-day TTL is up AND row was never saved.
+  //   • Storytelling rows (fairytale + fairytale-scene): hide EARLIER —
+  //     once they hit ≤1 day to expiry (= age ≥ 13 days). Storytelling
+  //     cards show a yellow/red "Xd" countdown chip on the Save button
+  //     so the user is warned BEFORE the row vanishes. The earlier
+  //     cutoff is intentional — storytelling generates 10+ scene
+  //     images per story; without aggressive cleanup the grid bloats
+  //     with abandoned generations.
   const TTL_MS = 14 * 24 * 60 * 60 * 1000;
+  const STORY_CUTOFF_MS = 13 * 24 * 60 * 60 * 1000;
   const visibleParents = useMemo(() => {
     const now = Date.now();
     return parents.filter((p) => {
       if (!p.created_at) return true; // unknown age — keep
       const ageMs = now - new Date(p.created_at).getTime();
-      const expired = ageMs >= TTL_MS;
-      if (!expired) return true;
       const saved = !!saveStatus[p.id]?.saved;
+      const isStorytelling = p.type === "fairytale" || p.type === "fairytale-scene";
+      const cutoff = isStorytelling ? STORY_CUTOFF_MS : TTL_MS;
+      const past = ageMs >= cutoff;
+      if (!past) return true;
       return saved;
     });
   }, [parents, saveStatus]);
@@ -1295,6 +1304,7 @@ function HistoryCard({
                 saving={saving}
                 expiryDays={expiryDays}
                 onSave={handleSave}
+                isStorytelling={item.type === "fairytale" || item.type === "fairytale-scene"}
               />
               <ActionBtn title="Download" onClick={handleDownload} bg={ACTION.download}>
                 <Download className="w-3.5 h-3.5" strokeWidth={2.4} />
@@ -1358,6 +1368,7 @@ function HistoryCard({
                 saving={saving}
                 expiryDays={expiryDays}
                 onSave={handleSave}
+                isStorytelling={item.type === "fairytale" || item.type === "fairytale-scene"}
               />
               <ActionBtn title="Download" onClick={handleDownload} bg={ACTION.download}>
                 <Download className="w-3.5 h-3.5" strokeWidth={2.4} />
@@ -1987,11 +1998,17 @@ function SaveTrafficLight({
   saving,
   expiryDays,
   onSave,
+  isStorytelling,
 }: {
   saved: boolean;
   saving: boolean;
   expiryDays: number | null;
   onSave: () => void;
+  // When true, this card is a storytelling row (fairytale or
+  // fairytale-scene). Storytelling rows show the validity countdown
+  // chip because they vanish from the history grid once unsaved
+  // expiry hits ≤1 day. The chip warns the user before that happens.
+  isStorytelling?: boolean;
 }) {
   // Resolve color tier
   const expired = expiryDays !== null && expiryDays <= 0;
@@ -2043,10 +2060,21 @@ function SaveTrafficLight({
         : saved
           ? <HardDrive className="w-3.5 h-3.5" strokeWidth={2.4} />
           : <CloudUpload className="w-3.5 h-3.5" strokeWidth={2.4} />}
-      {/* "Xd" validity chip removed — Storage section is now the
-          canonical permanent home for completed assets, so the
-          countdown was redundant + alarming. Save still works the
-          same; we just don't shout the TTL at the user. */}
+      {/* Storytelling-only validity countdown. Other tabs keep the
+          plain Save button — storytelling rows actually disappear from
+          history once expiry hits ≤1 day, so the warning matters. */}
+      {isStorytelling && !saved && !expired && expiryDays !== null && (
+        <span
+          className="absolute -top-1 -right-1 text-[8px] font-extrabold rounded-full min-w-[14px] h-[14px] flex items-center justify-center px-1 leading-none"
+          style={{
+            background: urgent ? "#7f1d1d" : "#854d0e",
+            color: "white",
+            border: "1.5px solid var(--color-bg)",
+          }}
+        >
+          {expiryDays}d
+        </span>
+      )}
     </button>
   );
 }
