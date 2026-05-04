@@ -982,12 +982,12 @@ function HistoryCard({
                 ? lineageColor
                 : "#333";
             // Whole-thumb click target. When ready → switch active video.
-            // When pending/queued → recheck status. When failed → retry.
-            // The tiny corner icon was confusing — users tried to click the
-            // whole thumb (like Seg 1) and got no response. Now the entire
-            // thumb is the hit target; the corner icon is just a visual hint.
-            const canRecheck =
-              slide.status === "pending" || slide.status === "queued";
+            // When pending → recheck status. When failed → retry. Queued
+            // slides have NO upstream task yet (Seg 2 is queued until
+            // Seg 1 finishes; merged 16s is queued until Seg 2 finishes),
+            // so re-checking them queries nothing useful — disable until
+            // the predecessor lands.
+            const canRecheck = slide.status === "pending";
             const canRetry =
               slide.status === "failed" && slide.id !== "merged";
             const interactive = ready || canRecheck || canRetry;
@@ -1026,8 +1026,8 @@ function HistoryCard({
                       ? " (failed — click to retry)"
                       : slide.status === "queued"
                         ? slide.id === "seg_1"
-                          ? " (queued — click to re-check)"
-                          : " (queued — click to re-check merge)"
+                          ? " (waiting for Seg 1 to finish)"
+                          : " (waiting for Seg 2 to finish before merge)"
                         : " (still generating — click to re-check)")
                 }
                 className="relative flex-1 min-w-0 aspect-[9/16] rounded overflow-hidden bg-black select-none"
