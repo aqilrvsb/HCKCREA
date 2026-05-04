@@ -1,25 +1,27 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { X, Loader2, Plus, Upload as UploadIcon, History as HistoryIcon } from "lucide-react";
+import { X, Loader2, Plus, Upload as UploadIcon, History as HistoryIcon, MessageCircle } from "lucide-react";
 import Portal from "./portal";
 import { createClient } from "@/lib/supabase/client";
 
 // Extend dialog — opens from EXTEND on a video history card.
 //
-// New flow (vs previous radio-only Continue/Mid-Beat/Alt Take):
-//  - Start frame is REQUIRED. User picks source from 5 options:
-//      first/middle/last frame of source video (auto-extract on backend)
-//      upload custom image (any reference)
-//      pick from past history (user's previous done generations)
-//  - End frame is OPTIONAL — same 5 options.
-//  - Continuation prompt is required.
-//  - Product Text Lock UI is GONE. Backend auto-runs OCR on the source
-//    clip's product image (parent.reference_url) and injects the lock
-//    block into the seg-2 prompt automatically — zero user effort.
+// Flow (refreshed per user feedback):
+//  - User picks ONE start frame from the source clip (FIRST / MIDDLE / LAST)
+//    OR an upload OR a history pick. Clicking FIRST/MIDDLE/LAST seeks the
+//    source video preview to that timestamp so the user can SEE the frame
+//    before committing.
+//  - End Frame UI is hidden — defaults to "last" (last frame of the source
+//    clip) so segment 2 lands seamlessly when concatenated. Backend extracts
+//    the actual pixels at generate time.
+//  - Continuation prompt is replaced by a 3-section DIALOG SCRIPT
+//    (0-2s / 2-6s / 6-8s) matching the UGC-tab dialog UI. The original
+//    first-video prompt is reused as the scene context — user only types
+//    what's spoken in segment 2.
+//  - Product text lock is auto-OCR'd server-side from parent.reference_url.
 //
 // Duration ladder:  8 → +8s = 16, 16 → +8s = 24, 24 → +6s = 30 (cap).
-// Source already at 30s → can't extend further.
 
 type FrameSource = "first" | "middle" | "last" | "upload" | "history";
 
@@ -32,7 +34,7 @@ const FRAME_BUTTONS: { source: FrameSource; label: string; hint: string }[] = [
   { source: "first",   label: "First Frame",  hint: "Re-use the opening frame of this clip." },
   { source: "middle",  label: "Middle Frame", hint: "Pick up at the peak moment of this clip." },
   { source: "last",    label: "Last Frame",   hint: "Continue right where this clip ended." },
-  { source: "upload",  label: "Upload",       hint: "Upload your own start/end frame." },
+  { source: "upload",  label: "Upload",       hint: "Upload your own start frame." },
   { source: "history", label: "From History", hint: "Pick a past generation as the frame." },
 ];
 
@@ -52,6 +54,7 @@ export default function ExtendDialog({
   productDescription,
   voice,
   aspectRatio,
+  originalPrompt,
   onClose,
   onFired,
 }: {
@@ -63,20 +66,29 @@ export default function ExtendDialog({
   productDescription?: string;
   voice?: string;
   aspectRatio?: string;
+  // Original first-video prompt — reused as scene context so the user
+  // doesn't retype the setup. The dialog script below + new start frame
+  // are what changes between segment 1 and segment 2.
+  originalPrompt?: string;
   onClose: () => void;
   onFired: (seg2HistoryId: string) => void;
 }) {
   const plan = extensionPlan(duration);
   // Default start frame = last (most common = pure continuation)
   const [startFrame, setStartFrame] = useState<FrameSelection>({ source: "last" });
-  const [endFrame, setEndFrame] = useState<FrameSelection | null>(null);
-  const [seg2Prompt, setSeg2Prompt] = useState("");
+  // Three-section dialog script. Same time bands as the UGC tab so the
+  // mental model is identical. Start empty — user types what's said.
+  const [dialogBegin, setDialogBegin] = useState("");
+  const [dialogMiddle, setDialogMiddle] = useState("");
+  const [dialogClose, setDialogClose] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [historyPickerSlot, setHistoryPickerSlot] = useState<"start" | "end" | null>(null);
 
   const startUploadRef = useRef<HTMLInputElement | null>(null);
-  const endUploadRef = useRef<HTMLInputElement | null>(null);
+  // Source video player ref — clicking FIRST/MIDDLE/LAST seeks to that
+  // timestamp so the user can see which frame they're picking.
+  const videoRef = useRef<HTMLVideoElement | null>(null);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && !historyPickerSlot && onClose();
@@ -88,39 +100,47 @@ export default function ExtendDialog({
     };
   }, [onClose, historyPickerSlot]);
 
-  function handlePickSource(slot: "start" | "end", source: FrameSource) {
+  function seekToFrame(source: FrameSource) {
+    const v = videoRef.current;
+    if (!v) return;
+    let target = 0;
+    if (source === "first") target = 0;
+    else if (source === "middle") target = Math.max(0, duration / 2);
+    else if (source === "last") target = Math.max(0, duration - 0.1);
+    else return; // upload / history have no timestamp
+    try {
+      v.currentTime = target;
+      v.pause();
+    } catch {}
+  }
+
+  function handlePickSource(source: FrameSource) {
     if (source === "upload") {
-      (slot === "start" ? startUploadRef : endUploadRef).current?.click();
+      startUploadRef.current?.click();
       return;
     }
     if (source === "history") {
-      setHistoryPickerSlot(slot);
+      setHistoryPickerSlot("start");
       return;
     }
-    // first/middle/last → backend auto-extracts; we just store the choice
-    const sel: FrameSelection = { source };
-    if (slot === "start") setStartFrame(sel);
-    else setEndFrame(sel);
+    // first/middle/last → seek the preview AND store the choice; backend
+    // auto-extracts the actual pixels at generate time.
+    seekToFrame(source);
+    setStartFrame({ source });
   }
 
-  async function handleUpload(slot: "start" | "end", file: File | null) {
+  async function handleUpload(file: File | null) {
     if (!file) return;
-    // Read as data URL for preview, server uploads to storage at submit time
     const reader = new FileReader();
     reader.onload = () => {
       const dataUrl = String(reader.result || "");
-      const sel: FrameSelection = { source: "upload", url: dataUrl };
-      if (slot === "start") setStartFrame(sel);
-      else setEndFrame(sel);
+      setStartFrame({ source: "upload", url: dataUrl });
     };
     reader.readAsDataURL(file);
   }
 
   function handleHistoryPick(url: string) {
-    if (!historyPickerSlot) return;
-    const sel: FrameSelection = { source: "history", url };
-    if (historyPickerSlot === "start") setStartFrame(sel);
-    else setEndFrame(sel);
+    setStartFrame({ source: "history", url });
     setHistoryPickerSlot(null);
   }
 
@@ -136,15 +156,36 @@ export default function ExtendDialog({
     return d.url;
   }
 
+  // Build the segment-2 prompt that gets POSTed to the backend. Combines
+  // the original first-video prompt (so character / setting / wardrobe stay
+  // locked) with a freshly-typed dialog script for segment 2. Backend then
+  // appends product text lock + standard locks.
+  function buildSeg2Prompt(): string {
+    const dialogLines: string[] = [];
+    if (dialogBegin.trim()) dialogLines.push(`0–2s (BEGINNING): "${dialogBegin.trim()}"`);
+    if (dialogMiddle.trim()) dialogLines.push(`2–6s (MIDDLE): "${dialogMiddle.trim()}"`);
+    if (dialogClose.trim()) dialogLines.push(`6–8s (CLOSING): "${dialogClose.trim()}"`);
+    const dialogBlock = dialogLines.length > 0
+      ? `DIALOG SCRIPT (segment 2 — character speaks these lines verbatim, in the same voice as segment 1):\n${dialogLines.join("\n")}`
+      : "";
+    const continuationNote = `SEGMENT 2 CONTINUATION: Pick up exactly where segment 1 ended (same character, same product, same setting, same wardrobe, same lighting). The character's pose at segment 2's start matches the picked start frame from segment 1. Same voice, same tone, same energy as segment 1.`;
+    const sceneContext = originalPrompt && originalPrompt.trim()
+      ? `ORIGINAL SCENE (segment 1 — keep all locks):\n${originalPrompt.trim()}`
+      : "";
+    return [continuationNote, sceneContext, dialogBlock]
+      .filter(Boolean)
+      .join("\n\n");
+  }
+
   async function fire() {
     if (!plan) return setError("This clip is already at the 30-second cap.");
-    if (!seg2Prompt.trim()) return setError("Continuation prompt required.");
+    const hasDialog = !!(dialogBegin.trim() || dialogMiddle.trim() || dialogClose.trim());
+    if (!hasDialog) return setError("Add at least one dialog line for segment 2.");
     setError(null);
     setBusy(true);
     try {
-      // Resolve any data: URLs to public URLs before posting
       const startUrl = startFrame.url ? await ensurePublicUrl(startFrame.url) : undefined;
-      const endUrl = endFrame?.url ? await ensurePublicUrl(endFrame.url) : undefined;
+      const seg2Prompt = buildSeg2Prompt();
 
       const res = await fetch("/api/extend/video", {
         method: "POST",
@@ -154,11 +195,13 @@ export default function ExtendDialog({
           source_video_url: videoUrl,
           source_duration: duration,
           bucket,
-          // Frame picker (replaces frame_anchor)
           start_frame_source: startFrame.source,
           start_frame_url: startUrl,
-          end_frame_source: endFrame?.source || null,
-          end_frame_url: endUrl,
+          // End frame hardcoded to "last" — backend extracts the last
+          // frame of the source clip so segment 2 lands seamlessly when
+          // concatenated. UI for end frame removed by request.
+          end_frame_source: "last",
+          end_frame_url: undefined,
           seg2_prompt: seg2Prompt,
           // Product text lock is now AUTO via backend OCR — no UI input
           product_image_url: productImageUrl,
@@ -218,71 +261,86 @@ export default function ExtendDialog({
           </div>
 
           <div className="p-5 space-y-5">
-            {/* Source video preview */}
+            {/* Source video preview — videoRef wired so frame buttons can seek */}
             <div>
               <div className="text-[10px] font-mono uppercase tracking-wider text-gray-500 mb-1">
                 Source clip ({duration}s)
               </div>
               <video
+                ref={videoRef}
                 src={videoUrl}
                 controls
                 className="w-full max-h-48 rounded-lg bg-black border border-gray-800"
               />
+              <div className="text-[10px] text-gray-500 mt-1">
+                Tip: click First / Middle / Last below — the player jumps to that frame so you can preview your pick.
+              </div>
             </div>
 
             {/* Start frame — required */}
             <FrameSlot
               label="Start Frame (required)"
-              hint="The frame the new segment starts from."
+              hint="The frame segment 2 starts from. Click First / Middle / Last to preview."
               selection={startFrame}
-              onPick={(src) => handlePickSource("start", src)}
-              onClear={() => setStartFrame({ source: "last" })}
+              onPick={handlePickSource}
               accent={accent}
-              required
             />
             <input
               ref={startUploadRef}
               type="file"
               accept="image/*"
               hidden
-              onChange={(e) => handleUpload("start", e.target.files?.[0] || null)}
+              onChange={(e) => handleUpload(e.target.files?.[0] || null)}
             />
 
-            {/* End frame — optional */}
-            <FrameSlot
-              label="End Frame (optional)"
-              hint="Where the new segment lands. Leave empty to let the model decide."
-              selection={endFrame}
-              onPick={(src) => handlePickSource("end", src)}
-              onClear={() => setEndFrame(null)}
-              accent={accent}
-            />
-            <input
-              ref={endUploadRef}
-              type="file"
-              accept="image/*"
-              hidden
-              onChange={(e) => handleUpload("end", e.target.files?.[0] || null)}
-            />
+            {/* End Frame UI removed — backend defaults to last frame of
+                source clip so segment 2 lands where segment 1 ended,
+                making the concatenation seamless. No need to ask the
+                user for input that's the same answer 95% of the time. */}
 
-            {/* Continuation prompt */}
-            <div>
-              <label className="block text-xs font-bold uppercase tracking-wider text-gray-400 mb-1">
-                Continuation Prompt (what happens in the new segment)
-              </label>
-              <textarea
-                rows={5}
-                value={seg2Prompt}
-                onChange={(e) => setSeg2Prompt(e.target.value)}
-                placeholder="The reaction continues. Camera holds on her face. She says the next line and lifts the product..."
-                className="w-full p-2 rounded-lg text-[11px] font-mono leading-relaxed resize-y outline-none bg-gray-900 border border-gray-700 text-white"
-              />
-              {productImageUrl && (
-                <div className="text-[10px] text-gray-500 mt-1 leading-relaxed">
-                  Product label akan auto-locked dari product reference — tak perlu type tulisan.
+            {/* Dialog Script — 3-section structure matching UGC tab */}
+            <div className="rounded-xl p-4" style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)" }}>
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-2">
+                  <MessageCircle className="w-4 h-4" style={{ color: accent }} />
+                  <span className="text-xs font-bold uppercase tracking-wider text-white">Dialog Script</span>
                 </div>
-              )}
+                <span
+                  className="text-[10px] font-mono uppercase tracking-wider px-2 py-0.5 rounded"
+                  style={{ background: `${accent}20`, color: accent, border: `1px solid ${accent}40` }}
+                >
+                  {plan.ext} seconds
+                </span>
+              </div>
+
+              <DialogSection
+                label="0–2s · Beginning"
+                color="#22c55e"
+                value={dialogBegin}
+                onChange={setDialogBegin}
+                placeholder='e.g. "Tu, masa kau guna baru terasa..."'
+              />
+              <DialogSection
+                label="2–6s · Middle"
+                color="#facc15"
+                value={dialogMiddle}
+                onChange={setDialogMiddle}
+                placeholder='e.g. "Yang aku suka, tahan lama, tak terbalik macam dulu..."'
+              />
+              <DialogSection
+                label="6–8s · Closing"
+                color="#ef4444"
+                value={dialogClose}
+                onChange={setDialogClose}
+                placeholder='e.g. "Korang try sendiri — tak rugi punya."'
+              />
             </div>
+
+            {productImageUrl && (
+              <div className="text-[10px] text-gray-500 leading-relaxed -mt-2">
+                ⓘ Product label akan auto-locked dari product reference (Gemini scan) — character / setting / wardrobe juga di-lock dari segment 1's prompt. Korang cuma perlu type dialog je.
+              </div>
+            )}
 
             {error && <div className="text-xs text-red-400">{error}</div>}
           </div>
@@ -297,7 +355,7 @@ export default function ExtendDialog({
             </button>
             <button
               onClick={fire}
-              disabled={busy || !seg2Prompt.trim()}
+              disabled={busy || !(dialogBegin.trim() || dialogMiddle.trim() || dialogClose.trim())}
               className="px-5 py-2 rounded-lg text-sm font-semibold text-white disabled:opacity-50 inline-flex items-center gap-2"
               style={{ background: accent }}
             >
@@ -330,17 +388,13 @@ function FrameSlot({
   hint,
   selection,
   onPick,
-  onClear,
   accent,
-  required,
 }: {
   label: string;
   hint: string;
   selection: FrameSelection | null;
   onPick: (source: FrameSource) => void;
-  onClear: () => void;
   accent: string;
-  required?: boolean;
 }) {
   return (
     <div>
@@ -420,24 +474,45 @@ function FrameSlot({
                 : "Public URL ready."}
             </div>
           </div>
-          {!required && (
-            <button
-              onClick={onClear}
-              className="text-[10px] px-2 py-1 rounded text-gray-400 hover:text-white"
-            >
-              Clear
-            </button>
-          )}
         </div>
       )}
     </div>
   );
 }
 
+// Compact textarea row used inside the Dialog Script block. Color-coded
+// label (green / yellow / red for begin / mid / close) mirrors the UGC tab.
+function DialogSection({
+  label,
+  color,
+  value,
+  onChange,
+  placeholder,
+}: {
+  label: string;
+  color: string;
+  value: string;
+  onChange: (v: string) => void;
+  placeholder?: string;
+}) {
+  return (
+    <div className="mb-3 last:mb-0">
+      <div className="text-[10px] font-bold uppercase tracking-wider mb-1" style={{ color }}>
+        {label}
+      </div>
+      <textarea
+        rows={2}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        className="w-full p-2 rounded-md text-[11px] font-mono leading-relaxed resize-y outline-none bg-gray-900 border border-gray-700 text-white"
+      />
+    </div>
+  );
+}
+
 // Picker modal for "From History" — shows recent done video rows. Click to
-// pick that row's output_url as the frame source. (Veo will use whatever the
-// first frame of that video is, since URL-based references aren't pre-
-// extracted client-side here.)
+// pick that row's output_url as the frame source.
 function HistoryPicker({
   onPick,
   onClose,

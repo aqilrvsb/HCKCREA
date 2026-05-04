@@ -1455,6 +1455,10 @@ function HistoryCard({
           productImageUrl={item.reference_url || undefined}
           voice={(item.metadata as any)?.voice || undefined}
           aspectRatio={(item.metadata as any)?.aspectRatio || "9:16"}
+          // Pass the original first-video prompt so the modal can re-use
+          // the scene context (character / setting / wardrobe / product
+          // locks). The user only types fresh dialog for segment 2.
+          originalPrompt={item.prompt || ""}
           onClose={() => setShowExtendModal(false)}
           onFired={() => {
             setShowExtendModal(false);
