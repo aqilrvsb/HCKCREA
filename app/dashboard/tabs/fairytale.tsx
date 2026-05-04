@@ -107,27 +107,35 @@ type VisualStyle =
   | "vintage"     // Vintage 35mm film
   | "minimalist"; // Editorial minimal
 
-// Each entry pairs a hand-tuned gradient (key colour story for the
-// style) with a single big emoji glyph that conveys the aesthetic at
-// a glance — both render zero-network so the Step 1 grid paints
-// instantly. Replaced the third-party CDN sample images that used to
-// lag every page load.
-const VISUAL_STYLES: { id: VisualStyle; label: string; gradient: string; emoji: string }[] = [
-  { id: "realistic",  label: "Cinematic",      emoji: "🎬",
+// Sample images live in /public/storytelling-styles/ — generated once
+// via the project's own AI pipeline (banana-pro, same model that ships
+// to users) so each swatch is an honest representation of what the
+// style produces. ~25-37 KB each, served from Vercel CDN. Gradient is
+// kept as a fallback paint while the image decodes.
+const VISUAL_STYLES: { id: VisualStyle; label: string; gradient: string; sample: string }[] = [
+  { id: "realistic",  label: "Cinematic",
+    sample: "/storytelling-styles/realistic.jpg",
     gradient: "linear-gradient(135deg, #1e3a8a 0%, #0ea5e9 50%, #f59e0b 100%)" },
-  { id: "3d",         label: "3D Pixar",       emoji: "🧸",
+  { id: "3d",         label: "3D Pixar",
+    sample: "/storytelling-styles/3d.jpg",
     gradient: "linear-gradient(135deg, #f97316 0%, #fbbf24 50%, #fde68a 100%)" },
-  { id: "anime",      label: "Anime Ghibli",   emoji: "🌸",
+  { id: "anime",      label: "Anime Ghibli",
+    sample: "/storytelling-styles/anime.jpg",
     gradient: "linear-gradient(135deg, #38bdf8 0%, #fef3c7 50%, #f472b6 100%)" },
-  { id: "fantasy",    label: "Fantasy Epic",   emoji: "🐉",
+  { id: "fantasy",    label: "Fantasy Epic",
+    sample: "/storytelling-styles/fantasy.jpg",
     gradient: "linear-gradient(135deg, #1e1b4b 0%, #7c3aed 50%, #ec4899 100%)" },
-  { id: "watercolor", label: "Watercolor",     emoji: "🎨",
+  { id: "watercolor", label: "Watercolor",
+    sample: "/storytelling-styles/watercolor.jpg",
     gradient: "linear-gradient(135deg, #fda4af 0%, #fef3c7 50%, #a7f3d0 100%)" },
-  { id: "noir",       label: "Cinematic Noir", emoji: "🕵️",
+  { id: "noir",       label: "Cinematic Noir",
+    sample: "/storytelling-styles/noir.jpg",
     gradient: "linear-gradient(135deg, #09090b 0%, #52525b 50%, #fca5a5 100%)" },
-  { id: "vintage",    label: "Vintage Film",   emoji: "📷",
+  { id: "vintage",    label: "Vintage Film",
+    sample: "/storytelling-styles/vintage.jpg",
     gradient: "linear-gradient(135deg, #78350f 0%, #f59e0b 60%, #fef3c7 100%)" },
-  { id: "minimalist", label: "Editorial",      emoji: "📰",
+  { id: "minimalist", label: "Editorial",
+    sample: "/storytelling-styles/minimalist.jpg",
     gradient: "linear-gradient(135deg, #fafafa 0%, #d4d4d8 50%, #71717a 100%)" },
 ];
 
@@ -1157,27 +1165,19 @@ function Step1(props: {
                   boxShadow: active ? "0 4px 14px rgba(139,92,246,0.3)" : "none",
                 }}
               >
-                {/* Big emoji glyph sits centred-upper so the bottom label
-                    has clear space and the emoji conveys the aesthetic
-                    at a glance without needing an external image. */}
-                <div
-                  className="absolute inset-0 flex items-start justify-center pt-2 pointer-events-none"
-                  style={{
-                    fontSize: 36,
-                    lineHeight: 1,
-                    filter: "drop-shadow(0 2px 4px rgba(0,0,0,0.25))",
-                  }}
-                >
-                  {v.emoji}
-                </div>
-                {/* Bottom scrim ensures the label stays readable on light gradients */}
+                <img
+                  src={v.sample}
+                  alt={v.label}
+                  loading="lazy"
+                  className="absolute inset-0 w-full h-full object-cover"
+                />
                 <div
                   className="absolute inset-0"
                   style={{
-                    background: "linear-gradient(180deg, transparent 45%, rgba(0,0,0,0.65) 100%)",
+                    background: "linear-gradient(180deg, transparent 45%, rgba(0,0,0,0.7) 100%)",
                   }}
                 />
-                <div className="absolute bottom-1.5 left-2 text-[11px] font-extrabold text-white drop-shadow">
+                <div className="absolute bottom-1.5 left-2 text-[11px] font-extrabold text-white drop-shadow-lg">
                   {v.label}
                 </div>
               </button>
@@ -1421,19 +1421,15 @@ function Step2({
                 outlineOffset: active ? 2 : 0,
               }}
             >
-              <div
-                className="absolute inset-0 flex items-center justify-center pointer-events-none"
-                style={{
-                  fontSize: 64,
-                  lineHeight: 1,
-                  filter: "drop-shadow(0 4px 8px rgba(0,0,0,0.3))",
-                }}
-              >
-                {v.emoji}
-              </div>
+              <img
+                src={v.sample}
+                alt={v.label}
+                loading="lazy"
+                className="absolute inset-0 w-full h-full object-cover"
+              />
               <div
                 className="absolute inset-0"
-                style={{ background: "linear-gradient(180deg, transparent 50%, rgba(0,0,0,0.6) 100%)" }}
+                style={{ background: "linear-gradient(180deg, transparent 50%, rgba(0,0,0,0.7) 100%)" }}
               />
               <div className="absolute bottom-3 left-4 text-white font-extrabold text-base drop-shadow-lg">
                 {v.label}
