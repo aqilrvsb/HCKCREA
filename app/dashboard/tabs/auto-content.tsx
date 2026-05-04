@@ -92,6 +92,7 @@ export default function AutoContentTab({ projectId }: { projectId?: string } = {
   const [planMode, setPlanMode] = useState<PlanMode>("aiplan");
   const [selectedFrameworks, setSelectedFrameworks] = useState<number[]>([]);
   const [manualPlanJson, setManualPlanJson] = useState("");
+  const [showManualPlanHelp, setShowManualPlanHelp] = useState(false);
 
   // Submit state
   const [status, setStatus] = useState<Status>("idle");
@@ -971,21 +972,47 @@ export default function AutoContentTab({ projectId }: { projectId?: string } = {
         {/* Manual Plan JSON */}
         {planMode === "manual" && (
           <>
-            <Label>
-              Plan JSON{" "}
-              <span className="text-gray-400 font-normal normal-case tracking-normal">
-                (array of {`{ framework, prompt, caption }`})
-              </span>
-            </Label>
+            <div className="flex items-center justify-between">
+              <Label>
+                Plan JSON{" "}
+                <span className="text-gray-400 font-normal normal-case tracking-normal">
+                  (array of plan objects)
+                </span>
+              </Label>
+              <button
+                type="button"
+                onClick={() => setShowManualPlanHelp(true)}
+                className="text-[11px] font-bold inline-flex items-center gap-1 px-2.5 py-1 rounded-lg mb-1.5 transition"
+                style={{
+                  background: "#fef3c7",
+                  color: "#92400e",
+                  border: "1px solid #fde68a",
+                }}
+              >
+                <span style={{ fontSize: 13 }}>ⓘ</span> How to format?
+              </button>
+            </div>
             <textarea
               rows={6}
               value={manualPlanJson}
               onChange={(e) => setManualPlanJson(e.target.value)}
-              placeholder={`[\n  { "framework": "Hook + Pain (PAS)", "prompt": "Medium shot, waist up. ...", "caption": "..." },\n  ...\n]`}
+              placeholder={`[\n  {\n    "videoPromptShot1": "Close-up of a person spraying the product...",\n    "caption": "PASTI WANGI",\n    "needsCharacterImage": true,\n    "coverTitle": "BAU KETIAK?",\n    "coverSubtitle": "SOLUSI SIHAT GILA!"\n  }\n]`}
               className="w-full p-3 rounded-xl text-[11px] font-mono resize-y outline-none mb-4"
               style={{ background: "#f0f5ec", border: "1px solid #d8e8d0", color: "#1a1a1a" }}
             />
           </>
+        )}
+
+        {/* Manual Plan Help modal — two examples (full from AI export
+            shape vs minimal hand-written) with copy buttons. */}
+        {showManualPlanHelp && (
+          <ManualPlanHelpModal
+            onClose={() => setShowManualPlanHelp(false)}
+            onUseExample={(json) => {
+              setManualPlanJson(json);
+              setShowManualPlanHelp(false);
+            }}
+          />
         )}
 
         {/* CTA Mode */}
@@ -1839,6 +1866,174 @@ function HistoryPicker({
         </div>
       </div>
     </div>
+    </Portal>
+  );
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// ManualPlanHelpModal — explains the 2 valid shapes for Manual JSON
+// ──────────────────────────────────────────────────────────────────────────
+//
+// Method 1 — full AI-export shape (what comes out of Saved Prompts when
+//   the AI ran the master plan; copy-paste this directly to recreate).
+// Method 2 — minimal hand-written shape (only videoPromptShot1 is
+//   required; everything else is optional and falls through to defaults).
+//
+// imagePrompt is intentionally omitted from both — Auto Content always
+// runs in noImageMode=true, the uploaded product image IS the r2v
+// reference. Including imagePrompt would be misleading.
+
+const MANUAL_PLAN_FULL_EXAMPLE = `[
+  {
+    "videoPromptShot1": "Close-up of a person spraying product on underarm, smiling at camera in surprise. Bright daylight, modern bathroom. Female Malay voice: 'Tak sangka boleh hilang dalam 3 saat!'",
+    "videoPromptShot2": "",
+    "caption": "PASTI WANGI sepanjang hari! 💪 Cuba sendiri #DeoFreshMY #BauKetiak #ViralMY #FYPMalaysia #MestiCuba",
+    "frameworkName": "Product Hero (AIDA)",
+    "frameworkType": "ugc",
+    "needsCharacterImage": true,
+    "hookAngle": "Shock Result / Numbers",
+    "targetEmotion": "Trust & Curiosity",
+    "coverTitle": "BAU KETIAK?",
+    "coverSubtitle": "SOLUSI SIHAT GILA!"
+  }
+]`;
+
+const MANUAL_PLAN_MIN_EXAMPLE = `[
+  {
+    "videoPromptShot1": "Close-up of a person spraying the product on their underarm, then smiling at the camera in surprise. Bright daylight, modern bathroom. Female Malay voice: 'Tak sangka boleh hilang dalam 3 saat!'",
+    "caption": "PASTI WANGI",
+    "needsCharacterImage": true,
+    "coverTitle": "BAU KETIAK?",
+    "coverSubtitle": "SOLUSI SIHAT GILA!"
+  }
+]`;
+
+function ManualPlanHelpModal(props: { onClose: () => void; onUseExample: (json: string) => void }) {
+  const [tab, setTab] = useState<"full" | "min">("min");
+  const example = tab === "full" ? MANUAL_PLAN_FULL_EXAMPLE : MANUAL_PLAN_MIN_EXAMPLE;
+  const copy = () => {
+    navigator.clipboard.writeText(example);
+  };
+  return (
+    <Portal>
+      <div
+        className="fixed inset-0 z-50 flex items-center justify-center p-4"
+        style={{ background: "rgba(0,0,0,0.65)", backdropFilter: "blur(4px)" }}
+        onClick={props.onClose}
+      >
+        <div
+          className="rounded-2xl max-w-2xl w-full max-h-[88vh] flex flex-col bg-white"
+          onClick={(e) => e.stopPropagation()}
+          style={{ border: "2px solid #fcd34d" }}
+        >
+          <div className="flex items-center justify-between px-5 py-3.5 border-b" style={{ borderColor: "#fef3c7" }}>
+            <div>
+              <h3 className="font-display font-extrabold text-base" style={{ color: "#92400e" }}>
+                Manual Plan JSON — How to format
+              </h3>
+              <p className="text-[11px] text-gray-500 mt-0.5">
+                Two valid shapes. Pick the one that fits your workflow.
+              </p>
+            </div>
+            <button
+              onClick={props.onClose}
+              className="w-8 h-8 rounded-full flex items-center justify-center hover:bg-gray-100 text-gray-500 text-lg"
+              aria-label="Close"
+            >
+              ×
+            </button>
+          </div>
+
+          <div className="flex gap-1 p-1.5 mx-4 mt-3 rounded-xl bg-gray-100">
+            <button
+              type="button"
+              onClick={() => setTab("min")}
+              className="flex-1 py-2 rounded-lg text-xs font-bold transition"
+              style={
+                tab === "min"
+                  ? { background: "white", color: "#1a1a1a", boxShadow: "0 2px 6px rgba(0,0,0,0.06)" }
+                  : { background: "transparent", color: "#6b7280" }
+              }
+            >
+              ✨ Method 1 — Minimal (recommended)
+            </button>
+            <button
+              type="button"
+              onClick={() => setTab("full")}
+              className="flex-1 py-2 rounded-lg text-xs font-bold transition"
+              style={
+                tab === "full"
+                  ? { background: "white", color: "#1a1a1a", boxShadow: "0 2px 6px rgba(0,0,0,0.06)" }
+                  : { background: "transparent", color: "#6b7280" }
+              }
+            >
+              📋 Method 2 — Full export shape
+            </button>
+          </div>
+
+          <div className="p-4 flex-1 overflow-y-auto">
+            {tab === "min" ? (
+              <div className="text-xs text-gray-700 space-y-2 mb-3">
+                <p className="font-bold text-gray-800">When to use:</p>
+                <p>You're writing the prompt yourself. Only <code className="bg-amber-50 text-amber-800 px-1 rounded">videoPromptShot1</code> is required — everything else is optional.</p>
+                <ul className="list-disc list-inside space-y-1 text-gray-600 ml-2">
+                  <li>Skip <code className="bg-gray-100 px-1 rounded">videoPromptShot2</code> for an 8-second video</li>
+                  <li>Skip <code className="bg-gray-100 px-1 rounded">imagePrompt</code> entirely — Auto Content always uses your uploaded product image as the r2v reference</li>
+                  <li><code className="bg-gray-100 px-1 rounded">caption</code> auto-fills from coverTitle if too short</li>
+                </ul>
+              </div>
+            ) : (
+              <div className="text-xs text-gray-700 space-y-2 mb-3">
+                <p className="font-bold text-gray-800">When to use:</p>
+                <p>You're recreating a plan from a previous AI generation. This is the exact shape that lands in Saved Prompts when AI plan mode runs.</p>
+                <ul className="list-disc list-inside space-y-1 text-gray-600 ml-2">
+                  <li>Includes <code className="bg-gray-100 px-1 rounded">frameworkName</code>, <code className="bg-gray-100 px-1 rounded">hookAngle</code>, <code className="bg-gray-100 px-1 rounded">targetEmotion</code> for organisation</li>
+                  <li>Empty <code className="bg-gray-100 px-1 rounded">videoPromptShot2</code> = 8s video; filled = 16s extended video</li>
+                  <li>Compatible with creative-hack-auto extension paste-back</li>
+                </ul>
+              </div>
+            )}
+
+            <pre
+              className="rounded-lg p-3 text-[10px] font-mono leading-relaxed whitespace-pre-wrap overflow-auto"
+              style={{
+                background: "#1a1a1a",
+                color: "#a7f3d0",
+                maxHeight: "40vh",
+              }}
+            >
+              {example}
+            </pre>
+          </div>
+
+          <div className="px-4 py-3 border-t flex items-center justify-end gap-2" style={{ borderColor: "#fef3c7", background: "#fffbeb" }}>
+            <button
+              type="button"
+              onClick={props.onClose}
+              className="px-4 py-2 rounded-lg text-xs font-bold"
+              style={{ background: "white", border: "1px solid #fde68a", color: "#92400e" }}
+            >
+              Close
+            </button>
+            <button
+              type="button"
+              onClick={copy}
+              className="px-4 py-2 rounded-lg text-xs font-bold"
+              style={{ background: "white", border: "1px solid #fde68a", color: "#92400e" }}
+            >
+              📋 Copy JSON
+            </button>
+            <button
+              type="button"
+              onClick={() => props.onUseExample(example)}
+              className="px-4 py-2 rounded-lg text-xs font-bold text-white"
+              style={{ background: "linear-gradient(135deg, #f59e0b 0%, #d97706 100%)" }}
+            >
+              ✨ Use this example
+            </button>
+          </div>
+        </div>
+      </div>
     </Portal>
   );
 }

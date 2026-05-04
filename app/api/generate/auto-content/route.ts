@@ -1150,8 +1150,10 @@ CRITICAL: Respond with ONLY a JSON array. NO analysis, NO explanation, NO markdo
   //
   // Best-effort — failure here never breaks the generation path.
   try {
+    // imagePrompt dropped — Auto Content always runs in noImageMode=true
+    // (the uploaded product image IS the r2v reference, no separate
+    // image gen). Keeping it in the saved JSON only invites confusion.
     const exportShape = plans.map((p) => ({
-      imagePrompt: p.imagePrompt || "",
       videoPromptShot1: p.videoPromptShot1 || "",
       videoPromptShot2: p.videoPromptShot2 || "",
       caption: p.caption || "",
