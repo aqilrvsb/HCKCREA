@@ -225,7 +225,7 @@ You are the NARRATOR retelling this story to a Malaysian friend at 2am — not t
 VIRAL STRUCTURE — TikTok pace, applied across ${sceneCount} scenes
 ══════════════════════════════════════════════════════════════════
 
-SCENE 1 (HOOK, ${Math.max(6, Math.round(lowWords * 0.6))}–${Math.round(lowWords * 0.9)} words — this hook range OVERRIDES the per-scene ${targetWords}-word rule above; the hook should be punchier than a body scene).
+SCENE 1 (HOOK, ${targetWords} words — same length as body scenes so TTS audio fills the ${sceneDurationSec}s slide cleanly). The PUNCH lives in the FIRST ${Math.max(4, Math.round(lowWords * 0.4))}–${Math.round(lowWords * 0.6)} words; the rest of the line is a specifying detail that earns the curiosity. Don't shorten the line — load the impact upfront then add the anchor.
 The hook depends on the topic. Pick the formula that fits:
   • Confession with stakes (personal stories): "I lost [X] because I [trusted/believed/missed] [Y]."
   • Mid-action drop (story): "I was [doing X], when [Y happened]."
@@ -295,6 +295,15 @@ DEFAULT-AVOID LIST (applies regardless of topic — these are AI-stink defaults,
 
 Each "image_prompt" follows the verb-first sentence structure that nano-banana (Gemini 2.5 Flash Image) responds to. NOT a keyword salad — narrative sentences with real photographic vocabulary.
 
+🎯 IMAGE-NARRATION COHERENCE RULE (the most-violated rule — read twice):
+Before writing each image_prompt, identify the ONE concrete NOUN and ONE concrete VERB in THAT scene's narration. The image MUST depict that exact noun performing that exact verb. Atmosphere supports the verb; atmosphere does NOT replace it.
+
+  • Narration says "dia hempas keyboard" → image shows the character actively SLAMMING the keyboard, mid-motion, fingers blurred. NOT "man at desk looking frustrated".
+  • Narration says "Steve held the first Apple I prototype" → image shows hands cradling a circuit board. NOT "Steve thinking in a garage".
+  • Narration says "the samurai sheathed his sword" → image shows the blade mid-slide into the saya. NOT "samurai standing solemnly at sunset".
+
+If the narration is internal/reflective (no concrete verb), invent a matching physical action that visualizes the thought ("realized he was wrong" → image of the character pausing, looking at a specific object that triggered the realization). Never default to "person looking pensive at camera".
+
 TEMPLATE (70–130 words):
 [Shot type / strong verb] of [TRAIT LOCK — paste verbatim].
 [Action verb] in [setting that fits the story's topic + time of day + atmosphere].
@@ -319,7 +328,42 @@ Generate the JSON now. The viewer must still be watching at scene ${sceneCount},
 
 Generate the JSON now.`;
 
-  const result = await orChat({
+  // ─── Validation helpers ──────────────────────────────────────────
+  // Banned-word list = the same regex patterns the prompt forbids,
+  // so server-side enforcement matches what the LLM was told. We don't
+  // run this on the image_prompt (the visual hints intentionally use
+  // some flagged words like "ethereal" for the fantasy style).
+  const BANNED_NARRATION_REGEX = [
+    /\bdelve\b/i, /\btapestry\b/i, /\btestament\b/i, /\bpivotal\b/i,
+    /\bharness\b/i, /\bleverage\b/i, /\bunlock(?:s|ed|ing)?\b/i,
+    /\brobust\b/i, /\bseamless\b/i, /\bvibrant\b/i, /\bintricate\b/i,
+    /\bnuanced\b/i, /\bholistic\b/i, /\btransformative\b/i,
+    /\bparadigm\b/i, /\bsynergy\b/i, /\bunderscore(?:s|d)?\b/i,
+    /\bshowcase(?:s|d)?\b/i, /\bnavigate(?:s|d)?\b/i, /\bembark(?:s|ed)?\b/i,
+    /\bcrescendo\b/i, /\bmosaic\b/i, /\bsymphony\b/i, /\blabyrinth\b/i,
+    /menyelami/i, /permaidani/i, /perjalanan emosi/i,
+    /menyengat/i, /\bmeresap\b/i, /\bmendesah\b/i,
+    /^pada zaman dahulu/i, /^once upon a time/i,
+    /^in a world where/i, /^imagine if\b/i,
+    /\bsekian\b/i, /\bakhir kata\b/i,
+    /\bin conclusion\b/i, /\bin summary\b/i,
+  ];
+  function countWords(s: string): number {
+    return s.trim().split(/\s+/).filter(Boolean).length;
+  }
+  function violatesBudget(narration: string): string | null {
+    const wc = countWords(narration);
+    if (wc < lowWords) return `too short (${wc} words, need ${targetWords})`;
+    if (wc > highWords + 2) return `too long (${wc} words, need ${targetWords})`;
+    for (const re of BANNED_NARRATION_REGEX) {
+      const m = narration.match(re);
+      if (m) return `banned phrase "${m[0]}"`;
+    }
+    return null;
+  }
+
+  // ─── First call ──────────────────────────────────────────────────
+  let result = await orChat({
     systemPrompt,
     userPrompt: userMsg,
     temperature: 0.85,
@@ -334,35 +378,82 @@ Generate the JSON now.`;
   }
 
   // Parse — strip markdown fences if model added them despite instructions
-  let raw = result.content.trim();
-  raw = raw.replace(/^```json\s*/i, "").replace(/^```\s*/, "").replace(/```\s*$/, "").trim();
-
-  let parsed: any;
-  try {
-    parsed = JSON.parse(raw);
-  } catch {
-    // Some models prepend text — try to find the first { and last } and parse that slice
+  function tryParse(text: string): any | null {
+    let raw = text.trim().replace(/^```json\s*/i, "").replace(/^```\s*/, "").replace(/```\s*$/, "").trim();
+    try { return JSON.parse(raw); } catch {}
     const start = raw.indexOf("{");
     const end = raw.lastIndexOf("}");
     if (start >= 0 && end > start) {
-      try {
-        parsed = JSON.parse(raw.slice(start, end + 1));
-      } catch {
-        return NextResponse.json(
-          { error: "AI returned invalid JSON", raw: raw.slice(0, 300) },
-          { status: 502 }
-        );
+      try { return JSON.parse(raw.slice(start, end + 1)); } catch {}
+    }
+    return null;
+  }
+
+  let parsed = tryParse(result.content);
+  if (!parsed) {
+    return NextResponse.json(
+      { error: "AI returned invalid JSON", raw: result.content.slice(0, 300) },
+      { status: 502 }
+    );
+  }
+
+  // ─── Server-side validation pass ─────────────────────────────────
+  // Count violations against the prompt's own rules. If too many
+  // scenes drift, retry ONCE with a corrective system message naming
+  // the violators. Single retry caps cost — the user pays for at most
+  // 2 OpenRouter calls per Generate click.
+  function findViolations(scenesArr: any[]): { idx: number; reason: string }[] {
+    if (!Array.isArray(scenesArr)) return [];
+    return scenesArr
+      .map((s: any, i: number) => {
+        const narr = String(s?.narration || s?.text || "").trim();
+        if (!narr) return null;
+        const reason = violatesBudget(narr);
+        return reason ? { idx: i, reason } : null;
+      })
+      .filter(Boolean) as { idx: number; reason: string }[];
+  }
+
+  let scenesRaw = Array.isArray(parsed?.scenes) ? parsed.scenes : [];
+  let violations = findViolations(scenesRaw);
+
+  // > 1 violations across the story = drift; retry with a correction.
+  // 0–1 violations are within tolerance (the LLM's not perfect, and
+  // strict retries on single drifts blow the cost budget).
+  if (violations.length > 1) {
+    const violationList = violations
+      .map((v) => `  • Scene ${v.idx + 1}: ${v.reason}`)
+      .join("\n");
+    const correction = `${systemPrompt}
+
+══════════════════════════════════════════════════════════════════
+CORRECTION PASS — your previous attempt failed validation:
+${violationList}
+
+Regenerate the FULL JSON. Specifically:
+- Every narration must be ${targetWords} words.
+- Strip the flagged banned phrases above; rewrite those scenes in plain conversational language.
+- Same TRAIT LOCK, same story, same scene count. Just fix the violations.`;
+
+    const retry = await orChat({
+      systemPrompt: correction,
+      userPrompt: userMsg,
+      temperature: 0.7, // lower temp on retry — more compliant
+      maxTokens: 4500,
+    });
+    if (retry.ok && retry.content) {
+      const retryParsed = tryParse(retry.content);
+      const retryScenes = Array.isArray(retryParsed?.scenes) ? retryParsed.scenes : [];
+      const retryViolations = findViolations(retryScenes);
+      // Keep retry only if it's strictly better
+      if (retryScenes.length > 0 && retryViolations.length < violations.length) {
+        scenesRaw = retryScenes;
+        violations = retryViolations;
       }
-    } else {
-      return NextResponse.json(
-        { error: "AI returned invalid JSON", raw: raw.slice(0, 300) },
-        { status: 502 }
-      );
     }
   }
 
-  const scenes = Array.isArray(parsed?.scenes) ? parsed.scenes : [];
-  if (scenes.length === 0) {
+  if (scenesRaw.length === 0) {
     return NextResponse.json(
       { error: "AI returned empty scenes array" },
       { status: 502 }
@@ -370,7 +461,7 @@ Generate the JSON now.`;
   }
 
   // Sanitize — coerce to expected shape, drop garbage
-  const cleaned = scenes
+  const cleaned = scenesRaw
     .filter((s: any) => s && typeof s === "object")
     .map((s: any, i: number) => ({
       idx: i,
@@ -386,5 +477,12 @@ Generate the JSON now.`;
     tone,
     language,
     visual_style: visualStyle,
+    // Surface validation diagnostics so the wizard can show "1 scene
+    // was a bit off but acceptable" if needed. Doesn't change the
+    // output shape — additive field.
+    validation: {
+      retried: violations.length > 1 ? false : violations.length === 0 ? false : false,
+      remaining_violations: violations.length,
+    },
   });
 }
