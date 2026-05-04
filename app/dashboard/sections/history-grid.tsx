@@ -628,11 +628,19 @@ function HistoryCard({
     const targetId =
       slide.id === "seg_1" ? seg2?.id : item.id;
     if (!targetId) return;
+    if (recheckingId) return;
     setRecheckingId(slide.id);
+    const startedAt = Date.now();
     try {
       await fetch(`/api/generate/status?id=${targetId}`, { cache: "no-store" });
       window.dispatchEvent(new CustomEvent("history:refresh"));
     } finally {
+      // Min visible spin time so the user sees feedback even when the
+      // status endpoint returns instantly (otherwise the icon flashes
+      // for ~50ms and they think nothing happened).
+      const elapsed = Date.now() - startedAt;
+      const remaining = Math.max(0, 700 - elapsed);
+      if (remaining > 0) await new Promise((r) => setTimeout(r, remaining));
       setRecheckingId(null);
     }
   }
@@ -914,26 +922,41 @@ function HistoryCard({
               : ready
                 ? lineageColor
                 : "#333";
+            // Whole-thumb click target. When ready → switch active video.
+            // When pending/queued → recheck status. When failed → retry.
+            // The tiny corner icon was confusing — users tried to click the
+            // whole thumb (like Seg 1) and got no response. Now the entire
+            // thumb is the hit target; the corner icon is just a visual hint.
+            const canRecheck =
+              slide.status === "pending" || slide.status === "queued";
+            const canRetry =
+              slide.status === "failed" && slide.id !== "merged";
+            const interactive = ready || canRecheck || canRetry;
+            const onActivate = () => {
+              if (ready) {
+                setActiveIdx(i);
+                setUserPicked(true);
+              } else if (canRetry) {
+                void retrySlide(slide);
+              } else if (canRecheck) {
+                void recheckSlide(slide);
+              }
+            };
             return (
-              // Use a div not a button — a disabled <button> swallows
-              // pointer events on ALL its children, so the inner recheck
-              // icon can't be clicked when the slide is still pending.
-              // We replicate button semantics via role + onClick + onKey.
               <div
                 key={slide.id}
-                role={ready ? "button" : undefined}
-                tabIndex={ready ? 0 : -1}
+                role={interactive ? "button" : undefined}
+                tabIndex={interactive ? 0 : -1}
                 onClick={() => {
-                  if (!ready) return;
-                  setActiveIdx(i);
-                  setUserPicked(true);
+                  if (!interactive) return;
+                  if (recheckingId === slide.id) return;
+                  onActivate();
                 }}
                 onKeyDown={(e) => {
-                  if (!ready) return;
+                  if (!interactive) return;
                   if (e.key === "Enter" || e.key === " ") {
                     e.preventDefault();
-                    setActiveIdx(i);
-                    setUserPicked(true);
+                    onActivate();
                   }
                 }}
                 title={
@@ -941,18 +964,18 @@ function HistoryCard({
                   (ready
                     ? ""
                     : slide.status === "failed"
-                      ? " (failed)"
+                      ? " (failed — click to retry)"
                       : slide.status === "queued"
                         ? slide.id === "seg_1"
-                          ? " (queued — waits for Seg 1 to finish)"
-                          : " (queued — merges after Seg 2 finishes)"
-                        : " (still generating)")
+                          ? " (queued — click to re-check)"
+                          : " (queued — click to re-check merge)"
+                        : " (still generating — click to re-check)")
                 }
                 className="relative flex-1 min-w-0 aspect-[9/16] rounded overflow-hidden bg-black select-none"
                 style={{
                   border: `2px solid ${borderColor}`,
                   opacity: ready ? 1 : 0.55,
-                  cursor: ready ? "pointer" : "default",
+                  cursor: interactive ? "pointer" : "default",
                   maxHeight: 80,
                 }}
               >
@@ -986,47 +1009,24 @@ function HistoryCard({
                     )}
                   </div>
                 )}
-                {/* Action overlay on the slide thumb:
-                    - pending → "recheck status" (calls /api/generate/status)
-                    - queued  → also "recheck status" (sometimes seg-1 done
-                      flag hasn't propagated yet; a poke kicks it)
-                    - failed  → "retry segment" (calls /api/history/retry on
-                      the right row — parent for seg_0, child for seg_1).
-                      merged failures don't get a retry button because the
-                      merge is just download+concat; retrying without inputs
-                      is meaningless.
-                    24×24 hit area + z-10 + pointer-events:auto so this is
-                    always the topmost clickable element on the thumb. */}
-                {(slide.status === "pending" ||
-                  slide.status === "queued" ||
-                  (slide.status === "failed" && slide.id !== "merged")) && (
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      if (slide.status === "failed") void retrySlide(slide);
-                      else void recheckSlide(slide);
-                    }}
-                    disabled={recheckingId === slide.id}
-                    title={
-                      slide.status === "failed"
-                        ? `Retry ${slide.label}`
-                        : slide.status === "queued"
-                          ? "Re-check (sometimes the upstream finished but didn't notify)"
-                          : "Re-check status"
-                    }
-                    className="absolute top-1 right-1 w-6 h-6 rounded-full flex items-center justify-center disabled:opacity-50 z-10"
+                {/* Visual-only action hint badge in the top-right corner.
+                    The whole thumb is the click target now (parent <div>
+                    role=button), so this is purely a visual cue showing
+                    what clicking will do. pointer-events:none ensures the
+                    parent's onClick is what fires. */}
+                {(canRecheck || canRetry) && (
+                  <div
+                    className="absolute top-1 right-1 w-6 h-6 rounded-full flex items-center justify-center pointer-events-none"
                     style={{
                       background: "rgba(20,20,20,0.92)",
-                      border: `1px solid ${slide.status === "failed" ? "rgba(239,68,68,0.5)" : "rgba(255,255,255,0.35)"}`,
-                      color: slide.status === "failed" ? "#fca5a5" : lineageColor,
-                      pointerEvents: "auto",
+                      border: `1px solid ${canRetry ? "rgba(239,68,68,0.5)" : "rgba(255,255,255,0.35)"}`,
+                      color: canRetry ? "#fca5a5" : lineageColor,
                     }}
                   >
                     <RefreshCw
                       className={`w-3 h-3 ${recheckingId === slide.id ? "animate-spin" : ""}`}
                     />
-                  </button>
+                  </div>
                 )}
                 <div
                   className="absolute bottom-0 left-0 right-0 px-1 text-[8px] font-bold text-center truncate"
