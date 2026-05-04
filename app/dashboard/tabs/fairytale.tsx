@@ -163,7 +163,7 @@ export default function FairytaleTab({ projectId }: { projectId?: string } = {})
   const [styleDropdownOpen, setStyleDropdownOpen] = useState(false);
   // Slide-pacing controls (added per user request — show estimated total
   // duration before generation so they can plan word count + cost).
-  const [secondsPerSlide, setSecondsPerSlide] = useState<number>(10);
+  const [secondsPerSlide, setSecondsPerSlide] = useState<number>(5);
   const [sceneCount, setSceneCount] = useState<number>(10);
 
   // Step 2 state
