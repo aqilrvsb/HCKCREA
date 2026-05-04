@@ -268,39 +268,23 @@ ${TONE_HINTS[tone]}
 IMAGE_PROMPT RULES (these become nano-banana inputs — 9:16 vertical)
 ══════════════════════════════════════════════════════════════════
 
-🇲🇾 MALAYSIAN-LOCALE CLAMP (ABSOLUTE — applies to EVERY image_prompt):
-The audience is Malaysian. The viewer must immediately recognise THEMSELVES, their family, their neighbourhood. If the image looks American / European / generic-Western-stock, the script FAILS.
+VISUAL TRUTH-TO-TOPIC RULE (the only rule for ethnicity, setting, props):
 
-CHARACTER ETHNICITY — read the user's prompt and pick the most fitting Malaysian ethnicity:
-- DEFAULT (when prompt doesn't specify): Malay-Malaysian. Warm tan / light-brown skin, dark almond eyes, dark brown to black wavy hair, soft features.
-- If story implies Chinese-Malaysian context (family, food, business): Malaysian Chinese — fair-to-tan skin, straight black hair, monolid or small-fold eyes.
-- If story implies Indian-Malaysian context: Malaysian Indian — deeper-brown skin, black wavy/curly hair, expressive features.
-- NEVER default to: blue eyes, blonde hair, ginger hair, freckles, pale Western complexion, sharp Caucasian nose, prominent stubble unless explicitly Malay-uncle.
+Read the user's story prompt. Ask: "If a Malaysian TikTok viewer sees these images, will they believe this story IS what the prompt says it is?" That's the test. The visuals must serve the topic, not a fixed locale.
 
-CHARACTER TRAIT LOCK (lock these phrases verbatim across ALL ${sceneCount} scenes — copy-paste, do not paraphrase):
-"a [age] year-old Malaysian [Malay / Chinese / Indian] [man / woman / boy / girl], warm tan skin, dark almond eyes, [hair description], wearing [outfit description appropriate to scene context]"
+How to decide:
+1. If the prompt names a real person, place, era, or culture (e.g. Elon Musk in California, samurai in Edo-period Japan, fisherman in Terengganu, K-pop trainee in Seoul) → portray that subject AUTHENTICALLY. Real face, real costume, real backdrop. Forcing the wrong locale here breaks viewer trust faster than anything else.
+2. If the prompt is a generic / personal / fictional story with no named foreign subject (e.g. "story about a young man losing money", "kisah seorang ibu") → set it in the world that feels CLOSEST and most believable to a Malaysian audience. That usually means Malaysian / Southeast Asian context, but only because that's what feels real to them — NOT because we're forcing it. Apply this only when the prompt doesn't dictate otherwise.
+3. When in doubt, default to whatever world the prompt's NOUNS imply (a story mentioning bengkel + kapcai → Malaysian; a story mentioning Wall Street + yellow cab → American; a story mentioning ramen shop + Shibuya → Japanese).
 
-OUTFIT — pick from REAL Malaysian wardrobe, never generic Western:
-- Casual male: plain t-shirt, dark jeans or chinos, slip-on sandals or sneakers; uncle-mode adds songkok, baju Melayu, or polo over kain pelikat.
-- Casual female: tudung (hijab) + long-sleeve top + maxi skirt OR baju kurung; or tudung-less in jeans + kemeja for younger urban character.
-- Office: simple baju kurung kerja, or kemeja + slacks. NOT Western suit-and-tie unless story is corporate.
-- Workshop / bengkel: oily t-shirt, kain pelikat or work pants, sometimes singlet (only if scene calls for it).
-- Home: kain pelikat / sarung + plain singlet or t-shirt. NOT pyjamas or bathrobes.
+CHARACTER TRAIT LOCK (works for any locale):
+Whatever ethnicity / age / build / clothing you decide for the protagonist, write it as ONE descriptive phrase and PASTE IT VERBATIM into every scene's image_prompt. Never paraphrase, never vary the wording — even small wording changes make nano-banana drift the face. Format example only (substitute your own decision):
+"a [age]-year-old [ethnicity / nationality] [man / woman / child], [skin tone], [hair colour + style], [eye colour + shape], wearing [outfit description]"
 
-SETTING — Malaysian, specific, recognisable:
-- Bengkel = small open-front workshop with metal grille shutter, fluorescent strip light, oil-stained concrete floor, calendar with Bahasa text or 2026 dates, NOT a polished American auto-shop.
-- Kedai mamak = open-air stall with plastic chairs, steel kettle, kuih display, Tiger / Carlsberg poster, condensation on glass mug.
-- Rumah kampung = wooden stilt house, zinc roof, jendela kayu, hibiscus / banana trees outside.
-- Pasar = wet market with hanging fluorescent bulbs, plastic sheeting, ice trays, ikan kembung on display.
-- KL street = Petronas Twin Towers in background only if relevant; otherwise Kelana Jaya / Cheras / TTDI residential — neighbourhood-mall-and-flats vibe.
-- Office = open-plan with whiteboards, mismatched chairs, plastic-fern decor — NOT Manhattan glass tower.
-NEVER default to: American suburb, NYC apartment, European cobblestones, generic "modern city" backdrop, blonde wood Scandi interiors.
-
-PROPS — Malaysian flavour:
-- Money = orange RM 50 / blue RM 1 / red RM 10 notes, NEVER green USD bills.
-- Food = nasi lemak in banana leaf, teh tarik in glass mug, kuih in tupperware.
-- Vehicle = Perodua Myvi, Toyota Vios, Honda City, motor kapcai (Honda EX5 / Yamaha Y15ZR). NOT Tesla, NOT generic SUV.
-- Phone = held vertically with Malaysian banking apps OR Whatsapp Malaysia interface.
+DEFAULT-AVOID LIST (applies regardless of topic — these are AI-stink defaults, not locale rules):
+- No blue eyes / blonde hair on a character whose prompt doesn't call for them. Models default to Anglo-Caucasian features even on stories that don't ask for it; correct this by writing the right ethnicity into your TRAIT LOCK.
+- No generic "modern city" backdrop when the story has a specific implied setting. Pick a real-feeling location.
+- No rendered text, captions, watermarks. Add these to every scene's "Avoid:" list.
 
 Each "image_prompt" follows the verb-first sentence structure that nano-banana (Gemini 2.5 Flash Image) responds to. NOT a keyword salad — narrative sentences with real photographic vocabulary.
 
