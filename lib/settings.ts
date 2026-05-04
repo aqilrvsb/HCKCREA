@@ -87,6 +87,21 @@ export async function getP2Config() {
   };
 }
 
+// Storytelling pricing — admin-tuned in /admin/settings. Defaults match
+// the in-house rate sheet (RM 0.07 per scene image, RM 0.02 per second
+// of MiniMax narration). Total cost per render:
+//   (per_image × scene_count) + (per_audio_sec × scene_dur × scene_count)
+export type StorytellingPricing = { per_image: number; per_audio_sec: number };
+export async function getStorytellingPricing(): Promise<StorytellingPricing> {
+  const v = await getSetting<any>("storytelling_pricing");
+  const perImage = Number(v?.per_image);
+  const perAudioSec = Number(v?.per_audio_sec);
+  return {
+    per_image: Number.isFinite(perImage) && perImage >= 0 ? perImage : 0.07,
+    per_audio_sec: Number.isFinite(perAudioSec) && perAudioSec >= 0 ? perAudioSec : 0.02,
+  };
+}
+
 // Cinema (Grok Imagine) per-second pricing. Stored as { rate: number } in
 // app_settings; admin tunes in /admin. Default 0.03 RM/sec ≈ RM 0.18 for 6s,
 // RM 0.90 for 30s.

@@ -1,6 +1,8 @@
 import { NextResponse, after } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { priceAndCheck } from "@/lib/deduct";
+import { getStorytellingPricing } from "@/lib/settings";
 
 // POST /api/generate/fairytale — placeholder-first, Pattern A (Vercel never waits).
 //
@@ -112,6 +114,31 @@ export async function POST(req: Request) {
     );
   }
 
+  // Compute storytelling cost from admin-set rates. Same formula the
+  // wizard shows in the cost-preview badge:
+  //   per_image × scene_count + per_audio_sec × scene_dur × scene_count
+  const pricing = await getStorytellingPricing();
+  const totalCost = Number(
+    (
+      pricing.per_image * scenes.length +
+      pricing.per_audio_sec * sceneDurationSec * scenes.length
+    ).toFixed(4)
+  );
+
+  // Block here if user can't afford the render — saves a Modal call we'd
+  // have to refund anyway.
+  const funds = await priceAndCheck(user.id, "storytelling", totalCost);
+  if (!funds.hasFunds) {
+    return NextResponse.json(
+      {
+        error:
+          `Insufficient credit. Need RM ${totalCost.toFixed(2)}, ` +
+          `you have RM ${funds.credits.toFixed(2)}. Top up to continue.`,
+      },
+      { status: 402 }
+    );
+  }
+
   const admin = createAdminClient();
 
   // Insert placeholder NOW. Modal will flip status='done' + fill output_url
@@ -126,14 +153,19 @@ export async function POST(req: Request) {
       status: "pending",
       prompt: `Fairytale story · ${scenes.length} scenes`,
       task_id: `modal:${Date.now()}`,
-      cost: 0,
-      duration: scenes.length * 5, // rough estimate; actual depends on TTS length
+      cost: totalCost,
+      duration: scenes.length * sceneDurationSec,
       metadata: {
         scene_count: scenes.length,
+        scene_duration_sec: sceneDurationSec,
         voice_id: voiceId,
         animation,
         placement,
         upload_status: "queued",
+        pricing: {
+          per_image: pricing.per_image,
+          per_audio_sec: pricing.per_audio_sec,
+        },
       },
     })
     .select("id")
@@ -147,6 +179,11 @@ export async function POST(req: Request) {
   }
 
   const historyId = hist.id;
+
+  // NOTE: we do NOT deduct credits here. Modal handles the deduction on
+  // successful render via Supabase service-role RPC, so failures cost the
+  // user nothing. row.cost stays = totalCost as a "what we'll charge if
+  // this succeeds" placeholder (Modal reads it back).
 
   // Fire Modal in the background — Vercel returns NOW, doesn't wait for the
   // 30-60s render. Modal updates the row directly via service-role key.
@@ -175,12 +212,17 @@ export async function POST(req: Request) {
           enable_text: enableText,
           scene_duration_sec: sceneDurationSec,
           language,
+          // Modal does the deduct on success using this exact amount.
+          // Vercel never deducts — failures cost the user nothing.
+          cost: totalCost,
           scenes,
         }),
       });
 
       // Modal writes the row itself on success. We only patch on outright HTTP
-      // failure (non-2xx) so the placeholder doesn't hang forever.
+      // failure (non-2xx) so the placeholder doesn't hang forever. No refund
+      // needed — we never deducted in the first place; Modal does the deduct
+      // ONLY when render succeeds.
       if (!r.ok) {
         const txt = await r.text().catch(() => "");
         await admin

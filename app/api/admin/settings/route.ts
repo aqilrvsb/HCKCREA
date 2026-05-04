@@ -36,10 +36,22 @@ export async function POST(req: Request) {
   if (value === undefined) return NextResponse.json({ error: "Missing value" }, { status: 400 });
 
   const admin = createAdminClient();
-  await admin
+  // UPSERT (not just UPDATE) — when a key has never been written before
+  // (e.g. brand-new admin setting like fairytale_image_model) the UPDATE
+  // would silently do nothing because no row matches. Upserting on `key`
+  // creates the row on first save instead.
+  const { error: upErr } = await admin
     .from("app_settings")
-    .update({ value, updated_by: user.id })
-    .eq("key", key);
+    .upsert(
+      { key, value, updated_by: user.id, category: "general" },
+      { onConflict: "key" }
+    );
+  if (upErr) {
+    return NextResponse.json(
+      { error: `Save failed: ${upErr.message}` },
+      { status: 500 }
+    );
+  }
 
   // Invalidate the in-memory cache so the next read sees the new value
   // immediately instead of waiting up to 60s for TTL expiry.

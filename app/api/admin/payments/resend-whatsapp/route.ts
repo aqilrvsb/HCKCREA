@@ -4,10 +4,30 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { sendWhatsApp, buildLoginMessage } from "@/lib/whatsapp";
 
 function generatePassword(len: number): string {
-  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789";
-  let out = "";
-  for (let i = 0; i < len; i++) out += chars[Math.floor(Math.random() * chars.length)];
-  return out;
+  // Same strong-password recipe used by the signup webhook + recover +
+  // admin reset-password routes — guarantees one upper / lower / digit /
+  // symbol so Supabase Auth's password-strength policy can't silently
+  // reject the new password and leave us sending a WhatsApp with a
+  // never-saved login.
+  const upper = "ABCDEFGHJKLMNPQRSTUVWXYZ";
+  const lower = "abcdefghijkmnpqrstuvwxyz";
+  const digit = "23456789";
+  const sym = "!@#$";
+  const all = upper + lower + digit + sym;
+  const out: string[] = [
+    upper[Math.floor(Math.random() * upper.length)],
+    lower[Math.floor(Math.random() * lower.length)],
+    digit[Math.floor(Math.random() * digit.length)],
+    sym[Math.floor(Math.random() * sym.length)],
+  ];
+  for (let i = out.length; i < len; i++) {
+    out.push(all[Math.floor(Math.random() * all.length)]);
+  }
+  for (let i = out.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [out[i], out[j]] = [out[j], out[i]];
+  }
+  return out.join("");
 }
 
 export async function POST(req: Request) {
@@ -70,9 +90,19 @@ export async function POST(req: Request) {
     await admin.from("profiles").update({ whatsapp }).eq("id", userId);
   }
 
-  // Generate fresh password and update
+  // Generate fresh password and update. Hard-fail when Supabase rejects
+  // the password (e.g. password-strength policy mismatch) instead of
+  // silently sending a WhatsApp with a password that was never saved.
   const newPwd = generatePassword(12);
-  await admin.auth.admin.updateUserById(userId, { password: newPwd });
+  const { error: updErr } = await admin.auth.admin.updateUserById(userId, {
+    password: newPwd,
+  });
+  if (updErr) {
+    return NextResponse.json(
+      { error: `Password reset failed: ${updErr.message}` },
+      { status: 500 }
+    );
+  }
 
   // Get user email
   const { data: authUser } = await admin.auth.admin.getUserById(userId);

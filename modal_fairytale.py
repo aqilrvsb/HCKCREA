@@ -661,6 +661,44 @@ def _update_history(history_id: str, **fields):
     sb.table("history").update(fields).eq("id", history_id).execute()
 
 
+def _deduct_storytelling(user_id: str, amount: float, history_id: str) -> None:
+    """Charge the user `amount` RM credits for a successful render and log
+    a credit_transactions row. Mirrors lib/deduct.ts deduct() — atomic
+    decrement_credits RPC + transaction insert. Called only on Modal
+    success so failures cost the user nothing.
+    """
+    if amount <= 0:
+        return
+    try:
+        from supabase import create_client
+        sb = create_client(
+            os.environ["SUPABASE_URL"],
+            os.environ["SUPABASE_SERVICE_ROLE_KEY"],
+        )
+        result = sb.rpc(
+            "decrement_credits",
+            {"p_user_id": user_id, "p_amount": amount},
+        ).execute()
+        new_balance = result.data
+        try:
+            after = float(new_balance) if new_balance is not None else 0.0
+        except (TypeError, ValueError):
+            after = 0.0
+        sb.table("credit_transactions").insert({
+            "user_id": user_id,
+            "amount": -amount,
+            "balance_after": after,
+            "reason": "storytelling",
+            "history_id": history_id,
+            "metadata": {"rate": amount, "source": "modal"},
+        }).execute()
+    except Exception as e:
+        # Charge failure shouldn't fail the render — log + carry on. Worst
+        # case: user got a free video. Worth investigating but not worth
+        # blocking the user on.
+        print(f"[fairytale] deduct failed for {user_id}: {e}", flush=True)
+
+
 # ──────────────────────────────────────────────────────────────────────────
 # Modal endpoint
 # ──────────────────────────────────────────────────────────────────────────
@@ -786,6 +824,16 @@ def render_story(payload: dict):
             thumbnail_url=signed_url,
             error_message=None,
         )
+
+        # Charge the user — only on success, never upfront, no refund
+        # pattern. Vercel's /api/generate/fairytale stamps row.cost with
+        # the computed amount but does NOT deduct; Modal does the deduct
+        # here so failed renders cost the user nothing. Best-effort: a
+        # deduct failure is logged but doesn't roll back the render
+        # (worst case the user got a free video).
+        cost_to_charge = float(payload.get("cost") or 0.0)
+        if cost_to_charge > 0 and user_id and user_id != "anon":
+            _deduct_storytelling(user_id, cost_to_charge, history_id)
         return {
             "ok": True,
             "output_url": signed_url,

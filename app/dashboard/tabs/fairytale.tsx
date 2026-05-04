@@ -178,6 +178,29 @@ export default function FairytaleTab({ projectId }: { projectId?: string } = {})
   // duration before generation so they can plan word count + cost).
   const [secondsPerSlide, setSecondsPerSlide] = useState<number>(5);
   const [sceneCount, setSceneCount] = useState<number>(10);
+  // Live pricing from admin settings — drives the cost estimate badge in
+  // Step 1. Defaults match getStorytellingPricing() so the badge shows a
+  // reasonable number even before the fetch lands.
+  const [pricing, setPricing] = useState<{ per_image: number; per_audio_sec: number }>({
+    per_image: 0.07,
+    per_audio_sec: 0.02,
+  });
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const r = await fetch("/api/fairytale/pricing", { cache: "no-store" });
+        const d = await r.json();
+        if (!cancelled && r.ok && typeof d?.per_image === "number") {
+          setPricing({
+            per_image: d.per_image,
+            per_audio_sec: d.per_audio_sec,
+          });
+        }
+      } catch {}
+    })();
+    return () => { cancelled = true; };
+  }, []);
 
   // Step 2 state
   const [visualStyle, setVisualStyle] = useState<VisualStyle>("realistic");
@@ -497,6 +520,7 @@ export default function FairytaleTab({ projectId }: { projectId?: string } = {})
           aspect={aspect} setAspect={setAspect}
           secondsPerSlide={secondsPerSlide} setSecondsPerSlide={setSecondsPerSlide}
           sceneCount={sceneCount} setSceneCount={setSceneCount}
+          pricing={pricing}
           styleDropdownOpen={styleDropdownOpen} setStyleDropdownOpen={setStyleDropdownOpen}
           onNext={goNext}
         />
@@ -601,6 +625,7 @@ function Step1(props: {
   aspect: Aspect; setAspect: (v: Aspect) => void;
   secondsPerSlide: number; setSecondsPerSlide: (v: number) => void;
   sceneCount: number; setSceneCount: (v: number) => void;
+  pricing: { per_image: number; per_audio_sec: number };
   styleDropdownOpen: boolean; setStyleDropdownOpen: (v: boolean) => void;
   onNext: () => void;
 }) {
@@ -614,6 +639,12 @@ function Step1(props: {
   // ~0.5s xfade transition Modal adds between scenes. We show the simple
   // (sec * count) so the user can plan; the merged mp4 lands within ~5s.
   const estTotalSec = props.secondsPerSlide * props.sceneCount;
+  // Cost = per_image × scene_count + per_audio_sec × scene_dur × scene_count.
+  // Matches the formula the server uses to deduct so the displayed number
+  // is exactly what the user will be charged.
+  const estCost =
+    props.pricing.per_image * props.sceneCount +
+    props.pricing.per_audio_sec * props.secondsPerSlide * props.sceneCount;
 
   return (
     <div className="max-w-3xl mx-auto">
@@ -725,6 +756,17 @@ function Step1(props: {
         <span>Estimated video duration</span>
         <span className="font-mono">
           {props.secondsPerSlide}s × {props.sceneCount} = <strong>{fmtMmSs(estTotalSec)}</strong>
+        </span>
+      </div>
+      <div
+        className="mt-2 px-4 py-2.5 rounded-xl text-xs font-semibold flex items-center justify-between"
+        style={{ background: "#fff7ed", border: "1px solid #fed7aa", color: "#c2410c" }}
+      >
+        <span>Estimated cost (deducted on Generate)</span>
+        <span className="font-mono">
+          ({props.pricing.per_image.toFixed(2)} × {props.sceneCount}) +
+          ({props.pricing.per_audio_sec.toFixed(2)} × {props.secondsPerSlide} × {props.sceneCount}) =
+          <strong> RM {estCost.toFixed(2)}</strong>
         </span>
       </div>
 

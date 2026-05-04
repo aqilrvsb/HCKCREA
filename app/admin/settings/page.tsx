@@ -66,12 +66,14 @@ export default function AdminSettings() {
   const [savingRates, setSavingRates] = useState(false);
   const [ratesMsg, setRatesMsg] = useState<string | null>(null);
 
-  // Storytelling (fairytale) per-scene image generator. Reads/writes:
-  //   fairytale_image_model: { model: "z-image" | "nano-banana-pro" | ... }
-  //   fairytale_image_rate:  { rate: 0.05 }   (RM per scene image)
-  // Falls back to the global image_default + rate_<model> when unset.
+  // Storytelling (fairytale) generator pricing + model. Reads/writes:
+  //   fairytale_image_model:  { model: "z-image" | "nano-banana-pro" | ... }
+  //   storytelling_pricing:   { per_image: 0.07, per_audio_sec: 0.02 }
+  // Total per render: per_image × scene_count + per_audio_sec × scene_dur × scene_count.
+  // Wizard reads this to show an estimated cost; route deducts the same.
   const [storytellingModel, setStorytellingModel] = useState("");
-  const [storytellingRate, setStorytellingRate] = useState("");
+  const [storytellingPerImage, setStorytellingPerImage] = useState("");
+  const [storytellingPerAudioSec, setStorytellingPerAudioSec] = useState("");
   const [savingStorytelling, setSavingStorytelling] = useState(false);
   const [storytellingMsg, setStorytellingMsg] = useState<string | null>(null);
 
@@ -126,8 +128,9 @@ export default function AdminSettings() {
         if (row.key === "fairytale_image_model") {
           setStorytellingModel(String(row.value?.model || ""));
         }
-        if (row.key === "fairytale_image_rate") {
-          setStorytellingRate(fmt(row.value?.rate));
+        if (row.key === "storytelling_pricing") {
+          setStorytellingPerImage(fmt(row.value?.per_image));
+          setStorytellingPerAudioSec(fmt(row.value?.per_audio_sec));
         }
       }
     } finally {
@@ -201,15 +204,18 @@ export default function AdminSettings() {
     setStorytellingMsg(null);
     try {
       const trimmedModel = storytellingModel.trim();
-      const rateNum = Number(storytellingRate);
-      const rate = Number.isFinite(rateNum) && rateNum >= 0 ? rateNum : 0;
-      await Promise.all([
+      const num = (s: string, fb: number) => {
+        const n = Number(s);
+        return Number.isFinite(n) && n >= 0 ? n : fb;
+      };
+      const perImage = num(storytellingPerImage, 0.07);
+      const perAudioSec = num(storytellingPerAudioSec, 0.02);
+      const responses = await Promise.all([
         fetch("/api/admin/settings", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             key: "fairytale_image_model",
-            // Empty string clears the override → route falls back to image_default.
             value: { model: trimmedModel },
           }),
         }),
@@ -217,14 +223,21 @@ export default function AdminSettings() {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            key: "fairytale_image_rate",
-            value: { rate },
+            key: "storytelling_pricing",
+            value: { per_image: perImage, per_audio_sec: perAudioSec },
           }),
         }),
       ]);
-      setStorytellingMsg("✓ Saved. New Storytelling renders will use these immediately.");
+      const failed = responses.find((r) => !r.ok);
+      if (failed) {
+        const err = await failed.json().catch(() => ({}));
+        throw new Error(err?.error || `HTTP ${failed.status}`);
+      }
+      setStorytellingMsg("✓ Saved. New Storytelling renders use these immediately.");
       void load();
       setTimeout(() => setStorytellingMsg(null), 5000);
+    } catch (e: any) {
+      setStorytellingMsg(`✗ Save failed: ${e?.message || "unknown error"}`);
     } finally {
       setSavingStorytelling(false);
     }
@@ -682,7 +695,7 @@ export default function AdminSettings() {
           </div>
           <div>
             <label className="block text-xs font-mono uppercase tracking-widest text-[var(--color-text-muted)] font-bold mb-2">
-              Per-image rate (override)
+              Per-image rate
             </label>
             <div className="relative">
               <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs font-bold text-[var(--color-text-muted)]">RM</span>
@@ -690,16 +703,47 @@ export default function AdminSettings() {
                 type="number"
                 min="0"
                 step="0.01"
-                value={storytellingRate}
-                onChange={(e) => setStorytellingRate(e.target.value)}
+                value={storytellingPerImage}
+                onChange={(e) => setStorytellingPerImage(e.target.value)}
                 className="input !pl-10"
-                placeholder="0.05"
+                placeholder="0.07"
               />
             </div>
             <p className="text-[10px] text-[var(--color-text-muted)] mt-1">
-              Charged per scene image (10 scenes × this rate per render).
-              Set 0 to use the model's standard rate.
+              Charged per scene image (slide_count × this rate).
             </p>
+          </div>
+        </div>
+        <div className="grid md:grid-cols-2 gap-4 mb-3 mt-3">
+          <div>
+            <label className="block text-xs font-mono uppercase tracking-widest text-[var(--color-text-muted)] font-bold mb-2">
+              Per-second audio rate
+            </label>
+            <div className="relative">
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs font-bold text-[var(--color-text-muted)]">RM</span>
+              <input
+                type="number"
+                min="0"
+                step="0.001"
+                value={storytellingPerAudioSec}
+                onChange={(e) => setStorytellingPerAudioSec(e.target.value)}
+                className="input !pl-10"
+                placeholder="0.02"
+              />
+            </div>
+            <p className="text-[10px] text-[var(--color-text-muted)] mt-1">
+              Charged per second of MiniMax narration
+              (sec/slide × slide_count × this rate).
+            </p>
+          </div>
+          <div className="text-xs text-[var(--color-text-secondary)] flex items-end pb-1">
+            <div>
+              <div className="font-bold text-[var(--color-text-primary)] mb-1">Example</div>
+              <div className="font-mono">10 slides × 5s each, 0.07 + 0.02:</div>
+              <div className="font-mono opacity-80">
+                (0.07 × 10) + (0.02 × 5 × 10) = <strong>RM 1.70</strong>
+              </div>
+            </div>
           </div>
         </div>
 
