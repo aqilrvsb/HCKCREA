@@ -66,6 +66,15 @@ export default function AdminSettings() {
   const [savingRates, setSavingRates] = useState(false);
   const [ratesMsg, setRatesMsg] = useState<string | null>(null);
 
+  // Storytelling (fairytale) per-scene image generator. Reads/writes:
+  //   fairytale_image_model: { model: "z-image" | "nano-banana-pro" | ... }
+  //   fairytale_image_rate:  { rate: 0.05 }   (RM per scene image)
+  // Falls back to the global image_default + rate_<model> when unset.
+  const [storytellingModel, setStorytellingModel] = useState("");
+  const [storytellingRate, setStorytellingRate] = useState("");
+  const [savingStorytelling, setSavingStorytelling] = useState(false);
+  const [storytellingMsg, setStorytellingMsg] = useState<string | null>(null);
+
   useEffect(() => {
     void load();
     void loadAdminDevice();
@@ -114,6 +123,12 @@ export default function AdminSettings() {
         }
         if (row.key === "rate_grok") setRateGrok(fmt(row.value?.per_second));
         if (row.key === "rate_seedance") setRateSeedance(fmt(row.value?.per_second));
+        if (row.key === "fairytale_image_model") {
+          setStorytellingModel(String(row.value?.model || ""));
+        }
+        if (row.key === "fairytale_image_rate") {
+          setStorytellingRate(fmt(row.value?.rate));
+        }
       }
     } finally {
       setLoading(false);
@@ -178,6 +193,40 @@ export default function AdminSettings() {
       setTimeout(() => setRatesMsg(null), 5000);
     } finally {
       setSavingRates(false);
+    }
+  }
+
+  async function saveStorytellingSettings() {
+    setSavingStorytelling(true);
+    setStorytellingMsg(null);
+    try {
+      const trimmedModel = storytellingModel.trim();
+      const rateNum = Number(storytellingRate);
+      const rate = Number.isFinite(rateNum) && rateNum >= 0 ? rateNum : 0;
+      await Promise.all([
+        fetch("/api/admin/settings", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            key: "fairytale_image_model",
+            // Empty string clears the override → route falls back to image_default.
+            value: { model: trimmedModel },
+          }),
+        }),
+        fetch("/api/admin/settings", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            key: "fairytale_image_rate",
+            value: { rate },
+          }),
+        }),
+      ]);
+      setStorytellingMsg("✓ Saved. New Storytelling renders will use these immediately.");
+      void load();
+      setTimeout(() => setStorytellingMsg(null), 5000);
+    } finally {
+      setSavingStorytelling(false);
     }
   }
 
@@ -589,6 +638,81 @@ export default function AdminSettings() {
           </button>
           {ratesMsg && (
             <span className="text-xs text-emerald-700 font-semibold">{ratesMsg}</span>
+          )}
+        </div>
+      </div>
+
+      {/* Storytelling (fairytale) image generator — dedicated card so admin
+          can pick which Crun.ai model is used to render the 10 scene images
+          + override the per-image rate. Falls back to global image_default
+          + rate_<model> when both are blank. */}
+      <div className="card p-6 mb-6 border-2 border-purple-100 bg-purple-50/40">
+        <div className="flex items-center gap-2 mb-1">
+          <ImageIcon className="w-5 h-5 text-purple-600" />
+          <h2 className="font-display font-bold text-lg">Storytelling — Scene Images</h2>
+        </div>
+        <p className="text-sm text-[var(--color-text-secondary)] mb-4">
+          Which Crun.ai image model the Storytelling wizard uses for each
+          scene, plus your per-image cost override. Leave the model blank
+          to fall back to the global image default; leave rate at 0 to use
+          the model's standard rate (rate_&lt;model&gt;).
+        </p>
+
+        <div className="grid md:grid-cols-2 gap-4 mb-3">
+          <div>
+            <label className="block text-xs font-mono uppercase tracking-widest text-[var(--color-text-muted)] font-bold mb-2">
+              Image Model
+            </label>
+            <select
+              value={storytellingModel}
+              onChange={(e) => setStorytellingModel(e.target.value)}
+              className="input"
+              style={{ color: "#1a1a1a" }}
+            >
+              <option value="">— use global default —</option>
+              <option value="z-image">z-image (Alibaba — fastest, cheapest)</option>
+              <option value="nano-banana-pro">nano-banana-pro (Google — best quality)</option>
+              <option value="gpt-image-2">gpt-image-2 (OpenAI — most expensive)</option>
+            </select>
+            <p className="text-[10px] text-[var(--color-text-muted)] mt-1">
+              Currently active: <strong>{storytellingModel || "global default (likely nano-banana-pro)"}</strong>
+            </p>
+          </div>
+          <div>
+            <label className="block text-xs font-mono uppercase tracking-widest text-[var(--color-text-muted)] font-bold mb-2">
+              Per-image rate (override)
+            </label>
+            <div className="relative">
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs font-bold text-[var(--color-text-muted)]">RM</span>
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                value={storytellingRate}
+                onChange={(e) => setStorytellingRate(e.target.value)}
+                className="input !pl-10"
+                placeholder="0.05"
+              />
+            </div>
+            <p className="text-[10px] text-[var(--color-text-muted)] mt-1">
+              Charged per scene image (10 scenes × this rate per render).
+              Set 0 to use the model's standard rate.
+            </p>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-3 mt-5">
+          <button
+            type="button"
+            onClick={() => void saveStorytellingSettings()}
+            disabled={savingStorytelling}
+            className="px-5 py-2 rounded-lg bg-purple-600 text-white font-bold text-sm hover:bg-purple-700 disabled:opacity-50 flex items-center gap-2"
+          >
+            {savingStorytelling && <Loader2 className="w-4 h-4 animate-spin" />}
+            <Save className="w-4 h-4" /> Save Storytelling Settings
+          </button>
+          {storytellingMsg && (
+            <span className="text-xs text-emerald-700 font-semibold">{storytellingMsg}</span>
           )}
         </div>
       </div>
