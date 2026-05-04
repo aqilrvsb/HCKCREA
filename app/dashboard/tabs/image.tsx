@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { Loader2, X } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import Portal from "../sections/portal";
-import { uploadImage, dataUrlToFile, rehostFromUrl } from "@/lib/upload-image";
+import { uploadImage, dataUrlToFile } from "@/lib/upload-image";
 import {
   AVATAR_PROMPTS,
   AVATAR_LABELS,
@@ -84,17 +84,6 @@ export default function ImageTab({ projectId }: { projectId?: string } = {}) {
     else if (slot === "poster") setPosterUrl(url);
     else if (slot === "virtProduct") setVirtProductUrl(url);
     setPickerSlot(null);
-    // Re-host in the background so the URL we eventually send to the
-    // gen worker is fresh — protects against old imagejini.com URLs
-    // going stale on RunningHub's side.
-    void (async () => {
-      const fresh = await rehostFromUrl(url);
-      if (fresh === url) return;
-      if (slot === "char") setCharUrl(fresh);
-      else if (slot === "product") setProductUrl(fresh);
-      else if (slot === "poster") setPosterUrl(fresh);
-      else if (slot === "virtProduct") setVirtProductUrl(fresh);
-    })();
   }
 
   // No client poll — webhook + manual refresh icon on the history card

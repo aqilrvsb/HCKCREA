@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { Loader2, Wand2, X, Info, Square } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import Portal from "../sections/portal";
-import { uploadImage, dataUrlToFile, rehostFromUrl } from "@/lib/upload-image";
+import { uploadImage, dataUrlToFile } from "@/lib/upload-image";
 import {
   FRAMEWORKS,
   TYPE_COLORS,
@@ -194,15 +194,6 @@ export default function AutoContentTab({ projectId }: { projectId?: string } = {
       prev.map((p, i) => (i === idx ? { ...p, imageData: url } : p))
     );
     setPickerSlot(null);
-    // Re-host in background — old imagejini.com URLs go stale; this
-    // gives the gen worker a fresh URL it can actually fetch.
-    void (async () => {
-      const fresh = await rehostFromUrl(url);
-      if (fresh === url) return;
-      setManualProducts((prev) =>
-        prev.map((p, i) => (i === idx ? { ...p, imageData: fresh } : p))
-      );
-    })();
   }
 
   // Affiliate URL → cache-or-scrape → prefill manual_products[0]. The

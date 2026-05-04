@@ -998,7 +998,7 @@ function HistoryCard({
                 >
                   {slide.label}
                 </div>
-              </button>
+              </div>
             );
           })}
         </div>

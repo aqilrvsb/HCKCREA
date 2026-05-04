@@ -70,23 +70,3 @@ export async function dataUrlToFile(
   return new File([blob], filename, { type: blob.type || "image/png" });
 }
 
-// Re-host an existing public URL by fetching it and re-uploading via
-// uploadImage(). Used when the user picks an image From History — old
-// RunningHub URLs stored at imagejini.com sometimes go stale, so we
-// fetch the bytes once and stash a fresh copy on RunningHub's current
-// CDN. Returns the new URL.
-//
-// If anything fails (CORS block, source 404, etc.) we fall back to the
-// original URL — better to try the original than block the picker.
-export async function rehostFromUrl(url: string, filename = "rehosted.png"): Promise<string> {
-  try {
-    const r = await fetch(url, { mode: "cors" });
-    if (!r.ok) return url;
-    const blob = await r.blob();
-    const file = new File([blob], filename, { type: blob.type || "image/png" });
-    const { url: freshUrl } = await uploadImage(file);
-    return freshUrl;
-  } catch {
-    return url;
-  }
-}
