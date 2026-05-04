@@ -290,14 +290,34 @@ export async function POST(req: Request) {
       // as ingredient references. Without the product image, Veo's r2v
       // pass redraws the package from scratch using only the anchor
       // frame — that introduces label drift between seg1 and seg2 even
-      // when the original prompt + OCR text-lock are embedded. With both
-      // images: start frame anchors character + pose, product image
-      // anchors pixel-identical packaging. Cinema bucket uses imageMode
-      // 'frame' which is single-image-only by convention; we keep that
-      // behaviour unchanged.
+      // when the original prompt + OCR text-lock are embedded.
+      //
+      // Caveat: the product image URL on old rows can be expired Crun
+      // temp URLs (24h TTL) — those will make Crun reply "Image fetch
+      // failed". We HEAD-check the URL first; if not reachable, fall
+      // back to start-frame-only (same as pre-fix behaviour) so the
+      // extend doesn't crash on stale product refs.
+      async function isImageReachable(url: string): Promise<boolean> {
+        try {
+          const r = await fetch(url, { method: "HEAD" });
+          if (r.ok) return true;
+          // Some CDNs don't allow HEAD; fall back to range GET
+          const g = await fetch(url, { method: "GET", headers: { Range: "bytes=0-1" } });
+          return g.ok;
+        } catch {
+          return false;
+        }
+      }
       const refImages: string[] = [startUrl];
       if (bucket !== "cinema" && productImageUrl) {
-        refImages.push(productImageUrl);
+        if (await isImageReachable(productImageUrl)) {
+          refImages.push(productImageUrl);
+        } else {
+          console.warn(
+            "[extend] product image not reachable, falling back to start-frame-only:",
+            productImageUrl.slice(0, 80)
+          );
+        }
       }
       const created = await p2CreateTask({
         model,
