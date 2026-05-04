@@ -144,8 +144,10 @@ export default function ActivityFeed() {
 
           <div className="flex-1 overflow-y-auto">
             {items.length === 0 && (
-              <div className="text-center text-xs text-gray-500 py-8">
-                No recent activity yet.
+              <div className="text-center text-xs text-gray-500 py-8 px-4">
+                Nobody's created anything yet today.
+                <br />
+                <span className="text-gray-600">Be the first.</span>
               </div>
             )}
             {items.map((it) => {
@@ -186,7 +188,7 @@ export default function ActivityFeed() {
           </div>
 
           <div className="px-3 py-2 text-[9px] font-mono text-gray-600 text-center border-t" style={{ borderColor: "rgba(255,255,255,0.04)" }}>
-            updates every 20s · names anonymized · previews watermarked
+            top 10 today (Malaysia time) · names anonymized · previews watermarked
           </div>
         </div>
       )}

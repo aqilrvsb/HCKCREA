@@ -52,7 +52,20 @@ export async function GET(req: Request) {
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const url = new URL(req.url);
-  const limit = Math.max(5, Math.min(60, Number(url.searchParams.get("limit")) || 30));
+  const limit = Math.max(5, Math.min(60, Number(url.searchParams.get("limit")) || 10));
+
+  // "Today" means today in Malaysia (UTC+8) — the timestamps the user
+  // sees in the panel are also Malaysia-localised, so a row that
+  // appeared 30 minutes ago shouldn't disappear at UTC midnight.
+  // en-CA gives ISO-style YYYY-MM-DD which is what Date() can re-parse
+  // when paired with a fixed +08:00 offset.
+  const todayMyDate = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Kuala_Lumpur",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date());
+  const todayMyMidnightUtc = new Date(`${todayMyDate}T00:00:00+08:00`).toISOString();
 
   const admin = createAdminClient();
   const { data: rows, error } = await admin
@@ -63,6 +76,7 @@ export async function GET(req: Request) {
     // Skip noisy intermediate scene rows — only the merged storytelling
     // shows up in the feed, not its 10 individual scene images.
     .neq("type", "fairytale-scene")
+    .gte("created_at", todayMyMidnightUtc)
     .order("created_at", { ascending: false })
     .limit(limit);
 
