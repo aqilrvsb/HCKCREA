@@ -112,8 +112,6 @@ export default function VideoTab({ projectId }: { projectId?: string } = {}) {
     if (!prompt.trim()) return setError("Sila masukkan scene prompt.");
     if (imageMode === "frame" && !startFrame)
       return setError("Upload Start Frame dulu.");
-    if (imageMode === "ingredient" && !avatarImage && !refImage)
-      return setError("Upload Avatar atau Product reference (atau kedua-duanya).");
     setError(null);
     setStatus("submitting");
 
@@ -136,12 +134,21 @@ export default function VideoTab({ projectId }: { projectId?: string } = {}) {
             ? [avatarPub, refPub].filter(Boolean)
             : [];
 
+      // If user is in ingredient mode but didn't upload either ref,
+      // auto-fall-back to text-to-video so the API uses the t2v model
+      // instead of erroring on a missing image.
+      const effectiveMode: ImageMode =
+        imageMode === "ingredient" && imageUrls.length === 0
+          ? "text"
+          : imageMode;
+
       // Auto-prepend a reference-image preamble for the AI Agent UGC flow
       // so users don't have to remember the exact wording. Only adds when
       // the user hasn't already written one ("reference image" not in
-      // their prompt) — protects power users with custom phrasing.
+      // their prompt) — protects power users with custom phrasing. Skipped
+      // entirely when no image is uploaded (text-to-video path).
       let finalPrompt = prompt.trim();
-      if (imageMode === "ingredient" && !/reference image/i.test(finalPrompt)) {
+      if (effectiveMode === "ingredient" && !/reference image/i.test(finalPrompt)) {
         const lines: string[] = [];
         if (avatarPub && refPub) {
           lines.push("Use the first reference image as the main character (same face, same outfit, same lighting style).");
@@ -162,7 +169,7 @@ export default function VideoTab({ projectId }: { projectId?: string } = {}) {
             prompt: finalPrompt,
             image_urls: imageUrls,
             duration,
-            image_mode: imageMode,
+            image_mode: effectiveMode,
             aspect_ratio: aspect,
             project_id: projectId,
           }),
@@ -311,8 +318,8 @@ export default function VideoTab({ projectId }: { projectId?: string } = {}) {
               />
             </div>
             <p className="md:col-span-2 text-[11px] text-gray-500 -mt-1">
-              Both optional — upload at least one. When both are given, prompt auto-includes
-              "Use the first reference image as the main character… Use the second as the product…"
+              Both optional. Upload nothing → text-to-video. Upload one → auto-prepended as
+              the character or product. Upload both → "first" = avatar, "second" = product.
             </p>
           </div>
         )}
