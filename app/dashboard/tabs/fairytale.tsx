@@ -290,6 +290,49 @@ type Scene = {
 
 const wordCount = (s: string) => (s.trim() ? s.trim().split(/\s+/).length : 0);
 
+// ─── Background music catalog ─────────────────────────────────────────
+// Files baked into /public/music/{id}.mp3 (Vercel CDN, zero per-play
+// cost). Filenames follow {mood}-{NN} convention so adding tracks is
+// just dropping new files + adding entries here. mood values are also
+// the keys used in the picker UI's tab strip.
+type MusicMood = "bright" | "hopeful" | "inspiring" | "relax" | "horror" | "sad";
+type MusicTrack = { id: string; mood: MusicMood; label: string };
+const MUSIC_CATALOG: MusicTrack[] = [
+  { id: "bright-01",    mood: "bright",    label: "Bright 1" },
+  { id: "bright-02",    mood: "bright",    label: "Bright 2" },
+  { id: "bright-03",    mood: "bright",    label: "Bright 3" },
+  { id: "hopeful-01",   mood: "hopeful",   label: "Hopeful 1" },
+  { id: "hopeful-02",   mood: "hopeful",   label: "Hopeful 2" },
+  { id: "hopeful-03",   mood: "hopeful",   label: "Hopeful 3" },
+  { id: "inspiring-01", mood: "inspiring", label: "Inspiring 1" },
+  { id: "inspiring-02", mood: "inspiring", label: "Inspiring 2" },
+  { id: "inspiring-03", mood: "inspiring", label: "Inspiring 3" },
+  { id: "relax-01",     mood: "relax",     label: "Relax 1" },
+  { id: "relax-02",     mood: "relax",     label: "Relax 2" },
+  { id: "relax-03",     mood: "relax",     label: "Relax 3" },
+  { id: "relax-04",     mood: "relax",     label: "Relax 4" },
+  { id: "horror-01",    mood: "horror",    label: "Horror 1" },
+  { id: "horror-02",    mood: "horror",    label: "Horror 2" },
+  { id: "horror-03",    mood: "horror",    label: "Horror 3" },
+  { id: "horror-04",    mood: "horror",    label: "Horror 4" },
+  { id: "sad-01",       mood: "sad",       label: "Sad 1" },
+  { id: "sad-02",       mood: "sad",       label: "Sad 2" },
+  { id: "sad-03",       mood: "sad",       label: "Sad 3" },
+  { id: "sad-04",       mood: "sad",       label: "Sad 4" },
+];
+const MUSIC_MOOD_ICONS: Record<MusicMood, string> = {
+  bright: "☀️",
+  hopeful: "🌅",
+  inspiring: "🚀",
+  relax: "🍃",
+  horror: "👻",
+  sad: "🌧️",
+};
+const MUSIC_MOODS: MusicMood[] = ["bright", "hopeful", "inspiring", "relax", "horror", "sad"];
+function musicSrc(id: string): string {
+  return `/music/${id}.mp3`;
+}
+
 // ──────────────────────────────────────────────────────────────────────────
 // MAIN COMPONENT
 // ──────────────────────────────────────────────────────────────────────────
@@ -414,6 +457,14 @@ export default function FairytaleTab({ projectId }: { projectId?: string } = {})
   // (browsers block autoplay anyway). Once toggled on, audio plays +
   // cycle advances; toggle off pauses both immediately.
   const [previewPlaying, setPreviewPlaying] = useState(false);
+
+  // Background music — null = no music. Volume 0..1 (default 0.25, low
+  // enough to sit under narration). Voice volume 0..1 (default 1.0).
+  // Both are applied at live-preview time AND sent to Modal so ffmpeg
+  // amix produces the same mix in the final MP4.
+  const [musicTrackId, setMusicTrackId] = useState<string | null>(null);
+  const [voiceVolume, setVoiceVolume] = useState(1.0);
+  const [musicVolume, setMusicVolume] = useState(0.25);
 
   // Animation config
   const [transition, setTransition] = useState("fade");
@@ -705,6 +756,15 @@ export default function FairytaleTab({ projectId }: { projectId?: string } = {})
           // Wizard's selected language drives MiniMax language_boost on
           // any fallback TTS Modal generates if it lacks a cached audio_url.
           language,
+          // Background music + voice/music volumes — Modal applies these
+          // as ffmpeg amix weights so the final MP4 sounds the same as
+          // what the user heard in the live preview. If musicTrackId is
+          // null, no music track is mixed (narration-only output).
+          background_music_url: musicTrackId
+            ? `${typeof window !== "undefined" ? window.location.origin : ""}/music/${musicTrackId}.mp3`
+            : null,
+          voice_volume: voiceVolume,
+          music_volume: musicVolume,
           scenes: valid.map((s) => ({
             image_url: s.imageUrl,
             narration: uppercase ? s.narration.toUpperCase() : s.narration,
@@ -809,6 +869,9 @@ export default function FairytaleTab({ projectId }: { projectId?: string } = {})
           setPreviewMuted={setPreviewMuted}
           previewPlaying={previewPlaying}
           setPreviewPlaying={setPreviewPlaying}
+          musicTrackId={musicTrackId} setMusicTrackId={setMusicTrackId}
+          voiceVolume={voiceVolume} setVoiceVolume={setVoiceVolume}
+          musicVolume={musicVolume} setMusicVolume={setMusicVolume}
           renderStatus={renderStatus} renderError={renderError}
           onBack={goBack}
           onSubmit={submitRender}
@@ -1474,6 +1537,9 @@ function Step3(props: any) {
     audioCache, audioCacheStatus,
     previewMuted, setPreviewMuted,
     previewPlaying, setPreviewPlaying,
+    musicTrackId, setMusicTrackId,
+    voiceVolume, setVoiceVolume,
+    musicVolume, setMusicVolume,
     renderStatus, renderError,
     onBack, onSubmit, onRetryScript,
   } = props;
@@ -1544,7 +1610,7 @@ function Step3(props: any) {
           </div>
 
           {configTab === "voice" && (
-            <div className="space-y-3">
+            <div className="space-y-4">
               <Toggle
                 label="Enable Voice"
                 premium
@@ -1561,6 +1627,28 @@ function Step3(props: any) {
                   Ken Burns motion + scene transitions over your images.
                 </div>
               )}
+
+              {/* Volume sliders — applied to the live preview AND sent to
+                  ffmpeg amix on the merge so the final MP4 sounds the
+                  same as what the user hears in Step 2. */}
+              <VolumeSlider
+                label="Voice volume"
+                value={voiceVolume}
+                onChange={setVoiceVolume}
+                disabled={!enableVoice}
+              />
+              <VolumeSlider
+                label="Background music volume"
+                value={musicVolume}
+                onChange={setMusicVolume}
+                disabled={!musicTrackId}
+              />
+
+              {/* Background music picker — mood tabs + track grid. */}
+              <BackgroundMusicPicker
+                trackId={musicTrackId}
+                setTrackId={setMusicTrackId}
+              />
             </div>
           )}
           {configTab === "animation" && (
@@ -1675,6 +1763,9 @@ function Step3(props: any) {
             setPreviewMuted={setPreviewMuted}
             previewPlaying={previewPlaying}
             setPreviewPlaying={setPreviewPlaying}
+            musicTrackId={musicTrackId}
+            voiceVolume={voiceVolume}
+            musicVolume={musicVolume}
             transition={transition}
             sceneAnimation={sceneAnimation}
             textAnimation={textAnimation}
@@ -1999,7 +2090,8 @@ function PreviewPanel(props: any) {
   const { scenes, sceneCount, previewIdx, voiceEnabled, transition, sceneAnimation,
     textAnimation, textPlacement, fontType, textSize, textColor, uppercase, textBackground, enableText,
     audioCache, audioCacheStatus, previewMuted, setPreviewMuted,
-    previewPlaying, setPreviewPlaying, voiceSpeed } = props;
+    previewPlaying, setPreviewPlaying, voiceSpeed,
+    musicTrackId, voiceVolume, musicVolume } = props;
   const sizePx = TEXT_SIZES.find((s: any) => s.id === textSize)?.px ?? 36;
 
   // The actual <audio> element we control — one per panel, src swaps as
@@ -2012,6 +2104,11 @@ function PreviewPanel(props: any) {
   // a TTS regen call when they change the slider. Effective duration =
   // naturalDuration / playbackRate.
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  // Background music plays in a SEPARATE audio element layered on top
+  // of the narration. Volume mixed client-side via .volume; matched on
+  // the server via ffmpeg amix using the same voiceVolume/musicVolume
+  // values so live preview and final MP4 sound identical.
+  const musicRef = useRef<HTMLAudioElement | null>(null);
   const [audioDurationMs, setAudioDurationMs] = useState<number>(SCENE_DURATION_MS);
   const playbackRate = Math.max(0.5, Math.min(2.0, Number(voiceSpeed) || 1.0));
   const effectiveAudioMs = Math.round(audioDurationMs / playbackRate);
@@ -2035,13 +2132,39 @@ function PreviewPanel(props: any) {
       el.src = sceneAudioUrl;
     }
     el.muted = !!previewMuted;
+    el.volume = Math.max(0, Math.min(1, voiceVolume ?? 1.0));
     el.playbackRate = playbackRate;
     if (previewPlaying) {
       el.play().catch(() => {});
     } else {
       el.pause();
     }
-  }, [sceneAudioUrl, previewIdx, previewMuted, playbackRate, previewPlaying]);
+  }, [sceneAudioUrl, previewIdx, previewMuted, playbackRate, previewPlaying, voiceVolume]);
+
+  // Background-music playback effect — independent of which scene is
+  // active. Track ID change → swap src; play/pause follows the same
+  // previewPlaying flag as narration so the user has ONE control.
+  useEffect(() => {
+    const el = musicRef.current;
+    if (!el) return;
+    if (!musicTrackId) {
+      el.pause();
+      el.removeAttribute("src");
+      return;
+    }
+    const targetSrc = `/music/${musicTrackId}.mp3`;
+    if (!el.src.endsWith(targetSrc)) {
+      el.src = targetSrc;
+      el.loop = true;
+    }
+    el.volume = Math.max(0, Math.min(1, musicVolume ?? 0.25));
+    el.muted = !!previewMuted; // global mute respects narration mute too
+    if (previewPlaying) {
+      el.play().catch(() => {});
+    } else {
+      el.pause();
+    }
+  }, [musicTrackId, musicVolume, previewMuted, previewPlaying]);
 
   // Re-apply playbackRate live if the slider moves while audio is playing.
   useEffect(() => {
@@ -2388,6 +2511,9 @@ function PreviewPanel(props: any) {
           preload="metadata"
           style={{ display: "none" }}
         />
+        {/* Background music element — layered under narration. Loops
+            indefinitely so a 60s song under a 90s preview keeps going. */}
+        <audio ref={musicRef} preload="none" style={{ display: "none" }} />
 
         {/* Big centered Play/Pause button. Hidden once playback is rolling
             (only fades in on hover). Doubles as the gesture browsers
@@ -2998,6 +3124,154 @@ function PreviewHistoryPicker(props: {
             </div>
           )}
         </div>
+      </div>
+    </div>
+  );
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// VolumeSlider — minimal range input with linear 0..1 mapping. Disabled
+// state when the source it controls is off (voice toggle off, no track
+// picked). Live label shows the percentage so the user gets feedback.
+// ──────────────────────────────────────────────────────────────────────────
+function VolumeSlider(props: {
+  label: string;
+  value: number;
+  onChange: (v: number) => void;
+  disabled?: boolean;
+}) {
+  const pct = Math.round((props.value ?? 0) * 100);
+  return (
+    <div className={props.disabled ? "opacity-50 pointer-events-none" : ""}>
+      <div className="flex items-center justify-between mb-1">
+        <span className="text-[11px] font-bold text-gray-700">{props.label}</span>
+        <span className="text-[11px] font-mono text-gray-500">{pct}%</span>
+      </div>
+      <input
+        type="range"
+        min={0}
+        max={1}
+        step={0.05}
+        value={props.value}
+        onChange={(e) => props.onChange(Number(e.target.value))}
+        disabled={props.disabled}
+        className="w-full"
+        style={{ accentColor: "#a855f7" }}
+      />
+    </div>
+  );
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// BackgroundMusicPicker — mood-tabbed track list with preview play +
+// "None" option. Only one preview audio plays at a time (a separate
+// in-component <audio>, isolated from the live-preview music element
+// so previewing here doesn't fight the running slideshow).
+// ──────────────────────────────────────────────────────────────────────────
+function BackgroundMusicPicker(props: {
+  trackId: string | null;
+  setTrackId: (id: string | null) => void;
+}) {
+  const [mood, setMood] = useState<MusicMood>("bright");
+  const [previewingId, setPreviewingId] = useState<string | null>(null);
+  const previewRef = useRef<HTMLAudioElement | null>(null);
+  const tracks = MUSIC_CATALOG.filter((t) => t.mood === mood);
+
+  function togglePreview(id: string) {
+    const el = previewRef.current;
+    if (!el) return;
+    if (previewingId === id && !el.paused) {
+      el.pause();
+      setPreviewingId(null);
+      return;
+    }
+    if (!el.paused) el.pause();
+    el.src = musicSrc(id);
+    el.volume = 0.7;
+    setPreviewingId(id);
+    el.play().catch(() => setPreviewingId(null));
+  }
+
+  return (
+    <div className="rounded-xl p-3" style={{ background: "#fafafa", border: "1px solid #e5e7eb" }}>
+      <div className="flex items-center justify-between mb-2">
+        <div className="text-[11px] font-bold text-gray-700">🎵 Background Music</div>
+        {props.trackId && (
+          <button
+            type="button"
+            onClick={() => props.setTrackId(null)}
+            className="text-[10px] font-bold px-2 py-0.5 rounded"
+            style={{ background: "#fee2e2", color: "#b91c1c" }}
+          >
+            Remove
+          </button>
+        )}
+      </div>
+
+      {/* Mood tabs */}
+      <div className="flex gap-1 mb-2 overflow-x-auto pb-1">
+        {MUSIC_MOODS.map((m) => {
+          const active = mood === m;
+          return (
+            <button
+              key={m}
+              type="button"
+              onClick={() => setMood(m)}
+              className="flex-shrink-0 px-2.5 py-1 rounded-lg text-[10px] font-bold capitalize transition"
+              style={
+                active
+                  ? { background: "#a855f7", color: "white" }
+                  : { background: "white", border: "1px solid #e5e7eb", color: "#6b7280" }
+              }
+            >
+              {MUSIC_MOOD_ICONS[m]} {m}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Track grid */}
+      <audio ref={previewRef} onEnded={() => setPreviewingId(null)} preload="none" />
+      <div className="grid grid-cols-2 gap-1.5">
+        {tracks.map((t) => {
+          const isPicked = props.trackId === t.id;
+          const isPreviewing = previewingId === t.id;
+          return (
+            <div
+              key={t.id}
+              className="flex items-center justify-between gap-1.5 rounded-lg px-2 py-1.5"
+              style={{
+                background: isPicked ? "#faf5ff" : "white",
+                border: isPicked ? "1.5px solid #a855f7" : "1px solid #e5e7eb",
+              }}
+            >
+              <button
+                type="button"
+                onClick={() => togglePreview(t.id)}
+                aria-label={isPreviewing ? "Stop preview" : "Preview"}
+                className="w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0"
+                style={{ background: "#1f2937", color: "white", fontSize: 10 }}
+              >
+                {isPreviewing ? "■" : "▶"}
+              </button>
+              <span className="text-[11px] font-bold text-gray-700 truncate flex-1">
+                {t.label}
+              </span>
+              <button
+                type="button"
+                onClick={() => props.setTrackId(t.id)}
+                className="text-[10px] font-bold px-2 py-0.5 rounded flex-shrink-0"
+                style={
+                  isPicked
+                    ? { background: "#a855f7", color: "white" }
+                    : { background: "#f3f4f6", color: "#374151" }
+                }
+              >
+                {isPicked ? "✓" : "Use"}
+              </button>
+            </div>
+          );
+        })}
       </div>
     </div>
   );

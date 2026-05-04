@@ -799,11 +799,61 @@ def render_story(payload: dict):
             )
             return {"ok": False, "error": "no valid scenes"}
 
-        final_path = workdir / "story.mp4"
+        concat_path = workdir / "story_concat.mp4"
         if len(scene_clips) == 1:
-            scene_clips[0].rename(final_path)
+            scene_clips[0].rename(concat_path)
         else:
-            _concat_scenes(scene_clips, final_path)
+            _concat_scenes(scene_clips, concat_path)
+
+        # Background music mix step. If a music URL was provided AND the
+        # url is reachable, download the track and amix it under the
+        # narration at the wizard-chosen voice/music volumes. ffmpeg
+        # `-shortest` clamps to the narration length so a 90s music
+        # clip under a 60s story doesn't extend the runtime. If music
+        # download fails for any reason we fall back to the narration-
+        # only concat — never block the story for missing music.
+        background_music_url = payload.get("background_music_url")
+        voice_volume_payload = float(payload.get("voice_volume") or 1.0)
+        music_volume_payload = float(payload.get("music_volume") or 0.25)
+        final_path = workdir / "story.mp4"
+        if background_music_url:
+            try:
+                music_path = workdir / "bgm.mp3"
+                _download(background_music_url, music_path)
+                # Build the amix filter:
+                #   [0:a] = scene audio (narration), volume = voice_volume
+                #   [1:a] = bgm (looped + clamped), volume = music_volume
+                # weights normalize so amix doesn't auto-attenuate when
+                # mixing two streams. duration=first matches narration.
+                vv = max(0.0, min(1.0, voice_volume_payload))
+                mv = max(0.0, min(1.0, music_volume_payload))
+                filter_str = (
+                    f"[0:a]volume={vv}[a0];"
+                    f"[1:a]aloop=loop=-1:size=2e+09,volume={mv}[a1];"
+                    f"[a0][a1]amix=inputs=2:duration=first:dropout_transition=0[aout]"
+                )
+                cmd = [
+                    "ffmpeg", "-y",
+                    "-i", str(concat_path),
+                    "-i", str(music_path),
+                    "-filter_complex", filter_str,
+                    "-map", "0:v",
+                    "-map", "[aout]",
+                    "-c:v", "copy",
+                    "-c:a", "aac", "-b:a", "192k",
+                    "-shortest",
+                    str(final_path),
+                ]
+                res = subprocess.run(cmd, capture_output=True, text=True)
+                if res.returncode != 0:
+                    raise RuntimeError(f"amix failed: {res.stderr[-400:]}")
+            except Exception as bgm_err:
+                print(f"[fairytale] bgm mix failed, falling back to narration-only: {bgm_err}")
+                if final_path.exists():
+                    final_path.unlink()
+                concat_path.rename(final_path)
+        else:
+            concat_path.rename(final_path)
 
         # Upload merged mp4 directly to B2 at the user's permanent path.
         # output_url becomes a 7-day presigned GET — same shape as Crun

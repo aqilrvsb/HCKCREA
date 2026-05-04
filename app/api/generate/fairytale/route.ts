@@ -106,6 +106,19 @@ export async function POST(req: Request) {
   // (when the wizard didn't pre-cache audio for a scene).
   const language: "ms" | "en" = body?.language === "en" ? "en" : "ms";
 
+  // Background music + per-track volumes. Modal mixes the music UNDER
+  // the narration via ffmpeg amix at these exact weights so the final
+  // MP4 sounds the same as the live preview the user heard in Step 2.
+  // Music is OPTIONAL — null skips the amix step entirely (narration-
+  // only output).
+  const rawMusicUrl = body?.background_music_url;
+  const backgroundMusicUrl =
+    typeof rawMusicUrl === "string" && rawMusicUrl.trim().startsWith("http")
+      ? rawMusicUrl.trim()
+      : null;
+  const voiceVolume = Math.max(0, Math.min(1, Number(body?.voice_volume ?? 1.0)));
+  const musicVolume = Math.max(0, Math.min(1, Number(body?.music_volume ?? 0.25)));
+
   const modalEndpoint = process.env.MODAL_FAIRYTALE_ENDPOINT;
   if (!modalEndpoint) {
     return NextResponse.json(
@@ -212,6 +225,9 @@ export async function POST(req: Request) {
           enable_text: enableText,
           scene_duration_sec: sceneDurationSec,
           language,
+          background_music_url: backgroundMusicUrl,
+          voice_volume: voiceVolume,
+          music_volume: musicVolume,
           // Modal does the deduct on success using this exact amount.
           // Vercel never deducts — failures cost the user nothing.
           cost: totalCost,
