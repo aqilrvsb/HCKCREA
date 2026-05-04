@@ -76,7 +76,7 @@ export async function POST(req: Request) {
 
   const body = await req.json().catch(() => ({}));
   const historyId = String(body?.history_id || "").trim();
-  const voiceId = String(body?.voice_id || "Malay_female_1_v1");
+  const voiceId = String(body?.voice_id || "moss_audio_60caaba6-4799-11f1-bb39-7aa70590506b");
   const language: "ms" | "en" = body?.language === "en" ? "en" : "ms";
   // Always synthesize at natural speed (1.0). User-controlled speed is
   // applied client-side via <audio>.playbackRate AND server-side via

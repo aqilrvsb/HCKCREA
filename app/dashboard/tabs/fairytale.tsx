@@ -179,7 +179,18 @@ type VoiceEntry = {
   label: string;
 };
 const VOICES: VoiceEntry[] = [
-  // Bahasa Melayu
+  // Bahasa Melayu — Jamal first so voicesForLang("ms")[0] picks him as
+  // the default selection on Step 1 mount.
+  {
+    id: "moss_audio_60caaba6-4799-11f1-bb39-7aa70590506b",
+    name: "Jamal",
+    description:
+      "Custom-cloned Malay male voice — warm authoritative delivery with native phrasing. Great for serious storytelling, branded explainer, news-style narration in Bahasa.",
+    tags: ["Malay", "Male", "Cloned", "Warm"],
+    lang: "ms",
+    gender: "male",
+    label: "Jamal — Cloned, warm male",
+  },
   {
     id: "Malay_male_1_v1",
     name: "Seasoned Man",
@@ -199,48 +210,6 @@ const VOICES: VoiceEntry[] = [
     lang: "ms",
     gender: "female",
     label: "Passionate Lady — Female, expressive",
-  },
-  {
-    id: "Malay_female_1_v1",
-    name: "Easygoing Neighbor",
-    description:
-      "Bright, warm and expressive with a fluid friendly rhythm. Communicates humor and sincerity. Ideal for lifestyle stories, social media anecdotes, the role of a Confidante or Host.",
-    tags: ["Malay", "Female", "Warm", "Narrator"],
-    lang: "ms",
-    gender: "female",
-    label: "Easygoing Neighbor — Female, warm (Narrator)",
-  },
-  // Custom-cloned voices on the platform's MiniMax account. IDs come from
-  // MiniMax voice cloning ("Instant Clone") — they only work for our key.
-  {
-    id: "moss_audio_cf82d8cb-4799-11f1-aea0-d66da573c477",
-    name: "Mira",
-    description:
-      "Custom-cloned Malay female voice — natural conversational tone with native cadence and warmth. Tuned for relatable storytelling, day-to-day narration, friendly host style.",
-    tags: ["Malay", "Female", "Cloned", "Natural"],
-    lang: "ms",
-    gender: "female",
-    label: "Mira — Cloned, natural female",
-  },
-  {
-    id: "moss_audio_60caaba6-4799-11f1-bb39-7aa70590506b",
-    name: "Jamal",
-    description:
-      "Custom-cloned Malay male voice — warm authoritative delivery with native phrasing. Great for serious storytelling, branded explainer, news-style narration in Bahasa.",
-    tags: ["Malay", "Male", "Cloned", "Warm"],
-    lang: "ms",
-    gender: "male",
-    label: "Jamal — Cloned, warm male",
-  },
-  {
-    id: "moss_audio_b4d54c5a-225f-11f1-bf6e-065823da7bf2",
-    name: "Afifah",
-    description:
-      "Custom-cloned Malay female voice — expressive and engaging with rich emotional range. Ideal for dramatic narration, viral content hooks, character-driven stories.",
-    tags: ["Malay", "Female", "Cloned", "Expressive"],
-    lang: "ms",
-    gender: "female",
-    label: "Afifah — Cloned, expressive female",
   },
   // English
   {

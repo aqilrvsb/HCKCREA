@@ -29,7 +29,7 @@ export async function POST(req: Request) {
 
   const body = await req.json().catch(() => ({}));
   const text = String(body?.text || "").trim().slice(0, 500);
-  const voiceId = String(body?.voice_id || "Malay_female_1_v1");
+  const voiceId = String(body?.voice_id || "moss_audio_60caaba6-4799-11f1-bb39-7aa70590506b");
   const speed = Math.max(0.5, Math.min(2.0, Number(body?.speed) || 1.0));
 
   if (!text) {
