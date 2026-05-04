@@ -2140,23 +2140,37 @@ function PreviewPanel(props: any) {
   useEffect(() => {
     if (!scenes || sceneCount <= 1) return;
     if (!scene1Ready) return;
-    if (sceneAudioUrl && audioRef.current) {
-      const el = audioRef.current;
-      const onEnded = () => {
-        props.setPreviewIdx((p: number) => {
-          const next = findNextReadyIdx(p);
-          return next === -1 ? p : next;
-        });
-      };
-      el.addEventListener("ended", onEnded);
-      return () => el.removeEventListener("ended", onEnded);
-    }
-    const id = setInterval(() => {
+    const advance = () => {
       props.setPreviewIdx((p: number) => {
         const next = findNextReadyIdx(p);
         return next === -1 ? p : next;
       });
-    }, SCENE_DURATION_MS);
+    };
+    if (sceneAudioUrl && audioRef.current) {
+      const el = audioRef.current;
+      // CATCH-UP: if audio already ENDED before this effect attached
+      // (happens when a new image lands AFTER audio finished — effect
+      // re-runs due to imageUrl-deps change but the `ended` event won't
+      // fire again), advance immediately so we don't get stuck.
+      if (
+        el.paused &&
+        el.duration > 0 &&
+        Math.abs(el.currentTime - el.duration) < 0.25
+      ) {
+        // queue a microtask so we don't run setState during render
+        Promise.resolve().then(advance);
+      }
+      el.addEventListener("ended", advance);
+      // Watchdog: even if `ended` doesn't fire (autoplay blocked, audio
+      // never played), tick every SCENE_DURATION_MS to advance through
+      // the slideshow. Without this the preview gets stuck on slide 1.
+      const watchdog = setInterval(advance, SCENE_DURATION_MS);
+      return () => {
+        el.removeEventListener("ended", advance);
+        clearInterval(watchdog);
+      };
+    }
+    const id = setInterval(advance, SCENE_DURATION_MS);
     return () => clearInterval(id);
     // scenes is in deps so when a new image lands the effect re-runs
     // and the next-ready lookup picks it up.
