@@ -752,7 +752,6 @@ export default function FairytaleTab({ projectId }: { projectId?: string } = {})
           ctaText={ctaText} setCtaText={setCtaText}
           pricing={pricing}
           styleDropdownOpen={styleDropdownOpen} setStyleDropdownOpen={setStyleDropdownOpen}
-          onNext={goNext}
           onPreview={() => {
             setPreviewModalOpen(true);
             // Lazy-trigger script gen on first Preview open
@@ -769,6 +768,10 @@ export default function FairytaleTab({ projectId }: { projectId?: string } = {})
           scriptError={scriptError}
           onRetryScript={generateScript}
           onClose={() => setPreviewModalOpen(false)}
+          onContinue={() => {
+            setPreviewModalOpen(false);
+            goNext();
+          }}
           secondsPerSlide={secondsPerSlide}
         />
       )}
@@ -1056,7 +1059,8 @@ function Step1(props: {
   ctaText: string; setCtaText: (v: string) => void;
   pricing: { per_image: number; per_audio_sec: number };
   styleDropdownOpen: boolean; setStyleDropdownOpen: (v: boolean) => void;
-  onNext: () => void;
+  // No onNext prop — Step 1 forces the user through the Preview modal,
+  // which owns the transition to Step 2. Cleaner funnel.
   onPreview: () => void;
 }) {
   const ctaWordCount = props.ctaText
@@ -1386,32 +1390,20 @@ function Step1(props: {
       </div>
 
       <div className="flex justify-end gap-2 mt-8">
-        {/* Preview — opens a modal showing AI-generated dialogs +
-            image descriptions. Lets the user edit dialog and supply
-            their own images per scene before committing to full
-            image generation. Disabled until a prompt is filled. */}
+        {/* Preview is the ONLY exit from Step 1 now — user must preview
+            their scenes before continuing. The Next button lives inside
+            the modal so they actually look at what they're committing
+            to. Cleaner funnel: prompt → preview → confirm → generate. */}
         <button
           onClick={props.onPreview}
           disabled={!props.prompt.trim()}
-          className="px-5 py-2.5 rounded-xl font-bold text-sm inline-flex items-center gap-2 disabled:opacity-40"
-          style={{
-            background: "white",
-            color: "#7c3aed",
-            border: "2px solid #c084fc",
-          }}
-        >
-          <Wand2 className="w-4 h-4" /> Preview
-        </button>
-        <button
-          onClick={props.onNext}
-          disabled={!props.prompt.trim()}
-          className="px-6 py-2.5 rounded-xl font-bold text-sm text-white inline-flex items-center gap-2 disabled:opacity-40"
+          className="px-7 py-3 rounded-xl font-bold text-sm text-white inline-flex items-center gap-2 disabled:opacity-40"
           style={{
             background: "linear-gradient(135deg, #c084fc 0%, #818cf8 100%)",
-            boxShadow: "0 4px 12px rgba(168,85,247,0.3)",
+            boxShadow: "0 6px 16px rgba(168,85,247,0.35)",
           }}
         >
-          Next <ArrowRight className="w-4 h-4" />
+          <Wand2 className="w-4 h-4" /> Preview & Continue
         </button>
       </div>
     </div>
@@ -2560,6 +2552,10 @@ function PreviewModal(props: {
   scriptError: string | null;
   onRetryScript: () => void;
   onClose: () => void;
+  // Forward to Step 2 — wired so the user MUST preview before they can
+  // proceed to Generate. Step 1 doesn't expose its own Next button
+  // anymore; this modal owns the funnel transition.
+  onContinue: () => void;
   secondsPerSlide: number;
 }) {
   const [historyPickerForIdx, setHistoryPickerForIdx] = useState<number | null>(null);
@@ -2806,17 +2802,34 @@ function PreviewModal(props: {
           })}
         </div>
 
-        <div className="px-5 py-3 border-t flex items-center justify-between" style={{ borderColor: "#e9d5ff", background: "#faf5ff" }}>
+        <div className="px-5 py-3 border-t flex items-center justify-between gap-3" style={{ borderColor: "#e9d5ff", background: "#faf5ff" }}>
           <span className="text-[11px] text-gray-600">
             {props.scenes.filter((s) => s.userImageUrl || s.userImageFile).length} of {props.scenes.length} scenes have a user image
           </span>
-          <button
-            onClick={props.onClose}
-            className="px-5 py-2 rounded-lg text-sm font-bold text-white"
-            style={{ background: "linear-gradient(135deg, #c084fc 0%, #818cf8 100%)" }}
-          >
-            Done
-          </button>
+          <div className="flex items-center gap-2">
+            {/* Cancel — keep the dialog edits but stay in Step 1. */}
+            <button
+              onClick={props.onClose}
+              className="px-4 py-2 rounded-lg text-sm font-bold"
+              style={{ background: "white", border: "1px solid #d8b4fe", color: "#7c3aed" }}
+            >
+              Close
+            </button>
+            {/* Continue — closes the modal AND advances to Step 2.
+                Disabled until script generation finishes; you can't
+                proceed to Generate without scenes. */}
+            <button
+              onClick={props.onContinue}
+              disabled={props.scriptLoading || props.scenes.length === 0}
+              className="px-5 py-2 rounded-lg text-sm font-bold text-white inline-flex items-center gap-1.5 disabled:opacity-50"
+              style={{
+                background: "linear-gradient(135deg, #c084fc 0%, #818cf8 100%)",
+                boxShadow: "0 4px 12px rgba(168,85,247,0.3)",
+              }}
+            >
+              Next <ArrowRight className="w-4 h-4" />
+            </button>
+          </div>
         </div>
       </div>
 
