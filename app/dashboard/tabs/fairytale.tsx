@@ -18,6 +18,8 @@ import {
   Wand2,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
+import { uploadImage, dataUrlToFile } from "@/lib/upload-image";
+import { isVisibleAfterTtl, fetchSavedSet } from "@/lib/history-filter";
 
 // Fairytale tab — 3-step wizard for AI-generated storytelling videos.
 // Step 1: prompt + style/tone/language/aspect
@@ -156,6 +158,16 @@ type Scene = {
   imageUrl: string;             // empty until image generation completes
   imageHistoryId: string | null; // row id we poll for completion
   imageStatus: "queued" | "generating" | "done" | "failed";
+  // User-supplied image override (set from the Preview modal). When
+  // either is present, we SKIP the AI image gen for this scene and
+  // use the user's image instead.
+  //   userImageUrl     — already-public URL (a pick from From History)
+  //   userImageFile    — local File the user picked; uploaded at merge
+  //                      time via uploadImage() to get a public URL
+  //   userImagePreview — data: URL for instant thumbnail in the modal
+  userImageUrl?: string;
+  userImageFile?: File;
+  userImagePreview?: string;
 };
 
 const wordCount = (s: string) => (s.trim() ? s.trim().split(/\s+/).length : 0);
@@ -208,6 +220,12 @@ export default function FairytaleTab({ projectId }: { projectId?: string } = {})
 
   // Step 2 state
   const [visualStyle, setVisualStyle] = useState<VisualStyle>("realistic");
+
+  // Preview modal — text-only review of auto-gen'd scenes (dialog +
+  // image description). Opening it triggers script gen if not yet
+  // started. User can edit dialog + supply per-scene images here
+  // before committing to the full image generation in Step 2.
+  const [previewModalOpen, setPreviewModalOpen] = useState(false);
 
   // Step 3 state — scenes + config
   const [scenes, setScenes] = useState<Scene[]>([]);
@@ -304,8 +322,16 @@ export default function FairytaleTab({ projectId }: { projectId?: string } = {})
   async function fireSceneImages(initialScenes: Scene[]) {
     // Fire all scene image generations in parallel — backend inserts a row
     // per scene with type='fairytale-scene' and group_id matching this batch.
+    // Skip scenes the user has already supplied an image for (via the
+    // Preview modal's Upload / From-History buttons). Those scenes are
+    // marked 'done' immediately with the user's URL — Modal merge picks
+    // them up from scene.imageUrl unchanged.
+    const toGenerate = initialScenes.filter(
+      (s) => !s.userImageUrl && !s.userImageFile
+    );
+
     const updates = await Promise.all(
-      initialScenes.map(async (s) => {
+      toGenerate.map(async (s) => {
         try {
           const r = await fetch("/api/generate/fairytale/scene-image", {
             method: "POST",
@@ -329,6 +355,17 @@ export default function FairytaleTab({ projectId }: { projectId?: string } = {})
 
     setScenes((prev) =>
       prev.map((s) => {
+        // User-supplied scenes — skip the gen path entirely. If they
+        // gave us a public URL (history pick), use it now; if they
+        // gave us a File, the data: preview shows for now and we'll
+        // upload + swap to a public URL at submit time.
+        if (s.userImageUrl || s.userImageFile) {
+          return {
+            ...s,
+            imageUrl: s.userImageUrl || s.userImagePreview || "",
+            imageStatus: "done" as const,
+          };
+        }
         const u = updates.find((x) => x && x.idx === s.idx);
         return u
           ? { ...s, imageHistoryId: u.history_id, imageStatus: "generating" as const }
@@ -374,9 +411,11 @@ export default function FairytaleTab({ projectId }: { projectId?: string } = {})
   }
 
   // Auto-fetch TTS cache once scene narrations are ready (and re-fetch if
-  // voice settings change — voiceId or voiceSpeed).
+  // voice settings change — voiceId or voiceSpeed). Triggers on Step 2
+  // (the Review & Generate step) entry; the Preview modal in Step 1 is
+  // text-only by user request, so no TTS there.
   useEffect(() => {
-    if (step !== 3) return;
+    if (step !== 2) return;
     if (!enableVoice) return;
     if (scenes.length === 0) return;
     if (scenes.some((s) => !s.narration?.trim())) return;
@@ -446,13 +485,40 @@ export default function FairytaleTab({ projectId }: { projectId?: string } = {})
   // ─── Submit final render ───────────────────────────────────
   async function submitRender() {
     setRenderError(null);
-    const valid = scenes.filter((s) => s.imageUrl && s.narration.trim());
-    if (valid.length === 0) {
-      setRenderError("Tunggu sehingga semua scene selesai diproses.");
-      return;
-    }
     setRenderStatus("submitting");
     try {
+      // Upload any deferred user-supplied files (from the Preview modal)
+      // BEFORE we check validity. Each File becomes a public URL that
+      // takes the place of the AI-gen'd scene image.
+      const filesToUpload = scenes.filter((s) => s.userImageFile && !s.userImageUrl);
+      if (filesToUpload.length > 0) {
+        await Promise.all(filesToUpload.map(async (s) => {
+          try {
+            const { url } = await uploadImage(s.userImageFile!);
+            setScenes((prev) =>
+              prev.map((p) =>
+                p.idx === s.idx
+                  ? { ...p, userImageUrl: url, imageUrl: url, imageStatus: "done" as const }
+                  : p
+              )
+            );
+            // Mutate the local closure too so the validity check below
+            // sees the freshly-set imageUrl without waiting for React's
+            // setState round-trip.
+            s.userImageUrl = url;
+            s.imageUrl = url;
+          } catch (e: any) {
+            console.error(`[storytelling] scene ${s.idx} upload failed:`, e?.message);
+          }
+        }));
+      }
+
+      const valid = scenes.filter((s) => s.imageUrl && s.narration.trim());
+      if (valid.length === 0) {
+        setRenderError("Tunggu sehingga semua scene selesai diproses.");
+        setRenderStatus("idle");
+        return;
+      }
       const r = await fetch("/api/generate/fairytale", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -529,6 +595,22 @@ export default function FairytaleTab({ projectId }: { projectId?: string } = {})
           pricing={pricing}
           styleDropdownOpen={styleDropdownOpen} setStyleDropdownOpen={setStyleDropdownOpen}
           onNext={goNext}
+          onPreview={() => {
+            setPreviewModalOpen(true);
+            // Lazy-trigger script gen on first Preview open
+            if (scenes.length === 0 && !scriptLoading) void generateScript();
+          }}
+        />
+      )}
+
+      {previewModalOpen && (
+        <PreviewModal
+          scenes={scenes}
+          setScenes={setScenes}
+          scriptLoading={scriptLoading}
+          scriptError={scriptError}
+          onRetryScript={generateScript}
+          onClose={() => setPreviewModalOpen(false)}
         />
       )}
 
@@ -625,6 +707,7 @@ function Step1(props: {
   pricing: { per_image: number; per_audio_sec: number };
   styleDropdownOpen: boolean; setStyleDropdownOpen: (v: boolean) => void;
   onNext: () => void;
+  onPreview: () => void;
 }) {
   const styleObj = STYLES.find((s) => s.id === props.style)!;
   const toneObj = TONES.find((t) => t.id === props.tone)!;
@@ -830,7 +913,23 @@ function Step1(props: {
         </div>
       </div>
 
-      <div className="flex justify-end mt-8">
+      <div className="flex justify-end gap-2 mt-8">
+        {/* Preview — opens a modal showing AI-generated dialogs +
+            image descriptions. Lets the user edit dialog and supply
+            their own images per scene before committing to full
+            image generation. Disabled until a prompt is filled. */}
+        <button
+          onClick={props.onPreview}
+          disabled={!props.prompt.trim()}
+          className="px-5 py-2.5 rounded-xl font-bold text-sm inline-flex items-center gap-2 disabled:opacity-40"
+          style={{
+            background: "white",
+            color: "#7c3aed",
+            border: "2px solid #c084fc",
+          }}
+        >
+          <Wand2 className="w-4 h-4" /> Preview
+        </button>
         <button
           onClick={props.onNext}
           disabled={!props.prompt.trim()}
@@ -1956,6 +2055,363 @@ function Toggle({
           style={{ transform: value ? "translateX(16px)" : "translateX(0)" }}
         />
       </button>
+    </div>
+  );
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// PREVIEW MODAL — text-only review of auto-generated scenes. Lets the user
+// edit each scene's narration AND optionally supply their own image (via
+// Upload or From History). Image uploads are deferred until the final
+// submitRender() so the modal stays snappy and we don't waste bandwidth
+// on choices the user might change.
+// ──────────────────────────────────────────────────────────────────────────
+
+function PreviewModal(props: {
+  scenes: Scene[];
+  setScenes: (s: Scene[] | ((prev: Scene[]) => Scene[])) => void;
+  scriptLoading: boolean;
+  scriptError: string | null;
+  onRetryScript: () => void;
+  onClose: () => void;
+}) {
+  const [historyPickerForIdx, setHistoryPickerForIdx] = useState<number | null>(null);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && props.onClose();
+    window.addEventListener("keydown", onKey);
+    document.body.style.overflow = "hidden";
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      document.body.style.overflow = "";
+    };
+  }, [props.onClose]);
+
+  function setNarration(idx: number, value: string) {
+    props.setScenes((prev) =>
+      prev.map((s) => (s.idx === idx ? { ...s, narration: value } : s))
+    );
+  }
+
+  function attachUploadedFile(idx: number, file: File) {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const dataUrl = String(reader.result || "");
+      props.setScenes((prev) =>
+        prev.map((s) =>
+          s.idx === idx
+            ? {
+                ...s,
+                userImageFile: file,
+                userImagePreview: dataUrl,
+                // Drop any previous history-pick URL so this new file wins
+                userImageUrl: undefined,
+              }
+            : s
+        )
+      );
+    };
+    reader.readAsDataURL(file);
+  }
+
+  function attachHistoryPick(idx: number, url: string) {
+    props.setScenes((prev) =>
+      prev.map((s) =>
+        s.idx === idx
+          ? {
+              ...s,
+              userImageUrl: url,
+              userImagePreview: url,
+              userImageFile: undefined,
+            }
+          : s
+      )
+    );
+    setHistoryPickerForIdx(null);
+  }
+
+  function clearUserImage(idx: number) {
+    props.setScenes((prev) =>
+      prev.map((s) =>
+        s.idx === idx
+          ? { ...s, userImageFile: undefined, userImageUrl: undefined, userImagePreview: undefined }
+          : s
+      )
+    );
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      style={{ background: "rgba(0,0,0,0.7)", backdropFilter: "blur(8px)" }}
+      onClick={props.onClose}
+    >
+      <div
+        className="rounded-2xl max-w-3xl w-full max-h-[92vh] flex flex-col"
+        style={{
+          background: "white",
+          border: "2px solid #c084fc",
+          boxShadow: "0 20px 60px rgba(139,92,246,0.4)",
+        }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between px-5 py-4 border-b" style={{ borderColor: "#e9d5ff" }}>
+          <div>
+            <h2 className="font-display font-extrabold text-lg" style={{ color: "#7c3aed" }}>
+              Preview Scenes
+            </h2>
+            <p className="text-[11px] text-gray-500 mt-0.5">
+              Edit dialogs · supply your own images per scene · close to keep changes
+            </p>
+          </div>
+          <button
+            onClick={props.onClose}
+            className="w-8 h-8 rounded-full flex items-center justify-center hover:bg-gray-100"
+          >
+            <X className="w-4 h-4 text-gray-700" />
+          </button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-5 space-y-3">
+          {props.scriptLoading && (
+            <div className="text-center py-12 text-gray-500 text-sm">
+              <Loader2 className="w-5 h-5 animate-spin inline mr-2" style={{ color: "#a855f7" }} />
+              Writing your scenes…
+            </div>
+          )}
+          {props.scriptError && (
+            <div className="rounded-xl p-4 text-sm" style={{ background: "#fef2f2", border: "1px solid #fecaca", color: "#b91c1c" }}>
+              <div className="font-bold mb-1">Script generation failed</div>
+              <p>{props.scriptError}</p>
+              <button
+                onClick={props.onRetryScript}
+                className="mt-2 px-3 py-1.5 rounded-lg text-xs font-bold text-white"
+                style={{ background: "#a855f7" }}
+              >
+                Try again
+              </button>
+            </div>
+          )}
+          {!props.scriptLoading && !props.scriptError && props.scenes.length === 0 && (
+            <div className="text-center py-12 text-gray-500 text-sm">
+              No scenes yet — click Try again or close + Preview again.
+            </div>
+          )}
+          {props.scenes.map((s) => {
+            const userOverride = !!(s.userImageUrl || s.userImagePreview);
+            return (
+              <div
+                key={s.idx}
+                className="rounded-xl p-4"
+                style={{ background: "#fafaf7", border: "1px solid #e5e7eb" }}
+              >
+                <div className="flex items-center gap-2 mb-2">
+                  <span
+                    className="px-2 py-0.5 rounded-md text-[10px] font-extrabold uppercase tracking-wider"
+                    style={{ background: "#a855f7", color: "white" }}
+                  >
+                    Scene {s.idx + 1}
+                  </span>
+                  <span className="text-[10px] font-mono text-gray-400">
+                    {wordCount(s.narration)} words
+                  </span>
+                </div>
+
+                {/* Editable narration */}
+                <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-wide mb-1">
+                  Dialog
+                </label>
+                <textarea
+                  rows={2}
+                  value={s.narration}
+                  onChange={(e) => setNarration(s.idx, e.target.value)}
+                  className="w-full p-2.5 rounded-lg text-sm outline-none mb-3"
+                  style={{ background: "white", border: "1px solid #d8e8d0", color: "#1a1a1a" }}
+                />
+
+                {/* Image — description text OR user-supplied thumbnail */}
+                <div className="flex items-start gap-3">
+                  <div className="flex-1 min-w-0">
+                    <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-wide mb-1">
+                      {userOverride ? "Your Image (will be used as-is)" : "Image Description (AI will generate)"}
+                    </label>
+                    {userOverride ? (
+                      <div className="flex items-center gap-2">
+                        <img
+                          src={s.userImagePreview || s.userImageUrl}
+                          alt=""
+                          className="w-16 h-16 rounded-lg object-cover"
+                          style={{ border: "1px solid #d1d5db" }}
+                          referrerPolicy="no-referrer"
+                        />
+                        <div className="text-[11px] text-gray-600">
+                          {s.userImageFile
+                            ? `${s.userImageFile.name} · uploads at Generate time`
+                            : "Picked from history"}
+                        </div>
+                      </div>
+                    ) : (
+                      <p
+                        className="text-[11px] leading-relaxed text-gray-600 italic"
+                        style={{ background: "white", border: "1px dashed #d1d5db", borderRadius: 8, padding: 10 }}
+                      >
+                        {s.imagePrompt || "(no description)"}
+                      </p>
+                    )}
+                  </div>
+                </div>
+
+                {/* Per-scene image controls */}
+                <div className="flex items-center gap-2 mt-3">
+                  <label
+                    className="cursor-pointer px-3 py-1.5 rounded-lg text-[11px] font-bold inline-flex items-center gap-1.5"
+                    style={{ background: "#fff7ed", color: "#c2410c", border: "1px solid #fed7aa" }}
+                  >
+                    <Upload className="w-3 h-3" /> Upload
+                    <input
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      onChange={(e) => {
+                        const f = e.target.files?.[0];
+                        if (f) attachUploadedFile(s.idx, f);
+                        e.target.value = "";
+                      }}
+                    />
+                  </label>
+                  <button
+                    onClick={() => setHistoryPickerForIdx(s.idx)}
+                    className="px-3 py-1.5 rounded-lg text-[11px] font-bold inline-flex items-center gap-1.5"
+                    style={{ background: "#eff6ff", color: "#1d4ed8", border: "1px solid #bfdbfe" }}
+                  >
+                    <ImageIcon className="w-3 h-3" /> From History
+                  </button>
+                  {userOverride && (
+                    <button
+                      onClick={() => clearUserImage(s.idx)}
+                      className="px-3 py-1.5 rounded-lg text-[11px] font-bold inline-flex items-center gap-1.5 ml-auto"
+                      style={{ background: "#fef2f2", color: "#b91c1c", border: "1px solid #fecaca" }}
+                    >
+                      <X className="w-3 h-3" /> Clear
+                    </button>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        <div className="px-5 py-3 border-t flex items-center justify-between" style={{ borderColor: "#e9d5ff", background: "#faf5ff" }}>
+          <span className="text-[11px] text-gray-600">
+            {props.scenes.filter((s) => s.userImageUrl || s.userImageFile).length} of {props.scenes.length} scenes have a user image
+          </span>
+          <button
+            onClick={props.onClose}
+            className="px-5 py-2 rounded-lg text-sm font-bold text-white"
+            style={{ background: "linear-gradient(135deg, #c084fc 0%, #818cf8 100%)" }}
+          >
+            Done
+          </button>
+        </div>
+      </div>
+
+      {historyPickerForIdx !== null && (
+        <PreviewHistoryPicker
+          onPick={(url) => attachHistoryPick(historyPickerForIdx, url)}
+          onClose={() => setHistoryPickerForIdx(null)}
+        />
+      )}
+    </div>
+  );
+}
+
+// Slimmed-down history picker for the Preview modal — same filter rule
+// as the main grid (hide expired-unsaved). Uses the From-History
+// selection to populate a scene's user image. We could share with the
+// 5 tab pickers later but inlining keeps the diff small.
+function PreviewHistoryPicker(props: {
+  onPick: (url: string) => void;
+  onClose: () => void;
+}) {
+  const [items, setItems] = useState<{ id: string; output_url: string; created_at: string }[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && props.onClose();
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [props.onClose]);
+
+  useEffect(() => {
+    void (async () => {
+      setLoading(true);
+      try {
+        const sb = createClient();
+        const { data } = await sb
+          .from("history")
+          .select("id, output_url, created_at")
+          .eq("type", "image")
+          .eq("status", "done")
+          .not("output_url", "is", null)
+          .order("created_at", { ascending: false })
+          .limit(60);
+        const rows = (data as any[]) || [];
+        const saved = await fetchSavedSet(rows.map((r: any) => r.id));
+        setItems(rows.filter((r: any) => isVisibleAfterTtl(r.created_at, saved.has(r.id))) as any);
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, []);
+
+  return (
+    <div
+      className="fixed inset-0 z-[60] flex items-center justify-center p-4"
+      style={{ background: "rgba(0,0,0,0.85)" }}
+      onClick={props.onClose}
+    >
+      <div
+        className="rounded-2xl max-w-3xl w-full max-h-[80vh] flex flex-col bg-white"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between px-5 py-3 border-b">
+          <h3 className="font-bold text-sm">Pick image from history</h3>
+          <button
+            onClick={props.onClose}
+            className="w-7 h-7 rounded-full flex items-center justify-center hover:bg-gray-100"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+        <div className="flex-1 overflow-y-auto p-3">
+          {loading ? (
+            <div className="py-12 text-center text-sm text-gray-500">
+              <Loader2 className="w-5 h-5 animate-spin inline mr-2" /> Loading…
+            </div>
+          ) : items.length === 0 ? (
+            <div className="py-12 text-center text-sm text-gray-500">
+              No images in history yet.
+            </div>
+          ) : (
+            <div className="grid grid-cols-3 md:grid-cols-5 gap-2">
+              {items.map((it) => (
+                <button
+                  key={it.id}
+                  onClick={() => props.onPick(it.output_url)}
+                  className="aspect-square rounded-lg overflow-hidden bg-gray-100 hover:ring-2 hover:ring-purple-400"
+                >
+                  <img
+                    src={it.output_url}
+                    alt=""
+                    className="w-full h-full object-cover"
+                    referrerPolicy="no-referrer"
+                  />
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
