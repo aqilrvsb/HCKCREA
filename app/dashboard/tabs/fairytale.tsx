@@ -2531,14 +2531,17 @@ function PreviewPanel(props: any) {
       Object.keys(audioCache || {}).sort().join(",")]);
 
   // ── Effect B: auto-advance ──
-  // Single one-shot timer per scene. Fires once on audio.ended OR after
-  // a fallback timeout. When previewIdx changes, the effect cleans up
-  // and sets up the next timer — never two timers racing.
+  // Single one-shot timer per scene. Fires once SCENE_TAIL_MS after
+  // audio.ended (or directly after the fallback watchdog when there's
+  // no audio). The 1-second tail gives the visual transition room to
+  // breathe so the cut to the next slide doesn't feel jolting — same
+  // tail Modal's min_duration floor adds to the merged MP4.
   useEffect(() => {
     if (!scenes || sceneCount <= 1) return;
     if (!previewPlaying) return;
     if (!anySceneReady) return;
 
+    const SCENE_TAIL_MS = 1000;
     const advance = () => {
       props.setPreviewIdx((p: number) => {
         const next = findNextReadyIdx(p);
@@ -2547,19 +2550,25 @@ function PreviewPanel(props: any) {
     };
 
     const el = audioRef.current;
-    // Effective audio length + 1.5s buffer is the watchdog window —
-    // long enough that `ended` fires first under normal conditions, but
-    // short enough that a stuck/blocked audio still advances the cycle.
+    // Watchdog = audio length + tail + 0.5s safety. Fires only if
+    // `ended` somehow doesn't (autoplay blocked, network stall).
     const watchdogMs = sceneAudioUrl
-      ? Math.max(2000, effectiveAudioMs + 1500)
+      ? Math.max(2000, effectiveAudioMs + SCENE_TAIL_MS + 500)
       : SCENE_DURATION_MS;
 
+    let tailTimer: ReturnType<typeof setTimeout> | null = null;
     if (sceneAudioUrl && el) {
-      el.addEventListener("ended", advance);
+      const onEnded = () => {
+        // Hold the current scene for SCENE_TAIL_MS after audio finishes,
+        // then advance. This is the breathing-room gap.
+        tailTimer = setTimeout(advance, SCENE_TAIL_MS);
+      };
+      el.addEventListener("ended", onEnded);
       const watchdog = setTimeout(advance, watchdogMs);
       return () => {
-        el.removeEventListener("ended", advance);
+        el.removeEventListener("ended", onEnded);
         clearTimeout(watchdog);
+        if (tailTimer) clearTimeout(tailTimer);
       };
     }
     const id = setTimeout(advance, SCENE_DURATION_MS);

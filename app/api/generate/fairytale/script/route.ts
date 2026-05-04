@@ -132,13 +132,20 @@ export async function POST(req: Request) {
   }
 
   // Pace narration to fit the slide: MiniMax speech-2.6-turbo speaks BM at
-  // ~2.7 words/sec and EN at ~3.0 words/sec. Compute a target word window
-  // that lands at ~85-105% of the slide duration — under-fills leave dead
-  // air at the end of the slide, over-fills run past the next slide.
+  // ~2.7 words/sec and EN at ~3.0 words/sec. We RESERVE a 1-second tail
+  // at the end of every slide so the visual transition (fade / slide /
+  // wipe) has room to breathe and the viewer's brain registers the
+  // beat before the next scene lands. Without this tail the cut feels
+  // jolting — audio ends and the next slide arrives in the same frame.
+  // Modal's min_duration floor (= sceneDurationSec) automatically pads
+  // the merged MP4 with silence, so all we need to do here is shorten
+  // the SPEECH target. Audio = (sceneDurationSec - SCENE_TAIL_SEC).
+  const SCENE_TAIL_SEC = 1.0;
+  const speechSec = Math.max(2, sceneDurationSec - SCENE_TAIL_SEC);
   const wpsLow  = language === "ms" ? 2.5 : 2.8;
   const wpsHigh = language === "ms" ? 3.2 : 3.6;
-  const lowWords  = Math.round(sceneDurationSec * wpsLow);
-  const highWords = Math.round(sceneDurationSec * wpsHigh);
+  const lowWords  = Math.round(speechSec * wpsLow);
+  const highWords = Math.round(speechSec * wpsHigh);
   const targetWords = `${lowWords}-${highWords}`;
   // Final-scene instruction varies by CTA mode. The instruction is
   // injected into the master system prompt below.
@@ -189,7 +196,7 @@ LANGUAGE: ${language === "ms"
     : `ENGLISH — natural conversational, first-person preferred for personal stories. Texting-a-friend register, not novel-writing.
    FORBIDDEN literary tropes: "the air thick with X", "she could feel the Y", "the silence stretched between them".`}
 
-WORD COUNT: Each narration is **${targetWords} words** (audio plays ${sceneDurationSec}s at 1.2x; under-${lowWords} = dead air, over-${highWords} = rushed). Count before returning.
+WORD COUNT: Each narration is **${targetWords} words**. Speech runs ~${speechSec}s at 1.2x, then ${SCENE_TAIL_SEC}s of natural silence lets the visual transition breathe before the next slide. Total slide = ${sceneDurationSec}s. Under-${lowWords} = dead air, over-${highWords} = audio bleeds into the next scene. Count before returning.
 
 ONE-IDEA-PER-SCENE RULE (the most important):
 - Each scene contains EXACTLY ONE plot beat OR one emotional beat. Not two. Not "atmosphere + plot". Not "sensory detail + reveal".
