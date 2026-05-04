@@ -107,28 +107,28 @@ type VisualStyle =
   | "vintage"     // Vintage 35mm film
   | "minimalist"; // Editorial minimal
 
-const VISUAL_STYLES: { id: VisualStyle; label: string; gradient: string; sample?: string }[] = [
+// All entries use gradient-only swatches — no external CDN images.
+// The previous sample URLs pointed to a third-party (tempfile.aiquickdraw)
+// which lagged the entire Step 1 render. Each gradient is hand-tuned to
+// match its style's visual identity (warm/cool/dark/pastel) so the user
+// can recognise the style at a glance from color alone.
+const VISUAL_STYLES: { id: VisualStyle; label: string; gradient: string }[] = [
   { id: "realistic",  label: "Cinematic",
-    gradient: "linear-gradient(135deg, #1e3a8a 0%, #f59e0b 100%)",
-    sample: "https://tempfile.aiquickdraw.com/images/1777806206916-2a5942wnvl3.png" },
+    gradient: "linear-gradient(135deg, #1e3a8a 0%, #0ea5e9 50%, #f59e0b 100%)" },
   { id: "3d",         label: "3D Pixar",
-    gradient: "linear-gradient(135deg, #f97316 0%, #fbbf24 100%)",
-    sample: "https://tempfile.aiquickdraw.com/images/1777806197874-h4qzfh5x9wg.png" },
+    gradient: "linear-gradient(135deg, #f97316 0%, #fbbf24 50%, #fde68a 100%)" },
   { id: "anime",      label: "Anime Ghibli",
-    gradient: "linear-gradient(135deg, #06b6d4 0%, #f472b6 100%)",
-    sample: "https://tempfile.aiquickdraw.com/images/1777806209200-havbrshlbwb.png" },
+    gradient: "linear-gradient(135deg, #38bdf8 0%, #fef3c7 50%, #f472b6 100%)" },
   { id: "fantasy",    label: "Fantasy Epic",
-    gradient: "linear-gradient(135deg, #7c3aed 0%, #ec4899 100%)",
-    sample: "https://tempfile.aiquickdraw.com/workers/nano/image_1777806223290_9xkbpu.png" },
+    gradient: "linear-gradient(135deg, #1e1b4b 0%, #7c3aed 50%, #ec4899 100%)" },
   { id: "watercolor", label: "Watercolor",
     gradient: "linear-gradient(135deg, #fda4af 0%, #fef3c7 50%, #a7f3d0 100%)" },
   { id: "noir",       label: "Cinematic Noir",
-    gradient: "linear-gradient(135deg, #18181b 0%, #6b7280 60%, #fca5a5 100%)" },
+    gradient: "linear-gradient(135deg, #09090b 0%, #52525b 50%, #fca5a5 100%)" },
   { id: "vintage",    label: "Vintage Film",
-    gradient: "linear-gradient(135deg, #78350f 0%, #f59e0b 70%, #fef3c7 100%)" },
+    gradient: "linear-gradient(135deg, #78350f 0%, #f59e0b 60%, #fef3c7 100%)" },
   { id: "minimalist", label: "Editorial",
-    gradient: "linear-gradient(135deg, #d4d4d8 0%, #fafafa 100%)",
-    sample: "https://tempfile.aiquickdraw.com/images/1777806187348-0410od3jrwht.png" },
+    gradient: "linear-gradient(135deg, #fafafa 0%, #d4d4d8 50%, #71717a 100%)" },
 ];
 
 // ─── Step 3 config ─────────────────────────────────────────────
@@ -1145,18 +1145,11 @@ function Step1(props: {
                   boxShadow: active ? "0 4px 14px rgba(139,92,246,0.3)" : "none",
                 }}
               >
-                {v.sample && (
-                  <img
-                    src={v.sample}
-                    alt={v.label}
-                    className="absolute inset-0 w-full h-full object-cover"
-                    referrerPolicy="no-referrer"
-                  />
-                )}
+                {/* Bottom scrim ensures the label stays readable on light gradients */}
                 <div
                   className="absolute inset-0"
                   style={{
-                    background: "linear-gradient(180deg, transparent 50%, rgba(0,0,0,0.65) 100%)",
+                    background: "linear-gradient(180deg, transparent 45%, rgba(0,0,0,0.65) 100%)",
                   }}
                 />
                 <div className="absolute bottom-1.5 left-2 text-[11px] font-extrabold text-white drop-shadow">
@@ -1398,19 +1391,11 @@ function Step2({
               onClick={() => setVisualStyle(v.id)}
               className="relative aspect-video rounded-2xl overflow-hidden text-left transition-all hover:scale-[1.02]"
               style={{
-                background: v.sample ? "#000" : v.gradient,
+                background: v.gradient,
                 outline: active ? `3px solid ${PURPLE}` : "none",
                 outlineOffset: active ? 2 : 0,
               }}
             >
-              {v.sample && (
-                <img
-                  src={v.sample}
-                  alt={v.label}
-                  className="absolute inset-0 w-full h-full object-cover"
-                  referrerPolicy="no-referrer"
-                />
-              )}
               <div
                 className="absolute inset-0"
                 style={{ background: "linear-gradient(180deg, transparent 50%, rgba(0,0,0,0.6) 100%)" }}
