@@ -54,13 +54,26 @@ export type HistoryItem = {
 // Pretty model name for the badge under each card
 function modelLabel(item: HistoryItem): string {
   const m = item.metadata?.model || "";
-  // Provider tag (P1 / P2) — appended for video tabs where the same
-  // model can be served by either backend so users know which one
-  // produced (or is producing) this row.
+  // Provider tag (P1 / P2 / P3) — appended so users know which backend
+  // produced (or is producing) this row. Storytelling scene images
+  // include P3 (Mountsea) — historically only P1/P2 had badges, but
+  // since storytelling now toggles between Crun (P2) and Mountsea (P3)
+  // it's worth showing for fairytale-scene rows too.
   const provider = String(item.metadata?.provider || "").toUpperCase();
   const providerSuffix =
-    provider === "P1" || provider === "P2" ? ` • ${provider}` : "";
+    provider === "P1" || provider === "P2" || provider === "P3"
+      ? ` • ${provider}`
+      : "";
 
+  if (item.type === "fairytale-scene") {
+    // Storytelling scene image — show model + provider so it's
+    // obvious whether the scene came from Crun (P2) or Mountsea (P3).
+    if (m.includes("nano-banana-fast")) return "Banana Fast" + providerSuffix;
+    if (m.includes("nano-banana")) return "Banana Pro" + providerSuffix;
+    if (m.includes("gpt-image")) return "GPT Image" + providerSuffix;
+    if (m.includes("z-image")) return "Z-Image" + providerSuffix;
+    return ("Scene Image" + providerSuffix).trim();
+  }
   if (m.includes("nano-banana") || m === "nano-banana-pro") return "Banana Pro";
   if (m.includes("gpt-image") || m === "gpt-image-2") return "GPT Image 2";
   if (m.includes("grok-imagine") || m.includes("grok-3"))

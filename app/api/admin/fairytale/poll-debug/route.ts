@@ -22,10 +22,12 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: "ids query param required" }, { status: 400 });
   }
 
-  // Same query as the wizard polling — uses the user's session client
+  // Same query as the wizard polling — uses the user's session client.
+  // Diagnostic-only: includes error_message + metadata + task_id so a
+  // failed scene-image row can be inspected without admin keys.
   const { data, error } = await sb
     .from("history")
-    .select("id, status, output_url, user_id")
+    .select("id, type, status, output_url, error_message, metadata, task_id, user_id, created_at")
     .in("id", ids);
 
   return NextResponse.json({

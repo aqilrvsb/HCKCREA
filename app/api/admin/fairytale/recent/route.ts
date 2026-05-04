@@ -9,19 +9,27 @@ import { createAdminClient } from "@/lib/supabase/admin";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export async function GET() {
+export async function GET(req: Request) {
   const sb = await createClient();
   const { data: { user } } = await sb.auth.getUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const admin = createAdminClient();
+  const url = new URL(req.url);
+  // ?kind=scene returns the scene-image rows (type='fairytale-scene')
+  // instead of the merged-video rows. Useful for diagnosing image-gen
+  // failures (Crun/Mountsea/Gemini errors land in the scene rows, not
+  // the merge row).
+  const kind = url.searchParams.get("kind") || "merged";
+  const filterType = kind === "scene" ? "fairytale-scene" : "fairytale";
+
   const { data, error } = await admin
     .from("history")
-    .select("id, type, status, output_url, error_message, created_at")
+    .select("id, type, status, output_url, error_message, metadata, created_at")
     .eq("user_id", user.id)
-    .eq("type", "fairytale")
+    .eq("type", filterType)
     .order("created_at", { ascending: false })
-    .limit(10);
+    .limit(15);
 
   return NextResponse.json({
     ok: !error,
@@ -34,9 +42,15 @@ export async function GET() {
           ? "B2"
           : r.output_url.includes("supabase.co")
             ? "SUPABASE"
-            : "OTHER"
+            : r.output_url.includes("mountseaapi") || r.output_url.includes("dkkj.s3")
+              ? "MOUNTSEA"
+              : "OTHER"
         : null,
       output_url_head: r.output_url?.slice(0, 80),
+      provider: (r.metadata as any)?.provider || null,
+      scene_idx: (r.metadata as any)?.scene_idx ?? null,
+      group_id: (r.metadata as any)?.group_id ?? null,
+      model: (r.metadata as any)?.model ?? null,
       error_message: r.error_message,
       created_at: r.created_at,
     })),
