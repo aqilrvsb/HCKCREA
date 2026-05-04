@@ -10,6 +10,7 @@ import {
   Pencil,
   Power,
   PowerOff,
+  Trash2,
   X,
 } from "lucide-react";
 
@@ -112,6 +113,38 @@ export default function AdminClients() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ user_id: c.id, is_active: !c.is_active }),
       });
+      await load();
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  // Hard-delete a client. Two confirms because there's no undo: auth
+  // user + profile + history + credit_transactions + payments +
+  // storage table all get wiped. (B2 objects stay — we don't want a
+  // wrong click to nuke gigabytes.)
+  async function deleteClient(c: Client) {
+    if (!confirm(
+      `PADAM client?\n\n` +
+      `Email: ${c.email}\n` +
+      `Nama:  ${c.full_name || "—"}\n\n` +
+      `Akan padam: auth user, profile, semua history, payments, ` +
+      `credits, storage rows. B2 files akan kekal.\n\n` +
+      `Tak boleh undo.`
+    )) return;
+    if (!confirm(`Last call — confirm padam ${c.email}?`)) return;
+    setBusy(c.id);
+    try {
+      const r = await fetch("/api/admin/clients/delete", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ user_id: c.id }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        alert(`Delete failed: ${d?.error || `HTTP ${r.status}`}`);
+        return;
+      }
       await load();
     } finally {
       setBusy(null);
@@ -316,6 +349,22 @@ export default function AdminClients() {
                             <Power className="w-3.5 h-3.5" strokeWidth={2.4} />
                           )}
                         </IconButton>
+                        {/* Hard delete — destructive, double-confirmed.
+                            Hidden for admins (can't self-nuke). */}
+                        {!c.is_admin && (
+                          <IconButton
+                            title="Delete client (cannot undo)"
+                            onClick={() => deleteClient(c)}
+                            disabled={busy === c.id}
+                            color="red"
+                          >
+                            {busy === c.id ? (
+                              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                            ) : (
+                              <Trash2 className="w-3.5 h-3.5" strokeWidth={2.4} />
+                            )}
+                          </IconButton>
+                        )}
                       </div>
                     </td>
                   </tr>
