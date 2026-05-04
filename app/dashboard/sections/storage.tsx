@@ -33,14 +33,16 @@ type StorageItem = {
 // concatenates into the merged mp4) are intentionally NOT savable —
 // users should save the merged final video, not the intermediate frames.
 // Clone Prompt rows have no media at all, so no Save button + no filter.
+// Cinema/Story chip removed — Story tab was hidden from the project bar.
+// Existing rows of type='cinema' (the old Story tab) won't appear in any
+// chip but are still queryable via "All".
 const TYPE_FILTERS: { id: string; label: string }[] = [
-  { id: "all",        label: "All" },
-  { id: "image",      label: "Image" },
-  { id: "video",      label: "UGC" },
-  { id: "auto",       label: "Auto Content" },
-  { id: "cinema",     label: "Cinema/Story" },
-  { id: "fairytale",  label: "Fairytale" },
-  { id: "seedance",   label: "Seedance" },
+  { id: "all",          label: "All" },
+  { id: "image",        label: "Image" },
+  { id: "video",        label: "UGC" },
+  { id: "auto",         label: "Auto Content" },
+  { id: "seedance",     label: "Cinema" },
+  { id: "fairytale",    label: "Storytelling" },
 ];
 
 function fmtMB(bytes: number): string {
@@ -253,7 +255,7 @@ function StorageCard({
           className="absolute top-1.5 left-1.5 px-2 py-0.5 rounded-md text-[9px] font-extrabold uppercase tracking-wider"
           style={{ background: "rgba(0,0,0,0.6)", color: "white" }}
         >
-          {item.type}
+          {item.type === "fairytale" ? "Storytelling" : item.type}
         </div>
       </div>
       <div className="p-2 flex items-center justify-between gap-1.5">

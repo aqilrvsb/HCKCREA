@@ -67,6 +67,7 @@ function modelLabel(item: HistoryItem): string {
     return "Grok Imagine" + providerSuffix;
   if (m.includes("seedance")) return "Seedance" + providerSuffix;
   if (m.includes("veo")) return "Veo 3.1" + providerSuffix;
+  if (item.type === "fairytale") return "Storytelling";
   return item.type;
 }
 

@@ -479,7 +479,7 @@ export default function FairytaleTab({ projectId }: { projectId?: string } = {})
     <div className="rounded-3xl p-6 md:p-10 bg-white" style={{ minHeight: "60vh" }}>
       {/* Header */}
       <div className="text-center mb-6">
-        <h2 className="font-display font-extrabold text-2xl text-[#1a1a1a]">Fairytale</h2>
+        <h2 className="font-display font-extrabold text-2xl text-[#1a1a1a]">Storytelling</h2>
         <p className="text-xs text-gray-500 mt-1">
           AI-narrated storytelling videos in Bahasa Melayu
         </p>
@@ -1034,7 +1034,7 @@ function Step3(props: any) {
             {renderStatus === "submitting" ? (
               <><Loader2 className="w-4 h-4 animate-spin" /> Merging scenes…</>
             ) : renderStatus === "done" ? (
-              <><Check className="w-4 h-4" /> Merged — see Fairytale history below</>
+              <><Check className="w-4 h-4" /> Merged — see Storytelling history below</>
             ) : (
               <><Sparkles className="w-4 h-4" /> Merge All Scenes → 1 Video</>
             )}
