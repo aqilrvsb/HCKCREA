@@ -62,8 +62,9 @@ function tabLabel(item: FeedItem): string {
   const key = String(item.type || item.tab || "").toLowerCase();
   if (key === "fairytale") return "Storytelling";
   if (key === "seedance") return "Cinema";
-  if (key === "auto-content" || key === "auto") return "Auto";
+  if (key === "auto-content" || key === "auto") return "Auto Content";
   if (key === "video") return "UGC";
+  if (key === "ugc") return "AI Agent UGC";
   return key;
 }
 
@@ -216,11 +217,16 @@ function WatermarkedPreview({ item, onClose }: { item: FeedItem; onClose: () => 
   // Repeating diagonal text watermark via inline SVG → data URL. Tiled
   // across the asset with `background-image: repeat`. pointer-events:none
   // so video controls underneath stay clickable.
+  // Tuned for visibility: high-opacity white + 1px black stroke means
+  // the mark stays readable on both very bright AND very dark frames,
+  // and screenshots can't easily be patched out.
   const watermarkSvg = encodeURIComponent(
-    `<svg xmlns="http://www.w3.org/2000/svg" width="280" height="280">
-      <text x="20" y="160" fill="rgba(255,255,255,0.18)"
-            font-family="monospace" font-size="22" font-weight="bold"
-            transform="rotate(-30 140 140)">PENINGLAB.COM</text>
+    `<svg xmlns="http://www.w3.org/2000/svg" width="220" height="220">
+      <text x="10" y="120" fill="rgba(255,255,255,0.55)"
+            stroke="rgba(0,0,0,0.4)" stroke-width="1"
+            font-family="Arial, sans-serif" font-size="26" font-weight="900"
+            letter-spacing="1"
+            transform="rotate(-30 110 110)">PENINGLAB.COM</text>
     </svg>`
   );
   const watermarkUrl = `url("data:image/svg+xml;utf8,${watermarkSvg}")`;
@@ -266,13 +272,15 @@ function WatermarkedPreview({ item, onClose }: { item: FeedItem; onClose: () => 
         )}
         {/* Watermark overlay — pointer-events:none keeps the native
             video controls clickable, while the repeating SVG covers
-            every pixel so screenshots all carry the brand mark. */}
+            every pixel so screenshots all carry the brand mark. We
+            drop mix-blend-mode here because the white-with-black-
+            stroke text is already visible on both light + dark
+            frames; blend mode was washing it out on mid-grey scenes. */}
         <div
           className="absolute inset-0 pointer-events-none"
           style={{
             backgroundImage: watermarkUrl,
             backgroundRepeat: "repeat",
-            mixBlendMode: "difference",
           }}
         />
       </div>

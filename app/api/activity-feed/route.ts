@@ -27,25 +27,6 @@ type FeedRow = {
   created_at: string;
 };
 
-// Turn an email + optional full_name into something safe to show to
-// strangers. Order of preference:
-//   1. "Ahmad R." (first word of full_name + initial of second word)
-//   2. "Ahmad"    (single-word full_name)
-//   3. "ahm***"   (first 3 chars of local-part of email)
-//   4. "Someone"  (fallback)
-function anonymize(email: string | null | undefined, fullName: string | null | undefined): string {
-  const name = String(fullName || "").trim();
-  if (name) {
-    const parts = name.split(/\s+/);
-    if (parts.length >= 2) return `${parts[0]} ${parts[1].charAt(0).toUpperCase()}.`;
-    return parts[0];
-  }
-  const local = String(email || "").split("@")[0];
-  if (local && local.length >= 3) return `${local.slice(0, 3).toLowerCase()}***`;
-  if (local) return `${local.toLowerCase()}***`;
-  return "Someone";
-}
-
 export async function GET(req: Request) {
   const sb = await createClient();
   const { data: { user } } = await sb.auth.getUser();
@@ -67,11 +48,11 @@ export async function GET(req: Request) {
   }).format(new Date());
   const todayMyMidnightUtc = new Date(`${todayMyDate}T00:00:00+08:00`).toISOString();
 
-  // Video-only feed: UGC (video) / Auto Content (auto-content) /
-  // Cinema (seedance) / Storytelling (fairytale). Plain images don't
-  // sell the platform's value as well as a finished video — feed
-  // stays focused on the polished outputs.
-  const VIDEO_TYPES = ["video", "auto-content", "seedance", "fairytale"];
+  // Video-only feed: UGC (video) / AI Agent UGC (ugc) /
+  // Auto Content (auto-content) / Cinema (seedance) / Storytelling
+  // (fairytale). Plain images stay excluded — feed focuses on the
+  // polished video outputs that best sell the platform.
+  const VIDEO_TYPES = ["video", "ugc", "auto-content", "seedance", "fairytale"];
 
   const admin = createAdminClient();
   const { data: rows, error } = await admin
@@ -89,17 +70,9 @@ export async function GET(req: Request) {
   }
 
   const userIds = Array.from(new Set((rows || []).map((r) => r.user_id)));
-  const nameById = new Map<string, string | null>();
   const emailById = new Map<string, string>();
 
   if (userIds.length > 0) {
-    const { data: profiles } = await admin
-      .from("profiles")
-      .select("id, full_name")
-      .in("id", userIds);
-    for (const p of profiles || []) {
-      nameById.set(p.id, p.full_name);
-    }
     const { data: list } = await admin.auth.admin.listUsers({ page: 1, perPage: 200 });
     for (const u of list?.users || []) {
       if (userIds.includes(u.id)) emailById.set(u.id, u.email || "");
@@ -108,7 +81,7 @@ export async function GET(req: Request) {
 
   const items: FeedRow[] = (rows || []).map((r) => ({
     id: r.id,
-    display_name: anonymize(emailById.get(r.user_id), nameById.get(r.user_id) || null),
+    display_name: emailById.get(r.user_id) || "(unknown)",
     tab: r.tab || r.type || "—",
     type: r.type,
     output_url: r.output_url,
