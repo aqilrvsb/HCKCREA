@@ -22,7 +22,15 @@ export const dynamic = "force-dynamic";
 type Style = "storytelling" | "sharing" | "selling";
 type Tone = "formal" | "happy" | "sad" | "scary" | "bold";
 type Language = "ms" | "en";
-type VisualStyle = "realistic" | "3d" | "fantasy" | "minimalist" | "nature" | "anime";
+type VisualStyle =
+  | "realistic"
+  | "3d"
+  | "anime"
+  | "fantasy"
+  | "watercolor"
+  | "noir"
+  | "vintage"
+  | "minimalist";
 
 const STYLE_HINTS: Record<Style, string> = {
   storytelling: "Tell an engaging narrative story with a clear arc — setup, rising action, climax, resolution",
@@ -43,13 +51,27 @@ const LANG_HINTS: Record<Language, string> = {
   en: "English — natural conversational",
 };
 
+// Detailed visual hints — appended to every scene's image_prompt so the
+// AI image model (RunningHub/Crun nano-banana) locks consistent style
+// across all N scenes. Each hint specifies medium + palette + lighting
+// + composition + reference style so the model has unambiguous targets.
 const VISUAL_HINTS: Record<VisualStyle, string> = {
-  realistic: "photorealistic cinematic photography, natural lighting, shallow depth of field, 4K detail",
-  "3d": "stylized 3D animated render, Pixar-style lighting, soft shadows, vibrant colors",
-  fantasy: "fantasy concept art, epic painterly style, magical lighting, rich saturated colors, dreamlike atmosphere",
-  minimalist: "minimalist composition, clean background, single subject focus, soft pastels, simple framing",
-  nature: "natural landscape photography, golden hour lighting, atmospheric, scenic vista",
-  anime: "Japanese anime art style, expressive character design, vibrant cel-shaded coloring, dynamic angles",
+  realistic:
+    "cinematic film still, 35mm anamorphic lens, teal-and-orange color grade, dramatic side lighting, shallow depth of field with creamy bokeh, painterly composition rule of thirds, atmospheric haze, modern blockbuster aesthetic, 4K detail",
+  "3d":
+    "Pixar-style 3D animated render, soft global illumination, expressive character with oversized eyes, warm saturated colors, subtle subsurface scattering on skin, plush fabrics, hero-pose composition, family-friendly Disney aesthetic",
+  anime:
+    "Studio Ghibli anime style by Hayao Miyazaki, soft watercolor backgrounds, warm pastel palette of cream/sage/sky-blue, expressive eyes with subtle highlights, lush hand-drawn detail, gentle whimsical atmosphere, painterly clouds",
+  fantasy:
+    "epic fantasy concept art, oil-painted texture, magical god-rays piercing the scene, rich jewel-tone palette of emerald/sapphire/gold, dramatic chiaroscuro, mythological grandeur, ArtStation trending, Frank Frazetta meets Greg Rutkowski",
+  watercolor:
+    "hand-painted watercolor illustration, soft bleeding edges, warm muted palette of cream/peach/sage, visible cold-press paper texture, gentle ink line work over wash, children's storybook aesthetic, dreamy light, Quentin Blake meets Beatrix Potter",
+  noir:
+    "cinematic film noir, high-contrast black-and-white with selective spot-color accent, dramatic single-source lighting, deep shadows with venetian-blind patterns, 1940s detective atmosphere, smoke and rain, low-angle dramatic composition, Sin City aesthetic",
+  vintage:
+    "vintage 1970s 35mm film photograph, warm sepia-and-amber color grade, visible film grain, light leaks at frame edges, faded contrast like aged Kodachrome, nostalgic documentary feel, sun-bleached palette, Wes Anderson meets old family album",
+  minimalist:
+    "editorial minimalist photography, clean negative space, single subject in sharp focus, soft natural window light, neutral palette of cream/charcoal/dove-grey, magazine-quality composition, premium fashion photography aesthetic, NYT Sunday Magazine feel",
 };
 
 export async function POST(req: Request) {
@@ -64,7 +86,12 @@ export async function POST(req: Request) {
   const style = (["storytelling", "sharing", "selling"].includes(body?.style) ? body.style : "storytelling") as Style;
   const tone = (["formal", "happy", "sad", "scary", "bold"].includes(body?.tone) ? body.tone : "formal") as Tone;
   const language = (["ms", "en"].includes(body?.language) ? body.language : "ms") as Language;
-  const visualStyle = (["realistic", "3d", "fantasy", "minimalist", "nature", "anime"].includes(body?.visual_style) ? body.visual_style : "realistic") as VisualStyle;
+  // Map legacy "nature" style (removed in favor of more distinct viral
+  // styles) to "realistic" so any draft state in flight keeps working.
+  const rawVisual = body?.visual_style === "nature" ? "realistic" : body?.visual_style;
+  const visualStyle = (["realistic", "3d", "anime", "fantasy", "watercolor", "noir", "vintage", "minimalist"].includes(rawVisual)
+    ? rawVisual
+    : "realistic") as VisualStyle;
   const sceneCount = Math.max(3, Math.min(15, Number(body?.scene_count) || 10));
   const sceneDurationSec = Math.max(3, Math.min(20, Number(body?.scene_duration_sec) || 10));
   // CTA mode: when true, the AI weaves the user's call-to-action into

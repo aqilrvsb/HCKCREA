@@ -91,21 +91,44 @@ function fmtMmSs(totalSec: number): string {
 }
 
 // ─── Step 2 visuals ─────────────────────────────────────────────
-type VisualStyle = "realistic" | "3d" | "fantasy" | "minimalist" | "nature" | "anime";
+// Visual style catalog — each entry is a distinctive aesthetic that works
+// well for short-form storytelling video. Hints are deliberately detailed
+// so the AI image model locks consistent style across all 10 scenes.
+//
+// "realistic" → "cinematic" (rename) is kept under the same id "realistic"
+// so existing draft state and DB rows don't break.
+type VisualStyle =
+  | "realistic"   // Cinematic film still
+  | "3d"          // 3D Pixar/Disney
+  | "anime"       // Anime Ghibli
+  | "fantasy"     // Fantasy concept art
+  | "watercolor"  // Watercolor storybook
+  | "noir"        // Cinematic noir
+  | "vintage"     // Vintage 35mm film
+  | "minimalist"; // Editorial minimal
 
 const VISUAL_STYLES: { id: VisualStyle; label: string; gradient: string; sample?: string }[] = [
-  { id: "realistic",  label: "Realistic",  gradient: "linear-gradient(135deg, #8b5e3c 0%, #d4a574 100%)",
+  { id: "realistic",  label: "Cinematic",
+    gradient: "linear-gradient(135deg, #1e3a8a 0%, #f59e0b 100%)",
     sample: "https://tempfile.aiquickdraw.com/images/1777806206916-2a5942wnvl3.png" },
-  { id: "3d",         label: "3D",         gradient: "linear-gradient(135deg, #f97316 0%, #fbbf24 100%)",
+  { id: "3d",         label: "3D Pixar",
+    gradient: "linear-gradient(135deg, #f97316 0%, #fbbf24 100%)",
     sample: "https://tempfile.aiquickdraw.com/images/1777806197874-h4qzfh5x9wg.png" },
-  { id: "fantasy",    label: "Fantasy",    gradient: "linear-gradient(135deg, #7c3aed 0%, #ec4899 100%)",
-    sample: "https://tempfile.aiquickdraw.com/workers/nano/image_1777806223290_9xkbpu.png" },
-  { id: "minimalist", label: "Minimalist", gradient: "linear-gradient(135deg, #d4d4d8 0%, #fafafa 100%)",
-    sample: "https://tempfile.aiquickdraw.com/images/1777806187348-0410od3jrwht.png" },
-  { id: "nature",     label: "Nature",     gradient: "linear-gradient(135deg, #f59e0b 0%, #ea580c 100%)",
-    sample: "https://tempfile.aiquickdraw.com/images/1777806217679-40suvb4a1b3.png" },
-  { id: "anime",      label: "Anime",      gradient: "linear-gradient(135deg, #06b6d4 0%, #f472b6 100%)",
+  { id: "anime",      label: "Anime Ghibli",
+    gradient: "linear-gradient(135deg, #06b6d4 0%, #f472b6 100%)",
     sample: "https://tempfile.aiquickdraw.com/images/1777806209200-havbrshlbwb.png" },
+  { id: "fantasy",    label: "Fantasy Epic",
+    gradient: "linear-gradient(135deg, #7c3aed 0%, #ec4899 100%)",
+    sample: "https://tempfile.aiquickdraw.com/workers/nano/image_1777806223290_9xkbpu.png" },
+  { id: "watercolor", label: "Watercolor",
+    gradient: "linear-gradient(135deg, #fda4af 0%, #fef3c7 50%, #a7f3d0 100%)" },
+  { id: "noir",       label: "Cinematic Noir",
+    gradient: "linear-gradient(135deg, #18181b 0%, #6b7280 60%, #fca5a5 100%)" },
+  { id: "vintage",    label: "Vintage Film",
+    gradient: "linear-gradient(135deg, #78350f 0%, #f59e0b 70%, #fef3c7 100%)" },
+  { id: "minimalist", label: "Editorial",
+    gradient: "linear-gradient(135deg, #d4d4d8 0%, #fafafa 100%)",
+    sample: "https://tempfile.aiquickdraw.com/images/1777806187348-0410od3jrwht.png" },
 ];
 
 // ─── Step 3 config ─────────────────────────────────────────────
@@ -1107,7 +1130,7 @@ function Step1(props: {
           prompt prefix during generation. */}
       <div className="mt-5">
         <div className="text-xs font-bold mb-2 text-gray-700">Visual Style</div>
-        <div className="grid grid-cols-3 md:grid-cols-6 gap-2">
+        <div className="grid grid-cols-4 md:grid-cols-4 lg:grid-cols-8 gap-2">
           {VISUAL_STYLES.map((v) => {
             const active = v.id === props.visualStyle;
             return (
