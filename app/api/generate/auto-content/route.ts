@@ -1139,22 +1139,12 @@ CRITICAL: Respond with ONLY a JSON array. NO analysis, NO explanation, NO markdo
 
   // Persist the master plan as a saved_prompts row in bucket "master-auto"
   // so the user can revisit / star it from the Saved Prompts library.
-  // Stored as pretty-printed JSON in prompt_text — the library Copy
-  // button gives the user the full structured plan they can paste
-  // anywhere, instead of the truncated human summary we used before.
+  // Stored as the EXACT plans array the AI returned (pretty-printed JSON)
+  // so the Copy button hands the user JSON they can paste straight back
+  // into the master plan input — no envelope, no metadata wrapping.
   // Best-effort — failure here never breaks the generation path.
   try {
-    const planJson = JSON.stringify(
-      {
-        videos: plans.length,
-        duration_mode: durationMode,
-        cta_mode: ctaMode,
-        aspect_ratio: aspectRatio,
-        plans,
-      },
-      null,
-      2
-    );
+    const planJson = JSON.stringify(plans, null, 2);
     await admin.from("saved_prompts").insert({
       user_id: user.id,
       project_id: projectId,
