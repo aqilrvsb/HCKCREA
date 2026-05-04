@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { Loader2, X, Film } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import Portal from "../sections/portal";
+import { uploadImage, dataUrlToFile } from "@/lib/upload-image";
 
 // Cinema — Grok Imagine via Crun.ai. Two image modes (Text to Video,
 // Image to Video), duration slider 6-30s, resolution 480p|720p, mode
@@ -59,11 +60,8 @@ export default function CinemaTab({ projectId }: { projectId?: string } = {}) {
       setRefImage(String(reader.result || ""));
       (async () => {
         try {
-          const fd = new FormData();
-          fd.append("file", f, f.name || "upload.png");
-          const r = await fetch("/api/upload/image", { method: "POST", body: fd });
-          const d = await r.json();
-          if (r.ok && d?.url) setRefImage(d.url);
+          const { url } = await uploadImage(f);
+          setRefImage(url);
         } catch {
           // Silent — submit's ensurePublicUrl handles retry
         }
@@ -75,13 +73,9 @@ export default function CinemaTab({ projectId }: { projectId?: string } = {}) {
   async function ensurePublicUrl(v: string): Promise<string> {
     if (!v) return "";
     if (!v.startsWith("data:")) return v;
-    const blob = await (await fetch(v)).blob();
-    const fd = new FormData();
-    fd.append("file", blob, "ref.png");
-    const r = await fetch("/api/upload/image", { method: "POST", body: fd });
-    const d = await r.json();
-    if (!r.ok || !d?.url) throw new Error(d?.error || "Upload failed");
-    return d.url;
+    const file = await dataUrlToFile(v, "ref.png");
+    const { url } = await uploadImage(file);
+    return url;
   }
 
   async function submit() {

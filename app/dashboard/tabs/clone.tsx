@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { Loader2, X, Pin, Copy, Check } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import Portal from "../sections/portal";
+import { uploadImage, dataUrlToFile } from "@/lib/upload-image";
 
 // Clone Prompt — input: reference video + product image →
 // output: list of segment prompts (no video generation). Two output models:
@@ -85,13 +86,9 @@ export default function CloneTab({ projectId }: { projectId?: string } = {}) {
   async function ensurePublicUrl(v: string): Promise<string> {
     if (!v) return "";
     if (!v.startsWith("data:")) return v;
-    const blob = await (await fetch(v)).blob();
-    const fd = new FormData();
-    fd.append("file", blob, "ref.png");
-    const r = await fetch("/api/upload/image", { method: "POST", body: fd });
-    const d = await r.json();
-    if (!r.ok || !d?.url) throw new Error(d?.error || "Upload failed");
-    return d.url;
+    const file = await dataUrlToFile(v, "ref.png");
+    const { url } = await uploadImage(file);
+    return url;
   }
 
   async function extractFrames(file: File, count: number): Promise<string[]> {

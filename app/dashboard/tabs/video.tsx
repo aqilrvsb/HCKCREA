@@ -5,6 +5,7 @@ import { Loader2, Sparkles, X } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import Portal from "../sections/portal";
 import UgcTab from "./ugc";
+import { uploadImage, dataUrlToFile } from "@/lib/upload-image";
 
 // Video tab — 1:1 port of creative-hack-auto's video-mode-section.
 // Three image modes (frame / ingredient / text), with a Scene card that
@@ -78,11 +79,8 @@ export default function VideoTab({ projectId }: { projectId?: string } = {}) {
       set(String(reader.result || ""));
       (async () => {
         try {
-          const fd = new FormData();
-          fd.append("file", f, f.name || "upload.png");
-          const r = await fetch("/api/upload/image", { method: "POST", body: fd });
-          const d = await r.json();
-          if (r.ok && d?.url) set(d.url);
+          const { url } = await uploadImage(f);
+          set(url);
         } catch {
           // Silent — submit's ensurePublicUrl handles retry
         }
@@ -95,13 +93,9 @@ export default function VideoTab({ projectId }: { projectId?: string } = {}) {
   async function ensurePublicUrl(v: string): Promise<string> {
     if (!v) return "";
     if (!v.startsWith("data:")) return v;
-    const blob = await (await fetch(v)).blob();
-    const fd = new FormData();
-    fd.append("file", blob, "upload.png");
-    const r = await fetch("/api/upload/image", { method: "POST", body: fd });
-    const d = await r.json();
-    if (!r.ok || !d?.url) throw new Error(d?.error || "Upload failed");
-    return d.url;
+    const file = await dataUrlToFile(v, "upload.png");
+    const { url } = await uploadImage(file);
+    return url;
   }
 
   async function submit() {

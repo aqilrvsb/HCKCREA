@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { Loader2, X } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import Portal from "../sections/portal";
+import { uploadImage, dataUrlToFile } from "@/lib/upload-image";
 import {
   AVATAR_PROMPTS,
   AVATAR_LABELS,
@@ -103,11 +104,8 @@ export default function ImageTab({ projectId }: { projectId?: string } = {}) {
       // Kick off background upload — fire-and-forget, swap state when ready
       (async () => {
         try {
-          const fd = new FormData();
-          fd.append("file", f, f.name || "upload.png");
-          const r = await fetch("/api/upload/image", { method: "POST", body: fd });
-          const d = await r.json();
-          if (r.ok && d?.url) set(d.url);
+          const { url } = await uploadImage(f);
+          set(url);
         } catch {
           // Silent — keep data: URL; submit's ensurePublicUrl handles retry
         }
@@ -121,13 +119,9 @@ export default function ImageTab({ projectId }: { projectId?: string } = {}) {
   async function ensurePublicUrl(v: string): Promise<string> {
     if (!v) return "";
     if (!v.startsWith("data:")) return v;
-    const blob = await (await fetch(v)).blob();
-    const fd = new FormData();
-    fd.append("file", blob, "upload.png");
-    const r = await fetch("/api/upload/image", { method: "POST", body: fd });
-    const d = await r.json();
-    if (!r.ok || !d?.url) throw new Error(d?.error || "Upload failed");
-    return d.url;
+    const file = await dataUrlToFile(v, "upload.png");
+    const { url } = await uploadImage(file);
+    return url;
   }
 
   async function submit() {

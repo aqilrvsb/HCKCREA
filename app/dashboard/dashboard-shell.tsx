@@ -48,7 +48,7 @@ const TABS: { key: TabKey; label: string; icon: any; tag: string }[] = [
   { key: "auto",      label: "Auto Content", icon: Wand2,     tag: "03" },
   { key: "seedance",  label: "Cinema",       icon: Film,      tag: "04" },
   { key: "clone",     label: "Clone Prompt", icon: Layers,    tag: "05" },
-  { key: "fairytale", label: "Storytelling Coming Soon", icon: BookOpen,  tag: "06" },
+  { key: "fairytale", label: "Storytelling",       icon: BookOpen,  tag: "06" },
 ];
 
 export default function DashboardShell({
