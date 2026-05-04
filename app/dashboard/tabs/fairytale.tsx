@@ -2787,18 +2787,11 @@ function PreviewPanel(props: any) {
               }}
             >
               {textAnimation === "karaoke" || textAnimation === "word-by-word" ? (
-                <>
-                  {words.slice(0, revealedCount).join(" ")}
-                  {revealedCount < words.length && (
-                    <span
-                      key={`cursor-${revealedCount}`}
-                      style={{
-                        marginLeft: 4,
-                        animation: "ftBlink 600ms steps(1) infinite",
-                      }}
-                    >|</span>
-                  )}
-                </>
+                // Plain progressive reveal — no blinking "|" cursor.
+                // Modal's drawtext doesn't render a cursor either, so
+                // showing one in the preview made the live view diverge
+                // from the final MP4.
+                <>{words.slice(0, revealedCount).join(" ")}</>
               ) : textAnimation === "highlight" ? (
                 <>
                   {words.map((w: string, i: number) => (
