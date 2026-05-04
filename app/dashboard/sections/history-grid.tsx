@@ -107,6 +107,13 @@ export default function HistoryGrid({
   const [page, setPage] = useState(0);
   const PAGE_SIZE = 12;
 
+  // Storytelling has TWO kinds of artifacts the user wants visible:
+  //   • merged final videos (type='fairytale')        ← the deliverable
+  //   • intermediate scene images (type='fairytale-scene') ← the raw assets
+  // Sub-tab toggles which the query returns. Default = "videos" (parity
+  // with the old behaviour). Only relevant when tab === "fairytale".
+  const [storytellingSubTab, setStorytellingSubTab] = useState<"videos" | "images">("videos");
+
   // Combine/merge multi-select. Only enabled on video tabs (UGC/Auto/Cinema)
   // — image tabs don't have a "combine" semantic. Reset whenever the tab or
   // project switches (the parent re-keys this component, but extra-safe).
@@ -160,7 +167,7 @@ export default function HistoryGrid({
     window.addEventListener("history:refresh", onRefresh);
     return () => window.removeEventListener("history:refresh", onRefresh);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tab, projectId]);
+  }, [tab, projectId, storytellingSubTab]);
 
   // 1-minute auto-refresh when there's anything pending. Pauses when the
   // tab is hidden (browser throttles intervals on hidden tabs anyway, but
@@ -200,10 +207,15 @@ export default function HistoryGrid({
         .order("created_at", { ascending: false })
         .limit(60);
       if (projectId) q = q.eq("project_id", projectId);
-      // Fairytale tab: hide the 10 intermediate scene-image rows per merge —
-      // they're an implementation detail, not user-facing assets. Only
-      // surface the merged Fairytale videos (type='fairytale').
-      if (tab === "fairytale") q = q.eq("type", "fairytale");
+      // Storytelling: sub-tab decides which artifact type to show.
+      //   "videos" → merged final videos (type='fairytale')
+      //   "images" → intermediate scene images (type='fairytale-scene')
+      if (tab === "fairytale") {
+        q = q.eq(
+          "type",
+          storytellingSubTab === "images" ? "fairytale-scene" : "fairytale"
+        );
+      }
       const { data } = await q;
       setItems((data as HistoryItem[]) || []);
     } finally {
@@ -296,6 +308,36 @@ export default function HistoryGrid({
           {counts.total} items
         </span>
       </div>
+
+      {/* Storytelling has two artifact types worth surfacing — the
+          merged final videos AND the raw scene images that fed into
+          them. Sub-tab toggles between them. */}
+      {tab === "fairytale" && (
+        <div className="flex gap-1 p-1 rounded-xl bg-[var(--color-bg-card)] mb-4 max-w-xs">
+          {(["videos", "images"] as const).map((t) => {
+            const active = storytellingSubTab === t;
+            return (
+              <button
+                key={t}
+                type="button"
+                onClick={() => setStorytellingSubTab(t)}
+                className="flex-1 py-2 rounded-lg text-xs font-bold transition"
+                style={
+                  active
+                    ? {
+                        background: "var(--color-orange)",
+                        color: "white",
+                        boxShadow: "0 2px 6px rgba(0,0,0,0.15)",
+                      }
+                    : { background: "transparent", color: "var(--color-text-muted)" }
+                }
+              >
+                {t === "videos" ? "🎬 Videos" : "🖼️ Images"}
+              </button>
+            );
+          })}
+        </div>
+      )}
 
       {items.length === 0 ? (
         <div className="flex flex-col items-center justify-center text-center py-16">
