@@ -1139,19 +1139,27 @@ CRITICAL: Respond with ONLY a JSON array. NO analysis, NO explanation, NO markdo
 
   // Persist the master plan as a saved_prompts row in bucket "master-auto"
   // so the user can revisit / star it from the Saved Prompts library.
+  // Stored as pretty-printed JSON in prompt_text — the library Copy
+  // button gives the user the full structured plan they can paste
+  // anywhere, instead of the truncated human summary we used before.
   // Best-effort — failure here never breaks the generation path.
   try {
-    const planSummary = plans
-      .map(
-        (p, i) =>
-          `Video ${i + 1} — ${p.framework}\n  hook: ${p.hookAngle || "?"}\n  emotion: ${p.targetEmotion || "?"}\n  cover: ${p.coverTitle || "—"} / ${p.coverSubtitle || "—"}\n  shot1: ${(p.videoPromptShot1 || "").substring(0, 200)}…`
-      )
-      .join("\n\n");
+    const planJson = JSON.stringify(
+      {
+        videos: plans.length,
+        duration_mode: durationMode,
+        cta_mode: ctaMode,
+        aspect_ratio: aspectRatio,
+        plans,
+      },
+      null,
+      2
+    );
     await admin.from("saved_prompts").insert({
       user_id: user.id,
       project_id: projectId,
       bucket: "master-auto",
-      prompt_text: planSummary || "(empty plan)",
+      prompt_text: planJson,
       model: "veo-3.1",
       scene_template: `Auto Content plan · ${plans.length} videos · ${durationMode}s · ${ctaMode}`,
       reference_url: productImageUrl || null,
