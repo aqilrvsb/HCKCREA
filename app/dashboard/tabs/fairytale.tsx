@@ -778,6 +778,8 @@ function Step3(props: any) {
     uppercase, setUppercase,
     textBackground, setTextBackground,
     previewIdx, setPreviewIdx,
+    audioCache, audioCacheStatus,
+    previewMuted, setPreviewMuted,
     renderStatus, renderError,
     onBack, onSubmit, onRetryScript,
   } = props;
