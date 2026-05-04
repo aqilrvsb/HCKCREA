@@ -28,6 +28,37 @@ import { p2CreateTask } from "@/lib/p2";
 import { getP2Config } from "@/lib/settings";
 import { falExtractFrame, falMergeVideos, type FrameAnchor } from "@/lib/fal";
 import { productTextLockBlock } from "@/lib/product-ocr";
+import { uploadFromUrl, signedGetUrl, buildKey } from "@/lib/b2";
+
+// Rehost a (possibly expired) Crun temp video URL to B2 so fal can fetch
+// it during the merge step. Returns a fresh 7-day signed URL on success,
+// or null if the source URL is dead. Used by mergeSeg1AndSeg2 to handle
+// old parent rows whose seg-1 output_url has aged past Crun's TTL.
+async function rehostStaleSegToB2(
+  url: string,
+  userId: string,
+  historyId: string
+): Promise<string | null> {
+  if (!url) return null;
+  try {
+    // Fast HEAD check — if the URL still works, no need to rehost.
+    const head = await fetch(url, { method: "HEAD" });
+    if (head.ok) return url;
+  } catch {
+    // ignore — fall through to rehost
+  }
+  try {
+    const key = buildKey({ userId, type: "video", historyId, ext: "mp4" });
+    await uploadFromUrl({ url, key, contentType: "video/mp4" });
+    return await signedGetUrl({ key });
+  } catch (e: any) {
+    console.warn(
+      `[segment-chain] rehost-to-B2 failed for ${url.slice(0, 80)}:`,
+      e?.message || e
+    );
+    return null;
+  }
+}
 
 type Settled = {
   id: string;
@@ -237,8 +268,32 @@ async function mergeSegments(seg2: Settled, seg2OutputUrl: string): Promise<void
     return;
   }
 
+  // Stale-URL rehost. Old parent rows (>14d) often have expired Crun
+  // tempfile.aiquickdraw.com URLs that fal can no longer download — the
+  // merge then succeeds technically but with black/silent frames where
+  // seg-1 should be. HEAD-check first; if dead, copy to B2 and use the
+  // signed URL. If the source is genuinely gone (404 / connection
+  // refused), the rehost fails and we surface a clean error instead of
+  // silently merging black video.
+  const seg1ForMerge = await rehostStaleSegToB2(
+    parent.output_url,
+    parent.user_id,
+    parent.id
+  );
+  if (!seg1ForMerge) {
+    await admin
+      .from("history")
+      .update({
+        status: "failed",
+        error_message:
+          "Seg-1 video URL expired and source is no longer reachable. Re-generate the original clip and try again.",
+      })
+      .eq("id", parent.id);
+    return;
+  }
+
   // Run merge
-  const mergeRes = await falMergeVideos([parent.output_url, seg2OutputUrl]);
+  const mergeRes = await falMergeVideos([seg1ForMerge, seg2OutputUrl]);
   if (!mergeRes.ok || !mergeRes.url) {
     await admin
       .from("history")
