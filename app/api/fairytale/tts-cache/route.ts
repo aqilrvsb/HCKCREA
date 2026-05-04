@@ -95,7 +95,10 @@ export async function POST(req: Request) {
     const b2Key = `users/${user.id}/_fairytale-tts-cache/${historyId}-scene-${s.idx}.mp3`;
     try {
       const { size } = await _ttsToB2({ text, voiceId, speed, apiKey, b2Key });
-      const url = await signedGetUrl({ key: b2Key, expiresInSec: 60 * 60 * 24 * 14 });
+      // Max SigV4 presigned URL lifetime is 7 days (B2 enforces the AWS limit).
+      // Plenty for live preview — the cache file gets re-fetched if the user
+      // returns to the wizard later.
+      const url = await signedGetUrl({ key: b2Key, expiresInSec: 60 * 60 * 24 * 7 });
       return { idx: s.idx, audio_url: url, size_bytes: size };
     } catch (e: any) {
       return { idx: s.idx, audio_url: "", size_bytes: 0, error: e?.message?.slice(0, 200) || "tts failed" };
