@@ -209,13 +209,15 @@ export default function ImageTab({ projectId }: { projectId?: string } = {}) {
         </div>
       </Card>
 
-      {/* CREATE MODE — Character + Product references */}
+      {/* CREATE MODE — Character + Product references (both optional).
+          Matches AI Agent UGC's avatar/product slot pattern. Generation
+          falls back to text-to-image when both are empty. */}
       {mode === "create" && (
         <>
           <Card>
             <CardHeader
-              icon="🧑"
-              title="Character Reference"
+              icon="👤"
+              title="Avatar Reference (Optional)"
               right={<HistoryBtn onClick={() => setPickerSlot("char")}>From History</HistoryBtn>}
             />
             <RefZone
@@ -238,7 +240,7 @@ export default function ImageTab({ projectId }: { projectId?: string } = {}) {
           <Card>
             <CardHeader
               icon="📦"
-              title="Product Reference"
+              title="Product Reference (Optional)"
               right={<HistoryBtn onClick={() => setPickerSlot("product")}>From History</HistoryBtn>}
             />
             <RefZone
@@ -257,6 +259,11 @@ export default function ImageTab({ projectId }: { projectId?: string } = {}) {
               onChange={(e) => readFile(e.target.files?.[0] || null, setProductUrl)}
             />
           </Card>
+
+          <p className="text-[11px] text-gray-500 text-center -mt-2">
+            Both optional. Upload nothing → text-to-image. Upload one → reference.
+            Upload both → both used as references.
+          </p>
         </>
       )}
 
