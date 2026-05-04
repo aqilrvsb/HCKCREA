@@ -116,8 +116,20 @@ async function applyCheckoutSignup(admin: any, payment: any) {
     const existing = existingList?.users?.find((u: any) => (u.email || "").toLowerCase() === email);
     if (existing) {
       userId = existing.id;
-      // Reset password so they can log in with the new temp creds
-      await admin.auth.admin.updateUserById(userId, { password: tempPassword });
+      // Reset password so they can log in with the new temp creds. Hard-fail
+      // if Supabase rejects the new password (e.g. fails the project's auth
+      // password-strength policy) — otherwise we'd send a WhatsApp with a
+      // password that was never actually saved, blocking login.
+      const { error: updErr } = await admin.auth.admin.updateUserById(userId, {
+        password: tempPassword,
+      });
+      if (updErr) {
+        console.error(
+          `[checkout_signup] password update failed for ${email}:`,
+          updErr.message
+        );
+        return;
+      }
     } else {
       console.error("auth create failed (no existing match):", createErr);
       return;
@@ -230,13 +242,29 @@ async function applyCheckoutSignup(admin: any, payment: any) {
 }
 
 function generatePassword(len: number): string {
-  const chars =
-    "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789";
-  let out = "";
-  for (let i = 0; i < len; i++) {
-    out += chars[Math.floor(Math.random() * chars.length)];
+  // Curated set: no 0/O/o, 1/l/I to avoid OCR confusion on a phone screen.
+  // Force at least one of each char class so the password passes Supabase
+  // Auth's "require special character" / strong-password policy if the
+  // project enables it.
+  const upper = "ABCDEFGHJKLMNPQRSTUVWXYZ";
+  const lower = "abcdefghijkmnpqrstuvwxyz";
+  const digit = "23456789";
+  const sym = "!@#$";
+  const all = upper + lower + digit + sym;
+  const out: string[] = [
+    upper[Math.floor(Math.random() * upper.length)],
+    lower[Math.floor(Math.random() * lower.length)],
+    digit[Math.floor(Math.random() * digit.length)],
+    sym[Math.floor(Math.random() * sym.length)],
+  ];
+  for (let i = out.length; i < len; i++) {
+    out.push(all[Math.floor(Math.random() * all.length)]);
   }
-  return out;
+  for (let i = out.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [out[i], out[j]] = [out[j], out[i]];
+  }
+  return out.join("");
 }
 
 async function applyCreditTopup(admin: any, payment: any) {

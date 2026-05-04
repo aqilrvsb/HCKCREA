@@ -9,7 +9,8 @@
 // the dedupe check).
 
 import { createAdminClient } from "@/lib/supabase/admin";
-import { p2GetStatus } from "@/lib/p2";
+import { p2GetStatus, p2CreateTask } from "@/lib/p2";
+import { getP2Config } from "@/lib/settings";
 import { deduct, priceFor, type PriceModelHint } from "@/lib/deduct";
 import { onSegmentSettled } from "@/lib/segment-chain";
 import { generateUgcPostMeta } from "@/lib/ugc-post-meta";
@@ -111,6 +112,99 @@ async function autoSavePrompt(
   } catch {
     // Library is a nice-to-have; don't break the settle path on any error.
   }
+}
+
+// Errors we treat as transient provider hiccups — auto-retry up to MAX_AUTO_RETRIES
+// before letting the row stay failed. The user-visible "Internal Error, Please
+// try again later." string from RunningHub/Crun has been the dominant case
+// blocking Auto Content batches; rate-limit / 5xx wording covered too.
+const TRANSIENT_ERROR_PATTERNS = [
+  /internal error/i,
+  /try again later/i,
+  /rate limit/i,
+  /timeout/i,
+  /timed out/i,
+  /\b50\d\b/,           // 500/502/503/504
+  /service unavailable/i,
+  /temporarily/i,
+  /upstream/i,
+];
+const MAX_AUTO_RETRIES = 2;
+
+function isTransientError(err: string | null | undefined): boolean {
+  if (!err) return false;
+  return TRANSIENT_ERROR_PATTERNS.some((re) => re.test(err));
+}
+
+// Re-fire the same row's task against the dispatcher when the previous attempt
+// failed with a transient error. Same semantics as /api/history/retry but
+// invoked automatically. Returns true if a retry was successfully kicked off
+// (row is now back in pending), false otherwise.
+async function tryAutoRetry(
+  admin: ReturnType<typeof createAdminClient>,
+  hist: HistoryRow,
+  errMsg: string
+): Promise<boolean> {
+  const meta = (hist.metadata || {}) as Record<string, any>;
+  const retryCount = Number(meta.retry_count || 0);
+  if (retryCount >= MAX_AUTO_RETRIES) return false;
+  if (!hist.prompt) return false;
+
+  const refImage = hist.reference_url || "";
+  const aspectRatio = String(meta.aspectRatio || meta.aspect_ratio || "9:16");
+  const durationMode: "8" | "16" = hist.duration === 16 ? "16" : "8";
+  const imageMode: "frame" | "ingredient" | "text" =
+    meta.imageMode === "frame" || meta.imageMode === "ingredient"
+      ? meta.imageMode
+      : refImage
+        ? "ingredient"
+        : "text";
+
+  let model = String(meta.model || "");
+  if (!model) {
+    const cfg = await getP2Config();
+    if (hist.tab === "image" || hist.type === "image") {
+      model = String(meta.image_model || cfg.imageDefault || "google/nano-banana-pro");
+    } else if (hist.tab === "cinema") {
+      model = refImage ? cfg.grokI2V : cfg.grokT2V;
+    } else {
+      model = refImage ? cfg.videoR2V : cfg.videoT2V;
+    }
+  }
+
+  const created = await p2CreateTask({
+    model,
+    userId: hist.user_id,
+    prompt: hist.prompt,
+    imageUrls: refImage ? [refImage] : [],
+    durationMode,
+    aspectRatio,
+    imageMode,
+  });
+
+  if (!created.ok || !created.task_id) {
+    // Auto-retry itself failed to dispatch — let the failed status stand
+    // and surface the create error so the user can manually retry.
+    return false;
+  }
+
+  await admin
+    .from("history")
+    .update({
+      status: "pending",
+      task_id: created.task_id,
+      error_message: null,
+      metadata: {
+        ...meta,
+        provider: created.provider || meta.provider || "p2",
+        retried_at: new Date().toISOString(),
+        retry_count: retryCount + 1,
+        last_retry_error: errMsg.slice(0, 200),
+        last_retry_kind: "auto",
+      },
+    })
+    .eq("id", hist.id);
+  return true;
 }
 
 export type SettleResult =
@@ -235,9 +329,18 @@ export async function settleHistoryRow(hist: HistoryRow): Promise<SettleResult> 
   }
 
   if (r.status === "failed") {
+    const errMsg = r.error || "Generation failed";
+    // Transient provider errors (Internal Error / 5xx / rate limit / timeout)
+    // get auto-retried up to MAX_AUTO_RETRIES before the row is left failed.
+    if (isTransientError(errMsg)) {
+      const retried = await tryAutoRetry(admin, hist, errMsg);
+      if (retried) {
+        return { state: "pending", p2Status: "auto_retry" };
+      }
+    }
     await admin
       .from("history")
-      .update({ status: "failed", error_message: r.error || "Generation failed" })
+      .update({ status: "failed", error_message: errMsg })
       .eq("id", hist.id);
     return { state: "settled", status: "failed", error: r.error };
   }
