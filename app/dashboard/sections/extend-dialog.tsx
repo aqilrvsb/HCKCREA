@@ -1,9 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { X, Loader2, Plus, Upload as UploadIcon, History as HistoryIcon, MessageCircle } from "lucide-react";
+import { X, Loader2, Plus, Upload as UploadIcon, MessageCircle } from "lucide-react";
 import Portal from "./portal";
-import { createClient } from "@/lib/supabase/client";
 
 // Extend dialog — opens from EXTEND on a video history card.
 //
@@ -23,19 +22,16 @@ import { createClient } from "@/lib/supabase/client";
 //
 // Duration ladder:  8 → +8s = 16, 16 → +8s = 24, 24 → +6s = 30 (cap).
 
-type FrameSource = "first" | "middle" | "last" | "upload" | "history";
+type FrameSource = "first" | "middle" | "last";
 
 type FrameSelection = {
   source: FrameSource;
-  url?: string; // for upload/history modes — the picked image URL
 };
 
 const FRAME_BUTTONS: { source: FrameSource; label: string; hint: string }[] = [
   { source: "first",   label: "First Frame",  hint: "Re-use the opening frame of this clip." },
   { source: "middle",  label: "Middle Frame", hint: "Pick up at the peak moment of this clip." },
   { source: "last",    label: "Last Frame",   hint: "Continue right where this clip ended." },
-  { source: "upload",  label: "Upload",       hint: "Upload your own start frame." },
-  { source: "history", label: "From History", hint: "Pick a past generation as the frame." },
 ];
 
 function extensionPlan(currentSec: number): { ext: number; total: number } | null {
@@ -81,24 +77,29 @@ export default function ExtendDialog({
   const [dialogBegin, setDialogBegin] = useState("");
   const [dialogMiddle, setDialogMiddle] = useState("");
   const [dialogClose, setDialogClose] = useState("");
+  // Optional fresh product-reference upload. When the user attaches one,
+  // it overrides productImageUrl from the source row — useful when the
+  // original was a Tencent temp URL that's now expired or the user
+  // simply has a cleaner shot of the package.
+  const [overrideProductDataUrl, setOverrideProductDataUrl] = useState<string>("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [historyPickerSlot, setHistoryPickerSlot] = useState<"start" | "end" | null>(null);
 
-  const startUploadRef = useRef<HTMLInputElement | null>(null);
+  // File-input ref for the new Product Reference upload section.
+  const productUploadRef = useRef<HTMLInputElement | null>(null);
   // Source video player ref — clicking FIRST/MIDDLE/LAST seeks to that
   // timestamp so the user can see which frame they're picking.
   const videoRef = useRef<HTMLVideoElement | null>(null);
 
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && !historyPickerSlot && onClose();
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
     window.addEventListener("keydown", onKey);
     document.body.style.overflow = "hidden";
     return () => {
       window.removeEventListener("keydown", onKey);
       document.body.style.overflow = "";
     };
-  }, [onClose, historyPickerSlot]);
+  }, [onClose]);
 
   function seekToFrame(source: FrameSource) {
     const v = videoRef.current;
@@ -107,7 +108,6 @@ export default function ExtendDialog({
     if (source === "first") target = 0;
     else if (source === "middle") target = Math.max(0, duration / 2);
     else if (source === "last") target = Math.max(0, duration - 0.1);
-    else return; // upload / history have no timestamp
     try {
       v.currentTime = target;
       v.pause();
@@ -115,33 +115,22 @@ export default function ExtendDialog({
   }
 
   function handlePickSource(source: FrameSource) {
-    if (source === "upload") {
-      startUploadRef.current?.click();
-      return;
-    }
-    if (source === "history") {
-      setHistoryPickerSlot("start");
-      return;
-    }
     // first/middle/last → seek the preview AND store the choice; backend
     // auto-extracts the actual pixels at generate time.
     seekToFrame(source);
     setStartFrame({ source });
   }
 
-  async function handleUpload(file: File | null) {
+  // Optional fresh product upload — kicks the hidden file input + reads
+  // the file as a data: URL for instant preview. The data URL is sent
+  // to /api/extend/video which uploads it to RunningHub server-side.
+  function handleProductUpload(file: File | null) {
     if (!file) return;
     const reader = new FileReader();
     reader.onload = () => {
-      const dataUrl = String(reader.result || "");
-      setStartFrame({ source: "upload", url: dataUrl });
+      setOverrideProductDataUrl(String(reader.result || ""));
     };
     reader.readAsDataURL(file);
-  }
-
-  function handleHistoryPick(url: string) {
-    setStartFrame({ source: "history", url });
-    setHistoryPickerSlot(null);
   }
 
   async function ensurePublicUrl(v: string): Promise<string> {
@@ -181,11 +170,22 @@ export default function ExtendDialog({
     if (!plan) return setError("This clip is already at the 30-second cap.");
     const hasDialog = !!(dialogBegin.trim() || dialogMiddle.trim() || dialogClose.trim());
     if (!hasDialog) return setError("Add at least one dialog line for segment 2.");
+    if (!overrideProductDataUrl) {
+      return setError("Product reference image is required — upload the product photo above before generating.");
+    }
     setError(null);
     setBusy(true);
     try {
-      const startUrl = startFrame.url ? await ensurePublicUrl(startFrame.url) : undefined;
       const seg2Prompt = buildSeg2Prompt();
+      // User must attach a fresh product image — uploaded to
+      // RunningHub server-side via /api/upload/image so Crun gets a
+      // permanent download_url instead of a stale Tencent signature.
+      let resolvedProductUrl: string | undefined;
+      try {
+        resolvedProductUrl = await ensurePublicUrl(overrideProductDataUrl);
+      } catch (e: any) {
+        throw new Error(`Product image upload failed: ${e?.message || e}`);
+      }
 
       const res = await fetch("/api/extend/video", {
         method: "POST",
@@ -196,15 +196,14 @@ export default function ExtendDialog({
           source_duration: duration,
           bucket,
           start_frame_source: startFrame.source,
-          start_frame_url: startUrl,
+          start_frame_url: undefined, // first/middle/last only — backend extracts
           // End frame hardcoded to "last" — backend extracts the last
           // frame of the source clip so segment 2 lands seamlessly when
           // concatenated. UI for end frame removed by request.
           end_frame_source: "last",
           end_frame_url: undefined,
           seg2_prompt: seg2Prompt,
-          // Product text lock is now AUTO via backend OCR — no UI input
-          product_image_url: productImageUrl,
+          product_image_url: resolvedProductUrl,
           product_description: productDescription,
           voice,
           aspect_ratio: aspectRatio || "9:16",
@@ -285,13 +284,68 @@ export default function ExtendDialog({
               onPick={handlePickSource}
               accent={accent}
             />
-            <input
-              ref={startUploadRef}
-              type="file"
-              accept="image/*"
-              hidden
-              onChange={(e) => handleUpload(e.target.files?.[0] || null)}
-            />
+
+            {/* Product Reference upload — REQUIRED at extend time.
+                Even though the backend rehosts the source row's product
+                URL automatically, requiring a fresh upload guarantees
+                Veo gets a pixel-clean reference for seg-2 (no expired
+                signatures, no compression artifacts). User attaches the
+                actual product photo they want locked across both clips. */}
+            <div>
+              <label className="block text-xs font-bold uppercase tracking-wider mb-1" style={{ color: overrideProductDataUrl ? "var(--color-text-secondary, #aaa)" : "#fbbf24" }}>
+                Product Reference (required) {!overrideProductDataUrl && "*"}
+              </label>
+              <div className="text-[10px] text-gray-500 mb-2 leading-relaxed">
+                Upload the product photo Veo should lock onto for segment 2 (PNG / JPG). Required for every extend so we always have a fresh pixel reference.
+              </div>
+              <input
+                ref={productUploadRef}
+                type="file"
+                accept="image/*"
+                hidden
+                onChange={(e) => handleProductUpload(e.target.files?.[0] || null)}
+              />
+              {overrideProductDataUrl ? (
+                <div
+                  className="flex items-center gap-2 p-2 rounded-md"
+                  style={{ background: `${accent}10`, border: `1px solid ${accent}40` }}
+                >
+                  <img
+                    src={overrideProductDataUrl}
+                    alt=""
+                    className="w-12 h-12 object-cover rounded"
+                  />
+                  <div className="flex-1 min-w-0 text-[10px] text-gray-300 leading-relaxed">
+                    <div className="font-semibold uppercase tracking-wider" style={{ color: accent }}>
+                      Custom product reference attached
+                    </div>
+                    <div className="text-gray-500">
+                      Will override the original — uploaded to RunningHub when you Generate.
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => setOverrideProductDataUrl("")}
+                    className="text-[10px] px-2 py-1 rounded text-gray-400 hover:text-white"
+                  >
+                    Clear
+                  </button>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => productUploadRef.current?.click()}
+                  className="w-full px-3 py-2.5 rounded-md text-[11px] font-bold inline-flex items-center justify-center gap-2 transition-colors"
+                  style={{
+                    background: "rgba(255,255,255,0.04)",
+                    color: "rgb(180,180,180)",
+                    border: "1px dashed rgba(255,255,255,0.15)",
+                  }}
+                >
+                  <UploadIcon className="w-3.5 h-3.5" />
+                  Click to upload product image (PNG / JPG)
+                </button>
+              )}
+            </div>
 
             {/* End Frame UI removed — backend defaults to last frame of
                 source clip so segment 2 lands where segment 1 ended,
@@ -355,7 +409,18 @@ export default function ExtendDialog({
             </button>
             <button
               onClick={fire}
-              disabled={busy || !(dialogBegin.trim() || dialogMiddle.trim() || dialogClose.trim())}
+              disabled={
+                busy ||
+                !overrideProductDataUrl ||
+                !(dialogBegin.trim() || dialogMiddle.trim() || dialogClose.trim())
+              }
+              title={
+                !overrideProductDataUrl
+                  ? "Upload the product reference image first"
+                  : !(dialogBegin.trim() || dialogMiddle.trim() || dialogClose.trim())
+                    ? "Add at least one dialog line"
+                    : ""
+              }
               className="px-5 py-2 rounded-lg text-sm font-semibold text-white disabled:opacity-50 inline-flex items-center gap-2"
               style={{ background: accent }}
             >
@@ -370,19 +435,15 @@ export default function ExtendDialog({
             </button>
           </div>
         </div>
-
-        {historyPickerSlot && (
-          <HistoryPicker
-            onPick={handleHistoryPick}
-            onClose={() => setHistoryPickerSlot(null)}
-          />
-        )}
       </div>
     </Portal>
   );
 }
 
-// One frame slot — 5 buttons + a small preview area showing the current pick.
+// One frame slot — 3 buttons (first / middle / last) + a small preview
+// area showing the current pick. Upload + From-History buttons were
+// removed: extending always anchors on a frame from the source clip
+// itself, so external uploads don't make sense in this flow.
 function FrameSlot({
   label,
   hint,
@@ -403,7 +464,7 @@ function FrameSlot({
       </label>
       <div className="text-[10px] text-gray-500 mb-2 leading-relaxed">{hint}</div>
 
-      <div className="grid grid-cols-5 gap-1.5">
+      <div className="grid grid-cols-3 gap-1.5">
         {FRAME_BUTTONS.map((btn) => {
           const isActive = selection?.source === btn.source;
           return (
@@ -426,13 +487,7 @@ function FrameSlot({
                     }
               }
             >
-              {btn.source === "upload" ? (
-                <UploadIcon className="w-3.5 h-3.5 inline" />
-              ) : btn.source === "history" ? (
-                <HistoryIcon className="w-3.5 h-3.5 inline" />
-              ) : (
-                btn.label.split(" ")[0]
-              )}
+              {btn.label.split(" ")[0]}
             </button>
           );
         })}
@@ -446,32 +501,20 @@ function FrameSlot({
             border: `1px solid ${accent}40`,
           }}
         >
-          {selection.url ? (
-            <img
-              src={selection.url}
-              alt=""
-              className="w-12 h-12 object-cover rounded"
-            />
-          ) : (
-            <div
-              className="w-12 h-12 rounded flex items-center justify-center text-[10px] font-bold"
-              style={{ background: `${accent}25`, color: accent }}
-            >
-              auto
-            </div>
-          )}
+          <div
+            className="w-12 h-12 rounded flex items-center justify-center text-[10px] font-bold"
+            style={{ background: `${accent}25`, color: accent }}
+          >
+            auto
+          </div>
           <div className="flex-1 min-w-0 text-[10px] text-gray-300 leading-relaxed">
             <div className="font-semibold uppercase tracking-wider" style={{ color: accent }}>
               {selection.source === "first" && "First frame"}
               {selection.source === "middle" && "Middle frame"}
               {selection.source === "last" && "Last frame"}
-              {selection.source === "upload" && "Custom upload"}
-              {selection.source === "history" && "From history"}
             </div>
             <div className="text-gray-500">
-              {selection.source === "first" || selection.source === "middle" || selection.source === "last"
-                ? "Auto-extracted from source clip when generation fires."
-                : "Public URL ready."}
+              Auto-extracted from source clip when generation fires.
             </div>
           </div>
         </div>
@@ -511,87 +554,3 @@ function DialogSection({
   );
 }
 
-// Picker modal for "From History" — shows recent done video rows. Click to
-// pick that row's output_url as the frame source.
-function HistoryPicker({
-  onPick,
-  onClose,
-}: {
-  onPick: (url: string) => void;
-  onClose: () => void;
-}) {
-  const [items, setItems] = useState<Array<{ id: string; output_url: string; thumbnail_url: string | null; prompt: string | null }>>([]);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    void load();
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  async function load() {
-    setLoading(true);
-    try {
-      const sb = createClient();
-      const { data } = await sb
-        .from("history")
-        .select("id, output_url, thumbnail_url, prompt")
-        .in("type", ["video", "image"])
-        .eq("status", "done")
-        .not("output_url", "is", null)
-        .order("created_at", { ascending: false })
-        .limit(40);
-      setItems((data as any) || []);
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  return (
-    <div
-      className="fixed inset-0 z-[130] flex items-center justify-center bg-black/80 backdrop-blur-md p-4"
-      onClick={onClose}
-    >
-      <div
-        className="w-full max-w-3xl max-h-[80vh] overflow-y-auto rounded-2xl bg-[#1a1a1f] border border-white/10 p-5"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="text-sm font-bold text-white">Pick a frame from history</h3>
-          <button onClick={onClose} className="text-gray-400 hover:text-white">
-            <X className="w-4 h-4" />
-          </button>
-        </div>
-        {loading ? (
-          <div className="py-12 text-center text-xs text-gray-500">
-            <Loader2 className="w-5 h-5 animate-spin inline mr-2" /> Loading…
-          </div>
-        ) : items.length === 0 ? (
-          <div className="py-12 text-center text-xs text-gray-500">
-            Belum ada history.
-          </div>
-        ) : (
-          <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
-            {items.map((it) => (
-              <button
-                key={it.id}
-                onClick={() => onPick(it.output_url)}
-                className="aspect-square rounded-lg overflow-hidden bg-black border border-white/10 hover:border-white/40 transition"
-              >
-                {it.thumbnail_url || it.output_url ? (
-                  <img
-                    src={it.thumbnail_url || it.output_url}
-                    alt=""
-                    className="w-full h-full object-cover"
-                  />
-                ) : null}
-              </button>
-            ))}
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
