@@ -2043,19 +2043,10 @@ function SaveTrafficLight({
         : saved
           ? <HardDrive className="w-3.5 h-3.5" strokeWidth={2.4} />
           : <CloudUpload className="w-3.5 h-3.5" strokeWidth={2.4} />}
-      {/* Tiny day-count chip in the corner for unsaved + not-yet-expired files */}
-      {!saved && !expired && expiryDays !== null && (
-        <span
-          className="absolute -top-1 -right-1 text-[8px] font-extrabold rounded-full min-w-[14px] h-[14px] flex items-center justify-center px-1 leading-none"
-          style={{
-            background: urgent ? "#7f1d1d" : "#854d0e",
-            color: "white",
-            border: "1.5px solid var(--color-bg)",
-          }}
-        >
-          {expiryDays}d
-        </span>
-      )}
+      {/* "Xd" validity chip removed — Storage section is now the
+          canonical permanent home for completed assets, so the
+          countdown was redundant + alarming. Save still works the
+          same; we just don't shout the TTL at the user. */}
     </button>
   );
 }

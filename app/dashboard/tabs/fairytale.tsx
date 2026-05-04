@@ -1771,11 +1771,15 @@ function Step3(props: any) {
                 onChange={setVoiceVolume}
                 disabled={!enableVoice}
               />
+              {/* Music volume slider stays interactive even before the
+                  user picks a track — users like to set the level
+                  upfront, not after committing to a song. The value
+                  is only AUDIBLE once a track is picked, so leaving
+                  it always-enabled costs nothing. */}
               <VolumeSlider
                 label="Background music volume"
                 value={musicVolume}
                 onChange={setMusicVolume}
-                disabled={!musicTrackId}
               />
 
               {/* Background music picker — mood tabs + track grid. */}

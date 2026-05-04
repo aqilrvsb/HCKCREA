@@ -21,28 +21,33 @@ type StorageItem = {
   id: string;
   history_id: string | null;
   type: string;
-  b2_key: string;
+  b2_key: string | null;
   size_bytes: number;
   content_type: string | null;
   cached_url: string | null;
   created_at: string;
+  // Set on rows synthesized from history (storytelling videos + scene
+  // images that auto-surface even without an explicit Save click).
+  // Frontend hides the Delete button on these because they're owned
+  // by the history table, not storage.
+  synthetic?: boolean;
+  thumbnail_url?: string | null;
 };
 
-// Only types that produce a final user-facing media asset are savable.
-// Fairytale SCENES (the 10 per-scene image generations that the wizard
-// concatenates into the merged mp4) are intentionally NOT savable —
-// users should save the merged final video, not the intermediate frames.
-// Clone Prompt rows have no media at all, so no Save button + no filter.
-// Cinema/Story chip removed — Story tab was hidden from the project bar.
-// Existing rows of type='cinema' (the old Story tab) won't appear in any
-// chip but are still queryable via "All".
+// Filter chips. Storytelling has TWO virtual filter chips because the
+// final merged mp4 (type='fairytale') and the per-scene images
+// (type='fairytale-scene') are now both surfaced in Storage — the
+// scene images auto-appear from history rows so the user doesn't have
+// to click Save 10 times.
+// Cinema/Story chip — old "cinema" rows still queryable via "All".
 const TYPE_FILTERS: { id: string; label: string }[] = [
-  { id: "all",          label: "All" },
-  { id: "image",        label: "Image" },
-  { id: "video",        label: "UGC" },
-  { id: "auto",         label: "Auto Content" },
-  { id: "seedance",     label: "Cinema" },
-  { id: "fairytale",    label: "Storytelling" },
+  { id: "all",                label: "All" },
+  { id: "image",              label: "Image" },
+  { id: "video",              label: "UGC" },
+  { id: "auto",               label: "Auto Content" },
+  { id: "seedance",           label: "Cinema" },
+  { id: "fairytale",          label: "Storytelling Videos" },
+  { id: "fairytale-scene",    label: "Storytelling Images" },
 ];
 
 function fmtMB(bytes: number): string {
@@ -223,8 +228,18 @@ function StorageCard({
   item: StorageItem;
   onDelete: () => void;
 }) {
-  const isVideo = (item.content_type || "").startsWith("video/") || item.b2_key.endsWith(".mp4") || item.b2_key.endsWith(".webm");
-  const isImage = (item.content_type || "").startsWith("image/") || /\.(png|jpg|jpeg|webp)$/i.test(item.b2_key);
+  // Synthetic storytelling items have no b2_key — fall back to type +
+  // content_type. Real storage items have a key whose suffix tells us
+  // the format reliably even when content_type is missing.
+  const key = item.b2_key || "";
+  const isVideo =
+    (item.content_type || "").startsWith("video/") ||
+    item.type === "fairytale" ||
+    key.endsWith(".mp4") || key.endsWith(".webm");
+  const isImage =
+    (item.content_type || "").startsWith("image/") ||
+    item.type === "fairytale-scene" ||
+    /\.(png|jpg|jpeg|webp)$/i.test(key);
 
   return (
     <div className="card p-0 overflow-hidden">
@@ -255,7 +270,11 @@ function StorageCard({
           className="absolute top-1.5 left-1.5 px-2 py-0.5 rounded-md text-[9px] font-extrabold uppercase tracking-wider"
           style={{ background: "rgba(0,0,0,0.6)", color: "white" }}
         >
-          {item.type === "fairytale" ? "Storytelling" : item.type}
+          {item.type === "fairytale"
+            ? "Storytelling"
+            : item.type === "fairytale-scene"
+              ? "Scene Image"
+              : item.type}
         </div>
       </div>
       <div className="p-2 flex items-center justify-between gap-1.5">
@@ -277,14 +296,20 @@ function StorageCard({
               <Download className="w-3 h-3" />
             </a>
           )}
-          <button
-            onClick={onDelete}
-            title="Delete from Storage"
-            className="w-6 h-6 rounded flex items-center justify-center hover:scale-110 transition-transform"
-            style={{ background: "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.4)", color: "#fca5a5" }}
-          >
-            <Trash2 className="w-3 h-3" />
-          </button>
+          {/* Synthetic items (storytelling rows surfaced from history)
+              don't have their own storage row — their delete lives on
+              the history grid instead. Hide the button here so users
+              don't get confused by a no-op. */}
+          {!item.synthetic && (
+            <button
+              onClick={onDelete}
+              title="Delete from Storage"
+              className="w-6 h-6 rounded flex items-center justify-center hover:scale-110 transition-transform"
+              style={{ background: "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.4)", color: "#fca5a5" }}
+            >
+              <Trash2 className="w-3 h-3" />
+            </button>
+          )}
         </div>
       </div>
     </div>
