@@ -736,6 +736,7 @@ export default function FairytaleTab({ projectId }: { projectId?: string } = {})
           secondsPerSlide={secondsPerSlide} setSecondsPerSlide={setSecondsPerSlide}
           sceneCount={sceneCount} setSceneCount={setSceneCount}
           voiceId={voiceId} setVoiceId={setVoiceId}
+          voiceSpeed={voiceSpeed}
           ctaEnabled={ctaEnabled} setCtaEnabled={setCtaEnabled}
           ctaText={ctaText} setCtaText={setCtaText}
           pricing={pricing}
@@ -851,6 +852,12 @@ function VoicePickerList(props: {
   language: VoiceLang;
   voiceId: string;
   setVoiceId: (id: string) => void;
+  // Sample MP3s are cached at 1.0x natural speed (so the B2 cache stays
+  // reusable across speed changes). We apply admin's configured speed
+  // at PLAYBACK time via <audio>.playbackRate — same trick the live
+  // preview uses. This way each preview sounds exactly like what users
+  // will hear in the final video.
+  voiceSpeed: number;
 }) {
   const list = voicesForLang(props.language);
   // sampleCache: voice_id -> signed URL. Persists for the wizard session
@@ -911,9 +918,21 @@ function VoicePickerList(props: {
       return;
     }
     el.src = url;
+    // Match the admin-configured narration speed. Clamp to the browser's
+    // safe playbackRate range (Chrome accepts 0.0625–16, but values above
+    // 2.5 sound chipmunky for narration).
+    el.playbackRate = Math.max(0.5, Math.min(2.0, Number(props.voiceSpeed) || 1.0));
     setPlayingId(voiceId);
     el.play().catch(() => setErrorId(voiceId));
   }
+
+  // If admin (or pricing API) changes voiceSpeed mid-play, update the
+  // currently-playing element so the user hears the change immediately.
+  useEffect(() => {
+    const el = audioRef.current;
+    if (!el || el.paused) return;
+    el.playbackRate = Math.max(0.5, Math.min(2.0, Number(props.voiceSpeed) || 1.0));
+  }, [props.voiceSpeed]);
 
   return (
     <div className="flex flex-col gap-1.5 max-h-[360px] overflow-y-auto pr-1">
@@ -1028,6 +1047,7 @@ function Step1(props: {
   secondsPerSlide: number; setSecondsPerSlide: (v: number) => void;
   sceneCount: number; setSceneCount: (v: number) => void;
   voiceId: string; setVoiceId: (v: string) => void;
+  voiceSpeed: number;
   ctaEnabled: boolean; setCtaEnabled: (v: boolean) => void;
   ctaText: string; setCtaText: (v: string) => void;
   pricing: { per_image: number; per_audio_sec: number };
@@ -1196,6 +1216,7 @@ function Step1(props: {
           language={props.language}
           voiceId={props.voiceId}
           setVoiceId={props.setVoiceId}
+          voiceSpeed={props.voiceSpeed}
         />
       </div>
 
