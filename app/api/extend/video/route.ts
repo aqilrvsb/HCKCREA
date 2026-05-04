@@ -6,6 +6,7 @@ import { getP2Config } from "@/lib/settings";
 import { priceFor } from "@/lib/deduct";
 import { falExtractFrame, type FrameAnchor } from "@/lib/fal";
 import { getCachedProductOcr, productTextLockBlock } from "@/lib/product-ocr";
+import { rehostUrlOnRunningHub } from "@/lib/runninghub-upload";
 
 // POST /api/extend/video — placeholder-first.
 //
@@ -292,38 +293,25 @@ export async function POST(req: Request) {
       // frame — that introduces label drift between seg1 and seg2 even
       // when the original prompt + OCR text-lock are embedded.
       //
-      // Caveat: the product image URL on old rows is often a Tencent
-      // Cloud temp URL (rh-images-switch-...myqcloud.com) with a
-      // q-sign-time signature that expires after 24h. HEAD requests
-      // against that URL still return 200 even after expiry (Tencent
-      // doesn't validate sig on HEAD), so we can't HEAD-check it.
-      // Instead we PARSE the q-sign-time parameter directly: format is
-      // q-sign-time=<signed_at>;<expires_at> (both unix seconds). If
-      // the URL is past expiry, skip it and fall back to start-frame-
-      // only — same behaviour as pre-fix, no crash on stale refs.
-      function isProductUrlUsable(url: string): boolean {
-        if (!url) return false;
-        try {
-          const u = new URL(url);
-          const sig = u.searchParams.get("q-sign-time");
-          if (!sig) return true; // not a Tencent temp URL — assume permanent
-          const parts = sig.split(";");
-          const expiresAt = Number(parts[1]);
-          if (!Number.isFinite(expiresAt)) return true;
-          const nowSec = Math.floor(Date.now() / 1000);
-          return nowSec < expiresAt - 60; // 60s safety margin
-        } catch {
-          return true; // unparseable — assume usable, let Crun decide
-        }
-      }
+      // The product image URL on old rows is usually a Tencent Cloud
+      // temp URL (rh-images-switch-...myqcloud.com) with a q-sign-time
+      // signature that expires after 24h. Rather than try to detect
+      // expiry, we ALWAYS re-host the product image on RunningHub at
+      // extend time so Crun's seg-2 fetch always sees a fresh URL.
+      // If the source URL is dead and rehost fails, we fall back to
+      // start-frame-only (same as the original 4-extend behaviour).
       const refImages: string[] = [startUrl];
       if (bucket !== "cinema" && productImageUrl) {
-        if (isProductUrlUsable(productImageUrl)) {
-          refImages.push(productImageUrl);
+        const fresh = await rehostUrlOnRunningHub(productImageUrl);
+        if (fresh) {
+          refImages.push(fresh);
+          console.log(
+            "[extend] product image re-hosted on RunningHub:",
+            fresh.slice(0, 80)
+          );
         } else {
           console.warn(
-            "[extend] product image URL expired (q-sign-time past), " +
-              "falling back to start-frame-only:",
+            "[extend] product image rehost failed, falling back to start-frame-only:",
             productImageUrl.slice(0, 80)
           );
         }
