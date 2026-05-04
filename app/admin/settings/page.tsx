@@ -74,6 +74,10 @@ export default function AdminSettings() {
   const [storytellingModel, setStorytellingModel] = useState("");
   const [storytellingPerImage, setStorytellingPerImage] = useState("");
   const [storytellingPerAudioSec, setStorytellingPerAudioSec] = useState("");
+  // MiniMax narration playback speed — clamped 0.5–2.0. 1.2 default
+  // matches the AI Call project's tuned value. See
+  // app_settings.storytelling_voice_speed.
+  const [storytellingVoiceSpeed, setStorytellingVoiceSpeed] = useState("");
   const [savingStorytelling, setSavingStorytelling] = useState(false);
   const [storytellingMsg, setStorytellingMsg] = useState<string | null>(null);
 
@@ -131,6 +135,10 @@ export default function AdminSettings() {
         if (row.key === "storytelling_pricing") {
           setStorytellingPerImage(fmt(row.value?.per_image));
           setStorytellingPerAudioSec(fmt(row.value?.per_audio_sec));
+        }
+        if (row.key === "storytelling_voice_speed") {
+          const s = Number(row.value?.speed ?? row.value?.value);
+          setStorytellingVoiceSpeed(Number.isFinite(s) ? s.toFixed(2) : "");
         }
       }
     } finally {
@@ -210,6 +218,12 @@ export default function AdminSettings() {
       };
       const perImage = num(storytellingPerImage, 0.07);
       const perAudioSec = num(storytellingPerAudioSec, 0.02);
+      // Clamp speed to the playable range. Empty input falls back to 1.2
+      // (the documented default — matches AI Call's tuned value).
+      const rawSpeed = Number(storytellingVoiceSpeed);
+      const voiceSpeed = Number.isFinite(rawSpeed)
+        ? Math.max(0.5, Math.min(2.0, rawSpeed))
+        : 1.2;
       const responses = await Promise.all([
         fetch("/api/admin/settings", {
           method: "POST",
@@ -225,6 +239,14 @@ export default function AdminSettings() {
           body: JSON.stringify({
             key: "storytelling_pricing",
             value: { per_image: perImage, per_audio_sec: perAudioSec },
+          }),
+        }),
+        fetch("/api/admin/settings", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            key: "storytelling_voice_speed",
+            value: { speed: voiceSpeed },
           }),
         }),
       ]);
@@ -743,6 +765,47 @@ export default function AdminSettings() {
               <div className="font-mono opacity-80">
                 (0.07 × 10) + (0.02 × 5 × 10) = <strong>RM 1.70</strong>
               </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Narration playback speed — admin-tunable. AI Call uses 1.2x;
+            slow-listeners may prefer 1.0; fast-scrollers might want 1.3.
+            Applied client-side in live preview AND server-side in Modal
+            ffmpeg merge — TTS itself always synthesizes at 1.0x natural
+            speed so the cached MP3 stays reusable across speed changes. */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+          <div>
+            <label className="block text-xs font-bold text-[var(--color-text-secondary)] mb-1.5">
+              Narration playback speed
+            </label>
+            <div className="relative">
+              <input
+                type="number"
+                min="0.5"
+                max="2.0"
+                step="0.05"
+                value={storytellingVoiceSpeed}
+                onChange={(e) => setStorytellingVoiceSpeed(e.target.value)}
+                className="input !pr-8"
+                placeholder="1.2"
+              />
+              <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-bold text-[var(--color-text-muted)]">
+                x
+              </span>
+            </div>
+            <p className="text-[10px] text-[var(--color-text-muted)] mt-1">
+              Range 0.5–2.0. Default 1.2x (matches AI Call). 1.0 = natural.
+              Applies to live preview + final video; TTS is always
+              cached at natural speed so changes are zero-cost.
+            </p>
+          </div>
+          <div className="text-xs text-[var(--color-text-secondary)] flex items-end pb-1">
+            <div>
+              <div className="font-bold text-[var(--color-text-primary)] mb-1">Tip</div>
+              <div>1.0 = natural pace (slower, breathing room)</div>
+              <div>1.2 = energetic (recommended for short-form)</div>
+              <div>1.5 = rushed (use sparingly for hooks)</div>
             </div>
           </div>
         </div>

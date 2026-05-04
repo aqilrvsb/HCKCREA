@@ -102,6 +102,18 @@ export async function getStorytellingPricing(): Promise<StorytellingPricing> {
   };
 }
 
+// Storytelling narration playback speed — clamped 0.5–2.0 to match
+// browser <audio>.playbackRate limits and the live preview slider. The
+// AI Call project ran 1.2x because slightly faster reads more energetic
+// over a phone line; for storytelling video a touch faster keeps
+// scrolly viewers engaged without sounding rushed.
+export async function getStorytellingVoiceSpeed(): Promise<number> {
+  const v = await getSetting<any>("storytelling_voice_speed");
+  const n = Number(v?.speed ?? v?.value);
+  if (!Number.isFinite(n)) return 1.2;
+  return Math.max(0.5, Math.min(2.0, n));
+}
+
 // Cinema (Grok Imagine) per-second pricing. Stored as { rate: number } in
 // app_settings; admin tunes in /admin. Default 0.03 RM/sec ≈ RM 0.18 for 6s,
 // RM 0.90 for 30s.

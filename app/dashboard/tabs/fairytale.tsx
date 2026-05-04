@@ -322,6 +322,14 @@ export default function FairytaleTab({ projectId }: { projectId?: string } = {})
             per_audio_sec: d.per_audio_sec,
           });
         }
+        // Also seed voice speed from admin override. Falls back to the
+        // 1.2 default already in state if the server returned nothing
+        // sensible. Safe to call unconditionally since setVoiceSpeed
+        // is hoisted by the time this async callback resolves.
+        if (!cancelled && r.ok && typeof d?.voice_speed === "number") {
+          const s = Math.max(0.5, Math.min(2.0, d.voice_speed));
+          setVoiceSpeed(s);
+        }
       } catch {}
     })();
     return () => { cancelled = true; };
@@ -351,9 +359,13 @@ export default function FairytaleTab({ projectId }: { projectId?: string } = {})
   const [groupId] = useState(() => Math.random().toString(36).slice(2));
 
   // Voice config — defaults to the first voice for the current language.
+  // Speed defaults to 1.2x (matches AI Call's tuned default — slightly
+  // faster than natural so scrolly viewers stay engaged). Admin can
+  // override via /admin/settings → Storytelling card; the override
+  // arrives via /api/fairytale/pricing on mount.
   const [enableVoice, setEnableVoice] = useState(true);
   const [voiceId, setVoiceId] = useState(voicesForLang("ms")[0].id);
-  const [voiceSpeed, setVoiceSpeed] = useState(1.0);
+  const [voiceSpeed, setVoiceSpeed] = useState(1.2);
 
   // CTA — when enabled, the AI weaves a 12-word call-to-action into
   // the LAST scene's narration. Off = story rides to its natural close.
