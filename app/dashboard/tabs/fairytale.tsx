@@ -358,10 +358,9 @@ export default function FairytaleTab({ projectId }: { projectId?: string } = {})
   const [scriptProgress, setScriptProgress] = useState<number>(0);
   const [scriptLoading, setScriptLoading] = useState(false);
   const [scriptError, setScriptError] = useState<string | null>(null);
-  // Voice picker now lives in Step 1, so the Step 2 config tabs only
-  // cover animation + font. Default to animation since that's the most
-  // visually impactful knob in the live preview.
-  const [configTab, setConfigTab] = useState<ConfigTab>("animation");
+  // Default to Voice tab — quickest knob users want to access (turn
+  // narration on/off). Voice picker itself lives in Step 1.
+  const [configTab, setConfigTab] = useState<ConfigTab>("voice");
   const [previewIdx, setPreviewIdx] = useState(0);
   const [renderStatus, setRenderStatus] = useState<"idle" | "submitting" | "rendering" | "done" | "failed">("idle");
   const [renderError, setRenderError] = useState<string | null>(null);
@@ -1588,9 +1587,12 @@ function Step3(props: any) {
         {/* Video Configuration */}
         <div className="rounded-2xl p-5" style={{ background: "white", border: "1px solid #e5e7eb" }}>
           <div className="font-bold text-sm mb-3" style={{ color: "#1a1a1a" }}>Video Configuration</div>
-          {/* Tabs */}
+          {/* Tabs — Voice tab restored: it controls whether narration
+              audio is generated at all. The voice picker itself lives
+              in Step 1 (so user picks BEFORE TTS cache fires); this
+              tab is just the master enable/disable. */}
           <div className="flex gap-1 p-1 rounded-xl bg-gray-100 mb-4">
-            {(["animation", "font"] as ConfigTab[]).map((t) => {
+            {(["voice", "animation", "font"] as ConfigTab[]).map((t) => {
               const active = configTab === t;
               return (
                 <button
@@ -1603,14 +1605,35 @@ function Step3(props: any) {
                       : { background: "transparent", color: "#6b7280" }
                   }
                 >
+                  {t === "voice" && <Volume2 className="w-3.5 h-3.5" />}
                   {t === "animation" && <VideoIcon className="w-3.5 h-3.5" />}
                   {t === "font" && <Type className="w-3.5 h-3.5" />}
-                  {t === "animation" ? "Animation" : "Font"}
+                  {t === "voice" ? "Voice" : t === "animation" ? "Animation" : "Font"}
                 </button>
               );
             })}
           </div>
 
+          {configTab === "voice" && (
+            <div className="space-y-3">
+              <Toggle
+                label="Enable Voice"
+                premium
+                sub="Add AI narration to each scene (voice + speed configured in Step 1)"
+                value={enableVoice}
+                onChange={setEnableVoice}
+              />
+              {!enableVoice && (
+                <div
+                  className="rounded-lg p-3 text-[11px]"
+                  style={{ background: "#fef3c7", border: "1px solid #fde68a", color: "#92400e" }}
+                >
+                  Voice is OFF — the final video will have NO narration, just
+                  Ken Burns motion + scene transitions over your images.
+                </div>
+              )}
+            </div>
+          )}
           {configTab === "animation" && (
             <AnimationConfig
               transition={transition} setTransition={setTransition}
@@ -2098,24 +2121,47 @@ function PreviewPanel(props: any) {
   //
   // GATING: don't start the auto-cycle until Scene 1's image is actually
   // ready. Otherwise the preview spins through empty placeholders and the
-  // user can't tell anything is happening. The cycle takes over the moment
-  // Scene 1 lands.
+  // user can't tell anything is happening. Once the cycle starts, we ALSO
+  // skip any scene that doesn't have an imageUrl yet — so the preview
+  // never lands on a black/spinner slide. If no other ready scene exists,
+  // the cycle pauses on the current one and resumes when a new image
+  // lands (effect re-runs on scenes change).
   const scene1Ready = !!scenes?.[0]?.imageUrl;
+  // Find the next ready scene after `from`, wrapping. Returns -1 if no
+  // other scene has an image (caller should NOT advance in that case).
+  const findNextReadyIdx = (from: number) => {
+    if (!scenes || scenes.length <= 1) return -1;
+    for (let step = 1; step <= scenes.length; step++) {
+      const cand = (from + step) % scenes.length;
+      if (scenes[cand]?.imageUrl) return cand;
+    }
+    return -1;
+  };
   useEffect(() => {
     if (!scenes || sceneCount <= 1) return;
     if (!scene1Ready) return;
     if (sceneAudioUrl && audioRef.current) {
       const el = audioRef.current;
-      const onEnded = () =>
-        props.setPreviewIdx((p: number) => (p + 1) % sceneCount);
+      const onEnded = () => {
+        props.setPreviewIdx((p: number) => {
+          const next = findNextReadyIdx(p);
+          return next === -1 ? p : next;
+        });
+      };
       el.addEventListener("ended", onEnded);
       return () => el.removeEventListener("ended", onEnded);
     }
     const id = setInterval(() => {
-      props.setPreviewIdx((p: number) => (p + 1) % sceneCount);
+      props.setPreviewIdx((p: number) => {
+        const next = findNextReadyIdx(p);
+        return next === -1 ? p : next;
+      });
     }, SCENE_DURATION_MS);
     return () => clearInterval(id);
-  }, [sceneCount, sceneAudioUrl, scene1Ready]);
+    // scenes is in deps so when a new image lands the effect re-runs
+    // and the next-ready lookup picks it up.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sceneCount, sceneAudioUrl, scene1Ready, scenes.map((s: any) => s.imageUrl).join("|")]);
 
   const scene = scenes?.[previewIdx] || null;
 
@@ -2126,12 +2172,15 @@ function PreviewPanel(props: any) {
   const sceneDurationMs = sceneAudioUrl ? effectiveAudioMs : SCENE_DURATION_MS;
 
   // Karaoke / progressive reveal — paced to audio so subtitle never runs
-  // ahead of the voice. When audio is in play, we hook the <audio>'s
-  // `play` event and start the timer ONLY then; without audio (voice
-  // disabled or cache loading) we fall back to scene-duration pacing.
-  // Without this gate, scene change kicks the timer immediately while
-  // the browser is still buffering the MP3 — user sees subtitle finish,
-  // then audio starts and "rewinds" the karaoke.
+  // ahead of the voice. Strategy:
+  //   1) Wait for the audio's `playing` event (more reliable than `play`
+  //      — fires when actual sample data starts coming out of the
+  //      speakers, not when .play() is *requested*).
+  //   2) If the event hasn't fired within 1.2s (autoplay blocked, slow
+  //      buffer, browser deferred decode), START ANYWAY using the
+  //      scene-duration timer. Better to have subtitles slightly out of
+  //      sync than to leave them stuck on the cursor "|" forever.
+  //   3) On voice-disabled / no audio cache, just start immediately.
   const [revealedCount, setRevealedCount] = useState(words.length);
   useEffect(() => {
     if (!enableText) return;
@@ -2141,32 +2190,50 @@ function PreviewPanel(props: any) {
     }
     setRevealedCount(0);
     if (words.length === 0) return;
+
+    let intervalId: ReturnType<typeof setInterval> | null = null;
+    let fallbackId: ReturnType<typeof setTimeout> | null = null;
+    let started = false;
     const startReveal = () => {
-      const perWord = sceneDurationMs / words.length;
+      if (started) return;
+      started = true;
+      if (fallbackId) { clearTimeout(fallbackId); fallbackId = null; }
+      const perWord = sceneDurationMs / Math.max(1, words.length);
       let i = 0;
-      const id = setInterval(() => {
+      intervalId = setInterval(() => {
         i += 1;
         setRevealedCount(i);
-        if (i >= words.length) clearInterval(id);
+        if (i >= words.length && intervalId) {
+          clearInterval(intervalId);
+          intervalId = null;
+        }
       }, perWord);
-      cleanupRef.current = () => clearInterval(id);
     };
-    const cleanupRef = { current: () => {} } as { current: () => void };
+
     const el = audioRef.current;
     if (sceneAudioUrl && el) {
-      // If audio already playing (cached + buffered), start now; else wait
-      // for the `play` event so words begin exactly when voice begins.
-      if (!el.paused && el.currentTime > 0) {
+      // If audio is already producing sound, start now.
+      if (!el.paused && el.currentTime > 0 && el.readyState >= 3) {
         startReveal();
       } else {
-        const onPlay = () => startReveal();
-        el.addEventListener("play", onPlay, { once: true });
-        cleanupRef.current = () => el.removeEventListener("play", onPlay);
+        const onPlaying = () => startReveal();
+        el.addEventListener("playing", onPlaying, { once: true });
+        // Fallback: if `playing` doesn't fire within 1.2s, start anyway
+        // so the subtitle isn't held hostage by autoplay-blocked audio.
+        fallbackId = setTimeout(startReveal, 1200);
+        return () => {
+          el.removeEventListener("playing", onPlaying);
+          if (fallbackId) clearTimeout(fallbackId);
+          if (intervalId) clearInterval(intervalId);
+        };
       }
     } else {
       startReveal();
     }
-    return () => cleanupRef.current();
+    return () => {
+      if (fallbackId) clearTimeout(fallbackId);
+      if (intervalId) clearInterval(intervalId);
+    };
   }, [textAnimation, fullText, sceneDurationMs, enableText, words.length, scene?.idx, sceneAudioUrl]);
 
   // Highlight cursor for the "highlight" mode — one word at a time pulses
