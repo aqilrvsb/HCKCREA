@@ -253,16 +253,35 @@ export default function HistoryGrid({
 
   const counts = useMemo(
     () => ({
+      // Reflect what the user actually sees in the grid (after the
+      // expired-unsaved filter), not the raw row count.
       total: parents.length,
       pending: parents.filter((i) => i.status === "pending").length,
     }),
     [parents]
   );
 
-  const totalPages = Math.max(1, Math.ceil(parents.length / PAGE_SIZE));
+  // Hide rows whose 14-day TTL is already expired AND were never saved
+  // to permanent Storage. These rows have a dead temp URL that gen
+  // workers + the player can no longer reach. Saved rows stay visible
+  // because we have a permanent B2 URL we can swap in (see HistoryCard).
+  const TTL_MS = 14 * 24 * 60 * 60 * 1000;
+  const visibleParents = useMemo(() => {
+    const now = Date.now();
+    return parents.filter((p) => {
+      if (!p.created_at) return true; // unknown age — keep
+      const ageMs = now - new Date(p.created_at).getTime();
+      const expired = ageMs >= TTL_MS;
+      if (!expired) return true;
+      const saved = !!saveStatus[p.id]?.saved;
+      return saved;
+    });
+  }, [parents, saveStatus]);
+
+  const totalPages = Math.max(1, Math.ceil(visibleParents.length / PAGE_SIZE));
   // Clamp page if items shrink (e.g. after delete) so we never show empty page.
   const safePage = Math.min(page, totalPages - 1);
-  const pageItems = parents.slice(safePage * PAGE_SIZE, safePage * PAGE_SIZE + PAGE_SIZE);
+  const pageItems = visibleParents.slice(safePage * PAGE_SIZE, safePage * PAGE_SIZE + PAGE_SIZE);
 
   return (
     <section className="card">
@@ -571,8 +590,19 @@ function HistoryCard({
   // Player URL: when the slider is active, use the active slide's URL so
   // clicking a thumbnail switches the main player. Otherwise fall back to
   // item.output_url for plain (non-segmented) cards.
+  //
+  // Saved-row swap: if this row has been copied to permanent Storage,
+  // prefer the B2 cached URL over the original P1/P2 temp URL. The temp
+  // URL expires at 14 days; the B2 URL is refreshed every 7 days by the
+  // storage table so it stays alive forever as long as the user keeps
+  // the saved file. Only applies to the non-segmented playerUrl path
+  // (segmented chains keep their original per-segment URLs since each
+  // seg has its own row).
+  const savedUrl = saveStatus?.saved ? saveStatus.url : null;
   const playerUrl =
-    slides.length > 0 && activeSlide?.url ? activeSlide.url : item.output_url;
+    slides.length > 0 && activeSlide?.url
+      ? activeSlide.url
+      : savedUrl || item.output_url;
 
   async function checkNow() {
     setChecking(true);
