@@ -165,7 +165,11 @@ const wordCount = (s: string) => (s.trim() ? s.trim().split(/\s+/).length : 0);
 // ──────────────────────────────────────────────────────────────────────────
 
 export default function FairytaleTab({ projectId }: { projectId?: string } = {}) {
-  const [step, setStep] = useState<1 | 2 | 3>(1);
+  // Wizard now has 2 steps (was 3). Step 1 = combined prompt + visual +
+  // pacing form. Step 2 = the old Step 3 (Review & Generate). The Visual
+  // style picker that used to be its own step is folded into Step 1
+  // below the aspect-ratio row.
+  const [step, setStep] = useState<1 | 2>(1);
 
   // Step 1 state
   const [prompt, setPrompt] = useState("");
@@ -421,13 +425,15 @@ export default function FairytaleTab({ projectId }: { projectId?: string } = {})
   }, [step, scenes.map((s) => `${s.idx}:${s.imageStatus}`).join("|")]);
 
   // ─── Step nav ──────────────────────────────────────────────
+  // 2-step wizard: Step 1 = combined prompt + visual + pacing form,
+  // Step 2 = Review & Generate (was Step 3). Visual style picker is
+  // rendered inline in Step 1 below the aspect/pacing rows.
   function goNext() {
     if (step === 1) {
       if (!prompt.trim()) return;
       setStep(2);
-    } else if (step === 2) {
-      setStep(3);
-      // Trigger AI script generation upon entering step 3 if not already done
+      // Kick off AI script gen + scene image gen on entry. Same trigger
+      // point as before, just one step earlier in the wizard.
       if (scenes.length === 0 && !scriptLoading) {
         void generateScript();
       }
@@ -435,7 +441,6 @@ export default function FairytaleTab({ projectId }: { projectId?: string } = {})
   }
   function goBack() {
     if (step === 2) setStep(1);
-    else if (step === 3) setStep(2);
   }
 
   // ─── Submit final render ───────────────────────────────────
@@ -518,6 +523,7 @@ export default function FairytaleTab({ projectId }: { projectId?: string } = {})
           tone={tone} setTone={setTone}
           language={language} setLanguage={setLanguage}
           aspect={aspect} setAspect={setAspect}
+          visualStyle={visualStyle} setVisualStyle={setVisualStyle}
           secondsPerSlide={secondsPerSlide} setSecondsPerSlide={setSecondsPerSlide}
           sceneCount={sceneCount} setSceneCount={setSceneCount}
           pricing={pricing}
@@ -527,15 +533,6 @@ export default function FairytaleTab({ projectId }: { projectId?: string } = {})
       )}
 
       {step === 2 && (
-        <Step2
-          visualStyle={visualStyle}
-          setVisualStyle={setVisualStyle}
-          onBack={goBack}
-          onNext={goNext}
-        />
-      )}
-
-      {step === 3 && (
         <Step3
           scenes={scenes} setScenes={setScenes}
           scriptLoading={scriptLoading} scriptError={scriptError}
@@ -573,11 +570,10 @@ export default function FairytaleTab({ projectId }: { projectId?: string } = {})
 // Step Indicator
 // ──────────────────────────────────────────────────────────────────────────
 
-function StepIndicator({ step }: { step: 1 | 2 | 3 }) {
+function StepIndicator({ step }: { step: 1 | 2 }) {
   const items = [
     { n: 1, title: "Prompt & Settings", subtitle: "Define your video" },
-    { n: 2, title: "Select Visual",     subtitle: "Choose visual style" },
-    { n: 3, title: "Review & Generate", subtitle: "Final confirmation" },
+    { n: 2, title: "Review & Generate", subtitle: "Final confirmation" },
   ];
   return (
     <div className="flex items-center justify-center gap-2 md:gap-6 mb-10 max-w-3xl mx-auto">
@@ -623,6 +619,7 @@ function Step1(props: {
   tone: Tone; setTone: (v: Tone) => void;
   language: Language; setLanguage: (v: Language) => void;
   aspect: Aspect; setAspect: (v: Aspect) => void;
+  visualStyle: VisualStyle; setVisualStyle: (v: VisualStyle) => void;
   secondsPerSlide: number; setSecondsPerSlide: (v: number) => void;
   sceneCount: number; setSceneCount: (v: number) => void;
   pricing: { per_image: number; per_audio_sec: number };
@@ -734,8 +731,52 @@ function Step1(props: {
         />
       </div>
 
+      {/* Visual style picker — moved here from the old standalone Step 2.
+          Compact 3×2 grid of square swatches with the style label.
+          User clicks one to set visualStyle which drives the AI image
+          prompt prefix during generation. */}
+      <div className="mt-5">
+        <div className="text-xs font-bold mb-2 text-gray-700">Visual Style</div>
+        <div className="grid grid-cols-3 md:grid-cols-6 gap-2">
+          {VISUAL_STYLES.map((v) => {
+            const active = v.id === props.visualStyle;
+            return (
+              <button
+                key={v.id}
+                type="button"
+                onClick={() => props.setVisualStyle(v.id)}
+                className="relative aspect-square rounded-xl overflow-hidden text-left transition-transform hover:scale-[1.02]"
+                style={{
+                  background: v.gradient,
+                  border: active ? "3px solid #8b5cf6" : "1px solid #e5e7eb",
+                  boxShadow: active ? "0 4px 14px rgba(139,92,246,0.3)" : "none",
+                }}
+              >
+                {v.sample && (
+                  <img
+                    src={v.sample}
+                    alt={v.label}
+                    className="absolute inset-0 w-full h-full object-cover"
+                    referrerPolicy="no-referrer"
+                  />
+                )}
+                <div
+                  className="absolute inset-0"
+                  style={{
+                    background: "linear-gradient(180deg, transparent 50%, rgba(0,0,0,0.65) 100%)",
+                  }}
+                />
+                <div className="absolute bottom-1.5 left-2 text-[11px] font-extrabold text-white drop-shadow">
+                  {v.label}
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
       {/* Slide pacing — seconds per slide + slide count + estimated total */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-3">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-5">
         <SelectBtn
           value={secObj.label}
           options={SECONDS_PER_SLIDE.map((s) => ({ id: String(s.id), label: s.label }))}
