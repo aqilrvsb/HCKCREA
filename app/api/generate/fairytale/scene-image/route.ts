@@ -169,8 +169,10 @@ export async function POST(req: Request) {
           });
         }
         createdOk = created.ok;
-        createdTaskId = created.ok ? created.task_id : null;
-        createdError = created.ok ? null : created.error;
+        // p2CreateTask's success branch guarantees task_id is string, but
+        // TS can't narrow a non-discriminated union — so coalesce.
+        createdTaskId = created.ok ? (created.task_id ?? null) : null;
+        createdError = created.ok ? null : (created.error ?? null);
       }
 
       if (!createdOk || !createdTaskId) {
