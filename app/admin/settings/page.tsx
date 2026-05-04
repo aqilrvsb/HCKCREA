@@ -708,6 +708,7 @@ export default function AdminSettings() {
                   browser's native dropdown panel regardless of theme. */}
               <option value=""                style={{ color: "#1a1a1a", background: "white" }}>— use global default —</option>
               <option value="z-image"         style={{ color: "#1a1a1a", background: "white" }}>z-image (Alibaba — fastest, cheapest)</option>
+              <option value="nano-banana-v2"  style={{ color: "#1a1a1a", background: "white" }}>nano-banana (Google — balanced)</option>
               <option value="nano-banana-pro" style={{ color: "#1a1a1a", background: "white" }}>nano-banana-pro (Google — best quality)</option>
               <option value="gpt-image-2"     style={{ color: "#1a1a1a", background: "white" }}>gpt-image-2 (OpenAI — most expensive)</option>
             </select>
