@@ -624,16 +624,52 @@ function HistoryCard({
   // merge runs in the parent's after() and writes back to it). seg_1
   // is the child row, so we ping seg2.id for that one.
   const [recheckingId, setRecheckingId] = useState<string | null>(null);
+  // Inline toast for recheck result so the user gets explicit feedback
+  // ("still pending", "ready!", "failed") instead of a silent no-op when
+  // upstream hasn't changed yet. Auto-dismisses after 3.5s.
+  const [recheckMsg, setRecheckMsg] = useState<{
+    text: string;
+    tone: "ok" | "info" | "err";
+  } | null>(null);
   async function recheckSlide(slide: Slide) {
     const targetId =
       slide.id === "seg_1" ? seg2?.id : item.id;
     if (!targetId) return;
     if (recheckingId) return;
     setRecheckingId(slide.id);
+    setRecheckMsg(null);
     const startedAt = Date.now();
+    let resultMsg: { text: string; tone: "ok" | "info" | "err" } = {
+      text: `${slide.label}: still generating — try again in a minute`,
+      tone: "info",
+    };
     try {
-      await fetch(`/api/generate/status?id=${targetId}`, { cache: "no-store" });
+      const r = await fetch(`/api/generate/status?id=${targetId}`, {
+        cache: "no-store",
+      });
+      const d = await r.json().catch(() => ({}));
+      const status =
+        d?.history?.status || d?.p2_status || d?.status || "pending";
+      const hasUrl = !!d?.history?.output_url;
+      if (status === "completed" || hasUrl) {
+        resultMsg = { text: `${slide.label}: ready!`, tone: "ok" };
+      } else if (status === "failed") {
+        resultMsg = {
+          text: `${slide.label}: failed upstream — click thumb again to retry`,
+          tone: "err",
+        };
+      } else {
+        resultMsg = {
+          text: `${slide.label}: still generating (status: ${status})`,
+          tone: "info",
+        };
+      }
       window.dispatchEvent(new CustomEvent("history:refresh"));
+    } catch (e: any) {
+      resultMsg = {
+        text: `${slide.label}: re-check failed (${e?.message || "network"})`,
+        tone: "err",
+      };
     } finally {
       // Min visible spin time so the user sees feedback even when the
       // status endpoint returns instantly (otherwise the icon flashes
@@ -642,6 +678,10 @@ function HistoryCard({
       const remaining = Math.max(0, 700 - elapsed);
       if (remaining > 0) await new Promise((r) => setTimeout(r, remaining));
       setRecheckingId(null);
+      setRecheckMsg(resultMsg);
+      setTimeout(() => {
+        setRecheckMsg((m) => (m === resultMsg ? null : m));
+      }, 3500);
     }
   }
 
@@ -655,7 +695,10 @@ function HistoryCard({
     const targetId =
       slide.id === "seg_1" ? seg2?.id : item.id;
     if (!targetId || slide.id === "merged") return;
+    if (recheckingId) return;
     setRecheckingId(slide.id);
+    setRecheckMsg(null);
+    let resultMsg: { text: string; tone: "ok" | "info" | "err" };
     try {
       const r = await fetch("/api/history/retry", {
         method: "POST",
@@ -664,12 +707,28 @@ function HistoryCard({
       });
       const d = await r.json().catch(() => ({}));
       if (!r.ok || !d?.ok) {
-        alert(d?.error || "Retry failed");
+        resultMsg = {
+          text: `${slide.label}: retry failed — ${d?.error || `HTTP ${r.status}`}`,
+          tone: "err",
+        };
       } else {
+        resultMsg = {
+          text: `${slide.label}: retry sent — generating again`,
+          tone: "ok",
+        };
         window.dispatchEvent(new CustomEvent("history:refresh"));
       }
+    } catch (e: any) {
+      resultMsg = {
+        text: `${slide.label}: retry failed (${e?.message || "network"})`,
+        tone: "err",
+      };
     } finally {
       setRecheckingId(null);
+      setRecheckMsg(resultMsg!);
+      setTimeout(() => {
+        setRecheckMsg((m) => (m === resultMsg ? null : m));
+      }, 3500);
     }
   }
 
@@ -1041,6 +1100,32 @@ function HistoryCard({
               </div>
             );
           })}
+        </div>
+      )}
+
+      {/* Inline recheck-result toast — explicit feedback so the user knows
+          their click registered and what came back, even when status is
+          unchanged (the most common case when re-checking too soon). */}
+      {recheckMsg && (
+        <div
+          className="px-2.5 py-1.5 text-[11px] font-medium border-t"
+          style={{
+            background:
+              recheckMsg.tone === "ok"
+                ? "rgba(34,197,94,0.12)"
+                : recheckMsg.tone === "err"
+                  ? "rgba(239,68,68,0.12)"
+                  : "rgba(245,158,11,0.12)",
+            color:
+              recheckMsg.tone === "ok"
+                ? "#86efac"
+                : recheckMsg.tone === "err"
+                  ? "#fca5a5"
+                  : "#fcd34d",
+            borderColor: "var(--color-border)",
+          }}
+        >
+          {recheckMsg.text}
         </div>
       )}
 
