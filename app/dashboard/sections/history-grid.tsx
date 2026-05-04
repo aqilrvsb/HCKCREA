@@ -1316,6 +1316,17 @@ function HistoryCard({
                 expiryDays={expiryDays}
                 onSave={handleSave}
                 isStorytelling={item.type === "fairytale" || item.type === "fairytale-scene"}
+                showValidity={
+                  // Show the Xd countdown chip for any time-bounded media:
+                  //   • storytelling videos / scene images (vanish at ≤1d via early-cutoff)
+                  //   • UGC videos (type='video' on tab='video' — fal.media TTL not guaranteed)
+                  //   • Auto Content videos (tab='auto')
+                  //   • Cinema videos (tab='cinema')
+                  // We skip pure-image rows (the user said earlier "we already use storage" for those).
+                  item.type === "fairytale" ||
+                  item.type === "fairytale-scene" ||
+                  item.type === "video"
+                }
               />
               <ActionBtn title="Download" onClick={handleDownload} bg={ACTION.download}>
                 <Download className="w-3.5 h-3.5" strokeWidth={2.4} />
@@ -1380,6 +1391,17 @@ function HistoryCard({
                 expiryDays={expiryDays}
                 onSave={handleSave}
                 isStorytelling={item.type === "fairytale" || item.type === "fairytale-scene"}
+                showValidity={
+                  // Show the Xd countdown chip for any time-bounded media:
+                  //   • storytelling videos / scene images (vanish at ≤1d via early-cutoff)
+                  //   • UGC videos (type='video' on tab='video' — fal.media TTL not guaranteed)
+                  //   • Auto Content videos (tab='auto')
+                  //   • Cinema videos (tab='cinema')
+                  // We skip pure-image rows (the user said earlier "we already use storage" for those).
+                  item.type === "fairytale" ||
+                  item.type === "fairytale-scene" ||
+                  item.type === "video"
+                }
               />
               <ActionBtn title="Download" onClick={handleDownload} bg={ACTION.download}>
                 <Download className="w-3.5 h-3.5" strokeWidth={2.4} />
@@ -2014,16 +2036,20 @@ function SaveTrafficLight({
   expiryDays,
   onSave,
   isStorytelling,
+  showValidity,
 }: {
   saved: boolean;
   saving: boolean;
   expiryDays: number | null;
   onSave: () => void;
-  // When true, this card is a storytelling row (fairytale or
-  // fairytale-scene). Storytelling rows show the validity countdown
-  // chip because they vanish from the history grid once unsaved
-  // expiry hits ≤1 day. The chip warns the user before that happens.
+  // Storytelling-specific flag — kept for backwards compat. The
+  // showValidity flag below is the one we actually gate the chip on.
   isStorytelling?: boolean;
+  // Show the "Xd" countdown chip on the Save button. Set true for any
+  // row whose underlying file has a soft TTL (UGC video, Auto Content,
+  // Cinema, Storytelling). Image tabs default to false so the Save
+  // button stays clean — those have a different lifecycle.
+  showValidity?: boolean;
 }) {
   // Resolve color tier
   const expired = expiryDays !== null && expiryDays <= 0;
@@ -2075,10 +2101,12 @@ function SaveTrafficLight({
         : saved
           ? <HardDrive className="w-3.5 h-3.5" strokeWidth={2.4} />
           : <CloudUpload className="w-3.5 h-3.5" strokeWidth={2.4} />}
-      {/* Storytelling-only validity countdown. Other tabs keep the
-          plain Save button — storytelling rows actually disappear from
-          history once expiry hits ≤1 day, so the warning matters. */}
-      {isStorytelling && !saved && !expired && expiryDays !== null && (
+      {/* Validity countdown chip. Renders for any TTL-bounded media
+          (storytelling, UGC video, Auto Content, Cinema). Storytelling
+          additionally vanishes from history at ≤1d via the
+          early-cutoff filter, but the chip itself just communicates
+          "save before this expires" universally now. */}
+      {(showValidity || isStorytelling) && !saved && !expired && expiryDays !== null && (
         <span
           className="absolute -top-1 -right-1 text-[8px] font-extrabold rounded-full min-w-[14px] h-[14px] flex items-center justify-center px-1 leading-none"
           style={{

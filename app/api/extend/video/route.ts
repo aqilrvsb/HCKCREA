@@ -263,10 +263,24 @@ export async function POST(req: Request) {
         if (lockBlock) compose.push(lockBlock);
       }
 
+      // Voice continuity lock — explicit + verbatim.
+      // Segment 2 must use the EXACT same voice descriptor as segment 1
+      // (gender, pitch, accent, rhythm, energy). The original first-video
+      // prompt that's already embedded in compose[] carries the original
+      // VOICE CHARACTER LOCK forward; we ALSO append a fresh explicit
+      // continuity block so Veo's audio path treats it as the dominant
+      // signal regardless of token-window position. Belt + braces.
       const voiceLine = voiceId ? VOICE_MAP[voiceId] : "";
+      const voiceLockBlock = voiceLine
+        ? `\n\nVOICE CONTINUITY LOCK (CRITICAL — segment 2 MUST match segment 1):
+The character's voice in segment 2 is identical to segment 1 — same gender, same pitch, same Malaysian accent, same speaking rhythm, same energy. Voice descriptor: ${voiceLine}
+Do NOT change voice. Do NOT shift to a different speaker. Do NOT use a second voice in dialog. The viewer must hear ONE continuous performance across both segments.`
+        : `\n\nVOICE CONTINUITY LOCK (CRITICAL — segment 2 MUST match segment 1):
+The character's voice in segment 2 is identical to segment 1 — same gender, same pitch, same accent, same speaking rhythm, same energy. Do NOT change voice. Do NOT shift to a different speaker.`;
+
       const fullPrompt =
         `${compose.join("\n\n").trim()}` +
-        (voiceLine ? `\n\nVoice direction: ${voiceLine}` : "") +
+        voiceLockBlock +
         STANDARD_LOCKS;
 
       // 4. Fire seg-2 Crun task using the resolved start frame.
