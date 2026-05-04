@@ -2119,14 +2119,14 @@ function PreviewPanel(props: any) {
   // back to a setInterval at SCENE_DURATION_MS (silent fallback for when
   // voice is disabled or the cache isn't ready yet).
   //
-  // GATING: don't start the auto-cycle until Scene 1's image is actually
-  // ready. Otherwise the preview spins through empty placeholders and the
-  // user can't tell anything is happening. Once the cycle starts, we ALSO
-  // skip any scene that doesn't have an imageUrl yet — so the preview
-  // never lands on a black/spinner slide. If no other ready scene exists,
-  // the cycle pauses on the current one and resumes when a new image
-  // lands (effect re-runs on scenes change).
-  const scene1Ready = !!scenes?.[0]?.imageUrl;
+  // GATING: don't start the auto-cycle until AT LEAST ONE scene image is
+  // ready (image generation is parallel and out-of-order — scenes 6+7
+  // can finish before scene 1, so we shouldn't wait specifically for
+  // scene 1). Once the cycle starts, we skip any scene that doesn't
+  // have an imageUrl yet so the preview never lands on a black/spinner
+  // slide. If currentIdx points at an unready scene, we hop to the next
+  // ready one immediately on first tick.
+  const anySceneReady = !!scenes?.some((s: any) => !!s?.imageUrl);
   // Find the next ready scene after `from`, wrapping. Returns -1 if no
   // other scene has an image (caller should NOT advance in that case).
   const findNextReadyIdx = (from: number) => {
@@ -2139,13 +2139,24 @@ function PreviewPanel(props: any) {
   };
   useEffect(() => {
     if (!scenes || sceneCount <= 1) return;
-    if (!scene1Ready) return;
+    if (!anySceneReady) return;
+    // Helper: jump to a ready scene from `from`, OR if `from` itself
+    // is unready, snap to the first ready scene from index 0.
     const advance = () => {
       props.setPreviewIdx((p: number) => {
+        const currentReady = !!scenes[p]?.imageUrl;
+        if (!currentReady) {
+          const firstReady = findNextReadyIdx(-1); // search from -1 → 0,1,2,...
+          return firstReady === -1 ? p : firstReady;
+        }
         const next = findNextReadyIdx(p);
         return next === -1 ? p : next;
       });
     };
+    // If preview currently points at an unready scene, snap immediately
+    // so the user doesn't stare at a black slide while waiting for the
+    // first watchdog tick.
+    Promise.resolve().then(advance);
     if (sceneAudioUrl && audioRef.current) {
       const el = audioRef.current;
       // CATCH-UP: if audio already ENDED before this effect attached
@@ -2175,7 +2186,7 @@ function PreviewPanel(props: any) {
     // scenes is in deps so when a new image lands the effect re-runs
     // and the next-ready lookup picks it up.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sceneCount, sceneAudioUrl, scene1Ready, scenes.map((s: any) => s.imageUrl).join("|")]);
+  }, [sceneCount, sceneAudioUrl, anySceneReady, scenes.map((s: any) => s.imageUrl).join("|")]);
 
   const scene = scenes?.[previewIdx] || null;
 
