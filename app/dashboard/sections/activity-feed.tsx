@@ -3,21 +3,18 @@
 import { useEffect, useState } from "react";
 import { Activity, ChevronRight, ChevronLeft, X, Image as ImageIcon, Video as VideoIcon, Sparkles } from "lucide-react";
 
-// ActivityFeed — floating right-docked panel shown on the dashboard
-// for admin users only. Polls /api/admin/activity-feed every 20s and
-// renders the most-recent successful generations across all clients
-// with email + tab + Malaysia-localised timestamp + a thumbnail icon
-// the admin can click to open a watermarked preview.
+// ActivityFeed — floating right-docked panel showing the platform's
+// live activity for SOCIAL PROOF. Encourages users to keep creating
+// when they see other people are also creating right now.
 //
-// Why watermark the preview: admin staff might be looking at content
-// owned by paying clients. The diagonal repeating "PENINGLAB.COM"
-// overlay makes screenshots / screen-record steals immediately
-// traceable back to leaks (or at least useless for re-posting).
+// Names are anonymized server-side ("Ahmad R." or "ahm***") so we
+// never leak full client identities to other clients. The preview
+// modal layers a hard-to-strip "PENINGLAB.COM" watermark over every
+// asset so you can show off the platform without enabling theft.
 
 type FeedItem = {
   id: string;
-  user_id: string;
-  email: string;
+  display_name: string;
   tab: string;
   type: string;
   output_url: string | null;
@@ -61,26 +58,21 @@ function inferKind(item: FeedItem): "image" | "video" | "other" {
 
 export default function ActivityFeed() {
   const [open, setOpen] = useState(false);
-  const [allowed, setAllowed] = useState<boolean | null>(null);
   const [items, setItems] = useState<FeedItem[]>([]);
   const [previewing, setPreviewing] = useState<FeedItem | null>(null);
+  const [loaded, setLoaded] = useState(false);
 
-  // Probe admin status once. We don't render the panel button at all for
-  // non-admin users so the API doesn't get hammered with 403s.
   async function load() {
     try {
-      const r = await fetch("/api/admin/activity-feed?limit=30", {
+      const r = await fetch("/api/activity-feed?limit=30", {
         credentials: "include",
         cache: "no-store",
       });
-      if (r.status === 403 || r.status === 401) {
-        setAllowed(false);
-        return;
-      }
+      if (!r.ok) return;
       const d = await r.json();
-      if (r.ok && Array.isArray(d?.items)) {
-        setAllowed(true);
+      if (Array.isArray(d?.items)) {
         setItems(d.items);
+        setLoaded(true);
       }
     } catch {}
   }
@@ -91,7 +83,9 @@ export default function ActivityFeed() {
     return () => clearInterval(id);
   }, []);
 
-  if (allowed === false) return null;
+  // Don't render the toggle until the first fetch lands — avoids a
+  // brief flash of "Activity (0)" when the user first opens the dashboard.
+  if (!loaded) return null;
 
   return (
     <>
@@ -99,7 +93,7 @@ export default function ActivityFeed() {
       {!open && (
         <button
           onClick={() => setOpen(true)}
-          title="Activity (admin)"
+          title="See who else is creating right now"
           className="fixed right-0 top-1/3 z-40 px-2 py-3 rounded-l-lg flex flex-col items-center gap-1.5 transition-transform hover:scale-105"
           style={{
             background: "var(--color-orange, #facc15)",
@@ -107,9 +101,13 @@ export default function ActivityFeed() {
             boxShadow: "0 4px 16px rgba(0,0,0,0.4)",
           }}
         >
-          <Activity className="w-4 h-4" />
+          <span className="relative inline-flex">
+            <Activity className="w-4 h-4" />
+            {/* Pulsing dot — signals "live" without taking extra width */}
+            <span className="absolute -top-0.5 -right-0.5 w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+          </span>
           <span className="text-[9px] font-mono font-bold uppercase tracking-wider [writing-mode:vertical-rl]">
-            Activity
+            Live · {items.length}
           </span>
           <ChevronLeft className="w-3 h-3" />
         </button>
@@ -128,9 +126,12 @@ export default function ActivityFeed() {
         >
           <div className="flex items-center justify-between px-4 py-3 border-b" style={{ borderColor: "rgba(255,255,255,0.06)" }}>
             <div className="flex items-center gap-2">
-              <Activity className="w-4 h-4 text-orange-400" />
-              <span className="text-sm font-display font-extrabold text-white">Activity</span>
-              <span className="text-[10px] font-mono text-gray-500 ml-1">admin · live</span>
+              <span className="relative inline-flex">
+                <Activity className="w-4 h-4 text-orange-400" />
+                <span className="absolute -top-0.5 -right-0.5 w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+              </span>
+              <span className="text-sm font-display font-extrabold text-white">Live activity</span>
+              <span className="text-[10px] font-mono text-gray-500 ml-1">PeningLab community</span>
             </div>
             <button
               onClick={() => setOpen(false)}
@@ -169,8 +170,8 @@ export default function ActivityFeed() {
                     <Icon className="w-4 h-4" />
                   </button>
                   <div className="min-w-0 flex-1">
-                    <div className="text-[11px] font-bold text-white truncate" title={it.email}>
-                      {it.email}
+                    <div className="text-[11px] font-bold text-white truncate">
+                      {it.display_name}
                     </div>
                     <div className="text-[10px] text-gray-400 flex items-center gap-1.5">
                       <span className="px-1.5 py-0.5 rounded font-mono uppercase font-bold tracking-wide" style={{ background: "rgba(250,204,21,0.12)", color: "#fde68a" }}>
@@ -185,7 +186,7 @@ export default function ActivityFeed() {
           </div>
 
           <div className="px-3 py-2 text-[9px] font-mono text-gray-600 text-center border-t" style={{ borderColor: "rgba(255,255,255,0.04)" }}>
-            polls every 20s · last {items.length} successful renders
+            updates every 20s · names anonymized · previews watermarked
           </div>
         </div>
       )}
@@ -218,7 +219,7 @@ function WatermarkedPreview({ item, onClose }: { item: FeedItem; onClose: () => 
       onClick={onClose}
     >
       <div className="absolute top-4 right-4 flex items-center gap-2">
-        <span className="text-xs font-mono text-gray-300">{item.email} · {item.tab}</span>
+        <span className="text-xs font-mono text-gray-300">{item.display_name} · {item.tab}</span>
         <button
           onClick={onClose}
           className="w-8 h-8 rounded-full flex items-center justify-center bg-white/10 hover:bg-white/20 text-white"

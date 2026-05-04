@@ -161,8 +161,8 @@ export default function DashboardShell({
     <div className="relative min-h-screen">
       <div className="bg-sky" />
 
-      {/* Admin-only floating activity feed (right edge). Self-gates via
-          /api/admin/activity-feed; non-admin users never see the toggle. */}
+      {/* Live activity feed (right edge) — social proof for every signed-in
+          user. Names anonymized server-side, previews watermarked. */}
       <ActivityFeed />
 
       <div className="relative z-10 flex min-h-screen items-stretch">
