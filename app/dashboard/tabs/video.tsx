@@ -14,7 +14,10 @@ import { uploadImage, dataUrlToFile } from "@/lib/upload-image";
 
 type Status = "idle" | "submitting" | "failed";
 type ImageMode = "frame" | "ingredient" | "text";
-type RefSlot = "start" | "end" | "ref";
+// "avatar" + "ref" (= product) are the two new ingredient-mode slots.
+// "ref" alone stays for backwards compat with rows that still use a
+// single product-only image.
+type RefSlot = "start" | "end" | "ref" | "avatar";
 
 const ORANGE = "#facc15";
 const ORANGE_SOFT = "rgba(255, 87, 34, 0.18)";
@@ -25,6 +28,11 @@ export default function VideoTab({ projectId }: { projectId?: string } = {}) {
   const [imageMode, setImageMode] = useState<ImageMode>("ingredient");
   const [startFrame, setStartFrame] = useState("");
   const [endFrame, setEndFrame] = useState("");
+  // In ingredient mode we now support TWO optional reference images:
+  // avatarImage (the character) and refImage (the product). User can
+  // upload either, both, or neither — Crun.ai will reference them as
+  // "first" and "second" in the order they're sent.
+  const [avatarImage, setAvatarImage] = useState("");
   const [refImage, setRefImage] = useState("");
   const [prompt, setPrompt] = useState("");
   const [aspect, setAspect] = useState("9:16");
@@ -36,6 +44,7 @@ export default function VideoTab({ projectId }: { projectId?: string } = {}) {
   const startInputRef = useRef<HTMLInputElement | null>(null);
   const endInputRef = useRef<HTMLInputElement | null>(null);
   const refInputRef = useRef<HTMLInputElement | null>(null);
+  const avatarInputRef = useRef<HTMLInputElement | null>(null);
 
   const [pickerSlot, setPickerSlot] = useState<RefSlot | null>(null);
   const [showUgcModal, setShowUgcModal] = useState(false);
@@ -64,6 +73,7 @@ export default function VideoTab({ projectId }: { projectId?: string } = {}) {
     if (slot === "start") setStartFrame(url);
     else if (slot === "end") setEndFrame(url);
     else if (slot === "ref") setRefImage(url);
+    else if (slot === "avatar") setAvatarImage(url);
     setPickerSlot(null);
   }
 
@@ -102,32 +112,54 @@ export default function VideoTab({ projectId }: { projectId?: string } = {}) {
     if (!prompt.trim()) return setError("Sila masukkan scene prompt.");
     if (imageMode === "frame" && !startFrame)
       return setError("Upload Start Frame dulu.");
-    if (imageMode === "ingredient" && !refImage)
-      return setError("Upload Image Reference dulu.");
+    if (imageMode === "ingredient" && !avatarImage && !refImage)
+      return setError("Upload Avatar atau Product reference (atau kedua-duanya).");
     setError(null);
     setStatus("submitting");
 
     try {
       // Upload local previews to RunningHub before hitting generate.
-      const [startPub, endPub, refPub] = await Promise.all([
+      const [startPub, endPub, avatarPub, refPub] = await Promise.all([
         ensurePublicUrl(startFrame),
         ensurePublicUrl(endFrame),
+        ensurePublicUrl(avatarImage),
         ensurePublicUrl(refImage),
       ]);
 
+      // Order matters — Crun references images as "first" / "second" in the
+      // exact order we send. Avatar always first when present so the prompt
+      // preamble lines up.
       const imageUrls =
         imageMode === "frame"
           ? [startPub, endPub].filter(Boolean)
           : imageMode === "ingredient"
-            ? [refPub]
+            ? [avatarPub, refPub].filter(Boolean)
             : [];
+
+      // Auto-prepend a reference-image preamble for the AI Agent UGC flow
+      // so users don't have to remember the exact wording. Only adds when
+      // the user hasn't already written one ("reference image" not in
+      // their prompt) — protects power users with custom phrasing.
+      let finalPrompt = prompt.trim();
+      if (imageMode === "ingredient" && !/reference image/i.test(finalPrompt)) {
+        const lines: string[] = [];
+        if (avatarPub && refPub) {
+          lines.push("Use the first reference image as the main character (same face, same outfit, same lighting style).");
+          lines.push("Use the second reference image as the product (same label, same shape, same colors, no modification).");
+        } else if (avatarPub) {
+          lines.push("Use the reference image as the main character (same face, same outfit, same lighting style).");
+        } else if (refPub) {
+          lines.push("Use the reference image as the product (same label, same shape, same colors, no modification).");
+        }
+        if (lines.length) finalPrompt = lines.join("\n") + "\n\n" + finalPrompt;
+      }
 
       const calls = Array.from({ length: count }).map(() =>
         fetch("/api/generate/video", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            prompt: prompt.trim(),
+            prompt: finalPrompt,
             image_urls: imageUrls,
             duration,
             image_mode: imageMode,
@@ -236,24 +268,52 @@ export default function VideoTab({ projectId }: { projectId?: string } = {}) {
         )}
 
         {imageMode === "ingredient" && (
-          <div className="mb-3">
-            <FrameZoneRow
-              label="Image Reference *"
-              color={ORANGE}
-              url={refImage}
-              icon="📦"
-              required
-              onPick={() => refInputRef.current?.click()}
-              onClear={() => setRefImage("")}
-              onHistory={() => setPickerSlot("ref")}
-            />
-            <input
-              ref={refInputRef}
-              type="file"
-              accept="image/*"
-              className="hidden"
-              onChange={(e) => readFile(e.target.files?.[0] || null, setRefImage)}
-            />
+          <div className="mb-3 grid grid-cols-1 md:grid-cols-2 gap-3">
+            {/* Avatar reference (optional) — Crun treats this as the
+                first reference image, so the auto-prepended preamble
+                tells Veo to use it as the main character. */}
+            <div>
+              <FrameZoneRow
+                label="Avatar Reference"
+                color={ORANGE}
+                url={avatarImage}
+                icon="👤"
+                onPick={() => avatarInputRef.current?.click()}
+                onClear={() => setAvatarImage("")}
+                onHistory={() => setPickerSlot("avatar")}
+              />
+              <input
+                ref={avatarInputRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={(e) => readFile(e.target.files?.[0] || null, setAvatarImage)}
+              />
+            </div>
+            {/* Product reference (optional) — second image, becomes the
+                product the avatar holds in the generated video. */}
+            <div>
+              <FrameZoneRow
+                label="Product Reference"
+                color={ORANGE}
+                url={refImage}
+                icon="📦"
+                onPick={() => refInputRef.current?.click()}
+                onClear={() => setRefImage("")}
+                onHistory={() => setPickerSlot("ref")}
+              />
+              <input
+                ref={refInputRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={(e) => readFile(e.target.files?.[0] || null, setRefImage)}
+              />
+            </div>
+            <p className="md:col-span-2 text-[11px] text-gray-500 -mt-1">
+              Both optional — upload at least one. When both are given, prompt auto-includes
+              "Use the first reference image as the main character… Use the second as the product…"
+            </p>
           </div>
         )}
 
