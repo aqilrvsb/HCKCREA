@@ -1546,8 +1546,19 @@ function Step3(props: any) {
     onBack, onSubmit, onRetryScript,
   } = props;
 
-  const allDone = scenes.length > 0 && scenes.every((s: Scene) => s.imageStatus === "done");
+  // Merge gate: every scene has SETTLED (done or failed). Failed scenes
+  // get filtered out by submitRender's `valid` check — Modal renders
+  // the story from the good ones, the failed scenes just don't appear.
+  // This lets the user proceed when one scene gets blocked by content
+  // policy instead of staring at a forever-disabled Merge button.
+  const allDone =
+    scenes.length > 0 &&
+    scenes.every((s: Scene) => s.imageStatus === "done" || s.imageStatus === "failed");
+  // Need at least 2 successful scenes for a video that's worth merging.
+  const enoughDone = scenes.filter((s: Scene) => s.imageStatus === "done").length >= 2;
+  const canMerge = allDone && enoughDone;
   const inProgress = scenes.length > 0 && scenes.some((s: Scene) => s.imageStatus === "generating" || s.imageStatus === "queued");
+  const failedCount = scenes.filter((s: Scene) => s.imageStatus === "failed").length;
 
   // Loading overlay during script generation — matches the reference layout:
   // big title, subtitle, real progress bar with "X/N scenes" counter and
@@ -1715,7 +1726,16 @@ function Step3(props: any) {
           </button>
           <button
             onClick={onSubmit}
-            disabled={!allDone || renderStatus === "submitting"}
+            disabled={!canMerge || renderStatus === "submitting"}
+            title={
+              !allDone
+                ? "Wait until every scene's image generation has settled"
+                : !enoughDone
+                  ? "Need at least 2 successful scenes to merge"
+                  : failedCount > 0
+                    ? `Merge will skip ${failedCount} failed scene${failedCount > 1 ? "s" : ""}`
+                    : ""
+            }
             className="flex-1 max-w-sm px-6 py-2.5 rounded-xl font-bold text-sm text-white inline-flex items-center justify-center gap-2 disabled:opacity-50"
             style={{
               background: "linear-gradient(135deg, #c084fc 0%, #818cf8 100%)",
