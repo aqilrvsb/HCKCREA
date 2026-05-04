@@ -834,10 +834,21 @@ function HistoryCard({
   }, [item.created_at]);
 
   async function handleDelete() {
-    if (!confirm("Padam item ni?")) return;
+    // Segment-aware delete: when the user is currently viewing the seg-2
+    // slide on an extended UGC / Auto-Content card, "delete" should
+    // remove ONLY that segment (and any later siblings the backend
+    // cascades) instead of nuking the whole 16s clip + seg-1 origin.
+    // Other slides (seg-1 or merged) collapse to the parent-row delete
+    // path which the backend then cascades over all children.
+    const isSeg2View = activeSlide?.id === "seg_1" && !!seg2?.id;
+    const targetId = isSeg2View ? seg2!.id : item.id;
+    const confirmMsg = isSeg2View
+      ? "Padam Segment 2 saja? Segment 1 tetap kekal. Any segment 3+ akan ikut hilang."
+      : "Padam item ni? Kalau ada segment 2/3, semua akan hilang sekali.";
+    if (!confirm(confirmMsg)) return;
     setDeleting(true);
     try {
-      const r = await fetch(`/api/history/delete?id=${item.id}`, { method: "DELETE" });
+      const r = await fetch(`/api/history/delete?id=${targetId}`, { method: "DELETE" });
       if (r.ok) {
         window.dispatchEvent(new CustomEvent("history:refresh"));
       } else {
