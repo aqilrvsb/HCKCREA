@@ -129,11 +129,71 @@ const TRANSIENT_ERROR_PATTERNS = [
   /temporarily/i,
   /upstream/i,
 ];
+
+// "The Google model was unable to generate audio for this request." —
+// Veo's audio-gen failure. Distinct retry path: the dialog text in the
+// prompt has TTS-hostile content (template leaks like "CTA LINE HERE:",
+// em-dashes inside quoted dialog, alphanumeric units like "1.3KG",
+// abbreviations like "COD"). Plain re-fire fails the same way; we
+// sanitise the prompt FIRST then retry.
+const AUDIO_GEN_FAIL_PATTERNS = [
+  /unable to generate audio/i,
+  /audio generation failed/i,
+  /audio synthesis failed/i,
+];
+
 const MAX_AUTO_RETRIES = 2;
 
 function isTransientError(err: string | null | undefined): boolean {
   if (!err) return false;
   return TRANSIENT_ERROR_PATTERNS.some((re) => re.test(err));
+}
+
+function isAudioGenFailure(err: string | null | undefined): boolean {
+  if (!err) return false;
+  return AUDIO_GEN_FAIL_PATTERNS.some((re) => re.test(err));
+}
+
+// Sanitise a Veo prompt that previously failed audio-gen. Targets the
+// known-hostile patterns we've seen in production:
+//
+//   1. Template-leak text — "CTA LINE HERE:" placeholder that wasn't
+//      replaced. Veo tries to speak the meta-instruction.
+//   2. Structured timestamp markers in dialog — "0–2s:" / "2–6s:" /
+//      "6–8s:" with em-dashes. Veo's TTS chokes on the punctuation.
+//   3. Em-dashes inside quoted dialog — same root cause as #2.
+//   4. Number+unit abbreviations — "1.3KG", "COD", "RM 47" without
+//      spaces or with awkward casing.
+//
+// Sanitiser is purely additive to existing retry logic: if it finds any
+// of these patterns it strips them. If the prompt was already clean,
+// the sanitiser is a no-op and we still re-fire (Veo audio-gen is
+// occasionally flaky for non-prompt reasons).
+function sanitiseForAudioRetry(prompt: string): string {
+  let p = prompt;
+  // 1. Template leaks
+  p = p.replace(/\bCTA LINE HERE:\s*/gi, "");
+  p = p.replace(/\b\[?DIALOG (PLACEHOLDER|HERE)\]?:\s*/gi, "");
+  // 2. Strip "0-2s:" / "2-6s:" / "6-8s:" timestamp markers (any dash type)
+  //    inside the dialog. Replace with a space so the surrounding lines
+  //    flow naturally.
+  p = p.replace(/\b\d+\s*[-–—]\s*\d+\s*s\s*:\s*/gi, " ");
+  // 3. Replace em-dash and en-dash inside quoted dialog with commas. We
+  //    only target dashes that sit between two letters (likely inside
+  //    speech), not the "—" used to separate prompt sections.
+  p = p.replace(/(["'])([^"']{0,400}?)\1/g, (_m, q, body) =>
+    q + body.replace(/\s*[—–]\s*/g, ", ") + q
+  );
+  // 4. Number+unit abbreviations — expand the most common ones so TTS
+  //    has something pronounceable. "1.3KG" → "1.3 kilogram",
+  //    "COD" → "cash on delivery", "RM 47" stays but loses tight kerning.
+  p = p.replace(/(\d+(?:\.\d+)?)\s*(KG|kg)\b/g, "$1 kilogram");
+  p = p.replace(/(\d+(?:\.\d+)?)\s*(ML|ml)\b/g, "$1 mililiter");
+  p = p.replace(/\bCOD\b/g, "cash on delivery");
+  p = p.replace(/\bDM\b/g, "direct message");
+  // Trim any double-spaces the substitutions created
+  p = p.replace(/[ \t]{2,}/g, " ").replace(/\n[ \t]+/g, "\n");
+  return p;
 }
 
 // Re-fire the same row's task against the dispatcher when the previous attempt
@@ -172,10 +232,19 @@ async function tryAutoRetry(
     }
   }
 
+  // For audio-gen failures, run the prompt through the sanitiser so we
+  // strip the patterns Veo's TTS chokes on (template leaks, em-dashes
+  // in dialog, alphanumeric units). For transient errors, prompt is
+  // unchanged — the failure was provider-side, not prompt-side.
+  const audioFail = isAudioGenFailure(errMsg);
+  const retryPrompt = audioFail
+    ? sanitiseForAudioRetry(hist.prompt)
+    : hist.prompt;
+
   const created = await p2CreateTask({
     model,
     userId: hist.user_id,
-    prompt: hist.prompt,
+    prompt: retryPrompt,
     imageUrls: refImage ? [refImage] : [],
     durationMode,
     aspectRatio,
@@ -193,6 +262,9 @@ async function tryAutoRetry(
     .update({
       status: "pending",
       task_id: created.task_id,
+      // If we sanitised the prompt, persist the new version so future
+      // recheck / extend operations use the cleaner text.
+      ...(audioFail ? { prompt: retryPrompt } : {}),
       error_message: null,
       metadata: {
         ...meta,
@@ -200,7 +272,7 @@ async function tryAutoRetry(
         retried_at: new Date().toISOString(),
         retry_count: retryCount + 1,
         last_retry_error: errMsg.slice(0, 200),
-        last_retry_kind: "auto",
+        last_retry_kind: audioFail ? "auto-audio-fix" : "auto",
       },
     })
     .eq("id", hist.id);
@@ -349,8 +421,10 @@ export async function settleHistoryRow(hist: HistoryRow): Promise<SettleResult> 
   if (r.status === "failed") {
     const errMsg = r.error || "Generation failed";
     // Transient provider errors (Internal Error / 5xx / rate limit / timeout)
-    // get auto-retried up to MAX_AUTO_RETRIES before the row is left failed.
-    if (isTransientError(errMsg)) {
+    // OR Veo audio-gen failures get auto-retried up to MAX_AUTO_RETRIES
+    // before the row is left failed. Audio-gen path also runs the prompt
+    // through sanitiseForAudioRetry first to strip TTS-hostile patterns.
+    if (isTransientError(errMsg) || isAudioGenFailure(errMsg)) {
       const retried = await tryAutoRetry(admin, hist, errMsg);
       if (retried) {
         return { state: "pending", p2Status: "auto_retry" };
