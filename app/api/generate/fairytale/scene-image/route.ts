@@ -87,11 +87,31 @@ export async function POST(req: Request) {
       const modelId = (cfg.imageModels as any)?.[modelKey] || modelKey;
       const rate = typeof ftRateSetting?.rate === "number" ? ftRateSetting.rate : defaultRate;
 
-      const created = await p2CreateTask({
+      let created = await p2CreateTask({
         model: modelId,
         prompt,
         aspectRatio,
       });
+
+      // Fallback: if the configured model is unknown to upstream (Crun
+      // rejected the dispatch with a model-not-found error), retry once
+      // with nano-banana-v2 — known-stable, balanced quality. Saves the
+      // user from staring at "Failed" rows when admin set an admin-side
+      // model that hasn't propagated to the upstream catalog yet.
+      const looksLikeBadModel =
+        !created.ok &&
+        modelKey !== "nano-banana-v2" &&
+        /model|not.found|invalid|unknown/i.test(String(created.error || ""));
+      if (looksLikeBadModel) {
+        console.warn(
+          `[fairytale-scene] model "${modelKey}" rejected, retrying with nano-banana-v2`
+        );
+        created = await p2CreateTask({
+          model: "nano-banana-v2",
+          prompt,
+          aspectRatio,
+        });
+      }
 
       if (!created.ok || !created.task_id) {
         await admin
@@ -99,7 +119,9 @@ export async function POST(req: Request) {
           .update({
             status: "failed",
             cost: rate,
-            error_message: created.error || "P2 create failed",
+            error_message:
+              (created.error || "P2 create failed") +
+              (looksLikeBadModel ? " (fallback nano-banana-v2 also failed)" : ""),
             metadata: {
               aspectRatio,
               scene_idx: sceneIdx,

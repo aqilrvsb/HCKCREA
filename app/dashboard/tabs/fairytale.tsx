@@ -476,7 +476,9 @@ export default function FairytaleTab({ projectId }: { projectId?: string } = {})
   const [textAnimation, setTextAnimation] = useState("karaoke");
   const [textPlacement, setTextPlacement] = useState("middle");
   const [fontType, setFontType] = useState("Grobold");
-  const [textSize, setTextSize] = useState("S");
+  // Continuous subtitle size — px directly, 12–72 range. Replaces the
+  // old S/M/L/XL preset id since users wanted finer control.
+  const [textSize, setTextSize] = useState<number>(16);
   const [textColor, setTextColor] = useState("#fde047");
   const [uppercase, setUppercase] = useState(true);
   const [textBackground, setTextBackground] = useState(false);
@@ -742,7 +744,7 @@ export default function FairytaleTab({ projectId }: { projectId?: string } = {})
           animation: sceneAnimation,
           transition,
           placement: textPlacement,
-          font_size: TEXT_SIZES.find((s) => s.id === textSize)?.px ?? 36,
+          font_size: textSize,
           font_family: fontType,
           font_color: textColor,
           subtitle_bg: textBackground ? "box" : "none",
@@ -1928,22 +1930,20 @@ function FontConfig(props: any) {
               {FONT_TYPES.map((f) => <option key={f} value={f}>{f}</option>)}
             </select>
           </Field>
-          <Field label="Text Size">
-            <div className="grid grid-cols-4 gap-1.5">
-              {TEXT_SIZES.map((s) => (
-                <button
-                  key={s.id}
-                  onClick={() => props.setTextSize(s.id)}
-                  className="py-2 rounded-lg flex flex-col items-center"
-                  style={{
-                    background: props.textSize === s.id ? "#fafafa" : "white",
-                    border: props.textSize === s.id ? `1.5px solid #1a1a1a` : "1px solid #e5e7eb",
-                  }}
-                >
-                  <span className="font-bold text-sm">{s.id}</span>
-                  <span className="text-[9px] text-gray-500">{s.label}</span>
-                </button>
-              ))}
+          <Field label={`Text Size — ${props.textSize}px`}>
+            <input
+              type="range"
+              min={5}
+              max={72}
+              step={1}
+              value={Number(props.textSize) || 16}
+              onChange={(e) => props.setTextSize(Number(e.target.value))}
+              className="w-full"
+              style={{ accentColor: "#1a1a1a" }}
+            />
+            <div className="flex justify-between text-[9px] text-gray-400 font-mono mt-1">
+              <span>5px</span>
+              <span>72px</span>
             </div>
           </Field>
           <Field label="Text Color">
@@ -2092,7 +2092,18 @@ function PreviewPanel(props: any) {
     audioCache, audioCacheStatus, previewMuted, setPreviewMuted,
     previewPlaying, setPreviewPlaying, voiceSpeed,
     musicTrackId, voiceVolume, musicVolume } = props;
-  const sizePx = TEXT_SIZES.find((s: any) => s.id === textSize)?.px ?? 36;
+  // textSize is now a number (px) — slider 5..72. Default 16 if anything
+  // weird (legacy "S"/"M" preset id from old draft state).
+  const sizePx = (() => {
+    const n = Number(textSize);
+    if (Number.isFinite(n) && n >= 1 && n <= 200) return n;
+    // Backwards-compat: legacy ids
+    if (textSize === "S") return 16;
+    if (textSize === "M") return 28;
+    if (textSize === "L") return 36;
+    if (textSize === "XL") return 48;
+    return 16;
+  })();
 
   // The actual <audio> element we control — one per panel, src swaps as
   // previewIdx changes. We use the audio's natural duration to time the
@@ -2189,14 +2200,21 @@ function PreviewPanel(props: any) {
   // have an imageUrl yet so the preview never lands on a black/spinner
   // slide. If currentIdx points at an unready scene, we hop to the next
   // ready one immediately on first tick.
-  const anySceneReady = !!scenes?.some((s: any) => !!s?.imageUrl);
+  // A scene is "ready" only when BOTH its image AND its narration audio
+  // (motion = the audio clip + ken-burns animation that plays over it)
+  // are available. Either one missing means the slide would feel broken
+  // in preview — silent slide if no audio, black slide if no image. We
+  // skip them in the auto-cycle until they catch up.
+  const isSceneReady = (s: any, idx: number) =>
+    !!s?.imageUrl && (!voiceEnabled || !!audioCache?.[idx]);
+  const anySceneReady = !!scenes?.some((s: any, i: number) => isSceneReady(s, i));
   // Find the next ready scene after `from`, wrapping. Returns -1 if no
-  // other scene has an image (caller should NOT advance in that case).
+  // other scene is ready (caller should NOT advance in that case).
   const findNextReadyIdx = (from: number) => {
     if (!scenes || scenes.length <= 1) return -1;
     for (let step = 1; step <= scenes.length; step++) {
       const cand = (from + step) % scenes.length;
-      if (scenes[cand]?.imageUrl) return cand;
+      if (isSceneReady(scenes[cand], cand)) return cand;
     }
     return -1;
   };
@@ -2208,7 +2226,7 @@ function PreviewPanel(props: any) {
     // is unready, snap to the first ready scene from index 0.
     const advance = () => {
       props.setPreviewIdx((p: number) => {
-        const currentReady = !!scenes[p]?.imageUrl;
+        const currentReady = isSceneReady(scenes[p], p);
         if (!currentReady) {
           const firstReady = findNextReadyIdx(-1); // search from -1 → 0,1,2,...
           return firstReady === -1 ? p : firstReady;
@@ -2250,7 +2268,11 @@ function PreviewPanel(props: any) {
     // scenes is in deps so when a new image lands the effect re-runs
     // and the next-ready lookup picks it up.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sceneCount, sceneAudioUrl, anySceneReady, previewPlaying, scenes.map((s: any) => s.imageUrl).join("|")]);
+  }, [sceneCount, sceneAudioUrl, anySceneReady, previewPlaying,
+      scenes.map((s: any) => s.imageUrl).join("|"),
+      // Re-run when audio cache updates so newly-cached scenes join
+      // the eligibility list immediately.
+      Object.keys(audioCache || {}).sort().join(",")]);
 
   const scene = scenes?.[previewIdx] || null;
 
@@ -2342,6 +2364,23 @@ function PreviewPanel(props: any) {
   // animation restarts from frame 0 — that's how live preview demos feel
   // responsive when the user picks Pan Right vs Zoom In.
   const [animCycle, setAnimCycle] = useState(0);
+
+  // Fullscreen preview — when on, the frame floats over the entire
+  // viewport at TikTok 9:16 geometry. Esc closes; clicking the corner
+  // ⛶ button toggles. Body scroll is locked while fullscreen.
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  useEffect(() => {
+    if (!isFullscreen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setIsFullscreen(false);
+    };
+    window.addEventListener("keydown", onKey);
+    document.body.style.overflow = "hidden";
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      document.body.style.overflow = "";
+    };
+  }, [isFullscreen]);
   useEffect(() => {
     setAnimCycle((c) => c + 1);
     const id = setInterval(() => setAnimCycle((c) => c + 1), sceneDurationMs + 400);
@@ -2364,23 +2403,52 @@ function PreviewPanel(props: any) {
   return (
     <div>
       <style>{previewKeyframes}</style>
+      {/* Fullscreen wrapper renders only when isFullscreen=true. It uses
+          fixed inset-0 + black backdrop so the preview frame floats
+          above everything in TikTok 9:16 geometry. The frame itself
+          (the inner div below) keeps the same children — the inner
+          sizing styles change so it fills the viewport in fullscreen
+          mode and falls back to the inline cap otherwise. */}
       <div
         className="rounded-xl overflow-hidden relative mx-auto"
-        style={{
-          background: "#1a1a1a",
-          // Cap the preview frame so it never pushes the chips below the
-          // viewport. We aim for the largest 9:16 box that fits in:
-          //   max-height = viewport - top sticky offset - chip block.
-          // calc(100vh - 280px) leaves room for header + step indicator
-          // + chips + bottom nav. Width derives from height to maintain
-          // 9:16 (height * 9/16). Min width 220 so it doesn't collapse
-          // on short viewports.
-          aspectRatio: "9 / 16",
-          maxHeight: "calc(100vh - 280px)",
-          width: "min(100%, calc((100vh - 280px) * 9 / 16))",
-          minHeight: 360,
-        }}
+        style={
+          isFullscreen
+            ? {
+                background: "#000",
+                position: "fixed",
+                inset: 0,
+                width: "100vw",
+                height: "100vh",
+                zIndex: 60,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+              }
+            : {
+                background: "#1a1a1a",
+                // Cap the preview frame so it never pushes the chips below
+                // the viewport. We aim for the largest 9:16 box that fits in:
+                //   max-height = viewport - top sticky offset - chip block.
+                aspectRatio: "9 / 16",
+                maxHeight: "calc(100vh - 280px)",
+                width: "min(100%, calc((100vh - 280px) * 9 / 16))",
+                minHeight: 360,
+              }
+        }
       >
+        <div
+          className="relative overflow-hidden bg-black"
+          style={
+            isFullscreen
+              ? {
+                  aspectRatio: "9 / 16",
+                  height: "100vh",
+                  maxHeight: "100vh",
+                  width: "calc(100vh * 9 / 16)",
+                }
+              : { width: "100%", height: "100%" }
+          }
+        >
         {scene?.imageUrl ? (
           <div
             key={`img-${scene.idx}-${animCycle}`}
@@ -2576,6 +2644,24 @@ function PreviewPanel(props: any) {
           style={{ background: "rgba(0,0,0,0.6)" }}
         >
           {Math.min(previewIdx + 1, sceneCount)} / {sceneCount}
+        </div>
+
+        {/* Fullscreen toggle — shows top-right of the frame. Standalone
+            from the existing audio mute badge (top-left) and prev/next
+            arrows (vertical center). In fullscreen mode the icon flips
+            to the "exit fullscreen" glyph. */}
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            setIsFullscreen((v: boolean) => !v);
+          }}
+          aria-label={isFullscreen ? "Exit fullscreen" : "Enter fullscreen"}
+          className="absolute top-2 right-2 w-7 h-7 rounded-full flex items-center justify-center text-white text-[12px]"
+          style={{ background: "rgba(0,0,0,0.55)", zIndex: 5 }}
+        >
+          {isFullscreen ? "⤡" : "⛶"}
+        </button>
         </div>
       </div>
 
