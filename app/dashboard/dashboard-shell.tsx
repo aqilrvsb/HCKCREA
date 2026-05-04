@@ -27,6 +27,7 @@ import SettingsSection from "./sections/settings";
 import DashboardOverview from "./sections/dashboard-overview";
 import SavedPromptsSection from "./sections/saved-prompts";
 import StorageSection from "./sections/storage";
+import ActivityFeed from "./sections/activity-feed";
 import AgentChatPanel, { type AgentTab } from "./sections/agent-chat-panel";
 import { SopButton } from "./sections/sop-modal";
 import { SOP_CONTENT } from "@/lib/sop-content";
@@ -159,6 +160,10 @@ export default function DashboardShell({
   return (
     <div className="relative min-h-screen">
       <div className="bg-sky" />
+
+      {/* Admin-only floating activity feed (right edge). Self-gates via
+          /api/admin/activity-feed; non-admin users never see the toggle. */}
+      <ActivityFeed />
 
       <div className="relative z-10 flex min-h-screen items-stretch">
         <Sidebar
