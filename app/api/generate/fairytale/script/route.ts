@@ -67,6 +67,21 @@ export async function POST(req: Request) {
   const visualStyle = (["realistic", "3d", "fantasy", "minimalist", "nature", "anime"].includes(body?.visual_style) ? body.visual_style : "realistic") as VisualStyle;
   const sceneCount = Math.max(3, Math.min(15, Number(body?.scene_count) || 10));
   const sceneDurationSec = Math.max(3, Math.min(20, Number(body?.scene_duration_sec) || 10));
+  // CTA mode: when true, the AI weaves the user's call-to-action into
+  // the LAST scene's narration so the slide ends with story-close +
+  // CTA blended naturally. CTA text is capped at 12 words so the AI
+  // has room to land the story emotionally before the call. When the
+  // toggle is off, story rides its arc to a natural ending instead.
+  const ctaEnabled = body?.cta === true;
+  // Cap to 12 words — count words, not chars, since user-typed CTAs
+  // tend to be short imperatives ("Follow for daily story drops",
+  // "Comment YES if you agree").
+  const ctaWords = String(body?.cta_text || "")
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 12);
+  const ctaText = ctaWords.join(" ");
 
   if (!userPrompt) {
     return NextResponse.json({ error: "prompt required" }, { status: 400 });
@@ -81,19 +96,50 @@ export async function POST(req: Request) {
   const lowWords  = Math.round(sceneDurationSec * wpsLow);
   const highWords = Math.round(sceneDurationSec * wpsHigh);
   const targetWords = `${lowWords}-${highWords}`;
-  const systemPrompt = `You are a story script writer for short-form video. You produce scene-by-scene scripts where each scene is exactly one short sentence of narration plus a vivid image generation prompt.
+  // CTA blending instruction injected into the prompt only when enabled.
+  // The AI must land the story arc THEN segue into the CTA in the same
+  // final-scene narration — not a separate slide. 12-word cap leaves
+  // room for the story-close in the same word window.
+  const ctaInstruction = ctaEnabled && ctaText
+    ? `\nFINAL-SCENE CTA RULE (CRITICAL): Scene ${sceneCount} (the last scene) must END with this call-to-action woven naturally into the narration: "${ctaText}". Land the emotional resolution of the story FIRST in the same narration, THEN segue into the CTA. The CTA must feel like the natural reward for watching the story, not a tacked-on plug. Do not weaken or paraphrase the CTA — keep its core verbs ("follow", "comment", "share", "try", whatever the user wrote) intact. The full last-scene narration should still be ${targetWords} words including the CTA portion.`
+    : `\nFINAL-SCENE RULE: Scene ${sceneCount} (the last scene) must deliver the emotional payoff — the moment the viewer rewinds for, the line that makes them save the video or send it to a friend. Avoid weak filler endings like "Sekian" or "That's all". End with a feeling, a fact, or a question that lingers.`;
 
-OUTPUT RULES — STRICT:
+  const systemPrompt = `You are an elite short-form-video story writer. You write the kind of scripts that make people stop scrolling, watch the full video, then follow the creator for more. Your scripts go viral because they hook fast, escalate emotionally, and reward attention.
+
+OUTPUT FORMAT — STRICT:
 - Output a JSON object: { "scenes": [ { "narration": "...", "image_prompt": "..." }, ... ] }
 - Exactly ${sceneCount} scenes.
-- Each "narration" is ${language === "ms" ? "BAHASA MELAYU (Malaysian Malay), NOT Indonesian" : "English"}, **${targetWords} words** (this is critical — every scene plays for exactly ${sceneDurationSec} seconds of audio + Ken Burns motion, so under-${lowWords} words leaves dead air at the end of the slide and over-${highWords} words forces the TTS to rush past the next slide).
-- Each "image_prompt" is in ENGLISH, 30-60 words, vivid visual description with subject + setting + atmosphere + lighting. Always END the image_prompt with: "${VISUAL_HINTS[visualStyle]}"
-- Story arc must be coherent across the ${sceneCount} scenes — beginning, middle, end.
-- ${STYLE_HINTS[style]}.
-- ${TONE_HINTS[tone]}.
-- Language for narration: ${LANG_HINTS[language]}.
-- Count your words for every narration before returning. Reject any scene shorter than ${targetWords.split("-")[0]} words and rewrite it longer.
-- Do NOT include any text other than the JSON. No markdown fences, no commentary.`;
+- Do NOT include any text other than the JSON. No markdown fences, no commentary.
+
+NARRATION RULES:
+- Each "narration" is ${language === "ms" ? "BAHASA MELAYU (Malaysian Malay), NOT Indonesian — natural casual phrasing, words like korang, aku, ni, tu, memang, je, dah" : "English — natural conversational"}.
+- Each narration is **${targetWords} words** (this is critical — every scene plays for exactly ${sceneDurationSec} seconds of audio + Ken Burns motion, so under-${lowWords} words leaves dead air and over-${highWords} words forces TTS to rush past the next slide).
+- Count your words for every narration before returning. Reject any scene outside ${targetWords} words and rewrite it.
+
+VIRAL STORY STRUCTURE — APPLY ACROSS ALL ${sceneCount} SCENES:
+- Scene 1 = HOOK. Open with a curiosity gap, shocking fact, bold claim, or unexpected question. Make scrolling impossible. Examples that work: "Tahu tak satu fakta gila pasal X yang ramai tak perasan?" / "I almost didn't survive what happened next." Bad: "Hari ini saya nak cerita…" (boring, gets scrolled past).
+- Scenes 2-3 = AGITATE. Deepen the curiosity. Add a specific detail, a number, a name, a vivid sensory image. Make the viewer FEEL invested.
+- Middle scenes = ESCALATE. Each scene raises the stakes or the surprise factor. End each middle scene on a small cliffhanger ("…tapi yang lagi pelik…", "…and then we noticed something") so the viewer needs the next slide to resolve it.
+- Last 2 scenes = PAYOFF. Deliver the resolution, the answer, the "aha". Reward the viewer's attention with a real beat — emotional, factual, or both.${ctaInstruction}
+
+ENGAGEMENT TECHNIQUES — USE LIBERALLY:
+- Specific numbers > vague claims. "3 saat" beats "cepat". "RM 2,847" beats "banyak duit".
+- Sensory details > abstract description. "Bau hangit" / "tangan menggeletar" > "perasaan tak best".
+- Pattern interrupts: short punchy sentence after a longer one. Or a one-word scene if the punch lands.
+- Stakes — make the viewer care WHY this matters to them, not just to the character.
+- Avoid filler: "ramai orang", "macam-macam", "pelbagai", "etc". Pick ONE concrete example instead.
+
+STYLE: ${STYLE_HINTS[style]}.
+TONE: ${TONE_HINTS[tone]}.
+
+IMAGE PROMPT RULES:
+- Each "image_prompt" is in ENGLISH, 30-60 words.
+- Structure: subject + action + setting + atmosphere + lighting + camera angle.
+- Show the EMOTION of the scene's narration moment, not just literal objects. If the narration is shocking, the image should feel charged. If reflective, the image should feel still.
+- Always END the image_prompt with: "${VISUAL_HINTS[visualStyle]}"
+- For 9:16 vertical video, frame composition vertically — main subject in upper-third, environment context in lower-thirds.
+
+Generate the JSON now. The viewer should still be watching at scene ${sceneCount}.`;
 
   const userMsg = `Story prompt: ${userPrompt}
 

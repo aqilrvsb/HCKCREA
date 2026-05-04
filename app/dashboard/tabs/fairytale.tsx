@@ -332,6 +332,11 @@ export default function FairytaleTab({ projectId }: { projectId?: string } = {})
   const [voiceId, setVoiceId] = useState(voicesForLang("ms")[0].id);
   const [voiceSpeed, setVoiceSpeed] = useState(1.0);
 
+  // CTA — when enabled, the AI weaves a 12-word call-to-action into
+  // the LAST scene's narration. Off = story rides to its natural close.
+  const [ctaEnabled, setCtaEnabled] = useState(false);
+  const [ctaText, setCtaText] = useState("");
+
   // When the user switches language in Step 1, the previously-selected
   // voice id likely doesn't exist in the new language pack — auto-reset
   // to the first voice of the new language so MiniMax doesn't reject the
@@ -385,6 +390,10 @@ export default function FairytaleTab({ projectId }: { projectId?: string } = {})
           // Target narration duration per scene — helps the LLM size each
           // beat to match the slide it'll be paired with.
           scene_duration_sec: secondsPerSlide,
+          // CTA flow — when enabled, AI weaves the 12-word call-to-action
+          // into the final scene's narration (story-close + CTA blended).
+          cta: ctaEnabled && !!ctaText.trim(),
+          cta_text: ctaText.trim(),
         }),
       });
       const d = await r.json();
@@ -684,6 +693,8 @@ export default function FairytaleTab({ projectId }: { projectId?: string } = {})
           secondsPerSlide={secondsPerSlide} setSecondsPerSlide={setSecondsPerSlide}
           sceneCount={sceneCount} setSceneCount={setSceneCount}
           voiceId={voiceId} setVoiceId={setVoiceId}
+          ctaEnabled={ctaEnabled} setCtaEnabled={setCtaEnabled}
+          ctaText={ctaText} setCtaText={setCtaText}
           pricing={pricing}
           styleDropdownOpen={styleDropdownOpen} setStyleDropdownOpen={setStyleDropdownOpen}
           onNext={goNext}
@@ -974,11 +985,17 @@ function Step1(props: {
   secondsPerSlide: number; setSecondsPerSlide: (v: number) => void;
   sceneCount: number; setSceneCount: (v: number) => void;
   voiceId: string; setVoiceId: (v: string) => void;
+  ctaEnabled: boolean; setCtaEnabled: (v: boolean) => void;
+  ctaText: string; setCtaText: (v: string) => void;
   pricing: { per_image: number; per_audio_sec: number };
   styleDropdownOpen: boolean; setStyleDropdownOpen: (v: boolean) => void;
   onNext: () => void;
   onPreview: () => void;
 }) {
+  const ctaWordCount = props.ctaText
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean).length;
   const styleObj = STYLES.find((s) => s.id === props.style)!;
   const toneObj = TONES.find((t) => t.id === props.tone)!;
   const langObj = LANGUAGES.find((l) => l.id === props.language)!;
@@ -1139,6 +1156,71 @@ function Step1(props: {
           voiceId={props.voiceId}
           setVoiceId={props.setVoiceId}
         />
+      </div>
+
+      {/* Call-to-Action — when enabled, AI weaves the 12-word CTA into
+          the LAST scene's narration (story-close + CTA blended). Off =
+          AI lands a natural emotional ending. */}
+      <div
+        className="mt-5 rounded-xl p-3.5"
+        style={{ background: "white", border: "1px solid #e5e7eb" }}
+      >
+        <div className="flex items-center justify-between mb-2">
+          <div>
+            <div className="text-sm font-bold text-gray-800">
+              Call-to-Action (final slide)
+            </div>
+            <div className="text-[11px] text-gray-500 mt-0.5">
+              When on, AI lands the story then segues into your CTA in the same last slide.
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => props.setCtaEnabled(!props.ctaEnabled)}
+            className="relative w-11 h-6 rounded-full transition-colors"
+            style={{
+              background: props.ctaEnabled ? "#a855f7" : "#d1d5db",
+            }}
+          >
+            <span
+              className="absolute top-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform"
+              style={{
+                transform: props.ctaEnabled ? "translateX(22px)" : "translateX(2px)",
+              }}
+            />
+          </button>
+        </div>
+        {props.ctaEnabled && (
+          <div className="mt-2">
+            <div className="flex items-center justify-between mb-1">
+              <span className="text-[10px] font-bold text-gray-500 uppercase tracking-wide">
+                Your CTA (max 12 words)
+              </span>
+              <span
+                className="text-[10px] font-mono"
+                style={{ color: ctaWordCount > 12 ? "#dc2626" : "#9ca3af" }}
+              >
+                {ctaWordCount} / 12
+              </span>
+            </div>
+            <input
+              value={props.ctaText}
+              onChange={(e) => {
+                const next = e.target.value;
+                const words = next.trim().split(/\s+/).filter(Boolean);
+                if (words.length <= 12) props.setCtaText(next);
+                else props.setCtaText(words.slice(0, 12).join(" "));
+              }}
+              placeholder="Follow for more story drops weekly!"
+              className="w-full px-3 py-2 rounded-lg text-sm outline-none"
+              style={{
+                background: "#fafafa",
+                border: "1px solid #e5e7eb",
+                color: "#1a1a1a",
+              }}
+            />
+          </div>
+        )}
       </div>
 
       {/* Slide pacing — seconds per slide + slide count + estimated total */}
