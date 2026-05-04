@@ -83,8 +83,23 @@ export async function POST(req: Request) {
         getSetting<{ model: string }>("fairytale_image_model"),
         getSetting<{ rate: number }>("fairytale_image_rate"),
       ]);
+      // Resolve admin's model key to the actual upstream API model id.
+      // The image_models mapping seeded in migration 0001 covers
+      // nano-banana-pro / nano-banana-2 / gpt-image-2, but the newer
+      // nano-banana-v2 (Crun's "google/nano-banana-v2") may not be in
+      // the mapping yet. Hardcode that one + leave the rest to the
+      // mapping fall-through.
+      const HARDCODED_MODEL_IDS: Record<string, string> = {
+        "nano-banana-v2": "google/nano-banana-v2",
+        "nano-banana-pro": "google/nano-banana-pro",
+        "z-image": "z-image",
+        "gpt-image-2": "openai/gpt-image-2-stable",
+      };
       const modelKey = ftModelSetting?.model || cfg.imageDefault || "nano-banana-pro";
-      const modelId = (cfg.imageModels as any)?.[modelKey] || modelKey;
+      const modelId =
+        (cfg.imageModels as any)?.[modelKey] ||
+        HARDCODED_MODEL_IDS[modelKey] ||
+        modelKey;
       const rate = typeof ftRateSetting?.rate === "number" ? ftRateSetting.rate : defaultRate;
 
       let created = await p2CreateTask({
@@ -95,19 +110,19 @@ export async function POST(req: Request) {
 
       // Fallback: if the configured model is unknown to upstream (Crun
       // rejected the dispatch with a model-not-found error), retry once
-      // with nano-banana-v2 — known-stable, balanced quality. Saves the
-      // user from staring at "Failed" rows when admin set an admin-side
-      // model that hasn't propagated to the upstream catalog yet.
+      // with the well-known google/nano-banana-v2 — Crun's balanced
+      // model. Saves the user from staring at "Failed" rows when admin
+      // set a model that's missing from the cfg.imageModels mapping.
       const looksLikeBadModel =
         !created.ok &&
-        modelKey !== "nano-banana-v2" &&
-        /model|not.found|invalid|unknown/i.test(String(created.error || ""));
+        modelId !== "google/nano-banana-v2" &&
+        /model|not.found|invalid|unknown|bad request|param/i.test(String(created.error || ""));
       if (looksLikeBadModel) {
         console.warn(
-          `[fairytale-scene] model "${modelKey}" rejected, retrying with nano-banana-v2`
+          `[fairytale-scene] model "${modelId}" rejected (${created.error}), retrying with google/nano-banana-v2`
         );
         created = await p2CreateTask({
-          model: "nano-banana-v2",
+          model: "google/nano-banana-v2",
           prompt,
           aspectRatio,
         });
