@@ -759,15 +759,34 @@ function Step1(props: {
         </span>
       </div>
       <div
-        className="mt-2 px-4 py-2.5 rounded-xl text-xs font-semibold flex items-center justify-between"
+        className="mt-2 px-4 py-3 rounded-xl text-xs font-semibold"
         style={{ background: "#fff7ed", border: "1px solid #fed7aa", color: "#c2410c" }}
       >
-        <span>Estimated cost (deducted on Generate)</span>
-        <span className="font-mono">
-          ({props.pricing.per_image.toFixed(2)} × {props.sceneCount}) +
-          ({props.pricing.per_audio_sec.toFixed(2)} × {props.secondsPerSlide} × {props.sceneCount}) =
-          <strong> RM {estCost.toFixed(2)}</strong>
-        </span>
+        <div className="flex items-center justify-between mb-1.5">
+          <span>Estimated cost (deducted on Generate)</span>
+          <span className="font-mono text-sm">
+            <strong>RM {estCost.toFixed(2)}</strong>
+          </span>
+        </div>
+        <div className="flex flex-col gap-0.5 text-[11px] font-mono opacity-90">
+          <div className="flex items-center justify-between">
+            <span>
+              <span className="opacity-70">RM {props.pricing.per_image.toFixed(2)} × </span>
+              {props.sceneCount} images
+            </span>
+            <span>RM {(props.pricing.per_image * props.sceneCount).toFixed(2)}</span>
+          </div>
+          <div className="flex items-center justify-between">
+            <span>
+              <span className="opacity-70">RM {props.pricing.per_audio_sec.toFixed(2)} × </span>
+              {props.secondsPerSlide * props.sceneCount} seconds audio
+              <span className="opacity-70"> ({props.secondsPerSlide}s × {props.sceneCount})</span>
+            </span>
+            <span>
+              RM {(props.pricing.per_audio_sec * props.secondsPerSlide * props.sceneCount).toFixed(2)}
+            </span>
+          </div>
+        </div>
       </div>
 
       <div className="flex justify-end mt-8">
