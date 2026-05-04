@@ -286,11 +286,24 @@ export async function POST(req: Request) {
         return;
       }
 
+      // Pass BOTH the start frame AND (for UGC/auto) the product image
+      // as ingredient references. Without the product image, Veo's r2v
+      // pass redraws the package from scratch using only the anchor
+      // frame — that introduces label drift between seg1 and seg2 even
+      // when the original prompt + OCR text-lock are embedded. With both
+      // images: start frame anchors character + pose, product image
+      // anchors pixel-identical packaging. Cinema bucket uses imageMode
+      // 'frame' which is single-image-only by convention; we keep that
+      // behaviour unchanged.
+      const refImages: string[] = [startUrl];
+      if (bucket !== "cinema" && productImageUrl) {
+        refImages.push(productImageUrl);
+      }
       const created = await p2CreateTask({
         model,
         userId: user.id,
         prompt: fullPrompt,
-        imageUrls: [startUrl],
+        imageUrls: refImages,
         durationMode: String(extendSeconds),
         aspectRatio,
         imageMode: bucket === "cinema" ? "frame" : "ingredient",
