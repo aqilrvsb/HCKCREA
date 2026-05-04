@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { Loader2, X, Pin, Copy, Check } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import Portal from "../sections/portal";
-import { uploadImage, dataUrlToFile } from "@/lib/upload-image";
+import { uploadImage, dataUrlToFile, rehostFromUrl } from "@/lib/upload-image";
 
 // Clone Prompt — input: reference video + product image →
 // output: list of segment prompts (no video generation). Two output models:
@@ -373,6 +373,10 @@ export default function CloneTab({ projectId }: { projectId?: string } = {}) {
           onPick={(url) => {
             setProductImage(url);
             setShowHistoryPicker(false);
+            void (async () => {
+              const fresh = await rehostFromUrl(url);
+              if (fresh !== url) setProductImage(fresh);
+            })();
           }}
           onClose={() => setShowHistoryPicker(false)}
         />

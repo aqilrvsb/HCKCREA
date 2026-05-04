@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { Loader2, X, Film } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import Portal from "../sections/portal";
-import { uploadImage, dataUrlToFile } from "@/lib/upload-image";
+import { uploadImage, dataUrlToFile, rehostFromUrl } from "@/lib/upload-image";
 
 // Cinema — Grok Imagine via Crun.ai. Two image modes (Text to Video,
 // Image to Video), duration slider 6-30s, resolution 480p|720p, mode
@@ -332,6 +332,12 @@ export default function CinemaTab({ projectId }: { projectId?: string } = {}) {
           onPick={(url) => {
             setRefImage(url);
             setPickerOpen(false);
+            // Background re-host so old imagejini.com URLs get refreshed
+            // before submit time.
+            void (async () => {
+              const fresh = await rehostFromUrl(url);
+              if (fresh !== url) setRefImage(fresh);
+            })();
           }}
           onClose={() => setPickerOpen(false)}
         />

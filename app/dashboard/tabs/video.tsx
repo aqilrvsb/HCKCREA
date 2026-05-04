@@ -5,7 +5,7 @@ import { Loader2, Sparkles, X } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import Portal from "../sections/portal";
 import UgcTab from "./ugc";
-import { uploadImage, dataUrlToFile } from "@/lib/upload-image";
+import { uploadImage, dataUrlToFile, rehostFromUrl } from "@/lib/upload-image";
 
 // Video tab — 1:1 port of creative-hack-auto's video-mode-section.
 // Three image modes (frame / ingredient / text), with a Scene card that
@@ -70,11 +70,23 @@ export default function VideoTab({ projectId }: { projectId?: string } = {}) {
   }, []);
 
   function pickFromHistory(slot: RefSlot, url: string) {
+    // Show the picked image immediately so the UI feels snappy, then
+    // re-host it to a fresh RunningHub URL in the background. Old
+    // history images stored at imagejini.com sometimes go stale —
+    // re-hosting guarantees the URL we send to gen workers is alive.
     if (slot === "start") setStartFrame(url);
     else if (slot === "end") setEndFrame(url);
     else if (slot === "ref") setRefImage(url);
     else if (slot === "avatar") setAvatarImage(url);
     setPickerSlot(null);
+    void (async () => {
+      const fresh = await rehostFromUrl(url);
+      if (fresh === url) return;
+      if (slot === "start") setStartFrame(fresh);
+      else if (slot === "end") setEndFrame(fresh);
+      else if (slot === "ref") setRefImage(fresh);
+      else if (slot === "avatar") setAvatarImage(fresh);
+    })();
   }
 
   // Local preview only — no network call. Uploaded to RunningHub at submit

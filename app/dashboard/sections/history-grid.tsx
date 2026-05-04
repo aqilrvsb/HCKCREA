@@ -607,6 +607,34 @@ function HistoryCard({
     }
   }
 
+  // Per-segment retry — fires /api/history/retry on the failed row so the
+  // chain can recover without the user having to delete + redo the whole
+  // 16s. seg_0 retry re-fires the parent (kicks off a fresh chain). seg_1
+  // retry re-fires the child seg2 row only. merged retry isn't supported
+  // here — the merge step is just a download+concat, retrying it without
+  // its inputs makes no sense.
+  async function retrySlide(slide: Slide) {
+    const targetId =
+      slide.id === "seg_1" ? seg2?.id : item.id;
+    if (!targetId || slide.id === "merged") return;
+    setRecheckingId(slide.id);
+    try {
+      const r = await fetch("/api/history/retry", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ history_id: targetId }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok || !d?.ok) {
+        alert(d?.error || "Retry failed");
+      } else {
+        window.dispatchEvent(new CustomEvent("history:refresh"));
+      }
+    } finally {
+      setRecheckingId(null);
+    }
+  }
+
   // Save-to-Storage: copies the temp Crun URL into the user's permanent B2
   // folder so it survives the 14-day Crun TTL. Status is provided by parent
   // via the saveStatus prop (one /api/storage/status call per grid render).
@@ -857,14 +885,27 @@ function HistoryCard({
                 ? lineageColor
                 : "#333";
             return (
-              <button
+              // Use a div not a button — a disabled <button> swallows
+              // pointer events on ALL its children, so the inner recheck
+              // icon can't be clicked when the slide is still pending.
+              // We replicate button semantics via role + onClick + onKey.
+              <div
                 key={slide.id}
+                role={ready ? "button" : undefined}
+                tabIndex={ready ? 0 : -1}
                 onClick={() => {
                   if (!ready) return;
                   setActiveIdx(i);
                   setUserPicked(true);
                 }}
-                disabled={!ready}
+                onKeyDown={(e) => {
+                  if (!ready) return;
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    setActiveIdx(i);
+                    setUserPicked(true);
+                  }
+                }}
                 title={
                   slide.label +
                   (ready
@@ -877,11 +918,11 @@ function HistoryCard({
                           : " (queued — merges after Seg 2 finishes)"
                         : " (still generating)")
                 }
-                className="relative flex-1 min-w-0 aspect-[9/16] rounded overflow-hidden bg-black"
+                className="relative flex-1 min-w-0 aspect-[9/16] rounded overflow-hidden bg-black select-none"
                 style={{
                   border: `2px solid ${borderColor}`,
                   opacity: ready ? 1 : 0.55,
-                  cursor: ready ? "pointer" : "not-allowed",
+                  cursor: ready ? "pointer" : "default",
                   maxHeight: 80,
                 }}
               >
@@ -911,27 +952,34 @@ function HistoryCard({
                     )}
                   </div>
                 )}
-                {/* Manual recheck overlay — only visible while the slide
-                    is actively loading (status === "pending"). Hidden
-                    when queued (upstream still running, nothing to
-                    ping), ready (already done), or failed (it already
-                    concluded; a kick won't change the result).
-                    seg_0 + merged ping the parent row; seg_1 pings the
-                    child seg2 row. */}
-                {slide.status === "pending" && (
+                {/* Action overlay on the slide thumb:
+                    - pending → "recheck status" (calls /api/generate/status)
+                    - failed  → "retry segment" (calls /api/history/retry on
+                      the right row — parent for seg_0, child for seg_1).
+                      merged failures don't get a retry button because the
+                      merge is just download+concat; retrying without inputs
+                      is meaningless.
+                    Both states use the SAME button slot to avoid layout shift. */}
+                {(slide.status === "pending" ||
+                  (slide.status === "failed" && slide.id !== "merged")) && (
                   <button
                     type="button"
                     onClick={(e) => {
                       e.stopPropagation();
-                      void recheckSlide(slide);
+                      if (slide.status === "failed") void retrySlide(slide);
+                      else void recheckSlide(slide);
                     }}
                     disabled={recheckingId === slide.id}
-                    title="Re-check status"
+                    title={
+                      slide.status === "failed"
+                        ? `Retry ${slide.label}`
+                        : "Re-check status"
+                    }
                     className="absolute top-1 right-1 w-5 h-5 rounded-full flex items-center justify-center disabled:opacity-50"
                     style={{
                       background: "rgba(20,20,20,0.85)",
-                      border: "1px solid rgba(255,255,255,0.25)",
-                      color: lineageColor,
+                      border: `1px solid ${slide.status === "failed" ? "rgba(239,68,68,0.5)" : "rgba(255,255,255,0.25)"}`,
+                      color: slide.status === "failed" ? "#fca5a5" : lineageColor,
                       pointerEvents: "auto",
                     }}
                   >
