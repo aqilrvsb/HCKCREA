@@ -675,7 +675,7 @@ def render_story(payload: dict):
     {
       "history_id": "uuid",
       "user_id": "uuid",
-      "voice_id": "Malay_BellaSoothing",   # MiniMax voice id
+      "voice_id": "Malay_female_1_v1",   # MiniMax voice id
       "voice_speed": 1.0,
       "animation": "zoom-in" | "zoom-out" | "pan-left" | "pan-right",
       "placement": "top" | "middle" | "bottom",
@@ -695,7 +695,7 @@ def render_story(payload: dict):
         _update_history(history_id, status="failed", error_message="No scenes provided")
         return {"ok": False, "error": "scenes required"}
 
-    voice_id = payload.get("voice_id") or "English_CaptivatingStoryteller"
+    voice_id = payload.get("voice_id") or "Malay_female_1_v1"
     voice_speed = float(payload.get("voice_speed") or 1.0)
     animation = payload.get("animation") or "zoom-in"
     placement = payload.get("placement") or "bottom"

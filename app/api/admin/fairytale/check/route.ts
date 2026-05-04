@@ -66,7 +66,7 @@ export async function GET() {
           stream: false,
           language_boost: "Malay",
           output_format: "hex",
-          voice_setting: { voice_id: "English_CaptivatingStoryteller", speed: 1, vol: 1, pitch: 0 },
+          voice_setting: { voice_id: "Malay_female_1_v1", speed: 1, vol: 1, pitch: 0 },
           audio_setting: { format: "mp3", sample_rate: 32000, channel: 1 },
         }),
       });

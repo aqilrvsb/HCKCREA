@@ -58,7 +58,7 @@ export async function POST(req: Request) {
     );
   }
 
-  const voiceId = String(body?.voice_id || "English_CaptivatingStoryteller");
+  const voiceId = String(body?.voice_id || "Malay_female_1_v1");
   const voiceSpeed = Math.max(0.5, Math.min(2.0, Number(body?.voice_speed) || 1.0));
   const animation = String(body?.animation || "zoom-in");
   const placement = String(body?.placement || "bottom");

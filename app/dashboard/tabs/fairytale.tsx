@@ -98,14 +98,14 @@ const TEXT_SIZES: { id: string; label: string; px: number }[] = [
 ];
 const TEXT_COLORS = ["#000000", "#ffffff", "#a855f7", "#ef4444", "#f97316", "#fde047"];
 
+// MiniMax Bahasa Melayu voice IDs — only these 3 are valid for the
+// language_boost: "Malay" voice pack. Anything else returns
+// "MiniMax: voice id not exist" from t2a_v2. Labels mirror MiniMax's
+// own voice descriptions so users pick the right tone for their story.
 const VOICES = [
-  { id: "English_CaptivatingStoryteller", label: "Storyteller" },
-  { id: "English_Graceful_Lady",          label: "Aisyah — Female, elegant" },
-  { id: "English_Soft-spokenGirl",        label: "Nadia — Female, soft" },
-  { id: "English_radiant_girl",           label: "Bella — Female, youthful" },
-  { id: "English_Gentle-voiced_man",      label: "Hakim — Male, gentle" },
-  { id: "English_WiseScholar",            label: "Pak Cik — Male, wise" },
-  { id: "English_expressive_narrator",    label: "Faizal — Male, dramatic" },
+  { id: "Malay_female_1_v1", label: "Easygoing Neighbor — Bright, Warm (Narrator)" },
+  { id: "Malay_female_2_v1", label: "Passionate Lady — Bright, Expressive" },
+  { id: "Malay_male_1_v1",   label: "Seasoned Man — Deep, Firm, Polished" },
 ];
 
 // ─── Scene state ───────────────────────────────────────────────

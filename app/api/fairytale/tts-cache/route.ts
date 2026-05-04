@@ -75,7 +75,7 @@ export async function POST(req: Request) {
 
   const body = await req.json().catch(() => ({}));
   const historyId = String(body?.history_id || "").trim();
-  const voiceId = String(body?.voice_id || "Malay_BellaSoothing");
+  const voiceId = String(body?.voice_id || "Malay_female_1_v1");
   // Always synthesize at natural speed (1.0). User-controlled speed is
   // applied client-side via <audio>.playbackRate AND server-side via
   // ffmpeg atempo in Modal — never via the TTS API. That keeps the
