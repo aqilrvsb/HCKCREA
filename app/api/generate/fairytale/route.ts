@@ -100,6 +100,9 @@ export async function POST(req: Request) {
     3,
     Math.min(20, Number(body?.scene_duration_sec) || 10)
   );
+  // Drives MiniMax language_boost on the fallback TTS path inside Modal
+  // (when the wizard didn't pre-cache audio for a scene).
+  const language: "ms" | "en" = body?.language === "en" ? "en" : "ms";
 
   const modalEndpoint = process.env.MODAL_FAIRYTALE_ENDPOINT;
   if (!modalEndpoint) {
@@ -171,6 +174,7 @@ export async function POST(req: Request) {
           uppercase,
           enable_text: enableText,
           scene_duration_sec: sceneDurationSec,
+          language,
           scenes,
         }),
       });

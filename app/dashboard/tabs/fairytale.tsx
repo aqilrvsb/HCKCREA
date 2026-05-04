@@ -125,15 +125,28 @@ const TEXT_SIZES: { id: string; label: string; px: number }[] = [
 ];
 const TEXT_COLORS = ["#000000", "#ffffff", "#a855f7", "#ef4444", "#f97316", "#fde047"];
 
-// MiniMax Bahasa Melayu voice IDs — only these 3 are valid for the
-// language_boost: "Malay" voice pack. Anything else returns
-// "MiniMax: voice id not exist" from t2a_v2. Labels mirror MiniMax's
-// own voice descriptions so users pick the right tone for their story.
-const VOICES = [
-  { id: "Malay_female_1_v1", label: "Easygoing Neighbor — Bright, Warm (Narrator)" },
-  { id: "Malay_female_2_v1", label: "Passionate Lady — Bright, Expressive" },
-  { id: "Malay_male_1_v1",   label: "Seasoned Man — Deep, Firm, Polished" },
+// MiniMax voice catalog — the IDs MUST exist in MiniMax's library or
+// t2a_v2 returns "voice id not exist". Each voice is locked to one
+// language; when the user changes language in Step 1, the voice picker
+// shows only the matching set and the default flips to the first entry
+// of that language.
+type VoiceLang = "ms" | "en";
+const VOICES: { id: string; label: string; lang: VoiceLang }[] = [
+  // Bahasa Melayu
+  { id: "Malay_female_1_v1",            label: "Easygoing Neighbor — Female, warm (Narrator)", lang: "ms" },
+  { id: "Malay_female_2_v1",            label: "Passionate Lady — Female, expressive",        lang: "ms" },
+  { id: "Malay_male_1_v1",              label: "Seasoned Man — Male, deep & polished",        lang: "ms" },
+  // English
+  { id: "English_expressive_narrator",  label: "Expressive Narrator — Versatile",             lang: "en" },
+  { id: "English_compelling_lady1",     label: "Compelling Lady — Female, warm",              lang: "en" },
+  { id: "English_captivating_female1",  label: "Captivating Female — Female, bright",         lang: "en" },
+  { id: "English_Resonant_Man",         label: "Resonant Man — Male, deep",                   lang: "en" },
+  { id: "English_magnetic_voiced_man",  label: "Magnetic Man — Male, charismatic",            lang: "en" },
 ];
+
+function voicesForLang(lang: VoiceLang) {
+  return VOICES.filter((v) => v.lang === lang);
+}
 
 // ─── Scene state ───────────────────────────────────────────────
 type Scene = {
@@ -180,10 +193,22 @@ export default function FairytaleTab({ projectId }: { projectId?: string } = {})
   const [renderError, setRenderError] = useState<string | null>(null);
   const [groupId] = useState(() => Math.random().toString(36).slice(2));
 
-  // Voice config
+  // Voice config — defaults to the first voice for the current language.
   const [enableVoice, setEnableVoice] = useState(true);
-  const [voiceId, setVoiceId] = useState(VOICES[0].id);
+  const [voiceId, setVoiceId] = useState(voicesForLang("ms")[0].id);
   const [voiceSpeed, setVoiceSpeed] = useState(1.0);
+
+  // When the user switches language in Step 1, the previously-selected
+  // voice id likely doesn't exist in the new language pack — auto-reset
+  // to the first voice of the new language so MiniMax doesn't reject the
+  // TTS call with "voice id not exist".
+  useEffect(() => {
+    const valid = voicesForLang(language as VoiceLang);
+    if (!valid.find((v) => v.id === voiceId)) {
+      setVoiceId(valid[0].id);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [language]);
 
   // TTS cache — pre-generated narration audio per scene. Filled once when
   // script gen completes; reused by live preview (real audio) AND by the
@@ -304,6 +329,7 @@ export default function FairytaleTab({ projectId }: { projectId?: string } = {})
           history_id: groupId,
           voice_id: voiceId,
           speed: voiceSpeed,
+          language,
           scenes: sceneList,
         }),
       });
@@ -421,6 +447,9 @@ export default function FairytaleTab({ projectId }: { projectId?: string } = {})
           // Per-scene visual length in seconds. Modal's ffmpeg pads short
           // narrations with silence and clamps long ones to this duration.
           scene_duration_sec: secondsPerSlide,
+          // Wizard's selected language drives MiniMax language_boost on
+          // any fallback TTS Modal generates if it lacks a cached audio_url.
+          language,
           scenes: valid.map((s) => ({
             image_url: s.imageUrl,
             narration: uppercase ? s.narration.toUpperCase() : s.narration,
@@ -487,6 +516,7 @@ export default function FairytaleTab({ projectId }: { projectId?: string } = {})
           scenes={scenes} setScenes={setScenes}
           scriptLoading={scriptLoading} scriptError={scriptError}
           configTab={configTab} setConfigTab={setConfigTab}
+          language={language}
           enableVoice={enableVoice} setEnableVoice={setEnableVoice}
           voiceId={voiceId} setVoiceId={setVoiceId}
           voiceSpeed={voiceSpeed} setVoiceSpeed={setVoiceSpeed}
@@ -836,6 +866,7 @@ function Step3(props: any) {
     scenes, setScenes,
     scriptLoading, scriptError,
     configTab, setConfigTab,
+    language,
     enableVoice, setEnableVoice,
     voiceId, setVoiceId,
     voiceSpeed, setVoiceSpeed,
@@ -923,6 +954,7 @@ function Step3(props: any) {
               enableVoice={enableVoice} setEnableVoice={setEnableVoice}
               voiceId={voiceId} setVoiceId={setVoiceId}
               voiceSpeed={voiceSpeed} setVoiceSpeed={setVoiceSpeed}
+              language={language}
             />
           )}
           {configTab === "animation" && (
@@ -1133,22 +1165,25 @@ function SceneRow({
 
 function VoiceConfig({
   enableVoice, setEnableVoice, voiceId, setVoiceId, voiceSpeed, setVoiceSpeed,
+  language,
 }: {
   enableVoice: boolean; setEnableVoice: (v: boolean) => void;
   voiceId: string; setVoiceId: (v: string) => void;
   voiceSpeed: number; setVoiceSpeed: (v: number) => void;
+  language: VoiceLang;
 }) {
   // Voice Speed slider removed — locked to 1.0x ("normal") for now so the
   // narration always reads at the AI's intended pacing. The slider used to
   // be wired through to the MiniMax `speed` param but the user prefers a
   // single normal-speed default for v1.
+  const options = voicesForLang(language);
   return (
     <div className="space-y-3">
       <Toggle label="Enable Voice" premium sub="Add AI narration to each scene" value={enableVoice} onChange={setEnableVoice} />
       {enableVoice && (
         <Field label="Voice">
           <select value={voiceId} onChange={(e) => setVoiceId(e.target.value)} className="w-full p-2.5 rounded-lg text-xs outline-none" style={{ background: "#fafafa", border: "1px solid #e5e7eb", color: "#1a1a1a" }}>
-            {VOICES.map((v) => <option key={v.id} value={v.id}>{v.label}</option>)}
+            {options.map((v) => <option key={v.id} value={v.id}>{v.label}</option>)}
           </select>
         </Field>
       )}

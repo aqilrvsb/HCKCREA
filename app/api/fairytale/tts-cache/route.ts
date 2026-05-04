@@ -23,6 +23,7 @@ async function _ttsToB2(opts: {
   text: string;
   voiceId: string;
   speed: number;
+  language: "ms" | "en";
   apiKey: string;
   b2Key: string;
 }): Promise<{ url: string; size: number }> {
@@ -37,7 +38,7 @@ async function _ttsToB2(opts: {
       model: "speech-2.6-turbo",
       text: opts.text,
       stream: false,
-      language_boost: "Malay",
+      language_boost: opts.language === "en" ? "English" : "Malay",
       output_format: "hex",
       voice_setting: { voice_id: opts.voiceId, speed: opts.speed, vol: 1, pitch: 0 },
       audio_setting: { format: "mp3", sample_rate: 32000, channel: 1 },
@@ -76,6 +77,7 @@ export async function POST(req: Request) {
   const body = await req.json().catch(() => ({}));
   const historyId = String(body?.history_id || "").trim();
   const voiceId = String(body?.voice_id || "Malay_female_1_v1");
+  const language: "ms" | "en" = body?.language === "en" ? "en" : "ms";
   // Always synthesize at natural speed (1.0). User-controlled speed is
   // applied client-side via <audio>.playbackRate AND server-side via
   // ffmpeg atempo in Modal — never via the TTS API. That keeps the
@@ -94,7 +96,7 @@ export async function POST(req: Request) {
     if (!text) return { idx: s.idx, audio_url: "", size_bytes: 0, error: "empty narration" };
     const b2Key = `users/${user.id}/_fairytale-tts-cache/${historyId}-scene-${s.idx}.mp3`;
     try {
-      const { size } = await _ttsToB2({ text, voiceId, speed, apiKey, b2Key });
+      const { size } = await _ttsToB2({ text, voiceId, speed, language, apiKey, b2Key });
       // Max SigV4 presigned URL lifetime is 7 days (B2 enforces the AWS limit).
       // Plenty for live preview — the cache file gets re-fetched if the user
       // returns to the wizard later.

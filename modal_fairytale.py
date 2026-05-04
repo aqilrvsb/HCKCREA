@@ -95,11 +95,12 @@ def _download(url: str, dest: Path) -> Path:
     return dest
 
 
-def _minimax_tts(text: str, voice_id: str, out_path: Path) -> Path:
+def _minimax_tts(text: str, voice_id: str, out_path: Path, language: str = "ms") -> Path:
     """Generate narration mp3 via MiniMax t2a_v2 at natural (1.0x) speed.
     Speed is applied later via ffmpeg atempo so the cached MP3 is reusable
     across speed changes (and the live preview can re-time without paying
     for another TTS call).
+    `language` selects the MiniMax language_boost (ms → "Malay", en → "English").
     Reference: E:\\Project\\AI CALL\\welcome-starter-html-master\\supabase\\functions\\ai-call-handler-freeswitch\\index.ts:225
     """
     import requests
@@ -108,7 +109,7 @@ def _minimax_tts(text: str, voice_id: str, out_path: Path) -> Path:
         "model": "speech-2.6-turbo",
         "text": text,
         "stream": False,
-        "language_boost": "Malay",
+        "language_boost": "English" if language == "en" else "Malay",
         "output_format": "hex",
         "voice_setting": {
             "voice_id": voice_id,
@@ -707,6 +708,7 @@ def render_story(payload: dict):
     # Audio shorter than this gets padded with silence; longer audio gets
     # clamped. Bound 3-20s for safety.
     scene_duration = max(3, min(20, int(payload.get("scene_duration_sec") or 10)))
+    language = "en" if payload.get("language") == "en" else "ms"
     subtitle_style = {
         "animation_mode": payload.get("subtitle_animation") or "static",
         "font_family":    payload.get("font_family") or "bold-display",
@@ -739,7 +741,7 @@ def render_story(payload: dict):
             if cached_audio_url:
                 _download(cached_audio_url, raw_audio_path)
             else:
-                _minimax_tts(narration, voice_id, raw_audio_path)
+                _minimax_tts(narration, voice_id, raw_audio_path, language=language)
             audio_path = _apply_audio_speed(
                 raw_audio_path, voice_speed, workdir / f"scene-{idx}.mp3"
             )
