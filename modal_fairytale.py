@@ -95,8 +95,11 @@ def _download(url: str, dest: Path) -> Path:
     return dest
 
 
-def _minimax_tts(text: str, voice_id: str, speed: float, out_path: Path) -> Path:
-    """Generate narration mp3 via MiniMax t2a_v2 endpoint.
+def _minimax_tts(text: str, voice_id: str, out_path: Path) -> Path:
+    """Generate narration mp3 via MiniMax t2a_v2 at natural (1.0x) speed.
+    Speed is applied later via ffmpeg atempo so the cached MP3 is reusable
+    across speed changes (and the live preview can re-time without paying
+    for another TTS call).
     Reference: E:\\Project\\AI CALL\\welcome-starter-html-master\\supabase\\functions\\ai-call-handler-freeswitch\\index.ts:225
     """
     import requests
@@ -109,7 +112,7 @@ def _minimax_tts(text: str, voice_id: str, speed: float, out_path: Path) -> Path
         "output_format": "hex",
         "voice_setting": {
             "voice_id": voice_id,
-            "speed": float(speed or 1.0),
+            "speed": 1.0,
             "vol": 1,
             "pitch": 0,
         },
@@ -137,6 +140,33 @@ def _minimax_tts(text: str, voice_id: str, speed: float, out_path: Path) -> Path
     if not hex_audio:
         raise RuntimeError("MiniMax TTS returned no audio")
     out_path.write_bytes(bytes.fromhex(hex_audio))
+    return out_path
+
+
+def _apply_audio_speed(in_path: Path, speed: float, out_path: Path) -> Path:
+    """Speed up / slow down audio without pitch shift via ffmpeg atempo.
+    atempo accepts 0.5–2.0 in one stage; we chain stages for wider ranges.
+    No-op (just returns in_path) when speed is ~1.0.
+    """
+    if abs(speed - 1.0) < 0.01:
+        return in_path
+    # Build atempo filter chain (e.g. 2.5x = atempo=2.0,atempo=1.25)
+    remaining = float(speed)
+    stages: list = []
+    while remaining > 2.0:
+        stages.append(2.0)
+        remaining /= 2.0
+    while remaining < 0.5:
+        stages.append(0.5)
+        remaining /= 0.5
+    stages.append(remaining)
+    afilter = ",".join(f"atempo={s:.4f}" for s in stages)
+    res = subprocess.run(
+        ["ffmpeg", "-y", "-i", str(in_path), "-filter:a", afilter, str(out_path)],
+        capture_output=True, text=True,
+    )
+    if res.returncode != 0:
+        raise RuntimeError(f"atempo speed adjust failed: {res.stderr[-300:]}")
     return out_path
 
 
@@ -693,14 +723,19 @@ def render_story(payload: dict):
             img_path = _download(image_url, workdir / f"scene-{idx}.jpg")
             # Use pre-generated narration audio if the wizard sent one (it
             # cached the TTS in B2 for the live preview). Falls back to
-            # generating fresh via MiniMax if missing/empty.
+            # generating fresh via MiniMax if missing/empty. Either way the
+            # MP3 we get is at 1.0x natural speed — speed adjustment is
+            # applied via ffmpeg atempo so the cached audio is reusable
+            # across speed changes.
             cached_audio_url = (scene.get("audio_url") or "").strip()
+            raw_audio_path = workdir / f"scene-{idx}-raw.mp3"
             if cached_audio_url:
-                audio_path = _download(cached_audio_url, workdir / f"scene-{idx}.mp3")
+                _download(cached_audio_url, raw_audio_path)
             else:
-                audio_path = _minimax_tts(
-                    narration, voice_id, voice_speed, workdir / f"scene-{idx}.mp3"
-                )
+                _minimax_tts(narration, voice_id, raw_audio_path)
+            audio_path = _apply_audio_speed(
+                raw_audio_path, voice_speed, workdir / f"scene-{idx}.mp3"
+            )
             clip_path = _render_scene(
                 img_path, audio_path, narration,
                 animation, placement, font_size,

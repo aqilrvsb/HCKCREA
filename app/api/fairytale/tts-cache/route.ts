@@ -76,7 +76,11 @@ export async function POST(req: Request) {
   const body = await req.json().catch(() => ({}));
   const historyId = String(body?.history_id || "").trim();
   const voiceId = String(body?.voice_id || "Malay_BellaSoothing");
-  const speed = Math.max(0.5, Math.min(2.0, Number(body?.speed) || 1.0));
+  // Always synthesize at natural speed (1.0). User-controlled speed is
+  // applied client-side via <audio>.playbackRate AND server-side via
+  // ffmpeg atempo in Modal — never via the TTS API. That keeps the
+  // cached MP3 reusable across speed changes (no extra MiniMax cost).
+  const speed = 1.0;
   const scenes: Array<{ idx: number; narration: string }> = Array.isArray(body?.scenes) ? body.scenes : [];
 
   if (!historyId) return NextResponse.json({ error: "history_id required" }, { status: 400 });

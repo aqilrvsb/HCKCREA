@@ -961,6 +961,7 @@ function Step3(props: any) {
             previewIdx={previewIdx}
             setPreviewIdx={setPreviewIdx}
             voiceEnabled={enableVoice}
+            voiceSpeed={voiceSpeed}
             audioCache={audioCache}
             audioCacheStatus={audioCacheStatus}
             previewMuted={previewMuted}
@@ -1285,15 +1286,22 @@ function ScriptLoadingModal({ totalScenes = 10 }: { totalScenes?: number }) {
 function PreviewPanel(props: any) {
   const { scenes, sceneCount, previewIdx, voiceEnabled, transition, sceneAnimation,
     textAnimation, textPlacement, fontType, textSize, textColor, uppercase, textBackground, enableText,
-    audioCache, audioCacheStatus, previewMuted, setPreviewMuted } = props;
+    audioCache, audioCacheStatus, previewMuted, setPreviewMuted, voiceSpeed } = props;
   const sizePx = TEXT_SIZES.find((s: any) => s.id === textSize)?.px ?? 36;
 
   // The actual <audio> element we control — one per panel, src swaps as
   // previewIdx changes. We use the audio's natural duration to time the
   // auto-cycle (instead of a fixed 10s) so subtitles + Ken Burns animation
   // line up with the real narration length.
+  //
+  // Speed handling: the cached MP3 is always at 1.0x natural speed. We
+  // apply user-selected speed via element.playbackRate so we don't waste
+  // a TTS regen call when they change the slider. Effective duration =
+  // naturalDuration / playbackRate.
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const [audioDurationMs, setAudioDurationMs] = useState<number>(SCENE_DURATION_MS);
+  const playbackRate = Math.max(0.5, Math.min(2.0, Number(voiceSpeed) || 1.0));
+  const effectiveAudioMs = Math.round(audioDurationMs / playbackRate);
 
   const sceneAudioUrl: string | undefined =
     voiceEnabled && audioCache ? audioCache[previewIdx] : undefined;
@@ -1309,9 +1317,16 @@ function PreviewPanel(props: any) {
     }
     el.src = sceneAudioUrl;
     el.muted = !!previewMuted;
+    el.playbackRate = playbackRate;
     // Browsers block autoplay until user gesture; ignore promise rejection.
     el.play().catch(() => {});
-  }, [sceneAudioUrl, previewIdx, previewMuted]);
+  }, [sceneAudioUrl, previewIdx, previewMuted, playbackRate]);
+
+  // Re-apply playbackRate live if the slider moves while audio is playing.
+  useEffect(() => {
+    const el = audioRef.current;
+    if (el) el.playbackRate = playbackRate;
+  }, [playbackRate]);
 
   function handleAudioMeta() {
     const el = audioRef.current;
@@ -1341,9 +1356,9 @@ function PreviewPanel(props: any) {
 
   const fullText = scene?.narration ? (uppercase ? scene.narration.toUpperCase() : scene.narration) : "Preview text";
   const words = useMemo(() => fullText.split(/\s+/).filter(Boolean), [fullText]);
-  // Use real audio length for subtitle pacing when available — otherwise
-  // fall back to the fixed 10s.
-  const sceneDurationMs = sceneAudioUrl ? audioDurationMs : SCENE_DURATION_MS;
+  // Subtitle pacing tracks the audio's effective length (after playbackRate)
+  // so karaoke / highlight stays in sync as the user changes speed.
+  const sceneDurationMs = sceneAudioUrl ? effectiveAudioMs : SCENE_DURATION_MS;
 
   // Karaoke / progressive reveal — bumps every (sceneDuration / wordCount) ms
   const [revealedCount, setRevealedCount] = useState(words.length);
