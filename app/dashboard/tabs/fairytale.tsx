@@ -132,18 +132,104 @@ const TEXT_COLORS = ["#000000", "#ffffff", "#a855f7", "#ef4444", "#f97316", "#fd
 // language; when the user changes language in Step 1, the voice picker
 // shows only the matching set and the default flips to the first entry
 // of that language.
+//
+// `name` + `description` + `tags` drive the card UI in Step 1. Sample
+// audio is generated on-demand via /api/fairytale/voice-sample and
+// cached on B2 by voice_id, so repeat plays are free for everyone.
 type VoiceLang = "ms" | "en";
-const VOICES: { id: string; label: string; lang: VoiceLang }[] = [
+type VoiceEntry = {
+  id: string;
+  name: string;
+  description: string;
+  tags: string[];
+  lang: VoiceLang;
+  gender: "male" | "female";
+  // Legacy single-line label kept for the cost summary chip in Step 2
+  label: string;
+};
+const VOICES: VoiceEntry[] = [
   // Bahasa Melayu
-  { id: "Malay_female_1_v1",            label: "Easygoing Neighbor — Female, warm (Narrator)", lang: "ms" },
-  { id: "Malay_female_2_v1",            label: "Passionate Lady — Female, expressive",        lang: "ms" },
-  { id: "Malay_male_1_v1",              label: "Seasoned Man — Male, deep & polished",        lang: "ms" },
+  {
+    id: "Malay_male_1_v1",
+    name: "Seasoned Man",
+    description:
+      "Deep, firm and resonant with steady articulation — authoritative like a news anchor. Conveys confidence and reliability. Great for explainer videos, brand films, business announcements.",
+    tags: ["Malay", "Male", "Deep", "Polished"],
+    lang: "ms",
+    gender: "male",
+    label: "Seasoned Man — Male, deep & polished",
+  },
+  {
+    id: "Malay_female_2_v1",
+    name: "Passionate Lady",
+    description:
+      "Bright, rich and expressive with a natural laid-back delivery. Candid influencer vibe, builds attraction quickly. Perfect for social media, podcast clips, candid vlog narration.",
+    tags: ["Malay", "Female", "Bright", "Expressive"],
+    lang: "ms",
+    gender: "female",
+    label: "Passionate Lady — Female, expressive",
+  },
+  {
+    id: "Malay_female_1_v1",
+    name: "Easygoing Neighbor",
+    description:
+      "Bright, warm and expressive with a fluid friendly rhythm. Communicates humor and sincerity. Ideal for lifestyle stories, social media anecdotes, the role of a Confidante or Host.",
+    tags: ["Malay", "Female", "Warm", "Narrator"],
+    lang: "ms",
+    gender: "female",
+    label: "Easygoing Neighbor — Female, warm (Narrator)",
+  },
   // English
-  { id: "English_expressive_narrator",  label: "Expressive Narrator — Versatile",             lang: "en" },
-  { id: "English_compelling_lady1",     label: "Compelling Lady — Female, warm",              lang: "en" },
-  { id: "English_captivating_female1",  label: "Captivating Female — Female, bright",         lang: "en" },
-  { id: "English_Resonant_Man",         label: "Resonant Man — Male, deep",                   lang: "en" },
-  { id: "English_magnetic_voiced_man",  label: "Magnetic Man — Male, charismatic",            lang: "en" },
+  {
+    id: "English_Resonant_Man",
+    name: "Deep Storyteller",
+    description:
+      "Rich, resonant male voice with steady grounded pacing. Natural warmth and authority — highly engaging for long-form listening and immersive storytelling.",
+    tags: ["English", "Male", "Magnetic", "Smooth"],
+    lang: "en",
+    gender: "male",
+    label: "Deep Storyteller — Male, magnetic",
+  },
+  {
+    id: "English_expressive_narrator",
+    name: "Expressive Narrator",
+    description:
+      "Husky, gritty and rough-edged with energetic articulation that feels unruly and fearless. Great for adventure storytelling, audio drama, RPG-style narration with bold confidence.",
+    tags: ["English", "Versatile", "British", "Crisp"],
+    lang: "en",
+    gender: "male",
+    label: "Expressive Narrator — Versatile",
+  },
+  {
+    id: "English_captivating_female1",
+    name: "Radiant Girl",
+    description:
+      "Bright, energetic and polished with an upbeat, naturally flowing tone — optimistic and sincere. Ideal for social vlogs, educational narration, friendly explainers with positive momentum.",
+    tags: ["English", "Female", "Bright", "Energetic"],
+    lang: "en",
+    gender: "female",
+    label: "Radiant Girl — Female, bright",
+  },
+  {
+    id: "English_magnetic_voiced_man",
+    name: "Magnetic Man",
+    description:
+      "Warm, gentle and soothing with slow unhurried pacing — reflective and calm. Ideal for emotional brand films, relaxation content, literary narration with quiet comfort.",
+    tags: ["English", "Male", "Warm", "Gentle"],
+    lang: "en",
+    gender: "male",
+    label: "Magnetic Man — Male, charismatic",
+  },
+  {
+    id: "English_compelling_lady1",
+    name: "Compelling Lady",
+    description:
+      "Bright and clear with expressive rhythmic intonation — feels like a natural storyteller. Great for fiction narration, character-driven stories, kids' tales with curiosity and detail.",
+    tags: ["English", "Female", "Articulate", "British"],
+    lang: "en",
+    gender: "female",
+    label: "Compelling Lady — Female, warm",
+  },
 ];
 
 function voicesForLang(lang: VoiceLang) {
@@ -232,7 +318,10 @@ export default function FairytaleTab({ projectId }: { projectId?: string } = {})
   const [scriptProgress, setScriptProgress] = useState<number>(0);
   const [scriptLoading, setScriptLoading] = useState(false);
   const [scriptError, setScriptError] = useState<string | null>(null);
-  const [configTab, setConfigTab] = useState<ConfigTab>("voice");
+  // Voice picker now lives in Step 1, so the Step 2 config tabs only
+  // cover animation + font. Default to animation since that's the most
+  // visually impactful knob in the live preview.
+  const [configTab, setConfigTab] = useState<ConfigTab>("animation");
   const [previewIdx, setPreviewIdx] = useState(0);
   const [renderStatus, setRenderStatus] = useState<"idle" | "submitting" | "rendering" | "done" | "failed">("idle");
   const [renderError, setRenderError] = useState<string | null>(null);
@@ -594,6 +683,7 @@ export default function FairytaleTab({ projectId }: { projectId?: string } = {})
           visualStyle={visualStyle} setVisualStyle={setVisualStyle}
           secondsPerSlide={secondsPerSlide} setSecondsPerSlide={setSecondsPerSlide}
           sceneCount={sceneCount} setSceneCount={setSceneCount}
+          voiceId={voiceId} setVoiceId={setVoiceId}
           pricing={pricing}
           styleDropdownOpen={styleDropdownOpen} setStyleDropdownOpen={setStyleDropdownOpen}
           onNext={goNext}
@@ -695,6 +785,182 @@ function StepIndicator({ step }: { step: 1 | 2 }) {
 }
 
 // ──────────────────────────────────────────────────────────────────────────
+// VoicePickerList — rich card list rendered inside Step 1.
+// ──────────────────────────────────────────────────────────────────────────
+//
+// Each row is a clickable card with avatar, name, description, tag chips,
+// a play button (samples from /api/fairytale/voice-sample, B2-cached so
+// repeat plays don't hit MiniMax), and a "Use" pill that flips the
+// selection. Plays are mutually exclusive — starting one stops any other.
+
+function VoicePickerList(props: {
+  language: VoiceLang;
+  voiceId: string;
+  setVoiceId: (id: string) => void;
+}) {
+  const list = voicesForLang(props.language);
+  // sampleCache: voice_id -> signed URL. Persists for the wizard session
+  // so repeat plays of the same voice don't even hit our backend.
+  const [sampleCache, setSampleCache] = useState<Record<string, string>>({});
+  const [loadingId, setLoadingId] = useState<string | null>(null);
+  const [playingId, setPlayingId] = useState<string | null>(null);
+  const [errorId, setErrorId] = useState<string | null>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+
+  // Stop any playing sample when the language changes — the dropdown
+  // remounts, but the audio element doesn't get torn down on its own.
+  useEffect(() => {
+    const el = audioRef.current;
+    if (el) {
+      el.pause();
+      el.removeAttribute("src");
+    }
+    setPlayingId(null);
+    setLoadingId(null);
+    setErrorId(null);
+  }, [props.language]);
+
+  async function fetchSample(voiceId: string): Promise<string | null> {
+    if (sampleCache[voiceId]) return sampleCache[voiceId];
+    try {
+      const r = await fetch("/api/fairytale/voice-sample", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ voice_id: voiceId, language: props.language }),
+      });
+      const d = await r.json();
+      if (!r.ok || !d?.url) return null;
+      setSampleCache((prev) => ({ ...prev, [voiceId]: d.url }));
+      return d.url as string;
+    } catch {
+      return null;
+    }
+  }
+
+  async function togglePlay(voiceId: string) {
+    const el = audioRef.current;
+    if (!el) return;
+    // Toggle off if already playing this voice
+    if (playingId === voiceId && !el.paused) {
+      el.pause();
+      setPlayingId(null);
+      return;
+    }
+    // Stop any other voice that's playing
+    if (!el.paused) el.pause();
+    setErrorId(null);
+    setLoadingId(voiceId);
+    const url = await fetchSample(voiceId);
+    setLoadingId(null);
+    if (!url) {
+      setErrorId(voiceId);
+      return;
+    }
+    el.src = url;
+    setPlayingId(voiceId);
+    el.play().catch(() => setErrorId(voiceId));
+  }
+
+  return (
+    <div className="flex flex-col gap-1.5 max-h-[360px] overflow-y-auto pr-1">
+      <audio
+        ref={audioRef}
+        onEnded={() => setPlayingId(null)}
+        onPause={() => setPlayingId((p) => (p && audioRef.current?.paused ? null : p))}
+        preload="none"
+      />
+      {list.map((v) => {
+        const active = props.voiceId === v.id;
+        const isLoading = loadingId === v.id;
+        const isPlaying = playingId === v.id;
+        const isError = errorId === v.id;
+        return (
+          <div
+            key={v.id}
+            onClick={() => props.setVoiceId(v.id)}
+            className="group flex items-center justify-between rounded-xl p-3 cursor-pointer transition-all"
+            style={{
+              background: active ? "#faf5ff" : "white",
+              border: active ? "2px solid #a855f7" : "1px solid #e5e7eb",
+            }}
+          >
+            <div className="flex items-center gap-3 min-w-0 flex-1">
+              {/* Avatar — gradient circle with initial; no external CDN. */}
+              <div
+                className="w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0 text-white font-extrabold text-lg"
+                style={{
+                  background: v.gender === "female"
+                    ? "linear-gradient(135deg, #f472b6 0%, #c084fc 100%)"
+                    : "linear-gradient(135deg, #60a5fa 0%, #818cf8 100%)",
+                }}
+              >
+                {v.name[0]}
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="text-sm font-bold text-gray-800 truncate">
+                  {v.name}
+                </div>
+                <div className="text-[11px] text-gray-500 line-clamp-2 leading-snug mt-0.5">
+                  {v.description}
+                </div>
+                <div className="flex items-center gap-1 mt-1.5 flex-wrap">
+                  {v.tags.slice(0, 4).map((t, i) => (
+                    <span
+                      key={i}
+                      className="text-[9px] font-bold px-1.5 py-0.5 rounded"
+                      style={{
+                        background: "#f3f4f6",
+                        color: "#6b7280",
+                      }}
+                    >
+                      {t}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            </div>
+            <div className="flex items-center gap-2 ml-3 flex-shrink-0">
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  void togglePlay(v.id);
+                }}
+                title={isPlaying ? "Stop" : "Play sample"}
+                className="w-9 h-9 rounded-full flex items-center justify-center transition"
+                style={{
+                  background: isPlaying ? "#a855f7" : "#1f2937",
+                  color: "white",
+                }}
+              >
+                {isLoading ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : isError ? (
+                  <X className="w-4 h-4" />
+                ) : isPlaying ? (
+                  <span style={{ fontSize: 14, lineHeight: 1 }}>■</span>
+                ) : (
+                  <span style={{ fontSize: 14, lineHeight: 1, marginLeft: 2 }}>▶</span>
+                )}
+              </button>
+              <span
+                className="text-[11px] font-bold px-2.5 py-1.5 rounded-full"
+                style={{
+                  background: active ? "#a855f7" : "#f3f4f6",
+                  color: active ? "white" : "#6b7280",
+                }}
+              >
+                {active ? "✓ Use" : "Use"}
+              </span>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ──────────────────────────────────────────────────────────────────────────
 // STEP 1 — Prompt + Settings
 // ──────────────────────────────────────────────────────────────────────────
 
@@ -707,6 +973,7 @@ function Step1(props: {
   visualStyle: VisualStyle; setVisualStyle: (v: VisualStyle) => void;
   secondsPerSlide: number; setSecondsPerSlide: (v: number) => void;
   sceneCount: number; setSceneCount: (v: number) => void;
+  voiceId: string; setVoiceId: (v: string) => void;
   pricing: { per_image: number; per_audio_sec: number };
   styleDropdownOpen: boolean; setStyleDropdownOpen: (v: boolean) => void;
   onNext: () => void;
@@ -859,6 +1126,19 @@ function Step1(props: {
             );
           })}
         </div>
+      </div>
+
+      {/* Voice picker — moved here from Step 2 so the user picks the voice
+          BEFORE the script + audio cache get generated. Each card has a
+          play button that previews ~6 seconds of fixed sample text;
+          samples are cached on B2 by voice_id so repeat plays are free. */}
+      <div className="mt-5">
+        <div className="text-xs font-bold mb-2 text-gray-700">Voice</div>
+        <VoicePickerList
+          language={props.language}
+          voiceId={props.voiceId}
+          setVoiceId={props.setVoiceId}
+        />
       </div>
 
       {/* Slide pacing — seconds per slide + slide count + estimated total */}
@@ -1131,7 +1411,7 @@ function Step3(props: any) {
           <div className="font-bold text-sm mb-3" style={{ color: "#1a1a1a" }}>Video Configuration</div>
           {/* Tabs */}
           <div className="flex gap-1 p-1 rounded-xl bg-gray-100 mb-4">
-            {(["voice", "animation", "font"] as ConfigTab[]).map((t) => {
+            {(["animation", "font"] as ConfigTab[]).map((t) => {
               const active = configTab === t;
               return (
                 <button
@@ -1144,23 +1424,14 @@ function Step3(props: any) {
                       : { background: "transparent", color: "#6b7280" }
                   }
                 >
-                  {t === "voice" && <Volume2 className="w-3.5 h-3.5" />}
                   {t === "animation" && <VideoIcon className="w-3.5 h-3.5" />}
                   {t === "font" && <Type className="w-3.5 h-3.5" />}
-                  {t === "voice" ? "Voice" : t === "animation" ? "Animation" : "Font"}
+                  {t === "animation" ? "Animation" : "Font"}
                 </button>
               );
             })}
           </div>
 
-          {configTab === "voice" && (
-            <VoiceConfig
-              enableVoice={enableVoice} setEnableVoice={setEnableVoice}
-              voiceId={voiceId} setVoiceId={setVoiceId}
-              voiceSpeed={voiceSpeed} setVoiceSpeed={setVoiceSpeed}
-              language={language}
-            />
-          )}
           {configTab === "animation" && (
             <AnimationConfig
               transition={transition} setTransition={setTransition}
@@ -1191,14 +1462,9 @@ function Step3(props: any) {
                   <RotateCw className="w-3 h-3 animate-spin" /> Generating…
                 </div>
               )}
-              <button
-                onClick={props.onRetryScript}
-                disabled={inProgress}
-                className="text-[11px] font-bold px-3 py-1.5 rounded-lg inline-flex items-center gap-1.5 disabled:opacity-50"
-                style={{ background: "#fafafa", border: "1px solid #e5e7eb", color: "#1a1a1a" }}
-              >
-                <RotateCw className="w-3 h-3" /> Regenerate All Scenes
-              </button>
+              {/* Batch "Regenerate All" was removed — per-scene Regenerate
+                  buttons inside each SceneRow handle this now (and only
+                  charge for the scenes that get re-fired). */}
             </div>
           </div>
 
