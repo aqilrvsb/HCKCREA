@@ -154,6 +154,13 @@ export default function FairytaleTab({ projectId }: { projectId?: string } = {})
   const [voiceId, setVoiceId] = useState(VOICES[0].id);
   const [voiceSpeed, setVoiceSpeed] = useState(1.0);
 
+  // TTS cache — pre-generated narration audio per scene. Filled once when
+  // script gen completes; reused by live preview (real audio) AND by the
+  // merge step (Modal skips TTS regeneration if scene has audio_url).
+  const [audioCache, setAudioCache] = useState<Record<number, string>>({});
+  const [audioCacheStatus, setAudioCacheStatus] = useState<"idle" | "loading" | "ready" | "failed">("idle");
+  const [previewMuted, setPreviewMuted] = useState(false);
+
   // Animation config
   const [transition, setTransition] = useState("fade");
   const [sceneAnimation, setSceneAnimation] = useState("zoom-pan");
@@ -244,6 +251,53 @@ export default function FairytaleTab({ projectId }: { projectId?: string } = {})
     );
   }
 
+  // ─── TTS preview cache ────────────────────────────────────
+  // When all scene narrations are present (after script gen), pre-generate
+  // MP3 audio for each scene via MiniMax → upload to B2. The live preview
+  // plays these; the merge step reuses them so Modal doesn't re-do TTS.
+  async function fetchAudioCache() {
+    if (audioCacheStatus === "loading") return;
+    const sceneList = scenes
+      .filter((s) => s.narration?.trim())
+      .map((s) => ({ idx: s.idx, narration: s.narration }));
+    if (sceneList.length === 0) return;
+    setAudioCacheStatus("loading");
+    try {
+      const r = await fetch("/api/fairytale/tts-cache", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          history_id: groupId,
+          voice_id: voiceId,
+          speed: voiceSpeed,
+          scenes: sceneList,
+        }),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d?.error || `HTTP ${r.status}`);
+      const map: Record<number, string> = {};
+      for (const row of d.results || []) {
+        if (row.audio_url) map[row.idx] = row.audio_url;
+      }
+      setAudioCache(map);
+      setAudioCacheStatus(d.failed_count > 0 ? "failed" : "ready");
+    } catch {
+      setAudioCacheStatus("failed");
+    }
+  }
+
+  // Auto-fetch TTS cache once scene narrations are ready (and re-fetch if
+  // voice settings change — voiceId or voiceSpeed).
+  useEffect(() => {
+    if (step !== 3) return;
+    if (!enableVoice) return;
+    if (scenes.length === 0) return;
+    if (scenes.some((s) => !s.narration?.trim())) return;
+    if (audioCacheStatus === "loading") return;
+    void fetchAudioCache();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step, enableVoice, voiceId, voiceSpeed, scenes.map((s) => s.narration).join("|")]);
+
   // Poll scene image rows every 4s until all done or failed
   useEffect(() => {
     if (step !== 3) return;
@@ -333,6 +387,9 @@ export default function FairytaleTab({ projectId }: { projectId?: string } = {})
           scenes: valid.map((s) => ({
             image_url: s.imageUrl,
             narration: uppercase ? s.narration.toUpperCase() : s.narration,
+            // Reuse the pre-generated TTS so Modal skips MiniMax round-trip.
+            // If empty/missing Modal falls back to generating fresh.
+            audio_url: audioCache[s.idx] || undefined,
           })),
         }),
       });
@@ -405,6 +462,10 @@ export default function FairytaleTab({ projectId }: { projectId?: string } = {})
           uppercase={uppercase} setUppercase={setUppercase}
           textBackground={textBackground} setTextBackground={setTextBackground}
           previewIdx={previewIdx} setPreviewIdx={setPreviewIdx}
+          audioCache={audioCache}
+          audioCacheStatus={audioCacheStatus}
+          previewMuted={previewMuted}
+          setPreviewMuted={setPreviewMuted}
           renderStatus={renderStatus} renderError={renderError}
           onBack={goBack}
           onSubmit={submitRender}
@@ -900,6 +961,10 @@ function Step3(props: any) {
             previewIdx={previewIdx}
             setPreviewIdx={setPreviewIdx}
             voiceEnabled={enableVoice}
+            audioCache={audioCache}
+            audioCacheStatus={audioCacheStatus}
+            previewMuted={previewMuted}
+            setPreviewMuted={setPreviewMuted}
             transition={transition}
             sceneAnimation={sceneAnimation}
             textAnimation={textAnimation}
@@ -1219,25 +1284,66 @@ function ScriptLoadingModal({ totalScenes = 10 }: { totalScenes?: number }) {
 
 function PreviewPanel(props: any) {
   const { scenes, sceneCount, previewIdx, voiceEnabled, transition, sceneAnimation,
-    textAnimation, textPlacement, fontType, textSize, textColor, uppercase, textBackground, enableText } = props;
+    textAnimation, textPlacement, fontType, textSize, textColor, uppercase, textBackground, enableText,
+    audioCache, audioCacheStatus, previewMuted, setPreviewMuted } = props;
   const sizePx = TEXT_SIZES.find((s: any) => s.id === textSize)?.px ?? 36;
 
-  // Auto-play through ALL scenes — advance previewIdx every 10s (with a 700ms
-  // transition window already baked in). User can still click ‹/› to override
-  // — we resume cycling from wherever they land.
+  // The actual <audio> element we control — one per panel, src swaps as
+  // previewIdx changes. We use the audio's natural duration to time the
+  // auto-cycle (instead of a fixed 10s) so subtitles + Ken Burns animation
+  // line up with the real narration length.
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const [audioDurationMs, setAudioDurationMs] = useState<number>(SCENE_DURATION_MS);
+
+  const sceneAudioUrl: string | undefined =
+    voiceEnabled && audioCache ? audioCache[previewIdx] : undefined;
+
+  // When previewIdx changes, swap audio src + autoplay (if not muted).
+  useEffect(() => {
+    const el = audioRef.current;
+    if (!el) return;
+    if (!sceneAudioUrl) {
+      el.pause();
+      el.removeAttribute("src");
+      return;
+    }
+    el.src = sceneAudioUrl;
+    el.muted = !!previewMuted;
+    // Browsers block autoplay until user gesture; ignore promise rejection.
+    el.play().catch(() => {});
+  }, [sceneAudioUrl, previewIdx, previewMuted]);
+
+  function handleAudioMeta() {
+    const el = audioRef.current;
+    if (!el || !isFinite(el.duration) || el.duration <= 0) return;
+    setAudioDurationMs(Math.round(el.duration * 1000));
+  }
+
+  // Auto-advance: prefer audio.ended event when audio is loaded, else fall
+  // back to a setInterval at SCENE_DURATION_MS (silent fallback for when
+  // voice is disabled or the cache isn't ready yet).
   useEffect(() => {
     if (!scenes || sceneCount <= 1) return;
+    if (sceneAudioUrl && audioRef.current) {
+      const el = audioRef.current;
+      const onEnded = () =>
+        props.setPreviewIdx((p: number) => (p + 1) % sceneCount);
+      el.addEventListener("ended", onEnded);
+      return () => el.removeEventListener("ended", onEnded);
+    }
     const id = setInterval(() => {
       props.setPreviewIdx((p: number) => (p + 1) % sceneCount);
     }, SCENE_DURATION_MS);
     return () => clearInterval(id);
-  }, [sceneCount]);
+  }, [sceneCount, sceneAudioUrl]);
 
   const scene = scenes?.[previewIdx] || null;
 
   const fullText = scene?.narration ? (uppercase ? scene.narration.toUpperCase() : scene.narration) : "Preview text";
   const words = useMemo(() => fullText.split(/\s+/).filter(Boolean), [fullText]);
-  const sceneDurationMs = SCENE_DURATION_MS;
+  // Use real audio length for subtitle pacing when available — otherwise
+  // fall back to the fixed 10s.
+  const sceneDurationMs = sceneAudioUrl ? audioDurationMs : SCENE_DURATION_MS;
 
   // Karaoke / progressive reveal — bumps every (sceneDuration / wordCount) ms
   const [revealedCount, setRevealedCount] = useState(words.length);
@@ -1408,16 +1514,44 @@ function PreviewPanel(props: any) {
           </div>
         )}
 
-        {/* Voice icon when voice is enabled — subtle pulse to imply audio playing */}
+        {/* Voice badge — click to mute/unmute the live narration */}
         {voiceEnabled && (
-          <div
-            className="absolute top-2 left-2 px-2 py-0.5 rounded-full text-[10px] text-white inline-flex items-center gap-1"
+          <button
+            onClick={() => setPreviewMuted?.(!previewMuted)}
+            title={
+              audioCacheStatus === "loading" ? "Generating narration audio…"
+              : audioCacheStatus === "failed" ? "Audio unavailable"
+              : previewMuted ? "Click to unmute" : "Click to mute"
+            }
+            className="absolute top-2 left-2 px-2 py-0.5 rounded-full text-[10px] text-white inline-flex items-center gap-1 hover:scale-105 transition-transform"
             style={{ background: "rgba(0,0,0,0.55)" }}
           >
-            <span style={{ animation: "ftPulse 1s ease-in-out infinite" }}>🔊</span>
-            Audio
-          </div>
+            <span
+              style={{
+                animation: audioCacheStatus === "ready" && !previewMuted
+                  ? "ftPulse 1s ease-in-out infinite"
+                  : undefined,
+                opacity: audioCacheStatus === "ready" ? 1 : 0.6,
+              }}
+            >
+              {previewMuted ? "🔇" : "🔊"}
+            </span>
+            {audioCacheStatus === "loading"
+              ? "Loading…"
+              : audioCacheStatus === "failed"
+                ? "Audio off"
+                : previewMuted
+                  ? "Muted"
+                  : "Audio"}
+          </button>
         )}
+        {/* Hidden audio element — drives auto-cycle timing when ready. */}
+        <audio
+          ref={audioRef}
+          onLoadedMetadata={handleAudioMeta}
+          preload="metadata"
+          style={{ display: "none" }}
+        />
 
         {/* Prev / Next scene arrows — let user step through scenes in preview */}
         {sceneCount > 1 && (

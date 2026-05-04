@@ -22,7 +22,7 @@ export const runtime = "nodejs";
 export const maxDuration = 300;
 export const dynamic = "force-dynamic";
 
-type Scene = { image_url?: string; narration?: string };
+type Scene = { image_url?: string; narration?: string; audio_url?: string };
 
 export async function POST(req: Request) {
   const sb = await createClient();
@@ -40,6 +40,9 @@ export async function POST(req: Request) {
     .map((s) => ({
       image_url: String(s.image_url || ""),
       narration: String(s.narration || "").trim().slice(0, 600),
+      // Optional pre-generated TTS — if present Modal downloads instead
+      // of regenerating via MiniMax (saves cost + ~5s render time).
+      audio_url: s.audio_url ? String(s.audio_url) : undefined,
     }));
 
   if (!scenes.length) {

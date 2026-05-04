@@ -691,9 +691,16 @@ def render_story(payload: dict):
                 continue
 
             img_path = _download(image_url, workdir / f"scene-{idx}.jpg")
-            audio_path = _minimax_tts(
-                narration, voice_id, voice_speed, workdir / f"scene-{idx}.mp3"
-            )
+            # Use pre-generated narration audio if the wizard sent one (it
+            # cached the TTS in B2 for the live preview). Falls back to
+            # generating fresh via MiniMax if missing/empty.
+            cached_audio_url = (scene.get("audio_url") or "").strip()
+            if cached_audio_url:
+                audio_path = _download(cached_audio_url, workdir / f"scene-{idx}.mp3")
+            else:
+                audio_path = _minimax_tts(
+                    narration, voice_id, voice_speed, workdir / f"scene-{idx}.mp3"
+                )
             clip_path = _render_scene(
                 img_path, audio_path, narration,
                 animation, placement, font_size,

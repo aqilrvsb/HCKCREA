@@ -73,22 +73,19 @@ export function bucketPrivate(): string {
 // and send it via Node's raw https module. This bypasses the SDK's
 // PutObject middleware chain that was forcing chunked upload encoding
 // (which B2 rejects with "The request body was too small").
-export async function uploadFromUrl(opts: {
-  url: string;
+
+// PUT a Buffer to B2 at the given key. Returns { key, size }.
+export async function uploadBuffer(opts: {
+  body: Buffer;
   key: string;
   contentType?: string;
   bucket?: string;
 }): Promise<{ key: string; size: number }> {
-  const r = await fetch(opts.url);
-  if (!r.ok) {
-    throw new Error(`Source URL fetch failed: HTTP ${r.status}`);
-  }
-  const ct = opts.contentType || r.headers.get("content-type") || "application/octet-stream";
-  const ab = await r.arrayBuffer();
-  const body = Buffer.from(ab);
+  const body = opts.body;
+  const ct = opts.contentType || "application/octet-stream";
 
   if (body.length === 0) {
-    throw new Error(`Source URL returned 0 bytes: ${opts.url}`);
+    throw new Error("uploadBuffer: body is empty");
   }
 
   const endpoint = (process.env.B2_ENDPOINT || "").trim();
@@ -139,12 +136,26 @@ export async function uploadFromUrl(opts: {
   });
 
   if (response.statusCode < 200 || response.statusCode >= 300) {
-    throw new Error(
-      `B2 PUT failed: HTTP ${response.statusCode} ${respBody.slice(0, 200)}`
-    );
+    throw new Error(`B2 PUT failed: HTTP ${response.statusCode} ${respBody.slice(0, 200)}`);
   }
 
   return { key: opts.key, size: body.length };
+}
+
+export async function uploadFromUrl(opts: {
+  url: string;
+  key: string;
+  contentType?: string;
+  bucket?: string;
+}): Promise<{ key: string; size: number }> {
+  const r = await fetch(opts.url);
+  if (!r.ok) {
+    throw new Error(`Source URL fetch failed: HTTP ${r.status}`);
+  }
+  const ct = opts.contentType || r.headers.get("content-type") || "application/octet-stream";
+  const ab = await r.arrayBuffer();
+  const body = Buffer.from(ab);
+  return uploadBuffer({ body, key: opts.key, contentType: ct, bucket: opts.bucket });
 }
 
 // Generate a presigned GET URL — defaults to 7 days.
