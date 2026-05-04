@@ -97,6 +97,40 @@ export default function Sidebar({
   const [autoPostModalOpen, setAutoPostModalOpen] = useState(false);
   const [extInfo, setExtInfo] = useState<{ version: string; download_url: string } | null>(null);
 
+  // Live storage stats — rendered inline next to the Storage sidebar
+  // entry as "245 / 1024 MB". Refreshes on the storage:saved window
+  // event (fired by /api/storage/save success) so a fresh save bumps
+  // the counter without the user reloading the page.
+  const [storageStats, setStorageStats] = useState<{
+    used: number;
+    quota: number;
+  } | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      try {
+        const r = await fetch("/api/storage/list", {
+          credentials: "include",
+          cache: "no-store",
+        });
+        if (!r.ok) return;
+        const d = await r.json();
+        if (cancelled) return;
+        setStorageStats({
+          used: Number(d?.used_mb || 0),
+          quota: Number(d?.quota_mb || 1024),
+        });
+      } catch {}
+    }
+    void load();
+    const onSaved = () => void load();
+    window.addEventListener("storage:saved", onSaved);
+    return () => {
+      cancelled = true;
+      window.removeEventListener("storage:saved", onSaved);
+    };
+  }, []);
+
   async function openAutoPostModal() {
     setAutoPostModalOpen(true);
     if (!extInfo) {
@@ -200,6 +234,38 @@ export default function Sidebar({
 
   return (
     <>
+      {/* Sidebar hover-animation styles. Applied to .sidebar-row buttons:
+          smooth slide-right on hover + soft tint background + icon scale.
+          Cubic-bezier mimics natural easing. Reduced motion prefs are
+          respected so users with vestibular issues see only the static
+          colour change. */}
+      <style>{`
+        .sidebar-row {
+          transition: transform 200ms cubic-bezier(0.4, 0, 0.2, 1),
+                      background-color 200ms cubic-bezier(0.4, 0, 0.2, 1),
+                      box-shadow 200ms cubic-bezier(0.4, 0, 0.2, 1),
+                      color 200ms cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        .sidebar-row:hover {
+          transform: translateX(3px);
+          background: rgba(255, 87, 34, 0.08);
+          box-shadow: inset 2px 0 0 var(--color-orange);
+          color: var(--color-text-primary);
+        }
+        .sidebar-row:hover .sidebar-row-icon {
+          color: var(--color-orange) !important;
+          transform: scale(1.1);
+        }
+        .sidebar-row-icon {
+          transition: transform 200ms cubic-bezier(0.4, 0, 0.2, 1),
+                      color 200ms cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        @media (prefers-reduced-motion: reduce) {
+          .sidebar-row, .sidebar-row-icon { transition: color 200ms ease; }
+          .sidebar-row:hover { transform: none; }
+          .sidebar-row:hover .sidebar-row-icon { transform: none; }
+        }
+      `}</style>
       {/* Mobile backdrop — only shown when drawer is open. Click closes. */}
       {mobileOpen && (
         <div
@@ -538,6 +604,22 @@ export default function Sidebar({
           ]
         ).map(({ kind, label, Icon }) => {
           const isActive = view.kind === kind;
+          const isStorage = kind === "storage";
+          // Storage row shows live "used / quota MB" inline so the user
+          // doesn't need to open the page to see how much space they
+          // have left. Refreshes on storage:saved events.
+          const storageBadge =
+            isStorage && storageStats
+              ? `${Math.round(storageStats.used)} / ${Math.round(storageStats.quota)} MB`
+              : null;
+          // Storage's pct gets a colour cue: orange ≥80%, red ≥95%.
+          const storagePctColor = (() => {
+            if (!isStorage || !storageStats || storageStats.quota === 0) return null;
+            const pct = (storageStats.used / storageStats.quota) * 100;
+            if (pct >= 95) return "#ef4444";
+            if (pct >= 80) return "var(--color-orange)";
+            return null;
+          })();
           return (
             <button
               key={kind}
@@ -545,7 +627,7 @@ export default function Sidebar({
                 onViewChange({ kind });
                 onMobileClose();
               }}
-              className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-bold transition-all"
+              className="sidebar-row group w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-bold"
               style={
                 isActive
                   ? {
@@ -556,13 +638,23 @@ export default function Sidebar({
               }
             >
               <Icon
-                className="w-4 h-4 flex-shrink-0"
+                className="sidebar-row-icon w-4 h-4 flex-shrink-0"
                 strokeWidth={2.4}
                 style={{
                   color: isActive ? "var(--color-orange)" : "var(--color-text-muted)",
                 }}
               />
-              {label}
+              <span className="flex-1 text-left truncate">{label}</span>
+              {storageBadge && (
+                <span
+                  className="font-mono text-[9px] tracking-tight whitespace-nowrap"
+                  style={{
+                    color: storagePctColor || "var(--color-text-muted)",
+                  }}
+                >
+                  {storageBadge}
+                </span>
+              )}
             </button>
           );
         })}
@@ -573,11 +665,11 @@ export default function Sidebar({
         <button
           type="button"
           onClick={() => void openAutoPostModal()}
-          className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-bold transition-all hover:bg-orange-500/10"
+          className="sidebar-row w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-bold"
           style={{ color: "var(--color-text-secondary)" }}
         >
           <Send
-            className="w-4 h-4 flex-shrink-0"
+            className="sidebar-row-icon w-4 h-4 flex-shrink-0"
             strokeWidth={2.4}
             style={{ color: "var(--color-orange)" }}
           />
@@ -590,11 +682,11 @@ export default function Sidebar({
           href="https://chat.whatsapp.com/BPORSI7khdIEOGZzWYBwbS"
           target="_blank"
           rel="noopener noreferrer"
-          className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-bold transition-all hover:bg-emerald-500/10"
+          className="sidebar-row w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-bold"
           style={{ color: "var(--color-text-secondary)" }}
         >
           <MessageCircle
-            className="w-4 h-4 flex-shrink-0"
+            className="sidebar-row-icon w-4 h-4 flex-shrink-0"
             strokeWidth={2.4}
             style={{ color: "#22c55e" }}
           />
