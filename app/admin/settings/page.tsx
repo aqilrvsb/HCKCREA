@@ -667,12 +667,14 @@ export default function AdminSettings() {
               value={storytellingModel}
               onChange={(e) => setStorytellingModel(e.target.value)}
               className="input"
-              style={{ color: "#1a1a1a" }}
+              style={{ color: "white" }}
             >
-              <option value="">— use global default —</option>
-              <option value="z-image">z-image (Alibaba — fastest, cheapest)</option>
-              <option value="nano-banana-pro">nano-banana-pro (Google — best quality)</option>
-              <option value="gpt-image-2">gpt-image-2 (OpenAI — most expensive)</option>
+              {/* Inline option styles so text stays readable on the
+                  browser's native dropdown panel regardless of theme. */}
+              <option value=""                style={{ color: "#1a1a1a", background: "white" }}>— use global default —</option>
+              <option value="z-image"         style={{ color: "#1a1a1a", background: "white" }}>z-image (Alibaba — fastest, cheapest)</option>
+              <option value="nano-banana-pro" style={{ color: "#1a1a1a", background: "white" }}>nano-banana-pro (Google — best quality)</option>
+              <option value="gpt-image-2"     style={{ color: "#1a1a1a", background: "white" }}>gpt-image-2 (OpenAI — most expensive)</option>
             </select>
             <p className="text-[10px] text-[var(--color-text-muted)] mt-1">
               Currently active: <strong>{storytellingModel || "global default (likely nano-banana-pro)"}</strong>
