@@ -2,6 +2,7 @@ import { NextResponse, after } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { p2CreateTask } from "@/lib/p2";
+import { p3CreateImage } from "@/lib/p3";
 import { getP2Config, getSetting } from "@/lib/settings";
 import { priceFor } from "@/lib/deduct";
 
@@ -77,11 +78,12 @@ export async function POST(req: Request) {
       //   fairytale_image_rate:  { rate: 0.05 }        (RM per image)
       // Both fall back to the global imageDefault + image_generate rate
       // when not set, so existing installs keep working unchanged.
-      const [cfg, defaultRate, ftModelSetting, ftRateSetting] = await Promise.all([
+      const [cfg, defaultRate, ftModelSetting, ftRateSetting, ftProviderSetting] = await Promise.all([
         getP2Config(),
         priceFor(user.id, "image_generate"),
         getSetting<{ model: string }>("fairytale_image_model"),
         getSetting<{ rate: number }>("fairytale_image_rate"),
+        getSetting<{ provider: "p2" | "p3" }>("storytelling_provider"),
       ]);
       // Resolve admin's model key to the actual upstream API model id.
       // The image_models mapping seeded in migration 0001 covers
@@ -96,52 +98,96 @@ export async function POST(req: Request) {
         "gpt-image-2": "openai/gpt-image-2-stable",
       };
       const modelKey = ftModelSetting?.model || cfg.imageDefault || "nano-banana-pro";
-      const modelId =
-        (cfg.imageModels as any)?.[modelKey] ||
-        HARDCODED_MODEL_IDS[modelKey] ||
-        modelKey;
       const rate = typeof ftRateSetting?.rate === "number" ? ftRateSetting.rate : defaultRate;
+      // storytelling_provider toggle — default p2 (Crun) for backward
+      // compat, p3 (Mountsea) when admin opts in. Mountsea-specific
+      // model mapping: strips Crun's "google/" prefix so its API
+      // accepts the bare nano-banana-pro / nano-banana-2 keys.
+      const provider: "p2" | "p3" =
+        ftProviderSetting?.provider === "p3" ? "p3" : "p2";
 
-      let created = await p2CreateTask({
-        model: modelId,
-        prompt,
-        aspectRatio,
-      });
+      let createdOk = false;
+      let createdTaskId: string | null = null;
+      let createdError: string | null = null;
+      let usedFallback = false;
 
-      // Fallback: if the configured model is unknown to upstream (Crun
-      // rejected the dispatch with a model-not-found error), retry once
-      // with the well-known google/nano-banana-v2 — Crun's balanced
-      // model. Saves the user from staring at "Failed" rows when admin
-      // set a model that's missing from the cfg.imageModels mapping.
-      const looksLikeBadModel =
-        !created.ok &&
-        modelId !== "google/nano-banana-v2" &&
-        /model|not.found|invalid|unknown|bad request|param/i.test(String(created.error || ""));
-      if (looksLikeBadModel) {
-        console.warn(
-          `[fairytale-scene] model "${modelId}" rejected (${created.error}), retrying with google/nano-banana-v2`
-        );
-        created = await p2CreateTask({
-          model: "google/nano-banana-v2",
+      if (provider === "p3") {
+        // Mountsea path — locked to nano-banana-fast per product
+        // requirements (cheapest tier, fast turnaround for batch
+        // storytelling). Resolution stays at 2K which is what fast
+        // accepts. Auto-retry up to 3 attempts before giving up so
+        // transient Mountsea blips don't kill the whole story.
+        const MAX_TRIES = 3;
+        let lastError: string | null = null;
+        for (let attempt = 1; attempt <= MAX_TRIES; attempt++) {
+          const r = await p3CreateImage({
+            prompt,
+            model: "nano-banana-fast",
+            aspectRatio,
+          });
+          if (r.ok && r.task_id) {
+            createdOk = true;
+            createdTaskId = r.task_id;
+            lastError = null;
+            break;
+          }
+          lastError = r.ok ? "no task_id" : r.error;
+          if (attempt < MAX_TRIES) {
+            console.warn(
+              `[fairytale-scene] Mountsea attempt ${attempt}/${MAX_TRIES} failed: ${lastError}`
+            );
+            await new Promise((res) => setTimeout(res, 1500 * attempt));
+          }
+        }
+        createdError = lastError;
+      } else {
+        // p2 / Crun path (existing behaviour)
+        const modelId =
+          (cfg.imageModels as any)?.[modelKey] ||
+          HARDCODED_MODEL_IDS[modelKey] ||
+          modelKey;
+        let created = await p2CreateTask({
+          model: modelId,
           prompt,
           aspectRatio,
         });
+        // Fallback: if Crun rejects with model-not-found, retry once with
+        // google/nano-banana-v2 (known-stable balanced model).
+        const looksLikeBadModel =
+          !created.ok &&
+          modelId !== "google/nano-banana-v2" &&
+          /model|not.found|invalid|unknown|bad request|param/i.test(String(created.error || ""));
+        if (looksLikeBadModel) {
+          usedFallback = true;
+          console.warn(
+            `[fairytale-scene] model "${modelId}" rejected (${created.error}), retrying with google/nano-banana-v2`
+          );
+          created = await p2CreateTask({
+            model: "google/nano-banana-v2",
+            prompt,
+            aspectRatio,
+          });
+        }
+        createdOk = created.ok;
+        createdTaskId = created.ok ? created.task_id : null;
+        createdError = created.ok ? null : created.error;
       }
 
-      if (!created.ok || !created.task_id) {
+      if (!createdOk || !createdTaskId) {
         await admin
           .from("history")
           .update({
             status: "failed",
             cost: rate,
             error_message:
-              (created.error || "P2 create failed") +
-              (looksLikeBadModel ? " (fallback nano-banana-v2 also failed)" : ""),
+              (createdError || `${provider.toUpperCase()} create failed`) +
+              (usedFallback ? " (fallback nano-banana-v2 also failed)" : ""),
             metadata: {
               aspectRatio,
               scene_idx: sceneIdx,
               group_id: fairytaleGroupId,
               upload_status: "failed",
+              provider,
             },
           })
           .eq("id", historyId);
@@ -151,14 +197,14 @@ export async function POST(req: Request) {
       await admin
         .from("history")
         .update({
-          task_id: created.task_id,
+          task_id: createdTaskId,
           cost: rate,
           metadata: {
-            model: modelKey,
+            model: provider === "p3" ? "nano-banana-fast" : modelKey,
             aspectRatio,
             scene_idx: sceneIdx,
             group_id: fairytaleGroupId,
-            provider: created.provider || "p2",
+            provider,
             upload_status: "done",
           },
         })

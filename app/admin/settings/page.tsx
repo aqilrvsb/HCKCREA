@@ -72,6 +72,10 @@ export default function AdminSettings() {
   // Total per render: per_image × scene_count + per_audio_sec × scene_dur × scene_count.
   // Wizard reads this to show an estimated cost; route deducts the same.
   const [storytellingModel, setStorytellingModel] = useState("");
+  // Storytelling-only image provider: p2 (Crun), p3 (Mountsea), or p1
+  // (GeminiGen — pass-through fallback). Stored in app_settings as
+  // storytelling_provider = { provider: "p2" | "p3" | "p1" }.
+  const [storytellingProvider, setStorytellingProvider] = useState<"p1" | "p2" | "p3">("p2");
   const [storytellingPerImage, setStorytellingPerImage] = useState("");
   const [storytellingPerAudioSec, setStorytellingPerAudioSec] = useState("");
   // MiniMax narration playback speed — clamped 0.5–2.0. 1.2 default
@@ -139,6 +143,10 @@ export default function AdminSettings() {
         if (row.key === "storytelling_voice_speed") {
           const s = Number(row.value?.speed ?? row.value?.value);
           setStorytellingVoiceSpeed(Number.isFinite(s) ? s.toFixed(2) : "");
+        }
+        if (row.key === "storytelling_provider") {
+          const p = row.value?.provider;
+          if (p === "p1" || p === "p2" || p === "p3") setStorytellingProvider(p);
         }
       }
     } finally {
@@ -247,6 +255,14 @@ export default function AdminSettings() {
           body: JSON.stringify({
             key: "storytelling_voice_speed",
             value: { speed: voiceSpeed },
+          }),
+        }),
+        fetch("/api/admin/settings", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            key: "storytelling_provider",
+            value: { provider: storytellingProvider },
           }),
         }),
       ]);
@@ -687,11 +703,68 @@ export default function AdminSettings() {
           <h2 className="font-display font-bold text-lg">Storytelling — Scene Images</h2>
         </div>
         <p className="text-sm text-[var(--color-text-secondary)] mb-4">
-          Which Crun.ai image model the Storytelling wizard uses for each
-          scene, plus your per-image cost override. Leave the model blank
-          to fall back to the global image default; leave rate at 0 to use
-          the model's standard rate (rate_&lt;model&gt;).
+          Pick the upstream provider + image model the Storytelling wizard
+          uses for each scene, plus your per-image cost override. Leave
+          model blank to fall back to the global image default; leave
+          rate at 0 to use the model's standard rate (rate_&lt;model&gt;).
         </p>
+
+        {/* Provider toggle — applies to Storytelling ONLY (the rest of the
+            platform stays on whatever the per-asset gen_provider_*
+            setting says). p3 (Mountsea) is locked to nano-banana-fast
+            on the route side regardless of the Image Model dropdown
+            below — the model dropdown is meaningful only for p1/p2. */}
+        <div className="mb-4">
+          <label className="block text-xs font-mono uppercase tracking-widest text-[var(--color-text-muted)] font-bold mb-2">
+            Image Provider
+          </label>
+          <div className="grid grid-cols-3 gap-2">
+            {([
+              { id: "p1", label: "P1 — GeminiGen", sub: "Google direct" },
+              { id: "p2", label: "P2 — Crun.ai", sub: "Multi-model" },
+              { id: "p3", label: "P3 — Mountsea", sub: "nano-banana-fast" },
+            ] as const).map((p) => {
+              const active = storytellingProvider === p.id;
+              return (
+                <button
+                  key={p.id}
+                  type="button"
+                  onClick={() => setStorytellingProvider(p.id)}
+                  className="rounded-xl px-3 py-2 text-left transition"
+                  style={
+                    active
+                      ? {
+                          background: "#7c3aed",
+                          color: "white",
+                          border: "2px solid #7c3aed",
+                          boxShadow: "0 4px 10px rgba(124,58,237,0.3)",
+                        }
+                      : {
+                          background: "white",
+                          color: "#1f2937",
+                          border: "1px solid #e5e7eb",
+                        }
+                  }
+                >
+                  <div className="text-xs font-bold">{p.label}</div>
+                  <div
+                    className="text-[10px] mt-0.5"
+                    style={{ color: active ? "rgba(255,255,255,0.85)" : "#6b7280" }}
+                  >
+                    {p.sub}
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+          {storytellingProvider === "p3" && (
+            <p className="text-[11px] text-purple-700 mt-2">
+              ⚡ Mountsea path uses <strong>nano-banana-fast</strong> only.
+              Auto-retries up to 3× on transient failures. Image Model
+              dropdown below is ignored when P3 is selected.
+            </p>
+          )}
+        </div>
 
         <div className="grid md:grid-cols-2 gap-4 mb-3">
           <div>

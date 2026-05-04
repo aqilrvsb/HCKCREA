@@ -245,15 +245,26 @@ export async function settleHistoryRow(hist: HistoryRow): Promise<SettleResult> 
   // row: `provider` is set by the original dispatcher; `webhook_provider`
   // is stamped by the extend/seg2/segment-chain inserts (those rows go
   // through a different code path that historically only wrote
-  // webhook_provider). Prefer either — whichever is "p1" wins. Defaults
-  // to p2 if neither is set (legacy rows from before multi-provider).
+  // webhook_provider). Prefer either — explicit value wins.
+  // Defaults to p2 if neither is set (legacy rows from before multi-provider).
+  // p3 = Mountsea (Storytelling-only, opt-in via admin setting).
   const metaProvider = String(hist.metadata?.provider || "").toLowerCase();
   const metaWebhookProvider = String(
     hist.metadata?.webhook_provider || ""
   ).toLowerCase();
-  const rowProvider: "p1" | "p2" =
-    metaProvider === "p1" || metaWebhookProvider === "p1" ? "p1" : "p2";
-  const r = await p2GetStatus(hist.task_id, rowProvider);
+  const rowProvider: "p1" | "p2" | "p3" =
+    metaProvider === "p3" || metaWebhookProvider === "p3"
+      ? "p3"
+      : metaProvider === "p1" || metaWebhookProvider === "p1"
+        ? "p1"
+        : "p2";
+  let r: { status: "pending" | "running" | "succeeded" | "failed"; outputUrl?: string; error?: string; raw?: any };
+  if (rowProvider === "p3") {
+    const { p3GetStatus } = await import("@/lib/p3");
+    r = await p3GetStatus(hist.task_id);
+  } else {
+    r = await p2GetStatus(hist.task_id, rowProvider as "p1" | "p2");
+  }
   const admin = createAdminClient();
 
   if (r.status === "succeeded" && r.outputUrl) {
