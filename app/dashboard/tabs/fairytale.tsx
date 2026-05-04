@@ -864,24 +864,22 @@ function StepIndicator({ step }: { step: 1 | 2 }) {
 // ──────────────────────────────────────────────────────────────────────────
 //
 // Each row is a clickable card with avatar, name, description, tag chips,
-// a play button (samples from /api/fairytale/voice-sample, B2-cached so
-// repeat plays don't hit MiniMax), and a "Use" pill that flips the
-// selection. Plays are mutually exclusive — starting one stops any other.
+// a play button, and a "Use" pill that flips the selection. Sample MP3s
+// are baked into /public/voice-samples/{voice_id}.mp3 — served from the
+// Vercel CDN with zero per-request cost and no B2 dependency. Plays are
+// mutually exclusive — starting one stops any other.
 
 function VoicePickerList(props: {
   language: VoiceLang;
   voiceId: string;
   setVoiceId: (id: string) => void;
-  // voiceSpeed is fed to the sample API so MiniMax synthesizes at the
-  // correct speed natively. No client-side playbackRate manipulation
-  // needed — the cached MP3 already IS the right speed.
+  // voiceSpeed kept in props so the parent can adjust it, but unused
+  // here — the baked /public sample is recorded at the admin-configured
+  // speed during the bake; if admin changes speed, samples need to be
+  // re-baked (a CI/admin task, not a per-render concern).
   voiceSpeed: number;
 }) {
   const list = voicesForLang(props.language);
-  // sampleCache: voice_id -> signed URL. Persists for the wizard session
-  // so repeat plays of the same voice don't even hit our backend.
-  const [sampleCache, setSampleCache] = useState<Record<string, string>>({});
-  const [loadingId, setLoadingId] = useState<string | null>(null);
   const [playingId, setPlayingId] = useState<string | null>(null);
   const [errorId, setErrorId] = useState<string | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -895,26 +893,8 @@ function VoicePickerList(props: {
       el.removeAttribute("src");
     }
     setPlayingId(null);
-    setLoadingId(null);
     setErrorId(null);
   }, [props.language]);
-
-  async function fetchSample(voiceId: string): Promise<string | null> {
-    if (sampleCache[voiceId]) return sampleCache[voiceId];
-    try {
-      const r = await fetch("/api/fairytale/voice-sample", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ voice_id: voiceId, language: props.language }),
-      });
-      const d = await r.json();
-      if (!r.ok || !d?.url) return null;
-      setSampleCache((prev) => ({ ...prev, [voiceId]: d.url }));
-      return d.url as string;
-    } catch {
-      return null;
-    }
-  }
 
   async function togglePlay(voiceId: string) {
     const el = audioRef.current;
@@ -928,24 +908,11 @@ function VoicePickerList(props: {
     // Stop any other voice that's playing
     if (!el.paused) el.pause();
     setErrorId(null);
-    setLoadingId(voiceId);
-    const url = await fetchSample(voiceId);
-    setLoadingId(null);
-    if (!url) {
-      setErrorId(voiceId);
-      return;
-    }
-    el.src = url;
+    el.src = `/voice-samples/${voiceId}.mp3`;
     el.playbackRate = 1.0; // file is already synthesized at admin speed
     setPlayingId(voiceId);
     el.play().catch(() => setErrorId(voiceId));
   }
-
-  // If admin speed changes, drop the in-memory URL cache so the next
-  // play fetches a freshly-synthesized sample at the new speed.
-  useEffect(() => {
-    setSampleCache({});
-  }, [props.voiceSpeed]);
 
   return (
     <div className="flex flex-col gap-1.5 max-h-[360px] overflow-y-auto pr-1">
@@ -957,7 +924,6 @@ function VoicePickerList(props: {
       />
       {list.map((v) => {
         const active = props.voiceId === v.id;
-        const isLoading = loadingId === v.id;
         const isPlaying = playingId === v.id;
         const isError = errorId === v.id;
         return (
@@ -1019,9 +985,7 @@ function VoicePickerList(props: {
                   color: "white",
                 }}
               >
-                {isLoading ? (
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                ) : isError ? (
+                {isError ? (
                   <X className="w-4 h-4" />
                 ) : isPlaying ? (
                   <span style={{ fontSize: 14, lineHeight: 1 }}>■</span>
@@ -1184,7 +1148,7 @@ function Step1(props: {
           prompt prefix during generation. */}
       <div className="mt-5">
         <div className="text-xs font-bold mb-2 text-gray-700">Visual Style</div>
-        <div className="grid grid-cols-4 md:grid-cols-4 lg:grid-cols-8 gap-2">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
           {VISUAL_STYLES.map((v) => {
             const active = v.id === props.visualStyle;
             return (
@@ -1192,11 +1156,11 @@ function Step1(props: {
                 key={v.id}
                 type="button"
                 onClick={() => props.setVisualStyle(v.id)}
-                className="relative aspect-square rounded-xl overflow-hidden text-left transition-transform hover:scale-[1.02]"
+                className="relative aspect-square rounded-2xl overflow-hidden text-left transition-transform hover:scale-[1.02]"
                 style={{
                   background: v.gradient,
                   border: active ? "3px solid #8b5cf6" : "1px solid #e5e7eb",
-                  boxShadow: active ? "0 4px 14px rgba(139,92,246,0.3)" : "none",
+                  boxShadow: active ? "0 6px 20px rgba(139,92,246,0.35)" : "0 2px 8px rgba(0,0,0,0.05)",
                 }}
               >
                 <img
@@ -1208,10 +1172,10 @@ function Step1(props: {
                 <div
                   className="absolute inset-0"
                   style={{
-                    background: "linear-gradient(180deg, transparent 45%, rgba(0,0,0,0.7) 100%)",
+                    background: "linear-gradient(180deg, transparent 55%, rgba(0,0,0,0.72) 100%)",
                   }}
                 />
-                <div className="absolute bottom-1.5 left-2 text-[11px] font-extrabold text-white drop-shadow-lg">
+                <div className="absolute bottom-3 left-3 text-base font-extrabold text-white drop-shadow-lg">
                   {v.label}
                 </div>
               </button>
