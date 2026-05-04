@@ -461,12 +461,13 @@ type LoopOpts = {
   // The user's new message (text + optional attached image URL)
   userText: string;
   attachedImageUrl?: string;
-  // "general" → run vision pass + describe to the agent (default).
-  // "product" → skip vision; pass straight to the next i2v/r2v generation
-  //   as the reference image. Useful when user attaches a product photo
-  //   they want the video model to render verbatim (and vision-describing
-  //   it adds no value, just latency + token cost).
-  attachedImageRole?: "general" | "product";
+  // "general"   → run vision pass + describe to the agent (default).
+  // "product"   → skip vision; pass straight to the next i2v/r2v generation
+  //               as the product reference image.
+  // "character" → skip vision; pass to next i2v/r2v generation as a
+  //               CHARACTER reference so the agent locks the same face,
+  //               hair, and wardrobe across every scene/segment.
+  attachedImageRole?: "general" | "product" | "character";
   // USP / description text the user typed alongside a product reference.
   // Persisted into conversation.state.last_product_usp so the agent can
   // recall it across turns AND injected verbatim into the final Veo /
@@ -474,6 +475,11 @@ type LoopOpts = {
   // hard guarantee the description reaches the upstream model regardless
   // of what the LLM did or didn't fold into its tool-call args.
   attachedProductUsp?: string;
+  // Public URL of a character reference image. When set, this stays on
+  // conversation state so any subsequent confirmAndFire pulls it into
+  // the generation as a SECOND ingredient image (alongside the product
+  // ref) — that's how Veo locks the same persona across scenes.
+  attachedCharacterImageUrl?: string;
   // Per-turn merges into conversation.state. Used today for the Image
   // agent's model dropdown (image_model_override = "nano-banana-pro" |
   // "gpt-image-2") so the generate_image tool handler can force the
@@ -553,6 +559,12 @@ export async function runAgentTurn(opts: LoopOpts): Promise<LoopResult> {
       // string clears the previous turn's value.
       const trimmedUsp = String(opts.attachedProductUsp || "").trim();
       if (trimmedUsp) state.last_product_usp = trimmedUsp;
+    } else if (opts.attachedImageRole === "character") {
+      // Character reference — persist on state so future turns AND the
+      // generation step can pull it as a second ingredient ref. We DON'T
+      // overwrite last_product_usp / product URL (those stay independent).
+      state.last_character_image_url = opts.attachedImageUrl;
+      state.last_attached_image_role = "character";
     } else {
       const v = await describeImageForAgent(opts.attachedImageUrl);
       if (v.ok && v.description) {
@@ -563,16 +575,23 @@ export async function runAgentTurn(opts: LoopOpts): Promise<LoopResult> {
       }
     }
   }
+  // Also persist a stand-alone character ref if the route passed one
+  // (e.g. user attached character on this turn but role differs).
+  if (opts.attachedCharacterImageUrl) {
+    state.last_character_image_url = opts.attachedCharacterImageUrl;
+  }
 
-  // Compose the user message — image description (general) or a short
-  // product-reference note (product). DeepSeek V4 Pro is text-only so the
-  // visible note is what it reasons about; the URL is in state for tools.
+  // Compose the user message — image description (general), product note,
+  // or character note. DeepSeek V4 Pro is text-only so the visible note is
+  // what it reasons about; the URL is in state for tools.
   const userContent =
     opts.attachedImageRole === "product" && opts.attachedImageUrl
-      ? `${opts.userText}\n\n[Product reference image attached — pass straight to the i2v/r2v generation as the reference. Skipped vision analysis per user choice.]`
-      : attachedImageDescription
-        ? `${opts.userText}\n\n[Attached image — description from vision model: ${attachedImageDescription}]`
-        : opts.userText;
+      ? `${opts.userText}\n\n[Product reference image attached — pass straight to the i2v/r2v generation as the PRODUCT reference. Skipped vision analysis per user choice.]`
+      : opts.attachedImageRole === "character" && opts.attachedImageUrl
+        ? `${opts.userText}\n\n[Character reference image attached — use this image as the CHARACTER. Lock the SAME face, hair, and wardrobe across every scene / segment. Pass it as a SECOND ingredient image to the i2v/r2v generation alongside any product ref. Skipped vision analysis per user choice.]`
+        : attachedImageDescription
+          ? `${opts.userText}\n\n[Attached image — description from vision model: ${attachedImageDescription}]`
+          : opts.userText;
 
   messages.push({
     role: "user",

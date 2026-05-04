@@ -73,7 +73,10 @@ export async function POST(req: Request) {
   const duration = String(body?.duration || "8");
   const aspectRatio = String(body?.aspect_ratio || "9:16");
   const is16s = duration === "16";
-  const useIngredient = !!productImageUrl;
+  // useIngredient is now a function call below since we don't yet know
+  // about the character ref at this point. It's redefined after we read
+  // characterImageUrl off conversation state.
+  let useIngredient = !!productImageUrl;
 
   // Pull the USP the user typed in the product-reference modal — it lives
   // on conversation state.last_product_usp (persisted in lib/agent.ts on
@@ -83,6 +86,25 @@ export async function POST(req: Request) {
   const conv = await loadConversation(user.id, projectId, "ugc");
   const productUsp = String(conv?.state?.last_product_usp || "").trim();
   const productInfoBlock = productInfoLockBlock(productUsp);
+  // Optional character reference image — when the user attached one via
+  // the UserCircle2 icon in the chat panel, lib/agent.ts persists its
+  // public URL on conv.state.last_character_image_url. We pass it as a
+  // SECOND ingredient ref alongside the product so Veo locks the same
+  // face / hair / wardrobe across every generated scene.
+  const characterImageUrl = String(
+    conv?.state?.last_character_image_url || ""
+  ).trim();
+  // Use ingredient mode whenever EITHER a product OR a character ref is
+  // attached. Pure text-to-video only when both are absent.
+  useIngredient = !!productImageUrl || !!characterImageUrl;
+  // Compose ingredient image list. Order matters — Veo treats imageUrls[0]
+  // as the primary visual anchor. Product image goes first when present
+  // (since label fidelity is mission-critical for affiliate clips); the
+  // character ref slots in second so the same face reads the script.
+  // When only character is supplied, it becomes the primary ref.
+  const ingredientImageUrls: string[] = [];
+  if (productImageUrl) ingredientImageUrls.push(productImageUrl);
+  if (characterImageUrl) ingredientImageUrls.push(characterImageUrl);
 
   // Build per-variant seg-1 prompts upfront (fast — no I/O).
   type Prepared = { v: any; idx: number; seg1Prompt: string };
@@ -184,7 +206,10 @@ export async function POST(req: Request) {
             model,
             userId: user.id,
             prompt: seg1Prompt,
-            imageUrls: productImageUrl ? [productImageUrl] : [],
+            // Multi-ingredient: product first (label anchor), then
+            // character (face/wardrobe anchor). Either or both — empty
+            // array falls through to imageMode='text' below.
+            imageUrls: ingredientImageUrls,
             durationMode: "8", // ALWAYS 8 — 16s = TWO 8s gens chained
             aspectRatio,
             imageMode: useIngredient ? "ingredient" : "text",

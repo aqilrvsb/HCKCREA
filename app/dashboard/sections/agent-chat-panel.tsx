@@ -7,6 +7,7 @@ import {
   Send,
   Paperclip,
   Package,
+  UserCircle2,
   Trash2,
   Sparkles,
   Loader2,
@@ -88,7 +89,7 @@ export default function AgentChatPanel({
   //   user attaches via paperclip).
   // "product" → skip vision, pass straight as i2v/r2v reference (only on
   //   UGC + Cinema; user attaches via the package icon).
-  const [attachedImageRole, setAttachedImageRole] = useState<"general" | "product">(
+  const [attachedImageRole, setAttachedImageRole] = useState<"general" | "product" | "character">(
     "general"
   );
   // USP / description text the user types alongside a product reference.
@@ -578,19 +579,23 @@ export default function AgentChatPanel({
                   className="text-[10px] font-mono uppercase tracking-wider"
                   style={{
                     color:
-                      attachedImageRole === "product"
+                      attachedImageRole === "product" || attachedImageRole === "character"
                         ? theme.color
                         : "var(--color-text-muted)",
                   }}
                 >
-                  {attachedImageRole === "product" ? "Product reference" : "Attached"}
+                  {attachedImageRole === "product"
+                    ? "Product reference"
+                    : attachedImageRole === "character"
+                      ? "Character reference"
+                      : "Attached"}
                 </div>
                 <div className="text-xs text-[var(--color-text-primary)] truncate">
                   {attachedImageRole === "product"
-                    ? attachedProductUsp
-                      ? attachedProductUsp
-                      : "Direct to video — no vision analysis"
-                    : "Image will be analyzed by the agent"}
+                    ? attachedProductUsp || "Direct to video — no vision analysis"
+                    : attachedImageRole === "character"
+                      ? "Locks the same face / hair / wardrobe across all scenes"
+                      : "Image will be analyzed by the agent"}
                 </div>
               </div>
               <button
@@ -676,6 +681,30 @@ export default function AgentChatPanel({
                   title="Attach product reference (image + USP)"
                 >
                   <Package className="w-3.5 h-3.5" />
+                </button>
+              )}
+              {/* Character icon — UGC only. Optional persona upload so
+                  the agent locks the SAME face / hair / wardrobe across
+                  scenes and segments. Without this, the agent invents a
+                  persona each generation; with it, the photo is passed
+                  to Veo as an additional ingredient ref alongside the
+                  product so the same person reads the script. */}
+              {tab === "ugc" && (
+                <button
+                  onClick={() => {
+                    setAttachedImageRole("character");
+                    fileInputRef.current?.click();
+                  }}
+                  disabled={busy}
+                  className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 disabled:opacity-50"
+                  style={{
+                    background: "var(--color-bg)",
+                    color: "var(--color-text-secondary)",
+                    border: "1px solid var(--color-border)",
+                  }}
+                  title="Attach character reference (face / persona — optional)"
+                >
+                  <UserCircle2 className="w-3.5 h-3.5" />
                 </button>
               )}
               {/* Model dropdown — IMAGE agent only. Lets the user lock

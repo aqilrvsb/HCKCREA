@@ -48,10 +48,20 @@ export async function POST(req: Request) {
   const projectId = body?.project_id ? String(body.project_id) : null;
   const userText = String(body?.message || "").trim();
   let attachedImageUrl = body?.image_url ? String(body.image_url) : "";
-  // "product" → skip vision pass, pass straight to Veo as r2v reference.
-  // "general" (or omitted) → existing behaviour with vision describe.
-  const imageRole: "general" | "product" =
-    body?.image_role === "product" ? "product" : "general";
+  // Three roles now:
+  //   "product"   — skip vision pass, agent uses image as r2v product ref
+  //   "character" — same idea but for character/persona: same face / hair
+  //                 / wardrobe locked across all generated scenes. Agent
+  //                 should mention "use this image as character" so the
+  //                 prompt-builder anchors the protagonist on the photo.
+  //   "general"   — existing behaviour with vision describe (moodboard,
+  //                 brand doc, mid-conversation reference)
+  const imageRole: "general" | "product" | "character" =
+    body?.image_role === "product"
+      ? "product"
+      : body?.image_role === "character"
+        ? "character"
+        : "general";
   // Optional plain-text USP / description the user typed alongside a
   // product reference. Surfaced into the agent's user turn so the LLM
   // has explicit context (price, claims, audience) on top of the image.
@@ -61,12 +71,22 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Empty message" }, { status: 400 });
   }
 
-  // Fold the USP into the user message so the agent sees it. Front-loaded
-  // with a clear marker so the LLM can recognise the structure across turns.
-  const finalUserText =
-    imageRole === "product" && productUsp
-      ? `[Product reference attached. USP / description:\n${productUsp}\n]\n\n${userText}`
-      : userText;
+  // Fold the role + USP into the user message so the agent sees it.
+  // Front-loaded with a clear marker so the LLM can recognise the
+  // structure across turns.
+  //
+  // Role rules per user spec:
+  //   • product attached  → "use this image as product reference"
+  //   • character attached → "use this image as character reference"
+  //   • neither attached → text-to-video flow (no image ref note)
+  let finalUserText = userText;
+  if (imageRole === "product" && attachedImageUrl) {
+    finalUserText = productUsp
+      ? `[Use this image as PRODUCT reference. USP / description:\n${productUsp}\n]\n\n${userText}`
+      : `[Use this image as PRODUCT reference.]\n\n${userText}`;
+  } else if (imageRole === "character" && attachedImageUrl) {
+    finalUserText = `[Use this image as CHARACTER reference — lock the SAME face, hair, and wardrobe across every generated scene / segment. Do not invent a new persona.]\n\n${userText}`;
+  }
 
   // If user uploaded a data: URL, host it via /api/upload/image first so the
   // vision pass + downstream Veo r2v can use a public URL.
@@ -105,6 +125,8 @@ export async function POST(req: Request) {
     attachedImageUrl: attachedImageUrl || undefined,
     attachedImageRole: imageRole,
     attachedProductUsp: imageRole === "product" ? productUsp : undefined,
+    attachedCharacterImageUrl:
+      imageRole === "character" && attachedImageUrl ? attachedImageUrl : undefined,
   });
 
   if (!result.ok) {
