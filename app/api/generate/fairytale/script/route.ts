@@ -44,7 +44,7 @@ const STYLE_HINTS: Record<Style, string> = {
 // "auto" is the canonical signal that tells the prompt to stop
 // imposing tone constraints.
 const TONE_HINTS: Record<Tone, string> = {
-  auto: "Read the user's prompt carefully and choose the SINGLE tone that best fits the story (suspenseful, melancholic, joyful, ominous, tender, etc). Commit to that tone fully across all scenes — no mood-mixing within one story.",
+  auto: "Read the user's prompt carefully and choose the SINGLE tone that best fits the story. Pick from the WIDE register a TikTok viewer responds to — not just literary moods. Options include: suspenseful, melancholic, joyful, ominous, tender, playful, deadpan, outraged, hyped, sarcastic, awe-struck, conspiratorial, savage, fed-up, in-disbelief. Commit to that tone fully across all scenes — no mood-mixing within one story.",
   formal: "Use a measured, respectful, neutral tone",
   happy: "Use cheerful, upbeat, warm tone with light humor",
   sad: "Use melancholic, reflective, tender tone — slow pacing",
@@ -64,7 +64,7 @@ const LANG_HINTS: Record<Language, string> = {
 // named lighting (key+fill+color temp) instead of "cinematic look".
 const VISUAL_HINTS: Record<VisualStyle, string> = {
   realistic:
-    "Shot on ARRI Alexa with 40mm anamorphic lens at f/1.8, oval bokeh, subtle horizontal lens flare. Color graded with teal shadows and warm-orange highlights, lifted blacks. Hard side key light, soft bounce fill, atmospheric haze with visible god-rays. Composition rule of thirds, deep negative space. Avoid: plastic skin, extra fingers, modern signage, watermark, captions, rendered text.",
+    "Shot on ARRI Alexa with 40mm anamorphic lens at f/1.8, oval bokeh, subtle horizontal lens flare. Color graded with teal shadows and warm-orange highlights, lifted blacks. Hard side key light, soft bounce fill, crisp atmosphere. Composition rule of thirds, clean negative space. Avoid: plastic skin, extra fingers, modern signage, watermark, captions, rendered text.",
   "3d":
     "3D animated feature-film render in the warmth of a Pixar / DreamWorks production. Subsurface-scattering skin, large expressive eyes, plush fabric folds, hand-painted PBR textures. Three-point softbox lighting with warm rim light, soft global illumination. Family-film color palette, shallow depth of field. Avoid: stiff CGI plastic, dead eyes, watermark, captions, rendered text.",
   anime:
@@ -200,25 +200,25 @@ PLAIN-LANGUAGE FILTER:
 - After writing each line, replace the fanciest word with the simplest equivalent.
 - Power verbs (clear actions) yes. POETIC verbs (atmosphere only) no.
 
-SENSORY DETAIL — USE SPARINGLY (max 1 per STORY):
-- A single sensory detail at the right beat = high-impact.
-- Two sensory details in the same scene = literary mush.
-- Default: skip the smell/texture/temperature stuff. Lead with WHAT HAPPENED.
+SPECIFICITY BUDGET (across the WHOLE story, allow at most 2 of these — pick the ones that anchor THIS story's stakes):
+  • One sensory detail (smell / sound / texture / temperature) at a high-impact beat.
+  • One specific number (the most plot-relevant figure — money, age, year, body count, whatever the topic supplies).
+  • One named place if plot-critical.
+  • One body-language emotion line (e.g. "tangan gemetar" / "I froze").
+Two slots used = budget spent. Anything else = state directly with simple words.
 
-SHOW EMOTION — DIRECT IS FINE:
-- Once across the whole story, you may use a body-language line. Just once.
-- Otherwise state the emotion directly. "Aku terkejut" / "I froze" beats three lines of physical-symptom poetry.
+WHY: All four at once = literary mush. Zero = bland. Two = anchored without bloat. The 16-year-old viewer can hold two specifics in their head, not four.
 
-SPECIFICITY — BRIEF:
-- ONE specific number across the whole story (the most plot-relevant one).
-- ONE named place if it's plot-critical.
-- Power verbs > adjective stacks.
+POWER VERBS over adjective stacks. POETIC verbs only when they describe a clear action (yes "menerkam"; no "mendesah").
+
+INTERNATIONAL TOPICS:
+When the story names foreign people, places, products, or eras, keep those proper nouns INTACT — do not localize them. ("Steve Jobs", "1976", "Cupertino", "Apple I", "Wall Street", "Tokyo Shibuya" stay as-is.) The narration LANGUAGE stays the user's chosen ${language === "ms" ? "BM" : "EN"}, but the SUBJECT MATTER stays foreign-authentic. Biographies and history must still hit the TikTok pace test — no Wikipedia tone.
 
 ══════════════════════════════════════════════════════════════════
 VIRAL STRUCTURE — TikTok pace, applied across ${sceneCount} scenes
 ══════════════════════════════════════════════════════════════════
 
-SCENE 1 (HOOK, ${Math.max(6, Math.round(lowWords * 0.6))}–${Math.round(lowWords * 0.9)} words).
+SCENE 1 (HOOK, ${Math.max(6, Math.round(lowWords * 0.6))}–${Math.round(lowWords * 0.9)} words — this hook range OVERRIDES the per-scene ${targetWords}-word rule above; the hook should be punchier than a body scene).
 The hook depends on the topic. Pick the formula that fits:
   • Confession with stakes (personal stories): "I lost [X] because I [trusted/believed/missed] [Y]."
   • Mid-action drop (story): "I was [doing X], when [Y happened]."
@@ -241,7 +241,7 @@ MIDDLE SCENES (ESCALATE — one beat per scene). Each middle scene = ONE new dev
 
 SCENE ${sceneCount - 1} (THE TWIST / REVEAL). One line. Clear. The "OH" moment. No flowery lead-in.
 
-SCENE ${sceneCount} (PAYOFF). The takeaway viewers screenshot or share. Plain language. ${ctaMode === "follow" ? "" : "Land the emotional close FIRST, THEN open a soft loop or question."}${ctaInstruction}
+SCENE ${sceneCount} (PAYOFF). The takeaway viewers screenshot or share. Plain language.${ctaInstruction}
 
 ══════════════════════════════════════════════════════════════════
 BANNED WORDS / PHRASES (immediate fail — rewrite the line)
@@ -288,22 +288,23 @@ DEFAULT-AVOID LIST (applies regardless of topic — these are AI-stink defaults,
 
 Each "image_prompt" follows the verb-first sentence structure that nano-banana (Gemini 2.5 Flash Image) responds to. NOT a keyword salad — narrative sentences with real photographic vocabulary.
 
-TEMPLATE (70–130 words — Malaysian clamp adds ~15 words vs generic):
-[Shot type / strong verb] of [TRAIT LOCK — paste the Malaysian character description verbatim].
-[Action verb] in [Malaysian setting from list above + time of day + atmosphere].
-Lit with [key + fill light + color temperature — humid tropical light is warmer + softer than European overcast].
+TEMPLATE (70–130 words):
+[Shot type / strong verb] of [TRAIT LOCK — paste verbatim].
+[Action verb] in [setting that fits the story's topic + time of day + atmosphere].
+Lit with [lighting that matches the implied setting + time of day + color temperature].
 Captured on [camera/lens + f-stop OR film stock].
 Composition: [framing rule, negative space, where the subject sits in the 9:16 frame].
-Avoid: no text overlay, no watermark, no extra fingers, no plastic skin, no Western Caucasian features, no New York / Los Angeles backdrop.
+Avoid: no text overlay, no watermark, no extra fingers, no plastic skin, no features that contradict the TRAIT LOCK, no backdrop that contradicts the implied setting.
 Then append the style block: "${VISUAL_HINTS[visualStyle]}"
 
 CRITICAL nano-banana rules:
 1. Verb-first opener ("Cinematic medium close-up of...", "Hand-painted watercolor of..."). Never start with an article.
 2. Use real camera/lens names (ARRI Alexa, 40mm anamorphic, 85mm portrait at f/1.8) — not "professional camera" or "high quality".
-3. Repeat the TRAIT LOCK verbatim across all ${sceneCount} scenes — same skin tone, hair, eyes, outfit. Copy-paste; do not paraphrase. This is how nano-banana keeps the same person AND same ethnicity across 10 images.
-4. Use semantic negatives ("empty kedai mamak" not "no people"). Always add: "no text, no watermark, no captions, no Western Caucasian features".
+3. Repeat the TRAIT LOCK verbatim across all ${sceneCount} scenes — same skin tone, hair, eyes, outfit. Copy-paste; do not paraphrase. This is how nano-banana keeps the same person AND same ethnicity across all ${sceneCount} images.
+4. Use semantic negatives ("empty [location]" not "no people"). Always add: "no text, no watermark, no captions" — never bake locale-specific avoids into this list.
 5. For 9:16 vertical, place the subject in the upper-two-thirds, leave headroom for caption overlay area.
-6. Show the EMOTION of the moment via Malaysian body language — head-shake, jari-tunjuk, hand on chest, salam, slow nod. Not Hollywood gestures.
+6. Show emotion via body language that fits the character's culture and era. Avoid generic stock poses; use the gestures a real person from THAT culture/era would actually use.
+7. VARY shot types across the ${sceneCount} scenes — wide establishing, medium two-shot, close-up, insert (hands / object), over-shoulder, low-angle. Same-frame fatigue kills retention.
 
 Generate the JSON now. The viewer must still be watching at scene ${sceneCount}, AND the post-watch comment section must light up.`;
 
