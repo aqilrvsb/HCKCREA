@@ -292,29 +292,38 @@ export async function POST(req: Request) {
       // frame — that introduces label drift between seg1 and seg2 even
       // when the original prompt + OCR text-lock are embedded.
       //
-      // Caveat: the product image URL on old rows can be expired Crun
-      // temp URLs (24h TTL) — those will make Crun reply "Image fetch
-      // failed". We HEAD-check the URL first; if not reachable, fall
-      // back to start-frame-only (same as pre-fix behaviour) so the
-      // extend doesn't crash on stale product refs.
-      async function isImageReachable(url: string): Promise<boolean> {
+      // Caveat: the product image URL on old rows is often a Tencent
+      // Cloud temp URL (rh-images-switch-...myqcloud.com) with a
+      // q-sign-time signature that expires after 24h. HEAD requests
+      // against that URL still return 200 even after expiry (Tencent
+      // doesn't validate sig on HEAD), so we can't HEAD-check it.
+      // Instead we PARSE the q-sign-time parameter directly: format is
+      // q-sign-time=<signed_at>;<expires_at> (both unix seconds). If
+      // the URL is past expiry, skip it and fall back to start-frame-
+      // only — same behaviour as pre-fix, no crash on stale refs.
+      function isProductUrlUsable(url: string): boolean {
+        if (!url) return false;
         try {
-          const r = await fetch(url, { method: "HEAD" });
-          if (r.ok) return true;
-          // Some CDNs don't allow HEAD; fall back to range GET
-          const g = await fetch(url, { method: "GET", headers: { Range: "bytes=0-1" } });
-          return g.ok;
+          const u = new URL(url);
+          const sig = u.searchParams.get("q-sign-time");
+          if (!sig) return true; // not a Tencent temp URL — assume permanent
+          const parts = sig.split(";");
+          const expiresAt = Number(parts[1]);
+          if (!Number.isFinite(expiresAt)) return true;
+          const nowSec = Math.floor(Date.now() / 1000);
+          return nowSec < expiresAt - 60; // 60s safety margin
         } catch {
-          return false;
+          return true; // unparseable — assume usable, let Crun decide
         }
       }
       const refImages: string[] = [startUrl];
       if (bucket !== "cinema" && productImageUrl) {
-        if (await isImageReachable(productImageUrl)) {
+        if (isProductUrlUsable(productImageUrl)) {
           refImages.push(productImageUrl);
         } else {
           console.warn(
-            "[extend] product image not reachable, falling back to start-frame-only:",
+            "[extend] product image URL expired (q-sign-time past), " +
+              "falling back to start-frame-only:",
             productImageUrl.slice(0, 80)
           );
         }
