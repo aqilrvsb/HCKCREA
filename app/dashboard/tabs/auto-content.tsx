@@ -888,13 +888,15 @@ export default function AutoContentTab({ projectId }: { projectId?: string } = {
           </div>
         </div>
 
-        {/* Duration buttons */}
+        {/* Duration — locked to 8s for now. The 16s (2 shots) option
+            is hidden per product decision: users should extend an 8s
+            clip via the dedicated Extend flow rather than batch-
+            generating two seg-1's upfront. The state default of "8"
+            is preserved so the rest of the pipeline (cost, locks,
+            placeholder rows) keeps working unchanged. */}
         <div className="flex gap-2 mb-3">
-          <DurationBtn active={duration === "8"} onClick={() => setDuration("8")}>
+          <DurationBtn active={true} onClick={() => setDuration("8")}>
             8s (1 shot)
-          </DurationBtn>
-          <DurationBtn active={duration === "16"} onClick={() => setDuration("16")}>
-            16s (2 shots)
           </DurationBtn>
         </div>
 
