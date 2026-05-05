@@ -1510,9 +1510,12 @@ const HistoryCard = React.memo(function HistoryCardInner({
   );
 }, (prev, next) => {
   // Skip re-render when none of the visible-state fields changed.
-  // Action handlers (onToggleMerge) and the merge selection index are
-  // captured by closure on the parent, so a stable referential
-  // identity is what we need — not deep equality.
+  // We intentionally do NOT include onToggleMerge in the equality
+  // check: the parent passes a fresh inline arrow every render
+  // (`() => toggleMergeSelection(it.id)`), but the underlying
+  // toggleMergeSelection uses a functional setter and reads the
+  // latest state, so a stale closure is behaviorally identical.
+  // Including it would defeat the memo on every poll tick.
   return (
     prev.item.id === next.item.id &&
     prev.item.status === next.item.status &&
@@ -1525,8 +1528,7 @@ const HistoryCard = React.memo(function HistoryCardInner({
     prev.seg2?.output_url === next.seg2?.output_url &&
     prev.saveStatus?.saved === next.saveStatus?.saved &&
     prev.mergeSupported === next.mergeSupported &&
-    prev.mergeSelectedIdx === next.mergeSelectedIdx &&
-    prev.onToggleMerge === next.onToggleMerge
+    prev.mergeSelectedIdx === next.mergeSelectedIdx
   );
 });
 
