@@ -636,18 +636,19 @@ function HistoryCard({
     ];
   }, [item, seg2]);
 
-  // Default to the merged slide when ready, else seg-1. Track whether the user
-  // has manually picked a slide so the auto-jump-to-merged doesn't yank their
-  // selection out from under them.
+  // Default to Segment 1 (index 0) on initial load. User can click any
+  // slide thumb to switch — userPicked flag locks their choice in so
+  // subsequent grid refreshes / poll responses don't yank their
+  // selection back to seg-1.
+  // Earlier iteration auto-jumped to the merged 16s slide once it was
+  // ready; user feedback was that they want to see seg-1 first by
+  // default and explicitly click into the merged slide when they
+  // want to view it.
   const [activeIdx, setActiveIdx] = useState(0);
   const [userPicked, setUserPicked] = useState(false);
   useEffect(() => {
     if (slides.length === 0 || userPicked) return;
-    const mergedReady = slides.findIndex(
-      (s) => s.id === "merged" && s.status === "ready"
-    );
-    if (mergedReady !== -1) setActiveIdx(mergedReady);
-    else setActiveIdx(0);
+    setActiveIdx(0);
   }, [slides, userPicked]);
 
   const activeSlide = slides[activeIdx];
