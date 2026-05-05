@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   History,
   Loader2,
@@ -534,7 +534,7 @@ const ACTION = {
   retry: "linear-gradient(135deg, #22c55e, #4ade80)",      // green — retry failed
 };
 
-function HistoryCard({
+const HistoryCard = React.memo(function HistoryCardInner({
   item,
   seg2,
   saveStatus,
@@ -1508,7 +1508,27 @@ function HistoryCard({
       )}
     </div>
   );
-}
+}, (prev, next) => {
+  // Skip re-render when none of the visible-state fields changed.
+  // Action handlers (onToggleMerge) and the merge selection index are
+  // captured by closure on the parent, so a stable referential
+  // identity is what we need — not deep equality.
+  return (
+    prev.item.id === next.item.id &&
+    prev.item.status === next.item.status &&
+    prev.item.output_url === next.item.output_url &&
+    prev.item.merged_url === next.item.merged_url &&
+    prev.item.error_message === next.item.error_message &&
+    prev.item.metadata?.name === next.item.metadata?.name &&
+    prev.seg2?.id === next.seg2?.id &&
+    prev.seg2?.status === next.seg2?.status &&
+    prev.seg2?.output_url === next.seg2?.output_url &&
+    prev.saveStatus?.saved === next.saveStatus?.saved &&
+    prev.mergeSupported === next.mergeSupported &&
+    prev.mergeSelectedIdx === next.mergeSelectedIdx &&
+    prev.onToggleMerge === next.onToggleMerge
+  );
+});
 
 // ── Modals ──────────────────────────────────────────────────────────────────
 
