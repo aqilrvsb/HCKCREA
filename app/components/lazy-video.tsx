@@ -1,122 +1,176 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { VideoHTMLAttributes } from "react";
 
-// LazyVideo — Thumbnail-first video player.
+// LazyVideo — first-frame poster + staggered metadata load.
 //
-// Old behaviour was to preload metadata/first-frame as soon as a card entered
-// the viewport. With 12+ cards on the UGC / Auto Content grid that meant 12
-// parallel video-metadata fetches the moment the tab loaded — saturating
-// the network and freezing the main thread for a beat.
+// Goals (resolving the conflict between two previous iterations):
+//   ✓ Each card shows a real first-frame preview (so the grid isn't
+//     12 black tiles waiting for clicks).
+//   ✓ The 12 cards on a page DON'T all fire metadata fetches at once
+//     (the parallel burst was what made tab-switch feel heavy).
+//   ✓ Zero full-video streaming until the user clicks play.
 //
-// New behaviour: render an IMG poster only, zero <video> requests on mount.
-// The <video> element is mounted lazily ONLY after the user clicks the
-// thumbnail's play button. Subsequent clicks pause/play normally because
-// the video element stays mounted once activated.
+// How it achieves all three:
+//   1. Mount with preload="none" (zero network).
+//   2. IntersectionObserver flips a "queued" flag when the card enters
+//      a 50px-from-viewport zone. Queued cards register with a
+//      MODULE-LEVEL token bucket — only N cards may fetch metadata at
+//      any one time (default 2). When a slot opens, the next queued
+//      card gets a turn, fetches its small metadata range + first
+//      I-frame (~30-60KB), and renders the frame as a static poster.
+//   3. preload stays at "metadata" (NOT "auto"), so we never download
+//      the full video unless the user actively plays.
 //
-// Result: tab-switch is instant regardless of how many cards are on the
-// page. The only video that loads bytes is the one the user actually
-// chose to watch.
-//
-// Drop-in replacement for <video> — accepts every native attr.
+// Result: tab-switch is smooth, every card shows its real first frame
+// within a second or two of viewport entry, and only the videos the
+// user clicks to play actually stream bytes.
 
 type Props = VideoHTMLAttributes<HTMLVideoElement> & {
-  /** Poster image shown before the user clicks play. Falls back to the
-   *  video's native poster attr if you also set one; with no poster at
-   *  all, a black tile + play button is shown. */
-  poster?: string;
-  /** Optional className applied to the wrapping container. The <video>
-   *  itself gets the className from the rest props (so existing styles
-   *  on cards keep working unchanged). */
-  wrapperClassName?: string;
-  /** Legacy prop from the old eager-preload implementation — accepted
-   *  but ignored so existing callsites don't break. */
+  /** Distance before the element enters the viewport at which to start
+   *  loading. Smaller = more conservative; larger = more eager. */
   rootMargin?: string;
 };
 
+// ─── Module-level concurrency limiter ────────────────────────────
+// Across the whole grid (12 cards), only N can be fetching metadata
+// at once. Others wait in FIFO order. Tunable: 2 keeps tab-switch
+// feeling fast; 4 fills the grid faster but stutters more.
+const MAX_CONCURRENT_METADATA_FETCHES = 2;
+let activeFetches = 0;
+const queue: Array<() => void> = [];
+
+function acquireSlot(callback: () => void) {
+  if (activeFetches < MAX_CONCURRENT_METADATA_FETCHES) {
+    activeFetches += 1;
+    callback();
+  } else {
+    queue.push(callback);
+  }
+}
+
+function releaseSlot() {
+  activeFetches = Math.max(0, activeFetches - 1);
+  const next = queue.shift();
+  if (next) {
+    activeFetches += 1;
+    next();
+  }
+}
+
 export default function LazyVideo({
-  poster,
-  wrapperClassName,
-  rootMargin: _ignored,
+  rootMargin = "50px",
   preload: _preloadOverride,
-  className,
   src,
-  controls,
-  autoPlay,
   ...rest
 }: Props) {
-  const videoRef = useRef<HTMLVideoElement | null>(null);
-  // activated stays false until the user clicks the play overlay. Once
-  // true, the <video> element mounts and stays mounted (so subsequent
-  // pause/play through native controls works normally).
-  const [activated, setActivated] = useState(!!autoPlay);
+  const ref = useRef<HTMLVideoElement | null>(null);
+  // null = not in view yet; "queued" = entered viewport, waiting for
+  // a fetch slot; "loading" = actively fetching; "ready" = first frame
+  // painted, no more network until user clicks play.
+  const [phase, setPhase] = useState<"idle" | "queued" | "loading" | "ready">(
+    "idle"
+  );
 
-  function handlePlayClick() {
-    setActivated(true);
-    // Defer to the next paint so the <video> element exists, then call
-    // play(). Browsers count this as a user gesture so autoplay is OK.
-    setTimeout(() => {
-      const v = videoRef.current;
-      if (v) v.play().catch(() => {});
-    }, 0);
-  }
+  // Append a #t=0.01 hash so the browser seeks to ~first frame after
+  // metadata loads — that's what paints the static poster image
+  // automatically. If src already has a hash, leave it alone.
+  const srcStr = typeof src === "string" ? src : "";
+  const srcWithSeek =
+    srcStr && !srcStr.includes("#") ? `${srcStr}#t=0.01` : srcStr;
 
-  if (!activated) {
-    // Poster-only stage. Zero network until the user clicks.
-    return (
-      <div
-        className={wrapperClassName || className}
-        style={{ position: "relative", background: "#000" }}
-      >
-        {poster ? (
-          <img
-            src={poster}
-            alt=""
-            className={className}
-            style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}
-            referrerPolicy="no-referrer"
-            loading="lazy"
-            decoding="async"
-          />
-        ) : null}
-        <button
-          type="button"
-          onClick={handlePlayClick}
-          aria-label="Play video"
-          className="absolute inset-0 flex items-center justify-center group cursor-pointer"
-          style={{ background: poster ? "rgba(0,0,0,0)" : "#000" }}
-        >
-          <span
-            className="flex items-center justify-center rounded-full transition-transform group-hover:scale-110"
-            style={{
-              width: 48,
-              height: 48,
-              background: "rgba(0,0,0,0.6)",
-              backdropFilter: "blur(4px)",
-              border: "2px solid rgba(255,255,255,0.85)",
-            }}
-          >
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="white">
-              <path d="M8 5v14l11-7z" />
-            </svg>
-          </span>
-        </button>
-      </div>
+  useEffect(() => {
+    if (phase !== "idle" || !ref.current) return;
+    const el = ref.current;
+    const obs = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((e) => e.isIntersecting)) {
+          setPhase("queued");
+          obs.disconnect();
+        }
+      },
+      { rootMargin }
     );
-  }
+    obs.observe(el);
+    return () => obs.disconnect();
+  }, [phase, rootMargin]);
 
-  // User clicked — mount the real video element. preload="metadata" is
-  // fine here because exactly ONE video is mounted per click; we never
-  // saturate the network with parallel fetches.
+  useEffect(() => {
+    if (phase !== "queued") return;
+    let released = false;
+    acquireSlot(() => {
+      setPhase("loading");
+      const v = ref.current;
+      if (!v) {
+        if (!released) {
+          released = true;
+          releaseSlot();
+        }
+        return;
+      }
+      // Once metadata loads (small range fetch), the browser paints the
+      // first frame and `loadeddata` fires. Mark ready + free the slot
+      // so the next queued card gets its turn.
+      const onReady = () => {
+        v.removeEventListener("loadeddata", onReady);
+        v.removeEventListener("error", onError);
+        setPhase("ready");
+        if (!released) {
+          released = true;
+          releaseSlot();
+        }
+      };
+      const onError = () => {
+        v.removeEventListener("loadeddata", onReady);
+        v.removeEventListener("error", onError);
+        setPhase("ready"); // give up gracefully — show black tile
+        if (!released) {
+          released = true;
+          releaseSlot();
+        }
+      };
+      v.addEventListener("loadeddata", onReady);
+      v.addEventListener("error", onError);
+      // Hard timeout: if metadata never loads in 8s (fal/Crun slow),
+      // free the slot so we don't deadlock the queue.
+      const t = window.setTimeout(() => {
+        if (!released) {
+          released = true;
+          v.removeEventListener("loadeddata", onReady);
+          v.removeEventListener("error", onError);
+          setPhase("ready");
+          releaseSlot();
+        }
+      }, 8000);
+      return () => {
+        window.clearTimeout(t);
+      };
+    });
+    return () => {
+      // If the component unmounts while still queued/loading, release
+      // the slot so we don't leak it. Idempotent-guarded.
+      if (!released) {
+        released = true;
+        releaseSlot();
+      }
+    };
+  }, [phase]);
+
+  // Decide what `preload` value to send the browser based on phase:
+  //   idle / queued → "none" (no network yet)
+  //   loading / ready → "metadata" (small range + first frame; never full video)
+  //   override → caller's explicit value wins
+  const effectivePreload =
+    _preloadOverride ??
+    (phase === "loading" || phase === "ready" ? "metadata" : "none");
+
   return (
     <video
-      ref={videoRef}
-      className={className}
-      src={src}
-      controls={controls ?? true}
-      poster={poster}
-      preload={_preloadOverride ?? "metadata"}
+      ref={ref}
+      preload={effectivePreload}
+      src={phase === "idle" ? undefined : srcWithSeek}
+      // Helps Safari / iOS keep things inline + decode lighter
       playsInline
       {...rest}
     />
