@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   History,
   Loader2,
@@ -24,12 +24,9 @@ import {
   Upload,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
-import useSWR from "swr";
-import { fetchHistoryRows, fetchStorageStatus } from "@/lib/swr-fetchers";
 import Portal from "./portal";
 import ExtendDialog from "./extend-dialog";
 import LazyVideo from "@/app/components/lazy-video";
-import SkeletonCard from "@/app/components/skeleton-card";
 
 export type HistoryItem = {
   id: string;
@@ -119,6 +116,8 @@ export default function HistoryGrid({
   title: string;
   projectId?: string;
 }) {
+  const [items, setItems] = useState<HistoryItem[]>([]);
+  const [loading, setLoading] = useState(false);
   const [page, setPage] = useState(0);
   const PAGE_SIZE = 12;
 
@@ -157,7 +156,7 @@ export default function HistoryGrid({
         alert(d?.error || "Merge failed");
       } else {
         clearMergeSelection();
-        await mutateHistory();
+        window.dispatchEvent(new CustomEvent("history:refresh"));
       }
     } catch (e: any) {
       alert(e?.message || "Network error");
@@ -170,58 +169,73 @@ export default function HistoryGrid({
     setMergeSelection([]);
   }, [tab, projectId]);
 
-  // SWR-managed history rows. Cache key encodes everything that affects
-  // the query so changing tab / project / sub-tab swaps to a different
-  // cache slot (warm re-tab back to a previous slot is instant).
-  const historyKey: ["history", string, string | undefined, string] = [
-    "history",
-    tab,
-    projectId,
-    storytellingSubTab,
-  ];
-  const { data: items = [], mutate: mutateHistory, isLoading } = useSWR(
-    historyKey,
-    () =>
-      fetchHistoryRows({
-        tab,
-        projectId,
-        storytellingSubTab,
-        limit: 60,
-        offset: 0,
-      }) as Promise<HistoryItem[]>,
-    {
-      revalidateOnFocus: false,
-      revalidateOnReconnect: true,
-      dedupingInterval: 5000,
-    }
-  );
-  const loading = isLoading;
-
-  // Reset paginator when the cache slot changes.
   useEffect(() => {
+    void load();
     setPage(0);
-  }, [tab, projectId, storytellingSubTab]);
-
-  // history:refresh now triggers a SWR revalidation instead of a manual re-fetch.
-  useEffect(() => {
-    const onRefresh = () => { void mutateHistory(); };
+    // Refresh on explicit dispatch (webhook completes → user clicks per-card
+    // refresh icon → user re-enters tab) AND on a 1-minute interval while
+    // pending rows are visible. The interval gates itself on items.some
+    // (status === "pending"), so once everything is settled the polling
+    // stops automatically — no battery drain on idle dashboards.
+    const onRefresh = () => load();
     window.addEventListener("history:refresh", onRefresh);
     return () => window.removeEventListener("history:refresh", onRefresh);
-  }, [mutateHistory]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab, projectId, storytellingSubTab]);
 
-  // 15s polling while anything is pending. Same gate as before — once
-  // everything is settled the polling stops automatically.
+  // 1-minute auto-refresh when there's anything pending. Pauses when the
+  // tab is hidden (browser throttles intervals on hidden tabs anyway, but
+  // explicit pause keeps the logs clean) and stops entirely when no row
+  // is pending. The server's pg_cron does the actual settling — this just
+  // re-fetches so the UI mirrors what the DB already knows.
+  // Cadence: 15s while anything is pending. Webhooks land in ~30-90s, cron
+  // every 30s — so a 15s UI poll catches the flip within one tick of the
+  // DB write and the user never has to F5.
   useEffect(() => {
-    const hasPending =
-      items.some((i) => i.status === "pending" && !i.parent_history_id) ||
+    const hasPending = items.some(
+      (i) => i.status === "pending" && !i.parent_history_id
+    ) ||
+      // Also keep ticking while any child seg-2 is pending — the parent
+      // looks "done" but the slider's seg-2 thumb is still spinning.
       items.some((i) => i.parent_history_id && i.status === "pending");
     if (!hasPending) return;
+
     const id = window.setInterval(() => {
-      if (document.visibilityState === "visible") void mutateHistory();
+      if (document.visibilityState === "visible") void load({ silent: true });
     }, 15_000);
     return () => window.clearInterval(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [items, mutateHistory]);
+  }, [items]);
+
+  async function load(opts: { silent?: boolean } = {}) {
+    // Initial load shows the grid skeleton; poll-driven loads keep the
+    // existing cards on screen and just swap the data underneath, so a
+    // pending card flipping to done doesn't make the whole grid blink.
+    if (!opts.silent) setLoading(true);
+    try {
+      const sb = createClient();
+      let q = sb
+        .from("history")
+        .select("*")
+        .eq("tab", tab)
+        .order("created_at", { ascending: false })
+        .limit(60);
+      if (projectId) q = q.eq("project_id", projectId);
+      // Storytelling: sub-tab decides which artifact type to show.
+      //   "videos" → merged final videos (type='fairytale')
+      //   "images" → intermediate scene images (type='fairytale-scene')
+      if (tab === "fairytale") {
+        q = q.eq(
+          "type",
+          storytellingSubTab === "images" ? "fairytale-scene" : "fairytale"
+        );
+      }
+      const { data } = await q;
+      setItems((data as HistoryItem[]) || []);
+    } finally {
+      if (!opts.silent) setLoading(false);
+    }
+  }
 
   // Children (segment_index=2 with parent_history_id) live in the same query
   // result. Pull them out into a lookup map so HistoryCard can build its
@@ -236,27 +250,32 @@ export default function HistoryGrid({
     return { parents, childMap };
   }, [items]);
 
-  // Save-to-storage status — cached by sorted ID hash, so multiple cards
-  // mounting simultaneously dedupe their fetch via SWR's dedupingInterval.
-  // Refresh whenever a save event fires (SaveButton dispatches
-  // `storage:saved` on success).
-  const parentIdsForStatus = parents.map((p) => p.id);
-  const sortedIdsKey = parentIdsForStatus.length > 0
-    ? `storage-status:${parentIdsForStatus.slice().sort().join(",")}`
-    : null;
-  const { data: saveStatus = {}, mutate: mutateStorageStatus } = useSWR(
-    sortedIdsKey,
-    () => fetchStorageStatus(parentIdsForStatus),
-    {
-      revalidateOnFocus: false,
-      dedupingInterval: 30_000,
-    }
-  );
+  // Save-to-storage status — single batched POST to /api/storage/status with
+  // all parent ids on screen, so each card knows whether to render Save vs
+  // Saved without N round-trips. Refresh whenever items change OR a save
+  // event fires (the SaveButton dispatches `storage:saved` on success).
+  const [saveStatus, setSaveStatus] = useState<Record<string, { saved: boolean; storage_id?: string; url?: string }>>({});
   useEffect(() => {
-    const onSaved = () => { void mutateStorageStatus(); };
+    const ids = parents.map((p) => p.id);
+    if (ids.length === 0) { setSaveStatus({}); return; }
+    let cancelled = false;
+    const refresh = async () => {
+      try {
+        const r = await fetch("/api/storage/status", {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ history_ids: ids }),
+        });
+        const d = await r.json();
+        if (!cancelled && d?.ok) setSaveStatus(d.statuses || {});
+      } catch {}
+    };
+    void refresh();
+    const onSaved = () => void refresh();
     window.addEventListener("storage:saved", onSaved);
-    return () => window.removeEventListener("storage:saved", onSaved);
-  }, [mutateStorageStatus]);
+    return () => { cancelled = true; window.removeEventListener("storage:saved", onSaved); };
+  }, [parents.map((p) => p.id).join("|")]);
 
   const counts = useMemo(
     () => ({
@@ -343,13 +362,7 @@ export default function HistoryGrid({
         </div>
       )}
 
-      {loading && items.length === 0 ? (
-        <div className="grid grid-cols-3 md:grid-cols-4 gap-3">
-          {Array.from({ length: 8 }).map((_, i) => (
-            <SkeletonCard key={i} />
-          ))}
-        </div>
-      ) : items.length === 0 ? (
+      {items.length === 0 ? (
         <div className="flex flex-col items-center justify-center text-center py-16">
           <div
             className="w-16 h-16 rounded-2xl flex items-center justify-center mb-4"
@@ -361,7 +374,7 @@ export default function HistoryGrid({
             <History className="w-7 h-7 text-[var(--color-text-muted)]" />
           </div>
           <p className="text-[var(--color-text-secondary)] font-medium mb-1">
-            Belum ada history.
+            {loading ? "Loading…" : "Belum ada history."}
           </p>
           <p className="text-sm text-[var(--color-text-muted)]">
             Generate satu, ia akan muncul di sini.
@@ -521,7 +534,7 @@ const ACTION = {
   retry: "linear-gradient(135deg, #22c55e, #4ade80)",      // green — retry failed
 };
 
-const HistoryCard = React.memo(function HistoryCardInner({
+function HistoryCard({
   item,
   seg2,
   saveStatus,
@@ -1495,29 +1508,7 @@ const HistoryCard = React.memo(function HistoryCardInner({
       )}
     </div>
   );
-}, (prev, next) => {
-  // Skip re-render when none of the visible-state fields changed.
-  // We intentionally do NOT include onToggleMerge in the equality
-  // check: the parent passes a fresh inline arrow every render
-  // (`() => toggleMergeSelection(it.id)`), but the underlying
-  // toggleMergeSelection uses a functional setter and reads the
-  // latest state, so a stale closure is behaviorally identical.
-  // Including it would defeat the memo on every poll tick.
-  return (
-    prev.item.id === next.item.id &&
-    prev.item.status === next.item.status &&
-    prev.item.output_url === next.item.output_url &&
-    prev.item.merged_url === next.item.merged_url &&
-    prev.item.error_message === next.item.error_message &&
-    prev.item.metadata?.name === next.item.metadata?.name &&
-    prev.seg2?.id === next.seg2?.id &&
-    prev.seg2?.status === next.seg2?.status &&
-    prev.seg2?.output_url === next.seg2?.output_url &&
-    prev.saveStatus?.saved === next.saveStatus?.saved &&
-    prev.mergeSupported === next.mergeSupported &&
-    prev.mergeSelectedIdx === next.mergeSelectedIdx
-  );
-});
+}
 
 // ── Modals ──────────────────────────────────────────────────────────────────
 

@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import useSWR from "swr";
 import {
   HardDrive,
   Loader2,
@@ -12,8 +11,6 @@ import {
   Video as VideoIcon,
   Sparkles,
 } from "lucide-react";
-import { fetchStorageList } from "@/lib/swr-fetchers";
-import SkeletonCard from "@/app/components/skeleton-card";
 
 // Storage section — lists every file the user has saved into their B2
 // folder, mirrors the History grid layout (3-4 cols of cards) but
@@ -59,26 +56,35 @@ function fmtMB(bytes: number): string {
 }
 
 export default function StorageSection() {
+  const [items, setItems] = useState<StorageItem[]>([]);
+  const [usedMb, setUsedMb] = useState(0);
+  const [quotaMb, setQuotaMb] = useState(1024);
+  const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState("all");
+  const [error, setError] = useState<string | null>(null);
 
-  const {
-    data: listData,
-    error,
-    isLoading: loading,
-    mutate: mutateList,
-  } = useSWR("storage:list", fetchStorageList, {
-    revalidateOnFocus: false,
-    dedupingInterval: 5000,
-  });
-  const items = (listData?.items ?? []) as StorageItem[];
-  const usedMb = listData?.used_mb ?? 0;
-  const quotaMb = listData?.quota_mb ?? 1024;
+  async function load() {
+    try {
+      setError(null);
+      const r = await fetch("/api/storage/list", { credentials: "include", cache: "no-store" });
+      const d = await r.json();
+      if (!r.ok || !d?.ok) throw new Error(d?.error || `HTTP ${r.status}`);
+      setItems(d.items || []);
+      setUsedMb(d.used_mb || 0);
+      setQuotaMb(d.quota_mb || 1024);
+    } catch (e: any) {
+      setError(e?.message || "Failed to load storage");
+    } finally {
+      setLoading(false);
+    }
+  }
 
   useEffect(() => {
-    const onSaved = () => { void mutateList(); };
+    void load();
+    const onSaved = () => void load();
     window.addEventListener("storage:saved", onSaved);
     return () => window.removeEventListener("storage:saved", onSaved);
-  }, [mutateList]);
+  }, []);
 
   const filtered = useMemo(
     () => filter === "all" ? items : items.filter((i) => i.type === filter),
@@ -90,15 +96,6 @@ export default function StorageSection() {
   async function handleDelete(id: string) {
     if (!confirm("Padam fail dari Storage? Tak boleh undo.")) return;
     try {
-      // Optimistic local remove (no revalidate) — keeps the UI snappy.
-      mutateList(
-        (prev) =>
-          prev && {
-            ...prev,
-            items: prev.items.filter((i: any) => i.id !== id),
-          },
-        false
-      );
       const r = await fetch("/api/storage/delete", {
         method: "POST",
         credentials: "include",
@@ -108,15 +105,13 @@ export default function StorageSection() {
       const d = await r.json().catch(() => ({}));
       if (!r.ok || !d?.ok) {
         alert(`Failed to delete: ${d?.error || `HTTP ${r.status}`}`);
-        // Roll back by re-fetching authoritative state.
-        await mutateList();
         return;
       }
-      // Refresh quota numbers from server.
-      await mutateList();
+      // Optimistic remove + refresh quota numbers from server
+      setItems((prev) => prev.filter((i) => i.id !== id));
+      void load();
     } catch (e: any) {
       alert(`Failed to delete: ${e?.message || "network error"}`);
-      await mutateList();
     }
   }
 
@@ -193,19 +188,15 @@ export default function StorageSection() {
       </div>
 
       {/* Loading / Error / Empty */}
-      {loading && items.length === 0 && (
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-          {Array.from({ length: 8 }).map((_, i) => (
-            <SkeletonCard key={i} />
-          ))}
+      {loading && (
+        <div className="card p-12 text-center">
+          <Loader2 className="w-6 h-6 mx-auto animate-spin text-[var(--color-text-muted)]" />
         </div>
       )}
       {!loading && error && (
         <div className="card p-6" style={{ borderColor: "rgba(239,68,68,0.4)" }}>
           <div className="text-sm font-bold text-red-400 mb-1">Couldn't load storage</div>
-          <p className="text-xs text-[var(--color-text-secondary)]">
-            {(error as any)?.message || "Failed to load storage"}
-          </p>
+          <p className="text-xs text-[var(--color-text-secondary)]">{error}</p>
         </div>
       )}
       {!loading && !error && filtered.length === 0 && (
