@@ -21,6 +21,7 @@ import {
   Clock,
   HardDrive,
   CloudUpload,
+  Upload,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import Portal from "./portal";
@@ -2148,6 +2149,12 @@ function ImproveVideoModal({
   const [suggestion, setSuggestion] = useState("");
   const [imageMode, setImageMode] = useState<"frame" | "ingredient">("ingredient");
   const [submitting, setSubmitting] = useState(false);
+  // Required fresh product upload — replaces the auto-reuse of the
+  // source row's referenceUrl. Same pattern as the Extend modal: every
+  // Improve run gets a clean, freshly-uploaded product photo so Veo's
+  // r2v anchor never relies on an expired Crun temp URL.
+  const [overrideProductDataUrl, setOverrideProductDataUrl] = useState<string>("");
+  const productUploadRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
@@ -2159,9 +2166,32 @@ function ImproveVideoModal({
     };
   }, [onClose]);
 
+  function handleProductUpload(file: File | null) {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => setOverrideProductDataUrl(String(reader.result || ""));
+    reader.readAsDataURL(file);
+  }
+
+  // data: → public URL via /api/upload/image (RunningHub passthrough)
+  async function ensurePublicUrl(v: string): Promise<string> {
+    if (!v) return "";
+    if (!v.startsWith("data:")) return v;
+    const blob = await (await fetch(v)).blob();
+    const fd = new FormData();
+    fd.append("file", blob, "improve-product.png");
+    const r = await fetch("/api/upload/image", { method: "POST", body: fd });
+    const d = await r.json();
+    if (!r.ok || !d?.url) throw new Error(d?.error || "Upload failed");
+    return d.url;
+  }
+
   async function generate() {
     const text = suggestion.trim();
     if (!text) return alert("Please write an improvement suggestion");
+    if (!overrideProductDataUrl) {
+      return alert("Product reference image is required — upload the product photo above before generating.");
+    }
     setSubmitting(true);
 
     // Build improved prompt — verbatim from extension's flow.
@@ -2182,17 +2212,24 @@ function ImproveVideoModal({
     }
 
     try {
-      // Route through /api/generate/extend so Improve gets the same fal.ai
-      // last-frame extract that Extend uses. "frame" mode → server extracts
-      // parent.output_url's last frame as start. "ingredient" → user-selected
-      // reference image flows through as start_frame_url for r2v.
+      // Upload the fresh product photo to RunningHub first so Crun
+      // gets a permanent download_url for the r2v reference. Then
+      // route through /api/generate/extend (same path as before) with
+      // the new URL as start_frame_url for ingredient mode.
+      let resolvedProductUrl = "";
+      try {
+        resolvedProductUrl = await ensurePublicUrl(overrideProductDataUrl);
+      } catch (e: any) {
+        throw new Error(`Product image upload failed: ${e?.message || e}`);
+      }
+
       const body: any = {
         parent_id: parentId,
         continuation_prompt: improvedPrompt,
         image_mode: imageMode,
       };
       if (imageMode === "ingredient") {
-        body.start_frame_url = referenceUrl;
+        body.start_frame_url = resolvedProductUrl;
       }
       const r = await fetch("/api/generate/extend", {
         method: "POST",
@@ -2247,22 +2284,65 @@ function ImproveVideoModal({
         </div>
 
         <div className="flex-1 min-h-0 overflow-y-auto p-5">
-          <div className="flex gap-3 mb-4">
-            <img
-              src={referenceUrl}
-              alt=""
-              className="w-20 h-24 object-cover rounded-lg flex-shrink-0"
-              style={{ border: "1px solid #e8e0d8" }}
-            />
-            <div>
-              <div className="text-[10px] font-bold uppercase tracking-wider mb-1" style={{ color: "#666" }}>
-                Reference Image
-              </div>
-              <div className="text-xs text-gray-600 leading-relaxed">
-                Will be reused as starting frame for the new video.
-              </div>
-            </div>
+          {/* Product Reference upload — REQUIRED. Replaces the static
+              re-use of the source row's referenceUrl since old rows
+              often have expired Tencent temp URLs. User uploads a
+              fresh shot of the product so Veo gets a clean pixel
+              anchor every Improve run. */}
+          <label className="block text-[10px] font-bold uppercase tracking-wider mb-1.5" style={{ color: overrideProductDataUrl ? "#666" : "#d97706" }}>
+            Product Reference (required) {!overrideProductDataUrl && "*"}
+          </label>
+          <div className="text-[10px] text-gray-500 mb-2 leading-relaxed">
+            Upload the product photo Veo should lock onto for the improved video. PNG / JPG.
           </div>
+          <input
+            ref={productUploadRef}
+            type="file"
+            accept="image/*"
+            hidden
+            onChange={(e) => handleProductUpload(e.target.files?.[0] || null)}
+          />
+          {overrideProductDataUrl ? (
+            <div
+              className="flex items-center gap-3 p-2.5 rounded-lg mb-4"
+              style={{ background: "rgba(124,77,255,0.08)", border: "1px solid rgba(124,77,255,0.3)" }}
+            >
+              <img
+                src={overrideProductDataUrl}
+                alt=""
+                className="w-16 h-20 object-cover rounded-md flex-shrink-0"
+                style={{ border: "1px solid #e8e0d8" }}
+              />
+              <div className="flex-1 min-w-0 text-[11px] leading-relaxed">
+                <div className="font-extrabold uppercase tracking-wider mb-0.5" style={{ color: "#7c4dff" }}>
+                  Product reference attached
+                </div>
+                <div className="text-gray-600">
+                  Uploaded to RunningHub when you click Generate.
+                </div>
+              </div>
+              <button
+                onClick={() => setOverrideProductDataUrl("")}
+                className="text-[10px] px-2 py-1 rounded text-gray-500 hover:text-gray-900 font-bold"
+              >
+                Clear
+              </button>
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={() => productUploadRef.current?.click()}
+              className="w-full px-3 py-3 rounded-lg text-xs font-bold inline-flex items-center justify-center gap-2 mb-4"
+              style={{
+                background: "#fafaf7",
+                color: "#7c4dff",
+                border: "1.5px dashed rgba(124,77,255,0.4)",
+              }}
+            >
+              <Upload className="w-4 h-4" />
+              Click to upload product image (PNG / JPG)
+            </button>
+          )}
 
           <label className="block text-[10px] font-bold uppercase tracking-wider mb-1.5" style={{ color: "#666" }}>
             Original Prompt
@@ -2318,7 +2398,14 @@ function ImproveVideoModal({
           </button>
           <button
             onClick={generate}
-            disabled={submitting}
+            disabled={submitting || !overrideProductDataUrl || !suggestion.trim()}
+            title={
+              !overrideProductDataUrl
+                ? "Upload the product reference image first"
+                : !suggestion.trim()
+                  ? "Write an improvement suggestion"
+                  : ""
+            }
             className="flex-1 py-3 rounded-lg font-extrabold text-sm text-white transition-transform hover:-translate-y-0.5 disabled:opacity-50 inline-flex items-center justify-center gap-2"
             style={{
               background: "linear-gradient(135deg, #7c4dff, #b388ff)",
