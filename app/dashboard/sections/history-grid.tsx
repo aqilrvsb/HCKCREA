@@ -444,7 +444,7 @@ export default function HistoryGrid({
           <div
             ref={scrollRef}
             className="overflow-y-auto"
-            style={{ maxHeight: "calc(100vh - 280px)", contain: "strict" }}
+            style={{ height: "calc(100vh - 280px)", contain: "layout paint" }}
           >
             <div
               style={{

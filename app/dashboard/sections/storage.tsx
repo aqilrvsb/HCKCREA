@@ -236,7 +236,7 @@ export default function StorageSection() {
         <div
           ref={storageScrollRef}
           className="overflow-y-auto"
-          style={{ maxHeight: "calc(100vh - 320px)", contain: "strict" }}
+          style={{ height: "calc(100vh - 320px)", contain: "layout paint" }}
         >
           <div
             style={{
