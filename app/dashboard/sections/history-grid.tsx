@@ -843,8 +843,8 @@ function HistoryCard({
     const isSeg2View = activeSlide?.id === "seg_1" && !!seg2?.id;
     const targetId = isSeg2View ? seg2!.id : item.id;
     const confirmMsg = isSeg2View
-      ? "Padam Segment 2 saja? Segment 1 tetap kekal. Any segment 3+ akan ikut hilang."
-      : "Padam item ni? Kalau ada segment 2/3, semua akan hilang sekali.";
+      ? "Padam Segment 2 saja? Segment 1 (dan segment lain) tetap kekal."
+      : "Padam item ni? Kalau ada segment 2, segment 2 akan ikut hilang sekali.";
     if (!confirm(confirmMsg)) return;
     setDeleting(true);
     try {
@@ -1065,12 +1065,17 @@ function HistoryCard({
             const canRecheck = slide.status === "pending";
             const canRetry =
               slide.status === "failed" && slide.id !== "merged";
-            const interactive = ready || canRecheck || canRetry;
+            // Always interactive — even queued/pending slides should be
+            // selectable so the user can see the slide's context and
+            // delete it (e.g. when seg-2 is stuck loading too long).
+            // Selection happens unconditionally; recheck/retry fire as
+            // a SECONDARY effect for non-ready slides so the user
+            // doesn't lose that one-click recheck shortcut.
+            const interactive = true;
             const onActivate = () => {
-              if (ready) {
-                setActiveIdx(i);
-                setUserPicked(true);
-              } else if (canRetry) {
+              setActiveIdx(i);
+              setUserPicked(true);
+              if (canRetry) {
                 void retrySlide(slide);
               } else if (canRecheck) {
                 void recheckSlide(slide);

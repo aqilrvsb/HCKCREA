@@ -50,23 +50,14 @@ export async function DELETE(req: Request) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  // Case 2 — child segment row. Cascade later siblings + roll parent back.
+  // Case 2 — child segment row. Delete ONLY this segment + roll the
+  // parent back to its previous state. Earlier-iteration cascade-deleted
+  // any later siblings too, but the user wants independent deletes:
+  // removing seg-2 should leave seg-3 alone (and vice versa).
   if (target.parent_history_id) {
-    // Find later siblings (rows with same parent_history_id, created later).
-    const { data: laterSiblings } = await admin
-      .from("history")
-      .select("id, created_at")
-      .eq("user_id", user.id)
-      .eq("parent_history_id", target.parent_history_id)
-      .gt("created_at", target.created_at);
-    const idsToDelete = [
-      target.id,
-      ...((laterSiblings || []).map((r: any) => r.id) as string[]),
-    ];
-
     // Roll parent back: re-fetch its metadata first so we don't clobber
-    // unrelated keys. Then revert output_url to seg1_url and clear the
-    // merge / seg-2 fields.
+    // unrelated keys. Revert output_url to seg1_url and clear the
+    // merge / seg-2 fields so the parent shows as a plain seg-1 again.
     const { data: parent } = await admin
       .from("history")
       .select("id, metadata")
@@ -91,14 +82,14 @@ export async function DELETE(req: Request) {
     const { error: delErr } = await admin
       .from("history")
       .delete()
-      .in("id", idsToDelete)
+      .eq("id", target.id)
       .eq("user_id", user.id);
     if (delErr) return NextResponse.json({ error: delErr.message }, { status: 500 });
 
     return NextResponse.json({
       ok: true,
       deleted_segment: target.id,
-      cascaded_siblings: idsToDelete.length - 1,
+      cascaded_siblings: 0,
       parent_reverted: !!parent,
     });
   }
