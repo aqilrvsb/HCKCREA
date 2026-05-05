@@ -14,6 +14,7 @@ import {
   Sparkles,
 } from "lucide-react";
 import { fetchStorageList } from "@/lib/swr-fetchers";
+import SkeletonCard from "@/app/components/skeleton-card";
 
 // Storage section — lists every file the user has saved into their B2
 // folder, mirrors the History grid layout (3-4 cols of cards) but
@@ -204,9 +205,11 @@ export default function StorageSection() {
       </div>
 
       {/* Loading / Error / Empty */}
-      {loading && (
-        <div className="card p-12 text-center">
-          <Loader2 className="w-6 h-6 mx-auto animate-spin text-[var(--color-text-muted)]" />
+      {loading && items.length === 0 && (
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          {Array.from({ length: 8 }).map((_, i) => (
+            <SkeletonCard key={i} />
+          ))}
         </div>
       )}
       {!loading && error && (

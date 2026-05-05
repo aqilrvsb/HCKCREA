@@ -29,6 +29,7 @@ import { fetchHistoryRows, fetchStorageStatus } from "@/lib/swr-fetchers";
 import Portal from "./portal";
 import ExtendDialog from "./extend-dialog";
 import LazyVideo from "@/app/components/lazy-video";
+import SkeletonCard from "@/app/components/skeleton-card";
 
 export type HistoryItem = {
   id: string;
@@ -356,7 +357,13 @@ export default function HistoryGrid({
         </div>
       )}
 
-      {items.length === 0 ? (
+      {loading && items.length === 0 ? (
+        <div className="grid grid-cols-3 md:grid-cols-4 gap-3">
+          {Array.from({ length: 8 }).map((_, i) => (
+            <SkeletonCard key={i} />
+          ))}
+        </div>
+      ) : items.length === 0 ? (
         <div className="flex flex-col items-center justify-center text-center py-16">
           <div
             className="w-16 h-16 rounded-2xl flex items-center justify-center mb-4"
@@ -368,7 +375,7 @@ export default function HistoryGrid({
             <History className="w-7 h-7 text-[var(--color-text-muted)]" />
           </div>
           <p className="text-[var(--color-text-secondary)] font-medium mb-1">
-            {loading ? "Loading…" : "Belum ada history."}
+            Belum ada history.
           </p>
           <p className="text-sm text-[var(--color-text-muted)]">
             Generate satu, ia akan muncul di sini.
