@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import useSWR from "swr";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import {
   HardDrive,
   Loader2,
@@ -85,6 +86,17 @@ export default function StorageSection() {
   );
 
   const usedPct = quotaMb > 0 ? Math.min(100, (usedMb / quotaMb) * 100) : 0;
+
+  // Virtualized grid — only the rows currently in view (plus a small
+  // overscan) are kept mounted. Storage list is one-shot (no infinite
+  // scroll), so the virtualizer just windows what's already in memory.
+  const storageScrollRef = useRef<HTMLDivElement | null>(null);
+  const storageVirtualizer = useVirtualizer({
+    count: Math.ceil(filtered.length / 4),
+    getScrollElement: () => storageScrollRef.current,
+    estimateSize: () => 280,
+    overscan: 2,
+  });
 
   async function handleDelete(id: string) {
     if (!confirm("Padam fail dari Storage? Tak boleh undo.")) return;
@@ -218,10 +230,46 @@ export default function StorageSection() {
 
       {/* Grid */}
       {!loading && !error && filtered.length > 0 && (
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-          {filtered.map((it) => (
-            <StorageCard key={it.id} item={it} onDelete={() => handleDelete(it.id)} />
-          ))}
+        <div
+          ref={storageScrollRef}
+          className="overflow-y-auto"
+          style={{ maxHeight: "calc(100vh - 320px)", contain: "strict" }}
+        >
+          <div
+            style={{
+              height: `${storageVirtualizer.getTotalSize()}px`,
+              width: "100%",
+              position: "relative",
+            }}
+          >
+            {storageVirtualizer.getVirtualItems().map((vrow) => {
+              const startIdx = vrow.index * 4;
+              const rowItems = filtered.slice(startIdx, startIdx + 4);
+              return (
+                <div
+                  key={vrow.key}
+                  ref={(el) => storageVirtualizer.measureElement(el)}
+                  style={{
+                    position: "absolute",
+                    top: 0,
+                    left: 0,
+                    transform: `translateY(${vrow.start}px)`,
+                    width: "100%",
+                  }}
+                >
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3 pb-3">
+                    {rowItems.map((it) => (
+                      <StorageCard
+                        key={it.id}
+                        item={it}
+                        onDelete={() => handleDelete(it.id)}
+                      />
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
         </div>
       )}
     </div>

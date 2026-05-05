@@ -15,8 +15,6 @@ import {
   X,
   Copy,
   Palette,
-  ChevronLeft,
-  ChevronRight,
   Layers,
   Clock,
   HardDrive,
@@ -25,6 +23,8 @@ import {
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import useSWR from "swr";
+import useSWRInfinite from "swr/infinite";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import { fetchHistoryRows, fetchStorageStatus } from "@/lib/swr-fetchers";
 import Portal from "./portal";
 import ExtendDialog from "./extend-dialog";
@@ -118,9 +118,6 @@ export default function HistoryGrid({
   title: string;
   projectId?: string;
 }) {
-  const [page, setPage] = useState(0);
-  const PAGE_SIZE = 12;
-
   // Storytelling has TWO kinds of artifacts the user wants visible:
   //   • merged final videos (type='fairytale')        ← the deliverable
   //   • intermediate scene images (type='fairytale-scene') ← the raw assets
@@ -169,40 +166,48 @@ export default function HistoryGrid({
     setMergeSelection([]);
   }, [tab, projectId]);
 
-  // SWR-managed history rows. Cache key encodes everything that affects
-  // the query so changing tab / project / sub-tab swaps to a different
-  // cache slot (warm re-tab back to a previous slot is instant).
-  const historyKey: ["history", string, string | undefined, string] = [
-    "history",
-    tab,
-    projectId,
-    storytellingSubTab,
-  ];
-  // Initial limit stays at 60 here — Task 3 reduces this to 20 + range
-  // pagination via @tanstack/react-virtual. Until then, SWR just caches
-  // the same query the original load() ran.
-  const { data: items = [], mutate: mutateHistory, isLoading } = useSWR(
-    historyKey,
-    () =>
+  // Infinite-scroll: each "page" is 20 rows. SWRInfinite tracks pages;
+  // the virtualizer drives when to ask for the next page.
+  const PAGE_LIMIT = 20;
+  const getKey = (pageIndex: number, prev: HistoryItem[] | null) => {
+    if (prev && prev.length === 0) return null; // reached end
+    return [
+      "history",
+      tab,
+      projectId,
+      storytellingSubTab,
+      pageIndex,
+    ] as const;
+  };
+  const {
+    data: pages,
+    size,
+    setSize,
+    mutate: mutateHistory,
+    isLoading,
+    isValidating,
+  } = useSWRInfinite<HistoryItem[]>(
+    getKey,
+    ([, t, pid, sub, idx]) =>
       fetchHistoryRows({
-        tab,
-        projectId,
-        storytellingSubTab,
-        limit: 60,
-        offset: 0,
+        tab: t as any,
+        projectId: pid as any,
+        storytellingSubTab: sub as any,
+        limit: PAGE_LIMIT,
+        offset: (idx as number) * PAGE_LIMIT,
       }) as Promise<HistoryItem[]>,
     {
       revalidateOnFocus: false,
       revalidateOnReconnect: true,
       dedupingInterval: 5000,
+      revalidateFirstPage: false,
     }
   );
+  const items: HistoryItem[] = pages ? pages.flat() : [];
+  const reachedEnd = pages
+    ? pages[pages.length - 1]?.length < PAGE_LIMIT
+    : false;
   const loading = isLoading;
-
-  // Reset paginator when the cache slot changes.
-  useEffect(() => {
-    setPage(0);
-  }, [tab, projectId, storytellingSubTab]);
 
   // history:refresh now triggers a SWR revalidation instead of a manual re-fetch.
   useEffect(() => {
@@ -296,10 +301,16 @@ export default function HistoryGrid({
     });
   }, [parents, saveStatus]);
 
-  const totalPages = Math.max(1, Math.ceil(visibleParents.length / PAGE_SIZE));
-  // Clamp page if items shrink (e.g. after delete) so we never show empty page.
-  const safePage = Math.min(page, totalPages - 1);
-  const pageItems = visibleParents.slice(safePage * PAGE_SIZE, safePage * PAGE_SIZE + PAGE_SIZE);
+  // Virtualized infinite scroll. Each row holds 4 cards, so the
+  // virtualizer count = ceil(visibleParents/4) + 1 sentinel row when
+  // we still expect more pages from the server.
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+  const virtualizer = useVirtualizer({
+    count: Math.ceil(visibleParents.length / 4) + (reachedEnd ? 0 : 1),
+    getScrollElement: () => scrollRef.current,
+    estimateSize: () => 380,
+    overscan: 2,
+  });
 
   return (
     <section className="card">
@@ -423,84 +434,70 @@ export default function HistoryGrid({
             </div>
           )}
 
-          <div className="grid grid-cols-3 md:grid-cols-4 gap-3">
-            {pageItems.map((it) => (
-              <HistoryCard
-                key={it.id}
-                item={it}
-                seg2={childMap[it.id]}
-                saveStatus={saveStatus[it.id]}
-                mergeSupported={supportsMerge}
-                mergeSelectedIdx={
-                  supportsMerge
-                    ? mergeSelection.indexOf(it.id)
-                    : -1
-                }
-                onToggleMerge={
-                  supportsMerge ? () => toggleMergeSelection(it.id) : undefined
-                }
-              />
-            ))}
-          </div>
-
-          {totalPages > 1 && (
-            <div className="flex items-center justify-center gap-2 mt-5 pt-4 border-t border-[var(--color-border)]">
-              <button
-                onClick={() => setPage(Math.max(0, safePage - 1))}
-                disabled={safePage === 0}
-                className="w-9 h-9 rounded-lg flex items-center justify-center text-sm font-bold disabled:opacity-30 transition"
-                style={{
-                  background: "var(--color-bg-card)",
-                  border: "1px solid var(--color-border)",
-                  color: "var(--color-text-primary)",
-                }}
-                aria-label="Previous page"
-              >
-                <ChevronLeft className="w-4 h-4" />
-              </button>
-
-              {Array.from({ length: totalPages }).map((_, i) => {
-                const isActive = i === safePage;
+          <div
+            ref={scrollRef}
+            className="overflow-y-auto"
+            style={{ maxHeight: "calc(100vh - 280px)", contain: "strict" }}
+          >
+            <div
+              style={{
+                height: `${virtualizer.getTotalSize()}px`,
+                width: "100%",
+                position: "relative",
+              }}
+            >
+              {virtualizer.getVirtualItems().map((vrow) => {
+                const startIdx = vrow.index * 4;
+                const rowItems = visibleParents.slice(startIdx, startIdx + 4);
+                const isSentinel = rowItems.length === 0 && !reachedEnd;
                 return (
-                  <button
-                    key={i}
-                    onClick={() => setPage(i)}
-                    className="min-w-[36px] h-9 px-3 rounded-lg text-xs font-bold transition"
-                    style={
-                      isActive
-                        ? {
-                            background:
-                              "linear-gradient(135deg, #facc15 0%, #eab308 100%)",
-                            color: "white",
-                            boxShadow: "0 4px 12px rgba(255,87,34,0.3)",
-                          }
-                        : {
-                            background: "var(--color-bg-card)",
-                            border: "1px solid var(--color-border)",
-                            color: "var(--color-text-secondary)",
-                          }
-                    }
+                  <div
+                    key={vrow.key}
+                    data-index={vrow.index}
+                    ref={(el) => virtualizer.measureElement(el)}
+                    style={{
+                      position: "absolute",
+                      top: 0,
+                      left: 0,
+                      transform: `translateY(${vrow.start}px)`,
+                      width: "100%",
+                    }}
                   >
-                    {i + 1}
-                  </button>
+                    {isSentinel ? (
+                      <SentinelLoader
+                        loading={isValidating}
+                        onVisible={() => {
+                          if (!isValidating && !reachedEnd) {
+                            void setSize((s) => s + 1);
+                          }
+                        }}
+                      />
+                    ) : (
+                      <div className="grid grid-cols-3 md:grid-cols-4 gap-3 pb-3">
+                        {rowItems.map((it) => (
+                          <HistoryCard
+                            key={it.id}
+                            item={it}
+                            seg2={childMap[it.id]}
+                            saveStatus={saveStatus[it.id]}
+                            mergeSupported={supportsMerge}
+                            mergeSelectedIdx={
+                              supportsMerge
+                                ? mergeSelection.indexOf(it.id)
+                                : -1
+                            }
+                            onToggleMerge={
+                              supportsMerge ? () => toggleMergeSelection(it.id) : undefined
+                            }
+                          />
+                        ))}
+                      </div>
+                    )}
+                  </div>
                 );
               })}
-
-              <button
-                onClick={() => setPage(Math.min(totalPages - 1, safePage + 1))}
-                disabled={safePage >= totalPages - 1}
-                className="w-9 h-9 rounded-lg flex items-center justify-center text-sm font-bold disabled:opacity-30 transition"
-                style={{
-                  background: "var(--color-bg-card)",
-                  border: "1px solid var(--color-border)",
-                  color: "var(--color-text-primary)",
-                }}
-                aria-label="Next page"
-              >
-                <ChevronRight className="w-4 h-4" />
-              </button>
             </div>
-          )}
+          </div>
         </>
       )}
     </section>
@@ -2131,6 +2128,48 @@ function SaveTrafficLight({
         </span>
       )}
     </button>
+  );
+}
+
+// SentinelLoader — last virtual row inside the history scroller. When it
+// scrolls into view (200px rootMargin), it fires onVisible() once which
+// nudges SWRInfinite to fetch the next page. Single IntersectionObserver
+// per row keeps the wiring cheap.
+function SentinelLoader({
+  loading,
+  onVisible,
+}: {
+  loading: boolean;
+  onVisible: () => void;
+}) {
+  const ref = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const obs = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((e) => e.isIntersecting)) onVisible();
+      },
+      { rootMargin: "200px" }
+    );
+    obs.observe(el);
+    return () => obs.disconnect();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  return (
+    <div
+      ref={ref}
+      className="flex items-center justify-center py-6 text-xs text-[var(--color-text-muted)]"
+    >
+      {loading ? (
+        <span className="inline-flex items-center gap-2">
+          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+          Loading more…
+        </span>
+      ) : (
+        <span>Scroll for more</span>
+      )}
+    </div>
   );
 }
 
