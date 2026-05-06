@@ -19,7 +19,6 @@ import {
   contentTypeFromExt,
   inferExt,
   mirrorToContentBucket,
-  type ContentType,
 } from "@/lib/mirror-to-b2";
 
 // Map a model string (from history.metadata.model) to a per-model rate
@@ -384,30 +383,40 @@ export async function settleHistoryRow(hist: HistoryRow): Promise<SettleResult> 
     // the URL on the row. If mirror fails, gen still completes — we fall
     // back to the provider URL and leave b2_mirrored_at NULL so the
     // backfill job retries later.
+    //
+    // Idempotency: webhook + poll-pending cron can race on the same row.
+    // If the row was already mirrored by a prior settle pass, skip the
+    // PUT (and the provider re-fetch) entirely — output_url is already
+    // the stable public B2 URL.
     let storedOutputUrl: string = r.outputUrl;
     let mirroredAt: string | null = null;
-    try {
-      const ext = inferExt({ url: r.outputUrl, type: hist.type as ContentType });
-      const key = buildContentKey({
-        userId: hist.user_id,
-        type: hist.type as ContentType,
-        historyId: hist.id,
-        ext,
-      });
-      const ctype = contentTypeFromExt(ext);
-      const mirrored = await mirrorToContentBucket({
-        providerUrl: r.outputUrl,
-        key,
-        contentType: ctype,
-      });
-      storedOutputUrl = mirrored.publicUrl;
-      mirroredAt = new Date().toISOString();
-    } catch (mirrorErr) {
-      console.error(
-        `[settle] mirror-to-b2 failed for history ${hist.id}: ${
-          (mirrorErr as Error).message
-        }. Falling back to provider URL — backfill will retry.`
-      );
+    if ((hist as any).b2_mirrored_at) {
+      // Already mirrored on a prior settle pass — re-use what's there.
+      storedOutputUrl = hist.output_url || r.outputUrl;
+      mirroredAt = (hist as any).b2_mirrored_at;
+    } else {
+      try {
+        const ext = inferExt({ url: r.outputUrl, type: hist.type });
+        const key = buildContentKey({
+          userId: hist.user_id,
+          type: hist.type,
+          historyId: hist.id,
+          ext,
+        });
+        const ctype = contentTypeFromExt(ext);
+        const mirrored = await mirrorToContentBucket({
+          providerUrl: r.outputUrl,
+          key,
+          contentType: ctype,
+        });
+        storedOutputUrl = mirrored.publicUrl;
+        mirroredAt = new Date().toISOString();
+      } catch (mirrorErr) {
+        console.error("[settle] mirror-to-b2 failed", {
+          historyId: hist.id,
+          err: mirrorErr,
+        });
+      }
     }
 
     await admin
