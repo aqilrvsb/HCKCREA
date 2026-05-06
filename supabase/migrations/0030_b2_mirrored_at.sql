@@ -15,7 +15,7 @@ CREATE INDEX IF NOT EXISTS history_b2_unsaved_idx
 --   * b2_mirrored_at is set (we put the file on peninglab-content)
 --   * row is older than 14 days
 --   * no storage row exists for it (user did not Save → file is unsaved)
-CREATE OR REPLACE FUNCTION history_unsaved_past_ttl()
+CREATE OR REPLACE FUNCTION public.history_unsaved_past_ttl()
 RETURNS TABLE (
   id UUID,
   user_id UUID,
@@ -25,14 +25,16 @@ RETURNS TABLE (
 )
 LANGUAGE SQL
 SECURITY DEFINER
+SET search_path = public
 AS $$
   SELECT h.id, h.user_id, h.type, h.output_url, h.b2_mirrored_at
-  FROM history h
+  FROM public.history h
   WHERE h.b2_mirrored_at IS NOT NULL
     AND h.created_at < NOW() - INTERVAL '14 days'
     AND NOT EXISTS (
-      SELECT 1 FROM storage s WHERE s.history_id = h.id
+      SELECT 1 FROM public.storage s WHERE s.history_id = h.id
     );
 $$;
 
-GRANT EXECUTE ON FUNCTION history_unsaved_past_ttl() TO service_role;
+REVOKE ALL ON FUNCTION public.history_unsaved_past_ttl() FROM public, authenticated, anon;
+GRANT EXECUTE ON FUNCTION public.history_unsaved_past_ttl() TO service_role;
