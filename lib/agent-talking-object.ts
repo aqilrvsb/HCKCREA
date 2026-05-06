@@ -149,6 +149,26 @@ PROHIBITIONS:
 - NEVER write a "neutral photogenic backdrop" — the scene must be the
   actual subject of the purpose.
 - NEVER ignore a custom_target — it is the user's explicit direction.
+- NEVER use a "PRODUCT-ADJACENT" scene that merely references the topic
+  but doesn't place the character INSIDE/ON the actual subject. Forbidden
+  examples (memorize these traps):
+    • For hair: vanity shelf, salon counter, bathroom shelf with shampoo
+      bottles, hair-product display, makeup table with combs in background
+      — these are NOT hair scenes, they are PRODUCT scenes.
+    • For skin: skincare shelf, spa counter, cosmetic store, facial
+      product table — these are NOT skin scenes.
+    • For gut: kitchen counter with "healthy food", grocery shelf,
+      restaurant table — these are NOT gut scenes.
+    • For heart: pharmacy shelf, gym lobby — these are NOT heart scenes.
+    • For brain: study desk with books, library shelf — NOT brain scenes.
+  The CORRECT scene is INSIDE the body system itself. Hair → scalp /
+  follicle / single strand. Skin → dermis / pore. Gut → stomach lining.
+  Heart → blood vessel / heart chamber. Brain → neural tissue / brain
+  cell. The image must look like a microscopic / anatomical view, not a
+  retail / wellness / spa setting. If you find yourself writing "shelf"
+  or "counter" or "display" or "salon" or "spa" or "store" in a body-
+  topic scene_block, STOP and replace with the actual anatomical
+  location.
 
 REFERENCE MAPPINGS (helper examples — extend freely for any subject):
 
