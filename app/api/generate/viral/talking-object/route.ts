@@ -4,10 +4,10 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { p2CreateTask, p2GetStatus } from "@/lib/p2";
 import { p3CreateImage, p3GetStatus } from "@/lib/p3";
 import {
-  getCinemaRate,
   getP2Config,
   getViralImageConfig,
 } from "@/lib/settings";
+import { priceFor, deduct } from "@/lib/deduct";
 
 // Models P3 / Mountsea natively supports. If admin picked something
 // else (e.g. z-image, gpt-image-2 — both P2-only) we fall back to fast.
@@ -232,8 +232,11 @@ export async function POST(req: Request) {
     }
 
     const cfg = await getP2Config();
-    const ratePerSec = await getCinemaRate();
-    const cost = Number((ratePerSec * 8).toFixed(4));
+    // Viral video is Veo 8s flat — bill at the per-model Veo 8s rate
+    // (rate_veo.per_video_8s in admin), NOT Grok's per-second cinema
+    // rate. settle.ts will recompute the live rate at settle time when
+    // the Veo webhook lands, so this is the insert-time stamp only.
+    const cost = await priceFor(user.id, "video_8s", "veo");
 
     // ─── Path A: t2v — skip image gen, go direct to Veo text-to-video ───
     if (mode === "t2v") {
@@ -558,8 +561,11 @@ export async function POST(req: Request) {
     }
 
     // Image done — flip the placeholder image row to status="done" with
-    // the final URL. The card on the Images sub-tab morphs from spinner
-    // into the actual image without needing a re-fetch.
+    // the final URL + deduct credits inline. We poll the image
+    // synchronously instead of going through the webhook→settle.ts
+    // path, so the deduction has to happen here. Without this the
+    // image is effectively free.
+    const imageRate = await priceFor(user.id, "image_generate", "banana_pro");
     if (imageHistoryId) {
       await admin
         .from("history")
@@ -567,6 +573,7 @@ export async function POST(req: Request) {
           status: "done",
           output_url: imageUrl,
           thumbnail_url: imageUrl,
+          cost: imageRate,
           metadata: {
             featureType: "talking-object-image",
             params: baseParams,
@@ -581,6 +588,18 @@ export async function POST(req: Request) {
           },
         })
         .eq("id", imageHistoryId);
+      // Deduct image credits — best-effort. A failure here logs but
+      // does NOT roll back the image (user already has the asset).
+      if (imageRate > 0) {
+        try {
+          await deduct(user.id, "image_generate", imageRate, imageHistoryId);
+        } catch (e) {
+          console.error(
+            `[talking-object] image deduct failed for ${imageHistoryId}:`,
+            e
+          );
+        }
+      }
     }
 
     // Step 4: Veo i2v with the generated image as the START FRAME.
