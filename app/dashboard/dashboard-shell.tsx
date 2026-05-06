@@ -39,17 +39,17 @@ type TabKey = "image" | "video" | "cinema" | "seedance" | "clone" | "auto" | "fa
 // Clone Prompt → Fairytale. "Story" keeps the legacy "cinema" key + the
 // /api/agent/cinema route paths internally so we don't have to rename
 // agent-cinema.ts.
-// Story tab (key: "cinema") is intentionally hidden — user removed it
-// from the wizard rotation. Existing history rows of type "cinema"
-// stay in the DB but no longer have an entry point. Re-add the row
-// here if you want to bring it back.
+// "Viral" tab (key: "cinema") was previously hidden as "Story" — now back
+// with a model selector (Grok / Veo). Backend route paths still use the
+// "cinema" key internally so we don't have to rename agent-cinema.ts.
 const TABS: { key: TabKey; label: string; icon: any; tag: string }[] = [
   { key: "image",     label: "Image",        icon: ImageIcon, tag: "01" },
   { key: "video",     label: "UGC",          icon: Video,     tag: "02" },
   { key: "auto",      label: "Auto Content", icon: Wand2,     tag: "03" },
   { key: "seedance",  label: "Cinema",       icon: Film,      tag: "04" },
   { key: "clone",     label: "Clone Prompt", icon: Layers,    tag: "05" },
-  { key: "fairytale", label: "Storytelling",       icon: BookOpen,  tag: "06" },
+  { key: "fairytale", label: "Storytelling", icon: BookOpen,  tag: "06" },
+  { key: "cinema",    label: "Viral",        icon: Film,      tag: "07" },
 ];
 
 export default function DashboardShell({
@@ -500,7 +500,7 @@ function ProjectView({
               <div className="max-w-5xl mx-auto w-full">
                 <CinemaTab projectId={project.id} />
               </div>
-              <HistoryGrid tab="cinema" title={`Story — ${project.name}`} projectId={project.id} />
+              <HistoryGrid tab="cinema" title={`Viral — ${project.name}`} projectId={project.id} />
             </>
           )}
           {activeTab === "seedance" && (

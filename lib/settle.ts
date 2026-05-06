@@ -363,10 +363,15 @@ export async function settleHistoryRow(hist: HistoryRow): Promise<SettleResult> 
       const baseRate = await priceFor(hist.user_id, reason as any, modelHint);
       const durationSec = Number(hist.duration) || 8;
       // Grok + Seedance bill per second; Veo + image models are flat.
-      chargeAmount =
+      const liveRate =
         modelHint === "grok" || modelHint === "seedance"
           ? Number((baseRate * durationSec).toFixed(4))
           : Number(baseRate.toFixed(4));
+      // Only override the row's stored cost when we got a positive rate
+      // back. priceFor can return 0 when no rate is configured for this
+      // (reason, modelHint) pair (e.g. cinema + veo without admin setting)
+      // — in that case fall back to the cost the route stamped at insert.
+      if (liveRate > 0) chargeAmount = liveRate;
     }
 
     if (chargeAmount > 0) {
