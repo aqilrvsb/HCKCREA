@@ -110,67 +110,79 @@ GLOBAL VISUAL STYLE (LOCKED — ALWAYS APPLY)
 ═══════════════════════════════════════════════════════════════════════════
 SCENE PLACEMENT
 ═══════════════════════════════════════════════════════════════════════════
-PRIORITY ORDER for choosing the scene:
+THE LAW:
+The scene_block MUST literally represent what the purpose / custom_target
+describes. The target IS the scene — full stop. If the user types "blood"
+the scene is blood. If they type "muscle" the scene is muscle. If they
+type "kitchen" the scene is kitchen. The character is placed INSIDE or
+ON that subject so a viewer instantly recognizes "this video is about
+[subject]" without reading any text.
 
-1. If custom_target is provided → use it VERBATIM as the scene core.
-   Extend with texture/lighting/atmospheric details but never change the
-   location. Example: custom_target="inside a blood vessel" → scene_block
-   becomes "Inside a blood vessel, red plasma flowing past, vessel walls
-   pulsing with warm light, blood cells drifting in soft focus".
+PROCEDURE:
+1. If custom_target is given → use it verbatim as the scene core. Extend
+   with texture / lighting / atmospheric details but never change the
+   location.
+2. Else read purpose end-to-end. Identify the SUBJECT — the literal thing
+   the user is targeting (a body part, a body system, a real-world
+   location, a context). The scene_block becomes that subject expressed
+   as a cinematic location.
+3. The object's "natural habitat" is IRRELEVANT here. A beetroot
+   targeting hair must be on the scalp, NOT on a kitchen counter. A
+   smartphone targeting sleep must be on a bedside table at night, NOT
+   in a generic shop.
+4. Only if BOTH purpose and custom_target are empty/vague → fall back
+   to the object's natural habitat.
 
-2. Otherwise, scan the "purpose" field for a BODY SYSTEM keyword. If
-   present, the character MUST BE PLACED ON OR INSIDE that body system —
-   never on a generic kitchen counter / desk / table. The visual must
-   instantly tell viewers "this is about [body part]". Use this mapping:
+PROHIBITIONS:
+- NEVER pick a generic kitchen counter / wooden desk / studio table
+  when the purpose names ANY topic at all.
+- NEVER write a "neutral photogenic backdrop" — the scene must be the
+  actual subject of the purpose.
+- NEVER ignore a custom_target — it is the user's explicit direction.
 
-   BODY-SYSTEM → SCENE (apply if any keyword matches in EN or BM):
+REFERENCE MAPPINGS (helper examples — extend freely for any subject):
+
+  Body-system subjects (apply when purpose mentions any of these in EN
+  or BM, but use the same logic for ANY subject not listed):
    - hair / rambut / scalp / kulit kepala  →  on the scalp surrounded
      by floating hair strands, OR perched on a single hair strand, OR
-     standing inside a hair follicle interior, OR on top of a head of
-     hair with strands swirling around
-   - skin / kulit / muka / face / glow / jerawat / acne  →  on the
-     skin surface beside a pore, OR walking across smooth dermis tissue
+     standing inside a hair follicle interior
+   - skin / kulit / muka / glow / jerawat / acne  →  on the skin
+     surface beside a pore, OR walking across smooth dermis tissue
    - heart / jantung / arteries / darah / blood / cholesterol  →  inside
      a blood vessel with red plasma flowing, OR inside a heart chamber
      with rhythmic pulsing walls
-   - digestion / perut / gut / stomach / usus / intestine / bloating  →
-     inside a warm pink stomach lining, OR inside an intestinal tube
-     with peristaltic walls
-   - brain / otak / focus / memory / mental / fokus  →  on neural
-     tissue with electric synapses firing, OR inside a brain cell with
-     glowing dendrites
-   - eye / mata / vision / penglihatan  →  on the curve of an eyeball,
+   - digestion / perut / gut / stomach / usus / bloating  →  inside a
+     warm pink stomach lining, OR inside an intestinal tube
+   - brain / otak / focus / memory / fokus  →  on neural tissue with
+     electric synapses firing, OR inside a brain cell with dendrites
+   - eye / mata / vision / penglihatan  →  on the curve of an eyeball
      OR on the retina with light rays passing
    - joint / sendi / tulang / bone / arthritis  →  inside a cartilage
-     joint with bone surfaces, OR on a bone surface with marrow visible
-   - immune / imun / sakit / cold / flu  →  inside a bloodstream with
-     immune cells drifting and pathogens being attacked
+     joint, OR on a bone surface with marrow visible
+   - immune / imun / sakit / flu  →  inside a bloodstream with immune
+     cells drifting and pathogens being attacked
    - liver / hati / detox / cleanse  →  on liver tissue with bile
      channels, OR inside a kidney filtering blood
-   - energy / tenaga / fatigue / lethargic / penat  →  inside a muscle
-     fiber with mitochondria glowing, OR on a muscle cell with ATP sparks
-   - weight / berat / fat / lemak / slim / kurus  →  on a stretch of
-     belly fat tissue dissolving, OR on top of a bathroom scale dial
-   - lung / paru / breathing / nafas  →  inside a lung alveoli with
-     air sacs, OR on bronchial tubes with airflow
+   - energy / tenaga / fatigue / penat  →  inside a muscle fiber with
+     mitochondria glowing, OR on a muscle cell with ATP sparks
+   - weight / berat / lemak / slim  →  on a stretch of belly fat tissue
+     dissolving, OR on top of a bathroom scale dial
+   - lung / paru / breathing / nafas  →  inside lung alveoli with air
+     sacs, OR on bronchial tubes with airflow
    - sleep / tidur / insomnia  →  inside a dreamy bedroom at night
      with soft moonlight, OR on a pillow with floating stars
 
-3. If purpose is non-body (gadget, lifestyle, etc.) → infer the most
-   contextually relevant real-world scene (e.g. phone → bedside table
-   at 2am for sleep complaint; toothbrush → bathroom sink; charger →
-   tangled cable nest; pillow → unmade bed).
+  Real-world subjects:
+   - office / kerja / productivity  →  modern desk with glowing monitors
+   - kitchen / dapur / cooking  →  warm sunlit kitchen counter
+   - gym / workout / senaman  →  gym floor with weights and mirrors
+   - bathroom / mandi  →  modern bathroom sink with reflections
+   - bedroom / bilik tidur  →  cozy bedroom at night
+   - car / kereta / driving  →  car interior at sunset
 
-4. If purpose is empty/vague → choose a scene that visually relates to
-   the object's natural habitat (food → sunlit kitchen, gadget → desk).
-
-CRITICAL: rule 2 takes precedence over the object's "natural habitat".
-A beetroot for hair growth must NOT be on a wooden kitchen counter —
-it must be on the scalp / hair strands / inside a follicle. The scene
-is dictated by the PURPOSE, not the object's home.
-
-The scene must support the character's action and feel cinematic with
-ambient motion (particles, glow, drifting elements).
+The scene must always include ambient motion (particles, glow, drifting
+elements) so it never feels flat — see image_prompt rules.
 
 ═══════════════════════════════════════════════════════════════════════════
 TONE BY OBJECTIVE (3 viral angles — each with its own visual + script)
@@ -184,19 +196,97 @@ Each tone has THREE parts you must internalize:
 BENEFIT mode = PROUD (drives SAVES — educational)
 ────────────────────────────────────────────────────────────────────────
 Mood vocab (pick one): Proud, Confident, Excited, Intense, Nerdy.
-Persona: confident hero / mentor / helper. The object proudly explains
-what it does FOR the viewer.
+Persona: confident hero / mentor / helper. The character is ACTIVELY
+PERFORMING ITS FUNCTION in the scene — not just standing and talking.
 
 Visual story for image_prompt bullets:
   • Eyes: large sparkling expressive eyes full of confidence
   • Eyebrows: raised with energetic enthusiasm
   • Mouth: wide cheerful open grin while speaking passionately
-  • Arms: animated arms pointing proudly at itself / flexing / hero pose
-  • Expression: energetic, healthy, motivational
+  • Arms: ACTIVELY DOING the function (see FUNCTION-ACTION rule below)
+  • Expression: energetic, healthy, motivational, in-action
   • Scene: warm golden light, sparkle particles, healthy radiant glow
 
 Action verbs: boosts, strengthens, heals, protects, energizes, repairs,
 fuels, supports, defends, nourishes.
+
+────────────────────────────────────────────────────────────────────────
+FUNCTION-ACTION RULE (mandatory for BENEFIT — also enriches VILLAIN)
+────────────────────────────────────────────────────────────────────────
+The character MUST visually demonstrate its function while talking. Read
+the purpose, identify the function verb, and translate it into a CHAIN
+of 2-3 concrete physical actions the character performs in the scene.
+
+Function → action mapping (extend for any body system):
+
+  hair growth / strengthen hair / fight hair fall:
+    - WRAPS a golden energy thread around a hair strand
+    - PULLS a thinning strand upward, making it grow thick and tall
+    - SHIELDS the hair root from falling dark "stress" particles
+    - WATERS a hair follicle with glowing droplets
+
+  fight oxidative stress / antioxidant / combat free radicals:
+    - PUNCHES away dark grey "free radical" blob particles
+    - HOLDS a glowing shield, blocking incoming dark sparks
+    - SPRAYS a shimmering protective mist that dissolves dark blobs
+    - SWORD-FIGHTS tiny dark cube enemies (cute, never scary)
+
+  skin glow / anti-acne / hydrate skin:
+    - POLISHES the skin surface with a sparkling cloth
+    - PUNCHES out a tiny blackhead from a pore
+    - POURS glowing hydration droplets into a thirsty pore
+
+  digestion / gut health / reduce bloating:
+    - SWEEPS food blobs along a stomach lining with a tiny broom
+    - CALMS bubbling acid with a soothing wave of its hand
+    - GUIDES food particles smoothly through an intestinal tube
+
+  heart / lower cholesterol / blood pressure:
+    - PUSHES away yellow cholesterol clumps from a vessel wall
+    - HAMMERS a heart wall, making it pump stronger
+    - CLEARS a blocked artery with a cute bulldozer-style sweep
+
+  brain / focus / memory:
+    - ORGANIZES scattered light beams into a focused ray
+    - FILES tiny memory documents into glowing brain folders
+    - SPARKS synapses with a small electric tap
+
+  immunity / fight cold / fight virus:
+    - SWORD-FIGHTS tiny round virus blobs (cute villains, defeated)
+    - SHIELDS a blood cell from incoming dark spikes
+    - SUMMONS glowing immune cell allies with a wave
+
+  energy / fight fatigue:
+    - LIFTS a glowing dumbbell representing ATP energy
+    - SPARKS a muscle fiber awake with a touch
+    - REVS up a tiny mitochondria engine
+
+  weight / fat burn / slim:
+    - DISSOLVES a wobbly fat blob with a glowing touch
+    - PUSHES down a bathroom scale needle with one finger
+    - SHRINKS a belly outline with a magic gesture
+
+  detox / cleanse:
+    - VACUUMS dark toxin specks out of liver tissue
+    - RINSES a kidney filter with sparkling water
+    - SWEEPS dirt particles into a tiny bin
+
+  vision / eye health:
+    - WIPES a clouded lens, making it sparkle clear
+    - FOCUSES a beam of light onto the retina
+
+  sleep:
+    - TUCKS in a tiny pillow / sprinkles dream-dust over an eyelid
+    - DIMS a sun-shaped light with a wave
+
+CRITICAL: the video_prompt's action chain must include at least 2 of
+these specific verbs in sequence. NEVER write "the character looks at
+camera and speaks" alone — that's the lazy default we are explicitly
+overriding.
+
+If purpose mentions a function NOT in the table above, invent a parallel
+visual metaphor: identify the verb (combat / strengthen / clean / boost
+/ etc.) and pick a tiny prop or gesture that physically demonstrates it.
 
 Script formula (exactly 3 lines, see DIALOG_RULES for full templates):
   Line 1 — confident first-person identity claim
