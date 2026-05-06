@@ -183,6 +183,10 @@ def _process_row(row: dict, dry_run: bool, force: bool = False) -> dict:
     (used to apply new Cache-Control headers to existing files). The
     source URL in that case IS the existing peninglab-content URL — we
     download from B2 and re-upload to B2 with the new headers.
+
+    Also mirrors merged_url (16s/Extend merged result, typically on fal.media)
+    and metadata.seg1_url (kept on parent for revert-on-delete) when present.
+    These bypass the main output_url path because they're in different fields.
     """
     import requests
 
@@ -190,26 +194,55 @@ def _process_row(row: dict, dry_run: bool, force: bool = False) -> dict:
     user_id = row["user_id"]
     row_type = row.get("type") or "video"
     output_url = row.get("output_url") or ""
+    base = os.environ["B2_CONTENT_PUBLIC_BASE"].rstrip("/")
 
+    extras_mirrored = []  # ["merged_url", "seg1_url", "seg2_url"]
+    extras_skipped = []
+
+    # ---- Helper: mirror one URL field to a derived B2 key ----------------------
+    def _mirror_field(src_url: str, key_suffix: str) -> "str | None":
+        """Download src_url, upload to peninglab-content with key suffix,
+        return new public URL. Returns None on 4xx / empty / already-on-content
+        (caller decides what to do)."""
+        if not src_url:
+            return None
+        if src_url.startswith(base) and not force:
+            return src_url  # already migrated, no-op
+        try:
+            rr = requests.get(src_url, timeout=120)
+        except Exception:
+            return None
+        if rr.status_code >= 400:
+            return None
+        bb = rr.content
+        if len(bb) == 0:
+            return None
+        # Use mp4 ext for merged_url / seg URLs (always video here)
+        sub_ext = _ext_from_url(src_url, "video")
+        sub_key = f"users/{user_id}/{row_type}/{rid}{key_suffix}.{sub_ext}"
+        sub_ctype = _content_type(sub_ext)
+        try:
+            _b2_content_put(sub_key, bb, sub_ctype)
+        except Exception:
+            return None
+        return _public_url(sub_key)
+
+    # ---- 1. Main output_url ----------------------------------------------------
     if not output_url:
         return {"status": "skipped_no_url"}
 
-    # Already on content bucket?
-    base = os.environ["B2_CONTENT_PUBLIC_BASE"].rstrip("/")
     if output_url.startswith(base):
         if not force:
-            # Stamp b2_mirrored_at if NULL
             sb = _supabase()
             sb.table("history").update(
                 {"b2_mirrored_at": datetime.datetime.utcnow().isoformat() + "Z"}
             ).eq("id", rid).is_("b2_mirrored_at", "null").execute()
             return {"status": "skipped_already_content"}
-        # In force mode, fall through to re-download + re-upload (same key,
-        # so the URL stays stable but the Cache-Control header is refreshed).
+        # In force mode, fall through to re-download + re-upload.
 
     # Pull source bytes
     try:
-        r = requests.get(output_url, timeout=60)
+        r = requests.get(output_url, timeout=120)
     except Exception as e:
         return {"status": "error", "error": f"fetch_exception: {e}"}
     if r.status_code >= 400:
@@ -236,20 +269,49 @@ def _process_row(row: dict, dry_run: bool, force: bool = False) -> dict:
     except Exception as e:
         return {"status": "error", "error": f"b2_put: {e}"}
 
+    # ---- 2. merged_url (the 16s/Extend final fal.media URL) -------------------
+    update_payload: dict = {
+        "output_url": new_url,
+        "thumbnail_url": new_url if row_type == "video" else None,
+        "b2_mirrored_at": datetime.datetime.utcnow().isoformat() + "Z",
+    }
+
+    merged_src = row.get("merged_url") or ""
+    if merged_src and not (merged_src.startswith(base) and not force):
+        new_merged = _mirror_field(merged_src, "-merged")
+        if new_merged:
+            update_payload["merged_url"] = new_merged
+            extras_mirrored.append("merged_url")
+        else:
+            extras_skipped.append("merged_url")
+
+    # ---- 3. metadata.seg1_url + metadata.seg2_url ------------------------------
+    meta = row.get("metadata") or {}
+    new_meta = dict(meta)  # copy so we don't mutate
+    meta_changed = False
+    for meta_key in ("seg1_url", "seg2_url"):
+        src = meta.get(meta_key) or ""
+        if src and not (src.startswith(base) and not force):
+            new_sub = _mirror_field(src, f"-{meta_key.replace('_url', '')}")
+            if new_sub:
+                new_meta[meta_key] = new_sub
+                meta_changed = True
+                extras_mirrored.append(meta_key)
+            else:
+                extras_skipped.append(meta_key)
+    if meta_changed:
+        update_payload["metadata"] = new_meta
+
     sb = _supabase()
-    sb.table("history").update(
-        {
-            "output_url": new_url,
-            "thumbnail_url": new_url if row_type == "video" else None,
-            "b2_mirrored_at": datetime.datetime.utcnow().isoformat() + "Z",
-        }
-    ).eq("id", rid).execute()
+    sb.table("history").update(update_payload).eq("id", rid).execute()
 
     return {
         "status": "remirrored" if force and output_url.startswith(base) else "mirrored",
         "key": b2_key,
         "size": len(body),
         "new_url": new_url,
+        "extras_mirrored": extras_mirrored,
+        "extras_skipped": extras_skipped,
     }
 
 
@@ -262,7 +324,12 @@ def backfill_user(user_id: str, dry_run: bool = False, force: bool = False) -> d
     to existing files).
     """
     sb = _supabase()
-    q = sb.table("history").select("id, user_id, type, output_url").eq("user_id", user_id).eq("status", "done")
+    q = (
+        sb.table("history")
+        .select("id, user_id, type, output_url, merged_url, metadata")
+        .eq("user_id", user_id)
+        .eq("status", "done")
+    )
     if not force:
         # Default: only un-mirrored rows
         q = q.is_("b2_mirrored_at", "null")
