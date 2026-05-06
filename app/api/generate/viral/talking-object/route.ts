@@ -232,11 +232,12 @@ export async function POST(req: Request) {
     }
 
     const cfg = await getP2Config();
-    // Viral video is Veo 8s flat — bill at the per-model Veo 8s rate
-    // (rate_veo.per_video_8s in admin), NOT Grok's per-second cinema
-    // rate. settle.ts will recompute the live rate at settle time when
-    // the Veo webhook lands, so this is the insert-time stamp only.
-    const cost = await priceFor(user.id, "video_8s", "veo");
+    // Viral video billing — mirror UGC's pattern exactly: plan-tier rate
+    // at insert time (priceFor with no model hint), settle.ts adds the
+    // "veo" hint at webhook-settle time and overrides with the per-model
+    // Veo 8s rate (rate_veo.per_video_8s) if higher. End result: Viral
+    // pays the same as UGC for an 8s video.
+    const cost = await priceFor(user.id, "video_8s");
 
     // ─── Path A: t2v — skip image gen, go direct to Veo text-to-video ───
     if (mode === "t2v") {
