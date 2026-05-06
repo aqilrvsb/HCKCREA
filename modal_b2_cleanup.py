@@ -27,7 +27,7 @@ image = (
 )
 
 secrets = [
-    modal.Secret.from_name("supabase-service"),
+    modal.Secret.from_name("fairytale-secrets"),
     modal.Secret.from_name("b2-content-secrets"),
 ]
 

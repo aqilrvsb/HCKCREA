@@ -46,7 +46,7 @@ image = (
 # And `supabase-service` containing:
 #   SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
 secrets = [
-    modal.Secret.from_name("supabase-service"),
+    modal.Secret.from_name("fairytale-secrets"),
     modal.Secret.from_name("b2-content-secrets"),
 ]
 
