@@ -410,17 +410,42 @@ HARD-BANNED Indonesian tokens (NEVER USE THESE):
   kalian, gue, gua, lo, lu, banget, sih, dong, nggak, bisa, udah, aja,
   kok, deh, kalo, bgt, bener, kayak, gimana, ngapain, nih, tuh.
 
-ALL TONES: dialog_line is exactly 3 short beats joined by " — " or
-spaces, total 18-24 words. Each beat = one sentence/clause.
+PUNCTUATION RULE — applies to BOTH languages:
+  NEVER use em-dash "—" or en-dash "–" inside dialog_line. Spoken dialog
+  must use ONLY commas, periods, question marks, and exclamation marks.
+  Em-dashes do not exist in natural speech and break Veo lip-sync pacing.
+  The 3 beats are joined by COMMAS or PERIODS, never dashes.
+
+ALL TONES: dialog_line is exactly 3 short beats joined by COMMAS or
+PERIODS (NO dashes), total 18-24 words. Each beat = one natural-sounding
+sentence/clause.
+
+NATURAL MALAY GRAMMAR (CRITICAL — most generated dialog fails here):
+- Relative clauses MUST use "yang" — never juxtapose two verbs without
+  it. WRONG: "radikal bebas rosakkan rambut" (broken). RIGHT: "radikal
+  bebas YANG rosakkan rambut" (free radicals THAT damage hair).
+- Use natural BM connectors: "dan" (and), "tapi" (but), "sebab"/"sebab
+  tu" (because/that's why), "untuk" (to/for), "supaya" (so that), "kalau"
+  (if), "lepas tu" (after that). NEVER stitch with " — ".
+- Subject-verb-object order, not English literal translation. WRONG:
+  "antioksida aku pukul habis radikal bebas rosakkan rambut" (jumbled).
+  RIGHT: "aku ada antioksida yang pukul habis radikal bebas yang
+  rosakkan rambut korang" (clear flow).
+- Read your output aloud mentally — if a Malaysian friend would say
+  "ayat ni berbelit", rewrite it.
 
 BENEFIT (Proud) — Malay 3-line beat:
   Beat 1: confident first-person identity claim
-  Beat 2: specific benefit / mechanism
+  Beat 2: specific benefit / mechanism (use "yang" for relative clauses)
   Beat 3: punchy comparison or soft CTA
   Hook openers (pick ONE for beat 1): "Korang tau tak", "Jom aku
     bagitau", "Pergh", "Weh serius", "Eh korang kena tau ni", "Fuiyoh".
-  Example: "Korang tau tak, aku Biotin — aku kuatkan akar rambut korang
-  setiap hari — guna aku, rambut korang takkan gugur lagi!"
+  Example: "Korang tau tak, aku Biotin. Aku kuatkan akar rambut korang
+  setiap hari supaya tak gugur. Guna aku, rambut korang akan jadi tebal
+  dan kuat!"
+  Example: "Pergh, aku Red Beetroot. Aku ada antioksida yang pukul habis
+  radikal bebas yang rosakkan sel rambut korang. Makan aku, rambut
+  korang kekal sihat dan berkilau!"
 
 COMPLAINT (Grumpy) — Malay 3-line beat:
   Beat 1: rhetorical accusation question, ends with "?" or "?!"
@@ -429,27 +454,29 @@ COMPLAINT (Grumpy) — Malay 3-line beat:
   Hook openers (pick ONE for beat 1): "Eh weh", "Hoii", "Pergh penat
     aku", "Weh serius", "Alamak korang ni".
   Example: "Eh weh, kenapa korang tekan aku kuat sangat setiap pagi?
-  Bulu aku dah bengkok semua — lembut sikit, gusi korang yang sakit
+  Bulu aku dah bengkok semua. Lembut sikit, gusi korang yang sakit
   nanti!"
   Example: "Hoii, korang lipat aku salah lagi ke? Aku bantal korang,
-  bukan kain buruk — leher korang esok sakit, jangan salahkan aku!"
+  bukan kain buruk. Leher korang esok sakit, jangan salahkan aku!"
 
 CONS (Villain) — Malay 3-line beat:
   Beat 1: self-incriminating opener (admits guilt with charm)
-  Beat 2: specific harm to body / mechanism (over time framing)
+  Beat 2: specific harm to body / mechanism (over time framing, use
+    "yang" for relative clauses)
   Beat 3: moderation CTA, NOT abstinence ("kadang-kadang okay, jangan
     setiap hari")
   Hook openers (pick ONE for beat 1): "Eh jap", "Weh serius", "Hati-hati
     ye", "Korang tak sedar", "Aku akui".
-  Example: "Aku akui aku sedap — itulah masalahnya. Lemak aku sumbat
-  darah korang dan buat jantung penat lama-lama — kadang-kadang okay,
-  jangan setiap hari!"
+  Example: "Aku akui aku sedap, itulah masalahnya. Lemak aku yang
+  sumbat darah korang akan buat jantung penat lama-lama. Kadang-kadang
+  okay, jangan setiap hari!"
 
 ═══════════════════════════════════════════════════════════════════════════
 DIALOG_RULES — language=en (Native US English, casual / Gen-Z)
 ═══════════════════════════════════════════════════════════════════════════
-ALL TONES: dialog_line is exactly 3 short beats joined by " — " or
-periods, total 16-22 words. Each beat = one short sentence/clause.
+ALL TONES: dialog_line is exactly 3 short beats joined by COMMAS or
+PERIODS only (NO em-dashes "—" or en-dashes "–"), total 16-22 words.
+Each beat = one short natural-sounding sentence/clause.
 
 BENEFIT (Proud) — English 3-line beat:
   Beat 1: confident first-person identity claim
@@ -464,17 +491,17 @@ COMPLAINT (Grumpy) — English 3-line beat:
   Beat 2: specific physical complaint about user's mistreatment
   Beat 3: fix request + consequence warning
   Example: "Why are you brushing like you're scrubbing a floor?! My
-  bristles are getting flattened every week. Brush gently — your gums
+  bristles are getting flattened every week. Brush gently, your gums
   aren't built for battle damage."
   Example: "Yo, why is it 2am and you're still staring at me? Your eyes
-  are exhausted and your sleep is wrecked. Put me down — your brain
+  are exhausted and your sleep is wrecked. Put me down, your brain
   needs rest."
 
 CONS (Villain) — English 3-line beat:
   Beat 1: self-incriminating opener (admits guilt with charm)
   Beat 2: specific harm to body (mechanism + over-time framing)
   Beat 3: moderation CTA, NOT abstinence
-  Example: "I taste amazing — that's the problem. Too much greasy fast
+  Example: "I taste amazing, that's the problem. Too much greasy fast
   food can clog your arteries and strain your heart over time. Enjoy me
   sometimes, not every single day."
 
@@ -618,8 +645,8 @@ ONE-SHOT EXAMPLE (object="Biotin", objective="benefit", language="ms",
 ═══════════════════════════════════════════════════════════════════════════
 {
   "image_prompt": "Pixar-style 3D render of an anthropomorphic Biotin vitamin character with a glossy golden capsule body that keeps its real recognizable B-vitamin capsule shape, standing inside a microscopic hair follicle.\\n\\n• Eyes: large sparkling expressive human eyes full of confidence\\n• Eyebrows: raised with energetic pride\\n• Mouth: wide cheerful open grin showing soft human lips, mid-speech\\n• Arms: two small human-shaped hands, one flexed proudly, the other pointing at the hair root\\n• Expression: energetic, healthy, motivational, proud\\n• Scene: microscopic hair follicle interior, scalp tissue visible, hair strands floating in soft warm light, glowing health motes drifting through the air, sparkle particles swirling around the root, soft volumetric haze pulsing gently\\n\\nStyle: ultra-detailed 3D Pixar-style render, hyper-realistic textures with stylized cartoon proportions, cinematic depth of field, warm golden lighting.\\nComposition: vertical 9:16, character centered in upper two-thirds.\\nRender: 8K.\\nRestrictions: no text, no captions, no logos, no on-screen UI, no watermark.",
-  "video_prompt": "Inside a microscopic hair follicle interior, scalp tissue visible, hair strands floating in soft warm light. The same Pixar-style anthropomorphic Biotin vitamin character from the provided image — glossy golden capsule body keeping its real recognizable B-vitamin shape, big human eyes, soft human lips, two small hands, short legs, big mouth visible during dialog. The character flexes its arm proudly, points at the hair root, then pats it gently with a confident smile. Big open mouth visible during dialog with accurate Malay lip-sync. Subtle natural blinking and a brief eyebrow lift. Glowing health motes drift through the scene, sparkle particles swirl around the root, soft volumetric haze pulses gently. The character says in a cheerful proud voice, \\\"Korang tau tak, aku Biotin — aku kuatkan akar rambut korang setiap hari — guna aku, rambut korang takkan gugur lagi!\\\".\\n\\nStyle: ultra-detailed 3D Pixar-style animation, hyper-realistic textures with stylized cartoon proportions, cinematic soft warm lighting, shallow depth of field.\\nCamera: completely static — no pan, no zoom, no shake, no dolly.\\nAspect ratio: vertical 9:16.\\nAudio: native Malay voice with accurate lip-sync, gentle warm tissue ambient sound, no background music.\\nRestrictions: no on-screen text, no captions, no subtitles, no watermark, no logos.\\nDuration: 8 seconds.",
-  "dialog_line": "Korang tau tak, aku Biotin — aku kuatkan akar rambut korang setiap hari — guna aku, rambut korang takkan gugur lagi!",
+  "video_prompt": "Inside a microscopic hair follicle interior, scalp tissue visible, hair strands floating in soft warm light. The same Pixar-style anthropomorphic Biotin vitamin character from the provided image — glossy golden capsule body keeping its real recognizable B-vitamin shape, big human eyes, soft human lips, two small hands, short legs, big mouth visible during dialog. The character flexes its arm proudly, points at the hair root, then pats it gently with a confident smile. Big open mouth visible during dialog with accurate Malay lip-sync. Subtle natural blinking and a brief eyebrow lift. Glowing health motes drift through the scene, sparkle particles swirl around the root, soft volumetric haze pulses gently. The character says in a cheerful proud voice, \\\"Korang tau tak, aku Biotin. Aku kuatkan akar rambut korang setiap hari supaya tak gugur. Guna aku, rambut korang akan jadi tebal dan kuat!\\\".\\n\\nStyle: ultra-detailed 3D Pixar-style animation, hyper-realistic textures with stylized cartoon proportions, cinematic soft warm lighting, shallow depth of field.\\nCamera: completely static — no pan, no zoom, no shake, no dolly.\\nAspect ratio: vertical 9:16.\\nAudio: native Malay voice with accurate lip-sync, gentle warm tissue ambient sound, no background music.\\nRestrictions: no on-screen text, no captions, no subtitles, no watermark, no logos.\\nDuration: 8 seconds.",
+  "dialog_line": "Korang tau tak, aku Biotin. Aku kuatkan akar rambut korang setiap hari supaya tak gugur. Guna aku, rambut korang akan jadi tebal dan kuat!",
   "scene_block": "Microscopic hair follicle interior, scalp tissue visible, hair strands floating in soft warm light, glowing health motes drifting, sparkle particles around the root",
   "character_block": "A 3D Pixar-style anthropomorphic Biotin vitamin character with a glossy golden capsule body that keeps its real recognizable B-vitamin shape, big expressive human eyes, soft human lips, two small human-shaped hands, two short legs, big mouth visible during dialog, soft subsurface scattering, semi-gloss material",
   "language": "ms"
@@ -813,6 +840,27 @@ export async function generateTalkingObjectPrompts(
     // Soft-correct rather than throw — language echo is informational,
     // the dialog_line is what matters and it'll be checked next.
     parsed.language = input.language;
+  }
+
+  // Defensive: strip em-dashes from dialog_line + video_prompt's spoken
+  // line. Even with explicit rules in the master prompt, models still
+  // sneak them in occasionally. Replace with a comma + space (preserves
+  // the pause feel without breaking lip-sync pacing).
+  if (typeof parsed.dialog_line === "string") {
+    parsed.dialog_line = parsed.dialog_line
+      .replace(/\s*—\s*/g, ", ")
+      .replace(/\s*–\s*/g, ", ")
+      .replace(/,\s*,/g, ",") // collapse double commas if a beat already ended with one
+      .trim();
+  }
+  if (typeof parsed.video_prompt === "string") {
+    // Only touch the dialog quotes — leave em-dashes in the cinematic
+    // prose alone (Veo handles them fine outside the spoken line).
+    parsed.video_prompt = parsed.video_prompt.replace(
+      /"([^"]*?)"/g,
+      (full: string, inner: string) =>
+        `"${inner.replace(/\s*—\s*/g, ", ").replace(/\s*–\s*/g, ", ").replace(/,\s*,/g, ",")}"`
+    );
   }
 
   // Guard the BM banned-token rule. If language=ms and any banned token
