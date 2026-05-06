@@ -7,23 +7,23 @@ import Portal from "../sections/portal";
 import { uploadImage, dataUrlToFile } from "@/lib/upload-image";
 import { isVisibleAfterTtl, fetchSavedSet } from "@/lib/history-filter";
 
-// Viral tab — two model options:
-//   • Grok (grok-imagine via Crun.ai)  → 6-30s slider, per-second pricing
-//   • Veo (google/veo3-1-fast)         → fixed 8s, flat pricing
-// Two image modes (Text to Video, Image to Video). Resolution 720p,
-// mode "normal". Backend uses the user's prompt 100% verbatim — no locks
-// or templates injected.
+// Viral tab — Veo-only (Grok hidden by product decision). Two image
+// modes (Text to Video, Image to Video). Fixed 8s duration, flat
+// pricing. Resolution 720p, mode "normal". Backend uses the user's
+// prompt 100% verbatim — no locks or templates injected.
 
 type Status = "idle" | "submitting" | "failed";
 type ImageMode = "text" | "image";
-type ModelChoice = "grok" | "veo";
 
 const PURPLE = "#7c4dff";
 const PURPLE_SOFT = "rgba(124, 77, 255, 0.18)";
 const PURPLE_FAINT = "rgba(124, 77, 255, 0.06)";
 
 export default function CinemaTab({ projectId }: { projectId?: string } = {}) {
-  const [model, setModel] = useState<ModelChoice>("grok");
+  // Model is hardcoded to "veo" for the Viral tab. The backend route
+  // still accepts a `model` body param so we can flip Grok back on later
+  // by re-introducing the radio — just change the value sent in submit().
+  const model = "veo" as const;
   const [imageMode, setImageMode] = useState<ImageMode>("text");
   const [refImage, setRefImage] = useState("");
   const [prompt, setPrompt] = useState("");
@@ -32,10 +32,8 @@ export default function CinemaTab({ projectId }: { projectId?: string } = {}) {
   // intentionally; the value still flows through to the API body so the
   // backend stays unchanged.
   const resolution: "720p" = "720p";
-  // Grok supports 6-30s; Veo is fixed 8s. The slider shows only when
-  // model === "grok"; Veo silently uses 8.
-  const [duration, setDuration] = useState(6);
-  const effectiveDuration = model === "veo" ? 8 : duration;
+  // Veo runs at fixed 8s. No slider.
+  const effectiveDuration = 8;
   const [ratePerSec, setRatePerSec] = useState<number | null>(null);
   const [status, setStatus] = useState<Status>("idle");
   const [error, setError] = useState<string | null>(null);
@@ -153,24 +151,8 @@ export default function CinemaTab({ projectId }: { projectId?: string } = {}) {
             className="text-[10px] font-mono uppercase tracking-wider px-2 py-1 rounded"
             style={{ background: PURPLE_FAINT, color: PURPLE, border: `1px solid ${PURPLE_SOFT}` }}
           >
-            {model === "veo" ? "8s" : "6–30s"}
+            8s · Veo
           </span>
-        </div>
-
-        <Label>Model</Label>
-        <div className="grid grid-cols-2 gap-2 mb-4">
-          <ModelOption
-            active={model === "grok"}
-            onClick={() => setModel("grok")}
-            title="Grok"
-            sub="6–30s · per-second"
-          />
-          <ModelOption
-            active={model === "veo"}
-            onClick={() => setModel("veo")}
-            title="Veo"
-            sub="8s · flat"
-          />
         </div>
 
         <Label>Image Mode</Label>
@@ -264,68 +246,23 @@ export default function CinemaTab({ projectId }: { projectId?: string } = {}) {
       </Card>
 
       <Card>
-        {/* Duration slider — Grok only. Veo is fixed 8s. */}
-        {model === "grok" ? (
-          <div className="mb-4">
-            <div className="flex items-center justify-between mb-2">
-              <Label>Duration (s)</Label>
-              <div className="flex items-center gap-2">
-                <span
-                  className="text-sm font-extrabold"
-                  style={{ color: PURPLE }}
-                >
-                  {duration}s
-                </span>
-                {cost != null && (
-                  <span
-                    className="text-[10px] font-mono uppercase tracking-wider px-2 py-1 rounded"
-                    style={{
-                      background: PURPLE_FAINT,
-                      color: PURPLE,
-                      border: `1px solid ${PURPLE_SOFT}`,
-                    }}
-                  >
-                    ~RM{cost.toFixed(2)}
-                  </span>
-                )}
-              </div>
-            </div>
-            <div className="flex items-center gap-3">
-              <span className="text-[10px] text-gray-500 font-mono">6</span>
-              <input
-                type="range"
-                min={6}
-                max={30}
-                step={1}
-                value={duration}
-                onChange={(e) => setDuration(Number(e.target.value))}
-                className="flex-1 h-2 rounded-full appearance-none cursor-pointer"
-                style={{
-                  background: `linear-gradient(to right, ${PURPLE} 0%, ${PURPLE} ${
-                    ((duration - 6) / 24) * 100
-                  }%, #e8e0d8 ${((duration - 6) / 24) * 100}%, #e8e0d8 100%)`,
-                }}
-              />
-              <span className="text-[10px] text-gray-500 font-mono">30</span>
-            </div>
-            {ratePerSec != null && (
-              <p className="text-[10px] text-gray-500 mt-1.5">
-                Rate: RM{ratePerSec.toFixed(2)}/sec · admin-tunable
-              </p>
-            )}
-          </div>
-        ) : (
-          <div
-            className="mb-4 p-3 rounded-lg text-center text-xs font-semibold"
-            style={{
-              background: PURPLE_FAINT,
-              border: `1px dashed ${PURPLE_SOFT}`,
-              color: PURPLE,
-            }}
-          >
-            ⏱️ Veo runs at fixed 8 seconds — no duration slider.
-          </div>
-        )}
+        {/* Veo runs at fixed 8s — no duration slider. Cost preview
+            shows the approximate flat price (8 × admin per-sec rate). */}
+        <div
+          className="mb-4 p-3 rounded-lg flex items-center justify-between text-xs font-semibold"
+          style={{
+            background: PURPLE_FAINT,
+            border: `1px dashed ${PURPLE_SOFT}`,
+            color: PURPLE,
+          }}
+        >
+          <span>⏱️ Veo runs at fixed 8 seconds.</span>
+          {cost != null && (
+            <span className="font-mono uppercase tracking-wider">
+              ~RM{cost.toFixed(2)}
+            </span>
+          )}
+        </div>
 
         <div className="mb-4">
           <Label>Size</Label>
@@ -351,7 +288,7 @@ export default function CinemaTab({ projectId }: { projectId?: string } = {}) {
               Submitting…
             </span>
           ) : (
-            <>🎬 Generate Viral ({model === "veo" ? "Veo · 8s" : `Grok · ${duration}s`})</>
+            <>🎬 Generate Viral (Veo · 8s)</>
           )}
         </button>
 
@@ -444,34 +381,6 @@ function Select({
     >
       {children}
     </select>
-  );
-}
-
-function ModelOption({
-  active,
-  onClick,
-  title,
-  sub,
-}: {
-  active: boolean;
-  onClick: () => void;
-  title: string;
-  sub: string;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="rounded-lg p-3 text-left transition-all"
-      style={{
-        background: active ? PURPLE_FAINT : "#fafaf7",
-        border: `2px solid ${active ? PURPLE : "#e8e0d8"}`,
-        color: active ? PURPLE : "#1a1a1a",
-      }}
-    >
-      <div className="text-sm font-extrabold">{title}</div>
-      <div className="text-[10px] mt-0.5 opacity-70">{sub}</div>
-    </button>
   );
 }
 
