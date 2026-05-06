@@ -80,6 +80,10 @@ export default function ExtendDialog({
   const [editedPrompt, setEditedPrompt] = useState<string>(
     (originalPrompt || "").trim()
   );
+  // Large fullscreen prompt-editor modal — the inline textarea is small
+  // (hard to read at 11px); clicking Expand opens a near-fullscreen editor
+  // with bigger font + more rows so the user can comfortably edit.
+  const [promptEditorOpen, setPromptEditorOpen] = useState(false);
   // Optional fresh product-reference upload. When the user attaches one,
   // it overrides productImageUrl from the source row — useful when the
   // original was a Tencent temp URL that's now expired or the user
@@ -95,14 +99,23 @@ export default function ExtendDialog({
   const videoRef = useRef<HTMLVideoElement | null>(null);
 
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      // If the fullscreen prompt editor is open, Escape closes just it
+      // (not the whole dialog). Otherwise Escape closes the dialog.
+      if (promptEditorOpen) {
+        setPromptEditorOpen(false);
+      } else {
+        onClose();
+      }
+    };
     window.addEventListener("keydown", onKey);
     document.body.style.overflow = "hidden";
     return () => {
       window.removeEventListener("keydown", onKey);
       document.body.style.overflow = "";
     };
-  }, [onClose]);
+  }, [onClose, promptEditorOpen]);
 
   function seekToFrame(source: FrameSource) {
     const v = videoRef.current;
@@ -366,19 +379,30 @@ export default function ExtendDialog({
                 ⓘ Pre-filled with segment 1's prompt. <strong className="text-white">Find the quoted dialog</strong> (e.g. <code className="px-1 rounded bg-black/40 text-[10px]">'Gila pedas! ...'</code>) <strong className="text-white">and replace it with your new lines</strong>. Keep all the LOCK blocks, character description, and Negative list intact. The continuation hint is auto-prepended at submit time.
               </div>
 
-              <textarea
-                value={editedPrompt}
-                onChange={(e) => setEditedPrompt(e.target.value)}
-                rows={18}
-                spellCheck={false}
-                className="w-full px-3 py-2 rounded-md text-[11px] font-mono leading-relaxed text-gray-200 placeholder-gray-600 focus:outline-none focus:ring-2 resize-y"
-                style={{
-                  background: "rgba(0,0,0,0.4)",
-                  border: "1px solid rgba(255,255,255,0.08)",
-                  fontFamily: "ui-monospace, Menlo, Consolas, monospace",
-                }}
-                placeholder="The full segment-1 prompt will appear here. Edit the quoted dialog line for segment 2."
-              />
+              <div className="relative">
+                <textarea
+                  value={editedPrompt}
+                  onChange={(e) => setEditedPrompt(e.target.value)}
+                  rows={12}
+                  spellCheck={false}
+                  className="w-full px-3 py-2 rounded-md text-[11px] font-mono leading-relaxed text-gray-200 placeholder-gray-600 focus:outline-none focus:ring-2 resize-y"
+                  style={{
+                    background: "rgba(0,0,0,0.4)",
+                    border: "1px solid rgba(255,255,255,0.08)",
+                    fontFamily: "ui-monospace, Menlo, Consolas, monospace",
+                  }}
+                  placeholder="The full segment-1 prompt will appear here. Edit the quoted dialog line for segment 2."
+                />
+                <button
+                  type="button"
+                  onClick={() => setPromptEditorOpen(true)}
+                  className="absolute top-2 right-2 px-2 py-1 rounded text-[10px] font-bold uppercase tracking-wider text-white shadow-lg hover:opacity-90 transition-opacity"
+                  style={{ background: accent }}
+                  title="Open large fullscreen editor"
+                >
+                  ⛶ Expand to edit
+                </button>
+              </div>
 
               <div className="flex items-center justify-between mt-2 text-[10px] text-gray-500">
                 <span>{editedPrompt.length.toLocaleString()} chars</span>
@@ -440,6 +464,76 @@ export default function ExtendDialog({
           </div>
         </div>
       </div>
+
+      {/* Fullscreen prompt editor — opens when user clicks "Expand to edit"
+          on the inline textarea. Larger font, more rows, near-fullscreen
+          width so the seg1 prompt is comfortable to read and edit. */}
+      {promptEditorOpen && (
+        <div
+          className="fixed inset-0 z-[60] flex items-center justify-center p-4"
+          style={{ background: "rgba(0,0,0,0.85)" }}
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setPromptEditorOpen(false);
+          }}
+        >
+          <div
+            className="w-full max-w-5xl h-[90vh] rounded-xl flex flex-col overflow-hidden"
+            style={{ background: "#1a1a1f", border: "1px solid rgba(255,255,255,0.1)" }}
+          >
+            <div className="flex items-center justify-between p-4 border-b" style={{ borderColor: "rgba(255,255,255,0.08)" }}>
+              <div>
+                <div className="text-base font-bold text-white">Edit Segment 2 Prompt</div>
+                <div className="text-[11px] text-gray-400 mt-1">Find the quoted dialog and replace it with your new lines. Keep all LOCK blocks intact.</div>
+              </div>
+              <button
+                onClick={() => setPromptEditorOpen(false)}
+                className="p-2 rounded-lg hover:bg-white/5 text-gray-300"
+                title="Close (Esc)"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="flex-1 p-4 overflow-hidden">
+              <textarea
+                value={editedPrompt}
+                onChange={(e) => setEditedPrompt(e.target.value)}
+                spellCheck={false}
+                autoFocus
+                className="w-full h-full px-4 py-3 rounded-lg text-[14px] font-mono leading-relaxed text-gray-100 placeholder-gray-600 focus:outline-none focus:ring-2 resize-none"
+                style={{
+                  background: "rgba(0,0,0,0.5)",
+                  border: "1px solid rgba(255,255,255,0.1)",
+                  fontFamily: "ui-monospace, Menlo, Consolas, monospace",
+                }}
+                placeholder="The full segment-1 prompt — edit the quoted dialog inline."
+              />
+            </div>
+
+            <div className="flex items-center justify-between gap-2 p-4 border-t" style={{ borderColor: "rgba(255,255,255,0.08)" }}>
+              <div className="text-[11px] text-gray-400">
+                {editedPrompt.length.toLocaleString()} chars
+                {originalPrompt && originalPrompt.trim() && editedPrompt.trim() !== originalPrompt.trim() && (
+                  <button
+                    type="button"
+                    onClick={() => setEditedPrompt(originalPrompt.trim())}
+                    className="ml-3 px-2 py-1 rounded text-gray-400 hover:text-white hover:bg-white/5"
+                  >
+                    Reset to segment 1
+                  </button>
+                )}
+              </div>
+              <button
+                onClick={() => setPromptEditorOpen(false)}
+                className="px-5 py-2 rounded-lg text-sm font-semibold text-white"
+                style={{ background: accent }}
+              >
+                Done
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </Portal>
   );
 }
