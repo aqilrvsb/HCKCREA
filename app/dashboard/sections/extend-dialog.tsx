@@ -72,11 +72,14 @@ export default function ExtendDialog({
   const plan = extensionPlan(duration);
   // Default start frame = last (most common = pure continuation)
   const [startFrame, setStartFrame] = useState<FrameSelection>({ source: "last" });
-  // Three-section dialog script. Same time bands as the UGC tab so the
-  // mental model is identical. Start empty — user types what's said.
-  const [dialogBegin, setDialogBegin] = useState("");
-  const [dialogMiddle, setDialogMiddle] = useState("");
-  const [dialogClose, setDialogClose] = useState("");
+  // Editable seg2 prompt textarea, pre-filled with seg1's prompt.
+  // User edits the dialog (typically the quoted line) inline; everything
+  // else (LOCK blocks, product info, negatives) is left intact. The full
+  // textarea content is sent as the seg2 prompt with a continuation note
+  // auto-prepended at submit time.
+  const [editedPrompt, setEditedPrompt] = useState<string>(
+    (originalPrompt || "").trim()
+  );
   // Optional fresh product-reference upload. When the user attaches one,
   // it overrides productImageUrl from the source row — useful when the
   // original was a Tencent temp URL that's now expired or the user
@@ -145,91 +148,21 @@ export default function ExtendDialog({
     return d.url;
   }
 
-  // Replace seg1's spoken dialog INSIDE the original prompt with the
-  // user's new dialog. Keeps the entire seg1 prompt verbatim — character
-  // description, scene framing, all the LOCK blocks, the negative list
-  // — and surgically swaps ONLY the quoted dialog string.
-  //
-  // Detection order (high → low confidence):
-  //   1. "Character says: '...'" / "Voiceover: '...'" / "She says: '...'"
-  //   2. The longest standalone quoted block (≥40 chars) — the seg1
-  //      prompt's spoken line is always the longest single-quoted text
-  //      (locks like "beg kuning" are short phrases under 40 chars).
-  //   3. Fallback: append "SPOKEN DIALOG: '...'" at the end if nothing
-  //      detectable.
-  function replaceSeg1Dialog(prompt: string, newDialog: string): string {
-    if (!prompt) return prompt;
-    if (!newDialog) return prompt;
-
-    // Strip user-typed quotes so we don't end up with nested quotes
-    const safeDialog = newDialog.replace(/['"""]/g, "").trim();
-    if (!safeDialog) return prompt;
-
-    // Pattern 1 — "Character says: '...'" and friends.
-    const speechPatterns: RegExp[] = [
-      /(Character\s+says\s*:\s*)['"""']([^'""""]+?)['"""']/i,
-      /(Voiceover\s*(?:\([^)]*\))?\s*:\s*)['"""']([^'""""]+?)['"""']/i,
-      /((?:She|He|They)\s+says?\s*:\s*)['"""']([^'""""]+?)['"""']/i,
-    ];
-    for (const pat of speechPatterns) {
-      if (pat.test(prompt)) {
-        return prompt.replace(pat, `$1'${safeDialog}'`);
-      }
-    }
-
-    // Pattern 2 — find longest standalone quoted block (single OR double
-    // quotes) at least 40 chars long. Matches the user's example where
-    // dialog is just a quoted block in the middle of a paragraph.
-    const candidates: { start: number; full: string; text: string }[] = [];
-    const singleQuoted = /'([^']{40,}?)'/g;
-    const doubleQuoted = /"([^"]{40,}?)"/g;
-    let m: RegExpExecArray | null;
-    while ((m = singleQuoted.exec(prompt)) !== null) {
-      candidates.push({ start: m.index, full: m[0], text: m[1] });
-    }
-    while ((m = doubleQuoted.exec(prompt)) !== null) {
-      candidates.push({ start: m.index, full: m[0], text: m[1] });
-    }
-
-    if (candidates.length > 0) {
-      // Pick the longest — most likely to be the actual dialog
-      candidates.sort((a, b) => b.text.length - a.text.length);
-      const target = candidates[0];
-      return (
-        prompt.slice(0, target.start) +
-        `'${safeDialog}'` +
-        prompt.slice(target.start + target.full.length)
-      );
-    }
-
-    // Pattern 3 — no detectable dialog, append cleanly
-    return `${prompt.trim()}\n\nSPOKEN DIALOG: '${safeDialog}'`;
-  }
-
-  // Build the segment-2 prompt that gets POSTed to the backend. Send the
-  // EXACT seg1 prompt (character + scene + all locks + negatives) with
-  // ONLY the spoken dialog string swapped for the user's new lines. A
-  // small continuation note prepended so Veo knows this is seg2 (not a
-  // fresh seg1).
+  // Build the segment-2 prompt: take the user's edited textarea content
+  // (pre-filled with seg1's prompt; user edits the dialog inline) and
+  // prepend a continuation note so Veo treats it as seg-2 not a fresh
+  // seg-1. No regex / no parsing — what the user sees is what gets sent
+  // (plus the prepended continuation note).
   function buildSeg2Prompt(): string {
-    const newDialog = [dialogBegin.trim(), dialogMiddle.trim(), dialogClose.trim()]
-      .filter(Boolean)
-      .join(" ");
-    if (!newDialog) return "";
-
-    const continuationNote = `SEGMENT 2 CONTINUATION: This is segment 2 — pick up exactly where segment 1 ended (start frame is the bridge). Same character, same product, same setting, same wardrobe, same lighting, same voice, same tone, same energy. Speak the dialog as quoted in the prompt below.`;
-
-    const swapped = originalPrompt && originalPrompt.trim()
-      ? replaceSeg1Dialog(originalPrompt.trim(), newDialog)
-      : `Continue the scene from the start frame. The character speaks: '${newDialog.replace(/['"""]/g, "")}'`;
-
-    return `${continuationNote}\n\n${swapped}`;
+    const body = editedPrompt.trim();
+    if (!body) return "";
+    const continuationNote = `SEGMENT 2 CONTINUATION: This is segment 2 — pick up exactly where segment 1 ended (start frame is the bridge). Same character, same product, same setting, same wardrobe, same lighting, same voice, same tone, same energy. Speak ONLY the quoted dialog in the prompt below.`;
+    return `${continuationNote}\n\n${body}`;
   }
 
   async function fire() {
     if (!plan) return setError("This clip is already at the 30-second cap.");
-    const hasDialog = !!(dialogBegin.trim() || dialogMiddle.trim() || dialogClose.trim());
-    if (!hasDialog) return setError("Add at least one dialog line for segment 2.");
+    if (!editedPrompt.trim()) return setError("The seg-2 prompt cannot be empty — edit the textarea below.");
     if (!overrideProductDataUrl) {
       return setError("Product reference image is required — upload the product photo above before generating.");
     }
@@ -412,12 +345,14 @@ export default function ExtendDialog({
                 making the concatenation seamless. No need to ask the
                 user for input that's the same answer 95% of the time. */}
 
-            {/* Dialog Script — 3-section structure matching UGC tab */}
+            {/* Edit prompt — pre-filled with seg1's prompt; user edits the
+                quoted dialog (and anything else) inline. The full textarea
+                content is sent to Veo with a continuation note auto-prepended. */}
             <div className="rounded-xl p-4" style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)" }}>
               <div className="flex items-center justify-between mb-3">
                 <div className="flex items-center gap-2">
                   <MessageCircle className="w-4 h-4" style={{ color: accent }} />
-                  <span className="text-xs font-bold uppercase tracking-wider text-white">Dialog Script</span>
+                  <span className="text-xs font-bold uppercase tracking-wider text-white">Segment 2 Prompt</span>
                 </div>
                 <span
                   className="text-[10px] font-mono uppercase tracking-wider px-2 py-0.5 rounded"
@@ -427,32 +362,41 @@ export default function ExtendDialog({
                 </span>
               </div>
 
-              <DialogSection
-                label="0–2s · Beginning"
-                color="#22c55e"
-                value={dialogBegin}
-                onChange={setDialogBegin}
-                placeholder='e.g. "Tu, masa kau guna baru terasa..."'
+              <div className="text-[10px] text-gray-400 mb-2 leading-relaxed">
+                ⓘ Pre-filled with segment 1's prompt. <strong className="text-white">Find the quoted dialog</strong> (e.g. <code className="px-1 rounded bg-black/40 text-[10px]">'Gila pedas! ...'</code>) <strong className="text-white">and replace it with your new lines</strong>. Keep all the LOCK blocks, character description, and Negative list intact. The continuation hint is auto-prepended at submit time.
+              </div>
+
+              <textarea
+                value={editedPrompt}
+                onChange={(e) => setEditedPrompt(e.target.value)}
+                rows={18}
+                spellCheck={false}
+                className="w-full px-3 py-2 rounded-md text-[11px] font-mono leading-relaxed text-gray-200 placeholder-gray-600 focus:outline-none focus:ring-2 resize-y"
+                style={{
+                  background: "rgba(0,0,0,0.4)",
+                  border: "1px solid rgba(255,255,255,0.08)",
+                  fontFamily: "ui-monospace, Menlo, Consolas, monospace",
+                }}
+                placeholder="The full segment-1 prompt will appear here. Edit the quoted dialog line for segment 2."
               />
-              <DialogSection
-                label="2–6s · Middle"
-                color="#facc15"
-                value={dialogMiddle}
-                onChange={setDialogMiddle}
-                placeholder='e.g. "Yang aku suka, tahan lama, tak terbalik macam dulu..."'
-              />
-              <DialogSection
-                label="6–8s · Closing"
-                color="#ef4444"
-                value={dialogClose}
-                onChange={setDialogClose}
-                placeholder='e.g. "Korang try sendiri — tak rugi punya."'
-              />
+
+              <div className="flex items-center justify-between mt-2 text-[10px] text-gray-500">
+                <span>{editedPrompt.length.toLocaleString()} chars</span>
+                {originalPrompt && originalPrompt.trim() && editedPrompt.trim() !== originalPrompt.trim() && (
+                  <button
+                    type="button"
+                    onClick={() => setEditedPrompt(originalPrompt.trim())}
+                    className="px-2 py-1 rounded text-gray-400 hover:text-white hover:bg-white/5"
+                  >
+                    Reset to segment 1
+                  </button>
+                )}
+              </div>
             </div>
 
             {productImageUrl && (
               <div className="text-[10px] text-gray-500 leading-relaxed -mt-2">
-                ⓘ Product label akan auto-locked dari product reference (Gemini scan) — character / setting / wardrobe juga di-lock dari segment 1's prompt. Korang cuma perlu type dialog je.
+                ⓘ Product label auto-locked dari product reference (Gemini scan). Character / setting / wardrobe lock dari prompt yang korang edit kat atas.
               </div>
             )}
 
@@ -472,13 +416,13 @@ export default function ExtendDialog({
               disabled={
                 busy ||
                 !overrideProductDataUrl ||
-                !(dialogBegin.trim() || dialogMiddle.trim() || dialogClose.trim())
+                !editedPrompt.trim()
               }
               title={
                 !overrideProductDataUrl
                   ? "Upload the product reference image first"
-                  : !(dialogBegin.trim() || dialogMiddle.trim() || dialogClose.trim())
-                    ? "Add at least one dialog line"
+                  : !editedPrompt.trim()
+                    ? "Edit the seg-2 prompt first (cannot be empty)"
                     : ""
               }
               className="px-5 py-2 rounded-lg text-sm font-semibold text-white disabled:opacity-50 inline-flex items-center gap-2"
@@ -579,37 +523,6 @@ function FrameSlot({
           </div>
         </div>
       )}
-    </div>
-  );
-}
-
-// Compact textarea row used inside the Dialog Script block. Color-coded
-// label (green / yellow / red for begin / mid / close) mirrors the UGC tab.
-function DialogSection({
-  label,
-  color,
-  value,
-  onChange,
-  placeholder,
-}: {
-  label: string;
-  color: string;
-  value: string;
-  onChange: (v: string) => void;
-  placeholder?: string;
-}) {
-  return (
-    <div className="mb-3 last:mb-0">
-      <div className="text-[10px] font-bold uppercase tracking-wider mb-1" style={{ color }}>
-        {label}
-      </div>
-      <textarea
-        rows={2}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        placeholder={placeholder}
-        className="w-full p-2 rounded-md text-[11px] font-mono leading-relaxed resize-y outline-none bg-gray-900 border border-gray-700 text-white"
-      />
     </div>
   );
 }
