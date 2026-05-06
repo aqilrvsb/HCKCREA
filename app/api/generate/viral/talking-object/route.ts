@@ -56,6 +56,8 @@ export async function POST(req: Request) {
   const mode: "t2v" | "i2v" = body?.mode === "t2v" ? "t2v" : "i2v";
   const customDialog = String(body?.custom_dialog || "").trim().slice(0, 400);
   const customTarget = String(body?.custom_target || "").trim().slice(0, 200);
+  const performance: "action" | "standing" =
+    body?.performance === "standing" ? "standing" : "action";
 
   if (!object) {
     return NextResponse.json({ error: "Object required" }, { status: 400 });
@@ -90,6 +92,7 @@ export async function POST(req: Request) {
           mode,
           customDialog: customDialog || undefined,
           customTarget: customTarget || undefined,
+          performance,
         },
         stage: "queued",
         cinemaProvider: "veo",
@@ -124,6 +127,7 @@ export async function POST(req: Request) {
       mode,
       customDialog: customDialog || undefined,
       customTarget: customTarget || undefined,
+      performance,
     };
 
     const baseParams = {

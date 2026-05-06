@@ -26,6 +26,7 @@ export type TalkingObjectInput = {
   mode: "t2v" | "i2v";     // t2v = skip image gen, video prompt is self-contained
   customDialog?: string;   // when set, LLM uses this verbatim as dialog_line
   customTarget?: string;   // when set, LLM uses this verbatim as scene_block
+  performance: "action" | "standing"; // action = function-acting; standing = clean talking head
 };
 
 export type TalkingObjectOutput = {
@@ -65,6 +66,15 @@ INPUTS (provided by user):
 - custom_dialog: optional. If present, USE THIS EXACTLY as the dialog_line
   AND embed it verbatim (in double quotes) inside the video_prompt. Do NOT
   generate your own dialog. The user's wording is final.
+- performance: "action" | "standing"
+  • action (default) = the character must ACTIVELY PERFORM its function
+    in the scene, with a 2-3 verb action chain (see FUNCTION-ACTION
+    rule). Standing-still talking heads are FORBIDDEN.
+  • standing = clean talking-head shot. The character stands calmly in
+    place, with only subtle gestures (small hand wave, gentle head
+    nod, soft eyebrow lifts). NO function-action chain. Picture a
+    podcast / interview vibe. Use this for clean product reveals or
+    when the scene already tells the story without animation.
 - custom_target: optional. The literal scene/background the user wants
   (e.g. "inside a blood vessel", "modern kitchen counter", "scalp with
   hair follicles"). If present, USE THIS EXACTLY as the scene_block (you
@@ -279,10 +289,23 @@ Function → action mapping (extend for any body system):
     - TUCKS in a tiny pillow / sprinkles dream-dust over an eyelid
     - DIMS a sun-shaped light with a wave
 
-CRITICAL: the video_prompt's action chain must include at least 2 of
-these specific verbs in sequence. NEVER write "the character looks at
-camera and speaks" alone — that's the lazy default we are explicitly
-overriding.
+CRITICAL (when performance = "action"): the video_prompt's action chain
+must include at least 2 of these specific verbs in sequence. NEVER write
+"the character looks at camera and speaks" alone — that's the lazy
+default we are explicitly overriding.
+
+If performance = "standing": SKIP the function-action chain entirely.
+The character stands calmly in the scene with subtle gestures — small
+hand wave, gentle head nod, soft eyebrow lifts. Image bullets become:
+  • Arms: relaxed at sides OR one hand gesturing softly while talking
+  • Expression: calm, friendly, confident (not exaggerated)
+And the video_prompt action line becomes:
+  "The character stands calmly in [scene], gestures softly with one
+   hand while speaking, with subtle head nods and a warm gaze toward
+   camera."
+Use this when the scene's environment is already strong enough to tell
+the story (custom_target with a powerful body-system scene), or for a
+clean podcast / interview look.
 
 If purpose mentions a function NOT in the table above, invent a parallel
 visual metaphor: identify the verb (combat / strengthen / clean / boost
@@ -619,6 +642,7 @@ function buildUserPrompt(
     `language: ${input.language}`,
     `purpose: ${input.purpose || "general — pick a sensible scene"}`,
     `mode: ${input.mode}`,
+    `performance: ${input.performance}`,
   ];
   if (input.customDialog && input.customDialog.trim()) {
     lines.push(

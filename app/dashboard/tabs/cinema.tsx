@@ -21,6 +21,7 @@ type TalkingLanguage = "ms" | "en";
 type TalkingMode = "t2v" | "i2v";
 type DialogMode = "auto" | "custom";
 type TargetMode = "auto" | "custom";
+type Performance = "action" | "standing";
 
 const PURPLE = "#7c4dff";
 const PURPLE_SOFT = "rgba(124, 77, 255, 0.18)";
@@ -53,6 +54,7 @@ export default function CinemaTab({ projectId }: { projectId?: string } = {}) {
   const [toCustomDialog, setToCustomDialog] = useState("");
   const [toTargetMode, setToTargetMode] = useState<TargetMode>("auto");
   const [toCustomTarget, setToCustomTarget] = useState("");
+  const [toPerformance, setToPerformance] = useState<Performance>("action");
   const [toStatus, setToStatus] = useState<Status>("idle");
   const [toError, setToError] = useState<string | null>(null);
   // ──────────────────────────────────────────────────────────────────────
@@ -182,6 +184,7 @@ export default function CinemaTab({ projectId }: { projectId?: string } = {}) {
             toDialogMode === "custom" ? toCustomDialog.trim() : "",
           custom_target:
             toTargetMode === "custom" ? toCustomTarget.trim() : "",
+          performance: toPerformance,
           project_id: projectId,
         }),
       });
@@ -378,7 +381,28 @@ export default function CinemaTab({ projectId }: { projectId?: string } = {}) {
                 : "Skip image gen — Veo generates the video directly from prompt (faster, but character look varies)."}
             </p>
 
-            <Label>7. Dialog</Label>
+            <Label>7. Performance</Label>
+            <div className="grid grid-cols-2 gap-2 mb-1">
+              <ObjectiveBtn
+                active={toPerformance === "action"}
+                onClick={() => setToPerformance("action")}
+                emoji="⚡"
+                label="Action"
+              />
+              <ObjectiveBtn
+                active={toPerformance === "standing"}
+                onClick={() => setToPerformance("standing")}
+                emoji="🎙️"
+                label="Standing"
+              />
+            </div>
+            <p className="text-[10px] text-gray-500 mb-4">
+              {toPerformance === "action"
+                ? "Character actively performs its function (combat free radicals, strengthen hair roots, etc.) — drives engagement."
+                : "Clean talking-head — character stands calmly with subtle gestures. Use when scene already tells the story."}
+            </p>
+
+            <Label>8. Dialog</Label>
             <div className="grid grid-cols-2 gap-2 mb-2">
               <ObjectiveBtn
                 active={toDialogMode === "auto"}
