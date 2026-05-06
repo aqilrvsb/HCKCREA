@@ -145,9 +145,38 @@ export default function ExtendDialog({
     return d.url;
   }
 
+  // Strip seg1's spoken dialog from the original prompt so it doesn't
+  // leak into seg2 and confuse Veo. We KEEP the character/setting/product
+  // description (essential context Veo can't get from the start frame
+  // alone) — only the dialog patterns get removed.
+  //
+  // Patterns stripped (all variants of how UGC/Auto agents embed dialog):
+  //   - Character says: '...'  / "..."
+  //   - Voiceover (xxx): '...' / "..."
+  //   - She/He/They says: '...'
+  //   - 0-2s (HOOK): "..."  /  2-6s: "..."  (timestamp beat lines)
+  function stripSeg1Dialog(prompt: string): string {
+    if (!prompt) return prompt;
+    return prompt
+      // Character says: '...' or "..."
+      .replace(/Character\s+says\s*:\s*['"""'][^'""""]*?['"""']/gi, "")
+      // Voiceover (xxx): '...' or Voiceover: '...'
+      .replace(/Voiceover\s*(?:\([^)]*\))?\s*:\s*['"""'][^'""""]*?['"""']/gi, "")
+      // She/He/They says: '...'
+      .replace(/(?:She|He|They)\s+says?\s*:\s*['"""'][^'""""]*?['"""']/gi, "")
+      // 0-2s (HOOK): "..."  or  0–2s: "..."  (whole-line beat patterns)
+      .replace(/^\s*\d+\s*[-–]\s*\d+\s*s?\s*(?:\([^)]*\))?\s*:\s*['"""'][^'""""]*?['"""']\s*$/gim, "")
+      // Compact 3+ newlines down to 2 (paragraph break)
+      .replace(/\n{3,}/g, "\n\n")
+      .trim();
+  }
+
   // Build the segment-2 prompt that gets POSTed to the backend. Combines
-  // the original first-video prompt (so character / setting / wardrobe stay
-  // locked) with a freshly-typed dialog script for segment 2. Backend then
+  // the original first-video prompt (so character / setting / wardrobe /
+  // product description stay locked — Veo doesn't know what seg1 LOOKED
+  // like beyond the start frame, so the textual scene context still
+  // matters) WITH SEG1'S DIALOG STRIPPED OUT, so only the user's
+  // freshly-typed dialog script for segment 2 is spoken. Backend then
   // appends product text lock + standard locks.
   function buildSeg2Prompt(): string {
     const dialogLines: string[] = [];
@@ -157,9 +186,10 @@ export default function ExtendDialog({
     const dialogBlock = dialogLines.length > 0
       ? `DIALOG SCRIPT (segment 2 — character speaks these lines verbatim, in the same voice as segment 1):\n${dialogLines.join("\n")}`
       : "";
-    const continuationNote = `SEGMENT 2 CONTINUATION: Pick up exactly where segment 1 ended (same character, same product, same setting, same wardrobe, same lighting). The character's pose at segment 2's start matches the picked start frame from segment 1. Same voice, same tone, same energy as segment 1.`;
-    const sceneContext = originalPrompt && originalPrompt.trim()
-      ? `ORIGINAL SCENE (segment 1 — keep all locks):\n${originalPrompt.trim()}`
+    const continuationNote = `SEGMENT 2 CONTINUATION: Pick up exactly where segment 1 ended (same character, same product, same setting, same wardrobe, same lighting). The character's pose at segment 2's start matches the picked start frame from segment 1. Same voice, same tone, same energy as segment 1. SPEAK ONLY the new DIALOG SCRIPT below — do NOT repeat any lines from segment 1.`;
+    const cleanedOriginal = stripSeg1Dialog(originalPrompt || "");
+    const sceneContext = cleanedOriginal
+      ? `ORIGINAL SCENE (segment 1 — keep character / setting / wardrobe / product locked, but speak only the new dialog below):\n${cleanedOriginal}`
       : "";
     return [continuationNote, sceneContext, dialogBlock]
       .filter(Boolean)
