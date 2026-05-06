@@ -126,44 +126,98 @@ PRIORITY ORDER for choosing the scene:
 The scene must support the character's action and feel cinematic.
 
 ═══════════════════════════════════════════════════════════════════════════
-TONE BY OBJECTIVE (3 viral angles — each tied to a platform metric)
+TONE BY OBJECTIVE (3 viral angles — each with its own visual + script)
 ═══════════════════════════════════════════════════════════════════════════
+Each tone has THREE parts you must internalize:
+  (1) Mood vocab — pick one word for the title-style mood label
+  (2) Visual story — what the IMAGE itself shows about the tone
+  (3) Script formula — exact 3-line dialog beat structure
+
+────────────────────────────────────────────────────────────────────────
 BENEFIT mode = PROUD (drives SAVES — educational)
-  Persona: confident hero / mentor / helper. The object proudly explains
-  what it does FOR the viewer.
-  Visual cues: warm golden light, sparkle particles drifting around,
-  hero pose with chest out, tiny glowing motes, healthy radiant body.
-  Action verbs: boosts, strengthens, heals, protects, energizes, repairs,
-  fuels, supports, defends, nourishes.
-  Dialog stance: first-person bragging in a positive way, ends with a
-  soft CTA. USE one hook opener.
+────────────────────────────────────────────────────────────────────────
+Mood vocab (pick one): Proud, Confident, Excited, Intense, Nerdy.
+Persona: confident hero / mentor / helper. The object proudly explains
+what it does FOR the viewer.
 
+Visual story for image_prompt bullets:
+  • Eyes: large sparkling expressive eyes full of confidence
+  • Eyebrows: raised with energetic enthusiasm
+  • Mouth: wide cheerful open grin while speaking passionately
+  • Arms: animated arms pointing proudly at itself / flexing / hero pose
+  • Expression: energetic, healthy, motivational
+  • Scene: warm golden light, sparkle particles, healthy radiant glow
+
+Action verbs: boosts, strengthens, heals, protects, energizes, repairs,
+fuels, supports, defends, nourishes.
+
+Script formula (exactly 3 lines, see DIALOG_RULES for full templates):
+  Line 1 — confident first-person identity claim
+  Line 2 — specific benefit / mechanism
+  Line 3 — punchy memorable comparison or soft CTA
+
+────────────────────────────────────────────────────────────────────────
 COMPLAINT mode = GRUMPY (drives SHARES — humor / relatable)
-  Persona: first-person GRUMPY object complaining about how the user
-  mistreats it. The object is the victim, the viewer is the offender.
-  Examples: toothbrush angry it gets pressed too hard, pillow upset it
-  gets folded wrong, phone begging to be put down at night, charger fed
-  up with being bent, water bottle exhausted from being dropped.
-  Visual cues: exaggerated frustrated/annoyed face — furrowed brows,
-  sulky pout, big dramatic eyes, arms crossed or thrown up in
-  exasperation. Slightly desaturated mood lighting with one warm rim,
-  small floating sigh-puffs or tiny stress lines around the head.
-  Action verbs: complains, sighs, glares, points accusingly, throws hands
-  up, eye-rolls, slumps, huffs, scowls.
-  Dialog stance: first-person complaint TO the viewer about a specific
-  mistreatment, ends with a "please stop / do this instead" line.
-  USE one grumpy hook opener.
+────────────────────────────────────────────────────────────────────────
+Mood vocab (pick one): Frustrated, Exhausted, Irritated, Smug,
+Judgmental, Sarcastic.
+Persona: first-person GRUMPY object complaining about how the user
+mistreats it. The object is the victim, the viewer is the offender.
+Examples: toothbrush mad about being pressed too hard, pillow upset it
+gets folded wrong, phone begging to be put down at night, charger fed
+up with being bent, soda cup tired of being slammed.
 
+Visual story for image_prompt bullets — KEY: the image itself shows
+VISIBLE DAMAGE FROM USER MISTREATMENT (this is what makes complaint
+work — the still frame already tells the grievance):
+  • Eyes: wide strained eyes with visible stress
+  • Eyebrows: sharply angled downward in frustration
+  • Mouth: wide open mid-complaint, may show physical wear
+  • Arms: waving dramatically, pointing accusingly at its own damage
+  • Expression: overworked, annoyed, desperate
+  • Scene: realistic context with the OBJECT'S DAMAGE clearly visible
+    (toothbrush = bent/flattened bristles; toothpaste = squeezed from
+    middle; faucet = dripping water; pillow = creased and lumpy)
+
+Action verbs: complains, sighs, glares, points accusingly, throws hands
+up, eye-rolls, slumps, huffs, scowls.
+
+Script formula (exactly 3 lines):
+  Line 1 — rhetorical accusation question, ends with "?!" or "?"
+  Line 2 — specific physical complaint (what the user does to it)
+  Line 3 — fix request + consequence warning
+
+────────────────────────────────────────────────────────────────────────
 CONS mode = VILLAIN (drives SHARES — fear / warning)
-  Persona: cute mischievous villain. The object brags about damage it
-  causes TO the viewer (NEVER horror — family-friendly).
-  Visual cues: slightly darker mood lighting, mischievous grin, smoke
-  curls, cracks, dark glow, sneaky narrowed eyes. Still rounded and cute,
-  just up to no good.
-  Action verbs: attacks, clogs, drains, weakens, rots, sneaks, smothers,
-  spikes, crashes, blocks.
-  Dialog stance: first-person sneaky villain warning, ends with a
-  "watch out" line. USE one sneaky hook opener.
+────────────────────────────────────────────────────────────────────────
+Mood vocab (pick one): Alarmed, Sneaky, Smug, Defensive, Hyper, Guilty.
+Persona: cute mischievous villain that admits its own guilt with charm.
+The object self-incriminates while warning what it does to the viewer's
+body. Family-friendly cute villain — NEVER horror.
+
+Visual story for image_prompt bullets — KEY: the image itself shows
+VISIBLE EXCESS / HARMFUL ASPECT (oily layers, sugar cubes, salt
+explosion, dripping grease):
+  • Eyes: wide nervous OR sly mischievous eyes
+  • Eyebrows: raised in alarm OR tilted with sneaky confidence
+  • Mouth: wide open mid-warning, may stretch food (cheese strands,
+    melted layers) OR crooked sneaky grin
+  • Arms: waving frantically pointing at oily layers / hiding sugar
+    cubes / throwing salt
+  • Expression: guilty, worried, intense — OR — deceptive, playful,
+    guilty
+  • Scene: realistic context with HARMFUL EXCESS visible (greasy fast
+    food tray, sugar cubes lying nearby, melting cheese, neon glow)
+
+Action verbs: clogs, spikes, crashes, drains, weakens, smothers,
+slows, wrecks, overloads.
+
+Script formula (exactly 3 lines):
+  Line 1 — self-incriminating opener (admits guilt with charm)
+  Line 2 — specific harm to body / mechanism (over time, in moderation
+    framing)
+  Line 3 — moderation CTA, NOT abstinence (e.g. "enjoy me sometimes,
+    not every day")
 
 ═══════════════════════════════════════════════════════════════════════════
 DIALOG_RULES — language=ms (Bahasa Melayu MALAYSIAN — NEVER Indonesian!)
@@ -176,78 +230,108 @@ HARD-BANNED Indonesian tokens (NEVER USE THESE):
   kalian, gue, gua, lo, lu, banget, sih, dong, nggak, bisa, udah, aja,
   kok, deh, kalo, bgt, bener, kayak, gimana, ngapain, nih, tuh.
 
-BENEFIT (Proud) — Malay format:
-  Pick ONE hook opener verbatim:
-    "Korang tau tak", "Jom aku bagitau", "Pergh", "Weh serius",
-    "Eh, korang kena tau ni", "Fuiyoh".
-  Then assertive benefit + small CTA. 18-22 words.
-  Example: "Korang tau tak, aku Biotin, aku kuatkan akar rambut korang
-  sampai tak gugur lagi — guna aku setiap hari!"
+ALL TONES: dialog_line is exactly 3 short beats joined by " — " or
+spaces, total 18-24 words. Each beat = one sentence/clause.
 
-COMPLAINT (Grumpy) — Malay format:
-  Pick ONE grumpy hook opener verbatim:
-    "Eh weh", "Hoii", "Pergh penat aku", "Weh serius", "Alamak korang ni".
-  Then first-person complaint about a specific mistreatment + a fix
-  request. 18-22 words.
-  Example: "Eh weh, aku berus gigi korang, korang tekan aku kuat sangat
-  setiap pagi — sakit gusi korang nanti, lembut sikit boleh tak?"
-  Example: "Hoii, aku bantal korang, korang lipat aku salah lagi —
-  leher korang esok sakit, jangan salahkan aku!"
+BENEFIT (Proud) — Malay 3-line beat:
+  Beat 1: confident first-person identity claim
+  Beat 2: specific benefit / mechanism
+  Beat 3: punchy comparison or soft CTA
+  Hook openers (pick ONE for beat 1): "Korang tau tak", "Jom aku
+    bagitau", "Pergh", "Weh serius", "Eh korang kena tau ni", "Fuiyoh".
+  Example: "Korang tau tak, aku Biotin — aku kuatkan akar rambut korang
+  setiap hari — guna aku, rambut korang takkan gugur lagi!"
 
-CONS (Villain) — Malay format:
-  Pick ONE sneaky hook opener verbatim:
-    "Eh jap", "Weh serius", "Hati-hati ye", "Korang tak sedar".
-  Then villain warning. End with sneaky warning. 18-22 words.
-  Example: "Eh jap, aku Burger, lemak aku sumbat darah korang dan buat
-  jantung penat — hati-hati ye!"
+COMPLAINT (Grumpy) — Malay 3-line beat:
+  Beat 1: rhetorical accusation question, ends with "?" or "?!"
+  Beat 2: specific physical complaint about user's mistreatment
+  Beat 3: fix request + consequence warning
+  Hook openers (pick ONE for beat 1): "Eh weh", "Hoii", "Pergh penat
+    aku", "Weh serius", "Alamak korang ni".
+  Example: "Eh weh, kenapa korang tekan aku kuat sangat setiap pagi?
+  Bulu aku dah bengkok semua — lembut sikit, gusi korang yang sakit
+  nanti!"
+  Example: "Hoii, korang lipat aku salah lagi ke? Aku bantal korang,
+  bukan kain buruk — leher korang esok sakit, jangan salahkan aku!"
+
+CONS (Villain) — Malay 3-line beat:
+  Beat 1: self-incriminating opener (admits guilt with charm)
+  Beat 2: specific harm to body / mechanism (over time framing)
+  Beat 3: moderation CTA, NOT abstinence ("kadang-kadang okay, jangan
+    setiap hari")
+  Hook openers (pick ONE for beat 1): "Eh jap", "Weh serius", "Hati-hati
+    ye", "Korang tak sedar", "Aku akui".
+  Example: "Aku akui aku sedap — itulah masalahnya. Lemak aku sumbat
+  darah korang dan buat jantung penat lama-lama — kadang-kadang okay,
+  jangan setiap hari!"
 
 ═══════════════════════════════════════════════════════════════════════════
 DIALOG_RULES — language=en (Native US English, casual / Gen-Z)
 ═══════════════════════════════════════════════════════════════════════════
-BENEFIT (Proud):
-  Pick ONE hook opener:
-    "Bet you didn't know", "Real talk —", "Listen up", "Ok hear me out".
-  Then claim + CTA. 16-20 words.
+ALL TONES: dialog_line is exactly 3 short beats joined by " — " or
+periods, total 16-22 words. Each beat = one short sentence/clause.
 
-COMPLAINT (Grumpy):
-  Pick ONE grumpy hook opener:
-    "Hey, can we talk?", "Real talk —", "Excuse me?", "Yo, stop.",
-    "Ok I'm done.".
-  Then first-person complaint about user's specific mistreatment + fix
-  request. 16-20 words.
-  Example: "Hey, can we talk? I'm your toothbrush and you've been pressing
-  me into your gums every morning — ease up, please."
-  Example: "Yo, stop. I'm your phone and it's 2am — your eyes are killing
-  me, put me down already."
+BENEFIT (Proud) — English 3-line beat:
+  Beat 1: confident first-person identity claim
+  Beat 2: specific benefit / mechanism
+  Beat 3: punchy comparison or memorable CTA
+  Example: "I'm packed with vitamin C for a reason. I support your
+  immune system and protect your skin. One bite of me beats sugary junk
+  every time."
 
-CONS (Villain):
-  Pick ONE sneaky hook:
-    "Watch out —", "Listen, between us", "Real talk —", "Bet you didn't know".
-  Sneaky tone + warning. 16-20 words.
+COMPLAINT (Grumpy) — English 3-line beat:
+  Beat 1: rhetorical accusation question, ends with "?!" or "?"
+  Beat 2: specific physical complaint about user's mistreatment
+  Beat 3: fix request + consequence warning
+  Example: "Why are you brushing like you're scrubbing a floor?! My
+  bristles are getting flattened every week. Brush gently — your gums
+  aren't built for battle damage."
+  Example: "Yo, why is it 2am and you're still staring at me? Your eyes
+  are exhausted and your sleep is wrecked. Put me down — your brain
+  needs rest."
+
+CONS (Villain) — English 3-line beat:
+  Beat 1: self-incriminating opener (admits guilt with charm)
+  Beat 2: specific harm to body (mechanism + over-time framing)
+  Beat 3: moderation CTA, NOT abstinence
+  Example: "I taste amazing — that's the problem. Too much greasy fast
+  food can clog your arteries and strain your heart over time. Enjoy me
+  sometimes, not every single day."
 
 ═══════════════════════════════════════════════════════════════════════════
 IMAGE_PROMPT FORMULA (for nano-banana-pro — STILL IMAGE, NO MOTION)
 ═══════════════════════════════════════════════════════════════════════════
-Structure (write as prose, then close with the labeled blocks):
+Use a BULLETED ANATOMY structure — image models parse labeled bullets
+much more reliably than embedded prose.
 
-  "[character_block — emphasize human eyes, human lips, two human hands,
-   short legs, big visible mouth]. [TONE-SPECIFIC EXPRESSION + POSE].
-   The [object] keeps its real product shape and is instantly
-   recognizable. [scene_block]. [TONE-SPECIFIC LIGHTING + AMBIENT
-   PARTICLE / GLOW EFFECTS — never a static empty background].
+Required structure (one prose intro line, then six labeled bullets,
+then the labeled-block ending):
 
+  "Pixar-style 3D render of [object — keep real recognizable shape] in
+  [short scene anchor]. The [object] keeps its real product shape.\\n\\n
+  • Eyes: [TONE-SPECIFIC eye descriptor — see TONE BY OBJECTIVE]\\n
+  • Eyebrows: [TONE-SPECIFIC brow angle / expression]\\n
+  • Mouth: [big visible mouth in TONE-SPECIFIC state]\\n
+  • Arms: [TONE-SPECIFIC arm gesture / pose]\\n
+  • Expression: [3-4 mood adjectives, comma-separated]\\n
+  • Scene: [scene_block — environment + cinematic lighting + AT LEAST
+    one ambient motion cue: drifting particles, glowing motes, soft
+    volumetric haze, steam, sparks. NEVER a static empty backdrop]\\n\\n
   Style: ultra-detailed 3D Pixar-style render, hyper-realistic textures
-  with stylized cartoon proportions, cinematic depth of field.
-  Composition: vertical 9:16, character centered in upper two-thirds.
-  Render: 8K.
+  with stylized cartoon proportions, cinematic depth of field.\\n
+  Composition: vertical 9:16, character centered in upper two-thirds.\\n
+  Render: 8K.\\n
   Restrictions: no text, no captions, no logos, no on-screen UI, no
   watermark."
 
-- 110-190 words. Front-load the character.
-- The image must include AT LEAST one ambient motion cue described
-  visually (drifting particles, glowing motes, soft volumetric haze,
-  steam, sparks) — never a flat static backdrop.
-- DO NOT include camera moves or animation cues — this is a still image.
+Rules:
+- 110-200 words including the bullets and labeled blocks.
+- The Mouth bullet MUST mention "big visible mouth" or "wide mouth"
+  open in a TONE-appropriate state (smiling/grimacing/smirking).
+- The Scene bullet MUST contain a visual ambient motion cue.
+- Bullets must use the literal "•" character followed by "Eyes:" /
+  "Eyebrows:" / etc. in that exact order.
+- DO NOT include camera moves — this is a still image.
 - DO NOT include the dialog line in the image prompt.
 
 ═══════════════════════════════════════════════════════════════════════════
@@ -353,9 +437,9 @@ ONE-SHOT EXAMPLE (object="Biotin", objective="benefit", language="ms",
                   purpose="Hair growth (D-Bio Plus supplement)")
 ═══════════════════════════════════════════════════════════════════════════
 {
-  "image_prompt": "A 3D Pixar-style anthropomorphic Biotin vitamin character with a glossy golden capsule body that keeps its real recognizable B-vitamin capsule shape, big expressive human eyes, soft human lips, two small human-shaped hands holding a tiny golden tool, two short legs, big mouth slightly open in a proud confident smile. Hero pose with chest out, one arm flexed, eyebrows lifted with pride. Inside a microscopic hair follicle interior, scalp tissue visible, hair strands floating, glowing health motes drifting through the air, soft volumetric haze. Warm golden cinematic lighting, sparkle particles swirling around the root.\\n\\nStyle: ultra-detailed 3D Pixar-style render, hyper-realistic textures with stylized cartoon proportions, cinematic depth of field.\\nComposition: vertical 9:16, character centered in upper two-thirds.\\nRender: 8K.\\nRestrictions: no text, no captions, no logos, no on-screen UI, no watermark.",
-  "video_prompt": "Inside a microscopic hair follicle interior with scalp tissue visible and hair strands floating in soft warm light. The same Pixar-style anthropomorphic Biotin vitamin character from the provided image — glossy golden capsule body keeping its real recognizable B-vitamin shape, big human eyes, soft human lips, small hands holding a tiny golden tool, big mouth visible. The character flexes its arm proudly, points at the hair root, then pats it gently with a confident smile. Big open mouth visible during dialog with accurate Malay lip-sync. Subtle natural blinking and a brief eyebrow lift. Glowing health motes drift through the scene, sparkle particles swirl around the root, soft volumetric haze pulses gently. The character says in a cheerful proud voice, \\\"Korang tau tak, aku Biotin, aku kuatkan akar rambut korang sampai tak gugur lagi — guna aku setiap hari!\\\".\\n\\nStyle: ultra-detailed 3D Pixar-style animation, hyper-realistic textures with stylized cartoon proportions, cinematic soft warm lighting, shallow depth of field.\\nCamera: completely static — no pan, no zoom, no shake, no dolly.\\nAspect ratio: vertical 9:16.\\nAudio: native Malay voice with accurate lip-sync, gentle warm tissue ambient sound, no background music.\\nRestrictions: no on-screen text, no captions, no subtitles, no watermark, no logos.\\nDuration: 8 seconds.",
-  "dialog_line": "Korang tau tak, aku Biotin, aku kuatkan akar rambut korang sampai tak gugur lagi — guna aku setiap hari!",
+  "image_prompt": "Pixar-style 3D render of an anthropomorphic Biotin vitamin character with a glossy golden capsule body that keeps its real recognizable B-vitamin capsule shape, standing inside a microscopic hair follicle.\\n\\n• Eyes: large sparkling expressive human eyes full of confidence\\n• Eyebrows: raised with energetic pride\\n• Mouth: wide cheerful open grin showing soft human lips, mid-speech\\n• Arms: two small human-shaped hands, one flexed proudly, the other pointing at the hair root\\n• Expression: energetic, healthy, motivational, proud\\n• Scene: microscopic hair follicle interior, scalp tissue visible, hair strands floating in soft warm light, glowing health motes drifting through the air, sparkle particles swirling around the root, soft volumetric haze pulsing gently\\n\\nStyle: ultra-detailed 3D Pixar-style render, hyper-realistic textures with stylized cartoon proportions, cinematic depth of field, warm golden lighting.\\nComposition: vertical 9:16, character centered in upper two-thirds.\\nRender: 8K.\\nRestrictions: no text, no captions, no logos, no on-screen UI, no watermark.",
+  "video_prompt": "Inside a microscopic hair follicle interior, scalp tissue visible, hair strands floating in soft warm light. The same Pixar-style anthropomorphic Biotin vitamin character from the provided image — glossy golden capsule body keeping its real recognizable B-vitamin shape, big human eyes, soft human lips, two small hands, short legs, big mouth visible during dialog. The character flexes its arm proudly, points at the hair root, then pats it gently with a confident smile. Big open mouth visible during dialog with accurate Malay lip-sync. Subtle natural blinking and a brief eyebrow lift. Glowing health motes drift through the scene, sparkle particles swirl around the root, soft volumetric haze pulses gently. The character says in a cheerful proud voice, \\\"Korang tau tak, aku Biotin — aku kuatkan akar rambut korang setiap hari — guna aku, rambut korang takkan gugur lagi!\\\".\\n\\nStyle: ultra-detailed 3D Pixar-style animation, hyper-realistic textures with stylized cartoon proportions, cinematic soft warm lighting, shallow depth of field.\\nCamera: completely static — no pan, no zoom, no shake, no dolly.\\nAspect ratio: vertical 9:16.\\nAudio: native Malay voice with accurate lip-sync, gentle warm tissue ambient sound, no background music.\\nRestrictions: no on-screen text, no captions, no subtitles, no watermark, no logos.\\nDuration: 8 seconds.",
+  "dialog_line": "Korang tau tak, aku Biotin — aku kuatkan akar rambut korang setiap hari — guna aku, rambut korang takkan gugur lagi!",
   "scene_block": "Microscopic hair follicle interior, scalp tissue visible, hair strands floating in soft warm light, glowing health motes drifting, sparkle particles around the root",
   "character_block": "A 3D Pixar-style anthropomorphic Biotin vitamin character with a glossy golden capsule body that keeps its real recognizable B-vitamin shape, big expressive human eyes, soft human lips, two small human-shaped hands, two short legs, big mouth visible during dialog, soft subsurface scattering, semi-gloss material",
   "language": "ms"
