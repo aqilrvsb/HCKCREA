@@ -24,8 +24,12 @@ const PURPLE_SOFT = "rgba(124, 77, 255, 0.18)";
 const PURPLE_FAINT = "rgba(124, 77, 255, 0.06)";
 
 export default function CinemaTab({ projectId }: { projectId?: string } = {}) {
-  // Sub-feature selector — defaults to Talking Object (the new flagship flow).
-  const [subFeature, setSubFeature] = useState<SubFeature>("talking-object");
+  // Sub-feature selector — Free Veo Prompt is hidden by product decision,
+  // so this is hardcoded to 'talking-object'. The old radio UI + Free-Veo
+  // JSX are preserved as dead branches in case we want to flip it back.
+  // useState (not const) so TS keeps the union type wide and the
+  // 'subFeature === "free"' branch below remains type-valid.
+  const [subFeature] = useState<SubFeature>("talking-object");
 
   // Model is hardcoded to "veo" for the Viral tab. The backend route
   // still accepts a `model` body param so we can flip Grok back on later
@@ -191,29 +195,11 @@ export default function CinemaTab({ projectId }: { projectId?: string } = {}) {
 
   return (
     <div className="rounded-3xl p-6 md:p-8 space-y-5" style={sectionBg}>
-      {/* Sub-feature selector — Talking Object AI (default) vs Free Veo Prompt */}
-      <Card borderColor={PURPLE}>
-        <div className="flex items-center gap-2.5 mb-3">
-          <Film className="w-5 h-5" style={{ color: PURPLE }} strokeWidth={2.4} />
-          <span className="text-[13px] font-extrabold uppercase tracking-[0.06em]">
-            Viral Mode
-          </span>
-        </div>
-        <div className="grid grid-cols-2 gap-2">
-          <SubFeatureCard
-            active={subFeature === "talking-object"}
-            onClick={() => setSubFeature("talking-object")}
-            title="🗣️ Talking Object AI"
-            sub="Guided wizard · auto image + Veo · series-mode"
-          />
-          <SubFeatureCard
-            active={subFeature === "free"}
-            onClick={() => setSubFeature("free")}
-            title="✍️ Free Veo Prompt"
-            sub="Type your own · t2v / i2v · 8s"
-          />
-        </div>
-      </Card>
+      {/* Free Veo Prompt option hidden by product decision — Viral tab is
+          Talking Object AI only. Old Free-Veo JSX is preserved below
+          inside an unreachable branch (subFeature is hardcoded to
+          'talking-object'). To bring the radio back, undo this block
+          and re-enable the SubFeatureCard grid. */}
 
       {subFeature === "talking-object" && (
         <>
@@ -228,6 +214,10 @@ export default function CinemaTab({ projectId }: { projectId?: string } = {}) {
             <Label>1. Object / Ingredient</Label>
             <input
               type="text"
+              name="viral-object"
+              autoComplete="off"
+              data-lpignore="true"
+              data-form-type="other"
               value={toObject}
               onChange={(e) => setToObject(e.target.value.slice(0, 80))}
               placeholder="e.g. Banana, Biotin, Smartphone, L-Cystine"
@@ -264,6 +254,10 @@ export default function CinemaTab({ projectId }: { projectId?: string } = {}) {
             <Label>3. Purpose / Context (drives the scene)</Label>
             <input
               type="text"
+              name="viral-purpose"
+              autoComplete="off"
+              data-lpignore="true"
+              data-form-type="other"
               value={toPurpose}
               onChange={(e) => setToPurpose(e.target.value.slice(0, 200))}
               placeholder='e.g. "Hair growth (D-Bio Plus)", "Skin glow", "Energy boost"'
