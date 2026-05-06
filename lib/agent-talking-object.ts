@@ -111,19 +111,66 @@ GLOBAL VISUAL STYLE (LOCKED — ALWAYS APPLY)
 SCENE PLACEMENT
 ═══════════════════════════════════════════════════════════════════════════
 PRIORITY ORDER for choosing the scene:
+
 1. If custom_target is provided → use it VERBATIM as the scene core.
    Extend with texture/lighting/atmospheric details but never change the
    location. Example: custom_target="inside a blood vessel" → scene_block
    becomes "Inside a blood vessel, red plasma flowing past, vessel walls
    pulsing with warm light, blood cells drifting in soft focus".
-2. Otherwise, use the "purpose" field as a scene-design brief. Choose
-   any scene that naturally fits the object + purpose combination — be
-   specific about texture, lighting, mood.
-3. If both are empty/vague, default to a clean, bright, photogenic
-   backdrop that matches the object (sunlit kitchen for food, soft desk
-   for gadgets, microscopic body interior when health-related).
 
-The scene must support the character's action and feel cinematic.
+2. Otherwise, scan the "purpose" field for a BODY SYSTEM keyword. If
+   present, the character MUST BE PLACED ON OR INSIDE that body system —
+   never on a generic kitchen counter / desk / table. The visual must
+   instantly tell viewers "this is about [body part]". Use this mapping:
+
+   BODY-SYSTEM → SCENE (apply if any keyword matches in EN or BM):
+   - hair / rambut / scalp / kulit kepala  →  on the scalp surrounded
+     by floating hair strands, OR perched on a single hair strand, OR
+     standing inside a hair follicle interior, OR on top of a head of
+     hair with strands swirling around
+   - skin / kulit / muka / face / glow / jerawat / acne  →  on the
+     skin surface beside a pore, OR walking across smooth dermis tissue
+   - heart / jantung / arteries / darah / blood / cholesterol  →  inside
+     a blood vessel with red plasma flowing, OR inside a heart chamber
+     with rhythmic pulsing walls
+   - digestion / perut / gut / stomach / usus / intestine / bloating  →
+     inside a warm pink stomach lining, OR inside an intestinal tube
+     with peristaltic walls
+   - brain / otak / focus / memory / mental / fokus  →  on neural
+     tissue with electric synapses firing, OR inside a brain cell with
+     glowing dendrites
+   - eye / mata / vision / penglihatan  →  on the curve of an eyeball,
+     OR on the retina with light rays passing
+   - joint / sendi / tulang / bone / arthritis  →  inside a cartilage
+     joint with bone surfaces, OR on a bone surface with marrow visible
+   - immune / imun / sakit / cold / flu  →  inside a bloodstream with
+     immune cells drifting and pathogens being attacked
+   - liver / hati / detox / cleanse  →  on liver tissue with bile
+     channels, OR inside a kidney filtering blood
+   - energy / tenaga / fatigue / lethargic / penat  →  inside a muscle
+     fiber with mitochondria glowing, OR on a muscle cell with ATP sparks
+   - weight / berat / fat / lemak / slim / kurus  →  on a stretch of
+     belly fat tissue dissolving, OR on top of a bathroom scale dial
+   - lung / paru / breathing / nafas  →  inside a lung alveoli with
+     air sacs, OR on bronchial tubes with airflow
+   - sleep / tidur / insomnia  →  inside a dreamy bedroom at night
+     with soft moonlight, OR on a pillow with floating stars
+
+3. If purpose is non-body (gadget, lifestyle, etc.) → infer the most
+   contextually relevant real-world scene (e.g. phone → bedside table
+   at 2am for sleep complaint; toothbrush → bathroom sink; charger →
+   tangled cable nest; pillow → unmade bed).
+
+4. If purpose is empty/vague → choose a scene that visually relates to
+   the object's natural habitat (food → sunlit kitchen, gadget → desk).
+
+CRITICAL: rule 2 takes precedence over the object's "natural habitat".
+A beetroot for hair growth must NOT be on a wooden kitchen counter —
+it must be on the scalp / hair strands / inside a follicle. The scene
+is dictated by the PURPOSE, not the object's home.
+
+The scene must support the character's action and feel cinematic with
+ambient motion (particles, glow, drifting elements).
 
 ═══════════════════════════════════════════════════════════════════════════
 TONE BY OBJECTIVE (3 viral angles — each with its own visual + script)
