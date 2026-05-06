@@ -20,6 +20,7 @@ type TalkingObjective = "introduce" | "benefit" | "cons";
 type TalkingLanguage = "ms" | "en";
 type TalkingMode = "t2v" | "i2v";
 type DialogMode = "auto" | "custom";
+type TargetMode = "auto" | "custom";
 
 const PURPLE = "#7c4dff";
 const PURPLE_SOFT = "rgba(124, 77, 255, 0.18)";
@@ -50,6 +51,8 @@ export default function CinemaTab({ projectId }: { projectId?: string } = {}) {
   const [toMode, setToMode] = useState<TalkingMode>("i2v");
   const [toDialogMode, setToDialogMode] = useState<DialogMode>("auto");
   const [toCustomDialog, setToCustomDialog] = useState("");
+  const [toTargetMode, setToTargetMode] = useState<TargetMode>("auto");
+  const [toCustomTarget, setToCustomTarget] = useState("");
   const [toStatus, setToStatus] = useState<Status>("idle");
   const [toError, setToError] = useState<string | null>(null);
   // ──────────────────────────────────────────────────────────────────────
@@ -161,6 +164,8 @@ export default function CinemaTab({ projectId }: { projectId?: string } = {}) {
     if (!toObject.trim()) return setToError("Sila taip nama object dulu.");
     if (toDialogMode === "custom" && !toCustomDialog.trim())
       return setToError("Sila taip custom dialog atau tukar ke Auto Dialog.");
+    if (toTargetMode === "custom" && !toCustomTarget.trim())
+      return setToError("Sila taip custom target atau tukar ke Auto Target.");
     setToError(null);
     setToStatus("submitting");
     try {
@@ -175,6 +180,8 @@ export default function CinemaTab({ projectId }: { projectId?: string } = {}) {
           mode: toMode,
           custom_dialog:
             toDialogMode === "custom" ? toCustomDialog.trim() : "",
+          custom_target:
+            toTargetMode === "custom" ? toCustomTarget.trim() : "",
           project_id: projectId,
         }),
       });
@@ -298,7 +305,52 @@ export default function CinemaTab({ projectId }: { projectId?: string } = {}) {
               />
             </div>
 
-            <Label>5. Mode</Label>
+            <Label>5. Target / Scene</Label>
+            <div className="grid grid-cols-2 gap-2 mb-2">
+              <ObjectiveBtn
+                active={toTargetMode === "auto"}
+                onClick={() => setToTargetMode("auto")}
+                emoji="🤖"
+                label="Auto Target"
+              />
+              <ObjectiveBtn
+                active={toTargetMode === "custom"}
+                onClick={() => setToTargetMode("custom")}
+                emoji="📍"
+                label="Custom Target"
+              />
+            </div>
+            {toTargetMode === "custom" ? (
+              <>
+                <input
+                  type="text"
+                  name="viral-custom-target"
+                  autoComplete="off"
+                  data-lpignore="true"
+                  data-form-type="other"
+                  value={toCustomTarget}
+                  onChange={(e) =>
+                    setToCustomTarget(e.target.value.slice(0, 200))
+                  }
+                  placeholder='e.g. "inside a blood vessel", "modern kitchen counter", "scalp with hair follicles"'
+                  className="w-full p-3 rounded-lg text-sm outline-none mb-1"
+                  style={{
+                    background: "#fafaf7",
+                    border: "1px solid #e8e0d8",
+                    color: "#1a1a1a",
+                  }}
+                />
+                <p className="text-[10px] text-gray-500 mb-4">
+                  This becomes the literal background. AI extends with texture / lighting only.
+                </p>
+              </>
+            ) : (
+              <p className="text-[10px] text-gray-500 mb-4">
+                AI picks the best background based on object + purpose.
+              </p>
+            )}
+
+            <Label>6. Mode</Label>
             <div className="grid grid-cols-2 gap-2 mb-1">
               <ObjectiveBtn
                 active={toMode === "i2v"}
@@ -319,7 +371,7 @@ export default function CinemaTab({ projectId }: { projectId?: string } = {}) {
                 : "Skip image gen — Veo generates the video directly from prompt (faster, but character look varies)."}
             </p>
 
-            <Label>6. Dialog</Label>
+            <Label>7. Dialog</Label>
             <div className="grid grid-cols-2 gap-2 mb-2">
               <ObjectiveBtn
                 active={toDialogMode === "auto"}

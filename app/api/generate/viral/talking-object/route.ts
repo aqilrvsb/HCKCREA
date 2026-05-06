@@ -54,6 +54,7 @@ export async function POST(req: Request) {
   const projectId = body?.project_id ? String(body.project_id) : null;
   const mode: "t2v" | "i2v" = body?.mode === "t2v" ? "t2v" : "i2v";
   const customDialog = String(body?.custom_dialog || "").trim().slice(0, 400);
+  const customTarget = String(body?.custom_target || "").trim().slice(0, 200);
 
   if (!object) {
     return NextResponse.json({ error: "Object required" }, { status: 400 });
@@ -74,13 +75,21 @@ export async function POST(req: Request) {
       status: "pending",
       prompt: `[Talking Object] ${object} · ${objective} · ${language} · ${mode}${
         purpose ? ` · ${purpose}` : ""
-      }`,
+      }${customTarget ? ` · target:${customTarget}` : ""}`,
       task_id: null,
       duration: 8,
       cost: 0,
       metadata: {
         featureType: "talking-object",
-        params: { object, objective, language, purpose, mode, customDialog: customDialog || undefined },
+        params: {
+          object,
+          objective,
+          language,
+          purpose,
+          mode,
+          customDialog: customDialog || undefined,
+          customTarget: customTarget || undefined,
+        },
         stage: "queued",
         cinemaProvider: "veo",
         modelChoice: "veo",
@@ -113,6 +122,7 @@ export async function POST(req: Request) {
       projectId,
       mode,
       customDialog: customDialog || undefined,
+      customTarget: customTarget || undefined,
     };
 
     const baseParams = {
@@ -122,6 +132,7 @@ export async function POST(req: Request) {
       purpose,
       mode,
       customDialog: customDialog || undefined,
+      customTarget: customTarget || undefined,
     };
 
     let promptPair;

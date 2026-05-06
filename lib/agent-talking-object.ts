@@ -25,6 +25,7 @@ export type TalkingObjectInput = {
   projectId: string | null; // for series-mode scene reuse
   mode: "t2v" | "i2v";     // t2v = skip image gen, video prompt is self-contained
   customDialog?: string;   // when set, LLM uses this verbatim as dialog_line
+  customTarget?: string;   // when set, LLM uses this verbatim as scene_block
 };
 
 export type TalkingObjectOutput = {
@@ -64,6 +65,13 @@ INPUTS (provided by user):
 - custom_dialog: optional. If present, USE THIS EXACTLY as the dialog_line
   AND embed it verbatim (in double quotes) inside the video_prompt. Do NOT
   generate your own dialog. The user's wording is final.
+- custom_target: optional. The literal scene/background the user wants
+  (e.g. "inside a blood vessel", "modern kitchen counter", "scalp with
+  hair follicles"). If present, USE THIS EXACTLY as the scene_block (you
+  may extend it with texture/lighting details, but the core location must
+  remain). Reference it accurately in BOTH image_prompt and video_prompt
+  so the character is clearly placed there. If absent, infer the best
+  scene from the object + purpose combination as usual.
 - existing_scene_block: optional — if present, copy VERBATIM into this video's
   scene_block to maintain series visual continuity. Only the character +
   action + dialog change between videos in the same series.
@@ -93,14 +101,20 @@ GLOBAL VISUAL STYLE (LOCKED — ALWAYS APPLY)
 ═══════════════════════════════════════════════════════════════════════════
 SCENE PLACEMENT
 ═══════════════════════════════════════════════════════════════════════════
-Use the "purpose" field as your free-form scene-design brief. Choose any
-scene that naturally fits the object + purpose combination — be specific
-about texture, lighting, mood. The scene must support the character's
-action and feel cinematic.
+PRIORITY ORDER for choosing the scene:
+1. If custom_target is provided → use it VERBATIM as the scene core.
+   Extend with texture/lighting/atmospheric details but never change the
+   location. Example: custom_target="inside a blood vessel" → scene_block
+   becomes "Inside a blood vessel, red plasma flowing past, vessel walls
+   pulsing with warm light, blood cells drifting in soft focus".
+2. Otherwise, use the "purpose" field as a scene-design brief. Choose
+   any scene that naturally fits the object + purpose combination — be
+   specific about texture, lighting, mood.
+3. If both are empty/vague, default to a clean, bright, photogenic
+   backdrop that matches the object (sunlit kitchen for food, soft desk
+   for gadgets, microscopic body interior when health-related).
 
-If "purpose" is empty or vague, default to a clean, bright, photogenic
-backdrop that matches the object (e.g. sunlit kitchen for food, soft
-desk for gadgets, microscopic body interior when health-related).
+The scene must support the character's action and feel cinematic.
 
 ═══════════════════════════════════════════════════════════════════════════
 TONE BY OBJECTIVE
@@ -300,7 +314,16 @@ function buildUserPrompt(
       input.customDialog.trim()
     );
   }
-  if (series.scene_block) {
+  if (input.customTarget && input.customTarget.trim()) {
+    lines.push(
+      "",
+      "custom_target (USE VERBATIM as the core of scene_block — extend with texture/lighting only, do NOT change the location):",
+      input.customTarget.trim()
+    );
+  }
+  // Series scene reuse only kicks in when the user did NOT specify a custom
+  // target — otherwise the user's explicit target wins over series continuity.
+  if (series.scene_block && !(input.customTarget && input.customTarget.trim())) {
     lines.push(
       "",
       "existing_scene_block (REUSE VERBATIM in your output's scene_block):",
