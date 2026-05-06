@@ -93,10 +93,11 @@ export async function mirrorToContentBucket(opts: {
   const accessKeyId = (process.env.B2_CONTENT_KEY_ID || "").trim();
   const secretAccessKey = (process.env.B2_CONTENT_APP_KEY || "").trim();
   const bucket = (process.env.B2_CONTENT_BUCKET || "").trim();
+  const publicBase = (process.env.B2_CONTENT_PUBLIC_BASE || "").trim();
 
-  if (!endpoint || !accessKeyId || !secretAccessKey || !bucket) {
+  if (!endpoint || !accessKeyId || !secretAccessKey || !bucket || !publicBase) {
     throw new Error(
-      "mirror-to-b2: env vars missing — set B2_CONTENT_ENDPOINT / B2_CONTENT_KEY_ID / B2_CONTENT_APP_KEY / B2_CONTENT_BUCKET"
+      "mirror-to-b2: env vars missing — set B2_CONTENT_ENDPOINT / B2_CONTENT_KEY_ID / B2_CONTENT_APP_KEY / B2_CONTENT_BUCKET / B2_CONTENT_PUBLIC_BASE"
     );
   }
 
