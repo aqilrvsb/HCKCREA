@@ -85,6 +85,16 @@ export default function AdminSettings() {
   const [savingStorytelling, setSavingStorytelling] = useState(false);
   const [storytellingMsg, setStorytellingMsg] = useState<string | null>(null);
 
+  // Viral (Talking Object) image provider + model. Reads/writes:
+  //   viral_provider     = { provider: "p1" | "p2" | "p3" }
+  //   viral_image_model  = { model: "nano-banana-pro" | ... }
+  // Independent from global image_default so admin can route Viral to a
+  // different backend without affecting Image / Storytelling tabs.
+  const [viralProvider, setViralProvider] = useState<"p1" | "p2" | "p3">("p2");
+  const [viralImageModel, setViralImageModel] = useState("");
+  const [savingViral, setSavingViral] = useState(false);
+  const [viralMsg, setViralMsg] = useState<string | null>(null);
+
   useEffect(() => {
     void load();
     void loadAdminDevice();
@@ -147,6 +157,13 @@ export default function AdminSettings() {
         if (row.key === "storytelling_provider") {
           const p = row.value?.provider;
           if (p === "p1" || p === "p2" || p === "p3") setStorytellingProvider(p);
+        }
+        if (row.key === "viral_provider") {
+          const p = row.value?.provider;
+          if (p === "p1" || p === "p2" || p === "p3") setViralProvider(p);
+        }
+        if (row.key === "viral_image_model") {
+          setViralImageModel(String(row.value?.model || ""));
         }
       }
     } finally {
@@ -278,6 +295,43 @@ export default function AdminSettings() {
       setStorytellingMsg(`✗ Save failed: ${e?.message || "unknown error"}`);
     } finally {
       setSavingStorytelling(false);
+    }
+  }
+
+  async function saveViralSettings() {
+    setSavingViral(true);
+    setViralMsg(null);
+    try {
+      const responses = await Promise.all([
+        fetch("/api/admin/settings", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            key: "viral_provider",
+            value: { provider: viralProvider },
+          }),
+        }),
+        fetch("/api/admin/settings", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            key: "viral_image_model",
+            value: { model: viralImageModel.trim() },
+          }),
+        }),
+      ]);
+      const failed = responses.find((r) => !r.ok);
+      if (failed) {
+        const err = await failed.json().catch(() => ({}));
+        throw new Error(err?.error || `HTTP ${failed.status}`);
+      }
+      setViralMsg("✓ Saved. New Talking Object generations use these immediately.");
+      void load();
+      setTimeout(() => setViralMsg(null), 5000);
+    } catch (e: any) {
+      setViralMsg(`✗ Save failed: ${e?.message || "unknown error"}`);
+    } finally {
+      setSavingViral(false);
     }
   }
 
@@ -448,6 +502,9 @@ export default function AdminSettings() {
     "gen_provider_video",
     "gen_provider_cinema",
     "gen_provider_seedance",
+    // Already exposed via the dedicated "Viral — Talking Object" card.
+    "viral_provider",
+    "viral_image_model",
   ]);
 
   const grouped = useMemo(() => {
@@ -896,6 +953,113 @@ export default function AdminSettings() {
           </button>
           {storytellingMsg && (
             <span className="text-xs text-emerald-700 font-semibold">{storytellingMsg}</span>
+          )}
+        </div>
+      </div>
+
+      {/* Viral (Talking Object) — dedicated card so admin can pick the
+          backend provider + image model the Talking Object pipeline uses
+          for the start-frame banana-pro image. Independent from global
+          image_default so Viral can run on a different model than the
+          Image / Storytelling tabs. */}
+      <div className="card p-6 mb-6 border-2 border-pink-100 bg-pink-50/40">
+        <div className="flex items-center gap-2 mb-1">
+          <Film className="w-5 h-5 text-pink-600" />
+          <h2 className="font-display font-bold text-lg">Viral — Talking Object</h2>
+        </div>
+        <p className="text-sm text-[var(--color-text-secondary)] mb-4">
+          Pick the upstream provider + image model the Talking Object
+          pipeline uses for the start-frame image. Leave model blank to
+          fall back to the global image default.
+        </p>
+
+        {/* Provider toggle — applies to Viral / Talking Object ONLY. p3
+            (Mountsea) is locked to nano-banana-fast on the route side
+            regardless of the Image Model dropdown below. */}
+        <div className="mb-4">
+          <label className="block text-xs font-mono uppercase tracking-widest text-[var(--color-text-muted)] font-bold mb-2">
+            Image Provider
+          </label>
+          <div className="grid grid-cols-3 gap-2">
+            {([
+              { id: "p1", label: "P1 — GeminiGen", sub: "Google direct" },
+              { id: "p2", label: "P2 — Crun.ai", sub: "Multi-model" },
+              { id: "p3", label: "P3 — Mountsea", sub: "nano-banana-fast" },
+            ] as const).map((p) => {
+              const active = viralProvider === p.id;
+              return (
+                <button
+                  key={p.id}
+                  type="button"
+                  onClick={() => setViralProvider(p.id)}
+                  className="rounded-xl px-3 py-2 text-left transition"
+                  style={
+                    active
+                      ? {
+                          background: "#db2777",
+                          color: "white",
+                          border: "2px solid #db2777",
+                          boxShadow: "0 4px 10px rgba(219,39,119,0.3)",
+                        }
+                      : {
+                          background: "white",
+                          color: "#1f2937",
+                          border: "1px solid #e5e7eb",
+                        }
+                  }
+                >
+                  <div className="text-xs font-bold">{p.label}</div>
+                  <div
+                    className="text-[10px] mt-0.5"
+                    style={{ color: active ? "rgba(255,255,255,0.85)" : "#6b7280" }}
+                  >
+                    {p.sub}
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+          {viralProvider === "p3" && (
+            <p className="text-[11px] text-pink-700 mt-2">
+              ⚡ Mountsea path uses <strong>nano-banana-fast</strong> only.
+              Image Model dropdown below is ignored when P3 is selected.
+            </p>
+          )}
+        </div>
+
+        <div className="mb-3">
+          <label className="block text-xs font-mono uppercase tracking-widest text-[var(--color-text-muted)] font-bold mb-2">
+            Image Model
+          </label>
+          <select
+            value={viralImageModel}
+            onChange={(e) => setViralImageModel(e.target.value)}
+            className="input"
+            style={{ color: "white" }}
+          >
+            <option value=""                style={{ color: "#1a1a1a", background: "white" }}>— use global default —</option>
+            <option value="z-image"         style={{ color: "#1a1a1a", background: "white" }}>z-image (Alibaba — fastest, cheapest)</option>
+            <option value="nano-banana-v2"  style={{ color: "#1a1a1a", background: "white" }}>nano-banana (Google — balanced)</option>
+            <option value="nano-banana-pro" style={{ color: "#1a1a1a", background: "white" }}>nano-banana-pro (Google — best quality)</option>
+            <option value="gpt-image-2"     style={{ color: "#1a1a1a", background: "white" }}>gpt-image-2 (OpenAI — most expensive)</option>
+          </select>
+          <p className="text-[10px] text-[var(--color-text-muted)] mt-1">
+            Currently active: <strong>{viralImageModel || "global default (likely nano-banana-pro)"}</strong>
+          </p>
+        </div>
+
+        <div className="flex items-center gap-3 mt-5">
+          <button
+            type="button"
+            onClick={() => void saveViralSettings()}
+            disabled={savingViral}
+            className="px-5 py-2 rounded-lg bg-pink-600 text-white font-bold text-sm hover:bg-pink-700 disabled:opacity-50 flex items-center gap-2"
+          >
+            {savingViral && <Loader2 className="w-4 h-4 animate-spin" />}
+            <Save className="w-4 h-4" /> Save Viral Settings
+          </button>
+          {viralMsg && (
+            <span className="text-xs text-emerald-700 font-semibold">{viralMsg}</span>
           )}
         </div>
       </div>

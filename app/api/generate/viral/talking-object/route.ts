@@ -2,7 +2,12 @@ import { NextResponse, after } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { p2CreateTask, p2GetStatus } from "@/lib/p2";
-import { getCinemaRate, getP2Config } from "@/lib/settings";
+import { p3CreateImage, p3GetStatus } from "@/lib/p3";
+import {
+  getCinemaRate,
+  getP2Config,
+  getViralImageConfig,
+} from "@/lib/settings";
 import {
   generateTalkingObjectPrompts,
   type TalkingObjectInput,
@@ -287,6 +292,24 @@ export async function POST(req: Request) {
       })
       .eq("id", historyId);
 
+    // Resolve viral image provider + model from admin settings, with
+    // fallback to global cfg.imageDefault.
+    //   - p3 → Mountsea, forced nano-banana-fast (admin-model is ignored)
+    //   - p1 / p2 → Crun pathway with the admin-selected model id
+    const viralCfg = await getViralImageConfig();
+    const HARDCODED_MODEL_IDS: Record<string, string> = {
+      "nano-banana-v2": "google/nano-banana-v2",
+      "nano-banana-pro": "google/nano-banana-pro",
+      "z-image": "z-image",
+      "gpt-image-2": "openai/gpt-image-2-stable",
+    };
+    const imageModelKey = viralCfg.modelKey || cfg.imageDefault || "nano-banana-pro";
+    const imageModel =
+      (cfg.imageModels as any)?.[imageModelKey] ||
+      HARDCODED_MODEL_IDS[imageModelKey] ||
+      imageModelKey;
+    const declaredImgProvider = viralCfg.provider; // pre-create-task hint for placeholder row
+
     // Insert a PENDING image row UPFRONT so the Images sub-tab shows a
     // loading placeholder card while banana-pro is generating. We update
     // this row to done/failed once polling completes. The soft link
@@ -314,7 +337,8 @@ export async function POST(req: Request) {
             image_prompt: promptPair.image_prompt,
             scene_block: promptPair.scene_block,
             character_block: promptPair.character_block,
-            model: "nano-banana-pro",
+            model: declaredImgProvider === "p3" ? "nano-banana-fast" : imageModelKey,
+            provider: declaredImgProvider,
             parent_video_history_id: historyId,
             upload_status: "queued",
           },
@@ -329,18 +353,31 @@ export async function POST(req: Request) {
       );
     }
 
-    // Resolve image model id: cfg.imageDefault is the KEY ("nano-banana-pro"),
-    // cfg.imageModels[KEY] is the actual provider model id ("google/nano-banana-pro").
-    const imageModelKey = cfg.imageDefault || "nano-banana-pro";
-    const imageModel =
-      (cfg.imageModels as any)?.[imageModelKey] || imageModelKey;
-
-    const imgCreate = await p2CreateTask({
-      model: imageModel,
-      prompt: promptPair.image_prompt,
-      imageUrls: [], // explicitly empty — banana-pro does t2i without a ref
-      aspectRatio: "9:16",
-    });
+    let imgCreate: { ok: boolean; task_id?: string; provider?: "p1" | "p2" | "p3"; error?: string };
+    if (viralCfg.provider === "p3") {
+      const r = await p3CreateImage({
+        prompt: promptPair.image_prompt,
+        model: "nano-banana-fast",
+        aspectRatio: "9:16",
+      });
+      imgCreate = r.ok
+        ? { ok: true, task_id: r.task_id, provider: "p3" }
+        : { ok: false, error: r.error, provider: "p3" };
+    } else {
+      // p1 + p2 share the Crun pathway (p1 is a pass-through alias here).
+      const r = await p2CreateTask({
+        model: imageModel,
+        prompt: promptPair.image_prompt,
+        imageUrls: [], // explicitly empty — banana-pro does t2i without a ref
+        aspectRatio: "9:16",
+      });
+      imgCreate = {
+        ok: r.ok,
+        task_id: r.ok ? r.task_id : undefined,
+        provider: r.provider || "p2",
+        error: r.ok ? undefined : r.error,
+      };
+    }
     if (!imgCreate.ok || !imgCreate.task_id) {
       // Flip the placeholder image row to failed so it surfaces the error
       // visually instead of spinning forever.
@@ -381,7 +418,7 @@ export async function POST(req: Request) {
 
     // Stamp the image task_id on the placeholder row so /api/check-status
     // (or any future poller) can re-query it if needed.
-    const imgProvider = (imgCreate.provider || "p2") as "p1" | "p2";
+    const imgProvider = (imgCreate.provider || viralCfg.provider) as "p1" | "p2" | "p3";
     if (imageHistoryId) {
       await admin
         .from("history")
@@ -394,7 +431,7 @@ export async function POST(req: Request) {
             image_prompt: promptPair.image_prompt,
             scene_block: promptPair.scene_block,
             character_block: promptPair.character_block,
-            model: "nano-banana-pro",
+            model: imgProvider === "p3" ? "nano-banana-fast" : imageModelKey,
             provider: imgProvider,
             parent_video_history_id: historyId,
             upload_status: "queued",
@@ -409,7 +446,17 @@ export async function POST(req: Request) {
     let imgError = "";
     while (Date.now() < pollDeadline) {
       await new Promise((f) => setTimeout(f, 3500));
-      const st = await p2GetStatus(imgCreate.task_id, imgProvider);
+      let st: { status: string; outputUrl?: string; error?: string };
+      if (imgProvider === "p3") {
+        const r = await p3GetStatus(imgCreate.task_id);
+        st = {
+          status: r.status,
+          outputUrl: r.outputUrl,
+          error: r.error,
+        };
+      } else {
+        st = await p2GetStatus(imgCreate.task_id, imgProvider as "p1" | "p2");
+      }
       if (st.status === "succeeded" && st.outputUrl) {
         imageUrl = st.outputUrl;
         break;
@@ -479,7 +526,7 @@ export async function POST(req: Request) {
             image_prompt: promptPair.image_prompt,
             scene_block: promptPair.scene_block,
             character_block: promptPair.character_block,
-            model: "nano-banana-pro",
+            model: imgProvider === "p3" ? "nano-banana-fast" : imageModelKey,
             provider: imgProvider,
             parent_video_history_id: historyId,
             upload_status: "done",
