@@ -231,11 +231,18 @@ export async function POST(req: Request) {
       return;
     }
 
-    // Insert a child history row for the GENERATED IMAGE so it appears
-    // in the Viral tab's "Images" sub-tab alongside the final video.
-    // parent_history_id links it back to the video row — Save flow,
-    // delete cascade, and the slider can all use this relationship later.
-    // Best-effort: a failure here doesn't block the video generation.
+    // Insert a STANDALONE history row for the GENERATED IMAGE so it
+    // appears as its own card in the Viral tab's "Images" sub-tab.
+    //
+    // IMPORTANT: do NOT set parent_history_id here — that field is
+    // overloaded by history-grid.tsx for the seg-1/seg-2 segment slider
+    // (rows with parent_history_id are filtered out of the main grid
+    // and slotted into childMap instead). We want this image to be a
+    // top-level card on the Images sub-tab, not a slider thumbnail
+    // attached to its sibling video. The video↔image link is preserved
+    // in metadata.parent_video_history_id for any future Save / cleanup
+    // logic that needs it. Best-effort: a failure here doesn't block
+    // the video generation.
     try {
       await admin.from("history").insert({
         user_id: user.id,
@@ -246,7 +253,6 @@ export async function POST(req: Request) {
         prompt: promptPair.image_prompt,
         output_url: imageUrl,
         thumbnail_url: imageUrl,
-        parent_history_id: historyId,
         cost: 0, // image cost rolled into the parent video row's cost
         metadata: {
           featureType: "talking-object-image",
@@ -257,6 +263,7 @@ export async function POST(req: Request) {
           character_block: promptPair.character_block,
           model: "nano-banana-pro",
           provider: imgProvider,
+          // soft link back to the parent video row (no FK, just metadata)
           parent_video_history_id: historyId,
           upload_status: "done",
         },
