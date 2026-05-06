@@ -145,55 +145,85 @@ export default function ExtendDialog({
     return d.url;
   }
 
-  // Strip seg1's spoken dialog from the original prompt so it doesn't
-  // leak into seg2 and confuse Veo. We KEEP the character/setting/product
-  // description (essential context Veo can't get from the start frame
-  // alone) — only the dialog patterns get removed.
+  // Replace seg1's spoken dialog INSIDE the original prompt with the
+  // user's new dialog. Keeps the entire seg1 prompt verbatim — character
+  // description, scene framing, all the LOCK blocks, the negative list
+  // — and surgically swaps ONLY the quoted dialog string.
   //
-  // Patterns stripped (all variants of how UGC/Auto agents embed dialog):
-  //   - Character says: '...'  / "..."
-  //   - Voiceover (xxx): '...' / "..."
-  //   - She/He/They says: '...'
-  //   - 0-2s (HOOK): "..."  /  2-6s: "..."  (timestamp beat lines)
-  function stripSeg1Dialog(prompt: string): string {
+  // Detection order (high → low confidence):
+  //   1. "Character says: '...'" / "Voiceover: '...'" / "She says: '...'"
+  //   2. The longest standalone quoted block (≥40 chars) — the seg1
+  //      prompt's spoken line is always the longest single-quoted text
+  //      (locks like "beg kuning" are short phrases under 40 chars).
+  //   3. Fallback: append "SPOKEN DIALOG: '...'" at the end if nothing
+  //      detectable.
+  function replaceSeg1Dialog(prompt: string, newDialog: string): string {
     if (!prompt) return prompt;
-    return prompt
-      // Character says: '...' or "..."
-      .replace(/Character\s+says\s*:\s*['"""'][^'""""]*?['"""']/gi, "")
-      // Voiceover (xxx): '...' or Voiceover: '...'
-      .replace(/Voiceover\s*(?:\([^)]*\))?\s*:\s*['"""'][^'""""]*?['"""']/gi, "")
-      // She/He/They says: '...'
-      .replace(/(?:She|He|They)\s+says?\s*:\s*['"""'][^'""""]*?['"""']/gi, "")
-      // 0-2s (HOOK): "..."  or  0–2s: "..."  (whole-line beat patterns)
-      .replace(/^\s*\d+\s*[-–]\s*\d+\s*s?\s*(?:\([^)]*\))?\s*:\s*['"""'][^'""""]*?['"""']\s*$/gim, "")
-      // Compact 3+ newlines down to 2 (paragraph break)
-      .replace(/\n{3,}/g, "\n\n")
-      .trim();
+    if (!newDialog) return prompt;
+
+    // Strip user-typed quotes so we don't end up with nested quotes
+    const safeDialog = newDialog.replace(/['"""]/g, "").trim();
+    if (!safeDialog) return prompt;
+
+    // Pattern 1 — "Character says: '...'" and friends.
+    const speechPatterns: RegExp[] = [
+      /(Character\s+says\s*:\s*)['"""']([^'""""]+?)['"""']/i,
+      /(Voiceover\s*(?:\([^)]*\))?\s*:\s*)['"""']([^'""""]+?)['"""']/i,
+      /((?:She|He|They)\s+says?\s*:\s*)['"""']([^'""""]+?)['"""']/i,
+    ];
+    for (const pat of speechPatterns) {
+      if (pat.test(prompt)) {
+        return prompt.replace(pat, `$1'${safeDialog}'`);
+      }
+    }
+
+    // Pattern 2 — find longest standalone quoted block (single OR double
+    // quotes) at least 40 chars long. Matches the user's example where
+    // dialog is just a quoted block in the middle of a paragraph.
+    const candidates: { start: number; full: string; text: string }[] = [];
+    const singleQuoted = /'([^']{40,}?)'/g;
+    const doubleQuoted = /"([^"]{40,}?)"/g;
+    let m: RegExpExecArray | null;
+    while ((m = singleQuoted.exec(prompt)) !== null) {
+      candidates.push({ start: m.index, full: m[0], text: m[1] });
+    }
+    while ((m = doubleQuoted.exec(prompt)) !== null) {
+      candidates.push({ start: m.index, full: m[0], text: m[1] });
+    }
+
+    if (candidates.length > 0) {
+      // Pick the longest — most likely to be the actual dialog
+      candidates.sort((a, b) => b.text.length - a.text.length);
+      const target = candidates[0];
+      return (
+        prompt.slice(0, target.start) +
+        `'${safeDialog}'` +
+        prompt.slice(target.start + target.full.length)
+      );
+    }
+
+    // Pattern 3 — no detectable dialog, append cleanly
+    return `${prompt.trim()}\n\nSPOKEN DIALOG: '${safeDialog}'`;
   }
 
-  // Build the segment-2 prompt that gets POSTed to the backend. Combines
-  // the original first-video prompt (so character / setting / wardrobe /
-  // product description stay locked — Veo doesn't know what seg1 LOOKED
-  // like beyond the start frame, so the textual scene context still
-  // matters) WITH SEG1'S DIALOG STRIPPED OUT, so only the user's
-  // freshly-typed dialog script for segment 2 is spoken. Backend then
-  // appends product text lock + standard locks.
+  // Build the segment-2 prompt that gets POSTed to the backend. Send the
+  // EXACT seg1 prompt (character + scene + all locks + negatives) with
+  // ONLY the spoken dialog string swapped for the user's new lines. A
+  // small continuation note prepended so Veo knows this is seg2 (not a
+  // fresh seg1).
   function buildSeg2Prompt(): string {
-    const dialogLines: string[] = [];
-    if (dialogBegin.trim()) dialogLines.push(`0–2s (BEGINNING): "${dialogBegin.trim()}"`);
-    if (dialogMiddle.trim()) dialogLines.push(`2–6s (MIDDLE): "${dialogMiddle.trim()}"`);
-    if (dialogClose.trim()) dialogLines.push(`6–8s (CLOSING): "${dialogClose.trim()}"`);
-    const dialogBlock = dialogLines.length > 0
-      ? `DIALOG SCRIPT (segment 2 — character speaks these lines verbatim, in the same voice as segment 1):\n${dialogLines.join("\n")}`
-      : "";
-    const continuationNote = `SEGMENT 2 CONTINUATION: Pick up exactly where segment 1 ended (same character, same product, same setting, same wardrobe, same lighting). The character's pose at segment 2's start matches the picked start frame from segment 1. Same voice, same tone, same energy as segment 1. SPEAK ONLY the new DIALOG SCRIPT below — do NOT repeat any lines from segment 1.`;
-    const cleanedOriginal = stripSeg1Dialog(originalPrompt || "");
-    const sceneContext = cleanedOriginal
-      ? `ORIGINAL SCENE (segment 1 — keep character / setting / wardrobe / product locked, but speak only the new dialog below):\n${cleanedOriginal}`
-      : "";
-    return [continuationNote, sceneContext, dialogBlock]
+    const newDialog = [dialogBegin.trim(), dialogMiddle.trim(), dialogClose.trim()]
       .filter(Boolean)
-      .join("\n\n");
+      .join(" ");
+    if (!newDialog) return "";
+
+    const continuationNote = `SEGMENT 2 CONTINUATION: This is segment 2 — pick up exactly where segment 1 ended (start frame is the bridge). Same character, same product, same setting, same wardrobe, same lighting, same voice, same tone, same energy. Speak the dialog as quoted in the prompt below.`;
+
+    const swapped = originalPrompt && originalPrompt.trim()
+      ? replaceSeg1Dialog(originalPrompt.trim(), newDialog)
+      : `Continue the scene from the start frame. The character speaks: '${newDialog.replace(/['"""]/g, "")}'`;
+
+    return `${continuationNote}\n\n${swapped}`;
   }
 
   async function fire() {
