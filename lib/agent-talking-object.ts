@@ -78,25 +78,16 @@ GLOBAL VISUAL STYLE (LOCKED — ALWAYS APPLY)
 - NEVER photorealistic. NEVER realistic human. Always stylized 3D animation.
 
 ═══════════════════════════════════════════════════════════════════════════
-PURPOSE-AWARE SCENE PLACEMENT
+SCENE PLACEMENT
 ═══════════════════════════════════════════════════════════════════════════
-The "purpose" field tells you WHERE the character lives. Pick scene_block:
-  hair / rambut             → microscopic hair follicle interior, scalp tissue,
-                              hair strands floating in soft warm light
-  skin / kulit / glow       → dermis / pore interior, soft pink-orange tones
-  digestion / pencernaan    → stomach / intestine interior, wet glossy folds
-  energy / stamina / muscle → muscle fiber / bloodstream with nutrients flowing
-  immune / imuniti          → bloodstream with white blood cells in motion
-  brain / fokus / minda     → neuron / synapse / brain tissue, soft electric glow
-  heart / jantung           → heart chamber interior, rhythmic blood flow
-  liver / hati              → liver tissue, golden filtration mood
-  bone / tulang             → bone cross-section, mineral crystal lattice
-  weight / fat              → fat cells in soft yellow tissue
-  gadget / tech             → futuristic minimalist desk / smart-glass interface
-  general (fallback)        → bright sunlit kitchen countertop with morning light
+Use the "purpose" field as your free-form scene-design brief. Choose any
+scene that naturally fits the object + purpose combination — be specific
+about texture, lighting, mood. The scene must support the character's
+action and feel cinematic.
 
-Pick the scene_block that best matches "purpose". Be specific — describe
-texture, lighting, mood. The scene must support the character's action.
+If "purpose" is empty or vague, default to a clean, bright, photogenic
+backdrop that matches the object (e.g. sunlit kitchen for food, soft
+desk for gadgets, microscopic body interior when health-related).
 
 ═══════════════════════════════════════════════════════════════════════════
 TONE BY OBJECTIVE
