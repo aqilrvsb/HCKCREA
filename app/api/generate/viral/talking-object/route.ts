@@ -283,6 +283,48 @@ export async function POST(req: Request) {
       })
       .eq("id", historyId);
 
+    // Insert a PENDING image row UPFRONT so the Images sub-tab shows a
+    // loading placeholder card while banana-pro is generating. We update
+    // this row to done/failed once polling completes. The soft link
+    // back to the parent video lives in metadata.parent_video_history_id
+    // (do NOT set parent_history_id — that's reserved for seg-1/seg-2
+    // chains in history-grid.tsx).
+    let imageHistoryId: string | null = null;
+    try {
+      const { data: imgRow } = await admin
+        .from("history")
+        .insert({
+          user_id: user.id,
+          project_id: projectId,
+          type: "image",
+          tab: "cinema",
+          status: "pending",
+          prompt: promptPair.image_prompt,
+          output_url: null,
+          thumbnail_url: null,
+          cost: 0,
+          metadata: {
+            featureType: "talking-object-image",
+            params: baseParams,
+            stage: "queued",
+            image_prompt: promptPair.image_prompt,
+            scene_block: promptPair.scene_block,
+            character_block: promptPair.character_block,
+            model: "nano-banana-pro",
+            parent_video_history_id: historyId,
+            upload_status: "queued",
+          },
+        })
+        .select("id")
+        .single();
+      imageHistoryId = imgRow?.id || null;
+    } catch (e) {
+      console.error(
+        `[talking-object] pending image-row insert failed for parent ${historyId}:`,
+        e
+      );
+    }
+
     // Resolve image model id: cfg.imageDefault is the KEY ("nano-banana-pro"),
     // cfg.imageModels[KEY] is the actual provider model id ("google/nano-banana-pro").
     const imageModelKey = cfg.imageDefault || "nano-banana-pro";
@@ -296,6 +338,25 @@ export async function POST(req: Request) {
       aspectRatio: "9:16",
     });
     if (!imgCreate.ok || !imgCreate.task_id) {
+      // Flip the placeholder image row to failed so it surfaces the error
+      // visually instead of spinning forever.
+      if (imageHistoryId) {
+        await admin
+          .from("history")
+          .update({
+            status: "failed",
+            error_message: `Image create failed: ${imgCreate.error || "unknown"}`,
+            metadata: {
+              featureType: "talking-object-image",
+              params: baseParams,
+              stage: "image-create-failed",
+              image_prompt: promptPair.image_prompt,
+              parent_video_history_id: historyId,
+              upload_status: "failed",
+            },
+          })
+          .eq("id", imageHistoryId);
+      }
       await admin
         .from("history")
         .update({
@@ -314,8 +375,31 @@ export async function POST(req: Request) {
       return;
     }
 
-    // Poll image until done — 90s budget (banana-pro is usually 20-50s).
+    // Stamp the image task_id on the placeholder row so /api/check-status
+    // (or any future poller) can re-query it if needed.
     const imgProvider = (imgCreate.provider || "p2") as "p1" | "p2";
+    if (imageHistoryId) {
+      await admin
+        .from("history")
+        .update({
+          task_id: imgCreate.task_id,
+          metadata: {
+            featureType: "talking-object-image",
+            params: baseParams,
+            stage: "generating",
+            image_prompt: promptPair.image_prompt,
+            scene_block: promptPair.scene_block,
+            character_block: promptPair.character_block,
+            model: "nano-banana-pro",
+            provider: imgProvider,
+            parent_video_history_id: historyId,
+            upload_status: "queued",
+          },
+        })
+        .eq("id", imageHistoryId);
+    }
+
+    // Poll image until done — 90s budget (banana-pro is usually 20-50s).
     const pollDeadline = Date.now() + 90_000;
     let imageUrl = "";
     let imgError = "";
@@ -332,6 +416,27 @@ export async function POST(req: Request) {
       }
     }
     if (!imageUrl) {
+      // Flip the placeholder image row to failed.
+      if (imageHistoryId) {
+        await admin
+          .from("history")
+          .update({
+            status: "failed",
+            error_message:
+              imgError || "Image gen timed out (90s) — try again",
+            metadata: {
+              featureType: "talking-object-image",
+              params: baseParams,
+              stage: "image-timeout",
+              image_prompt: promptPair.image_prompt,
+              scene_block: promptPair.scene_block,
+              character_block: promptPair.character_block,
+              parent_video_history_id: historyId,
+              upload_status: "failed",
+            },
+          })
+          .eq("id", imageHistoryId);
+      }
       await admin
         .from("history")
         .update({
@@ -353,39 +458,30 @@ export async function POST(req: Request) {
       return;
     }
 
-    // Insert a STANDALONE history row for the GENERATED IMAGE so it appears
-    // as its own card in the Viral tab's "Images" sub-tab. Do NOT set
-    // parent_history_id (that's reserved for seg-1/seg-2 chains in
-    // history-grid.tsx); the soft link goes in metadata.parent_video_history_id.
-    try {
-      await admin.from("history").insert({
-        user_id: user.id,
-        project_id: projectId,
-        type: "image",
-        tab: "cinema",
-        status: "done",
-        prompt: promptPair.image_prompt,
-        output_url: imageUrl,
-        thumbnail_url: imageUrl,
-        cost: 0,
-        metadata: {
-          featureType: "talking-object-image",
-          params: baseParams,
-          stage: "done",
-          image_prompt: promptPair.image_prompt,
-          scene_block: promptPair.scene_block,
-          character_block: promptPair.character_block,
-          model: "nano-banana-pro",
-          provider: imgProvider,
-          parent_video_history_id: historyId,
-          upload_status: "done",
-        },
-      });
-    } catch (e) {
-      console.error(
-        `[talking-object] image-row insert failed for parent ${historyId}:`,
-        e
-      );
+    // Image done — flip the placeholder image row to status="done" with
+    // the final URL. The card on the Images sub-tab morphs from spinner
+    // into the actual image without needing a re-fetch.
+    if (imageHistoryId) {
+      await admin
+        .from("history")
+        .update({
+          status: "done",
+          output_url: imageUrl,
+          thumbnail_url: imageUrl,
+          metadata: {
+            featureType: "talking-object-image",
+            params: baseParams,
+            stage: "done",
+            image_prompt: promptPair.image_prompt,
+            scene_block: promptPair.scene_block,
+            character_block: promptPair.character_block,
+            model: "nano-banana-pro",
+            provider: imgProvider,
+            parent_video_history_id: historyId,
+            upload_status: "done",
+          },
+        })
+        .eq("id", imageHistoryId);
     }
 
     // Step 4: Veo i2v with the generated image as the START FRAME.
