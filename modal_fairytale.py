@@ -62,6 +62,12 @@ image = (
         "httpx==0.27.2",
         "fastapi[standard]==0.115.0",
     )
+    # Public-bucket config (non-secret). The keys themselves
+    # (B2_CONTENT_KEY_ID / B2_CONTENT_APP_KEY) come from the Modal Secret.
+    .env({
+        "B2_CONTENT_BUCKET": "peninglab-content",
+        "B2_CONTENT_PUBLIC_BASE": "https://f005.backblazeb2.com/file/peninglab-content",
+    })
 )
 
 # Font catalog — maps UI value → installed .ttf path. Keep in sync with
@@ -602,6 +608,114 @@ def _b2_sign_v4(method: str, b2_key: str, body: bytes | None, content_type: str 
     return host, canonical_uri, out_headers
 
 
+def _b2_content_public_url(b2_key: str) -> str:
+    """Build the public URL for an object in peninglab-content (no signing)."""
+    import os
+
+    base = os.environ["B2_CONTENT_PUBLIC_BASE"].rstrip("/")
+    return f"{base}/{b2_key}"
+
+
+def _upload_b2_content(local_path: Path, b2_key: str, content_type: str = "video/mp4") -> None:
+    """PUT a local file to peninglab-content (public bucket).
+
+    Uses the same SigV4 implementation as _upload_b2 but targets the content
+    bucket via env vars B2_CONTENT_BUCKET / B2_CONTENT_KEY_ID / B2_CONTENT_APP_KEY.
+    The endpoint + region are shared with the private bucket.
+    """
+    import os
+    import datetime
+    import hashlib
+    import hmac
+    from urllib.parse import urlparse, quote
+
+    import requests
+
+    with open(local_path, "rb") as f:
+        body = f.read()
+
+    endpoint = os.environ["B2_ENDPOINT"]
+    region = os.environ.get("B2_REGION", "us-east-005")
+    access_key = os.environ["B2_CONTENT_KEY_ID"]
+    secret_key = os.environ["B2_CONTENT_APP_KEY"]
+    bucket = os.environ["B2_CONTENT_BUCKET"]
+
+    endpoint_host = urlparse(endpoint).netloc
+    host = f"{bucket}.{endpoint_host}"
+    canonical_uri = "/" + quote(b2_key, safe="/")
+
+    now = datetime.datetime.utcnow()
+    amz_date = now.strftime("%Y%m%dT%H%M%SZ")
+    date_stamp = now.strftime("%Y%m%d")
+    payload_hash = hashlib.sha256(body).hexdigest()
+
+    headers = {
+        "host": host,
+        "x-amz-content-sha256": payload_hash,
+        "x-amz-date": amz_date,
+        "content-length": str(len(body)),
+        "content-type": content_type,
+    }
+
+    sorted_keys = sorted(headers)
+    signed_headers = ";".join(sorted_keys)
+    canonical_headers = "".join(f"{k}:{headers[k].strip()}\n" for k in sorted_keys)
+
+    canonical_request = "\n".join(
+        [
+            "PUT",
+            canonical_uri,
+            "",
+            canonical_headers,
+            signed_headers,
+            payload_hash,
+        ]
+    )
+    credential_scope = f"{date_stamp}/{region}/s3/aws4_request"
+    string_to_sign = "\n".join(
+        [
+            "AWS4-HMAC-SHA256",
+            amz_date,
+            credential_scope,
+            hashlib.sha256(canonical_request.encode()).hexdigest(),
+        ]
+    )
+
+    def _hmac(key: bytes, msg: str) -> bytes:
+        return hmac.new(key, msg.encode(), hashlib.sha256).digest()
+
+    k_date = _hmac(("AWS4" + secret_key).encode(), date_stamp)
+    k_region = _hmac(k_date, region)
+    k_service = _hmac(k_region, "s3")
+    k_signing = _hmac(k_service, "aws4_request")
+    signature = hmac.new(k_signing, string_to_sign.encode(), hashlib.sha256).hexdigest()
+
+    auth = (
+        f"AWS4-HMAC-SHA256 Credential={access_key}/{credential_scope}, "
+        f"SignedHeaders={signed_headers}, Signature={signature}"
+    )
+
+    out_headers = {
+        "x-amz-content-sha256": payload_hash,
+        "x-amz-date": amz_date,
+        "Authorization": auth,
+        "Host": host,
+        "Content-Length": str(len(body)),
+        "Content-Type": content_type,
+    }
+
+    r = requests.put(
+        f"https://{host}{canonical_uri}",
+        data=body,
+        headers=out_headers,
+        timeout=300,
+    )
+    if r.status_code < 200 or r.status_code >= 300:
+        raise RuntimeError(
+            f"B2 content upload failed: HTTP {r.status_code} {r.text[:300]}"
+        )
+
+
 def _upload_b2(local_path: Path, b2_key: str) -> None:
     """PUT the local file to Backblaze B2 at the given key."""
     import requests
@@ -891,19 +1005,26 @@ def render_story(payload: dict):
         # temp URLs other tabs use, so the Storage save flow stays uniform.
         user_id = payload.get("user_id") or "anon"
         b2_key = _b2_key_for(user_id, history_id)
-        _upload_b2(final_path, b2_key)
-        signed_url = _presign_b2_get(b2_key, expires_sec=7 * 86400)
+        # Upload to the new public peninglab-content bucket.
+        # Stable public URL = no signing, browser HTTP cache works forever.
+        _upload_b2_content(final_path, b2_key, content_type="video/mp4")
+        public_url = _b2_content_public_url(b2_key)
 
         elapsed = time.time() - started
         # Clear error_message too — if Vercel's after() previously stamped a
         # timeout / 422, that stale message would otherwise stay on a row
         # whose status is now 'done'.
+        # b2_mirrored_at = NOW() so cleanup cron sees this row as
+        # "mirrored to content bucket" (same semantics as Vercel-side mirrors).
+        from datetime import datetime, timezone
+
         _update_history(
             history_id,
             status="done",
-            output_url=signed_url,
-            thumbnail_url=signed_url,
+            output_url=public_url,
+            thumbnail_url=public_url,
             error_message=None,
+            b2_mirrored_at=datetime.now(timezone.utc).isoformat(),
         )
 
         # Charge the user — only on success, never upfront, no refund
@@ -917,7 +1038,7 @@ def render_story(payload: dict):
             _deduct_storytelling(user_id, cost_to_charge, history_id)
         return {
             "ok": True,
-            "output_url": signed_url,
+            "output_url": public_url,
             "scenes_rendered": len(scene_clips),
             "elapsed_sec": round(elapsed, 2),
         }
