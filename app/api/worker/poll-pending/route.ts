@@ -23,8 +23,7 @@ export const maxDuration = 60; // seconds — Vercel Pro limit
 // Auth: Vercel Cron sends `Authorization: Bearer ${CRON_SECRET}`. We
 // reject anything else.
 
-const BATCH = 15; // max rows per cron tick — keeps the function under 60s
-                  // (lowered from 50 after auto-mirror added 5-30s per row)
+const BATCH = 50; // max rows per cron tick — keeps the function under 60s
 
 export async function GET(req: Request) {
   const authHeader = req.headers.get("authorization") || "";

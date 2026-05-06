@@ -13,23 +13,6 @@ export const runtime = "nodejs";
 export const maxDuration = 60;
 export const dynamic = "force-dynamic";
 
-// Detect whether a URL points at the public peninglab-content bucket.
-// If so, the file is already on B2 — Save just records a storage row;
-// no download + re-upload needed.
-function isContentBucketUrl(url: string): boolean {
-  const base = process.env.B2_CONTENT_PUBLIC_BASE;
-  if (!base) return false;
-  return url.startsWith(base);
-}
-
-// Derive the B2 key from a peninglab-content public URL.
-// Inverse of publicUrlForKey().
-function keyFromContentUrl(url: string): string | null {
-  const base = process.env.B2_CONTENT_PUBLIC_BASE;
-  if (!base || !url.startsWith(base)) return null;
-  return url.slice(base.length).replace(/^\//, "");
-}
-
 // Only types with a final user-facing media output are savable.
 // Excluded: fairytale-scene (intermediate frames merged into the final
 // mp4 — user should save the merged result, not the per-scene images),
@@ -123,62 +106,7 @@ export async function POST(req: Request) {
     );
   }
 
-  // Fast path: history.output_url is ALREADY on peninglab-content (auto-mirrored
-  // at gen time). Skip the download+upload — just record a storage row pointing
-  // at the existing key, and use the public URL as the cached_url. Quota still
-  // counts the file against the user's 1024MB.
-  if (isContentBucketUrl(hist.output_url)) {
-    const contentKey = keyFromContentUrl(hist.output_url);
-    if (!contentKey) {
-      return NextResponse.json(
-        { error: "Failed to parse content-bucket URL" },
-        { status: 500 }
-      );
-    }
-
-    const ext = extFromUrlOrType(hist.output_url, type);
-    const ctype = contentTypeFor(ext);
-
-    // HEAD the public URL to get size_bytes — needed for quota accounting.
-    let sizeBytes = 0;
-    try {
-      const h = await fetch(hist.output_url, { method: "HEAD" });
-      const cl = h.headers.get("content-length");
-      sizeBytes = cl ? Number(cl) : 0;
-    } catch {
-      sizeBytes = 0; // best-effort
-    }
-
-    await admin.from("storage").insert({
-      user_id: user.id,
-      history_id: historyId,
-      type,
-      b2_bucket: process.env.B2_CONTENT_BUCKET || "peninglab-content",
-      b2_key: contentKey,
-      size_bytes: sizeBytes,
-      content_type: ctype,
-      source_url: hist.output_url,
-      // cached_url is the same stable public URL — no expiry needed but
-      // the column is NOT NULL with a future date for back-compat.
-      cached_url: hist.output_url,
-      cached_url_exp: new Date(Date.now() + 5 * 365 * 86400_000).toISOString(),
-    });
-
-    return NextResponse.json({
-      ok: true,
-      saved: true,
-      url: hist.output_url,
-      key: contentKey,
-      size_bytes: sizeBytes,
-      used_mb: ((usedBytes + sizeBytes) / (1024 * 1024)).toFixed(2),
-      quota_mb: quotaMb,
-      fast_path: true,
-    });
-  }
-
-  // Slow path (legacy): output_url is still a provider URL (mirror failed,
-  // or this is a pre-feature row that hasn't been backfilled yet).
-  // Download + upload to peninglab-storage like before.
+  // Copy from temp URL → user's B2 folder
   const ext = extFromUrlOrType(hist.output_url, type);
   const key = buildKey({ userId: user.id, type, historyId, ext });
   const ctype = contentTypeFor(ext);

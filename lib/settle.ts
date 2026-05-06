@@ -14,12 +14,6 @@ import { getP2Config } from "@/lib/settings";
 import { deduct, priceFor, type PriceModelHint } from "@/lib/deduct";
 import { onSegmentSettled } from "@/lib/segment-chain";
 import { generateUgcPostMeta } from "@/lib/ugc-post-meta";
-import {
-  buildContentKey,
-  contentTypeFromExt,
-  inferExt,
-  mirrorToContentBucket,
-} from "@/lib/mirror-to-b2";
 
 // Map a model string (from history.metadata.model) to a per-model rate
 // hint. Used at settle time so the live admin rate (rate_<model>) is
@@ -379,53 +373,12 @@ export async function settleHistoryRow(hist: HistoryRow): Promise<SettleResult> 
       await deduct(hist.user_id, reason as any, chargeAmount, hist.id);
     }
 
-    // Mirror provider URL → peninglab-content public bucket BEFORE storing
-    // the URL on the row. If mirror fails, gen still completes — we fall
-    // back to the provider URL and leave b2_mirrored_at NULL so the
-    // backfill job retries later.
-    //
-    // Idempotency: webhook + poll-pending cron can race on the same row.
-    // If the row was already mirrored by a prior settle pass, skip the
-    // PUT (and the provider re-fetch) entirely — output_url is already
-    // the stable public B2 URL.
-    let storedOutputUrl: string = r.outputUrl;
-    let mirroredAt: string | null = null;
-    if ((hist as any).b2_mirrored_at) {
-      // Already mirrored on a prior settle pass — re-use what's there.
-      storedOutputUrl = hist.output_url || r.outputUrl;
-      mirroredAt = (hist as any).b2_mirrored_at;
-    } else {
-      try {
-        const ext = inferExt({ url: r.outputUrl, type: hist.type });
-        const key = buildContentKey({
-          userId: hist.user_id,
-          type: hist.type,
-          historyId: hist.id,
-          ext,
-        });
-        const ctype = contentTypeFromExt(ext);
-        const mirrored = await mirrorToContentBucket({
-          providerUrl: r.outputUrl,
-          key,
-          contentType: ctype,
-        });
-        storedOutputUrl = mirrored.publicUrl;
-        mirroredAt = new Date().toISOString();
-      } catch (mirrorErr) {
-        console.error("[settle] mirror-to-b2 failed", {
-          historyId: hist.id,
-          err: mirrorErr,
-        });
-      }
-    }
-
     await admin
       .from("history")
       .update({
         status: "done",
-        output_url: storedOutputUrl,
-        thumbnail_url: hist.type === "video" ? storedOutputUrl : null,
-        b2_mirrored_at: mirroredAt,
+        output_url: r.outputUrl,
+        thumbnail_url: hist.type === "video" ? r.outputUrl : null,
         // Persist the actual charged amount so admin reports show what
         // the user was billed (not the stale insert-time estimate).
         cost: chargeAmount,
@@ -443,7 +396,7 @@ export async function settleHistoryRow(hist: HistoryRow): Promise<SettleResult> 
     // seg-1 of a 16s clip, fires seg-2. If it's seg-2 (or an Extend
     // continuation), merges with the parent. No-op for everything else.
     // Best-effort — chain failure never breaks the settle path.
-    await onSegmentSettled({ ...hist, output_url: storedOutputUrl }, storedOutputUrl).catch(
+    await onSegmentSettled({ ...hist, output_url: r.outputUrl }, r.outputUrl).catch(
       (e) => console.error("[settle] onSegmentSettled threw:", e)
     );
 
