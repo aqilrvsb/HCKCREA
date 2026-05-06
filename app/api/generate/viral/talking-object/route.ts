@@ -294,7 +294,8 @@ export async function POST(req: Request) {
 
     // Resolve viral image provider + model from admin settings, with
     // fallback to global cfg.imageDefault.
-    //   - p3 → Mountsea, forced nano-banana-fast (admin-model is ignored)
+    //   - p3 → Mountsea pathway, accepts nano-banana-pro / nano-banana-2 /
+    //          nano-banana-fast (anything else falls back to fast)
     //   - p1 / p2 → Crun pathway with the admin-selected model id
     const viralCfg = await getViralImageConfig();
     const HARDCODED_MODEL_IDS: Record<string, string> = {
@@ -309,6 +310,12 @@ export async function POST(req: Request) {
       HARDCODED_MODEL_IDS[imageModelKey] ||
       imageModelKey;
     const declaredImgProvider = viralCfg.provider; // pre-create-task hint for placeholder row
+
+    // P3/Mountsea natively supports these three model ids. If the admin
+    // picked anything outside this set (e.g. "z-image" or "gpt-image-2"
+    // which are P2-only), fall back to nano-banana-fast.
+    const P3_MODELS = new Set(["nano-banana-pro", "nano-banana-2", "nano-banana-fast"]);
+    const p3Model = P3_MODELS.has(imageModelKey) ? imageModelKey : "nano-banana-fast";
 
     // Insert a PENDING image row UPFRONT so the Images sub-tab shows a
     // loading placeholder card while banana-pro is generating. We update
@@ -337,7 +344,7 @@ export async function POST(req: Request) {
             image_prompt: promptPair.image_prompt,
             scene_block: promptPair.scene_block,
             character_block: promptPair.character_block,
-            model: declaredImgProvider === "p3" ? "nano-banana-fast" : imageModelKey,
+            model: declaredImgProvider === "p3" ? p3Model : imageModelKey,
             provider: declaredImgProvider,
             parent_video_history_id: historyId,
             upload_status: "queued",
@@ -357,7 +364,7 @@ export async function POST(req: Request) {
     if (viralCfg.provider === "p3") {
       const r = await p3CreateImage({
         prompt: promptPair.image_prompt,
-        model: "nano-banana-fast",
+        model: p3Model,
         aspectRatio: "9:16",
       });
       imgCreate = r.ok
@@ -431,7 +438,7 @@ export async function POST(req: Request) {
             image_prompt: promptPair.image_prompt,
             scene_block: promptPair.scene_block,
             character_block: promptPair.character_block,
-            model: imgProvider === "p3" ? "nano-banana-fast" : imageModelKey,
+            model: imgProvider === "p3" ? p3Model : imageModelKey,
             provider: imgProvider,
             parent_video_history_id: historyId,
             upload_status: "queued",
@@ -526,7 +533,7 @@ export async function POST(req: Request) {
             image_prompt: promptPair.image_prompt,
             scene_block: promptPair.scene_block,
             character_block: promptPair.character_block,
-            model: imgProvider === "p3" ? "nano-banana-fast" : imageModelKey,
+            model: imgProvider === "p3" ? p3Model : imageModelKey,
             provider: imgProvider,
             parent_video_history_id: historyId,
             upload_status: "done",

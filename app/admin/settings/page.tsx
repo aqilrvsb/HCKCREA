@@ -1021,8 +1021,11 @@ export default function AdminSettings() {
           </div>
           {viralProvider === "p3" && (
             <p className="text-[11px] text-pink-700 mt-2">
-              ⚡ Mountsea path uses <strong>nano-banana-fast</strong> only.
-              Image Model dropdown below is ignored when P3 is selected.
+              ⚡ Mountsea supports <strong>nano-banana-pro</strong>,{" "}
+              <strong>nano-banana-2</strong>, and{" "}
+              <strong>nano-banana-fast</strong>. If a P2-only model
+              (z-image / nano-banana-v2 / gpt-image-2) is selected, the
+              route auto-falls back to nano-banana-fast.
             </p>
           )}
         </div>
@@ -1037,11 +1040,16 @@ export default function AdminSettings() {
             className="input"
             style={{ color: "white" }}
           >
-            <option value=""                style={{ color: "#1a1a1a", background: "white" }}>— use global default —</option>
-            <option value="z-image"         style={{ color: "#1a1a1a", background: "white" }}>z-image (Alibaba — fastest, cheapest)</option>
-            <option value="nano-banana-v2"  style={{ color: "#1a1a1a", background: "white" }}>nano-banana (Google — balanced)</option>
-            <option value="nano-banana-pro" style={{ color: "#1a1a1a", background: "white" }}>nano-banana-pro (Google — best quality)</option>
-            <option value="gpt-image-2"     style={{ color: "#1a1a1a", background: "white" }}>gpt-image-2 (OpenAI — most expensive)</option>
+            <option value=""                  style={{ color: "#1a1a1a", background: "white" }}>— use global default —</option>
+            {/* Cross-provider models */}
+            <option value="nano-banana-pro"   style={{ color: "#1a1a1a", background: "white" }}>nano-banana-pro (Google — best quality, P2 + P3)</option>
+            {/* P3 / Mountsea exclusive (nano-banana-2 = no "v") */}
+            <option value="nano-banana-2"     style={{ color: "#1a1a1a", background: "white" }}>nano-banana-2 (Mountsea — P3 only)</option>
+            <option value="nano-banana-fast"  style={{ color: "#1a1a1a", background: "white" }}>nano-banana-fast (Mountsea — P3 only, cheap+fast)</option>
+            {/* P2 / Crun exclusive */}
+            <option value="z-image"           style={{ color: "#1a1a1a", background: "white" }}>z-image (Alibaba — P2 only, fastest+cheapest)</option>
+            <option value="nano-banana-v2"    style={{ color: "#1a1a1a", background: "white" }}>nano-banana-v2 (Google via Crun — P2 only, balanced)</option>
+            <option value="gpt-image-2"       style={{ color: "#1a1a1a", background: "white" }}>gpt-image-2 (OpenAI — P2 only, most expensive)</option>
           </select>
           <p className="text-[10px] text-[var(--color-text-muted)] mt-1">
             Currently active: <strong>{viralImageModel || "global default (likely nano-banana-pro)"}</strong>
