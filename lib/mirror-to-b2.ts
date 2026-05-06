@@ -131,6 +131,10 @@ export async function mirrorToContentBucket(opts: {
   const { createHash } = await import("crypto");
   const bodyHash = createHash("sha256").update(body).digest("hex");
 
+  // Cache-Control = "immutable" + 30-day max-age tells the browser to cache
+  // aggressively without revalidation. Critical for video <video> tag Range
+  // requests — without this header B2 sends nothing and the browser falls
+  // back to heuristic caching which re-fetches videos on every page load.
   const reqToSign = new HttpRequest({
     method: "PUT",
     protocol: "https:",
@@ -140,6 +144,7 @@ export async function mirrorToContentBucket(opts: {
       host,
       "content-length": String(body.length),
       "content-type": opts.contentType,
+      "cache-control": "public, max-age=2592000, immutable",
       "x-amz-content-sha256": bodyHash,
     },
     body,

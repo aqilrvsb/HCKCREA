@@ -655,6 +655,8 @@ def _upload_b2_content(local_path: Path, b2_key: str, content_type: str = "video
         "x-amz-date": amz_date,
         "content-length": str(len(body)),
         "content-type": content_type,
+        # Critical for browser caching of video Range requests.
+        "cache-control": "public, max-age=2592000, immutable",
     }
 
     sorted_keys = sorted(headers)
@@ -702,6 +704,7 @@ def _upload_b2_content(local_path: Path, b2_key: str, content_type: str = "video
         "Host": host,
         "Content-Length": str(len(body)),
         "Content-Type": content_type,
+        "Cache-Control": "public, max-age=2592000, immutable",
     }
 
     r = requests.put(

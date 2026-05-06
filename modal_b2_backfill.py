@@ -116,6 +116,8 @@ def _b2_content_put(b2_key: str, body: bytes, content_type: str) -> None:
         "x-amz-date": amz_date,
         "content-length": str(len(body)),
         "content-type": content_type,
+        # Critical for browser caching of video Range requests.
+        "cache-control": "public, max-age=2592000, immutable",
     }
 
     sorted_keys = sorted(headers)
@@ -156,6 +158,7 @@ def _b2_content_put(b2_key: str, body: bytes, content_type: str) -> None:
         "Host": host,
         "Content-Length": str(len(body)),
         "Content-Type": content_type,
+        "Cache-Control": "public, max-age=2592000, immutable",
     }
 
     r = requests.put(
@@ -173,8 +176,14 @@ def _public_url(b2_key: str) -> str:
     return f"{base}/{b2_key}"
 
 
-def _process_row(row: dict, dry_run: bool) -> dict:
-    """Returns {status: 'mirrored' | 'skipped_404' | 'skipped_already' | 'error'}."""
+def _process_row(row: dict, dry_run: bool, force: bool = False) -> dict:
+    """Returns {status: 'mirrored' | 'skipped_404' | 'skipped_already' | 'error'}.
+
+    When force=True, rows already on peninglab-content are re-uploaded
+    (used to apply new Cache-Control headers to existing files). The
+    source URL in that case IS the existing peninglab-content URL — we
+    download from B2 and re-upload to B2 with the new headers.
+    """
     import requests
 
     rid = row["id"]
@@ -188,12 +197,15 @@ def _process_row(row: dict, dry_run: bool) -> dict:
     # Already on content bucket?
     base = os.environ["B2_CONTENT_PUBLIC_BASE"].rstrip("/")
     if output_url.startswith(base):
-        # Stamp b2_mirrored_at if NULL
-        sb = _supabase()
-        sb.table("history").update(
-            {"b2_mirrored_at": datetime.datetime.utcnow().isoformat() + "Z"}
-        ).eq("id", rid).is_("b2_mirrored_at", "null").execute()
-        return {"status": "skipped_already_content"}
+        if not force:
+            # Stamp b2_mirrored_at if NULL
+            sb = _supabase()
+            sb.table("history").update(
+                {"b2_mirrored_at": datetime.datetime.utcnow().isoformat() + "Z"}
+            ).eq("id", rid).is_("b2_mirrored_at", "null").execute()
+            return {"status": "skipped_already_content"}
+        # In force mode, fall through to re-download + re-upload (same key,
+        # so the URL stays stable but the Cache-Control header is refreshed).
 
     # Pull source bytes
     try:
@@ -233,25 +245,33 @@ def _process_row(row: dict, dry_run: bool) -> dict:
         }
     ).eq("id", rid).execute()
 
-    return {"status": "mirrored", "key": b2_key, "size": len(body), "new_url": new_url}
+    return {
+        "status": "remirrored" if force and output_url.startswith(base) else "mirrored",
+        "key": b2_key,
+        "size": len(body),
+        "new_url": new_url,
+    }
 
 
 @app.function(image=image, secrets=secrets, timeout=3600)
-def backfill_user(user_id: str, dry_run: bool = False) -> dict:
-    """Backfill ONE user's history. Use for canary (admin@gmail.com)."""
+def backfill_user(user_id: str, dry_run: bool = False, force: bool = False) -> dict:
+    """Backfill ONE user's history. Use for canary (admin@gmail.com).
+
+    force=True re-uploads rows already on peninglab-content (used when
+    we change upload metadata like Cache-Control and need to apply it
+    to existing files).
+    """
     sb = _supabase()
-    rows = (
-        sb.table("history")
-        .select("id, user_id, type, output_url")
-        .eq("user_id", user_id)
-        .eq("status", "done")
-        .is_("b2_mirrored_at", "null")
-        .execute()
-    )
+    q = sb.table("history").select("id, user_id, type, output_url").eq("user_id", user_id).eq("status", "done")
+    if not force:
+        # Default: only un-mirrored rows
+        q = q.is_("b2_mirrored_at", "null")
+    rows = q.execute()
 
     counts = {
         "total": 0,
         "mirrored": 0,
+        "remirrored": 0,
         "skipped_already_content": 0,
         "skipped_404": 0,
         "skipped_no_url": 0,
@@ -262,34 +282,35 @@ def backfill_user(user_id: str, dry_run: bool = False) -> dict:
 
     for row in rows.data or []:
         counts["total"] += 1
-        result = _process_row(row, dry_run)
+        result = _process_row(row, dry_run, force)
         status = result["status"]
         counts[status] = counts.get(status, 0) + 1
-        if len(examples) < 5 and status in ("mirrored", "would_mirror", "error"):
+        if len(examples) < 5 and status in ("mirrored", "remirrored", "would_mirror", "error"):
             examples.append({"id": row["id"], **result})
 
-    return {"user_id": user_id, "dry_run": dry_run, "counts": counts, "examples": examples}
+    return {"user_id": user_id, "dry_run": dry_run, "force": force, "counts": counts, "examples": examples}
 
 
 @app.function(image=image, secrets=secrets, timeout=86400)  # up to 24h
-def backfill_all(dry_run: bool = False, batch_size: int = 100) -> dict:
-    """Backfill ALL users. Run after canary verifies."""
+def backfill_all(dry_run: bool = False, batch_size: int = 100, force: bool = False) -> dict:
+    """Backfill ALL users. Run after canary verifies.
+
+    force=True re-uploads rows already on peninglab-content.
+    """
     sb = _supabase()
 
-    # Get distinct users with un-mirrored rows
-    users_resp = (
-        sb.table("history")
-        .select("user_id")
-        .eq("status", "done")
-        .is_("b2_mirrored_at", "null")
-        .execute()
-    )
+    # Get distinct users to process
+    q = sb.table("history").select("user_id").eq("status", "done")
+    if not force:
+        q = q.is_("b2_mirrored_at", "null")
+    users_resp = q.execute()
     user_ids = list({row["user_id"] for row in (users_resp.data or [])})
 
     aggregate = {
         "users_processed": 0,
         "total": 0,
         "mirrored": 0,
+        "remirrored": 0,
         "skipped_already_content": 0,
         "skipped_404": 0,
         "skipped_no_url": 0,
@@ -298,9 +319,9 @@ def backfill_all(dry_run: bool = False, batch_size: int = 100) -> dict:
     }
 
     for user_id in user_ids:
-        result = backfill_user.local(user_id, dry_run)
+        result = backfill_user.local(user_id, dry_run, force)
         aggregate["users_processed"] += 1
         for k, v in result["counts"].items():
             aggregate[k] = aggregate.get(k, 0) + v
 
-    return {"dry_run": dry_run, "user_count": len(user_ids), "aggregate": aggregate}
+    return {"dry_run": dry_run, "force": force, "user_count": len(user_ids), "aggregate": aggregate}
