@@ -18,6 +18,8 @@ type ImageMode = "text" | "image";
 type SubFeature = "free" | "talking-object";
 type TalkingObjective = "introduce" | "benefit" | "cons";
 type TalkingLanguage = "ms" | "en";
+type TalkingMode = "t2v" | "i2v";
+type DialogMode = "auto" | "custom";
 
 const PURPLE = "#7c4dff";
 const PURPLE_SOFT = "rgba(124, 77, 255, 0.18)";
@@ -45,6 +47,9 @@ export default function CinemaTab({ projectId }: { projectId?: string } = {}) {
   const [toObjective, setToObjective] = useState<TalkingObjective>("benefit");
   const [toPurpose, setToPurpose] = useState("");
   const [toLanguage, setToLanguage] = useState<TalkingLanguage>("ms");
+  const [toMode, setToMode] = useState<TalkingMode>("i2v");
+  const [toDialogMode, setToDialogMode] = useState<DialogMode>("auto");
+  const [toCustomDialog, setToCustomDialog] = useState("");
   const [toStatus, setToStatus] = useState<Status>("idle");
   const [toError, setToError] = useState<string | null>(null);
   // ──────────────────────────────────────────────────────────────────────
@@ -154,6 +159,8 @@ export default function CinemaTab({ projectId }: { projectId?: string } = {}) {
   // ── Talking Object submit ─────────────────────────────────────────────
   async function submitTalkingObject() {
     if (!toObject.trim()) return setToError("Sila taip nama object dulu.");
+    if (toDialogMode === "custom" && !toCustomDialog.trim())
+      return setToError("Sila taip custom dialog atau tukar ke Auto Dialog.");
     setToError(null);
     setToStatus("submitting");
     try {
@@ -165,6 +172,9 @@ export default function CinemaTab({ projectId }: { projectId?: string } = {}) {
           objective: toObjective,
           language: toLanguage,
           purpose: toPurpose.trim(),
+          mode: toMode,
+          custom_dialog:
+            toDialogMode === "custom" ? toCustomDialog.trim() : "",
           project_id: projectId,
         }),
       });
@@ -287,6 +297,83 @@ export default function CinemaTab({ projectId }: { projectId?: string } = {}) {
                 label="English"
               />
             </div>
+
+            <Label>5. Mode</Label>
+            <div className="grid grid-cols-2 gap-2 mb-1">
+              <ObjectiveBtn
+                active={toMode === "i2v"}
+                onClick={() => setToMode("i2v")}
+                emoji="🖼️"
+                label="Image → Video"
+              />
+              <ObjectiveBtn
+                active={toMode === "t2v"}
+                onClick={() => setToMode("t2v")}
+                emoji="📝"
+                label="Text → Video"
+              />
+            </div>
+            <p className="text-[10px] text-gray-500 mb-4">
+              {toMode === "i2v"
+                ? "Generate banana-pro image first, then Veo uses it as start frame (pixel-identical character lock)."
+                : "Skip image gen — Veo generates the video directly from prompt (faster, but character look varies)."}
+            </p>
+
+            <Label>6. Dialog</Label>
+            <div className="grid grid-cols-2 gap-2 mb-2">
+              <ObjectiveBtn
+                active={toDialogMode === "auto"}
+                onClick={() => setToDialogMode("auto")}
+                emoji="🤖"
+                label="Auto Dialog"
+              />
+              <ObjectiveBtn
+                active={toDialogMode === "custom"}
+                onClick={() => setToDialogMode("custom")}
+                emoji="✍️"
+                label="Custom Dialog"
+              />
+            </div>
+            {toDialogMode === "custom" ? (
+              <>
+                <textarea
+                  rows={3}
+                  name="viral-custom-dialog"
+                  autoComplete="off"
+                  data-lpignore="true"
+                  data-form-type="other"
+                  value={toCustomDialog}
+                  onChange={(e) =>
+                    setToCustomDialog(e.target.value.slice(0, 400))
+                  }
+                  placeholder={
+                    toLanguage === "ms"
+                      ? 'Contoh: "Korang tau tak, aku Biotin, aku kuatkan akar rambut korang!"'
+                      : 'Example: "Bet you didn\'t know I keep your hair roots strong every day!"'
+                  }
+                  className="w-full p-3 rounded-lg text-sm outline-none mb-1 resize-y"
+                  style={{
+                    background: "#fafaf7",
+                    border: "1px solid #e8e0d8",
+                    color: "#1a1a1a",
+                    lineHeight: 1.5,
+                  }}
+                />
+                <p className="text-[10px] text-gray-500 mb-4 text-right">
+                  <span
+                    className={
+                      toCustomDialog.length > 380 ? "text-red-500 font-bold" : ""
+                    }
+                  >
+                    {toCustomDialog.length}/400
+                  </span>
+                </p>
+              </>
+            ) : (
+              <p className="text-[10px] text-gray-500 mb-4">
+                LLM auto-generates the dialog line from object + objective + language.
+              </p>
+            )}
 
             <button
               onClick={submitTalkingObject}

@@ -23,6 +23,8 @@ export type TalkingObjectInput = {
   language: "ms" | "en";
   purpose: string;         // free text — "Hair growth (D-Bio Plus)", "Skin glow", etc.
   projectId: string | null; // for series-mode scene reuse
+  mode: "t2v" | "i2v";     // t2v = skip image gen, video prompt is self-contained
+  customDialog?: string;   // when set, LLM uses this verbatim as dialog_line
 };
 
 export type TalkingObjectOutput = {
@@ -51,6 +53,17 @@ INPUTS (provided by user):
 - purpose: free text describing the BODY SYSTEM or CONTEXT this video targets
   (e.g. "Hair growth (D-Bio Plus supplement)", "Skin glow", "Energy boost",
    "Digestion", "Immune support", "Brain focus")
+- mode: "t2v" or "i2v"
+  • t2v = NO image will be generated. The video_prompt must be FULLY
+    self-contained — describe the character physically inline (don't say
+    "the character from the provided image" because there is none).
+  • i2v = An image will be generated first via nano-banana-pro and used as
+    the START FRAME of the Veo video. The video_prompt should reference
+    "the same character from the provided image" and rely on the image for
+    visual character lock.
+- custom_dialog: optional. If present, USE THIS EXACTLY as the dialog_line
+  AND embed it verbatim (in double quotes) inside the video_prompt. Do NOT
+  generate your own dialog. The user's wording is final.
 - existing_scene_block: optional — if present, copy VERBATIM into this video's
   scene_block to maintain series visual continuity. Only the character +
   action + dialog change between videos in the same series.
@@ -175,12 +188,12 @@ Structure:
 - DO NOT include the dialog line in the image prompt.
 
 ═══════════════════════════════════════════════════════════════════════════
-VIDEO_PROMPT FORMULA (for Veo 3.1 fast i2v — 8s with audio + lip-sync)
+VIDEO_PROMPT FORMULA (for Veo 3.1 fast — 8s with audio + lip-sync)
 ═══════════════════════════════════════════════════════════════════════════
 Use Google Veo's documented 5-part structure:
   [Cinematography] + [Subject] + [Action] + [Context] + [Style & Ambiance]
 
-Template:
+If mode = "i2v" (image-to-video, image is the start frame):
   "Static medium close-up. The same Pixar-style anthropomorphic [object]
    character from the provided image, [character physical anchors from
    character_block]. [scene_block — describe the environment]. The
@@ -190,10 +203,26 @@ Template:
    selected language, in DOUBLE QUOTES]\". Soft warm cinematic lighting,
    shallow depth of field, gentle ambient sounds matching the scene,
    no music, no on-screen text, no captions. 8 seconds, 9:16 vertical."
+
+If mode = "t2v" (text-only, no image will be provided to Veo):
+  "Static medium close-up, vertical 9:16. A 3D Pixar-style anthropomorphic
+   [object] character — [character_block content inline, since there's
+   no image to reference]. [scene_block — describe the environment]. The
+   character [TONE-SPECIFIC ACTION matching dialog] while looking at
+   camera with natural facial expression. Subtle lip-sync to the spoken
+   line. The character says in a [TONE] voice, \"[dialog_line]\". Soft
+   warm cinematic lighting, shallow depth of field, gentle ambient sounds
+   matching the scene, no music, no on-screen text, no captions.
+   8 seconds."
+
+Common rules (both modes):
 - 110-180 words.
-- The dialog_line MUST appear inside double quotes inside this prompt.
+- The dialog_line MUST appear inside escaped double quotes (\\\") inside
+  the video_prompt.
 - The dialog_line MUST be in the language selected — never English when
   Malay is selected, never Malay when English is selected.
+- If custom_dialog was provided in the input, dialog_line = custom_dialog
+  verbatim. Do NOT rephrase. Do NOT translate. Do NOT add hooks.
 
 ═══════════════════════════════════════════════════════════════════════════
 JSON OUTPUT RULES (CRITICAL)
@@ -262,7 +291,15 @@ function buildUserPrompt(
     `objective: ${input.objective}`,
     `language: ${input.language}`,
     `purpose: ${input.purpose || "general — pick a sensible scene"}`,
+    `mode: ${input.mode}`,
   ];
+  if (input.customDialog && input.customDialog.trim()) {
+    lines.push(
+      "",
+      "custom_dialog (USE EXACTLY — do not rephrase or translate):",
+      input.customDialog.trim()
+    );
+  }
   if (series.scene_block) {
     lines.push(
       "",

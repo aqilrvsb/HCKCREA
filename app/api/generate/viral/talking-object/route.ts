@@ -52,6 +52,8 @@ export async function POST(req: Request) {
   const language: "ms" | "en" = body?.language === "en" ? "en" : "ms";
   const purpose = String(body?.purpose || "").trim().slice(0, 200);
   const projectId = body?.project_id ? String(body.project_id) : null;
+  const mode: "t2v" | "i2v" = body?.mode === "t2v" ? "t2v" : "i2v";
+  const customDialog = String(body?.custom_dialog || "").trim().slice(0, 400);
 
   if (!object) {
     return NextResponse.json({ error: "Object required" }, { status: 400 });
@@ -70,7 +72,7 @@ export async function POST(req: Request) {
       type: "video",
       tab: "cinema",
       status: "pending",
-      prompt: `[Talking Object] ${object} · ${objective} · ${language}${
+      prompt: `[Talking Object] ${object} · ${objective} · ${language} · ${mode}${
         purpose ? ` · ${purpose}` : ""
       }`,
       task_id: null,
@@ -78,11 +80,11 @@ export async function POST(req: Request) {
       cost: 0,
       metadata: {
         featureType: "talking-object",
-        params: { object, objective, language, purpose },
+        params: { object, objective, language, purpose, mode, customDialog: customDialog || undefined },
         stage: "queued",
         cinemaProvider: "veo",
         modelChoice: "veo",
-        imageMode: "image",
+        imageMode: mode === "t2v" ? "text" : "image",
         resolution: "720p",
         aspectRatio: "9:16",
         upload_status: "queued",
@@ -109,6 +111,17 @@ export async function POST(req: Request) {
       language,
       purpose,
       projectId,
+      mode,
+      customDialog: customDialog || undefined,
+    };
+
+    const baseParams = {
+      object,
+      objective,
+      language,
+      purpose,
+      mode,
+      customDialog: customDialog || undefined,
     };
 
     let promptPair;
@@ -126,7 +139,7 @@ export async function POST(req: Request) {
           )}`,
           metadata: {
             featureType: "talking-object",
-            params: { object, objective, language, purpose },
+            params: baseParams,
             stage: "llm-failed",
             upload_status: "failed",
           },
@@ -135,14 +148,113 @@ export async function POST(req: Request) {
       return;
     }
 
+    const cfg = await getP2Config();
+    const ratePerSec = await getCinemaRate();
+    const cost = Number((ratePerSec * 8).toFixed(4));
+
+    // ─── Path A: t2v — skip image gen, go direct to Veo text-to-video ───
+    if (mode === "t2v") {
+      const veoModel = cfg.videoT2V || cfg.videoI2V || cfg.videoR2V;
+      if (!veoModel) {
+        await admin
+          .from("history")
+          .update({
+            status: "failed",
+            error_message:
+              "Veo t2v model not configured (set p2_model_t2v in admin)",
+            metadata: {
+              featureType: "talking-object",
+              params: baseParams,
+              stage: "veo-config-missing",
+              video_prompt: promptPair.video_prompt,
+              dialog_line: promptPair.dialog_line,
+              scene_block: promptPair.scene_block,
+              character_block: promptPair.character_block,
+              upload_status: "failed",
+            },
+          })
+          .eq("id", historyId);
+        return;
+      }
+
+      const veoCreate = await p2CreateTask({
+        model: veoModel,
+        userId: user.id,
+        prompt: promptPair.video_prompt,
+        imageUrls: [],
+        durationMode: "8",
+        aspectRatio: "9:16",
+        imageMode: "text",
+      });
+      const veoProvider = veoCreate.provider || "p2";
+
+      if (!veoCreate.ok || !veoCreate.task_id) {
+        await admin
+          .from("history")
+          .update({
+            status: "failed",
+            cost,
+            error_message: `Veo create failed: ${veoCreate.error || "unknown"}`,
+            metadata: {
+              featureType: "talking-object",
+              params: baseParams,
+              stage: "veo-create-failed",
+              video_prompt: promptPair.video_prompt,
+              dialog_line: promptPair.dialog_line,
+              scene_block: promptPair.scene_block,
+              character_block: promptPair.character_block,
+              model: veoModel,
+              provider: veoProvider,
+              cinemaProvider: "veo",
+              modelChoice: "veo",
+              imageMode: "text",
+              resolution: "720p",
+              aspectRatio: "9:16",
+              upload_status: "failed",
+            },
+          })
+          .eq("id", historyId);
+        return;
+      }
+
+      await admin
+        .from("history")
+        .update({
+          task_id: veoCreate.task_id,
+          cost,
+          prompt: promptPair.video_prompt,
+          metadata: {
+            featureType: "talking-object",
+            params: baseParams,
+            stage: "veo-pending",
+            video_prompt: promptPair.video_prompt,
+            dialog_line: promptPair.dialog_line,
+            scene_block: promptPair.scene_block,
+            character_block: promptPair.character_block,
+            model: veoModel,
+            provider: veoProvider,
+            cinemaProvider: "veo",
+            modelChoice: "veo",
+            imageMode: "text",
+            resolution: "720p",
+            aspectRatio: "9:16",
+            upload_status: "done",
+          },
+        })
+        .eq("id", historyId);
+      return;
+    }
+
+    // ─── Path B: i2v — banana-pro image first, then Veo with start frame ───
+
     // Step 3: nano-banana-pro image gen
     await admin
       .from("history")
       .update({
-        prompt: promptPair.video_prompt, // store the FINAL video prompt as the row's prompt for transparency
+        prompt: promptPair.video_prompt,
         metadata: {
           featureType: "talking-object",
-          params: { object, objective, language, purpose },
+          params: baseParams,
           stage: "generating-image",
           image_prompt: promptPair.image_prompt,
           video_prompt: promptPair.video_prompt,
@@ -159,10 +271,8 @@ export async function POST(req: Request) {
       })
       .eq("id", historyId);
 
-    const cfg = await getP2Config();
     // Resolve image model id: cfg.imageDefault is the KEY ("nano-banana-pro"),
     // cfg.imageModels[KEY] is the actual provider model id ("google/nano-banana-pro").
-    // Mirror exactly how /api/generate/image/route.ts resolves it.
     const imageModelKey = cfg.imageDefault || "nano-banana-pro";
     const imageModel =
       (cfg.imageModels as any)?.[imageModelKey] || imageModelKey;
@@ -181,7 +291,7 @@ export async function POST(req: Request) {
           error_message: `Image create failed: ${imgCreate.error || "unknown"}`,
           metadata: {
             featureType: "talking-object",
-            params: { object, objective, language, purpose },
+            params: baseParams,
             stage: "image-create-failed",
             image_prompt: promptPair.image_prompt,
             video_prompt: promptPair.video_prompt,
@@ -218,7 +328,7 @@ export async function POST(req: Request) {
             imgError || "Image gen timed out (90s) — try again",
           metadata: {
             featureType: "talking-object",
-            params: { object, objective, language, purpose },
+            params: baseParams,
             stage: "image-timeout",
             image_prompt: promptPair.image_prompt,
             video_prompt: promptPair.video_prompt,
@@ -231,18 +341,10 @@ export async function POST(req: Request) {
       return;
     }
 
-    // Insert a STANDALONE history row for the GENERATED IMAGE so it
-    // appears as its own card in the Viral tab's "Images" sub-tab.
-    //
-    // IMPORTANT: do NOT set parent_history_id here — that field is
-    // overloaded by history-grid.tsx for the seg-1/seg-2 segment slider
-    // (rows with parent_history_id are filtered out of the main grid
-    // and slotted into childMap instead). We want this image to be a
-    // top-level card on the Images sub-tab, not a slider thumbnail
-    // attached to its sibling video. The video↔image link is preserved
-    // in metadata.parent_video_history_id for any future Save / cleanup
-    // logic that needs it. Best-effort: a failure here doesn't block
-    // the video generation.
+    // Insert a STANDALONE history row for the GENERATED IMAGE so it appears
+    // as its own card in the Viral tab's "Images" sub-tab. Do NOT set
+    // parent_history_id (that's reserved for seg-1/seg-2 chains in
+    // history-grid.tsx); the soft link goes in metadata.parent_video_history_id.
     try {
       await admin.from("history").insert({
         user_id: user.id,
@@ -253,17 +355,16 @@ export async function POST(req: Request) {
         prompt: promptPair.image_prompt,
         output_url: imageUrl,
         thumbnail_url: imageUrl,
-        cost: 0, // image cost rolled into the parent video row's cost
+        cost: 0,
         metadata: {
           featureType: "talking-object-image",
-          params: { object, objective, language, purpose },
+          params: baseParams,
           stage: "done",
           image_prompt: promptPair.image_prompt,
           scene_block: promptPair.scene_block,
           character_block: promptPair.character_block,
           model: "nano-banana-pro",
           provider: imgProvider,
-          // soft link back to the parent video row (no FK, just metadata)
           parent_video_history_id: historyId,
           upload_status: "done",
         },
@@ -276,10 +377,6 @@ export async function POST(req: Request) {
     }
 
     // Step 4: Veo i2v with the generated image as the START FRAME.
-    // We want pixel-identical character continuity from the banana-pro
-    // still → first frame of the Veo video, so use videoI2V (first-frame
-    // variant) + imageMode="frame". Falls back to videoR2V if i2v isn't
-    // configured (admin-tunable).
     const veoModel = cfg.videoI2V || cfg.videoR2V;
     if (!veoModel) {
       await admin
@@ -290,7 +387,7 @@ export async function POST(req: Request) {
             "Veo i2v model not configured (set p2_model_i2v or p2_model_r2v in admin)",
           metadata: {
             featureType: "talking-object",
-            params: { object, objective, language, purpose },
+            params: baseParams,
             stage: "veo-config-missing",
             image_prompt: promptPair.image_prompt,
             video_prompt: promptPair.video_prompt,
@@ -311,14 +408,10 @@ export async function POST(req: Request) {
       imageUrls: [imageUrl],
       durationMode: "8",
       aspectRatio: "9:16",
-      // "frame" = the input image IS the first frame of the video.
-      // Pixel-identical character continuity (no re-render).
       imageMode: "frame",
     });
 
     const veoProvider = veoCreate.provider || "p2";
-    const ratePerSec = await getCinemaRate();
-    const cost = Number((ratePerSec * 8).toFixed(4));
 
     if (!veoCreate.ok || !veoCreate.task_id) {
       await admin
@@ -330,7 +423,7 @@ export async function POST(req: Request) {
           reference_url: imageUrl,
           metadata: {
             featureType: "talking-object",
-            params: { object, objective, language, purpose },
+            params: baseParams,
             stage: "veo-create-failed",
             image_prompt: promptPair.image_prompt,
             video_prompt: promptPair.video_prompt,
@@ -352,7 +445,6 @@ export async function POST(req: Request) {
       return;
     }
 
-    // Success path — task_id stamped, settle.ts will handle the webhook.
     await admin
       .from("history")
       .update({
@@ -361,7 +453,7 @@ export async function POST(req: Request) {
         reference_url: imageUrl,
         metadata: {
           featureType: "talking-object",
-          params: { object, objective, language, purpose },
+          params: baseParams,
           stage: "veo-pending",
           image_prompt: promptPair.image_prompt,
           video_prompt: promptPair.video_prompt,
