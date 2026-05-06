@@ -160,13 +160,17 @@ export async function POST(req: Request) {
       .eq("id", historyId);
 
     const cfg = await getP2Config();
+    // Resolve image model id: cfg.imageDefault is the KEY ("nano-banana-pro"),
+    // cfg.imageModels[KEY] is the actual provider model id ("google/nano-banana-pro").
+    // Mirror exactly how /api/generate/image/route.ts resolves it.
+    const imageModelKey = cfg.imageDefault || "nano-banana-pro";
     const imageModel =
-      cfg.imageDefault || (cfg.imageModels as any)?.["nano-banana-pro"] ||
-      "google/nano-banana-pro";
+      (cfg.imageModels as any)?.[imageModelKey] || imageModelKey;
 
     const imgCreate = await p2CreateTask({
       model: imageModel,
       prompt: promptPair.image_prompt,
+      imageUrls: [], // explicitly empty — banana-pro does t2i without a ref
       aspectRatio: "9:16",
     });
     if (!imgCreate.ok || !imgCreate.task_id) {
@@ -227,15 +231,56 @@ export async function POST(req: Request) {
       return;
     }
 
-    // Step 4: Veo 3.1 fast i2v with the generated image as ingredient ref
-    const veoModel = cfg.videoR2V; // i2v / r2v variant of Veo 3.1 fast
+    // Insert a child history row for the GENERATED IMAGE so it appears
+    // in the Viral tab's "Images" sub-tab alongside the final video.
+    // parent_history_id links it back to the video row — Save flow,
+    // delete cascade, and the slider can all use this relationship later.
+    // Best-effort: a failure here doesn't block the video generation.
+    try {
+      await admin.from("history").insert({
+        user_id: user.id,
+        project_id: projectId,
+        type: "image",
+        tab: "cinema",
+        status: "done",
+        prompt: promptPair.image_prompt,
+        output_url: imageUrl,
+        thumbnail_url: imageUrl,
+        parent_history_id: historyId,
+        cost: 0, // image cost rolled into the parent video row's cost
+        metadata: {
+          featureType: "talking-object-image",
+          params: { object, objective, language, purpose },
+          stage: "done",
+          image_prompt: promptPair.image_prompt,
+          scene_block: promptPair.scene_block,
+          character_block: promptPair.character_block,
+          model: "nano-banana-pro",
+          provider: imgProvider,
+          parent_video_history_id: historyId,
+          upload_status: "done",
+        },
+      });
+    } catch (e) {
+      console.error(
+        `[talking-object] image-row insert failed for parent ${historyId}:`,
+        e
+      );
+    }
+
+    // Step 4: Veo i2v with the generated image as the START FRAME.
+    // We want pixel-identical character continuity from the banana-pro
+    // still → first frame of the Veo video, so use videoI2V (first-frame
+    // variant) + imageMode="frame". Falls back to videoR2V if i2v isn't
+    // configured (admin-tunable).
+    const veoModel = cfg.videoI2V || cfg.videoR2V;
     if (!veoModel) {
       await admin
         .from("history")
         .update({
           status: "failed",
           error_message:
-            "Veo i2v model not configured (set p2_model_r2v in admin)",
+            "Veo i2v model not configured (set p2_model_i2v or p2_model_r2v in admin)",
           metadata: {
             featureType: "talking-object",
             params: { object, objective, language, purpose },
@@ -259,7 +304,9 @@ export async function POST(req: Request) {
       imageUrls: [imageUrl],
       durationMode: "8",
       aspectRatio: "9:16",
-      imageMode: "ingredient",
+      // "frame" = the input image IS the first frame of the video.
+      // Pixel-identical character continuity (no re-render).
+      imageMode: "frame",
     });
 
     const veoProvider = veoCreate.provider || "p2";

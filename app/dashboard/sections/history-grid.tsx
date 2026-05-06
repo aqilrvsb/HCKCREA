@@ -135,6 +135,12 @@ export default function HistoryGrid({
   // Sub-tab toggles which the query returns. Default = "videos" (parity
   // with the old behaviour). Only relevant when tab === "fairytale".
   const [storytellingSubTab, setStorytellingSubTab] = useState<"videos" | "images">("videos");
+  // Viral tab sub-tab — Talking Object AI generates BOTH a banana-pro
+  // image AND a Veo video; users want to browse them as separate lists,
+  // same UX as Storytelling. "videos" = the final mp4s (type=video).
+  // "images" = the intermediate banana-pro images (type=image, child
+  // rows of the talking-object pipeline).
+  const [viralSubTab, setViralSubTab] = useState<"videos" | "images">("videos");
 
   // Combine/merge multi-select. Only enabled on video tabs (UGC/Auto/Cinema)
   // — image tabs don't have a "combine" semantic. Reset whenever the tab or
@@ -189,7 +195,7 @@ export default function HistoryGrid({
     window.addEventListener("history:refresh", onRefresh);
     return () => window.removeEventListener("history:refresh", onRefresh);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tab, projectId, storytellingSubTab]);
+  }, [tab, projectId, storytellingSubTab, viralSubTab]);
 
   // 1-minute auto-refresh when there's anything pending. Pauses when the
   // tab is hidden (browser throttles intervals on hidden tabs anyway, but
@@ -237,6 +243,12 @@ export default function HistoryGrid({
           "type",
           storytellingSubTab === "images" ? "fairytale-scene" : "fairytale"
         );
+      }
+      // Viral (cinema tab): same UX as Storytelling. Talking Object AI
+      // produces a banana-pro image (type=image) AND a final Veo mp4
+      // (type=video). Sub-tab switches between them.
+      if (tab === "cinema") {
+        q = q.eq("type", viralSubTab === "images" ? "image" : "video");
       }
       const { data } = await q;
       setItems((data as HistoryItem[]) || []);
@@ -352,6 +364,36 @@ export default function HistoryGrid({
                 key={t}
                 type="button"
                 onClick={() => setStorytellingSubTab(t)}
+                className="flex-1 py-2 rounded-lg text-xs font-bold transition"
+                style={
+                  active
+                    ? {
+                        background: "var(--color-orange)",
+                        color: "white",
+                        boxShadow: "0 2px 6px rgba(0,0,0,0.15)",
+                      }
+                    : { background: "transparent", color: "var(--color-text-muted)" }
+                }
+              >
+                {t === "videos" ? "🎬 Videos" : "🖼️ Images"}
+              </button>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Viral tab: same UX as Storytelling. Talking Object AI generates
+          a banana-pro image AND a Veo video — sub-tab switches between
+          the two artifact lists. */}
+      {tab === "cinema" && (
+        <div className="flex gap-1 p-1 rounded-xl bg-[var(--color-bg-card)] mb-4 max-w-xs">
+          {(["videos", "images"] as const).map((t) => {
+            const active = viralSubTab === t;
+            return (
+              <button
+                key={t}
+                type="button"
+                onClick={() => setViralSubTab(t)}
                 className="flex-1 py-2 rounded-lg text-xs font-bold transition"
                 style={
                   active
