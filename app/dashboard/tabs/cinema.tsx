@@ -7,19 +7,26 @@ import Portal from "../sections/portal";
 import { uploadImage, dataUrlToFile } from "@/lib/upload-image";
 import { isVisibleAfterTtl, fetchSavedSet } from "@/lib/history-filter";
 
-// Viral tab — Veo-only (Grok hidden by product decision). Two image
-// modes (Text to Video, Image to Video). Fixed 8s duration, flat
-// pricing. Resolution 720p, mode "normal". Backend uses the user's
-// prompt 100% verbatim — no locks or templates injected.
+// Viral tab — TWO sub-features:
+//   • Free Veo       — existing free-form prompt path (Veo i2v / t2v)
+//   • Talking Object — guided wizard that generates {image_prompt, video_prompt}
+//                      via OpenRouter, then chains nano-banana-pro → Veo i2v
+// User picks the sub-feature with a radio at the top of the panel.
 
 type Status = "idle" | "submitting" | "failed";
 type ImageMode = "text" | "image";
+type SubFeature = "free" | "talking-object";
+type TalkingObjective = "introduce" | "benefit" | "cons";
+type TalkingLanguage = "ms" | "en";
 
 const PURPLE = "#7c4dff";
 const PURPLE_SOFT = "rgba(124, 77, 255, 0.18)";
 const PURPLE_FAINT = "rgba(124, 77, 255, 0.06)";
 
 export default function CinemaTab({ projectId }: { projectId?: string } = {}) {
+  // Sub-feature selector — defaults to Talking Object (the new flagship flow).
+  const [subFeature, setSubFeature] = useState<SubFeature>("talking-object");
+
   // Model is hardcoded to "veo" for the Viral tab. The backend route
   // still accepts a `model` body param so we can flip Grok back on later
   // by re-introducing the radio — just change the value sent in submit().
@@ -28,6 +35,15 @@ export default function CinemaTab({ projectId }: { projectId?: string } = {}) {
   const [refImage, setRefImage] = useState("");
   const [prompt, setPrompt] = useState("");
   const [aspect, setAspect] = useState("9:16");
+
+  // ── Talking Object form state ─────────────────────────────────────────
+  const [toObject, setToObject] = useState("");
+  const [toObjective, setToObjective] = useState<TalkingObjective>("benefit");
+  const [toPurpose, setToPurpose] = useState("");
+  const [toLanguage, setToLanguage] = useState<TalkingLanguage>("ms");
+  const [toStatus, setToStatus] = useState<Status>("idle");
+  const [toError, setToError] = useState<string | null>(null);
+  // ──────────────────────────────────────────────────────────────────────
   // Resolution is hardcoded to 720p — admin/product call. UI dropdown removed
   // intentionally; the value still flows through to the API body so the
   // backend stays unchanged.
@@ -129,6 +145,42 @@ export default function CinemaTab({ projectId }: { projectId?: string } = {}) {
   }
 
   const busy = status === "submitting";
+  const toBusy = toStatus === "submitting";
+
+  // ── Talking Object submit ─────────────────────────────────────────────
+  async function submitTalkingObject() {
+    if (!toObject.trim()) return setToError("Sila taip nama object dulu.");
+    setToError(null);
+    setToStatus("submitting");
+    try {
+      const r = await fetch("/api/generate/viral/talking-object", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          object: toObject.trim(),
+          objective: toObjective,
+          language: toLanguage,
+          purpose: toPurpose.trim(),
+          project_id: projectId,
+        }),
+      });
+      const d = await r.json();
+      if (!r.ok || !d?.ok) {
+        setToError(d?.error || "Generation failed");
+        setToStatus("failed");
+        return;
+      }
+      window.dispatchEvent(new CustomEvent("history:refresh"));
+      setToStatus("idle");
+      // Reset only the object field — keep purpose + language + objective
+      // so the user can crank out a series of ingredients without retyping
+      // everything. (Common workflow: generate Biotin, then L-Cystine, etc.)
+      setToObject("");
+    } catch (e: any) {
+      setToError(e?.message || "Network error");
+      setToStatus("failed");
+    }
+  }
 
   const sectionBg: React.CSSProperties = {
     background:
@@ -139,6 +191,147 @@ export default function CinemaTab({ projectId }: { projectId?: string } = {}) {
 
   return (
     <div className="rounded-3xl p-6 md:p-8 space-y-5" style={sectionBg}>
+      {/* Sub-feature selector — Talking Object AI (default) vs Free Veo Prompt */}
+      <Card borderColor={PURPLE}>
+        <div className="flex items-center gap-2.5 mb-3">
+          <Film className="w-5 h-5" style={{ color: PURPLE }} strokeWidth={2.4} />
+          <span className="text-[13px] font-extrabold uppercase tracking-[0.06em]">
+            Viral Mode
+          </span>
+        </div>
+        <div className="grid grid-cols-2 gap-2">
+          <SubFeatureCard
+            active={subFeature === "talking-object"}
+            onClick={() => setSubFeature("talking-object")}
+            title="🗣️ Talking Object AI"
+            sub="Guided wizard · auto image + Veo · series-mode"
+          />
+          <SubFeatureCard
+            active={subFeature === "free"}
+            onClick={() => setSubFeature("free")}
+            title="✍️ Free Veo Prompt"
+            sub="Type your own · t2v / i2v · 8s"
+          />
+        </div>
+      </Card>
+
+      {subFeature === "talking-object" && (
+        <>
+          <Card>
+            <div className="flex items-center gap-2.5 mb-4">
+              <span className="text-lg">🗣️</span>
+              <span className="text-[13px] font-extrabold uppercase tracking-[0.06em]">
+                Talking Object Wizard
+              </span>
+            </div>
+
+            <Label>1. Object / Ingredient</Label>
+            <input
+              type="text"
+              value={toObject}
+              onChange={(e) => setToObject(e.target.value.slice(0, 80))}
+              placeholder="e.g. Banana, Biotin, Smartphone, L-Cystine"
+              className="w-full p-3 rounded-lg text-sm outline-none mb-4"
+              style={{
+                background: "#fafaf7",
+                border: "1px solid #e8e0d8",
+                color: "#1a1a1a",
+              }}
+            />
+
+            <Label>2. Objective</Label>
+            <div className="grid grid-cols-3 gap-2 mb-4">
+              <ObjectiveBtn
+                active={toObjective === "introduce"}
+                onClick={() => setToObjective("introduce")}
+                emoji="👋"
+                label="Introduce"
+              />
+              <ObjectiveBtn
+                active={toObjective === "benefit"}
+                onClick={() => setToObjective("benefit")}
+                emoji="💪"
+                label="Benefit"
+              />
+              <ObjectiveBtn
+                active={toObjective === "cons"}
+                onClick={() => setToObjective("cons")}
+                emoji="⚠️"
+                label="Cons"
+              />
+            </div>
+
+            <Label>3. Purpose / Context (drives the scene)</Label>
+            <input
+              type="text"
+              value={toPurpose}
+              onChange={(e) => setToPurpose(e.target.value.slice(0, 200))}
+              placeholder='e.g. "Hair growth (D-Bio Plus)", "Skin glow", "Energy boost"'
+              className="w-full p-3 rounded-lg text-sm outline-none mb-1"
+              style={{
+                background: "#fafaf7",
+                border: "1px solid #e8e0d8",
+                color: "#1a1a1a",
+              }}
+            />
+            <p className="text-[10px] text-gray-500 mb-4">
+              Tip: Same purpose across multiple objects in the same project = same scene = looks like a coherent series.
+            </p>
+
+            <Label>4. Language</Label>
+            <div className="grid grid-cols-2 gap-2 mb-4">
+              <ObjectiveBtn
+                active={toLanguage === "ms"}
+                onClick={() => setToLanguage("ms")}
+                emoji="🇲🇾"
+                label="Bahasa Melayu"
+              />
+              <ObjectiveBtn
+                active={toLanguage === "en"}
+                onClick={() => setToLanguage("en")}
+                emoji="🇺🇸"
+                label="English"
+              />
+            </div>
+
+            <button
+              onClick={submitTalkingObject}
+              disabled={toBusy || !toObject.trim()}
+              className="w-full py-3.5 rounded-xl font-extrabold text-base text-white transition-all hover:-translate-y-0.5 disabled:opacity-50 disabled:transform-none"
+              style={{
+                background: `linear-gradient(135deg, ${PURPLE} 0%, #b388ff 100%)`,
+                boxShadow:
+                  "0 6px 20px rgba(124,77,255,0.35), inset 0 1px 0 rgba(255,255,255,0.2)",
+              }}
+            >
+              {toBusy ? (
+                <span className="inline-flex items-center justify-center gap-2">
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  Generating prompts + image + video…
+                </span>
+              ) : (
+                <>🗣️ Generate Talking Object Video</>
+              )}
+            </button>
+
+            {toError && (
+              <div
+                className="mt-3 px-4 py-2.5 rounded-lg text-xs font-semibold"
+                style={{
+                  background: "rgba(244,67,54,0.08)",
+                  border: "1px solid rgba(244,67,54,0.4)",
+                  color: "#c62828",
+                }}
+              >
+                {toError}
+              </div>
+            )}
+          </Card>
+        </>
+      )}
+
+      {subFeature === "free" && (
+      <>
       <Card borderColor={PURPLE}>
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-2.5">
@@ -315,6 +508,8 @@ export default function CinemaTab({ projectId }: { projectId?: string } = {}) {
           onClose={() => setPickerOpen(false)}
         />
       )}
+      </>
+      )}
 
       {/* Cinema Agent panel is mounted at dashboard-shell level so it
           persists across tab switches — see DashboardShell. */}
@@ -381,6 +576,62 @@ function Select({
     >
       {children}
     </select>
+  );
+}
+
+function SubFeatureCard({
+  active,
+  onClick,
+  title,
+  sub,
+}: {
+  active: boolean;
+  onClick: () => void;
+  title: string;
+  sub: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="rounded-lg p-3 text-left transition-all"
+      style={{
+        background: active ? PURPLE_FAINT : "#fafaf7",
+        border: `2px solid ${active ? PURPLE : "#e8e0d8"}`,
+        color: active ? PURPLE : "#1a1a1a",
+      }}
+    >
+      <div className="text-sm font-extrabold">{title}</div>
+      <div className="text-[10px] mt-0.5 opacity-70">{sub}</div>
+    </button>
+  );
+}
+
+function ObjectiveBtn({
+  active,
+  onClick,
+  emoji,
+  label,
+}: {
+  active: boolean;
+  onClick: () => void;
+  emoji: string;
+  label: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="rounded-lg py-2.5 px-3 text-center transition-all"
+      style={{
+        background: active ? PURPLE_FAINT : "#fafaf7",
+        border: `2px solid ${active ? PURPLE : "#e8e0d8"}`,
+        color: active ? PURPLE : "#1a1a1a",
+      }}
+    >
+      <div className="text-base">{emoji}</div>
+      <div className="text-[11px] font-bold mt-0.5">{label}</div>
+    </button>
   );
 }
 

@@ -80,6 +80,14 @@ function modelLabel(item: HistoryItem): string {
   if (m.includes("grok-imagine") || m.includes("grok-3"))
     return "Grok Imagine" + providerSuffix;
   if (m.includes("seedance")) return "Seedance" + providerSuffix;
+  // Viral tab "Talking Object AI" rows — show the special badge so users can
+  // distinguish them from free-form Veo generations on the same tab.
+  if (
+    item.tab === "cinema" &&
+    item.metadata?.featureType === "talking-object"
+  ) {
+    return "Talking Object" + (m.includes("veo") ? providerSuffix : "");
+  }
   if (m.includes("veo")) return "Veo 3.1" + providerSuffix;
   if (item.type === "fairytale") return "Storytelling";
   return item.type;
