@@ -943,12 +943,28 @@ function HistoryCard({
                   <br />~ 15–30 minit
                 </span>
               )}
-              {item.tab === "cinema" && (
-                <span className="text-[10px] font-mono text-amber-300/80 mt-1 leading-tight">
-                  Grok Imagine
-                  <br />~ 5–15 minit
-                </span>
-              )}
+              {item.tab === "cinema" && (() => {
+                // Viral tab: show the model name + ETA based on what was
+                // selected at gen time (metadata.modelChoice / model).
+                const m = String(item.metadata?.model || "").toLowerCase();
+                const choice = String(item.metadata?.modelChoice || "").toLowerCase();
+                const isVeo = choice === "veo" || m.includes("veo");
+                return (
+                  <span className="text-[10px] font-mono text-amber-300/80 mt-1 leading-tight">
+                    {isVeo ? (
+                      <>
+                        Veo 3.1
+                        <br />~ 1–3 minit
+                      </>
+                    ) : (
+                      <>
+                        Grok Imagine
+                        <br />~ 5–15 minit
+                      </>
+                    )}
+                  </span>
+                );
+              })()}
             </div>
             <button
               onClick={checkNow}
