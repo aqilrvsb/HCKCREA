@@ -8,6 +8,10 @@ import {
   getP2Config,
   getViralImageConfig,
 } from "@/lib/settings";
+
+// Models P3 / Mountsea natively supports. If admin picked something
+// else (e.g. z-image, gpt-image-2 — both P2-only) we fall back to fast.
+const P3_MODELS = new Set(["nano-banana-pro", "nano-banana-2", "nano-banana-fast"]);
 import {
   generateTalkingObjectPrompts,
   type TalkingObjectInput,
@@ -119,6 +123,64 @@ export async function POST(req: Request) {
   }
 
   const historyId = hist.id;
+
+  // 1b. (i2v only) Insert the IMAGE placeholder row UPFRONT — synchronously
+  // before we send the response — so both the video pending card AND the
+  // image pending card appear together the moment the user clicks Generate.
+  // Resolve the viral provider/model here too so the placeholder badge
+  // shows the correct model from the start.
+  let imageHistoryId: string | null = null;
+  let viralCfgPreflight: { provider: "p1" | "p2" | "p3"; modelKey: string } | null = null;
+  if (mode === "i2v") {
+    try {
+      viralCfgPreflight = await getViralImageConfig();
+      const declaredProvider = viralCfgPreflight.provider;
+      const requestedModel = viralCfgPreflight.modelKey;
+      const placeholderModel =
+        declaredProvider === "p3"
+          ? (P3_MODELS.has(requestedModel) ? requestedModel : "nano-banana-fast")
+          : requestedModel;
+      const { data: imgRow } = await admin
+        .from("history")
+        .insert({
+          user_id: user.id,
+          project_id: projectId,
+          type: "image",
+          tab: "cinema",
+          status: "pending",
+          prompt: `[Talking Object · image] ${object}`,
+          output_url: null,
+          thumbnail_url: null,
+          cost: 0,
+          metadata: {
+            featureType: "talking-object-image",
+            params: {
+              object,
+              objective,
+              language,
+              purpose,
+              mode,
+              customDialog: customDialog || undefined,
+              customTarget: customTarget || undefined,
+              performance,
+            },
+            stage: "queued",
+            model: placeholderModel,
+            provider: declaredProvider,
+            parent_video_history_id: historyId,
+            upload_status: "queued",
+          },
+        })
+        .select("id")
+        .single();
+      imageHistoryId = imgRow?.id || null;
+    } catch (e) {
+      console.error(
+        `[talking-object] sync image-row insert failed for parent ${historyId}:`,
+        e
+      );
+    }
+  }
 
   // 2-4. Background pipeline. after() keeps the function alive after the
   // response is sent so the user sees an instant pending card.
@@ -297,7 +359,9 @@ export async function POST(req: Request) {
     //   - p3 → Mountsea pathway, accepts nano-banana-pro / nano-banana-2 /
     //          nano-banana-fast (anything else falls back to fast)
     //   - p1 / p2 → Crun pathway with the admin-selected model id
-    const viralCfg = await getViralImageConfig();
+    // Reuse the viralCfg resolved synchronously (preflight) when available;
+    // otherwise re-resolve here (path A — t2v never set the preflight).
+    const viralCfg = viralCfgPreflight || (await getViralImageConfig());
     const HARDCODED_MODEL_IDS: Record<string, string> = {
       "nano-banana-v2": "google/nano-banana-v2",
       "nano-banana-pro": "google/nano-banana-pro",
@@ -309,38 +373,22 @@ export async function POST(req: Request) {
       (cfg.imageModels as any)?.[imageModelKey] ||
       HARDCODED_MODEL_IDS[imageModelKey] ||
       imageModelKey;
-    const declaredImgProvider = viralCfg.provider; // pre-create-task hint for placeholder row
-
-    // P3/Mountsea natively supports these three model ids. If the admin
-    // picked anything outside this set (e.g. "z-image" or "gpt-image-2"
-    // which are P2-only), fall back to nano-banana-fast.
-    const P3_MODELS = new Set(["nano-banana-pro", "nano-banana-2", "nano-banana-fast"]);
+    const declaredImgProvider = viralCfg.provider;
     const p3Model = P3_MODELS.has(imageModelKey) ? imageModelKey : "nano-banana-fast";
 
-    // Insert a PENDING image row UPFRONT so the Images sub-tab shows a
-    // loading placeholder card while banana-pro is generating. We update
-    // this row to done/failed once polling completes. The soft link
-    // back to the parent video lives in metadata.parent_video_history_id
-    // (do NOT set parent_history_id — that's reserved for seg-1/seg-2
-    // chains in history-grid.tsx).
-    let imageHistoryId: string | null = null;
-    try {
-      const { data: imgRow } = await admin
+    // The image placeholder row was already inserted synchronously
+    // before the response went out. Update it now with the resolved
+    // image_prompt + scene/character blocks so the metadata is rich
+    // before banana-pro fires.
+    if (imageHistoryId) {
+      await admin
         .from("history")
-        .insert({
-          user_id: user.id,
-          project_id: projectId,
-          type: "image",
-          tab: "cinema",
-          status: "pending",
+        .update({
           prompt: promptPair.image_prompt,
-          output_url: null,
-          thumbnail_url: null,
-          cost: 0,
           metadata: {
             featureType: "talking-object-image",
             params: baseParams,
-            stage: "queued",
+            stage: "generating",
             image_prompt: promptPair.image_prompt,
             scene_block: promptPair.scene_block,
             character_block: promptPair.character_block,
@@ -350,14 +398,7 @@ export async function POST(req: Request) {
             upload_status: "queued",
           },
         })
-        .select("id")
-        .single();
-      imageHistoryId = imgRow?.id || null;
-    } catch (e) {
-      console.error(
-        `[talking-object] pending image-row insert failed for parent ${historyId}:`,
-        e
-      );
+        .eq("id", imageHistoryId);
     }
 
     let imgCreate: { ok: boolean; task_id?: string; provider?: "p1" | "p2" | "p3"; error?: string };

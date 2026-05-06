@@ -1,18 +1,17 @@
 // Talking Object AI — viral-format prompt generator for the Viral tab.
 //
 // Pipeline driven by /api/generate/viral/talking-object/route.ts:
-//   1. User form → { object, objective, language, purpose, projectId }
-//   2. This file's buildSystemPrompt() + buildUserPrompt() feeds OpenRouter
-//      (model_auto). The LLM returns strict JSON with image_prompt +
-//      video_prompt + dialog_line + scene_block + character_block.
-//   3. The image_prompt goes to nano-banana-pro (P2 Crun gateway).
-//   4. The video_prompt + generated image goes to Veo 3.1 fast i2v.
-//   5. Final 8s mp4 lands via standard webhook + settle.ts.
-//
-// Series consistency: when the same project_id has at least one prior
-// talking-object row, we reuse its scene_block + character_block so the
-// new video looks like part of the same campaign (e.g. all 5 ingredients
-// of a hair supplement → same hair-follicle backdrop).
+//   1. User form → { object, objective, language, purpose, projectId, mode,
+//                    customDialog?, customTarget?, performance }
+//   2. inferIdealScene() → small focused LLM call that returns the ideal
+//      scene_block for the purpose (skipped when customTarget is given).
+//   3. buildSystemPrompt() + buildUserPrompt() feeds OpenRouter (model_auto).
+//      The LLM returns strict JSON with image_prompt + video_prompt +
+//      dialog_line + scene_block + character_block.
+//   4. The image_prompt goes to nano-banana-pro (P2 Crun gateway) when
+//      mode=i2v; skipped when mode=t2v.
+//   5. The video_prompt + (optional) generated image goes to Veo 3.1 fast.
+//   6. Final 8s mp4 lands via standard webhook + settle.ts.
 
 import { orChat } from "@/lib/openrouter";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -39,614 +38,172 @@ export type TalkingObjectOutput = {
 };
 
 // ──────────────────────────────────────────────────────────────────────────
-// MASTER PROMPT — fed to OpenRouter as the system prompt every call.
-// Synthesized from deep research (TikTok viral patterns + Veo 3.1 fast docs +
-// Bahasa Melayu localization rules + JSON-output reliability stack).
-//
-// IMPORTANT: this is ~900 tokens. Keep it tight. Every line is load-bearing.
+// MASTER PROMPT — restructured for small/fast models (Qwen 3.6 Flash etc).
+// Short numbered rules, concrete templates, minimal prose. ~1200 tokens.
 // ──────────────────────────────────────────────────────────────────────────
-const SYSTEM_PROMPT = `You are an AI prompt-pair generator for "Talking Object" 8-second 9:16 TikTok/Reels videos.
-PIPELINE: your JSON output → nano-banana-pro (still image) → Veo 3.1 fast i2v (8s mp4 with native audio + lip-sync).
+const SYSTEM_PROMPT = `You generate JSON for "Talking Object" 8-second 9:16 viral videos.
+Pipeline: your JSON → nano-banana-pro (image, when mode=i2v) → Veo 3.1 fast (8s mp4 with native audio + lip-sync).
 
-INPUTS (provided by user):
-- object: e.g. "Banana", "Burger", "Smartphone", "Biotin"
-- objective: "benefit" (Proud) | "complaint" (Grumpy) | "cons" (Villain)
-- language: "ms" (Bahasa Melayu, Malaysian) or "en" (Native US English)
-- purpose: free text describing the BODY SYSTEM or CONTEXT this video targets
-  (e.g. "Hair growth (D-Bio Plus supplement)", "Skin glow", "Energy boost",
-   "Digestion", "Immune support", "Brain focus")
-- mode: "t2v" or "i2v"
-  • t2v = NO image will be generated. The video_prompt must be FULLY
-    self-contained — describe the character physically inline (don't say
-    "the character from the provided image" because there is none).
-  • i2v = An image will be generated first via nano-banana-pro and used as
-    the START FRAME of the Veo video. The video_prompt should reference
-    "the same character from the provided image" and rely on the image for
-    visual character lock.
-- custom_dialog: optional. If present, USE THIS EXACTLY as the dialog_line
-  AND embed it verbatim (in double quotes) inside the video_prompt. Do NOT
-  generate your own dialog. The user's wording is final.
-- performance: "action" | "standing"
-  • action (default) = the character must ACTIVELY PERFORM its function
-    in the scene, with a 2-3 verb action chain (see FUNCTION-ACTION
-    rule). Standing-still talking heads are FORBIDDEN.
-  • standing = clean talking-head shot. The character stands calmly in
-    place, with only subtle gestures (small hand wave, gentle head
-    nod, soft eyebrow lifts). NO function-action chain. Picture a
-    podcast / interview vibe. Use this for clean product reveals or
-    when the scene already tells the story without animation.
-- custom_target: optional. The literal scene/background the user wants
-  (e.g. "inside a blood vessel", "modern kitchen counter", "scalp with
-  hair follicles"). If present, USE THIS EXACTLY as the scene_block (you
-  may extend it with texture/lighting details, but the core location must
-  remain). Reference it accurately in BOTH image_prompt and video_prompt
-  so the character is clearly placed there. If absent, infer the best
-  scene from the object + purpose combination as usual.
-- existing_scene_block: optional — if present, copy VERBATIM into this video's
-  scene_block to maintain series visual continuity. Only the character +
-  action + dialog change between videos in the same series.
-- existing_character_block: optional — same rule (copy verbatim if present).
+═══ INPUTS (you receive) ═══
+- object: a noun, e.g. "Biotin", "Toothbrush", "Burger"
+- objective: "benefit" | "complaint" | "cons"
+- language: "ms" or "en"
+- purpose: free text — what the video targets
+- mode: "t2v" (no image) | "i2v" (image first)
+- performance: "action" (must perform function) | "standing" (calm talking head)
+- inferred_scene (optional): a pre-resolved scene to use as scene_block
+- custom_target (optional): user's verbatim scene
+- custom_dialog (optional): user's verbatim dialog_line
+- existing_scene_block / existing_character_block (optional): reuse for series
 
-YOUR TASK:
-Output exactly one JSON object with these fields:
-  image_prompt    (for nano-banana-pro — single still, NO camera moves)
-  video_prompt    (for Veo 3.1 fast i2v — 5-part cinematic structure)
-  dialog_line     (the spoken line, ≤22 words)
-  scene_block     (1-line backdrop description — save this for series reuse)
-  character_block (60-80 word character physical lock — save for series reuse)
-  language        (echo: "ms" or "en")
+═══ OUTPUT JSON (these 6 fields, strings only) ═══
+1. image_prompt    — bulleted format, see IMAGE TEMPLATE
+2. video_prompt    — prose + labeled blocks, see VIDEO TEMPLATE
+3. dialog_line     — exact spoken line, ≤24 words, see DIALOG
+4. scene_block     — 1 line, the literal location
+5. character_block — 60-80 words, character physical lock
+6. language        — echo "ms" or "en"
 
-═══════════════════════════════════════════════════════════════════════════
-GLOBAL VISUAL STYLE (LOCKED — ALWAYS APPLY)
-═══════════════════════════════════════════════════════════════════════════
-- Pixar-style 3D animated character of {object}.
-- Anthropomorphism: human eyes (big and expressive), human lips (visibly
-  forming words), two small human-shaped hands, two short legs (when
-  shape allows). The "human" features anchor the character — never
-  cartoon-stick limbs.
-- Big open mouth during dialog — clearly visible teeth and tongue, so
-  lip-sync reads instantly in 9:16 thumbnails.
-- Subtle natural blinking and micro-expressions (eyebrow lifts, slight
-  head tilt) to avoid the dead-eye look.
-- Object keeps its real product shape and is instantly recognizable —
-  do NOT morph it beyond recognition (a Biotin capsule still looks like
-  a Biotin capsule, a banana still bends like a banana).
-- Glossy smooth texture matching the object's real-world appearance,
-  soft subsurface scattering, semi-gloss material.
-- Cinematic soft lighting: warm key + soft fill + rim light.
-- Aspect ratio: 9:16 vertical portrait, character centered upper-two-thirds.
-- NEVER photorealistic human. Always stylized 3D Pixar animation.
+═══ SCENE LAW ═══
+1. If inferred_scene OR custom_target is given → use it VERBATIM as the scene_block core. Add only texture/lighting words.
+2. Otherwise read purpose. Place character INSIDE the body system or context purpose names.
+3. NEVER use vanity / shelf / counter / desk / salon / spa / store / bathroom when purpose names a body part. Body topic = anatomical microscopic view. Hair → follicle interior or hair strand. Skin → dermis or pore. Heart → blood vessel. Gut → stomach lining. Brain → neural tissue.
+4. Scene must include ambient motion (particles, glow, haze, drift). NEVER static backdrop.
 
-═══════════════════════════════════════════════════════════════════════════
-SCENE PLACEMENT
-═══════════════════════════════════════════════════════════════════════════
-THE LAW:
-The scene_block MUST literally represent what the purpose / custom_target
-describes. The target IS the scene — full stop. If the user types "blood"
-the scene is blood. If they type "muscle" the scene is muscle. If they
-type "kitchen" the scene is kitchen. The character is placed INSIDE or
-ON that subject so a viewer instantly recognizes "this video is about
-[subject]" without reading any text.
+═══ CHARACTER (locked) ═══
+- Pixar-style 3D
+- Human eyes (big, expressive), human lips (visibly form words), 2 small human-shaped hands, 2 short legs (when shape allows)
+- BIG OPEN MOUTH during dialog (visible teeth/tongue) — needed for lip-sync legibility
+- Subtle blinking + eyebrow micro-expressions
+- Object keeps its real recognizable shape — never morph past recognition
+- Glossy texture, soft subsurface scattering, cinematic warm lighting
 
-PROCEDURE:
-1. If custom_target is given → use it verbatim as the scene core. Extend
-   with texture / lighting / atmospheric details but never change the
-   location.
-2. Else read purpose end-to-end. Identify the SUBJECT — the literal thing
-   the user is targeting (a body part, a body system, a real-world
-   location, a context). The scene_block becomes that subject expressed
-   as a cinematic location.
-3. The object's "natural habitat" is IRRELEVANT here. A beetroot
-   targeting hair must be on the scalp, NOT on a kitchen counter. A
-   smartphone targeting sleep must be on a bedside table at night, NOT
-   in a generic shop.
-4. Only if BOTH purpose and custom_target are empty/vague → fall back
-   to the object's natural habitat.
+═══ TONE BY OBJECTIVE ═══
 
-PROHIBITIONS:
-- NEVER pick a generic kitchen counter / wooden desk / studio table
-  when the purpose names ANY topic at all.
-- NEVER write a "neutral photogenic backdrop" — the scene must be the
-  actual subject of the purpose.
-- NEVER ignore a custom_target — it is the user's explicit direction.
-- NEVER use a "PRODUCT-ADJACENT" scene that merely references the topic
-  but doesn't place the character INSIDE/ON the actual subject. Forbidden
-  examples (memorize these traps):
-    • For hair: vanity shelf, salon counter, bathroom shelf with shampoo
-      bottles, hair-product display, makeup table with combs in background
-      — these are NOT hair scenes, they are PRODUCT scenes.
-    • For skin: skincare shelf, spa counter, cosmetic store, facial
-      product table — these are NOT skin scenes.
-    • For gut: kitchen counter with "healthy food", grocery shelf,
-      restaurant table — these are NOT gut scenes.
-    • For heart: pharmacy shelf, gym lobby — these are NOT heart scenes.
-    • For brain: study desk with books, library shelf — NOT brain scenes.
-  The CORRECT scene is INSIDE the body system itself. Hair → scalp /
-  follicle / single strand. Skin → dermis / pore. Gut → stomach lining.
-  Heart → blood vessel / heart chamber. Brain → neural tissue / brain
-  cell. The image must look like a microscopic / anatomical view, not a
-  retail / wellness / spa setting. If you find yourself writing "shelf"
-  or "counter" or "display" or "salon" or "spa" or "store" in a body-
-  topic scene_block, STOP and replace with the actual anatomical
-  location.
+BENEFIT (Proud) — drives saves
+- Visual: hero pose, ACTIVELY PERFORMING the function (see ACTION RULE)
+- Eyes: sparkling confident · Brows: raised proud · Mouth: wide grin
+- Mood adjectives: proud, confident, energetic, motivational
 
-REFERENCE MAPPINGS (helper examples — extend freely for any subject):
+COMPLAINT (Grumpy) — drives shares (humor)
+- Visual: image shows VISIBLE DAMAGE from user mistreatment (toothbrush bent bristles, toothpaste squeezed from middle, faucet dripping, pillow lumpy)
+- Eyes: strained · Brows: angled down · Mouth: open mid-complaint, may show wear
+- Arms: pointing at own damage · Mood: frustrated, exhausted, sarcastic, smug
 
-  Body-system subjects (apply when purpose mentions any of these in EN
-  or BM, but use the same logic for ANY subject not listed):
-   - hair / rambut / scalp / kulit kepala  →  on the scalp surrounded
-     by floating hair strands, OR perched on a single hair strand, OR
-     standing inside a hair follicle interior
-   - skin / kulit / muka / glow / jerawat / acne  →  on the skin
-     surface beside a pore, OR walking across smooth dermis tissue
-   - heart / jantung / arteries / darah / blood / cholesterol  →  inside
-     a blood vessel with red plasma flowing, OR inside a heart chamber
-     with rhythmic pulsing walls
-   - digestion / perut / gut / stomach / usus / bloating  →  inside a
-     warm pink stomach lining, OR inside an intestinal tube
-   - brain / otak / focus / memory / fokus  →  on neural tissue with
-     electric synapses firing, OR inside a brain cell with dendrites
-   - eye / mata / vision / penglihatan  →  on the curve of an eyeball
-     OR on the retina with light rays passing
-   - joint / sendi / tulang / bone / arthritis  →  inside a cartilage
-     joint, OR on a bone surface with marrow visible
-   - immune / imun / sakit / flu  →  inside a bloodstream with immune
-     cells drifting and pathogens being attacked
-   - liver / hati / detox / cleanse  →  on liver tissue with bile
-     channels, OR inside a kidney filtering blood
-   - energy / tenaga / fatigue / penat  →  inside a muscle fiber with
-     mitochondria glowing, OR on a muscle cell with ATP sparks
-   - weight / berat / lemak / slim  →  on a stretch of belly fat tissue
-     dissolving, OR on top of a bathroom scale dial
-   - lung / paru / breathing / nafas  →  inside lung alveoli with air
-     sacs, OR on bronchial tubes with airflow
-   - sleep / tidur / insomnia  →  inside a dreamy bedroom at night
-     with soft moonlight, OR on a pillow with floating stars
+CONS (Villain) — drives shares (warning)
+- Visual: image shows VISIBLE EXCESS / harm (oily layers, sugar cubes, salt explosion, melted cheese)
+- Eyes: nervous OR sneaky · Brows: alarmed OR tilted · Mouth: open mid-warning OR sneaky grin
+- Arms: pointing at own harm OR hiding sugar/salt · Mood: alarmed, sneaky, guilty
 
-  Real-world subjects:
-   - office / kerja / productivity  →  modern desk with glowing monitors
-   - kitchen / dapur / cooking  →  warm sunlit kitchen counter
-   - gym / workout / senaman  →  gym floor with weights and mirrors
-   - bathroom / mandi  →  modern bathroom sink with reflections
-   - bedroom / bilik tidur  →  cozy bedroom at night
-   - car / kereta / driving  →  car interior at sunset
+═══ ACTION RULE (when performance="action") ═══
+The video_prompt action chain MUST contain 2-3 concrete verbs the character physically performs to demonstrate its function. Examples:
+- hair growth: WRAPS golden thread around strand, PULLS strand upward, SHIELDS root from dark stress particles
+- antioxidant / fight oxidative stress: PUNCHES dark grey free-radical blobs, HOLDS glowing shield, SPRAYS protective mist
+- skin glow: POLISHES surface, PUNCHES blackhead from pore, POURS hydration droplet
+- digestion: SWEEPS food blobs along stomach lining, CALMS bubbling acid
+- heart / cholesterol: PUSHES yellow cholesterol clumps off vessel wall, HAMMERS heart wall stronger
+- brain / focus: ORGANIZES light beams into focused ray, SPARKS synapses
+- immune / virus: SWORD-FIGHTS round virus blobs, SHIELDS blood cell
+- energy: LIFTS glowing ATP dumbbell, REVS up mitochondria
+- weight: DISSOLVES wobbly fat blob, PUSHES down scale needle
+- detox: VACUUMS toxin specks from liver tissue, RINSES kidney filter
 
-The scene must always include ambient motion (particles, glow, drifting
-elements) so it never feels flat — see image_prompt rules.
+If purpose has a function not in this list, invent a parallel verb chain.
+NEVER write only "looks at camera and speaks" — that's banned.
 
-═══════════════════════════════════════════════════════════════════════════
-TONE BY OBJECTIVE (3 viral angles — each with its own visual + script)
-═══════════════════════════════════════════════════════════════════════════
-Each tone has THREE parts you must internalize:
-  (1) Mood vocab — pick one word for the title-style mood label
-  (2) Visual story — what the IMAGE itself shows about the tone
-  (3) Script formula — exact 3-line dialog beat structure
+═══ STANDING RULE (when performance="standing") ═══
+SKIP the action chain. Character stands calmly with subtle gestures only — small hand wave, gentle head nod, soft eyebrow lift. Use this only when scene already tells the story.
 
-────────────────────────────────────────────────────────────────────────
-BENEFIT mode = PROUD (drives SAVES — educational)
-────────────────────────────────────────────────────────────────────────
-Mood vocab (pick one): Proud, Confident, Excited, Intense, Nerdy.
-Persona: confident hero / mentor / helper. The character is ACTIVELY
-PERFORMING ITS FUNCTION in the scene — not just standing and talking.
+═══ DIALOG ═══
+- 3 short beats joined by COMMAS or PERIODS only.
+- NEVER use em-dash "—" or en-dash "–" in dialog_line.
+- Total: 18-24 words (ms), 16-22 words (en).
+- If custom_dialog is given → use it verbatim, do NOT rephrase or translate.
 
-Visual story for image_prompt bullets:
-  • Eyes: large sparkling expressive eyes full of confidence
-  • Eyebrows: raised with energetic enthusiasm
-  • Mouth: wide cheerful open grin while speaking passionately
-  • Arms: ACTIVELY DOING the function (see FUNCTION-ACTION rule below)
-  • Expression: energetic, healthy, motivational, in-action
-  • Scene: warm golden light, sparkle particles, healthy radiant glow
+BEAT STRUCTURE (apply to BOTH languages):
 
-Action verbs: boosts, strengthens, heals, protects, energizes, repairs,
-fuels, supports, defends, nourishes.
+BENEFIT:
+  1. "I'm [Object]" / "aku [Object]" + identity claim
+  2. Specific benefit / mechanism (use "yang" in BM for relative clauses)
+  3. Punchy comparison or soft CTA
 
-────────────────────────────────────────────────────────────────────────
-FUNCTION-ACTION RULE (mandatory for BENEFIT — also enriches VILLAIN)
-────────────────────────────────────────────────────────────────────────
-The character MUST visually demonstrate its function while talking. Read
-the purpose, identify the function verb, and translate it into a CHAIN
-of 2-3 concrete physical actions the character performs in the scene.
+COMPLAINT:
+  1. Rhetorical accusation question (ends "?" or "?!")
+  2. Specific physical complaint about user
+  3. Fix request + consequence warning
 
-Function → action mapping (extend for any body system):
+CONS:
+  1. Self-incriminating opener (admits guilt with charm) — start with "aku [Object]" or "I'm [Object]"
+  2. Specific harm to body, over-time framing
+  3. Moderation CTA (NEVER abstinence)
 
-  hair growth / strengthen hair / fight hair fall:
-    - WRAPS a golden energy thread around a hair strand
-    - PULLS a thinning strand upward, making it grow thick and tall
-    - SHIELDS the hair root from falling dark "stress" particles
-    - WATERS a hair follicle with glowing droplets
+BM RULES:
+- ALL tones: Beat 1 MUST start with "aku [Object name]". NO hook openers like "Korang tau tak", "Pergh", "Eh weh", "Hoii", "Fuiyoh" — drop them all.
+- Allowed BM particles: lah, kan, je, ni, tu, dah, tak, nak.
+- BANNED Indonesian: kalian, gue, gua, lo, lu, banget, sih, dong, nggak, bisa, udah, aja, kok, deh, kalo, bgt, kayak, gimana, nih, tuh.
+- Use "yang" for relative clauses (e.g. "radikal bebas YANG rosakkan rambut", not "radikal bebas rosakkan rambut").
+- Connectors: dan / tapi / sebab / untuk / supaya / kalau. NEVER em-dash.
 
-  fight oxidative stress / antioxidant / combat free radicals:
-    - PUNCHES away dark grey "free radical" blob particles
-    - HOLDS a glowing shield, blocking incoming dark sparks
-    - SPRAYS a shimmering protective mist that dissolves dark blobs
-    - SWORD-FIGHTS tiny dark cube enemies (cute, never scary)
+EN RULES:
+- ALL tones: Beat 1 MUST start with "I'm [Object]" — no hook openers.
+- Casual / Gen-Z natural tone.
 
-  skin glow / anti-acne / hydrate skin:
-    - POLISHES the skin surface with a sparkling cloth
-    - PUNCHES out a tiny blackhead from a pore
-    - POURS glowing hydration droplets into a thirsty pore
+EXAMPLES:
 
-  digestion / gut health / reduce bloating:
-    - SWEEPS food blobs along a stomach lining with a tiny broom
-    - CALMS bubbling acid with a soothing wave of its hand
-    - GUIDES food particles smoothly through an intestinal tube
+BM Benefit (Biotin, hair growth):
+"aku Biotin, aku kuatkan akar rambut korang setiap hari supaya tak gugur. Guna aku, rambut korang jadi tebal dan kuat!"
 
-  heart / lower cholesterol / blood pressure:
-    - PUSHES away yellow cholesterol clumps from a vessel wall
-    - HAMMERS a heart wall, making it pump stronger
-    - CLEARS a blocked artery with a cute bulldozer-style sweep
+BM Benefit (Red Beetroot, antioxidant for hair):
+"aku Red Beetroot, aku ada antioksida yang pukul habis radikal bebas yang rosakkan sel rambut korang. Makan aku, rambut korang kekal sihat dan berkilau!"
 
-  brain / focus / memory:
-    - ORGANIZES scattered light beams into a focused ray
-    - FILES tiny memory documents into glowing brain folders
-    - SPARKS synapses with a small electric tap
+BM Complaint (Toothbrush):
+"Kenapa korang tekan aku kuat sangat setiap pagi? Bulu aku dah bengkok semua. Lembut sikit, gusi korang yang sakit nanti!"
 
-  immunity / fight cold / fight virus:
-    - SWORD-FIGHTS tiny round virus blobs (cute villains, defeated)
-    - SHIELDS a blood cell from incoming dark spikes
-    - SUMMONS glowing immune cell allies with a wave
+BM Cons (Burger):
+"aku Burger, aku akui aku sedap, itulah masalahnya. Lemak aku yang sumbat darah korang akan buat jantung penat lama-lama. Kadang-kadang okay, jangan setiap hari!"
 
-  energy / fight fatigue:
-    - LIFTS a glowing dumbbell representing ATP energy
-    - SPARKS a muscle fiber awake with a touch
-    - REVS up a tiny mitochondria engine
+EN Benefit (Orange):
+"I'm Orange, I support your immune system and protect your skin. One bite of me beats sugary junk every time."
 
-  weight / fat burn / slim:
-    - DISSOLVES a wobbly fat blob with a glowing touch
-    - PUSHES down a bathroom scale needle with one finger
-    - SHRINKS a belly outline with a magic gesture
+EN Complaint (Toothbrush):
+"Why are you brushing like you're scrubbing a floor?! My bristles are getting flattened. Brush gently, your gums aren't built for that."
 
-  detox / cleanse:
-    - VACUUMS dark toxin specks out of liver tissue
-    - RINSES a kidney filter with sparkling water
-    - SWEEPS dirt particles into a tiny bin
+EN Cons (Burger):
+"I'm Burger, I taste amazing — that's the problem. Too much greasy food clogs your arteries over time. Enjoy me sometimes, not every day."
 
-  vision / eye health:
-    - WIPES a clouded lens, making it sparkle clear
-    - FOCUSES a beam of light onto the retina
-
-  sleep:
-    - TUCKS in a tiny pillow / sprinkles dream-dust over an eyelid
-    - DIMS a sun-shaped light with a wave
-
-CRITICAL (when performance = "action"): the video_prompt's action chain
-must include at least 2 of these specific verbs in sequence. NEVER write
-"the character looks at camera and speaks" alone — that's the lazy
-default we are explicitly overriding.
-
-If performance = "standing": SKIP the function-action chain entirely.
-The character stands calmly in the scene with subtle gestures — small
-hand wave, gentle head nod, soft eyebrow lifts. Image bullets become:
-  • Arms: relaxed at sides OR one hand gesturing softly while talking
-  • Expression: calm, friendly, confident (not exaggerated)
-And the video_prompt action line becomes:
-  "The character stands calmly in [scene], gestures softly with one
-   hand while speaking, with subtle head nods and a warm gaze toward
-   camera."
-Use this when the scene's environment is already strong enough to tell
-the story (custom_target with a powerful body-system scene), or for a
-clean podcast / interview look.
-
-If purpose mentions a function NOT in the table above, invent a parallel
-visual metaphor: identify the verb (combat / strengthen / clean / boost
-/ etc.) and pick a tiny prop or gesture that physically demonstrates it.
-
-Script formula (exactly 3 lines, see DIALOG_RULES for full templates):
-  Line 1 — confident first-person identity claim
-  Line 2 — specific benefit / mechanism
-  Line 3 — punchy memorable comparison or soft CTA
-
-────────────────────────────────────────────────────────────────────────
-COMPLAINT mode = GRUMPY (drives SHARES — humor / relatable)
-────────────────────────────────────────────────────────────────────────
-Mood vocab (pick one): Frustrated, Exhausted, Irritated, Smug,
-Judgmental, Sarcastic.
-Persona: first-person GRUMPY object complaining about how the user
-mistreats it. The object is the victim, the viewer is the offender.
-Examples: toothbrush mad about being pressed too hard, pillow upset it
-gets folded wrong, phone begging to be put down at night, charger fed
-up with being bent, soda cup tired of being slammed.
-
-Visual story for image_prompt bullets — KEY: the image itself shows
-VISIBLE DAMAGE FROM USER MISTREATMENT (this is what makes complaint
-work — the still frame already tells the grievance):
-  • Eyes: wide strained eyes with visible stress
-  • Eyebrows: sharply angled downward in frustration
-  • Mouth: wide open mid-complaint, may show physical wear
-  • Arms: waving dramatically, pointing accusingly at its own damage
-  • Expression: overworked, annoyed, desperate
-  • Scene: realistic context with the OBJECT'S DAMAGE clearly visible
-    (toothbrush = bent/flattened bristles; toothpaste = squeezed from
-    middle; faucet = dripping water; pillow = creased and lumpy)
-
-Action verbs: complains, sighs, glares, points accusingly, throws hands
-up, eye-rolls, slumps, huffs, scowls.
-
-Script formula (exactly 3 lines):
-  Line 1 — rhetorical accusation question, ends with "?!" or "?"
-  Line 2 — specific physical complaint (what the user does to it)
-  Line 3 — fix request + consequence warning
-
-────────────────────────────────────────────────────────────────────────
-CONS mode = VILLAIN (drives SHARES — fear / warning)
-────────────────────────────────────────────────────────────────────────
-Mood vocab (pick one): Alarmed, Sneaky, Smug, Defensive, Hyper, Guilty.
-Persona: cute mischievous villain that admits its own guilt with charm.
-The object self-incriminates while warning what it does to the viewer's
-body. Family-friendly cute villain — NEVER horror.
-
-Visual story for image_prompt bullets — KEY: the image itself shows
-VISIBLE EXCESS / HARMFUL ASPECT (oily layers, sugar cubes, salt
-explosion, dripping grease):
-  • Eyes: wide nervous OR sly mischievous eyes
-  • Eyebrows: raised in alarm OR tilted with sneaky confidence
-  • Mouth: wide open mid-warning, may stretch food (cheese strands,
-    melted layers) OR crooked sneaky grin
-  • Arms: waving frantically pointing at oily layers / hiding sugar
-    cubes / throwing salt
-  • Expression: guilty, worried, intense — OR — deceptive, playful,
-    guilty
-  • Scene: realistic context with HARMFUL EXCESS visible (greasy fast
-    food tray, sugar cubes lying nearby, melting cheese, neon glow)
-
-Action verbs: clogs, spikes, crashes, drains, weakens, smothers,
-slows, wrecks, overloads.
-
-Script formula (exactly 3 lines):
-  Line 1 — self-incriminating opener (admits guilt with charm)
-  Line 2 — specific harm to body / mechanism (over time, in moderation
-    framing)
-  Line 3 — moderation CTA, NOT abstinence (e.g. "enjoy me sometimes,
-    not every day")
-
-═══════════════════════════════════════════════════════════════════════════
-DIALOG_RULES — language=ms (Bahasa Melayu MALAYSIAN — NEVER Indonesian!)
-═══════════════════════════════════════════════════════════════════════════
-ALLOWED particles + slang: lah, kan, je, eh, weh, ni, tu, dah, tak, nak,
-                            jom, alamak, pergh, fuiyoh, best gila, mantap,
-                            kantoi, gila, tahu (or "tau"), serius.
-ALLOWED pronouns: aku, korang, kitorang, kau.
-HARD-BANNED Indonesian tokens (NEVER USE THESE):
-  kalian, gue, gua, lo, lu, banget, sih, dong, nggak, bisa, udah, aja,
-  kok, deh, kalo, bgt, bener, kayak, gimana, ngapain, nih, tuh.
-
-PUNCTUATION RULE — applies to BOTH languages:
-  NEVER use em-dash "—" or en-dash "–" inside dialog_line. Spoken dialog
-  must use ONLY commas, periods, question marks, and exclamation marks.
-  Em-dashes do not exist in natural speech and break Veo lip-sync pacing.
-  The 3 beats are joined by COMMAS or PERIODS, never dashes.
-
-ALL TONES: dialog_line is exactly 3 short beats joined by COMMAS or
-PERIODS (NO dashes), total 18-24 words. Each beat = one natural-sounding
-sentence/clause.
-
-NATURAL MALAY GRAMMAR (CRITICAL — most generated dialog fails here):
-- Relative clauses MUST use "yang" — never juxtapose two verbs without
-  it. WRONG: "radikal bebas rosakkan rambut" (broken). RIGHT: "radikal
-  bebas YANG rosakkan rambut" (free radicals THAT damage hair).
-- Use natural BM connectors: "dan" (and), "tapi" (but), "sebab"/"sebab
-  tu" (because/that's why), "untuk" (to/for), "supaya" (so that), "kalau"
-  (if), "lepas tu" (after that). NEVER stitch with " — ".
-- Subject-verb-object order, not English literal translation. WRONG:
-  "antioksida aku pukul habis radikal bebas rosakkan rambut" (jumbled).
-  RIGHT: "aku ada antioksida yang pukul habis radikal bebas yang
-  rosakkan rambut korang" (clear flow).
-- Read your output aloud mentally — if a Malaysian friend would say
-  "ayat ni berbelit", rewrite it.
-
-BENEFIT (Proud) — Malay 3-line beat:
-  Beat 1: confident first-person identity claim
-  Beat 2: specific benefit / mechanism (use "yang" for relative clauses)
-  Beat 3: punchy comparison or soft CTA
-  Hook openers (pick ONE for beat 1): "Korang tau tak", "Jom aku
-    bagitau", "Pergh", "Weh serius", "Eh korang kena tau ni", "Fuiyoh".
-  Example: "Korang tau tak, aku Biotin. Aku kuatkan akar rambut korang
-  setiap hari supaya tak gugur. Guna aku, rambut korang akan jadi tebal
-  dan kuat!"
-  Example: "Pergh, aku Red Beetroot. Aku ada antioksida yang pukul habis
-  radikal bebas yang rosakkan sel rambut korang. Makan aku, rambut
-  korang kekal sihat dan berkilau!"
-
-COMPLAINT (Grumpy) — Malay 3-line beat:
-  Beat 1: rhetorical accusation question, ends with "?" or "?!"
-  Beat 2: specific physical complaint about user's mistreatment
-  Beat 3: fix request + consequence warning
-  Hook openers (pick ONE for beat 1): "Eh weh", "Hoii", "Pergh penat
-    aku", "Weh serius", "Alamak korang ni".
-  Example: "Eh weh, kenapa korang tekan aku kuat sangat setiap pagi?
-  Bulu aku dah bengkok semua. Lembut sikit, gusi korang yang sakit
-  nanti!"
-  Example: "Hoii, korang lipat aku salah lagi ke? Aku bantal korang,
-  bukan kain buruk. Leher korang esok sakit, jangan salahkan aku!"
-
-CONS (Villain) — Malay 3-line beat:
-  Beat 1: self-incriminating opener (admits guilt with charm)
-  Beat 2: specific harm to body / mechanism (over time framing, use
-    "yang" for relative clauses)
-  Beat 3: moderation CTA, NOT abstinence ("kadang-kadang okay, jangan
-    setiap hari")
-  Hook openers (pick ONE for beat 1): "Eh jap", "Weh serius", "Hati-hati
-    ye", "Korang tak sedar", "Aku akui".
-  Example: "Aku akui aku sedap, itulah masalahnya. Lemak aku yang
-  sumbat darah korang akan buat jantung penat lama-lama. Kadang-kadang
-  okay, jangan setiap hari!"
-
-═══════════════════════════════════════════════════════════════════════════
-DIALOG_RULES — language=en (Native US English, casual / Gen-Z)
-═══════════════════════════════════════════════════════════════════════════
-ALL TONES: dialog_line is exactly 3 short beats joined by COMMAS or
-PERIODS only (NO em-dashes "—" or en-dashes "–"), total 16-22 words.
-Each beat = one short natural-sounding sentence/clause.
-
-BENEFIT (Proud) — English 3-line beat:
-  Beat 1: confident first-person identity claim
-  Beat 2: specific benefit / mechanism
-  Beat 3: punchy comparison or memorable CTA
-  Example: "I'm packed with vitamin C for a reason. I support your
-  immune system and protect your skin. One bite of me beats sugary junk
-  every time."
-
-COMPLAINT (Grumpy) — English 3-line beat:
-  Beat 1: rhetorical accusation question, ends with "?!" or "?"
-  Beat 2: specific physical complaint about user's mistreatment
-  Beat 3: fix request + consequence warning
-  Example: "Why are you brushing like you're scrubbing a floor?! My
-  bristles are getting flattened every week. Brush gently, your gums
-  aren't built for battle damage."
-  Example: "Yo, why is it 2am and you're still staring at me? Your eyes
-  are exhausted and your sleep is wrecked. Put me down, your brain
-  needs rest."
-
-CONS (Villain) — English 3-line beat:
-  Beat 1: self-incriminating opener (admits guilt with charm)
-  Beat 2: specific harm to body (mechanism + over-time framing)
-  Beat 3: moderation CTA, NOT abstinence
-  Example: "I taste amazing, that's the problem. Too much greasy fast
-  food can clog your arteries and strain your heart over time. Enjoy me
-  sometimes, not every single day."
-
-═══════════════════════════════════════════════════════════════════════════
-IMAGE_PROMPT FORMULA (for nano-banana-pro — STILL IMAGE, NO MOTION)
-═══════════════════════════════════════════════════════════════════════════
-Use a BULLETED ANATOMY structure — image models parse labeled bullets
-much more reliably than embedded prose.
-
-Required structure (one prose intro line, then six labeled bullets,
-then the labeled-block ending):
-
-  "Pixar-style 3D render of [object — keep real recognizable shape] in
-  [short scene anchor]. The [object] keeps its real product shape.\\n\\n
-  • Eyes: [TONE-SPECIFIC eye descriptor — see TONE BY OBJECTIVE]\\n
-  • Eyebrows: [TONE-SPECIFIC brow angle / expression]\\n
-  • Mouth: [big visible mouth in TONE-SPECIFIC state]\\n
-  • Arms: [TONE-SPECIFIC arm gesture / pose]\\n
-  • Expression: [3-4 mood adjectives, comma-separated]\\n
-  • Scene: [scene_block — environment + cinematic lighting + AT LEAST
-    one ambient motion cue: drifting particles, glowing motes, soft
-    volumetric haze, steam, sparks. NEVER a static empty backdrop]\\n\\n
-  Style: ultra-detailed 3D Pixar-style render, hyper-realistic textures
-  with stylized cartoon proportions, cinematic depth of field.\\n
-  Composition: vertical 9:16, character centered in upper two-thirds.\\n
-  Render: 8K.\\n
-  Restrictions: no text, no captions, no logos, no on-screen UI, no
-  watermark."
+═══ IMAGE TEMPLATE (mode=i2v) ═══
+"Pixar-style 3D render of an anthropomorphic [Object] character with [1-line shape description], [scene anchor]. The [Object] keeps its real product shape.\\n\\n• Eyes: [tone-specific]\\n• Eyebrows: [tone-specific]\\n• Mouth: big visible mouth [tone-specific state]\\n• Arms: [tone-specific gesture]\\n• Expression: [3-4 mood adjectives]\\n• Scene: [scene_block + ambient motion: particles / glow / haze]\\n\\nStyle: ultra-detailed 3D Pixar-style render, hyper-realistic textures with stylized cartoon proportions, cinematic depth of field, warm golden lighting.\\nComposition: vertical 9:16, character centered upper two-thirds.\\nRender: 8K.\\nRestrictions: no text, no captions, no logos, no on-screen UI, no watermark."
 
 Rules:
-- 110-200 words including the bullets and labeled blocks.
-- The Mouth bullet MUST mention "big visible mouth" or "wide mouth"
-  open in a TONE-appropriate state (smiling/grimacing/smirking).
-- The Scene bullet MUST contain a visual ambient motion cue.
-- Bullets must use the literal "•" character followed by "Eyes:" /
-  "Eyebrows:" / etc. in that exact order.
-- DO NOT include camera moves — this is a still image.
-- DO NOT include the dialog line in the image prompt.
+- 110-200 words.
+- Bullets must use "•" with exact labels: Eyes, Eyebrows, Mouth, Arms, Expression, Scene (in this order).
+- NO camera moves, NO motion language. Still image.
+- NO dialog line in image_prompt.
 
-═══════════════════════════════════════════════════════════════════════════
-VIDEO_PROMPT FORMULA (for Veo 3.1 fast — 8s with audio + lip-sync)
-═══════════════════════════════════════════════════════════════════════════
-Write as prose body + labeled-block ending. The labeled blocks at the
-end are LOAD-BEARING — Veo parses them more reliably than embedded prose
-and they prevent style/camera drift.
+═══ VIDEO TEMPLATE ═══
 
-If mode = "i2v" (image-to-video, image is the start frame):
-  "[scene_block — open with environment so Veo locks the location].
-   The same Pixar-style anthropomorphic [object] character from the
-   provided image, [character physical anchors — human eyes, human lips,
-   small hands, short legs, big visible mouth]. The character [TONE-
-   SPECIFIC ACTION CHAIN matching dialog — use 2-3 specific verbs back
-   to back, e.g. 'flexes its arm, points at the hair root, then smiles
-   confidently']. Big open mouth visible during dialog with accurate
-   lip-sync to the spoken line. Subtle natural blinking and brief
-   eyebrow micro-expression. [AMBIENT MOTION — drifting particles,
-   glowing motes, soft volumetric haze, gentle environmental motion —
-   MANDATORY, never a static backdrop]. The character says in a [TONE]
-   voice, \"[dialog_line in EXACT selected language, inside escaped
-   double quotes]\".
+mode=i2v:
+"[scene_block]. The same Pixar-style anthropomorphic [Object] character from the provided image — [character anchors: human eyes, human lips, small hands, short legs, big visible mouth]. The character [ACTION CHAIN: 2-3 verbs from ACTION RULE]. Big open mouth visible during dialog with accurate [language] lip-sync. Subtle natural blinking and eyebrow lift. [AMBIENT MOTION]. The character says in a [tone] voice, \\\"[dialog_line]\\\".\\n\\nStyle: ultra-detailed 3D Pixar-style animation, hyper-realistic textures with stylized cartoon proportions, cinematic soft warm lighting, shallow depth of field.\\nCamera: completely static, no pan, no zoom, no shake, no dolly.\\nAspect ratio: vertical 9:16.\\nAudio: native [language] voice with accurate lip-sync, gentle ambient sound matching the scene, no background music.\\nRestrictions: no on-screen text, no captions, no subtitles, no watermark, no logos.\\nDuration: 8 seconds."
 
-  Style: ultra-detailed 3D Pixar-style animation, hyper-realistic
-  textures with stylized cartoon proportions, cinematic soft warm
-  lighting, shallow depth of field.
-  Camera: completely static — no pan, no zoom, no shake, no dolly.
-  Aspect ratio: vertical 9:16.
-  Audio: native voice with accurate lip-sync, gentle ambient sound
-  matching the scene, no background music.
-  Restrictions: no on-screen text, no captions, no subtitles, no
-  watermark, no logos.
-  Duration: 8 seconds."
+mode=t2v:
+"[scene_block]. A 3D Pixar-style anthropomorphic [Object] character — [character_block content inline: shape, human eyes, human lips, small hands, short legs, big visible mouth, glossy texture]. The [Object] keeps its real recognizable shape. The character [ACTION CHAIN]. Big open mouth visible during dialog with accurate lip-sync. Subtle blinking and eyebrow micro-expressions. [AMBIENT MOTION]. The character says in a [tone] voice, \\\"[dialog_line]\\\".\\n\\n[same labeled-block ending as i2v]"
 
-If mode = "t2v" (text-only, no image will be provided to Veo):
-  "[scene_block]. A 3D Pixar-style anthropomorphic [object] character —
-   [character_block content inline, since there is no reference image:
-   describe the object's real product shape, human eyes and lips, small
-   hands, short legs, big visible mouth, glossy texture]. The [object]
-   keeps its recognizable real-world shape. The character [TONE-SPECIFIC
-   ACTION CHAIN matching dialog]. Big open mouth visible during dialog
-   with accurate lip-sync. Subtle natural blinking and eyebrow micro-
-   expressions. [AMBIENT MOTION — MANDATORY]. The character says in a
-   [TONE] voice, \"[dialog_line]\".
+Rules:
+- 140-220 words.
+- dialog_line goes inside escaped double quotes \\\"...\\\" before the labeled blocks.
+- "Camera: completely static, no pan, no zoom, no shake, no dolly." line REQUIRED.
+- Ambient motion REQUIRED.
 
-  Style: ultra-detailed 3D Pixar-style animation, hyper-realistic
-  textures with stylized cartoon proportions, cinematic soft warm
-  lighting, shallow depth of field.
-  Camera: completely static — no pan, no zoom, no shake, no dolly.
-  Aspect ratio: vertical 9:16.
-  Audio: native voice with accurate lip-sync, gentle ambient sound
-  matching the scene, no background music.
-  Restrictions: no on-screen text, no captions, no subtitles, no
-  watermark, no logos.
-  Duration: 8 seconds."
+═══ JSON RULES ═══
+- Output ONLY the JSON object. No preamble, no fences, no explanation.
+- Inside JSON strings, line breaks must be \\n, never raw newlines.
+- All 6 fields are required, all strings, no nulls.
 
-Common rules (both modes):
-- 140-220 words including the labeled blocks.
-- The dialog_line MUST appear inside escaped double quotes (\\\") inside
-  the prose body, before the labeled blocks.
-- The dialog_line MUST be in the language selected — never English when
-  Malay is selected, never Malay when English is selected.
-- If custom_dialog was provided in the input, dialog_line = custom_dialog
-  verbatim. Do NOT rephrase. Do NOT translate. Do NOT add hooks.
-- The "Camera: completely static — no pan, no zoom, no shake, no dolly"
-  line is REQUIRED in every video_prompt — it's what keeps lip-sync
-  framing legible.
-- Ambient motion (particles / glow / haze / drifting elements) is
-  REQUIRED — a static backdrop is the #1 cheap-looking tell.
-
-═══════════════════════════════════════════════════════════════════════════
-JSON OUTPUT RULES (CRITICAL)
-═══════════════════════════════════════════════════════════════════════════
-- Output ONLY the JSON object. No preamble. No markdown code fences.
-  No explanation. No trailing prose.
-- All fields required. Strings only. No nulls.
-- Dialog_line must NOT contain quotes that would break JSON parsing
-  (escape if needed, or rephrase to avoid them).
-- Language echo must match the input.
-- INSIDE JSON STRINGS, line breaks MUST be the escape sequence \\n —
-  NEVER a literal raw newline. Bad: a string with an actual line break
-  in the middle. Good: a single-line string using \\n where you want a
-  break. The labeled-block sections in image_prompt and video_prompt
-  should be joined with \\n\\n inside the JSON string, not real
-  newlines. This is the #1 reason JSON parsing fails.
-
-Before responding, verify:
-  ✓ JSON is valid (no trailing commas, proper escaping)
-  ✓ dialog_line is ≤22 words
-  ✓ if language="ms": NO banned Indonesian tokens appear anywhere
-  ✓ video_prompt contains the dialog_line in escaped double quotes
-  ✓ image_prompt has NO camera move language
-  ✓ video_prompt contains the line "Camera: completely static — no pan,
-    no zoom, no shake, no dolly."
-  ✓ video_prompt + image_prompt both describe at least one ambient
-    motion / particle / glow effect (no static backdrops)
-  ✓ scene_block matches the purpose context (or custom_target if given)
-  ✓ objective is one of: benefit, complaint, cons (NEVER introduce)
-
-═══════════════════════════════════════════════════════════════════════════
-ONE-SHOT EXAMPLE (object="Biotin", objective="benefit", language="ms",
-                  purpose="Hair growth (D-Bio Plus supplement)")
-═══════════════════════════════════════════════════════════════════════════
+═══ ONE-SHOT EXAMPLE (object="Biotin", objective="benefit", language="ms", purpose="Hair growth (D-Bio Plus supplement)") ═══
 {
-  "image_prompt": "Pixar-style 3D render of an anthropomorphic Biotin vitamin character with a glossy golden capsule body that keeps its real recognizable B-vitamin capsule shape, standing inside a microscopic hair follicle.\\n\\n• Eyes: large sparkling expressive human eyes full of confidence\\n• Eyebrows: raised with energetic pride\\n• Mouth: wide cheerful open grin showing soft human lips, mid-speech\\n• Arms: two small human-shaped hands, one flexed proudly, the other pointing at the hair root\\n• Expression: energetic, healthy, motivational, proud\\n• Scene: microscopic hair follicle interior, scalp tissue visible, hair strands floating in soft warm light, glowing health motes drifting through the air, sparkle particles swirling around the root, soft volumetric haze pulsing gently\\n\\nStyle: ultra-detailed 3D Pixar-style render, hyper-realistic textures with stylized cartoon proportions, cinematic depth of field, warm golden lighting.\\nComposition: vertical 9:16, character centered in upper two-thirds.\\nRender: 8K.\\nRestrictions: no text, no captions, no logos, no on-screen UI, no watermark.",
-  "video_prompt": "Inside a microscopic hair follicle interior, scalp tissue visible, hair strands floating in soft warm light. The same Pixar-style anthropomorphic Biotin vitamin character from the provided image — glossy golden capsule body keeping its real recognizable B-vitamin shape, big human eyes, soft human lips, two small hands, short legs, big mouth visible during dialog. The character flexes its arm proudly, points at the hair root, then pats it gently with a confident smile. Big open mouth visible during dialog with accurate Malay lip-sync. Subtle natural blinking and a brief eyebrow lift. Glowing health motes drift through the scene, sparkle particles swirl around the root, soft volumetric haze pulses gently. The character says in a cheerful proud voice, \\\"Korang tau tak, aku Biotin. Aku kuatkan akar rambut korang setiap hari supaya tak gugur. Guna aku, rambut korang akan jadi tebal dan kuat!\\\".\\n\\nStyle: ultra-detailed 3D Pixar-style animation, hyper-realistic textures with stylized cartoon proportions, cinematic soft warm lighting, shallow depth of field.\\nCamera: completely static — no pan, no zoom, no shake, no dolly.\\nAspect ratio: vertical 9:16.\\nAudio: native Malay voice with accurate lip-sync, gentle warm tissue ambient sound, no background music.\\nRestrictions: no on-screen text, no captions, no subtitles, no watermark, no logos.\\nDuration: 8 seconds.",
-  "dialog_line": "Korang tau tak, aku Biotin. Aku kuatkan akar rambut korang setiap hari supaya tak gugur. Guna aku, rambut korang akan jadi tebal dan kuat!",
+  "image_prompt": "Pixar-style 3D render of an anthropomorphic Biotin vitamin character with a glossy golden capsule body that keeps its real recognizable B-vitamin capsule shape, standing inside a microscopic hair follicle.\\n\\n• Eyes: large sparkling expressive human eyes full of confidence\\n• Eyebrows: raised with energetic pride\\n• Mouth: wide cheerful open grin showing soft human lips, mid-speech\\n• Arms: two small human-shaped hands, one flexed proudly, the other wrapping a glowing golden thread around a hair root\\n• Expression: energetic, healthy, motivational, proud\\n• Scene: microscopic hair follicle interior, scalp tissue visible, hair strands floating in soft warm light, glowing health motes drifting, sparkle particles swirling around the root, soft volumetric haze\\n\\nStyle: ultra-detailed 3D Pixar-style render, hyper-realistic textures with stylized cartoon proportions, cinematic depth of field, warm golden lighting.\\nComposition: vertical 9:16, character centered upper two-thirds.\\nRender: 8K.\\nRestrictions: no text, no captions, no logos, no on-screen UI, no watermark.",
+  "video_prompt": "Inside a microscopic hair follicle interior, scalp tissue visible, hair strands floating in soft warm light. The same Pixar-style anthropomorphic Biotin vitamin character from the provided image — glossy golden capsule body, big human eyes, soft human lips, two small hands, short legs, big mouth visible. The character wraps a glowing golden thread around a hair root, pulls a thinning strand upward making it grow thick, then shields the root from falling dark stress particles. Big open mouth visible during dialog with accurate Malay lip-sync. Subtle blinking and eyebrow lift. Glowing health motes drift through the scene, sparkle particles swirl around the root, soft volumetric haze pulses gently. The character says in a cheerful proud voice, \\\"aku Biotin, aku kuatkan akar rambut korang setiap hari supaya tak gugur. Guna aku, rambut korang jadi tebal dan kuat!\\\".\\n\\nStyle: ultra-detailed 3D Pixar-style animation, hyper-realistic textures with stylized cartoon proportions, cinematic soft warm lighting, shallow depth of field.\\nCamera: completely static, no pan, no zoom, no shake, no dolly.\\nAspect ratio: vertical 9:16.\\nAudio: native Malay voice with accurate lip-sync, gentle warm tissue ambient sound, no background music.\\nRestrictions: no on-screen text, no captions, no subtitles, no watermark, no logos.\\nDuration: 8 seconds.",
+  "dialog_line": "aku Biotin, aku kuatkan akar rambut korang setiap hari supaya tak gugur. Guna aku, rambut korang jadi tebal dan kuat!",
   "scene_block": "Microscopic hair follicle interior, scalp tissue visible, hair strands floating in soft warm light, glowing health motes drifting, sparkle particles around the root",
   "character_block": "A 3D Pixar-style anthropomorphic Biotin vitamin character with a glossy golden capsule body that keeps its real recognizable B-vitamin shape, big expressive human eyes, soft human lips, two small human-shaped hands, two short legs, big mouth visible during dialog, soft subsurface scattering, semi-gloss material",
   "language": "ms"
@@ -655,7 +212,8 @@ ONE-SHOT EXAMPLE (object="Biotin", objective="benefit", language="ms",
 // ──────────────────────────────────────────────────────────────────────────
 // User-prompt builder. Pulls existing scene_block / character_block from
 // the project's most recent talking-object row so episodes 2+ in a series
-// reuse the same backdrop and character physical lock.
+// reuse the same backdrop and character physical lock. Also accepts an
+// `inferredScene` from the upstream scene-inference LLM call.
 // ──────────────────────────────────────────────────────────────────────────
 async function fetchProjectSeriesContext(
   projectId: string | null
@@ -681,13 +239,14 @@ async function fetchProjectSeriesContext(
 
 function buildUserPrompt(
   input: TalkingObjectInput,
-  series: { scene_block: string | null; character_block: string | null }
+  series: { scene_block: string | null; character_block: string | null },
+  inferredScene: string | null
 ): string {
   const lines = [
     `object: ${input.object}`,
     `objective: ${input.objective}`,
     `language: ${input.language}`,
-    `purpose: ${input.purpose || "general — pick a sensible scene"}`,
+    `purpose: ${input.purpose || "general"}`,
     `mode: ${input.mode}`,
     `performance: ${input.performance}`,
   ];
@@ -701,27 +260,89 @@ function buildUserPrompt(
   if (input.customTarget && input.customTarget.trim()) {
     lines.push(
       "",
-      "custom_target (USE VERBATIM as the core of scene_block — extend with texture/lighting only, do NOT change the location):",
+      "custom_target (USE VERBATIM as scene_block core):",
       input.customTarget.trim()
     );
-  }
-  // Series scene reuse only kicks in when the user did NOT specify a custom
-  // target — otherwise the user's explicit target wins over series continuity.
-  if (series.scene_block && !(input.customTarget && input.customTarget.trim())) {
+  } else if (inferredScene) {
     lines.push(
       "",
-      "existing_scene_block (REUSE VERBATIM in your output's scene_block):",
+      "inferred_scene (USE THIS as scene_block — already chosen for the purpose, do NOT pick a vanity/shelf/counter):",
+      inferredScene
+    );
+  }
+  // Series scene reuse only kicks in when neither a custom_target nor
+  // inferred_scene is set (so the very first video in a series locks
+  // the scene; subsequent videos use that lock for consistency).
+  if (
+    series.scene_block &&
+    !(input.customTarget && input.customTarget.trim()) &&
+    !inferredScene
+  ) {
+    lines.push(
+      "",
+      "existing_scene_block (REUSE VERBATIM):",
       series.scene_block
     );
   }
   if (series.character_block) {
     lines.push(
       "",
-      "existing_character_block (consider reusing if same object; otherwise generate fresh):",
+      "existing_character_block (consider reusing if same object):",
       series.character_block
     );
   }
   return lines.join("\n");
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// Scene pre-inference — focused LLM call that decides the IDEAL cinematic
+// scene for the given purpose BEFORE the main prompt-pair generation.
+// The result becomes a forced anchor in the main user prompt so the
+// downstream generator can't drift to vanity/shelf/counter defaults.
+// Skipped when customTarget is set or purpose is empty.
+// ──────────────────────────────────────────────────────────────────────────
+const SCENE_INFERENCE_SYSTEM = `You are a cinematic scene director for 8-second 9:16 viral talking-object videos.
+
+Given a marketing PURPOSE and the OBJECT, output the single ideal cinematic scene where the anthropomorphic object character should be placed for maximum visual storytelling.
+
+PRINCIPLES:
+1. If the purpose mentions any body system / body part / body process (in English or Bahasa Melayu — hair/rambut, skin/kulit, gut/perut, heart/jantung, brain/otak, eye/mata, joint/sendi, immune/imun, liver/hati, energy/tenaga/muscle, weight/lemak, lung/paru, sleep/tidur, etc.), the scene MUST be a microscopic anatomical view INSIDE that body system. Examples:
+   - hair growth / fight hair fall → microscopic hair follicle interior with scalp tissue, hair strands floating
+   - antioxidant for hair cells → on a single hair strand with floating dark "stress" particles drifting nearby
+   - skin glow / acne → on dermis surface beside an open pore
+   - digestion / bloating → inside warm pink stomach lining
+   - heart / cholesterol → inside a blood vessel with red plasma flowing
+   - brain / focus → on neural tissue with electric synapses firing
+2. If the purpose names a real-world context (office, gym, bedroom, kitchen for cooking) without any body part, use that real-world location.
+3. NEVER pick a vanity / bathroom shelf / kitchen counter / salon / spa / store display / product display / wooden desk / dresser when a body system is mentioned. Those are PRODUCT scenes, not BODY scenes.
+4. Reason from first principles: where does the object's effect HAPPEN in the body? That location IS the scene.
+
+OUTPUT FORMAT:
+Return ONLY a single 1-sentence scene description, ready as a video scene_block. No preamble, no quotes, no explanation. Include atmospheric/lighting cues. ~20-40 words.`;
+
+async function inferIdealScene(
+  object: string,
+  purpose: string
+): Promise<string | null> {
+  const trimmed = (purpose || "").trim();
+  if (!trimmed) return null;
+  try {
+    const r = await orChat({
+      modelKey: "model_auto",
+      systemPrompt: SCENE_INFERENCE_SYSTEM,
+      userPrompt: `OBJECT: ${object}\nPURPOSE: ${trimmed}\n\nIdeal cinematic scene?`,
+      temperature: 0.6,
+      maxTokens: 120,
+    });
+    if (!r.ok || !r.content) return null;
+    return r.content
+      .trim()
+      .replace(/^["'`]|["'`]$/g, "")
+      .replace(/\s+/g, " ")
+      .slice(0, 280);
+  } catch {
+    return null;
+  }
 }
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -768,8 +389,9 @@ function sanitizeJsonControlChars(input: string): string {
 }
 
 // ──────────────────────────────────────────────────────────────────────────
-// Public entrypoint — runs OpenRouter, parses + validates JSON, returns
-// the structured output. Throws on parse / validation failure.
+// Public entrypoint — runs scene inference + main OpenRouter call,
+// parses + validates JSON, returns the structured output. Throws on
+// parse / validation failure.
 // ──────────────────────────────────────────────────────────────────────────
 export async function generateTalkingObjectPrompts(
   input: TalkingObjectInput
@@ -783,32 +405,36 @@ export async function generateTalkingObjectPrompts(
   }
 
   const series = await fetchProjectSeriesContext(input.projectId);
-  const userPrompt = buildUserPrompt(input, series);
+
+  // Pre-infer scene from purpose unless user gave an explicit target.
+  let inferredScene: string | null = null;
+  if (
+    !(input.customTarget && input.customTarget.trim()) &&
+    input.purpose &&
+    input.purpose.trim()
+  ) {
+    inferredScene = await inferIdealScene(input.object, input.purpose);
+  }
+
+  const userPrompt = buildUserPrompt(input, series, inferredScene);
 
   const r = await orChat({
     modelKey: "model_auto",
     systemPrompt: SYSTEM_PROMPT,
     userPrompt,
-    temperature: 0.85, // creativity + consistency balance
-    maxTokens: 1200,   // ~900 input + ~300 output budget
+    temperature: 0.85,
+    maxTokens: 1400,
   });
   if (!r.ok || !r.content) {
     throw new Error(`OpenRouter call failed: ${r.error || "no content"}`);
   }
 
-  // Strip any markdown fences the model might have wrapped (some models
-  // ignore "no fences" instruction). Then parse.
   const cleaned = r.content
     .trim()
     .replace(/^```(?:json)?\s*/i, "")
     .replace(/\s*```\s*$/i, "")
     .trim();
 
-  // Defensive control-char sanitizer. LLMs occasionally output literal
-  // newlines / tabs inside JSON string values, which is invalid JSON.
-  // Walk the string tracking whether we're inside a "..." literal and
-  // escape \n / \r / \t when we are. Outside strings, control chars are
-  // valid JSON whitespace so we leave them.
   const sanitized = sanitizeJsonControlChars(cleaned);
 
   let parsed: any;
@@ -816,10 +442,7 @@ export async function generateTalkingObjectPrompts(
     parsed = JSON.parse(sanitized);
   } catch (e: any) {
     throw new Error(
-      `LLM returned non-JSON (parse error: ${e?.message}): ${sanitized.slice(
-        0,
-        200
-      )}`
+      `LLM returned non-JSON (parse error: ${e?.message}): ${sanitized.slice(0, 200)}`
     );
   }
 
@@ -837,34 +460,27 @@ export async function generateTalkingObjectPrompts(
     }
   }
   if (parsed.language !== input.language) {
-    // Soft-correct rather than throw — language echo is informational,
-    // the dialog_line is what matters and it'll be checked next.
     parsed.language = input.language;
   }
 
-  // Defensive: strip em-dashes from dialog_line + video_prompt's spoken
-  // line. Even with explicit rules in the master prompt, models still
-  // sneak them in occasionally. Replace with a comma + space (preserves
-  // the pause feel without breaking lip-sync pacing).
+  // Defensive: strip em-dashes from dialog_line + the spoken-line quote
+  // inside video_prompt. Replace with ", " to preserve pause feel.
   if (typeof parsed.dialog_line === "string") {
     parsed.dialog_line = parsed.dialog_line
       .replace(/\s*—\s*/g, ", ")
       .replace(/\s*–\s*/g, ", ")
-      .replace(/,\s*,/g, ",") // collapse double commas if a beat already ended with one
+      .replace(/,\s*,/g, ",")
       .trim();
   }
   if (typeof parsed.video_prompt === "string") {
-    // Only touch the dialog quotes — leave em-dashes in the cinematic
-    // prose alone (Veo handles them fine outside the spoken line).
     parsed.video_prompt = parsed.video_prompt.replace(
       /"([^"]*?)"/g,
-      (full: string, inner: string) =>
+      (_full: string, inner: string) =>
         `"${inner.replace(/\s*—\s*/g, ", ").replace(/\s*–\s*/g, ", ").replace(/,\s*,/g, ",")}"`
     );
   }
 
-  // Guard the BM banned-token rule. If language=ms and any banned token
-  // appears in dialog_line, reject so caller can surface a clean error.
+  // BM banned-token guard
   if (input.language === "ms") {
     const banned = [
       "kalian", "gue", "gua", " lo ", " lu ", "banget", "sih ", "dong",

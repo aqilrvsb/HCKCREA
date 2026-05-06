@@ -75,8 +75,16 @@ function modelLabel(item: HistoryItem): string {
     if (m.includes("z-image")) return "Z-Image" + providerSuffix;
     return ("Scene Image" + providerSuffix).trim();
   }
-  if (m.includes("nano-banana") || m === "nano-banana-pro") return "Banana Pro";
-  if (m.includes("gpt-image") || m === "gpt-image-2") return "GPT Image 2";
+  // Banana variants — disambiguate so the badge reflects the actual model
+  // selected in admin (P2's nano-banana-v2 vs P3's nano-banana-2 are
+  // genuinely different upstream models). Add provider suffix for clarity.
+  if (m === "nano-banana-fast") return "Banana Fast" + providerSuffix;
+  if (m === "nano-banana-2") return "Banana 2" + providerSuffix;
+  if (m === "nano-banana-v2" || m === "google/nano-banana-v2") return "Banana v2" + providerSuffix;
+  if (m === "nano-banana-pro" || m === "google/nano-banana-pro") return "Banana Pro" + providerSuffix;
+  if (m.includes("nano-banana")) return "Banana Pro" + providerSuffix; // fallback for unknown variants
+  if (m.includes("gpt-image") || m === "gpt-image-2") return "GPT Image 2" + providerSuffix;
+  if (m === "z-image" || m.includes("z-image")) return "Z-Image" + providerSuffix;
   if (m.includes("grok-imagine") || m.includes("grok-3"))
     return "Grok Imagine" + providerSuffix;
   if (m.includes("seedance")) return "Seedance" + providerSuffix;
