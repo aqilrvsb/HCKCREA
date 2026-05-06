@@ -328,6 +328,12 @@ JSON OUTPUT RULES (CRITICAL)
 - Dialog_line must NOT contain quotes that would break JSON parsing
   (escape if needed, or rephrase to avoid them).
 - Language echo must match the input.
+- INSIDE JSON STRINGS, line breaks MUST be the escape sequence \\n —
+  NEVER a literal raw newline. Bad: a string with an actual line break
+  in the middle. Good: a single-line string using \\n where you want a
+  break. The labeled-block sections in image_prompt and video_prompt
+  should be joined with \\n\\n inside the JSON string, not real
+  newlines. This is the #1 reason JSON parsing fails.
 
 Before responding, verify:
   ✓ JSON is valid (no trailing commas, proper escaping)
@@ -347,8 +353,8 @@ ONE-SHOT EXAMPLE (object="Biotin", objective="benefit", language="ms",
                   purpose="Hair growth (D-Bio Plus supplement)")
 ═══════════════════════════════════════════════════════════════════════════
 {
-  "image_prompt": "A 3D Pixar-style anthropomorphic Biotin vitamin character with a glossy golden capsule body that keeps its real recognizable B-vitamin capsule shape, big expressive human eyes, soft human lips, two small human-shaped hands holding a tiny golden tool, two short legs, big mouth slightly open in a proud confident smile. Hero pose with chest out, one arm flexed, eyebrows lifted with pride. Inside a microscopic hair follicle interior, scalp tissue visible, hair strands floating, glowing health motes drifting through the air, soft volumetric haze. Warm golden cinematic lighting, sparkle particles swirling around the root.\n\nStyle: ultra-detailed 3D Pixar-style render, hyper-realistic textures with stylized cartoon proportions, cinematic depth of field.\nComposition: vertical 9:16, character centered in upper two-thirds.\nRender: 8K.\nRestrictions: no text, no captions, no logos, no on-screen UI, no watermark.",
-  "video_prompt": "Inside a microscopic hair follicle interior with scalp tissue visible and hair strands floating in soft warm light. The same Pixar-style anthropomorphic Biotin vitamin character from the provided image — glossy golden capsule body keeping its real recognizable B-vitamin shape, big human eyes, soft human lips, small hands holding a tiny golden tool, big mouth visible. The character flexes its arm proudly, points at the hair root, then pats it gently with a confident smile. Big open mouth visible during dialog with accurate Malay lip-sync. Subtle natural blinking and a brief eyebrow lift. Glowing health motes drift through the scene, sparkle particles swirl around the root, soft volumetric haze pulses gently. The character says in a cheerful proud voice, \\\"Korang tau tak, aku Biotin, aku kuatkan akar rambut korang sampai tak gugur lagi — guna aku setiap hari!\\\".\n\nStyle: ultra-detailed 3D Pixar-style animation, hyper-realistic textures with stylized cartoon proportions, cinematic soft warm lighting, shallow depth of field.\nCamera: completely static — no pan, no zoom, no shake, no dolly.\nAspect ratio: vertical 9:16.\nAudio: native Malay voice with accurate lip-sync, gentle warm tissue ambient sound, no background music.\nRestrictions: no on-screen text, no captions, no subtitles, no watermark, no logos.\nDuration: 8 seconds.",
+  "image_prompt": "A 3D Pixar-style anthropomorphic Biotin vitamin character with a glossy golden capsule body that keeps its real recognizable B-vitamin capsule shape, big expressive human eyes, soft human lips, two small human-shaped hands holding a tiny golden tool, two short legs, big mouth slightly open in a proud confident smile. Hero pose with chest out, one arm flexed, eyebrows lifted with pride. Inside a microscopic hair follicle interior, scalp tissue visible, hair strands floating, glowing health motes drifting through the air, soft volumetric haze. Warm golden cinematic lighting, sparkle particles swirling around the root.\\n\\nStyle: ultra-detailed 3D Pixar-style render, hyper-realistic textures with stylized cartoon proportions, cinematic depth of field.\\nComposition: vertical 9:16, character centered in upper two-thirds.\\nRender: 8K.\\nRestrictions: no text, no captions, no logos, no on-screen UI, no watermark.",
+  "video_prompt": "Inside a microscopic hair follicle interior with scalp tissue visible and hair strands floating in soft warm light. The same Pixar-style anthropomorphic Biotin vitamin character from the provided image — glossy golden capsule body keeping its real recognizable B-vitamin shape, big human eyes, soft human lips, small hands holding a tiny golden tool, big mouth visible. The character flexes its arm proudly, points at the hair root, then pats it gently with a confident smile. Big open mouth visible during dialog with accurate Malay lip-sync. Subtle natural blinking and a brief eyebrow lift. Glowing health motes drift through the scene, sparkle particles swirl around the root, soft volumetric haze pulses gently. The character says in a cheerful proud voice, \\\"Korang tau tak, aku Biotin, aku kuatkan akar rambut korang sampai tak gugur lagi — guna aku setiap hari!\\\".\\n\\nStyle: ultra-detailed 3D Pixar-style animation, hyper-realistic textures with stylized cartoon proportions, cinematic soft warm lighting, shallow depth of field.\\nCamera: completely static — no pan, no zoom, no shake, no dolly.\\nAspect ratio: vertical 9:16.\\nAudio: native Malay voice with accurate lip-sync, gentle warm tissue ambient sound, no background music.\\nRestrictions: no on-screen text, no captions, no subtitles, no watermark, no logos.\\nDuration: 8 seconds.",
   "dialog_line": "Korang tau tak, aku Biotin, aku kuatkan akar rambut korang sampai tak gugur lagi — guna aku setiap hari!",
   "scene_block": "Microscopic hair follicle interior, scalp tissue visible, hair strands floating in soft warm light, glowing health motes drifting, sparkle particles around the root",
   "character_block": "A 3D Pixar-style anthropomorphic Biotin vitamin character with a glossy golden capsule body that keeps its real recognizable B-vitamin shape, big expressive human eyes, soft human lips, two small human-shaped hands, two short legs, big mouth visible during dialog, soft subsurface scattering, semi-gloss material",
@@ -427,6 +433,49 @@ function buildUserPrompt(
 }
 
 // ──────────────────────────────────────────────────────────────────────────
+// Defensive: walks a JSON-ish string and escapes raw control chars (LF /
+// CR / TAB) that appear INSIDE "..." string literals. Outside string
+// literals control chars are valid JSON whitespace, so they're left
+// alone. Handles backslash-escaping correctly so \" inside strings
+// doesn't fool the parser.
+// ──────────────────────────────────────────────────────────────────────────
+function sanitizeJsonControlChars(input: string): string {
+  let out = "";
+  let inString = false;
+  let escapeNext = false;
+  for (let i = 0; i < input.length; i++) {
+    const c = input[i];
+    if (inString) {
+      if (escapeNext) {
+        out += c;
+        escapeNext = false;
+        continue;
+      }
+      if (c === "\\") {
+        out += c;
+        escapeNext = true;
+        continue;
+      }
+      if (c === '"') {
+        out += c;
+        inString = false;
+        continue;
+      }
+      if (c === "\n") { out += "\\n"; continue; }
+      if (c === "\r") { out += "\\r"; continue; }
+      if (c === "\t") { out += "\\t"; continue; }
+      out += c;
+    } else {
+      if (c === '"') {
+        inString = true;
+      }
+      out += c;
+    }
+  }
+  return out;
+}
+
+// ──────────────────────────────────────────────────────────────────────────
 // Public entrypoint — runs OpenRouter, parses + validates JSON, returns
 // the structured output. Throws on parse / validation failure.
 // ──────────────────────────────────────────────────────────────────────────
@@ -463,12 +512,19 @@ export async function generateTalkingObjectPrompts(
     .replace(/\s*```\s*$/i, "")
     .trim();
 
+  // Defensive control-char sanitizer. LLMs occasionally output literal
+  // newlines / tabs inside JSON string values, which is invalid JSON.
+  // Walk the string tracking whether we're inside a "..." literal and
+  // escape \n / \r / \t when we are. Outside strings, control chars are
+  // valid JSON whitespace so we leave them.
+  const sanitized = sanitizeJsonControlChars(cleaned);
+
   let parsed: any;
   try {
-    parsed = JSON.parse(cleaned);
+    parsed = JSON.parse(sanitized);
   } catch (e: any) {
     throw new Error(
-      `LLM returned non-JSON (parse error: ${e?.message}): ${cleaned.slice(
+      `LLM returned non-JSON (parse error: ${e?.message}): ${sanitized.slice(
         0,
         200
       )}`
