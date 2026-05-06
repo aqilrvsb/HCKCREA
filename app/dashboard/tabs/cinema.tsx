@@ -221,13 +221,32 @@ export default function CinemaTab({ projectId }: { projectId?: string } = {}) {
           'talking-object'). To bring the radio back, undo this block
           and re-enable the SubFeatureCard grid. */}
 
+      {/* Viral feature selector — 5 radio buttons. Only Talking Object is
+          functional today; the other 4 are visible placeholders so users
+          can see the roadmap. Defaults to Talking Object. */}
+      <Card>
+        <div className="flex items-center gap-2.5 mb-3">
+          <span className="text-lg">🎬</span>
+          <span className="text-[13px] font-extrabold uppercase tracking-[0.06em]">
+            Viral Feature
+          </span>
+        </div>
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
+          <ViralFeatureBtn active emoji="🗣️" label="Talking Object" />
+          <ViralFeatureBtn emoji="✨" label="Coming soon" disabled />
+          <ViralFeatureBtn emoji="✨" label="Coming soon" disabled />
+          <ViralFeatureBtn emoji="✨" label="Coming soon" disabled />
+          <ViralFeatureBtn emoji="✨" label="Coming soon" disabled />
+        </div>
+      </Card>
+
       {subFeature === "talking-object" && (
         <>
           <Card>
             <div className="flex items-center gap-2.5 mb-4">
               <span className="text-lg">🗣️</span>
-              <span className="text-[13px] font-extrabold uppercase tracking-[0.06em]">
-                Talking Object Wizard
+              <span className="text-[13px] font-extrabold tracking-[0.02em]">
+                Talking Object
               </span>
             </div>
 
@@ -767,6 +786,39 @@ function SubFeatureCard({
     >
       <div className="text-sm font-extrabold">{title}</div>
       <div className="text-[10px] mt-0.5 opacity-70">{sub}</div>
+    </button>
+  );
+}
+
+function ViralFeatureBtn({
+  active,
+  disabled,
+  emoji,
+  label,
+  onClick,
+}: {
+  active?: boolean;
+  disabled?: boolean;
+  emoji: string;
+  label: string;
+  onClick?: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={disabled ? undefined : onClick}
+      disabled={disabled}
+      className="rounded-lg py-2.5 px-3 text-center transition-all"
+      style={{
+        background: active ? PURPLE_FAINT : "#fafaf7",
+        border: `2px solid ${active ? PURPLE : "#e8e0d8"}`,
+        color: active ? PURPLE : disabled ? "#aaa" : "#1a1a1a",
+        opacity: disabled ? 0.55 : 1,
+        cursor: disabled ? "not-allowed" : "pointer",
+      }}
+    >
+      <div className="text-lg leading-none">{emoji}</div>
+      <div className="text-[10px] font-bold mt-1 leading-tight">{label}</div>
     </button>
   );
 }
