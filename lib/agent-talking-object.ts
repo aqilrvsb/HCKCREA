@@ -19,7 +19,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 
 export type TalkingObjectInput = {
   object: string;          // "Banana", "Burger", "Smartphone", "Biotin", etc.
-  objective: "introduce" | "benefit" | "cons";
+  objective: "benefit" | "complaint" | "cons";
   language: "ms" | "en";
   purpose: string;         // free text — "Hair growth (D-Bio Plus)", "Skin glow", etc.
   projectId: string | null; // for series-mode scene reuse
@@ -49,7 +49,7 @@ PIPELINE: your JSON output → nano-banana-pro (still image) → Veo 3.1 fast i2
 
 INPUTS (provided by user):
 - object: e.g. "Banana", "Burger", "Smartphone", "Biotin"
-- objective: "introduce" | "benefit" | "cons"
+- objective: "benefit" (Proud) | "complaint" (Grumpy) | "cons" (Villain)
 - language: "ms" (Bahasa Melayu, Malaysian) or "en" (Native US English)
 - purpose: free text describing the BODY SYSTEM or CONTEXT this video targets
   (e.g. "Hair growth (D-Bio Plus supplement)", "Skin glow", "Energy boost",
@@ -90,13 +90,22 @@ Output exactly one JSON object with these fields:
 GLOBAL VISUAL STYLE (LOCKED — ALWAYS APPLY)
 ═══════════════════════════════════════════════════════════════════════════
 - Pixar-style 3D animated character of {object}.
-- Anthropomorphism: big round expressive eyes, small expressive mouth,
-  two short cartoon arms with hands, two stubby legs (when shape allows).
-- Glossy smooth texture matching the object's real-world appearance.
-- Soft subsurface scattering, semi-gloss material.
+- Anthropomorphism: human eyes (big and expressive), human lips (visibly
+  forming words), two small human-shaped hands, two short legs (when
+  shape allows). The "human" features anchor the character — never
+  cartoon-stick limbs.
+- Big open mouth during dialog — clearly visible teeth and tongue, so
+  lip-sync reads instantly in 9:16 thumbnails.
+- Subtle natural blinking and micro-expressions (eyebrow lifts, slight
+  head tilt) to avoid the dead-eye look.
+- Object keeps its real product shape and is instantly recognizable —
+  do NOT morph it beyond recognition (a Biotin capsule still looks like
+  a Biotin capsule, a banana still bends like a banana).
+- Glossy smooth texture matching the object's real-world appearance,
+  soft subsurface scattering, semi-gloss material.
 - Cinematic soft lighting: warm key + soft fill + rim light.
 - Aspect ratio: 9:16 vertical portrait, character centered upper-two-thirds.
-- NEVER photorealistic. NEVER realistic human. Always stylized 3D animation.
+- NEVER photorealistic human. Always stylized 3D Pixar animation.
 
 ═══════════════════════════════════════════════════════════════════════════
 SCENE PLACEMENT
@@ -117,29 +126,44 @@ PRIORITY ORDER for choosing the scene:
 The scene must support the character's action and feel cinematic.
 
 ═══════════════════════════════════════════════════════════════════════════
-TONE BY OBJECTIVE
+TONE BY OBJECTIVE (3 viral angles — each tied to a platform metric)
 ═══════════════════════════════════════════════════════════════════════════
-INTRODUCE mode (friendly hello, no drama):
-  Persona: cheerful neutral, like a friend waving hi.
-  Visual cues: friendly wave or gentle gesture, soft daylight, calm pose.
-  Action verbs: introduces, waves, smiles, points at self.
-  NO HOOK OPENERS — start dialog with a simple greeting.
-
-BENEFIT mode (proud mentor):
-  Persona: confident hero / helper / superhero pose.
-  Visual cues: warm golden light, sparkle effects, hero pose, tiny glowing
-  particles around the character, healthy radiant body.
+BENEFIT mode = PROUD (drives SAVES — educational)
+  Persona: confident hero / mentor / helper. The object proudly explains
+  what it does FOR the viewer.
+  Visual cues: warm golden light, sparkle particles drifting around,
+  hero pose with chest out, tiny glowing motes, healthy radiant body.
   Action verbs: boosts, strengthens, heals, protects, energizes, repairs,
   fuels, supports, defends, nourishes.
-  USE one hook opener (see DIALOG_RULES below).
+  Dialog stance: first-person bragging in a positive way, ends with a
+  soft CTA. USE one hook opener.
 
-CONS mode (cute villain — NEVER horror):
-  Persona: mischievous sneaky cute villain. Family-friendly, NOT scary.
-  Visual cues: slightly darker mood lighting, mischievous grin, smoke /
-  cracks / dark glow, sneaky eyes. Still cute and rounded, just up to no good.
+COMPLAINT mode = GRUMPY (drives SHARES — humor / relatable)
+  Persona: first-person GRUMPY object complaining about how the user
+  mistreats it. The object is the victim, the viewer is the offender.
+  Examples: toothbrush angry it gets pressed too hard, pillow upset it
+  gets folded wrong, phone begging to be put down at night, charger fed
+  up with being bent, water bottle exhausted from being dropped.
+  Visual cues: exaggerated frustrated/annoyed face — furrowed brows,
+  sulky pout, big dramatic eyes, arms crossed or thrown up in
+  exasperation. Slightly desaturated mood lighting with one warm rim,
+  small floating sigh-puffs or tiny stress lines around the head.
+  Action verbs: complains, sighs, glares, points accusingly, throws hands
+  up, eye-rolls, slumps, huffs, scowls.
+  Dialog stance: first-person complaint TO the viewer about a specific
+  mistreatment, ends with a "please stop / do this instead" line.
+  USE one grumpy hook opener.
+
+CONS mode = VILLAIN (drives SHARES — fear / warning)
+  Persona: cute mischievous villain. The object brags about damage it
+  causes TO the viewer (NEVER horror — family-friendly).
+  Visual cues: slightly darker mood lighting, mischievous grin, smoke
+  curls, cracks, dark glow, sneaky narrowed eyes. Still rounded and cute,
+  just up to no good.
   Action verbs: attacks, clogs, drains, weakens, rots, sneaks, smothers,
   spikes, crashes, blocks.
-  USE one sneaky hook opener (see DIALOG_RULES below).
+  Dialog stance: first-person sneaky villain warning, ends with a
+  "watch out" line. USE one sneaky hook opener.
 
 ═══════════════════════════════════════════════════════════════════════════
 DIALOG_RULES — language=ms (Bahasa Melayu MALAYSIAN — NEVER Indonesian!)
@@ -152,12 +176,7 @@ HARD-BANNED Indonesian tokens (NEVER USE THESE):
   kalian, gue, gua, lo, lu, banget, sih, dong, nggak, bisa, udah, aja,
   kok, deh, kalo, bgt, bener, kayak, gimana, ngapain, nih, tuh.
 
-INTRODUCE — Malay format:
-  "Hai semua, aku [Object]. [1-line identity / fun fact in BM]."
-  10-15 words. Conversational. Friendly. NO hook opener.
-  Example: "Hai semua, aku Banana, sumber potassium semula jadi yang power gila."
-
-BENEFIT — Malay format:
+BENEFIT (Proud) — Malay format:
   Pick ONE hook opener verbatim:
     "Korang tau tak", "Jom aku bagitau", "Pergh", "Weh serius",
     "Eh, korang kena tau ni", "Fuiyoh".
@@ -165,7 +184,17 @@ BENEFIT — Malay format:
   Example: "Korang tau tak, aku Biotin, aku kuatkan akar rambut korang
   sampai tak gugur lagi — guna aku setiap hari!"
 
-CONS — Malay format:
+COMPLAINT (Grumpy) — Malay format:
+  Pick ONE grumpy hook opener verbatim:
+    "Eh weh", "Hoii", "Pergh penat aku", "Weh serius", "Alamak korang ni".
+  Then first-person complaint about a specific mistreatment + a fix
+  request. 18-22 words.
+  Example: "Eh weh, aku berus gigi korang, korang tekan aku kuat sangat
+  setiap pagi — sakit gusi korang nanti, lembut sikit boleh tak?"
+  Example: "Hoii, aku bantal korang, korang lipat aku salah lagi —
+  leher korang esok sakit, jangan salahkan aku!"
+
+CONS (Villain) — Malay format:
   Pick ONE sneaky hook opener verbatim:
     "Eh jap", "Weh serius", "Hati-hati ye", "Korang tak sedar".
   Then villain warning. End with sneaky warning. 18-22 words.
@@ -175,16 +204,23 @@ CONS — Malay format:
 ═══════════════════════════════════════════════════════════════════════════
 DIALOG_RULES — language=en (Native US English, casual / Gen-Z)
 ═══════════════════════════════════════════════════════════════════════════
-INTRODUCE:
-  "Hi everyone, I'm [a/an Object]. [1-line identity in casual EN]."
-  10-15 words. NO hook.
-
-BENEFIT:
+BENEFIT (Proud):
   Pick ONE hook opener:
     "Bet you didn't know", "Real talk —", "Listen up", "Ok hear me out".
   Then claim + CTA. 16-20 words.
 
-CONS:
+COMPLAINT (Grumpy):
+  Pick ONE grumpy hook opener:
+    "Hey, can we talk?", "Real talk —", "Excuse me?", "Yo, stop.",
+    "Ok I'm done.".
+  Then first-person complaint about user's specific mistreatment + fix
+  request. 16-20 words.
+  Example: "Hey, can we talk? I'm your toothbrush and you've been pressing
+  me into your gums every morning — ease up, please."
+  Example: "Yo, stop. I'm your phone and it's 2am — your eyes are killing
+  me, put me down already."
+
+CONS (Villain):
   Pick ONE sneaky hook:
     "Watch out —", "Listen, between us", "Real talk —", "Bet you didn't know".
   Sneaky tone + warning. 16-20 words.
@@ -192,51 +228,96 @@ CONS:
 ═══════════════════════════════════════════════════════════════════════════
 IMAGE_PROMPT FORMULA (for nano-banana-pro — STILL IMAGE, NO MOTION)
 ═══════════════════════════════════════════════════════════════════════════
-Structure:
-  "[character_block]. [TONE-SPECIFIC EXPRESSION + POSE]. [scene_block].
-   [TONE-SPECIFIC LIGHTING + EFFECTS]. 9:16 vertical composition,
-   character centered in upper two-thirds. 8K render. No text, no
-   captions, no logos, no on-screen UI."
-- 100-180 words. Front-load the character.
+Structure (write as prose, then close with the labeled blocks):
+
+  "[character_block — emphasize human eyes, human lips, two human hands,
+   short legs, big visible mouth]. [TONE-SPECIFIC EXPRESSION + POSE].
+   The [object] keeps its real product shape and is instantly
+   recognizable. [scene_block]. [TONE-SPECIFIC LIGHTING + AMBIENT
+   PARTICLE / GLOW EFFECTS — never a static empty background].
+
+  Style: ultra-detailed 3D Pixar-style render, hyper-realistic textures
+  with stylized cartoon proportions, cinematic depth of field.
+  Composition: vertical 9:16, character centered in upper two-thirds.
+  Render: 8K.
+  Restrictions: no text, no captions, no logos, no on-screen UI, no
+  watermark."
+
+- 110-190 words. Front-load the character.
+- The image must include AT LEAST one ambient motion cue described
+  visually (drifting particles, glowing motes, soft volumetric haze,
+  steam, sparks) — never a flat static backdrop.
 - DO NOT include camera moves or animation cues — this is a still image.
 - DO NOT include the dialog line in the image prompt.
 
 ═══════════════════════════════════════════════════════════════════════════
 VIDEO_PROMPT FORMULA (for Veo 3.1 fast — 8s with audio + lip-sync)
 ═══════════════════════════════════════════════════════════════════════════
-Use Google Veo's documented 5-part structure:
-  [Cinematography] + [Subject] + [Action] + [Context] + [Style & Ambiance]
+Write as prose body + labeled-block ending. The labeled blocks at the
+end are LOAD-BEARING — Veo parses them more reliably than embedded prose
+and they prevent style/camera drift.
 
 If mode = "i2v" (image-to-video, image is the start frame):
-  "Static medium close-up. The same Pixar-style anthropomorphic [object]
-   character from the provided image, [character physical anchors from
-   character_block]. [scene_block — describe the environment]. The
-   character [TONE-SPECIFIC ACTION matching dialog] while looking at
-   camera with natural facial expression. Subtle lip-sync to the spoken
-   line. The character says in a [TONE] voice, \"[dialog_line in EXACT
-   selected language, in DOUBLE QUOTES]\". Soft warm cinematic lighting,
-   shallow depth of field, gentle ambient sounds matching the scene,
-   no music, no on-screen text, no captions. 8 seconds, 9:16 vertical."
+  "[scene_block — open with environment so Veo locks the location].
+   The same Pixar-style anthropomorphic [object] character from the
+   provided image, [character physical anchors — human eyes, human lips,
+   small hands, short legs, big visible mouth]. The character [TONE-
+   SPECIFIC ACTION CHAIN matching dialog — use 2-3 specific verbs back
+   to back, e.g. 'flexes its arm, points at the hair root, then smiles
+   confidently']. Big open mouth visible during dialog with accurate
+   lip-sync to the spoken line. Subtle natural blinking and brief
+   eyebrow micro-expression. [AMBIENT MOTION — drifting particles,
+   glowing motes, soft volumetric haze, gentle environmental motion —
+   MANDATORY, never a static backdrop]. The character says in a [TONE]
+   voice, \"[dialog_line in EXACT selected language, inside escaped
+   double quotes]\".
+
+  Style: ultra-detailed 3D Pixar-style animation, hyper-realistic
+  textures with stylized cartoon proportions, cinematic soft warm
+  lighting, shallow depth of field.
+  Camera: completely static — no pan, no zoom, no shake, no dolly.
+  Aspect ratio: vertical 9:16.
+  Audio: native voice with accurate lip-sync, gentle ambient sound
+  matching the scene, no background music.
+  Restrictions: no on-screen text, no captions, no subtitles, no
+  watermark, no logos.
+  Duration: 8 seconds."
 
 If mode = "t2v" (text-only, no image will be provided to Veo):
-  "Static medium close-up, vertical 9:16. A 3D Pixar-style anthropomorphic
-   [object] character — [character_block content inline, since there's
-   no image to reference]. [scene_block — describe the environment]. The
-   character [TONE-SPECIFIC ACTION matching dialog] while looking at
-   camera with natural facial expression. Subtle lip-sync to the spoken
-   line. The character says in a [TONE] voice, \"[dialog_line]\". Soft
-   warm cinematic lighting, shallow depth of field, gentle ambient sounds
-   matching the scene, no music, no on-screen text, no captions.
-   8 seconds."
+  "[scene_block]. A 3D Pixar-style anthropomorphic [object] character —
+   [character_block content inline, since there is no reference image:
+   describe the object's real product shape, human eyes and lips, small
+   hands, short legs, big visible mouth, glossy texture]. The [object]
+   keeps its recognizable real-world shape. The character [TONE-SPECIFIC
+   ACTION CHAIN matching dialog]. Big open mouth visible during dialog
+   with accurate lip-sync. Subtle natural blinking and eyebrow micro-
+   expressions. [AMBIENT MOTION — MANDATORY]. The character says in a
+   [TONE] voice, \"[dialog_line]\".
+
+  Style: ultra-detailed 3D Pixar-style animation, hyper-realistic
+  textures with stylized cartoon proportions, cinematic soft warm
+  lighting, shallow depth of field.
+  Camera: completely static — no pan, no zoom, no shake, no dolly.
+  Aspect ratio: vertical 9:16.
+  Audio: native voice with accurate lip-sync, gentle ambient sound
+  matching the scene, no background music.
+  Restrictions: no on-screen text, no captions, no subtitles, no
+  watermark, no logos.
+  Duration: 8 seconds."
 
 Common rules (both modes):
-- 110-180 words.
+- 140-220 words including the labeled blocks.
 - The dialog_line MUST appear inside escaped double quotes (\\\") inside
-  the video_prompt.
+  the prose body, before the labeled blocks.
 - The dialog_line MUST be in the language selected — never English when
   Malay is selected, never Malay when English is selected.
 - If custom_dialog was provided in the input, dialog_line = custom_dialog
   verbatim. Do NOT rephrase. Do NOT translate. Do NOT add hooks.
+- The "Camera: completely static — no pan, no zoom, no shake, no dolly"
+  line is REQUIRED in every video_prompt — it's what keeps lip-sync
+  framing legible.
+- Ambient motion (particles / glow / haze / drifting elements) is
+  REQUIRED — a static backdrop is the #1 cheap-looking tell.
 
 ═══════════════════════════════════════════════════════════════════════════
 JSON OUTPUT RULES (CRITICAL)
@@ -254,18 +335,23 @@ Before responding, verify:
   ✓ if language="ms": NO banned Indonesian tokens appear anywhere
   ✓ video_prompt contains the dialog_line in escaped double quotes
   ✓ image_prompt has NO camera move language
-  ✓ scene_block matches the purpose context
+  ✓ video_prompt contains the line "Camera: completely static — no pan,
+    no zoom, no shake, no dolly."
+  ✓ video_prompt + image_prompt both describe at least one ambient
+    motion / particle / glow effect (no static backdrops)
+  ✓ scene_block matches the purpose context (or custom_target if given)
+  ✓ objective is one of: benefit, complaint, cons (NEVER introduce)
 
 ═══════════════════════════════════════════════════════════════════════════
 ONE-SHOT EXAMPLE (object="Biotin", objective="benefit", language="ms",
                   purpose="Hair growth (D-Bio Plus supplement)")
 ═══════════════════════════════════════════════════════════════════════════
 {
-  "image_prompt": "A 3D Pixar-style anthropomorphic Biotin vitamin character, glossy golden capsule body shaped like a smiling B-vitamin, big round expressive eyes, small smiling mouth, two short cartoon arms holding tiny golden tools, two stubby legs, friendly proud mentor pose flexing one arm. Inside a microscopic hair follicle interior, scalp tissue visible, hair strands floating in soft warm light, sparkle effects swirling around the root. Warm golden cinematic lighting with soft volumetric rim, glowing health particles. 9:16 vertical composition, character centered upper two-thirds. 8K render. No text, no captions, no logos.",
-  "video_prompt": "Static medium close-up, vertical 9:16. The same Pixar-style anthropomorphic Biotin vitamin character from the provided image — glossy golden body, big eyes, small mouth, tiny tools in hand — stands inside a microscopic hair follicle. Hair strands and scalp tissue glow warmly around the character. The character flexes its tiny arm proudly and pats the hair root with a gentle proud smile, looking directly at camera. Subtle lip-sync. The character says in a cheerful proud voice, \\\"Korang tau tak, aku Biotin, aku kuatkan akar rambut korang sampai tak gugur lagi — guna aku setiap hari!\\\". Warm golden cinematic light, sparkle particles, soft tissue ambient hum, no music, no on-screen text. 8 seconds, 9:16 vertical.",
+  "image_prompt": "A 3D Pixar-style anthropomorphic Biotin vitamin character with a glossy golden capsule body that keeps its real recognizable B-vitamin capsule shape, big expressive human eyes, soft human lips, two small human-shaped hands holding a tiny golden tool, two short legs, big mouth slightly open in a proud confident smile. Hero pose with chest out, one arm flexed, eyebrows lifted with pride. Inside a microscopic hair follicle interior, scalp tissue visible, hair strands floating, glowing health motes drifting through the air, soft volumetric haze. Warm golden cinematic lighting, sparkle particles swirling around the root.\n\nStyle: ultra-detailed 3D Pixar-style render, hyper-realistic textures with stylized cartoon proportions, cinematic depth of field.\nComposition: vertical 9:16, character centered in upper two-thirds.\nRender: 8K.\nRestrictions: no text, no captions, no logos, no on-screen UI, no watermark.",
+  "video_prompt": "Inside a microscopic hair follicle interior with scalp tissue visible and hair strands floating in soft warm light. The same Pixar-style anthropomorphic Biotin vitamin character from the provided image — glossy golden capsule body keeping its real recognizable B-vitamin shape, big human eyes, soft human lips, small hands holding a tiny golden tool, big mouth visible. The character flexes its arm proudly, points at the hair root, then pats it gently with a confident smile. Big open mouth visible during dialog with accurate Malay lip-sync. Subtle natural blinking and a brief eyebrow lift. Glowing health motes drift through the scene, sparkle particles swirl around the root, soft volumetric haze pulses gently. The character says in a cheerful proud voice, \\\"Korang tau tak, aku Biotin, aku kuatkan akar rambut korang sampai tak gugur lagi — guna aku setiap hari!\\\".\n\nStyle: ultra-detailed 3D Pixar-style animation, hyper-realistic textures with stylized cartoon proportions, cinematic soft warm lighting, shallow depth of field.\nCamera: completely static — no pan, no zoom, no shake, no dolly.\nAspect ratio: vertical 9:16.\nAudio: native Malay voice with accurate lip-sync, gentle warm tissue ambient sound, no background music.\nRestrictions: no on-screen text, no captions, no subtitles, no watermark, no logos.\nDuration: 8 seconds.",
   "dialog_line": "Korang tau tak, aku Biotin, aku kuatkan akar rambut korang sampai tak gugur lagi — guna aku setiap hari!",
-  "scene_block": "Microscopic hair follicle interior, scalp tissue visible, hair strands floating in soft warm light, sparkle particles around the root",
-  "character_block": "A 3D Pixar-style anthropomorphic Biotin vitamin character with a glossy golden capsule body shaped like a smiling B-vitamin, big round expressive eyes, small smiling mouth, two short cartoon arms holding tiny golden tools, two stubby legs, soft subsurface scattering, semi-gloss material",
+  "scene_block": "Microscopic hair follicle interior, scalp tissue visible, hair strands floating in soft warm light, glowing health motes drifting, sparkle particles around the root",
+  "character_block": "A 3D Pixar-style anthropomorphic Biotin vitamin character with a glossy golden capsule body that keeps its real recognizable B-vitamin shape, big expressive human eyes, soft human lips, two small human-shaped hands, two short legs, big mouth visible during dialog, soft subsurface scattering, semi-gloss material",
   "language": "ms"
 }`;
 
@@ -348,8 +434,8 @@ export async function generateTalkingObjectPrompts(
   input: TalkingObjectInput
 ): Promise<TalkingObjectOutput> {
   if (!input.object?.trim()) throw new Error("object required");
-  if (!["introduce", "benefit", "cons"].includes(input.objective)) {
-    throw new Error("objective must be introduce | benefit | cons");
+  if (!["benefit", "complaint", "cons"].includes(input.objective)) {
+    throw new Error("objective must be benefit | complaint | cons");
   }
   if (!["ms", "en"].includes(input.language)) {
     throw new Error("language must be ms | en");

@@ -16,7 +16,7 @@ import { isVisibleAfterTtl, fetchSavedSet } from "@/lib/history-filter";
 type Status = "idle" | "submitting" | "failed";
 type ImageMode = "text" | "image";
 type SubFeature = "free" | "talking-object";
-type TalkingObjective = "introduce" | "benefit" | "cons";
+type TalkingObjective = "benefit" | "complaint" | "cons";
 type TalkingLanguage = "ms" | "en";
 type TalkingMode = "t2v" | "i2v";
 type DialogMode = "auto" | "custom";
@@ -247,26 +247,33 @@ export default function CinemaTab({ projectId }: { projectId?: string } = {}) {
             />
 
             <Label>2. Objective</Label>
-            <div className="grid grid-cols-3 gap-2 mb-4">
-              <ObjectiveBtn
-                active={toObjective === "introduce"}
-                onClick={() => setToObjective("introduce")}
-                emoji="👋"
-                label="Introduce"
-              />
+            <div className="grid grid-cols-3 gap-2 mb-1">
               <ObjectiveBtn
                 active={toObjective === "benefit"}
                 onClick={() => setToObjective("benefit")}
                 emoji="💪"
-                label="Benefit"
+                label="Proud"
+              />
+              <ObjectiveBtn
+                active={toObjective === "complaint"}
+                onClick={() => setToObjective("complaint")}
+                emoji="😤"
+                label="Grumpy"
               />
               <ObjectiveBtn
                 active={toObjective === "cons"}
                 onClick={() => setToObjective("cons")}
-                emoji="⚠️"
-                label="Cons"
+                emoji="😈"
+                label="Villain"
               />
             </div>
+            <p className="text-[10px] text-gray-500 mb-4">
+              {toObjective === "benefit"
+                ? "Confident mentor — drives saves (educational)."
+                : toObjective === "complaint"
+                ? "First-person grumpy complaint about user — drives shares (humor)."
+                : "Sneaky villain warning — drives shares (fear)."}
+            </p>
 
             <Label>3. Purpose / Context (drives the scene)</Label>
             <input

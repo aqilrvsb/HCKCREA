@@ -32,7 +32,7 @@ export const runtime = "nodejs";
 export const maxDuration = 300; // up to 5 min — image gen polling can take a while
 export const dynamic = "force-dynamic";
 
-type ObjectiveBody = "introduce" | "benefit" | "cons";
+type ObjectiveBody = "benefit" | "complaint" | "cons";
 
 export async function POST(req: Request) {
   const sb = await createClient();
@@ -46,7 +46,8 @@ export async function POST(req: Request) {
   const object = String(body?.object || "").trim().slice(0, 80);
   const objective = ((): ObjectiveBody => {
     const v = String(body?.objective || "").toLowerCase();
-    if (v === "benefit" || v === "cons" || v === "introduce") return v;
+    if (v === "benefit" || v === "complaint" || v === "cons") return v;
+    // Back-compat: old "introduce" rows in flight default to benefit.
     return "benefit";
   })();
   const language: "ms" | "en" = body?.language === "en" ? "en" : "ms";
