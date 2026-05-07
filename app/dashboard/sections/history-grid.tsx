@@ -149,6 +149,11 @@ export default function HistoryGrid({
   // "images" = the intermediate banana-pro images (type=image, child
   // rows of the talking-object pipeline).
   const [viralSubTab, setViralSubTab] = useState<"videos" | "images">("videos");
+  // Viral tab now has TWO features: Talking Object (AI wizard, has both
+  // videos AND images) and Normal Video (free-form prompt, videos only).
+  // viralFeature switches between the two; when on Normal Video the
+  // Videos/Images toggle is hidden and only videos render.
+  const [viralFeature, setViralFeature] = useState<"talking-object" | "normal-video">("talking-object");
 
   // Combine/merge multi-select. Only enabled on video tabs (UGC/Auto/Cinema)
   // — image tabs don't have a "combine" semantic. Reset whenever the tab or
@@ -203,7 +208,7 @@ export default function HistoryGrid({
     window.addEventListener("history:refresh", onRefresh);
     return () => window.removeEventListener("history:refresh", onRefresh);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tab, projectId, storytellingSubTab, viralSubTab]);
+  }, [tab, projectId, storytellingSubTab, viralSubTab, viralFeature]);
 
   // 1-minute auto-refresh when there's anything pending. Pauses when the
   // tab is hidden (browser throttles intervals on hidden tabs anyway, but
@@ -252,11 +257,31 @@ export default function HistoryGrid({
           storytellingSubTab === "images" ? "fairytale-scene" : "fairytale"
         );
       }
-      // Viral (cinema tab): same UX as Storytelling. Talking Object AI
-      // produces a banana-pro image (type=image) AND a final Veo mp4
-      // (type=video). Sub-tab switches between them.
+      // Viral (cinema tab): two-level filter.
+      //   1. viralFeature picks the sub-feature row family:
+      //      - "talking-object" → metadata.featureType in
+      //        (talking-object, talking-object-image). Videos + Images.
+      //      - "normal-video"   → tab=cinema rows that aren't talking-
+      //        object-typed (free-form prompt path). Videos ONLY.
+      //   2. viralSubTab toggles videos/images inside Talking Object.
+      //      Normal Video forces type=video regardless.
       if (tab === "cinema") {
-        q = q.eq("type", viralSubTab === "images" ? "image" : "video");
+        if (viralFeature === "talking-object") {
+          q = q
+            .eq("type", viralSubTab === "images" ? "image" : "video")
+            .in("metadata->>featureType", [
+              "talking-object",
+              "talking-object-image",
+            ]);
+        } else {
+          // Normal Video: free-form prompt rows. Exclude talking-object
+          // rows so the lists don't overlap.
+          q = q.eq("type", "video").not(
+            "metadata->>featureType",
+            "in",
+            "(talking-object,talking-object-image)"
+          );
+        }
       }
       const { data } = await q;
       setItems((data as HistoryItem[]) || []);
@@ -390,34 +415,68 @@ export default function HistoryGrid({
         </div>
       )}
 
-      {/* Viral tab: same UX as Storytelling. Talking Object AI generates
-          a banana-pro image AND a Veo video — sub-tab switches between
-          the two artifact lists. */}
+      {/* Viral tab: 2-level selector. Top row picks the sub-feature
+          (Talking Object vs Normal Video). Second row picks Videos or
+          Images, but only renders for Talking Object — Normal Video is
+          videos-only. */}
       {tab === "cinema" && (
-        <div className="flex gap-1 p-1 rounded-xl bg-[var(--color-bg-card)] mb-4 max-w-xs">
-          {(["videos", "images"] as const).map((t) => {
-            const active = viralSubTab === t;
-            return (
-              <button
-                key={t}
-                type="button"
-                onClick={() => setViralSubTab(t)}
-                className="flex-1 py-2 rounded-lg text-xs font-bold transition"
-                style={
-                  active
-                    ? {
-                        background: "var(--color-orange)",
-                        color: "white",
-                        boxShadow: "0 2px 6px rgba(0,0,0,0.15)",
-                      }
-                    : { background: "transparent", color: "var(--color-text-muted)" }
-                }
-              >
-                {t === "videos" ? "🎬 Videos" : "🖼️ Images"}
-              </button>
-            );
-          })}
-        </div>
+        <>
+          <div className="flex gap-1 p-1 rounded-xl bg-[var(--color-bg-card)] mb-2 max-w-md">
+            {(
+              [
+                { key: "talking-object" as const, emoji: "🗣️", label: "Talking Object" },
+                { key: "normal-video" as const, emoji: "🎞️", label: "Normal Video" },
+              ]
+            ).map((f) => {
+              const active = viralFeature === f.key;
+              return (
+                <button
+                  key={f.key}
+                  type="button"
+                  onClick={() => setViralFeature(f.key)}
+                  className="flex-1 py-2 rounded-lg text-xs font-bold transition"
+                  style={
+                    active
+                      ? {
+                          background: "var(--color-orange)",
+                          color: "white",
+                          boxShadow: "0 2px 6px rgba(0,0,0,0.15)",
+                        }
+                      : { background: "transparent", color: "var(--color-text-muted)" }
+                  }
+                >
+                  {f.emoji} {f.label}
+                </button>
+              );
+            })}
+          </div>
+          {viralFeature === "talking-object" && (
+            <div className="flex gap-1 p-1 rounded-xl bg-[var(--color-bg-card)] mb-4 max-w-xs">
+              {(["videos", "images"] as const).map((t) => {
+                const active = viralSubTab === t;
+                return (
+                  <button
+                    key={t}
+                    type="button"
+                    onClick={() => setViralSubTab(t)}
+                    className="flex-1 py-2 rounded-lg text-xs font-bold transition"
+                    style={
+                      active
+                        ? {
+                            background: "var(--color-orange)",
+                            color: "white",
+                            boxShadow: "0 2px 6px rgba(0,0,0,0.15)",
+                          }
+                        : { background: "transparent", color: "var(--color-text-muted)" }
+                    }
+                  >
+                    {t === "videos" ? "🎬 Videos" : "🖼️ Images"}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </>
       )}
 
       {items.length === 0 ? (

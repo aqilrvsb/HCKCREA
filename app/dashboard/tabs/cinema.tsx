@@ -59,8 +59,9 @@ export default function CinemaTab({ projectId }: { projectId?: string } = {}) {
   // intentionally; the value still flows through to the API body so the
   // backend stays unchanged.
   const resolution: "720p" = "720p";
-  // Veo runs at fixed 8s. No slider.
-  const effectiveDuration = 8;
+  // Grok bills per-second (6-30s range). Veo is fixed 8s.
+  const [grokDuration, setGrokDuration] = useState<number>(8);
+  const effectiveDuration = model === "veo" ? 8 : grokDuration;
   const [ratePerSec, setRatePerSec] = useState<number | null>(null);
   const [status, setStatus] = useState<Status>("idle");
   const [error, setError] = useState<string | null>(null);
@@ -646,23 +647,52 @@ export default function CinemaTab({ projectId }: { projectId?: string } = {}) {
       </Card>
 
       <Card>
-        {/* Veo runs at fixed 8s — no duration slider. Cost preview
-            shows the approximate flat price (8 × admin per-sec rate). */}
-        <div
-          className="mb-4 p-3 rounded-lg flex items-center justify-between text-xs font-semibold"
-          style={{
-            background: PURPLE_FAINT,
-            border: `1px dashed ${PURPLE_SOFT}`,
-            color: PURPLE,
-          }}
-        >
-          <span>⏱️ Veo runs at fixed 8 seconds.</span>
-          {cost != null && (
-            <span className="font-mono uppercase tracking-wider">
-              ~RM{cost.toFixed(2)}
-            </span>
-          )}
-        </div>
+        {/* Veo: fixed 8s. Grok: per-second 6-30s slider. */}
+        {model === "veo" ? (
+          <div
+            className="mb-4 p-3 rounded-lg flex items-center justify-between text-xs font-semibold"
+            style={{
+              background: PURPLE_FAINT,
+              border: `1px dashed ${PURPLE_SOFT}`,
+              color: PURPLE,
+            }}
+          >
+            <span>⏱️ Veo runs at fixed 8 seconds.</span>
+            {cost != null && (
+              <span className="font-mono uppercase tracking-wider">
+                ~RM{cost.toFixed(2)}
+              </span>
+            )}
+          </div>
+        ) : (
+          <div className="mb-4">
+            <Label>Duration ({grokDuration}s)</Label>
+            <input
+              type="range"
+              min={6}
+              max={30}
+              step={1}
+              value={grokDuration}
+              onChange={(e) => setGrokDuration(Number(e.target.value))}
+              className="w-full accent-purple-500"
+            />
+            <div className="flex items-center justify-between mt-2 text-[10px] text-gray-500">
+              <span>6s</span>
+              {cost != null && (
+                <span
+                  className="font-mono uppercase tracking-wider px-2 py-0.5 rounded"
+                  style={{ background: PURPLE_FAINT, color: PURPLE }}
+                >
+                  ~RM{cost.toFixed(2)}
+                </span>
+              )}
+              <span>30s</span>
+            </div>
+            <p className="text-[10px] text-gray-500 mt-1">
+              Grok bills per second. Longer = pricier.
+            </p>
+          </div>
+        )}
 
         <div className="mb-4">
           <Label>Size</Label>
