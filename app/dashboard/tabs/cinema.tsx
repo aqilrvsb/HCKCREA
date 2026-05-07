@@ -31,7 +31,21 @@ export default function CinemaTab({ projectId }: { projectId?: string } = {}) {
   // Sub-feature selector — Talking Object (default, AI wizard) and
   // Normal Video (free-form prompt with Grok/Veo model choice). Other
   // 3 placeholder buttons in the radio strip are disabled.
-  const [subFeature, setSubFeature] = useState<SubFeature>("talking-object");
+  const [subFeature, setSubFeatureState] = useState<SubFeature>("talking-object");
+
+  // Wrap the setter so that clicking a feature button up here ALSO
+  // flips the history grid below to the matching feature filter. The
+  // history panel listens for "viral-feature:change" via a window
+  // event (same pattern as history:refresh).
+  function setSubFeature(next: SubFeature) {
+    setSubFeatureState(next);
+    if (next === "talking-object" || next === "free") {
+      const featureTag = next === "free" ? "normal-video" : "talking-object";
+      window.dispatchEvent(
+        new CustomEvent("viral-feature:change", { detail: featureTag })
+      );
+    }
+  }
 
   // Model selector for Normal Video sub-feature: Grok (per-second) or
   // Veo (8s flat). Talking Object is locked to Veo internally.

@@ -155,6 +155,22 @@ export default function HistoryGrid({
   // Videos/Images toggle is hidden and only videos render.
   const [viralFeature, setViralFeature] = useState<"talking-object" | "normal-video">("talking-object");
 
+  // Cross-component sync — when the user clicks a feature button in the
+  // wizard at the top of the Viral tab, cinema.tsx fires a
+  // "viral-feature:change" event with the new tag. Mirror it here so
+  // both panels stay in lockstep without prop drilling.
+  useEffect(() => {
+    function onViralFeatureChange(e: Event) {
+      const detail = (e as CustomEvent).detail;
+      if (detail === "talking-object" || detail === "normal-video") {
+        setViralFeature(detail);
+      }
+    }
+    window.addEventListener("viral-feature:change", onViralFeatureChange);
+    return () =>
+      window.removeEventListener("viral-feature:change", onViralFeatureChange);
+  }, []);
+
   // Combine/merge multi-select. Only enabled on video tabs (UGC/Auto/Cinema)
   // — image tabs don't have a "combine" semantic. Reset whenever the tab or
   // project switches (the parent re-keys this component, but extra-safe).
