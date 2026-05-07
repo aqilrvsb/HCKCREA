@@ -28,17 +28,14 @@ const PURPLE_SOFT = "rgba(124, 77, 255, 0.18)";
 const PURPLE_FAINT = "rgba(124, 77, 255, 0.06)";
 
 export default function CinemaTab({ projectId }: { projectId?: string } = {}) {
-  // Sub-feature selector — Free Veo Prompt is hidden by product decision,
-  // so this is hardcoded to 'talking-object'. The old radio UI + Free-Veo
-  // JSX are preserved as dead branches in case we want to flip it back.
-  // useState (not const) so TS keeps the union type wide and the
-  // 'subFeature === "free"' branch below remains type-valid.
-  const [subFeature] = useState<SubFeature>("talking-object");
+  // Sub-feature selector — Talking Object (default, AI wizard) and
+  // Normal Video (free-form prompt with Grok/Veo model choice). Other
+  // 3 placeholder buttons in the radio strip are disabled.
+  const [subFeature, setSubFeature] = useState<SubFeature>("talking-object");
 
-  // Model is hardcoded to "veo" for the Viral tab. The backend route
-  // still accepts a `model` body param so we can flip Grok back on later
-  // by re-introducing the radio — just change the value sent in submit().
-  const model = "veo" as const;
+  // Model selector for Normal Video sub-feature: Grok (per-second) or
+  // Veo (8s flat). Talking Object is locked to Veo internally.
+  const [model, setModel] = useState<"grok" | "veo">("veo");
   const [imageMode, setImageMode] = useState<ImageMode>("text");
   const [refImage, setRefImage] = useState("");
   const [prompt, setPrompt] = useState("");
@@ -221,9 +218,10 @@ export default function CinemaTab({ projectId }: { projectId?: string } = {}) {
           'talking-object'). To bring the radio back, undo this block
           and re-enable the SubFeatureCard grid. */}
 
-      {/* Viral feature selector — 5 radio buttons. Only Talking Object is
-          functional today; the other 4 are visible placeholders so users
-          can see the roadmap. Defaults to Talking Object. */}
+      {/* Viral feature selector — 5 radio buttons. Talking Object (AI
+          wizard) and Normal Video (free-form prompt) are functional;
+          the other 3 are placeholders for upcoming features. Defaults
+          to Talking Object. */}
       <Card>
         <div className="flex items-center gap-2.5 mb-3">
           <span className="text-lg">🎬</span>
@@ -232,8 +230,18 @@ export default function CinemaTab({ projectId }: { projectId?: string } = {}) {
           </span>
         </div>
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
-          <ViralFeatureBtn active emoji="🗣️" label="Talking Object" />
-          <ViralFeatureBtn emoji="✨" label="Coming soon" disabled />
+          <ViralFeatureBtn
+            active={subFeature === "talking-object"}
+            onClick={() => setSubFeature("talking-object")}
+            emoji="🗣️"
+            label="Talking Object"
+          />
+          <ViralFeatureBtn
+            active={subFeature === "free"}
+            onClick={() => setSubFeature("free")}
+            emoji="🎞️"
+            label="Normal Video"
+          />
           <ViralFeatureBtn emoji="✨" label="Coming soon" disabled />
           <ViralFeatureBtn emoji="✨" label="Coming soon" disabled />
           <ViralFeatureBtn emoji="✨" label="Coming soon" disabled />
@@ -527,8 +535,24 @@ export default function CinemaTab({ projectId }: { projectId?: string } = {}) {
             className="text-[10px] font-mono uppercase tracking-wider px-2 py-1 rounded"
             style={{ background: PURPLE_FAINT, color: PURPLE, border: `1px solid ${PURPLE_SOFT}` }}
           >
-            8s · Veo
+            {model === "veo" ? "8s · Veo" : "Per-sec · Grok"}
           </span>
+        </div>
+
+        <Label>Model</Label>
+        <div className="grid grid-cols-2 gap-2 mb-4">
+          <ObjectiveBtn
+            active={model === "veo"}
+            onClick={() => setModel("veo")}
+            emoji="🎬"
+            label="Veo (8s)"
+          />
+          <ObjectiveBtn
+            active={model === "grok"}
+            onClick={() => setModel("grok")}
+            emoji="⚡"
+            label="Grok (per-sec)"
+          />
         </div>
 
         <Label>Image Mode</Label>
