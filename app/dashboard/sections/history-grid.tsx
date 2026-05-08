@@ -290,13 +290,18 @@ export default function HistoryGrid({
               "talking-object-image",
             ]);
         } else {
-          // Normal Video: free-form prompt rows. Exclude talking-object
-          // rows so the lists don't overlap.
-          q = q.eq("type", "video").not(
-            "metadata->>featureType",
-            "in",
-            "(talking-object,talking-object-image)"
-          );
+          // Normal Video: free-form prompt rows. The /api/generate/cinema
+          // route doesn't stamp metadata.featureType (it's a Talking-
+          // Object-only field), so Normal Video rows have NULL there.
+          //
+          // Postgres NULL gotcha: `NOT IN (...)` excludes NULL rows,
+          // which would hide every Normal Video generation. Use OR'd
+          // filter that matches NULL OR not-in-the-set instead.
+          q = q
+            .eq("type", "video")
+            .or(
+              `metadata->>featureType.is.null,metadata->>featureType.not.in.(talking-object,talking-object-image)`
+            );
         }
       }
       const { data } = await q;
