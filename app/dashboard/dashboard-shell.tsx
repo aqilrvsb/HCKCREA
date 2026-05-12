@@ -22,6 +22,7 @@ import FairytaleTab from "./tabs/fairytale";
 import HistoryGrid from "./sections/history-grid";
 import BillingSection from "./sections/billing";
 import CreditSection from "./sections/credit";
+import AffiliateSection from "./sections/affiliate";
 import UsageSection from "./sections/usage";
 import SettingsSection from "./sections/settings";
 import DashboardOverview from "./sections/dashboard-overview";
@@ -295,6 +296,11 @@ export default function DashboardShell({
           {view.kind === "credit" && (
             <SectionWrap>
               <CreditSection credits={credits} />
+            </SectionWrap>
+          )}
+          {view.kind === "affiliate" && (
+            <SectionWrap>
+              <AffiliateSection />
             </SectionWrap>
           )}
           {view.kind === "usage" && (

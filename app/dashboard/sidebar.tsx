@@ -15,6 +15,7 @@ import {
   Trash2,
   Loader2,
   CreditCard,
+  Users,
   Activity,
   Bookmark,
   MessageCircle,
@@ -37,6 +38,7 @@ export type SidebarView =
   | { kind: "tool"; toolId: "url-to-ad" }
   | { kind: "billing" }
   | { kind: "credit" }
+  | { kind: "affiliate" }
   | { kind: "usage" }
   | { kind: "saved-prompts" }
   | { kind: "storage" }
@@ -598,6 +600,7 @@ export default function Sidebar({
           [
             { kind: "billing" as const, label: "Billing", Icon: CreditCard },
             { kind: "credit" as const, label: "Top Up Credit", Icon: Wallet },
+            { kind: "affiliate" as const, label: "Affiliate", Icon: Users },
             { kind: "usage" as const, label: "Usage", Icon: Activity },
             { kind: "saved-prompts" as const, label: "Saved Prompts", Icon: Bookmark },
             { kind: "storage" as const, label: "Storage", Icon: HardDrive },

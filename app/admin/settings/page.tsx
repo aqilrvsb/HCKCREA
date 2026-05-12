@@ -95,6 +95,12 @@ export default function AdminSettings() {
   const [savingViral, setSavingViral] = useState(false);
   const [viralMsg, setViralMsg] = useState<string | null>(null);
 
+  // Affiliate commission rate (percent). Read by webhook on every paid
+  // subscription. Saved to app_settings.referral_commission_rate.
+  const [referralRate, setReferralRate] = useState("");
+  const [savingReferral, setSavingReferral] = useState(false);
+  const [referralMsg, setReferralMsg] = useState<string | null>(null);
+
   useEffect(() => {
     void load();
     void loadAdminDevice();
@@ -164,6 +170,10 @@ export default function AdminSettings() {
         }
         if (row.key === "viral_image_model") {
           setViralImageModel(String(row.value?.model || ""));
+        }
+        if (row.key === "referral_commission_rate") {
+          const r = Number(row.value?.rate);
+          setReferralRate(Number.isFinite(r) ? String(r) : "");
         }
       }
     } finally {
@@ -332,6 +342,34 @@ export default function AdminSettings() {
       setViralMsg(`✗ Save failed: ${e?.message || "unknown error"}`);
     } finally {
       setSavingViral(false);
+    }
+  }
+
+  async function saveReferralRate() {
+    setSavingReferral(true);
+    setReferralMsg(null);
+    try {
+      const n = Number(referralRate);
+      const clamped = Number.isFinite(n) ? Math.max(0, Math.min(100, n)) : 20;
+      const r = await fetch("/api/admin/settings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          key: "referral_commission_rate",
+          value: { rate: clamped },
+        }),
+      });
+      if (!r.ok) {
+        const err = await r.json().catch(() => ({}));
+        throw new Error(err?.error || `HTTP ${r.status}`);
+      }
+      setReferralMsg(`✓ Saved. Future payments will pay ${clamped}% commission.`);
+      void load();
+      setTimeout(() => setReferralMsg(null), 5000);
+    } catch (e: any) {
+      setReferralMsg(`✗ Save failed: ${e?.message || "unknown error"}`);
+    } finally {
+      setSavingReferral(false);
     }
   }
 
@@ -505,6 +543,8 @@ export default function AdminSettings() {
     // Already exposed via the dedicated "Viral — Talking Object" card.
     "viral_provider",
     "viral_image_model",
+    // Already exposed via the dedicated "Affiliate Commission" card.
+    "referral_commission_rate",
   ]);
 
   const grouped = useMemo(() => {
@@ -1068,6 +1108,71 @@ export default function AdminSettings() {
           </button>
           {viralMsg && (
             <span className="text-xs text-emerald-700 font-semibold">{viralMsg}</span>
+          )}
+        </div>
+      </div>
+
+      {/* Affiliate commission rate — % of every paid subscription that
+          gets paid out to the referrer. Read by the payment webhook
+          handlers. Applies only to type=subscription / checkout_signup;
+          credit pack topups do NOT earn commission. */}
+      <div className="card p-6 mb-6 border-2 border-rose-100 bg-rose-50/40">
+        <div className="flex items-center gap-2 mb-1">
+          <Package className="w-5 h-5 text-rose-600" />
+          <h2 className="font-display font-bold text-lg">Affiliate Commission</h2>
+        </div>
+        <p className="text-sm text-[var(--color-text-secondary)] mb-4">
+          Percentage of every subscription payment paid out to the referrer.
+          Applies to first purchase + every renewal. Topups don't earn commission.
+        </p>
+        <div className="grid md:grid-cols-2 gap-4">
+          <div>
+            <label className="block text-xs font-mono uppercase tracking-widest text-[var(--color-text-muted)] font-bold mb-2">
+              Commission rate
+            </label>
+            <div className="relative">
+              <input
+                type="number"
+                min="0"
+                max="100"
+                step="0.5"
+                value={referralRate}
+                onChange={(e) => setReferralRate(e.target.value)}
+                className="input !pr-8"
+                placeholder="20"
+              />
+              <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-bold text-[var(--color-text-muted)]">
+                %
+              </span>
+            </div>
+            <p className="text-[10px] text-[var(--color-text-muted)] mt-1">
+              Default 20%. Clamped 0–100. Change applies to the NEXT paid
+              subscription — in-flight payments use whatever rate was
+              active when they were created.
+            </p>
+          </div>
+          <div className="text-xs text-[var(--color-text-secondary)] flex items-end pb-1">
+            <div>
+              <div className="font-bold text-[var(--color-text-primary)] mb-1">Example</div>
+              <div className="font-mono">User pays RM 75 subscription:</div>
+              <div className="font-mono opacity-80">
+                referrer earns RM {((Number(referralRate) || 20) * 0.75).toFixed(2)}
+              </div>
+            </div>
+          </div>
+        </div>
+        <div className="flex items-center gap-3 mt-5">
+          <button
+            type="button"
+            onClick={() => void saveReferralRate()}
+            disabled={savingReferral}
+            className="px-5 py-2 rounded-lg bg-rose-600 text-white font-bold text-sm hover:bg-rose-700 disabled:opacity-50 flex items-center gap-2"
+          >
+            {savingReferral && <Loader2 className="w-4 h-4 animate-spin" />}
+            <Save className="w-4 h-4" /> Save Commission Rate
+          </button>
+          {referralMsg && (
+            <span className="text-xs text-emerald-700 font-semibold">{referralMsg}</span>
           )}
         </div>
       </div>

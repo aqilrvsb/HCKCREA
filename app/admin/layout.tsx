@@ -9,6 +9,7 @@ import {
   Activity,
   Settings,
   ArrowLeft,
+  Banknote,
 } from "lucide-react";
 
 export default async function AdminLayout({
@@ -58,6 +59,7 @@ export default async function AdminLayout({
 
   const NAV = [
     { href: "/admin/transactions", label: "Transactions", icon: CreditCard },
+    { href: "/admin/cashout", label: "Cashout", icon: Banknote },
     { href: "/admin/clients", label: "Clients", icon: Users },
     { href: "/admin/usage", label: "Usage", icon: Activity },
     { href: "/admin/settings", label: "Settings", icon: Settings },
