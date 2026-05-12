@@ -37,6 +37,10 @@ export type VideoCascadeTierLog = {
   tier: string;
   ok: boolean;
   error?: string;
+  /** Number of images sent to the upstream — useful for verifying the
+   *  product-ref triplicate behavior. Single product image with r2v
+   *  mode should show imageCount: 3 here. */
+  imageCount?: number;
 };
 
 export type VideoCascadeResult =
@@ -157,6 +161,7 @@ export async function generateVideoWithCascade(
     tier: `1:p2:${input.primaryModel}`,
     ok: t1.ok,
     error: t1.error ?? undefined,
+    imageCount: input.imageUrls?.length || 0,
   });
   if (t1.ok && t1.taskId) {
     return {
@@ -176,6 +181,7 @@ export async function generateVideoWithCascade(
     tier: `2:p1:${input.primaryModel}`,
     ok: t2.ok,
     error: t2.error ?? undefined,
+    imageCount: input.imageUrls?.length || 0,
   });
   if (t2.ok && t2.taskId) {
     console.warn(`[video-cascade] tier2 (p1) saved the row`);
@@ -196,6 +202,7 @@ export async function generateVideoWithCascade(
     tier: `3:p3:${input.primaryModel}`,
     ok: t3.ok,
     error: t3.error ?? undefined,
+    imageCount: input.imageUrls?.length || 0,
   });
   if (t3.ok && t3.taskId) {
     console.warn(`[video-cascade] tier3 (p3) saved the row`);
