@@ -99,39 +99,9 @@ export default function Sidebar({
   const [autoPostModalOpen, setAutoPostModalOpen] = useState(false);
   const [extInfo, setExtInfo] = useState<{ version: string; download_url: string } | null>(null);
 
-  // Live storage stats — rendered inline next to the Storage sidebar
-  // entry as "245 / 1024 MB". Refreshes on the storage:saved window
-  // event (fired by /api/storage/save success) so a fresh save bumps
-  // the counter without the user reloading the page.
-  const [storageStats, setStorageStats] = useState<{
-    used: number;
-    quota: number;
-  } | null>(null);
-  useEffect(() => {
-    let cancelled = false;
-    async function load() {
-      try {
-        const r = await fetch("/api/storage/list", {
-          credentials: "include",
-          cache: "no-store",
-        });
-        if (!r.ok) return;
-        const d = await r.json();
-        if (cancelled) return;
-        setStorageStats({
-          used: Number(d?.used_mb || 0),
-          quota: Number(d?.quota_mb || 1024),
-        });
-      } catch {}
-    }
-    void load();
-    const onSaved = () => void load();
-    window.addEventListener("storage:saved", onSaved);
-    return () => {
-      cancelled = true;
-      window.removeEventListener("storage:saved", onSaved);
-    };
-  }, []);
+  // Storage stats fetch removed — the Storage sidebar entry is hidden
+  // now that every generation auto-rehosts to peninglab-content with a
+  // 30-day B2 lifecycle. No more user-curated quota UX.
 
   async function openAutoPostModal() {
     setAutoPostModalOpen(true);
@@ -603,26 +573,15 @@ export default function Sidebar({
             { kind: "affiliate" as const, label: "Affiliate", Icon: Users },
             { kind: "usage" as const, label: "Usage", Icon: Activity },
             { kind: "saved-prompts" as const, label: "Saved Prompts", Icon: Bookmark },
-            { kind: "storage" as const, label: "Storage", Icon: HardDrive },
+            // Storage tab hidden — every generation now auto-rehosts to
+            // peninglab-content B2 bucket at settle time, so the manual
+            // "Save" UX is no longer needed. Files live for 30 days via
+            // B2 lifecycle rule. Re-enable this entry if we ever bring
+            // back user-curated permanent saves.
+            // { kind: "storage" as const, label: "Storage", Icon: HardDrive },
           ]
         ).map(({ kind, label, Icon }) => {
           const isActive = view.kind === kind;
-          const isStorage = kind === "storage";
-          // Storage row shows live "used / quota MB" inline so the user
-          // doesn't need to open the page to see how much space they
-          // have left. Refreshes on storage:saved events.
-          const storageBadge =
-            isStorage && storageStats
-              ? `${Math.round(storageStats.used)} / ${Math.round(storageStats.quota)} MB`
-              : null;
-          // Storage's pct gets a colour cue: orange ≥80%, red ≥95%.
-          const storagePctColor = (() => {
-            if (!isStorage || !storageStats || storageStats.quota === 0) return null;
-            const pct = (storageStats.used / storageStats.quota) * 100;
-            if (pct >= 95) return "#ef4444";
-            if (pct >= 80) return "var(--color-orange)";
-            return null;
-          })();
           return (
             <button
               key={kind}
@@ -648,16 +607,6 @@ export default function Sidebar({
                 }}
               />
               <span className="flex-1 text-left truncate">{label}</span>
-              {storageBadge && (
-                <span
-                  className="font-mono text-[9px] tracking-tight whitespace-nowrap"
-                  style={{
-                    color: storagePctColor || "var(--color-text-muted)",
-                  }}
-                >
-                  {storageBadge}
-                </span>
-              )}
             </button>
           );
         })}

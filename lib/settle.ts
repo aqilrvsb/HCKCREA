@@ -14,6 +14,7 @@ import { getP2Config } from "@/lib/settings";
 import { deduct, priceFor, type PriceModelHint } from "@/lib/deduct";
 import { onSegmentSettled } from "@/lib/segment-chain";
 import { generateUgcPostMeta } from "@/lib/ugc-post-meta";
+import { uploadFromUrl, buildKey, type StorageType } from "@/lib/b2";
 
 // Map a model string (from history.metadata.model) to a per-model rate
 // hint. Used at settle time so the live admin rate (rate_<model>) is
@@ -29,6 +30,94 @@ function inferModelHint(model?: string | null): PriceModelHint | undefined {
   if (m.includes("nano-banana") || m.includes("banana")) return "banana_pro";
   if (m.includes("gpt-image")) return "gpt_image";
   return undefined;
+}
+
+// ── B2 auto-upload helpers ────────────────────────────────────────────
+// Every successful generation gets rehosted to our peninglab-content B2
+// bucket so the file lives on infrastructure we control (consistent CDN,
+// 30-day lifecycle via B2 rule, immutable cache headers baked into the
+// bucket config). Replaces output_url with the S3-style B2 URL on
+// success — keeps the provider URL on failure so the row is never broken.
+
+function storageTypeForHistory(hist: HistoryRow): StorageType | null {
+  // Match the layout in lib/b2.ts → buildKey: users/{userId}/{type}/{id}.{ext}
+  if (hist.type === "image") return "image";
+  if (hist.type === "fairytale-scene") return "fairytale-scene";
+  if (hist.type === "fairytale") return "fairytale";
+  if (hist.tab === "video" || hist.type === "video") return "ugc";
+  if (hist.tab === "auto" || hist.type === "auto-content") return "auto";
+  if (hist.tab === "cinema") return "cinema";
+  if (hist.tab === "seedance") return "seedance";
+  if (hist.tab === "clone" || hist.type === "clone") return "clone";
+  return null;
+}
+
+function extFromUrl(url: string, fallback: string): string {
+  const path = url.split("?")[0];
+  const m = path.match(/\.([a-zA-Z0-9]{2,5})$/);
+  return m ? m[1].toLowerCase() : fallback;
+}
+
+function contentTypeFor(ext: string): string {
+  const e = ext.toLowerCase();
+  if (e === "png") return "image/png";
+  if (e === "jpg" || e === "jpeg") return "image/jpeg";
+  if (e === "webp") return "image/webp";
+  if (e === "mp4") return "video/mp4";
+  if (e === "webm") return "video/webm";
+  if (e === "mov") return "video/quicktime";
+  return "application/octet-stream";
+}
+
+async function rehostOutputToB2(
+  admin: ReturnType<typeof createAdminClient>,
+  hist: HistoryRow,
+  providerUrl: string
+): Promise<void> {
+  try {
+    const sType = storageTypeForHistory(hist);
+    if (!sType) return; // unknown row type → leave provider URL alone
+
+    const isImage = sType === "image" || sType === "fairytale-scene";
+    const fallbackExt = isImage ? "png" : "mp4";
+    const ext = extFromUrl(providerUrl, fallbackExt);
+    const key = buildKey({
+      userId: hist.user_id,
+      type: sType,
+      historyId: hist.id,
+      ext,
+    });
+    const publicBucket = process.env.B2_BUCKET_PUBLIC || "peninglab-content";
+    await uploadFromUrl({
+      url: providerUrl,
+      key,
+      contentType: contentTypeFor(ext),
+      bucket: publicBucket,
+    });
+
+    // S3-style URL — what the user verified serves with the bucket's
+    // default `cache-control: public, max-age=2592000, immutable` headers.
+    // Format: https://{bucket}.{s3-host}/{key}
+    const endpointUrl = new URL(
+      process.env.B2_ENDPOINT || "https://s3.us-east-005.backblazeb2.com"
+    );
+    const b2Url = `https://${publicBucket}.${endpointUrl.host}/${key}`;
+
+    await admin
+      .from("history")
+      .update({
+        output_url: b2Url,
+        thumbnail_url: hist.type === "video" || hist.type === "auto-content" ? b2Url : null,
+      })
+      .eq("id", hist.id);
+  } catch (e: any) {
+    console.warn(
+      `[settle] B2 rehost failed for ${hist.id} (${hist.type}):`,
+      e?.message || e
+    );
+    // Don't throw — the provider URL is still in DB, file will play
+    // for as long as the provider keeps it (~7 days for Crun).
+  }
 }
 
 export type HistoryRow = {
@@ -392,6 +481,13 @@ export async function settleHistoryRow(hist: HistoryRow): Promise<SettleResult> 
         error_message: null,
       })
       .eq("id", hist.id);
+
+    // Auto-rehost the freshly-produced output to our peninglab-content B2
+    // bucket. Replaces output_url with the S3 URL so the file lives on
+    // our CDN with consistent caching + 30-day B2 lifecycle TTL, instead
+    // of dangling on the provider's CDN where it expires after ~7 days.
+    // Best-effort — keeps provider URL on any failure.
+    await rehostOutputToB2(admin, hist, r.outputUrl);
 
     // Auto-save the prompt to the user's library. Best-effort — a failure
     // here never breaks the generation path.

@@ -345,18 +345,15 @@ export default function HistoryGrid({
     [parents]
   );
 
-  // Visibility rules (two flavours):
-  //   • Default rows (image / video / cinema / auto / clone): hide
-  //     when 14-day TTL is up AND row was never saved.
-  //   • Storytelling rows (fairytale + fairytale-scene): hide EARLIER —
-  //     once they hit ≤1 day to expiry (= age ≥ 13 days). Storytelling
-  //     cards show a yellow/red "Xd" countdown chip on the Save button
-  //     so the user is warned BEFORE the row vanishes. The earlier
-  //     cutoff is intentional — storytelling generates 10+ scene
-  //     images per story; without aggressive cleanup the grid bloats
-  //     with abandoned generations.
-  const TTL_MS = 14 * 24 * 60 * 60 * 1000;
-  const STORY_CUTOFF_MS = 13 * 24 * 60 * 60 * 1000;
+  // Visibility rules — every generation is now auto-rehosted to B2 with
+  // a 30-day lifecycle rule (see lib/settle.ts → rehostOutputToB2). The
+  // dashboard hides rows whose B2 file is about to expire so users
+  // aren't shown broken cards.
+  //   • Default rows: hide once 30-day TTL is reached.
+  //   • Storytelling: same 30-day window, but show the warning chip
+  //     ≥29 days so users see the countdown before the row vanishes.
+  const TTL_MS = 30 * 24 * 60 * 60 * 1000;
+  const STORY_CUTOFF_MS = 29 * 24 * 60 * 60 * 1000;
   const visibleParents = useMemo(() => {
     const now = Date.now();
     return parents.filter((p) => {
@@ -947,12 +944,13 @@ function HistoryCardInner({
     }
   }
 
-  // 14-day countdown — Crun deletes its temp files 14 days after creation.
-  // Show a small badge on each unsaved card so users know to Save before TTL.
+  // 30-day countdown — matches the B2 lifecycle rule on
+  // peninglab-content bucket. Files older than 30 days are auto-deleted
+  // by B2; the dashboard mirrors that with this countdown badge.
   const expiryDays = useMemo(() => {
     if (!item.created_at) return null;
     const created = new Date(item.created_at).getTime();
-    const expiresAt = created + 14 * 24 * 60 * 60 * 1000;
+    const expiresAt = created + 30 * 24 * 60 * 60 * 1000;
     const remainingMs = expiresAt - Date.now();
     return Math.ceil(remainingMs / (24 * 60 * 60 * 1000));
   }, [item.created_at]);
