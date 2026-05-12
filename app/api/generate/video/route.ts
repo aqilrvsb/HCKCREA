@@ -1,10 +1,10 @@
 import { NextResponse, after } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { p2CreateTask } from "@/lib/p2";
 import { priceFor } from "@/lib/deduct";
 import { getP2Config } from "@/lib/settings";
 import { buildVeoLocks, getVoiceDescription } from "@/lib/veo-voices";
+import { generateVideoWithCascade } from "@/lib/video-cascade";
 
 // POST /api/generate/video — UGC tab. Placeholder-first + auth-light.
 //
@@ -130,8 +130,9 @@ export async function POST(req: Request) {
 
       // For 16s clips fire Veo at 8s only — seg-2 + merge are handled
       // by lib/segment-chain.ts onSegmentSettled when this row settles.
-      const created = await p2CreateTask({
-        model,
+      // Cascade: p2 → p1 → p3, plus product-ref triplicate at the top.
+      const result = await generateVideoWithCascade({
+        primaryModel: model,
         userId: user.id,
         prompt,
         imageUrls,
@@ -140,21 +141,35 @@ export async function POST(req: Request) {
         imageMode,
       });
 
-      const provider = created.provider || "p2";
-      if (!created.ok || !created.task_id) {
+      if (!result.ok) {
         await admin.from("history").update({
           status: "failed",
           cost: rate,
-          error_message: created.error || "P2 create failed",
-          metadata: { aspectRatio, imageMode, model, provider, upload_status: "failed" },
+          error_message: result.error,
+          metadata: {
+            aspectRatio, imageMode, model,
+            tier_log: result.tierLog,
+            upload_status: "failed",
+          },
         }).eq("id", historyId);
         return;
       }
 
       await admin.from("history").update({
-        task_id: created.task_id,
+        task_id: result.taskId,
         cost: rate,
-        metadata: { aspectRatio, imageMode, model, provider, upload_status: "done" },
+        metadata: {
+          aspectRatio,
+          imageMode,
+          model: result.actualModel,
+          provider: result.actualProvider,
+          fallback_used: result.fallbackUsed,
+          tier_log: result.tierLog,
+          upload_status: "done",
+          ...(is16s
+            ? { duration_mode: "16s", seg2_prompt: rawPrompt }
+            : {}),
+        },
       }).eq("id", historyId);
     } catch (e: any) {
       await admin.from("history").update({

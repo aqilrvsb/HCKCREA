@@ -103,10 +103,116 @@ export async function p3CreateImage(input: {
   return { ok: true, task_id: String(taskId), raw: data, provider: "p3" };
 }
 
+// ─── VIDEO — submit Veo task ────────────────────────────────────────────
+//
+// Mountsea Veo 2/3/3.1 wrapper. POST /gemini/video/generate returns a
+// taskId; poll via p3GetStatus (same endpoint as image — Mountsea
+// unifies the polling path). Used by the video cascade as tier 3
+// when p2 (Crun) + p1 (GeminiGen) both fail.
+//
+// Model mapping (caller's p2-style name → Mountsea's bare key):
+//   "google/veo-3.1-fast/*"   → "veo31_fast"
+//   "google/veo-3.1/*"        → "veo31_quality"
+//   "google/veo-3-fast/*"     → "veo3_fast"
+//   "google/veo-3/*"          → "veo3_quality"
+//   "google/veo-2-fast/*"     → "veo2_fast"
+//   "google/veo-2/*"          → "veo2_quality"
+// Action is auto-detected from imageUrls count + model name:
+//   • 0 images  → text2video
+//   • 1-2       → img2video (start frame / start+end frames)
+//   • 3+        → ingredients2video (forced model=veo31_fast_ingredients)
+function mountseaVeoModel(model: string): string {
+  const m = model.toLowerCase();
+  if (m.includes("veo-3.1-fast") || m.includes("veo3.1-fast") || m.includes("veo31-fast")) return "veo31_fast";
+  if (m.includes("veo-3.1") || m.includes("veo3.1") || m.includes("veo31")) return "veo31_quality";
+  if (m.includes("veo-3-fast") || m.includes("veo3-fast")) return "veo3_fast";
+  if (m.includes("veo-3") || m.includes("veo3")) return "veo3_quality";
+  if (m.includes("veo-2-fast") || m.includes("veo2-fast")) return "veo2_fast";
+  return "veo2_quality";
+}
+
+export async function p3CreateVideo(input: {
+  prompt: string;
+  model?: string;
+  aspectRatio?: string;
+  imageUrls?: string[];
+}): Promise<P3CreateResult> {
+  const refs = (input.imageUrls || []).filter((u) => typeof u === "string" && u.trim());
+  let action: "text2video" | "img2video" | "ingredients2video";
+  if (refs.length === 0) action = "text2video";
+  else if (refs.length >= 3) action = "ingredients2video";
+  else action = "img2video";
+
+  // Mountsea constraint: ingredients2video forces model=veo31_fast_ingredients.
+  // For text2video / img2video we use whatever the caller asked for, mapped.
+  const requestedModel = mountseaVeoModel(input.model || "veo31_fast");
+  const actualModel =
+    action === "ingredients2video" ? "veo31_fast_ingredients" : requestedModel;
+
+  const body: any = {
+    prompt: input.prompt,
+    action,
+    model: actualModel,
+    aspectRatio: input.aspectRatio || "9:16",
+    translation: false,
+  };
+  if (refs.length > 0) body.imageList = refs.slice(0, action === "ingredients2video" ? 3 : 2);
+
+  const { ok, status, data } = await msFetch("POST", "/gemini/video/generate", body);
+  if (!ok) {
+    const err = data?.errorMessage || data?.error || data?.message || `Mountsea HTTP ${status}`;
+    return { ok: false, error: String(err), raw: data, provider: "p3" };
+  }
+  const taskId = data?.taskId || data?.task_id || data?.id;
+  if (!taskId) {
+    return { ok: false, error: "Mountsea returned no taskId", raw: data, provider: "p3" };
+  }
+  return { ok: true, task_id: String(taskId), raw: data, provider: "p3" };
+}
+
+// ─── VIDEO — Grok via Mountsea ────────────────────────────────────────
+//
+// POST /xai/videos — different endpoint than the Gemini family. Returns
+// taskId; poll via p3GetGrokStatus. Used when Viral Normal Video is
+// configured to use Grok on Mountsea (admin setting).
+export async function p3CreateGrokVideo(input: {
+  prompt: string;
+  duration?: number;          // 6 | 10 | 12 | 16 | 20
+  aspectRatio?: "2:3" | "3:2" | "1:1" | "9:16" | "16:9";
+  resolution?: "480P" | "720P";
+  imageUrls?: string[];       // up to 5 refs
+}): Promise<P3CreateResult> {
+  const allowed = [6, 10, 12, 16, 20];
+  const dur = allowed.includes(Number(input.duration)) ? Number(input.duration) : 6;
+  const body: any = {
+    prompt: input.prompt.substring(0, 1000),
+    model: "grok-imagine-video",
+    duration: dur,
+    aspectRatio: input.aspectRatio || "9:16",
+    resolution: input.resolution || "720P",
+  };
+  const refs = (input.imageUrls || []).filter(Boolean).slice(0, 5);
+  if (refs.length > 0) body.images = refs;
+
+  const { ok, status, data } = await msFetch("POST", "/xai/videos", body);
+  if (!ok) {
+    const err = data?.errorMessage || data?.error || data?.message || `Mountsea HTTP ${status}`;
+    return { ok: false, error: String(err), raw: data, provider: "p3" };
+  }
+  const taskId = data?.taskId || data?.task_id;
+  if (!taskId) {
+    return { ok: false, error: "Mountsea returned no taskId", raw: data, provider: "p3" };
+  }
+  return { ok: true, task_id: String(taskId), raw: data, provider: "p3" };
+}
+
 // ─── TASK STATUS / RESULT ─────────────────────────────────────────────
 //
 // Polls /gemini/task/result. Returns the same shape p2GetStatus uses
 // so settle.ts can branch on provider with minimal code change.
+//
+// Handles BOTH image AND video results — Mountsea's response has either
+// result.imageUrls[] or result.videoUrl depending on the task type.
 export async function p3GetStatus(taskId: string): Promise<P3StatusResult> {
   const { ok, status, data } = await msFetch(
     "GET",
@@ -122,9 +228,14 @@ export async function p3GetStatus(taskId: string): Promise<P3StatusResult> {
 
   const raw = String(data?.status || "").toLowerCase();
   if (raw === "completed") {
-    // Result shape: { result: { imageUrls: ["https://..."] } }
-    // Sometimes snake_case (image_urls), tolerate both.
+    // Result shape varies by task type:
+    //   image:  { result: { imageUrls: ["https://..."] } }
+    //   video:  { result: { videoUrl: "https://..." } }
+    //   grok:   { result: { videoUrl: "https://..." } }  (xai task)
+    // Snake_case variants tolerated for forward-compat.
     const url =
+      data?.result?.videoUrl ||
+      data?.result?.video_url ||
       data?.result?.imageUrls?.[0] ||
       data?.result?.image_urls?.[0] ||
       data?.result?.url ||
@@ -132,7 +243,7 @@ export async function p3GetStatus(taskId: string): Promise<P3StatusResult> {
     if (!url) {
       return {
         status: "failed",
-        error: "Mountsea reported completed but no imageUrls in result",
+        error: "Mountsea reported completed but no imageUrls/videoUrl in result",
         raw: data,
       };
     }

@@ -10,6 +10,7 @@ import {
 import { priceFor, deduct } from "@/lib/deduct";
 import { rehostToContent } from "@/lib/b2";
 import { generateImageWithCascade } from "@/lib/image-cascade";
+import { generateVideoWithCascade } from "@/lib/video-cascade";
 
 // Models P3 / Mountsea natively supports. If admin picked something
 // else (e.g. z-image, gpt-image-2 — both P2-only) we fall back to fast.
@@ -642,8 +643,12 @@ export async function POST(req: Request) {
       return;
     }
 
-    const veoCreate = await p2CreateTask({
-      model: veoModel,
+    // Video cascade: p2 → p1 → p3 with Veo 3.1. imageMode: "frame" (i2v)
+    // means the generated character image is the start frame, not a
+    // product ref — so triplicate-for-r2v inside the cascade is a no-op
+    // here (only fires on ingredient/r2v mode).
+    const veoResult = await generateVideoWithCascade({
+      primaryModel: veoModel,
       userId: user.id,
       prompt: promptPair.video_prompt,
       imageUrls: [imageUrl],
@@ -652,6 +657,10 @@ export async function POST(req: Request) {
       imageMode: "frame",
     });
 
+    const veoCreate: { ok: boolean; task_id?: string; provider?: "p1" | "p2" | "p3"; error?: string } =
+      veoResult.ok
+        ? { ok: true, task_id: veoResult.taskId, provider: veoResult.actualProvider }
+        : { ok: false, error: veoResult.error };
     const veoProvider = veoCreate.provider || "p2";
 
     if (!veoCreate.ok || !veoCreate.task_id) {

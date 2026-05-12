@@ -2,6 +2,7 @@ import { NextResponse, after } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { p2CreateTask } from "@/lib/p2";
+import { generateVideoWithCascade } from "@/lib/video-cascade";
 import { getCinemaRate, getP2Config } from "@/lib/settings";
 
 // POST /api/generate/cinema — Viral tab. Two model options:
@@ -114,31 +115,71 @@ export async function POST(req: Request) {
         return;
       }
 
-      // Build the provider call. Both Grok and Veo go through p2CreateTask
-      // (Crun multi-provider gateway). The `mode: "normal"` extra is a
-      // Grok-specific knob; harmless for Veo (gateway ignores unknown extras).
-      const created = await p2CreateTask({
-        model,
-        prompt,
-        imageUrls: imageMode === "image" && imageUrl ? [imageUrl] : [],
-        durationMode: String(duration),
-        aspectRatio,
-        resolution,
-        extra: modelChoice === "grok" ? { mode: "normal" } : undefined,
-      });
+      // Veo flows through the 3-tier cascade (p2 → p1 → p3); Grok stays
+      // on p2 only (no Grok fallback path defined).
+      const imgs = imageMode === "image" && imageUrl ? [imageUrl] : [];
+      const imgMode: "frame" | "ingredient" | "text" =
+        imageMode === "image" ? "ingredient" : "text";
 
-      const provider = created.provider || "p2";
-      if (!created.ok || !created.task_id) {
+      let createdOk = false;
+      let createdTaskId: string | null = null;
+      let createdError: string | null = null;
+      let actualProvider = "p2";
+      let actualModel = model;
+      let fallbackUsed = false;
+      let tierLog: any = undefined;
+
+      if (modelChoice === "veo") {
+        const result = await generateVideoWithCascade({
+          primaryModel: model,
+          prompt,
+          imageUrls: imgs,
+          durationMode: String(duration),
+          aspectRatio,
+          imageMode: imgMode,
+        });
+        if (result.ok) {
+          createdOk = true;
+          createdTaskId = result.taskId;
+          actualProvider = result.actualProvider;
+          actualModel = result.actualModel;
+          fallbackUsed = result.fallbackUsed;
+        } else {
+          createdError = result.error;
+        }
+        tierLog = result.tierLog;
+      } else {
+        // Grok path — single shot on p2.
+        const created = await p2CreateTask({
+          model,
+          prompt,
+          imageUrls: imgs,
+          durationMode: String(duration),
+          aspectRatio,
+          resolution,
+          extra: { mode: "normal" },
+        });
+        if (created.ok && created.task_id) {
+          createdOk = true;
+          createdTaskId = created.task_id;
+          actualProvider = created.provider || "p2";
+        } else {
+          createdError = created.error || "Grok create failed";
+        }
+      }
+
+      if (!createdOk) {
         await admin.from("history").update({
           status: "failed",
           cost,
-          error_message: created.error || "Viral create failed",
+          error_message: createdError || "Viral create failed",
           metadata: {
             model, imageMode, resolution,
             aspectRatio: imageMode === "image" ? null : aspectRatio,
             cinemaProvider: modelChoice === "veo" ? "veo" : "grok-imagine",
             modelChoice,
-            provider,
+            provider: actualProvider,
+            tier_log: tierLog,
             upload_status: "failed",
           },
         }).eq("id", historyId);
@@ -146,14 +187,16 @@ export async function POST(req: Request) {
       }
 
       await admin.from("history").update({
-        task_id: created.task_id,
+        task_id: createdTaskId,
         cost,
         metadata: {
-          model, imageMode, resolution,
+          model: actualModel, imageMode, resolution,
           aspectRatio: imageMode === "image" ? null : aspectRatio,
           cinemaProvider: modelChoice === "veo" ? "veo" : "grok-imagine",
           modelChoice,
-          provider,
+          provider: actualProvider,
+          fallback_used: fallbackUsed,
+          tier_log: tierLog,
           upload_status: "done",
         },
       }).eq("id", historyId);

@@ -6,6 +6,7 @@ import { orChat, orChatVision } from "@/lib/openrouter";
 import { priceFor, hasEnoughCredits } from "@/lib/deduct";
 import { getP2Config } from "@/lib/settings";
 import { buildVeoLocks } from "@/lib/veo-voices";
+import { generateVideoWithCascade } from "@/lib/video-cascade";
 import {
   FRAMEWORKS,
   SHOP_CTA_VARIATIONS,
@@ -1229,9 +1230,10 @@ CRITICAL: Respond with ONLY a JSON array. NO analysis, NO explanation, NO markdo
         ? veoSeg2PromptFor(item, lockedVoiceLine)
         : "";
 
-      // For 16s, fire seg-1 only at 8s — chain handles seg-2 + merge.
-      const created = await p2CreateTask({
-        model,
+      // 3-tier video cascade: p2 → p1 → p3, with product-ref triplicate
+      // at the top (handled inside video-cascade.ts).
+      const cascaded = await generateVideoWithCascade({
+        primaryModel: model,
         userId: user.id,
         prompt: seg1Prompt,
         imageUrls: refImage ? [refImage] : [],
@@ -1247,23 +1249,25 @@ CRITICAL: Respond with ONLY a JSON array. NO analysis, NO explanation, NO markdo
           project_id: projectId,
           type: "auto-content",
           tab: "auto",
-          status: created.ok && created.task_id ? "pending" : "failed",
+          status: cascaded.ok ? "pending" : "failed",
           prompt: seg1Prompt,
           caption: item.caption || "",
           framework: item.framework || `Video ${idx + 1}`,
           reference_url: refImage || null,
-          task_id: created.task_id || null,
+          task_id: cascaded.ok ? cascaded.taskId : null,
           duration: is16s ? 16 : 8,
           cost: videoRate,
           batch_id: batch?.id,
           // 16s chain fields — onSegmentSettled reads these to fire seg-2.
           segment_index: is16s ? 1 : null,
           frame_anchor: is16s ? "last" : null,
-          error_message: created.ok ? null : created.error || "P2 create failed",
+          error_message: cascaded.ok ? null : cascaded.error,
           metadata: {
             idx,
-            model,
-            provider: created.provider || "p2",
+            model: cascaded.ok ? cascaded.actualModel : model,
+            provider: cascaded.ok ? cascaded.actualProvider : "p2",
+            fallback_used: cascaded.ok ? cascaded.fallbackUsed : false,
+            tier_log: cascaded.tierLog,
             batch_id: batch?.id,
             framework: item.framework,
             framework_type: item.frameworkType,

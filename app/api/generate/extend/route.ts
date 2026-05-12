@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { p2CreateTask } from "@/lib/p2";
+import { generateVideoWithCascade } from "@/lib/video-cascade";
 import { priceAndCheck } from "@/lib/deduct";
 import { getP2Config } from "@/lib/settings";
 import { falExtractFrame } from "@/lib/fal";
@@ -133,8 +134,10 @@ export async function POST(req: Request) {
         ? [startUrl, endFrameUrl].filter(Boolean)
         : [startUrl].filter(Boolean);
 
-  const created = await p2CreateTask({
-    model,
+  // Video cascade: p2 → p1 → p3 with Veo 3.1. Product-ref triplicate
+  // fires automatically for ingredient mode + single image.
+  const cascaded = await generateVideoWithCascade({
+    primaryModel: model,
     userId: user.id,
     prompt: continuationPrompt,
     imageUrls,
@@ -147,9 +150,14 @@ export async function POST(req: Request) {
           ? "ingredient"
           : "text",
   });
-  if (!created.ok || !created.task_id) {
-    return NextResponse.json({ error: created.error || "P2 create failed" }, { status: 502 });
+  if (!cascaded.ok) {
+    return NextResponse.json({ error: cascaded.error }, { status: 502 });
   }
+  const created: { ok: true; task_id: string; provider: "p1" | "p2" | "p3" } = {
+    ok: true,
+    task_id: cascaded.taskId,
+    provider: cascaded.actualProvider,
+  };
 
   const { data: hist } = await admin
     .from("history")
@@ -167,7 +175,10 @@ export async function POST(req: Request) {
       metadata: {
         parent_id: parent.id,
         is_extension: true,
-        model,
+        model: cascaded.actualModel,
+        provider: cascaded.actualProvider,
+        fallback_used: cascaded.fallbackUsed,
+        tier_log: cascaded.tierLog,
         image_mode: imageMode,
         end_frame_url: endFrameUrl || null,
         start_frame_source: extractedFromFal
