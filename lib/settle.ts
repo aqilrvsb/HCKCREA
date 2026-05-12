@@ -15,6 +15,8 @@ import { deduct, priceFor, type PriceModelHint } from "@/lib/deduct";
 import { onSegmentSettled } from "@/lib/segment-chain";
 import { generateUgcPostMeta } from "@/lib/ugc-post-meta";
 import { uploadFromUrlToContent, buildKey, type StorageType } from "@/lib/b2";
+import { generateImageWithCascade } from "@/lib/image-cascade";
+import { generateVideoWithCascade } from "@/lib/video-cascade";
 
 // Map a model string (from history.metadata.model) to a per-model rate
 // hint. Used at settle time so the live admin rate (rate_<model>) is
@@ -323,34 +325,88 @@ async function tryAutoRetry(
     ? sanitiseForAudioRetry(hist.prompt)
     : hist.prompt;
 
-  const created = await p2CreateTask({
-    model,
-    userId: hist.user_id,
-    prompt: retryPrompt,
-    imageUrls: refImage ? [refImage] : [],
-    durationMode,
-    aspectRatio,
-    imageMode,
-  });
+  // Route to the right cascade based on row type:
+  //   • image / fairytale-scene → image cascade (p2/p3 → p1 → other)
+  //   • cinema with Grok model → no cascade (Grok stays on p2)
+  //   • everything else (video / ugc / auto-content / clone / cinema Veo)
+  //     → video cascade (p2 → p1 → p3)
+  const isImageRow =
+    hist.tab === "image" ||
+    hist.type === "image" ||
+    hist.type === "fairytale-scene";
+  const isGrok = model.toLowerCase().includes("grok");
 
-  if (!created.ok || !created.task_id) {
-    // Auto-retry itself failed to dispatch — let the failed status stand
-    // and surface the create error so the user can manually retry.
-    return false;
+  let newTaskId: string | null = null;
+  let newProvider: "p1" | "p2" | "p3" = "p2";
+  let newModel: string = model;
+  let fallbackUsed = false;
+  let tierLog: any = undefined;
+
+  if (isImageRow) {
+    const primaryProvider: "p2" | "p3" =
+      meta.primary_provider === "p3" || meta.provider === "p3" ? "p3" : "p2";
+    const r = await generateImageWithCascade({
+      primaryProvider,
+      primaryModel: model.replace(/^google\//, "").replace(/^openai\//, ""),
+      primaryModelP2: model,
+      prompt: retryPrompt,
+      aspectRatio,
+      imageUrls: refImage ? [refImage] : undefined,
+    });
+    if (!r.ok) return false;
+    newTaskId = r.taskId;
+    newProvider = r.actualProvider;
+    newModel = r.actualModel;
+    fallbackUsed = r.fallbackUsed;
+    tierLog = r.tierLog;
+  } else if (isGrok) {
+    // Grok: no cascade defined, single shot on p2 same as before.
+    const created = await p2CreateTask({
+      model,
+      userId: hist.user_id,
+      prompt: retryPrompt,
+      imageUrls: refImage ? [refImage] : [],
+      durationMode,
+      aspectRatio,
+      imageMode,
+    });
+    if (!created.ok || !created.task_id) return false;
+    newTaskId = created.task_id;
+    newProvider = (created.provider || "p2") as "p1" | "p2" | "p3";
+  } else {
+    // Video cascade for UGC / Auto / Cinema Veo / Talking Object / Extend.
+    const r = await generateVideoWithCascade({
+      primaryModel: model,
+      userId: hist.user_id,
+      prompt: retryPrompt,
+      imageUrls: refImage ? [refImage] : [],
+      durationMode,
+      aspectRatio,
+      imageMode,
+    });
+    if (!r.ok) return false;
+    newTaskId = r.taskId;
+    newProvider = r.actualProvider;
+    newModel = r.actualModel;
+    fallbackUsed = r.fallbackUsed;
+    tierLog = r.tierLog;
   }
 
   await admin
     .from("history")
     .update({
       status: "pending",
-      task_id: created.task_id,
+      task_id: newTaskId,
       // If we sanitised the prompt, persist the new version so future
       // recheck / extend operations use the cleaner text.
       ...(audioFail ? { prompt: retryPrompt } : {}),
       error_message: null,
       metadata: {
         ...meta,
-        provider: created.provider || meta.provider || "p2",
+        provider: newProvider,
+        model: newModel,
+        fallback_used: fallbackUsed,
+        tier_log: tierLog,
         retried_at: new Date().toISOString(),
         retry_count: retryCount + 1,
         last_retry_error: errMsg.slice(0, 200),

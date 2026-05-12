@@ -3,6 +3,8 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { p2CreateTask } from "@/lib/p2";
 import { getP2Config } from "@/lib/settings";
+import { generateImageWithCascade } from "@/lib/image-cascade";
+import { generateVideoWithCascade } from "@/lib/video-cascade";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -100,57 +102,118 @@ export async function POST(req: Request) {
     }
   }
 
-  // Fire again with the same params. p2CreateTask is the unified
-  // dispatcher — it picks p1 / p2 based on the active gen_provider_<asset>
-  // admin setting. Result.provider tells us which backend handled it so
-  // we can stamp the (possibly new) provider onto the row's metadata.
-  const created = await p2CreateTask({
-    model,
-    userId: user.id,
-    prompt: row.prompt,
-    imageUrls: refImage ? [refImage] : [],
-    durationMode,
-    aspectRatio,
-    imageMode,
-  });
+  // Route through the appropriate cascade:
+  //   • image / fairytale-scene → image cascade (p2/p3 → p1 → other)
+  //   • cinema with Grok        → p2 only (no Grok cascade defined)
+  //   • else (video tabs)       → video cascade (p2 → p1 → p3)
+  const isImageRow =
+    row.tab === "image" || row.type === "image" || row.type === "fairytale-scene";
+  const isGrok = model.toLowerCase().includes("grok");
 
-  if (!created.ok || !created.task_id) {
-    // Keep the row failed but stamp the latest error so the user sees
-    // why retry didn't take.
+  let newTaskId: string | null = null;
+  let newProvider: "p1" | "p2" | "p3" = "p2";
+  let newModel: string = model;
+  let fallbackUsed = false;
+  let tierLog: any = undefined;
+  let retryError: string | null = null;
+
+  if (isImageRow) {
+    const primaryProvider: "p2" | "p3" =
+      meta.primary_provider === "p3" || meta.provider === "p3" ? "p3" : "p2";
+    const r = await generateImageWithCascade({
+      primaryProvider,
+      primaryModel: model.replace(/^google\//, "").replace(/^openai\//, ""),
+      primaryModelP2: model,
+      prompt: row.prompt,
+      aspectRatio,
+      imageUrls: refImage ? [refImage] : undefined,
+    });
+    if (r.ok) {
+      newTaskId = r.taskId;
+      newProvider = r.actualProvider;
+      newModel = r.actualModel;
+      fallbackUsed = r.fallbackUsed;
+      tierLog = r.tierLog;
+    } else {
+      retryError = r.error;
+      tierLog = r.tierLog;
+    }
+  } else if (isGrok) {
+    const created = await p2CreateTask({
+      model,
+      userId: user.id,
+      prompt: row.prompt,
+      imageUrls: refImage ? [refImage] : [],
+      durationMode,
+      aspectRatio,
+      imageMode,
+    });
+    if (created.ok && created.task_id) {
+      newTaskId = created.task_id;
+      newProvider = (created.provider || "p2") as "p1" | "p2" | "p3";
+    } else {
+      retryError = created.error || "Grok create failed";
+    }
+  } else {
+    const r = await generateVideoWithCascade({
+      primaryModel: model,
+      userId: user.id,
+      prompt: row.prompt,
+      imageUrls: refImage ? [refImage] : [],
+      durationMode,
+      aspectRatio,
+      imageMode,
+    });
+    if (r.ok) {
+      newTaskId = r.taskId;
+      newProvider = r.actualProvider;
+      newModel = r.actualModel;
+      fallbackUsed = r.fallbackUsed;
+      tierLog = r.tierLog;
+    } else {
+      retryError = r.error;
+      tierLog = r.tierLog;
+    }
+  }
+
+  if (!newTaskId) {
+    // All cascade tiers failed (or Grok create failed). Stamp the latest
+    // error onto the row so the user sees why retry didn't take.
     await admin
       .from("history")
       .update({
         status: "failed",
-        error_message: created.error || "Retry: P2 create failed",
+        error_message: retryError || "Retry failed",
         metadata: {
           ...meta,
-          last_retry_error: created.error || "P2 create failed",
+          last_retry_error: retryError || "Retry failed",
           last_retry_at: new Date().toISOString(),
+          tier_log: tierLog,
         },
       })
       .eq("id", row.id);
 
     return NextResponse.json(
-      { error: created.error || "P2 create failed" },
+      { error: retryError || "Retry failed" },
       { status: 502 }
     );
   }
 
   // Flip the row back to pending with the new task_id so the existing
-  // settle / poll path (webhook + cron) picks up the result on the
-  // SAME card. Wipe error_message so the failure UI clears immediately.
-  // Stamp the dispatcher's chosen provider — admin may have rotated
-  // p1/p2 between the original fire and this retry, so the new task
-  // belongs to whichever backend the dispatcher just used.
+  // settle / poll path (webhook + cron) picks up the result on the SAME
+  // card. Wipe error_message so the failure UI clears immediately.
   await admin
     .from("history")
     .update({
       status: "pending",
-      task_id: created.task_id,
+      task_id: newTaskId,
       error_message: null,
       metadata: {
         ...meta,
-        provider: created.provider || meta.provider || "p2",
+        provider: newProvider,
+        model: newModel,
+        fallback_used: fallbackUsed,
+        tier_log: tierLog,
         retried_at: new Date().toISOString(),
         retry_count: Number(meta.retry_count || 0) + 1,
         last_retry_error: null,
@@ -161,6 +224,6 @@ export async function POST(req: Request) {
   return NextResponse.json({
     ok: true,
     history_id: row.id,
-    task_id: created.task_id,
+    task_id: newTaskId,
   });
 }
