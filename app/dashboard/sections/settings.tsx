@@ -235,80 +235,11 @@ export default function SettingsSection({
         </div>
       </section>
 
-      {/* Video Provider — per-user override. Client-facing labels are
-          deliberately neutral (P2 / P1) — no upstream brand names. */}
-      <section className="card">
-        <div className="flex items-center gap-3 mb-5 pb-4 border-b border-[var(--color-border)]">
-          <div
-            className="w-11 h-11 rounded-2xl flex items-center justify-center"
-            style={{
-              background: "rgba(245,158,11,0.1)",
-              border: "1px solid rgba(245,158,11,0.3)",
-            }}
-          >
-            <Video className="w-5 h-5" style={{ color: "#f59e0b" }} />
-          </div>
-          <div>
-            <h2 className="font-display font-bold text-xl text-[var(--color-text-primary)]">
-              Video Provider
-            </h2>
-            <p className="text-xs text-[var(--color-text-muted)]">
-              Pick which engine handles your video generations (Veo). Image
-              + Cinema stay on the platform default.
-            </p>
-          </div>
-        </div>
-
-        <div className="space-y-3">
-          <div className="grid grid-cols-2 gap-2">
-            {([
-              { val: null as VideoProvider, label: "P2 (Default)" },
-              { val: "p1" as VideoProvider, label: "P1" },
-            ]).map(({ val, label }) => {
-              const active =
-                val === null
-                  ? videoProvider === null || videoProvider === "p2"
-                  : videoProvider === val;
-              return (
-                <button
-                  key={String(val)}
-                  type="button"
-                  onClick={() => saveVideoProvider(val)}
-                  disabled={savingVp}
-                  className="rounded-xl px-4 py-3 font-bold text-sm transition-all disabled:opacity-50"
-                  style={
-                    active
-                      ? {
-                          background: "rgba(245,158,11,0.15)",
-                          border: "2px solid #f59e0b",
-                          color: "#f59e0b",
-                        }
-                      : {
-                          background: "var(--color-bg-card)",
-                          border: "1px solid var(--color-border)",
-                          color: "var(--color-text-secondary)",
-                        }
-                  }
-                >
-                  {savingVp && active ? (
-                    <span className="inline-flex items-center gap-2">
-                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                      Saving…
-                    </span>
-                  ) : (
-                    label
-                  )}
-                </button>
-              );
-            })}
-          </div>
-          <p className="text-[11px] text-[var(--color-text-muted)]">
-            Berlaku untuk video baru sahaja. Yang sedang generate masih ikut
-            engine asal.
-          </p>
-          {vpMsg && <Notice ok={vpMsg.ok} text={vpMsg.text} />}
-        </div>
-      </section>
+      {/* Video Provider card hidden — the 3-tier video cascade (p2 → p1
+          → p3 in lib/video-cascade.ts) now auto-falls-back between
+          providers on every generation, so the manual user toggle is
+          redundant. Save flow + state intentionally kept above in case
+          we ever re-expose this UI. */}
 
       {/* Change password */}
       <section className="card">
