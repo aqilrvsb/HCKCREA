@@ -28,7 +28,7 @@ import { p2CreateTask } from "@/lib/p2";
 import { getP2Config } from "@/lib/settings";
 import { falExtractFrame, falMergeVideos, type FrameAnchor } from "@/lib/fal";
 import { productTextLockBlock } from "@/lib/product-ocr";
-import { uploadFromUrl, signedGetUrl, buildKey } from "@/lib/b2";
+import { uploadFromUrl, signedGetUrl, buildKey, rehostToContent, type StorageType } from "@/lib/b2";
 
 // Rehost a (possibly expired) Crun temp video URL to B2 so fal can fetch
 // it during the merge step. Returns a fresh 7-day signed URL on success,
@@ -250,11 +250,12 @@ async function mergeSegments(seg2: Settled, seg2OutputUrl: string): Promise<void
   if (!seg2.parent_history_id) return;
   const admin = createAdminClient();
 
-  // Fetch parent (seg-1) row
+  // Fetch parent (seg-1) row — tab is needed to pick the B2 storage
+  // type (ugc / auto / cinema) when rehosting the merged output.
   const { data: parent } = await admin
     .from("history")
     .select(
-      "id, user_id, output_url, merged_url, metadata, status"
+      "id, user_id, tab, output_url, merged_url, metadata, status"
     )
     .eq("id", seg2.parent_history_id)
     .single();
@@ -305,14 +306,27 @@ async function mergeSegments(seg2: Settled, seg2OutputUrl: string): Promise<void
     return;
   }
 
+  // Rehost the fal merge output to peninglab-content so the 16s clip
+  // lives on our B2 with cache-control + S3 URL, same as every other
+  // generation. Falls back to the fal URL if rehost fails.
+  const sType: StorageType =
+    parent.tab === "auto" ? "auto" : parent.tab === "cinema" ? "cinema" : "ugc";
+  const rehosted = await rehostToContent({
+    url: mergeRes.url,
+    userId: parent.user_id,
+    historyId: parent.id,
+    type: sType,
+    fallbackExt: "mp4",
+  });
+
   // Update parent: merged_url filled, output_url switched to merged so the
   // history grid shows the final 16s clip.
   await admin
     .from("history")
     .update({
-      merged_url: mergeRes.url,
-      output_url: mergeRes.url,
-      thumbnail_url: mergeRes.url,
+      merged_url: rehosted,
+      output_url: rehosted,
+      thumbnail_url: rehosted,
       metadata: {
         ...(parent.metadata || {}),
         seg1_url: parent.output_url, // preserve seg-1 url for debugging

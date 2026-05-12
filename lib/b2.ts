@@ -253,6 +253,61 @@ export async function uploadFromUrlToContent(opts: {
   return uploadBufferToContent({ body, key: opts.key, contentType: ct });
 }
 
+// One-shot helper used by every generation success path (settle, merge,
+// segment-chain, talking-object image) to copy a provider URL into the
+// peninglab-content bucket and return the public S3 URL.
+//
+// Returns the rehosted URL, OR the original URL if rehost fails — so
+// callers can always assign the result to output_url without checking
+// for errors. Logs failures but never throws.
+function _extFromUrl(url: string, fallback: string): string {
+  const path = url.split("?")[0];
+  const m = path.match(/\.([a-zA-Z0-9]{2,5})$/);
+  return m ? m[1].toLowerCase() : fallback;
+}
+
+function _contentTypeFor(ext: string): string {
+  const e = ext.toLowerCase();
+  if (e === "png") return "image/png";
+  if (e === "jpg" || e === "jpeg") return "image/jpeg";
+  if (e === "webp") return "image/webp";
+  if (e === "mp4") return "video/mp4";
+  if (e === "webm") return "video/webm";
+  if (e === "mov") return "video/quicktime";
+  return "application/octet-stream";
+}
+
+export async function rehostToContent(opts: {
+  url: string;
+  userId: string;
+  historyId: string;
+  type: StorageType;
+  fallbackExt?: string;
+}): Promise<string> {
+  try {
+    const ext = _extFromUrl(opts.url, opts.fallbackExt || "mp4");
+    const key = buildKey({
+      userId: opts.userId,
+      type: opts.type,
+      historyId: opts.historyId,
+      ext,
+    });
+    const result = await uploadFromUrlToContent({
+      url: opts.url,
+      key,
+      contentType: _contentTypeFor(ext),
+    });
+    return result.publicUrl;
+  } catch (e: any) {
+    console.warn(
+      `[b2.rehostToContent] failed for ${opts.historyId} (${opts.type}):`,
+      e?.message || e
+    );
+    // Caller still gets a working URL — just the provider's, not ours.
+    return opts.url;
+  }
+}
+
 export async function uploadFromUrl(opts: {
   url: string;
   key: string;

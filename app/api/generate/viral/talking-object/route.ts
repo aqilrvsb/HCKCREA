@@ -8,6 +8,7 @@ import {
   getViralImageConfig,
 } from "@/lib/settings";
 import { priceFor, deduct } from "@/lib/deduct";
+import { rehostToContent } from "@/lib/b2";
 
 // Models P3 / Mountsea natively supports. If admin picked something
 // else (e.g. z-image, gpt-image-2 — both P2-only) we fall back to fast.
@@ -566,14 +567,25 @@ export async function POST(req: Request) {
     // synchronously instead of going through the webhook→settle.ts
     // path, so the deduction has to happen here. Without this the
     // image is effectively free.
+    //
+    // Rehost the provider image URL to peninglab-content so the row's
+    // output_url lives on our B2 with cache-control + S3 URL (same as
+    // every other generation that flows through settle).
     const imageRate = await priceFor(user.id, "image_generate", "banana_pro");
     if (imageHistoryId) {
+      const rehostedImg = await rehostToContent({
+        url: imageUrl,
+        userId: user.id,
+        historyId: imageHistoryId,
+        type: "image",
+        fallbackExt: "png",
+      });
       await admin
         .from("history")
         .update({
           status: "done",
-          output_url: imageUrl,
-          thumbnail_url: imageUrl,
+          output_url: rehostedImg,
+          thumbnail_url: rehostedImg,
           cost: imageRate,
           metadata: {
             featureType: "talking-object-image",

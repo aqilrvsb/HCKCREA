@@ -2,6 +2,7 @@ import { NextResponse, after } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { falMergeVideos } from "@/lib/fal";
+import { rehostToContent, type StorageType } from "@/lib/b2";
 
 // POST /api/merge/videos — combine N existing video clips into one.
 //
@@ -172,13 +173,25 @@ export async function POST(req: Request) {
           .eq("id", historyId);
         return;
       }
+      // Rehost the fal merge output to peninglab-content so the user-merged
+      // clip lives on our B2 with cache-control + S3 URL, same as every other
+      // generation. Falls back to fal URL if rehost fails.
+      const sType: StorageType =
+        tab === "auto" ? "auto" : tab === "cinema" ? "cinema" : "ugc";
+      const rehosted = await rehostToContent({
+        url: mergeRes.url,
+        userId: user.id,
+        historyId,
+        type: sType,
+        fallbackExt: "mp4",
+      });
       await admin
         .from("history")
         .update({
           status: "done",
-          output_url: mergeRes.url,
-          merged_url: mergeRes.url,
-          thumbnail_url: mergeRes.url,
+          output_url: rehosted,
+          merged_url: rehosted,
+          thumbnail_url: rehosted,
           metadata: {
             merged_from: ids,
             merge_count: ordered.length,
