@@ -1,6 +1,7 @@
 import { NextResponse, after } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { p1CreateTask } from "@/lib/p1";
 import { p2CreateTask } from "@/lib/p2";
 import { p3CreateImage } from "@/lib/p3";
 import { getP2Config, getSetting } from "@/lib/settings";
@@ -110,116 +111,97 @@ export async function POST(req: Request) {
       let createdTaskId: string | null = null;
       let createdError: string | null = null;
       let usedFallback = false;
-      // Track which provider actually produced the row so settle.ts knows
-      // which upstream to query when the task lands. Default = the user's
-      // chosen provider; flipped to "p2" if we fall back from p3 → p2.
-      let actualProvider: "p2" | "p3" = provider;
+      // Tracks which upstream + model actually accepted the task. settle.ts
+      // reads metadata.provider to pick the right status-polling endpoint
+      // when the task settles later. Starts at primary; flipped if a
+      // fallback tier succeeds.
+      let actualProvider: "p1" | "p2" | "p3" = provider;
+      let actualModel: string = "";
+      // Per-tier error log so admin can see exactly which tier saved each
+      // generation (or why all three failed). Stored on metadata.
+      const tierLog: Array<{ tier: string; ok: boolean; error?: string }> = [];
 
-      // Detect content-moderation rejections from Mountsea (Google nano-
-      // banana proxy). HTTP 451 = "unavailable for legal reasons" — that's
-      // Google's safety filter. The same prompt will fail on retry; only
-      // a different MODEL (with a different filter) can save it.
-      const isMountseaBlocked = (err: string | null | undefined): boolean => {
-        if (!err) return false;
-        return /451|content.*polic|moderation|safety|blocked|unsafe|harmful/i.test(err);
-      };
+      // Resolve the primary model name in the format the primary provider
+      // expects. p2/Crun wants "google/nano-banana-*" form; p1/p3 want the
+      // bare name. Used for tier 1 + tier 3.
+      const primaryModelForP2 =
+        (cfg.imageModels as any)?.[modelKey] ||
+        HARDCODED_MODEL_IDS[modelKey] ||
+        modelKey;
+      const primaryModelBare = modelKey;
 
-      if (provider === "p3") {
-        // Mountsea path — locked to nano-banana-fast per product
-        // requirements (cheapest tier, fast turnaround for batch
-        // storytelling). Resolution stays at 2K which is what fast
-        // accepts. Auto-retry up to 3 attempts before giving up so
-        // transient Mountsea blips don't kill the whole story.
-        const MAX_TRIES = 3;
-        let lastError: string | null = null;
-        let hitContentBlock = false;
-        for (let attempt = 1; attempt <= MAX_TRIES; attempt++) {
-          const r = await p3CreateImage({
-            prompt,
-            model: "nano-banana-fast",
-            aspectRatio,
-          });
-          if (r.ok && r.task_id) {
-            createdOk = true;
-            createdTaskId = r.task_id;
-            lastError = null;
-            break;
-          }
-          lastError = r.ok ? "no task_id" : r.error;
-          // Content-moderation block → don't waste retries with the same
-          // prompt, jump straight to Crun fallback.
-          if (isMountseaBlocked(lastError)) {
-            hitContentBlock = true;
-            console.warn(
-              `[fairytale-scene] Mountsea content-block on attempt ${attempt}: ${lastError}`
-            );
-            break;
-          }
-          if (attempt < MAX_TRIES) {
-            console.warn(
-              `[fairytale-scene] Mountsea attempt ${attempt}/${MAX_TRIES} failed: ${lastError}`
-            );
-            await new Promise((res) => setTimeout(res, 1500 * attempt));
-          }
+      // Helper: try a single provider with a specific model. Returns
+      // { ok, taskId, error } in a uniform shape regardless of which
+      // upstream API was hit.
+      async function tryProvider(
+        which: "p1" | "p2" | "p3",
+        model: string
+      ): Promise<{ ok: boolean; taskId: string | null; error: string | null }> {
+        if (which === "p1") {
+          const r = await p1CreateTask({ model, prompt, aspectRatio });
+          return { ok: r.ok, taskId: r.task_id ?? null, error: r.ok ? null : (r.error ?? null) };
         }
-        createdError = lastError;
-
-        // Fallback to Crun (p2) with nano-banana-v2 when Mountsea fails
-        // for ANY reason after the retry loop. nano-banana-v2 has a
-        // different (lighter) safety filter than Mountsea's Google
-        // direct proxy, so prompts blocked at p3 often pass through p2.
-        if (!createdOk) {
-          console.warn(
-            `[fairytale-scene] Mountsea exhausted (${hitContentBlock ? "content-blocked" : "no task_id"}: ${createdError}), falling back to Crun nano-banana-v2`
-          );
-          const fallback = await p2CreateTask({
-            model: "google/nano-banana-v2",
-            prompt,
-            aspectRatio,
-          });
-          if (fallback.ok && fallback.task_id) {
-            createdOk = true;
-            createdTaskId = fallback.task_id;
-            createdError = null;
-            usedFallback = true;
-            actualProvider = "p2";
-          } else {
-            createdError = `Mountsea: ${createdError}; Crun fallback: ${fallback.ok ? "no task_id" : fallback.error}`;
-          }
+        if (which === "p2") {
+          const r = await p2CreateTask({ model, prompt, aspectRatio });
+          return { ok: r.ok, taskId: r.ok ? (r.task_id ?? null) : null, error: r.ok ? null : (r.error ?? null) };
         }
+        // p3 — Mountsea wraps Google nano-banana with bare model names.
+        const r = await p3CreateImage({ model, prompt, aspectRatio });
+        return { ok: r.ok, taskId: r.ok ? (r.task_id ?? null) : null, error: r.ok ? null : (r.error ?? null) };
+      }
+
+      // ── 3-tier cascade ─────────────────────────────────────────────
+      // Tier 1: user's chosen primary provider + model (p2 or p3)
+      // Tier 2: p1 (GeminiGen) with nano-banana-2 — always-on safety net
+      // Tier 3: the OTHER non-p1 provider with the primary's model
+      //
+      // The reasoning: p1 (GeminiGen) is the most reliable + lenient for
+      // content. If it fails too, try the opposite provider in case it's
+      // a transient outage on the primary.
+
+      // Tier 1
+      const tier1Model = provider === "p2" ? primaryModelForP2 : primaryModelBare;
+      const t1 = await tryProvider(provider, tier1Model);
+      tierLog.push({ tier: `1:${provider}:${tier1Model}`, ok: t1.ok, error: t1.error ?? undefined });
+      if (t1.ok && t1.taskId) {
+        createdOk = true;
+        createdTaskId = t1.taskId;
+        actualProvider = provider;
+        actualModel = tier1Model;
       } else {
-        // p2 / Crun path (existing behaviour)
-        const modelId =
-          (cfg.imageModels as any)?.[modelKey] ||
-          HARDCODED_MODEL_IDS[modelKey] ||
-          modelKey;
-        let created = await p2CreateTask({
-          model: modelId,
-          prompt,
-          aspectRatio,
-        });
-        // Fallback: if Crun rejects with model-not-found, retry once with
-        // google/nano-banana-v2 (known-stable balanced model).
-        const looksLikeBadModel =
-          !created.ok &&
-          modelId !== "google/nano-banana-v2" &&
-          /model|not.found|invalid|unknown|bad request|param/i.test(String(created.error || ""));
-        if (looksLikeBadModel) {
+        console.warn(`[fairytale-scene] tier1 (${provider}/${tier1Model}) failed: ${t1.error}`);
+
+        // Tier 2: p1 with nano-banana-2 (always)
+        const t2 = await tryProvider("p1", "nano-banana-2");
+        tierLog.push({ tier: "2:p1:nano-banana-2", ok: t2.ok, error: t2.error ?? undefined });
+        if (t2.ok && t2.taskId) {
+          createdOk = true;
+          createdTaskId = t2.taskId;
+          actualProvider = "p1";
+          actualModel = "nano-banana-2";
           usedFallback = true;
-          console.warn(
-            `[fairytale-scene] model "${modelId}" rejected (${created.error}), retrying with google/nano-banana-v2`
-          );
-          created = await p2CreateTask({
-            model: "google/nano-banana-v2",
-            prompt,
-            aspectRatio,
-          });
+          console.warn(`[fairytale-scene] tier2 (p1/nano-banana-2) saved the row`);
+        } else {
+          console.warn(`[fairytale-scene] tier2 (p1/nano-banana-2) failed: ${t2.error}`);
+
+          // Tier 3: the OTHER non-p1 provider with primary's model.
+          // If primary was p2 → try p3 (bare model name).
+          // If primary was p3 → try p2 (google/* prefixed model).
+          const otherProvider: "p2" | "p3" = provider === "p2" ? "p3" : "p2";
+          const tier3Model = otherProvider === "p2" ? primaryModelForP2 : primaryModelBare;
+          const t3 = await tryProvider(otherProvider, tier3Model);
+          tierLog.push({ tier: `3:${otherProvider}:${tier3Model}`, ok: t3.ok, error: t3.error ?? undefined });
+          if (t3.ok && t3.taskId) {
+            createdOk = true;
+            createdTaskId = t3.taskId;
+            actualProvider = otherProvider;
+            actualModel = tier3Model;
+            usedFallback = true;
+            console.warn(`[fairytale-scene] tier3 (${otherProvider}/${tier3Model}) saved the row`);
+          } else {
+            createdError = `tier1(${provider}): ${t1.error}; tier2(p1): ${t2.error}; tier3(${otherProvider}): ${t3.error}`;
+          }
         }
-        createdOk = created.ok;
-        // p2CreateTask's success branch guarantees task_id is string, but
-        // TS can't narrow a non-discriminated union — so coalesce.
-        createdTaskId = created.ok ? (created.task_id ?? null) : null;
-        createdError = created.ok ? null : (created.error ?? null);
       }
 
       if (!createdOk || !createdTaskId) {
@@ -249,13 +231,16 @@ export async function POST(req: Request) {
           task_id: createdTaskId,
           cost: rate,
           metadata: {
-            // actualProvider reflects the upstream that actually accepted
-            // the task — falls back to p2/nano-banana-v2 when p3 was
-            // content-blocked. settle.ts reads metadata.provider to pick
-            // the right status-polling endpoint.
+            // actualProvider + actualModel reflect the tier that actually
+            // accepted the task. settle.ts reads metadata.provider to pick
+            // the right status-polling endpoint. tier_log records the
+            // outcome of each cascade step so admin can audit which tier
+            // is saving most scenes.
             provider: actualProvider,
-            model: actualProvider === "p3" ? "nano-banana-fast" : "google/nano-banana-v2",
+            model: actualModel,
+            primary_provider: provider,
             fallback_used: usedFallback,
+            tier_log: tierLog,
             aspectRatio,
             scene_idx: sceneIdx,
             group_id: fairytaleGroupId,
