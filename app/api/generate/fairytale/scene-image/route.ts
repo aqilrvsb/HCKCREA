@@ -1,11 +1,9 @@
 import { NextResponse, after } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { p1CreateTask } from "@/lib/p1";
-import { p2CreateTask } from "@/lib/p2";
-import { p3CreateImage } from "@/lib/p3";
 import { getP2Config, getSetting } from "@/lib/settings";
 import { priceFor } from "@/lib/deduct";
+import { generateImageWithCascade } from "@/lib/image-cascade";
 
 // POST /api/generate/fairytale/scene-image
 //
@@ -107,102 +105,28 @@ export async function POST(req: Request) {
       const provider: "p2" | "p3" =
         ftProviderSetting?.provider === "p3" ? "p3" : "p2";
 
-      let createdOk = false;
-      let createdTaskId: string | null = null;
-      let createdError: string | null = null;
-      let usedFallback = false;
-      // Tracks which upstream + model actually accepted the task. settle.ts
-      // reads metadata.provider to pick the right status-polling endpoint
-      // when the task settles later. Starts at primary; flipped if a
-      // fallback tier succeeds.
-      let actualProvider: "p1" | "p2" | "p3" = provider;
-      let actualModel: string = "";
-      // Per-tier error log so admin can see exactly which tier saved each
-      // generation (or why all three failed). Stored on metadata.
-      const tierLog: Array<{ tier: string; ok: boolean; error?: string }> = [];
-
-      // Resolve the primary model name in the format the primary provider
-      // expects. p2/Crun wants "google/nano-banana-*" form; p1/p3 want the
-      // bare name. Used for tier 1 + tier 3.
+      // 3-tier cascade for scene image generation. See lib/image-cascade.ts
+      // for the full flow (primary → p1 nano-banana-2 → other non-p1 with
+      // primary's model). Handles 451 content blocks + transient outages.
       const primaryModelForP2 =
         (cfg.imageModels as any)?.[modelKey] ||
         HARDCODED_MODEL_IDS[modelKey] ||
         modelKey;
-      const primaryModelBare = modelKey;
-
-      // Helper: try a single provider with a specific model. Returns
-      // { ok, taskId, error } in a uniform shape regardless of which
-      // upstream API was hit.
-      async function tryProvider(
-        which: "p1" | "p2" | "p3",
-        model: string
-      ): Promise<{ ok: boolean; taskId: string | null; error: string | null }> {
-        if (which === "p1") {
-          const r = await p1CreateTask({ model, prompt, aspectRatio });
-          return { ok: r.ok, taskId: r.task_id ?? null, error: r.ok ? null : (r.error ?? null) };
-        }
-        if (which === "p2") {
-          const r = await p2CreateTask({ model, prompt, aspectRatio });
-          return { ok: r.ok, taskId: r.ok ? (r.task_id ?? null) : null, error: r.ok ? null : (r.error ?? null) };
-        }
-        // p3 — Mountsea wraps Google nano-banana with bare model names.
-        const r = await p3CreateImage({ model, prompt, aspectRatio });
-        return { ok: r.ok, taskId: r.ok ? (r.task_id ?? null) : null, error: r.ok ? null : (r.error ?? null) };
-      }
-
-      // ── 3-tier cascade ─────────────────────────────────────────────
-      // Tier 1: user's chosen primary provider + model (p2 or p3)
-      // Tier 2: p1 (GeminiGen) with nano-banana-2 — always-on safety net
-      // Tier 3: the OTHER non-p1 provider with the primary's model
-      //
-      // The reasoning: p1 (GeminiGen) is the most reliable + lenient for
-      // content. If it fails too, try the opposite provider in case it's
-      // a transient outage on the primary.
-
-      // Tier 1
-      const tier1Model = provider === "p2" ? primaryModelForP2 : primaryModelBare;
-      const t1 = await tryProvider(provider, tier1Model);
-      tierLog.push({ tier: `1:${provider}:${tier1Model}`, ok: t1.ok, error: t1.error ?? undefined });
-      if (t1.ok && t1.taskId) {
-        createdOk = true;
-        createdTaskId = t1.taskId;
-        actualProvider = provider;
-        actualModel = tier1Model;
-      } else {
-        console.warn(`[fairytale-scene] tier1 (${provider}/${tier1Model}) failed: ${t1.error}`);
-
-        // Tier 2: p1 with nano-banana-2 (always)
-        const t2 = await tryProvider("p1", "nano-banana-2");
-        tierLog.push({ tier: "2:p1:nano-banana-2", ok: t2.ok, error: t2.error ?? undefined });
-        if (t2.ok && t2.taskId) {
-          createdOk = true;
-          createdTaskId = t2.taskId;
-          actualProvider = "p1";
-          actualModel = "nano-banana-2";
-          usedFallback = true;
-          console.warn(`[fairytale-scene] tier2 (p1/nano-banana-2) saved the row`);
-        } else {
-          console.warn(`[fairytale-scene] tier2 (p1/nano-banana-2) failed: ${t2.error}`);
-
-          // Tier 3: the OTHER non-p1 provider with primary's model.
-          // If primary was p2 → try p3 (bare model name).
-          // If primary was p3 → try p2 (google/* prefixed model).
-          const otherProvider: "p2" | "p3" = provider === "p2" ? "p3" : "p2";
-          const tier3Model = otherProvider === "p2" ? primaryModelForP2 : primaryModelBare;
-          const t3 = await tryProvider(otherProvider, tier3Model);
-          tierLog.push({ tier: `3:${otherProvider}:${tier3Model}`, ok: t3.ok, error: t3.error ?? undefined });
-          if (t3.ok && t3.taskId) {
-            createdOk = true;
-            createdTaskId = t3.taskId;
-            actualProvider = otherProvider;
-            actualModel = tier3Model;
-            usedFallback = true;
-            console.warn(`[fairytale-scene] tier3 (${otherProvider}/${tier3Model}) saved the row`);
-          } else {
-            createdError = `tier1(${provider}): ${t1.error}; tier2(p1): ${t2.error}; tier3(${otherProvider}): ${t3.error}`;
-          }
-        }
-      }
+      const cascadeResult = await generateImageWithCascade({
+        primaryProvider: provider,
+        primaryModel: modelKey,
+        primaryModelP2: primaryModelForP2,
+        prompt,
+        aspectRatio,
+      });
+      const createdOk = cascadeResult.ok;
+      const createdTaskId = cascadeResult.ok ? cascadeResult.taskId : null;
+      const createdError = cascadeResult.ok ? null : cascadeResult.error;
+      const usedFallback = cascadeResult.ok ? cascadeResult.fallbackUsed : false;
+      const actualProvider: "p1" | "p2" | "p3" =
+        cascadeResult.ok ? cascadeResult.actualProvider : provider;
+      const actualModel = cascadeResult.ok ? cascadeResult.actualModel : "";
+      const tierLog = cascadeResult.tierLog;
 
       if (!createdOk || !createdTaskId) {
         await admin

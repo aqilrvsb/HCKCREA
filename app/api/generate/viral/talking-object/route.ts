@@ -9,6 +9,7 @@ import {
 } from "@/lib/settings";
 import { priceFor, deduct } from "@/lib/deduct";
 import { rehostToContent } from "@/lib/b2";
+import { generateImageWithCascade } from "@/lib/image-cascade";
 
 // Models P3 / Mountsea natively supports. If admin picked something
 // else (e.g. z-image, gpt-image-2 — both P2-only) we fall back to fast.
@@ -406,31 +407,32 @@ export async function POST(req: Request) {
         .eq("id", imageHistoryId);
     }
 
-    let imgCreate: { ok: boolean; task_id?: string; provider?: "p1" | "p2" | "p3"; error?: string };
-    if (viralCfg.provider === "p3") {
-      const r = await p3CreateImage({
-        prompt: promptPair.image_prompt,
-        model: p3Model,
-        aspectRatio: "9:16",
-      });
-      imgCreate = r.ok
-        ? { ok: true, task_id: r.task_id, provider: "p3" }
-        : { ok: false, error: r.error, provider: "p3" };
-    } else {
-      // p1 + p2 share the Crun pathway (p1 is a pass-through alias here).
-      const r = await p2CreateTask({
-        model: imageModel,
-        prompt: promptPair.image_prompt,
-        imageUrls: [], // explicitly empty — banana-pro does t2i without a ref
-        aspectRatio: "9:16",
-      });
-      imgCreate = {
-        ok: r.ok,
-        task_id: r.ok ? r.task_id : undefined,
-        provider: r.provider || "p2",
-        error: r.ok ? undefined : r.error,
-      };
-    }
+    // 3-tier cascade for image generation. Primary = the user's
+    // configured viralCfg.provider; tier 2 = p1/nano-banana-2 safety net;
+    // tier 3 = the other non-p1 provider with the same model. Handles
+    // content-block (451) + transient outages without dropping the row.
+    const primaryProvider: "p2" | "p3" =
+      viralCfg.provider === "p3" ? "p3" : "p2";
+    const primaryModelForCascade =
+      primaryProvider === "p3" ? p3Model : imageModelKey;
+    const cascadeResult = await generateImageWithCascade({
+      primaryProvider,
+      primaryModel: primaryModelForCascade,
+      primaryModelP2: imageModel,
+      prompt: promptPair.image_prompt,
+      aspectRatio: "9:16",
+      // banana-pro / nano-banana variants do text-to-image, no reference
+      imageUrls: [],
+    });
+    const imgCreate: { ok: boolean; task_id?: string; provider?: "p1" | "p2" | "p3"; error?: string; tierLog?: any } =
+      cascadeResult.ok
+        ? {
+            ok: true,
+            task_id: cascadeResult.taskId,
+            provider: cascadeResult.actualProvider,
+            tierLog: cascadeResult.tierLog,
+          }
+        : { ok: false, error: cascadeResult.error, tierLog: cascadeResult.tierLog };
     if (!imgCreate.ok || !imgCreate.task_id) {
       // Flip the placeholder image row to failed so it surfaces the error
       // visually instead of spinning forever.

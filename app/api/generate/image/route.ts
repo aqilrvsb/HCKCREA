@@ -1,9 +1,9 @@
 import { NextResponse, after } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { p2CreateTask } from "@/lib/p2";
 import { priceFor } from "@/lib/deduct";
-import { getP2Config } from "@/lib/settings";
+import { getP2Config, getSetting } from "@/lib/settings";
+import { generateImageWithCascade } from "@/lib/image-cascade";
 
 // POST /api/generate/image — placeholder-first, hot-path optimized.
 //
@@ -82,32 +82,42 @@ export async function POST(req: Request) {
   // useful state.
   after(async () => {
     try {
-      const [cfg, rate] = await Promise.all([
+      const [cfg, rate, providerSetting] = await Promise.all([
         getP2Config(),
         priceFor(user.id, "image_generate"),
+        // image_provider setting toggles default primary (p2 or p3). Falls
+        // back to p2 if unset for backwards compatibility.
+        getSetting<{ provider: "p2" | "p3" }>("image_provider"),
       ]);
       const modelKey = requestedModel || cfg.imageDefault || "nano-banana-pro";
       const modelId = (cfg.imageModels as any)?.[modelKey] || modelKey;
+      const primaryProvider: "p2" | "p3" =
+        providerSetting?.provider === "p3" ? "p3" : "p2";
 
-      const created = await p2CreateTask({
-        model: modelId,
+      // 3-tier cascade: primary → p1 nano-banana-2 → other provider with
+      // primary's model. Handles content blocks (451) + transient outages
+      // without dropping the row. See lib/image-cascade.ts.
+      const result = await generateImageWithCascade({
+        primaryProvider,
+        primaryModel: modelKey,
+        primaryModelP2: modelId,
         prompt,
-        imageUrls,
         aspectRatio,
+        imageUrls,
       });
 
-      const provider = created.provider || "p2";
-      if (!created.ok || !created.task_id) {
+      if (!result.ok) {
         await admin
           .from("history")
           .update({
             status: "failed",
             cost: rate,
-            error_message: created.error || "P2 create failed",
+            error_message: result.error,
             metadata: {
               model: modelKey,
               aspectRatio,
-              provider,
+              primary_provider: primaryProvider,
+              tier_log: result.tierLog,
               upload_status: "failed",
             },
           })
@@ -118,12 +128,17 @@ export async function POST(req: Request) {
       await admin
         .from("history")
         .update({
-          task_id: created.task_id,
+          task_id: result.taskId,
           cost: rate,
           metadata: {
-            model: modelKey,
+            // actualProvider + actualModel reflect the tier that accepted
+            // the task. settle.ts reads metadata.provider for status poll.
+            provider: result.actualProvider,
+            model: result.actualModel,
+            primary_provider: primaryProvider,
+            fallback_used: result.fallbackUsed,
+            tier_log: result.tierLog,
             aspectRatio,
-            provider,
             upload_status: "done",
           },
         })
