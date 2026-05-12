@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { cookies } from "next/headers";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createChipPurchase } from "@/lib/chip";
 
@@ -63,6 +64,13 @@ export async function POST(req: Request) {
     const cfg = await loadPlan(plan);
     if (!cfg) return NextResponse.json({ error: "Plan config missing" }, { status: 500 });
 
+    // Affiliate cookie — set by middleware when visitor lands with ?ref=
+    // Carried into payment metadata so the webhook can resolve the
+    // referrer + grant commission once Chip confirms payment.
+    const refCookie = (await cookies()).get("peninglab_ref")?.value || null;
+    const referredByCode =
+      refCookie && /^[A-Z0-9]{4,16}$/.test(refCookie) ? refCookie : null;
+
     const admin = createAdminClient();
 
     // Pre-create payment row WITHOUT a user_id — auto-register happens on
@@ -82,6 +90,7 @@ export async function POST(req: Request) {
           days: cfg.days,
           free_credits: cfg.freeCredits,
           signup: { name, whatsapp, email },
+          referred_by_code: referredByCode,
         },
       })
       .select()

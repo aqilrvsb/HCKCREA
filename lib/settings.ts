@@ -87,6 +87,15 @@ export async function getP2Config() {
   };
 }
 
+// Affiliate / referral commission rate (admin-tunable, percent of every
+// subscription payment paid out to the referrer). Default 20%.
+export async function getReferralCommissionRate(): Promise<number> {
+  const v = await getSetting<any>("referral_commission_rate");
+  const n = Number(v?.rate);
+  if (!Number.isFinite(n) || n < 0) return 20;
+  return Math.min(100, n);
+}
+
 // Viral (Talking Object) image config — provider + model are admin-tuned
 // independently of the global image_default so the Viral tab can run on
 // a different model/provider without affecting Image / Storytelling tabs.

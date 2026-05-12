@@ -52,6 +52,16 @@ export async function POST(req: Request) {
 
     const fullName = profile?.full_name || user.email?.split("@")[0] || "User";
 
+    // Look up the user's referred_by so the webhook can grant a renewal
+    // commission to the original referrer. Stored at signup time;
+    // unchanged on renewal.
+    const { data: refProfile } = await admin
+      .from("profiles")
+      .select("referred_by")
+      .eq("id", user.id)
+      .maybeSingle();
+    const referredByCode = refProfile?.referred_by || null;
+
     // Create payment record in pending state. Webhook will flip to paid +
     // call applySubscription which extends plan_expires_at by `days`.
     const { data: payment, error: payErr } = await admin
@@ -63,7 +73,13 @@ export async function POST(req: Request) {
         amount: cfg.price,
         currency: "MYR",
         status: "pending",
-        metadata: { plan: "pro", credits: cfg.credits, days: cfg.days, label: cfg.label },
+        metadata: {
+          plan: "pro",
+          credits: cfg.credits,
+          days: cfg.days,
+          label: cfg.label,
+          referred_by_code: referredByCode,
+        },
       })
       .select()
       .single();

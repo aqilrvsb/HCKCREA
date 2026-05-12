@@ -33,6 +33,25 @@ export async function updateSession(request: NextRequest) {
   const isAuthPage = path === "/login" || path === "/register";
   const isProtected = path.startsWith("/dashboard") || path.startsWith("/admin");
 
+  // Affiliate cookie capture — when a visitor lands with ?ref=<code> and
+  // doesn't already have the cookie set, stash it for 30 days. /checkout
+  // reads peninglab_ref at signup time and stamps it on the payment row.
+  // We set the cookie BEFORE the protected-route guards return so the
+  // attribution survives a redirect to /login.
+  const refParam = request.nextUrl.searchParams.get("ref");
+  if (
+    refParam &&
+    /^[A-Z0-9]{4,16}$/.test(refParam) &&
+    !request.cookies.get("peninglab_ref")
+  ) {
+    supabaseResponse.cookies.set("peninglab_ref", refParam, {
+      path: "/",
+      maxAge: 60 * 60 * 24 * 30, // 30 days
+      sameSite: "lax",
+      httpOnly: false, // client JS can read for UI display if needed
+    });
+  }
+
   if (!user && isProtected) {
     return NextResponse.redirect(new URL("/login", request.url));
   }

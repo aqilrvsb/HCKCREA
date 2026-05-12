@@ -1,12 +1,92 @@
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { fetchChipPurchase, mapChipStatus } from "@/lib/chip";
+import { getReferralCommissionRate } from "@/lib/settings";
 import {
   sendWhatsApp,
   buildLoginMessage,
   notifyAdmins,
   buildAdminPaymentAlert,
 } from "@/lib/whatsapp";
+
+// Resolve a referrer's user.id from a referral_code, validating
+// (a) it exists, (b) it's not the same user (self-ref guard), and
+// (c) the code matches the strict format. Returns null on any failure.
+async function resolveReferrer(
+  admin: any,
+  referredByCode: string | null | undefined,
+  referredUserId: string
+): Promise<string | null> {
+  if (!referredByCode) return null;
+  if (!/^[A-Z0-9]{4,16}$/.test(referredByCode)) return null;
+  const { data: ref } = await admin
+    .from("profiles")
+    .select("id, referral_code")
+    .eq("referral_code", referredByCode)
+    .maybeSingle();
+  if (!ref) return null;
+  // Self-ref guard — a user can't refer themselves.
+  if (ref.id === referredUserId) return null;
+  return ref.id as string;
+}
+
+// Grants a subscription commission to the referrer. Idempotent against
+// payment_id — if a commission row already exists for this payment we
+// skip. Wallet balance is incremented atomically (best-effort).
+async function grantReferralCommission(
+  admin: any,
+  args: {
+    referrerId: string;
+    referredUserId: string;
+    paymentId: string;
+    paymentAmount: number;
+  }
+): Promise<void> {
+  // Idempotency: don't double-credit if webhook fires twice for the
+  // same payment.
+  const { data: existing } = await admin
+    .from("referral_commissions")
+    .select("id")
+    .eq("payment_id", args.paymentId)
+    .maybeSingle();
+  if (existing) return;
+
+  const rate = await getReferralCommissionRate(); // percent, e.g. 20
+  const amount = Number(((args.paymentAmount * rate) / 100).toFixed(2));
+  if (amount <= 0) return;
+
+  // Insert commission row
+  const { error: insertErr } = await admin
+    .from("referral_commissions")
+    .insert({
+      referrer_id: args.referrerId,
+      referred_user_id: args.referredUserId,
+      payment_id: args.paymentId,
+      payment_amount: args.paymentAmount,
+      commission_rate: rate,
+      commission_amount: amount,
+      commission_type: "subscription",
+    });
+  if (insertErr) {
+    console.error("[affiliate] commission insert failed:", insertErr.message);
+    return;
+  }
+
+  // Increment wallet_balance. Read-then-write is not atomic but the
+  // webhook is the only writer that mutates wallet_balance (cashout
+  // payments deduct via a different code path), and Chip serializes
+  // its callbacks so concurrent writes here are rare in practice.
+  const { data: refProfile } = await admin
+    .from("profiles")
+    .select("wallet_balance")
+    .eq("id", args.referrerId)
+    .maybeSingle();
+  const currentBalance = Number(refProfile?.wallet_balance || 0);
+  await admin
+    .from("profiles")
+    .update({ wallet_balance: currentBalance + amount })
+    .eq("id", args.referrerId);
+}
 
 // Chip success_callback hits this with purchase data. We re-verify against
 // Chip's API rather than trusting the webhook body, then update payment +
@@ -140,9 +220,17 @@ async function applyCheckoutSignup(admin: any, payment: any) {
 
   if (!userId) return;
 
-  // Ensure profile row + set plan + extend expiry
+  // Resolve referrer from the cookie that was carried through checkout.
+  // Self-ref guard is inside resolveReferrer.
+  const referredByCode = String(meta.referred_by_code || "") || null;
+  const referrerId = await resolveReferrer(admin, referredByCode, userId);
+
+  // Ensure profile row + set plan + extend expiry + stamp referral_code
+  // (first 8 chars of user.id, uppercase — matches the convention used
+  // for backfilled rows in migration 0030_affiliate.sql).
   const now = new Date();
   const expiry = new Date(now.getTime() + days * 24 * 60 * 60 * 1000);
+  const referralCode = userId.replace(/-/g, "").substring(0, 8).toUpperCase();
 
   // upsert profile
   await admin.from("profiles").upsert(
@@ -152,7 +240,8 @@ async function applyCheckoutSignup(admin: any, payment: any) {
       whatsapp,
       plan,
       plan_expires_at: expiry.toISOString(),
-      // Add free credits on top of whatever they had (likely 0 for new signup)
+      referral_code: referralCode,
+      referred_by: referrerId ? referredByCode : null,
     },
     { onConflict: "id" }
   );
@@ -173,6 +262,21 @@ async function applyCheckoutSignup(admin: any, payment: any) {
       reason: `signup_${plan}`,
       metadata: { payment_id: payment.id, plan },
     });
+  }
+
+  // Affiliate commission — first-purchase referral. Skipped silently
+  // when the cookie was absent / invalid / self-ref.
+  if (referrerId) {
+    try {
+      await grantReferralCommission(admin, {
+        referrerId,
+        referredUserId: userId,
+        paymentId: payment.id,
+        paymentAmount: Number(payment.amount || 0),
+      });
+    } catch (e: any) {
+      console.error("[affiliate] checkout_signup commission failed:", e?.message);
+    }
   }
 
   // Link the payment to the freshly created user
@@ -349,6 +453,24 @@ async function applySubscription(admin: any, payment: any) {
       reason: `plan_${plan}`,
       metadata: { payment_id: payment.id, plan, days },
     });
+  }
+
+  // Affiliate commission — renewal. payment.metadata.referred_by_code was
+  // stamped by /api/billing/subscribe at the moment the subscription
+  // was created, snapshotting the user's referred_by at that time.
+  const referredByCode = String(payment.metadata?.referred_by_code || "") || null;
+  const referrerId = await resolveReferrer(admin, referredByCode, userId);
+  if (referrerId) {
+    try {
+      await grantReferralCommission(admin, {
+        referrerId,
+        referredUserId: userId,
+        paymentId: payment.id,
+        paymentAmount: Number(payment.amount || 0),
+      });
+    } catch (e: any) {
+      console.error("[affiliate] subscription commission failed:", e?.message);
+    }
   }
 
   // Admin alert
