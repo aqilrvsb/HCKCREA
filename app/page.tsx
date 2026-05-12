@@ -164,10 +164,23 @@ export default function Home() {
           </span>
         </Link>
 
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2 sm:gap-3">
+          <Link
+            href="/affiliate"
+            className="inline-flex items-center gap-1.5 px-4 sm:px-5 py-3 rounded-2xl text-xs sm:text-sm font-extrabold transition-transform hover:scale-[1.04] hover:-translate-y-0.5"
+            style={{
+              background:
+                "linear-gradient(135deg, #f97316 0%, #ea580c 100%)",
+              color: "white",
+              boxShadow: "0 6px 20px rgba(249,115,22,0.35)",
+            }}
+          >
+            <Flame className="w-4 h-4" strokeWidth={2.5} />
+            Nak Jana Income?
+          </Link>
           <Link
             href="/login"
-            className="inline-flex items-center gap-2 px-6 py-3 rounded-2xl text-sm sm:text-base font-extrabold transition-transform hover:scale-[1.04] hover:-translate-y-0.5"
+            className="inline-flex items-center gap-2 px-5 sm:px-6 py-3 rounded-2xl text-sm sm:text-base font-extrabold transition-transform hover:scale-[1.04] hover:-translate-y-0.5"
             style={{
               background: "var(--color-lime)",
               color: "#0a0a0a",
