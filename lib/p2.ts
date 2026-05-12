@@ -174,7 +174,23 @@ async function p2CreateTaskInternal(input: {
   } else if (isVideo) {
     // Veo 3.1 fast: duration is a number, only 8 supported on -fast variants
     if (input.aspectRatio) innerInput.aspect_ratio = input.aspectRatio;
-    if (imgUrls.length > 0) innerInput.img_urls = imgUrls;
+    // Product-reference anchoring trick: when Veo r2v gets a SINGLE reference
+    // image (typical case — user uploaded only a product photo, no character),
+    // duplicate it 3× in the img_urls array. The model anchors each frame
+    // more tightly to the reference when the same image appears multiple
+    // times, materially reducing "product drift" (shape, label, packaging
+    // distortion across the 8-second clip). Skipped when:
+    //   • multiple images already provided (product + character ref, or
+    //     multi-angle product) — the user is intentionally supplying
+    //     distinct references; we send them as-is.
+    //   • i2v mode (-i2v model) where the single image is the literal
+    //     first frame seed, not a reference signal.
+    const isR2V = m.includes("r2v");
+    const finalImgUrls =
+      isR2V && imgUrls.length === 1
+        ? [imgUrls[0], imgUrls[0], imgUrls[0]]
+        : imgUrls;
+    if (finalImgUrls.length > 0) innerInput.img_urls = finalImgUrls;
     innerInput.duration = Number(input.durationMode || 8);
   } else if (isGptImage) {
     // GPT Image 2: only supports 1:1 / 2:3 / 3:2. Map web aspects to those.
