@@ -582,6 +582,13 @@ export default function Sidebar({
           ]
         ).map(({ kind, label, Icon }) => {
           const isActive = view.kind === kind;
+          // Affiliate row gets a soft pulse glow to draw attention to the
+          // referral program. Pauses on hover (via CSS) so user interaction
+          // state stays visible. Pause also when the row is the active
+          // view — the orange active highlight + the gold pulse would
+          // fight each other visually.
+          const isAffiliate = kind === "affiliate";
+          const shineClass = isAffiliate && !isActive ? "sidebar-affiliate-shine" : "";
           return (
             <button
               key={kind}
@@ -589,7 +596,7 @@ export default function Sidebar({
                 onViewChange({ kind });
                 onMobileClose();
               }}
-              className="sidebar-row group w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-bold"
+              className={`sidebar-row group w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-bold ${shineClass}`}
               style={
                 isActive
                   ? {
