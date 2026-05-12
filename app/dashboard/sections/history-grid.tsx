@@ -2175,92 +2175,57 @@ function ActionBtn({
   );
 }
 
-// Save-to-Storage TRAFFIC LIGHT button.
-// Single icon that color-codes the file's expiry urgency and asks for
-// confirmation before saving:
-//   GREEN  — already saved to permanent Storage (no action needed)
-//   YELLOW — fresh file, plenty of TTL time left (>3 days), can save anytime
-//   RED    — close to Crun's 14-day delete (≤3 days) — save NOW
-//   DARK   — already expired (Crun deleted; can't save anymore)
+// Validity indicator — DISPLAY ONLY.
+// Since every generation now auto-saves to peninglab-content with a
+// 30-day B2 lifecycle, the manual "Save permanently" action is gone.
+// This component is left in place as a pure countdown badge so users
+// still see at-a-glance how long they have before the file auto-deletes.
 //
-// Click → swal-style confirm dialog with file ETA + Save / Cancel.
+// Color tiers:
+//   YELLOW — plenty of time left (>3 days)
+//   RED    — close to TTL (≤3 days)
+//   DARK   — already past 30-day TTL
+//
+// Not clickable. No tooltip implying "click to save". Props for the old
+// save flow (saved / saving / onSave) are kept in the signature for
+// backwards-compat with all call sites, but ignored.
 function SaveTrafficLight({
-  saved,
-  saving,
   expiryDays,
-  onSave,
   isStorytelling,
   showValidity,
 }: {
-  saved: boolean;
-  saving: boolean;
+  saved?: boolean;
+  saving?: boolean;
   expiryDays: number | null;
-  onSave: () => void;
-  // Storytelling-specific flag — kept for backwards compat. The
-  // showValidity flag below is the one we actually gate the chip on.
+  onSave?: () => void;
   isStorytelling?: boolean;
-  // Show the "Xd" countdown chip on the Save button. Set true for any
-  // row whose underlying file has a soft TTL (UGC video, Auto Content,
-  // Cinema, Storytelling). Image tabs default to false so the Save
-  // button stays clean — those have a different lifecycle.
   showValidity?: boolean;
 }) {
-  // Resolve color tier
   const expired = expiryDays !== null && expiryDays <= 0;
   const urgent = !expired && expiryDays !== null && expiryDays <= 3;
-  const tierBg = saved
-    ? "#10b981"           // green — saved
-    : expired
-      ? "#52525b"         // dark gray — expired
-      : urgent
-        ? "#ef4444"       // red — soon expires
-        : "#facc15";      // yellow — default unsaved
-  const tierTitle = saved
-    ? "Saved permanently to Storage"
-    : expired
-      ? "This file has expired (14-day TTL passed) — can't save"
-      : urgent
-        ? `⚠ Only ${expiryDays} day${expiryDays === 1 ? "" : "s"} left! Save NOW.`
-        : `${expiryDays}d left before this file auto-deletes — click to save permanently`;
-
-  function handleClick() {
-    if (saved || saving || expired) return;
-    const lines = [
-      `Save this to your permanent Storage?`,
-      ``,
-      `This file expires in ${expiryDays} day${expiryDays === 1 ? "" : "s"}.`,
-      `Once saved, it stays forever in your Storage page.`,
-      ``,
-      `Counts toward your storage quota.`,
-    ];
-    if (window.confirm(lines.join("\n"))) {
-      onSave();
-    }
-  }
+  const tierBg = expired
+    ? "#52525b"        // dark gray — past TTL
+    : urgent
+      ? "#ef4444"      // red — soon expires
+      : "#facc15";     // yellow — default
+  const tierTitle = expired
+    ? "Past 30-day TTL — file auto-deleted by B2 lifecycle"
+    : `${expiryDays} day${expiryDays === 1 ? "" : "s"} until B2 auto-delete`;
 
   return (
-    <button
-      onClick={handleClick}
-      disabled={saved || saving || expired}
+    <div
       title={tierTitle}
-      className="w-7 h-7 rounded-lg flex items-center justify-center text-white disabled:opacity-70 transition-transform hover:scale-105 relative"
+      className="w-7 h-7 rounded-lg flex items-center justify-center relative pointer-events-none select-none"
       style={{
         background: tierBg,
-        boxShadow: urgent && !saved ? "0 0 0 2px rgba(239,68,68,0.35), 0 2px 4px rgba(0,0,0,0.3)" : "0 2px 4px rgba(0,0,0,0.3)",
+        boxShadow: urgent
+          ? "0 0 0 2px rgba(239,68,68,0.35), 0 2px 4px rgba(0,0,0,0.3)"
+          : "0 2px 4px rgba(0,0,0,0.3)",
         color: tierBg === "#facc15" ? "#1a1a1a" : "white",
       }}
     >
-      {saving
-        ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
-        : saved
-          ? <HardDrive className="w-3.5 h-3.5" strokeWidth={2.4} />
-          : <CloudUpload className="w-3.5 h-3.5" strokeWidth={2.4} />}
-      {/* Validity countdown chip. Renders for any TTL-bounded media
-          (storytelling, UGC video, Auto Content, Cinema). Storytelling
-          additionally vanishes from history at ≤1d via the
-          early-cutoff filter, but the chip itself just communicates
-          "save before this expires" universally now. */}
-      {(showValidity || isStorytelling) && !saved && !expired && expiryDays !== null && (
+      <CloudUpload className="w-3.5 h-3.5" strokeWidth={2.4} />
+      {(showValidity || isStorytelling) && !expired && expiryDays !== null && (
         <span
           className="absolute -top-1 -right-1 text-[8px] font-extrabold rounded-full min-w-[14px] h-[14px] flex items-center justify-center px-1 leading-none"
           style={{
@@ -2272,7 +2237,7 @@ function SaveTrafficLight({
           {expiryDays}d
         </span>
       )}
-    </button>
+    </div>
   );
 }
 
