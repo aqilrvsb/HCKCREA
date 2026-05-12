@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { memo, useEffect, useMemo, useState } from "react";
 import {
   HardDrive,
   Loader2,
@@ -222,7 +222,7 @@ export default function StorageSection() {
   );
 }
 
-function StorageCard({
+function StorageCardInner({
   item,
   onDelete,
 }: {
@@ -316,3 +316,17 @@ function StorageCard({
     </div>
   );
 }
+
+// memo so re-renders of the Storage page (filter changes, quota refresh,
+// delete-then-load) don't re-render every card. Storage cards have very
+// few state inputs — just identity + cached URL + size.
+const StorageCard = memo(StorageCardInner, (prev, next) => {
+  return (
+    prev.item.id === next.item.id &&
+    prev.item.cached_url === next.item.cached_url &&
+    prev.item.size_bytes === next.item.size_bytes &&
+    prev.item.b2_key === next.item.b2_key
+    // onDelete is an inline lambda from the parent but closes over a
+    // stable id — old ref is safe to keep.
+  );
+});

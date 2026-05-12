@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
 import {
   History,
   Loader2,
@@ -672,7 +672,7 @@ const ACTION = {
   retry: "linear-gradient(135deg, #22c55e, #4ade80)",      // green — retry failed
 };
 
-function HistoryCard({
+function HistoryCardInner({
   item,
   seg2,
   saveStatus,
@@ -1646,6 +1646,34 @@ function HistoryCard({
     </div>
   );
 }
+
+// React.memo with a shallow equality check on the fields that actually
+// drive a re-render. The History grid polls every 15s and replaces the
+// whole `items` array, but for most rows nothing changed — without this
+// memo every card re-renders on every poll, which is why status-flip
+// felt like the entire grid flickered.
+const HistoryCard = memo(HistoryCardInner, (prev, next) => {
+  return (
+    prev.item.id === next.item.id &&
+    prev.item.status === next.item.status &&
+    prev.item.output_url === next.item.output_url &&
+    prev.item.merged_url === next.item.merged_url &&
+    prev.item.caption === next.item.caption &&
+    prev.item.error_message === next.item.error_message &&
+    prev.seg2?.id === next.seg2?.id &&
+    prev.seg2?.status === next.seg2?.status &&
+    prev.seg2?.output_url === next.seg2?.output_url &&
+    prev.saveStatus?.saved === next.saveStatus?.saved &&
+    prev.saveStatus?.storage_id === next.saveStatus?.storage_id &&
+    prev.mergeSupported === next.mergeSupported &&
+    prev.mergeSelectedIdx === next.mergeSelectedIdx
+    // Intentionally NOT comparing onToggleMerge — the parent passes an
+    // inline lambda that's a new ref every render, but it always closes
+    // over the same `item.id` and a stable setState, so the old ref is
+    // safe to keep. Re-rendering just because the lambda identity flipped
+    // would defeat the point of this memo.
+  );
+});
 
 // ── Modals ──────────────────────────────────────────────────────────────────
 
