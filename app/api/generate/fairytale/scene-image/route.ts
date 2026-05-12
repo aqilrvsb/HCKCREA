@@ -110,6 +110,19 @@ export async function POST(req: Request) {
       let createdTaskId: string | null = null;
       let createdError: string | null = null;
       let usedFallback = false;
+      // Track which provider actually produced the row so settle.ts knows
+      // which upstream to query when the task lands. Default = the user's
+      // chosen provider; flipped to "p2" if we fall back from p3 → p2.
+      let actualProvider: "p2" | "p3" = provider;
+
+      // Detect content-moderation rejections from Mountsea (Google nano-
+      // banana proxy). HTTP 451 = "unavailable for legal reasons" — that's
+      // Google's safety filter. The same prompt will fail on retry; only
+      // a different MODEL (with a different filter) can save it.
+      const isMountseaBlocked = (err: string | null | undefined): boolean => {
+        if (!err) return false;
+        return /451|content.*polic|moderation|safety|blocked|unsafe|harmful/i.test(err);
+      };
 
       if (provider === "p3") {
         // Mountsea path — locked to nano-banana-fast per product
@@ -119,6 +132,7 @@ export async function POST(req: Request) {
         // transient Mountsea blips don't kill the whole story.
         const MAX_TRIES = 3;
         let lastError: string | null = null;
+        let hitContentBlock = false;
         for (let attempt = 1; attempt <= MAX_TRIES; attempt++) {
           const r = await p3CreateImage({
             prompt,
@@ -132,6 +146,15 @@ export async function POST(req: Request) {
             break;
           }
           lastError = r.ok ? "no task_id" : r.error;
+          // Content-moderation block → don't waste retries with the same
+          // prompt, jump straight to Crun fallback.
+          if (isMountseaBlocked(lastError)) {
+            hitContentBlock = true;
+            console.warn(
+              `[fairytale-scene] Mountsea content-block on attempt ${attempt}: ${lastError}`
+            );
+            break;
+          }
           if (attempt < MAX_TRIES) {
             console.warn(
               `[fairytale-scene] Mountsea attempt ${attempt}/${MAX_TRIES} failed: ${lastError}`
@@ -140,6 +163,30 @@ export async function POST(req: Request) {
           }
         }
         createdError = lastError;
+
+        // Fallback to Crun (p2) with nano-banana-v2 when Mountsea fails
+        // for ANY reason after the retry loop. nano-banana-v2 has a
+        // different (lighter) safety filter than Mountsea's Google
+        // direct proxy, so prompts blocked at p3 often pass through p2.
+        if (!createdOk) {
+          console.warn(
+            `[fairytale-scene] Mountsea exhausted (${hitContentBlock ? "content-blocked" : "no task_id"}: ${createdError}), falling back to Crun nano-banana-v2`
+          );
+          const fallback = await p2CreateTask({
+            model: "google/nano-banana-v2",
+            prompt,
+            aspectRatio,
+          });
+          if (fallback.ok && fallback.task_id) {
+            createdOk = true;
+            createdTaskId = fallback.task_id;
+            createdError = null;
+            usedFallback = true;
+            actualProvider = "p2";
+          } else {
+            createdError = `Mountsea: ${createdError}; Crun fallback: ${fallback.ok ? "no task_id" : fallback.error}`;
+          }
+        }
       } else {
         // p2 / Crun path (existing behaviour)
         const modelId =
@@ -202,11 +249,16 @@ export async function POST(req: Request) {
           task_id: createdTaskId,
           cost: rate,
           metadata: {
-            model: provider === "p3" ? "nano-banana-fast" : modelKey,
+            // actualProvider reflects the upstream that actually accepted
+            // the task — falls back to p2/nano-banana-v2 when p3 was
+            // content-blocked. settle.ts reads metadata.provider to pick
+            // the right status-polling endpoint.
+            provider: actualProvider,
+            model: actualProvider === "p3" ? "nano-banana-fast" : "google/nano-banana-v2",
+            fallback_used: usedFallback,
             aspectRatio,
             scene_idx: sceneIdx,
             group_id: fairytaleGroupId,
-            provider,
             upload_status: "done",
           },
         })
