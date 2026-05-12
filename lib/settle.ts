@@ -353,12 +353,28 @@ async function tryAutoRetry(
       aspectRatio,
       imageUrls: refImage ? [refImage] : undefined,
     });
-    if (!r.ok) return false;
+    tierLog = r.tierLog;
+    if (!r.ok) {
+      // Cascade exhausted all 3 tiers. Stamp tier_log on the row so the
+      // user can see "tried p2, p1, p3 — all failed" instead of guessing.
+      await admin
+        .from("history")
+        .update({
+          metadata: {
+            ...meta,
+            tier_log: tierLog,
+            last_retry_error: r.error.slice(0, 300),
+            last_retry_at: new Date().toISOString(),
+            retry_count: retryCount + 1,
+          },
+        })
+        .eq("id", hist.id);
+      return false;
+    }
     newTaskId = r.taskId;
     newProvider = r.actualProvider;
     newModel = r.actualModel;
     fallbackUsed = r.fallbackUsed;
-    tierLog = r.tierLog;
   } else if (isGrok) {
     // Grok: no cascade defined, single shot on p2 same as before.
     const created = await p2CreateTask({
@@ -384,12 +400,28 @@ async function tryAutoRetry(
       aspectRatio,
       imageMode,
     });
-    if (!r.ok) return false;
+    tierLog = r.tierLog;
+    if (!r.ok) {
+      // Cascade exhausted all 3 tiers. Stamp tier_log on the row so the
+      // user sees the full attempt history.
+      await admin
+        .from("history")
+        .update({
+          metadata: {
+            ...meta,
+            tier_log: tierLog,
+            last_retry_error: r.error.slice(0, 300),
+            last_retry_at: new Date().toISOString(),
+            retry_count: retryCount + 1,
+          },
+        })
+        .eq("id", hist.id);
+      return false;
+    }
     newTaskId = r.taskId;
     newProvider = r.actualProvider;
     newModel = r.actualModel;
     fallbackUsed = r.fallbackUsed;
-    tierLog = r.tierLog;
   }
 
   await admin

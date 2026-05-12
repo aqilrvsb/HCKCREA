@@ -1090,6 +1090,52 @@ function HistoryCardInner({
             <div className="absolute inset-0 flex flex-col items-center justify-center text-red-400 text-xs font-bold gap-2 px-3 text-center">
               <XCircle className="w-5 h-5" />
               <span className="line-clamp-2">{item.error_message || "Failed"}</span>
+              {/* Prompt shown below the error so users can see what the
+                  failed generation was asking for — makes it easy to
+                  spot "Veo audio-gen failed" + a prompt that has
+                  TTS-hostile words, etc. */}
+              {item.prompt && (
+                <div
+                  className="mt-2 pt-2 border-t w-full"
+                  style={{ borderColor: "rgba(239,68,68,0.25)" }}
+                >
+                  <div className="text-[9px] font-mono uppercase tracking-wider mb-1 opacity-60">
+                    PROMPT
+                  </div>
+                  <div
+                    className="text-[10px] font-normal text-left line-clamp-5 leading-relaxed"
+                    style={{ color: "rgba(252,165,165,0.85)" }}
+                  >
+                    {item.prompt.slice(0, 300)}
+                    {item.prompt.length > 300 ? "…" : ""}
+                  </div>
+                </div>
+              )}
+              {/* Cascade attempt history — shows which tiers were tried.
+                  Lets admin/user see "yep, all 3 providers failed" at a
+                  glance instead of guessing why retry didn't help. */}
+              {Array.isArray(item.metadata?.tier_log) && item.metadata.tier_log.length > 0 && (
+                <div
+                  className="mt-2 pt-2 border-t w-full"
+                  style={{ borderColor: "rgba(239,68,68,0.25)" }}
+                >
+                  <div className="text-[9px] font-mono uppercase tracking-wider mb-1 opacity-60">
+                    CASCADE ATTEMPTS
+                  </div>
+                  <div className="text-[9px] font-mono space-y-0.5 text-left">
+                    {item.metadata.tier_log.map((t: any, i: number) => (
+                      <div
+                        key={i}
+                        style={{
+                          color: t.ok ? "#4ade80" : "rgba(252,165,165,0.7)",
+                        }}
+                      >
+                        {t.ok ? "✓" : "✗"} {t.tier}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
             <button
               onClick={checkNow}
