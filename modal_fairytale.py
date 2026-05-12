@@ -525,7 +525,7 @@ def _concat_scenes(scene_paths: list, out_path: Path) -> Path:
     return out_path
 
 
-def _b2_sign_v4(method: str, b2_key: str, body: bytes | None, content_type: str | None):
+def _b2_sign_v4(method: str, b2_key: str, body: bytes | None, content_type: str | None, cache_control: str | None = None):
     """Produce SigV4 authorization headers for a B2 S3-compatible request.
 
     Returns (host, canonical_uri, headers_dict_for_request).
@@ -560,6 +560,10 @@ def _b2_sign_v4(method: str, b2_key: str, body: bytes | None, content_type: str 
         headers["content-length"] = str(len(body))
     if content_type:
         headers["content-type"] = content_type
+    if cache_control:
+        # Persisted by B2 as object metadata, returned on every GET so the
+        # browser disk-caches the file. Matches the JS upload path's behaviour.
+        headers["cache-control"] = cache_control
 
     sorted_keys = sorted(headers)
     signed_headers = ";".join(sorted_keys)
@@ -602,12 +606,17 @@ def _b2_sign_v4(method: str, b2_key: str, body: bytes | None, content_type: str 
     return host, canonical_uri, out_headers
 
 
-def _upload_b2(local_path: Path, b2_key: str) -> None:
-    """PUT the local file to Backblaze B2 at the given key."""
+def _upload_b2(local_path: Path, b2_key: str, content_type: str = "video/mp4") -> None:
+    """PUT the local file to Backblaze B2 at the given key with the
+    immutable cache-control header so browsers cache the file for 30 days.
+    """
     import requests
     with open(local_path, "rb") as f:
         body = f.read()
-    host, canonical_uri, headers = _b2_sign_v4("PUT", b2_key, body, "video/mp4")
+    host, canonical_uri, headers = _b2_sign_v4(
+        "PUT", b2_key, body, content_type,
+        cache_control="public, max-age=2592000, immutable",
+    )
     r = requests.put(
         f"https://{host}{canonical_uri}",
         data=body,
@@ -618,6 +627,19 @@ def _upload_b2(local_path: Path, b2_key: str) -> None:
         raise RuntimeError(
             f"B2 upload failed: HTTP {r.status_code} {r.text[:300]}"
         )
+
+
+def _b2_public_s3_url(b2_key: str) -> str:
+    """Build the public S3-style URL for an object in the content bucket.
+    No signing needed — bucket is public + we want browsers to cache the
+    URL forever via the immutable cache-control header set at upload time.
+    """
+    from urllib.parse import urlparse, quote
+    endpoint = os.environ["B2_ENDPOINT"]
+    bucket = os.environ["B2_BUCKET_PRIVATE"]
+    endpoint_host = urlparse(endpoint).netloc
+    key_encoded = "/".join(quote(p, safe="") for p in b2_key.split("/"))
+    return f"https://{bucket}.{endpoint_host}/{key_encoded}"
 
 
 def _presign_b2_get(b2_key: str, expires_sec: int = 7 * 86400) -> str:
@@ -886,13 +908,14 @@ def render_story(payload: dict):
         else:
             concat_path.rename(final_path)
 
-        # Upload merged mp4 directly to B2 at the user's permanent path.
-        # output_url becomes a 7-day presigned GET — same shape as Crun
-        # temp URLs other tabs use, so the Storage save flow stays uniform.
+        # Upload merged mp4 to peninglab-content B2 with immutable cache
+        # headers (set inside _upload_b2). output_url is the S3-style
+        # public URL — no signing, never expires, browser caches 30 days.
+        # Matches the JS rehost path in lib/b2.ts → uploadBufferToContent.
         user_id = payload.get("user_id") or "anon"
         b2_key = _b2_key_for(user_id, history_id)
-        _upload_b2(final_path, b2_key)
-        signed_url = _presign_b2_get(b2_key, expires_sec=7 * 86400)
+        _upload_b2(final_path, b2_key, content_type="video/mp4")
+        signed_url = _b2_public_s3_url(b2_key)
 
         elapsed = time.time() - started
         # Clear error_message too — if Vercel's after() previously stamped a
