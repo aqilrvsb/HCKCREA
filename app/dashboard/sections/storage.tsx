@@ -1,6 +1,7 @@
 "use client";
 
 import { memo, useEffect, useMemo, useState } from "react";
+import useSWR from "swr";
 import {
   HardDrive,
   Loader2,
@@ -56,35 +57,38 @@ function fmtMB(bytes: number): string {
 }
 
 export default function StorageSection() {
-  const [items, setItems] = useState<StorageItem[]>([]);
-  const [usedMb, setUsedMb] = useState(0);
-  const [quotaMb, setQuotaMb] = useState(1024);
-  const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState("all");
-  const [error, setError] = useState<string | null>(null);
 
-  async function load() {
-    try {
-      setError(null);
-      const r = await fetch("/api/storage/list", { credentials: "include", cache: "no-store" });
+  // SWR cache for /api/storage/list — survives tab switches so going
+  // Storage → UGC → Storage doesn't re-fire the call.
+  const { data, error, isLoading: loading, mutate } = useSWR<{
+    items: StorageItem[];
+    used_mb: number;
+    quota_mb: number;
+  }>(
+    "/api/storage/list",
+    async (url: string) => {
+      const r = await fetch(url, { credentials: "include" });
       const d = await r.json();
       if (!r.ok || !d?.ok) throw new Error(d?.error || `HTTP ${r.status}`);
-      setItems(d.items || []);
-      setUsedMb(d.used_mb || 0);
-      setQuotaMb(d.quota_mb || 1024);
-    } catch (e: any) {
-      setError(e?.message || "Failed to load storage");
-    } finally {
-      setLoading(false);
+      return { items: d.items || [], used_mb: d.used_mb || 0, quota_mb: d.quota_mb || 1024 };
+    },
+    {
+      keepPreviousData: true,
+      revalidateOnFocus: true,
+      dedupingInterval: 5000,
     }
-  }
+  );
+  const items = data?.items || [];
+  const usedMb = data?.used_mb || 0;
+  const quotaMb = data?.quota_mb || 1024;
+  const errorMsg = error ? (error.message || "Failed to load storage") : null;
 
   useEffect(() => {
-    void load();
-    const onSaved = () => void load();
+    const onSaved = () => void mutate();
     window.addEventListener("storage:saved", onSaved);
     return () => window.removeEventListener("storage:saved", onSaved);
-  }, []);
+  }, [mutate]);
 
   const filtered = useMemo(
     () => filter === "all" ? items : items.filter((i) => i.type === filter),
@@ -108,8 +112,13 @@ export default function StorageSection() {
         return;
       }
       // Optimistic remove + refresh quota numbers from server
-      setItems((prev) => prev.filter((i) => i.id !== id));
-      void load();
+      void mutate(
+        (curr) =>
+          curr
+            ? { ...curr, items: curr.items.filter((i) => i.id !== id) }
+            : curr,
+        { revalidate: true }
+      );
     } catch (e: any) {
       alert(`Failed to delete: ${e?.message || "network error"}`);
     }
@@ -193,13 +202,13 @@ export default function StorageSection() {
           <Loader2 className="w-6 h-6 mx-auto animate-spin text-[var(--color-text-muted)]" />
         </div>
       )}
-      {!loading && error && (
+      {!loading && errorMsg && (
         <div className="card p-6" style={{ borderColor: "rgba(239,68,68,0.4)" }}>
           <div className="text-sm font-bold text-red-400 mb-1">Couldn't load storage</div>
-          <p className="text-xs text-[var(--color-text-secondary)]">{error}</p>
+          <p className="text-xs text-[var(--color-text-secondary)]">{errorMsg}</p>
         </div>
       )}
-      {!loading && !error && filtered.length === 0 && (
+      {!loading && !errorMsg && filtered.length === 0 && (
         <div className="card p-12 text-center">
           <HardDrive className="w-10 h-10 mx-auto text-[var(--color-text-muted)] mb-3" />
           <div className="font-bold mb-1 text-[var(--color-text-primary)]">No saved files yet</div>
@@ -211,7 +220,7 @@ export default function StorageSection() {
       )}
 
       {/* Grid */}
-      {!loading && !error && filtered.length > 0 && (
+      {!loading && !errorMsg && filtered.length > 0 && (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
           {filtered.map((it) => (
             <StorageCard key={it.id} item={it} onDelete={() => handleDelete(it.id)} />

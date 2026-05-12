@@ -1,6 +1,7 @@
 "use client";
 
 import { memo, useEffect, useMemo, useRef, useState } from "react";
+import useSWR from "swr";
 import {
   History,
   Loader2,
@@ -132,8 +133,6 @@ export default function HistoryGrid({
   title: string;
   projectId?: string;
 }) {
-  const [items, setItems] = useState<HistoryItem[]>([]);
-  const [loading, setLoading] = useState(false);
   const [page, setPage] = useState(0);
   const PAGE_SIZE = 12;
 
@@ -212,50 +211,22 @@ export default function HistoryGrid({
     setMergeSelection([]);
   }, [tab, projectId]);
 
-  useEffect(() => {
-    void load();
-    setPage(0);
-    // Refresh on explicit dispatch (webhook completes → user clicks per-card
-    // refresh icon → user re-enters tab) AND on a 1-minute interval while
-    // pending rows are visible. The interval gates itself on items.some
-    // (status === "pending"), so once everything is settled the polling
-    // stops automatically — no battery drain on idle dashboards.
-    const onRefresh = () => load();
-    window.addEventListener("history:refresh", onRefresh);
-    return () => window.removeEventListener("history:refresh", onRefresh);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tab, projectId, storytellingSubTab, viralSubTab, viralFeature]);
-
-  // 1-minute auto-refresh when there's anything pending. Pauses when the
-  // tab is hidden (browser throttles intervals on hidden tabs anyway, but
-  // explicit pause keeps the logs clean) and stops entirely when no row
-  // is pending. The server's pg_cron does the actual settling — this just
-  // re-fetches so the UI mirrors what the DB already knows.
-  // Cadence: 15s while anything is pending. Webhooks land in ~30-90s, cron
-  // every 30s — so a 15s UI poll catches the flip within one tick of the
-  // DB write and the user never has to F5.
-  useEffect(() => {
-    const hasPending = items.some(
-      (i) => i.status === "pending" && !i.parent_history_id
-    ) ||
-      // Also keep ticking while any child seg-2 is pending — the parent
-      // looks "done" but the slider's seg-2 thumb is still spinning.
-      items.some((i) => i.parent_history_id && i.status === "pending");
-    if (!hasPending) return;
-
-    const id = window.setInterval(() => {
-      if (document.visibilityState === "visible") void load({ silent: true });
-    }, 15_000);
-    return () => window.clearInterval(id);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [items]);
-
-  async function load(opts: { silent?: boolean } = {}) {
-    // Initial load shows the grid skeleton; poll-driven loads keep the
-    // existing cards on screen and just swap the data underneath, so a
-    // pending card flipping to done doesn't make the whole grid blink.
-    if (!opts.silent) setLoading(true);
-    try {
+  // SWR cache for the history query. Cached results live in memory
+  // keyed by [tab, projectId, sub-tabs, viralFeature], so a tab switch
+  // (UGC → Cinema → UGC) shows the previous cards instantly while a
+  // background revalidation runs. Replaces the old useState + load()
+  // + setInterval combo — same fetch logic, just cached.
+  //
+  // refreshInterval is a function so polling auto-pauses when no row
+  // is pending AND when the tab is hidden — same behaviour as the old
+  // interval, just expressed declaratively.
+  const swrKey = useMemo(
+    () => ["history", tab, projectId || "", storytellingSubTab, viralSubTab, viralFeature] as const,
+    [tab, projectId, storytellingSubTab, viralSubTab, viralFeature]
+  );
+  const { data: items = [], isLoading: loading, mutate: mutateItems } = useSWR<HistoryItem[]>(
+    swrKey,
+    async () => {
       const sb = createClient();
       let q = sb
         .from("history")
@@ -264,23 +235,12 @@ export default function HistoryGrid({
         .order("created_at", { ascending: false })
         .limit(60);
       if (projectId) q = q.eq("project_id", projectId);
-      // Storytelling: sub-tab decides which artifact type to show.
-      //   "videos" → merged final videos (type='fairytale')
-      //   "images" → intermediate scene images (type='fairytale-scene')
       if (tab === "fairytale") {
         q = q.eq(
           "type",
           storytellingSubTab === "images" ? "fairytale-scene" : "fairytale"
         );
       }
-      // Viral (cinema tab): two-level filter.
-      //   1. viralFeature picks the sub-feature row family:
-      //      - "talking-object" → metadata.featureType in
-      //        (talking-object, talking-object-image). Videos + Images.
-      //      - "normal-video"   → tab=cinema rows that aren't talking-
-      //        object-typed (free-form prompt path). Videos ONLY.
-      //   2. viralSubTab toggles videos/images inside Talking Object.
-      //      Normal Video forces type=video regardless.
       if (tab === "cinema") {
         if (viralFeature === "talking-object") {
           q = q
@@ -290,13 +250,8 @@ export default function HistoryGrid({
               "talking-object-image",
             ]);
         } else {
-          // Normal Video: free-form prompt rows. The /api/generate/cinema
-          // route doesn't stamp metadata.featureType (it's a Talking-
-          // Object-only field), so Normal Video rows have NULL there.
-          //
-          // Postgres NULL gotcha: `NOT IN (...)` excludes NULL rows,
-          // which would hide every Normal Video generation. Use OR'd
-          // filter that matches NULL OR not-in-the-set instead.
+          // Postgres NULL gotcha: NOT IN (…) excludes NULL rows. Use an
+          // OR'd filter that matches NULL OR not-in-the-set instead.
           q = q
             .eq("type", "video")
             .or(
@@ -305,11 +260,34 @@ export default function HistoryGrid({
         }
       }
       const { data } = await q;
-      setItems((data as HistoryItem[]) || []);
-    } finally {
-      if (!opts.silent) setLoading(false);
+      return (data as HistoryItem[]) || [];
+    },
+    {
+      keepPreviousData: true, // <-- warm tab switch = instant
+      revalidateOnFocus: true,
+      dedupingInterval: 3000,
+      // 15s poll while anything is pending AND tab is visible. Returns
+      // 0 to disable. Same gating as the old setInterval, declarative.
+      refreshInterval: (latest) => {
+        if (!latest || latest.length === 0) return 0;
+        const hasPending = latest.some((i) => i.status === "pending");
+        if (!hasPending) return 0;
+        if (typeof document !== "undefined" && document.visibilityState !== "visible") return 0;
+        return 15_000;
+      },
     }
-  }
+  );
+
+  // Reset pagination + listen for explicit refresh events.
+  useEffect(() => {
+    setPage(0);
+  }, [tab, projectId, storytellingSubTab, viralSubTab, viralFeature]);
+
+  useEffect(() => {
+    const onRefresh = () => void mutateItems();
+    window.addEventListener("history:refresh", onRefresh);
+    return () => window.removeEventListener("history:refresh", onRefresh);
+  }, [mutateItems]);
 
   // Children (segment_index=2 with parent_history_id) live in the same query
   // result. Pull them out into a lookup map so HistoryCard can build its
@@ -324,32 +302,38 @@ export default function HistoryGrid({
     return { parents, childMap };
   }, [items]);
 
-  // Save-to-storage status — single batched POST to /api/storage/status with
-  // all parent ids on screen, so each card knows whether to render Save vs
-  // Saved without N round-trips. Refresh whenever items change OR a save
-  // event fires (the SaveButton dispatches `storage:saved` on success).
-  const [saveStatus, setSaveStatus] = useState<Record<string, { saved: boolean; storage_id?: string; url?: string }>>({});
+  // Save-to-storage status — single batched POST to /api/storage/status
+  // with all parent ids on screen, cached via SWR so a tab re-switch
+  // doesn't re-fire this 880ms call. Keyed by the joined id list so
+  // adding/removing items (delete, paginate) triggers a fresh fetch.
+  const parentIdsKey = useMemo(() => parents.map((p) => p.id).join("|"), [parents]);
+  const { data: saveStatus = {}, mutate: mutateSaveStatus } = useSWR<
+    Record<string, { saved: boolean; storage_id?: string; url?: string }>
+  >(
+    parentIdsKey ? ["storage-status", parentIdsKey] : null,
+    async () => {
+      const ids = parentIdsKey.split("|").filter(Boolean);
+      const r = await fetch("/api/storage/status", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ history_ids: ids }),
+      });
+      const d = await r.json();
+      if (!d?.ok) return {};
+      return d.statuses || {};
+    },
+    {
+      keepPreviousData: true,
+      dedupingInterval: 5000,
+      revalidateOnFocus: false,
+    }
+  );
   useEffect(() => {
-    const ids = parents.map((p) => p.id);
-    if (ids.length === 0) { setSaveStatus({}); return; }
-    let cancelled = false;
-    const refresh = async () => {
-      try {
-        const r = await fetch("/api/storage/status", {
-          method: "POST",
-          credentials: "include",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ history_ids: ids }),
-        });
-        const d = await r.json();
-        if (!cancelled && d?.ok) setSaveStatus(d.statuses || {});
-      } catch {}
-    };
-    void refresh();
-    const onSaved = () => void refresh();
+    const onSaved = () => void mutateSaveStatus();
     window.addEventListener("storage:saved", onSaved);
-    return () => { cancelled = true; window.removeEventListener("storage:saved", onSaved); };
-  }, [parents.map((p) => p.id).join("|")]);
+    return () => window.removeEventListener("storage:saved", onSaved);
+  }, [mutateSaveStatus]);
 
   const counts = useMemo(
     () => ({
