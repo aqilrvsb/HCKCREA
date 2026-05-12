@@ -14,7 +14,7 @@ import { getP2Config } from "@/lib/settings";
 import { deduct, priceFor, type PriceModelHint } from "@/lib/deduct";
 import { onSegmentSettled } from "@/lib/segment-chain";
 import { generateUgcPostMeta } from "@/lib/ugc-post-meta";
-import { uploadFromUrl, buildKey, type StorageType } from "@/lib/b2";
+import { uploadFromUrlToContent, buildKey, type StorageType } from "@/lib/b2";
 
 // Map a model string (from history.metadata.model) to a per-model rate
 // hint. Used at settle time so the live admin rate (rate_<model>) is
@@ -87,21 +87,14 @@ async function rehostOutputToB2(
       historyId: hist.id,
       ext,
     });
-    const publicBucket = process.env.B2_BUCKET_PUBLIC || "peninglab-content";
-    await uploadFromUrl({
+    // Uses the SEPARATE B2_CONTENT_* credentials (scoped to peninglab-
+    // content bucket). Returns the public S3 URL the bucket serves with
+    // `cache-control: public, max-age=2592000, immutable` baked in.
+    const { publicUrl: b2Url } = await uploadFromUrlToContent({
       url: providerUrl,
       key,
       contentType: contentTypeFor(ext),
-      bucket: publicBucket,
     });
-
-    // S3-style URL — what the user verified serves with the bucket's
-    // default `cache-control: public, max-age=2592000, immutable` headers.
-    // Format: https://{bucket}.{s3-host}/{key}
-    const endpointUrl = new URL(
-      process.env.B2_ENDPOINT || "https://s3.us-east-005.backblazeb2.com"
-    );
-    const b2Url = `https://${publicBucket}.${endpointUrl.host}/${key}`;
 
     await admin
       .from("history")

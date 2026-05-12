@@ -142,6 +142,107 @@ export async function uploadBuffer(opts: {
   return { key: opts.key, size: body.length };
 }
 
+// Variant of uploadBuffer that uses the SEPARATE peninglab-content
+// credentials (B2_CONTENT_KEY_ID / B2_CONTENT_APP_KEY / etc.). These
+// are scoped to write only to peninglab-content, so they're safer to
+// expose if a scoped key ever leaks. Set by the previous auto-mirror
+// plan and still in Vercel env vars.
+export async function uploadBufferToContent(opts: {
+  body: Buffer;
+  key: string;
+  contentType?: string;
+}): Promise<{ key: string; size: number; publicUrl: string }> {
+  const body = opts.body;
+  const ct = opts.contentType || "application/octet-stream";
+
+  if (body.length === 0) {
+    throw new Error("uploadBufferToContent: body is empty");
+  }
+
+  const endpoint = (process.env.B2_CONTENT_ENDPOINT || process.env.B2_ENDPOINT || "").trim();
+  const region = (process.env.B2_CONTENT_REGION || process.env.B2_REGION || "us-east-005").trim();
+  const accessKeyId = (process.env.B2_CONTENT_KEY_ID || "").trim();
+  const secretAccessKey = (process.env.B2_CONTENT_APP_KEY || "").trim();
+  const bucket = (process.env.B2_CONTENT_BUCKET || "peninglab-content").trim();
+  const publicBase = (process.env.B2_CONTENT_PUBLIC_BASE || "").trim();
+
+  if (!endpoint || !accessKeyId || !secretAccessKey) {
+    throw new Error(
+      "B2_CONTENT_* env vars missing — set B2_CONTENT_ENDPOINT / B2_CONTENT_KEY_ID / B2_CONTENT_APP_KEY"
+    );
+  }
+
+  const endpointUrl = new URL(endpoint);
+  const host = `${bucket}.${endpointUrl.host}`;
+  const path = "/" + opts.key.split("/").map(encodeURIComponent).join("/");
+
+  const signer = new SignatureV4({
+    credentials: { accessKeyId, secretAccessKey },
+    region,
+    service: "s3",
+    sha256: Sha256,
+    applyChecksum: false,
+  });
+
+  const { createHash } = await import("crypto");
+  const bodyHash = createHash("sha256").update(body).digest("hex");
+
+  const reqToSign = new HttpRequest({
+    method: "PUT",
+    protocol: "https:",
+    hostname: host,
+    path,
+    headers: {
+      host,
+      "content-length": String(body.length),
+      "content-type": ct,
+      "x-amz-content-sha256": bodyHash,
+    },
+    body,
+  });
+
+  const signedReq = (await signer.sign(reqToSign, { unsignableHeaders: new Set() })) as HttpRequest;
+
+  const handler = new NodeHttpHandler();
+  const { response } = await handler.handle(signedReq);
+
+  const respBody: string = await new Promise((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    response.body.on("data", (c: Buffer) => chunks.push(c));
+    response.body.on("end", () => resolve(Buffer.concat(chunks).toString("utf8")));
+    response.body.on("error", reject);
+  });
+
+  if (response.statusCode < 200 || response.statusCode >= 300) {
+    throw new Error(`B2 content PUT failed: HTTP ${response.statusCode} ${respBody.slice(0, 200)}`);
+  }
+
+  // Build the public URL. Prefer the explicit B2_CONTENT_PUBLIC_BASE
+  // env var (e.g. "https://peninglab-content.s3.us-east-005.backblazeb2.com")
+  // — that's what the prior plan stamped. Fall back to S3-style host
+  // built from the endpoint + bucket.
+  const base = publicBase || `https://${bucket}.${endpointUrl.host}`;
+  const publicUrl = `${base.replace(/\/$/, "")}/${opts.key.split("/").map(encodeURIComponent).join("/")}`;
+
+  return { key: opts.key, size: body.length, publicUrl };
+}
+
+// Fetch any URL and upload its body to the peninglab-content bucket.
+export async function uploadFromUrlToContent(opts: {
+  url: string;
+  key: string;
+  contentType?: string;
+}): Promise<{ key: string; size: number; publicUrl: string }> {
+  const r = await fetch(opts.url);
+  if (!r.ok) {
+    throw new Error(`Source URL fetch failed: HTTP ${r.status}`);
+  }
+  const ct = opts.contentType || r.headers.get("content-type") || "application/octet-stream";
+  const ab = await r.arrayBuffer();
+  const body = Buffer.from(ab);
+  return uploadBufferToContent({ body, key: opts.key, contentType: ct });
+}
+
 export async function uploadFromUrl(opts: {
   url: string;
   key: string;
