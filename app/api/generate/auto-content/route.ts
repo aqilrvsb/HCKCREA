@@ -250,6 +250,90 @@ export async function POST(req: Request) {
 
     const is16s = durationMode === "16";
 
+    // ─────────────────────────────────────────────────────────────────────
+    // Per-video OUTFIT ASSIGNMENT TABLE — Qwen Flash 3.6 is weak with
+    // "pick from a palette" instructions and defaults to "plain brown".
+    // We pre-compute a deterministic colour + garment + hijab-colour for
+    // every video and inject it into the user prompt as a numbered table
+    // the model MUST copy verbatim. Far more reliable than free choice.
+    // ─────────────────────────────────────────────────────────────────────
+    type OutfitRow = { color: string; garment: string; hijabColor?: string };
+    const femaleHijabPalette: OutfitRow[] = [
+      { color: "soft lilac",       garment: "long-sleeve baju kurung with small floral print", hijabColor: "dusty pink" },
+      { color: "emerald green",    garment: "modest kaftan",                                   hijabColor: "cream" },
+      { color: "butter yellow",    garment: "loose linen blouse with cream long maxi skirt",   hijabColor: "sage green" },
+      { color: "navy blue",        garment: "baju kurung kebaya with gold embroidery",         hijabColor: "champagne gold" },
+      { color: "dusty rose",       garment: "long-sleeve modest midi dress",                    hijabColor: "mauve" },
+      { color: "sage mint",        garment: "loose long-sleeve top with white maxi skirt",     hijabColor: "blush pink" },
+      { color: "burgundy",         garment: "modest kurung with cream maxi skirt",             hijabColor: "soft beige" },
+      { color: "powder blue",      garment: "long-sleeve blouse with cream wide-leg pants",    hijabColor: "white" },
+      { color: "mustard yellow",   garment: "modest kaftan with subtle batik print",           hijabColor: "olive" },
+      { color: "blush peach",      garment: "loose long-sleeve top with terracotta long skirt", hijabColor: "ivory" },
+    ];
+    const femaleNoHijabPalette: OutfitRow[] = [
+      { color: "soft lilac",       garment: "loose linen blouse with cream wide-leg pants" },
+      { color: "emerald green",    garment: "oversized button-up shirt with cream maxi skirt" },
+      { color: "butter yellow",    garment: "loose short-sleeve blouse with indigo long pants" },
+      { color: "dusty rose",       garment: "knit cardigan over white tee with sage maxi skirt" },
+      { color: "navy blue",        garment: "long-sleeve loose blouse with cream long skirt" },
+      { color: "sage mint",        garment: "oversized linen shirt with cream wide-leg pants" },
+      { color: "burgundy",         garment: "loose long-sleeve top with cream wide-leg pants" },
+      { color: "powder blue",      garment: "loose midi dress with subtle floral print" },
+      { color: "mustard yellow",   garment: "loose short-sleeve blouse with charcoal long pants" },
+      { color: "blush peach",      garment: "knit cardigan over loose white tee with maxi skirt" },
+    ];
+    const malePalette: OutfitRow[] = [
+      { color: "charcoal grey",    garment: "polo shirt" },
+      { color: "navy blue",        garment: "lightweight knit sweater" },
+      { color: "forest green",     garment: "henley tee with rolled sleeves" },
+      { color: "burgundy",         garment: "button-up shirt" },
+      { color: "cream beige",      garment: "lightweight blazer over white tee" },
+      { color: "dusty teal",       garment: "polo shirt with subtle stripes" },
+      { color: "sand brown",       garment: "linen button-up shirt" },
+      { color: "deep maroon",      garment: "knit cardigan over white tee" },
+      { color: "indigo blue",      garment: "casual henley tee" },
+      { color: "olive green",      garment: "button-up shirt with rolled sleeves" },
+    ];
+    const palette: OutfitRow[] =
+      gender === "male"
+        ? malePalette
+        : hijabMode
+          ? femaleHijabPalette
+          : femaleNoHijabPalette;
+
+    const outfitAssignments: OutfitRow[] = [];
+    for (let i = 0; i < quantity; i++) {
+      outfitAssignments.push(palette[i % palette.length]);
+    }
+
+    // The exact required-prefix string every UGC/lifestyle prompt MUST
+    // start with. Qwen Flash imitates this verbatim if shown clearly.
+    function requiredPrefix(idx: number): string {
+      const o = outfitAssignments[idx];
+      const personBase =
+        gender === "male"
+          ? `A handsome attractive Malay man in his ${ageRange}`
+          : `A beautiful attractive Malay woman in her ${ageRange}`;
+      const styleClause =
+        gender === "female"
+          ? hijabMode
+            ? `, wearing a ${o.hijabColor} hijab tudung labuh that fully covers all hair, ears, and neck (zero hair strands visible)`
+            : `, hair visible (no hijab)`
+          : "";
+      const outfitClause = `, wearing a ${o.color} ${o.garment}`;
+      return personBase + styleClause + outfitClause;
+    }
+
+    // Pretty table for the user prompt — Qwen reads tabular data well.
+    const outfitTableText = outfitAssignments
+      .map((o, i) => {
+        if (gender === "female" && hijabMode) {
+          return `Video ${i + 1}: ${o.hijabColor} hijab + ${o.color} ${o.garment}`;
+        }
+        return `Video ${i + 1}: ${o.color} ${o.garment}`;
+      })
+      .join("\n");
+
     let ctaInstruction: string;
     if (noCta) {
       ctaInstruction = "NO CTA — use full 8 seconds for content. Timing: 0-3s hook, 3-8s middle. No closing CTA needed.";
@@ -329,6 +413,30 @@ Age: ${ageRange}
 CTA: ${ctaInstruction}
 Market: Malaysian TikTok (Malay-speaking, informal)
 </content_settings>
+
+<HARD_RULES_READ_THIS_FIRST>
+🚨 THE 3 LOCKS — APPLY TO EVERY UGC + LIFESTYLE VIDEO (NOT product/handPov):
+1. GENDER = ${gender.toUpperCase()}   → ${gender === "male" ? '"Malay man" — never "woman", never "girl"' : '"Malay woman" — never "man", never "girl"'}
+2. HIJAB  = ${hijabMode ? "YES — character wears hijab tudung labuh that fully covers ALL hair, ears, neck. ZERO hair strands visible." : "NO — character has hair visible. NEVER write the word \"hijab\", \"tudung\", or any head-covering."}
+3. AGE    = ${ageRange}   → must appear in every UGC/lifestyle prompt
+
+🚨 REQUIRED PREFIX FOR EVERY UGC + LIFESTYLE imagePrompt AND videoPromptShot1${is16s ? " AND videoPromptShot2" : ""}:
+Each video has a PRE-ASSIGNED outfit (see <outfit_table> in user message). The prompt MUST start with the exact prefix for that video's number. Examples for this batch:
+${outfitAssignments.slice(0, Math.min(3, quantity)).map((_, i) => `- Video ${i + 1} prefix: "${requiredPrefix(i)}, holding the product"`).join("\n")}
+${quantity > 3 ? `(...continue for Videos 4-${quantity} using the outfit assigned to each in <outfit_table>)` : ""}
+
+🚨 DO NOT use these forbidden lazy phrases:
+- "plain brown ___"    "neutral ___"    "casual outfit"    "modest outfit"    "simple ___"
+- ${hijabMode ? '"loose hair", "free hair", "hair visible", "uncovered" — character ALWAYS has hijab' : '"hijab", "tudung", "headscarf" — character has NO hijab'}
+- "person" / "individual" — always write the exact gender word
+
+🚨 FAILURE CONDITIONS (Qwen will reject these outputs as broken):
+- imagePrompt or videoPrompt missing the gender word "${gender === "male" ? "Malay man" : "Malay woman"}"
+- imagePrompt or videoPrompt missing the age "${ageRange}"
+- ${hijabMode ? "imagePrompt or videoPrompt missing the word \"hijab\"" : "imagePrompt or videoPrompt contains the word \"hijab\""}
+- Two videos in the batch using the same outfit colour family
+- Any video defaulting to brown / beige / neutral when not assigned
+</HARD_RULES_READ_THIS_FIRST>
 
 ${noImageMode ? `
 <no_image_mode_rules>
@@ -1035,9 +1143,35 @@ Specifications: ${JSON.stringify(productData.specifications || {}).substring(0, 
 Full Description: ${(productData.descriptionText || "").substring(0, 1000)}
 </product_data>
 
+<character_lock>
+Gender: ${gender.toUpperCase()} (write "${gender === "male" ? "Malay man" : "Malay woman"}" in every UGC/lifestyle prompt)
+Hijab:  ${hijabMode ? "YES — write \"hijab tudung labuh fully covering hair, ears, neck\" in every UGC/lifestyle prompt. ZERO hair visible." : "NO — character has hair visible. NEVER use the word \"hijab\" or \"tudung\"."}
+Age:    ${ageRange} (write this exact age in every UGC/lifestyle prompt)
+</character_lock>
+
+<outfit_table>
+Each video number below is PRE-ASSIGNED a unique outfit. Copy the exact colour + garment text into that video's imagePrompt and videoPromptShot1${is16s ? " and videoPromptShot2 (same outfit for both shots of the same video)" : ""}. DO NOT invent your own colour. DO NOT default to "plain brown" or "neutral".
+
+${outfitTableText}
+</outfit_table>
+
+<per_video_prefix>
+EVERY UGC + LIFESTYLE video's imagePrompt and videoPromptShot1${is16s ? " and videoPromptShot2" : ""} MUST START with this exact phrase (substitute the right video number):
+
+${outfitAssignments.map((_, i) => `Video ${i + 1}: "${requiredPrefix(i)}"`).join("\n")}
+
+After the prefix, add: ", holding the product, [shot type + action + setting]. Spoken dialog: ..." (continue with the normal prompt body).
+
+For PRODUCT (Template B) and HAND-POV (Template C) videos: SKIP the prefix entirely — no character description, no gender, no hijab, no age. Those videos show product or hand only.
+</per_video_prefix>
+
 Plan ${quantity} unique viral TikTok videos for this product.
 
-CRITICAL: Respond with ONLY a JSON array. NO analysis, NO explanation, NO markdown, NO text before or after the JSON. Start your response with [ and end with ]. Nothing else.`;
+CRITICAL OUTPUT RULES:
+1. Respond with ONLY a JSON array. NO analysis, NO explanation, NO markdown, NO text before or after the JSON. Start your response with [ and end with ].
+2. For each video N in your output: the imagePrompt and videoPromptShot1 MUST start with the exact prefix for Video N shown above (only for UGC + lifestyle frameworks).
+3. Every UGC/lifestyle video must contain the gender word "${gender === "male" ? "Malay man" : "Malay woman"}", the age "${ageRange}", and ${hijabMode ? '"hijab" (with the assigned hijab colour)' : "MUST NOT contain the word \"hijab\""}.
+4. No two videos may share an outfit colour — each uses ITS OWN row from <outfit_table>.`;
 
     // Text-only call — extension uses orChat (no vision). Product OCR done
     // separately above and folded into productData.descriptionText.
