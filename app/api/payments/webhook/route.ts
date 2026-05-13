@@ -306,6 +306,8 @@ async function applyCheckoutSignup(admin: any, payment: any) {
       plan: plan.toUpperCase() + " Plan",
       expiresAt: expiry,
       loginUrl: `${origin}/login`,
+      // Paying customers get the PRO community group link.
+      groupKind: "pro",
     });
     const sent = await sendWhatsApp(whatsapp, msg);
     await admin

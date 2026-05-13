@@ -5,6 +5,22 @@ import { createAdminClient } from "@/lib/supabase/admin";
 
 const WHACENTER_API_URL = "https://api.whacenter.com";
 
+// WhatsApp group invite URLs. Keep both literals here so the message
+// builder can pick the right one by KIND ("pro" | "affiliate") and call
+// sites can NEVER accidentally pass the wrong link — they choose the
+// audience, not the URL.
+//
+// Affiliate group: affiliate-only community
+// PRO/Client group: paying-customer community
+export const WHATSAPP_GROUP_AFFILIATE = "https://chat.whatsapp.com/EJqjOkh3hiX1I2r1zKXJAe";
+export const WHATSAPP_GROUP_PRO = "https://chat.whatsapp.com/BPORSI7khdIEOGZzWYBwbS";
+
+export type WhatsappGroupKind = "pro" | "affiliate";
+
+export function whatsappGroupUrl(kind: WhatsappGroupKind): string {
+  return kind === "affiliate" ? WHATSAPP_GROUP_AFFILIATE : WHATSAPP_GROUP_PRO;
+}
+
 function toMalayDigits(raw: string): string | null {
   const digits = (raw || "").replace(/\D/g, "");
   if (!digits) return null;
@@ -112,13 +128,24 @@ export function buildLoginMessage(opts: {
   plan: string;
   expiresAt: Date;
   loginUrl: string;
+  // Optional — picks the correct group invite URL. Affiliate approvals
+  // get the affiliate-only group; new client payments get the PRO group.
+  // The function looks up the URL itself so call sites can't mix them.
+  // Omit on password-reset / recovery flows so we don't re-spam the
+  // group invite to existing members.
+  groupKind?: WhatsappGroupKind;
 }): string {
-  return [
+  const intro =
+    opts.groupKind === "affiliate"
+      ? "Permohonan affiliate anda DILULUSKAN — akaun anda sudah aktif."
+      : "Pembayaran anda berjaya — akaun anda sudah aktif.";
+
+  const lines: string[] = [
     "*Selamat datang ke PeningLab!* 🎉",
     "",
     `Salam ${opts.name},`,
     "",
-    "Pembayaran anda berjaya — akaun anda sudah aktif.",
+    intro,
     "",
     "*Login info anda:*",
     `Email   : ${opts.email}`,
@@ -134,7 +161,29 @@ export function buildLoginMessage(opts: {
     `Login di: ${opts.loginUrl}`,
     "",
     "Sila tukar password lepas login pertama (Settings → Password).",
-    "",
-    "Sebarang masalah? Reply WhatsApp ini.",
-  ].join("\n");
+  ];
+
+  if (opts.groupKind) {
+    const groupUrl = whatsappGroupUrl(opts.groupKind);
+    const groupLabel =
+      opts.groupKind === "affiliate"
+        ? "PeningLab Affiliate Community"
+        : "PeningLab PRO Community";
+    lines.push(
+      "",
+      "━━━━━━━━━━━━━━━━━━━",
+      `*Sertai ${groupLabel}* 👇`,
+      "",
+      "Join WhatsApp group untuk:",
+      "• Update terkini + tips viral",
+      "• Tanya soalan terus dari team",
+      "• Network dengan member lain",
+      "",
+      groupUrl,
+      "━━━━━━━━━━━━━━━━━━━"
+    );
+  }
+
+  lines.push("", "Sebarang masalah? Reply WhatsApp ini.");
+  return lines.join("\n");
 }

@@ -118,6 +118,9 @@ export async function POST(req: Request) {
     plan: (profile?.plan || "free").toUpperCase() + " Plan",
     expiresAt: expiry,
     loginUrl: `${origin}/login`,
+    // Resends are for client payments — include the PRO group invite
+    // so the message matches what the original signup webhook sends.
+    groupKind: "pro",
   });
 
   const sent = await sendWhatsApp(whatsapp, msg);

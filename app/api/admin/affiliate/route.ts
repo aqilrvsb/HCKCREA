@@ -257,6 +257,8 @@ export async function POST(req: Request) {
       plan: "AFFILIATE Pro",
       expiresAt: expiry,
       loginUrl: `${origin}/login`,
+      // Approved affiliates get the affiliate-only community group.
+      groupKind: "affiliate",
     });
     waSent = await sendWhatsApp(whatsapp, msg);
     if (!waSent) {
