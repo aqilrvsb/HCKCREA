@@ -28,6 +28,17 @@ export async function POST(req: Request) {
   const body = await req.json().catch(() => ({}));
   const prompt = String(body?.prompt || "").trim().substring(0, 5000);
   const imageUrl = body?.image_url ? String(body.image_url) : "";
+  // Multi-ref input (new). When the user picks 1 → triplicated below.
+  // When 2-3 picked → sent as distinct refs to Veo r2v.
+  const rawImageUrls: string[] = Array.isArray(body?.image_urls)
+    ? body.image_urls.filter((x: any) => typeof x === "string" && !!x)
+    : [];
+  const effectiveImageUrls =
+    rawImageUrls.length > 0
+      ? rawImageUrls
+      : imageUrl
+        ? [imageUrl]
+        : [];
   const aspectRatio = String(body?.aspect_ratio || "9:16");
   const resolution = body?.resolution === "480p" ? "480p" : "720p";
   const modelChoice: "grok" | "veo" = body?.model === "veo" ? "veo" : "grok";
@@ -39,7 +50,7 @@ export async function POST(req: Request) {
   const projectId = body?.project_id ? String(body.project_id) : null;
 
   if (!prompt) return NextResponse.json({ error: "Prompt required" }, { status: 400 });
-  if (imageMode === "image" && !imageUrl) {
+  if (imageMode === "image" && effectiveImageUrls.length === 0) {
     return NextResponse.json(
       { error: "Reference image required for Image-to-Video mode" },
       { status: 400 }
@@ -57,7 +68,7 @@ export async function POST(req: Request) {
       tab: "cinema",
       status: "pending",
       prompt,
-      reference_url: imageUrl || null,
+      reference_url: effectiveImageUrls[0] || null,
       task_id: null,
       duration,
       cost: 0,
@@ -116,8 +127,14 @@ export async function POST(req: Request) {
       }
 
       // Veo flows through the 3-tier cascade (p2 → p1 → p3); Grok stays
-      // on p2 only (no Grok fallback path defined).
-      const imgs = imageMode === "image" && imageUrl ? [imageUrl] : [];
+      // on p2 only (no Grok fallback path defined). Apply the triplicate
+      // rule: 1 picked → [u,u,u]; 2-3 → distinct refs as-is.
+      const imgs =
+        imageMode === "image"
+          ? effectiveImageUrls.length === 1
+            ? [effectiveImageUrls[0], effectiveImageUrls[0], effectiveImageUrls[0]]
+            : effectiveImageUrls.slice(0, 3)
+          : [];
       const imgMode: "frame" | "ingredient" | "text" =
         imageMode === "image" ? "ingredient" : "text";
 
@@ -149,11 +166,16 @@ export async function POST(req: Request) {
         }
         tierLog = result.tierLog;
       } else {
-        // Grok path — single shot on p2.
+        // Grok path — single shot on p2. Grok i2v only takes one ref, so
+        // cap to the first picked image (ignore the multi/triplicate when
+        // user is on Grok).
+        const grokImgs = imageMode === "image" && effectiveImageUrls[0]
+          ? [effectiveImageUrls[0]]
+          : [];
         const created = await p2CreateTask({
           model,
           prompt,
-          imageUrls: imgs,
+          imageUrls: grokImgs,
           durationMode: String(duration),
           aspectRatio,
           resolution,

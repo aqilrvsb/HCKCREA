@@ -53,6 +53,10 @@ export default function CinemaTab({ projectId }: { projectId?: string } = {}) {
   const [model, setModel] = useState<"grok" | "veo">("veo");
   const [imageMode, setImageMode] = useState<ImageMode>("text");
   const [refImage, setRefImage] = useState("");
+  // Multi-ref array — up to 3. When 1 picked → triplicated server-side
+  // for Veo (Grok ignores beyond the first). refImage mirrors refImages[0]
+  // for back-compat with the existing single-string state path.
+  const [refImages, setRefImages] = useState<string[]>([]);
   const [prompt, setPrompt] = useState("");
   const [aspect, setAspect] = useState("9:16");
 
@@ -132,22 +136,32 @@ export default function CinemaTab({ projectId }: { projectId?: string } = {}) {
 
   async function submit() {
     if (!prompt.trim()) return setError("Sila masukkan prompt.");
-    if (imageMode === "image" && !refImage)
-      return setError("Upload reference image dulu.");
+    if (imageMode === "image" && refImages.length === 0 && !refImage)
+      return setError("Pick reference image dulu.");
     setError(null);
     setStatus("submitting");
 
     try {
-      let pubUrl = "";
-      if (imageMode === "image" && refImage) {
-        pubUrl = await ensurePublicUrl(refImage);
-      }
+      // Resolve every picked ref through ensurePublicUrl (no-op for
+      // already-public Attachment URLs — zero RunningHub re-upload).
+      const sourceUrls =
+        imageMode === "image"
+          ? refImages.length
+            ? refImages
+            : refImage
+              ? [refImage]
+              : []
+          : [];
+      const pubUrls = await Promise.all(sourceUrls.map((u) => ensurePublicUrl(u)));
       const r = await fetch("/api/generate/cinema", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           prompt: prompt.trim(),
-          image_url: pubUrl,
+          // Backward-compat single field + the new array. Backend prefers
+          // image_urls when present; falls back to image_url.
+          image_url: pubUrls[0] || "",
+          image_urls: pubUrls,
           duration: effectiveDuration,
           resolution,
           aspect_ratio: aspect,
@@ -603,30 +617,51 @@ export default function CinemaTab({ projectId }: { projectId?: string } = {}) {
 
         {imageMode === "image" && (
           <div className="mb-4">
-            <Label>Reference Image *</Label>
+            <Label>Reference Image * ({refImages.length}/3)</Label>
             <div className="flex items-stretch gap-2">
-              <button
-                type="button"
-                onClick={() => setAttachmentOpen(true)}
-                className="relative w-20 h-20 rounded-lg overflow-hidden flex-shrink-0 flex items-center justify-center"
-                style={{
-                  border: `2px dashed ${refImage ? "transparent" : PURPLE}`,
-                  background: refImage ? "#000" : PURPLE_FAINT,
-                }}
-              >
-                {refImage ? (
-                  <img src={refImage} alt="" className="w-full h-full object-cover" />
-                ) : (
-                  <span className="text-2xl opacity-75">🖼️</span>
-                )}
-              </button>
+              <div className="flex gap-1.5">
+                {[0, 1, 2].map((i) => {
+                  const url = refImages[i] || "";
+                  return (
+                    <button
+                      key={i}
+                      type="button"
+                      onClick={() => setAttachmentOpen(true)}
+                      className="relative w-16 h-16 rounded-lg overflow-hidden flex-shrink-0 flex items-center justify-center"
+                      style={{
+                        border: url ? `2px solid ${PURPLE}` : `2px dashed ${PURPLE}55`,
+                        background: url ? "#000" : PURPLE_FAINT,
+                      }}
+                    >
+                      {url ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={url} alt="" className="w-full h-full object-cover" />
+                      ) : (
+                        <span className="text-xs font-bold" style={{ color: PURPLE }}>
+                          {i + 1}
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
               <div className="flex flex-col gap-1 justify-between">
                 <SmallBtn onClick={() => setAttachmentOpen(true)}>Attachments</SmallBtn>
-                <SmallBtn onClick={() => setRefImage("")} danger>
+                <SmallBtn
+                  onClick={() => {
+                    setRefImages([]);
+                    setRefImage("");
+                  }}
+                  danger
+                >
                   x
                 </SmallBtn>
               </div>
             </div>
+            <p className="text-[10px] text-gray-500 mt-1">
+              Pick up to 3 references. 1 = same image sent 3× to Veo; 2-3 = sent as distinct refs.
+              (Grok mode uses the first image only.)
+            </p>
           </div>
         )}
 
@@ -755,10 +790,14 @@ export default function CinemaTab({ projectId }: { projectId?: string } = {}) {
       <AttachmentPicker
         open={attachmentOpen}
         onClose={() => setAttachmentOpen(false)}
-        onPick={(a) => {
-          setRefImage(a.public_url);
+        onPickMulti={(arr) => {
+          const urls = arr.map((a) => a.public_url);
+          setRefImages(urls);
+          setRefImage(urls[0] || "");
           setAttachmentOpen(false);
         }}
+        maxPick={3}
+        defaultCategory="product"
       />
       </>
       )}

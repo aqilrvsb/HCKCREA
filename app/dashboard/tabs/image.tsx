@@ -727,7 +727,11 @@ function RefZone({
           boxShadow: "0 4px 12px rgba(255, 87, 34, 0.15)",
         }}
       >
-        <img src={url} alt="" className="w-full max-h-56 object-cover" />
+        <img
+          src={url}
+          alt=""
+          className="w-full max-h-72 object-contain bg-white"
+        />
         {uploading && (
           <div
             className="absolute inset-0 flex items-center justify-center text-white"

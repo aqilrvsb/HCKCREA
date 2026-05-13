@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import type { Attachment, AttachmentCategory } from "./attachments";
 import { CategoryPickModal } from "./attachments";
+import Portal from "./portal";
 
 const PAGE_SIZE = 25;
 
@@ -186,8 +187,9 @@ export default function AttachmentPicker({
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
   return (
+    <Portal>
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      className="fixed inset-0 z-[120] flex items-center justify-center p-4"
       style={{ background: "rgba(0,0,0,0.75)" }}
       onClick={onClose}
     >
@@ -425,6 +427,7 @@ export default function AttachmentPicker({
         />
       )}
     </div>
+    </Portal>
   );
 }
 
