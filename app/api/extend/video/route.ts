@@ -32,7 +32,12 @@ import { refineFrameWithProduct } from "@/lib/refine-frame";
 // pg_cron's 10-min stale cutoff catches orphan rows if after() never runs.
 
 export const runtime = "nodejs";
-export const maxDuration = 60;
+// after() hook budget. Banana Pro refine cascade (p2→p1→p3) can take
+// up to 60s × 3 = 180s worst case, plus 5-10s for the Veo create_task
+// call afterwards. 60s killed the hook mid-refine and left seg-2
+// rows pending forever with no task_id stamped. Bump to 5 minutes so
+// the cascade has room to fall through tiers.
+export const maxDuration = 300;
 export const dynamic = "force-dynamic";
 
 const VOICE_MAP: Record<string, string> = {
