@@ -52,9 +52,18 @@ export async function POST(req: Request) {
   if (row.user_id !== user.id) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
   // Guardrail 1 — must be a seg-2 child (segment_index=2, has parent).
-  if (row.segment_index !== 2 || !row.parent_history_id) {
+  // Both extend-dialog seg-2 rows AND 16s auto-fire chain seg-2 rows
+  // qualify; they share the same segment_index + parent_history_id
+  // shape from segment-chain.ts / extend after().
+  if (Number(row.segment_index) !== 2 || !row.parent_history_id) {
     return NextResponse.json(
-      { error: "Recovery only applies to seg-2 rows" },
+      {
+        error: "Recovery only applies to seg-2 rows",
+        debug: {
+          segment_index: row.segment_index,
+          has_parent: !!row.parent_history_id,
+        },
+      },
       { status: 400 }
     );
   }
@@ -111,14 +120,28 @@ export async function POST(req: Request) {
   }
   if (!startUrl) {
     return NextResponse.json(
-      { error: "No anchor frame on this row — can't recover" },
+      {
+        error: "No anchor frame on this row — can't recover",
+        debug: {
+          has_refined_url: !!meta.anchor_frame_refined_url,
+          has_banana_task: !!meta.refine_banana_task_id,
+          has_anchor_frame_url: !!meta.anchor_frame_url,
+          has_reference_url: !!row.reference_url,
+        },
+      },
       { status: 400 }
     );
   }
 
   const prompt = String(row.prompt || "").trim();
   if (!prompt) {
-    return NextResponse.json({ error: "Row missing prompt" }, { status: 400 });
+    return NextResponse.json(
+      {
+        error: "Row missing prompt",
+        debug: { prompt_len: (row.prompt || "").length },
+      },
+      { status: 400 }
+    );
   }
 
   const cfg = await getP2Config();

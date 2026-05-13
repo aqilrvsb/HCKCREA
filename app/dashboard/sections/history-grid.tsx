@@ -1123,16 +1123,17 @@ function HistoryCardInner({
       // stale merged.mp4" symptom the user reported.
       window.dispatchEvent(new CustomEvent("history:refresh"));
       if (!r.ok) {
-        // Only alert for hard errors (403 / 500). 404 is handled server-
-        // side as a success now, so we shouldn't reach this branch for
-        // missing rows.
         const d = await r.json().catch(() => null);
         if (d?.error) alert(`Delete: ${d.error}`);
-        setDeleting(false);
       }
     } catch {
       // Network / abort — still refresh so the UI doesn't stay stuck.
       window.dispatchEvent(new CustomEvent("history:refresh"));
+    } finally {
+      // ALWAYS reset deleting so the spinner clears even on the success
+      // path. Previously only the error branch reset it, leaving the
+      // delete icon spinning forever after a successful delete (until
+      // the parent unmounted the card).
       setDeleting(false);
     }
   }

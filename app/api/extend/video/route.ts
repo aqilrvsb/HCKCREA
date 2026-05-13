@@ -176,6 +176,18 @@ export async function POST(req: Request) {
         extend_seconds: extendSeconds,
         start_frame_source: startFrameSource,
         end_frame_source: endFrameSource,
+        // Stamp the canvas-captured start frame URL on the placeholder
+        // BEFORE the after() hook runs. If Vercel kills after() at any
+        // point — even before the Banana task is submitted — the
+        // recover endpoint can fall back to this URL and still fire
+        // Veo with a usable start frame.
+        anchor_frame_url:
+          startFrameSource === "upload" || startFrameSource === "history"
+            ? startFrameUrl || null
+            : null,
+        // For product, same idea — stamp it so recover can pass it to
+        // the refine step if it gets re-triggered later.
+        product_image_url: productImageUrl || null,
         upload_status: "queued",
       },
     })
