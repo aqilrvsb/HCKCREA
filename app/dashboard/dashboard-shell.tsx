@@ -28,6 +28,7 @@ import SettingsSection from "./sections/settings";
 import DashboardOverview from "./sections/dashboard-overview";
 import SavedPromptsSection from "./sections/saved-prompts";
 import StorageSection from "./sections/storage";
+import AttachmentsSection from "./sections/attachments";
 import ActivityFeed from "./sections/activity-feed";
 import AgentChatPanel, { type AgentTab } from "./sections/agent-chat-panel";
 import { SopButton } from "./sections/sop-modal";
@@ -294,6 +295,7 @@ export default function DashboardShell({
             />
           )}
 
+          {view.kind === "attachments" && <AttachmentsSection />}
           {view.kind === "billing" && (
             <SectionWrap>
               <BillingSection />

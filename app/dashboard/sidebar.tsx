@@ -23,6 +23,7 @@ import {
   Download,
   X,
   Send,
+  Image as ImageIcon,
 } from "lucide-react";
 import LogoutButton from "./logout-button";
 
@@ -36,6 +37,7 @@ export type SidebarView =
   | { kind: "dashboard" }
   | { kind: "project"; projectId: string }
   | { kind: "tool"; toolId: "url-to-ad" }
+  | { kind: "attachments" }
   | { kind: "billing" }
   | { kind: "credit" }
   | { kind: "affiliate" }
@@ -572,6 +574,7 @@ export default function Sidebar({
         </div>
         {(
           [
+            { kind: "attachments" as const, label: "Attachments", Icon: ImageIcon },
             { kind: "billing" as const, label: "Billing", Icon: CreditCard },
             { kind: "credit" as const, label: "Top Up Credit", Icon: Wallet },
             { kind: "affiliate" as const, label: "Affiliate", Icon: Users },

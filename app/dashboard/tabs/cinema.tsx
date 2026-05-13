@@ -1,11 +1,12 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { Loader2, X, Film } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import Portal from "../sections/portal";
 import { uploadImage, dataUrlToFile } from "@/lib/upload-image";
 import { isVisibleAfterTtl, fetchSavedSet } from "@/lib/history-filter";
+import AttachmentPicker from "../sections/attachment-picker";
 
 // Viral tab — TWO sub-features:
 //   • Free Veo       — existing free-form prompt path (Veo i2v / t2v)
@@ -80,8 +81,7 @@ export default function CinemaTab({ projectId }: { projectId?: string } = {}) {
   const [status, setStatus] = useState<Status>("idle");
   const [error, setError] = useState<string | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
-
-  const refInputRef = useRef<HTMLInputElement | null>(null);
+  const [attachmentOpen, setAttachmentOpen] = useState(false);
 
   // Pull admin-configurable rate once on mount so the cost preview stays in
   // sync with /admin → cinema_rate_per_sec without a redeploy.
@@ -604,17 +604,10 @@ export default function CinemaTab({ projectId }: { projectId?: string } = {}) {
         {imageMode === "image" && (
           <div className="mb-4">
             <Label>Reference Image *</Label>
-            <input
-              ref={refInputRef}
-              type="file"
-              accept="image/*"
-              className="hidden"
-              onChange={(e) => readFile(e.target.files?.[0] || null)}
-            />
             <div className="flex items-stretch gap-2">
               <button
                 type="button"
-                onClick={() => refInputRef.current?.click()}
+                onClick={() => setAttachmentOpen(true)}
                 className="relative w-20 h-20 rounded-lg overflow-hidden flex-shrink-0 flex items-center justify-center"
                 style={{
                   border: `2px dashed ${refImage ? "transparent" : PURPLE}`,
@@ -629,7 +622,7 @@ export default function CinemaTab({ projectId }: { projectId?: string } = {}) {
               </button>
               <div className="flex flex-col gap-1 justify-between">
                 <SmallBtn onClick={() => setPickerOpen(true)}>History</SmallBtn>
-                <SmallBtn onClick={() => refInputRef.current?.click()}>Upload</SmallBtn>
+                <SmallBtn onClick={() => setAttachmentOpen(true)}>Upload</SmallBtn>
                 <SmallBtn onClick={() => setRefImage("")} danger>
                   x
                 </SmallBtn>
@@ -759,6 +752,15 @@ export default function CinemaTab({ projectId }: { projectId?: string } = {}) {
           onClose={() => setPickerOpen(false)}
         />
       )}
+
+      <AttachmentPicker
+        open={attachmentOpen}
+        onClose={() => setAttachmentOpen(false)}
+        onPick={(a) => {
+          setRefImage(a.public_url);
+          setAttachmentOpen(false);
+        }}
+      />
       </>
       )}
 

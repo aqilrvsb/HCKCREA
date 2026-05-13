@@ -15,6 +15,7 @@
 
 import { useEffect, useState } from "react";
 import { Loader2, X, Image as ImageIcon, Info } from "lucide-react";
+import AttachmentPicker from "../sections/attachment-picker";
 
 const MAX_REF_IMAGES = 4;
 const MAX_REF_VIDEOS = 3;
@@ -109,6 +110,7 @@ export default function SeedanceTab({ projectId }: { projectId: string }) {
 
   // Pick a past video from history as a reference. Lazy-loads on open.
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [attachmentOpen, setAttachmentOpen] = useState(false);
   const [historyRows, setHistoryRows] = useState<Array<{ id: string; output_url: string; thumbnail_url?: string | null; tab?: string | null; prompt?: string | null }>>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
 
@@ -320,19 +322,13 @@ export default function SeedanceTab({ projectId }: { projectId: string }) {
             </div>
           ))}
           {imageUrls.length < MAX_REF_IMAGES && (
-            <label className="w-20 h-20 rounded-lg border-2 border-dashed border-[var(--color-border)] flex items-center justify-center cursor-pointer hover:border-orange-400">
-              <input
-                type="file"
-                accept="image/jpeg,image/png,image/webp"
-                className="hidden"
-                onChange={(e) => {
-                  const f = e.target.files?.[0];
-                  if (f) void uploadImage(f);
-                  e.currentTarget.value = "";
-                }}
-              />
+            <button
+              type="button"
+              onClick={() => setAttachmentOpen(true)}
+              className="w-20 h-20 rounded-lg border-2 border-dashed border-[var(--color-border)] flex items-center justify-center cursor-pointer hover:border-orange-400"
+            >
               <span className="text-2xl text-[var(--color-text-muted)]">+</span>
-            </label>
+            </button>
           )}
         </div>
       </div>
@@ -404,6 +400,15 @@ export default function SeedanceTab({ projectId }: { projectId: string }) {
           </div>
         </div>
       )}
+
+      <AttachmentPicker
+        open={attachmentOpen}
+        onClose={() => setAttachmentOpen(false)}
+        onPick={(a) => {
+          setImageUrls((prev) => (prev.length < MAX_REF_IMAGES ? [...prev, a.public_url] : prev));
+          setAttachmentOpen(false);
+        }}
+      />
 
       {/* Aspect + duration */}
       <div className="grid grid-cols-2 gap-3">

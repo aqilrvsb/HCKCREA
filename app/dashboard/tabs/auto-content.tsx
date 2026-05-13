@@ -6,6 +6,7 @@ import { createClient } from "@/lib/supabase/client";
 import Portal from "../sections/portal";
 import { uploadImage, dataUrlToFile } from "@/lib/upload-image";
 import { isVisibleAfterTtl, fetchSavedSet } from "@/lib/history-filter";
+import AttachmentPicker from "../sections/attachment-picker";
 import {
   FRAMEWORKS,
   TYPE_COLORS,
@@ -107,6 +108,8 @@ export default function AutoContentTab({ projectId }: { projectId?: string } = {
   // Modals
   const [infoFw, setInfoFw] = useState<Framework | null>(null);
   const [pickerSlot, setPickerSlot] = useState<number | null>(null);
+  // Attachment picker — opened by the manual-product Upload button.
+  const [attachmentSlot, setAttachmentSlot] = useState<number | null>(null);
 
   // Aborts the in-flight planning fetch when the user hits Stop.
   const abortRef = useRef<AbortController | null>(null);
@@ -196,6 +199,13 @@ export default function AutoContentTab({ projectId }: { projectId?: string } = {
       prev.map((p, i) => (i === idx ? { ...p, imageData: url } : p))
     );
     setPickerSlot(null);
+  }
+
+  function pickAttachmentForManual(idx: number, url: string) {
+    setManualProducts((prev) =>
+      prev.map((p, i) => (i === idx ? { ...p, imageData: url } : p))
+    );
+    setAttachmentSlot(null);
   }
 
   // Affiliate URL → cache-or-scrape → prefill manual_products[0]. The
@@ -830,7 +840,7 @@ export default function AutoContentTab({ projectId }: { projectId?: string } = {
                     prev.map((x, j) => (j === i ? { ...x, info } : x))
                   )
                 }
-                onPickFile={(f) => pickFileForManual(i, f)}
+                onPickAttachment={() => setAttachmentSlot(i)}
                 onPickHistory={() => setPickerSlot(i)}
                 onClear={() =>
                   setManualProducts((prev) =>
@@ -1223,6 +1233,15 @@ export default function AutoContentTab({ projectId }: { projectId?: string } = {
           onClose={() => setPickerSlot(null)}
         />
       )}
+
+      {/* Attachment library picker — replaces the old local-file upload.
+          Picked URL is already a public S3 URL on peninglab-storage, so
+          submit() skips the RunningHub round-trip entirely. */}
+      <AttachmentPicker
+        open={attachmentSlot !== null}
+        onClose={() => setAttachmentSlot(null)}
+        onPick={(a) => attachmentSlot !== null && pickAttachmentForManual(attachmentSlot, a.public_url)}
+      />
     </div>
   );
 }
@@ -1233,7 +1252,7 @@ function ManualProductCard({
   showLabel,
   product,
   onInfoChange,
-  onPickFile,
+  onPickAttachment,
   onPickHistory,
   onClear,
 }: {
@@ -1241,11 +1260,10 @@ function ManualProductCard({
   showLabel: boolean;
   product: ManualProduct;
   onInfoChange: (s: string) => void;
-  onPickFile: (f: File | null) => void;
+  onPickAttachment: () => void;
   onPickHistory: () => void;
   onClear: () => void;
 }) {
-  const fileRef = useRef<HTMLInputElement | null>(null);
   return (
     <div
       className="rounded-lg p-3"
@@ -1268,17 +1286,10 @@ function ManualProductCard({
         className="w-full p-2 rounded text-xs resize-y outline-none mb-2"
         style={{ background: "#ffffff", border: "1px solid #e8e0d8", color: "#1a1a1a" }}
       />
-      <input
-        ref={fileRef}
-        type="file"
-        accept="image/*"
-        className="hidden"
-        onChange={(e) => onPickFile(e.target.files?.[0] || null)}
-      />
       <div className="flex items-stretch gap-2">
         <button
           type="button"
-          onClick={() => fileRef.current?.click()}
+          onClick={onPickAttachment}
           className="relative w-[60px] h-[60px] rounded-lg overflow-hidden flex-shrink-0 flex items-center justify-center"
           style={{
             border: `2px dashed ${product.imageData ? "transparent" : AMBER_SOFT}`,
@@ -1299,7 +1310,7 @@ function ManualProductCard({
           )}
         </button>
         <div className="flex flex-col gap-1 justify-between">
-          <SmallBtn onClick={() => fileRef.current?.click()} color={AMBER}>
+          <SmallBtn onClick={onPickAttachment} color={AMBER}>
             Upload
           </SmallBtn>
           <SmallBtn onClick={onPickHistory} color={AMBER}>

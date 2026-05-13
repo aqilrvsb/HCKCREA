@@ -1,12 +1,13 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { Loader2, Sparkles, X } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import Portal from "../sections/portal";
 import UgcTab from "./ugc";
 import { uploadImage, dataUrlToFile } from "@/lib/upload-image";
 import { isVisibleAfterTtl, fetchSavedSet } from "@/lib/history-filter";
+import AttachmentPicker from "../sections/attachment-picker";
 
 // Video tab — 1:1 port of creative-hack-auto's video-mode-section.
 // Three image modes (frame / ingredient / text), with a Scene card that
@@ -42,12 +43,9 @@ export default function VideoTab({ projectId }: { projectId?: string } = {}) {
   const [status, setStatus] = useState<Status>("idle");
   const [error, setError] = useState<string | null>(null);
 
-  const startInputRef = useRef<HTMLInputElement | null>(null);
-  const endInputRef = useRef<HTMLInputElement | null>(null);
-  const refInputRef = useRef<HTMLInputElement | null>(null);
-  const avatarInputRef = useRef<HTMLInputElement | null>(null);
-
   const [pickerSlot, setPickerSlot] = useState<RefSlot | null>(null);
+  // Attachment picker replaces local-file uploads on this tab.
+  const [attachmentSlot, setAttachmentSlot] = useState<RefSlot | null>(null);
   const [showUgcModal, setShowUgcModal] = useState(false);
 
   // Pick up a prompt handed off from the UGC Prompt Builder rendered above
@@ -78,26 +76,12 @@ export default function VideoTab({ projectId }: { projectId?: string } = {}) {
     setPickerSlot(null);
   }
 
-  // Local preview only — no network call. Uploaded to RunningHub at submit
-  // time so a discarded preview never wastes RH bandwidth.
-  // Eager-upload: file pick → instant data: preview → background upload to
-  // RunningHub. Public URL replaces the data: URL once it lands, so submit
-  // doesn't have to wait for the upload round-trip on click.
-  function readFile(f: File | null, set: (s: string) => void) {
-    if (!f) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      set(String(reader.result || ""));
-      (async () => {
-        try {
-          const { url } = await uploadImage(f);
-          set(url);
-        } catch {
-          // Silent — submit's ensurePublicUrl handles retry
-        }
-      })();
-    };
-    reader.readAsDataURL(f);
+  function pickFromAttachment(slot: RefSlot, url: string) {
+    if (slot === "start") setStartFrame(url);
+    else if (slot === "end") setEndFrame(url);
+    else if (slot === "ref") setRefImage(url);
+    else if (slot === "avatar") setAvatarImage(url);
+    setAttachmentSlot(null);
   }
 
   // Upload-on-demand: data: URL -> public RH URL. Pass-through if already public.
@@ -286,16 +270,9 @@ export default function VideoTab({ projectId }: { projectId?: string } = {}) {
                 color={ORANGE}
                 url={avatarImage}
                 icon="👤"
-                onPick={() => avatarInputRef.current?.click()}
+                onPick={() => setAttachmentSlot("avatar")}
                 onClear={() => setAvatarImage("")}
                 onHistory={() => setPickerSlot("avatar")}
-              />
-              <input
-                ref={avatarInputRef}
-                type="file"
-                accept="image/*"
-                className="hidden"
-                onChange={(e) => readFile(e.target.files?.[0] || null, setAvatarImage)}
               />
             </div>
             {/* Product reference (optional) — second image, becomes the
@@ -306,16 +283,9 @@ export default function VideoTab({ projectId }: { projectId?: string } = {}) {
                 color={ORANGE}
                 url={refImage}
                 icon="📦"
-                onPick={() => refInputRef.current?.click()}
+                onPick={() => setAttachmentSlot("ref")}
                 onClear={() => setRefImage("")}
                 onHistory={() => setPickerSlot("ref")}
-              />
-              <input
-                ref={refInputRef}
-                type="file"
-                accept="image/*"
-                className="hidden"
-                onChange={(e) => readFile(e.target.files?.[0] || null, setRefImage)}
               />
             </div>
             <p className="md:col-span-2 text-[11px] text-gray-500 -mt-1">
@@ -334,16 +304,9 @@ export default function VideoTab({ projectId }: { projectId?: string } = {}) {
                 url={startFrame}
                 icon="🖼️"
                 required
-                onPick={() => startInputRef.current?.click()}
+                onPick={() => setAttachmentSlot("start")}
                 onClear={() => setStartFrame("")}
                 onHistory={() => setPickerSlot("start")}
-              />
-              <input
-                ref={startInputRef}
-                type="file"
-                accept="image/*"
-                className="hidden"
-                onChange={(e) => readFile(e.target.files?.[0] || null, setStartFrame)}
               />
             </div>
             <div>
@@ -352,16 +315,9 @@ export default function VideoTab({ projectId }: { projectId?: string } = {}) {
                 color="#888"
                 url={endFrame}
                 icon="🏁"
-                onPick={() => endInputRef.current?.click()}
+                onPick={() => setAttachmentSlot("end")}
                 onClear={() => setEndFrame("")}
                 onHistory={() => setPickerSlot("end")}
-              />
-              <input
-                ref={endInputRef}
-                type="file"
-                accept="image/*"
-                className="hidden"
-                onChange={(e) => readFile(e.target.files?.[0] || null, setEndFrame)}
               />
             </div>
           </div>
@@ -455,6 +411,12 @@ export default function VideoTab({ projectId }: { projectId?: string } = {}) {
           onClose={() => setPickerSlot(null)}
         />
       )}
+
+      <AttachmentPicker
+        open={!!attachmentSlot}
+        onClose={() => setAttachmentSlot(null)}
+        onPick={(a) => attachmentSlot && pickFromAttachment(attachmentSlot, a.public_url)}
+      />
 
       {showUgcModal && <UgcModal onClose={() => setShowUgcModal(false)} />}
 

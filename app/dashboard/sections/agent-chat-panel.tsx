@@ -16,6 +16,7 @@ import {
   Bot,
 } from "lucide-react";
 import Portal from "./portal";
+import AttachmentPicker from "./attachment-picker";
 
 // Universal chat panel for the per-tab AI agents (UGC / Cinema / Image).
 // Floats as a bottom-right button; clicking opens a side drawer scoped to
@@ -100,6 +101,10 @@ export default function AgentChatPanel({
   // Controls the product-reference modal (image upload + USP textarea).
   // Only mounted on UGC + Cinema agents.
   const [productModalOpen, setProductModalOpen] = useState(false);
+  // Attachment library picker — used by paperclip + character buttons
+  // so users skip the RunningHub re-upload and pass S3 URLs straight
+  // to the agent.
+  const [attachmentPickerOpen, setAttachmentPickerOpen] = useState(false);
   // IMAGE agent only — user's explicit model pick from the dropdown next
   // to the attach icons. Sent in the chat POST so the agent skips the
   // banana-vs-gpt-2 decision-tree fetch and uses the chosen model.
@@ -652,7 +657,7 @@ export default function AgentChatPanel({
               <button
                 onClick={() => {
                   setAttachedImageRole("general");
-                  fileInputRef.current?.click();
+                  setAttachmentPickerOpen(true);
                 }}
                 disabled={busy}
                 className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 disabled:opacity-50"
@@ -660,7 +665,7 @@ export default function AgentChatPanel({
                   background: "var(--color-bg)",
                   color: "var(--color-text-secondary)",
                 }}
-                title="Attach image (vision-described)"
+                title="Attach image from your Attachments library"
               >
                 <Paperclip className="w-3.5 h-3.5" />
               </button>
@@ -693,7 +698,7 @@ export default function AgentChatPanel({
                 <button
                   onClick={() => {
                     setAttachedImageRole("character");
-                    fileInputRef.current?.click();
+                    setAttachmentPickerOpen(true);
                   }}
                   disabled={busy}
                   className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 disabled:opacity-50"
@@ -802,6 +807,18 @@ export default function AgentChatPanel({
           }}
         />
       )}
+
+      <AttachmentPicker
+        open={attachmentPickerOpen}
+        onClose={() => setAttachmentPickerOpen(false)}
+        onPick={(a) => {
+          // Public S3 URL — no RunningHub re-upload needed. Goes straight
+          // to the agent as i2v/r2v reference.
+          setAttachedImage(a.public_url);
+          setAttachedImagePreview(a.public_url);
+          setAttachmentPickerOpen(false);
+        }}
+      />
     </>
   );
 }

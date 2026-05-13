@@ -1,11 +1,12 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { Loader2, X } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import Portal from "../sections/portal";
 import { uploadImage, dataUrlToFile } from "@/lib/upload-image";
 import { isVisibleAfterTtl, fetchSavedSet } from "@/lib/history-filter";
+import AttachmentPicker from "../sections/attachment-picker";
 import {
   AVATAR_PROMPTS,
   AVATAR_LABELS,
@@ -73,11 +74,10 @@ export default function ImageTab({ projectId }: { projectId?: string } = {}) {
 
   // History picker modal state — which slot is being filled
   const [pickerSlot, setPickerSlot] = useState<RefSlot | null>(null);
-
-  const charInputRef = useRef<HTMLInputElement | null>(null);
-  const productInputRef = useRef<HTMLInputElement | null>(null);
-  const posterInputRef = useRef<HTMLInputElement | null>(null);
-  const virtProductInputRef = useRef<HTMLInputElement | null>(null);
+  // Attachment picker modal state — opened by the main RefZone click.
+  // Local file inputs were removed in favour of the per-user Attachments
+  // library; "Upload from local" now only exists on the Attachments tab.
+  const [attachmentSlot, setAttachmentSlot] = useState<RefSlot | null>(null);
 
   function pickFromHistory(slot: RefSlot, url: string) {
     if (slot === "char") setCharUrl(url);
@@ -87,33 +87,22 @@ export default function ImageTab({ projectId }: { projectId?: string } = {}) {
     setPickerSlot(null);
   }
 
+  function pickFromAttachment(slot: RefSlot, url: string) {
+    if (slot === "char") setCharUrl(url);
+    else if (slot === "product") setProductUrl(url);
+    else if (slot === "poster") setPosterUrl(url);
+    else if (slot === "virtProduct") setVirtProductUrl(url);
+    setAttachmentSlot(null);
+  }
+
   // No client poll — webhook + manual refresh icon on the history card
   // settle pending rows. We just dispatch history:refresh after submit so
   // the placeholder appears immediately.
 
-  // Eager-upload: file pick → instant data: preview → background upload to
-  // RunningHub. By the time the user clicks Generate, the state already
-  // holds the public RH URL (so submit's ensurePublicUrl is a no-op and the
-  // generate POST fires immediately). If the upload fails, the data: URL
-  // stays in state and ensurePublicUrl will retry at submit time.
-  function readFile(f: File | null, set: (s: string) => void) {
-    if (!f) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      const dataUrl = String(reader.result || "");
-      set(dataUrl);
-      // Kick off background upload — fire-and-forget, swap state when ready
-      (async () => {
-        try {
-          const { url } = await uploadImage(f);
-          set(url);
-        } catch {
-          // Silent — keep data: URL; submit's ensurePublicUrl handles retry
-        }
-      })();
-    };
-    reader.readAsDataURL(f);
-  }
+  // Local-file uploads have been removed from this tab — users pick from
+  // the Attachments library (already public S3 URLs). ensurePublicUrl
+  // stays as a defensive no-op for any legacy data: URLs lingering in
+  // state (shouldn't happen post-refactor, but harmless).
 
   // Upload-on-demand: turns a data: URL into a public RunningHub URL.
   // Pass-through if already public.
@@ -226,15 +215,8 @@ export default function ImageTab({ projectId }: { projectId?: string } = {}) {
               icon="📸"
               title="Click or drop character face image"
               subtitle="Face / person — used for all variations"
-              onPick={() => charInputRef.current?.click()}
+              onPick={() => setAttachmentSlot("char")}
               onClear={() => setCharUrl("")}
-            />
-            <input
-              ref={charInputRef}
-              type="file"
-              accept="image/*"
-              className="hidden"
-              onChange={(e) => readFile(e.target.files?.[0] || null, setCharUrl)}
             />
           </Card>
 
@@ -249,15 +231,8 @@ export default function ImageTab({ projectId }: { projectId?: string } = {}) {
               icon="📦"
               title="Click or drop product photo"
               subtitle="Keeps packaging, labels, colors accurate"
-              onPick={() => productInputRef.current?.click()}
+              onPick={() => setAttachmentSlot("product")}
               onClear={() => setProductUrl("")}
-            />
-            <input
-              ref={productInputRef}
-              type="file"
-              accept="image/*"
-              className="hidden"
-              onChange={(e) => readFile(e.target.files?.[0] || null, setProductUrl)}
             />
           </Card>
 
@@ -292,15 +267,8 @@ export default function ImageTab({ projectId }: { projectId?: string } = {}) {
                 title=""
                 subtitle="Upload existing poster or ad design"
                 small
-                onPick={() => posterInputRef.current?.click()}
+                onPick={() => setAttachmentSlot("poster")}
                 onClear={() => setPosterUrl("")}
-              />
-              <input
-                ref={posterInputRef}
-                type="file"
-                accept="image/*"
-                className="hidden"
-                onChange={(e) => readFile(e.target.files?.[0] || null, setPosterUrl)}
               />
             </div>
             <div>
@@ -318,15 +286,8 @@ export default function ImageTab({ projectId }: { projectId?: string } = {}) {
                 title=""
                 subtitle="Upload real product photo"
                 small
-                onPick={() => virtProductInputRef.current?.click()}
+                onPick={() => setAttachmentSlot("virtProduct")}
                 onClear={() => setVirtProductUrl("")}
-              />
-              <input
-                ref={virtProductInputRef}
-                type="file"
-                accept="image/*"
-                className="hidden"
-                onChange={(e) => readFile(e.target.files?.[0] || null, setVirtProductUrl)}
               />
             </div>
           </div>
@@ -497,6 +458,14 @@ export default function ImageTab({ projectId }: { projectId?: string } = {}) {
           onClose={() => setPickerSlot(null)}
         />
       )}
+
+      {/* Attachment library picker — replaces the local-file upload. */}
+      <AttachmentPicker
+        open={!!attachmentSlot}
+        onClose={() => setAttachmentSlot(null)}
+        onPick={(a) => attachmentSlot && pickFromAttachment(attachmentSlot, a.public_url)}
+      />
+
 
       {/* Image Agent panel is mounted at dashboard-shell level so it
           persists across tab switches — see DashboardShell. */}

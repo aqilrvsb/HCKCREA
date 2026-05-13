@@ -237,6 +237,32 @@ export async function uploadBufferToContent(opts: {
   return { key: opts.key, size: body.length, publicUrl };
 }
 
+// Upload to peninglab-storage (public bucket — same credentials as
+// uploadBuffer, but returns the direct virtual-host S3 URL so the
+// caller can serve it without signing. Used by the Attachments library.
+export async function uploadBufferToStoragePublic(opts: {
+  body: Buffer;
+  key: string;
+  contentType?: string;
+}): Promise<{ key: string; size: number; publicUrl: string }> {
+  const bucket = bucketPrivate();
+  const { key, size } = await uploadBuffer({
+    body: opts.body,
+    key: opts.key,
+    contentType: opts.contentType,
+    bucket,
+  });
+
+  const endpoint = (process.env.B2_ENDPOINT || "").trim();
+  const endpointUrl = new URL(endpoint);
+  const publicUrl = `https://${bucket}.${endpointUrl.host}/${key
+    .split("/")
+    .map(encodeURIComponent)
+    .join("/")}`;
+
+  return { key, size, publicUrl };
+}
+
 // Fetch any URL and upload its body to the peninglab-content bucket.
 export async function uploadFromUrlToContent(opts: {
   url: string;
