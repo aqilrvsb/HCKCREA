@@ -67,15 +67,52 @@ export function getVoiceDescription(id?: string | null): string {
 // manual UGC, the UGC AI agent, and Auto Content. When a voice is chosen
 // its description is embedded inside the AUDIO LOCK as VOICE CHARACTER
 // (LOCKED) so the model treats it as a hard constraint.
+//
+// When hijab=true, the block ALSO injects:
+//   • HIJAB LOCK — non-negotiable rule that hair must stay fully covered
+//   • Removes "loose hair" from UGC AUTHENTICITY (was overriding the
+//     character's hijab description for clients)
+//   • Adds hijab-specific terms to the Negative list ("free hair",
+//     "uncovered hair", "no hijab", etc.) so Veo can't drop the tudung
+//     mid-generation.
+//
+// Without this flag (or hijab=false), nothing about hijab is asserted —
+// the persona stays free-hair-allowed, same as the pre-fix behaviour.
 export function buildVeoLocks(opts: {
   voiceId?: string | null;
   voiceLine?: string | null; // legacy free-text fallback (auto-content's gender/age block)
+  /** true when the persona is hijabi. Caller in auto-content / UGC
+   *  passes the value selected by the user in the Style dropdown. */
+  hijab?: boolean;
 }): string {
   const voiceDesc =
     getVoiceDescription(opts.voiceId) ||
     String(opts.voiceLine || "").trim();
   const voiceCharLine = voiceDesc
     ? `\nVOICE CHARACTER (LOCKED — use this exact voice for the entire clip and all continuations): ${voiceDesc}`
+    : "";
+
+  const isHijab = !!opts.hijab;
+
+  // HIJAB LOCK — only appended when persona is hijabi. The phrasing is
+  // deliberately maximalist (NEVER / non-negotiable) because Veo
+  // empirically drops the tudung when the prompt is permissive. Three
+  // repetitions of the "covered" constraint anchor it across attention
+  // layers.
+  const hijabLockLine = isHijab
+    ? `\nHIJAB LOCK (non-negotiable): The female character wears a hijab / tudung labuh that COMPLETELY covers all hair, ears, and neck. ZERO hair strands visible anywhere in frame. NEVER bangs showing, NEVER fringe peeking, NEVER side-hair, NEVER ears exposed, NEVER neck exposed. The hijab stays on for the entire clip — through movement, head turns, smiles, and reactions. If the reference avatar shows hijab, the generated character MUST match: hair fully covered, no exceptions, no drift.`
+    : "";
+
+  // UGC AUTHENTICITY drops "loose hair" for hijab personas because that
+  // phrase was overriding the hijab description silently. For non-hijab
+  // personas the original phrasing is preserved.
+  const ugcAuthLine = isHijab
+    ? `UGC AUTHENTICITY: Authentic amateur iPhone UGC — handheld arm's-length, natural skin texture with pores and subtle T-zone shine (NOT airbrushed), no-makeup-makeup, ordinary mixed lighting (NOT softbox), lived-in background with minor clutter.`
+    : `UGC AUTHENTICITY: Authentic amateur iPhone UGC — handheld arm's-length, natural skin texture with pores and subtle T-zone shine (NOT airbrushed), no-makeup-makeup, loose hair, ordinary mixed lighting (NOT softbox), lived-in background with minor clutter.`;
+
+  // Negative list — hijab-specific terms are appended only when hijab=true.
+  const hijabNegatives = isHijab
+    ? ", free hair, loose hair, uncovered hair, visible hair, hair strands, fringe showing, bangs, no hijab, hijab removed, head uncovered, ears visible, neck exposed, salon-style hair"
     : "";
 
   return `
@@ -86,10 +123,10 @@ DIALOG LENGTH LOCK: Total spoken dialog per 8-second shot MUST be 20-24 words (B
 LANGUAGE LOCK: Spoken dialog is BAHASA MELAYU (Malaysian Malay) ONLY. NEVER Bahasa Indonesia. Use Malaysian markers: korang, aku, ni, tu, memang, gila, kau, lah, je, dah, eh. FORBIDDEN Indonesian words: kalian, gue, lo, banget, sih, dong, kayak, gimana, ngapain, kasihan, doang, mau, nih, tuh.
 VOICE CONSISTENCY LOCK: The character's voice has fixed identity — same gender, same age range, same pitch, same Malaysian accent, same speaking rhythm and energy across the entire clip and any future continuation. Voice MUST stay locked so seg-2 / Extend continuations match seg-1 seamlessly.
 PRODUCT LOCK: Product visual is pixel-identical to reference — same color, shape, label, typography, layout, packaging, finish. Sharp focus on label, no warping, no recoloring, no text drift, no relabel, no re-illustration. When a reference image is attached, the reference is the SINGLE source of truth for the product — anchor framing, lighting, and hand-holding around it.
-BEG KUNING LOCK: The phrase "beg kuning" (and any equivalent: yellow bag, shopping bag, affiliate icon, shop button) is SPOKEN DIALOG ONLY — NEVER rendered as a visual icon, yellow bag graphic, shopping cart icon, TikTok Shop button, sticker, or any on-screen element. Zero shop icons, zero yellow-bag graphics, zero buttons, zero affiliate stickers anywhere in frame.
-UGC AUTHENTICITY: Authentic amateur iPhone UGC — handheld arm's-length, natural skin texture with pores and subtle T-zone shine (NOT airbrushed), no-makeup-makeup, loose hair, ordinary mixed lighting (NOT softbox), lived-in background with minor clutter.
+BEG KUNING LOCK: The phrase "beg kuning" (and any equivalent: yellow bag, shopping bag, affiliate icon, shop button) is SPOKEN DIALOG ONLY — NEVER rendered as a visual icon, yellow bag graphic, shopping cart icon, TikTok Shop button, sticker, or any on-screen element. Zero shop icons, zero yellow-bag graphics, zero buttons, zero affiliate stickers anywhere in frame.${hijabLockLine}
+${ugcAuthLine}
 MODESTY LOCK (Malaysian-Muslim audience — applies to ALL personas regardless of hijab choice): For FEMALE — short-sleeve T-shirts are FINE; loose-fit only. NO tight body-hugging tops that show breast/chest contour, NO cleavage, NO V-necks low enough to expose chest, NO crop tops, NO midriff or navel exposure, NO short shorts, NO mini skirts, NO thigh exposure. Bottoms must cover thighs (long pants, jeans, maxi/midi skirts, baju kurung). Hair MAY be visible only if persona is non-hijab. For MALE — long sleeves preferred but smart short-sleeve shirts/polos are fine. NO shirtless, NO tank tops, NO tight muscle-tees. Modest casual / smart-casual silhouettes only.
 VISUAL LOCK: RAW UNEDITED FOOTAGE — bottom 25% of frame COMPLETELY EMPTY. NO subtitles or text overlays, NO on-screen dialogue text, NO captions, NO animated TikTok captions, NO sticker text, NO icons, NO emojis, NO graphics, NO watermarks, NO UI elements, NO handles, NO hashtags, NO TikTok Shop badges. Clean vertical video frame with no interface overlay, no icons, no overlay elements.
 
-Negative: cartoon, 3D cartoon, anime, airbrushed plastic skin, uncanny valley, glam makeup, salon hair, softbox studio lighting, tripod static shot (unless explicitly chosen), staged background, posed billboard framing, closed mouth while audio plays, duplicate limbs, extra fingers, fused fingers, distorted fingers, deformed hand, hand out of frame, warped product label, blurry product, motion-blurred product, text drift, subtitle burn-in, auto-captions, on-screen dialog text, burned-in lyrics, karaoke text, multiple speakers, second voice, whispered overdub, ghost voice, phantom audio, ambient noise, voiceover narration, music score, background music, instrumental track, sound effects, ambient music, jingles, interface overlay, app overlay, TikTok shop button, yellow bag icon, shopping bag icon, beg kuning icon, affiliate sticker, Bahasa Indonesia, Indonesian accent, Indonesian slang.`;
+Negative: cartoon, 3D cartoon, anime, airbrushed plastic skin, uncanny valley, glam makeup, salon hair, softbox studio lighting, tripod static shot (unless explicitly chosen), staged background, posed billboard framing, closed mouth while audio plays, duplicate limbs, extra fingers, fused fingers, distorted fingers, deformed hand, hand out of frame, warped product label, blurry product, motion-blurred product, text drift, subtitle burn-in, auto-captions, on-screen dialog text, burned-in lyrics, karaoke text, multiple speakers, second voice, whispered overdub, ghost voice, phantom audio, ambient noise, voiceover narration, music score, background music, instrumental track, sound effects, ambient music, jingles, interface overlay, app overlay, TikTok shop button, yellow bag icon, shopping bag icon, beg kuning icon, affiliate sticker, Bahasa Indonesia, Indonesian accent, Indonesian slang${hijabNegatives}.`;
 }

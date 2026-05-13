@@ -69,6 +69,8 @@ export async function POST(req: Request) {
   const avatarGender = String(body?.avatar_gender || "auto");
   const avatarHijab = String(body?.avatar_hijab || "auto");
   const avatarAge = String(body?.avatar_age || "auto");
+  // Hoisted to outer scope so the seg-1/seg-2 prompt builders below can read it.
+  const hijabMode = avatarHijab === "hijab";
   const ctaMode = String(body?.cta_mode || "shop");
   const customCta = String(body?.custom_cta || "");
   const projectId = body?.project_id ? String(body.project_id) : null;
@@ -241,7 +243,7 @@ export async function POST(req: Request) {
               ? "50s nenek"
               : "30s";
     const ageRange = ageLabel;
-    const hijabMode = avatarHijab === "hijab";
+    // hijabMode hoisted to outer scope above.
     const shopMode = ctaMode === "shop";
     const noCta = ctaMode === "none";
     const customCtaResolved = ctaMode === "custom" ? customCta : "";
@@ -268,18 +270,30 @@ export async function POST(req: Request) {
     // Modesty rule applies regardless of hijab choice — Malaysian-Muslim
     // audience requirement. Female allows short-sleeve T-shirts (loose
     // fit, no chest contour) but never cleavage / midriff / thighs.
+    // NOTE: the outfit COLOUR + GARMENT is filled in per-video by the LLM
+    // (see <clothing_variety> in the system prompt). Here we only define
+    // the static modesty + style guardrails — colour is intentionally
+    // marked [PICK FROM PALETTE] so the model doesn't default to brown.
     const outfitDescription = hijabMode
       ? gender === "male"
-        ? "neat modern casual outfit, modest fit"
-        : "hijab and modest long-sleeve outfit (planner picks color + pattern to match scene)"
+        ? "[PICK COLOUR + GARMENT FROM <clothing_variety> palette — different every video], neat modern fit, modest"
+        : "hijab tudung labuh ([PICK HIJAB COLOUR from palette, different every video]) and modest long-sleeve outfit ([PICK TOP COLOUR + PATTERN + GARMENT from palette, different every video])"
       : gender === "male"
-        ? "casual modern outfit, short hair neatly styled, modest fit (no tank tops, no shirtless)"
-        : "casual modern outfit, hair visible, no hijab — short-sleeve T-shirts and loose blouses are OK, but loose fit only, NO tight tops showing breast shape, NO cleavage, NO crop tops / midriff / navel exposure, NO short shorts / mini skirts / thigh exposure. Bottoms must cover thighs.";
+        ? "[PICK COLOUR + GARMENT FROM <clothing_variety> palette — different every video], short hair neatly styled, modest fit (no tank tops, no shirtless)"
+        : "[PICK COLOUR + PATTERN + GARMENT from <clothing_variety> palette — different every video], hair visible, no hijab — short-sleeve T-shirts and loose blouses are OK, but loose fit only, NO tight tops showing breast shape, NO cleavage, NO crop tops / midriff / navel exposure, NO short shorts / mini skirts / thigh exposure. Bottoms must cover thighs.";
+    // Character block is the SUBJECT LINE injected into every UGC/lifestyle
+    // prompt. Gender + age + hijab/no-hijab are LOCKED here so they appear
+    // verbatim in every per-video prompt — Veo cannot drop these the way it
+    // sometimes drops mid-prompt details.
     const characterBlock =
       (gender === "male"
         ? "a handsome attractive Malay man with sharp features and clear skin"
         : "a beautiful attractive Malay woman with clear glowing skin") +
-      `, age ${ageRange}, wearing ${outfitDescription}`;
+      `, in ${gender === "male" ? "his" : "her"} ${ageRange}` +
+      (hijabMode
+        ? ", wearing hijab tudung labuh that fully covers all hair / ears / neck (ZERO hair strands visible)"
+        : ", with hair visible (no hijab), modern modest styling") +
+      `, wearing ${outfitDescription}`;
     const voiceBlock =
       (gender === "male"
         ? `Malay man voice in his ${ageRange}, confident warm tone, casual pace, mid-range pitch`
@@ -642,17 +656,68 @@ EVERY video MUST use a DIFFERENT background. Match to product logically.
 </camera_and_visual_rules>
 
 <locked_avatar>
-ABSOLUTE RULE — DO NOT OVERRIDE:
-The user has CHOSEN this avatar. Even if the product seems like it's for a different gender, USE THIS AVATAR.
-Example: product = "dompet lelaki" but user chose Female avatar → use FEMALE avatar (she is promoting/reviewing the product).
+🔒🔒🔒 NON-NEGOTIABLE CHARACTER LOCK — APPLIES TO EVERY UGC + LIFESTYLE VIDEO 🔒🔒🔒
 
-ONE avatar for ALL videos:
-- Gender: ${gender.toUpperCase()} — LOCKED, NEVER change
-- ${hijabMode ? "HIJAB: YES — hijab tudung labuh in EVERY image/video. NON-NEGOTIABLE." : "NO HIJAB — hair visible. MODESTY REQUIRED: short-sleeve T-shirts OK for female (loose fit only), but NO tight tops showing breast shape, NO cleavage, NO crop tops, NO midriff/navel, NO short shorts, NO mini skirts, NO thigh exposure. NON-NEGOTIABLE."}
-- Age: ${ageRange}
+The user has EXPLICITLY chosen this avatar from the dropdowns. The character generated MUST match EXACTLY. There is ZERO tolerance for drift. If the product feels like it's for a different demographic, the chosen avatar STILL promotes/reviews it — you do NOT swap gender or age to "fit" the product.
+
+THE THREE LOCKED ATTRIBUTES (must appear word-for-word in every UGC/lifestyle imagePrompt AND videoPrompt):
+
+1. GENDER LOCK → ${gender.toUpperCase()}
+   ${gender === "male"
+     ? "Every prompt MUST include the phrase \"Malay man\" (NOT \"woman\", NOT \"person\", NOT \"individual\"). Masculine pronouns. Male voice. Male hands in hand-POV shots."
+     : "Every prompt MUST include the phrase \"Malay woman\" (NOT \"man\", NOT \"person\", NOT \"individual\"). Feminine pronouns. Female voice. Female hands in hand-POV shots."}
+
+2. STYLE LOCK → ${hijabMode ? "HIJAB (TUDUNG LABUH)" : "NO HIJAB (HAIR VISIBLE)"}
+   ${hijabMode
+     ? "Every UGC/lifestyle prompt MUST include the phrase \"wearing a hijab / tudung labuh that fully covers all hair, ears and neck\". The hijab is non-negotiable in 100% of frames. ZERO hair strands visible. NEVER bangs, NEVER fringe, NEVER side-hair peeking out. The tudung stays put through every head turn, smile, and reaction. If you write \"hair flowing\" or \"loose hair\" or anything implying visible hair — that is a CRITICAL FAILURE."
+     : "Every UGC/lifestyle prompt describes the character with hair visible (modern modest casual). DO NOT write \"hijab\", \"tudung\", \"headscarf\", or any head-covering. The character has natural hair visible — but MODESTY STILL APPLIES (no cleavage, no midriff, no thigh exposure)."}
+
+3. AGE LOCK → ${ageRange}
+   ${avatarAge === "20s"
+     ? "Every prompt MUST describe the character as \"in her/his 20s, young adult\". Youthful, fresh, dewy skin. NO crow's feet, NO mature features, NO middle-aged framing."
+     : avatarAge === "30s"
+       ? "Every prompt MUST describe the character as \"in her/his 30s\". Mature adult — radiant skin with subtle character, confident energy. NOT a teenager, NOT a makcik."
+       : avatarAge === "40s"
+         ? "Every prompt MUST describe the character as a \"makcik in her/his 40s\". Mature warm presence, soft laugh lines OK, NOT a young adult. Wisdom-of-experience tone in voice + posture."
+         : avatarAge === "55+"
+           ? "Every prompt MUST describe the character as a \"nenek / older Malay woman/man in her/his 50s-60s\". Visible age — soft silver hair (under hijab if hijab), warm wrinkles, calm wise demeanor. NOT a young adult."
+           : "Every prompt MUST describe the character as \"in her/his 30s\"."}
+
+VALIDATION RULE: Before you write each video's imagePrompt and videoPrompt, re-read the three locks above. If your sentence doesn't include the exact gender word, the exact hijab/no-hijab phrasing, AND the exact age band — REWRITE IT. The user paid for ${gender}/${hijabMode ? "hijab" : "no-hijab"}/${ageRange} and that is what must ship.
+
 - BEAUTY LOCK (applies to UGC + LIFESTYLE frameworks — product frameworks have NO character and IGNORE this lock): ${gender === "male" ? "Handsome attractive Malay man — sharp jawline, clear skin, confident friendly presence, well-groomed. State \"handsome attractive Malay man with sharp features and clear skin\" in every UGC + lifestyle framework imagePrompt and videoPrompt." : "Beautiful attractive Malay woman — clear glowing skin, warm natural smile, confident gentle presence, well-groomed. State \"beautiful attractive Malay woman with clear glowing skin\" in every UGC + lifestyle framework imagePrompt and videoPrompt."}
-- SAME person in ALL videos within this batch. Only change: outfit + setting.
+- SAME person across the batch (same face structure, same skin tone, same age). Only OUTFIT + SETTING change between videos (see <clothing_variety> below for strict outfit-rotation rules).
 </locked_avatar>
+
+<clothing_variety>
+🎨 CLOTHING ROTATION — MANDATORY VARIETY (NO MORE "BROWN PLAIN" DEFAULT)
+
+DEFAULT PROBLEM: Veo loves to generate the same beige/brown/plain shirt over and over. This is BORING and makes the batch feel like one person filmed 10 videos in the same outfit. WE FIX THIS by FORCING you to pick a SPECIFIC colour + pattern + style for EVERY video — and rotate across the batch.
+
+🚫 FORBIDDEN — never use these as the outfit description (lazy defaults):
+- "plain brown ___"  /  "plain beige ___"
+- "neutral ___" without a colour
+- "simple ___" without a colour
+- "casual outfit" without specifying colour + pattern + garment
+- Repeating the same colour family across consecutive videos in the batch
+
+✅ REQUIRED — every video's imagePrompt AND videoPrompt MUST specify:
+   COLOUR + PATTERN + GARMENT TYPE
+   Example: "soft lilac long-sleeve linen blouse with subtle floral print"
+
+COLOUR PALETTE — rotate across the batch (don't repeat a colour family until palette exhausted):
+${hijabMode
+  ? `   ${gender === "female"
+    ? "PASTELS (hijab + top): soft pink, lilac, mint sage, butter yellow, baby blue, peach\n   JEWEL TONES: emerald green, sapphire blue, ruby red, amethyst purple, mustard\n   EARTHY (varied): terracotta, dusty rose, olive, navy, cream (NOT plain brown)\n   PRINTS: small floral, gingham, polka dot, paisley, batik motif, abstract watercolour\n   HIJAB COLOURS: each video uses a different hijab colour — coordinate with outfit but never identical to last video"
+    : "MEN PALETTE: charcoal grey, navy blue, forest green, burgundy, cream, dusty teal, sand, deep maroon, indigo\n   PATTERNS: solid, subtle stripes, small check, henley texture, knit cardigan\n   GARMENT VARIETY: polo shirt, button-up shirt, lightweight knit sweater, kemeja Melayu, baju Melayu (for evening shots), casual blazer over tee"}`
+  : `   ${gender === "female"
+    ? "PASTELS: soft pink, lilac, mint sage, butter yellow, baby blue, peach\n   JEWEL TONES: emerald green, sapphire blue, ruby red, plum, mustard\n   PRINTS: small floral, gingham, polka dot, ditzy floral, abstract watercolour\n   GARMENT VARIETY: loose blouse, oversized button-up, knit cardigan over tee, midi dress (long), maxi skirt + loose top, jumpsuit (long pants), kebaya for elegant looks"
+    : "MEN PALETTE: charcoal grey, navy blue, forest green, burgundy, cream, dusty teal, sand, deep maroon, indigo\n   PATTERNS: solid, subtle stripes, small check, henley texture\n   GARMENT VARIETY: polo shirt, button-up shirt, lightweight knit sweater, henley tee + cardigan, casual blazer over tee, t-shirt + bomber jacket"}`}
+
+RULE: For a batch of ${quantity} videos, the outfits MUST span at LEAST ${Math.min(Math.max(quantity, 3), 8)} distinct colour families and at least 3 distinct garment types. NO TWO consecutive videos may share the same colour family or the same garment silhouette.
+
+Write the outfit phrase BEFORE finalising each video's prompts so you have it in hand when composing imagePrompt + videoPrompt.
+</clothing_variety>
 
 <image_prompt_rules>
 EVERY video MUST have an imagePrompt (max 600 chars).
@@ -664,7 +729,7 @@ FOR UGC FRAMEWORKS (character ONLY — NO product in image):
 - MUST be STANDING or MEDIUM SHOT (waist up minimum) — show body, arms, hands visible. NEVER close-up face only. Facing slightly to the side while looking at camera.
 - FACE: Invent a UNIQUE specific attractive face — describe smooth glowing skin, natural makeup (blush, glossy lips, defined brows), specific features (dimples, face shape, skin tone). Make this person look like a REAL beautiful individual. NEVER use generic "oval face, warm brown eyes".
 - BACKGROUND: Softly lit elegant indoor setting — warm tones, subtle drapery, soft gradient, or blurred aesthetic backdrop. No mirrors, no reflections, no glass. Clean and premium feel.
-- Outfit: ${gender === "male" ? "smart casual — polo shirt / button-up / casual jacket / hoodie (different each video), well-fitted, stylish, modest fit (no tank tops, no shirtless)" : hijabMode ? "elegant modest wear — baju kurung kebaya / blouse+skirt / cardigan / kaftan / modest dress with intricate detailing + ALWAYS hijab (different color each video)" : "modest casual — short-sleeve T-shirt (loose) / long-sleeve blouse / cardigan / loose midi or maxi dress / modest top + long pants or maxi skirt (different each video). Short sleeves OK; NEVER cleavage, NEVER tight tops showing breast shape, NEVER shorts/skirts above knee, NEVER midriff."}
+- Outfit: PICK A SPECIFIC COLOUR + PATTERN + GARMENT from <clothing_variety> palette — DIFFERENT every video, NEVER "plain brown" or "neutral beige" defaults. ${gender === "male" ? "Garment options: polo shirt / button-up / lightweight knit sweater / casual blazer over tee / henley + cardigan / kemeja (different each video). Well-fitted, stylish, modest fit (no tank tops, no shirtless). State the exact colour, e.g. \"navy blue knit polo\", \"charcoal grey button-up\", \"forest green henley\"." : hijabMode ? "Elegant modest wear — baju kurung kebaya / blouse + long skirt / cardigan over modest top / kaftan / modest midi dress (different each video) + hijab that fully covers all hair (different hijab colour each video). State exact colours, e.g. \"soft lilac baju kurung with floral print and sage green hijab\", \"emerald green kaftan with cream hijab\"." : "Modest casual — short-sleeve loose blouse / long-sleeve oversized button-up / knit cardigan over loose tee / midi or maxi dress / modest top + long pants or maxi skirt (different each video). Hair visible. State exact colours + pattern, e.g. \"butter yellow loose linen blouse + cream maxi skirt\", \"sage green cardigan over white tee + indigo wide-leg pants\". Short sleeves OK; NEVER cleavage, NEVER tight tops showing breast shape, NEVER shorts/skirts above knee, NEVER midriff."}
 - DIFFERENT pose, emotion + outfit per image
 - Lighting: soft, diffused, warm, natural glow highlighting face and outfit. Cinematic.
 - Style: photorealistic, luxury portrait, high-end editorial, ultra-realistic skin texture, sharp focus, depth of field with soft bokeh, 85mm lens, f/1.8
@@ -1191,12 +1256,17 @@ CRITICAL: Respond with ONLY a JSON array. NO analysis, NO explanation, NO markdo
   // handles the frame extract + seg-2 fire + ffmpeg merge automatically.
   // For 8s clips, Shot 1 is the only prompt. Locks appended either way.
   function veoSeg1PromptFor(p: Plan, voiceLine: string): string {
-    return p.videoPromptShot1 + buildVeoLocks({ voiceLine });
+    return (
+      p.videoPromptShot1 + buildVeoLocks({ voiceLine, hijab: hijabMode })
+    );
   }
   function veoSeg2PromptFor(p: Plan, voiceLine: string): string {
     // Stored raw in metadata; segment-chain.ts will append its own
     // locks + character continuity block when it builds the seg-2 prompt.
-    return (p.videoPromptShot2 || p.videoPromptShot1) + buildVeoLocks({ voiceLine });
+    return (
+      (p.videoPromptShot2 || p.videoPromptShot1) +
+      buildVeoLocks({ voiceLine, hijab: hijabMode })
+    );
   }
 
   // Resolve the locked voice description at the outer scope so every
@@ -1285,6 +1355,7 @@ CRITICAL: Respond with ONLY a JSON array. NO analysis, NO explanation, NO markdo
                   seg2_prompt: seg2Prompt,
                   voice_line: lockedVoiceLine,
                   aspectRatio,
+                  hijab: hijabMode,
                 }
               : {}),
             // Fields the creative-hack-auto extension's auto-post step

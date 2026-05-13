@@ -41,6 +41,15 @@ export async function POST(req: Request) {
   // exact voice character into the AUDIO LOCK.
   const voiceId = body?.voice ? String(body.voice).toLowerCase() : "";
   const voiceDesc = getVoiceDescription(voiceId);
+  // Hijab flag — accepts both "yes"/"no" (Auto Content shape) and
+  // boolean. Defaults to false. Triggers HIJAB LOCK in the locks block
+  // so Veo can't drop the tudung mid-generation.
+  const rawHijab = body?.hijab ?? body?.avatar_hijab;
+  const isHijab =
+    rawHijab === true ||
+    rawHijab === "yes" ||
+    rawHijab === "hijab" ||
+    rawHijab === 1;
 
   if (!rawPrompt) return NextResponse.json({ error: "Prompt required" }, { status: 400 });
   if (imageMode !== "text" && !imageUrls.length) {
@@ -50,9 +59,11 @@ export async function POST(req: Request) {
   // Append the canonical Veo lock block (same one used by UGC agent + Auto
   // Content). Voice character — when picked — embeds into the AUDIO LOCK
   // so the model uses the exact same voice across the clip and any
-  // future Extend continuation.
+  // future Extend continuation. Hijab toggles the HIJAB LOCK + removes
+  // "loose hair" from UGC AUTHENTICITY.
   const prompt =
-    rawPrompt + buildVeoLocks({ voiceId, voiceLine: voiceDesc || undefined });
+    rawPrompt +
+    buildVeoLocks({ voiceId, voiceLine: voiceDesc || undefined, hijab: isHijab });
 
   const reason = durationMode === "16" ? "video_16s" : "video_8s";
   const is16s = durationMode === "16";
@@ -90,6 +101,8 @@ export async function POST(req: Request) {
               // continuation handled by the frame-anchor reference image
               // extracted from seg-1's last frame.
               seg2_prompt: rawPrompt,
+              hijab: isHijab,
+              voice_line: voiceDesc || "",
             }
           : {}),
       },
@@ -167,7 +180,12 @@ export async function POST(req: Request) {
           tier_log: result.tierLog,
           upload_status: "done",
           ...(is16s
-            ? { duration_mode: "16s", seg2_prompt: rawPrompt }
+            ? {
+                duration_mode: "16s",
+                seg2_prompt: rawPrompt,
+                hijab: isHijab,
+                voice_line: voiceDesc || "",
+              }
             : {}),
         },
       }).eq("id", historyId);

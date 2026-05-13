@@ -22,6 +22,12 @@ export const dynamic = "force-dynamic";
 //      records (per user spec — TikHub cache rows stay invisible).
 //   2. user_product_history  — UPSERT (user_id, product_id) so the
 //      list endpoint can return THIS user's saved products.
+//
+// Shopee products use the same endpoint — the extension just passes
+// the Shopee item ID as productId. Auto-post flow uses product_id to
+// tag on TikTok; for Shopee rows this tagging will simply fail (or be
+// skipped), but they remain usable as image+description context for
+// content generation in the Auto Content dropdown.
 export async function POST(req: Request) {
   const user = await authExtensionUser(req);
   if (!user) {

@@ -220,8 +220,14 @@ export const UGC_SYSTEM_PROMPT = UGC_ORCHESTRATOR.replace(
 // Append the canonical Veo lock block (lib/veo-voices.ts buildVeoLocks)
 // to a UGC core prompt. voiceLine is the voice description string already
 // resolved upstream (caller used getVoiceDescription on the voice id).
-function withLocks(corePrompt: string, voiceLine?: string): string {
-  return `${corePrompt.trim()}${buildVeoLocks({ voiceLine })}`;
+// hijab triggers HIJAB LOCK + removes "loose hair" from UGC AUTHENTICITY
+// so Veo doesn't drop the tudung mid-generation.
+function withLocks(
+  corePrompt: string,
+  voiceLine?: string,
+  hijab?: boolean
+): string {
+  return `${corePrompt.trim()}${buildVeoLocks({ voiceLine, hijab })}`;
 }
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -345,7 +351,10 @@ const generateUgcVariants: ToolDefinition = {
         // For 8s: prompt has locks applied immediately. For 16s: keep RAW so
         // confirmAndFireUgc can compose seg-1 = prompt+character_lock+voice+locks
         // and seg-2 = seg2_prompt+character_lock+voice+productLock+locks.
-        prompt: duration === "16" ? String(v.prompt || "") : withLocks(v.prompt || "", voiceLine),
+        prompt:
+          duration === "16"
+            ? String(v.prompt || "")
+            : withLocks(v.prompt || "", voiceLine, v.hijab === "yes"),
         seg2_prompt: duration === "16" ? String(v.seg2_prompt || "") : "",
         character_lock: duration === "16" ? String(v.character_lock || "") : "",
         frame_anchor:
@@ -554,7 +563,7 @@ export async function confirmAndFireUgc(opts: {
       if (is16s && v.character_lock) {
         seg1Prompt = `${v.prompt.trim()}\n\n${v.character_lock.trim()}`;
         // Apply locks here since v.prompt arrived raw (handler skipped withLocks for 16s)
-        seg1Prompt = withLocks(seg1Prompt, v.voice_line || undefined);
+        seg1Prompt = withLocks(seg1Prompt, v.voice_line || undefined, v.hijab === "yes");
       }
 
       const created = await p2CreateTask({

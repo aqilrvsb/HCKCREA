@@ -29,6 +29,7 @@ import { getP2Config } from "@/lib/settings";
 import { falExtractFrame, falMergeVideos, type FrameAnchor } from "@/lib/fal";
 import { productTextLockBlock } from "@/lib/product-ocr";
 import { uploadFromUrl, signedGetUrl, buildKey, rehostToContent, type StorageType } from "@/lib/b2";
+import { buildVeoLocks } from "@/lib/veo-voices";
 
 // Rehost a (possibly expired) Crun temp video URL to B2 so fal can fetch
 // it during the merge step. Returns a fresh 7-day signed URL on success,
@@ -79,19 +80,15 @@ type Settled = {
   merged_url?: string | null;
 };
 
-// Apply the same lock block agent-ugc.ts withLocks() uses. Keep in sync if the
-// canonical block changes there.
-function appendLocks(corePrompt: string, voiceLine?: string): string {
-  const locks = `
-
-ANATOMY: 2 hands with 5 fingers each (both visible), symmetric face, no missing limbs, no plastic skin.
-AUDIO: ONE single voice only, no chatter, no background voices.
-PRODUCT LOCK: Product is pixel-identical to reference — same color, shape, label, typography, packaging. Sharp focus on label, no warping, no recoloring, no text drift.
-UGC AUTHENTICITY: Authentic amateur iPhone UGC — handheld arm's-length, natural skin texture with pores and subtle T-zone shine (NOT airbrushed), no-makeup-makeup, loose hair, ordinary mixed lighting (NOT softbox), lived-in background with minor clutter.
-VISUAL: RAW UNEDITED FOOTAGE — bottom 25% of frame COMPLETELY EMPTY. Zero subtitles, captions, animated TikTok captions, sticker text, icons, emojis, graphics, watermarks, UI elements, handles, hashtags.
-
-Negative: cartoon, 3D cartoon, anime, airbrushed plastic skin, uncanny valley, glam makeup, salon hair, softbox studio lighting, tripod static shot (unless explicitly chosen), staged background, posed billboard framing, closed mouth while audio plays, duplicate limbs, distorted fingers, hand out of frame, warped product label, blurry product, motion-blurred product, text drift, subtitle burn-in, auto-captions, multiple speakers, voiceover narration, music score.`;
-  return `${corePrompt.trim()}${voiceLine ? `\n\nVoice direction: ${voiceLine}` : ""}${locks}`;
+// Single source of truth for the Veo lock block is lib/veo-voices.ts
+// buildVeoLocks. seg-2 reads hijab off parent metadata so the tudung stays on
+// across the seg-1 → seg-2 cut.
+function appendLocks(
+  corePrompt: string,
+  voiceLine?: string,
+  hijab?: boolean
+): string {
+  return `${corePrompt.trim()}${buildVeoLocks({ voiceLine, hijab })}`;
 }
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -178,6 +175,13 @@ async function fireSeg2(parent: Settled, parentOutputUrl: string): Promise<void>
   const seg2Body = String(meta.seg2_prompt || "").trim();
   const voiceLine = String(meta.voice_line || "");
   const productTextLock = productTextLockBlock(meta.product_ocr);
+  // Pull hijab from parent metadata so seg-2's lock block matches seg-1.
+  // Auto Content writes meta.hijab = true/false; agent UGC writes "yes"/"no".
+  const isHijab =
+    meta.hijab === true ||
+    meta.hijab === "yes" ||
+    meta.hijab === "hijab" ||
+    meta.avatar_hijab === "hijab";
 
   if (!seg2Body) {
     await admin
@@ -194,7 +198,7 @@ async function fireSeg2(parent: Settled, parentOutputUrl: string): Promise<void>
   const compose = [seg2Body];
   if (characterLock) compose.push(characterLock);
   if (productTextLock) compose.push(productTextLock);
-  const seg2Prompt = appendLocks(compose.join("\n\n"), voiceLine || undefined);
+  const seg2Prompt = appendLocks(compose.join("\n\n"), voiceLine || undefined, isHijab);
 
   // 3. Fire seg-2 P2 task (uses extracted frame as r2v reference, NOT product)
   const cfg = await getP2Config();
