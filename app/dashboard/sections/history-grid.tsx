@@ -895,6 +895,63 @@ function HistoryCardInner({
       (targetRow as any)?.metadata?.provider ||
       (targetRow as any)?.metadata?.actualProvider ||
       "?";
+
+    // Self-heal path for seg-2 extends. If the row is a seg-2 child AND
+    // has NO task_id stamped yet, the extend after() hook got killed by
+    // Vercel between the Banana Pro refine step (which already paid)
+    // and the Veo create_task step. The refined frame URL is still
+    // sitting in metadata.anchor_frame_refined_url, so we can recover
+    // by firing Veo seg-2 now with that frame instead of letting the
+    // user delete + redo the whole extend (which would re-charge the
+    // refine). Only applies to seg_1 slide (the seg-2 child row).
+    const seg2NeedsRecover =
+      slide.id === "seg_1" &&
+      !taskId &&
+      (targetRow as any)?.segment_index === 2 &&
+      (targetRow as any)?.parent_history_id &&
+      (targetRow as any)?.status !== "done" &&
+      (targetRow as any)?.status !== "failed";
+    if (seg2NeedsRecover) {
+      try {
+        const r = await fetch("/api/extend/recover-seg2", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ history_id: targetId }),
+        });
+        const d = await r.json().catch(() => ({}));
+        const elapsed = Date.now() - startedAt;
+        const remaining = Math.max(0, 700 - elapsed);
+        if (remaining > 0) await new Promise((rs) => setTimeout(rs, remaining));
+        setRecheckingId(null);
+        if (r.ok && d?.ok) {
+          setRecheckMsg({
+            text:
+              `Seg 2: recovered — Veo task fired with ${
+                d.used_refined_frame ? "Banana-refined" : "raw"
+              } frame.\n↳ task=${String(d.task_id || "").slice(0, 12)} · provider=${d.provider || "?"}`,
+            tone: "ok",
+          });
+        } else {
+          setRecheckMsg({
+            text: `Seg 2: recover failed — ${d?.error || `HTTP ${r.status}`}`,
+            tone: "err",
+          });
+        }
+        setTimeout(
+          () => setRecheckMsg((m) => (m ? null : m)),
+          6000
+        );
+        window.dispatchEvent(new CustomEvent("history:refresh"));
+      } catch (e: any) {
+        setRecheckingId(null);
+        setRecheckMsg({
+          text: `Seg 2: recover failed — ${e?.message || "network"}`,
+          tone: "err",
+        });
+      }
+      return;
+    }
+
     const traceSuffix = taskId
       ? `\n↳ task=${String(taskId).slice(0, 12)} · provider=${provider}`
       : "\n↳ task not yet stamped (upstream queue)";

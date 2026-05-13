@@ -35,6 +35,12 @@ type RefineOpts = {
   aspectRatio?: string;
   /** Total ceiling per tier — beyond this we drop to the next tier. */
   perTierTimeoutMs?: number;
+  /** Called once the refine task has been ACCEPTED by a provider but
+   *  before the polling loop starts. Caller uses this to stamp the
+   *  task_id + provider onto a DB row, so a Vercel timeout mid-poll
+   *  doesn't lose the upstream task — a recovery endpoint can resume
+   *  polling later instead of paying for a fresh refine. */
+  onTaskAccepted?: (info: { taskId: string; provider: Provider }) => Promise<void> | void;
 };
 
 // Submit + poll on one provider. Returns the refined image URL or an
@@ -88,6 +94,19 @@ async function tryRefineOn(
     return { ok: false, error: `${provider} create failed: ${createError || "unknown"}` };
   }
 
+  // Fire the accepted-callback BEFORE polling so the caller can stamp
+  // taskId + provider on the DB row. This is the recovery hook — if
+  // Vercel kills the function during poll, a later recover endpoint
+  // reads (provider, taskId) off the row and resumes polling instead
+  // of paying for a fresh refine.
+  if (opts.onTaskAccepted) {
+    try {
+      await opts.onTaskAccepted({ taskId, provider });
+    } catch (e: any) {
+      console.warn(`[refine-frame] onTaskAccepted threw:`, e?.message);
+    }
+  }
+
   // 2. Poll. Each provider has its own status endpoint; the response
   //    shapes were already normalised by their lib wrappers so the
   //    success/failure check is uniform.
@@ -127,6 +146,49 @@ async function tryRefineOn(
     }
   }
   return { ok: false, error: `${provider} refine timed out (${timeoutMs}ms)` };
+}
+
+// Resume polling on an in-flight Banana Pro task. Used by the recover
+// endpoint when the original after() hook stamped (provider, taskId)
+// onto the row but timed out before the polling finished. Mirrors the
+// per-tier poll loop in tryRefineOn() but for a known task.
+export async function pollRefineTask(
+  provider: Provider,
+  taskId: string,
+  timeoutMs = 60_000
+): Promise<RefineResult> {
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < timeoutMs) {
+    await new Promise((r) => setTimeout(r, 2000));
+    try {
+      let status: "running" | "succeeded" | "failed" | "pending" = "pending";
+      let outputUrl: string | undefined;
+      let pollError: string | undefined;
+      if (provider === "p2") {
+        const s = await p2GetStatus(taskId, "p2");
+        status = s.status as any;
+        outputUrl = s.outputUrl;
+        pollError = s.error;
+      } else if (provider === "p1") {
+        const s = await p1GetStatus(taskId);
+        status = s.status;
+        outputUrl = s.outputUrl;
+        pollError = s.error;
+      } else {
+        const s = await p3GetStatus(taskId);
+        status = s.status as any;
+        outputUrl = s.outputUrl;
+        pollError = s.error;
+      }
+      if (status === "succeeded" && outputUrl) return { ok: true, url: outputUrl };
+      if (status === "failed") {
+        return { ok: false, error: `${provider} task failed: ${pollError || "unknown"}` };
+      }
+    } catch (e: any) {
+      console.warn(`[refine-frame] pollRefineTask ${provider} error:`, e?.message);
+    }
+  }
+  return { ok: false, error: `${provider} poll timed out (${timeoutMs}ms)` };
 }
 
 export async function refineFrameWithProduct(

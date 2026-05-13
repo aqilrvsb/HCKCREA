@@ -309,6 +309,34 @@ export async function POST(req: Request) {
             frameUrl: startUrl,
             productUrl: productImageUrl,
             aspectRatio,
+            // Stamp the Banana task_id + provider onto the seg-2 row as
+            // soon as the refine task is accepted upstream. If Vercel
+            // kills this after() hook mid-poll, /api/extend/recover-seg2
+            // reads (refine_banana_task_id, refine_banana_provider) and
+            // RESUMES polling — no second Banana submission, no double
+            // charge, and we recover the refined frame we already paid for.
+            onTaskAccepted: async ({ taskId, provider }) => {
+              try {
+                const { data: cur } = await admin
+                  .from("history")
+                  .select("metadata")
+                  .eq("id", childId)
+                  .single();
+                await admin
+                  .from("history")
+                  .update({
+                    metadata: {
+                      ...((cur?.metadata as Record<string, any>) || {}),
+                      refine_banana_task_id: taskId,
+                      refine_banana_provider: provider,
+                      refine_started_at: new Date().toISOString(),
+                    },
+                  })
+                  .eq("id", childId);
+              } catch (e: any) {
+                console.warn("[extend] stamp banana task_id failed:", e?.message);
+              }
+            },
           });
           refineTierLog = refined.tierLog || null;
           if (refined.ok) {
