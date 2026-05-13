@@ -44,7 +44,11 @@ export async function DELETE(req: Request) {
     .eq("id", id)
     .single();
   if (fetchErr || !target) {
-    return NextResponse.json({ error: "Row not found" }, { status: 404 });
+    // Idempotent delete — if the row is already gone, that's the desired
+    // end state. Return ok so the client clears the card without an
+    // alert + retry loop. Useful when the user spam-clicks delete or
+    // when a previous delete partially succeeded.
+    return NextResponse.json({ ok: true, deleted: 0, note: "Row already gone" });
   }
   if (target.user_id !== user.id) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
@@ -75,7 +79,14 @@ export async function DELETE(req: Request) {
         merged_url: null,
         metadata: cleanedMeta,
       };
-      if (seg1Url) update.output_url = seg1Url;
+      if (seg1Url) {
+        update.output_url = seg1Url;
+      } else {
+        // No seg1_url stored on the parent — clear output_url too so the
+        // player can't keep trying to load the now-stale merged.mp4.
+        // Without this the LazyVideo loops CORS errors on the dead URL.
+        update.output_url = null;
+      }
       await admin.from("history").update(update).eq("id", parent.id);
     }
 

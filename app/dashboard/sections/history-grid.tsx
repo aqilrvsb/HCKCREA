@@ -1058,13 +1058,24 @@ function HistoryCardInner({
     setDeleting(true);
     try {
       const r = await fetch(`/api/history/delete?id=${targetId}`, { method: "DELETE" });
-      if (r.ok) {
-        window.dispatchEvent(new CustomEvent("history:refresh"));
-      } else {
-        alert("Delete failed");
+      // Always refresh history — even on a non-OK response. The backend is
+      // idempotent now (404 returns ok:true) so the most common failure
+      // mode at this layer is a transient network error. Refreshing
+      // pulls the truth from the server and removes the card if the row
+      // is actually gone, avoiding the "stuck card / CORS loop on the
+      // stale merged.mp4" symptom the user reported.
+      window.dispatchEvent(new CustomEvent("history:refresh"));
+      if (!r.ok) {
+        // Only alert for hard errors (403 / 500). 404 is handled server-
+        // side as a success now, so we shouldn't reach this branch for
+        // missing rows.
+        const d = await r.json().catch(() => null);
+        if (d?.error) alert(`Delete: ${d.error}`);
         setDeleting(false);
       }
     } catch {
+      // Network / abort — still refresh so the UI doesn't stay stuck.
+      window.dispatchEvent(new CustomEvent("history:refresh"));
       setDeleting(false);
     }
   }
