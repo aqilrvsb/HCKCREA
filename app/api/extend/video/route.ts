@@ -205,9 +205,28 @@ export async function POST(req: Request) {
 
   after(async () => {
     try {
-      // 1. Resolve plan rate. Extend cost is video_8s rate × (extendSeconds / 8).
-      const baseCost = await priceFor(user.id, "video_8s");
-      const cost = Number(((baseCost * extendSeconds) / 8).toFixed(4));
+      // 1. Resolve cost. Extend = Veo seg-2 + optional Banana Pro refine.
+      //
+      //    Video cost: video_8s rate × (extendSeconds / 8). 8s extend pays
+      //    the full 8s rate; 6s extends pay 6/8 × rate.
+      //
+      //    Refine cost: banana_pro rate ONLY when refine actually fires
+      //    (bucket is ugc/auto AND a product image is attached). Cinema
+      //    extends + extends without a product skip the refine and aren't
+      //    charged for it. The cost is added even if all three refine
+      //    tiers fail, because the user got the attempt and admin paid
+      //    for whatever did/didn't land — the extra-resolution + frame
+      //    upload still ran. Actual recover-seg2 reusing an in-flight
+      //    refine task does NOT double-charge (the original extend
+      //    cost is already on the row).
+      const videoCost = Number(
+        ((await priceFor(user.id, "video_8s")) * extendSeconds / 8).toFixed(4)
+      );
+      const willRefine = bucket !== "cinema" && !!productImageUrl;
+      const refineCost = willRefine
+        ? await priceFor(user.id, "image_generate", "banana_pro")
+        : 0;
+      const cost = Number((videoCost + refineCost).toFixed(4));
 
       // 2. Resolve start frame URL.
       //    - upload/history → user provided a public URL, use directly
@@ -429,6 +448,14 @@ export async function POST(req: Request) {
             refine_provider: refineProvider,
             refine_tier_log: refineTierLog,
             refine_error: refineError,
+            // Cost breakdown — handy for admin audit + future refunds
+            // if all refine tiers fail and the user wants the image
+            // portion credited back.
+            cost_breakdown: {
+              video: videoCost,
+              refine: refineCost,
+              total: cost,
+            },
             end_frame_url: endUrl || null,
             bucket,
             aspectRatio,
