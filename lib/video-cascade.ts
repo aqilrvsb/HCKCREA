@@ -109,6 +109,7 @@ async function tryVideoProvider(
       model: primaryModel,
       aspectRatio,
       imageUrls,
+      imageMode,
     });
     return {
       ok: r.ok,

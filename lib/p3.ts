@@ -136,12 +136,25 @@ export async function p3CreateVideo(input: {
   model?: string;
   aspectRatio?: string;
   imageUrls?: string[];
+  // "ingredient" → ingredients2video (multi r2v refs, 1-3 images).
+  // "frame"      → img2video (start frame only, or start + end).
+  // "text"       → text2video.
+  // Defaults to "ingredient" when refs are present so Auto Content /
+  // UGC product references route correctly even with 2 picks (without
+  // this the old auto-count routing landed on img2video and Mountsea
+  // treated the second image as the end frame instead of a 2nd r2v ref).
+  imageMode?: "frame" | "ingredient" | "text";
 }): Promise<P3CreateResult> {
   const refs = (input.imageUrls || []).filter((u) => typeof u === "string" && u.trim());
+  const mode = input.imageMode || (refs.length > 0 ? "ingredient" : "text");
   let action: "text2video" | "img2video" | "ingredients2video";
-  if (refs.length === 0) action = "text2video";
-  else if (refs.length >= 3) action = "ingredients2video";
-  else action = "img2video";
+  if (refs.length === 0 || mode === "text") {
+    action = "text2video";
+  } else if (mode === "frame") {
+    action = "img2video"; // 1 image = start frame, 2 images = start + end
+  } else {
+    action = "ingredients2video"; // 1-3 reference images (r2v)
+  }
 
   // Mountsea constraint: ingredients2video forces model=veo31_fast_ingredients.
   // For text2video / img2video we use whatever the caller asked for, mapped.
