@@ -59,12 +59,21 @@ export async function DELETE(req: Request) {
   // any later siblings too, but the user wants independent deletes:
   // removing seg-2 should leave seg-3 alone (and vice versa).
   if (target.parent_history_id) {
-    // Roll parent back: re-fetch its metadata first so we don't clobber
-    // unrelated keys. Revert output_url to seg1_url and clear the
-    // merge / seg-2 fields so the parent shows as a plain seg-1 again.
+    // Roll parent back to a clean seg-1-only state. Three cases to
+    // handle based on where in the 16s chain the parent currently sits:
+    //
+    //   (A) Already merged — parent.merged_url is set AND
+    //       metadata.seg1_url is preserved. Roll output_url back to
+    //       seg1_url, clear merged_url + the merge metadata.
+    //   (B) Merged but no seg1_url (legacy / partial data). merged_url
+    //       points at a now-dead .mp4. Clear output_url + merged_url
+    //       both so LazyVideo doesn't CORS-loop on the dead URL.
+    //   (C) Not yet merged — parent.merged_url is NULL and output_url
+    //       still holds the seg-1 video URL (set when seg-1 settled).
+    //       Leave output_url alone; just drop seg-2 metadata if present.
     const { data: parent } = await admin
       .from("history")
-      .select("id, metadata")
+      .select("id, output_url, merged_url, metadata")
       .eq("id", target.parent_history_id)
       .eq("user_id", user.id)
       .single();
@@ -76,17 +85,15 @@ export async function DELETE(req: Request) {
       delete cleanedMeta.merged_at;
       delete cleanedMeta.seg1_url; // no longer needed once we collapse back
       const update: Record<string, any> = {
-        merged_url: null,
         metadata: cleanedMeta,
       };
-      if (seg1Url) {
-        update.output_url = seg1Url;
-      } else {
-        // No seg1_url stored on the parent — clear output_url too so the
-        // player can't keep trying to load the now-stale merged.mp4.
-        // Without this the LazyVideo loops CORS errors on the dead URL.
-        update.output_url = null;
+      if (parent.merged_url) {
+        // Cases A + B — merge happened, so output_url currently points
+        // at the merged.mp4 which is about to become stale.
+        update.merged_url = null;
+        update.output_url = seg1Url || null;
       }
+      // Case C (not merged) — touch neither output_url nor merged_url.
       await admin.from("history").update(update).eq("id", parent.id);
     }
 
