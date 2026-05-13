@@ -405,17 +405,11 @@ export default function VideoTab({ projectId }: { projectId?: string } = {}) {
         )}
       </Card>
 
-      {pickerSlot && (
-        <HistoryPicker
-          onPick={(url) => pickFromHistory(pickerSlot, url)}
-          onClose={() => setPickerSlot(null)}
-        />
-      )}
-
       <AttachmentPicker
         open={!!attachmentSlot}
         onClose={() => setAttachmentSlot(null)}
         onPick={(a) => attachmentSlot && pickFromAttachment(attachmentSlot, a.public_url)}
+        defaultCategory={attachmentSlot === "avatar" ? "avatar" : "product"}
       />
 
       {showUgcModal && <UgcModal onClose={() => setShowUgcModal(false)} />}
@@ -547,7 +541,6 @@ function FrameZoneRow({
           )}
         </button>
         <div className="flex flex-col gap-1 justify-between">
-          <SmallBtn onClick={onHistory}>History</SmallBtn>
           <SmallBtn onClick={onPick}>Attachments</SmallBtn>
           <SmallBtn onClick={onClear} danger>
             x

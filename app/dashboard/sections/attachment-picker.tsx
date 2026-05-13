@@ -1,64 +1,101 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { X, Loader2, Image as ImageIcon, ChevronLeft, ChevronRight, Upload } from "lucide-react";
-import type { Attachment } from "./attachments";
+import {
+  X,
+  Loader2,
+  Image as ImageIcon,
+  Package,
+  UserCircle2,
+  ChevronLeft,
+  ChevronRight,
+  Upload,
+} from "lucide-react";
+import type { Attachment, AttachmentCategory } from "./attachments";
+import { CategoryPickModal } from "./attachments";
 
 const PAGE_SIZE = 25;
 
-// Shared modal — every tab's old "Upload from local" button now opens
-// this picker. Click an image, the callback receives the public S3 URL
-// + the attachment row so callers can also store filename/dimensions
-// alongside the URL if they want to.
+// Shared modal — every tab's "Attachments" button opens this. The grid
+// is filtered by a category radio at the top (Product / Avatar / All)
+// so each slot only sees the relevant subset of the library.
+//
+// `defaultCategory` lets callers pre-select the radio for the slot's
+// expected category (e.g. UGC avatar slot → "avatar"). The user can
+// still toggle if they want.
 export default function AttachmentPicker({
   open,
   onClose,
   onPick,
   title = "Pick from Attachments",
+  defaultCategory = "product",
 }: {
   open: boolean;
   onClose: () => void;
   onPick: (a: Attachment) => void;
   title?: string;
+  defaultCategory?: AttachmentCategory | "all";
 }) {
   const [items, setItems] = useState<Attachment[]>([]);
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
   const [uploading, setUploading] = useState(0);
+  const [filter, setFilter] = useState<AttachmentCategory | "all">(defaultCategory);
+  // Pending upload files awaiting category choice — see CategoryPickModal.
+  const [pendingFiles, setPendingFiles] = useState<File[] | null>(null);
 
-  const load = useCallback(async (p = 1) => {
-    setLoading(true);
-    try {
-      const r = await fetch(`/api/attachments?page=${p}&pageSize=${PAGE_SIZE}`, {
-        credentials: "include",
-      });
-      const j = await r.json();
-      if (j.ok) {
-        setItems(j.attachments);
-        setTotal(j.total);
-        setPage(j.page);
+  const load = useCallback(
+    async (p = 1, cat = filter) => {
+      setLoading(true);
+      try {
+        const qs = new URLSearchParams({
+          page: String(p),
+          pageSize: String(PAGE_SIZE),
+        });
+        if (cat !== "all") qs.set("category", cat);
+        const r = await fetch(`/api/attachments?${qs}`, { credentials: "include" });
+        const j = await r.json();
+        if (j.ok) {
+          setItems(j.attachments);
+          setTotal(j.total);
+          setPage(j.page);
+        }
+      } finally {
+        setLoading(false);
       }
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+    },
+    [filter]
+  );
 
+  // Reset category to caller default + reload when opening.
   useEffect(() => {
-    if (open) load(1);
-  }, [open, load]);
+    if (open) {
+      setFilter(defaultCategory);
+      load(1, defaultCategory);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
 
-  const uploadFiles = useCallback(
-    async (files: FileList | File[]) => {
-      const arr = Array.from(files).filter((f) => f.type.startsWith("image/"));
-      if (!arr.length) return;
-      setUploading(arr.length);
+  // Reload when filter chip changes mid-open.
+  useEffect(() => {
+    if (open) load(1, filter);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filter]);
+
+  const confirmUpload = useCallback(
+    async (category: AttachmentCategory) => {
+      const files = pendingFiles || [];
+      setPendingFiles(null);
+      if (!files.length) return;
+      setUploading(files.length);
       const added: Attachment[] = [];
-      for (const file of arr) {
+      for (const file of files) {
         try {
           const fd = new FormData();
           fd.append("file", file);
           fd.append("name", file.name.replace(/\.[^.]+$/, ""));
+          fd.append("category", category);
           const r = await fetch("/api/attachments/upload", {
             method: "POST",
             body: fd,
@@ -73,12 +110,18 @@ export default function AttachmentPicker({
         }
       }
       if (added.length) {
-        setItems((prev) => [...added, ...prev].slice(0, PAGE_SIZE));
-        setTotal((t) => t + added.length);
-        setPage(1);
+        // Switch filter to the uploaded category so user sees them
+        if (filter !== "all" && filter !== category) {
+          setFilter(category);
+        } else {
+          setItems((prev) => [...added, ...prev].slice(0, PAGE_SIZE));
+          setTotal((t) => t + added.length);
+          setPage(1);
+        }
+        window.dispatchEvent(new CustomEvent("attachments:changed"));
       }
     },
-    []
+    [pendingFiles, filter]
   );
 
   if (!open) return null;
@@ -117,7 +160,10 @@ export default function AttachmentPicker({
                 multiple
                 className="hidden"
                 onChange={(e) => {
-                  if (e.target.files) uploadFiles(e.target.files);
+                  const arr = e.target.files
+                    ? Array.from(e.target.files).filter((f) => f.type.startsWith("image/"))
+                    : [];
+                  if (arr.length) setPendingFiles(arr);
                   e.target.value = "";
                 }}
               />
@@ -128,11 +174,39 @@ export default function AttachmentPicker({
           </div>
         </div>
 
+        {/* Category radio */}
+        <div
+          className="px-5 py-3 flex items-center gap-2 border-b"
+          style={{ borderColor: "var(--color-border)" }}
+        >
+          <FilterPill
+            active={filter === "product"}
+            onClick={() => setFilter("product")}
+            icon={<Package className="w-3.5 h-3.5" />}
+            label="Product"
+            color="#f59e0b"
+          />
+          <FilterPill
+            active={filter === "avatar"}
+            onClick={() => setFilter("avatar")}
+            icon={<UserCircle2 className="w-3.5 h-3.5" />}
+            label="Avatar"
+            color="#22c55e"
+          />
+          <FilterPill
+            active={filter === "all"}
+            onClick={() => setFilter("all")}
+            icon={null}
+            label="All"
+            color="#888"
+          />
+        </div>
+
         {/* Body */}
         <div className="flex-1 overflow-y-auto p-5">
           {uploading > 0 && (
             <div className="mb-3 text-xs" style={{ color: "var(--color-text-muted)" }}>
-              Uploading {uploading} image{uploading > 1 ? "s" : ""}…
+              Adding {uploading} image{uploading > 1 ? "s" : ""}…
             </div>
           )}
           {loading ? (
@@ -142,7 +216,10 @@ export default function AttachmentPicker({
           ) : items.length === 0 ? (
             <div className="text-center py-12" style={{ color: "var(--color-text-muted)" }}>
               <ImageIcon className="w-10 h-10 mx-auto mb-2 opacity-40" />
-              <p className="text-sm">No attachments yet. Click <span className="font-semibold">Add new</span> above or visit the Attachments tab to add some.</p>
+              <p className="text-sm">
+                No {filter === "all" ? "attachments" : `${filter}s`} here yet. Click{" "}
+                <span className="font-semibold">Add new</span> above to upload one.
+              </p>
             </div>
           ) : (
             <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-3">
@@ -153,7 +230,7 @@ export default function AttachmentPicker({
                     onPick(a);
                     onClose();
                   }}
-                  className="group block rounded-lg overflow-hidden border hover:border-[var(--color-orange)] transition"
+                  className="group block rounded-lg overflow-hidden border hover:border-[var(--color-orange)] transition relative"
                   style={{ borderColor: "var(--color-border)" }}
                   title={a.name}
                 >
@@ -164,6 +241,23 @@ export default function AttachmentPicker({
                     className="w-full aspect-square object-cover bg-black/40"
                     loading="lazy"
                   />
+                  <span
+                    className="absolute top-1 left-1 inline-flex items-center gap-1 px-1 py-0.5 rounded text-[9px] font-bold uppercase"
+                    style={{
+                      background:
+                        a.category === "avatar"
+                          ? "rgba(34,197,94,0.85)"
+                          : "rgba(245,158,11,0.85)",
+                      color: "white",
+                    }}
+                  >
+                    {a.category === "avatar" ? (
+                      <UserCircle2 className="w-2.5 h-2.5" />
+                    ) : (
+                      <Package className="w-2.5 h-2.5" />
+                    )}
+                    {a.category}
+                  </span>
                   <div
                     className="px-2 py-1.5 text-[11px] font-semibold truncate text-left"
                     style={{ color: "var(--color-text-secondary)" }}
@@ -202,6 +296,47 @@ export default function AttachmentPicker({
           </div>
         )}
       </div>
+
+      {pendingFiles && (
+        <CategoryPickModal
+          fileCount={pendingFiles.length}
+          onPick={confirmUpload}
+          onClose={() => setPendingFiles(null)}
+        />
+      )}
     </div>
+  );
+}
+
+function FilterPill({
+  active,
+  onClick,
+  icon,
+  label,
+  color,
+}: {
+  active: boolean;
+  onClick: () => void;
+  icon: React.ReactNode;
+  label: string;
+  color: string;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold transition"
+      style={
+        active
+          ? { background: color, color: "white" }
+          : {
+              background: "var(--color-surface)",
+              color: "var(--color-text-secondary)",
+              border: `1px solid var(--color-border)`,
+            }
+      }
+    >
+      {icon}
+      {label}
+    </button>
   );
 }

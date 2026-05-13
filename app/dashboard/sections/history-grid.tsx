@@ -23,11 +23,14 @@ import {
   HardDrive,
   CloudUpload,
   Upload,
+  UploadCloud,
+  Check,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import Portal from "./portal";
 import ExtendDialog from "./extend-dialog";
 import AttachmentPicker from "./attachment-picker";
+import { CategoryPickModal } from "./attachments";
 import LazyVideo from "@/app/components/lazy-video";
 
 export type HistoryItem = {
@@ -336,6 +339,26 @@ export default function HistoryGrid({
     return () => window.removeEventListener("storage:saved", onSaved);
   }, [mutateSaveStatus]);
 
+  // Set of history_ids the user has transferred to Attachments. Drives
+  // the Transfer button state on image-tab cards. Refetches on the
+  // "attachments:changed" custom event fired by the Attachments page +
+  // picker when the user uploads, transfers, deletes or recategorises.
+  const { data: transferredArr = [], mutate: mutateTransferred } = useSWR<string[]>(
+    "attachments:transferred",
+    async () => {
+      const r = await fetch("/api/attachments/transferred", { credentials: "include" });
+      const d = await r.json();
+      return d?.ok ? (d.history_ids as string[]) : [];
+    },
+    { keepPreviousData: true, dedupingInterval: 5000, revalidateOnFocus: false }
+  );
+  const transferredSet = useMemo(() => new Set(transferredArr), [transferredArr]);
+  useEffect(() => {
+    const on = () => void mutateTransferred();
+    window.addEventListener("attachments:changed", on);
+    return () => window.removeEventListener("attachments:changed", on);
+  }, [mutateTransferred]);
+
   const counts = useMemo(
     () => ({
       // Reflect what the user actually sees in the grid (after the
@@ -567,6 +590,7 @@ export default function HistoryGrid({
                 item={it}
                 seg2={childMap[it.id]}
                 saveStatus={saveStatus[it.id]}
+                transferred={transferredSet.has(it.id)}
                 mergeSupported={supportsMerge}
                 mergeSelectedIdx={
                   supportsMerge
@@ -658,6 +682,7 @@ function HistoryCardInner({
   item,
   seg2,
   saveStatus,
+  transferred,
   mergeSupported,
   mergeSelectedIdx,
   onToggleMerge,
@@ -665,6 +690,7 @@ function HistoryCardInner({
   item: HistoryItem;
   seg2?: HistoryItem;
   saveStatus?: { saved: boolean; storage_id?: string; url?: string };
+  transferred?: boolean;
   mergeSupported?: boolean;
   mergeSelectedIdx?: number;
   onToggleMerge?: () => void;
@@ -678,6 +704,36 @@ function HistoryCardInner({
   const [showPromptModal, setShowPromptModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [showExtendModal, setShowExtendModal] = useState(false);
+  // Transfer-to-Attachments — image tab only. The modal asks which
+  // category (product/avatar) before firing /api/attachments/transfer.
+  const [showTransferModal, setShowTransferModal] = useState(false);
+  const [transferring, setTransferring] = useState(false);
+
+  async function handleTransfer(category: "product" | "avatar") {
+    if (transferring || transferred) return;
+    setShowTransferModal(false);
+    setTransferring(true);
+    try {
+      const r = await fetch("/api/attachments/transfer", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ history_id: item.id, category }),
+      });
+      const d = await r.json();
+      if (!d?.ok) {
+        alert(d?.error || "Transfer failed");
+        return;
+      }
+      // Tell the parent grid to refetch the transferred set so this
+      // card flips to the green "transferred" state immediately.
+      window.dispatchEvent(new CustomEvent("attachments:changed"));
+    } catch (e: any) {
+      alert(e?.message || "Transfer failed");
+    } finally {
+      setTransferring(false);
+    }
+  }
 
   // Clone Prompt cards have no media — just the generated prompt text. They
   // live in the same HistoryGrid as image/video cards but render differently
@@ -1477,9 +1533,29 @@ function HistoryCardInner({
             </>
           )}
 
-          {/* DONE — image: Edit + Save (with countdown badge) + Download + Delete */}
+          {/* DONE — image: Transfer (Image tab only) + Edit + Save + Download + Delete */}
           {item.status === "done" && isImage && (
             <>
+              {item.tab === "image" && (
+                <ActionBtn
+                  title={transferred ? "Already in Attachments" : "Transfer to Attachments"}
+                  onClick={() => !transferred && setShowTransferModal(true)}
+                  bg={
+                    transferred
+                      ? "linear-gradient(135deg, #22c55e, #4ade80)" // green — transferred
+                      : "linear-gradient(135deg, #06b6d4, #22d3ee)" // cyan — available
+                  }
+                  disabled={transferred || transferring}
+                >
+                  {transferring ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  ) : transferred ? (
+                    <Check className="w-3.5 h-3.5" strokeWidth={2.4} />
+                  ) : (
+                    <UploadCloud className="w-3.5 h-3.5" strokeWidth={2.4} />
+                  )}
+                </ActionBtn>
+              )}
               <ActionBtn title="Edit Image" onClick={() => setShowEditModal(true)} bg={ACTION.edit}>
                 <Palette className="w-3.5 h-3.5" strokeWidth={2.4} />
               </ActionBtn>
@@ -1631,6 +1707,17 @@ function HistoryCardInner({
         <PromptModal prompt={item.prompt} onClose={() => setShowPromptModal(false)} />
       )}
 
+      {/* Transfer-to-Attachments — asks the user which category to save
+          this image under, then POSTs to /api/attachments/transfer. */}
+      {showTransferModal && (
+        <CategoryPickModal
+          fileCount={0}
+          title="Save to Attachments as…"
+          onPick={(cat) => handleTransfer(cat)}
+          onClose={() => setShowTransferModal(false)}
+        />
+      )}
+
       {/* Edit Image modal — image cards only */}
       {showEditModal && isImage && item.output_url && (
         <EditImageModal
@@ -1701,6 +1788,7 @@ const HistoryCard = memo(HistoryCardInner, (prev, next) => {
     prev.seg2?.output_url === next.seg2?.output_url &&
     prev.saveStatus?.saved === next.saveStatus?.saved &&
     prev.saveStatus?.storage_id === next.saveStatus?.storage_id &&
+    prev.transferred === next.transferred &&
     prev.mergeSupported === next.mergeSupported &&
     prev.mergeSelectedIdx === next.mergeSelectedIdx
     // Intentionally NOT comparing onToggleMerge — the parent passes an
@@ -2022,14 +2110,6 @@ function EditImageModal({
             </button>
 
             <div className="flex flex-col gap-1.5 justify-center">
-              <button
-                type="button"
-                onClick={() => setShowHistoryPicker(true)}
-                className="px-3 py-1.5 rounded-md text-[10px] font-bold"
-                style={{ background: "rgba(124,77,255,0.08)", border: "1px solid #b388ff", color: "#7c4dff" }}
-              >
-                From History
-              </button>
               <button
                 type="button"
                 onClick={() => setAttachmentOpen(true)}

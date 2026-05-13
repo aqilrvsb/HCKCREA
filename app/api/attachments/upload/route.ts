@@ -37,6 +37,7 @@ export async function POST(req: Request) {
 
   let file: File;
   let providedName: string;
+  let category: "product" | "avatar";
   try {
     const form = await req.formData();
     const f = form.get("file");
@@ -54,6 +55,8 @@ export async function POST(req: Request) {
     }
     file = f as File;
     providedName = String(form.get("name") || "").trim();
+    const rawCat = String(form.get("category") || "product").toLowerCase();
+    category = rawCat === "avatar" ? "avatar" : "product";
   } catch (e: any) {
     return NextResponse.json({ error: e?.message || "Read failed" }, { status: 400 });
   }
@@ -77,6 +80,7 @@ export async function POST(req: Request) {
       public_url: "",
       content_type: finalCt,
       size_bytes: buffer.length,
+      category,
     })
     .select("id")
     .single();

@@ -841,7 +841,6 @@ export default function AutoContentTab({ projectId }: { projectId?: string } = {
                   )
                 }
                 onPickAttachment={() => setAttachmentSlot(i)}
-                onPickHistory={() => setPickerSlot(i)}
                 onClear={() =>
                   setManualProducts((prev) =>
                     prev.map((x, j) => (j === i ? { ...x, imageData: "" } : x))
@@ -1241,6 +1240,7 @@ export default function AutoContentTab({ projectId }: { projectId?: string } = {
         open={attachmentSlot !== null}
         onClose={() => setAttachmentSlot(null)}
         onPick={(a) => attachmentSlot !== null && pickAttachmentForManual(attachmentSlot, a.public_url)}
+        defaultCategory="product"
       />
     </div>
   );
@@ -1253,7 +1253,6 @@ function ManualProductCard({
   product,
   onInfoChange,
   onPickAttachment,
-  onPickHistory,
   onClear,
 }: {
   idx: number;
@@ -1261,7 +1260,6 @@ function ManualProductCard({
   product: ManualProduct;
   onInfoChange: (s: string) => void;
   onPickAttachment: () => void;
-  onPickHistory: () => void;
   onClear: () => void;
 }) {
   return (
@@ -1312,9 +1310,6 @@ function ManualProductCard({
         <div className="flex flex-col gap-1 justify-between">
           <SmallBtn onClick={onPickAttachment} color={AMBER}>
             Attachments
-          </SmallBtn>
-          <SmallBtn onClick={onPickHistory} color={AMBER}>
-            History
           </SmallBtn>
           {product.imageData && (
             <SmallBtn onClick={onClear} danger>

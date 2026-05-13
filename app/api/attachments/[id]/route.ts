@@ -20,15 +20,29 @@ export async function PATCH(
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const body = await req.json().catch(() => ({}));
-  const name = String(body?.name || "").trim();
-  if (!name) return NextResponse.json({ error: "Name required" }, { status: 400 });
-  if (name.length > 200) {
-    return NextResponse.json({ error: "Name too long (max 200)" }, { status: 400 });
+  const updates: { name?: string; category?: "product" | "avatar" } = {};
+  if (typeof body?.name === "string") {
+    const name = body.name.trim();
+    if (!name) return NextResponse.json({ error: "Name required" }, { status: 400 });
+    if (name.length > 200) {
+      return NextResponse.json({ error: "Name too long (max 200)" }, { status: 400 });
+    }
+    updates.name = name;
+  }
+  if (typeof body?.category === "string") {
+    const cat = body.category.toLowerCase();
+    if (cat !== "product" && cat !== "avatar") {
+      return NextResponse.json({ error: "category must be 'product' or 'avatar'" }, { status: 400 });
+    }
+    updates.category = cat;
+  }
+  if (Object.keys(updates).length === 0) {
+    return NextResponse.json({ error: "Nothing to update" }, { status: 400 });
   }
 
   const { data, error } = await sb
     .from("attachments")
-    .update({ name })
+    .update(updates)
     .eq("id", id)
     .select("*")
     .single();

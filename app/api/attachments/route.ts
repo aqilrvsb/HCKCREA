@@ -19,11 +19,18 @@ export async function GET(req: Request) {
   const from = (page - 1) * pageSize;
   const to = from + pageSize - 1;
 
-  const { data, count, error } = await sb
+  const rawCategory = (url.searchParams.get("category") || "").toLowerCase();
+  const category =
+    rawCategory === "product" || rawCategory === "avatar" ? rawCategory : null;
+
+  let q = sb
     .from("attachments")
-    .select("id, name, public_url, content_type, size_bytes, width, height, created_at", { count: "exact" })
-    .order("created_at", { ascending: false })
-    .range(from, to);
+    .select("id, name, category, public_url, source_history_id, content_type, size_bytes, width, height, created_at", { count: "exact" })
+    .order("created_at", { ascending: false });
+
+  if (category) q = q.eq("category", category);
+
+  const { data, count, error } = await q.range(from, to);
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });

@@ -208,7 +208,7 @@ export default function ImageTab({ projectId }: { projectId?: string } = {}) {
             <CardHeader
               icon="👤"
               title="Avatar Reference (Optional)"
-              right={<HistoryBtn onClick={() => setPickerSlot("char")}>From History</HistoryBtn>}
+              right={null}
             />
             <RefZone
               url={charUrl}
@@ -224,7 +224,7 @@ export default function ImageTab({ projectId }: { projectId?: string } = {}) {
             <CardHeader
               icon="📦"
               title="Product Reference (Optional)"
-              right={<HistoryBtn onClick={() => setPickerSlot("product")}>From History</HistoryBtn>}
+              right={null}
             />
             <RefZone
               url={productUrl}
@@ -257,9 +257,6 @@ export default function ImageTab({ projectId }: { projectId?: string } = {}) {
                 <div className="text-[10px] font-bold" style={{ color: "#e91e63" }}>
                   Poster / Ad Image
                 </div>
-                <HistoryBtn onClick={() => setPickerSlot("poster")}>
-                  From History
-                </HistoryBtn>
               </div>
               <RefZone
                 url={posterUrl}
@@ -276,9 +273,6 @@ export default function ImageTab({ projectId }: { projectId?: string } = {}) {
                 <div className="text-[10px] font-bold" style={{ color: ORANGE }}>
                   Product Photo
                 </div>
-                <HistoryBtn onClick={() => setPickerSlot("virtProduct")}>
-                  From History
-                </HistoryBtn>
               </div>
               <RefZone
                 url={virtProductUrl}
@@ -451,19 +445,17 @@ export default function ImageTab({ projectId }: { projectId?: string } = {}) {
 
       </Card>
 
-      {/* From History picker modal */}
-      {pickerSlot && (
-        <HistoryPicker
-          onPick={(url) => pickFromHistory(pickerSlot, url)}
-          onClose={() => setPickerSlot(null)}
-        />
-      )}
-
-      {/* Attachment library picker — replaces the local-file upload. */}
+      {/* Attachment library picker — replaces the local-file upload.
+          defaultCategory pre-selects the right radio per slot:
+            • char        → avatar (face / character reference)
+            • product     → product (packaging / hero shot)
+            • poster      → product (design used as visual reference)
+            • virtProduct → product (the real product photo) */}
       <AttachmentPicker
         open={!!attachmentSlot}
         onClose={() => setAttachmentSlot(null)}
         onPick={(a) => attachmentSlot && pickFromAttachment(attachmentSlot, a.public_url)}
+        defaultCategory={attachmentSlot === "char" ? "avatar" : "product"}
       />
 
 
