@@ -860,6 +860,24 @@ export default function AutoContentTab({ projectId }: { projectId?: string } = {
                   )
                 }
                 onPickAttachment={() => setAttachmentSlot(i)}
+                onRemoveSlot={(slotIdx) =>
+                  setManualProducts((prev) =>
+                    prev.map((x, j) => {
+                      if (j !== i) return x;
+                      const nextUrls = (x.imageUrls || []).filter(
+                        (_, k) => k !== slotIdx
+                      );
+                      return {
+                        ...x,
+                        imageUrls: nextUrls,
+                        // Keep imageData (legacy) in sync with the new first
+                        // slot so anything still reading the old field also
+                        // reflects the removal.
+                        imageData: nextUrls[0] || "",
+                      };
+                    })
+                  )
+                }
                 onClear={() =>
                   setManualProducts((prev) =>
                     prev.map((x, j) =>
@@ -1282,6 +1300,7 @@ function ManualProductCard({
   product,
   onInfoChange,
   onPickAttachment,
+  onRemoveSlot,
   onClear,
 }: {
   idx: number;
@@ -1289,6 +1308,10 @@ function ManualProductCard({
   product: ManualProduct;
   onInfoChange: (s: string) => void;
   onPickAttachment: () => void;
+  // Clear ONE image slot (slot index i within this product's imageUrls)
+  // without touching info / textarea content. Lets the user replace a
+  // bad affiliate-scraped image while keeping product_id + description.
+  onRemoveSlot: (i: number) => void;
   onClear: () => void;
 }) {
   return (
@@ -1321,31 +1344,58 @@ function ManualProductCard({
           {[0, 1, 2].map((i) => {
             const url = product.imageUrls?.[i] || "";
             return (
-              <button
+              <div
                 key={i}
-                type="button"
-                onClick={onPickAttachment}
-                className="relative w-[52px] h-[52px] rounded-lg overflow-hidden flex-shrink-0 flex items-center justify-center"
+                className="relative w-[52px] h-[52px] rounded-lg overflow-hidden flex-shrink-0"
                 style={{
                   border: `2px dashed ${url ? "transparent" : AMBER_SOFT}`,
                   background: url ? "#000" : AMBER_FAINT,
                 }}
               >
-                {url ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    src={url}
-                    alt=""
-                    className="w-full h-full object-cover"
-                    referrerPolicy="no-referrer"
-                    crossOrigin="anonymous"
-                  />
-                ) : (
-                  <span className="text-[10px] font-bold" style={{ color: AMBER }}>
-                    {i + 1}
-                  </span>
+                {/* Whole-slot click target. Use a button (not a div with
+                    onClick) so keyboard/tab navigation still works. We
+                    wrap in a div above only to host the × badge without
+                    nesting buttons. */}
+                <button
+                  type="button"
+                  onClick={onPickAttachment}
+                  className="w-full h-full flex items-center justify-center"
+                  aria-label={url ? "Replace this image" : `Add image ${i + 1}`}
+                >
+                  {url ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={url}
+                      alt=""
+                      className="w-full h-full object-cover"
+                      referrerPolicy="no-referrer"
+                      crossOrigin="anonymous"
+                    />
+                  ) : (
+                    <span className="text-[10px] font-bold" style={{ color: AMBER }}>
+                      {i + 1}
+                    </span>
+                  )}
+                </button>
+                {/* Per-slot × badge — clears only this image, keeps info
+                    + product_id + the other slots untouched. Lets the
+                    user replace a blurry affiliate-scraped image without
+                    losing the scraped metadata. */}
+                {url && (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onRemoveSlot(i);
+                    }}
+                    className="absolute top-0 right-0 w-4 h-4 rounded-bl bg-black/70 text-white text-[10px] flex items-center justify-center hover:bg-red-500"
+                    aria-label="Clear this image"
+                    title="Clear this image (keeps product info)"
+                  >
+                    ×
+                  </button>
                 )}
-              </button>
+              </div>
             );
           })}
         </div>
