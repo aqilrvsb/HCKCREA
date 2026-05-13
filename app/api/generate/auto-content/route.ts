@@ -1198,13 +1198,28 @@ CRITICAL OUTPUT RULES:
       return NextResponse.json({ error: plan.error || "Master plan failed" }, { status: 502 });
     }
 
-    // Parse JSON array (with markdown-fence + truncation recovery)
+    // Parse JSON array (with markdown-fence + truncation + prose-prefix
+    // recovery). Qwen Flash 3.6 sometimes prepends labels like
+    // "[UGC] - TEMPLATE A:" or human-readable summaries BEFORE the JSON.
+    // The naive "first '[' → last ']'" approach grabs those bracketed
+    // tags and corrupts the substring. So we hunt for the actual JSON
+    // array opener — `[` followed by optional whitespace then `{` — and
+    // fall back to the naive approach only if we can't find that.
     try {
       let cleaned = plan.content.trim();
       if (cleaned.startsWith("```")) {
         cleaned = cleaned.replace(/^```json?\s*/i, "").replace(/```\s*$/, "").trim();
       }
-      const start = cleaned.indexOf("[");
+
+      // Strip any prose preamble: find the first "[" that's followed by
+      // optional whitespace + "{". That's the start of the videos array.
+      // Anything before it (including bracketed tags like [UGC]) is
+      // chatter we can safely drop.
+      const arrayOpenMatch = cleaned.match(/\[\s*\{/);
+      const start =
+        arrayOpenMatch && arrayOpenMatch.index !== undefined
+          ? arrayOpenMatch.index
+          : cleaned.indexOf("[");
       const end = cleaned.lastIndexOf("]");
       if (start >= 0 && end > start) {
         cleaned = cleaned.substring(start, end + 1);

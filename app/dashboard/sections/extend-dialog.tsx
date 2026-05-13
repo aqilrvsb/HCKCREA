@@ -127,6 +127,29 @@ export default function ExtendDialog({
     };
   }, [onClose, promptEditorOpen]);
 
+  // Auto-capture the default frame (just-before-last) once the source
+  // video has loaded its metadata. Mirrors the old "auto-extract Last
+  // Frame" default so the seg-2 has a frame ready even if the user
+  // doesn't touch the scrubber. Re-fires if the user closes + reopens.
+  useEffect(() => {
+    const v = videoRef.current;
+    if (!v) return;
+    let done = false;
+    const tryCapture = () => {
+      if (done) return;
+      if (!v.videoWidth || !v.videoHeight) return;
+      done = true;
+      void handlePickTimestamp(pickedTime);
+    };
+    if (v.readyState >= 1 && v.videoWidth) {
+      tryCapture();
+      return;
+    }
+    v.addEventListener("loadedmetadata", tryCapture, { once: true });
+    return () => v.removeEventListener("loadedmetadata", tryCapture);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [videoUrl]);
+
   // Wait for the video to seek to a specific time. Resolves on the
   // first "seeked" event after assigning currentTime. Browsers may fire
   // multiple intermediate events while scrubbing — listening once is
@@ -211,42 +234,33 @@ export default function ExtendDialog({
 
   // Tracks the in-flight HD capture so we can show the user a spinner +
   // disable Generate until the upload finishes.
-  const [capturingFrame, setCapturingFrame] = useState<FrameSource | null>(null);
+  const [capturingFrame, setCapturingFrame] = useState<true | null>(null);
+  // The timestamp (in seconds) the user has scrubbed to. Defaults to
+  // just-before-last so the seg-2 picks up where seg-1 ended — same as
+  // the old "Last" button default.
+  const [pickedTime, setPickedTime] = useState<number>(
+    Math.max(0, duration - 0.1)
+  );
 
-  async function handlePickSource(source: FrameSource) {
+  // Capture the HD frame at the chosen timestamp and upload it. Called
+  // when the user releases the scrubber. Idempotent — repeated releases
+  // at the same time still re-capture (cheap, useful if upload failed).
+  async function handlePickTimestamp(t: number) {
     const v = videoRef.current;
-    if (!v) {
-      setStartFrame({ source });
-      return;
-    }
-    // Optimistic update so the FrameSlot highlights the choice immediately
-    // while the HD capture + upload run in the background.
-    setStartFrame({ source });
-    setCapturingFrame(source);
-
-    let target = 0;
-    if (source === "first") target = 0;
-    else if (source === "middle") target = Math.max(0, duration / 2);
-    else if (source === "last") target = Math.max(0, duration - 0.1);
-
+    if (!v) return;
+    setCapturingFrame(true);
     try {
       v.pause();
-      await seekAndWait(v, target);
+      await seekAndWait(v, t);
       const blob = await captureFrameBlob();
       if (!blob) {
-        // Canvas tainted or seek failed — fall back to backend fal.ai
-        // extract by leaving source as "first/middle/last" + no URL.
-        console.warn("[extend] HD capture failed, falling back to server extract");
-        setCapturingFrame(null);
+        console.warn("[extend] HD capture failed at t=", t);
         return;
       }
       const url = await uploadFrameBlob(blob);
-      if (!url) {
-        setCapturingFrame(null);
-        return;
-      }
-      // Stamp the captured URL + flip source to "upload" so the backend
-      // uses our HD frame directly instead of running its own extract.
+      if (!url) return;
+      // Stamp the captured URL + source "upload" so the backend uses
+      // our HD frame directly instead of running its own fal.ai extract.
       setStartFrame({ source: "upload", url });
     } finally {
       setCapturingFrame(null);
@@ -407,16 +421,32 @@ export default function ExtendDialog({
                 className="w-full max-h-48 rounded-lg bg-black border border-gray-800"
               />
               <div className="text-[10px] text-gray-500 mt-1">
-                Tip: click First / Middle / Last below — the player jumps to that frame so you can preview your pick.
+                Tip: drag the scrubber below to pick the exact frame where segment 2 should start. Release to capture in HD.
               </div>
             </div>
 
-            {/* Start frame — required */}
-            <FrameSlot
-              label="Start Frame (required)"
-              hint="The frame segment 2 starts from. Click First / Middle / Last to preview."
-              selection={startFrame}
-              onPick={handlePickSource}
+            {/* Start frame — draggable timeline scrubber.
+                User drags through the source clip to pick the EXACT
+                frame seg-2 should start from. While dragging the
+                player just seeks (live preview); on release we run
+                the HD canvas capture + upload to peninglab-content
+                and stamp start_frame_url on the seg-2 row. */}
+            <FrameScrubber
+              duration={duration}
+              pickedTime={pickedTime}
+              capturing={!!capturingFrame}
+              hasUrl={startFrame.source === "upload" && !!startFrame.url}
+              onSeek={(t) => {
+                setPickedTime(t);
+                const v = videoRef.current;
+                if (v) {
+                  try {
+                    v.currentTime = t;
+                    v.pause();
+                  } catch {}
+                }
+              }}
+              onCommit={() => void handlePickTimestamp(pickedTime)}
               accent={accent}
             />
 
@@ -674,10 +704,100 @@ export default function ExtendDialog({
   );
 }
 
-// One frame slot — 3 buttons (first / middle / last) + a small preview
-// area showing the current pick. Upload + From-History buttons were
-// removed: extending always anchors on a frame from the source clip
-// itself, so external uploads don't make sense in this flow.
+// Draggable timeline scrubber — replaces the old First/Middle/Last
+// buttons. While dragging, the video player seeks to the chosen time
+// so the user can preview the exact frame. On release (pointer-up /
+// touch-end / change event) we run captureFrameBlob + upload to
+// peninglab-content and stamp start_frame_url on the seg-2 row.
+function FrameScrubber({
+  duration,
+  pickedTime,
+  capturing,
+  hasUrl,
+  onSeek,
+  onCommit,
+  accent,
+}: {
+  duration: number;
+  pickedTime: number;
+  capturing: boolean;
+  hasUrl: boolean;
+  onSeek: (t: number) => void;
+  onCommit: () => void;
+  accent: string;
+}) {
+  // mm:ss.s — keep one decimal so 8s clips can still resolve to ~24fps
+  // worth of distinct frames in the label.
+  const fmt = (t: number) => {
+    const tt = Math.max(0, t);
+    const m = Math.floor(tt / 60);
+    const s = (tt - m * 60).toFixed(1);
+    return `${m}:${s.padStart(4, "0")}`;
+  };
+  return (
+    <div>
+      <label
+        className="block text-xs font-bold uppercase tracking-wider mb-1"
+        style={{ color: accent }}
+      >
+        Start Frame
+        <span className="ml-2 font-mono normal-case font-normal text-gray-400">
+          @ {fmt(pickedTime)} / {fmt(duration)}
+        </span>
+      </label>
+      <p className="text-[11px] text-gray-500 mb-2 leading-relaxed">
+        Drag the slider to scrub the source clip. Release to capture the frame
+        in HD (full source resolution, lossless PNG) and stamp it as the seg-2
+        starting frame.
+      </p>
+      <div className="flex items-center gap-3">
+        <input
+          type="range"
+          min={0}
+          max={Math.max(0.1, duration)}
+          step={0.05}
+          value={pickedTime}
+          onChange={(e) => onSeek(parseFloat(e.target.value))}
+          onPointerUp={onCommit}
+          onTouchEnd={onCommit}
+          onKeyUp={(e) => {
+            // Capture when keyboard nudges land on a value too
+            if (e.key === "Enter" || e.key.startsWith("Arrow")) onCommit();
+          }}
+          className="flex-1 h-2 rounded-full appearance-none cursor-pointer"
+          style={{
+            background: `linear-gradient(to right, ${accent} 0%, ${accent} ${
+              (pickedTime / Math.max(0.1, duration)) * 100
+            }%, rgba(255,255,255,0.08) ${
+              (pickedTime / Math.max(0.1, duration)) * 100
+            }%, rgba(255,255,255,0.08) 100%)`,
+          }}
+        />
+        <div
+          className="text-[10px] font-mono uppercase tracking-wider px-2 py-1 rounded whitespace-nowrap"
+          style={{
+            background: capturing
+              ? "rgba(245,158,11,0.15)"
+              : hasUrl
+                ? `${accent}20`
+                : "rgba(255,255,255,0.04)",
+            color: capturing ? "#fbbf24" : hasUrl ? accent : "rgb(180,180,180)",
+            border: `1px solid ${capturing ? "rgba(245,158,11,0.4)" : hasUrl ? `${accent}50` : "rgba(255,255,255,0.08)"}`,
+          }}
+        >
+          {capturing
+            ? "capturing HD…"
+            : hasUrl
+              ? "HD frame ready ✓"
+              : "waiting"}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// LEGACY — kept for type compatibility while we phase out external
+// callers, but no longer rendered.
 function FrameSlot({
   label,
   hint,
