@@ -67,6 +67,7 @@ export default function Sidebar({
   onTabChange,
   mobileOpen,
   onMobileClose,
+  isAffiliate = false,
 }: {
   email: string;
   name: string;
@@ -78,6 +79,9 @@ export default function Sidebar({
   onProjectsChange: (p: Project[]) => void;
   view: SidebarView;
   onViewChange: (v: SidebarView) => void;
+  /** True for users with an approved affiliate_applications row. Routes
+   *  them to the affiliate-only WhatsApp group instead of the public one. */
+  isAffiliate?: boolean;
   // Project tabs (Image / UGC / Auto Content / etc.) — rendered inside the
   // sidebar when a project is active. Replaces the top tab pills so mobile
   // users can navigate from the same drawer they use for everything else.
@@ -636,9 +640,15 @@ export default function Sidebar({
         </button>
 
         {/* External link — WhatsApp discussion group. Themed in green to
-            match WhatsApp brand and stand out as a non-nav item. */}
+            match WhatsApp brand and stand out as a non-nav item.
+            Affiliate users get routed to the affiliate-only group instead
+            of the general public one. */}
         <a
-          href="https://chat.whatsapp.com/BPORSI7khdIEOGZzWYBwbS"
+          href={
+            isAffiliate
+              ? "https://chat.whatsapp.com/EJqjOkh3hiX1I2r1zKXJAe"
+              : "https://chat.whatsapp.com/BPORSI7khdIEOGZzWYBwbS"
+          }
           target="_blank"
           rel="noopener noreferrer"
           className="sidebar-row w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-bold"
@@ -649,7 +659,9 @@ export default function Sidebar({
             strokeWidth={2.4}
             style={{ color: "#22c55e" }}
           />
-          <span>Join Discussion WhatsApp</span>
+          <span>
+            {isAffiliate ? "Affiliate WhatsApp Group" : "Join Discussion WhatsApp"}
+          </span>
           <ArrowUpRight
             className="w-3.5 h-3.5 ml-auto opacity-60"
             strokeWidth={2.4}

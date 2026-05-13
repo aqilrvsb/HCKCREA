@@ -59,12 +59,17 @@ export default function DashboardShell({
   credits: initialCredits,
   planActive,
   planExpiresAt,
+  isAffiliate = false,
 }: {
   email: string;
   name: string;
   credits: number;
   planActive: boolean;
   planExpiresAt: string | null;
+  /** True if this user has an approved affiliate_applications row.
+   *  Used to swap the sidebar's WhatsApp join link to the affiliate-only
+   *  group. */
+  isAffiliate?: boolean;
 }) {
   const [projects, setProjects] = useState<Project[]>([]);
   const [projectLimit, setProjectLimit] = useState(4);
@@ -173,6 +178,7 @@ export default function DashboardShell({
           credits={credits}
           planActive={planActive}
           planExpiresAt={planExpiresAt}
+          isAffiliate={isAffiliate}
           projects={projects}
           projectLimit={projectLimit}
           onProjectsChange={setProjects}

@@ -101,6 +101,13 @@ export default function AdminSettings() {
   const [savingReferral, setSavingReferral] = useState(false);
   const [referralMsg, setReferralMsg] = useState<string | null>(null);
 
+  // Free credits granted to a NEWLY-approved affiliate signup. Read by
+  // /api/admin/affiliate on approval. Saved to app_settings.affiliate_signup_credits.
+  // Defaults to 10 when unset (matches the pre-config hardcoded behaviour).
+  const [affiliateCredits, setAffiliateCredits] = useState("");
+  const [savingAffiliateCredits, setSavingAffiliateCredits] = useState(false);
+  const [affiliateCreditsMsg, setAffiliateCreditsMsg] = useState<string | null>(null);
+
   useEffect(() => {
     void load();
     void loadAdminDevice();
@@ -174,6 +181,10 @@ export default function AdminSettings() {
         if (row.key === "referral_commission_rate") {
           const r = Number(row.value?.rate);
           setReferralRate(Number.isFinite(r) ? String(r) : "");
+        }
+        if (row.key === "affiliate_signup_credits") {
+          const n = Number(row.value?.credits);
+          setAffiliateCredits(Number.isFinite(n) ? String(n) : "");
         }
       }
     } finally {
@@ -342,6 +353,34 @@ export default function AdminSettings() {
       setViralMsg(`✗ Save failed: ${e?.message || "unknown error"}`);
     } finally {
       setSavingViral(false);
+    }
+  }
+
+  async function saveAffiliateCredits() {
+    setSavingAffiliateCredits(true);
+    setAffiliateCreditsMsg(null);
+    try {
+      const n = Number(affiliateCredits);
+      const clamped = Number.isFinite(n) ? Math.max(0, Math.min(10000, Math.round(n))) : 10;
+      const r = await fetch("/api/admin/settings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          key: "affiliate_signup_credits",
+          value: { credits: clamped },
+        }),
+      });
+      if (!r.ok) {
+        const err = await r.json().catch(() => ({}));
+        throw new Error(err?.error || `HTTP ${r.status}`);
+      }
+      setAffiliateCreditsMsg(`✓ Saved. New affiliates approved from now on will receive ${clamped} credits.`);
+      void load();
+      setTimeout(() => setAffiliateCreditsMsg(null), 5000);
+    } catch (e: any) {
+      setAffiliateCreditsMsg(`✗ Save failed: ${e?.message || "unknown error"}`);
+    } finally {
+      setSavingAffiliateCredits(false);
     }
   }
 
@@ -1173,6 +1212,73 @@ export default function AdminSettings() {
           </button>
           {referralMsg && (
             <span className="text-xs text-emerald-700 font-semibold">{referralMsg}</span>
+          )}
+        </div>
+      </div>
+
+      {/* Affiliate Signup Credits — how many free credits to grant when
+          an affiliate application is approved. Read by
+          /api/admin/affiliate at approval time. Default 10. */}
+      <div className="card p-6 mb-6 border-2 border-amber-100 bg-amber-50/40">
+        <div className="flex items-center gap-2 mb-1">
+          <Package className="w-5 h-5 text-amber-600" />
+          <h2 className="font-display font-bold text-lg">Affiliate Signup Bonus</h2>
+        </div>
+        <p className="text-sm text-[var(--color-text-secondary)] mb-4">
+          Free credits granted to each NEWLY-approved affiliate. They land
+          on Pro Plan for 30 days and start with this credit balance. Set
+          to 0 to disable the bonus.
+        </p>
+        <div className="grid md:grid-cols-2 gap-4">
+          <div>
+            <label className="block text-xs font-mono uppercase tracking-widest text-[var(--color-text-muted)] font-bold mb-2">
+              Credits on approval
+            </label>
+            <div className="relative">
+              <input
+                type="number"
+                min="0"
+                max="10000"
+                step="1"
+                value={affiliateCredits}
+                onChange={(e) => setAffiliateCredits(e.target.value)}
+                className="input !pr-16"
+                placeholder="10"
+              />
+              <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-bold text-[var(--color-text-muted)]">
+                credits
+              </span>
+            </div>
+            <p className="text-[10px] text-[var(--color-text-muted)] mt-1">
+              Default 10. Clamped 0–10000. Only NEW approvals from now on
+              are affected — already-approved affiliates keep whatever
+              balance they have.
+            </p>
+          </div>
+          <div className="text-xs text-[var(--color-text-secondary)] flex items-end pb-1">
+            <div>
+              <div className="font-bold text-[var(--color-text-primary)] mb-1">Worth</div>
+              <div className="font-mono">
+                1 credit = RM 1 of generations
+              </div>
+              <div className="font-mono opacity-80">
+                {Number(affiliateCredits) || 10} credits ≈ RM {Number(affiliateCredits) || 10} of value
+              </div>
+            </div>
+          </div>
+        </div>
+        <div className="flex items-center gap-3 mt-5">
+          <button
+            type="button"
+            onClick={() => void saveAffiliateCredits()}
+            disabled={savingAffiliateCredits}
+            className="px-5 py-2 rounded-lg bg-amber-600 text-white font-bold text-sm hover:bg-amber-700 disabled:opacity-50 flex items-center gap-2"
+          >
+            {savingAffiliateCredits && <Loader2 className="w-4 h-4 animate-spin" />}
+            <Save className="w-4 h-4" /> Save Signup Bonus
+          </button>
+          {affiliateCreditsMsg && (
+            <span className="text-xs text-emerald-700 font-semibold">{affiliateCreditsMsg}</span>
           )}
         </div>
       </div>

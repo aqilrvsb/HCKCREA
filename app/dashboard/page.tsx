@@ -16,11 +16,23 @@ export default async function DashboardPage() {
   // Read live credits + name + plan/expiry from the profile row (admin client
   // because RLS hits .single() before the trigger has populated everything).
   const admin = createAdminClient();
-  const { data: profile } = await admin
-    .from("profiles")
-    .select("credits, full_name, plan, plan_expires_at")
-    .eq("id", user.id)
-    .maybeSingle();
+  const [{ data: profile }, { data: affiliateApp }] = await Promise.all([
+    admin
+      .from("profiles")
+      .select("credits, full_name, plan, plan_expires_at")
+      .eq("id", user.id)
+      .maybeSingle(),
+    // An "approved" affiliate row keyed by this user — used to swap the
+    // sidebar's WhatsApp join link to the affiliate-only group.
+    admin
+      .from("affiliate_applications")
+      .select("id")
+      .eq("approved_user_id", user.id)
+      .eq("status", "approved")
+      .limit(1)
+      .maybeSingle(),
+  ]);
+  const isAffiliate = !!affiliateApp?.id;
 
   const credits = Number(profile?.credits ?? 0);
   const name =
@@ -43,6 +55,7 @@ export default async function DashboardPage() {
       credits={credits}
       planActive={planActive}
       planExpiresAt={planExpiresAt}
+      isAffiliate={isAffiliate}
     />
   );
 }

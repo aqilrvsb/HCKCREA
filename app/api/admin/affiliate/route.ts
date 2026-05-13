@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { sendWhatsApp, buildLoginMessage, notifyAdmins } from "@/lib/whatsapp";
+import { getSetting } from "@/lib/settings";
 
 // Admin-only API for managing affiliate sign-up applications.
 //
@@ -187,10 +188,20 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Failed to resolve user id" }, { status: 500 });
   }
 
-  // Setup the profile — 30-day Pro plan, 10 credits, fresh referral_code.
+  // Setup the profile — 30-day Pro plan, N credits, fresh referral_code.
+  // N is configurable via the `affiliate_signup_credits` admin setting
+  // (key in app_settings → { credits: <number> }). Defaults to 10 if the
+  // setting is missing or invalid, matching the pre-config behaviour.
   const now = new Date();
   const expiry = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
   const referralCode = userId.replace(/-/g, "").substring(0, 8).toUpperCase();
+  const signupCreditsSetting = await getSetting<{ credits: number }>(
+    "affiliate_signup_credits"
+  );
+  const signupCredits = (() => {
+    const n = Number(signupCreditsSetting?.credits);
+    return Number.isFinite(n) && n >= 0 ? n : 10;
+  })();
 
   await admin.from("profiles").upsert(
     {
@@ -199,21 +210,24 @@ export async function POST(req: Request) {
       whatsapp,
       plan: "pro",
       plan_expires_at: expiry.toISOString(),
-      credits: 10,
+      credits: signupCredits,
       referral_code: referralCode,
     },
     { onConflict: "id" }
   );
 
   // Log the credit grant as a transaction so it shows up in usage
-  // reports and the user's credit history.
-  await admin.from("credit_transactions").insert({
-    user_id: userId,
-    amount: 10,
-    balance_after: 10,
-    reason: "affiliate_signup_bonus",
-    metadata: { application_id: app.id, approved_by: adminUser.id },
-  });
+  // reports and the user's credit history. Skipped when admin set
+  // credits to 0 (zero-amount transactions clutter the ledger).
+  if (signupCredits > 0) {
+    await admin.from("credit_transactions").insert({
+      user_id: userId,
+      amount: signupCredits,
+      balance_after: signupCredits,
+      reason: "affiliate_signup_bonus",
+      metadata: { application_id: app.id, approved_by: adminUser.id },
+    });
+  }
 
   // Flip the application row to approved.
   const { error: appUpdErr } = await admin
