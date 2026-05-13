@@ -57,9 +57,11 @@ export async function POST(req: Request) {
     ? body.product_urls_all.map(String)
     : [];
   const productImageUrl = String(body?.product_image_url || "").trim();
-  const manualProducts: { info: string; imageData: string }[] = Array.isArray(
-    body?.manual_products
-  )
+  const manualProducts: {
+    info: string;
+    imageData: string;
+    imageUrls?: string[];
+  }[] = Array.isArray(body?.manual_products)
     ? body.manual_products
     : [];
   const productName = String(body?.product_name || "").trim();
@@ -1321,9 +1323,29 @@ CRITICAL OUTPUT RULES:
   // fall back to single productImageUrl (affiliate or single-product).
   function imageForVideo(i: number): string {
     if (productMode === "manual" && manualProducts.length) {
-      return manualProducts[i % manualProducts.length].imageData;
+      const mp = manualProducts[i % manualProducts.length];
+      return mp.imageUrls?.[0] || mp.imageData || "";
     }
     return productImageUrl;
+  }
+
+  // Multi-image array for r2v: returns up to 3 URLs per video.
+  //   • 1 picked    → triplicate (mirrors the existing auto-product flow)
+  //   • 2-3 picked  → sent as distinct refs (Veo r2v takes up to 3)
+  //   • Single-image fallback (affiliate / non-manual) → triplicate
+  function imagesForVideo(i: number): string[] {
+    if (productMode === "manual" && manualProducts.length) {
+      const mp = manualProducts[i % manualProducts.length];
+      const arr = (mp.imageUrls || []).filter(Boolean);
+      const usable = arr.length ? arr : (mp.imageData ? [mp.imageData] : []);
+      if (usable.length === 0) return [];
+      if (usable.length === 1) return [usable[0], usable[0], usable[0]];
+      return usable.slice(0, 3);
+    }
+    if (productImageUrl) {
+      return [productImageUrl, productImageUrl, productImageUrl];
+    }
+    return [];
   }
 
   const { data: batch } = await admin
@@ -1436,21 +1458,24 @@ CRITICAL OUTPUT RULES:
   const histories: any[] = [];
   await Promise.all(
     plans.map(async (item, idx) => {
-      const refImage = imageForVideo(idx);
-      const useIngredient = !!refImage;
+      const refImages = imagesForVideo(idx);
+      const refImage = refImages[0] || "";
+      const useIngredient = refImages.length > 0;
       const model = useIngredient ? cfg.videoR2V : cfg.videoT2V;
       const seg1Prompt = veoSeg1PromptFor(item, lockedVoiceLine);
       const seg2Prompt = is16s
         ? veoSeg2PromptFor(item, lockedVoiceLine)
         : "";
 
-      // 3-tier video cascade: p2 → p1 → p3, with product-ref triplicate
-      // at the top (handled inside video-cascade.ts).
+      // 3-tier video cascade: p2 → p1 → p3. For manual mode with multiple
+      // picked products, we send up to 3 distinct refs. For 1 picked
+      // (or affiliate single-image) we send the same URL 3× (triplicated
+      // in imagesForVideo above).
       const cascaded = await generateVideoWithCascade({
         primaryModel: model,
         userId: user.id,
         prompt: seg1Prompt,
-        imageUrls: refImage ? [refImage] : [],
+        imageUrls: refImages,
         durationMode: is16s ? "8" : durationMode,
         aspectRatio,
         imageMode: useIngredient ? "ingredient" : "text",

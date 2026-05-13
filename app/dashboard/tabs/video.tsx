@@ -35,7 +35,12 @@ export default function VideoTab({ projectId }: { projectId?: string } = {}) {
   // upload either, both, or neither — Crun.ai will reference them as
   // "first" and "second" in the order they're sent.
   const [avatarImage, setAvatarImage] = useState("");
-  const [refImage, setRefImage] = useState("");
+  // Product references — up to 3 attachments. UGC Veo r2v takes up to
+  // 3 ref images; we send fewer when fewer picked, OR triplicate when
+  // exactly 1 is picked (mirrors the auto-product r2v flow).
+  // With avatar set: character is image #1, products fill 2-3 (max 2 products).
+  // Without avatar: products fill all 3 slots (max 3 products).
+  const [refImages, setRefImages] = useState<string[]>([]);
   const [prompt, setPrompt] = useState("");
   const [aspect, setAspect] = useState("9:16");
   const [count, setCount] = useState(1);
@@ -71,7 +76,7 @@ export default function VideoTab({ projectId }: { projectId?: string } = {}) {
   function pickFromHistory(slot: RefSlot, url: string) {
     if (slot === "start") setStartFrame(url);
     else if (slot === "end") setEndFrame(url);
-    else if (slot === "ref") setRefImage(url);
+    else if (slot === "ref") setRefImages([url]);
     else if (slot === "avatar") setAvatarImage(url);
     setPickerSlot(null);
   }
@@ -79,7 +84,7 @@ export default function VideoTab({ projectId }: { projectId?: string } = {}) {
   function pickFromAttachment(slot: RefSlot, url: string) {
     if (slot === "start") setStartFrame(url);
     else if (slot === "end") setEndFrame(url);
-    else if (slot === "ref") setRefImage(url);
+    else if (slot === "ref") setRefImages([url]);
     else if (slot === "avatar") setAvatarImage(url);
     setAttachmentSlot(null);
   }
@@ -101,23 +106,34 @@ export default function VideoTab({ projectId }: { projectId?: string } = {}) {
     setStatus("submitting");
 
     try {
-      // Upload local previews to RunningHub before hitting generate.
-      const [startPub, endPub, avatarPub, refPub] = await Promise.all([
+      // ensurePublicUrl is a no-op for already-public Attachment URLs.
+      const [startPub, endPub, avatarPub] = await Promise.all([
         ensurePublicUrl(startFrame),
         ensurePublicUrl(endFrame),
         ensurePublicUrl(avatarImage),
-        ensurePublicUrl(refImage),
       ]);
+      const productPubs = await Promise.all(refImages.map((u) => ensurePublicUrl(u)));
+      // Triplicate rule: if exactly 1 product picked, send the same URL 3×
+      // (matches the existing auto-product r2v flow). 2-3 products go as-is.
+      const productSend =
+        productPubs.length === 1
+          ? [productPubs[0], productPubs[0], productPubs[0]]
+          : productPubs;
 
-      // Order matters — Crun references images as "first" / "second" in the
-      // exact order we send. Avatar always first when present so the prompt
-      // preamble lines up.
-      const imageUrls =
-        imageMode === "frame"
-          ? [startPub, endPub].filter(Boolean)
-          : imageMode === "ingredient"
-            ? [avatarPub, refPub].filter(Boolean)
-            : [];
+      // Order matters: avatar is image #1 when present, then up to 2
+      // products. Without avatar: up to 3 products.
+      let imageUrls: string[];
+      if (imageMode === "frame") {
+        imageUrls = [startPub, endPub].filter(Boolean);
+      } else if (imageMode === "ingredient") {
+        if (avatarPub) {
+          imageUrls = [avatarPub, ...productSend.slice(0, 2)];
+        } else {
+          imageUrls = productSend.slice(0, 3);
+        }
+      } else {
+        imageUrls = [];
+      }
 
       // If user is in ingredient mode but didn't upload either ref,
       // auto-fall-back to text-to-video so the API uses the t2v model
@@ -126,6 +142,8 @@ export default function VideoTab({ projectId }: { projectId?: string } = {}) {
         imageMode === "ingredient" && imageUrls.length === 0
           ? "text"
           : imageMode;
+
+      const refPub = productPubs[0] || "";
 
       // Auto-prepend a reference-image preamble for the AI Agent UGC flow
       // so users don't have to remember the exact wording. Only adds when
@@ -275,22 +293,22 @@ export default function VideoTab({ projectId }: { projectId?: string } = {}) {
                 onHistory={() => setPickerSlot("avatar")}
               />
             </div>
-            {/* Product reference (optional) — second image, becomes the
-                product the avatar holds in the generated video. */}
+            {/* Product reference — multi-pick up to (avatar ? 2 : 3).
+                If exactly 1 picked, it's triplicated server-side. */}
             <div>
-              <FrameZoneRow
-                label="Product Reference"
+              <MultiRefRow
+                label={`Product Reference (${refImages.length}/${avatarImage ? 2 : 3})`}
                 color={ORANGE}
-                url={refImage}
-                icon="📦"
+                urls={refImages}
+                max={avatarImage ? 2 : 3}
                 onPick={() => setAttachmentSlot("ref")}
-                onClear={() => setRefImage("")}
-                onHistory={() => setPickerSlot("ref")}
+                onRemove={(i) =>
+                  setRefImages((prev) => prev.filter((_, idx) => idx !== i))
+                }
               />
             </div>
             <p className="md:col-span-2 text-[11px] text-gray-500 -mt-1">
-              Both optional. Upload nothing → text-to-video. Upload one → auto-prepended as
-              the character or product. Upload both → "first" = avatar, "second" = product.
+              Both optional. Pick {avatarImage ? "up to 2 products" : "up to 3 products"}; 1 = same image sent 3× to Veo, 2-3 = sent as distinct refs.
             </p>
           </div>
         )}
@@ -408,8 +426,21 @@ export default function VideoTab({ projectId }: { projectId?: string } = {}) {
       <AttachmentPicker
         open={!!attachmentSlot}
         onClose={() => setAttachmentSlot(null)}
-        onPick={(a) => attachmentSlot && pickFromAttachment(attachmentSlot, a.public_url)}
         defaultCategory={attachmentSlot === "avatar" ? "avatar" : "product"}
+        // The ref slot is multi-pick (max depends on avatar presence).
+        // Other slots stay single-pick (start frame / end frame / avatar).
+        {...(attachmentSlot === "ref"
+          ? {
+              onPickMulti: (arr) => {
+                setRefImages(arr.map((a) => a.public_url));
+                setAttachmentSlot(null);
+              },
+              maxPick: avatarImage ? 2 : 3,
+            }
+          : {
+              onPick: (a) =>
+                attachmentSlot && pickFromAttachment(attachmentSlot, a.public_url),
+            })}
       />
 
       {showUgcModal && <UgcModal onClose={() => setShowUgcModal(false)} />}
@@ -546,6 +577,72 @@ function FrameZoneRow({
             x
           </SmallBtn>
         </div>
+      </div>
+    </div>
+  );
+}
+
+// Multi-pick row — up to `max` thumbnails in a horizontal strip. Click
+// any empty slot OR the Attachments button to open the picker; click an
+// existing thumb's × badge to remove it. Used by the UGC product
+// reference where Veo r2v takes 2-3 distinct images for the same shot.
+function MultiRefRow({
+  label,
+  color,
+  urls,
+  max,
+  onPick,
+  onRemove,
+}: {
+  label: string;
+  color: string;
+  urls: string[];
+  max: number;
+  onPick: () => void;
+  onRemove: (i: number) => void;
+}) {
+  const slots = Array.from({ length: max }).map((_, i) => urls[i] || "");
+  return (
+    <div>
+      <div className="text-[11px] font-bold uppercase tracking-wider mb-1.5" style={{ color }}>
+        {label}
+      </div>
+      <div className="flex items-stretch gap-2">
+        <div className="flex gap-1.5 flex-wrap">
+          {slots.map((url, i) => (
+            <button
+              key={i}
+              type="button"
+              onClick={onPick}
+              className="relative w-16 h-16 rounded-lg overflow-hidden flex-shrink-0 flex items-center justify-center"
+              style={{
+                border: url ? `2px solid ${color}` : `2px dashed ${color}55`,
+                background: url ? "#000" : "#fafaf7",
+              }}
+            >
+              {url ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={url} alt="" className="w-full h-full object-cover" />
+              ) : (
+                <span className="text-xs font-semibold" style={{ color }}>
+                  {i + 1}
+                </span>
+              )}
+              {url && (
+                <span
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onRemove(i);
+                  }}
+                  className="absolute top-0 right-0 w-4 h-4 rounded-bl bg-black/70 text-white text-[10px] flex items-center justify-center cursor-pointer"
+                >
+                  ×
+                </span>
+              )}
+            </button>
+          ))}
+        </div>
+        <SmallBtn onClick={onPick}>Attachments</SmallBtn>
       </div>
     </div>
   );

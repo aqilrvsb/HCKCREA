@@ -28,15 +28,23 @@ export default function AttachmentPicker({
   open,
   onClose,
   onPick,
+  onPickMulti,
+  maxPick = 1,
   title = "Pick from Attachments",
   defaultCategory = "product",
 }: {
   open: boolean;
   onClose: () => void;
-  onPick: (a: Attachment) => void;
+  // Single-pick mode (legacy): click a card, modal closes, callback fires.
+  onPick?: (a: Attachment) => void;
+  // Multi-pick mode (new): cards toggle, footer "Done" button commits the
+  // array. Caller decides on the per-slot ordering / triplicate logic.
+  onPickMulti?: (a: Attachment[]) => void;
+  maxPick?: number;
   title?: string;
   defaultCategory?: AttachmentCategory | "all";
 }) {
+  const multi = !!onPickMulti;
   const [items, setItems] = useState<Attachment[]>([]);
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
@@ -45,6 +53,33 @@ export default function AttachmentPicker({
   const [filter, setFilter] = useState<AttachmentCategory | "all">(defaultCategory);
   // Pending upload files awaiting category choice — see CategoryPickModal.
   const [pendingFiles, setPendingFiles] = useState<File[] | null>(null);
+  // Multi-select state — array of attachment ids in selection order so
+  // we can render numbered badges and preserve order in onPickMulti.
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  useEffect(() => {
+    if (open) setSelectedIds([]);
+  }, [open]);
+
+  const toggleSelect = useCallback(
+    (a: Attachment) => {
+      setSelectedIds((prev) => {
+        if (prev.includes(a.id)) return prev.filter((x) => x !== a.id);
+        if (prev.length >= maxPick) return prev; // hit the cap — ignore
+        return [...prev, a.id];
+      });
+    },
+    [maxPick]
+  );
+
+  const commitMulti = useCallback(() => {
+    if (!onPickMulti) return;
+    const byId = new Map(items.map((it) => [it.id, it]));
+    const ordered = selectedIds
+      .map((id) => byId.get(id))
+      .filter((x): x is Attachment => !!x);
+    onPickMulti(ordered);
+    onClose();
+  }, [onPickMulti, items, selectedIds, onClose]);
 
   const load = useCallback(
     async (p = 1, cat = filter) => {
@@ -245,79 +280,92 @@ export default function AttachmentPicker({
             </div>
           ) : (
             <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-3">
-              {items.map((a) => (
-                <div
-                  key={a.id}
-                  className="group rounded-lg overflow-hidden border hover:border-[var(--color-orange)] transition relative"
-                  style={{ borderColor: "var(--color-border)" }}
-                  title={a.name}
-                >
-                  <button
-                    type="button"
-                    onClick={() => {
-                      onPick(a);
-                      onClose();
-                    }}
-                    className="block w-full"
-                  >
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img
-                      src={a.public_url}
-                      alt={a.name}
-                      className="w-full aspect-square object-cover bg-black/40"
-                      loading="lazy"
-                    />
-                  </button>
-                  <span
-                    className="absolute top-1 left-1 inline-flex items-center gap-1 px-1 py-0.5 rounded text-[9px] font-bold uppercase pointer-events-none"
+              {items.map((a) => {
+                const selectionIdx = selectedIds.indexOf(a.id);
+                const isSelected = selectionIdx >= 0;
+                const handleCardClick = () => {
+                  if (multi) {
+                    toggleSelect(a);
+                  } else if (onPick) {
+                    onPick(a);
+                    onClose();
+                  }
+                };
+                return (
+                  <div
+                    key={a.id}
+                    className="group rounded-lg overflow-hidden border transition relative"
                     style={{
-                      background:
-                        a.category === "avatar"
-                          ? "rgba(34,197,94,0.85)"
-                          : "rgba(245,158,11,0.85)",
-                      color: "white",
+                      borderColor: isSelected
+                        ? "var(--color-orange)"
+                        : "var(--color-border)",
+                      boxShadow: isSelected ? "0 0 0 2px var(--color-orange)" : undefined,
                     }}
+                    title={a.name}
                   >
-                    {a.category === "avatar" ? (
-                      <UserCircle2 className="w-2.5 h-2.5" />
-                    ) : (
-                      <Package className="w-2.5 h-2.5" />
+                    <button type="button" onClick={handleCardClick} className="block w-full">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={a.public_url}
+                        alt={a.name}
+                        className="w-full aspect-square object-cover bg-black/40"
+                        loading="lazy"
+                      />
+                    </button>
+                    {/* Selection order badge (multi mode only) */}
+                    {multi && isSelected && (
+                      <span
+                        className="absolute bottom-9 right-1 w-6 h-6 rounded-full flex items-center justify-center text-[11px] font-extrabold pointer-events-none"
+                        style={{ background: "var(--color-orange)", color: "white" }}
+                      >
+                        {selectionIdx + 1}
+                      </span>
                     )}
-                    {a.category}
-                  </span>
-                  {/* Inline delete — only visible on hover so it doesn't
-                      clutter the grid. Confirmation prompt + window event
-                      keeps every other surface in sync. */}
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      void removeAttachment(a.id);
-                    }}
-                    className="absolute top-1 right-1 w-6 h-6 rounded flex items-center justify-center opacity-0 group-hover:opacity-100 transition"
-                    style={{ background: "rgba(239,68,68,0.85)", color: "white" }}
-                    title="Delete attachment"
-                  >
-                    <Trash2 className="w-3 h-3" />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      onPick(a);
-                      onClose();
-                    }}
-                    className="block w-full px-2 py-1.5 text-[11px] font-semibold truncate text-left"
-                    style={{ color: "var(--color-text-secondary)" }}
-                  >
-                    {a.name}
-                  </button>
-                </div>
-              ))}
+                    <span
+                      className="absolute top-1 left-1 inline-flex items-center gap-1 px-1 py-0.5 rounded text-[9px] font-bold uppercase pointer-events-none"
+                      style={{
+                        background:
+                          a.category === "avatar"
+                            ? "rgba(34,197,94,0.85)"
+                            : "rgba(245,158,11,0.85)",
+                        color: "white",
+                      }}
+                    >
+                      {a.category === "avatar" ? (
+                        <UserCircle2 className="w-2.5 h-2.5" />
+                      ) : (
+                        <Package className="w-2.5 h-2.5" />
+                      )}
+                      {a.category}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        void removeAttachment(a.id);
+                      }}
+                      className="absolute top-1 right-1 w-6 h-6 rounded flex items-center justify-center opacity-0 group-hover:opacity-100 transition"
+                      style={{ background: "rgba(239,68,68,0.85)", color: "white" }}
+                      title="Delete attachment"
+                    >
+                      <Trash2 className="w-3 h-3" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleCardClick}
+                      className="block w-full px-2 py-1.5 text-[11px] font-semibold truncate text-left"
+                      style={{ color: "var(--color-text-secondary)" }}
+                    >
+                      {a.name}
+                    </button>
+                  </div>
+                );
+              })}
             </div>
           )}
         </div>
 
-        {/* Footer / pagination */}
+        {/* Pagination */}
         {totalPages > 1 && (
           <div
             className="px-5 py-3 flex items-center justify-center gap-3 border-t"
@@ -339,6 +387,31 @@ export default function AttachmentPicker({
               className="p-1.5 rounded disabled:opacity-30"
             >
               <ChevronRight className="w-4 h-4" />
+            </button>
+          </div>
+        )}
+
+        {/* Multi-select footer — only rendered when onPickMulti is set */}
+        {multi && (
+          <div
+            className="px-5 py-3 flex items-center justify-between gap-3 border-t"
+            style={{ borderColor: "var(--color-border)" }}
+          >
+            <span className="text-xs" style={{ color: "var(--color-text-muted)" }}>
+              {selectedIds.length} of {maxPick} selected
+              {selectedIds.length === 1 && (
+                <span className="ml-2 text-[10px]" style={{ color: "var(--color-orange)" }}>
+                  · 1 pick = same image sent 3× to Veo
+                </span>
+              )}
+            </span>
+            <button
+              onClick={commitMulti}
+              disabled={selectedIds.length === 0}
+              className="px-4 py-2 rounded-lg text-xs font-bold disabled:opacity-40"
+              style={{ background: "var(--color-orange)", color: "white" }}
+            >
+              Done
             </button>
           </div>
         )}

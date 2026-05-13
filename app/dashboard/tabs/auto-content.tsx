@@ -34,7 +34,8 @@ const GREEN = "#facc15";
 
 type ManualProduct = {
   info: string;          // textarea content
-  imageData: string;     // public URL for display (TikTok CDN for affiliate, RH-uploaded for manual file, or data: URL pre-upload)
+  imageData: string;     // primary slot (also used by affiliate auto-fill)
+  imageUrls: string[];   // multi-pick slots 1-3. imageData mirrors imageUrls[0].
 };
 
 type RecentProduct = {
@@ -74,7 +75,7 @@ export default function AutoContentTab({ projectId }: { projectId?: string } = {
 
   const [unitCount, setUnitCount] = useState(1);
   const [manualProducts, setManualProducts] = useState<ManualProduct[]>([
-    { info: "", imageData: "" },
+    { info: "", imageData: "", imageUrls: [] },
   ]);
 
   // Avatar persona
@@ -118,7 +119,7 @@ export default function AutoContentTab({ projectId }: { projectId?: string } = {
   useEffect(() => {
     setManualProducts((prev) => {
       const next = [...prev];
-      while (next.length < unitCount) next.push({ info: "", imageData: "" });
+      while (next.length < unitCount) next.push({ info: "", imageData: "", imageUrls: [] });
       while (next.length > unitCount) next.pop();
       return next;
     });
@@ -201,9 +202,13 @@ export default function AutoContentTab({ projectId }: { projectId?: string } = {
     setPickerSlot(null);
   }
 
-  function pickAttachmentForManual(idx: number, url: string) {
+  function pickAttachmentForManual(idx: number, urls: string[]) {
     setManualProducts((prev) =>
-      prev.map((p, i) => (i === idx ? { ...p, imageData: url } : p))
+      prev.map((p, i) =>
+        i === idx
+          ? { ...p, imageData: urls[0] || "", imageUrls: urls }
+          : p
+      )
     );
     setAttachmentSlot(null);
   }
@@ -276,6 +281,7 @@ export default function AutoContentTab({ projectId }: { projectId?: string } = {
         next[0] = {
           info,
           imageData: d.product_image_url || "",
+          imageUrls: d.product_image_url ? [d.product_image_url] : [],
         };
         return next;
       });
@@ -364,35 +370,48 @@ export default function AutoContentTab({ projectId }: { projectId?: string } = {
       pushLog("Resolving product images…");
       manualPayload = await Promise.all(
         manualPayload.map(async (m, idx) => {
-          let url = m.imageData;
-          if (!url) return m;
-          if (url.startsWith("data:")) {
-            // File upload — convert to public URL
-            url = await ensurePublicUrl(url);
-          } else if (
-            !url.includes("rh-images-switch") &&
-            !url.includes("running-hub")
-          ) {
-            // Looks like a TikTok CDN URL (or anything non-RH). Rehost on
-            // demand so AI generation gets a region-friendly URL.
-            try {
-              const r = await fetch("/api/scrape/rehost", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ url }),
-              });
-              const d = await r.json();
-              if (r.ok && d?.url) {
-                url = d.url;
-                pushLog(`Product ${idx + 1}: rehosted to RH ✓`);
-              } else {
-                pushLog(`Product ${idx + 1}: rehost failed, using original URL`);
+          // Source of truth is imageUrls (multi-pick). imageData is a
+          // legacy mirror that we keep populated for older code paths.
+          const srcUrls: string[] =
+            m.imageUrls && m.imageUrls.length
+              ? m.imageUrls
+              : m.imageData
+                ? [m.imageData]
+                : [];
+          if (srcUrls.length === 0) return m;
+          const resolved = await Promise.all(
+            srcUrls.map(async (url: string) => {
+              if (url.startsWith("data:")) {
+                return await ensurePublicUrl(url);
               }
-            } catch {
-              pushLog(`Product ${idx + 1}: rehost network error, using original URL`);
-            }
-          }
-          return { ...m, imageData: url };
+              if (
+                url.includes("rh-images-switch") ||
+                url.includes("running-hub") ||
+                url.includes("peninglab-storage") ||
+                url.includes("peninglab-content")
+              ) {
+                // Already public + region-friendly — no rehost needed.
+                return url;
+              }
+              try {
+                const r = await fetch("/api/scrape/rehost", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ url }),
+                });
+                const d = await r.json();
+                if (r.ok && d?.url) {
+                  pushLog(`Product ${idx + 1}: rehosted to RH ✓`);
+                  return d.url as string;
+                }
+                pushLog(`Product ${idx + 1}: rehost failed, using original URL`);
+              } catch {
+                pushLog(`Product ${idx + 1}: rehost network error, using original URL`);
+              }
+              return url;
+            })
+          );
+          return { ...m, imageData: resolved[0] || "", imageUrls: resolved };
         })
       );
       firstProductImage = manualPayload[0].imageData;
@@ -566,7 +585,7 @@ export default function AutoContentTab({ projectId }: { projectId?: string } = {
               // the user starts with a clean slate. Affiliate flow re-
               // populates manual_products[0] when a product is picked.
               setManualProducts((prev) =>
-                prev.map(() => ({ info: "", imageData: "" }))
+                prev.map(() => ({ info: "", imageData: "", imageUrls: [] }))
               );
               setScrapeMsg(null);
             }}
@@ -586,7 +605,7 @@ export default function AutoContentTab({ projectId }: { projectId?: string } = {
               setScrapeMsg(null);
               setShowRecent(false);
               setManualProducts((prev) =>
-                prev.map(() => ({ info: "", imageData: "" }))
+                prev.map(() => ({ info: "", imageData: "", imageUrls: [] }))
               );
             }}
             borderLeft
@@ -627,7 +646,7 @@ export default function AutoContentTab({ projectId }: { projectId?: string } = {
                       setTiktokProductId("");
                       setShowRecent(false);
                       setManualProducts((prev) =>
-                        prev.map(() => ({ info: "", imageData: "" }))
+                        prev.map(() => ({ info: "", imageData: "", imageUrls: [] }))
                       );
                     }}
                     title="Clear selection"
@@ -843,7 +862,9 @@ export default function AutoContentTab({ projectId }: { projectId?: string } = {
                 onPickAttachment={() => setAttachmentSlot(i)}
                 onClear={() =>
                   setManualProducts((prev) =>
-                    prev.map((x, j) => (j === i ? { ...x, imageData: "" } : x))
+                    prev.map((x, j) =>
+                      j === i ? { ...x, imageData: "", imageUrls: [] } : x
+                    )
                   )
                 }
               />
@@ -1239,7 +1260,15 @@ export default function AutoContentTab({ projectId }: { projectId?: string } = {
       <AttachmentPicker
         open={attachmentSlot !== null}
         onClose={() => setAttachmentSlot(null)}
-        onPick={(a) => attachmentSlot !== null && pickAttachmentForManual(attachmentSlot, a.public_url)}
+        onPickMulti={(arr) => {
+          if (attachmentSlot !== null) {
+            pickAttachmentForManual(
+              attachmentSlot,
+              arr.map((a) => a.public_url)
+            );
+          }
+        }}
+        maxPick={3}
         defaultCategory="product"
       />
     </div>
@@ -1285,33 +1314,46 @@ function ManualProductCard({
         style={{ background: "#ffffff", border: "1px solid #e8e0d8", color: "#1a1a1a" }}
       />
       <div className="flex items-stretch gap-2">
-        <button
-          type="button"
-          onClick={onPickAttachment}
-          className="relative w-[60px] h-[60px] rounded-lg overflow-hidden flex-shrink-0 flex items-center justify-center"
-          style={{
-            border: `2px dashed ${product.imageData ? "transparent" : AMBER_SOFT}`,
-            background: product.imageData ? "#000" : AMBER_FAINT,
-          }}
-        >
-          {product.imageData ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              src={product.imageData}
-              alt=""
-              className="w-full h-full object-cover"
-              referrerPolicy="no-referrer"
-              crossOrigin="anonymous"
-            />
-          ) : (
-            <span className="text-2xl">📦</span>
-          )}
-        </button>
+        {/* Three slots: empty placeholders if not picked. Clicking any
+            opens the multi-pick AttachmentPicker. 1 picked → triplicated
+            server-side; 2-3 picked → sent as distinct refs to Veo. */}
+        <div className="flex gap-1.5">
+          {[0, 1, 2].map((i) => {
+            const url = product.imageUrls?.[i] || "";
+            return (
+              <button
+                key={i}
+                type="button"
+                onClick={onPickAttachment}
+                className="relative w-[52px] h-[52px] rounded-lg overflow-hidden flex-shrink-0 flex items-center justify-center"
+                style={{
+                  border: `2px dashed ${url ? "transparent" : AMBER_SOFT}`,
+                  background: url ? "#000" : AMBER_FAINT,
+                }}
+              >
+                {url ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={url}
+                    alt=""
+                    className="w-full h-full object-cover"
+                    referrerPolicy="no-referrer"
+                    crossOrigin="anonymous"
+                  />
+                ) : (
+                  <span className="text-[10px] font-bold" style={{ color: AMBER }}>
+                    {i + 1}
+                  </span>
+                )}
+              </button>
+            );
+          })}
+        </div>
         <div className="flex flex-col gap-1 justify-between">
           <SmallBtn onClick={onPickAttachment} color={AMBER}>
             Attachments
           </SmallBtn>
-          {product.imageData && (
+          {(product.imageUrls?.length || product.imageData) && (
             <SmallBtn onClick={onClear} danger>
               x
             </SmallBtn>
