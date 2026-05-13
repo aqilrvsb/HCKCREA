@@ -65,6 +65,11 @@ export async function p2CreateTask(input: {
   resolution?: "1K" | "2K" | "4K" | "480p" | "720p" | string;
   imageMode?: "frame" | "ingredient" | "text";
   callbackUrl?: string;
+  // When true, Veo r2v with a single image is sent as-is (no auto
+  // 3× duplication). Used by Extend where the single image is the
+  // extracted seg-1 frame, not a product reference — duplicating
+  // burns no signal and slows generation.
+  skipR2VTriplicate?: boolean;
   extra?: Record<string, any>;
 }): Promise<P2CreateResp> {
   const provider = await pickProvider(input.model, input.userId);
@@ -106,6 +111,7 @@ async function p2CreateTaskInternal(input: {
   resolution?: "1K" | "2K" | "4K" | "480p" | "720p" | string;
   imageMode?: "frame" | "ingredient" | "text";
   callbackUrl?: string;
+  skipR2VTriplicate?: boolean;
   extra?: Record<string, any>;
 }): Promise<P2CreateResp> {
   const cfg = await getP2Config();
@@ -187,7 +193,7 @@ async function p2CreateTaskInternal(input: {
     //     first frame seed, not a reference signal.
     const isR2V = m.includes("r2v");
     const finalImgUrls =
-      isR2V && imgUrls.length === 1
+      isR2V && imgUrls.length === 1 && !input.skipR2VTriplicate
         ? [imgUrls[0], imgUrls[0], imgUrls[0]]
         : imgUrls;
     if (finalImgUrls.length > 0) innerInput.img_urls = finalImgUrls;

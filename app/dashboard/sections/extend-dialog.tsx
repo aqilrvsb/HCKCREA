@@ -282,11 +282,13 @@ export default function ExtendDialog({
   // prepend a continuation note so Veo treats it as seg-2 not a fresh
   // seg-1. No regex / no parsing — what the user sees is what gets sent
   // (plus the prepended continuation note).
+  // Send the user's edited textarea content verbatim. No continuation
+  // preamble, no auto-prepended hints — the user already has LOCK blocks
+  // + the start-frame ref tells Veo this is a continuation. Adding our
+  // own preamble was bloating the prompt and pushing the actual dialog
+  // out of focus.
   function buildSeg2Prompt(): string {
-    const body = editedPrompt.trim();
-    if (!body) return "";
-    const continuationNote = `SEGMENT 2 CONTINUATION: This is segment 2 — pick up exactly where segment 1 ended (start frame is the bridge). Same character, same product, same setting, same wardrobe, same lighting, same voice, same tone, same energy. Speak ONLY the quoted dialog in the prompt below.`;
-    return `${continuationNote}\n\n${body}`;
+    return editedPrompt.trim();
   }
 
   async function fire() {

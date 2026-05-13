@@ -330,6 +330,10 @@ export async function POST(req: Request) {
         durationMode: String(extendSeconds),
         aspectRatio,
         imageMode: bucket === "cinema" ? "frame" : "ingredient",
+        // Extend has only one frame ref (or frame + optional product).
+        // Disable r2v's auto-triplicate so we don't send the same start
+        // frame 3× — that adds nothing for continuity and bloats payload.
+        skipR2VTriplicate: true,
       });
 
       // 5. Update placeholder with task_id (or fail with upstream error).

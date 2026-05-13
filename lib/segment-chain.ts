@@ -201,6 +201,11 @@ async function fireSeg2(parent: Settled, parentOutputUrl: string): Promise<void>
   const seg2Prompt = appendLocks(compose.join("\n\n"), voiceLine || undefined, isHijab);
 
   // 3. Fire seg-2 P2 task (uses extracted frame as r2v reference, NOT product)
+  //
+  // skipR2VTriplicate=true because this single ref is the seg-1 anchor
+  // frame for continuity, not a product reference. The auto-triplicate
+  // trick exists to anchor a product image more tightly — duplicating a
+  // continuity frame doesn't help and just slows the upstream call.
   const cfg = await getP2Config();
   const created = await p2CreateTask({
     model: cfg.videoR2V,
@@ -210,6 +215,7 @@ async function fireSeg2(parent: Settled, parentOutputUrl: string): Promise<void>
     durationMode: "8",
     aspectRatio: meta.aspectRatio || "9:16",
     imageMode: "ingredient",
+    skipR2VTriplicate: true,
   });
 
   // 4. Insert seg-2 history row (cost=0, parent already charged).
