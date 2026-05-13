@@ -101,14 +101,16 @@ export default function AttachmentPicker({
           className="px-5 py-3 flex items-center justify-between border-b"
           style={{ borderColor: "var(--color-border)" }}
         >
-          <h3 className="text-base font-bold">{title}</h3>
+          <h3 className="text-base font-bold" style={{ color: "var(--color-text-secondary)" }}>
+            {title}
+          </h3>
           <div className="flex items-center gap-2">
             <label
               className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-semibold cursor-pointer"
-              style={{ background: "var(--color-surface-hover)", color: "var(--color-text)" }}
+              style={{ background: "var(--color-surface-hover)", color: "var(--color-text-secondary)" }}
             >
               <Upload className="w-3.5 h-3.5" />
-              Upload new
+              Add new
               <input
                 type="file"
                 accept="image/*"
@@ -140,7 +142,7 @@ export default function AttachmentPicker({
           ) : items.length === 0 ? (
             <div className="text-center py-12" style={{ color: "var(--color-text-muted)" }}>
               <ImageIcon className="w-10 h-10 mx-auto mb-2 opacity-40" />
-              <p className="text-sm">No attachments yet. Click <span className="font-semibold">Upload new</span> above or visit the Attachments tab to add some.</p>
+              <p className="text-sm">No attachments yet. Click <span className="font-semibold">Add new</span> above or visit the Attachments tab to add some.</p>
             </div>
           ) : (
             <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-3">
@@ -164,7 +166,7 @@ export default function AttachmentPicker({
                   />
                   <div
                     className="px-2 py-1.5 text-[11px] font-semibold truncate text-left"
-                    style={{ color: "var(--color-text)" }}
+                    style={{ color: "var(--color-text-secondary)" }}
                   >
                     {a.name}
                   </div>

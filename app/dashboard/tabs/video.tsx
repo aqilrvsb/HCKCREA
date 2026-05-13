@@ -548,7 +548,7 @@ function FrameZoneRow({
         </button>
         <div className="flex flex-col gap-1 justify-between">
           <SmallBtn onClick={onHistory}>History</SmallBtn>
-          <SmallBtn onClick={onPick}>Upload</SmallBtn>
+          <SmallBtn onClick={onPick}>Attachments</SmallBtn>
           <SmallBtn onClick={onClear} danger>
             x
           </SmallBtn>

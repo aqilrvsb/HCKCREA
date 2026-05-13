@@ -145,7 +145,9 @@ export default function AttachmentsSection() {
     <div className="px-4 sm:px-6 lg:px-8 py-6 max-w-[1400px] mx-auto">
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-2xl font-bold">Attachments</h1>
+          <h1 className="text-2xl font-bold" style={{ color: "var(--color-text-secondary)" }}>
+            Attachments
+          </h1>
           <p className="text-sm mt-1" style={{ color: "var(--color-text-muted)" }}>
             Upload your product photos and avatars once. Pick them from any tab — no more re-uploading.
           </p>
@@ -155,7 +157,7 @@ export default function AttachmentsSection() {
           className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold"
           style={{ background: "var(--color-orange)", color: "white" }}
         >
-          <Upload className="w-4 h-4" /> Upload
+          <Upload className="w-4 h-4" /> Add Image
         </button>
         <input
           ref={fileInputRef}
@@ -184,8 +186,8 @@ export default function AttachmentsSection() {
         <ImageIcon className="w-8 h-8 mx-auto mb-2" style={{ color: "var(--color-text-muted)" }} />
         <p className="text-sm" style={{ color: "var(--color-text-secondary)" }}>
           {uploading > 0
-            ? `Uploading ${uploading} image${uploading > 1 ? "s" : ""}…`
-            : "Drag and drop images here, or click Upload above"}
+            ? `Adding ${uploading} image${uploading > 1 ? "s" : ""}…`
+            : "Drag and drop images here, or click Add Image above"}
         </p>
       </div>
 
@@ -234,7 +236,7 @@ export default function AttachmentsSection() {
                       className="flex-1 min-w-0 px-2 py-1 rounded text-xs"
                       style={{
                         background: "var(--color-surface-hover)",
-                        color: "var(--color-text)",
+                        color: "var(--color-text-secondary)",
                         border: "1px solid var(--color-border)",
                       }}
                     />
@@ -251,7 +253,7 @@ export default function AttachmentsSection() {
                     <span
                       className="flex-1 text-xs font-semibold truncate"
                       title={a.name}
-                      style={{ color: "var(--color-text)" }}
+                      style={{ color: "var(--color-text-secondary)" }}
                     >
                       {a.name}
                     </span>

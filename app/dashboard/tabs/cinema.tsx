@@ -622,7 +622,7 @@ export default function CinemaTab({ projectId }: { projectId?: string } = {}) {
               </button>
               <div className="flex flex-col gap-1 justify-between">
                 <SmallBtn onClick={() => setPickerOpen(true)}>History</SmallBtn>
-                <SmallBtn onClick={() => setAttachmentOpen(true)}>Upload</SmallBtn>
+                <SmallBtn onClick={() => setAttachmentOpen(true)}>Attachments</SmallBtn>
                 <SmallBtn onClick={() => setRefImage("")} danger>
                   x
                 </SmallBtn>

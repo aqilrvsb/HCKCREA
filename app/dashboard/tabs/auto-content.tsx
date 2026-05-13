@@ -1311,7 +1311,7 @@ function ManualProductCard({
         </button>
         <div className="flex flex-col gap-1 justify-between">
           <SmallBtn onClick={onPickAttachment} color={AMBER}>
-            Upload
+            Attachments
           </SmallBtn>
           <SmallBtn onClick={onPickHistory} color={AMBER}>
             History
