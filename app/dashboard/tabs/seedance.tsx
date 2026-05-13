@@ -314,29 +314,55 @@ export default function SeedanceTab({ projectId }: { projectId: string }) {
           <ImageIcon className="w-3.5 h-3.5" />
           Reference Images <span className="text-[10px] font-normal">(up to {MAX_REF_IMAGES})</span>
         </label>
+        {/* Always render MAX slot boxes so the user sees how many they
+            can pick upfront. Empty slots open the picker; filled slots
+            show an × badge to drop just that one. */}
         <div className="flex flex-wrap gap-2">
-          {imageUrls.map((u, i) => (
-            <div key={i} className="relative w-20 h-20 rounded-lg overflow-hidden border border-[var(--color-border)]">
-              <img src={u} alt="" className="w-full h-full object-cover" />
-              <button
-                type="button"
-                onClick={() => setImageUrls((p) => p.filter((_, j) => j !== i))}
-                className="absolute top-1 right-1 w-5 h-5 rounded-full bg-black/70 text-white flex items-center justify-center hover:bg-red-500"
+          {Array.from({ length: MAX_REF_IMAGES }).map((_, i) => {
+            const url = imageUrls[i] || "";
+            return (
+              <div
+                key={i}
+                className="relative w-20 h-20 rounded-lg overflow-hidden"
+                style={{
+                  border: url
+                    ? "2px solid var(--color-orange)"
+                    : "2px dashed var(--color-border)",
+                  background: url ? "#000" : "transparent",
+                }}
               >
-                <X className="w-3 h-3" />
-              </button>
-            </div>
-          ))}
-          {imageUrls.length < MAX_REF_IMAGES && (
-            <button
-              type="button"
-              onClick={() => setAttachmentOpen(true)}
-              className="w-20 h-20 rounded-lg border-2 border-dashed border-[var(--color-border)] flex items-center justify-center cursor-pointer hover:border-orange-400"
-            >
-              <span className="text-2xl text-[var(--color-text-muted)]">+</span>
-            </button>
-          )}
+                <button
+                  type="button"
+                  onClick={() => setAttachmentOpen(true)}
+                  className="w-full h-full flex items-center justify-center hover:border-orange-400"
+                >
+                  {url ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={url} alt="" className="w-full h-full object-cover" />
+                  ) : (
+                    <span className="text-2xl text-[var(--color-text-muted)]">
+                      {i + 1}
+                    </span>
+                  )}
+                </button>
+                {url && (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setImageUrls((p) => p.filter((_, j) => j !== i))
+                    }
+                    className="absolute top-1 right-1 w-5 h-5 rounded-full bg-black/70 text-white flex items-center justify-center hover:bg-red-500"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                )}
+              </div>
+            );
+          })}
         </div>
+        <p className="text-[10px] text-[var(--color-text-muted)] mt-1.5">
+          1 picked → same image sent 3× to Seedance · 2-3 picked → distinct refs.
+        </p>
       </div>
 
       {/* Reference Videos + Reference Audios — hidden for now. Backend
