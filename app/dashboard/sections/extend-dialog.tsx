@@ -94,7 +94,16 @@ export default function ExtendDialog({
   // it overrides productImageUrl from the source row — useful when the
   // original was a Tencent temp URL that's now expired or the user
   // simply has a cleaner shot of the package.
-  const [overrideProductDataUrl, setOverrideProductDataUrl] = useState<string>("");
+  //
+  // Pre-fill from productImageUrl (the source row's reference_url) so
+  // both UGC and Auto Content cards open the dialog with the product
+  // already attached — user can still tap × on the slot to swap in a
+  // different Attachment if the source image is stale or low-res. Same
+  // behaviour for both tabs since the prop flows from history-grid.tsx
+  // → ExtendDialog regardless of item.tab.
+  const [overrideProductDataUrl, setOverrideProductDataUrl] = useState<string>(
+    productImageUrl || ""
+  );
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // Attachment library picker — replaces the local file upload for the
