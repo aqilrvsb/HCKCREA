@@ -42,11 +42,34 @@ export default function AttachmentsSection() {
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
   const [filter, setFilter] = useState<"all" | AttachmentCategory>("all");
+  // Unfiltered totals — drive the chip counts so the user can see at a
+  // glance how many product vs avatar attachments they have, regardless
+  // of which filter is active.
+  const [counts, setCounts] = useState({ all: 0, product: 0, avatar: 0 });
   // Pending files awaiting category choice — set when user picks files
   // or drops them, cleared once they finish the category modal.
   const [pendingFiles, setPendingFiles] = useState<File[] | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [dragOver, setDragOver] = useState(false);
+
+  const refreshCounts = useCallback(async () => {
+    // Three small parallel HEAD-style fetches (pageSize=1, just for total)
+    // — cheaper than scanning everything. Used to drive the chip counts
+    // independently of the active filter.
+    const fetchTotal = async (cat?: AttachmentCategory) => {
+      const qs = new URLSearchParams({ page: "1", pageSize: "1" });
+      if (cat) qs.set("category", cat);
+      const r = await fetch(`/api/attachments?${qs}`, { credentials: "include" });
+      const j = await r.json();
+      return j?.ok ? Number(j.total || 0) : 0;
+    };
+    const [all, product, avatar] = await Promise.all([
+      fetchTotal(),
+      fetchTotal("product"),
+      fetchTotal("avatar"),
+    ]);
+    setCounts({ all, product, avatar });
+  }, []);
 
   const load = useCallback(
     async (p = 1, cat: "all" | AttachmentCategory = filter) => {
@@ -67,8 +90,9 @@ export default function AttachmentsSection() {
       } finally {
         setLoading(false);
       }
+      void refreshCounts();
     },
-    [filter]
+    [filter, refreshCounts]
   );
 
   useEffect(() => {
@@ -232,19 +256,19 @@ export default function AttachmentsSection() {
           active={filter === "all"}
           onClick={() => setFilter("all")}
           icon={null}
-          label={`All (${total})`}
+          label={`All (${counts.all})`}
         />
         <CategoryChip
           active={filter === "product"}
           onClick={() => setFilter("product")}
           icon={<Package className="w-3.5 h-3.5" />}
-          label="Product"
+          label={`Product (${counts.product})`}
         />
         <CategoryChip
           active={filter === "avatar"}
           onClick={() => setFilter("avatar")}
           icon={<UserCircle2 className="w-3.5 h-3.5" />}
-          label="Avatar"
+          label={`Avatar (${counts.avatar})`}
         />
       </div>
 

@@ -10,6 +10,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Upload,
+  Trash2,
 } from "lucide-react";
 import type { Attachment, AttachmentCategory } from "./attachments";
 import { CategoryPickModal } from "./attachments";
@@ -82,6 +83,27 @@ export default function AttachmentPicker({
     if (open) load(1, filter);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filter]);
+
+  // Delete from picker without leaving the modal. Same endpoint the
+  // Attachments page uses. Optimistic remove from local state + fire
+  // the global "attachments:changed" event so the Image-tab transfer
+  // buttons revert their state for any cards that referenced this
+  // attachment via source_history_id.
+  const removeAttachment = useCallback(async (id: string) => {
+    if (!confirm("Delete this attachment? This can't be undone.")) return;
+    const r = await fetch(`/api/attachments/${id}`, {
+      method: "DELETE",
+      credentials: "include",
+    });
+    const j = await r.json();
+    if (j.ok) {
+      setItems((prev) => prev.filter((it) => it.id !== id));
+      setTotal((t) => Math.max(0, t - 1));
+      window.dispatchEvent(new CustomEvent("attachments:changed"));
+    } else {
+      alert(j.error || "Delete failed");
+    }
+  }, []);
 
   const confirmUpload = useCallback(
     async (category: AttachmentCategory) => {
@@ -224,25 +246,30 @@ export default function AttachmentPicker({
           ) : (
             <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-3">
               {items.map((a) => (
-                <button
+                <div
                   key={a.id}
-                  onClick={() => {
-                    onPick(a);
-                    onClose();
-                  }}
-                  className="group block rounded-lg overflow-hidden border hover:border-[var(--color-orange)] transition relative"
+                  className="group rounded-lg overflow-hidden border hover:border-[var(--color-orange)] transition relative"
                   style={{ borderColor: "var(--color-border)" }}
                   title={a.name}
                 >
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    src={a.public_url}
-                    alt={a.name}
-                    className="w-full aspect-square object-cover bg-black/40"
-                    loading="lazy"
-                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onPick(a);
+                      onClose();
+                    }}
+                    className="block w-full"
+                  >
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={a.public_url}
+                      alt={a.name}
+                      className="w-full aspect-square object-cover bg-black/40"
+                      loading="lazy"
+                    />
+                  </button>
                   <span
-                    className="absolute top-1 left-1 inline-flex items-center gap-1 px-1 py-0.5 rounded text-[9px] font-bold uppercase"
+                    className="absolute top-1 left-1 inline-flex items-center gap-1 px-1 py-0.5 rounded text-[9px] font-bold uppercase pointer-events-none"
                     style={{
                       background:
                         a.category === "avatar"
@@ -258,13 +285,33 @@ export default function AttachmentPicker({
                     )}
                     {a.category}
                   </span>
-                  <div
-                    className="px-2 py-1.5 text-[11px] font-semibold truncate text-left"
+                  {/* Inline delete — only visible on hover so it doesn't
+                      clutter the grid. Confirmation prompt + window event
+                      keeps every other surface in sync. */}
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      void removeAttachment(a.id);
+                    }}
+                    className="absolute top-1 right-1 w-6 h-6 rounded flex items-center justify-center opacity-0 group-hover:opacity-100 transition"
+                    style={{ background: "rgba(239,68,68,0.85)", color: "white" }}
+                    title="Delete attachment"
+                  >
+                    <Trash2 className="w-3 h-3" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onPick(a);
+                      onClose();
+                    }}
+                    className="block w-full px-2 py-1.5 text-[11px] font-semibold truncate text-left"
                     style={{ color: "var(--color-text-secondary)" }}
                   >
                     {a.name}
-                  </div>
-                </button>
+                  </button>
+                </div>
               ))}
             </div>
           )}
