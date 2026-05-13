@@ -294,12 +294,22 @@ export async function POST(req: Request) {
       { color: "indigo blue",      garment: "casual henley tee" },
       { color: "olive green",      garment: "button-up shirt with rolled sleeves" },
     ];
-    const palette: OutfitRow[] =
+    const basePalette: OutfitRow[] =
       gender === "male"
         ? malePalette
         : hijabMode
           ? femaleHijabPalette
           : femaleNoHijabPalette;
+
+    // Shuffle a COPY of the palette per request so every batch gets a
+    // different colour order — without this, every batch starts at
+    // "soft lilac"/"charcoal grey" and the first few videos always
+    // look identical across runs. Fisher-Yates over a clone.
+    const palette: OutfitRow[] = [...basePalette];
+    for (let i = palette.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [palette[i], palette[j]] = [palette[j], palette[i]];
+    }
 
     const outfitAssignments: OutfitRow[] = [];
     for (let i = 0; i < quantity; i++) {
