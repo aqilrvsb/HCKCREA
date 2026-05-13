@@ -5,8 +5,8 @@ import { p2CreateTask } from "@/lib/p2";
 import { getP2Config } from "@/lib/settings";
 import { priceFor } from "@/lib/deduct";
 import { falExtractFrame, type FrameAnchor } from "@/lib/fal";
-import { getCachedProductOcr, productTextLockBlock } from "@/lib/product-ocr";
 import { rehostUrlOnRunningHub } from "@/lib/runninghub-upload";
+import { refineFrameWithProduct } from "@/lib/refine-frame";
 
 // POST /api/extend/video — placeholder-first.
 //
@@ -250,22 +250,15 @@ export async function POST(req: Request) {
         if (endRes.ok && endRes.url) endUrl = endRes.url;
       }
 
-      // 3. Build seg-2 prompt with auto product text lock.
-      //    Character continuity comes from the frame itself (start frame is
-      //    the i2v/r2v reference, face locked by pixels). The drift risk is
-      //    package label text — auto-OCR'd whenever a product image is on
-      //    the source row. User no longer has to type it manually.
-      const compose: string[] = [seg2Prompt];
-      let productOcr: any = null;
-      if (productImageUrl) {
-        productOcr = await getCachedProductOcr(user.id, productImageUrl).catch(() => null);
-        const lockBlock = productTextLockBlock(productOcr);
-        if (lockBlock) compose.push(lockBlock);
-      }
-
+      // 3. Build seg-2 prompt — send the user's edited textarea VERBATIM.
+      //    OCR text-lock removed: the Nano Banana Pro refine step below
+      //    rebuilds the product into the start frame pixel-perfectly, so
+      //    we no longer need a Gemini-extracted "PRODUCT TEXT: ..." block
+      //    to tell Veo what's on the label. The pixels themselves are
+      //    the lock now.
       const voiceLine = voiceId ? VOICE_MAP[voiceId] : "";
       const fullPrompt =
-        `${compose.join("\n\n").trim()}` +
+        seg2Prompt.trim() +
         (voiceLine ? `\n\nVoice direction: ${voiceLine}` : "") +
         STANDARD_LOCKS;
 
@@ -287,41 +280,61 @@ export async function POST(req: Request) {
         return;
       }
 
-      // Pass BOTH the product image (FIRST, primary anchor) AND the
-      // start frame (SECOND, continuity hint) as ingredient references.
+      // 3b. NANO BANANA PRO REFINE STEP — the cornerstone of v0.7 extend.
+      // Before firing Veo, run the HD start frame through Nano Banana Pro
+      // with the product attachment as a second reference. Banana edits
+      // the frame so the product on screen matches the attachment
+      // pixel-for-pixel (label, typography, color) while leaving
+      // everything else — person, pose, background, lighting — untouched.
       //
-      // Why product is first: fal.ai's frame extractor returns a lossy
-      // JPG of the seg-1 video. That compressed frame is sharp enough to
-      // anchor scene/pose but soft on product label edges — so when Veo
-      // treats it as the primary reference, the package label drifts in
-      // seg-2. Putting the user's pixel-clean Attachment URL at ref[0]
-      // locks the product pixels; the extracted frame at ref[1] only
-      // anchors continuity. Same r2v call, just better priority order.
+      // Veo r2v then conditions on a frame where the product is already
+      // crystal clear, so seg-2 baselines off a sharp anchor instead of
+      // re-rendering a soft approximation each frame.
       //
-      // The product image URL on old rows is usually a Tencent Cloud
-      // temp URL (rh-images-switch-...myqcloud.com) with a q-sign-time
-      // signature that expires after 24h. Rather than try to detect
-      // expiry, we ALWAYS re-host the product image on RunningHub at
-      // extend time so Crun's seg-2 fetch always sees a fresh URL.
-      // If the source URL is dead and rehost fails, we fall back to
-      // start-frame-only (same as the original 4-extend behaviour).
-      const refImages: string[] = [];
+      // Skip for cinema bucket (Grok flow, no product anchor) or if the
+      // user didn't attach a product (legacy fallback path).
+      let effectiveFrameUrl = startUrl;
+      let refineUsed = false;
+      let refineError: string | null = null;
       if (bucket !== "cinema" && productImageUrl) {
-        const fresh = await rehostUrlOnRunningHub(productImageUrl);
-        if (fresh) {
-          refImages.push(fresh); // primary — pixel-clean product
-          console.log(
-            "[extend] product image re-hosted on RunningHub:",
-            fresh.slice(0, 80)
-          );
-        } else {
-          console.warn(
-            "[extend] product image rehost failed, falling back to start-frame-only:",
-            productImageUrl.slice(0, 80)
-          );
+        try {
+          const refined = await refineFrameWithProduct({
+            frameUrl: startUrl,
+            productUrl: productImageUrl,
+            aspectRatio,
+          });
+          if (refined.ok) {
+            effectiveFrameUrl = refined.url;
+            refineUsed = true;
+            console.log("[extend] frame refined via Nano Banana Pro:", refined.url.slice(0, 80));
+          } else {
+            refineError = refined.error;
+            console.warn("[extend] Banana refine failed, using original frame:", refined.error);
+          }
+        } catch (e: any) {
+          refineError = e?.message || "refine threw";
+          console.warn("[extend] Banana refine threw:", e?.message);
         }
       }
-      refImages.push(startUrl); // secondary — continuity / scene anchor
+
+      // Build ref array. After the refine step the start frame already
+      // has the product pixels baked in, so we don't need to also attach
+      // the product image as a second ref — would just confuse Veo.
+      // When refine is skipped/failed we fall back to the v0.6 behaviour
+      // of [product, frame] so the user still gets product-first anchoring.
+      const refImages: string[] = [];
+      if (refineUsed) {
+        refImages.push(effectiveFrameUrl);
+      } else {
+        if (bucket !== "cinema" && productImageUrl) {
+          const fresh = await rehostUrlOnRunningHub(productImageUrl);
+          if (fresh) {
+            refImages.push(fresh);
+            console.log("[extend] product image re-hosted on RH:", fresh.slice(0, 80));
+          }
+        }
+        refImages.push(startUrl);
+      }
       const created = await p2CreateTask({
         model,
         userId: user.id,
@@ -355,13 +368,15 @@ export async function POST(req: Request) {
             segment_role: "seg2",
             source_history_id: sourceHistoryId,
             anchor_frame_url: startUrl,
+            anchor_frame_refined_url: refineUsed ? effectiveFrameUrl : null,
+            refine_used: refineUsed,
+            refine_error: refineError,
             end_frame_url: endUrl || null,
             bucket,
             aspectRatio,
             extend_seconds: extendSeconds,
             start_frame_source: startFrameSource,
             end_frame_source: endFrameSource,
-            product_ocr: productOcr || null,
             voice: voiceId || null,
             voice_line: voiceLine || null,
             upload_status: created.ok ? "done" : "failed",

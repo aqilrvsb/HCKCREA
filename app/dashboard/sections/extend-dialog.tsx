@@ -308,23 +308,23 @@ export default function ExtendDialog({
   async function fire() {
     if (!plan) return setError("This clip is already at the 30-second cap.");
     if (!editedPrompt.trim()) return setError("The seg-2 prompt cannot be empty — edit the textarea below.");
-    // Product reference is OPTIONAL now. The HD canvas frame extract
-    // captures the product pixels from the seg-1 video at full source
-    // resolution, so we don't need a separate clean product attachment
-    // for Veo to lock the package. Users CAN still attach one if they
-    // want extra label fidelity, but the empty path is supported.
+    // Product reference is REQUIRED for the Banana Pro refine step. The
+    // refine rebuilds the product into the start frame pixel-perfectly
+    // before Veo conditions on it, so seg-2 keeps the label crystal
+    // clear. Without an attachment we can't run that refine and the
+    // product will drift like before.
+    if (!overrideProductDataUrl) {
+      return setError("Pick a product image from Attachments — needed for the HD refine step.");
+    }
     setError(null);
     setBusy(true);
     try {
       const seg2Prompt = buildSeg2Prompt();
-      // Resolve the product image only if the user attached one.
       let resolvedProductUrl: string | undefined;
-      if (overrideProductDataUrl) {
-        try {
-          resolvedProductUrl = await ensurePublicUrl(overrideProductDataUrl);
-        } catch (e: any) {
-          throw new Error(`Product image upload failed: ${e?.message || e}`);
-        }
+      try {
+        resolvedProductUrl = await ensurePublicUrl(overrideProductDataUrl);
+      } catch (e: any) {
+        throw new Error(`Product image upload failed: ${e?.message || e}`);
       }
 
       const res = await fetch("/api/extend/video", {
@@ -450,18 +450,19 @@ export default function ExtendDialog({
               accent={accent}
             />
 
-            {/* Product Reference upload — OPTIONAL now. The HD canvas
-                frame capture above grabs the product pixels from the
-                source clip at full resolution, which is enough for Veo
-                to lock the package in seg-2. Users CAN still attach a
-                pixel-cleaner product image if they want extra label
-                fidelity, but the empty path is fully supported. */}
+            {/* Product Reference — REQUIRED for the Banana Pro refine
+                step. The HD start frame + product attachment go into
+                Nano Banana Pro, which rebuilds the frame so the product
+                in the user's hand exactly matches the attached image
+                pixel-for-pixel (label, typography, colour). Veo r2v
+                then conditions on the refined frame and seg-2 stays
+                crystal clear from frame 1. */}
             <div>
-              <label className="block text-xs font-bold uppercase tracking-wider mb-1" style={{ color: "var(--color-text-secondary, #aaa)" }}>
-                Product Reference <span className="text-gray-500 normal-case font-normal">(optional)</span>
+              <label className="block text-xs font-bold uppercase tracking-wider mb-1" style={{ color: overrideProductDataUrl ? "var(--color-text-secondary, #aaa)" : "#fbbf24" }}>
+                Product Reference (required) {!overrideProductDataUrl && "*"}
               </label>
               <div className="text-[10px] text-gray-500 mb-2 leading-relaxed">
-                Skip this — the HD frame above already captures the product. Attach only if you want extra label sharpness.
+                Banana Pro refines the start frame so the product matches this image pixel-for-pixel. Seg-2 then anchors on a crystal-clear product instead of a soft Veo redraw.
               </div>
               {overrideProductDataUrl ? (
                 <div
@@ -592,14 +593,17 @@ export default function ExtendDialog({
               disabled={
                 busy ||
                 !!capturingFrame ||
-                !editedPrompt.trim()
+                !editedPrompt.trim() ||
+                !overrideProductDataUrl
               }
               title={
                 capturingFrame
                   ? "Capturing HD frame…"
-                  : !editedPrompt.trim()
-                    ? "Edit the seg-2 prompt first (cannot be empty)"
-                    : ""
+                  : !overrideProductDataUrl
+                    ? "Pick a product image from Attachments first — needed for the refine step"
+                    : !editedPrompt.trim()
+                      ? "Edit the seg-2 prompt first (cannot be empty)"
+                      : ""
               }
               className="px-5 py-2 rounded-lg text-sm font-semibold text-white disabled:opacity-50 inline-flex items-center gap-2"
               style={{ background: accent }}
