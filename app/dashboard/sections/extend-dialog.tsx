@@ -467,8 +467,9 @@ export default function ExtendDialog({
           on the inline textarea. Larger font, more rows, near-fullscreen
           width so the seg1 prompt is comfortable to read and edit. */}
       {promptEditorOpen && (
+        <Portal>
         <div
-          className="fixed inset-0 z-[60] flex items-center justify-center p-4"
+          className="fixed inset-0 z-[140] flex items-center justify-center p-4"
           style={{ background: "rgba(0,0,0,0.85)" }}
           onClick={(e) => {
             if (e.target === e.currentTarget) setPromptEditorOpen(false);
@@ -531,6 +532,7 @@ export default function ExtendDialog({
             </div>
           </div>
         </div>
+        </Portal>
       )}
 
       <AttachmentPicker
