@@ -874,15 +874,32 @@ function HistoryCardInner({
     tone: "ok" | "info" | "err";
   } | null>(null);
   async function recheckSlide(slide: Slide) {
-    const targetId =
-      slide.id === "seg_1" ? seg2?.id : item.id;
+    // Resolve which DB row this slide tracks. slide.id naming:
+    //   • "seg_0"  → "Seg 1" in UI, tracks `item` (the parent row)
+    //   • "seg_1"  → "Seg 2" in UI, tracks `seg2` (the child row)
+    //   • "merged" → final 16s, no upstream task
+    const targetRow =
+      slide.id === "seg_0" ? item : slide.id === "seg_1" ? seg2 : null;
+    const targetId = targetRow?.id;
     if (!targetId) return;
     if (recheckingId) return;
     setRecheckingId(slide.id);
     setRecheckMsg(null);
     const startedAt = Date.now();
+    // Pre-load the upstream identifiers so the toast can show them
+    // immediately on the error path too. `task_id` + provider are stamped
+    // by the generate route; if they're missing the row hasn't been
+    // accepted upstream yet (after() still running) — surface that too.
+    const taskId = (targetRow as any)?.task_id || "";
+    const provider =
+      (targetRow as any)?.metadata?.provider ||
+      (targetRow as any)?.metadata?.actualProvider ||
+      "?";
+    const traceSuffix = taskId
+      ? `\n↳ task=${String(taskId).slice(0, 12)} · provider=${provider}`
+      : "\n↳ task not yet stamped (upstream queue)";
     let resultMsg: { text: string; tone: "ok" | "info" | "err" } = {
-      text: `${slide.label}: still generating — try again in a minute`,
+      text: `${slide.label}: still generating — try again in a minute${traceSuffix}`,
       tone: "info",
     };
     try {
@@ -893,16 +910,29 @@ function HistoryCardInner({
       const status =
         d?.history?.status || d?.p2_status || d?.status || "pending";
       const hasUrl = !!d?.history?.output_url;
+      // Prefer fresh upstream identifiers from the status endpoint when
+      // it returns them — the in-memory row can lag by a poll cycle.
+      const freshTaskId =
+        d?.history?.task_id ||
+        d?.history?.metadata?.task_id ||
+        taskId;
+      const freshProvider =
+        d?.history?.metadata?.provider ||
+        d?.history?.metadata?.actualProvider ||
+        provider;
+      const freshTrace = freshTaskId
+        ? `\n↳ task=${String(freshTaskId).slice(0, 12)} · provider=${freshProvider}`
+        : "\n↳ task not yet stamped";
       if (status === "completed" || hasUrl) {
-        resultMsg = { text: `${slide.label}: ready!`, tone: "ok" };
+        resultMsg = { text: `${slide.label}: ready!${freshTrace}`, tone: "ok" };
       } else if (status === "failed") {
         resultMsg = {
-          text: `${slide.label}: failed upstream — click thumb again to retry`,
+          text: `${slide.label}: failed upstream — click thumb again to retry${freshTrace}`,
           tone: "err",
         };
       } else {
         resultMsg = {
-          text: `${slide.label}: still generating (status: ${status})`,
+          text: `${slide.label}: still generating (status: ${status})${freshTrace}`,
           tone: "info",
         };
       }
@@ -1322,9 +1352,29 @@ function HistoryCardInner({
                     onActivate();
                   }
                 }}
-                title={
-                  slide.label +
-                  (ready
+                title={(() => {
+                  // Build the hover-tooltip dynamically so the user can
+                  // verify which upstream + which task without firing
+                  // recheck. seg_0 == this row (item, "Seg 1" in UI);
+                  // seg_1 == seg2 ("Seg 2"); merged has no upstream task.
+                  const traceRow =
+                    slide.id === "seg_0"
+                      ? item
+                      : slide.id === "seg_1"
+                        ? seg2
+                        : null;
+                  const traceTask = (traceRow as any)?.task_id || "";
+                  const traceProvider =
+                    (traceRow as any)?.metadata?.provider ||
+                    (traceRow as any)?.metadata?.actualProvider ||
+                    "";
+                  const traceLine =
+                    traceTask || traceProvider
+                      ? `\nProvider: ${traceProvider || "?"}\nTask: ${
+                          traceTask || "(not stamped yet)"
+                        }`
+                      : "";
+                  const statusLine = ready
                     ? ""
                     : slide.status === "failed"
                       ? " (failed — click to retry)"
@@ -1332,8 +1382,9 @@ function HistoryCardInner({
                         ? slide.id === "seg_1"
                           ? " (waiting for Seg 1 to finish)"
                           : " (waiting for Seg 2 to finish before merge)"
-                        : " (still generating — click to re-check)")
-                }
+                        : " (still generating — click to re-check)";
+                  return slide.label + statusLine + traceLine;
+                })()}
                 className="relative flex-1 min-w-0 aspect-[9/16] rounded overflow-hidden bg-black select-none"
                 style={{
                   border: `2px solid ${borderColor}`,
@@ -1412,7 +1463,7 @@ function HistoryCardInner({
           unchanged (the most common case when re-checking too soon). */}
       {recheckMsg && (
         <div
-          className="px-2.5 py-1.5 text-[11px] font-medium border-t"
+          className="px-2.5 py-1.5 text-[11px] font-medium border-t whitespace-pre-line"
           style={{
             background:
               recheckMsg.tone === "ok"
