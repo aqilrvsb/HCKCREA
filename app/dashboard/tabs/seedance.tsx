@@ -17,7 +17,7 @@ import { useEffect, useState } from "react";
 import { Loader2, X, Image as ImageIcon, Info } from "lucide-react";
 import AttachmentPicker from "../sections/attachment-picker";
 
-const MAX_REF_IMAGES = 4;
+const MAX_REF_IMAGES = 3;
 const MAX_REF_VIDEOS = 3;
 const MAX_REF_AUDIOS = 3;
 const ASPECT_OPTIONS = [
@@ -149,12 +149,18 @@ export default function SeedanceTab({ projectId }: { projectId: string }) {
     setErr(null);
     setBusy(true);
     try {
+      // Triplicate when exactly 1 picked — same rule as UGC / Auto Content
+       // / Cinema. 2-3 picks are sent as distinct refs.
+      const sendImageUrls =
+        imageUrls.length === 1
+          ? [imageUrls[0], imageUrls[0], imageUrls[0]]
+          : imageUrls.slice(0, MAX_REF_IMAGES);
       const r = await fetch("/api/generate/seedance", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           prompt,
-          image_urls: imageUrls,
+          image_urls: sendImageUrls,
           video_urls: videoUrls,
           audio_urls: audioUrls,
           aspect_ratio: aspect,
@@ -404,10 +410,16 @@ export default function SeedanceTab({ projectId }: { projectId: string }) {
       <AttachmentPicker
         open={attachmentOpen}
         onClose={() => setAttachmentOpen(false)}
-        onPick={(a) => {
-          setImageUrls((prev) => (prev.length < MAX_REF_IMAGES ? [...prev, a.public_url] : prev));
+        // Multi-pick: up to MAX_REF_IMAGES picked refs replace the
+        // current array. Seedance 2.0 (Bytedance p1) takes up to 3
+        // distinct image references per call.
+        onPickMulti={(arr) => {
+          const urls = arr.map((a) => a.public_url).slice(0, MAX_REF_IMAGES);
+          setImageUrls(urls);
           setAttachmentOpen(false);
         }}
+        maxPick={MAX_REF_IMAGES}
+        defaultCategory="product"
       />
 
       {/* Aspect + duration */}

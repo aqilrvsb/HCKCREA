@@ -40,7 +40,7 @@ export async function POST(req: Request) {
   const body = await req.json().catch(() => ({}));
   const prompt = String(body?.prompt || "").trim();
   const imageUrls: string[] = Array.isArray(body?.image_urls)
-    ? body.image_urls.filter((u: any): u is string => typeof u === "string" && !!u).slice(0, 4)
+    ? body.image_urls.filter((u: any): u is string => typeof u === "string" && !!u).slice(0, 3)
     : [];
   const videoUrls: string[] = Array.isArray(body?.video_urls)
     ? body.video_urls.filter((u: any): u is string => typeof u === "string" && !!u).slice(0, 3)
