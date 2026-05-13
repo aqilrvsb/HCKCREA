@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { X, Loader2, Plus, Upload as UploadIcon, MessageCircle } from "lucide-react";
 import Portal from "./portal";
+import AttachmentPicker from "./attachment-picker";
 
 // Extend dialog — opens from EXTEND on a video history card.
 //
@@ -91,6 +92,10 @@ export default function ExtendDialog({
   const [overrideProductDataUrl, setOverrideProductDataUrl] = useState<string>("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Attachment library picker — replaces the local file upload for the
+  // product reference. Picked URL is a public S3 URL on peninglab-storage
+  // so it bypasses the RunningHub re-upload entirely.
+  const [attachmentOpen, setAttachmentOpen] = useState(false);
 
   // File-input ref for the new Product Reference upload section.
   const productUploadRef = useRef<HTMLInputElement | null>(null);
@@ -304,13 +309,6 @@ export default function ExtendDialog({
               <div className="text-[10px] text-gray-500 mb-2 leading-relaxed">
                 Upload the product photo Veo should lock onto for segment 2 (PNG / JPG). Required for every extend so we always have a fresh pixel reference.
               </div>
-              <input
-                ref={productUploadRef}
-                type="file"
-                accept="image/*"
-                hidden
-                onChange={(e) => handleProductUpload(e.target.files?.[0] || null)}
-              />
               {overrideProductDataUrl ? (
                 <div
                   className="flex items-center gap-2 p-2 rounded-md"
@@ -326,7 +324,7 @@ export default function ExtendDialog({
                       Custom product reference attached
                     </div>
                     <div className="text-gray-500">
-                      Will override the original — uploaded to RunningHub when you Generate.
+                      Will override the original — sent directly to Veo (no re-upload).
                     </div>
                   </div>
                   <button
@@ -339,7 +337,7 @@ export default function ExtendDialog({
               ) : (
                 <button
                   type="button"
-                  onClick={() => productUploadRef.current?.click()}
+                  onClick={() => setAttachmentOpen(true)}
                   className="w-full px-3 py-2.5 rounded-md text-[11px] font-bold inline-flex items-center justify-center gap-2 transition-colors"
                   style={{
                     background: "rgba(255,255,255,0.04)",
@@ -348,7 +346,7 @@ export default function ExtendDialog({
                   }}
                 >
                   <UploadIcon className="w-3.5 h-3.5" />
-                  Click to upload product image (PNG / JPG)
+                  Pick product image from Attachments
                 </button>
               )}
             </div>
@@ -534,6 +532,18 @@ export default function ExtendDialog({
           </div>
         </div>
       )}
+
+      <AttachmentPicker
+        open={attachmentOpen}
+        onClose={() => setAttachmentOpen(false)}
+        onPick={(a) => {
+          // Use the public S3 URL directly — no data: URL conversion,
+          // no RunningHub re-upload. ensurePublicUrl below sees this is
+          // already public and passes it through unchanged.
+          setOverrideProductDataUrl(a.public_url);
+          setAttachmentOpen(false);
+        }}
+      />
     </Portal>
   );
 }

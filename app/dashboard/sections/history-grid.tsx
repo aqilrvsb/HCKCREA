@@ -27,6 +27,7 @@ import {
 import { createClient } from "@/lib/supabase/client";
 import Portal from "./portal";
 import ExtendDialog from "./extend-dialog";
+import AttachmentPicker from "./attachment-picker";
 import LazyVideo from "@/app/components/lazy-video";
 
 export type HistoryItem = {
@@ -1554,9 +1555,16 @@ function HistoryCardInner({
                   )}
                 </button>
               )}
-              <ActionBtn title="Improve Video" onClick={() => setShowEditModal(true)} bg={ACTION.edit}>
-                <Pencil className="w-3.5 h-3.5" strokeWidth={2.4} />
-              </ActionBtn>
+              {/* Improve Video — hidden for UGC + Auto Content cards. The
+                  flow there is "regenerate with a better prompt", not
+                  "improve this specific clip", so the Extend / Combine
+                  buttons cover the use case. Kept for Cinema / Story /
+                  Clone where users do iterate on a single result. */}
+              {item.tab !== "video" && item.tab !== "auto" && (
+                <ActionBtn title="Improve Video" onClick={() => setShowEditModal(true)} bg={ACTION.edit}>
+                  <Pencil className="w-3.5 h-3.5" strokeWidth={2.4} />
+                </ActionBtn>
+              )}
               <SaveTrafficLight
                 saved={saved}
                 saving={saving}
@@ -1866,7 +1874,7 @@ function EditImageModal({
   const [extraRefUrl, setExtraRefUrl] = useState<string>("");
   const [submitting, setSubmitting] = useState(false);
   const [showHistoryPicker, setShowHistoryPicker] = useState(false);
-  const fileRef = useRef<HTMLInputElement | null>(null);
+  const [attachmentOpen, setAttachmentOpen] = useState(false);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
@@ -1994,24 +2002,17 @@ function EditImageModal({
           <label className="block text-[10px] font-bold uppercase tracking-wider mb-2" style={{ color: "#666" }}>
             Reference image (optional)
           </label>
-          <input
-            ref={fileRef}
-            type="file"
-            accept="image/*"
-            className="hidden"
-            onChange={(e) => pickFile(e.target.files?.[0] || null)}
-          />
           <div className="flex items-stretch gap-2">
-            {/* Preview thumbnail (uploaded data URL OR picked-from-history URL) */}
+            {/* Preview thumbnail (Attachment URL OR picked-from-history URL) */}
             <button
               type="button"
-              onClick={() => fileRef.current?.click()}
+              onClick={() => setAttachmentOpen(true)}
               className="relative w-20 h-20 rounded-lg overflow-hidden flex-shrink-0 flex items-center justify-center"
               style={{
                 border: extraRefUrl ? "2px solid #b388ff" : "2px dashed #d8e8d0",
                 background: extraRefUrl ? "#000" : "#fafaf7",
               }}
-              aria-label={extraRefUrl ? "Replace image" : "Upload image"}
+              aria-label={extraRefUrl ? "Replace image" : "Pick image from Attachments"}
             >
               {extraRefUrl ? (
                 <img src={extraRefUrl} alt="" className="w-full h-full object-cover" />
@@ -2031,11 +2032,11 @@ function EditImageModal({
               </button>
               <button
                 type="button"
-                onClick={() => fileRef.current?.click()}
+                onClick={() => setAttachmentOpen(true)}
                 className="px-3 py-1.5 rounded-md text-[10px] font-bold"
                 style={{ background: "#fafaf7", border: "1px solid #d8e8d0", color: "#1a1a1a" }}
               >
-                Upload
+                Attachments
               </button>
               {extraRefUrl && (
                 <button
@@ -2059,6 +2060,15 @@ function EditImageModal({
               onClose={() => setShowHistoryPicker(false)}
             />
           )}
+
+          <AttachmentPicker
+            open={attachmentOpen}
+            onClose={() => setAttachmentOpen(false)}
+            onPick={(a: { public_url: string }) => {
+              setExtraRefUrl(a.public_url);
+              setAttachmentOpen(false);
+            }}
+          />
         </div>
 
         <div
@@ -2312,7 +2322,7 @@ function ImproveVideoModal({
   // Improve run gets a clean, freshly-uploaded product photo so Veo's
   // r2v anchor never relies on an expired Crun temp URL.
   const [overrideProductDataUrl, setOverrideProductDataUrl] = useState<string>("");
-  const productUploadRef = useRef<HTMLInputElement | null>(null);
+  const [attachmentOpen, setAttachmentOpen] = useState(false);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
@@ -2453,13 +2463,6 @@ function ImproveVideoModal({
           <div className="text-[10px] text-gray-500 mb-2 leading-relaxed">
             Upload the product photo Veo should lock onto for the improved video. PNG / JPG.
           </div>
-          <input
-            ref={productUploadRef}
-            type="file"
-            accept="image/*"
-            hidden
-            onChange={(e) => handleProductUpload(e.target.files?.[0] || null)}
-          />
           {overrideProductDataUrl ? (
             <div
               className="flex items-center gap-3 p-2.5 rounded-lg mb-4"
@@ -2476,7 +2479,7 @@ function ImproveVideoModal({
                   Product reference attached
                 </div>
                 <div className="text-gray-600">
-                  Uploaded to RunningHub when you click Generate.
+                  Sent directly to Veo when you click Generate (no re-upload).
                 </div>
               </div>
               <button
@@ -2489,7 +2492,7 @@ function ImproveVideoModal({
           ) : (
             <button
               type="button"
-              onClick={() => productUploadRef.current?.click()}
+              onClick={() => setAttachmentOpen(true)}
               className="w-full px-3 py-3 rounded-lg text-xs font-bold inline-flex items-center justify-center gap-2 mb-4"
               style={{
                 background: "#fafaf7",
@@ -2498,9 +2501,17 @@ function ImproveVideoModal({
               }}
             >
               <Upload className="w-4 h-4" />
-              Click to upload product image (PNG / JPG)
+              Pick product image from Attachments
             </button>
           )}
+          <AttachmentPicker
+            open={attachmentOpen}
+            onClose={() => setAttachmentOpen(false)}
+            onPick={(a: { public_url: string }) => {
+              setOverrideProductDataUrl(a.public_url);
+              setAttachmentOpen(false);
+            }}
+          />
 
           <label className="block text-[10px] font-bold uppercase tracking-wider mb-1.5" style={{ color: "#666" }}>
             Original Prompt

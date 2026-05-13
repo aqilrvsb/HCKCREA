@@ -848,15 +848,8 @@ function ProductReferenceModal({
 }) {
   const [dataUrl, setDataUrl] = useState("");
   const [usp, setUsp] = useState("");
-  const fileRef = useRef<HTMLInputElement | null>(null);
+  const [attachmentOpen, setAttachmentOpen] = useState(false);
   const isCinema = mode === "reference";
-
-  function handleFile(file: File | null) {
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => setDataUrl(String(reader.result || ""));
-    reader.readAsDataURL(file);
-  }
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
@@ -912,16 +905,9 @@ function ProductReferenceModal({
           >
             {isCinema ? "Reference Image" : "Product Image"}
           </div>
-          <input
-            ref={fileRef}
-            type="file"
-            accept="image/*"
-            className="hidden"
-            onChange={(e) => handleFile(e.target.files?.[0] || null)}
-          />
           <button
             type="button"
-            onClick={() => fileRef.current?.click()}
+            onClick={() => setAttachmentOpen(true)}
             className="w-full rounded-lg overflow-hidden flex items-center justify-center mb-3"
             style={{
               height: dataUrl ? 180 : 100,
@@ -941,14 +927,22 @@ function ProductReferenceModal({
                   className="text-xs font-bold"
                   style={{ color: theme.color }}
                 >
-                  {isCinema ? "Click to upload reference image" : "Click to upload product image"}
+                  {isCinema ? "Pick reference image from Attachments" : "Pick product image from Attachments"}
                 </div>
                 <div className="text-[10px] text-[var(--color-text-muted)] mt-0.5">
-                  {isCinema ? "PNG / JPG — any image as scene anchor" : "PNG / JPG — packaging or hero shot"}
+                  Click to open your Attachments library
                 </div>
               </div>
             )}
           </button>
+          <AttachmentPicker
+            open={attachmentOpen}
+            onClose={() => setAttachmentOpen(false)}
+            onPick={(a) => {
+              setDataUrl(a.public_url);
+              setAttachmentOpen(false);
+            }}
+          />
 
           {/* USP textarea — product mode only. Cinema reference is just
               image-as-anchor; nothing to describe. */}
