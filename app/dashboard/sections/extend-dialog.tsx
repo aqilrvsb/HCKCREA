@@ -25,8 +25,13 @@ import AttachmentPicker from "./attachment-picker";
 
 type FrameSource = "first" | "middle" | "last";
 
+// When the user clicks First/Middle/Last we capture an HD PNG in the
+// browser and upload to peninglab-content. The resolved URL flips
+// `source` to "upload" so the backend uses our HD frame directly
+// instead of running its own fal.ai extract.
 type FrameSelection = {
-  source: FrameSource;
+  source: FrameSource | "upload";
+  url?: string;
 };
 
 const FRAME_BUTTONS: { source: FrameSource; label: string; hint: string }[] = [
@@ -122,6 +127,30 @@ export default function ExtendDialog({
     };
   }, [onClose, promptEditorOpen]);
 
+  // Wait for the video to seek to a specific time. Resolves on the
+  // first "seeked" event after assigning currentTime. Browsers may fire
+  // multiple intermediate events while scrubbing — listening once is
+  // enough because we set currentTime synchronously and pause first.
+  function seekAndWait(v: HTMLVideoElement, target: number): Promise<void> {
+    return new Promise((resolve) => {
+      const done = () => {
+        v.removeEventListener("seeked", done);
+        resolve();
+      };
+      v.addEventListener("seeked", done, { once: true });
+      try {
+        v.currentTime = target;
+      } catch {
+        resolve();
+      }
+      // Safety timeout — never block forever if seeked never fires.
+      setTimeout(() => {
+        v.removeEventListener("seeked", done);
+        resolve();
+      }, 2500);
+    });
+  }
+
   function seekToFrame(source: FrameSource) {
     const v = videoRef.current;
     if (!v) return;
@@ -135,11 +164,93 @@ export default function ExtendDialog({
     } catch {}
   }
 
-  function handlePickSource(source: FrameSource) {
-    // first/middle/last → seek the preview AND store the choice; backend
-    // auto-extracts the actual pixels at generate time.
-    seekToFrame(source);
+  // Capture the current video frame as a PNG blob at the video's native
+  // resolution. videoWidth × videoHeight = source pixels (e.g. 1080×1920
+  // for portrait Veo output). No compression beyond PNG losslessness.
+  // Returns null if the canvas is tainted (CORS missing) or seek failed.
+  async function captureFrameBlob(): Promise<Blob | null> {
+    const v = videoRef.current;
+    if (!v || !v.videoWidth || !v.videoHeight) return null;
+    const canvas = document.createElement("canvas");
+    canvas.width = v.videoWidth;
+    canvas.height = v.videoHeight;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return null;
+    try {
+      ctx.drawImage(v, 0, 0, canvas.width, canvas.height);
+    } catch (e) {
+      console.warn("[extend] canvas drawImage failed:", e);
+      return null;
+    }
+    return new Promise<Blob | null>((resolve) => {
+      canvas.toBlob(
+        (blob) => resolve(blob),
+        "image/png" // lossless — pairs with the product-first ref order to keep label edges sharp in seg-2
+      );
+    });
+  }
+
+  // Upload the captured frame to peninglab-storage and return the
+  // direct S3 URL. Used by the start-frame picker so we hand the
+  // backend a pixel-clean URL and it skips the fal.ai extract entirely.
+  async function uploadFrameBlob(blob: Blob): Promise<string | null> {
+    const fd = new FormData();
+    fd.append("file", new File([blob], "extend-frame.png", { type: "image/png" }));
+    try {
+      const r = await fetch("/api/extend/upload-frame", {
+        method: "POST",
+        body: fd,
+        credentials: "include",
+      });
+      const d = await r.json();
+      return r.ok && d?.ok ? (d.url as string) : null;
+    } catch {
+      return null;
+    }
+  }
+
+  // Tracks the in-flight HD capture so we can show the user a spinner +
+  // disable Generate until the upload finishes.
+  const [capturingFrame, setCapturingFrame] = useState<FrameSource | null>(null);
+
+  async function handlePickSource(source: FrameSource) {
+    const v = videoRef.current;
+    if (!v) {
+      setStartFrame({ source });
+      return;
+    }
+    // Optimistic update so the FrameSlot highlights the choice immediately
+    // while the HD capture + upload run in the background.
     setStartFrame({ source });
+    setCapturingFrame(source);
+
+    let target = 0;
+    if (source === "first") target = 0;
+    else if (source === "middle") target = Math.max(0, duration / 2);
+    else if (source === "last") target = Math.max(0, duration - 0.1);
+
+    try {
+      v.pause();
+      await seekAndWait(v, target);
+      const blob = await captureFrameBlob();
+      if (!blob) {
+        // Canvas tainted or seek failed — fall back to backend fal.ai
+        // extract by leaving source as "first/middle/last" + no URL.
+        console.warn("[extend] HD capture failed, falling back to server extract");
+        setCapturingFrame(null);
+        return;
+      }
+      const url = await uploadFrameBlob(blob);
+      if (!url) {
+        setCapturingFrame(null);
+        return;
+      }
+      // Stamp the captured URL + flip source to "upload" so the backend
+      // uses our HD frame directly instead of running its own extract.
+      setStartFrame({ source: "upload", url });
+    } finally {
+      setCapturingFrame(null);
+    }
   }
 
   // Optional fresh product upload — kicks the hidden file input + reads
@@ -181,21 +292,23 @@ export default function ExtendDialog({
   async function fire() {
     if (!plan) return setError("This clip is already at the 30-second cap.");
     if (!editedPrompt.trim()) return setError("The seg-2 prompt cannot be empty — edit the textarea below.");
-    if (!overrideProductDataUrl) {
-      return setError("Product reference image is required — upload the product photo above before generating.");
-    }
+    // Product reference is OPTIONAL now. The HD canvas frame extract
+    // captures the product pixels from the seg-1 video at full source
+    // resolution, so we don't need a separate clean product attachment
+    // for Veo to lock the package. Users CAN still attach one if they
+    // want extra label fidelity, but the empty path is supported.
     setError(null);
     setBusy(true);
     try {
       const seg2Prompt = buildSeg2Prompt();
-      // User must attach a fresh product image — uploaded to
-      // RunningHub server-side via /api/upload/image so Crun gets a
-      // permanent download_url instead of a stale Tencent signature.
+      // Resolve the product image only if the user attached one.
       let resolvedProductUrl: string | undefined;
-      try {
-        resolvedProductUrl = await ensurePublicUrl(overrideProductDataUrl);
-      } catch (e: any) {
-        throw new Error(`Product image upload failed: ${e?.message || e}`);
+      if (overrideProductDataUrl) {
+        try {
+          resolvedProductUrl = await ensurePublicUrl(overrideProductDataUrl);
+        } catch (e: any) {
+          throw new Error(`Product image upload failed: ${e?.message || e}`);
+        }
       }
 
       const res = await fetch("/api/extend/video", {
@@ -206,8 +319,13 @@ export default function ExtendDialog({
           source_video_url: videoUrl,
           source_duration: duration,
           bucket,
+          // When source is "upload" we already captured the HD frame in
+          // the browser + uploaded to peninglab-content. Backend uses
+          // startFrame.url directly and skips its fal.ai extract. When
+          // canvas capture fails (CORS tainting / seek error) source
+          // stays first/middle/last and backend falls back to fal.ai.
           start_frame_source: startFrame.source,
-          start_frame_url: undefined, // first/middle/last only — backend extracts
+          start_frame_url: startFrame.url,
           // End frame hardcoded to "last" — backend extracts the last
           // frame of the source clip so segment 2 lands seamlessly when
           // concatenated. UI for end frame removed by request.
@@ -280,6 +398,10 @@ export default function ExtendDialog({
                 ref={videoRef}
                 src={videoUrl}
                 controls
+                // crossOrigin="anonymous" so we can drawImage onto a canvas
+                // without tainting it. Both peninglab-content and
+                // peninglab-storage have CORS open for *.peninglab.com.
+                crossOrigin="anonymous"
                 className="w-full max-h-48 rounded-lg bg-black border border-gray-800"
               />
               <div className="text-[10px] text-gray-500 mt-1">
@@ -296,18 +418,18 @@ export default function ExtendDialog({
               accent={accent}
             />
 
-            {/* Product Reference upload — REQUIRED at extend time.
-                Even though the backend rehosts the source row's product
-                URL automatically, requiring a fresh upload guarantees
-                Veo gets a pixel-clean reference for seg-2 (no expired
-                signatures, no compression artifacts). User attaches the
-                actual product photo they want locked across both clips. */}
+            {/* Product Reference upload — OPTIONAL now. The HD canvas
+                frame capture above grabs the product pixels from the
+                source clip at full resolution, which is enough for Veo
+                to lock the package in seg-2. Users CAN still attach a
+                pixel-cleaner product image if they want extra label
+                fidelity, but the empty path is fully supported. */}
             <div>
-              <label className="block text-xs font-bold uppercase tracking-wider mb-1" style={{ color: overrideProductDataUrl ? "var(--color-text-secondary, #aaa)" : "#fbbf24" }}>
-                Product Reference (required) {!overrideProductDataUrl && "*"}
+              <label className="block text-xs font-bold uppercase tracking-wider mb-1" style={{ color: "var(--color-text-secondary, #aaa)" }}>
+                Product Reference <span className="text-gray-500 normal-case font-normal">(optional)</span>
               </label>
               <div className="text-[10px] text-gray-500 mb-2 leading-relaxed">
-                Upload the product photo Veo should lock onto for segment 2 (PNG / JPG). Required for every extend so we always have a fresh pixel reference.
+                Skip this — the HD frame above already captures the product. Attach only if you want extra label sharpness.
               </div>
               {overrideProductDataUrl ? (
                 <div
@@ -437,12 +559,12 @@ export default function ExtendDialog({
               onClick={fire}
               disabled={
                 busy ||
-                !overrideProductDataUrl ||
+                !!capturingFrame ||
                 !editedPrompt.trim()
               }
               title={
-                !overrideProductDataUrl
-                  ? "Upload the product reference image first"
+                capturingFrame
+                  ? "Capturing HD frame…"
                   : !editedPrompt.trim()
                     ? "Edit the seg-2 prompt first (cannot be empty)"
                     : ""

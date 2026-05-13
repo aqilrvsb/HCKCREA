@@ -287,11 +287,16 @@ export async function POST(req: Request) {
         return;
       }
 
-      // Pass BOTH the start frame AND (for UGC/auto) the product image
-      // as ingredient references. Without the product image, Veo's r2v
-      // pass redraws the package from scratch using only the anchor
-      // frame — that introduces label drift between seg1 and seg2 even
-      // when the original prompt + OCR text-lock are embedded.
+      // Pass BOTH the product image (FIRST, primary anchor) AND the
+      // start frame (SECOND, continuity hint) as ingredient references.
+      //
+      // Why product is first: fal.ai's frame extractor returns a lossy
+      // JPG of the seg-1 video. That compressed frame is sharp enough to
+      // anchor scene/pose but soft on product label edges — so when Veo
+      // treats it as the primary reference, the package label drifts in
+      // seg-2. Putting the user's pixel-clean Attachment URL at ref[0]
+      // locks the product pixels; the extracted frame at ref[1] only
+      // anchors continuity. Same r2v call, just better priority order.
       //
       // The product image URL on old rows is usually a Tencent Cloud
       // temp URL (rh-images-switch-...myqcloud.com) with a q-sign-time
@@ -300,11 +305,11 @@ export async function POST(req: Request) {
       // extend time so Crun's seg-2 fetch always sees a fresh URL.
       // If the source URL is dead and rehost fails, we fall back to
       // start-frame-only (same as the original 4-extend behaviour).
-      const refImages: string[] = [startUrl];
+      const refImages: string[] = [];
       if (bucket !== "cinema" && productImageUrl) {
         const fresh = await rehostUrlOnRunningHub(productImageUrl);
         if (fresh) {
-          refImages.push(fresh);
+          refImages.push(fresh); // primary — pixel-clean product
           console.log(
             "[extend] product image re-hosted on RunningHub:",
             fresh.slice(0, 80)
@@ -316,6 +321,7 @@ export async function POST(req: Request) {
           );
         }
       }
+      refImages.push(startUrl); // secondary — continuity / scene anchor
       const created = await p2CreateTask({
         model,
         userId: user.id,
