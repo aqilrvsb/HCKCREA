@@ -1334,28 +1334,37 @@ CRITICAL OUTPUT RULES:
   const admin = createAdminClient();
   const cfg = await getP2Config();
 
-  // Pick the per-video product image: rotate manualProducts[i % len] OR
-  // fall back to single productImageUrl (affiliate or single-product).
+  // Pick the per-video product image: prefer manualProducts[i % len]
+  // (populated by BOTH manual mode AND the affiliate scrape — the scrape
+  // fills slot 0 then the user can add up to 2 more attachments on the
+  // same card). Falls back to single productImageUrl only when manual
+  // products are truly empty.
   function imageForVideo(i: number): string {
-    if (productMode === "manual" && manualProducts.length) {
+    if (manualProducts.length) {
       const mp = manualProducts[i % manualProducts.length];
-      return mp.imageUrls?.[0] || mp.imageData || "";
+      const fromArr = (mp.imageUrls || []).filter(Boolean)[0];
+      if (fromArr) return fromArr;
+      if (mp.imageData) return mp.imageData;
     }
     return productImageUrl;
   }
 
   // Multi-image array for r2v: returns up to 3 URLs per video.
-  //   • 1 picked    → triplicate (mirrors the existing auto-product flow)
+  //   • 1 picked    → triplicate (anchors the product reference tighter)
   //   • 2-3 picked  → sent as distinct refs (Veo r2v takes up to 3)
-  //   • Single-image fallback (affiliate / non-manual) → triplicate
+  //   • Empty       → fall back to productImageUrl (triplicated)
+  //
+  // Works the same for manual mode AND affiliate mode — affiliate just
+  // pre-fills slot 0 from the TikTok scrape, then the user can stack up
+  // to 2 more attachments via the same ManualProductCard strip.
   function imagesForVideo(i: number): string[] {
-    if (productMode === "manual" && manualProducts.length) {
+    if (manualProducts.length) {
       const mp = manualProducts[i % manualProducts.length];
       const arr = (mp.imageUrls || []).filter(Boolean);
       const usable = arr.length ? arr : (mp.imageData ? [mp.imageData] : []);
-      if (usable.length === 0) return [];
       if (usable.length === 1) return [usable[0], usable[0], usable[0]];
-      return usable.slice(0, 3);
+      if (usable.length >= 2) return usable.slice(0, 3);
+      // No usable manual images → fall through to single productImageUrl.
     }
     if (productImageUrl) {
       return [productImageUrl, productImageUrl, productImageUrl];
