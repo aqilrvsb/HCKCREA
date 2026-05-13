@@ -296,6 +296,8 @@ export async function POST(req: Request) {
       let effectiveFrameUrl = startUrl;
       let refineUsed = false;
       let refineError: string | null = null;
+      let refineProvider: string | null = null;
+      let refineTierLog: string[] | null = null;
       if (bucket !== "cinema" && productImageUrl) {
         try {
           const refined = await refineFrameWithProduct({
@@ -303,13 +305,22 @@ export async function POST(req: Request) {
             productUrl: productImageUrl,
             aspectRatio,
           });
+          refineTierLog = refined.tierLog || null;
           if (refined.ok) {
             effectiveFrameUrl = refined.url;
             refineUsed = true;
-            console.log("[extend] frame refined via Nano Banana Pro:", refined.url.slice(0, 80));
+            refineProvider = refined.provider || null;
+            console.log(
+              `[extend] frame refined via ${refined.provider}/nano-banana-pro:`,
+              refined.url.slice(0, 80)
+            );
           } else {
             refineError = refined.error;
-            console.warn("[extend] Banana refine failed, using original frame:", refined.error);
+            console.warn(
+              "[extend] Banana refine failed across all tiers, using original frame:",
+              refined.error,
+              refined.tierLog
+            );
           }
         } catch (e: any) {
           refineError = e?.message || "refine threw";
@@ -370,6 +381,8 @@ export async function POST(req: Request) {
             anchor_frame_url: startUrl,
             anchor_frame_refined_url: refineUsed ? effectiveFrameUrl : null,
             refine_used: refineUsed,
+            refine_provider: refineProvider,
+            refine_tier_log: refineTierLog,
             refine_error: refineError,
             end_frame_url: endUrl || null,
             bucket,
