@@ -106,6 +106,39 @@ export default function AttachmentsSection() {
     setPendingFiles(arr);
   }, []);
 
+  // Cmd/Ctrl-V to paste image(s) from clipboard. Listens on document so
+  // it fires anywhere on the page (e.g. screenshot tool → switch to
+  // dashboard tab → paste). Skips when the user is typing in an input
+  // or textarea (e.g. the inline rename field) so it doesn't intercept
+  // normal text paste.
+  useEffect(() => {
+    function onPaste(e: ClipboardEvent) {
+      const target = e.target as HTMLElement | null;
+      const tag = target?.tagName;
+      const isTyping =
+        tag === "INPUT" ||
+        tag === "TEXTAREA" ||
+        target?.isContentEditable === true;
+      if (isTyping) return;
+      const items = e.clipboardData?.items;
+      if (!items || items.length === 0) return;
+      const files: File[] = [];
+      for (let i = 0; i < items.length; i++) {
+        const it = items[i];
+        if (it.kind === "file" && it.type.startsWith("image/")) {
+          const f = it.getAsFile();
+          if (f) files.push(f);
+        }
+      }
+      if (files.length > 0) {
+        e.preventDefault();
+        stageFiles(files);
+      }
+    }
+    document.addEventListener("paste", onPaste);
+    return () => document.removeEventListener("paste", onPaste);
+  }, [stageFiles]);
+
   const confirmUpload = useCallback(
     async (category: AttachmentCategory) => {
       const files = pendingFiles || [];
@@ -290,7 +323,7 @@ export default function AttachmentsSection() {
         <p className="text-sm" style={{ color: "var(--color-text-secondary)" }}>
           {uploading > 0
             ? `Adding ${uploading} image${uploading > 1 ? "s" : ""}…`
-            : "Drag and drop images here, or click Add Image above"}
+            : "Drag & drop, paste (⌘/Ctrl + V), or click Add Image above"}
         </p>
       </div>
 
