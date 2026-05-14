@@ -1,6 +1,13 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getCrawlbaseConfig } from "@/lib/settings";
+import { deduct } from "@/lib/deduct";
+
+// Flat fee charged per successful scrape (returns >SCRAPE_MIN_IMAGES
+// images). Tunable here without a migration. Cost basis: Crawlbase
+// JS render (~RM 0.013) so 10 sen leaves ~85% margin.
+const SCRAPE_FEE_MYR = 0.10;
+const SCRAPE_MIN_IMAGES = 6;
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -94,7 +101,33 @@ export async function POST(req: Request) {
   // clean hero shots AND social-proof lifestyle shots, which any
   // automated ranker would wrongly downvote.
   const images = extractGoogleImageUrls(html, 30);
-  return NextResponse.json({ ok: true, images, query });
+
+  // Charge ONLY when the scrape returned a meaningful pool (>6 images).
+  // No refund logic — if the user got fewer than 7 we treat the call
+  // as too low-yield to bill, and absorb the Crawlbase cost ourselves.
+  // No pre-flight balance check either: users can scrape on credit
+  // (decrement_credits allows negative balance) and top up later.
+  let charged = 0;
+  let balance_after: number | null = null;
+  if (images.length > SCRAPE_MIN_IMAGES) {
+    try {
+      const r = await deduct(user.id, "scrape", SCRAPE_FEE_MYR);
+      charged = SCRAPE_FEE_MYR;
+      balance_after = r.after;
+    } catch (e) {
+      // Surfacing this to the user has no useful action — they got the
+      // value already. Log for audit and move on.
+      console.error("[scrape] deduct failed", e);
+    }
+  }
+
+  return NextResponse.json({
+    ok: true,
+    images,
+    query,
+    charged,
+    balance_after,
+  });
 }
 
 // Extract image URLs from Google Images lite/no-JS HTML. Crawlbase

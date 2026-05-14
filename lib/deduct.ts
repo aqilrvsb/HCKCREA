@@ -21,7 +21,8 @@ export type DeductReason =
   | "clone_plan"
   | "cinema"
   | "seedance"
-  | "storytelling";
+  | "storytelling"
+  | "scrape";
 
 // Optional model hint to pick a per-model rate. Pass when the caller
 // knows which provider/model the generation used so priceFor can read

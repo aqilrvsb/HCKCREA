@@ -754,7 +754,7 @@ function MultiRefRow({
                   ? "⏳ Scraping…"
                   : hasResults
                     ? `🖼️ ${scrape!.images!.length} images`
-                    : "🔍 Scrape"}
+                    : "🔍 Scrape · 10¢"}
               </button>
               {scrape?.error && (
                 <div

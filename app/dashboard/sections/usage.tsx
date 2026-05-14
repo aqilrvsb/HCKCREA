@@ -8,6 +8,7 @@ import {
   Wand2,
   Layers,
   Send,
+  Search,
   Filter as FilterIcon,
   Calendar,
   TrendingDown,
@@ -20,7 +21,7 @@ import {
 import { createClient } from "@/lib/supabase/client";
 import Portal from "./portal";
 
-type Filter = "all" | "image" | "video" | "auto" | "clone" | "post";
+type Filter = "all" | "image" | "video" | "auto" | "clone" | "post" | "scrape";
 
 type HistoryJoin = {
   id?: string;
@@ -55,6 +56,7 @@ const FILTER_TABS: {
   { key: "auto", label: "Auto", icon: Wand2, match: (m) => m.startsWith("auto") },
   { key: "clone", label: "Clone", icon: Layers, match: (m) => m.startsWith("clone") },
   { key: "post", label: "Post", icon: Send, match: (m) => m.startsWith("post") },
+  { key: "scrape", label: "Scrape", icon: Search, match: (m) => m === "scrape" },
 ];
 
 // Map raw reason → human label for the table
@@ -65,6 +67,7 @@ const REASON_LABELS: Record<string, string> = {
   cinema: "Cinema video generated",
   auto_plan: "Auto Content plan",
   clone_plan: "Clone plan",
+  scrape: "Scrape product images",
 };
 
 const ACCENT: Record<string, string> = {
