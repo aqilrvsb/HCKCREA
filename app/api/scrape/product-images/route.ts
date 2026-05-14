@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getCrawlbaseConfig } from "@/lib/settings";
+import { orChatVision } from "@/lib/openrouter";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -88,8 +89,100 @@ export async function POST(req: Request) {
     );
   }
 
-  const images = extractGoogleImageUrls(html, 5);
-  return NextResponse.json({ ok: true, images, query });
+  // Over-fetch up to 15 candidates so the ranking pass has room to
+  // sift out the ones with marketing banners / text overlays / busy
+  // backgrounds. We return the cleanest 5.
+  const candidates = extractGoogleImageUrls(html, 15);
+
+  let images = candidates.slice(0, 5);
+  let ranked = false;
+  if (candidates.length > 5) {
+    try {
+      const ordered = await rankByNakedProductQuality(candidates, query);
+      if (ordered.length > 0) {
+        images = ordered.slice(0, 5);
+        ranked = true;
+      }
+    } catch {
+      // Ranking is best-effort. If Gemini fails, fall back to the raw
+      // top-5 from Google. User can still pick visually in the modal.
+    }
+  }
+  return NextResponse.json({ ok: true, images, query, ranked });
+}
+
+// Rank candidate URLs by "naked product" quality using Gemini vision.
+// We want the CLEAN isolated bottle shot (white/neutral bg, single
+// product, no text/banner overlay) because Veo r2v tries to replicate
+// whatever it sees, so marketing graphics leak into the generated
+// video. Returns URLs sorted by score descending.
+async function rankByNakedProductQuality(
+  urls: string[],
+  productName: string
+): Promise<string[]> {
+  if (urls.length === 0) return [];
+  const numbered = urls.slice(0, 15);
+  const indexedList = numbered.map((_, i) => `Image ${i}`).join(", ");
+
+  const r = await orChatVision({
+    modelKey: "model_vision",
+    systemPrompt:
+      "You score product images for use as Veo r2v reference frames. " +
+      "Return ONLY a JSON object — no prose, no markdown fences.",
+    textPrompt:
+      `Product: "${productName}"\n\n` +
+      `Below are ${numbered.length} candidate images (${indexedList}) — same order they appear after this text.\n\n` +
+      `Score each on the "naked product" criteria, where higher = better Veo input:\n` +
+      `- 100: clean white/neutral background, single product centered, NO marketing text/banner/overlay, label readable, real photo\n` +
+      `- 70: mostly clean but small badge or watermark\n` +
+      `- 40: prominent banner / text overlay covers part of frame\n` +
+      `- 10: heavy marketing graphic, infographic, illustration, 3D render, or multiple products\n` +
+      `- 0: not the product at all (wrong SKU, knockoff, irrelevant image)\n\n` +
+      `Return JSON: {"ranked":[{"i":<index>,"s":<0-100>}, ...]} ` +
+      `sorted by s DESC. Include every image exactly once.`,
+    images: numbered,
+    temperature: 0.2,
+    maxTokens: 800,
+  });
+  if (!r.ok || !r.content) return [];
+
+  // Strip ```json fences and stray prose if any leak through.
+  const cleaned = r.content
+    .replace(/^```(?:json)?\s*/i, "")
+    .replace(/\s*```$/i, "")
+    .trim();
+  const start = cleaned.indexOf("{");
+  if (start < 0) return [];
+  const parsed = JSON.parse(cleaned.slice(start));
+  const rows: Array<{ i: number; s: number }> = Array.isArray(parsed?.ranked)
+    ? parsed.ranked
+    : [];
+
+  const ordered = rows
+    .filter(
+      (row) =>
+        typeof row?.i === "number" &&
+        row.i >= 0 &&
+        row.i < numbered.length &&
+        typeof row?.s === "number"
+    )
+    .sort((a, b) => (b.s || 0) - (a.s || 0))
+    .map((row) => numbered[row.i]);
+
+  // Dedup (Gemini sometimes lists the same index twice) and backfill
+  // any URLs the model dropped so we never lose candidates entirely.
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const u of ordered) {
+    if (!seen.has(u)) {
+      seen.add(u);
+      out.push(u);
+    }
+  }
+  for (const u of numbered) {
+    if (!seen.has(u)) out.push(u);
+  }
+  return out;
 }
 
 // Extract image URLs from Google Images lite/no-JS HTML. Crawlbase
