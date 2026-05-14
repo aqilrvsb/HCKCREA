@@ -17,21 +17,38 @@ export async function GET() {
   }
 
   const admin = createAdminClient();
-  // Pull profiles + auth.users emails (need both)
-  const { data: profiles } = await admin
-    .from("profiles")
-    .select("id, full_name, whatsapp, plan, plan_expires_at, is_active, is_admin, credits, created_at")
-    .order("created_at", { ascending: false })
-    .limit(500);
+  // Pull profiles + auth.users emails + approved-affiliate set in parallel
+  const [profilesRes, authList, affiliateRows] = await Promise.all([
+    admin
+      .from("profiles")
+      .select("id, full_name, whatsapp, plan, plan_expires_at, is_active, is_admin, credits, created_at")
+      .order("created_at", { ascending: false })
+      .limit(500),
+    admin.auth.admin.listUsers({ page: 1, perPage: 500 }),
+    // An "approved" row in affiliate_applications keyed to a user_id
+    // marks them as an active affiliate. Same signal the dashboard uses
+    // to route the WhatsApp group link.
+    admin
+      .from("affiliate_applications")
+      .select("approved_user_id")
+      .eq("status", "approved"),
+  ]);
 
-  // Match emails from auth.users
-  const { data: authList } = await admin.auth.admin.listUsers({ page: 1, perPage: 500 });
+  const profiles = profilesRes.data || [];
   const emailById = new Map<string, string>();
-  (authList?.users || []).forEach((u: any) => emailById.set(u.id, u.email || ""));
+  (authList?.data?.users || []).forEach((u: any) =>
+    emailById.set(u.id, u.email || "")
+  );
+  const affiliateSet = new Set<string>(
+    (affiliateRows.data || [])
+      .map((r: any) => r.approved_user_id as string | null)
+      .filter((x): x is string => !!x)
+  );
 
-  const clients = (profiles || []).map((p: any) => ({
+  const clients = profiles.map((p: any) => ({
     ...p,
     email: emailById.get(p.id) || "",
+    is_affiliate: affiliateSet.has(p.id),
   }));
 
   return NextResponse.json({ clients });

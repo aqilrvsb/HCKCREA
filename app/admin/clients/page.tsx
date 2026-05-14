@@ -25,12 +25,18 @@ type Client = {
   is_admin: boolean;
   credits: number;
   created_at: string;
+  // Approved row in affiliate_applications → counted as affiliate.
+  // Same signal the dashboard uses for the WhatsApp group link.
+  is_affiliate: boolean;
 };
+
+type AffiliateFilter = "all" | "affiliate" | "non-affiliate";
 
 export default function AdminClients() {
   const [clients, setClients] = useState<Client[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
+  const [affiliateFilter, setAffiliateFilter] = useState<AffiliateFilter>("all");
   const [busy, setBusy] = useState<string | null>(null);
   const [editing, setEditing] = useState<Client | null>(null);
   const [impersonatingId, setImpersonatingId] = useState<string | null>(null);
@@ -96,14 +102,25 @@ export default function AdminClients() {
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    if (!q) return clients;
-    return clients.filter(
-      (c) =>
+    return clients.filter((c) => {
+      // Affiliate filter — applied BEFORE the search filter so the
+      // search runs over the smaller pre-filtered set.
+      if (affiliateFilter === "affiliate" && !c.is_affiliate) return false;
+      if (affiliateFilter === "non-affiliate" && c.is_affiliate) return false;
+      if (!q) return true;
+      return (
         c.email.toLowerCase().includes(q) ||
         (c.full_name || "").toLowerCase().includes(q) ||
         (c.whatsapp || "").includes(q)
-    );
-  }, [clients, search]);
+      );
+    });
+  }, [clients, search, affiliateFilter]);
+
+  // Counts for the dropdown labels — total set, not filtered.
+  const affiliateCounts = useMemo(() => {
+    const aff = clients.filter((c) => c.is_affiliate).length;
+    return { all: clients.length, affiliate: aff, nonAffiliate: clients.length - aff };
+  }, [clients]);
 
   async function toggleActive(c: Client) {
     setBusy(c.id);
@@ -169,19 +186,40 @@ export default function AdminClients() {
           border: "1px solid var(--color-border)",
         }}
       >
-        <div className="relative">
-          <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--color-text-muted)]" />
-          <input
-            placeholder="Search by email, name, or WhatsApp…"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="w-full pl-11 pr-4 py-2.5 rounded-lg outline-none text-sm"
+        <div className="flex gap-3 items-stretch">
+          <div className="relative flex-1">
+            <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--color-text-muted)]" />
+            <input
+              placeholder="Search by email, name, or WhatsApp…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="w-full pl-11 pr-4 py-2.5 rounded-lg outline-none text-sm"
+              style={{
+                background: "var(--color-bg)",
+                border: "1px solid var(--color-border)",
+                color: "var(--color-text-primary)",
+              }}
+            />
+          </div>
+          {/* Affiliate filter dropdown. Counts come from the unfiltered
+              clients array so the user can see at-a-glance how many
+              are in each bucket regardless of which one is active. */}
+          <select
+            value={affiliateFilter}
+            onChange={(e) => setAffiliateFilter(e.target.value as AffiliateFilter)}
+            className="px-4 py-2.5 rounded-lg outline-none text-sm font-semibold cursor-pointer"
             style={{
               background: "var(--color-bg)",
               border: "1px solid var(--color-border)",
               color: "var(--color-text-primary)",
+              minWidth: "200px",
             }}
-          />
+            aria-label="Filter by affiliate status"
+          >
+            <option value="all">All clients ({affiliateCounts.all})</option>
+            <option value="affiliate">Affiliates only ({affiliateCounts.affiliate})</option>
+            <option value="non-affiliate">Non-affiliates ({affiliateCounts.nonAffiliate})</option>
+          </select>
         </div>
       </div>
 
