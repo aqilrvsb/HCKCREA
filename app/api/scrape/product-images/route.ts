@@ -100,16 +100,23 @@ export async function POST(req: Request) {
       .eq("id", user.id)
       .single();
     if (profile?.is_admin) {
+      // Scan for image-related tokens across the entire payload so we
+      // can see which extraction strategy matters.
+      const imgTagCount = (html.match(/<img[^>]+src=/g) || []).length;
+      const dataIurlCount = (html.match(/data-iurl=/g) || []).length;
+      const ouCount = (html.match(/"ou":"/g) || []).length;
+      const urlMatches = (html.match(/https?:\/\/[^\s"'<>]+/g) || []).slice(0, 40);
       return NextResponse.json({
         ok: true,
         images,
         query,
         debug: {
           htmlLen: html.length,
-          htmlHead: html.slice(0, 4000),
-          // Show a few mid-html chunks to find embedded URL patterns
-          mid1: html.slice(50_000, 52_000),
-          mid2: html.slice(100_000, 102_000),
+          imgTagCount,
+          dataIurlCount,
+          ouCount,
+          urlSample: urlMatches,
+          tail: html.slice(Math.max(0, html.length - 3000)),
         },
       });
     }
