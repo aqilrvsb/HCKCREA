@@ -8,6 +8,7 @@ import UgcTab from "./ugc";
 import { uploadImage, dataUrlToFile } from "@/lib/upload-image";
 import { isVisibleAfterTtl, fetchSavedSet } from "@/lib/history-filter";
 import AttachmentPicker from "../sections/attachment-picker";
+import ScrapePicker from "../sections/scrape-picker";
 
 // Video tab — 1:1 port of creative-hack-auto's video-mode-section.
 // Three image modes (frame / ingredient / text), with a Scene card that
@@ -51,6 +52,10 @@ export default function VideoTab({ projectId }: { projectId?: string } = {}) {
   const [pickerSlot, setPickerSlot] = useState<RefSlot | null>(null);
   // Attachment picker replaces local-file uploads on this tab.
   const [attachmentSlot, setAttachmentSlot] = useState<RefSlot | null>(null);
+  // Google Images scrape modal — opens from the Scrape button next to
+  // Product Reference's Attachments. Only available for the "ref" slot
+  // (products); avatar/start/end stay attachments-only.
+  const [scrapeOpen, setScrapeOpen] = useState(false);
   const [showUgcModal, setShowUgcModal] = useState(false);
 
   // Pick up a prompt handed off from the UGC Prompt Builder rendered above
@@ -302,6 +307,7 @@ export default function VideoTab({ projectId }: { projectId?: string } = {}) {
                 urls={refImages}
                 max={avatarImage ? 2 : 3}
                 onPick={() => setAttachmentSlot("ref")}
+                onScrape={() => setScrapeOpen(true)}
                 onRemove={(i) =>
                   setRefImages((prev) => prev.filter((_, idx) => idx !== i))
                 }
@@ -441,6 +447,23 @@ export default function VideoTab({ projectId }: { projectId?: string } = {}) {
               onPick: (a) =>
                 attachmentSlot && pickFromAttachment(attachmentSlot, a.public_url),
             })}
+      />
+
+      {/* Optional Google Images scrape for product refs. Pre-fills the
+          search box with the first chunk of the user's prompt so the
+          flow is "paste prompt → click Scrape → see 5 candidates". The
+          maxPick caps at remaining product slots so the cap holds. */}
+      <ScrapePicker
+        open={scrapeOpen}
+        onClose={() => setScrapeOpen(false)}
+        initialQuery={(prompt || "").slice(0, 80).trim()}
+        maxPick={Math.max(0, (avatarImage ? 2 : 3) - refImages.length)}
+        onPickMulti={(urls) => {
+          setRefImages((prev) => {
+            const room = (avatarImage ? 2 : 3) - prev.length;
+            return [...prev, ...urls.slice(0, Math.max(0, room))];
+          });
+        }}
       />
 
       {showUgcModal && <UgcModal onClose={() => setShowUgcModal(false)} />}
@@ -592,6 +615,7 @@ function MultiRefRow({
   urls,
   max,
   onPick,
+  onScrape,
   onRemove,
 }: {
   label: string;
@@ -599,8 +623,13 @@ function MultiRefRow({
   urls: string[];
   max: number;
   onPick: () => void;
+  // Optional — when supplied, renders a 🔍 Scrape button under
+  // Attachments that opens the Google Images modal. Disabled when slots
+  // are full (caller should pass undefined to hide it entirely).
+  onScrape?: () => void;
   onRemove: (i: number) => void;
 }) {
+  const slotsFull = urls.length >= max;
   const slots = Array.from({ length: max }).map((_, i) => urls[i] || "");
   return (
     <div>
@@ -642,7 +671,29 @@ function MultiRefRow({
             </button>
           ))}
         </div>
-        <SmallBtn onClick={onPick}>Attachments</SmallBtn>
+        <div className="flex flex-col gap-1">
+          <SmallBtn onClick={onPick}>Attachments</SmallBtn>
+          {onScrape && (
+            <button
+              type="button"
+              onClick={onScrape}
+              disabled={slotsFull}
+              title={
+                slotsFull
+                  ? "Slots full — clear one to scrape"
+                  : "Scrape Google Images"
+              }
+              className="px-2 py-1 rounded text-[10px] font-bold disabled:opacity-40"
+              style={{
+                background: "rgba(234,179,8,0.08)",
+                border: "1px solid #eab308",
+                color: "#a16207",
+              }}
+            >
+              🔍 Scrape
+            </button>
+          )}
+        </div>
       </div>
     </div>
   );

@@ -1279,16 +1279,20 @@ function HistoryCardInner({
                     CASCADE ATTEMPTS
                   </div>
                   <div className="text-[9px] font-mono space-y-0.5 text-left">
-                    {item.metadata.tier_log.map((t: any, i: number) => (
-                      <div
-                        key={i}
-                        style={{
-                          color: t.ok ? "#4ade80" : "rgba(252,165,165,0.7)",
-                        }}
-                      >
-                        {t.ok ? "✓" : "✗"} {t.tier}
-                      </div>
-                    ))}
+                    {item.metadata.tier_log.map((t: any, i: number) => {
+                      const parts = String(t.tier || "").split(":");
+                      const label = parts.length >= 2 ? `${parts[0]}:${parts[1]}` : parts[0] || "";
+                      return (
+                        <div
+                          key={i}
+                          style={{
+                            color: t.ok ? "#4ade80" : "rgba(252,165,165,0.7)",
+                          }}
+                        >
+                          {t.ok ? "✓" : "✗"} {label}
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
               )}

@@ -579,7 +579,10 @@ export default function Sidebar({
             { kind: "credit" as const, label: "Top Up Credit", Icon: Wallet },
             { kind: "affiliate" as const, label: "Affiliate", Icon: Users },
             { kind: "usage" as const, label: "Usage", Icon: Activity },
-            { kind: "saved-prompts" as const, label: "Saved Prompts", Icon: Bookmark },
+            // Saved Prompts hidden — per-tab agents now persist their
+            // own prompt history, so the standalone library page is
+            // redundant. Re-enable if we bring back manual prompt curation.
+            // { kind: "saved-prompts" as const, label: "Saved Prompts", Icon: Bookmark },
             // Storage tab hidden — every generation now auto-rehosts to
             // peninglab-content B2 bucket at settle time, so the manual
             // "Save" UX is no longer needed. Files live for 30 days via

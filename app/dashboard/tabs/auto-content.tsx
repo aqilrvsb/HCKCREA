@@ -7,6 +7,7 @@ import Portal from "../sections/portal";
 import { uploadImage, dataUrlToFile } from "@/lib/upload-image";
 import { isVisibleAfterTtl, fetchSavedSet } from "@/lib/history-filter";
 import AttachmentPicker from "../sections/attachment-picker";
+import ScrapePicker from "../sections/scrape-picker";
 import {
   FRAMEWORKS,
   TYPE_COLORS,
@@ -111,6 +112,12 @@ export default function AutoContentTab({ projectId }: { projectId?: string } = {
   const [pickerSlot, setPickerSlot] = useState<number | null>(null);
   // Attachment picker — opened by the manual-product Upload button.
   const [attachmentSlot, setAttachmentSlot] = useState<number | null>(null);
+  // Google Images scrape modal — open when user clicks per-product
+  // "Scrape" button. Holds (idx, prefilled query) so the modal can show
+  // 5 candidates for that exact product's name.
+  const [scrapeState, setScrapeState] = useState<
+    { idx: number; query: string } | null
+  >(null);
 
   // Aborts the in-flight planning fetch when the user hits Stop.
   const abortRef = useRef<AbortController | null>(null);
@@ -211,6 +218,26 @@ export default function AutoContentTab({ projectId }: { projectId?: string } = {
       )
     );
     setAttachmentSlot(null);
+  }
+
+  // Append scraped URLs to a product's existing slots (capped at 3).
+  // Unlike the Attachments picker which REPLACES the slot array, scrape
+  // results ADD to whatever's already there so the user can mix-and-match
+  // (e.g. 1 from Attachments + 2 from Google Images).
+  function appendScrapedToManual(idx: number, urls: string[]) {
+    setManualProducts((prev) =>
+      prev.map((p, i) => {
+        if (i !== idx) return p;
+        const existing = p.imageUrls || [];
+        const merged = [...existing, ...urls].slice(0, 3);
+        return {
+          ...p,
+          imageUrls: merged,
+          imageData: merged[0] || p.imageData || "",
+        };
+      })
+    );
+    setScrapeState(null);
   }
 
   // Affiliate URL → cache-or-scrape → prefill manual_products[0]. The
@@ -860,6 +887,13 @@ export default function AutoContentTab({ projectId }: { projectId?: string } = {
                   )
                 }
                 onPickAttachment={() => setAttachmentSlot(i)}
+                onScrape={() => {
+                  // Pre-fill with the first line of product info — the
+                  // affiliate scrape stamps the product name there as
+                  // line 1, manual users type their own.
+                  const firstLine = (p.info || "").split("\n")[0].trim();
+                  setScrapeState({ idx: i, query: firstLine });
+                }}
                 onRemoveSlot={(slotIdx) =>
                   setManualProducts((prev) =>
                     prev.map((x, j) => {
@@ -956,17 +990,9 @@ export default function AutoContentTab({ projectId }: { projectId?: string } = {
           </Select>
         </div>
 
-        {/* Plan mode buttons — Verify Plan removed per design;
-            AI Plan and Manual Plan only. */}
-        <Label>Plan Mode</Label>
-        <div className="flex gap-2 mb-3">
-          <PlanModeBtn active={planMode === "aiplan"} onClick={() => setPlanMode("aiplan")}>
-            AI Plan
-          </PlanModeBtn>
-          <PlanModeBtn active={planMode === "manual"} onClick={() => setPlanMode("manual")}>
-            Manual Plan
-          </PlanModeBtn>
-        </div>
+        {/* Plan-mode selector hidden — AI Plan is the only path now. The
+            Manual Plan JSON UI is preserved below in case we re-enable
+            this entry, but the user can no longer reach it from the UI. */}
 
         {/* Frameworks (AI Plan + Verify Plan) */}
         {showFrameworks && (
@@ -1289,6 +1315,25 @@ export default function AutoContentTab({ projectId }: { projectId?: string } = {
         maxPick={3}
         defaultCategory="product"
       />
+      {/* Google Images scrape modal — fires top-5 candidates for the
+          per-product Scrape button. maxPick is dynamic: 3 minus whatever
+          slots are already filled so the per-product 3-slot cap holds. */}
+      <ScrapePicker
+        open={scrapeState !== null}
+        onClose={() => setScrapeState(null)}
+        initialQuery={scrapeState?.query || ""}
+        maxPick={
+          scrapeState !== null
+            ? Math.max(
+                0,
+                3 - (manualProducts[scrapeState.idx]?.imageUrls?.length || 0)
+              )
+            : 0
+        }
+        onPickMulti={(urls) => {
+          if (scrapeState !== null) appendScrapedToManual(scrapeState.idx, urls);
+        }}
+      />
     </div>
   );
 }
@@ -1300,6 +1345,7 @@ function ManualProductCard({
   product,
   onInfoChange,
   onPickAttachment,
+  onScrape,
   onRemoveSlot,
   onClear,
 }: {
@@ -1308,12 +1354,17 @@ function ManualProductCard({
   product: ManualProduct;
   onInfoChange: (s: string) => void;
   onPickAttachment: () => void;
+  // Open Google Images scrape modal seeded with the first line of info.
+  // Optional flow — user can still rely on Attachments alone.
+  onScrape: () => void;
   // Clear ONE image slot (slot index i within this product's imageUrls)
   // without touching info / textarea content. Lets the user replace a
   // bad affiliate-scraped image while keeping product_id + description.
   onRemoveSlot: (i: number) => void;
   onClear: () => void;
 }) {
+  const slotsFull = (product.imageUrls?.length || 0) >= 3;
+  const canScrape = !!(product.info || "").trim() && !slotsFull;
   return (
     <div
       className="rounded-lg p-3"
@@ -1403,6 +1454,30 @@ function ManualProductCard({
           <SmallBtn onClick={onPickAttachment} color={AMBER}>
             Attachments
           </SmallBtn>
+          {/* Optional — auto-fill empty slots from a Google Images search
+              seeded with this product's name. Disabled if there's no
+              product info yet (nothing to search) or all 3 slots are
+              already full (nothing to fill). */}
+          <button
+            type="button"
+            onClick={onScrape}
+            disabled={!canScrape}
+            title={
+              slotsFull
+                ? "Slots full — clear one to scrape"
+                : !product.info?.trim()
+                  ? "Type a product name first"
+                  : "Scrape Google Images for this product"
+            }
+            className="px-2 py-1 rounded text-[10px] font-bold disabled:opacity-40"
+            style={{
+              background: "rgba(234,179,8,0.08)",
+              border: "1px solid #eab308",
+              color: "#a16207",
+            }}
+          >
+            🔍 Scrape
+          </button>
           {(product.imageUrls?.length || product.imageData) && (
             <SmallBtn onClick={onClear} danger>
               x
