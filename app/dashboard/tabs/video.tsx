@@ -52,10 +52,54 @@ export default function VideoTab({ projectId }: { projectId?: string } = {}) {
   const [pickerSlot, setPickerSlot] = useState<RefSlot | null>(null);
   // Attachment picker replaces local-file uploads on this tab.
   const [attachmentSlot, setAttachmentSlot] = useState<RefSlot | null>(null);
-  // Google Images scrape modal — opens from the Scrape button next to
-  // Product Reference's Attachments. Only available for the "ref" slot
-  // (products); avatar/start/end stay attachments-only.
-  const [scrapeOpen, setScrapeOpen] = useState(false);
+  // Google Images scrape state for the product reference slot. Fires
+  // automatically when the Scrape button is clicked; results land here
+  // and the count badge opens the picker on a second click.
+  const [scrapeRow, setScrapeRow] = useState<{
+    loading: boolean;
+    images: string[] | null;
+    query: string | null;
+    error: string | null;
+  } | null>(null);
+  const [scrapePickerOpen, setScrapePickerOpen] = useState(false);
+
+  // Fire the scrape against the first 80 chars of the user's prompt.
+  // Cleanup of "name - description" separators happens server-side.
+  async function fireUgcScrape() {
+    const raw = (prompt || "").slice(0, 200).trim();
+    if (!raw) {
+      setScrapeRow({ loading: false, images: null, query: null, error: "Type a prompt first" });
+      return;
+    }
+    setScrapeRow({ loading: true, images: null, query: null, error: null });
+    try {
+      const r = await fetch("/api/scrape/product-images", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ query: raw }),
+      });
+      const data = await r.json();
+      if (!r.ok || !data?.ok) {
+        throw new Error(data?.error || `HTTP ${r.status}`);
+      }
+      const images: string[] = Array.isArray(data.images) ? data.images : [];
+      setScrapeRow({
+        loading: false,
+        images,
+        query: data.query || raw,
+        error: null,
+      });
+      const cap = (avatarImage ? 2 : 3) - refImages.length;
+      if (images.length > 0 && cap > 0) setScrapePickerOpen(true);
+    } catch (e: any) {
+      setScrapeRow({
+        loading: false,
+        images: null,
+        query: raw,
+        error: e?.message || "scrape failed",
+      });
+    }
+  }
   const [showUgcModal, setShowUgcModal] = useState(false);
 
   // Pick up a prompt handed off from the UGC Prompt Builder rendered above
@@ -307,7 +351,9 @@ export default function VideoTab({ projectId }: { projectId?: string } = {}) {
                 urls={refImages}
                 max={avatarImage ? 2 : 3}
                 onPick={() => setAttachmentSlot("ref")}
-                onScrape={() => setScrapeOpen(true)}
+                scrape={scrapeRow}
+                onScrape={fireUgcScrape}
+                onOpenScrapePicker={() => setScrapePickerOpen(true)}
                 onRemove={(i) =>
                   setRefImages((prev) => prev.filter((_, idx) => idx !== i))
                 }
@@ -449,14 +495,14 @@ export default function VideoTab({ projectId }: { projectId?: string } = {}) {
             })}
       />
 
-      {/* Optional Google Images scrape for product refs. Pre-fills the
-          search box with the first chunk of the user's prompt so the
-          flow is "paste prompt → click Scrape → see 5 candidates". The
-          maxPick caps at remaining product slots so the cap holds. */}
+      {/* Google Images scrape picker — auto-opens after first fire,
+          re-opens on count-badge click. Caller owns the fetch so the
+          modal stays a pure display surface. */}
       <ScrapePicker
-        open={scrapeOpen}
-        onClose={() => setScrapeOpen(false)}
-        initialQuery={(prompt || "").slice(0, 80).trim()}
+        open={scrapePickerOpen}
+        onClose={() => setScrapePickerOpen(false)}
+        images={scrapeRow?.images || []}
+        query={scrapeRow?.query || ""}
         maxPick={Math.max(0, (avatarImage ? 2 : 3) - refImages.length)}
         onPickMulti={(urls) => {
           setRefImages((prev) => {
@@ -615,7 +661,9 @@ function MultiRefRow({
   urls,
   max,
   onPick,
+  scrape,
   onScrape,
+  onOpenScrapePicker,
   onRemove,
 }: {
   label: string;
@@ -623,13 +671,20 @@ function MultiRefRow({
   urls: string[];
   max: number;
   onPick: () => void;
-  // Optional — when supplied, renders a 🔍 Scrape button under
-  // Attachments that opens the Google Images modal. Disabled when slots
-  // are full (caller should pass undefined to hide it entirely).
+  // Optional — when both onScrape + onOpenScrapePicker are supplied, the
+  // row renders a three-state Scrape button (idle → loading → count).
+  scrape?: {
+    loading: boolean;
+    images: string[] | null;
+    query: string | null;
+    error: string | null;
+  } | null;
   onScrape?: () => void;
+  onOpenScrapePicker?: () => void;
   onRemove: (i: number) => void;
 }) {
   const slotsFull = urls.length >= max;
+  const hasResults = !!scrape?.images && scrape.images.length > 0;
   const slots = Array.from({ length: max }).map((_, i) => urls[i] || "");
   return (
     <div>
@@ -674,24 +729,51 @@ function MultiRefRow({
         <div className="flex flex-col gap-1">
           <SmallBtn onClick={onPick}>Attachments</SmallBtn>
           {onScrape && (
-            <button
-              type="button"
-              onClick={onScrape}
-              disabled={slotsFull}
-              title={
-                slotsFull
-                  ? "Slots full — clear one to scrape"
-                  : "Scrape Google Images"
-              }
-              className="px-2 py-1 rounded text-[10px] font-bold disabled:opacity-40"
-              style={{
-                background: "rgba(234,179,8,0.08)",
-                border: "1px solid #eab308",
-                color: "#a16207",
-              }}
-            >
-              🔍 Scrape
-            </button>
+            <>
+              <button
+                type="button"
+                onClick={
+                  hasResults && !scrape?.loading && onOpenScrapePicker
+                    ? onOpenScrapePicker
+                    : onScrape
+                }
+                disabled={(slotsFull || !!scrape?.loading) && !hasResults}
+                title={
+                  scrape?.loading
+                    ? "Scraping…"
+                    : slotsFull
+                      ? "Slots full — clear one to scrape"
+                      : hasResults
+                        ? `Re-open ${scrape!.images!.length} scraped images`
+                        : "Auto-scrape Google Images"
+                }
+                className="px-2 py-1 rounded text-[10px] font-bold disabled:opacity-40 whitespace-nowrap"
+                style={{
+                  background: "rgba(234,179,8,0.08)",
+                  border: "1px solid #eab308",
+                  color: "#a16207",
+                }}
+              >
+                {scrape?.loading
+                  ? "⏳ Scraping…"
+                  : hasResults
+                    ? `🖼️ ${scrape!.images!.length} images`
+                    : "🔍 Scrape"}
+              </button>
+              {scrape?.error && (
+                <div
+                  className="text-[9px] font-mono px-1.5 py-0.5 rounded"
+                  style={{
+                    background: "rgba(244,67,54,0.08)",
+                    border: "1px solid rgba(244,67,54,0.3)",
+                    color: "#b91c1c",
+                  }}
+                  title={scrape.error}
+                >
+                  ✗ {scrape.error.slice(0, 22)}
+                </div>
+              )}
+            </>
           )}
         </div>
       </div>

@@ -24,12 +24,25 @@ export async function POST(req: Request) {
   } catch {
     return NextResponse.json({ error: "Bad JSON" }, { status: 400 });
   }
-  const query = String(body?.query || "").trim();
-  if (!query) {
+  const rawQuery = String(body?.query || "").trim();
+  if (!rawQuery) {
     return NextResponse.json({ error: "query is required" }, { status: 400 });
   }
-  if (query.length > 200) {
+  if (rawQuery.length > 500) {
     return NextResponse.json({ error: "query too long" }, { status: 400 });
+  }
+  // Strip everything after a hyphen / en-dash / em-dash / pipe separator
+  // surrounded by spaces. Affiliate scrapes stamp the product info as
+  // "<name> - <long marketing description>", and Google Images returns
+  // garbage when the description is included. Trims to the name only.
+  // E.g. "LUQFA Lotion 100ml  - Mencerahkan dengan DNA Salmon"
+  //   → "LUQFA Lotion 100ml"
+  const query = rawQuery
+    .replace(/\s+[-–—|:]\s+.*$/, "")
+    .trim()
+    .slice(0, 120);
+  if (!query) {
+    return NextResponse.json({ error: "empty after cleanup" }, { status: 400 });
   }
 
   const cfg = await getCrawlbaseConfig();

@@ -1,57 +1,48 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { X, Loader2, Search, Globe } from "lucide-react";
+import { X, Globe } from "lucide-react";
 import Portal from "./portal";
 
-// ScrapePicker — Google Images scrape → multi-pick modal. Optional
-// companion to AttachmentPicker: lets the user auto-fetch 5 product
-// image candidates from Google instead of (or in addition to) picking
-// from their personal Attachments library.
-//
-// The modal opens with an editable search input pre-filled with whatever
-// product name the caller best guesses (affiliate scrape title, first
-// line of manual product info, prompt fragment, …). User can edit the
-// query before hitting Search.
+// ScrapePicker — pure DISPLAY modal for Google Images scrape results.
+// Caller fires the scrape itself, then opens this modal once `images`
+// is populated. No search input here — that flow is gone per design:
+// "click Scrape → auto-fire → count badge → click badge to pick".
 //
 // `maxPick` is calculated by the caller as (3 − currentSlotCount) so the
-// per-product slot cap is respected. If maxPick <= 0, the modal still
-// opens (so the user can see why nothing's pickable) and the Use button
-// stays disabled.
+// per-product slot cap is respected.
 export default function ScrapePicker({
   open,
   onClose,
   onPickMulti,
   maxPick = 3,
-  initialQuery = "",
-  title = "Scrape Product Images",
+  images,
+  query,
+  title = "Pick Scraped Images",
 }: {
   open: boolean;
   onClose: () => void;
   onPickMulti: (urls: string[]) => void;
   maxPick?: number;
-  initialQuery?: string;
+  // Pre-fetched candidates — caller does the scrape, this modal just
+  // renders them. Must be set before opening or the grid stays empty.
+  images: string[];
+  // Display-only — shows what query produced these candidates so the
+  // user can confirm "yes that's the right product".
+  query?: string;
   title?: string;
 }) {
-  const [query, setQuery] = useState(initialQuery);
-  const [results, setResults] = useState<string[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [selectedIdxs, setSelectedIdxs] = useState<number[]>([]);
   const [brokenIdxs, setBrokenIdxs] = useState<Set<number>>(new Set());
 
-  // Reset selection + previous results whenever the modal reopens so a
-  // stale query / picks from a previous session never bleed into the
-  // current product card.
+  // Reset selection whenever the modal reopens or the underlying image
+  // set changes so a stale pick never bleeds into the wrong product.
   useEffect(() => {
     if (open) {
-      setQuery(initialQuery);
-      setResults([]);
-      setError(null);
       setSelectedIdxs([]);
       setBrokenIdxs(new Set());
     }
-  }, [open, initialQuery]);
+  }, [open, images]);
 
   useEffect(() => {
     if (!open) return;
@@ -61,39 +52,6 @@ export default function ScrapePicker({
   }, [open, onClose]);
 
   if (!open) return null;
-
-  async function runSearch() {
-    const q = query.trim();
-    if (!q) {
-      setError("Type a product name first.");
-      return;
-    }
-    setLoading(true);
-    setError(null);
-    setResults([]);
-    setSelectedIdxs([]);
-    setBrokenIdxs(new Set());
-    try {
-      const r = await fetch("/api/scrape/product-images", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ query: q }),
-      });
-      const data = await r.json();
-      if (!r.ok || !data?.ok) {
-        setError(data?.error || `Scrape failed (${r.status})`);
-      } else {
-        setResults(Array.isArray(data.images) ? data.images : []);
-        if (!data.images?.length) {
-          setError("No usable images found. Try a different query.");
-        }
-      }
-    } catch (e: any) {
-      setError(`Network: ${e?.message || "fetch failed"}`);
-    } finally {
-      setLoading(false);
-    }
-  }
 
   function toggle(i: number) {
     if (brokenIdxs.has(i)) return;
@@ -106,7 +64,7 @@ export default function ScrapePicker({
 
   function commit() {
     const urls = selectedIdxs
-      .map((i) => results[i])
+      .map((i) => images[i])
       .filter((u): u is string => !!u);
     if (!urls.length) return;
     onPickMulti(urls);
@@ -126,10 +84,15 @@ export default function ScrapePicker({
         >
           {/* Header */}
           <div className="flex items-center justify-between p-4 border-b">
-            <div className="flex items-center gap-2">
-              <Globe className="w-4 h-4" style={{ color: "#eab308" }} />
-              <div className="text-sm font-bold text-gray-900">{title}</div>
-              <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-gray-100 text-gray-600">
+            <div className="flex items-center gap-2 min-w-0">
+              <Globe className="w-4 h-4 flex-shrink-0" style={{ color: "#eab308" }} />
+              <div className="text-sm font-bold text-gray-900 flex-shrink-0">{title}</div>
+              {query && (
+                <div className="text-[11px] text-gray-500 truncate">
+                  for <span className="font-mono">"{query}"</span>
+                </div>
+              )}
+              <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-gray-100 text-gray-600 flex-shrink-0">
                 {selectedIdxs.length}/{Math.max(maxPick, 0)} picked
               </span>
             </div>
@@ -142,52 +105,11 @@ export default function ScrapePicker({
             </button>
           </div>
 
-          {/* Search bar */}
-          <div className="p-4 border-b">
-            <div className="flex gap-2">
-              <input
-                type="text"
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && !loading && runSearch()}
-                placeholder="Product name to search on Google Images…"
-                className="flex-1 px-3 py-2 rounded border border-gray-300 text-sm outline-none focus:border-yellow-500"
-                autoFocus
-              />
-              <button
-                type="button"
-                onClick={runSearch}
-                disabled={loading || !query.trim()}
-                className="px-4 py-2 rounded text-sm font-bold text-white disabled:opacity-50 flex items-center gap-1.5"
-                style={{ background: "#eab308" }}
-              >
-                {loading ? (
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                ) : (
-                  <Search className="w-4 h-4" />
-                )}
-                Search
-              </button>
-            </div>
-            <div className="text-[11px] text-gray-500 mt-2">
-              Tip: paste the exact product name from your listing. White-bg
-              hero shots give the best Veo identity match.
-            </div>
-            {error && (
+          {/* Slots-full hint */}
+          {maxPick <= 0 && (
+            <div className="px-4 pt-3">
               <div
-                className="mt-2 text-[12px] px-2 py-1.5 rounded"
-                style={{
-                  background: "rgba(244,67,54,0.08)",
-                  border: "1px solid rgba(244,67,54,0.3)",
-                  color: "#b91c1c",
-                }}
-              >
-                {error}
-              </div>
-            )}
-            {maxPick <= 0 && (
-              <div
-                className="mt-2 text-[12px] px-2 py-1.5 rounded"
+                className="text-[12px] px-2 py-1.5 rounded"
                 style={{
                   background: "rgba(234,179,8,0.08)",
                   border: "1px solid rgba(234,179,8,0.3)",
@@ -196,25 +118,18 @@ export default function ScrapePicker({
               >
                 Slots already full — clear a slot first to scrape replacements.
               </div>
-            )}
-          </div>
+            </div>
+          )}
 
           {/* Results grid */}
           <div className="flex-1 overflow-auto p-4">
-            {loading && (
-              <div className="flex items-center justify-center py-12 text-gray-400 text-sm gap-2">
-                <Loader2 className="w-4 h-4 animate-spin" />
-                Searching Google Images…
-              </div>
-            )}
-            {!loading && results.length === 0 && !error && (
+            {images.length === 0 ? (
               <div className="text-center py-12 text-gray-400 text-sm">
-                Type a query and hit Search to fetch up to 5 candidates.
+                No usable images found. Try a different product name.
               </div>
-            )}
-            {!loading && results.length > 0 && (
+            ) : (
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                {results.map((url, i) => {
+                {images.map((url, i) => {
                   const order = selectedIdxs.indexOf(i);
                   const picked = order >= 0;
                   const broken = brokenIdxs.has(i);

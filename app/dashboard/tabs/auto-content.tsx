@@ -112,12 +112,18 @@ export default function AutoContentTab({ projectId }: { projectId?: string } = {
   const [pickerSlot, setPickerSlot] = useState<number | null>(null);
   // Attachment picker — opened by the manual-product Upload button.
   const [attachmentSlot, setAttachmentSlot] = useState<number | null>(null);
-  // Google Images scrape modal — open when user clicks per-product
-  // "Scrape" button. Holds (idx, prefilled query) so the modal can show
-  // 5 candidates for that exact product's name.
-  const [scrapeState, setScrapeState] = useState<
-    { idx: number; query: string } | null
-  >(null);
+  // Per-product scrape state. Click "Scrape" → loading=true → fetch
+  // fires → either `images: string[]` or `error: string` lands here.
+  // The count badge that replaces the Scrape button reads from this map.
+  type ScrapeRow = {
+    loading: boolean;
+    images: string[] | null;
+    query: string | null;
+    error: string | null;
+  };
+  const [scrapeByIdx, setScrapeByIdx] = useState<Record<number, ScrapeRow>>({});
+  // Which product's scrape modal is open (count-badge → click to open).
+  const [scrapePickerIdx, setScrapePickerIdx] = useState<number | null>(null);
 
   // Aborts the in-flight planning fetch when the user hits Stop.
   const abortRef = useRef<AbortController | null>(null);
@@ -237,7 +243,53 @@ export default function AutoContentTab({ projectId }: { projectId?: string } = {
         };
       })
     );
-    setScrapeState(null);
+    setScrapePickerIdx(null);
+  }
+
+  // Fire the Google Images scrape for product `idx` and stash the result.
+  // The Scrape button switches to a spinner while loading, then to a
+  // "🖼️ N images" count badge that opens the picker on click.
+  async function fireScrape(idx: number) {
+    const product = manualProducts[idx];
+    const raw = (product?.info || "").split("\n")[0].trim();
+    if (!raw) return;
+    setScrapeByIdx((s) => ({
+      ...s,
+      [idx]: { loading: true, images: null, query: null, error: null },
+    }));
+    try {
+      const r = await fetch("/api/scrape/product-images", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ query: raw }),
+      });
+      const data = await r.json();
+      if (!r.ok || !data?.ok) {
+        throw new Error(data?.error || `HTTP ${r.status}`);
+      }
+      const images: string[] = Array.isArray(data.images) ? data.images : [];
+      setScrapeByIdx((s) => ({
+        ...s,
+        [idx]: { loading: false, images, query: data.query || raw, error: null },
+      }));
+      // If we got results AND there's room for more slots, auto-open
+      // the picker so the user can pick immediately. If zero results,
+      // the count badge stays as "0 — no results" so they know to retry.
+      const slotsRemaining = 3 - (product.imageUrls?.length || 0);
+      if (images.length > 0 && slotsRemaining > 0) {
+        setScrapePickerIdx(idx);
+      }
+    } catch (e: any) {
+      setScrapeByIdx((s) => ({
+        ...s,
+        [idx]: {
+          loading: false,
+          images: null,
+          query: raw,
+          error: e?.message || "scrape failed",
+        },
+      }));
+    }
   }
 
   // Affiliate URL → cache-or-scrape → prefill manual_products[0]. The
@@ -887,13 +939,9 @@ export default function AutoContentTab({ projectId }: { projectId?: string } = {
                   )
                 }
                 onPickAttachment={() => setAttachmentSlot(i)}
-                onScrape={() => {
-                  // Pre-fill with the first line of product info — the
-                  // affiliate scrape stamps the product name there as
-                  // line 1, manual users type their own.
-                  const firstLine = (p.info || "").split("\n")[0].trim();
-                  setScrapeState({ idx: i, query: firstLine });
-                }}
+                scrape={scrapeByIdx[i]}
+                onScrape={() => fireScrape(i)}
+                onOpenScrapePicker={() => setScrapePickerIdx(i)}
                 onRemoveSlot={(slotIdx) =>
                   setManualProducts((prev) =>
                     prev.map((x, j) => {
@@ -1315,23 +1363,33 @@ export default function AutoContentTab({ projectId }: { projectId?: string } = {
         maxPick={3}
         defaultCategory="product"
       />
-      {/* Google Images scrape modal — fires top-5 candidates for the
-          per-product Scrape button. maxPick is dynamic: 3 minus whatever
-          slots are already filled so the per-product 3-slot cap holds. */}
+      {/* Google Images scrape picker — opens once results land for a
+          given product idx (auto-opens after first fire OR on count-
+          badge click). maxPick is dynamic: 3 minus already-filled slots
+          so the per-product 3-slot cap holds. */}
       <ScrapePicker
-        open={scrapeState !== null}
-        onClose={() => setScrapeState(null)}
-        initialQuery={scrapeState?.query || ""}
+        open={scrapePickerIdx !== null}
+        onClose={() => setScrapePickerIdx(null)}
+        images={
+          scrapePickerIdx !== null
+            ? scrapeByIdx[scrapePickerIdx]?.images || []
+            : []
+        }
+        query={
+          scrapePickerIdx !== null
+            ? scrapeByIdx[scrapePickerIdx]?.query || ""
+            : ""
+        }
         maxPick={
-          scrapeState !== null
+          scrapePickerIdx !== null
             ? Math.max(
                 0,
-                3 - (manualProducts[scrapeState.idx]?.imageUrls?.length || 0)
+                3 - (manualProducts[scrapePickerIdx]?.imageUrls?.length || 0)
               )
             : 0
         }
         onPickMulti={(urls) => {
-          if (scrapeState !== null) appendScrapedToManual(scrapeState.idx, urls);
+          if (scrapePickerIdx !== null) appendScrapedToManual(scrapePickerIdx, urls);
         }}
       />
     </div>
@@ -1345,7 +1403,9 @@ function ManualProductCard({
   product,
   onInfoChange,
   onPickAttachment,
+  scrape,
   onScrape,
+  onOpenScrapePicker,
   onRemoveSlot,
   onClear,
 }: {
@@ -1354,9 +1414,18 @@ function ManualProductCard({
   product: ManualProduct;
   onInfoChange: (s: string) => void;
   onPickAttachment: () => void;
-  // Open Google Images scrape modal seeded with the first line of info.
-  // Optional flow — user can still rely on Attachments alone.
+  // Scrape state for this product slot — loading / images / error.
+  // Undefined means "never scraped yet" → button shows the idle "Scrape".
+  scrape?: {
+    loading: boolean;
+    images: string[] | null;
+    query: string | null;
+    error: string | null;
+  };
+  // Auto-fires the scrape against this product's first info line.
   onScrape: () => void;
+  // Re-opens the picker once we already have scrape results cached.
+  onOpenScrapePicker: () => void;
   // Clear ONE image slot (slot index i within this product's imageUrls)
   // without touching info / textarea content. Lets the user replace a
   // bad affiliate-scraped image while keeping product_id + description.
@@ -1364,7 +1433,13 @@ function ManualProductCard({
   onClear: () => void;
 }) {
   const slotsFull = (product.imageUrls?.length || 0) >= 3;
-  const canScrape = !!(product.info || "").trim() && !slotsFull;
+  const hasInfo = !!(product.info || "").trim();
+  const hasResults = !!scrape?.images && scrape.images.length > 0;
+  // The button is disabled when there's nothing to search or nowhere
+  // to put picks. Re-clicking after a successful scrape opens the
+  // picker instead of re-firing — saves a Crawlbase credit.
+  const disabledScrape =
+    !hasInfo || slotsFull || !!scrape?.loading;
   return (
     <div
       className="rounded-lg p-3"
@@ -1454,30 +1529,52 @@ function ManualProductCard({
           <SmallBtn onClick={onPickAttachment} color={AMBER}>
             Attachments
           </SmallBtn>
-          {/* Optional — auto-fill empty slots from a Google Images search
-              seeded with this product's name. Disabled if there's no
-              product info yet (nothing to search) or all 3 slots are
-              already full (nothing to fill). */}
+          {/* Three-state scrape button:
+              1. idle      → "🔍 Scrape" (fires the search)
+              2. loading   → spinner, disabled
+              3. has hits  → "🖼️ N images" (re-opens picker, no re-fetch)
+              Errors render as a thin red bar under. */}
           <button
             type="button"
-            onClick={onScrape}
-            disabled={!canScrape}
+            onClick={hasResults && !scrape?.loading ? onOpenScrapePicker : onScrape}
+            disabled={disabledScrape && !hasResults}
             title={
-              slotsFull
-                ? "Slots full — clear one to scrape"
-                : !product.info?.trim()
-                  ? "Type a product name first"
-                  : "Scrape Google Images for this product"
+              scrape?.loading
+                ? "Scraping…"
+                : slotsFull
+                  ? "Slots full — clear one to scrape"
+                  : !hasInfo
+                    ? "Type a product name first"
+                    : hasResults
+                      ? `Re-open ${scrape!.images!.length} scraped images`
+                      : "Auto-scrape Google Images for this product"
             }
-            className="px-2 py-1 rounded text-[10px] font-bold disabled:opacity-40"
+            className="px-2 py-1 rounded text-[10px] font-bold disabled:opacity-40 whitespace-nowrap"
             style={{
               background: "rgba(234,179,8,0.08)",
               border: "1px solid #eab308",
               color: "#a16207",
             }}
           >
-            🔍 Scrape
+            {scrape?.loading
+              ? "⏳ Scraping…"
+              : hasResults
+                ? `🖼️ ${scrape!.images!.length} images`
+                : "🔍 Scrape"}
           </button>
+          {scrape?.error && (
+            <div
+              className="text-[9px] font-mono px-1.5 py-0.5 rounded"
+              style={{
+                background: "rgba(244,67,54,0.08)",
+                border: "1px solid rgba(244,67,54,0.3)",
+                color: "#b91c1c",
+              }}
+              title={scrape.error}
+            >
+              ✗ {scrape.error.slice(0, 22)}
+            </div>
+          )}
           {(product.imageUrls?.length || product.imageData) && (
             <SmallBtn onClick={onClear} danger>
               x
