@@ -155,6 +155,28 @@ export async function POST(req: Request) {
       retryError = created.error || "Grok create failed";
     }
   } else {
+    // Skip tiers that previously accepted the task but failed downstream
+    // during polling. Without this, retrying a Crun-poll-failed row just
+    // re-fires the same broken tier and loops. tier_log uses 1-indexed
+    // strings like "1:p2:..." / "2:p2:..." / "3:p1:..." / "4:p3:..." so
+    // we parse the leading digit and bump past the highest OK tier.
+    const priorLog: Array<{ tier?: string; ok?: boolean }> = Array.isArray(
+      meta.tier_log
+    )
+      ? meta.tier_log
+      : [];
+    let startTier: 1 | 2 | 3 | 4 = 1;
+    for (const entry of priorLog) {
+      if (!entry?.ok) continue;
+      const n = parseInt(String(entry.tier || "").split(":")[0], 10);
+      if (n >= startTier && n < 4) startTier = (n + 1) as 1 | 2 | 3 | 4;
+    }
+    if (startTier > 1) {
+      console.warn(
+        `[retry] row ${row.id} previously OK at tier <${startTier} but failed downstream — starting cascade at tier ${startTier}`
+      );
+    }
+
     const r = await generateVideoWithCascade({
       primaryModel: model,
       userId: user.id,
@@ -163,6 +185,7 @@ export async function POST(req: Request) {
       durationMode,
       aspectRatio,
       imageMode,
+      startTier,
     });
     if (r.ok) {
       newTaskId = r.taskId;

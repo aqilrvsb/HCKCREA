@@ -70,9 +70,22 @@ export async function p2CreateTask(input: {
   // extracted seg-1 frame, not a product reference — duplicating
   // burns no signal and slows generation.
   skipR2VTriplicate?: boolean;
+  // Force a specific API key (bypasses the default p2_key from settings).
+  // Used by the video cascade to try a second Crun account as tier 2
+  // when the primary account is rate-limited or has quota issues.
+  apiKeyOverride?: string;
+  // Force-skip the provider dispatcher and call Crun directly. The
+  // video cascade uses this for the second-account fallback so the
+  // gen_provider_<asset> admin toggle doesn't accidentally route us
+  // back to GeminiGen with the wrong key.
+  forceP2?: boolean;
   extra?: Record<string, any>;
 }): Promise<P2CreateResp> {
-  const provider = await pickProvider(input.model, input.userId);
+  // Cascade callers that pass an explicit key always want Crun direct —
+  // never silently route them to p1.
+  const provider = input.forceP2 || input.apiKeyOverride
+    ? "p2"
+    : await pickProvider(input.model, input.userId);
   if (provider === "p1") {
     const r = await p1CreateTask({
       model: input.model,
@@ -112,10 +125,13 @@ async function p2CreateTaskInternal(input: {
   imageMode?: "frame" | "ingredient" | "text";
   callbackUrl?: string;
   skipR2VTriplicate?: boolean;
+  apiKeyOverride?: string;
+  forceP2?: boolean;
   extra?: Record<string, any>;
 }): Promise<P2CreateResp> {
   const cfg = await getP2Config();
-  if (!cfg.base || !cfg.key) return { ok: false, error: "P2 not configured", provider: "p2" };
+  const apiKey = input.apiKeyOverride || cfg.key;
+  if (!cfg.base || !apiKey) return { ok: false, error: "P2 not configured", provider: "p2" };
 
   // Coerce single imageUrl into the imageUrls array — Crun expects `img_urls`
   const imgUrls = (input.imageUrls || []).filter(Boolean);
@@ -241,7 +257,7 @@ async function p2CreateTaskInternal(input: {
   const res = await fetch(cfg.base + cfg.createPath, {
     method: "POST",
     headers: {
-      "x-api-key": cfg.key,
+      "x-api-key": apiKey,
       "Content-Type": "application/json",
     },
     body: JSON.stringify(body),

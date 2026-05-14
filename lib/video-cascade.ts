@@ -1,20 +1,28 @@
-// Linear 3-tier fallback cascade for Veo 3.1 video generation.
+// Linear 4-tier fallback cascade for Veo 3.1 video generation.
 //
-// Different from image-cascade.ts: video cascade is linear (p2 → p1 → p3),
-// not conditional, because:
-//   • Veo is the same model family across all 3 providers — there's no
-//     "swap to a different model with different filter" angle like
-//     image has (nano-banana vs imagen vs gpt-image).
-//   • Mountsea (p3) and GeminiGen (p1) both wrap Google's Veo directly,
-//     while Crun (p2) goes through its own pipeline. So if Crun fails
-//     for a transient reason, GeminiGen is usually the cleanest fallback.
+//   Tier 1 — p2 (Crun, account A — default key)
+//   Tier 2 — p2 (Crun, account B — fallback key) NEW
+//   Tier 3 — p1 (GeminiGen, Google direct)
+//   Tier 4 — p3 (Mountsea, Veo wrapper)
+//
+// Two Crun tiers exist because account-level rate limits / quota / queue
+// saturation are the most common transient failures, and a second Crun
+// account bypasses all of those without changing provider. Same Veo
+// pipeline, different credentials. If Crun's platform itself is having
+// issues OR the prompt is being filtered, both Crun tiers fail fast and
+// we drop to GeminiGen / Mountsea.
+//
+// `startTier` lets the retry path skip tiers that previously returned
+// ok:true at create time but failed downstream during polling — without
+// it, retries loop on the same broken tier forever.
 //
 // Used by: UGC, Auto Content, Cinema (Viral Normal Video), Viral
-// Talking Object video step, AI agent (which calls one of those).
+// Talking Object video step, Extend dialog, AI agent.
 
 import { p1CreateTask } from "@/lib/p1";
 import { p2CreateTask } from "@/lib/p2";
 import { p3CreateVideo } from "@/lib/p3";
+import { getP2Config } from "@/lib/settings";
 
 export type VideoCascadeProvider = "p1" | "p2" | "p3";
 
@@ -31,6 +39,10 @@ export type VideoCascadeInput = {
   /** Duration in seconds. Veo 3.1 fast = 8s only; quality variants 6/8. */
   durationMode?: string | number;
   userId?: string;
+  /** 1-4. Skip tiers BELOW this number. Used by retry to avoid looping
+   *  on a tier that accepted at create-time but failed downstream — pass
+   *  startTier = (highest_prior_ok_tier + 1). Default 1 = full cascade. */
+  startTier?: 1 | 2 | 3 | 4;
 };
 
 export type VideoCascadeTierLog = {
@@ -59,16 +71,15 @@ export type VideoCascadeResult =
     };
 
 // Helper — try one provider, returns uniform shape regardless of upstream.
+// `account` only matters for p2: "A" = default key, "B" = secondary key.
 async function tryVideoProvider(
   which: VideoCascadeProvider,
-  input: VideoCascadeInput
+  input: VideoCascadeInput,
+  account: "A" | "B" = "A"
 ): Promise<{ ok: boolean; taskId: string | null; error: string | null; model: string }> {
   const { primaryModel, prompt, aspectRatio, imageUrls, imageMode, durationMode, userId } = input;
   try {
     if (which === "p1") {
-      // p1 (GeminiGen) — normalises model internally; pass primary model
-      // and let p1.ts strip to "veo-3.1-fast" / etc. No userId param —
-      // p1 doesn't track per-user; settle.ts deducts when the task settles.
       const r = await p1CreateTask({
         model: primaryModel,
         prompt,
@@ -85,6 +96,22 @@ async function tryVideoProvider(
       };
     }
     if (which === "p2") {
+      let apiKeyOverride: string | undefined;
+      if (account === "B") {
+        const cfg = await getP2Config();
+        if (!cfg.keyB) {
+          // Key B not configured — bail with a clear error so the
+          // cascade falls through to p1/p3 instead of silently
+          // re-firing the same default key.
+          return {
+            ok: false,
+            taskId: null,
+            error: "p2_key_b not configured in app_settings",
+            model: primaryModel,
+          };
+        }
+        apiKeyOverride = cfg.keyB;
+      }
       const r = await p2CreateTask({
         model: primaryModel,
         userId,
@@ -93,6 +120,10 @@ async function tryVideoProvider(
         durationMode,
         aspectRatio,
         imageMode,
+        apiKeyOverride,
+        // Both A and B want Crun directly — never silently re-route to
+        // p1 via the gen_provider toggle.
+        forceP2: true,
       });
       return {
         ok: r.ok,
@@ -101,9 +132,6 @@ async function tryVideoProvider(
         model: primaryModel,
       };
     }
-    // p3 — Mountsea wraps Veo. The primary model name gets mapped to
-    // Mountsea's bare key (veo31_fast / veo31_quality / etc.) inside
-    // p3CreateVideo.
     const r = await p3CreateVideo({
       prompt,
       model: primaryModel,
@@ -151,76 +179,111 @@ function triplicateProductRef(input: VideoCascadeInput): VideoCascadeInput {
 export async function generateVideoWithCascade(
   rawInput: VideoCascadeInput
 ): Promise<VideoCascadeResult> {
-  // Triplicate single product ref ONCE at the top so every tier sees
-  // the same 3× array.
   const input = triplicateProductRef(rawInput);
   const tierLog: VideoCascadeTierLog[] = [];
+  const startTier = Math.max(1, Math.min(4, input.startTier || 1));
+  const errs: Record<number, string> = {};
+  const imageCount = input.imageUrls?.length || 0;
 
-  // ── Tier 1: p2 (Crun) — current default ──
-  const t1 = await tryVideoProvider("p2", input);
-  tierLog.push({
-    tier: `1:p2:${input.primaryModel}`,
-    ok: t1.ok,
-    error: t1.error ?? undefined,
-    imageCount: input.imageUrls?.length || 0,
-  });
-  if (t1.ok && t1.taskId) {
-    return {
-      ok: true,
-      taskId: t1.taskId,
-      actualProvider: "p2",
-      actualModel: t1.model,
-      fallbackUsed: false,
-      tierLog,
-    };
-  }
-  console.warn(`[video-cascade] tier1 (p2/${input.primaryModel}) failed: ${t1.error}`);
-
-  // ── Tier 2: p1 (GeminiGen) — Veo 3.1 ──
-  const t2 = await tryVideoProvider("p1", input);
-  tierLog.push({
-    tier: `2:p1:${input.primaryModel}`,
-    ok: t2.ok,
-    error: t2.error ?? undefined,
-    imageCount: input.imageUrls?.length || 0,
-  });
-  if (t2.ok && t2.taskId) {
-    console.warn(`[video-cascade] tier2 (p1) saved the row`);
-    return {
-      ok: true,
-      taskId: t2.taskId,
-      actualProvider: "p1",
-      actualModel: t2.model,
-      fallbackUsed: true,
-      tierLog,
-    };
-  }
-  console.warn(`[video-cascade] tier2 (p1) failed: ${t2.error}`);
-
-  // ── Tier 3: p3 (Mountsea) — Veo 3.1 ──
-  const t3 = await tryVideoProvider("p3", input);
-  tierLog.push({
-    tier: `3:p3:${input.primaryModel}`,
-    ok: t3.ok,
-    error: t3.error ?? undefined,
-    imageCount: input.imageUrls?.length || 0,
-  });
-  if (t3.ok && t3.taskId) {
-    console.warn(`[video-cascade] tier3 (p3) saved the row`);
-    return {
-      ok: true,
-      taskId: t3.taskId,
-      actualProvider: "p3",
-      actualModel: t3.model,
-      fallbackUsed: true,
-      tierLog,
-    };
+  // ── Tier 1 — p2 / Crun, account A ─────────────────────────────────
+  if (startTier <= 1) {
+    const t = await tryVideoProvider("p2", input, "A");
+    tierLog.push({
+      tier: `1:p2:${input.primaryModel}`,
+      ok: t.ok,
+      error: t.error ?? undefined,
+      imageCount,
+    });
+    if (t.ok && t.taskId) {
+      return {
+        ok: true,
+        taskId: t.taskId,
+        actualProvider: "p2",
+        actualModel: t.model,
+        fallbackUsed: false,
+        tierLog,
+      };
+    }
+    errs[1] = t.error || "unknown";
+    console.warn(`[video-cascade] tier1 (p2-A) failed: ${t.error}`);
   }
 
-  // All 3 tiers failed — caller marks row failed, no further retries.
+  // ── Tier 2 — p2 / Crun, account B (rate-limit / quota bypass) ─────
+  if (startTier <= 2) {
+    const t = await tryVideoProvider("p2", input, "B");
+    tierLog.push({
+      tier: `2:p2:${input.primaryModel}`,
+      ok: t.ok,
+      error: t.error ?? undefined,
+      imageCount,
+    });
+    if (t.ok && t.taskId) {
+      console.warn(`[video-cascade] tier2 (p2-B) saved the row`);
+      return {
+        ok: true,
+        taskId: t.taskId,
+        actualProvider: "p2",
+        actualModel: t.model,
+        fallbackUsed: true,
+        tierLog,
+      };
+    }
+    errs[2] = t.error || "unknown";
+    console.warn(`[video-cascade] tier2 (p2-B) failed: ${t.error}`);
+  }
+
+  // ── Tier 3 — p1 / GeminiGen ──────────────────────────────────────
+  if (startTier <= 3) {
+    const t = await tryVideoProvider("p1", input);
+    tierLog.push({
+      tier: `3:p1:${input.primaryModel}`,
+      ok: t.ok,
+      error: t.error ?? undefined,
+      imageCount,
+    });
+    if (t.ok && t.taskId) {
+      console.warn(`[video-cascade] tier3 (p1) saved the row`);
+      return {
+        ok: true,
+        taskId: t.taskId,
+        actualProvider: "p1",
+        actualModel: t.model,
+        fallbackUsed: true,
+        tierLog,
+      };
+    }
+    errs[3] = t.error || "unknown";
+    console.warn(`[video-cascade] tier3 (p1) failed: ${t.error}`);
+  }
+
+  // ── Tier 4 — p3 / Mountsea ───────────────────────────────────────
+  if (startTier <= 4) {
+    const t = await tryVideoProvider("p3", input);
+    tierLog.push({
+      tier: `4:p3:${input.primaryModel}`,
+      ok: t.ok,
+      error: t.error ?? undefined,
+      imageCount,
+    });
+    if (t.ok && t.taskId) {
+      console.warn(`[video-cascade] tier4 (p3) saved the row`);
+      return {
+        ok: true,
+        taskId: t.taskId,
+        actualProvider: "p3",
+        actualModel: t.model,
+        fallbackUsed: true,
+        tierLog,
+      };
+    }
+    errs[4] = t.error || "unknown";
+  }
+
   return {
     ok: false,
-    error: `tier1(p2): ${t1.error}; tier2(p1): ${t2.error}; tier3(p3): ${t3.error}`,
+    error: Object.entries(errs)
+      .map(([n, e]) => `tier${n}: ${e}`)
+      .join("; "),
     tierLog,
   };
 }

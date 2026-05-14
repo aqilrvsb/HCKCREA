@@ -62,6 +62,7 @@ export async function getP2Config() {
   const s = await getSettings([
     "p2_base",
     "p2_key",
+    "p2_key_b",
     "p2_create_path",
     "p2_status_path",
     "p2_model_t2v",
@@ -75,6 +76,10 @@ export async function getP2Config() {
   return {
     base: s.p2_base?.url || "",
     key: s.p2_key?.key || "",
+    // Second Crun.ai API key — used as tier-2 fallback in the video
+    // cascade. Same provider, different account, so per-account rate
+    // limits / quota issues on account A don't block generation.
+    keyB: s.p2_key_b?.key || "",
     createPath: s.p2_create_path?.path || "/api/v1/client/job/CreateTask",
     statusPath: s.p2_status_path?.path || "/api/v1/client/job/TaskInfo",
     videoT2V: s.p2_model_t2v?.model || "",
