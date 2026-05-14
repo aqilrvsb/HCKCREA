@@ -89,82 +89,85 @@ export async function POST(req: Request) {
   }
 
   const images = extractGoogleImageUrls(html, 5);
-  // Debug mode for admin diagnostics — returns the first 4KB of the
-  // rendered HTML so we can audit the parser against real Crawlbase
-  // output. Keyed on profiles.is_admin so regular users never see it.
-  const u = new URL(req.url);
-  if (u.searchParams.get("debug") === "1") {
-    const { data: profile } = await sb
-      .from("profiles")
-      .select("is_admin")
-      .eq("id", user.id)
-      .single();
-    if (profile?.is_admin) {
-      // Scan for image-related tokens across the entire payload so we
-      // can see which extraction strategy matters.
-      const imgTagCount = (html.match(/<img[^>]+src=/g) || []).length;
-      const dataIurlCount = (html.match(/data-iurl=/g) || []).length;
-      const ouCount = (html.match(/"ou":"/g) || []).length;
-      const urlMatches = (html.match(/https?:\/\/[^\s"'<>]+/g) || []).slice(0, 40);
-      return NextResponse.json({
-        ok: true,
-        images,
-        query,
-        debug: {
-          htmlLen: html.length,
-          imgTagCount,
-          dataIurlCount,
-          ouCount,
-          urlSample: urlMatches,
-          tail: html.slice(Math.max(0, html.length - 3000)),
-        },
-      });
-    }
-  }
   return NextResponse.json({ ok: true, images, query });
 }
 
-// Extract real (non-thumbnail) image URLs from Google Images HTML. Google
-// embeds the originals inside a JSON island; we scan for raw URLs and
-// reject everything that's clearly a Google-owned thumb / icon / favicon.
+// Extract image URLs from Google Images lite/no-JS HTML. Crawlbase
+// (and most non-browser UAs) get served Google's lightweight SERP,
+// where the actual search-result thumbnails are <img src="..."> tags
+// pointing at encrypted-tbn0.gstatic.com/images?q=tbn:<hash>. Those
+// hashes serve real product photos at ~300px — small but workable as
+// Veo r2v references.
+//
+// Strategy:
+//   1. Pull every <img src="..."> attribute value from the HTML.
+//   2. Decode HTML entities (&amp; → &) so URLs are usable as-is.
+//   3. Keep tbn:* gstatic thumbnails (they ARE the image search hits)
+//      plus any non-Google CDN that lasted through the lite page.
+//   4. Reject favicons, sprites, 1x1 trackers.
 function extractGoogleImageUrls(html: string, limit: number): string[] {
   const out: string[] = [];
   const seen = new Set<string>();
 
-  // Pattern 1 — quoted https URLs ending in an image extension. Covers
-  // the cases where Google's JS payload serializes the original as a
-  // JSON string. Allows querystrings (CDNs love them).
-  const re = /"(https?:\/\/[^"\s]+?\.(?:jpe?g|png|webp|gif)(?:\?[^"\s]*)?)"/gi;
+  const re = /<img[^>]+src=["']([^"']+)["']/gi;
   let m: RegExpExecArray | null;
   while ((m = re.exec(html))) {
     const raw = m[1];
-    // Decode unicode escapes Google emits in JSON ("=" etc).
-    const url = raw.replace(/\\u003d/gi, "=").replace(/\\u0026/gi, "&");
+    const url = decodeHtmlEntities(raw);
+    if (!url.startsWith("http")) continue;
     if (seen.has(url)) continue;
-    if (!isLikelyProductImage(url)) continue;
+    if (!isAcceptableImageUrl(url)) continue;
     seen.add(url);
     out.push(url);
     if (out.length >= limit) break;
   }
+
+  // Fallback — if the img-tag pass came up dry (Crawlbase may rarely
+  // serve a JSON-only payload), sweep raw URL tokens too.
+  if (out.length === 0) {
+    const re2 = /https?:\/\/encrypted-tbn[0-9]\.gstatic\.com\/images\?q=tbn:[^\s"'<>&]+/gi;
+    const mm = html.match(re2) || [];
+    for (const raw of mm) {
+      const url = decodeHtmlEntities(raw);
+      if (seen.has(url)) continue;
+      seen.add(url);
+      out.push(url);
+      if (out.length >= limit) break;
+    }
+  }
   return out;
 }
 
-function isLikelyProductImage(url: string): boolean {
+function decodeHtmlEntities(s: string): string {
+  return s
+    .replace(/&amp;/g, "&")
+    .replace(/&#x2F;/gi, "/")
+    .replace(/&#39;/g, "'")
+    .replace(/&quot;/g, '"')
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">");
+}
+
+function isAcceptableImageUrl(url: string): boolean {
   try {
     const u = new URL(url);
     const host = u.hostname.toLowerCase();
-    // Google's own image CDNs serve thumbnails / icons / placeholders,
-    // not original product photos. Drop them.
-    if (host.endsWith("gstatic.com")) return false;
-    if (host.endsWith("googleusercontent.com")) return false;
+    const path = u.pathname.toLowerCase();
+    // encrypted-tbn0.gstatic.com/images?q=tbn:... — these ARE the
+    // actual image search results in Google's lite SERP. Keep them.
+    if (/^encrypted-tbn\d\.gstatic\.com$/.test(host)) {
+      return /^\/images$/.test(path) && u.searchParams.get("q")?.startsWith("tbn:") === true;
+    }
+    // Other Google-owned hosts almost never serve product images we want.
     if (host.endsWith("google.com")) return false;
     if (host.endsWith("googleadservices.com")) return false;
     if (host.endsWith("googlesyndication.com")) return false;
+    if (host.endsWith("googleusercontent.com")) return false;
     if (host.endsWith("ggpht.com")) return false;
     if (host.endsWith("ytimg.com")) return false;
-    // Common favicon / sprite paths.
-    if (/(?:^|\/)favicon\.(?:ico|png)/i.test(u.pathname)) return false;
-    if (/sprite|logo[-_]?\d*\.(?:png|svg)/i.test(u.pathname)) return false;
+    if (host.endsWith("gstatic.com")) return false; // non-tbn gstatic = sprites/icons
+    // Tracker/transparent-pixel patterns.
+    if (/(?:^|\/)(?:favicon|sprite|spacer|pixel|1x1|transparent|logo[-_]?\d*)\.(?:ico|png|gif|svg|webp)$/i.test(path)) return false;
     return true;
   } catch {
     return false;
