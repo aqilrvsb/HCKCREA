@@ -226,7 +226,12 @@ const AUDIO_GEN_FAIL_PATTERNS = [
   /audio synthesis failed/i,
 ];
 
-const MAX_AUTO_RETRIES = 2;
+// 3 auto-retries (+ the original = 4 total attempts) lines up exactly
+// with the 4-tier video cascade — original tries tier 1, auto-retry 1
+// tries tier 2, retry 2 tries tier 3, retry 3 tries tier 4. After all 4
+// tiers attempted, row stays failed and the user can still manually
+// retry from the UI (which resets / continues the cycle).
+const MAX_AUTO_RETRIES = 3;
 
 function isTransientError(err: string | null | undefined): boolean {
   if (!err) return false;
@@ -391,6 +396,26 @@ async function tryAutoRetry(
     newProvider = (created.provider || "p2") as "p1" | "p2" | "p3";
   } else {
     // Video cascade for UGC / Auto / Cinema Veo / Talking Object / Extend.
+    // Auto-retry must skip tiers that previously accepted but failed
+    // downstream during polling — otherwise we'd just re-fire the same
+    // broken tier and waste the retry budget. Read the prior tier_log
+    // and bump past the highest ok tier.
+    const priorLog: Array<{ tier?: string; ok?: boolean }> = Array.isArray(
+      meta.tier_log
+    )
+      ? meta.tier_log
+      : [];
+    let startTier: 1 | 2 | 3 | 4 = 1;
+    for (const entry of priorLog) {
+      if (!entry?.ok) continue;
+      const n = parseInt(String(entry.tier || "").split(":")[0], 10);
+      if (n >= startTier && n < 4) startTier = (n + 1) as 1 | 2 | 3 | 4;
+    }
+    if (startTier > 1) {
+      console.warn(
+        `[settle/auto-retry] row ${hist.id}: prior tier ${startTier - 1} succeeded at create but failed during polling — starting cascade at tier ${startTier}`
+      );
+    }
     const r = await generateVideoWithCascade({
       primaryModel: model,
       userId: hist.user_id,
@@ -399,6 +424,7 @@ async function tryAutoRetry(
       durationMode,
       aspectRatio,
       imageMode,
+      startTier,
     });
     tierLog = r.tierLog;
     if (!r.ok) {
