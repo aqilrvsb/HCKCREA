@@ -89,6 +89,31 @@ export async function POST(req: Request) {
   }
 
   const images = extractGoogleImageUrls(html, 5);
+  // Debug mode for admin diagnostics — returns the first 4KB of the
+  // rendered HTML so we can audit the parser against real Crawlbase
+  // output. Keyed on profiles.is_admin so regular users never see it.
+  const u = new URL(req.url);
+  if (u.searchParams.get("debug") === "1") {
+    const { data: profile } = await sb
+      .from("profiles")
+      .select("is_admin")
+      .eq("id", user.id)
+      .single();
+    if (profile?.is_admin) {
+      return NextResponse.json({
+        ok: true,
+        images,
+        query,
+        debug: {
+          htmlLen: html.length,
+          htmlHead: html.slice(0, 4000),
+          // Show a few mid-html chunks to find embedded URL patterns
+          mid1: html.slice(50_000, 52_000),
+          mid2: html.slice(100_000, 102_000),
+        },
+      });
+    }
+  }
   return NextResponse.json({ ok: true, images, query });
 }
 
