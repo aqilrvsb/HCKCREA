@@ -835,12 +835,52 @@ export default function FairytaleTab({ projectId }: { projectId?: string } = {})
         }));
       }
 
-      const valid = scenes.filter((s) => s.imageUrl && s.narration.trim());
-      if (valid.length === 0) {
-        setRenderError("Tunggu sehingga semua scene selesai diproses.");
+      // Hard preflight — every scene must be fully ready before we fire
+      // the Modal merge. Anything missing makes ffmpeg either produce
+      // garbage or a 0-byte mp4 that B2 then rejects with "request body
+      // too small". Cheaper to block here than to charge + fail later.
+      const problems: string[] = [];
+
+      // 1. Need at least 2 scenes for a story video (1-scene == trivial,
+      //    user probably hit Publish by accident).
+      if (scenes.length < 2) {
+        problems.push(`Need at least 2 scenes (you have ${scenes.length}).`);
+      }
+
+      // 2. Per-scene validation. Walk every scene, not just the first
+      //    invalid one, so the user sees the full list of fixes at once.
+      scenes.forEach((s) => {
+        const tag = `Scene ${s.idx + 1}`;
+        if (s.imageStatus === "queued" || s.imageStatus === "generating") {
+          problems.push(`${tag}: image still generating — wait for it to finish.`);
+        } else if (s.imageStatus === "failed") {
+          problems.push(`${tag}: image failed — regenerate it before publishing.`);
+        } else if (!s.imageUrl) {
+          problems.push(`${tag}: no image — upload one or wait for generation.`);
+        }
+        if (!s.narration || !s.narration.trim()) {
+          problems.push(`${tag}: narration is empty.`);
+        }
+      });
+
+      // 3. Voice picker is required when voice mode is on (Modal calls
+      //    MiniMax with the chosen voice; missing voice_id = silent fail).
+      if (enableVoice && !voiceId) {
+        problems.push("Pick a voice — voice mode is on.");
+      }
+
+      if (problems.length > 0) {
+        setRenderError(
+          `Belum boleh publish — fix dulu:\n• ${problems.join("\n• ")}`
+        );
         setRenderStatus("idle");
         return;
       }
+
+      // All scenes pass preflight — every entry is guaranteed to have
+      // imageUrl + narration so the filter below just produces the
+      // payload shape Modal expects.
+      const valid = scenes.filter((s) => s.imageUrl && s.narration.trim());
       const r = await fetch("/api/generate/fairytale", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1913,7 +1953,7 @@ function Step3(props: any) {
           </button>
         </div>
         {renderError && (
-          <div className="text-xs text-red-600 bg-red-50 border border-red-100 rounded-lg px-3 py-2">
+          <div className="text-xs text-red-600 bg-red-50 border border-red-100 rounded-lg px-3 py-2 whitespace-pre-line">
             {renderError}
           </div>
         )}

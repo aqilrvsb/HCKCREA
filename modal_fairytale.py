@@ -522,6 +522,17 @@ def _concat_scenes(scene_paths: list, out_path: Path) -> Path:
     res = subprocess.run(cmd, capture_output=True, text=True)
     if res.returncode != 0:
         raise RuntimeError(f"ffmpeg concat failed: {res.stderr[-800:]}")
+    # ffmpeg occasionally exits 0 but writes an unusably small / empty
+    # file (e.g. when the input list is parsed but every entry fails).
+    # Catch that here so the row's error_message tells the user the
+    # merge produced no output instead of the cryptic B2 "request body
+    # was too small" XML the upload step would raise later.
+    if not out_path.exists() or out_path.stat().st_size < 1024:
+        size = out_path.stat().st_size if out_path.exists() else 0
+        raise RuntimeError(
+            f"ffmpeg concat produced empty/tiny output ({size} bytes) — "
+            f"check scene render outputs. stderr tail: {res.stderr[-400:]}"
+        )
     return out_path
 
 
@@ -609,10 +620,38 @@ def _b2_sign_v4(method: str, b2_key: str, body: bytes | None, content_type: str 
 def _upload_b2(local_path: Path, b2_key: str, content_type: str = "video/mp4") -> None:
     """PUT the local file to Backblaze B2 at the given key with the
     immutable cache-control header so browsers cache the file for 30 days.
+
+    Validates the file is non-empty BEFORE the PUT. If ffmpeg merge
+    produced a 0-byte mp4 we'd otherwise get the cryptic B2 XML error
+    'request body was too small' — surfacing the local state first
+    makes the actual failure (empty merge output) obvious in the row's
+    error_message and the Modal logs.
     """
     import requests
+    if not local_path.exists():
+        raise RuntimeError(
+            f"B2 upload skipped: {local_path} does not exist — merge step likely failed silently"
+        )
+    size = local_path.stat().st_size
+    if size == 0:
+        raise RuntimeError(
+            f"B2 upload skipped: {local_path} is empty (0 bytes) — ffmpeg merge produced no output, "
+            "check the scene render + concat steps for silent failures"
+        )
+    # Sanity floor — a real merged mp4 is at least a few KB for the moov atom alone.
+    # If we see less than 1KB the file is almost certainly corrupt.
+    if size < 1024:
+        raise RuntimeError(
+            f"B2 upload skipped: {local_path} is suspiciously small ({size} bytes) — likely corrupt merge output"
+        )
+
     with open(local_path, "rb") as f:
         body = f.read()
+    if len(body) != size:
+        raise RuntimeError(
+            f"B2 upload skipped: read mismatch — file claimed {size} bytes, read {len(body)} bytes"
+        )
+
     host, canonical_uri, headers = _b2_sign_v4(
         "PUT", b2_key, body, content_type,
         cache_control="public, max-age=2592000, immutable",
@@ -625,7 +664,7 @@ def _upload_b2(local_path: Path, b2_key: str, content_type: str = "video/mp4") -
     )
     if r.status_code < 200 or r.status_code >= 300:
         raise RuntimeError(
-            f"B2 upload failed: HTTP {r.status_code} {r.text[:300]}"
+            f"B2 upload failed: HTTP {r.status_code} (uploaded {size} bytes) {r.text[:300]}"
         )
 
 
