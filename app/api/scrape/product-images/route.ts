@@ -89,10 +89,11 @@ export async function POST(req: Request) {
     );
   }
 
-  // Over-fetch up to 15 candidates so the ranking pass has room to
+  // Over-fetch up to 25 candidates so the ranking pass has room to
   // sift out the ones with marketing banners / text overlays / busy
-  // backgrounds. We return the cleanest 5.
-  const candidates = extractGoogleImageUrls(html, 15);
+  // backgrounds. We return the cleanest 5 — bigger pool = more chance
+  // of finding multiple white-bg retailer shots.
+  const candidates = extractGoogleImageUrls(html, 25);
 
   let images = candidates.slice(0, 5);
   let ranked = false;
@@ -121,7 +122,7 @@ async function rankByNakedProductQuality(
   productName: string
 ): Promise<string[]> {
   if (urls.length === 0) return [];
-  const numbered = urls.slice(0, 15);
+  const numbered = urls.slice(0, 25);
   const indexedList = numbered.map((_, i) => `Image ${i}`).join(", ");
 
   const r = await orChatVision({

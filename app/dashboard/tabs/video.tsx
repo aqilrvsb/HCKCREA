@@ -63,8 +63,10 @@ export default function VideoTab({ projectId }: { projectId?: string } = {}) {
   } | null>(null);
   const [scrapePickerOpen, setScrapePickerOpen] = useState(false);
 
-  // Fire the scrape against the first 80 chars of the user's prompt.
-  // Cleanup of "name - description" separators happens server-side.
+  // Fire the scrape against the first 200 chars of the user's prompt.
+  // Server-side cleanup strips marketing description after " - " /  " | "
+  // separators. Picks land in the user's Attachments library, NOT in
+  // the ref slots directly — the user picks from Attachments afterwards.
   async function fireUgcScrape() {
     const raw = (prompt || "").slice(0, 200).trim();
     if (!raw) {
@@ -89,8 +91,7 @@ export default function VideoTab({ projectId }: { projectId?: string } = {}) {
         query: data.query || raw,
         error: null,
       });
-      const cap = (avatarImage ? 2 : 3) - refImages.length;
-      if (images.length > 0 && cap > 0) setScrapePickerOpen(true);
+      if (images.length > 0) setScrapePickerOpen(true);
     } catch (e: any) {
       setScrapeRow({
         loading: false,
@@ -496,20 +497,15 @@ export default function VideoTab({ projectId }: { projectId?: string } = {}) {
       />
 
       {/* Google Images scrape picker — auto-opens after first fire,
-          re-opens on count-badge click. Caller owns the fetch so the
-          modal stays a pure display surface. */}
+          re-opens on count-badge click. Picks are saved to the user's
+          Attachments library; they then open the Attachments picker
+          to fill the product ref slots as usual. */}
       <ScrapePicker
         open={scrapePickerOpen}
         onClose={() => setScrapePickerOpen(false)}
         images={scrapeRow?.images || []}
         query={scrapeRow?.query || ""}
-        maxPick={Math.max(0, (avatarImage ? 2 : 3) - refImages.length)}
-        onPickMulti={(urls) => {
-          setRefImages((prev) => {
-            const room = (avatarImage ? 2 : 3) - prev.length;
-            return [...prev, ...urls.slice(0, Math.max(0, room))];
-          });
-        }}
+        productName={scrapeRow?.query || ""}
       />
 
       {showUgcModal && <UgcModal onClose={() => setShowUgcModal(false)} />}

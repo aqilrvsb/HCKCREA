@@ -226,29 +226,11 @@ export default function AutoContentTab({ projectId }: { projectId?: string } = {
     setAttachmentSlot(null);
   }
 
-  // Append scraped URLs to a product's existing slots (capped at 3).
-  // Unlike the Attachments picker which REPLACES the slot array, scrape
-  // results ADD to whatever's already there so the user can mix-and-match
-  // (e.g. 1 from Attachments + 2 from Google Images).
-  function appendScrapedToManual(idx: number, urls: string[]) {
-    setManualProducts((prev) =>
-      prev.map((p, i) => {
-        if (i !== idx) return p;
-        const existing = p.imageUrls || [];
-        const merged = [...existing, ...urls].slice(0, 3);
-        return {
-          ...p,
-          imageUrls: merged,
-          imageData: merged[0] || p.imageData || "",
-        };
-      })
-    );
-    setScrapePickerIdx(null);
-  }
-
   // Fire the Google Images scrape for product `idx` and stash the result.
   // The Scrape button switches to a spinner while loading, then to a
-  // "🖼️ N images" count badge that opens the picker on click.
+  // "🖼️ N images" count badge that opens the picker on click. The
+  // picker writes to the user's Attachments library (NOT directly to
+  // product slots) — Scrape and Generate are separate flows now.
   async function fireScrape(idx: number) {
     const product = manualProducts[idx];
     const raw = (product?.info || "").split("\n")[0].trim();
@@ -272,13 +254,8 @@ export default function AutoContentTab({ projectId }: { projectId?: string } = {
         ...s,
         [idx]: { loading: false, images, query: data.query || raw, error: null },
       }));
-      // If we got results AND there's room for more slots, auto-open
-      // the picker so the user can pick immediately. If zero results,
-      // the count badge stays as "0 — no results" so they know to retry.
-      const slotsRemaining = 3 - (product.imageUrls?.length || 0);
-      if (images.length > 0 && slotsRemaining > 0) {
-        setScrapePickerIdx(idx);
-      }
+      // Auto-open the picker so the user can multi-select + save.
+      if (images.length > 0) setScrapePickerIdx(idx);
     } catch (e: any) {
       setScrapeByIdx((s) => ({
         ...s,
@@ -1363,10 +1340,10 @@ export default function AutoContentTab({ projectId }: { projectId?: string } = {
         maxPick={3}
         defaultCategory="product"
       />
-      {/* Google Images scrape picker — opens once results land for a
-          given product idx (auto-opens after first fire OR on count-
-          badge click). maxPick is dynamic: 3 minus already-filled slots
-          so the per-product 3-slot cap holds. */}
+      {/* Google Images scrape picker — opens after first fire and on
+          subsequent count-badge clicks. Picks get saved to the user's
+          Attachments library (category=product). They then pick from
+          Attachments to fill product slots as usual. */}
       <ScrapePicker
         open={scrapePickerIdx !== null}
         onClose={() => setScrapePickerIdx(null)}
@@ -1380,17 +1357,11 @@ export default function AutoContentTab({ projectId }: { projectId?: string } = {
             ? scrapeByIdx[scrapePickerIdx]?.query || ""
             : ""
         }
-        maxPick={
+        productName={
           scrapePickerIdx !== null
-            ? Math.max(
-                0,
-                3 - (manualProducts[scrapePickerIdx]?.imageUrls?.length || 0)
-              )
-            : 0
+            ? scrapeByIdx[scrapePickerIdx]?.query || ""
+            : ""
         }
-        onPickMulti={(urls) => {
-          if (scrapePickerIdx !== null) appendScrapedToManual(scrapePickerIdx, urls);
-        }}
       />
     </div>
   );

@@ -1,74 +1,112 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { X, Globe } from "lucide-react";
+import { X, Globe, Loader2, CheckCircle2 } from "lucide-react";
 import Portal from "./portal";
 
-// ScrapePicker — pure DISPLAY modal for Google Images scrape results.
-// Caller fires the scrape itself, then opens this modal once `images`
-// is populated. No search input here — that flow is gone per design:
-// "click Scrape → auto-fire → count badge → click badge to pick".
+// ScrapePicker — display + save modal for Google Images scrape results.
+// Flow:
+//   1. Caller fires the scrape and passes results into `images` + opens modal.
+//   2. User multi-picks up to 5 candidates from the grid.
+//   3. "Save to Attachments" — modal POSTs each picked URL to
+//      /api/attachments/import-from-urls which rehosts on B2 + creates
+//      Attachment rows in the user's library.
+//   4. User then opens the normal Attachments picker (from any tab) and
+//      sees the new scraped ones with category=product.
 //
-// `maxPick` is calculated by the caller as (3 − currentSlotCount) so the
-// per-product slot cap is respected.
+// We never write directly to product slots — keeps Scrape and Generate
+// as separate workflows so users build their asset library deliberately.
+
+const MAX_PICK = 5;
+
 export default function ScrapePicker({
   open,
   onClose,
-  onPickMulti,
-  maxPick = 3,
   images,
   query,
+  productName,
   title = "Pick Scraped Images",
+  onSaved,
 }: {
   open: boolean;
   onClose: () => void;
-  onPickMulti: (urls: string[]) => void;
-  maxPick?: number;
-  // Pre-fetched candidates — caller does the scrape, this modal just
-  // renders them. Must be set before opening or the grid stays empty.
   images: string[];
-  // Display-only — shows what query produced these candidates so the
+  // Cleaned query (e.g. "LUQFA Lotion 100ml") shown in the header so
   // user can confirm "yes that's the right product".
   query?: string;
+  // Stamped as the Attachment row's `name` so the library shows useful
+  // labels instead of "Scraped 2026-05-14".
+  productName?: string;
   title?: string;
+  // Fired after a successful save so the parent can show a toast or
+  // refresh anything that lists attachments. Optional.
+  onSaved?: (imported: number) => void;
 }) {
   const [selectedIdxs, setSelectedIdxs] = useState<number[]>([]);
   const [brokenIdxs, setBrokenIdxs] = useState<Set<number>>(new Set());
+  const [saving, setSaving] = useState(false);
+  const [saveResult, setSaveResult] = useState<
+    { imported: number; skipped: number } | null
+  >(null);
+  const [error, setError] = useState<string | null>(null);
 
-  // Reset selection whenever the modal reopens or the underlying image
-  // set changes so a stale pick never bleeds into the wrong product.
   useEffect(() => {
     if (open) {
       setSelectedIdxs([]);
       setBrokenIdxs(new Set());
+      setSaving(false);
+      setSaveResult(null);
+      setError(null);
     }
   }, [open, images]);
 
   useEffect(() => {
     if (!open) return;
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && !saving && onClose();
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [open, onClose]);
+  }, [open, onClose, saving]);
 
   if (!open) return null;
 
   function toggle(i: number) {
-    if (brokenIdxs.has(i)) return;
+    if (brokenIdxs.has(i) || saving) return;
     setSelectedIdxs((prev) => {
       if (prev.includes(i)) return prev.filter((x) => x !== i);
-      if (prev.length >= maxPick) return prev;
+      if (prev.length >= MAX_PICK) return prev;
       return [...prev, i];
     });
   }
 
-  function commit() {
+  async function save() {
+    if (saving) return;
     const urls = selectedIdxs
       .map((i) => images[i])
       .filter((u): u is string => !!u);
     if (!urls.length) return;
-    onPickMulti(urls);
-    onClose();
+    setSaving(true);
+    setError(null);
+    try {
+      const r = await fetch("/api/attachments/import-from-urls", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          urls,
+          name: productName || query || "",
+          category: "product",
+        }),
+      });
+      const data = await r.json();
+      if (!r.ok || !data?.ok) {
+        throw new Error(data?.error || `HTTP ${r.status}`);
+      }
+      setSaveResult({ imported: data.imported || 0, skipped: data.skipped || 0 });
+      onSaved?.(data.imported || 0);
+    } catch (e: any) {
+      setError(e?.message || "Save failed");
+    } finally {
+      setSaving(false);
+    }
   }
 
   return (
@@ -76,7 +114,7 @@ export default function ScrapePicker({
       <div
         className="fixed inset-0 z-[140] flex items-center justify-center p-4"
         style={{ background: "rgba(0,0,0,0.55)", backdropFilter: "blur(4px)" }}
-        onClick={onClose}
+        onClick={() => !saving && onClose()}
       >
         <div
           className="relative bg-white rounded-xl shadow-2xl w-full max-w-3xl max-h-[90vh] flex flex-col"
@@ -93,30 +131,50 @@ export default function ScrapePicker({
                 </div>
               )}
               <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-gray-100 text-gray-600 flex-shrink-0">
-                {selectedIdxs.length}/{Math.max(maxPick, 0)} picked
+                {selectedIdxs.length}/{MAX_PICK} picked
               </span>
             </div>
             <button
-              onClick={onClose}
+              onClick={() => !saving && onClose()}
               className="text-gray-400 hover:text-gray-700"
               aria-label="Close"
+              disabled={saving}
             >
               <X className="w-5 h-5" />
             </button>
           </div>
 
-          {/* Slots-full hint */}
-          {maxPick <= 0 && (
+          {/* Success / error banner */}
+          {saveResult && (
+            <div className="px-4 pt-3">
+              <div
+                className="text-[12px] px-2 py-1.5 rounded flex items-center gap-2"
+                style={{
+                  background: "rgba(34,197,94,0.08)",
+                  border: "1px solid rgba(34,197,94,0.3)",
+                  color: "#166534",
+                }}
+              >
+                <CheckCircle2 className="w-4 h-4 flex-shrink-0" />
+                <span>
+                  Saved {saveResult.imported} to Attachments
+                  {saveResult.skipped > 0 && ` (${saveResult.skipped} skipped — broken URL or wrong type)`}
+                  . Open the Attachments picker to use them.
+                </span>
+              </div>
+            </div>
+          )}
+          {error && (
             <div className="px-4 pt-3">
               <div
                 className="text-[12px] px-2 py-1.5 rounded"
                 style={{
-                  background: "rgba(234,179,8,0.08)",
-                  border: "1px solid rgba(234,179,8,0.3)",
-                  color: "#854d0e",
+                  background: "rgba(244,67,54,0.08)",
+                  border: "1px solid rgba(244,67,54,0.3)",
+                  color: "#b91c1c",
                 }}
               >
-                Slots already full — clear a slot first to scrape replacements.
+                ✗ {error}
               </div>
             </div>
           )}
@@ -138,7 +196,7 @@ export default function ScrapePicker({
                       key={url + i}
                       type="button"
                       onClick={() => toggle(i)}
-                      disabled={broken}
+                      disabled={broken || saving}
                       className="relative aspect-square rounded-lg overflow-hidden flex items-center justify-center text-left disabled:opacity-40"
                       style={{
                         border: picked
@@ -185,18 +243,27 @@ export default function ScrapePicker({
           <div className="flex items-center justify-end gap-2 p-4 border-t bg-gray-50">
             <button
               onClick={onClose}
-              className="px-4 py-2 rounded text-sm font-semibold text-gray-700 hover:bg-gray-200"
+              disabled={saving}
+              className="px-4 py-2 rounded text-sm font-semibold text-gray-700 hover:bg-gray-200 disabled:opacity-40"
             >
-              Cancel
+              {saveResult ? "Close" : "Cancel"}
             </button>
             <button
-              onClick={commit}
-              disabled={selectedIdxs.length === 0}
-              className="px-4 py-2 rounded text-sm font-bold text-white disabled:opacity-40"
+              onClick={save}
+              disabled={selectedIdxs.length === 0 || saving || !!saveResult}
+              className="px-4 py-2 rounded text-sm font-bold text-white disabled:opacity-40 flex items-center gap-1.5"
               style={{ background: "#eab308" }}
             >
-              Use {selectedIdxs.length || ""} image
-              {selectedIdxs.length === 1 ? "" : "s"}
+              {saving ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  Saving…
+                </>
+              ) : (
+                <>
+                  Save {selectedIdxs.length || ""} to Attachments
+                </>
+              )}
             </button>
           </div>
         </div>
