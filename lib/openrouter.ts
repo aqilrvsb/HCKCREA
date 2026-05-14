@@ -58,8 +58,13 @@ export async function orChat(opts: {
 // Multimodal vision call. Pass an array of image URLs (data: URLs OR public
 // URLs both work). OpenRouter follows OpenAI's image_url content-block shape.
 // Used by Clone (frame analysis) and Product OCR.
+//
+// `modelOverride` bypasses app_settings entirely — use this when the
+// caller has a specific model in mind (e.g. scrape-rank pins Gemini
+// Flash Lite regardless of what's set in admin).
 export async function orChatVision(opts: {
   modelKey?: "model_clone" | "model_vision" | "model_product_ocr" | "model_auto";
+  modelOverride?: string;
   systemPrompt: string;
   textPrompt: string;
   images: string[]; // data: URLs or https URLs
@@ -73,7 +78,7 @@ export async function orChatVision(opts: {
   ]);
   const base = s.or_base?.url;
   const key = s.or_key?.key;
-  const model = s[opts.modelKey || "model_clone"]?.model;
+  const model = opts.modelOverride || s[opts.modelKey || "model_clone"]?.model;
   if (!base || !key || !model) {
     return { ok: false, error: "OpenRouter not configured" };
   }
