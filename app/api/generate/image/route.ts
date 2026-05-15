@@ -59,6 +59,9 @@ export async function POST(req: Request) {
       cost: 0, // overwritten with the plan-correct rate by after()
       metadata: {
         aspectRatio,
+        // Full attachment array so Resubmit re-fires with all refs,
+        // not just reference_url (which is only the first).
+        image_urls: referenceUrls.length ? referenceUrls : (referenceUrl ? [referenceUrl] : []),
         upload_status: "queued",
       },
     })

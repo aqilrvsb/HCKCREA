@@ -71,6 +71,12 @@ export async function POST(req: Request) {
   const cfg = await getP2Config();
   const meta = (row.metadata || {}) as Record<string, any>;
   const refImage = row.reference_url || "";
+  // Prefer the full image_urls array stamped at original-fire time so
+  // Resubmit re-fires with ALL attachments (up to 3). Falls back to
+  // [reference_url] for legacy rows that didn't stamp the full array.
+  const allImageUrls: string[] = Array.isArray(meta.image_urls) && meta.image_urls.length > 0
+    ? meta.image_urls.filter((u: any) => typeof u === "string" && u.trim())
+    : (refImage ? [refImage] : []);
   const aspectRatio = String(meta.aspectRatio || meta.aspect_ratio || "9:16");
   const durationMode: "8" | "16" = row.duration === 16 ? "16" : "8";
   const imageMode: "frame" | "ingredient" | "text" =
@@ -141,7 +147,7 @@ export async function POST(req: Request) {
       primaryModelP2: model,
       prompt: row.prompt,
       aspectRatio,
-      imageUrls: refImage ? [refImage] : undefined,
+      imageUrls: allImageUrls.length > 0 ? allImageUrls : undefined,
       skipSlot: imgSkipSlot,
     });
     if (r.ok) {
@@ -161,7 +167,7 @@ export async function POST(req: Request) {
     const created = await p1CreateTask({
       model,
       prompt: row.prompt,
-      imageUrls: refImage ? [refImage] : [],
+      imageUrls: allImageUrls,
       durationMode,
       aspectRatio,
       imageMode,
@@ -200,7 +206,7 @@ export async function POST(req: Request) {
       primaryModel: model,
       userId: user.id,
       prompt: row.prompt,
-      imageUrls: refImage ? [refImage] : [],
+      imageUrls: allImageUrls,
       durationMode,
       aspectRatio,
       imageMode,

@@ -93,6 +93,10 @@ export async function POST(req: Request) {
       metadata: {
         aspectRatio,
         imageMode,
+        // Full attachment array so Resubmit can re-fire with all 3
+        // reference images, not just reference_url (which is only the
+        // first). Crucial for r2v / ingredient mode product anchoring.
+        image_urls: imageUrls,
         upload_status: "queued",
         ...(is16s
           ? {
