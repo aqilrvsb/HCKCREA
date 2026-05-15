@@ -7,7 +7,7 @@
     },
     {
       "path": "/api/worker/auto-resubmit",
-      "schedule": "*/5 * * * *"
+      "schedule": "*/8 * * * *"
     }
   ]
 }

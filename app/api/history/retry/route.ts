@@ -84,6 +84,26 @@ export async function POST(req: Request) {
     );
   }
 
+  // ATOMIC CLAIM: flip status failed → pending BEFORE firing the
+  // cascade. If 0 rows match (because the auto-resubmit cron got here
+  // first OR a parallel user click), abort with a clear error so we
+  // don't fire a duplicate task at the upstream provider.
+  const { data: claimed, error: claimErr } = await admin
+    .from("history")
+    .update({
+      status: "pending",
+      error_message: null,
+    })
+    .eq("id", historyId)
+    .eq("status", "failed")
+    .select("id");
+  if (claimErr || !claimed || claimed.length === 0) {
+    return NextResponse.json(
+      { error: "Already resubmitting — please wait for the in-flight task to finish." },
+      { status: 409 }
+    );
+  }
+
   const cfg = await getP2Config();
   const meta = (row.metadata || {}) as Record<string, any>;
   const refImage = row.reference_url || "";

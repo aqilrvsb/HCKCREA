@@ -84,6 +84,34 @@ export async function GET(req: Request) {
       summary.exhausted += 1;
       continue;
     }
+
+    // ATOMIC CLAIM: flip status failed → pending and stamp a fresh
+    // task_started_at so:
+    //   (a) The next cron tick won't re-pick this row (status now pending).
+    //   (b) A simultaneous user click on Resubmit will see status !== "failed"
+    //       and bail out (retry route's status check). Prevents duplicate fires.
+    // If the update returns 0 rows, someone else got here first → skip.
+    const { data: claimed, error: claimErr } = await admin
+      .from("history")
+      .update({
+        status: "pending",
+        error_message: null,
+        metadata: {
+          ...meta,
+          auto_resubmit_count: autoCount + 1,
+          auto_resubmit_last_attempt_at: new Date().toISOString(),
+          task_started_at: new Date().toISOString(),
+          last_retry_kind: "auto-internal-server",
+        },
+      })
+      .eq("id", row.id)
+      .eq("status", "failed")
+      .select("id");
+    if (claimErr || !claimed || claimed.length === 0) {
+      // Race lost — another worker / user click already claimed it.
+      summary.ineligible += 1;
+      continue;
+    }
     summary.eligible += 1;
 
     const refImage = row.reference_url || "";
@@ -121,11 +149,14 @@ export async function GET(req: Request) {
     });
 
     if (!r.ok) {
-      // Stamp the auto-attempt so we don't retry the same failed
-      // upstream forever, but keep status=failed (didn't recover).
+      // Cascade failed — revert status back to failed so the user
+      // sees the Resubmit button again. Stamp the auto-error so we
+      // don't loop forever on the same broken upstream.
       await admin
         .from("history")
         .update({
+          status: "failed",
+          error_message: r.error || "Auto-resubmit failed",
           metadata: {
             ...meta,
             auto_resubmit_count: autoCount + 1,
@@ -137,12 +168,13 @@ export async function GET(req: Request) {
       continue;
     }
 
+    // Cascade accepted — stamp the new task_id + slot. Status stays
+    // 'pending' (already set by the claim above) so the row appears
+    // as Generating again on the dashboard.
     await admin
       .from("history")
       .update({
-        status: "pending",
         task_id: r.taskId,
-        error_message: null,
         metadata: {
           ...meta,
           provider: r.actualProvider,
@@ -151,6 +183,7 @@ export async function GET(req: Request) {
           fallback_used: r.fallbackUsed,
           tier_log: r.tierLog,
           retried_at: new Date().toISOString(),
+          task_started_at: new Date().toISOString(),
           auto_resubmit_count: autoCount + 1,
           auto_resubmit_last_attempt_at: new Date().toISOString(),
           last_retry_kind: "auto-internal-server",
