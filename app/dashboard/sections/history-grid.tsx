@@ -1296,22 +1296,58 @@ function HistoryCardInner({
                         <Pencil className="w-2.5 h-2.5" /> Edit
                       </button>
                     ) : (
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setEditedPrompt(null);
-                        }}
-                        title="Cancel edit"
-                        className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded inline-flex items-center gap-1"
-                        style={{
-                          background: "rgba(239,68,68,0.15)",
-                          color: "#fca5a5",
-                          border: "1px solid rgba(239,68,68,0.3)",
-                        }}
-                      >
-                        <X className="w-2.5 h-2.5" /> Cancel
-                      </button>
+                      <div className="flex items-center gap-1">
+                        <button
+                          type="button"
+                          onClick={async (e) => {
+                            e.stopPropagation();
+                            if (editedPrompt === null) return;
+                            const trimmed = editedPrompt.trim();
+                            if (!trimmed) return;
+                            try {
+                              const r = await fetch("/api/history/save-prompt", {
+                                method: "POST",
+                                headers: { "Content-Type": "application/json" },
+                                body: JSON.stringify({ history_id: item.id, prompt: trimmed }),
+                              });
+                              if (r.ok) {
+                                window.dispatchEvent(new CustomEvent("history:refresh"));
+                                setEditedPrompt(null);
+                              } else {
+                                const d = await r.json().catch(() => ({}));
+                                alert(d?.error || "Save failed");
+                              }
+                            } catch (err: any) {
+                              alert(err?.message || "Save failed");
+                            }
+                          }}
+                          title="Save edited prompt (does not fire generation)"
+                          className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded inline-flex items-center gap-1"
+                          style={{
+                            background: "rgba(34,197,94,0.18)",
+                            color: "#86efac",
+                            border: "1px solid rgba(34,197,94,0.4)",
+                          }}
+                        >
+                          <Check className="w-2.5 h-2.5" /> Save
+                        </button>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setEditedPrompt(null);
+                          }}
+                          title="Cancel edit"
+                          className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded inline-flex items-center gap-1"
+                          style={{
+                            background: "rgba(239,68,68,0.15)",
+                            color: "#fca5a5",
+                            border: "1px solid rgba(239,68,68,0.3)",
+                          }}
+                        >
+                          <X className="w-2.5 h-2.5" /> Cancel
+                        </button>
+                      </div>
                     )}
                   </div>
                   {editedPrompt === null ? (
