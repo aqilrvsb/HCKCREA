@@ -61,14 +61,22 @@ export type HistoryItem = {
 // Pretty model name for the badge under each card
 function modelLabel(item: HistoryItem): string {
   const m = item.metadata?.model || "";
-  // Provider tag — prefer the cascade slot label (metadata.slot, e.g.
-  // "p2-a" / "p2-b" / "p4" / "p5") so the chip distinguishes Crun
-  // account A vs B. Fall back to metadata.provider when slot isn't
-  // stamped (older rows from before slot rotation).
-  const rawSlot = String(item.metadata?.slot || "");
+  // Provider tag — prefer metadata.slot (e.g. "p2-a"/"p2-b"/"p4"/"p5")
+  // so the chip distinguishes Crun key A vs B. For rows fired before
+  // the slot field was stamped, fall back to extracting the slot from
+  // tier_log[0].tier (format "1:p2-a:<model>"). Last-resort fallback
+  // is metadata.provider (just "P2" with no key info).
+  let rawSlot = String(item.metadata?.slot || "");
+  if (!rawSlot) {
+    const tier1: any = item.metadata?.tier_log?.[0];
+    const parts = String(tier1?.tier || "").split(":");
+    if (parts.length >= 2 && /^p[1-5](-[ab])?$|^none$/i.test(parts[1])) {
+      rawSlot = parts[1];
+    }
+  }
   const rawProvider = String(item.metadata?.provider || "");
   const slotLabel = rawSlot
-    ? rawSlot.toUpperCase().replace("P2-A", "P2 (KEY A)").replace("P2-B", "P2 (KEY B)")
+    ? rawSlot.toUpperCase().replace("P2-A", "P2 A").replace("P2-B", "P2 B")
     : rawProvider.toUpperCase();
   const providerSuffix =
     /^P[1-5]/.test(slotLabel) ? ` • ${slotLabel}` : "";
