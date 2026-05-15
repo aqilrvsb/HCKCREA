@@ -78,6 +78,8 @@ export async function POST(req: Request) {
         aspectRatio: imageMode === "image" ? null : aspectRatio,
         cinemaProvider: modelChoice === "veo" ? "veo" : "grok-imagine",
         modelChoice,
+        // Full attachment array for Resubmit re-fire
+        image_urls: effectiveImageUrls,
         upload_status: "queued",
       },
     })

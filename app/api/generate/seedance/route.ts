@@ -95,6 +95,10 @@ export async function POST(req: Request) {
         ref_image_count: imageUrls.length,
         ref_video_count: videoUrls.length,
         ref_audio_count: audioUrls.length,
+        // Full attachment arrays for Resubmit re-fire
+        image_urls: imageUrls,
+        video_urls: videoUrls,
+        audio_urls: audioUrls,
         upload_status: "queued",
       },
     })

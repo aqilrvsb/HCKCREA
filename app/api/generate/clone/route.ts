@@ -70,6 +70,7 @@ export async function POST(req: Request) {
         seg_duration: segDur,
         seg_count: segCount,
         aspectRatio,
+        image_urls: productImageUrl ? [productImageUrl] : [],
         upload_status: "queued",
       },
     })
