@@ -125,6 +125,16 @@ export async function POST(req: Request) {
         : meta.primary_provider === "p3" || meta.provider === "p3"
           ? "p3"
           : "p2";
+    // Resubmit: rotate to a different slot than the last one. Read
+    // the prior slot from metadata.slot (preferred) or tier_log[0].tier
+    // (legacy rows).
+    let imgSkipSlot: any = meta.slot;
+    if (!imgSkipSlot) {
+      const priorImgLog: any[] = Array.isArray(meta.tier_log) ? meta.tier_log : [];
+      const lastImg = priorImgLog[priorImgLog.length - 1];
+      const parts = String(lastImg?.tier || "").split(":");
+      if (parts.length >= 2) imgSkipSlot = parts[1];
+    }
     const r = await generateImageWithCascade({
       primaryProvider,
       primaryModel: model.replace(/^google\//, "").replace(/^openai\//, ""),
@@ -132,6 +142,7 @@ export async function POST(req: Request) {
       prompt: row.prompt,
       aspectRatio,
       imageUrls: refImage ? [refImage] : undefined,
+      skipSlot: imgSkipSlot,
     });
     if (r.ok) {
       newTaskId = r.taskId;
@@ -162,22 +173,26 @@ export async function POST(req: Request) {
       retryError = created.error || "Seedance create failed";
     }
   } else {
-    // Find the slot that previously accepted at create-time but failed
-    // during polling — push it last in the cascade walk.
+    // Single-shot video cascade — retry rotates to a different slot.
+    // skipSlot tells the cascade to AVOID the slot from the prior
+    // attempt (whether it failed at create or during polling). The
+    // cascade picks the next valid slot in rotation.
     const priorLog: Array<{ tier?: string; ok?: boolean }> = Array.isArray(
       meta.tier_log
     )
       ? meta.tier_log
       : [];
     let skipSlot: any = undefined;
-    for (const entry of priorLog) {
-      if (!entry?.ok) continue;
-      const parts = String(entry.tier || "").split(":");
+    const lastEntry = priorLog[priorLog.length - 1];
+    if (lastEntry) {
+      const parts = String(lastEntry.tier || "").split(":");
       if (parts.length >= 2) skipSlot = parts[1];
     }
+    // Fall back to metadata.slot if tier_log is empty (legacy rows).
+    if (!skipSlot && meta.slot) skipSlot = meta.slot;
     if (skipSlot) {
       console.warn(
-        `[retry] row ${row.id}: slot ${skipSlot} accepted at create but failed downstream — pushing last`
+        `[retry] row ${row.id}: avoiding slot ${skipSlot} — cascade will rotate to a different slot`
       );
     }
 

@@ -42,6 +42,9 @@ export type CascadeInput = {
   prompt: string;
   aspectRatio?: string;
   imageUrls?: string[];
+  /** Slot label (e.g. "p4") to AVOID on this attempt. Used by the
+   *  resubmit path to force a different slot than the last failed one. */
+  skipSlot?: SlotProvider;
 };
 
 export type CascadeTierLog = {
@@ -157,12 +160,32 @@ export async function generateImageWithCascade(
   input: CascadeInput
 ): Promise<CascadeResult> {
   const tierLog: CascadeTierLog[] = [];
-  const { primaryModel, prompt, aspectRatio, imageUrls } = input;
+  const { primaryModel, prompt, aspectRatio, imageUrls, skipSlot } = input;
   const bare = primaryModel.replace(/^google\//, "").replace(/^openai\//, "");
 
+  // Image cascade is SINGLE-SHOT. Initial fire goes to slot 1 (Main).
+  // Resubmit (via /api/history/retry) advances to the next slot in
+  // rotation by passing skipSlot, so each resubmit lands on a
+  // different slot than the previous attempt.
   const slots = await getImageSlots();
-  const startIdx = await nextStartSlot("image");
-  const order = walkOrder(slots, startIdx);
+  const validIdxs = slots
+    .map((s, i) => (s === "none" ? -1 : i))
+    .filter((i) => i >= 0);
+  let startIdx = await nextStartSlot("image"); // image always returns 0 (slot 1)
+
+  if (validIdxs.length > 0) {
+    let attempts = 0;
+    while (
+      attempts < 3 &&
+      (slots[startIdx] === "none" ||
+        (skipSlot && slots[startIdx] === skipSlot))
+    ) {
+      const pos = validIdxs.indexOf(startIdx);
+      startIdx = validIdxs[(pos + 1 + validIdxs.length) % validIdxs.length];
+      attempts++;
+    }
+  }
+  const order = [slots[startIdx]] as SlotProvider[];
 
   for (let i = 0; i < order.length; i++) {
     const slot = order[i];

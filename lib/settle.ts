@@ -657,21 +657,39 @@ export async function settleHistoryRow(hist: HistoryRow): Promise<SettleResult> 
 
   if (r.status === "failed") {
     const errMsg = r.error || "Generation failed";
-    // Transient provider errors (Internal Error / 5xx / rate limit / timeout)
-    // OR Veo audio-gen failures get auto-retried up to MAX_AUTO_RETRIES
-    // before the row is left failed. Audio-gen path also runs the prompt
-    // through sanitiseForAudioRetry first to strip TTS-hostile patterns.
-    if (isTransientError(errMsg) || isAudioGenFailure(errMsg)) {
-      const retried = await tryAutoRetry(admin, hist, errMsg);
-      if (retried) {
-        return { state: "pending", p2Status: "auto_retry" };
-      }
-    }
+    // No auto-retry / cascade-fallback inside settle anymore. Polling
+    // (cron, webhook, manual refresh icon) ONLY checks task status and
+    // flips the row to done or failed. The user clicks the Resubmit
+    // button on a failed row to fire a fresh cascade attempt (which
+    // rotates to a different slot via skipSlot in retry route).
     await admin
       .from("history")
       .update({ status: "failed", error_message: errMsg })
       .eq("id", hist.id);
     return { state: "settled", status: "failed", error: r.error };
+  }
+
+  // Stale-pending guard: if a row has been pending too long, flip it
+  // to failed so the user sees the Resubmit button instead of an
+  // eternal "Generating…" spinner. Crun / APIMart / GeminiGen don't
+  // always return a terminal status when a Veo task hangs at their
+  // end — this timeout protects the UX.
+  //
+  // Videos: 10 min cap (Veo 3.1 Fast usually 30-90s, Quality up to ~3m)
+  // Images: 3 min cap (Banana Pro 5-30s, GPT Image 30-60s)
+  const ageMs = Date.now() - new Date(hist.created_at).getTime();
+  const isImageRow =
+    hist.tab === "image" ||
+    hist.type === "image" ||
+    hist.type === "fairytale-scene";
+  const staleMs = isImageRow ? 3 * 60_000 : 10 * 60_000;
+  if (ageMs > staleMs) {
+    const staleMsg = `Stale — ${Math.round(ageMs / 60_000)} min pending, provider did not return result. Click Resubmit to retry on a different slot.`;
+    await admin
+      .from("history")
+      .update({ status: "failed", error_message: staleMsg })
+      .eq("id", hist.id);
+    return { state: "settled", status: "failed", error: staleMsg };
   }
 
   return { state: "pending", p2Status: r.status };

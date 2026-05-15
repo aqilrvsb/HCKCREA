@@ -167,17 +167,36 @@ export async function generateVideoWithCascade(
   const tierLog: VideoCascadeTierLog[] = [];
   const imageCount = input.imageUrls?.length || 0;
 
+  // Video cascade is SINGLE-SHOT per user direction. We fire exactly
+  // one attempt at the rotated start slot. If it fails the row stays
+  // failed; user clicks the refresh icon to re-fire — at which point
+  // the rotation counter has advanced so the retry lands on a
+  // different slot. No internal fallback walk.
+  //
+  // skipSlot (from retry path) forces the cascade to AVOID a specific
+  // slot — used when settle.ts/retry-route knows a slot just failed
+  // and wants to force a different one.
   const slots = await getVideoSlots();
-  const startIdx = await nextStartSlot("video");
-  let order = walkOrder(slots, startIdx);
+  let startIdx = await nextStartSlot("video");
+  const validIdxs = slots
+    .map((s, i) => (s === "none" ? -1 : i))
+    .filter((i) => i >= 0);
 
-  // If retry says "skip this slot because it accepted at create but
-  // failed during polling," rotate the walk so that slot lands last.
-  if (input.skipSlot) {
-    const without = order.filter((s) => s !== input.skipSlot);
-    const withOnly = order.filter((s) => s === input.skipSlot);
-    order = [...without, ...withOnly] as SlotProvider[];
+  // If the rotated start is "none" (admin disabled it) OR matches the
+  // skipSlot, advance to the next valid non-skipSlot slot.
+  if (validIdxs.length > 0) {
+    let attempts = 0;
+    while (
+      attempts < 3 &&
+      (slots[startIdx] === "none" ||
+        (input.skipSlot && slots[startIdx] === input.skipSlot))
+    ) {
+      const pos = validIdxs.indexOf(startIdx);
+      startIdx = validIdxs[(pos + 1 + validIdxs.length) % validIdxs.length];
+      attempts++;
+    }
   }
+  const order = [slots[startIdx]] as SlotProvider[];
 
   const errs: Record<number, string> = {};
   for (let i = 0; i < order.length; i++) {
