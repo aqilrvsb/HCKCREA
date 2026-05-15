@@ -685,7 +685,7 @@ export async function settleHistoryRow(hist: HistoryRow): Promise<SettleResult> 
     hist.type === "fairytale-scene";
   const staleMs = isImageRow ? 3 * 60_000 : 10 * 60_000;
   if (ageMs > staleMs) {
-    const staleMsg = `Stale — ${Math.round(ageMs / 60_000)} min pending, provider did not return result. Click Resubmit to retry on a different slot.`;
+    const staleMsg = `Stale — ${Math.round(ageMs / 60_000)} min pending, provider did not return result. Click Resubmit to try again.`;
     await admin
       .from("history")
       .update({ status: "failed", error_message: staleMsg })

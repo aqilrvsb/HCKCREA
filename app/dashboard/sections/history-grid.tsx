@@ -1829,7 +1829,7 @@ function HistoryCardInner({
               <button
                 onClick={handleRetry}
                 disabled={checking}
-                title="Resubmit — rotates to a different provider slot"
+                title="Resubmit"
                 className="flex-1 h-7 rounded-lg text-[9px] font-extrabold uppercase tracking-wider text-white flex items-center justify-center gap-1 disabled:opacity-50 transition-transform hover:scale-105"
                 style={{ background: ACTION.retry, boxShadow: "0 2px 6px rgba(34,197,94,0.4)" }}
               >
