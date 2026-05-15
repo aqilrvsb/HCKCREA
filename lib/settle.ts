@@ -677,7 +677,8 @@ export async function settleHistoryRow(hist: HistoryRow): Promise<SettleResult> 
   //
   // Videos: 10 min cap (Veo 3.1 Fast usually 30-90s, Quality up to ~3m)
   // Images: 3 min cap (Banana Pro 5-30s, GPT Image 30-60s)
-  const ageMs = Date.now() - new Date(hist.created_at).getTime();
+  const createdAt = (hist as any).created_at as string | undefined;
+  const ageMs = createdAt ? Date.now() - new Date(createdAt).getTime() : 0;
   const isImageRow =
     hist.tab === "image" ||
     hist.type === "image" ||
