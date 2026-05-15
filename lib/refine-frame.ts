@@ -17,6 +17,7 @@
 import { p1CreateTask, p1GetStatus } from "@/lib/p1";
 import { p2CreateTask, p2GetStatus } from "@/lib/p2";
 import { p3CreateImage, p3GetStatus } from "@/lib/p3";
+import { p4GetStatus } from "@/lib/p4";
 
 const REFINE_PROMPT = [
   "Replace the product visible in the FIRST image with the product from the SECOND image.",
@@ -127,6 +128,11 @@ async function tryRefineOn(
         status = s.status;
         outputUrl = s.outputUrl;
         pollError = s.error;
+      } else if (provider === "p4") {
+        const s = await p4GetStatus(taskId);
+        status = s.status as any;
+        outputUrl = s.outputUrl;
+        pollError = s.error;
       } else {
         const s = await p3GetStatus(taskId);
         status = s.status as any;
@@ -172,6 +178,11 @@ export async function pollRefineTask(
       } else if (provider === "p1") {
         const s = await p1GetStatus(taskId);
         status = s.status;
+        outputUrl = s.outputUrl;
+        pollError = s.error;
+      } else if (provider === "p4") {
+        const s = await p4GetStatus(taskId);
+        status = s.status as any;
         outputUrl = s.outputUrl;
         pollError = s.error;
       } else {

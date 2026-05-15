@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { p2CreateTask, p2GetStatus } from "@/lib/p2";
 import { p3CreateImage, p3GetStatus } from "@/lib/p3";
+import { p4GetStatus } from "@/lib/p4";
 import {
   getP2Config,
   getViralImageConfig,
@@ -507,7 +508,14 @@ export async function POST(req: Request) {
     while (Date.now() < pollDeadline) {
       await new Promise((f) => setTimeout(f, 3500));
       let st: { status: string; outputUrl?: string; error?: string };
-      if (imgProvider === "p3") {
+      if (imgProvider === "p4") {
+        const r = await p4GetStatus(imgCreate.task_id);
+        st = {
+          status: r.status,
+          outputUrl: r.outputUrl,
+          error: r.error,
+        };
+      } else if (imgProvider === "p3") {
         const r = await p3GetStatus(imgCreate.task_id);
         st = {
           status: r.status,
