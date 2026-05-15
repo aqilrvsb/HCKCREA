@@ -32,6 +32,7 @@ import {
   slotToProvider,
   type SlotProvider,
 } from "@/lib/cascade-rotation";
+import { sanitisePromptForVeo } from "@/lib/prompt-sanitize";
 
 export type VideoCascadeProvider = "p1" | "p2" | "p5";
 
@@ -163,7 +164,12 @@ function triplicateProductRef(input: VideoCascadeInput): VideoCascadeInput {
 export async function generateVideoWithCascade(
   rawInput: VideoCascadeInput
 ): Promise<VideoCascadeResult> {
-  const input = triplicateProductRef(rawInput);
+  // Sanitise the prompt before it reaches Veo. Strips timestamp
+  // markers ("0-2s:"), em-dashes inside quoted dialog, framework
+  // beat markers, and number+unit kerning — all known causes of
+  // "The Google model was unable to generate audio" failures.
+  const sanitisedInput = { ...rawInput, prompt: sanitisePromptForVeo(rawInput.prompt) };
+  const input = triplicateProductRef(sanitisedInput);
   const tierLog: VideoCascadeTierLog[] = [];
   const imageCount = input.imageUrls?.length || 0;
 
