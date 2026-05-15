@@ -142,6 +142,7 @@ export async function POST(req: Request) {
       let createdTaskId: string | null = null;
       let createdError: string | null = null;
       let actualProvider = "p2";
+      let actualSlot: string | undefined = undefined;
       let actualModel = model;
       let fallbackUsed = false;
       let tierLog: any = undefined;
@@ -159,6 +160,7 @@ export async function POST(req: Request) {
           createdOk = true;
           createdTaskId = result.taskId;
           actualProvider = result.actualProvider;
+          actualSlot = result.actualSlot;
           actualModel = result.actualModel;
           fallbackUsed = result.fallbackUsed;
         } else {
@@ -201,6 +203,7 @@ export async function POST(req: Request) {
             cinemaProvider: modelChoice === "veo" ? "veo" : "grok-imagine",
             modelChoice,
             provider: actualProvider,
+          slot: actualSlot,
             tier_log: tierLog,
             upload_status: "failed",
           },
@@ -217,6 +220,7 @@ export async function POST(req: Request) {
           cinemaProvider: modelChoice === "veo" ? "veo" : "grok-imagine",
           modelChoice,
           provider: actualProvider,
+          slot: actualSlot,
           fallback_used: fallbackUsed,
           tier_log: tierLog,
           upload_status: "done",

@@ -1529,6 +1529,7 @@ CRITICAL OUTPUT RULES:
             idx,
             model: cascaded.ok ? cascaded.actualModel : model,
             provider: cascaded.ok ? cascaded.actualProvider : "p2",
+            slot: cascaded.ok ? cascaded.actualSlot : undefined,
             fallback_used: cascaded.ok ? cascaded.fallbackUsed : false,
             tier_log: cascaded.tierLog,
             batch_id: batch?.id,

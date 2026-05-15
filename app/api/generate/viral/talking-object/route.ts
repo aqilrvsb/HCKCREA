@@ -722,6 +722,7 @@ export async function POST(req: Request) {
           generated_image_url: imageUrl,
           model: veoModel,
           provider: veoProvider,
+          slot: veoResult.ok ? veoResult.actualSlot : undefined,
           cinemaProvider: "veo",
           modelChoice: "veo",
           imageMode: "image",

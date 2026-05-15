@@ -25,6 +25,7 @@ import {
   Upload,
   UploadCloud,
   Check,
+  Hash,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import Portal from "./portal";
@@ -1586,18 +1587,25 @@ function HistoryCardInner({
           </span>
         </div>
 
-        {/* Task ID + cascade slot — visible on every card (including
-            still-loading) so admins can correlate to provider logs and
-            see which slot (p2 key A vs B / p4 / p5) accepted the task. */}
+        {/* Task ID icon — clickable. Tooltip on hover shows the full
+            ID; click copies to clipboard + alerts so admins can
+            correlate to provider logs without cluttering the card. */}
         {item.task_id && (
-          <div
-            className="text-[9px] font-mono mt-1 mb-1 truncate select-all"
-            style={{ color: "var(--color-text-muted)" }}
-            title={`Full task ID: ${item.task_id}`}
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              const tid = String(item.task_id);
+              try { navigator.clipboard?.writeText(tid); } catch {}
+              alert(`Task ID:\n\n${tid}\n\n(copied to clipboard)`);
+            }}
+            title={`Click for full Task ID: ${item.task_id}`}
+            className="inline-flex items-center gap-1 mt-1 mb-1 text-[9px] font-mono px-1.5 py-0.5 rounded transition hover:bg-[var(--color-surface-hover)]"
+            style={{ color: "var(--color-text-muted)", border: "1px solid var(--color-border)" }}
           >
-            task: {String(item.task_id).slice(0, 18)}
-            {String(item.task_id).length > 18 ? "…" : ""}
-          </div>
+            <Hash className="w-2.5 h-2.5" />
+            <span>task id</span>
+          </button>
         )}
 
         {/* Editable name row — ✏️ Name */}

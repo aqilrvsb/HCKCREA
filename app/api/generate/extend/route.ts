@@ -177,6 +177,7 @@ export async function POST(req: Request) {
         is_extension: true,
         model: cascaded.actualModel,
         provider: cascaded.actualProvider,
+        slot: cascaded.actualSlot,
         fallback_used: cascaded.fallbackUsed,
         tier_log: cascaded.tierLog,
         image_mode: imageMode,
