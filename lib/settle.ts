@@ -202,19 +202,20 @@ async function autoSavePrompt(
 // before letting the row stay failed. The user-visible "Internal Error, Please
 // try again later." string from RunningHub/Crun has been the dominant case
 // blocking Auto Content batches; rate-limit / 5xx wording covered too.
+// Auto-retry / cascade-fallback ONLY fires on internal-server-class
+// errors per user direction. Rate-limits, timeouts, content moderation,
+// or anything that isn't a clear "upstream broke" signal stays failed
+// on first attempt — user can manually retry via the icon.
+//
+// Matches:
+//   • "internal server error" / "Internal Server Error" (HTTP 500-class)
+//   • bare "INTERNAL" (Crun's terse error code)
+//   • "Service internal exception" (APIMart's phrasing)
+//   • bare HTTP 500 / 502 / 503 / 504
 const TRANSIENT_ERROR_PATTERNS = [
-  /\binternal\b/i,        // "INTERNAL" (Crun), "internal error", "Service internal exception" (APIMart)
-  /resend the request/i,  // APIMart's "please resend the request" hint
-  /try again later/i,
-  /rate limit/i,
-  /timeout/i,
-  /timed out/i,
-  /\b50\d\b/,             // 500/502/503/504
-  /service unavailable/i,
-  /temporarily/i,
-  /upstream/i,
-  /transient/i,
-  /\bbusy\b/i,
+  /internal server/i,
+  /\binternal\b/i,
+  /\b50[0234]\b/,
 ];
 
 // "The Google model was unable to generate audio for this request." —
