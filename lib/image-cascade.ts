@@ -68,12 +68,15 @@ export type CascadeResult =
     };
 
 function toP2Model(bareModel: string, hint?: string): string {
-  if (hint) return hint;
+  if (hint && !hint.toLowerCase().includes("nano-banana-fast")) return hint;
   const m = bareModel.toLowerCase();
   if (m === "nano-banana-pro") return "google/nano-banana-pro";
   if (m === "nano-banana-2") return "google/nano-banana-2";
   if (m === "nano-banana-v2") return "google/nano-banana-v2";
-  if (m === "nano-banana-fast") return "google/nano-banana-fast";
+  // p2 (Crun) has no -fast variant. Fall back to plain nano-banana
+  // so the cascade slot still succeeds instead of returning
+  // "Missing Params or Type Error".
+  if (m === "nano-banana-fast") return "google/nano-banana";
   if (m === "nano-banana") return "google/nano-banana";
   if (m.includes("gpt-image")) return "openai/gpt-image-2-stable";
   return bareModel;
