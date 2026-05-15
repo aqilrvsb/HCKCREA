@@ -111,7 +111,7 @@ export async function POST(req: Request) {
   const isSeedance = model.toLowerCase().includes("seedance");
 
   let newTaskId: string | null = null;
-  let newProvider: "p1" | "p2" | "p3" | "p4" = "p2";
+  let newProvider: "p1" | "p2" | "p3" | "p4" | "p5" | "p5" = "p2";
   let newModel: string = model;
   let fallbackUsed = false;
   let tierLog: any = undefined;
@@ -155,27 +155,27 @@ export async function POST(req: Request) {
     });
     if (created.ok && created.task_id) {
       newTaskId = created.task_id;
-      newProvider = (created.provider || "p2") as "p1" | "p2" | "p3" | "p4";
+      newProvider = (created.provider || "p2") as "p1" | "p2" | "p3" | "p4" | "p5";
     } else {
       retryError = created.error || "Seedance create failed";
     }
   } else {
-    // Skip tier 1 if it previously accepted but failed downstream during
-    // polling. Cascade is now 2 tiers max (p2-A / p2-B).
+    // Find the slot that previously accepted at create-time but failed
+    // during polling — push it last in the cascade walk.
     const priorLog: Array<{ tier?: string; ok?: boolean }> = Array.isArray(
       meta.tier_log
     )
       ? meta.tier_log
       : [];
-    let startTier: 1 | 2 = 1;
+    let skipSlot: any = undefined;
     for (const entry of priorLog) {
       if (!entry?.ok) continue;
-      const n = parseInt(String(entry.tier || "").split(":")[0], 10);
-      if (n === 1) startTier = 2;
+      const parts = String(entry.tier || "").split(":");
+      if (parts.length >= 2) skipSlot = parts[1];
     }
-    if (startTier > 1) {
+    if (skipSlot) {
       console.warn(
-        `[retry] row ${row.id} previously OK at tier <${startTier} but failed downstream — starting cascade at tier ${startTier}`
+        `[retry] row ${row.id}: slot ${skipSlot} accepted at create but failed downstream — pushing last`
       );
     }
 
@@ -187,7 +187,7 @@ export async function POST(req: Request) {
       durationMode,
       aspectRatio,
       imageMode,
-      startTier,
+      skipSlot,
     });
     if (r.ok) {
       newTaskId = r.taskId;

@@ -18,6 +18,7 @@ import { p1CreateTask, p1GetStatus } from "@/lib/p1";
 import { p2CreateTask, p2GetStatus } from "@/lib/p2";
 import { p3CreateImage, p3GetStatus } from "@/lib/p3";
 import { p4GetStatus } from "@/lib/p4";
+import { p5GetStatus } from "@/lib/p5";
 
 const REFINE_PROMPT = [
   "Replace the product visible in the FIRST image with the product from the SECOND image.",
@@ -28,7 +29,7 @@ const REFINE_PROMPT = [
 ].join(" ");
 
 type RefineResult = { ok: true; url: string } | { ok: false; error: string };
-type Provider = "p1" | "p2" | "p3" | "p4";
+type Provider = "p1" | "p2" | "p3" | "p4" | "p5";
 
 type RefineOpts = {
   frameUrl: string;
@@ -133,6 +134,11 @@ async function tryRefineOn(
         status = s.status as any;
         outputUrl = s.outputUrl;
         pollError = s.error;
+      } else if (provider === "p5") {
+        const s = await p5GetStatus(taskId);
+        status = s.status as any;
+        outputUrl = s.outputUrl;
+        pollError = s.error;
       } else {
         const s = await p3GetStatus(taskId);
         status = s.status as any;
@@ -182,6 +188,11 @@ export async function pollRefineTask(
         pollError = s.error;
       } else if (provider === "p4") {
         const s = await p4GetStatus(taskId);
+        status = s.status as any;
+        outputUrl = s.outputUrl;
+        pollError = s.error;
+      } else if (provider === "p5") {
+        const s = await p5GetStatus(taskId);
         status = s.status as any;
         outputUrl = s.outputUrl;
         pollError = s.error;

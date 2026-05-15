@@ -344,7 +344,7 @@ async function tryAutoRetry(
   const isSeedance = model.toLowerCase().includes("seedance");
 
   let newTaskId: string | null = null;
-  let newProvider: "p1" | "p2" | "p3" | "p4" = "p2";
+  let newProvider: "p1" | "p2" | "p3" | "p4" | "p5" = "p2";
   let newModel: string = model;
   let fallbackUsed = false;
   let tierLog: any = undefined;
@@ -408,20 +408,23 @@ async function tryAutoRetry(
     // downstream during polling — otherwise we'd just re-fire the same
     // broken tier and waste the retry budget. Read the prior tier_log
     // and bump past the highest ok tier.
+    // Find the slot that previously accepted at create-time but failed
+    // during polling — push it last in the cascade walk so we don't
+    // re-fire the same broken backend. tier_log format: "1:p2-a:model".
     const priorLog: Array<{ tier?: string; ok?: boolean }> = Array.isArray(
       meta.tier_log
     )
       ? meta.tier_log
       : [];
-    let startTier: 1 | 2 = 1;
+    let skipSlot: any = undefined;
     for (const entry of priorLog) {
       if (!entry?.ok) continue;
-      const n = parseInt(String(entry.tier || "").split(":")[0], 10);
-      if (n === 1) startTier = 2;
+      const parts = String(entry.tier || "").split(":");
+      if (parts.length >= 2) skipSlot = parts[1];
     }
-    if (startTier > 1) {
+    if (skipSlot) {
       console.warn(
-        `[settle/auto-retry] row ${hist.id}: prior tier ${startTier - 1} succeeded at create but failed during polling — starting cascade at tier ${startTier}`
+        `[settle/auto-retry] row ${hist.id}: slot ${skipSlot} previously accepted at create but failed during polling — pushing to end of walk`
       );
     }
     const r = await generateVideoWithCascade({
@@ -432,7 +435,7 @@ async function tryAutoRetry(
       durationMode,
       aspectRatio,
       imageMode,
-      startTier,
+      skipSlot,
     });
     tierLog = r.tierLog;
     if (!r.ok) {
@@ -528,16 +531,21 @@ export async function settleHistoryRow(hist: HistoryRow): Promise<SettleResult> 
   const metaWebhookProvider = String(
     hist.metadata?.webhook_provider || ""
   ).toLowerCase();
-  const rowProvider: "p1" | "p2" | "p3" | "p4" =
-    metaProvider === "p4" || metaWebhookProvider === "p4"
-      ? "p4"
-      : metaProvider === "p3" || metaWebhookProvider === "p3"
-        ? "p3"
-        : metaProvider === "p1" || metaWebhookProvider === "p1"
-          ? "p1"
-          : "p2";
+  const rowProvider: "p1" | "p2" | "p3" | "p4" | "p5" =
+    metaProvider === "p5" || metaWebhookProvider === "p5"
+      ? "p5"
+      : metaProvider === "p4" || metaWebhookProvider === "p4"
+        ? "p4"
+        : metaProvider === "p3" || metaWebhookProvider === "p3"
+          ? "p3"
+          : metaProvider === "p1" || metaWebhookProvider === "p1"
+            ? "p1"
+            : "p2";
   let r: { status: "pending" | "running" | "succeeded" | "failed"; outputUrl?: string; error?: string; raw?: any };
-  if (rowProvider === "p4") {
+  if (rowProvider === "p5") {
+    const { p5GetStatus } = await import("@/lib/p5");
+    r = await p5GetStatus(hist.task_id);
+  } else if (rowProvider === "p4") {
     const { p4GetStatus } = await import("@/lib/p4");
     r = await p4GetStatus(hist.task_id);
   } else if (rowProvider === "p3") {

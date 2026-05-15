@@ -4,6 +4,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { p2CreateTask, p2GetStatus } from "@/lib/p2";
 import { p3CreateImage, p3GetStatus } from "@/lib/p3";
 import { p4GetStatus } from "@/lib/p4";
+import { p5GetStatus } from "@/lib/p5";
 import {
   getP2Config,
   getViralImageConfig,
@@ -134,7 +135,7 @@ export async function POST(req: Request) {
   // Resolve the viral provider/model here too so the placeholder badge
   // shows the correct model from the start.
   let imageHistoryId: string | null = null;
-  let viralCfgPreflight: { provider: "p1" | "p2" | "p3" | "p4"; modelKey: string } | null = null;
+  let viralCfgPreflight: { provider: "p1" | "p2" | "p3" | "p4" | "p5"; modelKey: string } | null = null;
   if (mode === "i2v") {
     try {
       viralCfgPreflight = await getViralImageConfig();
@@ -430,7 +431,7 @@ export async function POST(req: Request) {
       // banana-pro / nano-banana variants do text-to-image, no reference
       imageUrls: [],
     });
-    const imgCreate: { ok: boolean; task_id?: string; provider?: "p1" | "p2" | "p3" | "p4"; error?: string; tierLog?: any } =
+    const imgCreate: { ok: boolean; task_id?: string; provider?: "p1" | "p2" | "p3" | "p4" | "p5"; error?: string; tierLog?: any } =
       cascadeResult.ok
         ? {
             ok: true,
@@ -479,7 +480,7 @@ export async function POST(req: Request) {
 
     // Stamp the image task_id on the placeholder row so /api/check-status
     // (or any future poller) can re-query it if needed.
-    const imgProvider = (imgCreate.provider || viralCfg.provider) as "p1" | "p2" | "p3" | "p4";
+    const imgProvider = (imgCreate.provider || viralCfg.provider) as "p1" | "p2" | "p3" | "p4" | "p5";
     if (imageHistoryId) {
       await admin
         .from("history")
@@ -508,20 +509,15 @@ export async function POST(req: Request) {
     while (Date.now() < pollDeadline) {
       await new Promise((f) => setTimeout(f, 3500));
       let st: { status: string; outputUrl?: string; error?: string };
-      if (imgProvider === "p4") {
+      if (imgProvider === "p5") {
+        const r = await p5GetStatus(imgCreate.task_id);
+        st = { status: r.status, outputUrl: r.outputUrl, error: r.error };
+      } else if (imgProvider === "p4") {
         const r = await p4GetStatus(imgCreate.task_id);
-        st = {
-          status: r.status,
-          outputUrl: r.outputUrl,
-          error: r.error,
-        };
+        st = { status: r.status, outputUrl: r.outputUrl, error: r.error };
       } else if (imgProvider === "p3") {
         const r = await p3GetStatus(imgCreate.task_id);
-        st = {
-          status: r.status,
-          outputUrl: r.outputUrl,
-          error: r.error,
-        };
+        st = { status: r.status, outputUrl: r.outputUrl, error: r.error };
       } else {
         st = await p2GetStatus(imgCreate.task_id, imgProvider as "p1" | "p2");
       }
@@ -669,7 +665,7 @@ export async function POST(req: Request) {
       imageMode: "frame",
     });
 
-    const veoCreate: { ok: boolean; task_id?: string; provider?: "p1" | "p2" | "p3" | "p4"; error?: string } =
+    const veoCreate: { ok: boolean; task_id?: string; provider?: "p1" | "p2" | "p3" | "p4" | "p5"; error?: string } =
       veoResult.ok
         ? { ok: true, task_id: veoResult.taskId, provider: veoResult.actualProvider }
         : { ok: false, error: veoResult.error };

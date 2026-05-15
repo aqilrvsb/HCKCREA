@@ -108,6 +108,19 @@ export default function AdminSettings() {
   const [savingAffiliateCredits, setSavingAffiliateCredits] = useState(false);
   const [affiliateCreditsMsg, setAffiliateCreditsMsg] = useState<string | null>(null);
 
+  // Cascade slot rotation (admin-configurable provider chain).
+  //   video_cascade_slots = { slots: [main, second, third] }
+  //   image_cascade_slots = { slots: [main, second, third] }
+  // Each slot can be: p1 / p2-a / p2-b / p4 (image only) / p5.
+  // Round-robin starting slot is computed atomically by Postgres seq;
+  // walk hits all 3 + retries starting slot once (4 attempts total).
+  type SlotV = "p1" | "p2-a" | "p2-b" | "p5";
+  type SlotI = "p1" | "p2-a" | "p2-b" | "p4" | "p5";
+  const [videoSlots, setVideoSlots] = useState<[SlotV, SlotV, SlotV]>(["p2-a", "p2-b", "p5"]);
+  const [imageSlots, setImageSlots] = useState<[SlotI, SlotI, SlotI]>(["p4", "p5", "p2-a"]);
+  const [savingSlots, setSavingSlots] = useState<"video" | "image" | null>(null);
+  const [slotsMsg, setSlotsMsg] = useState<string | null>(null);
+
   useEffect(() => {
     void load();
     void loadAdminDevice();
@@ -185,6 +198,28 @@ export default function AdminSettings() {
         if (row.key === "affiliate_signup_credits") {
           const n = Number(row.value?.credits);
           setAffiliateCredits(Number.isFinite(n) ? String(n) : "");
+        }
+        if (row.key === "video_cascade_slots") {
+          const s = Array.isArray(row.value?.slots) ? row.value.slots : [];
+          const allowed = ["p1", "p2-a", "p2-b", "p5"];
+          const norm = (v: any, fb: SlotV): SlotV =>
+            allowed.includes(String(v)) ? (String(v) as SlotV) : fb;
+          setVideoSlots([
+            norm(s[0], "p2-a"),
+            norm(s[1], "p2-b"),
+            norm(s[2], "p5"),
+          ]);
+        }
+        if (row.key === "image_cascade_slots") {
+          const s = Array.isArray(row.value?.slots) ? row.value.slots : [];
+          const allowed = ["p1", "p2-a", "p2-b", "p4", "p5"];
+          const norm = (v: any, fb: SlotI): SlotI =>
+            allowed.includes(String(v)) ? (String(v) as SlotI) : fb;
+          setImageSlots([
+            norm(s[0], "p4"),
+            norm(s[1], "p5"),
+            norm(s[2], "p2-a"),
+          ]);
         }
       }
     } finally {
@@ -353,6 +388,30 @@ export default function AdminSettings() {
       setViralMsg(`✗ Save failed: ${e?.message || "unknown error"}`);
     } finally {
       setSavingViral(false);
+    }
+  }
+
+  async function saveCascadeSlots(asset: "video" | "image") {
+    setSavingSlots(asset);
+    setSlotsMsg(null);
+    try {
+      const key = asset === "video" ? "video_cascade_slots" : "image_cascade_slots";
+      const slots = asset === "video" ? videoSlots : imageSlots;
+      const r = await fetch("/api/admin/settings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ key, value: { slots } }),
+      });
+      if (!r.ok) {
+        const err = await r.json().catch(() => ({}));
+        throw new Error(err?.error || `HTTP ${r.status}`);
+      }
+      setSlotsMsg(`✓ ${asset} slots saved: ${slots.join(" → ")} → (back to ${slots[0]}). Takes effect on next task (60s cache).`);
+      setTimeout(() => setSlotsMsg(null), 6000);
+    } catch (e: any) {
+      setSlotsMsg(`✗ Save failed: ${e?.message || "unknown error"}`);
+    } finally {
+      setSavingSlots(null);
     }
   }
 
@@ -608,11 +667,126 @@ export default function AdminSettings() {
         </p>
       </div>
 
+      {/* Cascade Slot Rotation — admin picks 3 providers per asset class.
+          Each task picks a starting slot via round-robin (atomic
+          Postgres seq), walks all 3 slots cyclically, then retries the
+          starting slot once (4 attempts total). Load spreads across
+          slots system-wide. */}
+      <div className="card p-6 mb-6 border-2 border-violet-200 bg-violet-50/40">
+        <div className="flex items-center gap-2 mb-1">
+          <Cpu className="w-5 h-5 text-violet-600" />
+          <h2 className="font-display font-bold text-lg">Cascade Slot Rotation</h2>
+        </div>
+        <p className="text-sm text-[var(--color-text-secondary)] mb-4">
+          Round-robin starting slot per task; fallback walks all 3 slots + retries the start once.
+          Load spreads across slots system-wide. Takes effect on next task (60s cache).
+        </p>
+
+        {/* Video slots */}
+        <div className="mb-5">
+          <label className="block text-xs font-mono uppercase tracking-widest text-[var(--color-text-muted)] font-bold mb-2">
+            Video Cascade — 3 Slots
+          </label>
+          <div className="grid grid-cols-3 gap-2 mb-2">
+            {(["Main", "Second", "Third"] as const).map((label, i) => (
+              <div key={label}>
+                <div className="text-[10px] uppercase tracking-wider text-gray-500 mb-1">
+                  Slot {i + 1} ({label})
+                </div>
+                <select
+                  value={videoSlots[i]}
+                  onChange={(e) => {
+                    const next = [...videoSlots] as [SlotV, SlotV, SlotV];
+                    next[i] = e.target.value as SlotV;
+                    setVideoSlots(next);
+                  }}
+                  className="input w-full"
+                  style={{ color: "white" }}
+                >
+                  <option value="p1">P1 — GeminiGen</option>
+                  <option value="p2-a">P2 — Crun (key A)</option>
+                  <option value="p2-b">P2 — Crun (key B)</option>
+                  <option value="p5">P5 — APIMart</option>
+                </select>
+              </div>
+            ))}
+          </div>
+          <button
+            onClick={() => void saveCascadeSlots("video")}
+            disabled={savingSlots === "video"}
+            className="btn-primary text-xs disabled:opacity-50"
+          >
+            {savingSlots === "video" ? (
+              <Loader2 className="w-3 h-3 animate-spin inline" />
+            ) : (
+              <Save className="w-3 h-3 inline" />
+            )}{" "}
+            Save Video Slots
+          </button>
+        </div>
+
+        {/* Image slots */}
+        <div className="mb-3">
+          <label className="block text-xs font-mono uppercase tracking-widest text-[var(--color-text-muted)] font-bold mb-2">
+            Image Cascade — 3 Slots
+          </label>
+          <div className="grid grid-cols-3 gap-2 mb-2">
+            {(["Main", "Second", "Third"] as const).map((label, i) => (
+              <div key={label}>
+                <div className="text-[10px] uppercase tracking-wider text-gray-500 mb-1">
+                  Slot {i + 1} ({label})
+                </div>
+                <select
+                  value={imageSlots[i]}
+                  onChange={(e) => {
+                    const next = [...imageSlots] as [SlotI, SlotI, SlotI];
+                    next[i] = e.target.value as SlotI;
+                    setImageSlots(next);
+                  }}
+                  className="input w-full"
+                  style={{ color: "white" }}
+                >
+                  <option value="p1">P1 — GeminiGen</option>
+                  <option value="p2-a">P2 — Crun (key A)</option>
+                  <option value="p2-b">P2 — Crun (key B)</option>
+                  <option value="p4">P4 — Grsai</option>
+                  <option value="p5">P5 — APIMart</option>
+                </select>
+              </div>
+            ))}
+          </div>
+          <button
+            onClick={() => void saveCascadeSlots("image")}
+            disabled={savingSlots === "image"}
+            className="btn-primary text-xs disabled:opacity-50"
+          >
+            {savingSlots === "image" ? (
+              <Loader2 className="w-3 h-3 animate-spin inline" />
+            ) : (
+              <Save className="w-3 h-3 inline" />
+            )}{" "}
+            Save Image Slots
+          </button>
+        </div>
+
+        {slotsMsg && (
+          <div
+            className="text-xs mt-2"
+            style={{ color: slotsMsg.startsWith("✓") ? "#16a34a" : "#dc2626" }}
+          >
+            {slotsMsg}
+          </div>
+        )}
+      </div>
+
       {/* AI Generation Providers — three dropdowns, one per asset class.
           Admin flips here to rotate Crun.ai (p2) ↔ GeminiGen.AI (p1)
           without touching raw JSON. The dropdown state is derived from
           the gen_provider_<asset> rows on load and posts back to the
-          same setting key on change. */}
+          same setting key on change.
+          NOTE: Slot Rotation card above OVERRIDES these for image/video
+          generation. The dropdowns here only affect legacy code paths
+          that still consult gen_provider_<asset> directly. */}
       <div className="card p-6 mb-6 border-2 border-orange-100 bg-orange-50/40">
         <div className="flex items-center gap-2 mb-1">
           <Cpu className="w-5 h-5 text-orange" />

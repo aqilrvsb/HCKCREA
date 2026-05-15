@@ -256,6 +256,21 @@ export async function getP4Config() {
   };
 }
 
+// P5 — APIMart (api.apimart.ai) config. Image + video provider. Used
+// as a cascade slot for cross-vendor resilience. Key seeded via
+// app_settings.p5_key. Model catalog: gpt-image-2, gemini-3-pro-image-preview
+// (Banana Pro), gemini-3.1-flash-image-preview (Banana 2),
+// gemini-2.5-flash-image-preview (Banana); veo3.1-fast/quality/lite;
+// grok-imagine-1.0-video-apimart.
+export async function getP5Config() {
+  const s = await getSettings(["p5_key", "p5_image_default", "p5_video_default"]);
+  return {
+    key: s.p5_key?.key || "",
+    imageDefault: s.p5_image_default?.model || "gemini-3-pro-image-preview",
+    videoDefault: s.p5_video_default?.model || "veo3.1-fast",
+  };
+}
+
 // RunningHub (P3) — used ONLY for hosting reference image uploads.
 // Generation still goes through Crun.ai (P2). RH gives back a public CDN
 // URL (download_url) that Crun.ai accepts as img_urls input. Mirrors

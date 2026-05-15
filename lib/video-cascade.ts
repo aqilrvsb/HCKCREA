@@ -1,56 +1,59 @@
-// Linear 2-tier fallback cascade for Veo + Grok video generation.
+// Video cascade — slot-rotation edition.
 //
-//   Tier 1 — p2 (Crun, account A — default key)
-//   Tier 2 — p2 (Crun, account B — fallback key)
+// Admin configures 3 slots in /admin/settings → video_cascade_slots.
+// Each task picks a starting slot via round-robin (Postgres sequence,
+// atomic), walks all 3 cyclically, then re-tries the starting slot
+// once more (4 attempts total). Spreads load across providers AND
+// gives the preferred slot a second chance on transient first-call
+// failures.
 //
-// Both tiers hit the same Crun pipeline; only the credentials differ.
-// Account-level rate limits / quota / queue saturation are the most
-// common transient failures, and a second Crun account bypasses all of
-// those without changing provider. If Crun itself is down OR the prompt
-// is being filtered, both tiers fail fast and the row is marked failed
-// — no further fallback. p1 (GeminiGen) and p3 (Mountsea) were
-// removed from the video cascade per user direction: the spend was
-// unpredictable and Crun's two-account setup already covers the
-// realistic outage modes.
+// Available slot providers for video:
+//   p1   — GeminiGen
+//   p2-a — Crun account A
+//   p2-b — Crun account B
+//   p5   — APIMart (Veo + Grok, $0.08/gen Veo Fast)
 //
-// `startTier` lets the retry path skip tier 1 if it previously returned
-// ok:true at create time but failed downstream during polling — without
-// it, retries loop on the same broken tier forever.
+// p4 (Grsai) is IMAGE-ONLY and excluded from video slots by
+// cascade-rotation.ts's sanitizeSlots() validation.
 //
-// Used by: UGC, Auto Content, Cinema (Viral Normal Video), Viral
-// Talking Object video step, Extend dialog, AI agent.
+// `startTier` was previously used to skip create-time-OK-but-poll-failed
+// tiers on retry. With slot rotation the equivalent is `skipSlot` —
+// pass the slot label that previously accepted at create-time so the
+// cascade tries the OTHER slots first.
 
+import { p1CreateTask } from "@/lib/p1";
 import { p2CreateTask } from "@/lib/p2";
+import { p5CreateVideo } from "@/lib/p5";
 import { getP2Config } from "@/lib/settings";
+import {
+  getVideoSlots,
+  nextStartSlot,
+  walkOrder,
+  slotToProvider,
+  type SlotProvider,
+} from "@/lib/cascade-rotation";
 
-export type VideoCascadeProvider = "p2";
+export type VideoCascadeProvider = "p1" | "p2" | "p5";
 
 export type VideoCascadeInput = {
-  /** Veo or Grok model name in p2/Crun format, e.g.
-   *  "google/veo-3.1-fast/r2v" or "grok-imagine/i2v". */
+  /** Veo or Grok model name in p2/Crun format. */
   primaryModel: string;
   prompt: string;
   aspectRatio?: string;
   imageUrls?: string[];
-  /** Veo's image mode — passed to p2 which uses this to pick endpoint
-   *  variants. */
   imageMode?: "frame" | "ingredient" | "text";
-  /** Duration in seconds. Veo 3.1 fast = 8s only; quality variants 6/8. */
   durationMode?: string | number;
   userId?: string;
-  /** 1-2. Skip tier 1 if 2. Used by retry to avoid looping on a tier
-   *  that accepted at create-time but failed downstream — pass
-   *  startTier = (highest_prior_ok_tier + 1). Default 1 = full cascade. */
-  startTier?: 1 | 2;
+  /** Slot label (e.g. "p2-a") that previously accepted at create-time
+   *  but failed during polling. Retry path uses this to push the walk
+   *  to other slots first. */
+  skipSlot?: SlotProvider;
 };
 
 export type VideoCascadeTierLog = {
   tier: string;
   ok: boolean;
   error?: string;
-  /** Number of images sent to the upstream — useful for verifying the
-   *  product-ref triplicate behavior. Single product image with r2v
-   *  mode should show imageCount: 3 here. */
   imageCount?: number;
 };
 
@@ -69,61 +72,79 @@ export type VideoCascadeResult =
       tierLog: VideoCascadeTierLog[];
     };
 
-// Try one p2 account, returns uniform shape.
-async function tryP2(
-  input: VideoCascadeInput,
-  account: "A" | "B"
+async function tryVideoSlot(
+  slot: SlotProvider,
+  input: VideoCascadeInput
 ): Promise<{ ok: boolean; taskId: string | null; error: string | null; model: string }> {
   const { primaryModel, prompt, aspectRatio, imageUrls, imageMode, durationMode, userId } = input;
   try {
-    let apiKeyOverride: string | undefined;
-    if (account === "B") {
-      const cfg = await getP2Config();
-      if (!cfg.keyB) {
-        return {
-          ok: false,
-          taskId: null,
-          error: "p2_key_b not configured in app_settings",
-          model: primaryModel,
-        };
+    if (slot === "p2-a" || slot === "p2-b") {
+      let apiKeyOverride: string | undefined;
+      if (slot === "p2-b") {
+        const cfg = await getP2Config();
+        if (!cfg.keyB) {
+          return { ok: false, taskId: null, error: "p2_key_b not configured", model: primaryModel };
+        }
+        apiKeyOverride = cfg.keyB;
       }
-      apiKeyOverride = cfg.keyB;
+      const r = await p2CreateTask({
+        model: primaryModel,
+        userId,
+        prompt,
+        imageUrls,
+        durationMode,
+        aspectRatio,
+        imageMode,
+        apiKeyOverride,
+        forceP2: true,
+      });
+      return {
+        ok: r.ok,
+        taskId: r.ok ? (r.task_id ?? null) : null,
+        error: r.ok ? null : (r.error ?? null),
+        model: primaryModel,
+      };
     }
-    const r = await p2CreateTask({
-      model: primaryModel,
-      userId,
-      prompt,
-      imageUrls,
-      durationMode,
-      aspectRatio,
-      imageMode,
-      apiKeyOverride,
-      // Both A and B want Crun directly — never silently re-route to
-      // p1 via the gen_provider toggle.
-      forceP2: true,
-    });
-    return {
-      ok: r.ok,
-      taskId: r.ok ? (r.task_id ?? null) : null,
-      error: r.ok ? null : (r.error ?? null),
-      model: primaryModel,
-    };
+    if (slot === "p5") {
+      const r = await p5CreateVideo({
+        prompt,
+        model: primaryModel,
+        aspectRatio,
+        imageUrls,
+        imageMode,
+        durationMode,
+      });
+      return {
+        ok: r.ok,
+        taskId: r.ok ? (r.task_id ?? null) : null,
+        error: r.ok ? null : (r.error ?? null),
+        model: primaryModel,
+      };
+    }
+    if (slot === "p1") {
+      const r = await p1CreateTask({
+        model: primaryModel,
+        prompt,
+        imageUrls,
+        durationMode,
+        aspectRatio,
+        imageMode,
+      });
+      return {
+        ok: r.ok,
+        taskId: r.task_id ?? null,
+        error: r.ok ? null : (r.error ?? null),
+        model: primaryModel,
+      };
+    }
+    return { ok: false, taskId: null, error: `unknown slot ${slot}`, model: primaryModel };
   } catch (e: any) {
-    return {
-      ok: false,
-      taskId: null,
-      error: e?.message || String(e),
-      model: primaryModel,
-    };
+    return { ok: false, taskId: null, error: e?.message || String(e), model: primaryModel };
   }
 }
 
-// Product-reference triplicate: when a single image is uploaded with
-// "ingredient" / r2v mode, copy it 3× so the model anchors more tightly
-// to the product. Skipped when:
-//   • multiple images already provided (intentional distinct refs)
-//   • i2v / frame mode (single image is a literal first-frame seed)
-//   • text mode (no images at all)
+// Product-reference triplicate (unchanged from pre-rotation): single
+// image + r2v / ingredient mode → copy it 3× for tighter product anchor.
 function triplicateProductRef(input: VideoCascadeInput): VideoCascadeInput {
   const imgs = input.imageUrls || [];
   if (imgs.length !== 1) return input;
@@ -139,61 +160,52 @@ export async function generateVideoWithCascade(
 ): Promise<VideoCascadeResult> {
   const input = triplicateProductRef(rawInput);
   const tierLog: VideoCascadeTierLog[] = [];
-  const startTier = Math.max(1, Math.min(2, input.startTier || 1));
-  const errs: Record<number, string> = {};
   const imageCount = input.imageUrls?.length || 0;
 
-  // ── Tier 1 — p2 / Crun, account A ──
-  if (startTier <= 1) {
-    const t = await tryP2(input, "A");
-    tierLog.push({
-      tier: `1:p2:${input.primaryModel}`,
-      ok: t.ok,
-      error: t.error ?? undefined,
-      imageCount,
-    });
-    if (t.ok && t.taskId) {
-      return {
-        ok: true,
-        taskId: t.taskId,
-        actualProvider: "p2",
-        actualModel: t.model,
-        fallbackUsed: false,
-        tierLog,
-      };
-    }
-    errs[1] = t.error || "unknown";
-    console.warn(`[video-cascade] tier1 (p2-A) failed: ${t.error}`);
+  const slots = await getVideoSlots();
+  const startIdx = await nextStartSlot("video");
+  let order = walkOrder(slots, startIdx);
+
+  // If retry says "skip this slot because it accepted at create but
+  // failed during polling," rotate the walk so that slot lands last.
+  if (input.skipSlot) {
+    const without = order.filter((s) => s !== input.skipSlot);
+    const withOnly = order.filter((s) => s === input.skipSlot);
+    order = [...without, ...withOnly] as SlotProvider[];
   }
 
-  // ── Tier 2 — p2 / Crun, account B (rate-limit / quota bypass) ──
-  if (startTier <= 2) {
-    const t = await tryP2(input, "B");
+  const errs: Record<number, string> = {};
+  for (let i = 0; i < order.length; i++) {
+    const slot = order[i];
+    const t = await tryVideoSlot(slot, input);
     tierLog.push({
-      tier: `2:p2:${input.primaryModel}`,
+      tier: `${i + 1}:${slot}:${input.primaryModel}`,
       ok: t.ok,
       error: t.error ?? undefined,
       imageCount,
     });
     if (t.ok && t.taskId) {
-      console.warn(`[video-cascade] tier2 (p2-B) saved the row`);
+      const fallbackUsed = i > 0;
+      if (fallbackUsed) {
+        console.warn(`[video-cascade] slot ${slot} saved the row (start=${slots[startIdx]})`);
+      }
       return {
         ok: true,
         taskId: t.taskId,
-        actualProvider: "p2",
+        actualProvider: slotToProvider(slot) as VideoCascadeProvider,
         actualModel: t.model,
-        fallbackUsed: true,
+        fallbackUsed,
         tierLog,
       };
     }
-    errs[2] = t.error || "unknown";
-    console.warn(`[video-cascade] tier2 (p2-B) failed: ${t.error}`);
+    errs[i + 1] = t.error || "unknown";
+    console.warn(`[video-cascade] slot ${slot} failed: ${t.error}`);
   }
 
   return {
     ok: false,
     error: Object.entries(errs)
-      .map(([n, e]) => `tier${n}: ${e}`)
+      .map(([n, e]) => `attempt${n}: ${e}`)
       .join("; "),
     tierLog,
   };
