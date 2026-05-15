@@ -60,14 +60,13 @@ export type HistoryItem = {
 // Pretty model name for the badge under each card
 function modelLabel(item: HistoryItem): string {
   const m = item.metadata?.model || "";
-  // Provider tag (P1 / P2 / P3) — appended so users know which backend
-  // produced (or is producing) this row. Storytelling scene images
-  // include P3 (Mountsea) — historically only P1/P2 had badges, but
-  // since storytelling now toggles between Crun (P2) and Mountsea (P3)
-  // it's worth showing for fairytale-scene rows too.
+  // Provider tag (P1 / P2 / P3 / P4 / P5) — appended so users know
+  // which backend produced (or is producing) this row. P4 = Grsai,
+  // P5 = APIMart (both added via the cascade slot rotation).
   const provider = String(item.metadata?.provider || "").toUpperCase();
   const providerSuffix =
-    provider === "P1" || provider === "P2" || provider === "P3"
+    provider === "P1" || provider === "P2" || provider === "P3" ||
+    provider === "P4" || provider === "P5"
       ? ` • ${provider}`
       : "";
 
