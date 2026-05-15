@@ -4,6 +4,10 @@
     {
       "path": "/api/worker/poll-pending",
       "schedule": "*/2 * * * *"
+    },
+    {
+      "path": "/api/worker/auto-resubmit",
+      "schedule": "*/5 * * * *"
     }
   ]
 }
