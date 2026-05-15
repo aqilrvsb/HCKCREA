@@ -16,6 +16,7 @@ import {
   RotateCw,
   X,
   Wand2,
+  GripVertical,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { uploadImage, dataUrlToFile } from "@/lib/upload-image";
@@ -362,7 +363,7 @@ export default function FairytaleTab({ projectId }: { projectId?: string } = {})
   // Slide-pacing controls (added per user request — show estimated total
   // duration before generation so they can plan word count + cost).
   const [secondsPerSlide, setSecondsPerSlide] = useState<number>(5);
-  const [sceneCount, setSceneCount] = useState<number>(10);
+  const [sceneCount, setSceneCount] = useState<number>(12);
   // Live pricing from admin settings — drives the cost estimate badge in
   // Step 1. Defaults match getStorytellingPricing() so the badge shows a
   // reasonable number even before the fetch lands.
@@ -1716,6 +1717,13 @@ function Step3(props: any) {
   // Preview modal uses; setting back to null closes it.
   const [historyPickerIdx, setHistoryPickerIdx] = useState<number | null>(null);
 
+  // Drag-to-reorder state for the scene list. In-memory only — reorder
+  // updates `scenes` array position; each scene's stable `s.idx` (the
+  // original 0..N narrative beat number) is preserved, so per-scene
+  // regenerate / upload by idx still works.
+  const [draggedIdx, setDraggedIdx] = useState<number | null>(null);
+  const [dragOverIdx, setDragOverIdx] = useState<number | null>(null);
+
   // Merge gate: every scene has SETTLED (done or failed). Failed scenes
   // get filtered out by submitRender's `valid` check — Modal renders
   // the story from the good ones, the failed scenes just don't appear.
@@ -1883,26 +1891,69 @@ function Step3(props: any) {
 
           <div className="space-y-3">
             {scenes.map((s: Scene, idx: number) => (
-              <SceneRow
+              <div
                 key={s.idx}
-                scene={s}
-                onChange={(narration) => setScenes((prev: Scene[]) =>
-                  prev.map((x) => x.idx === s.idx ? { ...x, narration } : x)
-                )}
-                onPreviewMe={() => setPreviewIdx(idx)}
-                isActive={previewIdx === idx}
-                onUpload={(file) => onSceneUpload?.(s.idx, file)}
-                onRegenerate={(newPrompt) => onSceneRegenerate?.(s.idx, newPrompt)}
-                onPickHistory={() => setHistoryPickerIdx(s.idx)}
-                onSetAnimation={(v) => setScenes((prev: Scene[]) =>
-                  prev.map((x) => x.idx === s.idx ? { ...x, animation: v } : x)
-                )}
-                onSetTransition={(v) => setScenes((prev: Scene[]) =>
-                  prev.map((x) => x.idx === s.idx ? { ...x, transition: v } : x)
-                )}
-                globalAnimation={sceneAnimation}
-                globalTransition={transition}
-              />
+                draggable={true}
+                onDragStart={(e) => {
+                  e.dataTransfer.effectAllowed = "move";
+                  setDraggedIdx(idx);
+                }}
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  e.dataTransfer.dropEffect = "move";
+                  if (dragOverIdx !== idx) setDragOverIdx(idx);
+                }}
+                onDragLeave={() =>
+                  setDragOverIdx((cur) => (cur === idx ? null : cur))
+                }
+                onDrop={(e) => {
+                  e.preventDefault();
+                  if (draggedIdx !== null && draggedIdx !== idx) {
+                    setScenes((prev: Scene[]) => {
+                      const next = [...prev];
+                      const [moved] = next.splice(draggedIdx, 1);
+                      next.splice(idx, 0, moved);
+                      return next;
+                    });
+                    if (previewIdx === draggedIdx) setPreviewIdx(idx);
+                  }
+                  setDraggedIdx(null);
+                  setDragOverIdx(null);
+                }}
+                onDragEnd={() => {
+                  setDraggedIdx(null);
+                  setDragOverIdx(null);
+                }}
+                style={{
+                  opacity: draggedIdx === idx ? 0.35 : 1,
+                  cursor: "grab",
+                  borderTop:
+                    dragOverIdx === idx && draggedIdx !== null && draggedIdx !== idx
+                      ? "3px solid #db2777"
+                      : "3px solid transparent",
+                  transition: "opacity 0.15s, border-color 0.1s",
+                }}
+              >
+                <SceneRow
+                  scene={s}
+                  onChange={(narration) => setScenes((prev: Scene[]) =>
+                    prev.map((x) => x.idx === s.idx ? { ...x, narration } : x)
+                  )}
+                  onPreviewMe={() => setPreviewIdx(idx)}
+                  isActive={previewIdx === idx}
+                  onUpload={(file) => onSceneUpload?.(s.idx, file)}
+                  onRegenerate={(newPrompt) => onSceneRegenerate?.(s.idx, newPrompt)}
+                  onPickHistory={() => setHistoryPickerIdx(s.idx)}
+                  onSetAnimation={(v) => setScenes((prev: Scene[]) =>
+                    prev.map((x) => x.idx === s.idx ? { ...x, animation: v } : x)
+                  )}
+                  onSetTransition={(v) => setScenes((prev: Scene[]) =>
+                    prev.map((x) => x.idx === s.idx ? { ...x, transition: v } : x)
+                  )}
+                  globalAnimation={sceneAnimation}
+                  globalTransition={transition}
+                />
+              </div>
             ))}
           </div>
           {historyPickerIdx !== null && (
@@ -2073,11 +2124,17 @@ function SceneRow({
 
       <div className="flex flex-col gap-1.5">
         <div className="flex items-center justify-between">
-          <span
-            className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded"
-            style={{ background: PURPLE, color: "white" }}
-          >
-            Scene {scene.idx + 1}
+          <span className="inline-flex items-center gap-1">
+            <GripVertical
+              className="w-3 h-3 text-gray-400"
+              aria-label="Drag to reorder"
+            />
+            <span
+              className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded"
+              style={{ background: PURPLE, color: "white" }}
+            >
+              Scene {scene.idx + 1}
+            </span>
           </span>
           <span className="text-[10px] text-gray-500 font-mono">{wc}/30 words</span>
         </div>
