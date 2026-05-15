@@ -471,8 +471,20 @@ EVERY videoPromptShot1 and videoPromptShot2 must include — CONCISELY — these
    • TEMPLATE C (HAND-POV): describe hand only — "Single ${gender} hand holding the product, NO face, NO body". Hand gender matches the avatar choice.
 
 2. ONE voice line: "${voiceBlock}"
-   • TEMPLATE A → "Character says: '...'"
-   • TEMPLATE B / C → "Voiceover (warm Malay female/male): '...'" — voice is narration, NOT from a visible character.
+   • TEMPLATE A → "Character says: '<full dialog>'"
+   • TEMPLATE B / C → "Voiceover (warm Malay female/male): '<full dialog>'" — voice is narration, NOT from a visible character.
+
+🚨 MANDATORY DIALOG FORMAT — Veo's TTS fails when dialog is unquoted.
+   ALL spoken dialog text MUST be wrapped in single quotes ' '.
+   For 8-second shots, write the whole dialog as ONE quoted string:
+     Character says: 'Korang tau tak, ni game-changer betul. Beg rotan ni nampak premium gila. Tekan beg kuning sekarang!'
+   FORBIDDEN format (causes audio-gen failure):
+     Spoken dialog:
+     0-2s: Korang tau tak...
+     2-6s: ...
+     6-8s: ...
+   Beat timing (0-2s/2-6s/6-8s) is a WORD-COUNT GUIDE for you, NOT
+   for the prompt — never write the timestamps in the final prompt.
 
 3. ONE setting line: [single sentence describing the scene — match the product's natural environment]
    • TEMPLATE A → setting includes the character (e.g. "in a cozy kitchen")
@@ -500,7 +512,7 @@ EVERY videoPromptShot1 and videoPromptShot2 must include — CONCISELY — these
 
 🚨 CRITICAL: When the framework's TEMPLATE is B or C, IGNORE the locked-avatar / character description above. The fields gender/age/hijab apply ONLY to Template A. Do NOT include any person/character description in Template B prompts. For Template C, the only "person" element is a single hand (gender-matched).
 
-Keep EACH shot prompt under 1000 characters. Do NOT repeat the voice description — it goes in step 2 ONLY. Do NOT wrap dialog in extra quotation layers. Use natural Malay sentences that fit the timing window (too many words = audio generation fails).
+Keep EACH shot prompt under 1000 characters. Do NOT repeat the voice description — it goes in step 2 ONLY. Dialog MUST be wrapped in single quotes (see MANDATORY DIALOG FORMAT in step 2). Use natural Malay sentences that fit the timing window (too many words = audio generation fails).
 </no_image_mode_rules>
 ` : ""}
 
