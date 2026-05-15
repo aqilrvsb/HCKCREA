@@ -1,0 +1,11 @@
+import { createClient } from "@supabase/supabase-js";
+import { readFileSync } from "node:fs";
+import { resolve, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
+const here = dirname(fileURLToPath(import.meta.url));
+const env={};readFileSync(resolve(here,"..",".env.local"),"utf-8").split("\n").forEach(l=>{const m=l.match(/^([A-Z_]+)=(.*)$/);if(m)env[m[1]]=m[2].replace(/^["']|["']$/g,"")});
+const sb=createClient(env.NEXT_PUBLIC_SUPABASE_URL,env.SUPABASE_SERVICE_ROLE_KEY,{auth:{persistSession:false}});
+const id = process.argv[2];
+const proj = "e6ab3775-6d9d-4e04-b261-7ce961adb143";
+const {error} = await sb.from("history").update({project_id: proj}).eq("id", id);
+console.log(error ? `FAIL: ${error.message}` : `OK: row ${id.slice(0,8)} linked to NUR`);
