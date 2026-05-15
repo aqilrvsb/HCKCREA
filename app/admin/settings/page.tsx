@@ -779,95 +779,36 @@ export default function AdminSettings() {
         )}
       </div>
 
-      {/* AI Generation Providers — three dropdowns, one per asset class.
-          Admin flips here to rotate Crun.ai (p2) ↔ GeminiGen.AI (p1)
-          without touching raw JSON. The dropdown state is derived from
-          the gen_provider_<asset> rows on load and posts back to the
-          same setting key on change.
-          NOTE: Slot Rotation card above OVERRIDES these for image/video
-          generation. The dropdowns here only affect legacy code paths
-          that still consult gen_provider_<asset> directly. */}
+      {/* Cinema (Seedance) — locked to P1. No cascade fallback, single
+          provider per user direction. Image / Video / Story routing
+          is handled by Cascade Slot Rotation above. */}
       <div className="card p-6 mb-6 border-2 border-orange-100 bg-orange-50/40">
         <div className="flex items-center gap-2 mb-1">
           <Cpu className="w-5 h-5 text-orange" />
-          <h2 className="font-display font-bold text-lg">AI Generation Providers</h2>
+          <h2 className="font-display font-bold text-lg">Cinema — Seedance</h2>
         </div>
         <p className="text-sm text-[var(--color-text-secondary)] mb-4">
-          Pick which backend handles each asset class. Changes apply on the
-          next generation; in-flight rows continue against whichever provider
-          they were originally fired on.
+          Seedance 2.0 Fast is locked to <strong>P1 (GeminiGen)</strong> with no fallback.
+          Image, Video (Veo), and Story (Grok) routing is handled by the
+          Cascade Slot Rotation card at the top.
         </p>
-        <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-3">
-          {([
-            { key: "image" as AssetKind,    label: "Image",            Icon: ImageIcon, hint: "Banana Pro / Imagen / GPT Image 2" },
-            { key: "video" as AssetKind,    label: "Video (Veo)",      Icon: Video,     hint: "Veo 3.1 / 3.1 Fast / Veo 2" },
-            { key: "cinema" as AssetKind,   label: "Story (Grok)",     Icon: Film,      hint: "Grok 3 / grok-imagine" },
-            { key: "seedance" as AssetKind, label: "Cinema (Seedance)", Icon: Film,     hint: "Seedance 2.0 Fast (Bytedance)" },
-          ]).map(({ key, label, Icon, hint }) => {
-            const current = providers[key];
-            const isSaving = savingProvider === key;
-            return (
-              <div
-                key={key}
-                className="rounded-xl p-4"
-                style={{ background: "white", border: "1px solid var(--color-border)" }}
-              >
-                <div className="flex items-center gap-2 mb-1">
-                  <Icon className="w-4 h-4 text-orange" />
-                  <span className="font-bold text-sm">{label}</span>
-                  {isSaving && <Loader2 className="w-3.5 h-3.5 animate-spin ml-auto text-orange" />}
-                </div>
-                <div className="text-[11px] text-[var(--color-text-muted)] mb-2.5">
-                  {hint}
-                </div>
-                <select
-                  value={current}
-                  disabled={isSaving}
-                  onChange={(e) => saveProvider(key, e.target.value as Provider)}
-                  className="input text-sm font-bold"
-                >
-                  <option value="p2">P2</option>
-                  <option value="p1">P1</option>
-                </select>
-
-                {/* Video only — "Apply to all" wipes every client's
-                    profiles.video_provider override so they all fall back
-                    to whatever's selected above on their next gen. Image +
-                    Cinema have no per-user override, so no button needed. */}
-                {key === "video" && (
-                  <button
-                    type="button"
-                    onClick={syncVideoProviderToAll}
-                    disabled={syncing}
-                    title="Force every client to use this provider — clears all per-user overrides"
-                    className="mt-2 w-full text-xs font-bold py-2 rounded-lg transition-all disabled:opacity-50"
-                    style={{
-                      background: "rgba(245,158,11,0.12)",
-                      border: "1px solid rgba(245,158,11,0.4)",
-                      color: "#d97706",
-                    }}
-                  >
-                    {syncing ? (
-                      <span className="inline-flex items-center justify-center gap-1.5">
-                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                        Applying…
-                      </span>
-                    ) : (
-                      "✓ Apply to all clients"
-                    )}
-                  </button>
-                )}
-              </div>
-            );
-          })}
-        </div>
-        <div className="mt-3 text-[11px] text-[var(--color-text-muted)] flex items-start gap-1.5">
-          <span>ⓘ</span>
-          <span>
-            P1 / P2 endpoint URLs + API keys live in the Provider Keys & URLs
-            section below (<code>p1_base</code>, <code>p1_key</code>, <code>p2_base</code>, <code>p2_key</code>).
-            GPT Image 2 is hidden in the Image agent when image is on P1.
-          </span>
+        <div
+          className="rounded-xl p-4 inline-flex items-center gap-3"
+          style={{ background: "white", border: "1px solid var(--color-border)" }}
+        >
+          <Film className="w-4 h-4 text-orange" />
+          <div>
+            <div className="font-bold text-sm">Cinema (Seedance 2.0 Fast)</div>
+            <div className="text-[11px] text-[var(--color-text-muted)]">
+              Routes directly to P1 — no cascade
+            </div>
+          </div>
+          <div
+            className="ml-4 px-3 py-1 rounded-lg text-sm font-bold"
+            style={{ background: "rgba(245,158,11,0.15)", color: "#d97706" }}
+          >
+            P1
+          </div>
         </div>
       </div>
 
@@ -1013,69 +954,10 @@ export default function AdminSettings() {
           <h2 className="font-display font-bold text-lg">Storytelling — Scene Images</h2>
         </div>
         <p className="text-sm text-[var(--color-text-secondary)] mb-4">
-          Pick the upstream provider + image model the Storytelling wizard
-          uses for each scene, plus your per-image cost override. Leave
-          model blank to fall back to the global image default; leave
-          rate at 0 to use the model's standard rate (rate_&lt;model&gt;).
+          Pick the image model the Storytelling wizard uses for each scene
+          + per-image cost override. Provider is decided by the Cascade
+          Slot Rotation at the top of this page.
         </p>
-
-        {/* Provider toggle — applies to Storytelling ONLY (the rest of the
-            platform stays on whatever the per-asset gen_provider_*
-            setting says). p3 (Mountsea) is locked to nano-banana-fast
-            on the route side regardless of the Image Model dropdown
-            below — the model dropdown is meaningful only for p1/p2. */}
-        <div className="mb-4">
-          <label className="block text-xs font-mono uppercase tracking-widest text-[var(--color-text-muted)] font-bold mb-2">
-            Image Provider
-          </label>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-            {([
-              { id: "p1", label: "P1 — GeminiGen", sub: "Google direct" },
-              { id: "p2", label: "P2 — Crun.ai", sub: "Multi-model" },
-              { id: "p3", label: "P3 — Mountsea", sub: "nano-banana-fast" },
-              { id: "p4", label: "P4 — Grsai", sub: "cheapest, nano-banana-fast" },
-            ] as const).map((p) => {
-              const active = storytellingProvider === p.id;
-              return (
-                <button
-                  key={p.id}
-                  type="button"
-                  onClick={() => setStorytellingProvider(p.id)}
-                  className="rounded-xl px-3 py-2 text-left transition"
-                  style={
-                    active
-                      ? {
-                          background: "#7c3aed",
-                          color: "white",
-                          border: "2px solid #7c3aed",
-                          boxShadow: "0 4px 10px rgba(124,58,237,0.3)",
-                        }
-                      : {
-                          background: "white",
-                          color: "#1f2937",
-                          border: "1px solid #e5e7eb",
-                        }
-                  }
-                >
-                  <div className="text-xs font-bold">{p.label}</div>
-                  <div
-                    className="text-[10px] mt-0.5"
-                    style={{ color: active ? "rgba(255,255,255,0.85)" : "#6b7280" }}
-                  >
-                    {p.sub}
-                  </div>
-                </button>
-              );
-            })}
-          </div>
-          {storytellingProvider === "p3" && (
-            <p className="text-[11px] text-purple-700 mt-2">
-              ⚡ Mountsea path uses <strong>nano-banana-fast</strong> only.
-              Auto-retries up to 3× on transient failures. Image Model
-              dropdown below is ignored when P3 is selected.
-            </p>
-          )}
-        </div>
 
         <div className="grid md:grid-cols-2 gap-4 mb-3">
           <div>
@@ -1222,68 +1104,10 @@ export default function AdminSettings() {
           <h2 className="font-display font-bold text-lg">Viral — Talking Object</h2>
         </div>
         <p className="text-sm text-[var(--color-text-secondary)] mb-4">
-          Pick the upstream provider + image model the Talking Object
-          pipeline uses for the start-frame image. Leave model blank to
-          fall back to the global image default.
+          Pick the image model the Talking Object pipeline uses for the
+          start-frame image. Provider is decided by the Cascade Slot
+          Rotation at the top of this page.
         </p>
-
-        {/* Provider toggle — applies to Viral / Talking Object ONLY. p3
-            (Mountsea) is locked to nano-banana-fast on the route side
-            regardless of the Image Model dropdown below. */}
-        <div className="mb-4">
-          <label className="block text-xs font-mono uppercase tracking-widest text-[var(--color-text-muted)] font-bold mb-2">
-            Image Provider
-          </label>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-            {([
-              { id: "p1", label: "P1 — GeminiGen", sub: "Google direct" },
-              { id: "p2", label: "P2 — Crun.ai", sub: "Multi-model" },
-              { id: "p3", label: "P3 — Mountsea", sub: "nano-banana-fast" },
-              { id: "p4", label: "P4 — Grsai", sub: "cheapest, all variants" },
-            ] as const).map((p) => {
-              const active = viralProvider === p.id;
-              return (
-                <button
-                  key={p.id}
-                  type="button"
-                  onClick={() => setViralProvider(p.id)}
-                  className="rounded-xl px-3 py-2 text-left transition"
-                  style={
-                    active
-                      ? {
-                          background: "#db2777",
-                          color: "white",
-                          border: "2px solid #db2777",
-                          boxShadow: "0 4px 10px rgba(219,39,119,0.3)",
-                        }
-                      : {
-                          background: "white",
-                          color: "#1f2937",
-                          border: "1px solid #e5e7eb",
-                        }
-                  }
-                >
-                  <div className="text-xs font-bold">{p.label}</div>
-                  <div
-                    className="text-[10px] mt-0.5"
-                    style={{ color: active ? "rgba(255,255,255,0.85)" : "#6b7280" }}
-                  >
-                    {p.sub}
-                  </div>
-                </button>
-              );
-            })}
-          </div>
-          {viralProvider === "p3" && (
-            <p className="text-[11px] text-pink-700 mt-2">
-              ⚡ Mountsea supports <strong>nano-banana-pro</strong>,{" "}
-              <strong>nano-banana-2</strong>, and{" "}
-              <strong>nano-banana-fast</strong>. If a P2-only model
-              (z-image / nano-banana-v2 / gpt-image-2) is selected, the
-              route auto-falls back to nano-banana-fast.
-            </p>
-          )}
-        </div>
 
         <div className="mb-3">
           <label className="block text-xs font-mono uppercase tracking-widest text-[var(--color-text-muted)] font-bold mb-2">

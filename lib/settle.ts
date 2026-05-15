@@ -387,12 +387,11 @@ async function tryAutoRetry(
     newModel = r.actualModel;
     fallbackUsed = r.fallbackUsed;
   } else if (isSeedance) {
-    // Seedance: single p2 call. No cascade — Crun is the only Seedance
-    // host we use, and key B doesn't have a separate Seedance quota
-    // distinct enough from key A to be worth retrying through.
-    const created = await p2CreateTask({
+    // Seedance: single P1 (GeminiGen) call, no cascade. Per user
+    // direction, Cinema/Seedance always routes to p1 directly.
+    const { p1CreateTask } = await import("@/lib/p1");
+    const created = await p1CreateTask({
       model,
-      userId: hist.user_id,
       prompt: retryPrompt,
       imageUrls: refImage ? [refImage] : [],
       durationMode,
@@ -401,7 +400,7 @@ async function tryAutoRetry(
     });
     if (!created.ok || !created.task_id) return false;
     newTaskId = created.task_id;
-    newProvider = (created.provider || "p2") as "p1" | "p2" | "p3" | "p4" | "p5";
+    newProvider = "p1";
   } else {
     // Video cascade for UGC / Auto / Cinema Veo / Talking Object / Extend.
     // Auto-retry must skip tiers that previously accepted but failed

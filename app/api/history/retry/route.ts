@@ -143,10 +143,10 @@ export async function POST(req: Request) {
       tierLog = r.tierLog;
     }
   } else if (isSeedance) {
-    // Seedance: single p2 call, no cascade. See settle.ts for rationale.
-    const created = await p2CreateTask({
+    // Seedance: single P1 (GeminiGen) call, no cascade.
+    const { p1CreateTask } = await import("@/lib/p1");
+    const created = await p1CreateTask({
       model,
-      userId: user.id,
       prompt: row.prompt,
       imageUrls: refImage ? [refImage] : [],
       durationMode,
@@ -155,7 +155,7 @@ export async function POST(req: Request) {
     });
     if (created.ok && created.task_id) {
       newTaskId = created.task_id;
-      newProvider = (created.provider || "p2") as "p1" | "p2" | "p3" | "p4" | "p5";
+      newProvider = "p1";
     } else {
       retryError = created.error || "Seedance create failed";
     }
