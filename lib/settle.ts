@@ -669,35 +669,10 @@ export async function settleHistoryRow(hist: HistoryRow): Promise<SettleResult> 
     return { state: "settled", status: "failed", error: r.error };
   }
 
-  // Stale-pending guard: if the CURRENT task has been pending too
-  // long, flip the row to failed. Time is measured from the LAST
-  // submit (initial fire or Resubmit). Crucially we DON'T fall back
-  // to hist.updated_at because cron polls write that on every tick —
-  // a resetting timer never expires.
-  //
-  // Precedence: metadata.task_started_at → metadata.retried_at →
-  //             hist.created_at.
-  //
-  // Videos: 10 min cap. Images: 3 min cap.
-  const meta: any = hist.metadata || {};
-  const startedRef =
-    meta.task_started_at ||
-    meta.retried_at ||
-    (hist as any).created_at;
-  const ageMs = startedRef ? Date.now() - new Date(startedRef).getTime() : 0;
-  const isImageRow =
-    hist.tab === "image" ||
-    hist.type === "image" ||
-    hist.type === "fairytale-scene";
-  const staleMs = isImageRow ? 3 * 60_000 : 10 * 60_000;
-  if (ageMs > staleMs) {
-    const staleMsg = `Stale — ${Math.round(ageMs / 60_000)} min pending, provider did not return result. Click Resubmit to try again.`;
-    await admin
-      .from("history")
-      .update({ status: "failed", error_message: staleMsg })
-      .eq("id", hist.id);
-    return { state: "settled", status: "failed", error: staleMsg };
-  }
-
+  // No logic-based stale auto-fail. Cron / webhook / refresh icon all
+  // simply ask the upstream what the real status is and trust the
+  // answer. If a task is genuinely stuck on the upstream's queue
+  // forever, that's an upstream bug, not ours — the user can click
+  // Resubmit to fire a new task on a different slot.
   return { state: "pending", p2Status: r.status };
 }
