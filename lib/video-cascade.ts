@@ -79,6 +79,9 @@ async function tryVideoSlot(
   input: VideoCascadeInput
 ): Promise<{ ok: boolean; taskId: string | null; error: string | null; model: string }> {
   const { primaryModel, prompt, aspectRatio, imageUrls, imageMode, durationMode, userId } = input;
+  if (slot === "none") {
+    return { ok: false, taskId: null, error: "slot disabled (none)", model: primaryModel };
+  }
   try {
     if (slot === "p2-a" || slot === "p2-b") {
       let apiKeyOverride: string | undefined;

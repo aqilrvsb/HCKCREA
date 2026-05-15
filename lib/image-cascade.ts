@@ -92,6 +92,9 @@ async function tryImageSlot(
   aspectRatio?: string,
   imageUrls?: string[]
 ): Promise<{ ok: boolean; taskId: string | null; error: string | null; model: string }> {
+  if (slot === "none") {
+    return { ok: false, taskId: null, error: "slot disabled (none)", model: bareModel };
+  }
   try {
     if (slot === "p2-a" || slot === "p2-b") {
       let apiKeyOverride: string | undefined;

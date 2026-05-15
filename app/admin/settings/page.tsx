@@ -114,8 +114,8 @@ export default function AdminSettings() {
   // Each slot can be: p1 / p2-a / p2-b / p4 (image only) / p5.
   // Round-robin starting slot is computed atomically by Postgres seq;
   // walk hits all 3 + retries starting slot once (4 attempts total).
-  type SlotV = "p1" | "p2-a" | "p2-b" | "p5";
-  type SlotI = "p1" | "p2-a" | "p2-b" | "p4" | "p5";
+  type SlotV = "p1" | "p2-a" | "p2-b" | "p5" | "none";
+  type SlotI = "p1" | "p2-a" | "p2-b" | "p4" | "p5" | "none";
   const [videoSlots, setVideoSlots] = useState<[SlotV, SlotV, SlotV]>(["p2-a", "p2-b", "p5"]);
   const [imageSlots, setImageSlots] = useState<[SlotI, SlotI, SlotI]>(["p4", "p5", "p2-a"]);
   const [savingSlots, setSavingSlots] = useState<"video" | "image" | null>(null);
@@ -201,7 +201,7 @@ export default function AdminSettings() {
         }
         if (row.key === "video_cascade_slots") {
           const s = Array.isArray(row.value?.slots) ? row.value.slots : [];
-          const allowed = ["p1", "p2-a", "p2-b", "p5"];
+          const allowed = ["p1", "p2-a", "p2-b", "p5", "none"];
           const norm = (v: any, fb: SlotV): SlotV =>
             allowed.includes(String(v)) ? (String(v) as SlotV) : fb;
           setVideoSlots([
@@ -212,7 +212,7 @@ export default function AdminSettings() {
         }
         if (row.key === "image_cascade_slots") {
           const s = Array.isArray(row.value?.slots) ? row.value.slots : [];
-          const allowed = ["p1", "p2-a", "p2-b", "p4", "p5"];
+          const allowed = ["p1", "p2-a", "p2-b", "p4", "p5", "none"];
           const norm = (v: any, fb: SlotI): SlotI =>
             allowed.includes(String(v)) ? (String(v) as SlotI) : fb;
           setImageSlots([
@@ -707,6 +707,7 @@ export default function AdminSettings() {
                   <option value="p2-a">P2 — Crun (key A)</option>
                   <option value="p2-b">P2 — Crun (key B)</option>
                   <option value="p5">P5 — APIMart</option>
+                  <option value="none">— None (skip) —</option>
                 </select>
               </div>
             ))}
@@ -751,6 +752,7 @@ export default function AdminSettings() {
                   <option value="p2-b">P2 — Crun (key B)</option>
                   <option value="p4">P4 — Grsai</option>
                   <option value="p5">P5 — APIMart</option>
+                  <option value="none">— None (skip) —</option>
                 </select>
               </div>
             ))}

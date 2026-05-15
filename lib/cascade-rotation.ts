@@ -19,9 +19,9 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { getSetting } from "@/lib/settings";
 
 // Slot identifiers — each maps to a specific provider + key combination.
-// p4 is image-only (Grsai). Admin UI should hide p4 from video slot
-// dropdowns to prevent runtime "p4 not supported for video" errors.
-export type SlotProvider = "p1" | "p2-a" | "p2-b" | "p4" | "p5";
+// p4 is image-only (Grsai). "none" = slot disabled (admin chose to skip
+// it) — excluded from both round-robin rotation AND fallback walk.
+export type SlotProvider = "p1" | "p2-a" | "p2-b" | "p4" | "p5" | "none";
 
 export type CascadeSlots = [SlotProvider, SlotProvider, SlotProvider];
 
@@ -47,28 +47,42 @@ function sanitizeSlots(
 export async function getVideoSlots(): Promise<CascadeSlots> {
   const s = await getSetting<{ slots: SlotProvider[] }>("video_cascade_slots");
   // p4 (Grsai) is image-only — exclude from video allow-list.
-  return sanitizeSlots(s?.slots, DEFAULT_VIDEO_SLOTS, ["p1", "p2-a", "p2-b", "p5"]);
+  return sanitizeSlots(s?.slots, DEFAULT_VIDEO_SLOTS, ["p1", "p2-a", "p2-b", "p5", "none"]);
 }
 
 export async function getImageSlots(): Promise<CascadeSlots> {
   const s = await getSetting<{ slots: SlotProvider[] }>("image_cascade_slots");
-  return sanitizeSlots(s?.slots, DEFAULT_IMAGE_SLOTS, ["p1", "p2-a", "p2-b", "p4", "p5"]);
+  return sanitizeSlots(s?.slots, DEFAULT_IMAGE_SLOTS, ["p1", "p2-a", "p2-b", "p4", "p5", "none"]);
 }
 
 // Round-robin starting slot.
 //
-// VIDEO: rotates across the 3 slots (true round-robin). Spreads load
-// evenly across p2-A / p2-B / p5 because Veo capacity is the bottleneck.
+// VIDEO: rotates across the non-"none" slots (true round-robin).
+// Spreads load evenly across enabled slots because Veo capacity is the
+// bottleneck. If admin sets slot 3 = "none", rotation only cycles
+// between slots 1 and 2.
 //
 // IMAGE: ALWAYS starts at slot 1 (Main) per user direction. Slots 2/3
-// are pure fallback. Reason: image volume is lower and the slot 1 pick
-// (p4/Grsai) is already the cheapest — rotating across p5/p2 would
-// burn more $ per image with no resilience benefit since p4 outages
-// are rare. Cascade still walks 2 → 3 → back to 1 if slot 1 fails.
+// are pure fallback. Reason: image volume is lower and slot 1 (p4/Grsai)
+// is already the cheapest — rotating would burn more $ per image with
+// no resilience benefit since p4 outages are rare. Cascade still walks
+// the non-"none" slots 2/3 → back to slot 1 if slot 1 fails.
+//
+// Caller picks the ABSOLUTE slot index this returns; walkOrder() then
+// builds the rest of the walk filtering out "none" entries.
 export async function nextStartSlot(asset: "video" | "image"): Promise<number> {
   if (asset === "image") return 0;
 
+  // For video, rotate over the non-"none" slots only. If admin sets
+  // slot 3 = none, rotation cycles between slots 1 and 2.
+  const slots = await getVideoSlots();
+  const validIndexes = slots
+    .map((s, i) => (s === "none" ? -1 : i))
+    .filter((i) => i >= 0);
+  if (validIndexes.length === 0) return 0;
+
   const admin = createAdminClient();
+  let counter = 0;
 
   // Path 1: Postgres sequence via RPC (requires migration 0036 DDL).
   try {
@@ -76,64 +90,79 @@ export async function nextStartSlot(asset: "video" | "image"): Promise<number> {
       asset_name: asset,
     });
     if (!error && typeof data === "number") {
-      return ((data - 1) % 3 + 3) % 3;
+      counter = data - 1;
     }
   } catch {
     // fall through to path 2
   }
 
-  // Path 2: read-modify-write on app_settings counter row. Idempotent
-  // and forward-compatible with path 1 — if admin runs the migration
-  // DDL later, path 1 takes over automatically.
-  try {
-    const key = asset === "video" ? "video_rotation_counter" : "image_rotation_counter";
-    const { data: row } = await admin
-      .from("app_settings")
-      .select("value")
-      .eq("key", key)
-      .maybeSingle();
-    const currentCount = Number((row?.value as any)?.count) || 0;
-    const newCount = currentCount + 1;
-    await admin
-      .from("app_settings")
-      .upsert(
-        {
-          key,
-          value: { count: newCount },
-          description: `Round-robin rotation counter for ${asset} cascade slots.`,
-          category: "internal",
-        },
-        { onConflict: "key" }
-      );
-    return (newCount - 1) % 3;
-  } catch (e: any) {
-    console.warn(`[cascade-rotation] nextStartSlot exception: ${e?.message}`);
-    return 0;
+  // Path 2: read-modify-write on app_settings counter row.
+  if (counter === 0) {
+    try {
+      const key = "video_rotation_counter";
+      const { data: row } = await admin
+        .from("app_settings")
+        .select("value")
+        .eq("key", key)
+        .maybeSingle();
+      const currentCount = Number((row?.value as any)?.count) || 0;
+      const newCount = currentCount + 1;
+      await admin
+        .from("app_settings")
+        .upsert(
+          {
+            key,
+            value: { count: newCount },
+            description: `Round-robin rotation counter for ${asset} cascade slots.`,
+            category: "internal",
+          },
+          { onConflict: "key" }
+        );
+      counter = newCount - 1;
+    } catch (e: any) {
+      console.warn(`[cascade-rotation] nextStartSlot exception: ${e?.message}`);
+      return validIndexes[0];
+    }
   }
+
+  // Pick the Nth non-none slot — guarantees rotation only over enabled
+  // slots even if admin sets one to "none".
+  return validIndexes[counter % validIndexes.length];
 }
 
-// Build the walk order for a given start slot. Walks through all 3
-// slots AND retries the starting slot at the end (4 attempts total).
-// The double-shot on the starting slot catches transient first-call
-// failures (rate-limit blip, single dropped packet) without losing the
-// cross-vendor fallback in between.
-//   slots=[A,B,C], start=0 → [A, B, C, A]
-//   slots=[A,B,C], start=1 → [B, C, A, B]
-//   slots=[A,B,C], start=2 → [C, A, B, C]
+// Build the walk order for a given start slot. Walks through all
+// non-"none" slots cyclically, then retries the starting slot at the
+// end. The retry catches transient first-call failures without losing
+// the cross-vendor fallback in between.
+//
+// Examples (none slots filtered out, walk shorter when fewer enabled):
+//   slots=[A,B,C],    start=0 → [A, B, C, A]   (4 attempts, 3 unique slots)
+//   slots=[A,B,none], start=0 → [A, B, A]      (3 attempts, 2 unique slots)
+//   slots=[A,B,none], start=1 → [B, A, B]      (rotation respects start)
+//   slots=[A,none,none], start=0 → [A]          (no fallback possible)
 export function walkOrder(slots: CascadeSlots, startIndex: number): SlotProvider[] {
   const start = ((startIndex % 3) + 3) % 3;
-  return [
-    slots[start],
-    slots[(start + 1) % 3],
-    slots[(start + 2) % 3],
-    slots[start],
-  ];
+  // Walk in slot order from start, wrap around, skip "none".
+  const walk: SlotProvider[] = [];
+  for (let i = 0; i < 3; i++) {
+    const slot = slots[(start + i) % 3];
+    if (slot !== "none") walk.push(slot);
+  }
+  // Append the starting slot again for the retry-once tail — but only
+  // if the start slot itself isn't "none".
+  if (walk.length > 0 && slots[start] !== "none") {
+    walk.push(slots[start]);
+  }
+  return walk;
 }
 
 // Map a slot back to the "real" provider id stamped on history.metadata.provider
 // so settle.ts knows which client to poll with. p2-a and p2-b both poll
 // via p2GetStatus (same endpoint, just different API keys at submit time).
+// "none" should never reach here (filtered earlier) but fall back to p2
+// just in case.
 export function slotToProvider(slot: SlotProvider): "p1" | "p2" | "p4" | "p5" {
   if (slot === "p2-a" || slot === "p2-b") return "p2";
+  if (slot === "none") return "p2";
   return slot as "p1" | "p4" | "p5";
 }
