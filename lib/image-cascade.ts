@@ -56,6 +56,9 @@ export type CascadeResult =
       taskId: string;
       /** Which provider polls the task. p2-a + p2-b both poll as "p2". */
       actualProvider: CascadeProvider;
+      /** Which slot key actually accepted the task — distinguishes
+       *  p2-a vs p2-b for the UI chip ("P2-A" / "P2-B"). */
+      actualSlot: SlotProvider;
       actualModel: string;
       /** True iff a non-starting slot saved the row. */
       fallbackUsed: boolean;
@@ -175,6 +178,7 @@ export async function generateImageWithCascade(
         ok: true,
         taskId: t.taskId,
         actualProvider: slotToProvider(slot) as CascadeProvider,
+        actualSlot: slot,
         actualModel: t.model,
         fallbackUsed,
         tierLog,

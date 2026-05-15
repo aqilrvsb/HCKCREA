@@ -350,6 +350,7 @@ async function tryAutoRetry(
 
   let newTaskId: string | null = null;
   let newProvider: "p1" | "p2" | "p3" | "p4" | "p5" = "p2";
+  let newSlot: string | undefined = undefined;
   let newModel: string = model;
   let fallbackUsed = false;
   let tierLog: any = undefined;
@@ -389,6 +390,7 @@ async function tryAutoRetry(
     }
     newTaskId = r.taskId;
     newProvider = r.actualProvider;
+    newSlot = r.actualSlot;
     newModel = r.actualModel;
     fallbackUsed = r.fallbackUsed;
   } else if (isSeedance) {
@@ -461,6 +463,7 @@ async function tryAutoRetry(
     }
     newTaskId = r.taskId;
     newProvider = r.actualProvider;
+    newSlot = r.actualSlot;
     newModel = r.actualModel;
     fallbackUsed = r.fallbackUsed;
   }
@@ -477,6 +480,7 @@ async function tryAutoRetry(
       metadata: {
         ...meta,
         provider: newProvider,
+        slot: newSlot,
         model: newModel,
         fallback_used: fallbackUsed,
         tier_log: tierLog,

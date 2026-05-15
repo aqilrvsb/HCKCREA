@@ -176,6 +176,7 @@ export async function POST(req: Request) {
           imageMode,
           model: result.actualModel,
           provider: result.actualProvider,
+          slot: result.actualSlot,
           fallback_used: result.fallbackUsed,
           tier_log: result.tierLog,
           upload_status: "done",

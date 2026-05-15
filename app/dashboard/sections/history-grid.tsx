@@ -60,15 +60,17 @@ export type HistoryItem = {
 // Pretty model name for the badge under each card
 function modelLabel(item: HistoryItem): string {
   const m = item.metadata?.model || "";
-  // Provider tag (P1 / P2 / P3 / P4 / P5) — appended so users know
-  // which backend produced (or is producing) this row. P4 = Grsai,
-  // P5 = APIMart (both added via the cascade slot rotation).
-  const provider = String(item.metadata?.provider || "").toUpperCase();
+  // Provider tag — prefer the cascade slot label (metadata.slot, e.g.
+  // "p2-a" / "p2-b" / "p4" / "p5") so the chip distinguishes Crun
+  // account A vs B. Fall back to metadata.provider when slot isn't
+  // stamped (older rows from before slot rotation).
+  const rawSlot = String(item.metadata?.slot || "");
+  const rawProvider = String(item.metadata?.provider || "");
+  const slotLabel = rawSlot
+    ? rawSlot.toUpperCase().replace("P2-A", "P2 (KEY A)").replace("P2-B", "P2 (KEY B)")
+    : rawProvider.toUpperCase();
   const providerSuffix =
-    provider === "P1" || provider === "P2" || provider === "P3" ||
-    provider === "P4" || provider === "P5"
-      ? ` • ${provider}`
-      : "";
+    /^P[1-5]/.test(slotLabel) ? ` • ${slotLabel}` : "";
 
   if (item.type === "fairytale-scene") {
     // Storytelling scene image — show model + provider so it's
@@ -1583,6 +1585,20 @@ function HistoryCardInner({
             </span>
           </span>
         </div>
+
+        {/* Task ID + cascade slot — visible on every card (including
+            still-loading) so admins can correlate to provider logs and
+            see which slot (p2 key A vs B / p4 / p5) accepted the task. */}
+        {item.task_id && (
+          <div
+            className="text-[9px] font-mono mt-1 mb-1 truncate select-all"
+            style={{ color: "var(--color-text-muted)" }}
+            title={`Full task ID: ${item.task_id}`}
+          >
+            task: {String(item.task_id).slice(0, 18)}
+            {String(item.task_id).length > 18 ? "…" : ""}
+          </div>
+        )}
 
         {/* Editable name row — ✏️ Name */}
         {item.status === "done" && (

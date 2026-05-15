@@ -62,6 +62,8 @@ export type VideoCascadeResult =
       ok: true;
       taskId: string;
       actualProvider: VideoCascadeProvider;
+      /** Which slot key actually accepted — distinguishes p2-a vs p2-b. */
+      actualSlot: SlotProvider;
       actualModel: string;
       fallbackUsed: boolean;
       tierLog: VideoCascadeTierLog[];
@@ -193,6 +195,7 @@ export async function generateVideoWithCascade(
         ok: true,
         taskId: t.taskId,
         actualProvider: slotToProvider(slot) as VideoCascadeProvider,
+        actualSlot: slot,
         actualModel: t.model,
         fallbackUsed,
         tierLog,

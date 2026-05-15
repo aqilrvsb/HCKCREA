@@ -137,7 +137,10 @@ export async function POST(req: Request) {
           metadata: {
             // actualProvider + actualModel reflect the tier that accepted
             // the task. settle.ts reads metadata.provider for status poll.
+            // actualSlot keeps the slot label (p2-a / p2-b / p4 / p5) so
+            // the UI chip can show "P2-A" vs "P2-B".
             provider: result.actualProvider,
+            slot: result.actualSlot,
             model: result.actualModel,
             primary_provider: primaryProvider,
             fallback_used: result.fallbackUsed,

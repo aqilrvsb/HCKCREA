@@ -165,6 +165,7 @@ export async function POST(req: Request) {
             // outcome of each cascade step so admin can audit which tier
             // is saving most scenes.
             provider: actualProvider,
+            slot: cascadeResult.ok ? cascadeResult.actualSlot : undefined,
             model: actualModel,
             primary_provider: provider,
             fallback_used: usedFallback,

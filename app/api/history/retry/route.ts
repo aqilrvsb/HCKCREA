@@ -112,6 +112,7 @@ export async function POST(req: Request) {
 
   let newTaskId: string | null = null;
   let newProvider: "p1" | "p2" | "p3" | "p4" | "p5" = "p2";
+  let newSlot: string | undefined = undefined;
   let newModel: string = model;
   let fallbackUsed = false;
   let tierLog: any = undefined;
@@ -135,6 +136,7 @@ export async function POST(req: Request) {
     if (r.ok) {
       newTaskId = r.taskId;
       newProvider = r.actualProvider;
+      newSlot = r.actualSlot;
       newModel = r.actualModel;
       fallbackUsed = r.fallbackUsed;
       tierLog = r.tierLog;
@@ -192,6 +194,7 @@ export async function POST(req: Request) {
     if (r.ok) {
       newTaskId = r.taskId;
       newProvider = r.actualProvider;
+      newSlot = r.actualSlot;
       newModel = r.actualModel;
       fallbackUsed = r.fallbackUsed;
       tierLog = r.tierLog;
@@ -236,6 +239,7 @@ export async function POST(req: Request) {
       metadata: {
         ...meta,
         provider: newProvider,
+        slot: newSlot,
         model: newModel,
         fallback_used: fallbackUsed,
         tier_log: tierLog,

@@ -495,6 +495,7 @@ export async function POST(req: Request) {
             character_block: promptPair.character_block,
             model: imgProvider === "p3" ? p3Model : imageModelKey,
             provider: imgProvider,
+            slot: cascadeResult.ok ? cascadeResult.actualSlot : undefined,
             parent_video_history_id: historyId,
             upload_status: "queued",
           },

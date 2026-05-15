@@ -55,12 +55,19 @@ export async function getImageSlots(): Promise<CascadeSlots> {
   return sanitizeSlots(s?.slots, DEFAULT_IMAGE_SLOTS, ["p1", "p2-a", "p2-b", "p4", "p5"]);
 }
 
-// Round-robin counter. Tries the Postgres sequence first (via the
-// next_cascade_slot RPC from migration 0036) for true atomic increment.
-// Falls back to a read-modify-write on app_settings.<asset>_rotation_counter
-// if the RPC doesn't exist yet — not strictly atomic but fine at
-// typical generation rates (a few tasks per second at most).
+// Round-robin starting slot.
+//
+// VIDEO: rotates across the 3 slots (true round-robin). Spreads load
+// evenly across p2-A / p2-B / p5 because Veo capacity is the bottleneck.
+//
+// IMAGE: ALWAYS starts at slot 1 (Main) per user direction. Slots 2/3
+// are pure fallback. Reason: image volume is lower and the slot 1 pick
+// (p4/Grsai) is already the cheapest — rotating across p5/p2 would
+// burn more $ per image with no resilience benefit since p4 outages
+// are rare. Cascade still walks 2 → 3 → back to 1 if slot 1 fails.
 export async function nextStartSlot(asset: "video" | "image"): Promise<number> {
+  if (asset === "image") return 0;
+
   const admin = createAdminClient();
 
   // Path 1: Postgres sequence via RPC (requires migration 0036 DDL).
