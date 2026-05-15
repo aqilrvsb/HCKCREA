@@ -98,6 +98,10 @@ export function buildAdminPaymentAlert(opts: {
   credits?: number;
   amountMYR: number;
   paymentId: string;
+  /** Email of the affiliate referrer, if any. When set, replaces the
+   *  Ref line with a 'Referral' line showing the referrer's email.
+   *  When null/undefined the Ref line is omitted entirely. */
+  referrerEmail?: string | null;
 }): string {
   const heading =
     opts.type === "subscription"
@@ -116,7 +120,9 @@ export function buildAdminPaymentAlert(opts: {
   if (opts.plan) lines.push(`Plan     : ${opts.plan.toUpperCase()}`);
   if (opts.credits) lines.push(`Credits  : +${opts.credits}`);
   lines.push(`Tarikh   : ${new Date().toLocaleString("ms-MY", { dateStyle: "short", timeStyle: "short" })}`);
-  lines.push(`Ref      : ${opts.paymentId.slice(0, 8)}`);
+  if (opts.referrerEmail) {
+    lines.push(`Referral : ${opts.referrerEmail}`);
+  }
 
   return lines.join("\n");
 }

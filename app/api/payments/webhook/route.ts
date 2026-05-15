@@ -329,7 +329,18 @@ async function applyCheckoutSignup(admin: any, payment: any) {
     console.error("[checkout_signup] WhatsApp send threw:", e?.message);
   }
 
-  // Notify admin(s) of the new sale
+  // Notify admin(s) of the new sale. Look up the referrer's email
+  // when this signup was through an affiliate link so the alert
+  // shows who gets the commission.
+  let referrerEmail: string | null = null;
+  if (referrerId) {
+    try {
+      const { data: ref } = await admin.auth.admin.getUserById(referrerId);
+      referrerEmail = ref?.user?.email || null;
+    } catch (e: any) {
+      console.warn("[checkout_signup] referrer email lookup failed:", e?.message);
+    }
+  }
   try {
     await notifyAdmins(
       buildAdminPaymentAlert({
@@ -340,6 +351,7 @@ async function applyCheckoutSignup(admin: any, payment: any) {
         plan,
         amountMYR: Number(payment.amount || 0),
         paymentId: payment.id,
+        referrerEmail,
       })
     );
   } catch (e: any) {
