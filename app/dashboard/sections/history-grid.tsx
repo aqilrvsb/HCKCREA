@@ -709,6 +709,9 @@ function HistoryCardInner({
   const [deleting, setDeleting] = useState(false);
   const [name, setName] = useState(item.metadata?.name || "");
   const [editingName, setEditingName] = useState(false);
+  // Prompt edit mode for failed cards. null = view-only, string = editing.
+  // When non-null, Resubmit sends this overridden prompt to the retry route.
+  const [editedPrompt, setEditedPrompt] = useState<string | null>(null);
   const [savingName, setSavingName] = useState(false);
   const [showFullscreen, setShowFullscreen] = useState(false);
   const [showPromptModal, setShowPromptModal] = useState(false);
@@ -1186,15 +1189,20 @@ function HistoryCardInner({
     // a Generating state without disappearing or duplicating.
     setChecking(true);
     try {
+      const body: any = { history_id: item.id };
+      if (editedPrompt !== null && editedPrompt.trim() && editedPrompt !== item.prompt) {
+        body.prompt = editedPrompt;
+      }
       const r = await fetch("/api/history/retry", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ history_id: item.id }),
+        body: JSON.stringify(body),
       });
       const d = await r.json();
       if (!r.ok || !d?.ok) {
         alert(d?.error || "Retry failed");
       } else {
+        setEditedPrompt(null);
         window.dispatchEvent(new CustomEvent("history:refresh"));
       }
     } finally {
@@ -1258,25 +1266,77 @@ function HistoryCardInner({
               <span className="line-clamp-2">
                 {/^Stale\b/i.test(item.error_message || "") ? "Failed" : (item.error_message || "Failed")}
               </span>
-              {/* Prompt shown below the error so users can see what the
-                  failed generation was asking for — makes it easy to
-                  spot "Veo audio-gen failed" + a prompt that has
-                  TTS-hostile words, etc. */}
+              {/* Full prompt + inline editor. Click Edit to modify
+                  before clicking Resubmit. Edited prompt is sent to
+                  /api/history/retry via the prompt override field. */}
               {item.prompt && (
                 <div
                   className="mt-2 pt-2 border-t w-full"
                   style={{ borderColor: "rgba(239,68,68,0.25)" }}
                 >
-                  <div className="text-[9px] font-mono uppercase tracking-wider mb-1 opacity-60">
-                    PROMPT
+                  <div className="flex items-center justify-between mb-1">
+                    <div className="text-[9px] font-mono uppercase tracking-wider opacity-60">
+                      PROMPT
+                    </div>
+                    {editedPrompt === null ? (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setEditedPrompt(item.prompt || "");
+                        }}
+                        title="Edit prompt before resubmit"
+                        className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded inline-flex items-center gap-1 transition"
+                        style={{
+                          background: "rgba(239,68,68,0.15)",
+                          color: "#fca5a5",
+                          border: "1px solid rgba(239,68,68,0.3)",
+                        }}
+                      >
+                        <Pencil className="w-2.5 h-2.5" /> Edit
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setEditedPrompt(null);
+                        }}
+                        title="Cancel edit"
+                        className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded inline-flex items-center gap-1"
+                        style={{
+                          background: "rgba(239,68,68,0.15)",
+                          color: "#fca5a5",
+                          border: "1px solid rgba(239,68,68,0.3)",
+                        }}
+                      >
+                        <X className="w-2.5 h-2.5" /> Cancel
+                      </button>
+                    )}
                   </div>
-                  <div
-                    className="text-[10px] font-normal text-left line-clamp-5 leading-relaxed"
-                    style={{ color: "rgba(252,165,165,0.85)" }}
-                  >
-                    {item.prompt.slice(0, 300)}
-                    {item.prompt.length > 300 ? "…" : ""}
-                  </div>
+                  {editedPrompt === null ? (
+                    <div
+                      className="text-[10px] font-normal text-left leading-relaxed whitespace-pre-wrap max-h-[180px] overflow-y-auto pr-1"
+                      style={{ color: "rgba(252,165,165,0.85)" }}
+                    >
+                      {item.prompt}
+                    </div>
+                  ) : (
+                    <textarea
+                      value={editedPrompt}
+                      onChange={(e) => setEditedPrompt(e.target.value)}
+                      onClick={(e) => e.stopPropagation()}
+                      rows={8}
+                      className="w-full text-[10px] font-normal leading-relaxed rounded p-2 outline-none resize-y"
+                      style={{
+                        background: "rgba(20,20,20,0.6)",
+                        color: "rgba(252,165,165,0.95)",
+                        border: "1px solid rgba(239,68,68,0.35)",
+                        minHeight: "120px",
+                        maxHeight: "240px",
+                      }}
+                    />
+                  )}
                 </div>
               )}
               {/* Cascade attempt history — shows which tiers were tried.

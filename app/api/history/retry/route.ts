@@ -30,6 +30,11 @@ export async function POST(req: Request) {
 
   const body = await req.json().catch(() => ({}));
   const historyId = String(body?.history_id || "").trim();
+  // Optional prompt override from the failed-card edit textarea. If
+  // present (and non-empty), Resubmit uses this instead of the
+  // original row.prompt — and persists it back to row.prompt so the
+  // edit sticks for future retries / extends.
+  const promptOverride = typeof body?.prompt === "string" ? body.prompt.trim() : "";
   if (!historyId) {
     return NextResponse.json({ error: "history_id required" }, { status: 400 });
   }
@@ -54,6 +59,17 @@ export async function POST(req: Request) {
       { error: "Original prompt missing — cannot retry" },
       { status: 400 }
     );
+  }
+
+  // Effective prompt for this retry. promptOverride wins if provided.
+  const effectivePrompt = promptOverride || row.prompt;
+  if (promptOverride) {
+    // Persist the edit on the row so future polls / extends see the
+    // updated text and admin tooling shows what was actually sent.
+    await admin
+      .from("history")
+      .update({ prompt: effectivePrompt })
+      .eq("id", historyId);
   }
 
   // Block retry on rows that are still in flight or already done. Only
@@ -145,7 +161,7 @@ export async function POST(req: Request) {
       primaryProvider,
       primaryModel: model.replace(/^google\//, "").replace(/^openai\//, ""),
       primaryModelP2: model,
-      prompt: row.prompt,
+      prompt: effectivePrompt,
       aspectRatio,
       imageUrls: allImageUrls.length > 0 ? allImageUrls : undefined,
       skipSlot: imgSkipSlot,
@@ -166,7 +182,7 @@ export async function POST(req: Request) {
     const { p1CreateTask } = await import("@/lib/p1");
     const created = await p1CreateTask({
       model,
-      prompt: row.prompt,
+      prompt: effectivePrompt,
       imageUrls: allImageUrls,
       durationMode,
       aspectRatio,
@@ -205,7 +221,7 @@ export async function POST(req: Request) {
     const r = await generateVideoWithCascade({
       primaryModel: model,
       userId: user.id,
-      prompt: row.prompt,
+      prompt: effectivePrompt,
       imageUrls: allImageUrls,
       durationMode,
       aspectRatio,
