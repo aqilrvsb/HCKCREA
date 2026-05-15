@@ -96,7 +96,7 @@ export async function POST(req: Request) {
   if (!startUrl && meta.refine_banana_task_id && meta.refine_banana_provider) {
     // (2) Resume the in-flight Banana Pro task. Short timeout here so
     // the recover endpoint itself doesn't hang for minutes.
-    const provider = String(meta.refine_banana_provider) as "p1" | "p2" | "p3" | "p4";
+    const provider = String(meta.refine_banana_provider) as "p1" | "p2" | "p3" | "p4" | "p5";
     const taskId = String(meta.refine_banana_task_id);
     const polled = await pollRefineTask(provider, taskId, 45_000);
     if (polled.ok) {

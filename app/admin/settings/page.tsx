@@ -75,7 +75,7 @@ export default function AdminSettings() {
   // Storytelling-only image provider: p2 (Crun), p3 (Mountsea), or p1
   // (GeminiGen — pass-through fallback). Stored in app_settings as
   // storytelling_provider = { provider: "p2" | "p3" | "p1" }.
-  const [storytellingProvider, setStorytellingProvider] = useState<"p1" | "p2" | "p3" | "p4">("p4");
+  const [storytellingProvider, setStorytellingProvider] = useState<"p1" | "p2" | "p3" | "p4" | "p5">("p4");
   const [storytellingPerImage, setStorytellingPerImage] = useState("");
   const [storytellingPerAudioSec, setStorytellingPerAudioSec] = useState("");
   // MiniMax narration playback speed — clamped 0.5–2.0. 1.2 default
@@ -90,7 +90,7 @@ export default function AdminSettings() {
   //   viral_image_model  = { model: "nano-banana-pro" | ... }
   // Independent from global image_default so admin can route Viral to a
   // different backend without affecting Image / Storytelling tabs.
-  const [viralProvider, setViralProvider] = useState<"p1" | "p2" | "p3" | "p4">("p4");
+  const [viralProvider, setViralProvider] = useState<"p1" | "p2" | "p3" | "p4" | "p5">("p4");
   const [viralImageModel, setViralImageModel] = useState("");
   const [savingViral, setSavingViral] = useState(false);
   const [viralMsg, setViralMsg] = useState<string | null>(null);

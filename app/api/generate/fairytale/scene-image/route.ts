@@ -127,7 +127,7 @@ export async function POST(req: Request) {
       const createdTaskId = cascadeResult.ok ? cascadeResult.taskId : null;
       const createdError = cascadeResult.ok ? null : cascadeResult.error;
       const usedFallback = cascadeResult.ok ? cascadeResult.fallbackUsed : false;
-      const actualProvider: "p1" | "p2" | "p3" | "p4" =
+      const actualProvider: "p1" | "p2" | "p3" | "p4" | "p5" =
         cascadeResult.ok ? cascadeResult.actualProvider : provider;
       const actualModel = cascadeResult.ok ? cascadeResult.actualModel : "";
       const tierLog = cascadeResult.tierLog;

@@ -111,7 +111,7 @@ export async function POST(req: Request) {
   const isSeedance = model.toLowerCase().includes("seedance");
 
   let newTaskId: string | null = null;
-  let newProvider: "p1" | "p2" | "p3" | "p4" | "p5" | "p5" = "p2";
+  let newProvider: "p1" | "p2" | "p3" | "p4" | "p5" = "p2";
   let newModel: string = model;
   let fallbackUsed = false;
   let tierLog: any = undefined;

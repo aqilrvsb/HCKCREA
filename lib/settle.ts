@@ -401,7 +401,7 @@ async function tryAutoRetry(
     });
     if (!created.ok || !created.task_id) return false;
     newTaskId = created.task_id;
-    newProvider = (created.provider || "p2") as "p1" | "p2" | "p3" | "p4";
+    newProvider = (created.provider || "p2") as "p1" | "p2" | "p3" | "p4" | "p5";
   } else {
     // Video cascade for UGC / Auto / Cinema Veo / Talking Object / Extend.
     // Auto-retry must skip tiers that previously accepted but failed

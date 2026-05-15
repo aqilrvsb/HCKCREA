@@ -104,23 +104,23 @@ export async function getReferralCommissionRate(): Promise<number> {
 // Viral (Talking Object) image config — provider + model are admin-tuned
 // independently of the global image_default so the Viral tab can run on
 // a different model/provider without affecting Image / Storytelling tabs.
-//   viral_provider     = { provider: "p1" | "p2" | "p3" | "p4" }   (default p4)
+//   viral_provider     = { provider: "p1" | "p2" | "p3" | "p4" | "p5" }   (default p4)
 //   viral_image_model  = { model: "nano-banana-pro" | ... } (default cfg.imageDefault)
 // p3 = Mountsea path (forced nano-banana-fast — model dropdown is ignored).
 // p4 = Grsai path (image cascade partner of p2).
 export type ViralImageConfig = {
-  provider: "p1" | "p2" | "p3" | "p4";
+  provider: "p1" | "p2" | "p3" | "p4" | "p5";
   modelKey: string; // admin-side key (e.g. "nano-banana-pro")
 };
 export async function getViralImageConfig(): Promise<ViralImageConfig> {
   const [providerRow, modelRow, p2Cfg] = await Promise.all([
-    getSetting<{ provider: "p1" | "p2" | "p3" | "p4" }>("viral_provider"),
+    getSetting<{ provider: "p1" | "p2" | "p3" | "p4" | "p5" }>("viral_provider"),
     getSetting<{ model: string }>("viral_image_model"),
     getP2Config(),
   ]);
   const p = providerRow?.provider;
-  const provider: "p1" | "p2" | "p3" | "p4" =
-    p === "p1" || p === "p2" || p === "p3" ? p : "p4";
+  const provider: "p1" | "p2" | "p3" | "p4" | "p5" =
+    p === "p1" || p === "p2" || p === "p3" || p === "p5" ? p : "p4";
   const modelKey = (modelRow?.model || p2Cfg.imageDefault || "nano-banana-pro").trim();
   return { provider, modelKey };
 }
