@@ -203,15 +203,18 @@ async function autoSavePrompt(
 // try again later." string from RunningHub/Crun has been the dominant case
 // blocking Auto Content batches; rate-limit / 5xx wording covered too.
 const TRANSIENT_ERROR_PATTERNS = [
-  /internal error/i,
+  /\binternal\b/i,        // "INTERNAL" (Crun), "internal error", "Service internal exception" (APIMart)
+  /resend the request/i,  // APIMart's "please resend the request" hint
   /try again later/i,
   /rate limit/i,
   /timeout/i,
   /timed out/i,
-  /\b50\d\b/,           // 500/502/503/504
+  /\b50\d\b/,             // 500/502/503/504
   /service unavailable/i,
   /temporarily/i,
   /upstream/i,
+  /transient/i,
+  /\bbusy\b/i,
 ];
 
 // "The Google model was unable to generate audio for this request." —
@@ -226,11 +229,12 @@ const AUDIO_GEN_FAIL_PATTERNS = [
   /audio synthesis failed/i,
 ];
 
-// 3 auto-retries (+ the original = 4 total attempts) lines up exactly
-// with the 4-tier video cascade — original tries tier 1, auto-retry 1
-// tries tier 2, retry 2 tries tier 3, retry 3 tries tier 4. After all 4
-// tiers attempted, row stays failed and the user can still manually
-// retry from the UI (which resets / continues the cycle).
+// Aligned with the slot-rotation cascade's 4-attempt walk (start →
+// next → next → start again). 3 auto-retries + the original = 4 total
+// settle attempts. Each retry re-fires through the cascade, so a row
+// that fails on slot 1 gets up to 12 total provider attempts (3 retries
+// × 4 cascade walks) before giving up. After exhaustion the user can
+// still manually retry from the UI.
 const MAX_AUTO_RETRIES = 3;
 
 function isTransientError(err: string | null | undefined): boolean {
