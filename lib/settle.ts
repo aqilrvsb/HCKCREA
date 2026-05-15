@@ -560,7 +560,16 @@ export async function settleHistoryRow(hist: HistoryRow): Promise<SettleResult> 
     const { p3GetStatus } = await import("@/lib/p3");
     r = await p3GetStatus(hist.task_id);
   } else {
-    r = await p2GetStatus(hist.task_id, rowProvider as "p1" | "p2");
+    // If this row was fired through slot p2-b, poll with key B —
+    // Crun scopes task IDs per account so key A returns empty for
+    // tasks submitted via key B.
+    let apiKeyOverride: string | undefined;
+    if (rowProvider === "p2" && hist.metadata?.slot === "p2-b") {
+      const { getP2Config } = await import("@/lib/settings");
+      const cfg = await getP2Config();
+      if (cfg.keyB) apiKeyOverride = cfg.keyB;
+    }
+    r = await p2GetStatus(hist.task_id, rowProvider as "p1" | "p2", apiKeyOverride);
   }
   const admin = createAdminClient();
 

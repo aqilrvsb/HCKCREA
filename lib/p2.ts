@@ -303,7 +303,8 @@ export type P2StatusResp = {
 // inserted before the dispatcher landed.
 export async function p2GetStatus(
   taskId: string,
-  provider?: "p1" | "p2"
+  provider?: "p1" | "p2",
+  apiKeyOverride?: string
 ): Promise<P2StatusResp> {
   const useP1 = provider === "p1";
   if (useP1) {
@@ -318,11 +319,15 @@ export async function p2GetStatus(
   }
 
   const cfg = await getP2Config();
-  if (!cfg.base || !cfg.key) return { ok: false, status: "failed", error: "P2 not configured" };
+  // Use the key that originally submitted this task. Crun scopes
+  // task_ids per account — querying with the wrong key returns
+  // empty / not-found, which we'd interpret as "pending" forever.
+  const apiKey = apiKeyOverride || cfg.key;
+  if (!cfg.base || !apiKey) return { ok: false, status: "failed", error: "P2 not configured" };
 
   const res = await fetch(
     `${cfg.base}${cfg.statusPath}?task_id=${encodeURIComponent(taskId)}`,
-    { headers: { "x-api-key": cfg.key }, cache: "no-store" }
+    { headers: { "x-api-key": apiKey }, cache: "no-store" }
   );
   const text = await res.text().catch(() => "");
   let json: any = null;
