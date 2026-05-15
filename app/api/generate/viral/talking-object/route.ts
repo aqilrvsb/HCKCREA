@@ -133,7 +133,7 @@ export async function POST(req: Request) {
   // Resolve the viral provider/model here too so the placeholder badge
   // shows the correct model from the start.
   let imageHistoryId: string | null = null;
-  let viralCfgPreflight: { provider: "p1" | "p2" | "p3"; modelKey: string } | null = null;
+  let viralCfgPreflight: { provider: "p1" | "p2" | "p3" | "p4"; modelKey: string } | null = null;
   if (mode === "i2v") {
     try {
       viralCfgPreflight = await getViralImageConfig();
@@ -412,8 +412,12 @@ export async function POST(req: Request) {
     // configured viralCfg.provider; tier 2 = p1/nano-banana-2 safety net;
     // tier 3 = the other non-p1 provider with the same model. Handles
     // content-block (451) + transient outages without dropping the row.
-    const primaryProvider: "p2" | "p3" =
-      viralCfg.provider === "p3" ? "p3" : "p2";
+    const primaryProvider: "p2" | "p3" | "p4" =
+      viralCfg.provider === "p4"
+        ? "p4"
+        : viralCfg.provider === "p3"
+          ? "p3"
+          : "p2";
     const primaryModelForCascade =
       primaryProvider === "p3" ? p3Model : imageModelKey;
     const cascadeResult = await generateImageWithCascade({
@@ -425,7 +429,7 @@ export async function POST(req: Request) {
       // banana-pro / nano-banana variants do text-to-image, no reference
       imageUrls: [],
     });
-    const imgCreate: { ok: boolean; task_id?: string; provider?: "p1" | "p2" | "p3"; error?: string; tierLog?: any } =
+    const imgCreate: { ok: boolean; task_id?: string; provider?: "p1" | "p2" | "p3" | "p4"; error?: string; tierLog?: any } =
       cascadeResult.ok
         ? {
             ok: true,
@@ -474,7 +478,7 @@ export async function POST(req: Request) {
 
     // Stamp the image task_id on the placeholder row so /api/check-status
     // (or any future poller) can re-query it if needed.
-    const imgProvider = (imgCreate.provider || viralCfg.provider) as "p1" | "p2" | "p3";
+    const imgProvider = (imgCreate.provider || viralCfg.provider) as "p1" | "p2" | "p3" | "p4";
     if (imageHistoryId) {
       await admin
         .from("history")
@@ -657,7 +661,7 @@ export async function POST(req: Request) {
       imageMode: "frame",
     });
 
-    const veoCreate: { ok: boolean; task_id?: string; provider?: "p1" | "p2" | "p3"; error?: string } =
+    const veoCreate: { ok: boolean; task_id?: string; provider?: "p1" | "p2" | "p3" | "p4"; error?: string } =
       veoResult.ok
         ? { ok: true, task_id: veoResult.taskId, provider: veoResult.actualProvider }
         : { ok: false, error: veoResult.error };

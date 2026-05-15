@@ -85,14 +85,18 @@ export async function POST(req: Request) {
       const [cfg, rate, providerSetting] = await Promise.all([
         getP2Config(),
         priceFor(user.id, "image_generate"),
-        // image_provider setting toggles default primary (p2 or p3). Falls
-        // back to p2 if unset for backwards compatibility.
-        getSetting<{ provider: "p2" | "p3" }>("image_provider"),
+        // image_provider setting toggles default primary (p2, p3, or p4).
+        // Falls back to p2 if unset for backwards compatibility.
+        getSetting<{ provider: "p2" | "p3" | "p4" }>("image_provider"),
       ]);
       const modelKey = requestedModel || cfg.imageDefault || "nano-banana-pro";
       const modelId = (cfg.imageModels as any)?.[modelKey] || modelKey;
-      const primaryProvider: "p2" | "p3" =
-        providerSetting?.provider === "p3" ? "p3" : "p2";
+      const primaryProvider: "p2" | "p3" | "p4" =
+        providerSetting?.provider === "p2"
+          ? "p2"
+          : providerSetting?.provider === "p3"
+            ? "p3"
+            : "p4";
 
       // 3-tier cascade: primary → p1 nano-banana-2 → other provider with
       // primary's model. Handles content blocks (451) + transient outages

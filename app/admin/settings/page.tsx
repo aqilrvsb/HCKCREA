@@ -75,7 +75,7 @@ export default function AdminSettings() {
   // Storytelling-only image provider: p2 (Crun), p3 (Mountsea), or p1
   // (GeminiGen — pass-through fallback). Stored in app_settings as
   // storytelling_provider = { provider: "p2" | "p3" | "p1" }.
-  const [storytellingProvider, setStorytellingProvider] = useState<"p1" | "p2" | "p3">("p2");
+  const [storytellingProvider, setStorytellingProvider] = useState<"p1" | "p2" | "p3" | "p4">("p4");
   const [storytellingPerImage, setStorytellingPerImage] = useState("");
   const [storytellingPerAudioSec, setStorytellingPerAudioSec] = useState("");
   // MiniMax narration playback speed — clamped 0.5–2.0. 1.2 default
@@ -90,7 +90,7 @@ export default function AdminSettings() {
   //   viral_image_model  = { model: "nano-banana-pro" | ... }
   // Independent from global image_default so admin can route Viral to a
   // different backend without affecting Image / Storytelling tabs.
-  const [viralProvider, setViralProvider] = useState<"p1" | "p2" | "p3">("p2");
+  const [viralProvider, setViralProvider] = useState<"p1" | "p2" | "p3" | "p4">("p4");
   const [viralImageModel, setViralImageModel] = useState("");
   const [savingViral, setSavingViral] = useState(false);
   const [viralMsg, setViralMsg] = useState<string | null>(null);
@@ -169,11 +169,11 @@ export default function AdminSettings() {
         }
         if (row.key === "storytelling_provider") {
           const p = row.value?.provider;
-          if (p === "p1" || p === "p2" || p === "p3") setStorytellingProvider(p);
+          if (p === "p1" || p === "p2" || p === "p3" || p === "p4") setStorytellingProvider(p);
         }
         if (row.key === "viral_provider") {
           const p = row.value?.provider;
-          if (p === "p1" || p === "p2" || p === "p3") setViralProvider(p);
+          if (p === "p1" || p === "p2" || p === "p3" || p === "p4") setViralProvider(p);
         }
         if (row.key === "viral_image_model") {
           setViralImageModel(String(row.value?.model || ""));
@@ -854,11 +854,12 @@ export default function AdminSettings() {
           <label className="block text-xs font-mono uppercase tracking-widest text-[var(--color-text-muted)] font-bold mb-2">
             Image Provider
           </label>
-          <div className="grid grid-cols-3 gap-2">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
             {([
               { id: "p1", label: "P1 — GeminiGen", sub: "Google direct" },
               { id: "p2", label: "P2 — Crun.ai", sub: "Multi-model" },
               { id: "p3", label: "P3 — Mountsea", sub: "nano-banana-fast" },
+              { id: "p4", label: "P4 — Grsai", sub: "cheapest, nano-banana-fast" },
             ] as const).map((p) => {
               const active = storytellingProvider === p.id;
               return (
@@ -1059,11 +1060,12 @@ export default function AdminSettings() {
           <label className="block text-xs font-mono uppercase tracking-widest text-[var(--color-text-muted)] font-bold mb-2">
             Image Provider
           </label>
-          <div className="grid grid-cols-3 gap-2">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
             {([
               { id: "p1", label: "P1 — GeminiGen", sub: "Google direct" },
               { id: "p2", label: "P2 — Crun.ai", sub: "Multi-model" },
               { id: "p3", label: "P3 — Mountsea", sub: "nano-banana-fast" },
+              { id: "p4", label: "P4 — Grsai", sub: "cheapest, all variants" },
             ] as const).map((p) => {
               const active = viralProvider === p.id;
               return (

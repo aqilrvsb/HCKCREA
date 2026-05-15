@@ -27,7 +27,7 @@ const REFINE_PROMPT = [
 ].join(" ");
 
 type RefineResult = { ok: true; url: string } | { ok: false; error: string };
-type Provider = "p1" | "p2" | "p3";
+type Provider = "p1" | "p2" | "p3" | "p4";
 
 type RefineOpts = {
   frameUrl: string;

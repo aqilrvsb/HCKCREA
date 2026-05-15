@@ -104,23 +104,23 @@ export async function getReferralCommissionRate(): Promise<number> {
 // Viral (Talking Object) image config — provider + model are admin-tuned
 // independently of the global image_default so the Viral tab can run on
 // a different model/provider without affecting Image / Storytelling tabs.
-//   viral_provider     = { provider: "p1" | "p2" | "p3" }   (default p2)
+//   viral_provider     = { provider: "p1" | "p2" | "p3" | "p4" }   (default p4)
 //   viral_image_model  = { model: "nano-banana-pro" | ... } (default cfg.imageDefault)
 // p3 = Mountsea path (forced nano-banana-fast — model dropdown is ignored).
+// p4 = Grsai path (image cascade partner of p2).
 export type ViralImageConfig = {
-  provider: "p1" | "p2" | "p3";
+  provider: "p1" | "p2" | "p3" | "p4";
   modelKey: string; // admin-side key (e.g. "nano-banana-pro")
 };
 export async function getViralImageConfig(): Promise<ViralImageConfig> {
   const [providerRow, modelRow, p2Cfg] = await Promise.all([
-    getSetting<{ provider: "p1" | "p2" | "p3" }>("viral_provider"),
+    getSetting<{ provider: "p1" | "p2" | "p3" | "p4" }>("viral_provider"),
     getSetting<{ model: string }>("viral_image_model"),
     getP2Config(),
   ]);
-  const provider: "p1" | "p2" | "p3" =
-    providerRow?.provider === "p1" || providerRow?.provider === "p3"
-      ? providerRow.provider
-      : "p2";
+  const p = providerRow?.provider;
+  const provider: "p1" | "p2" | "p3" | "p4" =
+    p === "p1" || p === "p2" || p === "p3" ? p : "p4";
   const modelKey = (modelRow?.model || p2Cfg.imageDefault || "nano-banana-pro").trim();
   return { provider, modelKey };
 }
@@ -243,6 +243,16 @@ export async function getCrawlbaseConfig() {
     base: s.crawlbase_base?.url || "https://api.crawlbase.com",
     token: s.crawlbase_token?.key || "",
     tokenJs: s.crawlbase_token_js?.key || "",
+  };
+}
+
+// P4 — Grsai (grsaiapi.com) config. Image-only provider, partner of p2
+// in the image cascade. Key seeded via app_settings.p4_key.
+export async function getP4Config() {
+  const s = await getSettings(["p4_key", "p4_image_default"]);
+  return {
+    key: s.p4_key?.key || "",
+    imageDefault: s.p4_image_default?.model || "nano-banana-pro",
   };
 }
 

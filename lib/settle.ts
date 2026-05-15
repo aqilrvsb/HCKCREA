@@ -331,25 +331,31 @@ async function tryAutoRetry(
     : hist.prompt;
 
   // Route to the right cascade based on row type:
-  //   • image / fairytale-scene → image cascade (p2/p3 → p1 → other)
-  //   • cinema with Grok model → no cascade (Grok stays on p2)
-  //   • everything else (video / ugc / auto-content / clone / cinema Veo)
-  //     → video cascade (p2 → p1 → p3)
+  //   • image / fairytale-scene → image cascade (p2 ↔ p4 bidirectional)
+  //   • seedance               → direct p2 call (no cascade; Seedance is
+  //                              one specific p2 model with no key-B
+  //                              fallback equivalent)
+  //   • everything else (Veo + Grok across UGC / Auto Content / Cinema /
+  //     Talking Object / Extend / AI agent) → video cascade (p2-A → p2-B)
   const isImageRow =
     hist.tab === "image" ||
     hist.type === "image" ||
     hist.type === "fairytale-scene";
-  const isGrok = model.toLowerCase().includes("grok");
+  const isSeedance = model.toLowerCase().includes("seedance");
 
   let newTaskId: string | null = null;
-  let newProvider: "p1" | "p2" | "p3" = "p2";
+  let newProvider: "p1" | "p2" | "p3" | "p4" = "p2";
   let newModel: string = model;
   let fallbackUsed = false;
   let tierLog: any = undefined;
 
   if (isImageRow) {
-    const primaryProvider: "p2" | "p3" =
-      meta.primary_provider === "p3" || meta.provider === "p3" ? "p3" : "p2";
+    const primaryProvider: "p2" | "p3" | "p4" =
+      meta.primary_provider === "p4" || meta.provider === "p4"
+        ? "p4"
+        : meta.primary_provider === "p3" || meta.provider === "p3"
+          ? "p3"
+          : "p2";
     const r = await generateImageWithCascade({
       primaryProvider,
       primaryModel: model.replace(/^google\//, "").replace(/^openai\//, ""),
@@ -380,8 +386,10 @@ async function tryAutoRetry(
     newProvider = r.actualProvider;
     newModel = r.actualModel;
     fallbackUsed = r.fallbackUsed;
-  } else if (isGrok) {
-    // Grok: no cascade defined, single shot on p2 same as before.
+  } else if (isSeedance) {
+    // Seedance: single p2 call. No cascade — Crun is the only Seedance
+    // host we use, and key B doesn't have a separate Seedance quota
+    // distinct enough from key A to be worth retrying through.
     const created = await p2CreateTask({
       model,
       userId: hist.user_id,
@@ -393,7 +401,7 @@ async function tryAutoRetry(
     });
     if (!created.ok || !created.task_id) return false;
     newTaskId = created.task_id;
-    newProvider = (created.provider || "p2") as "p1" | "p2" | "p3";
+    newProvider = (created.provider || "p2") as "p1" | "p2" | "p3" | "p4";
   } else {
     // Video cascade for UGC / Auto / Cinema Veo / Talking Object / Extend.
     // Auto-retry must skip tiers that previously accepted but failed
@@ -405,11 +413,11 @@ async function tryAutoRetry(
     )
       ? meta.tier_log
       : [];
-    let startTier: 1 | 2 | 3 | 4 = 1;
+    let startTier: 1 | 2 = 1;
     for (const entry of priorLog) {
       if (!entry?.ok) continue;
       const n = parseInt(String(entry.tier || "").split(":")[0], 10);
-      if (n >= startTier && n < 4) startTier = (n + 1) as 1 | 2 | 3 | 4;
+      if (n === 1) startTier = 2;
     }
     if (startTier > 1) {
       console.warn(
@@ -520,14 +528,19 @@ export async function settleHistoryRow(hist: HistoryRow): Promise<SettleResult> 
   const metaWebhookProvider = String(
     hist.metadata?.webhook_provider || ""
   ).toLowerCase();
-  const rowProvider: "p1" | "p2" | "p3" =
-    metaProvider === "p3" || metaWebhookProvider === "p3"
-      ? "p3"
-      : metaProvider === "p1" || metaWebhookProvider === "p1"
-        ? "p1"
-        : "p2";
+  const rowProvider: "p1" | "p2" | "p3" | "p4" =
+    metaProvider === "p4" || metaWebhookProvider === "p4"
+      ? "p4"
+      : metaProvider === "p3" || metaWebhookProvider === "p3"
+        ? "p3"
+        : metaProvider === "p1" || metaWebhookProvider === "p1"
+          ? "p1"
+          : "p2";
   let r: { status: "pending" | "running" | "succeeded" | "failed"; outputUrl?: string; error?: string; raw?: any };
-  if (rowProvider === "p3") {
+  if (rowProvider === "p4") {
+    const { p4GetStatus } = await import("@/lib/p4");
+    r = await p4GetStatus(hist.task_id);
+  } else if (rowProvider === "p3") {
     const { p3GetStatus } = await import("@/lib/p3");
     r = await p3GetStatus(hist.task_id);
   } else {

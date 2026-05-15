@@ -103,23 +103,27 @@ export async function POST(req: Request) {
   }
 
   // Route through the appropriate cascade:
-  //   • image / fairytale-scene → image cascade (p2/p3 → p1 → other)
+  //   • image / fairytale-scene → image cascade (p2 ↔ p4 bidirectional)
   //   • cinema with Grok        → p2 only (no Grok cascade defined)
-  //   • else (video tabs)       → video cascade (p2 → p1 → p3)
+  //   • else (video tabs)       → video cascade (p2-A → p2-B, 2 tiers only)
   const isImageRow =
     row.tab === "image" || row.type === "image" || row.type === "fairytale-scene";
-  const isGrok = model.toLowerCase().includes("grok");
+  const isSeedance = model.toLowerCase().includes("seedance");
 
   let newTaskId: string | null = null;
-  let newProvider: "p1" | "p2" | "p3" = "p2";
+  let newProvider: "p1" | "p2" | "p3" | "p4" = "p2";
   let newModel: string = model;
   let fallbackUsed = false;
   let tierLog: any = undefined;
   let retryError: string | null = null;
 
   if (isImageRow) {
-    const primaryProvider: "p2" | "p3" =
-      meta.primary_provider === "p3" || meta.provider === "p3" ? "p3" : "p2";
+    const primaryProvider: "p2" | "p3" | "p4" =
+      meta.primary_provider === "p4" || meta.provider === "p4"
+        ? "p4"
+        : meta.primary_provider === "p3" || meta.provider === "p3"
+          ? "p3"
+          : "p2";
     const r = await generateImageWithCascade({
       primaryProvider,
       primaryModel: model.replace(/^google\//, "").replace(/^openai\//, ""),
@@ -138,7 +142,8 @@ export async function POST(req: Request) {
       retryError = r.error;
       tierLog = r.tierLog;
     }
-  } else if (isGrok) {
+  } else if (isSeedance) {
+    // Seedance: single p2 call, no cascade. See settle.ts for rationale.
     const created = await p2CreateTask({
       model,
       userId: user.id,
@@ -150,26 +155,23 @@ export async function POST(req: Request) {
     });
     if (created.ok && created.task_id) {
       newTaskId = created.task_id;
-      newProvider = (created.provider || "p2") as "p1" | "p2" | "p3";
+      newProvider = (created.provider || "p2") as "p1" | "p2" | "p3" | "p4";
     } else {
-      retryError = created.error || "Grok create failed";
+      retryError = created.error || "Seedance create failed";
     }
   } else {
-    // Skip tiers that previously accepted the task but failed downstream
-    // during polling. Without this, retrying a Crun-poll-failed row just
-    // re-fires the same broken tier and loops. tier_log uses 1-indexed
-    // strings like "1:p2:..." / "2:p2:..." / "3:p1:..." / "4:p3:..." so
-    // we parse the leading digit and bump past the highest OK tier.
+    // Skip tier 1 if it previously accepted but failed downstream during
+    // polling. Cascade is now 2 tiers max (p2-A / p2-B).
     const priorLog: Array<{ tier?: string; ok?: boolean }> = Array.isArray(
       meta.tier_log
     )
       ? meta.tier_log
       : [];
-    let startTier: 1 | 2 | 3 | 4 = 1;
+    let startTier: 1 | 2 = 1;
     for (const entry of priorLog) {
       if (!entry?.ok) continue;
       const n = parseInt(String(entry.tier || "").split(":")[0], 10);
-      if (n >= startTier && n < 4) startTier = (n + 1) as 1 | 2 | 3 | 4;
+      if (n === 1) startTier = 2;
     }
     if (startTier > 1) {
       console.warn(

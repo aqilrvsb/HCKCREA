@@ -82,7 +82,7 @@ export async function POST(req: Request) {
         priceFor(user.id, "image_generate"),
         getSetting<{ model: string }>("fairytale_image_model"),
         getSetting<{ rate: number }>("fairytale_image_rate"),
-        getSetting<{ provider: "p2" | "p3" }>("storytelling_provider"),
+        getSetting<{ provider: "p2" | "p3" | "p4" }>("storytelling_provider"),
       ]);
       // Resolve admin's model key to the actual upstream API model id.
       // The image_models mapping seeded in migration 0001 covers
@@ -102,8 +102,12 @@ export async function POST(req: Request) {
       // compat, p3 (Mountsea) when admin opts in. Mountsea-specific
       // model mapping: strips Crun's "google/" prefix so its API
       // accepts the bare nano-banana-pro / nano-banana-2 keys.
-      const provider: "p2" | "p3" =
-        ftProviderSetting?.provider === "p3" ? "p3" : "p2";
+      const provider: "p2" | "p3" | "p4" =
+        ftProviderSetting?.provider === "p2"
+          ? "p2"
+          : ftProviderSetting?.provider === "p3"
+            ? "p3"
+            : "p4";
 
       // 3-tier cascade for scene image generation. See lib/image-cascade.ts
       // for the full flow (primary → p1 nano-banana-2 → other non-p1 with
@@ -123,7 +127,7 @@ export async function POST(req: Request) {
       const createdTaskId = cascadeResult.ok ? cascadeResult.taskId : null;
       const createdError = cascadeResult.ok ? null : cascadeResult.error;
       const usedFallback = cascadeResult.ok ? cascadeResult.fallbackUsed : false;
-      const actualProvider: "p1" | "p2" | "p3" =
+      const actualProvider: "p1" | "p2" | "p3" | "p4" =
         cascadeResult.ok ? cascadeResult.actualProvider : provider;
       const actualModel = cascadeResult.ok ? cascadeResult.actualModel : "";
       const tierLog = cascadeResult.tierLog;
