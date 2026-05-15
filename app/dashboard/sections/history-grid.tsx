@@ -1255,7 +1255,9 @@ function HistoryCardInner({
           <>
             <div className="absolute inset-0 flex flex-col items-center justify-center text-red-400 text-xs font-bold gap-2 px-3 text-center">
               <XCircle className="w-5 h-5" />
-              <span className="line-clamp-2">{item.error_message || "Failed"}</span>
+              <span className="line-clamp-2">
+                {/^Stale\b/i.test(item.error_message || "") ? "Failed" : (item.error_message || "Failed")}
+              </span>
               {/* Prompt shown below the error so users can see what the
                   failed generation was asking for — makes it easy to
                   spot "Veo audio-gen failed" + a prompt that has
