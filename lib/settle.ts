@@ -671,20 +671,18 @@ export async function settleHistoryRow(hist: HistoryRow): Promise<SettleResult> 
 
   // Stale-pending guard: if the CURRENT task has been pending too
   // long, flip the row to failed. Time is measured from the LAST
-  // submit (initial fire or Resubmit), not from the row's
-  // created_at — otherwise a row that's resubmitted hours after the
-  // original fire would immediately stale-fail before the new task
-  // gets a chance.
+  // submit (initial fire or Resubmit). Crucially we DON'T fall back
+  // to hist.updated_at because cron polls write that on every tick —
+  // a resetting timer never expires.
   //
   // Precedence: metadata.task_started_at → metadata.retried_at →
-  //             hist.updated_at → hist.created_at.
+  //             hist.created_at.
   //
   // Videos: 10 min cap. Images: 3 min cap.
   const meta: any = hist.metadata || {};
   const startedRef =
     meta.task_started_at ||
     meta.retried_at ||
-    (hist as any).updated_at ||
     (hist as any).created_at;
   const ageMs = startedRef ? Date.now() - new Date(startedRef).getTime() : 0;
   const isImageRow =
