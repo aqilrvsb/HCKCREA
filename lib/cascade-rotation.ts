@@ -55,26 +55,50 @@ export async function getImageSlots(): Promise<CascadeSlots> {
   return sanitizeSlots(s?.slots, DEFAULT_IMAGE_SLOTS, ["p1", "p2-a", "p2-b", "p4", "p5"]);
 }
 
-// Atomic round-robin counter via Postgres sequence. Returns the 0-indexed
-// slot to START at for this task. Subsequent fallback slots are computed
-// by walking forward cyclically.
-//
-// On any DB error we fall back to 0 — every task tries slot 1 first,
-// which degrades to the pre-rotation behavior. Better than throwing.
+// Round-robin counter. Tries the Postgres sequence first (via the
+// next_cascade_slot RPC from migration 0036) for true atomic increment.
+// Falls back to a read-modify-write on app_settings.<asset>_rotation_counter
+// if the RPC doesn't exist yet — not strictly atomic but fine at
+// typical generation rates (a few tasks per second at most).
 export async function nextStartSlot(asset: "video" | "image"): Promise<number> {
+  const admin = createAdminClient();
+
+  // Path 1: Postgres sequence via RPC (requires migration 0036 DDL).
   try {
-    const admin = createAdminClient();
     const { data, error } = await admin.rpc("next_cascade_slot", {
       asset_name: asset,
     });
-    if (error || typeof data !== "number") {
-      console.warn(
-        `[cascade-rotation] nextval failed for ${asset}: ${error?.message || "no data"}`
-      );
-      return 0;
+    if (!error && typeof data === "number") {
+      return ((data - 1) % 3 + 3) % 3;
     }
-    // Postgres sequences start at 1. Convert to 0-indexed slot via mod.
-    return ((data - 1) % 3 + 3) % 3;
+  } catch {
+    // fall through to path 2
+  }
+
+  // Path 2: read-modify-write on app_settings counter row. Idempotent
+  // and forward-compatible with path 1 — if admin runs the migration
+  // DDL later, path 1 takes over automatically.
+  try {
+    const key = asset === "video" ? "video_rotation_counter" : "image_rotation_counter";
+    const { data: row } = await admin
+      .from("app_settings")
+      .select("value")
+      .eq("key", key)
+      .maybeSingle();
+    const currentCount = Number((row?.value as any)?.count) || 0;
+    const newCount = currentCount + 1;
+    await admin
+      .from("app_settings")
+      .upsert(
+        {
+          key,
+          value: { count: newCount },
+          description: `Round-robin rotation counter for ${asset} cascade slots.`,
+          category: "internal",
+        },
+        { onConflict: "key" }
+      );
+    return (newCount - 1) % 3;
   } catch (e: any) {
     console.warn(`[cascade-rotation] nextStartSlot exception: ${e?.message}`);
     return 0;
