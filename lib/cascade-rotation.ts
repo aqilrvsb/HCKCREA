@@ -1,19 +1,21 @@
-// Admin-configured slot rotation for the unified cascade.
+// Admin-configured slot rotation — main + fallback architecture.
 //
-// Replaces the hardcoded provider chains with a 3-slot configuration
-// per asset class:
+// Each asset class has TWO independent slot lists:
+//   <asset>_main_slots     — round-robin source, walks all on failure
+//   <asset>_fallback_slots — tried in order after all mains fail
 //
-//   video_cascade_slots = { slots: ["p2-a", "p2-b", "p5"] }
-//   image_cascade_slots = { slots: ["p4", "p5", "p2-a"] }
+// Plus dynamic counts (admin can grow / shrink the lists):
+//   <asset>_main_count, <asset>_fallback_count   (defaults 10 each)
 //
-// Each task picks a STARTING slot via round-robin (system-wide counter,
-// per asset), then walks the slots cyclically from that start until one
-// succeeds or all 3 fail. This spreads load across providers AND gives
-// every task the full 3-tier resilience.
+// Walk order on each task:
+//   1. Round-robin picks main start index S
+//   2. Try main[S] → main[S+1] → ... wrap around all mains
+//   3. If all mains fail → fallback[0] → fallback[1] → ... in order
+//   4. "none" entries skipped (don't count)
+//   5. All entries failed → row stays failed
 //
-// Round-robin counter is a Postgres sequence (atomic by design, no race
-// conditions even under thousands of concurrent calls). Wired via the
-// next_cascade_slot(asset_name) SQL function defined in migration 0036.
+// Round-robin counter is a Postgres app_settings row (atomic
+// read-modify-write under typical load).
 
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getSetting } from "@/lib/settings";
@@ -29,145 +31,142 @@ export type SlotProvider =
   | "p6-a" | "p6-b" | "p6-c" | "p6-d" | "p6-e" | "p6-f" | "p6-g" | "p6-h"
   | "none";
 
-export type CascadeSlots = [SlotProvider, SlotProvider, SlotProvider];
+export const VIDEO_ALLOWED: SlotProvider[] = [
+  "p1", "p2-a", "p2-b", "p5",
+  "p6-a", "p6-b", "p6-c", "p6-d", "p6-e", "p6-f", "p6-g", "p6-h",
+  "none",
+];
 
-// Defaults shipped with the migration. Admin can change in /admin/settings
-// at any time and the changes take effect on the next task (60s cache TTL).
-const DEFAULT_VIDEO_SLOTS: CascadeSlots = ["p2-a", "p2-b", "p5"];
-const DEFAULT_IMAGE_SLOTS: CascadeSlots = ["p4", "p5", "p2-a"];
+export const IMAGE_ALLOWED: SlotProvider[] = [
+  "p1", "p2-a", "p2-b", "p4", "p5",
+  "p6-a", "p6-b", "p6-c", "p6-d", "p6-e", "p6-f", "p6-g", "p6-h",
+  "none",
+];
 
-function sanitizeSlots(
+const DEFAULT_COUNT = 10;
+const DEFAULT_VIDEO_MAIN: SlotProvider[] = ["p6-a", "p6-b", "p6-c", "p2-a", "p2-b", "none", "none", "none", "none", "none"];
+const DEFAULT_VIDEO_FALLBACK: SlotProvider[] = ["p5", "p1", "none", "none", "none", "none", "none", "none", "none", "none"];
+const DEFAULT_IMAGE_MAIN: SlotProvider[] = ["p4", "p5", "p6-a", "p2-a", "none", "none", "none", "none", "none", "none"];
+const DEFAULT_IMAGE_FALLBACK: SlotProvider[] = ["p2-b", "p1", "none", "none", "none", "none", "none", "none", "none", "none"];
+
+function sanitizeSlotList(
   raw: unknown,
-  defaults: CascadeSlots,
-  allowed: SlotProvider[]
-): CascadeSlots {
-  if (!Array.isArray(raw)) return defaults;
+  count: number,
+  allowed: SlotProvider[],
+  defaults: SlotProvider[]
+): SlotProvider[] {
   const out: SlotProvider[] = [];
-  for (let i = 0; i < 3; i++) {
-    const v = String(raw[i] || "").toLowerCase() as SlotProvider;
-    out.push(allowed.includes(v) ? v : defaults[i]);
+  const arr = Array.isArray(raw) ? raw : [];
+  for (let i = 0; i < count; i++) {
+    const v = String(arr[i] || defaults[i] || "none").toLowerCase() as SlotProvider;
+    out.push(allowed.includes(v) ? v : "none");
   }
-  return out as CascadeSlots;
+  return out;
 }
 
-export async function getVideoSlots(): Promise<CascadeSlots> {
-  const s = await getSetting<{ slots: SlotProvider[] }>("video_cascade_slots");
-  // p4 (Grsai) is image-only — exclude from video allow-list.
-  const VIDEO_ALLOWED: SlotProvider[] = [
-    "p1", "p2-a", "p2-b", "p5",
-    "p6-a", "p6-b", "p6-c", "p6-d", "p6-e", "p6-f", "p6-g", "p6-h",
-    "none",
-  ];
-  return sanitizeSlots(s?.slots, DEFAULT_VIDEO_SLOTS, VIDEO_ALLOWED);
+async function getSlotCount(key: string): Promise<number> {
+  const s = await getSetting<{ count: number }>(key);
+  const n = Number(s?.count);
+  return Number.isFinite(n) && n >= 1 && n <= 50 ? Math.floor(n) : DEFAULT_COUNT;
 }
 
-export async function getImageSlots(): Promise<CascadeSlots> {
-  const s = await getSetting<{ slots: SlotProvider[] }>("image_cascade_slots");
-  const IMAGE_ALLOWED: SlotProvider[] = [
-    "p1", "p2-a", "p2-b", "p4", "p5",
-    "p6-a", "p6-b", "p6-c", "p6-d", "p6-e", "p6-f", "p6-g", "p6-h",
-    "none",
-  ];
-  return sanitizeSlots(s?.slots, DEFAULT_IMAGE_SLOTS, IMAGE_ALLOWED);
+export async function getVideoMainSlots(): Promise<SlotProvider[]> {
+  const [count, raw] = await Promise.all([
+    getSlotCount("video_main_count"),
+    getSetting<{ slots: SlotProvider[] }>("video_main_slots"),
+  ]);
+  return sanitizeSlotList(raw?.slots, count, VIDEO_ALLOWED, DEFAULT_VIDEO_MAIN);
 }
 
-// Round-robin starting slot.
-//
-// VIDEO: rotates across the non-"none" slots (true round-robin).
-// Spreads load evenly across enabled slots because Veo capacity is the
-// bottleneck. If admin sets slot 3 = "none", rotation only cycles
-// between slots 1 and 2.
-//
-// IMAGE: ALWAYS starts at slot 1 (Main) per user direction. Slots 2/3
-// are pure fallback. Reason: image volume is lower and slot 1 (p4/Grsai)
-// is already the cheapest — rotating would burn more $ per image with
-// no resilience benefit since p4 outages are rare. Cascade still walks
-// the non-"none" slots 2/3 → back to slot 1 if slot 1 fails.
-//
-// Caller picks the ABSOLUTE slot index this returns; walkOrder() then
-// builds the rest of the walk filtering out "none" entries.
-export async function nextStartSlot(asset: "video" | "image"): Promise<number> {
-  if (asset === "image") return 0;
+export async function getVideoFallbackSlots(): Promise<SlotProvider[]> {
+  const [count, raw] = await Promise.all([
+    getSlotCount("video_fallback_count"),
+    getSetting<{ slots: SlotProvider[] }>("video_fallback_slots"),
+  ]);
+  return sanitizeSlotList(raw?.slots, count, VIDEO_ALLOWED, DEFAULT_VIDEO_FALLBACK);
+}
 
-  // For video, rotate over the non-"none" slots only. If admin sets
-  // slot 3 = none, rotation cycles between slots 1 and 2.
-  const slots = await getVideoSlots();
-  const validIndexes = slots
+export async function getImageMainSlots(): Promise<SlotProvider[]> {
+  const [count, raw] = await Promise.all([
+    getSlotCount("image_main_count"),
+    getSetting<{ slots: SlotProvider[] }>("image_main_slots"),
+  ]);
+  return sanitizeSlotList(raw?.slots, count, IMAGE_ALLOWED, DEFAULT_IMAGE_MAIN);
+}
+
+export async function getImageFallbackSlots(): Promise<SlotProvider[]> {
+  const [count, raw] = await Promise.all([
+    getSlotCount("image_fallback_count"),
+    getSetting<{ slots: SlotProvider[] }>("image_fallback_slots"),
+  ]);
+  return sanitizeSlotList(raw?.slots, count, IMAGE_ALLOWED, DEFAULT_IMAGE_FALLBACK);
+}
+
+// Round-robin starting index for the MAIN slot list. Skips "none"
+// entries — counter only advances across enabled mains so the
+// distribution is even no matter how many are disabled.
+export async function nextMainStartIndex(
+  asset: "video" | "image",
+  mainSlots: SlotProvider[]
+): Promise<number> {
+  const validIdxs = mainSlots
     .map((s, i) => (s === "none" ? -1 : i))
     .filter((i) => i >= 0);
-  if (validIndexes.length === 0) return 0;
+  if (validIdxs.length === 0) return 0;
 
   const admin = createAdminClient();
+  const counterKey = asset === "video" ? "video_rotation_counter" : "image_rotation_counter";
   let counter = 0;
 
-  // Path 1: Postgres sequence via RPC (requires migration 0036 DDL).
   try {
-    const { data, error } = await admin.rpc("next_cascade_slot", {
-      asset_name: asset,
-    });
-    if (!error && typeof data === "number") {
-      counter = data - 1;
-    }
-  } catch {
-    // fall through to path 2
+    const { data: row } = await admin
+      .from("app_settings")
+      .select("value")
+      .eq("key", counterKey)
+      .maybeSingle();
+    const currentCount = Number((row?.value as any)?.count) || 0;
+    const newCount = currentCount + 1;
+    await admin
+      .from("app_settings")
+      .upsert(
+        {
+          key: counterKey,
+          value: { count: newCount },
+          description: `Round-robin counter for ${asset} main slots.`,
+          category: "internal",
+        },
+        { onConflict: "key" }
+      );
+    counter = newCount - 1;
+  } catch (e: any) {
+    console.warn(`[cascade-rotation] nextMainStartIndex exception: ${e?.message}`);
+    return validIdxs[0];
   }
 
-  // Path 2: read-modify-write on app_settings counter row.
-  if (counter === 0) {
-    try {
-      const key = "video_rotation_counter";
-      const { data: row } = await admin
-        .from("app_settings")
-        .select("value")
-        .eq("key", key)
-        .maybeSingle();
-      const currentCount = Number((row?.value as any)?.count) || 0;
-      const newCount = currentCount + 1;
-      await admin
-        .from("app_settings")
-        .upsert(
-          {
-            key,
-            value: { count: newCount },
-            description: `Round-robin rotation counter for ${asset} cascade slots.`,
-            category: "internal",
-          },
-          { onConflict: "key" }
-        );
-      counter = newCount - 1;
-    } catch (e: any) {
-      console.warn(`[cascade-rotation] nextStartSlot exception: ${e?.message}`);
-      return validIndexes[0];
-    }
-  }
-
-  // Pick the Nth non-none slot — guarantees rotation only over enabled
-  // slots even if admin sets one to "none".
-  return validIndexes[counter % validIndexes.length];
+  return validIdxs[counter % validIdxs.length];
 }
 
-// Build the walk order for a given start slot. Walks through all
-// non-"none" slots cyclically, then retries the starting slot at the
-// end. The retry catches transient first-call failures without losing
-// the cross-vendor fallback in between.
+// Build the full walk order for a task:
+//   1. Mains starting at startIdx, wrapping cyclically through ALL mains
+//   2. Then fallbacks in order 0..M-1
+//   3. "none" entries skipped throughout
 //
-// Examples (none slots filtered out, walk shorter when fewer enabled):
-//   slots=[A,B,C],    start=0 → [A, B, C, A]   (4 attempts, 3 unique slots)
-//   slots=[A,B,none], start=0 → [A, B, A]      (3 attempts, 2 unique slots)
-//   slots=[A,B,none], start=1 → [B, A, B]      (rotation respects start)
-//   slots=[A,none,none], start=0 → [A]          (no fallback possible)
-export function walkOrder(slots: CascadeSlots, startIndex: number): SlotProvider[] {
-  const start = ((startIndex % 3) + 3) % 3;
-  // Walk in slot order from start, wrap around, skip "none".
+// No retry-on-start tail — with up to 20 entries the user gets plenty
+// of attempts already.
+export function walkOrder(
+  mainSlots: SlotProvider[],
+  fallbackSlots: SlotProvider[],
+  startIdx: number
+): SlotProvider[] {
   const walk: SlotProvider[] = [];
-  for (let i = 0; i < 3; i++) {
-    const slot = slots[(start + i) % 3];
+  const N = mainSlots.length;
+  const start = N > 0 ? ((startIdx % N) + N) % N : 0;
+  for (let i = 0; i < N; i++) {
+    const slot = mainSlots[(start + i) % N];
     if (slot !== "none") walk.push(slot);
   }
-  // Append the starting slot again for the retry-once tail — but only
-  // if the start slot itself isn't "none".
-  if (walk.length > 0 && slots[start] !== "none") {
-    walk.push(slots[start]);
+  for (const slot of fallbackSlots) {
+    if (slot !== "none") walk.push(slot);
   }
   return walk;
 }
@@ -183,3 +182,11 @@ export function slotToProvider(slot: SlotProvider): "p1" | "p2" | "p4" | "p5" | 
   if (slot === "none") return "p2";
   return slot as "p1" | "p4" | "p5";
 }
+
+// ─────────────────────────────────────────────────────────────────
+// Legacy wrappers — old callers (3-slot CascadeSlots tuple) keep
+// working by collapsing the new main+fallback lists into a 3-tuple
+// for type compatibility. video-cascade.ts + image-cascade.ts use
+// the new helpers directly so these are admin-UI-only shims.
+// ─────────────────────────────────────────────────────────────────
+export type CascadeSlots = [SlotProvider, SlotProvider, SlotProvider];

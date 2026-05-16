@@ -24,8 +24,9 @@ import { p5CreateImage } from "@/lib/p5";
 import { p6CreateImage, type P6Slot } from "@/lib/p6";
 import { getP2Config } from "@/lib/settings";
 import {
-  getImageSlots,
-  nextStartSlot,
+  getImageMainSlots,
+  getImageFallbackSlots,
+  nextMainStartIndex,
   walkOrder,
   slotToProvider,
   type SlotProvider,
@@ -179,29 +180,30 @@ export async function generateImageWithCascade(
   const { primaryModel, prompt, aspectRatio, imageUrls, skipSlot } = input;
   const bare = primaryModel.replace(/^google\//, "").replace(/^openai\//, "");
 
-  // Image cascade is SINGLE-SHOT. Initial fire goes to slot 1 (Main).
-  // Resubmit (via /api/history/retry) advances to the next slot in
-  // rotation by passing skipSlot, so each resubmit lands on a
-  // different slot than the previous attempt.
-  const slots = await getImageSlots();
-  const validIdxs = slots
-    .map((s, i) => (s === "none" ? -1 : i))
-    .filter((i) => i >= 0);
-  let startIdx = await nextStartSlot("image"); // image always returns 0 (slot 1)
+  // Walk: round-robin main → all remaining mains (wrap) → fallbacks
+  // in order. Up to 20 attempts (configurable via admin counts).
+  const [mainSlots, fallbackSlots] = await Promise.all([
+    getImageMainSlots(),
+    getImageFallbackSlots(),
+  ]);
+  let startIdx = await nextMainStartIndex("image", mainSlots);
 
-  if (validIdxs.length > 0) {
-    let attempts = 0;
-    while (
-      attempts < 3 &&
-      (slots[startIdx] === "none" ||
-        (skipSlot && slots[startIdx] === skipSlot))
-    ) {
+  if (skipSlot) {
+    const validIdxs = mainSlots
+      .map((s, i) => (s === "none" ? -1 : i))
+      .filter((i) => i >= 0);
+    if (validIdxs.length > 1 && mainSlots[startIdx] === skipSlot) {
       const pos = validIdxs.indexOf(startIdx);
-      startIdx = validIdxs[(pos + 1 + validIdxs.length) % validIdxs.length];
-      attempts++;
+      startIdx = validIdxs[(pos + 1) % validIdxs.length];
     }
   }
-  const order = [slots[startIdx]] as SlotProvider[];
+
+  let order = walkOrder(mainSlots, fallbackSlots, startIdx);
+  if (skipSlot) {
+    const without = order.filter((s) => s !== skipSlot);
+    const onlySkipped = order.filter((s) => s === skipSlot);
+    order = [...without, ...onlySkipped];
+  }
 
   for (let i = 0; i < order.length; i++) {
     const slot = order[i];
@@ -214,7 +216,7 @@ export async function generateImageWithCascade(
     if (t.ok && t.taskId) {
       const fallbackUsed = i > 0;
       if (fallbackUsed) {
-        console.warn(`[image-cascade] slot ${slot} saved the row (start=${slots[startIdx]})`);
+        console.warn(`[image-cascade] slot ${slot} saved the row (start=${mainSlots[startIdx]})`);
       }
       return {
         ok: true,
