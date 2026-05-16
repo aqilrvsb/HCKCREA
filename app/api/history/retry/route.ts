@@ -186,6 +186,7 @@ export async function POST(req: Request) {
       aspectRatio,
       imageUrls: allImageUrls.length > 0 ? allImageUrls : undefined,
       skipSlot: imgSkipSlot,
+      retry: true,
     });
     if (r.ok) {
       newTaskId = r.taskId;
@@ -249,6 +250,7 @@ export async function POST(req: Request) {
       aspectRatio,
       imageMode,
       skipSlot,
+      retry: true,
     });
     if (r.ok) {
       newTaskId = r.taskId;

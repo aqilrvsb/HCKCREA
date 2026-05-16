@@ -146,6 +146,7 @@ export async function GET(req: Request) {
       aspectRatio,
       imageMode,
       skipSlot,
+      retry: true,
     });
 
     if (!r.ok) {

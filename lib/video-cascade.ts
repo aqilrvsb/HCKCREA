@@ -30,7 +30,7 @@ import {
   getVideoMainSlots,
   getVideoFallbackSlots,
   nextMainStartIndex,
-  walkOrder,
+  nextFallbackStartIndex,
   slotToProvider,
   type SlotProvider,
 } from "@/lib/cascade-rotation";
@@ -38,7 +38,7 @@ import {
 export type VideoCascadeProvider = "p1" | "p2" | "p5" | "p6";
 
 export type VideoCascadeInput = {
-  /** Veo or Grok model name in p2/Crun format. */
+  /** Veo or Crun model name in p2/Crun format. */
   primaryModel: string;
   prompt: string;
   aspectRatio?: string;
@@ -46,10 +46,13 @@ export type VideoCascadeInput = {
   imageMode?: "frame" | "ingredient" | "text";
   durationMode?: string | number;
   userId?: string;
-  /** Slot label (e.g. "p2-a") that previously accepted at create-time
-   *  but failed during polling. Retry path uses this to push the walk
-   *  to other slots first. */
+  /** Slot label (e.g. "p2-a") to AVOID this attempt. Retry path uses
+   *  this to land on a different slot than the prior failed one. */
   skipSlot?: SlotProvider;
+  /** When true, pick from FALLBACK slot pool (round-robin) instead
+   *  of MAIN. Set by /api/history/retry + auto-resubmit cron.
+   *  Default false = first fire on a main slot. */
+  retry?: boolean;
 };
 
 export type VideoCascadeTierLog = {
@@ -190,35 +193,31 @@ export async function generateVideoWithCascade(
   const tierLog: VideoCascadeTierLog[] = [];
   const imageCount = input.imageUrls?.length || 0;
 
-  // Walk: round-robin main → all remaining mains (wrap) → fallbacks
-  // in order. Per user direction this gives every task up to 20
-  // attempts (configurable via admin counts) before failing.
-  const [mainSlots, fallbackSlots] = await Promise.all([
-    getVideoMainSlots(),
-    getVideoFallbackSlots(),
-  ]);
-  let startIdx = await nextMainStartIndex("video", mainSlots);
+  // SINGLE-SHOT per user direction. Two modes:
+  //   retry=false (initial fire): pick ONE main slot via round-robin
+  //   retry=true  (resubmit / auto-cron): pick ONE fallback slot via
+  //                                       independent round-robin
+  // If the picked slot fails, row stays failed. User/cron triggers
+  // the next attempt → counter advances → different slot next time.
+  const slots = input.retry
+    ? await getVideoFallbackSlots()
+    : await getVideoMainSlots();
+  let startIdx = input.retry
+    ? await nextFallbackStartIndex("video", slots)
+    : await nextMainStartIndex("video", slots);
 
-  // If admin requested skipSlot (retry path), advance the starting
-  // index past it so the retry doesn't immediately hit the same slot.
+  // skipSlot: if rotation landed on the same slot that just failed,
+  // advance to the next non-none slot.
   if (input.skipSlot) {
-    const validIdxs = mainSlots
+    const validIdxs = slots
       .map((s, i) => (s === "none" ? -1 : i))
       .filter((i) => i >= 0);
-    if (validIdxs.length > 1 && mainSlots[startIdx] === input.skipSlot) {
+    if (validIdxs.length > 1 && slots[startIdx] === input.skipSlot) {
       const pos = validIdxs.indexOf(startIdx);
       startIdx = validIdxs[(pos + 1) % validIdxs.length];
     }
   }
-
-  let order = walkOrder(mainSlots, fallbackSlots, startIdx);
-  if (input.skipSlot) {
-    // Demote skipSlot to the end of the walk (don't drop entirely —
-    // user may want it as last-resort attempt).
-    const without = order.filter((s) => s !== input.skipSlot);
-    const onlySkipped = order.filter((s) => s === input.skipSlot);
-    order = [...without, ...onlySkipped];
-  }
+  const order: SlotProvider[] = slots[startIdx] === "none" ? [] : [slots[startIdx]];
 
   const errs: Record<number, string> = {};
   for (let i = 0; i < order.length; i++) {
@@ -233,7 +232,7 @@ export async function generateVideoWithCascade(
     if (t.ok && t.taskId) {
       const fallbackUsed = i > 0;
       if (fallbackUsed) {
-        console.warn(`[video-cascade] slot ${slot} saved the row (start=${mainSlots[startIdx]})`);
+        console.warn(`[video-cascade] slot ${slot} saved the row (start=${slots[startIdx]}, retry=${!!input.retry})`);
       }
       return {
         ok: true,

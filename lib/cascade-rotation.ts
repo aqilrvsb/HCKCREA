@@ -102,20 +102,26 @@ export async function getImageFallbackSlots(): Promise<SlotProvider[]> {
   return sanitizeSlotList(raw?.slots, count, IMAGE_ALLOWED, DEFAULT_IMAGE_FALLBACK);
 }
 
-// Round-robin starting index for the MAIN slot list. Skips "none"
-// entries — counter only advances across enabled mains so the
-// distribution is even no matter how many are disabled.
-export async function nextMainStartIndex(
+// Atomic round-robin counter for either MAIN or FALLBACK slot list.
+// Two separate counters per asset so main/fallback rotation are
+// independent. Skips "none" entries — counter only advances across
+// enabled slots so distribution stays even regardless of how many
+// are disabled.
+async function nextRoundRobinIndex(
   asset: "video" | "image",
-  mainSlots: SlotProvider[]
+  kind: "main" | "fallback",
+  slots: SlotProvider[]
 ): Promise<number> {
-  const validIdxs = mainSlots
+  const validIdxs = slots
     .map((s, i) => (s === "none" ? -1 : i))
     .filter((i) => i >= 0);
   if (validIdxs.length === 0) return 0;
 
   const admin = createAdminClient();
-  const counterKey = asset === "video" ? "video_rotation_counter" : "image_rotation_counter";
+  const counterKey =
+    kind === "main"
+      ? (asset === "video" ? "video_rotation_counter" : "image_rotation_counter")
+      : (asset === "video" ? "video_fallback_counter" : "image_fallback_counter");
   let counter = 0;
 
   try {
@@ -132,18 +138,32 @@ export async function nextMainStartIndex(
         {
           key: counterKey,
           value: { count: newCount },
-          description: `Round-robin counter for ${asset} main slots.`,
+          description: `Round-robin counter for ${asset} ${kind} slots.`,
           category: "internal",
         },
         { onConflict: "key" }
       );
     counter = newCount - 1;
   } catch (e: any) {
-    console.warn(`[cascade-rotation] nextMainStartIndex exception: ${e?.message}`);
+    console.warn(`[cascade-rotation] nextRoundRobinIndex(${kind}) exception: ${e?.message}`);
     return validIdxs[0];
   }
 
   return validIdxs[counter % validIdxs.length];
+}
+
+export async function nextMainStartIndex(
+  asset: "video" | "image",
+  mainSlots: SlotProvider[]
+): Promise<number> {
+  return nextRoundRobinIndex(asset, "main", mainSlots);
+}
+
+export async function nextFallbackStartIndex(
+  asset: "video" | "image",
+  fallbackSlots: SlotProvider[]
+): Promise<number> {
+  return nextRoundRobinIndex(asset, "fallback", fallbackSlots);
 }
 
 // Build the full walk order for a task:

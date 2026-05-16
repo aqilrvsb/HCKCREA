@@ -370,6 +370,7 @@ async function tryAutoRetry(
       prompt: retryPrompt,
       aspectRatio,
       imageUrls: refImage ? [refImage] : undefined,
+      retry: true,
     });
     tierLog = r.tierLog;
     if (!r.ok) {
@@ -444,6 +445,7 @@ async function tryAutoRetry(
       aspectRatio,
       imageMode,
       skipSlot,
+      retry: true,
     });
     tierLog = r.tierLog;
     if (!r.ok) {
