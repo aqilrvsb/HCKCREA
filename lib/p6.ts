@@ -61,15 +61,15 @@ export async function getAllP6Keys(): Promise<Record<P6Slot, string>> {
   return out as Record<P6Slot, string>;
 }
 
-// Map cascade video model strings → APIPod's catalog names. Only
-// covers the models we actually use: Veo 3.1 Fast (default), Grok
-// Imagine, Seedance 2.0 Fast (text / image / reference variants).
-//
-// Seedance 2.0 Fast has three model IDs depending on how reference
-// content is provided:
-//   • t2v — text only, no images
-//   • i2v — single image as the start frame (frame mode)
-//   • r2v — 1-3 reference images (ingredient mode)
+// Map cascade video model strings → APIPod's catalog names. Per
+// APIPod docs the model IDs are mode-specific:
+//   • Veo 3.1 Fast      → veo-3-1-fast (dashes only, CUE validator)
+//   • Grok Imagine t2v  → grok-imagine-t2v  (no image_urls)
+//   • Grok Imagine i2v  → grok-imagine-i2v  (1-7 image_urls)
+//   • Seedance 2.0 Fast → seedance-2.0-fast-{t2v|i2v|r2v}
+//       - t2v: text only
+//       - i2v: single start-frame image (frame mode)
+//       - r2v: 1-3 reference images (ingredient mode)
 function apipodVideoModel(input: {
   model?: string;
   imageMode?: "frame" | "ingredient" | "text";
@@ -79,7 +79,9 @@ function apipodVideoModel(input: {
   const refs = input.imageUrls?.length || 0;
   const mode = input.imageMode || (refs > 0 ? "ingredient" : "text");
 
-  if (m.includes("grok")) return "grok-imagine";
+  if (m.includes("grok")) {
+    return refs > 0 && mode !== "text" ? "grok-imagine-i2v" : "grok-imagine-t2v";
+  }
 
   if (m.includes("seedance")) {
     if (refs === 0 || mode === "text") return "seedance-2.0-fast-t2v";
@@ -87,20 +89,22 @@ function apipodVideoModel(input: {
     return "seedance-2.0-fast-r2v";
   }
 
-  // APIPod uses dashes only in the Veo model IDs (no dots). Their
-  // CUE validator rejects "veo-3.1-fast" with
-  //   "no CUE validator found for model: veo-3.1-fast"
   return "veo-3-1-fast";
 }
 
-// Map cascade image model strings → APIPod's catalog names. Only the
-// models we actually use: gpt-image-2, nano-banana-pro, nano-banana-2.
-function apipodImageModel(model?: string): string {
+// Map cascade image model strings → APIPod's catalog names. Per
+// APIPod docs:
+//   • gpt-image-2       → text-to-image
+//   • gpt-image-2-edit  → image-to-image edit (requires image_urls)
+//   • nano-banana-pro   → up to 8 reference images
+//   • nano-banana-2     → up to 14 reference images
+function apipodImageModel(model: string | undefined, hasImages: boolean): string {
   const m = (model || "").toLowerCase();
-  if (m.includes("gpt-image")) return "gpt-image-2";
+  if (m.includes("gpt-image")) {
+    return hasImages ? "gpt-image-2-edit" : "gpt-image-2";
+  }
   if (m === "nano-banana-pro" || m === "google/nano-banana-pro") return "nano-banana-pro";
   if (m === "nano-banana-2" || m === "google/nano-banana-2") return "nano-banana-2";
-  // Fallback: nano-banana-pro is the safe default for unknown variants.
   return "nano-banana-pro";
 }
 
@@ -139,16 +143,43 @@ export async function p6CreateVideo(input: {
     return { ok: false, error: `${slotToSettingKey(input.slot)} not configured`, provider: "p6" };
   }
   const refs = (input.imageUrls || []).filter((u) => typeof u === "string" && u.trim());
+  const resolvedModel = apipodVideoModel({
+    model: input.model,
+    imageMode: input.imageMode,
+    imageUrls: refs,
+  });
   const body: any = {
-    model: apipodVideoModel({
-      model: input.model,
-      imageMode: input.imageMode,
-      imageUrls: refs,
-    }),
+    model: resolvedModel,
     prompt: input.prompt.slice(0, 2000),
     aspect_ratio: input.aspectRatio || "9:16",
   };
-  if (refs.length > 0) body.image_urls = refs.slice(0, 3);
+
+  // Per-model image_urls cap per APIPod docs:
+  //   • grok-imagine-i2v        → 1-7
+  //   • seedance-2.0-fast-i2v   → 1   (start frame only)
+  //   • seedance-2.0-fast-r2v   → 1-3 (ingredient mode)
+  //   • veo-3-1-fast            → up to 3
+  if (refs.length > 0) {
+    let cap = 3;
+    if (resolvedModel === "grok-imagine-i2v") cap = 7;
+    else if (resolvedModel === "seedance-2.0-fast-i2v") cap = 1;
+    else if (resolvedModel === "seedance-2.0-fast-r2v") cap = 3;
+    body.image_urls = refs.slice(0, cap);
+  }
+
+  // Seedance requires `duration` (4-15). Veo and Grok ignore it, but
+  // we send a sensible default so the cascade can swap models without
+  // re-plumbing the call site.
+  const reqDur = Number(input.durationMode);
+  const duration =
+    Number.isFinite(reqDur) && reqDur >= 4 && reqDur <= 15
+      ? Math.round(reqDur)
+      : resolvedModel.startsWith("seedance")
+        ? 5
+        : resolvedModel.startsWith("grok-imagine")
+          ? 6
+          : 8;
+  body.duration = duration;
 
   const { ok, status, data } = await p6Fetch("POST", "/v1/videos/generations", apiKey, body);
   if (!ok || (data?.code && data.code !== 200)) {
@@ -182,13 +213,22 @@ export async function p6CreateImage(input: {
     return { ok: false, error: `${slotToSettingKey(input.slot)} not configured`, provider: "p6" };
   }
   const refs = (input.imageUrls || []).filter((u) => typeof u === "string" && u.trim());
+  const resolvedModel = apipodImageModel(input.model, refs.length > 0);
   const body: any = {
-    model: apipodImageModel(input.model),
+    model: resolvedModel,
     prompt: input.prompt.slice(0, 4000),
     aspect_ratio: input.aspectRatio || "1:1",
     quality: input.quality || "2K",
   };
-  if (refs.length > 0) body.image_urls = refs.slice(0, 8);
+
+  // Per-model image_urls cap per APIPod docs:
+  //   • gpt-image-2-edit  → at least 1 required
+  //   • nano-banana-pro   → up to 8
+  //   • nano-banana-2     → up to 14
+  if (refs.length > 0) {
+    const cap = resolvedModel === "nano-banana-2" ? 14 : 8;
+    body.image_urls = refs.slice(0, cap);
+  }
 
   const { ok, status, data } = await p6Fetch("POST", "/v1/images/generations", apiKey, body);
   if (!ok || (data?.code && data.code !== 200)) {
