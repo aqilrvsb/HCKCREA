@@ -87,7 +87,10 @@ function apipodVideoModel(input: {
     return "seedance-2.0-fast-r2v";
   }
 
-  return "veo-3.1-fast";
+  // APIPod uses dashes only in the Veo model IDs (no dots). Their
+  // CUE validator rejects "veo-3.1-fast" with
+  //   "no CUE validator found for model: veo-3.1-fast"
+  return "veo-3-1-fast";
 }
 
 // Map cascade image model strings → APIPod's catalog names. Only the
