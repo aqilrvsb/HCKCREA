@@ -28,6 +28,14 @@ type ErrorRow = {
 };
 
 type Counts = { video: number; image: number; total: number };
+type CronInfo = {
+  at?: string;
+  scanned?: number;
+  eligible?: number;
+  resubmitted?: number;
+  exhausted?: number;
+  ineligible?: number;
+} | null;
 
 // Pretty slot label: "p6-a" → "P6 A", "p2-b" → "P2 B", "p5" → "P5".
 function prettySlot(slot: string): string {
@@ -59,6 +67,7 @@ function formatMY(iso: string): string {
 export default function AdminErrors() {
   const [rows, setRows] = useState<ErrorRow[]>([]);
   const [counts, setCounts] = useState<Counts>({ video: 0, image: 0, total: 0 });
+  const [cron, setCron] = useState<CronInfo>(null);
   const [loading, setLoading] = useState(true);
 
   const [start, setStart] = useState(startOfMonthLocal());
@@ -118,9 +127,21 @@ export default function AdminErrors() {
       const d = await r.json();
       setRows(d?.rows || []);
       setCounts(d?.counts || { video: 0, image: 0, total: 0 });
+      setCron(d?.cron || null);
     } finally {
       setLoading(false);
     }
+  }
+
+  // Human-friendly "X min ago" since the last cron heartbeat.
+  function cronAgo(): { label: string; stale: boolean } {
+    if (!cron?.at) return { label: "Never run", stale: true };
+    const diffMs = Date.now() - new Date(cron.at).getTime();
+    const mins = Math.max(0, Math.floor(diffMs / 60_000));
+    if (mins < 1) return { label: "Just now", stale: false };
+    if (mins < 60) return { label: `${mins} min ago`, stale: mins > 20 };
+    const hrs = Math.floor(mins / 60);
+    return { label: `${hrs}h ${mins % 60}m ago`, stale: true };
   }
 
   const filtered = useMemo(() => {
@@ -174,6 +195,43 @@ export default function AdminErrors() {
           <RefreshCcw className="w-3.5 h-3.5" /> Refresh
         </button>
       </div>
+
+      {/* Cron heartbeat */}
+      {(() => {
+        const ago = cronAgo();
+        return (
+          <div
+            className="rounded-2xl p-3 flex flex-wrap items-center gap-3 text-xs"
+            style={{
+              background: ago.stale
+                ? "rgba(239, 68, 68, 0.08)"
+                : "rgba(34, 197, 94, 0.08)",
+              border: `1px solid ${ago.stale ? "rgba(239, 68, 68, 0.35)" : "rgba(34, 197, 94, 0.35)"}`,
+              color: "var(--color-text-primary)",
+            }}
+          >
+            <span className="font-bold uppercase tracking-widest text-[10px]">
+              Auto-resubmit cron
+            </span>
+            <span
+              className="font-bold"
+              style={{ color: ago.stale ? "rgb(239, 68, 68)" : "rgb(34, 197, 94)" }}
+            >
+              {ago.label}
+            </span>
+            {cron && (
+              <span className="text-[var(--color-text-secondary)]">
+                Last batch: scanned {cron.scanned ?? 0} · resubmitted{" "}
+                {cron.resubmitted ?? 0} · ineligible {cron.ineligible ?? 0} ·
+                exhausted {cron.exhausted ?? 0}
+              </span>
+            )}
+            <span className="ml-auto text-[10px] text-[var(--color-text-secondary)]">
+              Schedule: every 8 min · scans last 24h · max 3 auto-retries / row
+            </span>
+          </div>
+        );
+      })()}
 
       {/* Count cards */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">

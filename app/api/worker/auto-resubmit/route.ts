@@ -25,23 +25,44 @@ export const maxDuration = 60;
 // Auth: Vercel Cron sends `Authorization: Bearer ${CRON_SECRET}`.
 
 const MAX_AUTO_RESUBMIT = 3;
-const LOOKBACK_HOURS = 6;
-const BATCH_LIMIT = 20;
+const LOOKBACK_HOURS = 24;
+const BATCH_LIMIT = 30;
 
-// Patterns that count as "internal server" / "Crun/Veo upstream broke"
-// — the only failure class auto-resubmit covers. Content moderation,
-// audio-gen-failed, rate-limit, etc. stay manual.
-const INTERNAL_SERVER_PATTERNS = [
-  /\binternal\b/i,            // "INTERNAL" (Crun terse), "Internal Server Error"
-  /\b50[0234]\b/,             // 500/502/503/504
-  /service internal/i,        // APIMart phrasing
-  /server exception/i,        // Crun phrasing
-  /please resend/i,           // APIMart hint
+// Errors we WILL auto-resubmit — transient upstream / network hiccups
+// where re-firing on the next round-robin slot has a real chance.
+const RETRYABLE_PATTERNS = [
+  /\binternal\b/i,              // "INTERNAL" (Crun terse) / "Internal Server Error"
+  /\b50[0234]\b/,               // 500 / 502 / 503 / 504
+  /service internal/i,          // APIMart phrasing
+  /server exception/i,          // Crun phrasing
+  /please resend/i,             // APIMart hint
+  /upstream/i,                  // "upstream returned ..." / "upstream endpoint"
+  /failed to parse/i,           // APIPod transient ref-image fetch
+  /\bno (task[_ ]?id|result[_ ]?url)\b/i,  // provider returned 200 with empty payload
+  /\btimed?\s*out\b|\btimeout\b/i,
+  /\bfetch failed\b|\beconn|\benotfound\b/i,
+  /network error/i,
 ];
 
-function isInternalServerError(err: string | null | undefined): boolean {
+// Errors we will NEVER auto-resubmit — re-firing won't help and may
+// burn credits / re-trip the same upstream block. Includes a few
+// patterns that overlap with RETRYABLE on the literal "internal"
+// keyword (e.g. "Internal: content moderation triggered") — exclude
+// wins so moderation never loops.
+const NO_RETRY_PATTERNS = [
+  /moderation|content[- ]policy|safety[- ]filter|blocked content/i,
+  /rate[- ]?limit|too many requests|quota/i,
+  /audio[- ]?gen|audio generation/i,
+  /CUE validator|validation failed/i,
+  /not configured|missing.*key/i,
+  /insufficient (quota|credits|balance)/i,
+  /unauthorized|forbidden|invalid api key/i,
+];
+
+function isRetryable(err: string | null | undefined): boolean {
   if (!err) return false;
-  return INTERNAL_SERVER_PATTERNS.some((re) => re.test(err));
+  if (NO_RETRY_PATTERNS.some((re) => re.test(err))) return false;
+  return RETRYABLE_PATTERNS.some((re) => re.test(err));
 }
 
 export async function GET(req: Request) {
@@ -60,7 +81,10 @@ export async function GET(req: Request) {
       "id, user_id, type, tab, status, prompt, reference_url, duration, cost, metadata, error_message, updated_at"
     )
     .eq("status", "failed")
-    .in("tab", ["video", "auto", "auto-content"])
+    // All video-producing tabs. Image tabs ("image", "fairytale") use
+    // a different cascade and are handled separately — for now they
+    // stay manual until image-cascade auto-retry is wired up.
+    .in("tab", ["video", "auto", "auto-content", "cinema", "seedance", "clone"])
     .gte("updated_at", cutoff)
     .order("updated_at", { ascending: false })
     .limit(BATCH_LIMIT);
@@ -74,7 +98,7 @@ export async function GET(req: Request) {
 
   for (const row of rows || []) {
     summary.scanned += 1;
-    if (!isInternalServerError(row.error_message)) {
+    if (!isRetryable(row.error_message)) {
       summary.ineligible += 1;
       continue;
     }
@@ -195,5 +219,23 @@ export async function GET(req: Request) {
     summary.resubmitted += 1;
   }
 
-  return NextResponse.json({ ok: true, ...summary, ts: new Date().toISOString() });
+  // Heartbeat — stamp the last successful cron run so admin tools can
+  // verify Vercel is actually firing the schedule. Key shows in the
+  // admin Settings page's app_settings table.
+  const ts = new Date().toISOString();
+  try {
+    await admin
+      .from("app_settings")
+      .upsert(
+        {
+          key: "last_auto_resubmit_run",
+          value: { at: ts, ...summary },
+          description: "Heartbeat from /api/worker/auto-resubmit cron.",
+          category: "internal",
+        },
+        { onConflict: "key" }
+      );
+  } catch {}
+
+  return NextResponse.json({ ok: true, ...summary, ts });
 }

@@ -131,8 +131,17 @@ export async function GET(req: Request) {
     };
   });
 
+  // Surface the auto-resubmit cron heartbeat so the admin page can show
+  // "last ran X min ago" — quickest tell whether the schedule is firing.
+  const { data: hb } = await admin
+    .from("app_settings")
+    .select("value")
+    .eq("key", "last_auto_resubmit_run")
+    .maybeSingle();
+
   return NextResponse.json({
     rows,
     counts: { video: videoCount, image: imageCount, total: rows.length },
+    cron: (hb?.value as any) || null,
   });
 }
