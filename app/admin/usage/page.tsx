@@ -452,11 +452,33 @@ export default function AdminUsage() {
                       r.tab === "cinema";
                     const isImg = r.type === "image";
                     const promptShort = (r.prompt || "").trim().substring(0, 80);
-                    // Which backend served this row. Stamped at create time
-                    // on history.metadata.provider. Old rows without it
-                    // default to p2 (Crun).
-                    const provider: "p1" | "p2" =
-                      r.metadata?.provider === "p1" ? "p1" : "p2";
+                    // Linked history row was deleted (by user or admin) but
+                    // the cost ledger entry remains. Mark visibly.
+                    const historyDeleted =
+                      !!r.history_id && !r.type && !r.tab && !r.prompt && !r.output_url;
+                    // Which backend served this row. Prefer metadata.slot
+                    // (e.g. "p6-a"/"p2-b") so the chip shows the exact key,
+                    // fall back to metadata.provider ("p6"/"p2") for older
+                    // rows without per-slot stamping.
+                    const rawSlot = String(r.metadata?.slot || "");
+                    const rawProvider = String(r.metadata?.provider || "");
+                    const slotLabel = (rawSlot || rawProvider || "—")
+                      .toUpperCase()
+                      .replace(/^P2-([AB])$/, "P2 $1")
+                      .replace(/^P6-([A-H])$/, "P6 $1");
+                    const providerKey = (rawProvider ||
+                      (rawSlot ? rawSlot.split("-")[0] : "")) as
+                      | "p1" | "p2" | "p4" | "p5" | "p6" | "";
+                    const providerStyle: Record<string, { bg: string; fg: string; bd: string; title: string }> = {
+                      p1: { bg: "rgba(99,102,241,0.12)", fg: "#6366f1", bd: "rgba(99,102,241,0.3)", title: "GeminiGen" },
+                      p2: { bg: "rgba(245,158,11,0.12)", fg: "#d97706", bd: "rgba(245,158,11,0.3)", title: "Crun.ai" },
+                      p4: { bg: "rgba(236,72,153,0.12)", fg: "#ec4899", bd: "rgba(236,72,153,0.3)", title: "Grsai" },
+                      p5: { bg: "rgba(14,165,233,0.12)", fg: "#0ea5e9", bd: "rgba(14,165,233,0.3)", title: "APIMart" },
+                      p6: { bg: "rgba(168,85,247,0.12)", fg: "#a855f7", bd: "rgba(168,85,247,0.3)", title: "APIPod" },
+                    };
+                    const pStyle = providerStyle[providerKey] || {
+                      bg: "rgba(120,120,120,0.12)", fg: "#999", bd: "rgba(120,120,120,0.3)", title: "Unknown",
+                    };
                     return (
                       <tr
                         key={r.id}
@@ -497,22 +519,14 @@ export default function AdminUsage() {
                         <td className="px-5 py-4 text-center">
                           <span
                             className="px-2 py-0.5 rounded text-[10px] font-mono font-bold whitespace-nowrap"
-                            style={
-                              provider === "p1"
-                                ? {
-                                    background: "rgba(99,102,241,0.12)",
-                                    color: "#6366f1",
-                                    border: "1px solid rgba(99,102,241,0.3)",
-                                  }
-                                : {
-                                    background: "rgba(245,158,11,0.12)",
-                                    color: "#d97706",
-                                    border: "1px solid rgba(245,158,11,0.3)",
-                                  }
-                            }
-                            title={provider === "p1" ? "GeminiGen.AI" : "Crun.ai"}
+                            style={{
+                              background: pStyle.bg,
+                              color: pStyle.fg,
+                              border: `1px solid ${pStyle.bd}`,
+                            }}
+                            title={pStyle.title}
                           >
-                            {provider}
+                            {slotLabel}
                           </span>
                         </td>
                         <td className="px-5 py-4 max-w-[320px]">
@@ -525,6 +539,14 @@ export default function AdminUsage() {
                               {promptShort}
                               {r.prompt && r.prompt.length > 80 ? "…" : ""}
                             </button>
+                          ) : historyDeleted ? (
+                            <span
+                              className="text-[10px] font-mono italic"
+                              style={{ color: "rgba(239,68,68,0.7)" }}
+                              title="The linked history row has been deleted but the cost ledger entry remains."
+                            >
+                              (history deleted)
+                            </span>
                           ) : (
                             <span className="text-xs text-[var(--color-text-muted)]">—</span>
                           )}
