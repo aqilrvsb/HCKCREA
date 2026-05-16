@@ -25,6 +25,7 @@ type ErrorRow = {
   error: string;
   created_at: string;
   prompt: string;
+  task_id: string;
 };
 
 type Counts = { video: number; image: number; total: number };
@@ -386,7 +387,15 @@ export default function AdminErrors() {
                       {formatMY(r.created_at)}
                     </td>
                     <td className="px-4 py-3 whitespace-nowrap text-[var(--color-text-primary)]">
-                      {r.email}
+                      <div>{r.email}</div>
+                      {r.task_id && (
+                        <div
+                          className="font-mono text-[10px] text-[var(--color-text-secondary)] mt-0.5"
+                          title={r.task_id}
+                        >
+                          {r.task_id.slice(0, 12)}…
+                        </div>
+                      )}
                     </td>
                     <td className="px-4 py-3">
                       <span

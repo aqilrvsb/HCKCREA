@@ -79,7 +79,7 @@ export async function GET(req: Request) {
   const { data: rawRows, error } = await admin
     .from("history")
     .select(
-      "id, user_id, type, tab, status, prompt, reference_url, duration, cost, metadata, error_message, updated_at, created_at"
+      "id, user_id, project_id, type, tab, status, prompt, reference_url, duration, cost, metadata, error_message, updated_at, created_at"
     )
     .eq("status", "failed")
     // All video-producing tabs. Image tabs ("image", "fairytale") use

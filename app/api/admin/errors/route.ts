@@ -47,7 +47,7 @@ export async function GET(req: Request) {
   let q = admin
     .from("history")
     .select(
-      "id, user_id, type, tab, status, error_message, metadata, created_at, prompt"
+      "id, user_id, project_id, task_id, type, tab, status, error_message, metadata, created_at, prompt"
     )
     .eq("status", "failed")
     .not("error_message", "is", null)
@@ -135,6 +135,7 @@ export async function GET(req: Request) {
       error: r.error_message || "",
       created_at: r.created_at,
       prompt: r.prompt || "",
+      task_id: r.task_id || "",
     };
   });
 
