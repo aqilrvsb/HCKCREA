@@ -70,6 +70,11 @@ export default function AdminErrors() {
   const [counts, setCounts] = useState<Counts>({ video: 0, image: 0, total: 0 });
   const [cron, setCron] = useState<CronInfo>(null);
   const [loading, setLoading] = useState(true);
+  const [fetchedAt, setFetchedAt] = useState<string>("");
+  const [activeRange, setActiveRange] = useState<{ start: string; end: string }>({
+    start: startOfMonthLocal(),
+    end: localDateStr(),
+  });
 
   const [start, setStart] = useState(startOfMonthLocal());
   const [end, setEnd] = useState(localDateStr());
@@ -129,6 +134,16 @@ export default function AdminErrors() {
       setRows(d?.rows || []);
       setCounts(d?.counts || { video: 0, image: 0, total: 0 });
       setCron(d?.cron || null);
+      setActiveRange({ start, end });
+      setFetchedAt(
+        new Intl.DateTimeFormat("en-GB", {
+          timeZone: "Asia/Kuala_Lumpur",
+          hour: "2-digit",
+          minute: "2-digit",
+          second: "2-digit",
+          hour12: false,
+        }).format(new Date())
+      );
     } finally {
       setLoading(false);
     }
@@ -271,8 +286,12 @@ export default function AdminErrors() {
           <input
             type="date"
             value={start}
-            onChange={(e) => setStart(e.target.value)}
-            max={end}
+            onChange={(e) => {
+              const v = e.target.value;
+              setStart(v);
+              if (v > end) setEnd(v);
+            }}
+            max={localDateStr()}
             className="px-3 py-2 rounded-lg text-sm"
             style={{
               background: "var(--color-bg)",
@@ -288,8 +307,11 @@ export default function AdminErrors() {
           <input
             type="date"
             value={end}
-            onChange={(e) => setEnd(e.target.value)}
-            min={start}
+            onChange={(e) => {
+              const v = e.target.value;
+              setEnd(v);
+              if (v < start) setStart(v);
+            }}
             max={localDateStr()}
             className="px-3 py-2 rounded-lg text-sm"
             style={{
@@ -298,6 +320,42 @@ export default function AdminErrors() {
               color: "var(--color-text-primary)",
             }}
           />
+        </div>
+
+        {/* Quick preset buttons */}
+        <div className="flex gap-1">
+          {[
+            { label: "Today", days: 0 },
+            { label: "7d", days: 6 },
+            { label: "Month", days: -1 },
+          ].map((p) => (
+            <button
+              key={p.label}
+              onClick={() => {
+                const today = localDateStr();
+                if (p.days === -1) {
+                  setStart(startOfMonthLocal());
+                  setEnd(today);
+                } else if (p.days === 0) {
+                  setStart(today);
+                  setEnd(today);
+                } else {
+                  const d = new Date();
+                  d.setDate(d.getDate() - p.days);
+                  setStart(localDateStr(d));
+                  setEnd(today);
+                }
+              }}
+              className="px-3 py-2 rounded-lg text-xs font-bold"
+              style={{
+                background: "var(--color-bg)",
+                border: "1px solid var(--color-border)",
+                color: "var(--color-text-primary)",
+              }}
+            >
+              {p.label}
+            </button>
+          ))}
         </div>
 
         <div className="flex gap-1">
@@ -337,6 +395,30 @@ export default function AdminErrors() {
             }}
           />
         </div>
+      </div>
+
+      {/* Active filter status */}
+      <div
+        className="text-xs flex flex-wrap items-center gap-2"
+        style={{ color: "var(--color-text-secondary)" }}
+      >
+        <span>
+          Showing <b style={{ color: "var(--color-text-primary)" }}>{filtered.length}</b> /
+          <b style={{ color: "var(--color-text-primary)" }}> {rows.length}</b> rows
+        </span>
+        <span>·</span>
+        <span>
+          From <b style={{ color: "var(--color-text-primary)" }}>{activeRange.start}</b>
+          {" → "}
+          <b style={{ color: "var(--color-text-primary)" }}>{activeRange.end}</b>{" "}
+          (MYT)
+        </span>
+        {fetchedAt && (
+          <>
+            <span>·</span>
+            <span>Fetched at {fetchedAt} MYT</span>
+          </>
+        )}
       </div>
 
       {/* Table */}
