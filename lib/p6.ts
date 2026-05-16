@@ -89,7 +89,11 @@ function apipodVideoModel(input: {
     return "seedance-2.0-fast-r2v";
   }
 
-  return "veo-3-1-fast";
+  // APIPod's actual model ID is "veo3-1-fast" (no dash between "veo"
+  // and "3"). Probed via direct API call — variants veo-3.1-fast,
+  // veo-3-1-fast, veo3.1-fast all return "no CUE validator found";
+  // only veo3-1-fast returns 200 with a task_id.
+  return "veo3-1-fast";
 }
 
 // Map cascade image model strings → APIPod's catalog names. Per
