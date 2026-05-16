@@ -51,8 +51,21 @@ export async function POST(req: Request) {
   if (selErr || !row) {
     return NextResponse.json({ error: "History row not found" }, { status: 404 });
   }
+  // Owner can retry their own rows. Admins can retry anyone's row (used
+  // by /admin/errors). When an admin retries, the cascade still runs
+  // under row.user_id so cost / rate-limit / metadata stay attributed
+  // to the original owner — admin acting on behalf, not impersonating.
+  let actingUserId = user.id;
   if (row.user_id !== user.id) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    const { data: me } = await sb
+      .from("profiles")
+      .select("is_admin")
+      .eq("id", user.id)
+      .maybeSingle();
+    if (!me?.is_admin) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+    actingUserId = row.user_id;
   }
   if (!row.prompt) {
     return NextResponse.json(
@@ -243,7 +256,7 @@ export async function POST(req: Request) {
 
     const r = await generateVideoWithCascade({
       primaryModel: model,
-      userId: user.id,
+      userId: actingUserId,
       prompt: effectivePrompt,
       imageUrls: allImageUrls,
       durationMode,

@@ -9,6 +9,8 @@ import {
   Image as ImageIcon,
   Video as VideoIcon,
   RefreshCcw,
+  RotateCw,
+  Check,
 } from "lucide-react";
 import { localDateStr, startOfMonthLocal } from "@/lib/date-util";
 
@@ -63,6 +65,43 @@ export default function AdminErrors() {
   const [end, setEnd] = useState(localDateStr());
   const [search, setSearch] = useState("");
   const [kindFilter, setKindFilter] = useState<"all" | "video" | "image">("all");
+  // Per-row resubmit state: "idle" | "loading" | "done" | error message.
+  const [resubmitState, setResubmitState] = useState<Record<string, string>>({});
+
+  async function resubmit(rowId: string) {
+    setResubmitState((s) => ({ ...s, [rowId]: "loading" }));
+    try {
+      const r = await fetch("/api/history/retry", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ history_id: rowId }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        setResubmitState((s) => ({
+          ...s,
+          [rowId]: d?.error || "Retry failed",
+        }));
+        return;
+      }
+      setResubmitState((s) => ({ ...s, [rowId]: "done" }));
+      // Drop the row from the visible list — it's no longer failed.
+      const removed = rows.find((x) => x.id === rowId);
+      setRows((rs) => rs.filter((x) => x.id !== rowId));
+      setCounts((c) => ({
+        total: Math.max(0, c.total - 1),
+        video:
+          removed?.kind === "video" ? Math.max(0, c.video - 1) : c.video,
+        image:
+          removed?.kind === "image" ? Math.max(0, c.image - 1) : c.image,
+      }));
+    } catch (e: any) {
+      setResubmitState((s) => ({
+        ...s,
+        [rowId]: e?.message || "Network error",
+      }));
+    }
+  }
 
   useEffect(() => {
     void load();
@@ -275,6 +314,7 @@ export default function AdminErrors() {
                   <th className="px-4 py-3">Provider</th>
                   <th className="px-4 py-3">Model</th>
                   <th className="px-4 py-3">Error</th>
+                  <th className="px-4 py-3 text-right">Action</th>
                 </tr>
               </thead>
               <tbody>
@@ -327,6 +367,67 @@ export default function AdminErrors() {
                       >
                         {r.error}
                       </div>
+                    </td>
+                    <td className="px-4 py-3 text-right whitespace-nowrap">
+                      {(() => {
+                        const st = resubmitState[r.id] || "idle";
+                        if (st === "loading") {
+                          return (
+                            <button
+                              disabled
+                              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold"
+                              style={{
+                                background: "var(--color-bg)",
+                                border: "1px solid var(--color-border)",
+                                color: "var(--color-text-secondary)",
+                              }}
+                            >
+                              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                              Resubmitting…
+                            </button>
+                          );
+                        }
+                        if (st === "done") {
+                          return (
+                            <span
+                              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold"
+                              style={{
+                                background: "rgba(34, 197, 94, 0.12)",
+                                border: "1px solid rgba(34, 197, 94, 0.4)",
+                                color: "rgb(34, 197, 94)",
+                              }}
+                            >
+                              <Check className="w-3.5 h-3.5" /> Sent
+                            </span>
+                          );
+                        }
+                        const errMsg = st !== "idle" ? st : null;
+                        return (
+                          <div className="inline-flex flex-col items-end gap-1">
+                            <button
+                              onClick={() => void resubmit(r.id)}
+                              title="Resubmit this row through the fallback cascade"
+                              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all hover:translate-x-0.5"
+                              style={{
+                                background: "var(--color-orange)",
+                                border: "1px solid var(--color-orange)",
+                                color: "#1a1a1a",
+                              }}
+                            >
+                              <RotateCw className="w-3.5 h-3.5" /> Resubmit
+                            </button>
+                            {errMsg && (
+                              <span
+                                className="text-[10px] max-w-[180px] truncate"
+                                style={{ color: "rgb(248, 113, 113)" }}
+                                title={errMsg}
+                              >
+                                {errMsg}
+                              </span>
+                            )}
+                          </div>
+                        );
+                      })()}
                     </td>
                   </tr>
                 ))}

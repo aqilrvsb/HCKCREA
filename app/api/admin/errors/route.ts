@@ -86,9 +86,21 @@ export async function GET(req: Request) {
     );
   }
 
+  // Admin's own test errors clutter the feed — hide rows owned by the
+  // admin@gmail.com account so the table only shows real client errors.
+  const adminUserIds = new Set<string>();
+  (authList?.users || []).forEach((u: any) => {
+    if ((u.email || "").toLowerCase() === "admin@gmail.com") {
+      adminUserIds.add(u.id);
+    }
+  });
+  const visibleRows = (failedRows || []).filter(
+    (r: any) => !adminUserIds.has(r.user_id)
+  );
+
   let videoCount = 0;
   let imageCount = 0;
-  const rows = (failedRows || []).map((r: any) => {
+  const rows = visibleRows.map((r: any) => {
     const meta = (r.metadata || {}) as Record<string, any>;
     const kind: "image" | "video" = isImageRow(r) ? "image" : "video";
     if (kind === "image") imageCount += 1;
