@@ -566,7 +566,7 @@ export async function settleHistoryRow(hist: HistoryRow): Promise<SettleResult> 
       hist.type === "fairytale-scene";
     r = await p6GetStatus(
       hist.task_id,
-      typeof slot === "string" && slot.startsWith("p6-") ? slot : undefined,
+      typeof slot === "string" && slot.startsWith("p6-") ? (slot as any) : undefined,
       isImageRow ? "image" : "video"
     );
   } else if (rowProvider === "p5") {
