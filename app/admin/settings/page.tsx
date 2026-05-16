@@ -114,12 +114,32 @@ export default function AdminSettings() {
   // Each slot can be: p1 / p2-a / p2-b / p4 (image only) / p5.
   // Round-robin starting slot is computed atomically by Postgres seq;
   // walk hits all 3 + retries starting slot once (4 attempts total).
-  type SlotV = "p1" | "p2-a" | "p2-b" | "p5" | "p6" | "none";
-  type SlotI = "p1" | "p2-a" | "p2-b" | "p4" | "p5" | "p6" | "none";
+  type SlotV =
+    | "p1" | "p2-a" | "p2-b" | "p5"
+    | "p6-a" | "p6-b" | "p6-c" | "p6-d" | "p6-e" | "p6-f" | "p6-g" | "p6-h"
+    | "none";
+  type SlotI =
+    | "p1" | "p2-a" | "p2-b" | "p4" | "p5"
+    | "p6-a" | "p6-b" | "p6-c" | "p6-d" | "p6-e" | "p6-f" | "p6-g" | "p6-h"
+    | "none";
+  // Legacy 3-slot state (kept for backwards compat with old setting keys
+  // — no longer used by the cascade since main+fallback rewrite).
   const [videoSlots, setVideoSlots] = useState<[SlotV, SlotV, SlotV]>(["p2-a", "p2-b", "p5"]);
   const [imageSlots, setImageSlots] = useState<[SlotI, SlotI, SlotI]>(["p4", "p5", "p2-a"]);
   const [savingSlots, setSavingSlots] = useState<"video" | "image" | null>(null);
   const [slotsMsg, setSlotsMsg] = useState<string | null>(null);
+
+  // ────── New main+fallback architecture (dynamic count) ──────
+  const [videoMainCount, setVideoMainCount] = useState(10);
+  const [videoFallbackCount, setVideoFallbackCount] = useState(10);
+  const [videoMainSlots, setVideoMainSlots] = useState<SlotV[]>([]);
+  const [videoFallbackSlots, setVideoFallbackSlots] = useState<SlotV[]>([]);
+  const [imageMainCount, setImageMainCount] = useState(10);
+  const [imageFallbackCount, setImageFallbackCount] = useState(10);
+  const [imageMainSlots, setImageMainSlots] = useState<SlotI[]>([]);
+  const [imageFallbackSlots, setImageFallbackSlots] = useState<SlotI[]>([]);
+  const [savingMfSlots, setSavingMfSlots] = useState<"video" | "image" | null>(null);
+  const [mfSlotsMsg, setMfSlotsMsg] = useState<string | null>(null);
 
   useEffect(() => {
     void load();
@@ -221,9 +241,99 @@ export default function AdminSettings() {
             norm(s[2], "p2-a"),
           ]);
         }
+
+        // New main+fallback architecture
+        const allowedV: string[] = [
+          "p1", "p2-a", "p2-b", "p5",
+          "p6-a", "p6-b", "p6-c", "p6-d", "p6-e", "p6-f", "p6-g", "p6-h",
+          "none",
+        ];
+        const allowedI: string[] = [
+          "p1", "p2-a", "p2-b", "p4", "p5",
+          "p6-a", "p6-b", "p6-c", "p6-d", "p6-e", "p6-f", "p6-g", "p6-h",
+          "none",
+        ];
+        const fitArr = <T,>(arr: any[], n: number, allowed: string[]): T[] => {
+          const out: T[] = [];
+          for (let i = 0; i < n; i++) {
+            const v = String(arr?.[i] || "none");
+            out.push((allowed.includes(v) ? v : "none") as T);
+          }
+          return out;
+        };
+        if (row.key === "video_main_count") {
+          const n = Number(row.value?.count);
+          if (Number.isFinite(n) && n >= 1) setVideoMainCount(Math.floor(n));
+        }
+        if (row.key === "video_fallback_count") {
+          const n = Number(row.value?.count);
+          if (Number.isFinite(n) && n >= 1) setVideoFallbackCount(Math.floor(n));
+        }
+        if (row.key === "image_main_count") {
+          const n = Number(row.value?.count);
+          if (Number.isFinite(n) && n >= 1) setImageMainCount(Math.floor(n));
+        }
+        if (row.key === "image_fallback_count") {
+          const n = Number(row.value?.count);
+          if (Number.isFinite(n) && n >= 1) setImageFallbackCount(Math.floor(n));
+        }
+        if (row.key === "video_main_slots") {
+          const arr = Array.isArray(row.value?.slots) ? row.value.slots : [];
+          const cnt = (list.find((r) => r.key === "video_main_count")?.value?.count) || 10;
+          setVideoMainSlots(fitArr<SlotV>(arr, cnt, allowedV));
+        }
+        if (row.key === "video_fallback_slots") {
+          const arr = Array.isArray(row.value?.slots) ? row.value.slots : [];
+          const cnt = (list.find((r) => r.key === "video_fallback_count")?.value?.count) || 10;
+          setVideoFallbackSlots(fitArr<SlotV>(arr, cnt, allowedV));
+        }
+        if (row.key === "image_main_slots") {
+          const arr = Array.isArray(row.value?.slots) ? row.value.slots : [];
+          const cnt = (list.find((r) => r.key === "image_main_count")?.value?.count) || 10;
+          setImageMainSlots(fitArr<SlotI>(arr, cnt, allowedI));
+        }
+        if (row.key === "image_fallback_slots") {
+          const arr = Array.isArray(row.value?.slots) ? row.value.slots : [];
+          const cnt = (list.find((r) => r.key === "image_fallback_count")?.value?.count) || 10;
+          setImageFallbackSlots(fitArr<SlotI>(arr, cnt, allowedI));
+        }
       }
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function saveMainFallback(asset: "video" | "image") {
+    setSavingMfSlots(asset);
+    setMfSlotsMsg(null);
+    try {
+      const mainCount = asset === "video" ? videoMainCount : imageMainCount;
+      const fbCount = asset === "video" ? videoFallbackCount : imageFallbackCount;
+      const main = asset === "video" ? videoMainSlots : imageMainSlots;
+      const fb = asset === "video" ? videoFallbackSlots : imageFallbackSlots;
+      const calls = [
+        { key: `${asset}_main_count`, value: { count: mainCount } },
+        { key: `${asset}_fallback_count`, value: { count: fbCount } },
+        { key: `${asset}_main_slots`, value: { slots: main.slice(0, mainCount) } },
+        { key: `${asset}_fallback_slots`, value: { slots: fb.slice(0, fbCount) } },
+      ];
+      for (const c of calls) {
+        const r = await fetch("/api/admin/settings", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(c),
+        });
+        if (!r.ok) {
+          const err = await r.json().catch(() => ({}));
+          throw new Error(err?.error || `HTTP ${r.status} on ${c.key}`);
+        }
+      }
+      setMfSlotsMsg(`✓ ${asset} main+fallback saved. Takes effect on next task (60s cache).`);
+      setTimeout(() => setMfSlotsMsg(null), 6000);
+    } catch (e: any) {
+      setMfSlotsMsg(`✗ Save failed: ${e?.message || "unknown"}`);
+    } finally {
+      setSavingMfSlots(null);
     }
   }
 
@@ -667,15 +777,234 @@ export default function AdminSettings() {
         </p>
       </div>
 
-      {/* Cascade Slot Rotation — admin picks 3 providers per asset class.
-          Each task picks a starting slot via round-robin (atomic
-          Postgres seq), walks all 3 slots cyclically, then retries the
-          starting slot once (4 attempts total). Load spreads across
-          slots system-wide. */}
+      {/* Main + Fallback Cascade (new architecture).
+          Each asset has TWO independent lists with dynamic length:
+            - Main slots: round-robin source, walked cyclically
+            - Fallback slots: tried in order after all mains fail
+          'none' entries are skipped entirely.
+          Admin can grow / shrink each list with + / - buttons. */}
+      {(() => {
+        const assets: Array<{
+          asset: "video" | "image";
+          color: string;
+          options: { value: string; label: string }[];
+          mainCount: number;
+          setMainCount: (n: number) => void;
+          fbCount: number;
+          setFbCount: (n: number) => void;
+          mainSlots: string[];
+          setMainSlots: (s: string[]) => void;
+          fbSlots: string[];
+          setFbSlots: (s: string[]) => void;
+        }> = [
+          {
+            asset: "video",
+            color: "#a855f7",
+            options: [
+              { value: "p1", label: "P1 — GeminiGen" },
+              { value: "p2-a", label: "P2 — Crun (key A)" },
+              { value: "p2-b", label: "P2 — Crun (key B)" },
+              { value: "p5", label: "P5 — APIMart" },
+              { value: "p6-a", label: "P6 — APIPod (A)" },
+              { value: "p6-b", label: "P6 — APIPod (B)" },
+              { value: "p6-c", label: "P6 — APIPod (C)" },
+              { value: "p6-d", label: "P6 — APIPod (D)" },
+              { value: "p6-e", label: "P6 — APIPod (E)" },
+              { value: "p6-f", label: "P6 — APIPod (F)" },
+              { value: "p6-g", label: "P6 — APIPod (G)" },
+              { value: "p6-h", label: "P6 — APIPod (H)" },
+              { value: "none", label: "— None —" },
+            ],
+            mainCount: videoMainCount,
+            setMainCount: setVideoMainCount,
+            fbCount: videoFallbackCount,
+            setFbCount: setVideoFallbackCount,
+            mainSlots: videoMainSlots,
+            setMainSlots: (s) => setVideoMainSlots(s as SlotV[]),
+            fbSlots: videoFallbackSlots,
+            setFbSlots: (s) => setVideoFallbackSlots(s as SlotV[]),
+          },
+          {
+            asset: "image",
+            color: "#ec4899",
+            options: [
+              { value: "p1", label: "P1 — GeminiGen" },
+              { value: "p2-a", label: "P2 — Crun (key A)" },
+              { value: "p2-b", label: "P2 — Crun (key B)" },
+              { value: "p4", label: "P4 — Grsai" },
+              { value: "p5", label: "P5 — APIMart" },
+              { value: "p6-a", label: "P6 — APIPod (A)" },
+              { value: "p6-b", label: "P6 — APIPod (B)" },
+              { value: "p6-c", label: "P6 — APIPod (C)" },
+              { value: "p6-d", label: "P6 — APIPod (D)" },
+              { value: "p6-e", label: "P6 — APIPod (E)" },
+              { value: "p6-f", label: "P6 — APIPod (F)" },
+              { value: "p6-g", label: "P6 — APIPod (G)" },
+              { value: "p6-h", label: "P6 — APIPod (H)" },
+              { value: "none", label: "— None —" },
+            ],
+            mainCount: imageMainCount,
+            setMainCount: setImageMainCount,
+            fbCount: imageFallbackCount,
+            setFbCount: setImageFallbackCount,
+            mainSlots: imageMainSlots,
+            setMainSlots: (s) => setImageMainSlots(s as SlotI[]),
+            fbSlots: imageFallbackSlots,
+            setFbSlots: (s) => setImageFallbackSlots(s as SlotI[]),
+          },
+        ];
+        return (
+          <div className="card p-6 mb-6 border-2 border-emerald-200 bg-emerald-50/40">
+            <div className="flex items-center gap-2 mb-1">
+              <Cpu className="w-5 h-5 text-emerald-600" />
+              <h2 className="font-display font-bold text-lg">Cascade — Main + Fallback</h2>
+            </div>
+            <p className="text-sm text-[var(--color-text-secondary)] mb-4">
+              Each task starts at a round-robin position in MAIN. If it fails,
+              walks remaining mains, then all fallbacks in order. 'None' rows
+              are skipped. + / − adjusts each list independently.
+            </p>
+            {assets.map((a) => (
+              <div key={a.asset} className="mb-5 pb-5 border-b border-[var(--color-border)] last:border-0">
+                <div className="text-xs font-mono uppercase tracking-widest font-bold mb-3" style={{ color: a.color }}>
+                  {a.asset.toUpperCase()} CASCADE
+                </div>
+
+                {/* Main slots */}
+                <div className="mb-3">
+                  <div className="flex items-center gap-2 mb-2">
+                    <span className="text-[10px] font-mono uppercase tracking-wider opacity-70">
+                      Main ({a.mainCount} slots) — round-robin source
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const n = Math.max(1, a.mainCount - 1);
+                        a.setMainCount(n);
+                        a.setMainSlots(a.mainSlots.slice(0, n));
+                      }}
+                      className="text-[10px] px-1.5 rounded font-bold"
+                      style={{ background: "#e5e7eb", color: "#374151" }}
+                    >
+                      −
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const n = Math.min(50, a.mainCount + 1);
+                        a.setMainCount(n);
+                        a.setMainSlots([...a.mainSlots, "none"]);
+                      }}
+                      className="text-[10px] px-1.5 rounded font-bold"
+                      style={{ background: "#e5e7eb", color: "#374151" }}
+                    >
+                      +
+                    </button>
+                  </div>
+                  <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
+                    {Array.from({ length: a.mainCount }).map((_, i) => (
+                      <select
+                        key={`${a.asset}-main-${i}`}
+                        value={a.mainSlots[i] || "none"}
+                        onChange={(e) => {
+                          const next = [...a.mainSlots];
+                          next[i] = e.target.value;
+                          a.setMainSlots(next);
+                        }}
+                        className="input text-[11px]"
+                        style={{ color: "white" }}
+                      >
+                        {a.options.map((o) => (
+                          <option key={o.value} value={o.value}>{o.label}</option>
+                        ))}
+                      </select>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Fallback slots */}
+                <div className="mb-3">
+                  <div className="flex items-center gap-2 mb-2">
+                    <span className="text-[10px] font-mono uppercase tracking-wider opacity-70">
+                      Fallback ({a.fbCount} slots) — tried after all mains fail
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const n = Math.max(1, a.fbCount - 1);
+                        a.setFbCount(n);
+                        a.setFbSlots(a.fbSlots.slice(0, n));
+                      }}
+                      className="text-[10px] px-1.5 rounded font-bold"
+                      style={{ background: "#e5e7eb", color: "#374151" }}
+                    >
+                      −
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const n = Math.min(50, a.fbCount + 1);
+                        a.setFbCount(n);
+                        a.setFbSlots([...a.fbSlots, "none"]);
+                      }}
+                      className="text-[10px] px-1.5 rounded font-bold"
+                      style={{ background: "#e5e7eb", color: "#374151" }}
+                    >
+                      +
+                    </button>
+                  </div>
+                  <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
+                    {Array.from({ length: a.fbCount }).map((_, i) => (
+                      <select
+                        key={`${a.asset}-fb-${i}`}
+                        value={a.fbSlots[i] || "none"}
+                        onChange={(e) => {
+                          const next = [...a.fbSlots];
+                          next[i] = e.target.value;
+                          a.setFbSlots(next);
+                        }}
+                        className="input text-[11px]"
+                        style={{ color: "white" }}
+                      >
+                        {a.options.map((o) => (
+                          <option key={o.value} value={o.value}>{o.label}</option>
+                        ))}
+                      </select>
+                    ))}
+                  </div>
+                </div>
+
+                <button
+                  onClick={() => void saveMainFallback(a.asset)}
+                  disabled={savingMfSlots === a.asset}
+                  className="btn-primary text-xs disabled:opacity-50"
+                >
+                  {savingMfSlots === a.asset ? (
+                    <Loader2 className="w-3 h-3 animate-spin inline" />
+                  ) : (
+                    <Save className="w-3 h-3 inline" />
+                  )}{" "}
+                  Save {a.asset} cascade
+                </button>
+              </div>
+            ))}
+            {mfSlotsMsg && (
+              <div className="text-xs mt-2" style={{ color: mfSlotsMsg.startsWith("✓") ? "#16a34a" : "#dc2626" }}>
+                {mfSlotsMsg}
+              </div>
+            )}
+          </div>
+        );
+      })()}
+
+      {/* Cascade Slot Rotation — LEGACY 3-slot card. Kept temporarily
+          for backwards compat. The Main+Fallback card above is the
+          active config; this writes to deprecated keys that the
+          cascade no longer reads. */}
       <div className="card p-6 mb-6 border-2 border-violet-200 bg-violet-50/40">
         <div className="flex items-center gap-2 mb-1">
           <Cpu className="w-5 h-5 text-violet-600" />
-          <h2 className="font-display font-bold text-lg">Cascade Slot Rotation</h2>
+          <h2 className="font-display font-bold text-lg">Cascade Slot Rotation (LEGACY)</h2>
         </div>
         <p className="text-sm text-[var(--color-text-secondary)] mb-4">
           Round-robin starting slot per task; fallback walks all 3 slots + retries the start once.
