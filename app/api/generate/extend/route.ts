@@ -153,7 +153,7 @@ export async function POST(req: Request) {
   if (!cascaded.ok) {
     return NextResponse.json({ error: cascaded.error }, { status: 502 });
   }
-  const created: { ok: true; task_id: string; provider: "p1" | "p2" | "p3" | "p4" | "p5" } = {
+  const created: { ok: true; task_id: string; provider: "p1" | "p2" | "p3" | "p4" | "p5" | "p6" } = {
     ok: true,
     task_id: cascaded.taskId,
     provider: cascaded.actualProvider,
