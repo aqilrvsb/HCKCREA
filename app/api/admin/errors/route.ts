@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { filterVisibleToClient } from "@/lib/server-history-visibility";
+import { malaysiaDayToUtcRange } from "@/lib/date-util";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -34,15 +35,6 @@ export async function GET(req: Request) {
   const start = url.searchParams.get("start"); // YYYY-MM-DD (MY local)
   const end = url.searchParams.get("end");
 
-  // Malaysia is UTC+8 — convert the date-only filters to the exact UTC
-  // boundary so a row created at 00:30 KL time on the start date is
-  // included (00:30 KL = 16:30 UTC of the previous day).
-  function localDayToUtcRange(day: string, side: "start" | "end"): string {
-    const t = side === "start" ? "00:00:00" : "23:59:59.999";
-    const local = new Date(`${day}T${t}+08:00`);
-    return local.toISOString();
-  }
-
   const admin = createAdminClient();
   let q = admin
     .from("history")
@@ -53,8 +45,8 @@ export async function GET(req: Request) {
     .not("error_message", "is", null)
     .order("created_at", { ascending: false })
     .limit(2000);
-  if (start) q = q.gte("created_at", localDayToUtcRange(start, "start"));
-  if (end) q = q.lte("created_at", localDayToUtcRange(end, "end"));
+  if (start) q = q.gte("created_at", malaysiaDayToUtcRange(start, "start"));
+  if (end) q = q.lte("created_at", malaysiaDayToUtcRange(end, "end"));
 
   const { data: rawFailedRows, error } = await q;
   if (error) {

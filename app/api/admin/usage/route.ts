@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { malaysiaDayToUtcRange } from "@/lib/date-util";
 
 // Admin Usage feed — credit_transactions joined to the originating history
 // row so the Detail Log can show prompt + output preview without a second
@@ -31,8 +32,11 @@ export async function GET(req: Request) {
     .lt("amount", 0)
     .order("created_at", { ascending: false })
     .limit(2000);
-  if (start) q = q.gte("created_at", start + "T00:00:00");
-  if (end) q = q.lte("created_at", end + "T23:59:59");
+  // Date inputs are Malaysia-local (UTC+8). Convert each wall-clock day
+  // into the corresponding UTC boundary so a row at 17 May 07:19 MYT
+  // (=16 May 23:19 UTC) is included when admin filters "May 17".
+  if (start) q = q.gte("created_at", malaysiaDayToUtcRange(start, "start"));
+  if (end) q = q.lte("created_at", malaysiaDayToUtcRange(end, "end"));
 
   const { data: txns } = await q;
 

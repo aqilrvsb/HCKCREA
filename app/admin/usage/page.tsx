@@ -8,14 +8,13 @@ import {
   TrendingUp,
   Search,
   Loader2,
-  Calendar,
   X,
   Copy,
   Check,
   Image as ImageIcon,
   Video as VideoIcon,
 } from "lucide-react";
-import { localDateStr, startOfMonthLocal } from "@/lib/date-util";
+import { localDateStr } from "@/lib/date-util";
 
 type UsageRow = {
   id: string;
@@ -49,8 +48,9 @@ export default function AdminUsage() {
   const [promptModal, setPromptModal] = useState<UsageRow | null>(null);
   const [previewModal, setPreviewModal] = useState<UsageRow | null>(null);
 
-  // Malaysia-local dates (UTC+8) — toISOString would off-by-one to UTC.
-  const [start, setStart] = useState(startOfMonthLocal());
+  // Malaysia-local dates (UTC+8) — default both to today, admin can
+  // widen if they want. Avoid Date.toISOString here (off-by-one to UTC).
+  const [start, setStart] = useState(localDateStr());
   const [end, setEnd] = useState(localDateStr());
   const [search, setSearch] = useState("");
 
@@ -209,33 +209,37 @@ export default function AdminUsage() {
         <div className="grid md:grid-cols-3 gap-4">
           <div>
             <label className="block text-[10px] font-mono uppercase tracking-widest text-[var(--color-text-muted)] font-bold mb-2">
-              Start Date
+              Start Date (MYT)
             </label>
-            <div className="relative">
-              <Calendar className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--color-text-muted)] pointer-events-none" />
-              <input
-                type="date"
-                value={start}
-                onChange={(e) => setStart(e.target.value)}
-                className="input pl-11"
-                style={{ colorScheme: "dark" }}
-              />
-            </div>
+            <input
+              type="date"
+              value={start}
+              onChange={(e) => {
+                const v = e.target.value;
+                setStart(v);
+                if (v > end) setEnd(v);
+              }}
+              max={localDateStr()}
+              className="input"
+              style={{ colorScheme: "dark" }}
+            />
           </div>
           <div>
             <label className="block text-[10px] font-mono uppercase tracking-widest text-[var(--color-text-muted)] font-bold mb-2">
-              End Date
+              End Date (MYT)
             </label>
-            <div className="relative">
-              <Calendar className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--color-text-muted)] pointer-events-none" />
-              <input
-                type="date"
-                value={end}
-                onChange={(e) => setEnd(e.target.value)}
-                className="input pl-11"
-                style={{ colorScheme: "dark" }}
-              />
-            </div>
+            <input
+              type="date"
+              value={end}
+              onChange={(e) => {
+                const v = e.target.value;
+                setEnd(v);
+                if (v < start) setStart(v);
+              }}
+              max={localDateStr()}
+              className="input"
+              style={{ colorScheme: "dark" }}
+            />
           </div>
           <div>
             <label className="block text-[10px] font-mono uppercase tracking-widest text-[var(--color-text-muted)] font-bold mb-2">
@@ -251,6 +255,43 @@ export default function AdminUsage() {
               />
             </div>
           </div>
+        </div>
+
+        {/* Quick presets */}
+        <div className="flex gap-2 mt-4">
+          {[
+            { label: "Today", days: 0 },
+            { label: "7d", days: 6 },
+            { label: "Month", days: -1 },
+          ].map((p) => (
+            <button
+              key={p.label}
+              onClick={() => {
+                const today = localDateStr();
+                if (p.days === -1) {
+                  const d = new Date();
+                  setStart(localDateStr(new Date(d.getFullYear(), d.getMonth(), 1)));
+                  setEnd(today);
+                } else if (p.days === 0) {
+                  setStart(today);
+                  setEnd(today);
+                } else {
+                  const d = new Date();
+                  d.setDate(d.getDate() - p.days);
+                  setStart(localDateStr(d));
+                  setEnd(today);
+                }
+              }}
+              className="px-3 py-1.5 rounded-lg text-xs font-bold transition-transform hover:-translate-y-0.5"
+              style={{
+                background: "var(--color-bg)",
+                border: "1px solid var(--color-border)",
+                color: "var(--color-text-primary)",
+              }}
+            >
+              {p.label}
+            </button>
+          ))}
         </div>
       </div>
 
@@ -428,12 +469,14 @@ export default function AdminUsage() {
                           {String(i + 1).padStart(2, "0")}
                         </td>
                         <td className="px-5 py-4 text-[var(--color-text-secondary)] font-mono text-xs">
-                          {new Date(r.created_at).toLocaleString("ms-MY", {
+                          {new Date(r.created_at).toLocaleString("en-GB", {
+                            timeZone: "Asia/Kuala_Lumpur",
                             day: "2-digit",
                             month: "short",
                             year: "2-digit",
                             hour: "2-digit",
                             minute: "2-digit",
+                            hour12: false,
                           })}
                         </td>
                         <td className="px-5 py-4 text-[var(--color-text-primary)] truncate max-w-[180px]">

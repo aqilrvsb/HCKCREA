@@ -23,3 +23,19 @@ export function localDateStr(d: Date = new Date()): string {
 export function startOfMonthLocal(d: Date = new Date()): string {
   return localDateStr(new Date(d.getFullYear(), d.getMonth(), 1));
 }
+
+// Convert a Malaysia-local "yyyy-mm-dd" date string into the UTC ISO
+// boundary suitable for Postgres TIMESTAMPTZ comparison.
+//   side="start" → 00:00:00 MYT  (= UTC-8 of that wall-clock midnight)
+//   side="end"   → 23:59:59.999 MYT
+// Used by admin tools that filter a UTC-stored created_at by what the
+// MY admin sees on screen. Without this, a row at "17 May 07:19 MYT"
+// (=16 May 23:19 UTC) would be excluded when filtering "May 17" because
+// `start + "T00:00:00"` is implicitly interpreted as UTC.
+export function malaysiaDayToUtcRange(
+  day: string,
+  side: "start" | "end"
+): string {
+  const t = side === "start" ? "00:00:00" : "23:59:59.999";
+  return new Date(`${day}T${t}+08:00`).toISOString();
+}
