@@ -11,6 +11,7 @@ import {
   RefreshCcw,
   RotateCw,
   Check,
+  Trash2,
 } from "lucide-react";
 import { localDateStr, startOfMonthLocal } from "@/lib/date-util";
 
@@ -72,16 +73,84 @@ export default function AdminErrors() {
   const [loading, setLoading] = useState(true);
   const [fetchedAt, setFetchedAt] = useState<string>("");
   const [activeRange, setActiveRange] = useState<{ start: string; end: string }>({
-    start: startOfMonthLocal(),
+    start: localDateStr(),
     end: localDateStr(),
   });
+  // Bulk delete state — set of selected row ids.
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [deleting, setDeleting] = useState(false);
 
-  const [start, setStart] = useState(startOfMonthLocal());
+  const [start, setStart] = useState(localDateStr());
   const [end, setEnd] = useState(localDateStr());
   const [search, setSearch] = useState("");
   const [kindFilter, setKindFilter] = useState<"all" | "video" | "image">("all");
   // Per-row resubmit state: "idle" | "loading" | "done" | error message.
   const [resubmitState, setResubmitState] = useState<Record<string, string>>({});
+
+  // Bulk delete the selected rows. Fires sequentially so partial
+  // failures show up in the UI rather than burying every error in
+  // one Promise.all rejection.
+  async function deleteSelected() {
+    if (selected.size === 0) return;
+    const confirmed = window.confirm(
+      `Delete ${selected.size} error row${selected.size > 1 ? "s" : ""}? This cannot be undone.`
+    );
+    if (!confirmed) return;
+
+    setDeleting(true);
+    const ids = Array.from(selected);
+    const removedKinds: Array<"video" | "image"> = [];
+    for (const id of ids) {
+      try {
+        const r = await fetch(
+          `/api/history/delete?id=${encodeURIComponent(id)}`,
+          { method: "DELETE" }
+        );
+        if (r.ok) {
+          const row = rows.find((x) => x.id === id);
+          if (row) removedKinds.push(row.kind);
+          setRows((rs) => rs.filter((x) => x.id !== id));
+        }
+      } catch {
+        // continue with remaining ids
+      }
+    }
+    setCounts((c) => {
+      const vDrop = removedKinds.filter((k) => k === "video").length;
+      const iDrop = removedKinds.filter((k) => k === "image").length;
+      return {
+        total: Math.max(0, c.total - removedKinds.length),
+        video: Math.max(0, c.video - vDrop),
+        image: Math.max(0, c.image - iDrop),
+      };
+    });
+    setSelected(new Set());
+    setDeleting(false);
+  }
+
+  function toggleSelect(id: string) {
+    setSelected((s) => {
+      const next = new Set(s);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function toggleSelectAll() {
+    setSelected((s) => {
+      const visibleIds = filtered.map((r) => r.id);
+      const allSelected = visibleIds.every((id) => s.has(id));
+      if (allSelected) {
+        const next = new Set(s);
+        for (const id of visibleIds) next.delete(id);
+        return next;
+      }
+      const next = new Set(s);
+      for (const id of visibleIds) next.add(id);
+      return next;
+    });
+  }
 
   async function resubmit(rowId: string) {
     setResubmitState((s) => ({ ...s, [rowId]: "loading" }));
@@ -199,17 +268,38 @@ export default function AdminErrors() {
             Rows that stayed failed after all cascades + retries.
           </p>
         </div>
-        <button
-          onClick={() => void load()}
-          className="ml-auto inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-bold"
-          style={{
-            background: "var(--color-bg-card)",
-            border: "1px solid var(--color-border)",
-            color: "var(--color-text-primary)",
-          }}
-        >
-          <RefreshCcw className="w-3.5 h-3.5" /> Refresh
-        </button>
+        <div className="ml-auto flex items-center gap-2">
+          {selected.size > 0 && (
+            <button
+              onClick={() => void deleteSelected()}
+              disabled={deleting}
+              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-bold disabled:opacity-60"
+              style={{
+                background: "rgba(239, 68, 68, 0.18)",
+                border: "1px solid rgba(239, 68, 68, 0.5)",
+                color: "rgb(239, 68, 68)",
+              }}
+            >
+              {deleting ? (
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              ) : (
+                <Trash2 className="w-3.5 h-3.5" />
+              )}
+              Delete {selected.size}
+            </button>
+          )}
+          <button
+            onClick={() => void load()}
+            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-bold"
+            style={{
+              background: "var(--color-bg-card)",
+              border: "1px solid var(--color-border)",
+              color: "var(--color-text-primary)",
+            }}
+          >
+            <RefreshCcw className="w-3.5 h-3.5" /> Refresh
+          </button>
+        </div>
       </div>
 
       {/* Cron heartbeat */}
@@ -448,6 +538,18 @@ export default function AdminErrors() {
                     color: "var(--color-text-secondary)",
                   }}
                 >
+                  <th className="px-3 py-3 w-8">
+                    <input
+                      type="checkbox"
+                      checked={
+                        filtered.length > 0 &&
+                        filtered.every((r) => selected.has(r.id))
+                      }
+                      onChange={toggleSelectAll}
+                      className="cursor-pointer w-4 h-4 accent-[var(--color-orange)]"
+                      title="Select all visible rows"
+                    />
+                  </th>
                   <th className="px-4 py-3">When (MYT)</th>
                   <th className="px-4 py-3">Client</th>
                   <th className="px-4 py-3">Kind</th>
@@ -463,8 +565,21 @@ export default function AdminErrors() {
                   <tr
                     key={r.id}
                     className="border-t"
-                    style={{ borderColor: "var(--color-border)" }}
+                    style={{
+                      borderColor: "var(--color-border)",
+                      background: selected.has(r.id)
+                        ? "rgba(239, 68, 68, 0.06)"
+                        : undefined,
+                    }}
                   >
+                    <td className="px-3 py-3">
+                      <input
+                        type="checkbox"
+                        checked={selected.has(r.id)}
+                        onChange={() => toggleSelect(r.id)}
+                        className="cursor-pointer w-4 h-4 accent-[var(--color-orange)]"
+                      />
+                    </td>
                     <td className="px-4 py-3 whitespace-nowrap font-mono text-xs text-[var(--color-text-primary)]">
                       {formatMY(r.created_at)}
                     </td>
@@ -553,18 +668,35 @@ export default function AdminErrors() {
                         const errMsg = st !== "idle" ? st : null;
                         return (
                           <div className="inline-flex flex-col items-end gap-1">
-                            <button
-                              onClick={() => void resubmit(r.id)}
-                              title="Resubmit this row through the fallback cascade"
-                              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all hover:translate-x-0.5"
-                              style={{
-                                background: "var(--color-orange)",
-                                border: "1px solid var(--color-orange)",
-                                color: "#1a1a1a",
-                              }}
-                            >
-                              <RotateCw className="w-3.5 h-3.5" /> Resubmit
-                            </button>
+                            <div className="inline-flex items-center gap-1">
+                              <button
+                                onClick={() => void resubmit(r.id)}
+                                title="Resubmit this row through the fallback cascade"
+                                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all hover:translate-x-0.5"
+                                style={{
+                                  background: "var(--color-orange)",
+                                  border: "1px solid var(--color-orange)",
+                                  color: "#1a1a1a",
+                                }}
+                              >
+                                <RotateCw className="w-3.5 h-3.5" /> Resubmit
+                              </button>
+                              <button
+                                onClick={() => {
+                                  setSelected(new Set([r.id]));
+                                  void deleteSelected();
+                                }}
+                                title="Delete this row"
+                                className="inline-flex items-center justify-center w-8 h-8 rounded-lg transition-all hover:translate-x-0.5"
+                                style={{
+                                  background: "rgba(239, 68, 68, 0.12)",
+                                  border: "1px solid rgba(239, 68, 68, 0.4)",
+                                  color: "rgb(239, 68, 68)",
+                                }}
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
                             {errMsg && (
                               <span
                                 className="text-[10px] max-w-[180px] truncate"

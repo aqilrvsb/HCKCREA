@@ -50,8 +50,19 @@ export async function DELETE(req: Request) {
     // when a previous delete partially succeeded.
     return NextResponse.json({ ok: true, deleted: 0, note: "Row already gone" });
   }
+  // Owner can delete their own rows. Admins can delete anyone's row
+  // (used by /admin/errors bulk delete).
+  let ownerId = user.id;
   if (target.user_id !== user.id) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    const { data: me } = await sb
+      .from("profiles")
+      .select("is_admin")
+      .eq("id", user.id)
+      .maybeSingle();
+    if (!me?.is_admin) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+    ownerId = target.user_id;
   }
 
   // Case 2 — child segment row. Delete ONLY this segment + roll the
@@ -75,7 +86,7 @@ export async function DELETE(req: Request) {
       .from("history")
       .select("id, output_url, merged_url, metadata")
       .eq("id", target.parent_history_id)
-      .eq("user_id", user.id)
+      .eq("user_id", ownerId)
       .single();
     if (parent) {
       const meta = (parent.metadata as Record<string, any>) || {};
@@ -101,7 +112,7 @@ export async function DELETE(req: Request) {
       .from("history")
       .delete()
       .eq("id", target.id)
-      .eq("user_id", user.id);
+      .eq("user_id", ownerId);
     if (delErr) return NextResponse.json({ error: delErr.message }, { status: 500 });
 
     return NextResponse.json({
@@ -116,11 +127,11 @@ export async function DELETE(req: Request) {
   const { data: children } = await admin
     .from("history")
     .select("id")
-    .eq("user_id", user.id)
+    .eq("user_id", ownerId)
     .eq("parent_history_id", target.id);
   const childIds = (children || []).map((r: any) => r.id);
   if (childIds.length > 0) {
-    await admin.from("history").delete().in("id", childIds).eq("user_id", user.id);
+    await admin.from("history").delete().in("id", childIds).eq("user_id", ownerId);
   }
 
   // Case 1 (and root) — final delete of the target itself.
@@ -128,7 +139,7 @@ export async function DELETE(req: Request) {
     .from("history")
     .delete()
     .eq("id", id)
-    .eq("user_id", user.id);
+    .eq("user_id", ownerId);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
   return NextResponse.json({
