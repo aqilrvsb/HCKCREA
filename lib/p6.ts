@@ -63,13 +63,16 @@ export async function getAllP6Keys(): Promise<Record<P6Slot, string>> {
 
 // Map cascade video model strings → APIPod's catalog names. Per
 // APIPod docs the model IDs are mode-specific:
-//   • Veo 3.1 Fast      → veo-3-1-fast (dashes only, CUE validator)
-//   • Grok Imagine t2v  → grok-imagine-t2v  (no image_urls)
-//   • Grok Imagine i2v  → grok-imagine-i2v  (1-7 image_urls)
-//   • Seedance 2.0 Fast → seedance-2.0-fast-{t2v|i2v|r2v}
-//       - t2v: text only
-//       - i2v: single start-frame image (frame mode)
-//       - r2v: 1-3 reference images (ingredient mode)
+//   • Veo 3.1 Fast
+//       - veo3-1-fast       : t2v OR start/end frame (max 2 image_urls)
+//       - veo3-1-fast-ref   : reference mode (1-3 image_urls)
+//   • Grok Imagine
+//       - grok-imagine-t2v  : no image_urls
+//       - grok-imagine-i2v  : 1-7 image_urls
+//   • Seedance 2.0 Fast
+//       - seedance-2.0-fast-t2v : text only
+//       - seedance-2.0-fast-i2v : single start-frame image (frame)
+//       - seedance-2.0-fast-r2v : 1-3 reference images (ingredient)
 function apipodVideoModel(input: {
   model?: string;
   imageMode?: "frame" | "ingredient" | "text";
@@ -89,10 +92,8 @@ function apipodVideoModel(input: {
     return "seedance-2.0-fast-r2v";
   }
 
-  // APIPod's actual model ID is "veo3-1-fast" (no dash between "veo"
-  // and "3"). Probed via direct API call — variants veo-3.1-fast,
-  // veo-3-1-fast, veo3.1-fast all return "no CUE validator found";
-  // only veo3-1-fast returns 200 with a task_id.
+  // Veo: ingredient (character/style refs) → -ref; frame or text → base.
+  if (refs > 0 && mode === "ingredient") return "veo3-1-fast-ref";
   return "veo3-1-fast";
 }
 
@@ -159,31 +160,30 @@ export async function p6CreateVideo(input: {
   };
 
   // Per-model image_urls cap per APIPod docs:
+  //   • veo3-1-fast             → up to 2 (start + end frame)
+  //   • veo3-1-fast-ref         → up to 3 (reference images)
   //   • grok-imagine-i2v        → 1-7
   //   • seedance-2.0-fast-i2v   → 1   (start frame only)
   //   • seedance-2.0-fast-r2v   → 1-3 (ingredient mode)
-  //   • veo-3-1-fast            → up to 3
   if (refs.length > 0) {
-    let cap = 3;
+    let cap = 2;
     if (resolvedModel === "grok-imagine-i2v") cap = 7;
     else if (resolvedModel === "seedance-2.0-fast-i2v") cap = 1;
     else if (resolvedModel === "seedance-2.0-fast-r2v") cap = 3;
+    else if (resolvedModel === "veo3-1-fast-ref") cap = 3;
+    else if (resolvedModel === "veo3-1-fast") cap = 2;
     body.image_urls = refs.slice(0, cap);
   }
 
-  // Seedance requires `duration` (4-15). Veo and Grok ignore it, but
-  // we send a sensible default so the cascade can swap models without
-  // re-plumbing the call site.
-  const reqDur = Number(input.durationMode);
-  const duration =
-    Number.isFinite(reqDur) && reqDur >= 4 && reqDur <= 15
-      ? Math.round(reqDur)
-      : resolvedModel.startsWith("seedance")
-        ? 5
-        : resolvedModel.startsWith("grok-imagine")
-          ? 6
-          : 8;
-  body.duration = duration;
+  // Only Seedance accepts `duration` (4-15). Veo + Grok schemas don't
+  // declare the field — sending it trips the CUE validator.
+  if (resolvedModel.startsWith("seedance")) {
+    const reqDur = Number(input.durationMode);
+    body.duration =
+      Number.isFinite(reqDur) && reqDur >= 4 && reqDur <= 15
+        ? Math.round(reqDur)
+        : 5;
+  }
 
   const { ok, status, data } = await p6Fetch("POST", "/v1/videos/generations", apiKey, body);
   if (!ok || (data?.code && data.code !== 200)) {
