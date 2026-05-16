@@ -558,12 +558,16 @@ export async function settleHistoryRow(hist: HistoryRow): Promise<SettleResult> 
   let r: { status: "pending" | "running" | "succeeded" | "failed"; outputUrl?: string; error?: string; raw?: any };
   if (rowProvider === "p6") {
     const { p6GetStatus } = await import("@/lib/p6");
-    // metadata.slot stamps p6-a..p6-h on the row at submit; pass it
-    // so we poll with the same key that originally accepted the task.
     const slot = hist.metadata?.slot as any;
+    // image vs video endpoint — APIPod scopes them on different paths
+    const isImageRow =
+      hist.tab === "image" ||
+      hist.type === "image" ||
+      hist.type === "fairytale-scene";
     r = await p6GetStatus(
       hist.task_id,
-      typeof slot === "string" && slot.startsWith("p6-") ? slot : undefined
+      typeof slot === "string" && slot.startsWith("p6-") ? slot : undefined,
+      isImageRow ? "image" : "video"
     );
   } else if (rowProvider === "p5") {
     const { p5GetStatus } = await import("@/lib/p5");

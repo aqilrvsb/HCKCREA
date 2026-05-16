@@ -64,9 +64,31 @@ export async function getAllP6Keys(): Promise<Record<P6Slot, string>> {
 function apipodVideoModel(model?: string): string {
   const m = (model || "").toLowerCase();
   if (m.includes("grok")) return "grok-imagine";
+  if (m.includes("seedance")) {
+    // APIPod has seedance-2.0 + seedance-2.0-fast + seedance-1.5-pro etc.
+    if (m.includes("fast")) return "seedance-2.0-fast";
+    if (m.includes("pro")) return "seedance-1.5-pro";
+    return "seedance-2.0";
+  }
   if (m.includes("lite")) return "veo-3.1-lite";
   if (m.includes("quality")) return "veo-3.1-quality";
   return "veo-3.1-fast";
+}
+
+// Map cascade image model strings → APIPod's catalog names.
+function apipodImageModel(model?: string): string {
+  const m = (model || "").toLowerCase();
+  if (m.includes("gpt-image")) return "gpt-image-2";
+  if (m === "nano-banana-pro" || m === "google/nano-banana-pro") return "nano-banana-pro";
+  if (m === "nano-banana-2" || m === "google/nano-banana-2") return "nano-banana-2";
+  if (m.includes("seedream")) {
+    if (m.includes("lite")) return "seedream-5.0-lite";
+    return "seedream-v4.5";
+  }
+  if (m.includes("wan")) return m.includes("pro") ? "wan-2.7-image-pro" : "wan-2.7-image";
+  // Fallback: pass through whatever we got. Veo gateway accepts model
+  // names verbatim and 4xx if unsupported, which trips the cascade.
+  return model || "nano-banana-pro";
 }
 
 async function p6Fetch(
@@ -127,14 +149,62 @@ export async function p6CreateVideo(input: {
   return { ok: true, task_id: String(taskId), raw: data, provider: "p6" };
 }
 
+// Submit an image task with the key configured for the given slot.
+// Same auth + status pattern as video, just different endpoint and
+// model-name mapping.
+export async function p6CreateImage(input: {
+  slot: P6Slot;
+  prompt: string;
+  model?: string;
+  aspectRatio?: string;
+  imageUrls?: string[];
+  quality?: "1K" | "2K" | "4K";
+}): Promise<P6CreateResult> {
+  const apiKey = await getP6KeyForSlot(input.slot);
+  if (!apiKey) {
+    return { ok: false, error: `${slotToSettingKey(input.slot)} not configured`, provider: "p6" };
+  }
+  const refs = (input.imageUrls || []).filter((u) => typeof u === "string" && u.trim());
+  const body: any = {
+    model: apipodImageModel(input.model),
+    prompt: input.prompt.slice(0, 4000),
+    aspect_ratio: input.aspectRatio || "1:1",
+    quality: input.quality || "2K",
+  };
+  if (refs.length > 0) body.image_urls = refs.slice(0, 8);
+
+  const { ok, status, data } = await p6Fetch("POST", "/v1/images/generations", apiKey, body);
+  if (!ok || (data?.code && data.code !== 200)) {
+    const err =
+      data?.error?.message ||
+      data?.message ||
+      data?.error ||
+      `APIPod HTTP ${status}`;
+    return { ok: false, error: String(err), raw: data, provider: "p6" };
+  }
+  const taskId = data?.data?.task_id || data?.task_id;
+  if (!taskId) {
+    return { ok: false, error: "APIPod returned no task_id", raw: data, provider: "p6" };
+  }
+  return { ok: true, task_id: String(taskId), raw: data, provider: "p6" };
+}
+
 // Poll task status with the key that submitted it. slot is the
-// stamped metadata.slot from the history row.
-export async function p6GetStatus(taskId: string, slot?: P6Slot): Promise<P6StatusResult> {
+// stamped metadata.slot from the history row. `assetKind` picks
+// between /v1/videos/status/ (default) and /v1/images/status/.
+export async function p6GetStatus(
+  taskId: string,
+  slot?: P6Slot,
+  assetKind: "video" | "image" = "video"
+): Promise<P6StatusResult> {
+  const pollPath = assetKind === "image"
+    ? `/v1/images/status/${encodeURIComponent(taskId)}`
+    : `/v1/videos/status/${encodeURIComponent(taskId)}`;
   // If slot is known (from metadata), poll with that key directly.
   if (slot) {
     const apiKey = await getP6KeyForSlot(slot);
     if (apiKey) {
-      return pollOnce(taskId, apiKey);
+      return pollOnce(pollPath, apiKey);
     }
   }
   // Fallback for legacy rows: walk all configured keys until one
@@ -143,7 +213,7 @@ export async function p6GetStatus(taskId: string, slot?: P6Slot): Promise<P6Stat
   for (const s of P6_SLOTS) {
     const k = all[s];
     if (!k) continue;
-    const r = await pollOnce(taskId, k);
+    const r = await pollOnce(pollPath, k);
     if (r.status === "succeeded" || r.status === "failed" || r.status === "running") {
       return r;
     }
@@ -151,12 +221,8 @@ export async function p6GetStatus(taskId: string, slot?: P6Slot): Promise<P6Stat
   return { status: "pending" };
 }
 
-async function pollOnce(taskId: string, apiKey: string): Promise<P6StatusResult> {
-  const { ok, status, data } = await p6Fetch(
-    "GET",
-    `/v1/videos/status/${encodeURIComponent(taskId)}`,
-    apiKey
-  );
+async function pollOnce(pollPath: string, apiKey: string): Promise<P6StatusResult> {
+  const { ok, status, data } = await p6Fetch("GET", pollPath, apiKey);
   if (!ok) {
     return {
       status: "pending",

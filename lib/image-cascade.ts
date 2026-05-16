@@ -21,6 +21,7 @@ import { p2CreateTask } from "@/lib/p2";
 import { p3CreateImage } from "@/lib/p3";
 import { p4CreateImage } from "@/lib/p4";
 import { p5CreateImage } from "@/lib/p5";
+import { p6CreateImage, type P6Slot } from "@/lib/p6";
 import { getP2Config } from "@/lib/settings";
 import {
   getImageSlots,
@@ -134,6 +135,21 @@ async function tryImageSlot(
     }
     if (slot === "p5") {
       const r = await p5CreateImage({ prompt, model: bareModel, aspectRatio, imageUrls });
+      return {
+        ok: r.ok,
+        taskId: r.ok ? (r.task_id ?? null) : null,
+        error: r.ok ? null : (r.error ?? null),
+        model: bareModel,
+      };
+    }
+    if (slot.startsWith("p6-")) {
+      const r = await p6CreateImage({
+        slot: slot as P6Slot,
+        prompt,
+        model: bareModel,
+        aspectRatio,
+        imageUrls,
+      });
       return {
         ok: r.ok,
         taskId: r.ok ? (r.task_id ?? null) : null,

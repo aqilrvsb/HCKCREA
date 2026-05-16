@@ -19,6 +19,7 @@ import { p2CreateTask, p2GetStatus } from "@/lib/p2";
 import { p3CreateImage, p3GetStatus } from "@/lib/p3";
 import { p4GetStatus } from "@/lib/p4";
 import { p5GetStatus } from "@/lib/p5";
+import { p6GetStatus } from "@/lib/p6";
 
 const REFINE_PROMPT = [
   "Replace the product visible in the FIRST image with the product from the SECOND image.",
@@ -29,7 +30,7 @@ const REFINE_PROMPT = [
 ].join(" ");
 
 type RefineResult = { ok: true; url: string } | { ok: false; error: string };
-type Provider = "p1" | "p2" | "p3" | "p4" | "p5";
+type Provider = "p1" | "p2" | "p3" | "p4" | "p5" | "p6";
 
 type RefineOpts = {
   frameUrl: string;
@@ -139,6 +140,12 @@ async function tryRefineOn(
         status = s.status as any;
         outputUrl = s.outputUrl;
         pollError = s.error;
+      } else if (provider === "p6") {
+        // refine-frame is image-only, so always poll image endpoint.
+        const s = await p6GetStatus(taskId, undefined, "image");
+        status = s.status as any;
+        outputUrl = s.outputUrl;
+        pollError = s.error;
       } else {
         const s = await p3GetStatus(taskId);
         status = s.status as any;
@@ -193,6 +200,12 @@ export async function pollRefineTask(
         pollError = s.error;
       } else if (provider === "p5") {
         const s = await p5GetStatus(taskId);
+        status = s.status as any;
+        outputUrl = s.outputUrl;
+        pollError = s.error;
+      } else if (provider === "p6") {
+        // refine-frame is image-only, so always poll image endpoint.
+        const s = await p6GetStatus(taskId, undefined, "image");
         status = s.status as any;
         outputUrl = s.outputUrl;
         pollError = s.error;
