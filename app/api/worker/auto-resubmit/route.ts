@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getP2Config } from "@/lib/settings";
 import { generateVideoWithCascade } from "@/lib/video-cascade";
+import { filterVisibleToClient } from "@/lib/server-history-visibility";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -75,10 +76,10 @@ export async function GET(req: Request) {
   const admin = createAdminClient();
   const cutoff = new Date(Date.now() - LOOKBACK_HOURS * 60 * 60_000).toISOString();
 
-  const { data: rows, error } = await admin
+  const { data: rawRows, error } = await admin
     .from("history")
     .select(
-      "id, user_id, type, tab, status, prompt, reference_url, duration, cost, metadata, error_message, updated_at"
+      "id, user_id, type, tab, status, prompt, reference_url, duration, cost, metadata, error_message, updated_at, created_at"
     )
     .eq("status", "failed")
     // All video-producing tabs. Image tabs ("image", "fairytale") use
@@ -93,8 +94,22 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: "fetch failed", detail: error.message }, { status: 500 });
   }
 
+  // Drop rows the client can't see anymore (TTL-expired + unsaved).
+  // Hard-deleted rows are already absent from the SELECT above.
+  // Without this, the cron could resubmit a row the user has
+  // effectively abandoned (e.g. abandoned 2-week-old failure).
+  const rows = await filterVisibleToClient(rawRows || []);
+  const hiddenSkipped = (rawRows?.length || 0) - rows.length;
+
   const cfg = await getP2Config();
-  const summary = { scanned: 0, eligible: 0, resubmitted: 0, exhausted: 0, ineligible: 0 };
+  const summary = {
+    scanned: 0,
+    eligible: 0,
+    resubmitted: 0,
+    exhausted: 0,
+    ineligible: 0,
+    hidden_skipped: hiddenSkipped,
+  };
 
   for (const row of rows || []) {
     summary.scanned += 1;

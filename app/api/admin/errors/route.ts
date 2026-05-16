@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { filterVisibleToClient } from "@/lib/server-history-visibility";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -55,10 +56,16 @@ export async function GET(req: Request) {
   if (start) q = q.gte("created_at", localDayToUtcRange(start, "start"));
   if (end) q = q.lte("created_at", localDayToUtcRange(end, "end"));
 
-  const { data: failedRows, error } = await q;
+  const { data: rawFailedRows, error } = await q;
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
+
+  // Only surface errors that the client can still see in their own
+  // dashboard. Hard-deleted rows already missing from this SELECT;
+  // this filter drops TTL-expired-and-unsaved rows so admin doesn't
+  // chase ghost entries.
+  const failedRows = await filterVisibleToClient(rawFailedRows || []);
 
   // Email lookup — single page covers the active user base. If we
   // outgrow 1000 we can paginate, but the current client roster is
