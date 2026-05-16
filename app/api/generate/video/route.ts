@@ -181,6 +181,9 @@ export async function POST(req: Request) {
           model: result.actualModel,
           provider: result.actualProvider,
           slot: result.actualSlot,
+          // p6 (APIPod) multi-key — settle.ts needs this to poll
+          // with the same key that submitted the task.
+          ...(result.keyIndex !== undefined ? { p6_key_index: result.keyIndex } : {}),
           fallback_used: result.fallbackUsed,
           tier_log: result.tierLog,
           upload_status: "done",

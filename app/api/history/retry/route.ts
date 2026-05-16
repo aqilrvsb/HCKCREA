@@ -153,8 +153,9 @@ export async function POST(req: Request) {
   const isSeedance = model.toLowerCase().includes("seedance");
 
   let newTaskId: string | null = null;
-  let newProvider: "p1" | "p2" | "p3" | "p4" | "p5" = "p2";
+  let newProvider: "p1" | "p2" | "p3" | "p4" | "p5" | "p6" = "p2";
   let newSlot: string | undefined = undefined;
+  let newKeyIndex: number | undefined = undefined;
   let newModel: string = model;
   let fallbackUsed = false;
   let tierLog: any = undefined;
@@ -190,6 +191,7 @@ export async function POST(req: Request) {
       newTaskId = r.taskId;
       newProvider = r.actualProvider;
       newSlot = r.actualSlot;
+      newKeyIndex = (r as any).keyIndex;
       newModel = r.actualModel;
       fallbackUsed = r.fallbackUsed;
       tierLog = r.tierLog;
@@ -252,6 +254,7 @@ export async function POST(req: Request) {
       newTaskId = r.taskId;
       newProvider = r.actualProvider;
       newSlot = r.actualSlot;
+      newKeyIndex = (r as any).keyIndex;
       newModel = r.actualModel;
       fallbackUsed = r.fallbackUsed;
       tierLog = r.tierLog;
@@ -297,6 +300,7 @@ export async function POST(req: Request) {
         ...meta,
         provider: newProvider,
         slot: newSlot,
+        ...(typeof newKeyIndex === "number" ? { p6_key_index: newKeyIndex } : { p6_key_index: undefined }),
         model: newModel,
         fallback_used: fallbackUsed,
         tier_log: tierLog,

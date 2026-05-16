@@ -1542,6 +1542,9 @@ CRITICAL OUTPUT RULES:
             model: cascaded.ok ? cascaded.actualModel : model,
             provider: cascaded.ok ? cascaded.actualProvider : "p2",
             slot: cascaded.ok ? cascaded.actualSlot : undefined,
+            ...(cascaded.ok && cascaded.keyIndex !== undefined
+              ? { p6_key_index: cascaded.keyIndex }
+              : {}),
             // Full attachment array (refImage triplicated by the
             // video cascade for r2v) so Resubmit re-fires with all refs.
             image_urls: refImage ? [refImage] : [],

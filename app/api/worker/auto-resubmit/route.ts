@@ -179,6 +179,7 @@ export async function GET(req: Request) {
           ...meta,
           provider: r.actualProvider,
           slot: r.actualSlot,
+          ...((r as any).keyIndex !== undefined ? { p6_key_index: (r as any).keyIndex } : { p6_key_index: undefined }),
           model: r.actualModel,
           fallback_used: r.fallbackUsed,
           tier_log: r.tierLog,

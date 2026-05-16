@@ -114,8 +114,8 @@ export default function AdminSettings() {
   // Each slot can be: p1 / p2-a / p2-b / p4 (image only) / p5.
   // Round-robin starting slot is computed atomically by Postgres seq;
   // walk hits all 3 + retries starting slot once (4 attempts total).
-  type SlotV = "p1" | "p2-a" | "p2-b" | "p5" | "none";
-  type SlotI = "p1" | "p2-a" | "p2-b" | "p4" | "p5" | "none";
+  type SlotV = "p1" | "p2-a" | "p2-b" | "p5" | "p6" | "none";
+  type SlotI = "p1" | "p2-a" | "p2-b" | "p4" | "p5" | "p6" | "none";
   const [videoSlots, setVideoSlots] = useState<[SlotV, SlotV, SlotV]>(["p2-a", "p2-b", "p5"]);
   const [imageSlots, setImageSlots] = useState<[SlotI, SlotI, SlotI]>(["p4", "p5", "p2-a"]);
   const [savingSlots, setSavingSlots] = useState<"video" | "image" | null>(null);
@@ -201,7 +201,7 @@ export default function AdminSettings() {
         }
         if (row.key === "video_cascade_slots") {
           const s = Array.isArray(row.value?.slots) ? row.value.slots : [];
-          const allowed = ["p1", "p2-a", "p2-b", "p5", "none"];
+          const allowed = ["p1", "p2-a", "p2-b", "p5", "p6", "none"];
           const norm = (v: any, fb: SlotV): SlotV =>
             allowed.includes(String(v)) ? (String(v) as SlotV) : fb;
           setVideoSlots([
@@ -707,6 +707,14 @@ export default function AdminSettings() {
                   <option value="p2-a">P2 — Crun (key A)</option>
                   <option value="p2-b">P2 — Crun (key B)</option>
                   <option value="p5">P5 — APIMart</option>
+                  <option value="p6-a">P6 — APIPod (key A)</option>
+                  <option value="p6-b">P6 — APIPod (key B)</option>
+                  <option value="p6-c">P6 — APIPod (key C)</option>
+                  <option value="p6-d">P6 — APIPod (key D)</option>
+                  <option value="p6-e">P6 — APIPod (key E)</option>
+                  <option value="p6-f">P6 — APIPod (key F)</option>
+                  <option value="p6-g">P6 — APIPod (key G)</option>
+                  <option value="p6-h">P6 — APIPod (key H)</option>
                   <option value="none">— None (skip) —</option>
                 </select>
               </div>
@@ -752,6 +760,14 @@ export default function AdminSettings() {
                   <option value="p2-b">P2 — Crun (key B)</option>
                   <option value="p4">P4 — Grsai</option>
                   <option value="p5">P5 — APIMart</option>
+                  <option value="p6-a">P6 — APIPod (key A)</option>
+                  <option value="p6-b">P6 — APIPod (key B)</option>
+                  <option value="p6-c">P6 — APIPod (key C)</option>
+                  <option value="p6-d">P6 — APIPod (key D)</option>
+                  <option value="p6-e">P6 — APIPod (key E)</option>
+                  <option value="p6-f">P6 — APIPod (key F)</option>
+                  <option value="p6-g">P6 — APIPod (key G)</option>
+                  <option value="p6-h">P6 — APIPod (key H)</option>
                   <option value="none">— None (skip) —</option>
                 </select>
               </div>

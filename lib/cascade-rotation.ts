@@ -21,7 +21,13 @@ import { getSetting } from "@/lib/settings";
 // Slot identifiers — each maps to a specific provider + key combination.
 // p4 is image-only (Grsai). "none" = slot disabled (admin chose to skip
 // it) — excluded from both round-robin rotation AND fallback walk.
-export type SlotProvider = "p1" | "p2-a" | "p2-b" | "p4" | "p5" | "none";
+export type SlotProvider =
+  | "p1"
+  | "p2-a" | "p2-b"
+  | "p4"
+  | "p5"
+  | "p6-a" | "p6-b" | "p6-c" | "p6-d" | "p6-e" | "p6-f" | "p6-g" | "p6-h"
+  | "none";
 
 export type CascadeSlots = [SlotProvider, SlotProvider, SlotProvider];
 
@@ -47,12 +53,22 @@ function sanitizeSlots(
 export async function getVideoSlots(): Promise<CascadeSlots> {
   const s = await getSetting<{ slots: SlotProvider[] }>("video_cascade_slots");
   // p4 (Grsai) is image-only — exclude from video allow-list.
-  return sanitizeSlots(s?.slots, DEFAULT_VIDEO_SLOTS, ["p1", "p2-a", "p2-b", "p5", "none"]);
+  const VIDEO_ALLOWED: SlotProvider[] = [
+    "p1", "p2-a", "p2-b", "p5",
+    "p6-a", "p6-b", "p6-c", "p6-d", "p6-e", "p6-f", "p6-g", "p6-h",
+    "none",
+  ];
+  return sanitizeSlots(s?.slots, DEFAULT_VIDEO_SLOTS, VIDEO_ALLOWED);
 }
 
 export async function getImageSlots(): Promise<CascadeSlots> {
   const s = await getSetting<{ slots: SlotProvider[] }>("image_cascade_slots");
-  return sanitizeSlots(s?.slots, DEFAULT_IMAGE_SLOTS, ["p1", "p2-a", "p2-b", "p4", "p5", "none"]);
+  const IMAGE_ALLOWED: SlotProvider[] = [
+    "p1", "p2-a", "p2-b", "p4", "p5",
+    "p6-a", "p6-b", "p6-c", "p6-d", "p6-e", "p6-f", "p6-g", "p6-h",
+    "none",
+  ];
+  return sanitizeSlots(s?.slots, DEFAULT_IMAGE_SLOTS, IMAGE_ALLOWED);
 }
 
 // Round-robin starting slot.
@@ -161,8 +177,9 @@ export function walkOrder(slots: CascadeSlots, startIndex: number): SlotProvider
 // via p2GetStatus (same endpoint, just different API keys at submit time).
 // "none" should never reach here (filtered earlier) but fall back to p2
 // just in case.
-export function slotToProvider(slot: SlotProvider): "p1" | "p2" | "p4" | "p5" {
+export function slotToProvider(slot: SlotProvider): "p1" | "p2" | "p4" | "p5" | "p6" {
   if (slot === "p2-a" || slot === "p2-b") return "p2";
+  if (slot.startsWith("p6-")) return "p6";
   if (slot === "none") return "p2";
   return slot as "p1" | "p4" | "p5";
 }

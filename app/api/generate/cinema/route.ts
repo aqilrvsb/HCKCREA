@@ -145,6 +145,7 @@ export async function POST(req: Request) {
       let createdError: string | null = null;
       let actualProvider = "p2";
       let actualSlot: string | undefined = undefined;
+      let actualKeyIndex: number | undefined = undefined;
       let actualModel = model;
       let fallbackUsed = false;
       let tierLog: any = undefined;
@@ -163,6 +164,7 @@ export async function POST(req: Request) {
           createdTaskId = result.taskId;
           actualProvider = result.actualProvider;
           actualSlot = result.actualSlot;
+          actualKeyIndex = result.keyIndex;
           actualModel = result.actualModel;
           fallbackUsed = result.fallbackUsed;
         } else {
@@ -206,6 +208,7 @@ export async function POST(req: Request) {
             modelChoice,
             provider: actualProvider,
           slot: actualSlot,
+          ...(actualKeyIndex !== undefined ? { p6_key_index: actualKeyIndex } : {}),
             tier_log: tierLog,
             upload_status: "failed",
           },
@@ -223,6 +226,7 @@ export async function POST(req: Request) {
           modelChoice,
           provider: actualProvider,
           slot: actualSlot,
+          ...(actualKeyIndex !== undefined ? { p6_key_index: actualKeyIndex } : {}),
           fallback_used: fallbackUsed,
           tier_log: tierLog,
           upload_status: "done",

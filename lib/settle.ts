@@ -349,8 +349,9 @@ async function tryAutoRetry(
   const isSeedance = model.toLowerCase().includes("seedance");
 
   let newTaskId: string | null = null;
-  let newProvider: "p1" | "p2" | "p3" | "p4" | "p5" = "p2";
+  let newProvider: "p1" | "p2" | "p3" | "p4" | "p5" | "p6" = "p2";
   let newSlot: string | undefined = undefined;
+  let newKeyIndex: number | undefined = undefined;
   let newModel: string = model;
   let fallbackUsed = false;
   let tierLog: any = undefined;
@@ -391,6 +392,7 @@ async function tryAutoRetry(
     newTaskId = r.taskId;
     newProvider = r.actualProvider;
     newSlot = r.actualSlot;
+    newKeyIndex = (r as any).keyIndex;
     newModel = r.actualModel;
     fallbackUsed = r.fallbackUsed;
   } else if (isSeedance) {
@@ -464,6 +466,7 @@ async function tryAutoRetry(
     newTaskId = r.taskId;
     newProvider = r.actualProvider;
     newSlot = r.actualSlot;
+    newKeyIndex = (r as any).keyIndex;
     newModel = r.actualModel;
     fallbackUsed = r.fallbackUsed;
   }
@@ -481,6 +484,7 @@ async function tryAutoRetry(
         ...meta,
         provider: newProvider,
         slot: newSlot,
+        ...(typeof newKeyIndex === "number" ? { p6_key_index: newKeyIndex } : { p6_key_index: undefined }),
         model: newModel,
         fallback_used: fallbackUsed,
         tier_log: tierLog,
@@ -539,18 +543,29 @@ export async function settleHistoryRow(hist: HistoryRow): Promise<SettleResult> 
   const metaWebhookProvider = String(
     hist.metadata?.webhook_provider || ""
   ).toLowerCase();
-  const rowProvider: "p1" | "p2" | "p3" | "p4" | "p5" =
-    metaProvider === "p5" || metaWebhookProvider === "p5"
-      ? "p5"
-      : metaProvider === "p4" || metaWebhookProvider === "p4"
-        ? "p4"
-        : metaProvider === "p3" || metaWebhookProvider === "p3"
-          ? "p3"
-          : metaProvider === "p1" || metaWebhookProvider === "p1"
-            ? "p1"
-            : "p2";
+  const rowProvider: "p1" | "p2" | "p3" | "p4" | "p5" | "p6" =
+    metaProvider === "p6" || metaWebhookProvider === "p6"
+      ? "p6"
+      : metaProvider === "p5" || metaWebhookProvider === "p5"
+        ? "p5"
+        : metaProvider === "p4" || metaWebhookProvider === "p4"
+          ? "p4"
+          : metaProvider === "p3" || metaWebhookProvider === "p3"
+            ? "p3"
+            : metaProvider === "p1" || metaWebhookProvider === "p1"
+              ? "p1"
+              : "p2";
   let r: { status: "pending" | "running" | "succeeded" | "failed"; outputUrl?: string; error?: string; raw?: any };
-  if (rowProvider === "p5") {
+  if (rowProvider === "p6") {
+    const { p6GetStatus } = await import("@/lib/p6");
+    // metadata.slot stamps p6-a..p6-h on the row at submit; pass it
+    // so we poll with the same key that originally accepted the task.
+    const slot = hist.metadata?.slot as any;
+    r = await p6GetStatus(
+      hist.task_id,
+      typeof slot === "string" && slot.startsWith("p6-") ? slot : undefined
+    );
+  } else if (rowProvider === "p5") {
     const { p5GetStatus } = await import("@/lib/p5");
     r = await p5GetStatus(hist.task_id);
   } else if (rowProvider === "p4") {

@@ -24,6 +24,7 @@
 import { p1CreateTask } from "@/lib/p1";
 import { p2CreateTask } from "@/lib/p2";
 import { p5CreateVideo } from "@/lib/p5";
+import { p6CreateVideo, type P6Slot } from "@/lib/p6";
 import { getP2Config } from "@/lib/settings";
 import {
   getVideoSlots,
@@ -33,7 +34,7 @@ import {
   type SlotProvider,
 } from "@/lib/cascade-rotation";
 
-export type VideoCascadeProvider = "p1" | "p2" | "p5";
+export type VideoCascadeProvider = "p1" | "p2" | "p5" | "p6";
 
 export type VideoCascadeInput = {
   /** Veo or Grok model name in p2/Crun format. */
@@ -64,6 +65,10 @@ export type VideoCascadeResult =
       actualProvider: VideoCascadeProvider;
       /** Which slot key actually accepted — distinguishes p2-a vs p2-b. */
       actualSlot: SlotProvider;
+      /** For p6 (multi-key), the 0-indexed key in app_settings.p6_keys
+       *  that accepted this task. settle.ts uses this to poll with the
+       *  same key (APIPod scopes task_ids per account). */
+      keyIndex?: number;
       actualModel: string;
       fallbackUsed: boolean;
       tierLog: VideoCascadeTierLog[];
@@ -77,7 +82,7 @@ export type VideoCascadeResult =
 async function tryVideoSlot(
   slot: SlotProvider,
   input: VideoCascadeInput
-): Promise<{ ok: boolean; taskId: string | null; error: string | null; model: string }> {
+): Promise<{ ok: boolean; taskId: string | null; error: string | null; model: string; keyIndex?: number }> {
   const { primaryModel, prompt, aspectRatio, imageUrls, imageMode, durationMode, userId } = input;
   if (slot === "none") {
     return { ok: false, taskId: null, error: "slot disabled (none)", model: primaryModel };
@@ -138,6 +143,23 @@ async function tryVideoSlot(
       return {
         ok: r.ok,
         taskId: r.task_id ?? null,
+        error: r.ok ? null : (r.error ?? null),
+        model: primaryModel,
+      };
+    }
+    if (slot.startsWith("p6-")) {
+      const r = await p6CreateVideo({
+        slot: slot as P6Slot,
+        prompt,
+        model: primaryModel,
+        aspectRatio,
+        imageUrls,
+        imageMode,
+        durationMode,
+      });
+      return {
+        ok: r.ok,
+        taskId: r.ok ? (r.task_id ?? null) : null,
         error: r.ok ? null : (r.error ?? null),
         model: primaryModel,
       };
@@ -218,6 +240,7 @@ export async function generateVideoWithCascade(
         taskId: t.taskId,
         actualProvider: slotToProvider(slot) as VideoCascadeProvider,
         actualSlot: slot,
+        keyIndex: t.keyIndex,
         actualModel: t.model,
         fallbackUsed,
         tierLog,
