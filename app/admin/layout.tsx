@@ -11,6 +11,7 @@ import {
   ArrowLeft,
   Banknote,
   UserPlus,
+  AlertTriangle,
 } from "lucide-react";
 
 export default async function AdminLayout({
@@ -64,6 +65,7 @@ export default async function AdminLayout({
     { href: "/admin/cashout", label: "Cashout", icon: Banknote },
     { href: "/admin/clients", label: "Clients", icon: Users },
     { href: "/admin/usage", label: "Usage", icon: Activity },
+    { href: "/admin/errors", label: "Errors", icon: AlertTriangle },
     { href: "/admin/settings", label: "Settings", icon: Settings },
   ];
 
