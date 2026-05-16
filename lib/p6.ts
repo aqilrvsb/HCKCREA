@@ -61,34 +61,44 @@ export async function getAllP6Keys(): Promise<Record<P6Slot, string>> {
   return out as Record<P6Slot, string>;
 }
 
-function apipodVideoModel(model?: string): string {
-  const m = (model || "").toLowerCase();
+// Map cascade video model strings → APIPod's catalog names. Only
+// covers the models we actually use: Veo 3.1 Fast (default), Grok
+// Imagine, Seedance 2.0 Fast (text / image / reference variants).
+//
+// Seedance 2.0 Fast has three model IDs depending on how reference
+// content is provided:
+//   • t2v — text only, no images
+//   • i2v — single image as the start frame (frame mode)
+//   • r2v — 1-3 reference images (ingredient mode)
+function apipodVideoModel(input: {
+  model?: string;
+  imageMode?: "frame" | "ingredient" | "text";
+  imageUrls?: string[];
+}): string {
+  const m = (input.model || "").toLowerCase();
+  const refs = input.imageUrls?.length || 0;
+  const mode = input.imageMode || (refs > 0 ? "ingredient" : "text");
+
   if (m.includes("grok")) return "grok-imagine";
+
   if (m.includes("seedance")) {
-    // APIPod has seedance-2.0 + seedance-2.0-fast + seedance-1.5-pro etc.
-    if (m.includes("fast")) return "seedance-2.0-fast";
-    if (m.includes("pro")) return "seedance-1.5-pro";
-    return "seedance-2.0";
+    if (refs === 0 || mode === "text") return "seedance-2.0-fast-t2v";
+    if (mode === "frame") return "seedance-2.0-fast-i2v";
+    return "seedance-2.0-fast-r2v";
   }
-  if (m.includes("lite")) return "veo-3.1-lite";
-  if (m.includes("quality")) return "veo-3.1-quality";
+
   return "veo-3.1-fast";
 }
 
-// Map cascade image model strings → APIPod's catalog names.
+// Map cascade image model strings → APIPod's catalog names. Only the
+// models we actually use: gpt-image-2, nano-banana-pro, nano-banana-2.
 function apipodImageModel(model?: string): string {
   const m = (model || "").toLowerCase();
   if (m.includes("gpt-image")) return "gpt-image-2";
   if (m === "nano-banana-pro" || m === "google/nano-banana-pro") return "nano-banana-pro";
   if (m === "nano-banana-2" || m === "google/nano-banana-2") return "nano-banana-2";
-  if (m.includes("seedream")) {
-    if (m.includes("lite")) return "seedream-5.0-lite";
-    return "seedream-v4.5";
-  }
-  if (m.includes("wan")) return m.includes("pro") ? "wan-2.7-image-pro" : "wan-2.7-image";
-  // Fallback: pass through whatever we got. Veo gateway accepts model
-  // names verbatim and 4xx if unsupported, which trips the cascade.
-  return model || "nano-banana-pro";
+  // Fallback: nano-banana-pro is the safe default for unknown variants.
+  return "nano-banana-pro";
 }
 
 async function p6Fetch(
@@ -127,7 +137,11 @@ export async function p6CreateVideo(input: {
   }
   const refs = (input.imageUrls || []).filter((u) => typeof u === "string" && u.trim());
   const body: any = {
-    model: apipodVideoModel(input.model),
+    model: apipodVideoModel({
+      model: input.model,
+      imageMode: input.imageMode,
+      imageUrls: refs,
+    }),
     prompt: input.prompt.slice(0, 2000),
     aspect_ratio: input.aspectRatio || "9:16",
   };
