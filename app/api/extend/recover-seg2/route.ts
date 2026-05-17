@@ -2,8 +2,8 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getP2Config } from "@/lib/settings";
-import { p2CreateTask } from "@/lib/p2";
 import { pollRefineTask } from "@/lib/refine-frame";
+import { generateVideoWithCascade } from "@/lib/video-cascade";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
@@ -155,20 +155,27 @@ export async function POST(req: Request) {
   const duration = Number(row.duration || meta.extend_seconds || 8);
 
   // Refined frame already has the product baked in pixel-perfectly, so
-  // we send ONLY that single ref to Veo (no separate product attachment,
-  // no triplicate — same skipR2VTriplicate path the main extend after()
-  // uses). Direct p2CreateTask (no cascade) to match the original
-  // extend after() pattern.
-  const created = await p2CreateTask({
-    model,
+  // we send ONLY that single ref to Veo (no separate product attachment).
+  // Cascade routes through admin's main+fallback rotation — same path
+  // as /api/extend/video so a P2 outage doesn't break recover either.
+  const cascaded = await generateVideoWithCascade({
+    primaryModel: model,
     userId: user.id,
     prompt,
     imageUrls: [startUrl],
     durationMode: String(duration),
     aspectRatio,
     imageMode: bucket === "cinema" ? "frame" : "ingredient",
-    skipR2VTriplicate: true,
+    asset: bucket === "cinema" ? "cinema" : "video",
   });
+  const created: {
+    ok: boolean;
+    task_id: string | null;
+    error?: string | null;
+    provider?: string;
+  } = cascaded.ok
+    ? { ok: true, task_id: cascaded.taskId, provider: cascaded.actualProvider }
+    : { ok: false, task_id: null, error: cascaded.error };
 
   if (!created.ok || !created.task_id) {
     await admin
@@ -199,6 +206,18 @@ export async function POST(req: Request) {
     recover_used_refined_frame:
       recoverPath === "refined" || recoverPath === "resumed-poll",
     upload_status: "done",
+    // Cascade trace — which slot actually accepted the recover task.
+    ...(cascaded.ok
+      ? {
+          slot: cascaded.actualSlot,
+          actualModel: cascaded.actualModel,
+          fallback_used: cascaded.fallbackUsed,
+          tier_log: cascaded.tierLog,
+          ...(cascaded.keyIndex !== undefined
+            ? { p6_key_index: cascaded.keyIndex }
+            : {}),
+        }
+      : { tier_log: cascaded.tierLog }),
   };
   if (resumedRefineUrl) {
     metaUpdate.anchor_frame_refined_url = resumedRefineUrl;

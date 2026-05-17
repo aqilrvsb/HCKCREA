@@ -1,12 +1,12 @@
 import { NextResponse, after } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { p2CreateTask } from "@/lib/p2";
 import { getP2Config } from "@/lib/settings";
 import { priceFor } from "@/lib/deduct";
 import { falExtractFrame, type FrameAnchor } from "@/lib/fal";
 import { rehostUrlOnRunningHub } from "@/lib/runninghub-upload";
 import { refineFrameWithProduct } from "@/lib/refine-frame";
+import { generateVideoWithCascade } from "@/lib/video-cascade";
 
 // POST /api/extend/video — placeholder-first.
 //
@@ -292,11 +292,26 @@ export async function POST(req: Request) {
       //    we no longer need a Gemini-extracted "PRODUCT TEXT: ..." block
       //    to tell Veo what's on the label. The pixels themselves are
       //    the lock now.
+      //
+      // STANDARD_LOCKS double-append guard: auto-content seg-1 prompts
+      // already include the comprehensive buildVeoLocks output (CLEAN
+      // FRAME LOCK + ANATOMY LOCK + AUDIO LOCK + DIALOG LENGTH LOCK +
+      // PRODUCT LOCK + …). When the user clicks Extend on an
+      // auto-content card, the seg-1 prompt is pre-filled into the
+      // textarea and posted back verbatim — appending STANDARD_LOCKS
+      // on top of that produces redundant ANATOMY/AUDIO/PRODUCT
+      // LOCK/UGC AUTHENTICITY/VISUAL/Negative blocks (one set from
+      // buildVeoLocks, one from STANDARD_LOCKS) that confuse Veo and
+      // bloat the prompt. Detect existing locks and skip the append.
       const voiceLine = voiceId ? VOICE_MAP[voiceId] : "";
+      const promptHasLocks =
+        /DIALOG LENGTH LOCK:|AUDIO LOCK:|ANATOMY LOCK:|CLEAN FRAME LOCK/.test(
+          seg2Prompt
+        );
       const fullPrompt =
         seg2Prompt.trim() +
         (voiceLine ? `\n\nVoice direction: ${voiceLine}` : "") +
-        STANDARD_LOCKS;
+        (promptHasLocks ? "" : STANDARD_LOCKS);
 
       // 4. Fire seg-2 Crun task using the resolved start frame.
       const cfg = await getP2Config();
@@ -410,19 +425,30 @@ export async function POST(req: Request) {
         }
         refImages.push(startUrl);
       }
-      const created = await p2CreateTask({
-        model,
+      // Fire seg-2 through the cascade — admin's main + fallback rotation
+      // picks the slot. Previously hardcoded to p2CreateTask, which meant
+      // a P2 outage / revoked key / out-of-credits broke every Extend
+      // click instead of falling through to P1/P4/P5/P6 like seg-1 does.
+      // asset="cinema" for cinema bucket (Seedance/Grok pool); everything
+      // else falls into the default video pool (Veo r2v + admin's slots).
+      const cascaded = await generateVideoWithCascade({
+        primaryModel: model,
         userId: user.id,
         prompt: fullPrompt,
         imageUrls: refImages,
         durationMode: String(extendSeconds),
         aspectRatio,
         imageMode: bucket === "cinema" ? "frame" : "ingredient",
-        // Extend has only one frame ref (or frame + optional product).
-        // Disable r2v's auto-triplicate so we don't send the same start
-        // frame 3× — that adds nothing for continuity and bloats payload.
-        skipR2VTriplicate: true,
+        asset: bucket === "cinema" ? "cinema" : "video",
       });
+      const created: {
+        ok: boolean;
+        task_id: string | null;
+        error?: string | null;
+        provider?: string;
+      } = cascaded.ok
+        ? { ok: true, task_id: cascaded.taskId, provider: cascaded.actualProvider }
+        : { ok: false, task_id: null, error: cascaded.error };
 
       // 5. Update placeholder with task_id (or fail with upstream error).
       // Stamp `provider` so settle/recheck queries the correct upstream
@@ -466,6 +492,16 @@ export async function POST(req: Request) {
             voice_line: voiceLine || null,
             upload_status: created.ok ? "done" : "failed",
             provider: created.provider || "p2",
+            // Cascade trace — which slots were tried, which landed.
+            // Mirrors auto-content + segment-chain so admin tooling can
+            // tell at a glance whether a fallback fired.
+            slot: cascaded.ok ? cascaded.actualSlot : undefined,
+            ...(cascaded.ok && cascaded.keyIndex !== undefined
+              ? { p6_key_index: cascaded.keyIndex }
+              : {}),
+            actualModel: cascaded.ok ? cascaded.actualModel : undefined,
+            fallback_used: cascaded.ok ? cascaded.fallbackUsed : false,
+            tier_log: cascaded.tierLog,
           },
         })
         .eq("id", childId);
