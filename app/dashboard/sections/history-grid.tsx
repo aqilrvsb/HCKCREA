@@ -146,7 +146,7 @@ export default function HistoryGrid({
   title,
   projectId,
 }: {
-  tab: "image" | "video" | "cinema" | "seedance" | "clone" | "auto" | "fairytale";
+  tab: "image" | "video" | "cinema" | "grok" | "seedance" | "clone" | "auto" | "fairytale";
   title: string;
   projectId?: string;
 }) {
