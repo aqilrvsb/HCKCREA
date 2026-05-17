@@ -119,7 +119,15 @@ export function buildAdminPaymentAlert(opts: {
   ];
   if (opts.plan) lines.push(`Plan     : ${opts.plan.toUpperCase()}`);
   if (opts.credits) lines.push(`Credits  : +${opts.credits}`);
-  lines.push(`Tarikh   : ${new Date().toLocaleString("ms-MY", { dateStyle: "short", timeStyle: "short" })}`);
+  // Force Asia/Kuala_Lumpur so the date stays correct regardless of
+  // where Vercel runs the function (Vercel default is UTC).
+  lines.push(
+    `Tarikh   : ${new Date().toLocaleString("ms-MY", {
+      timeZone: "Asia/Kuala_Lumpur",
+      dateStyle: "short",
+      timeStyle: "short",
+    })} MYT`
+  );
   if (opts.referrerEmail) {
     lines.push(`Referral : ${opts.referrerEmail}`);
   }
@@ -159,6 +167,7 @@ export function buildLoginMessage(opts: {
     "",
     `Plan    : ${opts.plan}`,
     `Sah hingga: ${opts.expiresAt.toLocaleDateString("ms-MY", {
+      timeZone: "Asia/Kuala_Lumpur",
       day: "numeric",
       month: "long",
       year: "numeric",

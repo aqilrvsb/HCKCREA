@@ -130,12 +130,21 @@ async function processPurchase(purchaseId: string) {
     return NextResponse.json({ error: "Payment not found" }, { status: 404 });
   }
 
-  // Idempotent — already paid? short circuit
+  // Already paid? short circuit on the read-side. The atomic CAS
+  // below is the real guard against concurrent retries.
   if (payment.status === "paid" && newStatus === "paid") {
     return NextResponse.json({ ok: true, status: "paid", message: "Already processed" });
   }
 
-  await admin
+  // ATOMIC CAS: only update the row if status hasn't already flipped
+  // to paid. Chip retries the webhook multiple times for the same
+  // purchase (network blips, slow ack), so 5 concurrent calls could
+  // all read status='pending' here. Without the .neq guard, all 5
+  // would transition the row + run side-effects + spam admin
+  // notifications. With it, only the first call to claim the row
+  // gets a non-empty `claimed` array — the rest see 0 rows updated
+  // and skip side-effects.
+  const { data: claimed } = await admin
     .from("payments")
     .update({
       status: newStatus,
@@ -147,10 +156,15 @@ async function processPurchase(purchaseId: string) {
         last_checked_at: new Date().toISOString(),
       },
     })
-    .eq("id", payment.id);
+    .eq("id", payment.id)
+    .neq("status", newStatus)
+    .select("id");
 
-  // Apply the side-effect once when transitioning to paid
-  if (newStatus === "paid" && payment.status !== "paid") {
+  const transitioned = !!(claimed && claimed.length > 0);
+
+  // Apply the side-effect ONLY when this call won the CAS race.
+  // Otherwise another concurrent webhook call already did the work.
+  if (newStatus === "paid" && transitioned) {
     if (payment.type === "credit_topup") {
       await applyCreditTopup(admin, payment);
     } else if (payment.type === "subscription") {
@@ -160,7 +174,11 @@ async function processPurchase(purchaseId: string) {
     }
   }
 
-  return NextResponse.json({ ok: true, status: newStatus });
+  return NextResponse.json({
+    ok: true,
+    status: newStatus,
+    side_effects: transitioned ? "fired" : "skipped-race",
+  });
 }
 
 // Auto-register user + activate plan after a successful sign-up payment.
