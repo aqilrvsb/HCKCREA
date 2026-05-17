@@ -1536,13 +1536,46 @@ CRITICAL OUTPUT RULES:
       p.videoPromptShot1 + buildVeoLocks({ voiceLine, hijab: hijabMode })
     );
   }
-  function veoSeg2PromptFor(p: Plan, voiceLine: string): string {
-    // Stored raw in metadata; segment-chain.ts will append its own
-    // locks + character continuity block when it builds the seg-2 prompt.
-    return (
-      (p.videoPromptShot2 || p.videoPromptShot1) +
-      buildVeoLocks({ voiceLine, hijab: hijabMode })
+
+  // CODE-LEVEL guarantee that seg-2's prompt == seg-1's prompt with ONLY
+  // the dialog block swapped. The LLM is asked to produce shot 2 as
+  // either (a) a "shot2_dialog_only" string (just the new dialog beats)
+  // OR (b) a full videoPromptShot2 — but in either case we ignore
+  // everything except its dialog and rebuild shot-2 from shot-1.
+  //
+  // Veo has zero memory between segment fires, so seg-2 must contain
+  // the full scene/character/outfit/product description identically to
+  // seg-1. The only difference between the two prompts should be the
+  // dialog beats; everything else is a verbatim copy.
+  function extractDialogBlock(prompt: string): string {
+    // Match "Spoken dialog:" or "Spoken voiceover:" line + the lines
+    // that follow until the next labelled section starts.
+    const m = prompt.match(
+      /(?:Spoken (?:dialog|voiceover)):\s*\n([\s\S]*?)(?=\n(?:Tone:|Voice:|Style:|The character speaks|Audio:|MUST USE|CRITICAL|NO background|$))/i
     );
+    return m ? m[1].trim() : "";
+  }
+  function swapDialogBlock(shot1Prompt: string, newDialog: string): string {
+    if (!newDialog.trim()) return shot1Prompt;
+    return shot1Prompt.replace(
+      /((?:Spoken (?:dialog|voiceover)):\s*\n)([\s\S]*?)(?=\n(?:Tone:|Voice:|Style:|The character speaks|Audio:|MUST USE|CRITICAL|NO background|$))/i,
+      (_full, marker) => `${marker}${newDialog.trim()}\n`
+    );
+  }
+  function veoSeg2PromptFor(p: Plan, voiceLine: string): string {
+    // Pick the dialog source: explicit shot2_dialog_only if present
+    // (preferred — short, focused), else extract dialog from
+    // videoPromptShot2 (legacy LLM path that duplicated the full
+    // prompt), else fall back to videoPromptShot1 unchanged.
+    const dialogSource =
+      (p as any).shot2DialogOnly ||
+      (p as any).shot2_dialog_only ||
+      extractDialogBlock(p.videoPromptShot2 || "") ||
+      "";
+    const seg2Body = dialogSource
+      ? swapDialogBlock(p.videoPromptShot1, dialogSource)
+      : p.videoPromptShot1;
+    return seg2Body + buildVeoLocks({ voiceLine, hijab: hijabMode });
   }
 
   // Resolve the locked voice description at the outer scope so every
