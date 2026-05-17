@@ -18,12 +18,17 @@ import {
   Globe,
 } from "lucide-react";
 import AffiliateForm from "./affiliate-form";
+import { getReferralCommissionRate } from "@/lib/settings";
+
+// Pro plan price the commission is calculated against. Hardcoded for
+// now — if the Pro plan price ever changes, update this constant.
+const PRO_PLAN_RM = 75;
 
 export const revalidate = 3600;
 export const metadata = {
-  title: "Jadi Affiliate PeningLab — 20% Komisen Tetap",
+  title: "Jadi Affiliate PeningLab — 20% Komisyen Tetap",
   description:
-    "Promote AI marketing tools — UGC, Cinema, Viral, Auto Post, Auto Content. Earn 20% commission setiap bulan, untuk hidup.",
+    "Promote AI marketing tools — UGC, Cinema, Viral, Auto Post, Auto Content. Earn 20% commission setiap bulan, sampai bila-bila.",
 };
 
 const FEATURES = [
@@ -79,7 +84,7 @@ const STEPS = [
   {
     n: "3",
     title: "Share Link Affiliate",
-    desc: "Setiap orang yang subscribe melalui link anda — anda dapat 20%.",
+    desc: "Setiap orang yang subscribe melalui link anda — anda dapat komisyen tetap.",
   },
   {
     n: "4",
@@ -88,7 +93,12 @@ const STEPS = [
   },
 ];
 
-export default function AffiliateLandingPage() {
+export default async function AffiliateLandingPage() {
+  // Pull the admin-tunable commission rate so the whole page reflects
+  // the live percent + computed RM amount. Falls back to 20 in the
+  // helper itself if the setting is missing/invalid.
+  const ratePercent = await getReferralCommissionRate();
+  const monthlyRm = Math.round((ratePercent / 100) * PRO_PLAN_RM);
   return (
     <div
       className="min-h-screen overflow-x-hidden"
@@ -161,15 +171,15 @@ export default function AffiliateLandingPage() {
                   WebkitTextFillColor: "transparent",
                 }}
               >
-                20% komisen
+                {ratePercent}% komisyen
               </span>{" "}
-              setiap bulan, untuk hidup.
+              setiap bulan, sampai bila-bila.
             </h1>
 
             <p className="text-base sm:text-lg text-white/70 leading-relaxed mb-8 max-w-xl">
               Promote PeningLab — AI marketing tools paling lengkap di Malaysia.
               Setiap orang yang subscribe melalui link anda, anda dapat{" "}
-              <strong className="text-white">RM 15 setiap bulan</strong>, selagi
+              <strong className="text-white">RM {monthlyRm} setiap bulan</strong>, selagi
               mereka aktif. Recurring. Tanpa cap.
             </p>
 
@@ -263,26 +273,26 @@ export default function AffiliateLandingPage() {
         >
           <EarnTile
             referrals={5}
-            monthly={75}
+            monthly={monthlyRm * 5}
             tint="emerald"
             label="5 referrals"
           />
           <EarnTile
             referrals={20}
-            monthly={300}
+            monthly={monthlyRm * 20}
             tint="violet"
             label="20 referrals"
             featured
           />
           <EarnTile
             referrals={100}
-            monthly={1500}
+            monthly={monthlyRm * 100}
             tint="orange"
             label="100 referrals"
           />
         </div>
         <p className="text-xs text-white/40 text-center mt-4">
-          Berdasarkan 20% komisen × RM 75 Pro Plan. Recurring setiap bulan
+          Berdasarkan {ratePercent}% komisyen × RM {PRO_PLAN_RM} Pro Plan. Recurring setiap bulan
           selagi mereka aktif subscribed.
         </p>
       </section>
@@ -298,7 +308,7 @@ export default function AffiliateLandingPage() {
           </h2>
           <p className="text-sm text-white/60 max-w-2xl mx-auto">
             6 produk AI dalam satu platform. Sellers cuba sekali, addict
-            selama-lamanya — yang membayar komisen anda.
+            selama-lamanya — yang membayar komisyen anda.
           </p>
         </div>
 
@@ -385,18 +395,18 @@ export default function AffiliateLandingPage() {
               Kelebihan affiliate
             </span>
             <h2 className="font-display font-extrabold text-3xl lg:text-4xl mt-2 mb-6">
-              Bukan sekadar komisen.
+              Bukan sekadar komisyen.
             </h2>
             <ul className="space-y-4">
               <Perk
                 icon={TrendingUp}
-                title="Komisen recurring 20% — selagi mereka subscribe"
-                body="RM 15 setiap bulan, untuk setiap referral active. Anda kerja sekali, dapat selamanya."
+                title={`Komisyen recurring ${ratePercent}% — selagi mereka subscribe`}
+                body={`RM ${monthlyRm} setiap bulan, untuk setiap referral active. Anda kerja sekali, dapat sampai bila-bila.`}
               />
               <Perk
                 icon={Wallet}
                 title="Wallet auto-update + cash out RM50 minima"
-                body="Setiap komisen langsung masuk wallet. Withdraw bila-bila ke 19+ bank Malaysia."
+                body="Setiap komisyen langsung masuk wallet. Withdraw bila-bila ke 19+ bank Malaysia."
               />
               <Perk
                 icon={Zap}
@@ -406,7 +416,7 @@ export default function AffiliateLandingPage() {
               <Perk
                 icon={Globe}
                 title="Link tracking 30 hari cookie"
-                body="Pengguna boleh tinggalkan link dan datang balik lewat — anda masih dapat komisen."
+                body="Pengguna boleh tinggalkan link dan datang balik lewat — anda masih dapat komisyen."
               />
             </ul>
           </div>
@@ -430,7 +440,7 @@ export default function AffiliateLandingPage() {
             >
               <div className="text-center">
                 <Banknote className="w-14 h-14 mx-auto mb-2 text-orange-400" />
-                <p className="text-2xl font-extrabold">RM 15</p>
+                <p className="text-2xl font-extrabold">RM {monthlyRm}</p>
                 <p className="text-[10px] text-white/60 uppercase tracking-widest font-bold">
                   per referral / bulan
                 </p>
