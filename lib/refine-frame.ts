@@ -35,7 +35,14 @@ const REFINE_PROMPT = [
   "Output a single photorealistic image at the same aspect ratio as the FIRST image.",
 ].join(" ");
 
-type RefineResult = { ok: true; url: string } | { ok: false; error: string };
+// `failedExplicitly` distinguishes "provider returned status=failed"
+// (where we SHOULD move to fallback) from "we timed out waiting"
+// (where the task may still be running upstream — we must NOT fire
+// fallback or we'll double-bill when both providers eventually
+// complete).
+type RefineResult =
+  | { ok: true; url: string }
+  | { ok: false; error: string; failedExplicitly: boolean; pendingTaskId?: string };
 // Provider identifiers match the SlotProvider type from cascade-rotation
 // so the refine cascade can use the admin-configured image slot list
 // directly. p3 is legacy and not in the image cascade — kept here for
@@ -65,7 +72,16 @@ async function tryRefineOn(
 ): Promise<RefineResult> {
   const aspect = opts.aspectRatio || "9:16";
   const imageUrls = [opts.frameUrl, opts.productUrl];
-  const timeoutMs = opts.perTierTimeoutMs ?? 60_000;
+  // User rule: "as long no failed, just wait". Keep polling this tier
+  // until the provider returns an explicit succeeded/failed status —
+  // NEVER abandon it on timeout (that's what caused the double-billing
+  // bug, where we moved to fallback while the main task was still
+  // running upstream and eventually completed). We cap the wait just
+  // under Vercel's after() ceiling (300s) so the function itself can
+  // still exit cleanly; if we hit that cap, we return pendingTaskId
+  // so the caller can hand off to /api/extend/recover-seg2 which
+  // resumes polling the SAME task instead of firing a new one.
+  const timeoutMs = opts.perTierTimeoutMs ?? 270_000;
 
   // 1. Create. Every provider runs nano-banana-pro — we never accept
   // a different model here even on fallback. If a tier can't run
@@ -152,7 +168,13 @@ async function tryRefineOn(
     createError = e?.message || String(e);
   }
   if (!taskId) {
-    return { ok: false, error: `${provider} create failed: ${createError || "unknown"}` };
+    // create call rejected outright — provider hit a hard error before
+    // the task entered the queue. Cascade SHOULD move on.
+    return {
+      ok: false,
+      error: `${provider} create failed: ${createError || "unknown"}`,
+      failedExplicitly: true,
+    };
   }
 
   // Fire the accepted-callback BEFORE polling so the caller can stamp
@@ -216,7 +238,13 @@ async function tryRefineOn(
         return { ok: true, url: outputUrl };
       }
       if (status === "failed") {
-        return { ok: false, error: `${provider} task failed: ${pollError || "unknown"}` };
+        // Provider explicitly told us the task failed. Cascade may now
+        // safely fire the next tier.
+        return {
+          ok: false,
+          error: `${provider} task failed: ${pollError || "unknown"}`,
+          failedExplicitly: true,
+        };
       }
       // "running" / "pending" — keep polling.
     } catch (e: any) {
@@ -224,7 +252,16 @@ async function tryRefineOn(
       console.warn(`[refine-frame] ${provider} poll error:`, e?.message);
     }
   }
-  return { ok: false, error: `${provider} refine timed out (${timeoutMs}ms)` };
+  // Hit the per-tier cap WITHOUT an explicit failed status. The task
+  // may still be running upstream. We must NOT fire fallback (would
+  // double-bill once main lands), so we return pendingTaskId and let
+  // the caller hand off to /api/extend/recover-seg2.
+  return {
+    ok: false,
+    error: `${provider} refine still pending after ${timeoutMs}ms (task may complete upstream)`,
+    failedExplicitly: false,
+    pendingTaskId: taskId,
+  };
 }
 
 // Resume polling on an in-flight Banana Pro task. Used by the recover
@@ -278,20 +315,31 @@ export async function pollRefineTask(
       }
       if (status === "succeeded" && outputUrl) return { ok: true, url: outputUrl };
       if (status === "failed") {
-        return { ok: false, error: `${provider} task failed: ${pollError || "unknown"}` };
+        return {
+          ok: false,
+          error: `${provider} task failed: ${pollError || "unknown"}`,
+          failedExplicitly: true,
+        };
       }
     } catch (e: any) {
       console.warn(`[refine-frame] pollRefineTask ${provider} error:`, e?.message);
     }
   }
-  return { ok: false, error: `${provider} poll timed out (${timeoutMs}ms)` };
+  return {
+    ok: false,
+    error: `${provider} poll timed out (${timeoutMs}ms)`,
+    failedExplicitly: false,
+    pendingTaskId: taskId,
+  };
 }
 
 export async function refineFrameWithProduct(
   opts: RefineOpts
 ): Promise<RefineResult & { provider?: Provider; tierLog?: string[] }> {
-  if (!opts.frameUrl) return { ok: false, error: "Missing frameUrl" };
-  if (!opts.productUrl) return { ok: false, error: "Missing productUrl" };
+  if (!opts.frameUrl)
+    return { ok: false, error: "Missing frameUrl", failedExplicitly: true };
+  if (!opts.productUrl)
+    return { ok: false, error: "Missing productUrl", failedExplicitly: true };
 
   const tierLog: string[] = [];
 
@@ -319,17 +367,50 @@ export async function refineFrameWithProduct(
     return {
       ok: false,
       error: "No image cascade configured at /admin/settings",
+      failedExplicitly: true,
       tierLog,
     };
   }
 
+  // User rule: "fire main provider images... waiting the task... if
+  // only failed, barulah fire fallback provider images." So we ONLY
+  // advance to the next tier when the current tier returned an
+  // EXPLICIT failed status. If a tier is still pending (timeout) we
+  // stop the cascade — the task is in flight upstream and firing the
+  // fallback would double-bill. Caller hands off to recover-seg2.
   for (const provider of cascade) {
     const r = await tryRefineOn(provider, opts);
-    tierLog.push(`${provider}:${r.ok ? "ok" : "fail"}${r.ok ? "" : ` (${r.error})`}`);
+    const label = r.ok
+      ? "ok"
+      : r.failedExplicitly
+        ? "fail"
+        : "pending";
+    tierLog.push(`${provider}:${label}${r.ok ? "" : ` (${r.error})`}`);
     if (r.ok) {
       return { ok: true, url: r.url, provider, tierLog };
     }
-    console.warn(`[refine-frame] tier ${provider} failed: ${r.error}`);
+    if (!r.failedExplicitly) {
+      // Pending / timeout / network glitch — task may still complete
+      // upstream. STOP the cascade so we don't double-bill. Return the
+      // pending task_id so the caller can resume via recover-seg2.
+      console.warn(
+        `[refine-frame] tier ${provider} still pending — stopping cascade to avoid double-bill`
+      );
+      return {
+        ok: false,
+        error: r.error,
+        failedExplicitly: false,
+        pendingTaskId: r.pendingTaskId,
+        provider,
+        tierLog,
+      };
+    }
+    console.warn(`[refine-frame] tier ${provider} failed explicitly: ${r.error}`);
   }
-  return { ok: false, error: `All refine tiers failed`, tierLog };
+  return {
+    ok: false,
+    error: `All refine tiers failed`,
+    failedExplicitly: true,
+    tierLog,
+  };
 }
