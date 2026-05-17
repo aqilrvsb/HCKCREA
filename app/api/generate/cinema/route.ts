@@ -1,7 +1,6 @@
 import { NextResponse, after } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { p2CreateTask } from "@/lib/p2";
 import { generateVideoWithCascade } from "@/lib/video-cascade";
 import { getCinemaRate, getP2Config } from "@/lib/settings";
 
@@ -131,6 +130,7 @@ export async function POST(req: Request) {
             aspectRatio: imageMode === "image" ? null : aspectRatio,
             cinemaProvider: modelChoice === "veo" ? "veo" : "grok-imagine",
             modelChoice,
+            featureType,
             upload_status: "failed",
           },
         }).eq("id", historyId);
@@ -159,51 +159,42 @@ export async function POST(req: Request) {
       let fallbackUsed = false;
       let tierLog: any = undefined;
 
-      if (modelChoice === "veo") {
-        const result = await generateVideoWithCascade({
-          primaryModel: model,
-          prompt,
-          imageUrls: imgs,
-          durationMode: String(duration),
-          aspectRatio,
-          imageMode: imgMode,
-        });
-        if (result.ok) {
-          createdOk = true;
-          createdTaskId = result.taskId;
-          actualProvider = result.actualProvider;
-          actualSlot = result.actualSlot;
-          actualKeyIndex = result.keyIndex;
-          actualModel = result.actualModel;
-          fallbackUsed = result.fallbackUsed;
-        } else {
-          createdError = result.error;
-        }
-        tierLog = result.tierLog;
+      // Both Veo and Grok now route through the round-robin cascade —
+      // Veo lands on p2-a/b / p5 / p1 (whichever main slot), Grok can
+      // land on p6-a..h (APIPod) which is the only Grok-capable slot
+      // configured in main/fallback. p6CreateVideo's apipodVideoModel
+      // detects 'grok' in the model string and switches to
+      // grok-imagine-t2v / grok-imagine-i2v accordingly.
+      //
+      // Grok i2v takes 1-7 image_urls; Veo r2v takes 1-3 (triplicated
+      // when user picks just 1). Pass the raw effective images and let
+      // the slot's CreateVideo decide the per-model cap.
+      const cascadeImgs =
+        modelChoice === "grok"
+          ? imageMode === "image" && effectiveImageUrls[0]
+            ? effectiveImageUrls.slice(0, 7)
+            : []
+          : imgs;
+      const result = await generateVideoWithCascade({
+        primaryModel: model,
+        prompt,
+        imageUrls: cascadeImgs,
+        durationMode: String(duration),
+        aspectRatio,
+        imageMode: imgMode,
+      });
+      if (result.ok) {
+        createdOk = true;
+        createdTaskId = result.taskId;
+        actualProvider = result.actualProvider;
+        actualSlot = result.actualSlot;
+        actualKeyIndex = result.keyIndex;
+        actualModel = result.actualModel;
+        fallbackUsed = result.fallbackUsed;
       } else {
-        // Grok path — single shot on p2. Grok i2v only takes one ref, so
-        // cap to the first picked image (ignore the multi/triplicate when
-        // user is on Grok).
-        const grokImgs = imageMode === "image" && effectiveImageUrls[0]
-          ? [effectiveImageUrls[0]]
-          : [];
-        const created = await p2CreateTask({
-          model,
-          prompt,
-          imageUrls: grokImgs,
-          durationMode: String(duration),
-          aspectRatio,
-          resolution,
-          extra: { mode: "normal" },
-        });
-        if (created.ok && created.task_id) {
-          createdOk = true;
-          createdTaskId = created.task_id;
-          actualProvider = created.provider || "p2";
-        } else {
-          createdError = created.error || "Grok create failed";
-        }
+        createdError = result.error;
       }
+      tierLog = result.tierLog;
 
       if (!createdOk) {
         await admin.from("history").update({
@@ -215,6 +206,7 @@ export async function POST(req: Request) {
             aspectRatio: imageMode === "image" ? null : aspectRatio,
             cinemaProvider: modelChoice === "veo" ? "veo" : "grok-imagine",
             modelChoice,
+            featureType,
             provider: actualProvider,
           slot: actualSlot,
           ...(actualKeyIndex !== undefined ? { p6_key_index: actualKeyIndex } : {}),
@@ -233,6 +225,7 @@ export async function POST(req: Request) {
           aspectRatio: imageMode === "image" ? null : aspectRatio,
           cinemaProvider: modelChoice === "veo" ? "veo" : "grok-imagine",
           modelChoice,
+          featureType,
           provider: actualProvider,
           slot: actualSlot,
           ...(actualKeyIndex !== undefined ? { p6_key_index: actualKeyIndex } : {}),
@@ -250,6 +243,7 @@ export async function POST(req: Request) {
           aspectRatio: imageMode === "image" ? null : aspectRatio,
           cinemaProvider: modelChoice === "veo" ? "veo" : "grok-imagine",
           modelChoice,
+          featureType,
           upload_status: "failed",
         },
       }).eq("id", historyId);
