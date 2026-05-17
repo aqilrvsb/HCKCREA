@@ -502,19 +502,32 @@ THE RULES (read all 6 before you plan a single video):
    Same IDEA, different EXECUTION. Two videos with the exact same
    staging = creative failure, FYP kills the second view.
 
-3. DIALOG = FRAMEWORK, VISUAL = IDEA. Hard split:
-     • UGC frameworks (Hook+Pain, Testimonial, FOMO, BAB, 4Ps, Action
-       Bias, Solution, Benefit+Result, Fear of Loss, UGC USP Strict) →
-       CHARACTER ON SCREEN WITH FACE. The idea includes the character
-       performing it. Mouth visible, lip-sync to the spoken dialog.
-       Hook + dialog structure comes from the framework's strategy
-       block (see <frameworks>).
-     • PRD frameworks (Product Hero, Before/After, USP Showcase, Flat
-       Lay, Product USP Strict) → ZERO PERSON IN FRAME. The idea is
-       rebuilt as a product-only scene: same setting, same mood, but
-       the product replaces the person as the subject. Voiceover only.
-     • POV framework (PROD Goyang2) → HAND ONLY holding product, set
-       inside the idea's environment. NO face, NO body. Voiceover.
+3. IDEA OWNS THE VISUAL, FRAMEWORK OWNS DIALOG + ON-SCREEN TYPE — that's
+   the WHOLE separation. Framework is a thin overlay; idea is the engine.
+     • IDEA controls: scene, setting, central action, camera framing,
+       camera movement, mood, lighting, time-of-day, the "what the
+       viewer SEES happening". Do NOT let the framework override any
+       of these — even if the framework's example dialog implies a
+       different scene, you keep the IDEA's scene.
+     • FRAMEWORK controls ONLY two things:
+         (a) DIALOG WORDING + STRUCTURE — the hook line, the
+             middle/value line, the CTA. Pulled from the framework's
+             strategy.dialogShape and strategy.example. Plug these
+             words into the idea's scene; never let them rewrite it.
+         (b) ON-SCREEN TYPE — who/what is visible while the idea plays:
+               UGC framework  → CHARACTER ON SCREEN WITH FACE.
+                               Character performs the idea's action,
+                               mouth visible, lip-sync to dialog.
+               PRD framework  → ZERO PERSON IN FRAME. Idea's scene is
+                               rebuilt as product-only — same setting,
+                               same mood, product replaces the person
+                               as the subject. Voiceover only.
+               POV framework  → HAND ONLY holding product, set inside
+                               the idea's environment. NO face/body.
+                               Voiceover only.
+   So for each video: take the IDEA verbatim → drop in the FRAMEWORK's
+   on-screen type → write dialog using the FRAMEWORK's hook structure.
+   That's it. Idea is not "inspired by"; idea is THE SCENE.
 
 4. IF idea + framework seem to conflict, ADAPT the idea — never drop it:
      • Client idea: "preview baju depan cermin" + framework: PRD
@@ -530,15 +543,19 @@ THE RULES (read all 6 before you plan a single video):
    The IDEA never disappears. The framework decides who narrates.
 
 5. THINK LIKE A TIKTOK AFFILIATE — the goal is conversion at the
-   "beg kuning" tap, not artsy content. So each variant should also
-   rotate the PSYCHOLOGICAL LEVER:
+   "beg kuning" tap, not artsy content. The PSYCHOLOGICAL LEVER (what
+   makes the viewer tap) lives INSIDE the dialog, NOT the visual.
+   Rotate the lever across variants — each one a different angle on
+   the SAME idea + scene:
      • Variant A → curiosity ("Korang tau tak…")
      • Variant B → social proof ("Aku dah test 7 hari…")
      • Variant C → FOMO / scarcity ("Stok last ni…")
      • Variant D → transformation reveal (before → after beat)
      • Variant E → contrarian ("Stop buat X, ni yang betul…")
-   Match each lever to the framework already picked for that video,
-   so the LEVER reinforces the framework's strategy.
+   Match each lever to the framework's strategy.dialogShape so the
+   lever lands inside the framework's natural hook → middle → CTA arc.
+   The VISUAL still stays anchored to the client's idea — only the
+   spoken angle rotates.
 
 6. WHAT WOULD A 7-FIGURE TIKTOK AFFILIATE DO:
      • Lead with the IDEA in the first 0.5 seconds (visual hook)
