@@ -444,10 +444,10 @@ Before creating ANY content, analyze this product like a RM80k strategist:
 Total videos: ${quantity}
 Duration: ${
   providerChoice === "grok"
-    ? `${grokDuration} seconds — single shot on Grok Imagine. 🚨 DIALOG WORD COUNT RULE: ${grokDuration} seconds × 3 words/sec = ${grokDuration * 3} target Malay words (acceptable range: ${grokDuration * 3 - 2}–${grokDuration * 3 + 2}). Scale the hook + core + reaction + outro beats proportionally so the total hits the target. NOT two shots — just ONE continuous take. Example for ${grokDuration}s: hook ~${Math.round(grokDuration * 0.625)} words / core ~${Math.round(grokDuration * 1.5)} words / reaction 0-2 words / outro ~${Math.round(grokDuration * 0.625)} words.`
+    ? `${grokDuration}s single shot on Grok Imagine. Dialog target = ${grokDuration * 3} Malay words (acceptable ${grokDuration * 3 - 2}-${grokDuration * 3 + 2}).`
     : is16s
-      ? "16 seconds — ONE continuous story split into 2 shots (Shot 1: 0-8s, Shot 2: 8-16s). Each shot dialog = 20-24 Malay words (8s × 3 = 24 target). Same scene, same voice, story continues seamlessly."
-      : "8 seconds — one single shot. Dialog = 20-24 Malay words (8s × 3 = 24 target)."
+      ? `16s split into 2 shots (Shot 1: 0-8s, Shot 2: 8-16s). Each shot dialog = 22-26 Malay words target. Same scene, same voice, story continues seamlessly.`
+      : `8s single shot. Dialog target = 22-26 Malay words.`
 }
 Character: ${gender === "male" ? "Malay man" : "Malay woman"}${hijabMode ? ", wearing hijab tudung labuh" : ", casual modern no hijab"}
 Age: ${ageRange}
