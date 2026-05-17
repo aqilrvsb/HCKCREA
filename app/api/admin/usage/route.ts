@@ -40,16 +40,24 @@ export async function GET(req: Request) {
 
   const { data: txns } = await q;
 
-  // Pull all linked history rows in one shot
+  // Pull all linked history rows. Supabase silently caps a single
+  // .in() query at the default 1000-row limit, so batch through the
+  // ids in chunks and pass .limit(chunk.length) to defeat the cap.
+  // Without this, a month-wide filter (>1000 unique history_ids)
+  // would show "(history deleted)" for the rows whose history did
+  // exist but fell off the truncated response.
   const historyIds = Array.from(
     new Set((txns || []).map((t: any) => t.history_id).filter(Boolean))
   );
   const histById = new Map<string, any>();
-  if (historyIds.length > 0) {
+  const CHUNK = 500;
+  for (let i = 0; i < historyIds.length; i += CHUNK) {
+    const chunk = historyIds.slice(i, i + CHUNK);
     const { data: hists } = await admin
       .from("history")
       .select("id, type, tab, prompt, output_url, thumbnail_url, reference_url, duration, metadata")
-      .in("id", historyIds);
+      .in("id", chunk)
+      .limit(chunk.length);
     (hists || []).forEach((h: any) => histById.set(h.id, h));
   }
 
