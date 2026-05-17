@@ -118,6 +118,15 @@ export default function AutoContentTab({ projectId }: { projectId?: string } = {
   const [manualPlanJson, setManualPlanJson] = useState("");
   const [showManualPlanHelp, setShowManualPlanHelp] = useState(false);
 
+  // Optional client-provided "idea style" — free-text description like
+  // "preview the clothes in front of mirror" or "unboxing on bedroom
+  // dresser with morning light". When set, the master plan respects this
+  // as the visual concept and generates N variants of it across the
+  // batch. Dialog structure still follows the framework choice (UGC =
+  // character on screen with face; PRD = product-only voiceover; POV =
+  // hand-only). Sent as `idea_style` in the POST body.
+  const [ideaStyle, setIdeaStyle] = useState("");
+
   // Submit state
   const [status, setStatus] = useState<Status>("idle");
   const [error, setError] = useState<string | null>(null);
@@ -519,6 +528,10 @@ export default function AutoContentTab({ projectId }: { projectId?: string } = {
         plan_mode: planMode,
         selected_frameworks: selectedFrameworks,
         preset_plan: planMode === "manual" ? JSON.parse(manualPlanJson) : null,
+        // Optional client-provided visual idea. Empty string → backend
+        // proceeds with normal master-plan flow. Non-empty → master plan
+        // combines this idea with the chosen framework angles.
+        idea_style: ideaStyle.trim(),
         project_id: projectId,
       };
 
@@ -1085,6 +1098,38 @@ export default function AutoContentTab({ projectId }: { projectId?: string } = {
             Manual Plan JSON UI is preserved below in case we re-enable
             this entry, but the user can no longer reach it from the UI. */}
 
+        {/* Idea Style (optional) — client can describe the visual idea
+            they want, e.g. "preview the clothes in front of mirror",
+            "unboxing on bedroom dresser with morning light". When set,
+            the master plan respects this as the core visual concept and
+            generates N variants of it across the batch. Dialog still
+            follows the chosen framework (UGC → with face, PRD → product
+            only, POV → hand only). When empty, proceeds normally. */}
+        {showFrameworks && (
+          <>
+            <Label>
+              Idea Style{" "}
+              <span className="text-gray-400 font-normal normal-case tracking-normal">
+                (optional — describe the visual idea you want)
+              </span>
+            </Label>
+            <textarea
+              value={ideaStyle}
+              onChange={(e) => setIdeaStyle(e.target.value)}
+              placeholder={`Contoh: "preview baju depan cermin, lighting natural pagi"\nContoh: "unboxing atas meja kayu, slow reveal label"\nContoh: "duduk atas sofa, sambil minum kopi, casual"\n\nKosongkan kalau nak AI plan biasa.`}
+              rows={3}
+              className="w-full mb-4 px-3 py-2 text-[12px] rounded-md outline-none resize-y"
+              style={{
+                background: "#fafaf7",
+                border: "1px solid #e8e0d8",
+                color: "#2a2a2a",
+                minHeight: "70px",
+                maxHeight: "180px",
+              }}
+            />
+          </>
+        )}
+
         {/* Frameworks (AI Plan + Verify Plan) */}
         {showFrameworks && (
           <>
@@ -1095,7 +1140,14 @@ export default function AutoContentTab({ projectId }: { projectId?: string } = {
               </span>
             </Label>
             <div className="flex flex-wrap gap-1.5 mb-4">
-              {FRAMEWORKS.map((fw) => {
+              {FRAMEWORKS
+                // Per user: minimal framework choices — only UGC, PRD,
+                // and the special POV variant. LIFE (lifestyle) entries
+                // are kept in the codebase so old history rows still
+                // resolve their framework name, but hidden from the
+                // picker so new batches can't select them.
+                .filter((fw) => fw.type !== "lifestyle")
+                .map((fw) => {
                 const checked = selectedFrameworks.includes(fw.id);
                 const color = TYPE_COLORS[fw.type];
                 return (

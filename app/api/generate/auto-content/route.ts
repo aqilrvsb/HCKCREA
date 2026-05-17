@@ -89,6 +89,12 @@ export async function POST(req: Request) {
   const hijabMode = avatarHijab === "hijab";
   const ctaMode = String(body?.cta_mode || "shop");
   const customCta = String(body?.custom_cta || "");
+  // Optional client-provided visual idea (e.g. "preview clothes in
+  // front of mirror"). When non-empty, the master plan injects an
+  // <idea_style> block instructing the LLM to honour this idea as the
+  // CORE visual concept and emit N variants of it. When empty, the
+  // master plan proceeds with its normal framework-only flow.
+  const ideaStyle = String(body?.idea_style || "").trim();
   const projectId = body?.project_id ? String(body.project_id) : null;
   // TikTok product_id from the Affiliate scrape — stamped on every
   // generated history row so the creative-hack-auto extension's
@@ -461,7 +467,98 @@ CTA: ${ctaInstruction}
 Market: Malaysian TikTok (Malay-speaking, informal)
 </content_settings>
 
-<HARD_RULES_READ_THIS_FIRST>
+${ideaStyle ? `<idea_style>
+🎯 CLIENT BRIEF — CORE VISUAL CONCEPT (TIKTOK AFFILIATE PLAYBOOK)
+
+The client (a TikTok affiliate marketer selling on Malaysian Shop) gave
+you a SPECIFIC visual idea they want this batch built around. Treat it
+the same way a viral creative director would treat a brand brief: it's
+the SCENE, the PATTERN INTERRUPT that stops the scroll. Everything
+else (framework, dialog, CTA) plays inside this idea.
+
+CLIENT WROTE: """
+${ideaStyle}
+"""
+
+THE RULES (read all 6 before you plan a single video):
+
+1. EVERY video MUST embody this idea visually. The idea defines:
+     • the SETTING (where the camera is, what's in the frame)
+     • the CENTRAL ACTION (what the subject does — try-on / unbox / pour / hold up / preview / etc.)
+     • the MOOD (lighting, time-of-day, energy)
+   If a video doesn't visually read as "yes that's the same idea I
+   wrote", it FAILED. Reject and rewrite.
+
+2. CREATE ${quantity} DISTINCT VARIANTS — same idea, different execution.
+   On TikTok the FYP shows the same creator multiple times to the same
+   viewer; if every video looks identical they scroll. Vary across ALL
+   these axes (don't repeat a combo):
+     • Camera angle: close-up face / medium chest-up / wide full-body / over-shoulder / low-angle / overhead
+     • Setting micro-variant: bedroom mirror vs hallway mirror vs bathroom mirror vs vanity mirror
+     • Action beat inside the idea: walking up / turning around / adjusting / posing / reacting / wider context
+     • Time-of-day: morning soft golden / midday clean / evening warm / blue hour
+     • Energy: calm reveal / excited gesture / casual everyday / dramatic pause
+     • Outfit (already enforced by <outfit_table>) — different colour per video
+   Same IDEA, different EXECUTION. Two videos with the exact same
+   staging = creative failure, FYP kills the second view.
+
+3. DIALOG = FRAMEWORK, VISUAL = IDEA. Hard split:
+     • UGC frameworks (Hook+Pain, Testimonial, FOMO, BAB, 4Ps, Action
+       Bias, Solution, Benefit+Result, Fear of Loss, UGC USP Strict) →
+       CHARACTER ON SCREEN WITH FACE. The idea includes the character
+       performing it. Mouth visible, lip-sync to the spoken dialog.
+       Hook + dialog structure comes from the framework's strategy
+       block (see <frameworks>).
+     • PRD frameworks (Product Hero, Before/After, USP Showcase, Flat
+       Lay, Product USP Strict) → ZERO PERSON IN FRAME. The idea is
+       rebuilt as a product-only scene: same setting, same mood, but
+       the product replaces the person as the subject. Voiceover only.
+     • POV framework (PROD Goyang2) → HAND ONLY holding product, set
+       inside the idea's environment. NO face, NO body. Voiceover.
+
+4. IF idea + framework seem to conflict, ADAPT the idea — never drop it:
+     • Client idea: "preview baju depan cermin" + framework: PRD
+       Product Hero → keep the mirror + outfit; replace the person
+       with the product (folded shirt) on a styled surface in front
+       of the mirror, mirror reflects the product label.
+     • Client idea: "unboxing on bedroom dresser" + framework: UGC
+       Testimonial → person sits at the dresser, unboxes while
+       telling their personal story to camera.
+     • Client idea: "morning coffee routine" + framework: POV →
+       hand holding product on the coffee bar, latte foam visible
+       in the background bokeh, voiceover delivers the CTA.
+   The IDEA never disappears. The framework decides who narrates.
+
+5. THINK LIKE A TIKTOK AFFILIATE — the goal is conversion at the
+   "beg kuning" tap, not artsy content. So each variant should also
+   rotate the PSYCHOLOGICAL LEVER:
+     • Variant A → curiosity ("Korang tau tak…")
+     • Variant B → social proof ("Aku dah test 7 hari…")
+     • Variant C → FOMO / scarcity ("Stok last ni…")
+     • Variant D → transformation reveal (before → after beat)
+     • Variant E → contrarian ("Stop buat X, ni yang betul…")
+   Match each lever to the framework already picked for that video,
+   so the LEVER reinforces the framework's strategy.
+
+6. WHAT WOULD A 7-FIGURE TIKTOK AFFILIATE DO:
+     • Lead with the IDEA in the first 0.5 seconds (visual hook)
+     • Drop the hook line within 0-2s (audio hook)
+     • Keep the product in frame 70%+ of the clip
+     • End on a Malay CTA that lands inside the dialog window
+     • Make sure the seg-2 (if 16s) PAYS OFF whatever curiosity
+       seg-1 set up — never repeat the same beat
+   These are non-negotiable craft rules even when the idea is provided.
+
+🚫 HARD FAILURES (Qwen will reject these):
+   • Any video that doesn't visibly use the client's idea as its scene
+   • Two videos with identical camera + setting + action combo
+   • PRD framework video that includes a person/face/body
+   • UGC framework video where the character's face is hidden
+   • Idea ignored in favour of a generic scene (sofa, kitchen, etc.)
+     just because it's easier — the idea is the WHOLE POINT
+</idea_style>
+
+` : ""}<HARD_RULES_READ_THIS_FIRST>
 🚨 THE 3 LOCKS — APPLY TO EVERY UGC + LIFESTYLE VIDEO (NOT product/handPov):
 1. GENDER = ${gender.toUpperCase()}   → ${gender === "male" ? '"Malay man" — never "woman", never "girl"' : '"Malay woman" — never "man", never "girl"'}
 2. HIJAB  = ${hijabMode ? "YES — character wears hijab tudung labuh that fully covers ALL hair, ears, neck. ZERO hair strands visible." : "NO — character has hair visible. NEVER write the word \"hijab\", \"tudung\", or any head-covering."}
