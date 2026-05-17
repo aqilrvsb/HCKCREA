@@ -5,7 +5,7 @@ import { p2CreateTask } from "@/lib/p2";
 import { orChat, orChatVision } from "@/lib/openrouter";
 import { priceFor, hasEnoughCredits } from "@/lib/deduct";
 import { getP2Config } from "@/lib/settings";
-import { buildVeoLocks } from "@/lib/veo-voices";
+import { buildVeoLocks, pickAutoContentVoice, type AutoContentAge } from "@/lib/veo-voices";
 import { generateVideoWithCascade } from "@/lib/video-cascade";
 import {
   FRAMEWORKS,
@@ -1543,6 +1543,19 @@ CRITICAL OUTPUT RULES:
     console.error("[auto-content] master-plan saved_prompts insert failed:", e);
   }
 
+  // Pick the locked Veo voice ID once per batch based on (gender, age)
+  // so every video AND every Extend continuation uses the same exact
+  // voice character — matches how UGC tab works. The picker resolves
+  // to a real Veo catalog entry like "callirrhoe" / "achird" / "leda"
+  // / "gacrux"; buildVeoLocks then expands that into the canonical
+  // "VOICE CHARACTER (LOCKED): Callirrhoe — Female, easy-going, mid-
+  // pitch. Natural conversational tone." line that Veo's TTS treats
+  // as a hard constraint.
+  const lockedVoiceId = pickAutoContentVoice(
+    avatarGender === "male" ? "male" : "female",
+    (avatarAge || "30s") as AutoContentAge
+  );
+
   // For 16s clips we now use the segment chain (lib/segment-chain.ts):
   // fire seg-1 with Shot 1 only, store Shot 2 in metadata.seg2_prompt,
   // and let onSegmentSettled pick it up after seg-1 lands. The chain
@@ -1556,7 +1569,8 @@ CRITICAL OUTPUT RULES:
     return (
       p.videoPromptShot1 +
       buildVeoLocks({
-        voiceLine,
+        voiceId: lockedVoiceId,
+        voiceLine, // legacy fallback if voiceId ever fails to resolve
         hijab: hijabMode,
         durationSec: providerChoice === "grok" ? grokDuration : 8,
       })
@@ -1589,19 +1603,21 @@ CRITICAL OUTPUT RULES:
     );
   }
   function veoSeg2PromptFor(p: Plan, voiceLine: string): string {
-    // Pick the dialog source: explicit shot2_dialog_only if present
-    // (preferred — short, focused), else extract dialog from
-    // videoPromptShot2 (legacy LLM path that duplicated the full
-    // prompt), else fall back to videoPromptShot1 unchanged.
+    // Per user rule: seg-2 is "fully 100% copy from segment 1 prompt"
+    // with ONLY the dialog block swapped. Don't re-run any picker, don't
+    // re-emit locks separately — start from the already-locked seg-1
+    // string, find the "Spoken dialog:" / "Spoken voiceover:" block,
+    // replace just that. Voice lock, anatomy lock, hijab lock, dialog-
+    // length lock, negatives — all inherited verbatim from seg-1, so
+    // there is exactly zero drift between segments.
+    const seg1Full = veoSeg1PromptFor(p, voiceLine);
     const dialogSource =
       (p as any).shot2DialogOnly ||
       (p as any).shot2_dialog_only ||
       extractDialogBlock(p.videoPromptShot2 || "") ||
       "";
-    const seg2Body = dialogSource
-      ? swapDialogBlock(p.videoPromptShot1, dialogSource)
-      : p.videoPromptShot1;
-    return seg2Body + buildVeoLocks({ voiceLine, hijab: hijabMode });
+    if (!dialogSource) return seg1Full; // no new dialog → identical to seg-1
+    return swapDialogBlock(seg1Full, dialogSource);
   }
 
   // Resolve the locked voice description at the outer scope so every

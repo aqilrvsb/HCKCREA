@@ -286,31 +286,27 @@ export async function POST(req: Request) {
       }
 
       // 3. Build seg-2 prompt — send the user's edited textarea VERBATIM.
-      //    OCR text-lock removed: the Nano Banana Pro refine step below
-      //    rebuilds the product into the start frame pixel-perfectly, so
-      //    we no longer need a Gemini-extracted "PRODUCT TEXT: ..." block
-      //    to tell Veo what's on the label. The pixels themselves are
-      //    the lock now.
       //
-      // STANDARD_LOCKS double-append guard: auto-content seg-1 prompts
-      // already include the comprehensive buildVeoLocks output (CLEAN
-      // FRAME LOCK + ANATOMY LOCK + AUDIO LOCK + DIALOG LENGTH LOCK +
-      // PRODUCT LOCK + …). When the user clicks Extend on an
-      // auto-content card, the seg-1 prompt is pre-filled into the
-      // textarea and posted back verbatim — appending STANDARD_LOCKS
-      // on top of that produces redundant ANATOMY/AUDIO/PRODUCT
-      // LOCK/UGC AUTHENTICITY/VISUAL/Negative blocks (one set from
-      // buildVeoLocks, one from STANDARD_LOCKS) that confuse Veo and
-      // bloat the prompt. Detect existing locks and skip the append.
+      // Per user rule: extend = 100% copy from segment 1 prompt. The
+      // seg-1 prompt that landed in the textarea ALREADY contains the
+      // full VOICE CHARACTER (LOCKED) line from buildVeoLocks, so we
+      // do NOT append a separate "Voice direction:" — that would
+      // double-stamp the voice and risk Veo picking the wrong one.
+      // Likewise, STANDARD_LOCKS is only appended for legacy rows
+      // whose prompt was generated BEFORE buildVeoLocks existed
+      // (no DIALOG LENGTH LOCK / AUDIO LOCK markers); modern rows
+      // already have the comprehensive lock block baked in.
+      //
+      // voiceId is still tracked in metadata for analytics + so future
+      // /admin pages can audit which voice each extend used, but it
+      // never re-enters the prompt text.
       const voiceLine = voiceId ? VOICE_MAP[voiceId] : "";
       const promptHasLocks =
-        /DIALOG LENGTH LOCK:|AUDIO LOCK:|ANATOMY LOCK:|CLEAN FRAME LOCK/.test(
+        /DIALOG LENGTH LOCK:|AUDIO LOCK:|ANATOMY LOCK:|CLEAN FRAME LOCK|VOICE CHARACTER/.test(
           seg2Prompt
         );
       const fullPrompt =
-        seg2Prompt.trim() +
-        (voiceLine ? `\n\nVoice direction: ${voiceLine}` : "") +
-        (promptHasLocks ? "" : STANDARD_LOCKS);
+        seg2Prompt.trim() + (promptHasLocks ? "" : STANDARD_LOCKS);
 
       // 4. Fire seg-2 Crun task using the resolved start frame.
       // Prefer the i2v model so we can use "frame" mode (start frame =

@@ -63,6 +63,43 @@ export function getVoiceDescription(id?: string | null): string {
   return getVoice(id)?.description || "";
 }
 
+// Persona → Veo voice ID picker for Auto Content. The user selects
+// gender + age in the Auto Content form but doesn't pick a specific
+// Veo voice (unlike UGC tab which exposes the full dropdown). Without
+// a voice ID, buildVeoLocks falls back to a generic string description
+// like "Malay woman voice in her 30s, warm friendly tone…" which Veo's
+// TTS interprets loosely — different videos in the same batch can end
+// up with subtly different voice characters, breaking continuity.
+//
+// This picker maps (gender, age) → one specific Veo voice ID so the
+// LOCK line resolves to a real catalog entry like "Callirrhoe — Female,
+// easy-going, mid-pitch. Natural conversational tone." — same format
+// UGC tab uses. Same persona = same voice across the entire batch AND
+// across any future Extend segment, so seg-1 → seg-2 continuity is
+// preserved.
+//
+// Picks favor the most natural Malay-conversational match for each
+// persona (warm/friendly for adults, youthful for 20s, mature/warm
+// for makcik/nenek). One canonical voice per persona — no rotation,
+// so retries / extends always land on the same voice.
+export type AutoContentAge = "20s" | "30s" | "40s" | "55+";
+export function pickAutoContentVoice(
+  gender: "male" | "female",
+  age: AutoContentAge
+): string {
+  if (gender === "female") {
+    if (age === "20s") return "leda";          // youthful, mid-high — Gen Z energy
+    if (age === "30s") return "callirrhoe";    // easy-going, mid — bestie tone
+    if (age === "40s") return "gacrux";        // mature, mid — makcik warmth
+    return "vindemiatrix";                     // 55+: gentle, mid — nenek calm
+  }
+  // male
+  if (age === "20s") return "fenrir";          // excitable, younger — hype
+  if (age === "30s") return "achird";          // friendly, mid — warm confident
+  if (age === "40s") return "alnilam";         // firm, mid-low — pakcik steady
+  return "charon";                             // 55+: informative, lower — atok authority
+}
+
 // The full lock block appended to every Veo prompt — same wording across
 // manual UGC, the UGC AI agent, and Auto Content. When a voice is chosen
 // its description is embedded inside the AUDIO LOCK as VOICE CHARACTER
