@@ -1574,7 +1574,14 @@ CRITICAL OUTPUT RULES:
   const histories: any[] = [];
   await Promise.all(
     plans.map(async (item, idx) => {
-      const refImages = imagesForVideo(idx);
+      const rawRefImages = imagesForVideo(idx);
+      // Veo r2v benefits from the [u,u,u] triplicate (tighter product
+      // anchoring), but Grok i2v doesn't — duplicates just bloat the
+      // payload. For Grok, de-dupe to the distinct image URLs only.
+      const refImages =
+        providerChoice === "grok"
+          ? Array.from(new Set(rawRefImages)).slice(0, 7)
+          : rawRefImages;
       const refImage = refImages[0] || "";
       const useIngredient = refImages.length > 0;
       // Grok uses a generic "grok-imagine" model string — p6CreateVideo's
