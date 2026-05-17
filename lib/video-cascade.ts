@@ -29,10 +29,15 @@ import { getP2Config } from "@/lib/settings";
 import {
   getVideoMainSlots,
   getVideoFallbackSlots,
+  getGrokMainSlots,
+  getGrokFallbackSlots,
+  getCinemaMainSlots,
+  getCinemaFallbackSlots,
   nextMainStartIndex,
   nextFallbackStartIndex,
   slotToProvider,
   type SlotProvider,
+  type CascadeAsset,
 } from "@/lib/cascade-rotation";
 
 export type VideoCascadeProvider = "p1" | "p2" | "p5" | "p6";
@@ -53,6 +58,12 @@ export type VideoCascadeInput = {
    *  of MAIN. Set by /api/history/retry + auto-resubmit cron.
    *  Default false = first fire on a main slot. */
   retry?: boolean;
+  /** Which cascade pool to draw from. Defaults to "video" (UGC + Auto
+   *  Content + Veo cinema). "grok" routes through the Grok cascade
+   *  (typically p6-a..h). "cinema" routes through the Cinema (Seedance)
+   *  cascade (p1 + p6). Each asset has independent slot lists +
+   *  round-robin counters in lib/cascade-rotation.ts. */
+  asset?: "video" | "grok" | "cinema";
 };
 
 export type VideoCascadeTierLog = {
@@ -193,18 +204,35 @@ export async function generateVideoWithCascade(
   const tierLog: VideoCascadeTierLog[] = [];
   const imageCount = input.imageUrls?.length || 0;
 
+  // Pick the slot pool based on asset:
+  //   • "video"  (default) — UGC + Auto Content + Veo (Viral talking-object)
+  //   • "grok"   — new Grok tab + cinema route when modelChoice='grok'
+  //   • "cinema" — Seedance tab
+  // Each asset has its own main/fallback lists + independent round-robin
+  // counters so admins can tune providers per-feature without one
+  // tab's traffic affecting another's rotation.
+  const asset: CascadeAsset = input.asset || "video";
+  const getMains =
+    asset === "grok"
+      ? getGrokMainSlots
+      : asset === "cinema"
+        ? getCinemaMainSlots
+        : getVideoMainSlots;
+  const getFbs =
+    asset === "grok"
+      ? getGrokFallbackSlots
+      : asset === "cinema"
+        ? getCinemaFallbackSlots
+        : getVideoFallbackSlots;
+
   // SINGLE-SHOT per user direction. Two modes:
   //   retry=false (initial fire): pick ONE main slot via round-robin
   //   retry=true  (resubmit / auto-cron): pick ONE fallback slot via
   //                                       independent round-robin
-  // If the picked slot fails, row stays failed. User/cron triggers
-  // the next attempt → counter advances → different slot next time.
-  const slots = input.retry
-    ? await getVideoFallbackSlots()
-    : await getVideoMainSlots();
+  const slots = input.retry ? await getFbs() : await getMains();
   let startIdx = input.retry
-    ? await nextFallbackStartIndex("video", slots)
-    : await nextMainStartIndex("video", slots);
+    ? await nextFallbackStartIndex(asset, slots)
+    : await nextMainStartIndex(asset, slots);
 
   // skipSlot: if rotation landed on the same slot that just failed,
   // advance to the next non-none slot.

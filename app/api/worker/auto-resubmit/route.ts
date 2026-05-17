@@ -176,6 +176,18 @@ export async function GET(req: Request) {
       if (parts.length >= 2) skipSlot = parts[1];
     }
 
+    // Match the row's original cascade pool so the fallback rotation
+    // stays in the right family (Grok rows → grok cascade, Seedance
+    // rows → cinema cascade, everything else → video cascade).
+    let asset: "video" | "grok" | "cinema" = "video";
+    if (row.tab === "seedance") asset = "cinema";
+    else if (
+      row.tab === "cinema" &&
+      (meta.modelChoice === "grok" || /grok/i.test(model))
+    ) {
+      asset = "grok";
+    }
+
     const r = await generateVideoWithCascade({
       primaryModel: model,
       userId: row.user_id,
@@ -186,6 +198,7 @@ export async function GET(req: Request) {
       imageMode,
       skipSlot,
       retry: true,
+      asset,
     });
 
     if (!r.ok) {

@@ -1,9 +1,9 @@
 import { NextResponse, after } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { p2CreateTask } from "@/lib/p2";
 import { hasEnoughCredits } from "@/lib/deduct";
 import { getSeedanceRate } from "@/lib/settings";
+import { generateVideoWithCascade } from "@/lib/video-cascade";
 
 // POST /api/generate/seedance — manual Seedance 2.0 Fast generation.
 //
@@ -115,31 +115,33 @@ export async function POST(req: Request) {
 
   after(async () => {
     try {
-      // Pass model="seedance" — pickProvider routes to gen_provider_seedance.
-      // P1 expands this to "seedance-2-omni"; P2 swaps to t2v/r2v based on refs.
-      const created = await p2CreateTask({
-        model: "seedance",
+      // Route Seedance through the Cinema cascade so admin can rotate
+      // across p1 (GeminiGen) + p6-a..h (APIPod). Each slot's
+      // CreateVideo handles the model id mapping internally
+      // (p6CreateVideo → seedance-2.0-fast-t2v / -i2v / -r2v;
+      //  p1CreateTask → seedance-2-omni).
+      const imgMode: "frame" | "ingredient" | "text" =
+        hasRefs ? "ingredient" : "text";
+      const result = await generateVideoWithCascade({
+        primaryModel: "seedance",
         userId: user.id,
         prompt,
         imageUrls,
-        videoUrls,
-        audioUrls,
-        durationMode: duration,
+        durationMode: String(duration),
         aspectRatio,
-        resolution: "720p",
-        extra: { mode: "fast" },
+        imageMode: imgMode,
+        asset: "cinema",
       });
 
-      const provider = created.provider || "p2";
-      if (!created.ok || !created.task_id) {
+      if (!result.ok) {
         await admin.from("history").update({
           status: "failed",
           cost,
-          error_message: created.error || "Seedance create failed",
+          error_message: result.error || "Seedance create failed",
           metadata: {
             aspectRatio,
             seedance_mode: hasRefs ? "r2v" : "t2v",
-            provider,
+            tier_log: result.tierLog,
             upload_status: "failed",
           },
         }).eq("id", historyId);
@@ -147,13 +149,17 @@ export async function POST(req: Request) {
       }
 
       await admin.from("history").update({
-        task_id: created.task_id,
+        task_id: result.taskId,
         cost,
         metadata: {
           aspectRatio,
           seedance_mode: hasRefs ? "r2v" : "t2v",
-          provider,
-          model: provider === "p1" ? "seedance-2-omni" : (hasRefs ? "bytedance/seedance2-0-fast-r2v" : "bytedance/seedance2-0-fast-t2v"),
+          provider: result.actualProvider,
+          slot: result.actualSlot,
+          ...(result.keyIndex !== undefined ? { p6_key_index: result.keyIndex } : {}),
+          model: result.actualModel,
+          fallback_used: result.fallbackUsed,
+          tier_log: result.tierLog,
           ref_image_count: imageUrls.length,
           ref_video_count: videoUrls.length,
           ref_audio_count: audioUrls.length,

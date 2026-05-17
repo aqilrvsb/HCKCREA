@@ -182,6 +182,10 @@ export async function POST(req: Request) {
         durationMode: String(duration),
         aspectRatio,
         imageMode: imgMode,
+        // Grok routes through the Grok cascade (typically p6-a..h);
+        // Veo stays on the Video cascade. Each has its own admin-tuned
+        // main+fallback pool + independent round-robin counter.
+        asset: modelChoice === "grok" ? "grok" : "video",
       });
       if (result.ok) {
         createdOk = true;

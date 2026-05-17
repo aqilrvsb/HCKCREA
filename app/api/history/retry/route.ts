@@ -254,6 +254,20 @@ export async function POST(req: Request) {
       );
     }
 
+    // Asset detection — match the cascade pool the row originally
+    // fired through so the fallback round-robin uses the same family:
+    //   • Seedance rows → tab='seedance' → cinema cascade
+    //   • Grok rows     → tab='cinema' + modelChoice='grok' → grok cascade
+    //   • Everything else (UGC, Auto, Veo viral, clone) → video cascade
+    let asset: "video" | "grok" | "cinema" = "video";
+    if (row.tab === "seedance") asset = "cinema";
+    else if (
+      row.tab === "cinema" &&
+      (meta.modelChoice === "grok" || /grok/i.test(model))
+    ) {
+      asset = "grok";
+    }
+
     const r = await generateVideoWithCascade({
       primaryModel: model,
       userId: actingUserId,
@@ -264,6 +278,7 @@ export async function POST(req: Request) {
       imageMode,
       skipSlot,
       retry: true,
+      asset,
     });
     if (r.ok) {
       newTaskId = r.taskId;

@@ -134,7 +134,17 @@ export default function AdminSettings() {
   const [imageFallbackCount, setImageFallbackCount] = useState(10);
   const [imageMainSlots, setImageMainSlots] = useState<SlotI[]>([]);
   const [imageFallbackSlots, setImageFallbackSlots] = useState<SlotI[]>([]);
-  const [savingMfSlots, setSavingMfSlots] = useState<"video" | "image" | null>(null);
+  // Grok + Cinema cascades — same pool of providers as video (Grok and
+  // Seedance both go through video-shaped slots).
+  const [grokMainCount, setGrokMainCount] = useState(10);
+  const [grokFallbackCount, setGrokFallbackCount] = useState(10);
+  const [grokMainSlots, setGrokMainSlots] = useState<SlotV[]>([]);
+  const [grokFallbackSlots, setGrokFallbackSlots] = useState<SlotV[]>([]);
+  const [cinemaMainCount, setCinemaMainCount] = useState(10);
+  const [cinemaFallbackCount, setCinemaFallbackCount] = useState(10);
+  const [cinemaMainSlots, setCinemaMainSlots] = useState<SlotV[]>([]);
+  const [cinemaFallbackSlots, setCinemaFallbackSlots] = useState<SlotV[]>([]);
+  const [savingMfSlots, setSavingMfSlots] = useState<"video" | "image" | "grok" | "cinema" | null>(null);
   const [mfSlotsMsg, setMfSlotsMsg] = useState<string | null>(null);
 
   useEffect(() => {
@@ -270,20 +280,86 @@ export default function AdminSettings() {
           const cnt = (list.find((r) => r.key === "image_fallback_count")?.value?.count) || 10;
           setImageFallbackSlots(fitArr<SlotI>(arr, cnt, allowedI));
         }
+        // Grok cascade
+        if (row.key === "grok_main_count") {
+          const n = Number(row.value?.count);
+          if (Number.isFinite(n) && n >= 1) setGrokMainCount(Math.floor(n));
+        }
+        if (row.key === "grok_fallback_count") {
+          const n = Number(row.value?.count);
+          if (Number.isFinite(n) && n >= 1) setGrokFallbackCount(Math.floor(n));
+        }
+        if (row.key === "grok_main_slots") {
+          const arr = Array.isArray(row.value?.slots) ? row.value.slots : [];
+          const cnt = (list.find((r) => r.key === "grok_main_count")?.value?.count) || 10;
+          setGrokMainSlots(fitArr<SlotV>(arr, cnt, allowedV));
+        }
+        if (row.key === "grok_fallback_slots") {
+          const arr = Array.isArray(row.value?.slots) ? row.value.slots : [];
+          const cnt = (list.find((r) => r.key === "grok_fallback_count")?.value?.count) || 10;
+          setGrokFallbackSlots(fitArr<SlotV>(arr, cnt, allowedV));
+        }
+        // Cinema (Seedance) cascade
+        if (row.key === "cinema_main_count") {
+          const n = Number(row.value?.count);
+          if (Number.isFinite(n) && n >= 1) setCinemaMainCount(Math.floor(n));
+        }
+        if (row.key === "cinema_fallback_count") {
+          const n = Number(row.value?.count);
+          if (Number.isFinite(n) && n >= 1) setCinemaFallbackCount(Math.floor(n));
+        }
+        if (row.key === "cinema_main_slots") {
+          const arr = Array.isArray(row.value?.slots) ? row.value.slots : [];
+          const cnt = (list.find((r) => r.key === "cinema_main_count")?.value?.count) || 10;
+          setCinemaMainSlots(fitArr<SlotV>(arr, cnt, allowedV));
+        }
+        if (row.key === "cinema_fallback_slots") {
+          const arr = Array.isArray(row.value?.slots) ? row.value.slots : [];
+          const cnt = (list.find((r) => r.key === "cinema_fallback_count")?.value?.count) || 10;
+          setCinemaFallbackSlots(fitArr<SlotV>(arr, cnt, allowedV));
+        }
       }
     } finally {
       setLoading(false);
     }
   }
 
-  async function saveMainFallback(asset: "video" | "image") {
+  async function saveMainFallback(asset: "video" | "image" | "grok" | "cinema") {
     setSavingMfSlots(asset);
     setMfSlotsMsg(null);
     try {
-      const mainCount = asset === "video" ? videoMainCount : imageMainCount;
-      const fbCount = asset === "video" ? videoFallbackCount : imageFallbackCount;
-      const main = asset === "video" ? videoMainSlots : imageMainSlots;
-      const fb = asset === "video" ? videoFallbackSlots : imageFallbackSlots;
+      const mainCount =
+        asset === "video"
+          ? videoMainCount
+          : asset === "image"
+            ? imageMainCount
+            : asset === "grok"
+              ? grokMainCount
+              : cinemaMainCount;
+      const fbCount =
+        asset === "video"
+          ? videoFallbackCount
+          : asset === "image"
+            ? imageFallbackCount
+            : asset === "grok"
+              ? grokFallbackCount
+              : cinemaFallbackCount;
+      const main =
+        asset === "video"
+          ? videoMainSlots
+          : asset === "image"
+            ? imageMainSlots
+            : asset === "grok"
+              ? grokMainSlots
+              : cinemaMainSlots;
+      const fb =
+        asset === "video"
+          ? videoFallbackSlots
+          : asset === "image"
+            ? imageFallbackSlots
+            : asset === "grok"
+              ? grokFallbackSlots
+              : cinemaFallbackSlots;
       const calls = [
         { key: `${asset}_main_count`, value: { count: mainCount } },
         { key: `${asset}_fallback_count`, value: { count: fbCount } },
@@ -734,7 +810,7 @@ export default function AdminSettings() {
           Admin can grow / shrink each list with + / - buttons. */}
       {(() => {
         const assets: Array<{
-          asset: "video" | "image";
+          asset: "video" | "image" | "grok" | "cinema";
           color: string;
           options: { value: string; label: string }[];
           mainCount: number;
@@ -800,6 +876,60 @@ export default function AdminSettings() {
             setMainSlots: (s) => setImageMainSlots(s as SlotI[]),
             fbSlots: imageFallbackSlots,
             setFbSlots: (s) => setImageFallbackSlots(s as SlotI[]),
+          },
+          {
+            asset: "grok",
+            color: "#fb923c",
+            options: [
+              { value: "p1", label: "P1 — GeminiGen" },
+              { value: "p2-a", label: "P2 — Crun (key A)" },
+              { value: "p2-b", label: "P2 — Crun (key B)" },
+              { value: "p5", label: "P5 — APIMart" },
+              { value: "p6-a", label: "P6 — APIPod (A)" },
+              { value: "p6-b", label: "P6 — APIPod (B)" },
+              { value: "p6-c", label: "P6 — APIPod (C)" },
+              { value: "p6-d", label: "P6 — APIPod (D)" },
+              { value: "p6-e", label: "P6 — APIPod (E)" },
+              { value: "p6-f", label: "P6 — APIPod (F)" },
+              { value: "p6-g", label: "P6 — APIPod (G)" },
+              { value: "p6-h", label: "P6 — APIPod (H)" },
+              { value: "none", label: "— None —" },
+            ],
+            mainCount: grokMainCount,
+            setMainCount: setGrokMainCount,
+            fbCount: grokFallbackCount,
+            setFbCount: setGrokFallbackCount,
+            mainSlots: grokMainSlots,
+            setMainSlots: (s) => setGrokMainSlots(s as SlotV[]),
+            fbSlots: grokFallbackSlots,
+            setFbSlots: (s) => setGrokFallbackSlots(s as SlotV[]),
+          },
+          {
+            asset: "cinema",
+            color: "#22d3ee",
+            options: [
+              { value: "p1", label: "P1 — GeminiGen" },
+              { value: "p2-a", label: "P2 — Crun (key A)" },
+              { value: "p2-b", label: "P2 — Crun (key B)" },
+              { value: "p5", label: "P5 — APIMart" },
+              { value: "p6-a", label: "P6 — APIPod (A)" },
+              { value: "p6-b", label: "P6 — APIPod (B)" },
+              { value: "p6-c", label: "P6 — APIPod (C)" },
+              { value: "p6-d", label: "P6 — APIPod (D)" },
+              { value: "p6-e", label: "P6 — APIPod (E)" },
+              { value: "p6-f", label: "P6 — APIPod (F)" },
+              { value: "p6-g", label: "P6 — APIPod (G)" },
+              { value: "p6-h", label: "P6 — APIPod (H)" },
+              { value: "none", label: "— None —" },
+            ],
+            mainCount: cinemaMainCount,
+            setMainCount: setCinemaMainCount,
+            fbCount: cinemaFallbackCount,
+            setFbCount: setCinemaFallbackCount,
+            mainSlots: cinemaMainSlots,
+            setMainSlots: (s) => setCinemaMainSlots(s as SlotV[]),
+            fbSlots: cinemaFallbackSlots,
+            setFbSlots: (s) => setCinemaFallbackSlots(s as SlotV[]),
           },
         ];
         return (
@@ -945,39 +1075,6 @@ export default function AdminSettings() {
           </div>
         );
       })()}
-
-      {/* Cinema (Seedance) — locked to P1. No cascade fallback, single
-          provider per user direction. Image / Video / Story routing
-          is handled by the Main+Fallback card above. */}
-      <div className="card p-6 mb-6 border-2 border-orange-100 bg-orange-50/40">
-        <div className="flex items-center gap-2 mb-1">
-          <Cpu className="w-5 h-5 text-orange" />
-          <h2 className="font-display font-bold text-lg">Cinema — Seedance</h2>
-        </div>
-        <p className="text-sm text-[var(--color-text-secondary)] mb-4">
-          Seedance 2.0 Fast is locked to <strong>P1 (GeminiGen)</strong> with no fallback.
-          Image, Video (Veo), and Story (Grok) routing is handled by the
-          Cascade — Main + Fallback card at the top.
-        </p>
-        <div
-          className="rounded-xl p-4 inline-flex items-center gap-3"
-          style={{ background: "white", border: "1px solid var(--color-border)" }}
-        >
-          <Film className="w-4 h-4 text-orange" />
-          <div>
-            <div className="font-bold text-sm">Cinema (Seedance 2.0 Fast)</div>
-            <div className="text-[11px] text-[var(--color-text-muted)]">
-              Routes directly to P1 — no cascade
-            </div>
-          </div>
-          <div
-            className="ml-4 px-3 py-1 rounded-lg text-sm font-bold"
-            style={{ background: "rgba(245,158,11,0.15)", color: "#d97706" }}
-          >
-            P1
-          </div>
-        </div>
-      </div>
 
       {/* Per-model pricing — one editable knob per generation model so
           admin can tune costs without editing JSON. Values persist as

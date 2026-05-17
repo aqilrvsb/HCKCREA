@@ -48,6 +48,12 @@ const DEFAULT_VIDEO_MAIN: SlotProvider[] = ["p6-a", "p6-b", "p6-c", "p2-a", "p2-
 const DEFAULT_VIDEO_FALLBACK: SlotProvider[] = ["p5", "p1", "none", "none", "none", "none", "none", "none", "none", "none"];
 const DEFAULT_IMAGE_MAIN: SlotProvider[] = ["p4", "p5", "p6-a", "p2-a", "none", "none", "none", "none", "none", "none"];
 const DEFAULT_IMAGE_FALLBACK: SlotProvider[] = ["p2-b", "p1", "none", "none", "none", "none", "none", "none", "none", "none"];
+// Grok runs on APIPod (p6) primarily. Crun + APIMart support Grok too.
+const DEFAULT_GROK_MAIN: SlotProvider[] = ["p6-a", "p6-b", "p6-c", "none", "none", "none", "none", "none", "none", "none"];
+const DEFAULT_GROK_FALLBACK: SlotProvider[] = ["p2-a", "p5", "none", "none", "none", "none", "none", "none", "none", "none"];
+// Cinema/Seedance runs on GeminiGen (p1) + APIPod (p6).
+const DEFAULT_CINEMA_MAIN: SlotProvider[] = ["p1", "p6-a", "none", "none", "none", "none", "none", "none", "none", "none"];
+const DEFAULT_CINEMA_FALLBACK: SlotProvider[] = ["p6-b", "p6-c", "none", "none", "none", "none", "none", "none", "none", "none"];
 
 function sanitizeSlotList(
   raw: unknown,
@@ -102,13 +108,47 @@ export async function getImageFallbackSlots(): Promise<SlotProvider[]> {
   return sanitizeSlotList(raw?.slots, count, IMAGE_ALLOWED, DEFAULT_IMAGE_FALLBACK);
 }
 
+export async function getGrokMainSlots(): Promise<SlotProvider[]> {
+  const [count, raw] = await Promise.all([
+    getSlotCount("grok_main_count"),
+    getSetting<{ slots: SlotProvider[] }>("grok_main_slots"),
+  ]);
+  return sanitizeSlotList(raw?.slots, count, VIDEO_ALLOWED, DEFAULT_GROK_MAIN);
+}
+
+export async function getGrokFallbackSlots(): Promise<SlotProvider[]> {
+  const [count, raw] = await Promise.all([
+    getSlotCount("grok_fallback_count"),
+    getSetting<{ slots: SlotProvider[] }>("grok_fallback_slots"),
+  ]);
+  return sanitizeSlotList(raw?.slots, count, VIDEO_ALLOWED, DEFAULT_GROK_FALLBACK);
+}
+
+export async function getCinemaMainSlots(): Promise<SlotProvider[]> {
+  const [count, raw] = await Promise.all([
+    getSlotCount("cinema_main_count"),
+    getSetting<{ slots: SlotProvider[] }>("cinema_main_slots"),
+  ]);
+  return sanitizeSlotList(raw?.slots, count, VIDEO_ALLOWED, DEFAULT_CINEMA_MAIN);
+}
+
+export async function getCinemaFallbackSlots(): Promise<SlotProvider[]> {
+  const [count, raw] = await Promise.all([
+    getSlotCount("cinema_fallback_count"),
+    getSetting<{ slots: SlotProvider[] }>("cinema_fallback_slots"),
+  ]);
+  return sanitizeSlotList(raw?.slots, count, VIDEO_ALLOWED, DEFAULT_CINEMA_FALLBACK);
+}
+
+export type CascadeAsset = "video" | "image" | "grok" | "cinema";
+
 // Atomic round-robin counter for either MAIN or FALLBACK slot list.
 // Two separate counters per asset so main/fallback rotation are
 // independent. Skips "none" entries — counter only advances across
 // enabled slots so distribution stays even regardless of how many
 // are disabled.
 async function nextRoundRobinIndex(
-  asset: "video" | "image",
+  asset: CascadeAsset,
   kind: "main" | "fallback",
   slots: SlotProvider[]
 ): Promise<number> {
@@ -120,8 +160,8 @@ async function nextRoundRobinIndex(
   const admin = createAdminClient();
   const counterKey =
     kind === "main"
-      ? (asset === "video" ? "video_rotation_counter" : "image_rotation_counter")
-      : (asset === "video" ? "video_fallback_counter" : "image_fallback_counter");
+      ? `${asset}_rotation_counter`
+      : `${asset}_fallback_counter`;
   let counter = 0;
 
   try {
@@ -153,14 +193,14 @@ async function nextRoundRobinIndex(
 }
 
 export async function nextMainStartIndex(
-  asset: "video" | "image",
+  asset: CascadeAsset,
   mainSlots: SlotProvider[]
 ): Promise<number> {
   return nextRoundRobinIndex(asset, "main", mainSlots);
 }
 
 export async function nextFallbackStartIndex(
-  asset: "video" | "image",
+  asset: CascadeAsset,
   fallbackSlots: SlotProvider[]
 ): Promise<number> {
   return nextRoundRobinIndex(asset, "fallback", fallbackSlots);

@@ -42,7 +42,7 @@ export default function GrokTab({ projectId }: { projectId?: string } = {}) {
 
   useEffect(() => {
     let cancel = false;
-    fetch("/api/cinema/rate", { cache: "no-store" })
+    fetch("/api/grok/rate", { cache: "no-store" })
       .then((r) => r.json())
       .then((d) => {
         if (!cancel && typeof d?.rate === "number") setRatePerSec(d.rate);
