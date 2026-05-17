@@ -321,26 +321,20 @@ async function fireSeg2(parent: Settled, parentOutputUrl: string): Promise<void>
 
   await stampPhase("firing_veo_i2v");
 
-  // 3. Fire seg-2 — use the SAME multi-attachments from seg-1 PLUS
-  // the refined anchor frame as the start frame. Veo treats
-  // imageUrls[0] as the primary visual anchor — we put the refined
-  // last frame there for seamless continuity with seg-1's last frame.
-  // The user's other product attachments (slots 2 and 3) come after
-  // so the product anchoring stays consistent across the merged clip.
-  // Per-model cap is enforced by the cascade slot's CreateVideo.
-  const parentExtraImgs: string[] = Array.isArray(meta.image_urls)
-    ? meta.image_urls.filter(
-        (u: any) => typeof u === "string" && u.trim() && u !== anchorFrameUrl
-      )
-    : [];
-  const seg2ImageUrls = [anchorFrameUrl, ...parentExtraImgs.slice(0, 2)];
-
+  // 3. Fire seg-2 — START FRAME ONLY (the Banana-refined image).
+  //
+  // The product attachment was used UPSTREAM in the Banana Pro
+  // refine step (refineFrameWithProduct combined last-frame +
+  // product → sharp composite). That composite IS the start frame
+  // for Veo i2v — we don't pass the raw product image again here,
+  // it would just confuse Veo. seg-2 is single-image i2v anchored
+  // entirely on the refined frame.
   const cfg = await getP2Config();
   const created = await p2CreateTask({
     model: cfg.videoR2V,
     userId: parent.user_id,
     prompt: seg2Prompt,
-    imageUrls: seg2ImageUrls,
+    imageUrls: [anchorFrameUrl],
     durationMode: "8",
     aspectRatio: meta.aspectRatio || "9:16",
     imageMode: "ingredient",
