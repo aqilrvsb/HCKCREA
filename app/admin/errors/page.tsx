@@ -662,11 +662,11 @@ export default function AdminErrors() {
                       })()}
                     </td>
                     <td
-                      className="px-4 py-3 text-xs text-[var(--color-text-primary)] max-w-[480px]"
+                      className="px-4 py-3 text-xs text-[var(--color-text-primary)] max-w-[640px] align-top"
                       title={r.error}
                     >
                       <div
-                        className="line-clamp-2 break-words"
+                        className="break-words whitespace-pre-wrap"
                         style={{ color: "rgb(248, 113, 113)" }}
                       >
                         {r.error}
