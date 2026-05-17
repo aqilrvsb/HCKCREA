@@ -20,6 +20,12 @@ import { p3CreateImage, p3GetStatus } from "@/lib/p3";
 import { p4CreateImage, p4GetStatus } from "@/lib/p4";
 import { p5CreateImage, p5GetStatus } from "@/lib/p5";
 import { p6CreateImage, p6GetStatus, type P6Slot } from "@/lib/p6";
+import {
+  getImageMainSlots,
+  getImageFallbackSlots,
+  type SlotProvider,
+} from "@/lib/cascade-rotation";
+import { getP2Config } from "@/lib/settings";
 
 const REFINE_PROMPT = [
   "Replace the product visible in the FIRST image with the product from the SECOND image.",
@@ -30,23 +36,11 @@ const REFINE_PROMPT = [
 ].join(" ");
 
 type RefineResult = { ok: true; url: string } | { ok: false; error: string };
-// p6 has multiple slots (p6-a..h); each maps to a different APIPod key.
-// We try a fixed rotation (p6-a → p6-b → p6-c) so refine has multiple
-// chances on APIPod without the caller needing to manage slot state.
-type Provider =
-  | "p1"
-  | "p2"
-  | "p3"
-  | "p4"
-  | "p5"
-  | "p6-a"
-  | "p6-b"
-  | "p6-c"
-  | "p6-d"
-  | "p6-e"
-  | "p6-f"
-  | "p6-g"
-  | "p6-h";
+// Provider identifiers match the SlotProvider type from cascade-rotation
+// so the refine cascade can use the admin-configured image slot list
+// directly. p3 is legacy and not in the image cascade — kept here for
+// pollRefineTask recovery of old in-flight tasks only.
+type Provider = SlotProvider | "p2" | "p3";
 
 type RefineOpts = {
   frameUrl: string;
@@ -79,15 +73,33 @@ async function tryRefineOn(
   let taskId: string | null = null;
   let createError: string | null = null;
   try {
-    if (provider === "p2") {
-      const r = await p2CreateTask({
-        model: "google/nano-banana-pro",
-        prompt: REFINE_PROMPT,
-        imageUrls,
-        aspectRatio: aspect,
-      });
-      taskId = r.ok ? (r.task_id ?? null) : null;
-      createError = r.ok ? null : (r.error ?? null);
+    if (provider === "p2" || provider === "p2-a" || provider === "p2-b") {
+      // p2-b uses the secondary Crun key from app_settings.p2_key_b.
+      // "p2" / "p2-a" → primary key (no override). NO userId is passed
+      // on any of these calls — refine is internal infra for the
+      // extend/16s chain and must NEVER deduct user credits.
+      let apiKeyOverride: string | undefined;
+      let skipCreate = false;
+      if (provider === "p2-b") {
+        const cfg = await getP2Config();
+        if (!cfg.keyB) {
+          createError = "p2_key_b not configured";
+          skipCreate = true;
+        } else {
+          apiKeyOverride = cfg.keyB;
+        }
+      }
+      if (!skipCreate) {
+        const r = await p2CreateTask({
+          model: "google/nano-banana-pro",
+          prompt: REFINE_PROMPT,
+          imageUrls,
+          aspectRatio: aspect,
+          apiKeyOverride,
+        });
+        taskId = r.ok ? (r.task_id ?? null) : null;
+        createError = r.ok ? null : (r.error ?? null);
+      }
     } else if (provider === "p1") {
       const r = await p1CreateTask({
         model: "nano-banana-pro",
@@ -283,29 +295,34 @@ export async function refineFrameWithProduct(
 
   const tierLog: string[] = [];
 
-  // Wide nano-banana-pro cascade — every provider that supports the
-  // model is in the rotation so the refine NEVER falls back to a
-  // different model or to the raw frame. Order tuned for typical
-  // production reliability:
-  //   p4 (Grsai)   — cheapest + most stable for Banana Pro
-  //   p2 (Crun)    — fast, reliable
-  //   p6-a..c      — APIPod multi-key (3 attempts on different keys)
-  //   p5 (APIMart) — cross-vendor backup
-  //   p1 (GeminiGen) — direct Google
-  //   p3 (Mountsea) — legacy backstop
-  // If ALL fail, the caller decides whether to fail the chain or
-  // accept the raw frame. segment-chain.ts is strict and fails the
-  // chain; the manual extend dialog falls back to [product, frame].
-  const cascade: Provider[] = [
-    "p4",
-    "p2",
-    "p6-a",
-    "p6-b",
-    "p6-c",
-    "p5",
-    "p1",
-    "p3",
-  ];
+  // The refine cascade follows the admin's IMAGE CASCADE setting at
+  // /admin/settings → Cascade — Main + Fallback → IMAGE section.
+  // Walk order: every Main slot in admin's exact order, then every
+  // Fallback slot. "none" entries skipped. Every tier runs
+  // nano-banana-pro — never a different model.
+  //
+  // No userId is threaded down to any provider's CreateTask call —
+  // refine is internal infrastructure for the extend / 16s chain
+  // (and the manual UGC Extend dialog) and must NEVER deduct user
+  // credits. The user pays once for the extend or 16s clip; the
+  // refine is bundled into that cost.
+  const [mainSlots, fallbackSlots] = await Promise.all([
+    getImageMainSlots(),
+    getImageFallbackSlots(),
+  ]);
+  const cascade: Provider[] = [];
+  for (const s of [...mainSlots, ...fallbackSlots]) {
+    if (s === "none") continue;
+    cascade.push(s as Provider);
+  }
+  if (cascade.length === 0) {
+    return {
+      ok: false,
+      error: "No image cascade configured at /admin/settings",
+      tierLog,
+    };
+  }
+
   for (const provider of cascade) {
     const r = await tryRefineOn(provider, opts);
     tierLog.push(`${provider}:${r.ok ? "ok" : "fail"}${r.ok ? "" : ` (${r.error})`}`);
