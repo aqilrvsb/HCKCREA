@@ -212,11 +212,7 @@ export default async function AffiliateLandingPage() {
             <div className="flex flex-wrap items-center gap-6 text-xs text-white/60">
               <div className="inline-flex items-center gap-1.5">
                 <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-                30-hari Pro Plan PERCUMA
-              </div>
-              <div className="inline-flex items-center gap-1.5">
-                <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-                10 free credit
+                2-hari Pro Plan PERCUMA
               </div>
               <div className="inline-flex items-center gap-1.5">
                 <CheckCircle2 className="w-4 h-4 text-emerald-400" />
@@ -410,8 +406,8 @@ export default async function AffiliateLandingPage() {
               />
               <Perk
                 icon={Zap}
-                title="30-hari Pro Plan free + 10 credit"
-                body="Cuba semua tools dulu. Generate content sendiri untuk promote organic."
+                title="2-hari Pro Plan free + credit signup"
+                body="Cuba semua tools dulu. Generate content sendiri untuk promote organic. Lepas tu renewal Pro Plan macam biasa."
               />
               <Perk
                 icon={Globe}

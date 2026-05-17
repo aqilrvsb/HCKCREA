@@ -11,10 +11,17 @@ import { getSetting } from "@/lib/settings";
 //
 // On approve, the row triggers user creation:
 //   - Supabase auth user with the application's email + temp password
-//   - profiles row: plan="pro", plan_expires_at=now+30d, credits=10,
+//   - profiles row: plan="pro", plan_expires_at=now+2d (short trial),
+//     credits=<affiliate_signup_credits setting, default 10>,
 //     referral_code=first 8 hex chars of user.id (upper)
 //   - Login details (email + temp password) sent to the applicant
 //     via WhatsApp Center using the same template as paid signups.
+//
+// The Pro trial is intentionally short (2 days) so affiliates renew on
+// the standard RM75/mo plan after trying the tools. The affiliate
+// status (referral_code + ability to earn 20% on referrals) persists
+// even after the Pro trial expires, so they keep tracking referrals
+// regardless of plan state.
 
 async function adminGate() {
   const sb = await createClient();
@@ -188,12 +195,13 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Failed to resolve user id" }, { status: 500 });
   }
 
-  // Setup the profile — 30-day Pro plan, N credits, fresh referral_code.
-  // N is configurable via the `affiliate_signup_credits` admin setting
-  // (key in app_settings → { credits: <number> }). Defaults to 10 if the
-  // setting is missing or invalid, matching the pre-config behaviour.
+  // Setup the profile — 2-day Pro trial, N credits, fresh referral_code.
+  // The Pro trial is a short taster so affiliates renew on the standard
+  // RM75/mo plan after. N credits is configurable via the
+  // `affiliate_signup_credits` admin setting (key in app_settings →
+  // { credits: <number> }). Defaults to 10 if missing or invalid.
   const now = new Date();
-  const expiry = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
+  const expiry = new Date(now.getTime() + 2 * 24 * 60 * 60 * 1000);
   const referralCode = userId.replace(/-/g, "").substring(0, 8).toUpperCase();
   const signupCreditsSetting = await getSetting<{ credits: number }>(
     "affiliate_signup_credits"
@@ -280,7 +288,7 @@ export async function POST(req: Request) {
         `Email: ${email}`,
         `WhatsApp: ${whatsapp}`,
         `Referral code: ${referralCode}`,
-        `Plan: Pro · 30 days · 10 credits`,
+        `Plan: Pro trial · 2 days · ${signupCredits} credits (renews at RM75 after)`,
         `WA login sent: ${waSent ? "yes" : "FAILED — please resend"}`,
       ].join("\n")
     );
