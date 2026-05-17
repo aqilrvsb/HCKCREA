@@ -27,6 +27,7 @@ type ErrorRow = {
   created_at: string;
   prompt: string;
   task_id: string;
+  auto_count: number;
 };
 
 type Counts = { video: number; image: number; total: number };
@@ -556,6 +557,7 @@ export default function AdminErrors() {
                   <th className="px-4 py-3">Tab</th>
                   <th className="px-4 py-3">Provider</th>
                   <th className="px-4 py-3">Model</th>
+                  <th className="px-4 py-3 text-center">Auto Retries</th>
                   <th className="px-4 py-3">Error</th>
                   <th className="px-4 py-3 text-right">Action</th>
                 </tr>
@@ -620,6 +622,44 @@ export default function AdminErrors() {
                     </td>
                     <td className="px-4 py-3 whitespace-nowrap font-mono text-xs text-[var(--color-text-secondary)]">
                       {r.model || "—"}
+                    </td>
+                    <td className="px-4 py-3 text-center whitespace-nowrap">
+                      {(() => {
+                        const max = 3; // MAX_AUTO_RESUBMIT
+                        const exhausted = r.auto_count >= max;
+                        return (
+                          <span
+                            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-mono font-bold"
+                            style={
+                              exhausted
+                                ? {
+                                    background: "rgba(239, 68, 68, 0.15)",
+                                    color: "rgb(239, 68, 68)",
+                                    border: "1px solid rgba(239, 68, 68, 0.4)",
+                                  }
+                                : r.auto_count > 0
+                                  ? {
+                                      background: "rgba(251, 146, 60, 0.15)",
+                                      color: "rgb(251, 146, 60)",
+                                      border: "1px solid rgba(251, 146, 60, 0.4)",
+                                    }
+                                  : {
+                                      background: "rgba(120, 120, 120, 0.12)",
+                                      color: "rgb(156, 163, 175)",
+                                      border: "1px solid rgba(120, 120, 120, 0.3)",
+                                    }
+                            }
+                            title={
+                              exhausted
+                                ? "Cron won't auto-retry anymore — admin must manually Resubmit"
+                                : `${r.auto_count} of ${max} auto-retries used`
+                            }
+                          >
+                            {r.auto_count} / {max}
+                            {exhausted && " 🚫"}
+                          </span>
+                        );
+                      })()}
                     </td>
                     <td
                       className="px-4 py-3 text-xs text-[var(--color-text-primary)] max-w-[480px]"

@@ -128,6 +128,11 @@ export async function GET(req: Request) {
       created_at: r.created_at,
       prompt: r.prompt || "",
       task_id: r.task_id || "",
+      // How many times the auto-resubmit cron has re-fired this row.
+      // Capped at 3 (MAX_AUTO_RESUBMIT). If a row sits on /admin/errors
+      // with auto_count=3 the cron won't touch it anymore — admin must
+      // manually Resubmit to give it another chance.
+      auto_count: Number(meta.auto_resubmit_count || 0),
     };
   });
 
