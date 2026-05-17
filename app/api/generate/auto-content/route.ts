@@ -282,60 +282,170 @@ export async function POST(req: Request) {
     const is16s = durationMode === "16";
 
     // ─────────────────────────────────────────────────────────────────────
-    // Per-video OUTFIT ASSIGNMENT TABLE — Qwen Flash 3.6 is weak with
-    // "pick from a palette" instructions and defaults to "plain brown".
-    // We pre-compute a deterministic colour + garment + hijab-colour for
-    // every video and inject it into the user prompt as a numbered table
-    // the model MUST copy verbatim. Far more reliable than free choice.
+    // Per-video OUTFIT ASSIGNMENT TABLE — Qwen Flash 3.6 / Gemini Flash
+    // Lite are weak with "pick from a palette" instructions and default
+    // to "plain brown". We pre-compute a deterministic colour + garment
+    // + hijab-colour + VIBE TAG for every video and inject it into the
+    // user prompt as a numbered table the model MUST copy verbatim. Far
+    // more reliable than free choice.
+    //
+    // vibe tags drive ideaStyle-aware filtering (Issue #5 from review):
+    //   formal        → kebaya, blazer, baju kurung kebaya, button-up
+    //   smart-casual  → midi dress, button-up + chinos, henley + blazer
+    //   casual        → loose blouse + maxi skirt, polo, t-shirt + jeans
+    //   lounge        → knit cardigan + maxi, oversized linen, henley
+    //   athleisure    → modest sportswear, joggers, fitness sets
+    //
+    // Palettes expanded to 20 rows each (was 10) so quantity ≤ 20 never
+    // repeats an outfit. Male palette now includes BOTTOMS on every row
+    // (was tops-only — Veo defaulted to generic jeans every time).
+    // Female no-hijab palette de-duplicated (3 rows previously used
+    // "cream wide-leg pants" with only the top colour varied).
     // ─────────────────────────────────────────────────────────────────────
-    type OutfitRow = { color: string; garment: string; hijabColor?: string };
+    type OutfitVibe =
+      | "formal"
+      | "smart-casual"
+      | "casual"
+      | "lounge"
+      | "athleisure";
+    type OutfitRow = {
+      color: string;
+      garment: string;
+      hijabColor?: string;
+      vibe: OutfitVibe;
+    };
     const femaleHijabPalette: OutfitRow[] = [
-      { color: "soft lilac",       garment: "long-sleeve baju kurung with small floral print", hijabColor: "dusty pink" },
-      { color: "emerald green",    garment: "modest kaftan",                                   hijabColor: "cream" },
-      { color: "butter yellow",    garment: "loose linen blouse with cream long maxi skirt",   hijabColor: "sage green" },
-      { color: "navy blue",        garment: "baju kurung kebaya with gold embroidery",         hijabColor: "champagne gold" },
-      { color: "dusty rose",       garment: "long-sleeve modest midi dress",                    hijabColor: "mauve" },
-      { color: "sage mint",        garment: "loose long-sleeve top with white maxi skirt",     hijabColor: "blush pink" },
-      { color: "burgundy",         garment: "modest kurung with cream maxi skirt",             hijabColor: "soft beige" },
-      { color: "powder blue",      garment: "long-sleeve blouse with cream wide-leg pants",    hijabColor: "white" },
-      { color: "mustard yellow",   garment: "modest kaftan with subtle batik print",           hijabColor: "olive" },
-      { color: "blush peach",      garment: "loose long-sleeve top with terracotta long skirt", hijabColor: "ivory" },
+      // ── formal (kebaya, embroidery, evening) ──
+      { color: "navy blue",        garment: "baju kurung kebaya with gold embroidery",          hijabColor: "champagne gold", vibe: "formal" },
+      { color: "emerald green",    garment: "modest kaftan with subtle gold trim",              hijabColor: "cream",          vibe: "formal" },
+      { color: "burgundy",         garment: "modest baju kurung with cream maxi skirt",         hijabColor: "soft beige",     vibe: "formal" },
+      { color: "deep teal",        garment: "kebaya nyonya with traditional motif",             hijabColor: "champagne",      vibe: "formal" },
+      // ── smart-casual (midi dress, structured) ──
+      { color: "dusty rose",       garment: "long-sleeve modest midi dress",                     hijabColor: "mauve",          vibe: "smart-casual" },
+      { color: "soft lilac",       garment: "long-sleeve baju kurung with small floral print",  hijabColor: "dusty pink",     vibe: "smart-casual" },
+      { color: "powder blue",      garment: "long-sleeve blouse with cream wide-leg pants",     hijabColor: "white",          vibe: "smart-casual" },
+      { color: "mustard yellow",   garment: "modest kaftan with subtle batik print",            hijabColor: "olive",          vibe: "smart-casual" },
+      // ── casual (loose blouse + skirt, everyday) ──
+      { color: "butter yellow",    garment: "loose linen blouse with cream long maxi skirt",    hijabColor: "sage green",     vibe: "casual" },
+      { color: "sage mint",        garment: "loose long-sleeve top with white maxi skirt",      hijabColor: "blush pink",     vibe: "casual" },
+      { color: "blush peach",      garment: "loose long-sleeve top with terracotta long skirt", hijabColor: "ivory",          vibe: "casual" },
+      { color: "terracotta",       garment: "modest cotton tunic with cream long pants",        hijabColor: "warm beige",     vibe: "casual" },
+      { color: "dusty sky",        garment: "loose chiffon blouse with charcoal long pants",    hijabColor: "soft grey",      vibe: "casual" },
+      { color: "olive khaki",      garment: "modest long-sleeve top with cream maxi skirt",     hijabColor: "soft sand",      vibe: "casual" },
+      // ── lounge (oversized linen, cardigan) ──
+      { color: "warm taupe",       garment: "oversized linen tunic with relaxed cream pants",   hijabColor: "soft cream",     vibe: "lounge" },
+      { color: "blush mauve",      garment: "knit cardigan over loose tee with maxi skirt",     hijabColor: "soft pink",      vibe: "lounge" },
+      { color: "soft sage",        garment: "loose cotton kaftan with relaxed long pants",      hijabColor: "ivory cream",    vibe: "lounge" },
+      // ── athleisure (aurat-compliant modest sport: loose long-sleeve
+      // tunic that fully covers body shape WORN OVER loose wide-leg
+      // activewear pants — no form-fitting joggers/leggings revealing
+      // body shape, no exposed arms, hijab stays on through movement).
+      { color: "charcoal grey",    garment: "loose long-sleeve modest sport tunic worn over relaxed wide-leg activewear pants (loose-fit, NOT body-hugging)", hijabColor: "soft black", vibe: "athleisure" },
+      { color: "dusty rose",       garment: "long modest sport tunic covering hips, loose wide-leg track pants underneath (full coverage, loose-fit)",          hijabColor: "soft pink",  vibe: "athleisure" },
+      { color: "deep navy",        garment: "loose long-sleeve modest activewear tunic with relaxed wide-leg sport pants (modest aurat-compliant fit)",        hijabColor: "soft grey",  vibe: "athleisure" },
     ];
     const femaleNoHijabPalette: OutfitRow[] = [
-      { color: "soft lilac",       garment: "loose linen blouse with cream wide-leg pants" },
-      { color: "emerald green",    garment: "oversized button-up shirt with cream maxi skirt" },
-      { color: "butter yellow",    garment: "loose short-sleeve blouse with indigo long pants" },
-      { color: "dusty rose",       garment: "knit cardigan over white tee with sage maxi skirt" },
-      { color: "navy blue",        garment: "long-sleeve loose blouse with cream long skirt" },
-      { color: "sage mint",        garment: "oversized linen shirt with cream wide-leg pants" },
-      { color: "burgundy",         garment: "loose long-sleeve top with cream wide-leg pants" },
-      { color: "powder blue",      garment: "loose midi dress with subtle floral print" },
-      { color: "mustard yellow",   garment: "loose short-sleeve blouse with charcoal long pants" },
-      { color: "blush peach",      garment: "knit cardigan over loose white tee with maxi skirt" },
+      // ── formal ──
+      { color: "navy blue",        garment: "tailored blazer over cream blouse with matching long pants", vibe: "formal" },
+      { color: "emerald green",    garment: "structured midi dress with belted waist",          vibe: "formal" },
+      { color: "burgundy",         garment: "satin blouse with high-waisted cream wide-leg pants", vibe: "formal" },
+      // ── smart-casual ──
+      { color: "powder blue",      garment: "loose midi dress with subtle floral print",        vibe: "smart-casual" },
+      { color: "soft lilac",       garment: "loose linen blouse with cream wide-leg pants",     vibe: "smart-casual" },
+      { color: "emerald green",    garment: "oversized button-up shirt with cream maxi skirt",  vibe: "smart-casual" },
+      { color: "dusty rose",       garment: "knit cardigan over white tee with sage maxi skirt", vibe: "smart-casual" },
+      { color: "blush peach",      garment: "knit cardigan over loose white tee with maxi skirt", vibe: "smart-casual" },
+      // ── casual ──
+      { color: "butter yellow",    garment: "loose short-sleeve blouse with indigo long pants", vibe: "casual" },
+      { color: "navy blue",        garment: "long-sleeve loose blouse with cream long skirt",   vibe: "casual" },
+      { color: "sage mint",        garment: "oversized linen shirt with charcoal cropped pants", vibe: "casual" },
+      { color: "burgundy",         garment: "loose long-sleeve top with indigo long jeans",     vibe: "casual" },
+      { color: "mustard yellow",   garment: "loose short-sleeve blouse with charcoal long pants", vibe: "casual" },
+      { color: "terracotta",       garment: "loose cotton blouse with olive cargo pants",       vibe: "casual" },
+      { color: "dusty sky",        garment: "loose chambray shirt with sand-coloured long pants", vibe: "casual" },
+      // ── lounge ──
+      { color: "warm taupe",       garment: "oversized loose linen shirt with relaxed cream pants", vibe: "lounge" },
+      { color: "soft sage",        garment: "loose knit sweater over white tee with relaxed long pants", vibe: "lounge" },
+      // ── athleisure ──
+      { color: "charcoal grey",    garment: "loose sport tee with full-coverage long leggings", vibe: "athleisure" },
+      { color: "dusty rose",       garment: "modest activewear top with matching long joggers", vibe: "athleisure" },
+      { color: "deep navy",        garment: "loose long-sleeve sport top with matching joggers", vibe: "athleisure" },
     ];
     const malePalette: OutfitRow[] = [
-      { color: "charcoal grey",    garment: "polo shirt" },
-      { color: "navy blue",        garment: "lightweight knit sweater" },
-      { color: "forest green",     garment: "henley tee with rolled sleeves" },
-      { color: "burgundy",         garment: "button-up shirt" },
-      { color: "cream beige",      garment: "lightweight blazer over white tee" },
-      { color: "dusty teal",       garment: "polo shirt with subtle stripes" },
-      { color: "sand brown",       garment: "linen button-up shirt" },
-      { color: "deep maroon",      garment: "knit cardigan over white tee" },
-      { color: "indigo blue",      garment: "casual henley tee" },
-      { color: "olive green",      garment: "button-up shirt with rolled sleeves" },
+      // ── formal ──
+      { color: "charcoal grey",    garment: "tailored blazer over white shirt with matching dress pants", vibe: "formal" },
+      { color: "navy blue",        garment: "button-up shirt tucked into charcoal trousers",    vibe: "formal" },
+      { color: "deep maroon",      garment: "kemeja Melayu (formal) with matching slim-fit pants", vibe: "formal" },
+      // ── smart-casual ──
+      { color: "burgundy",         garment: "button-up shirt with charcoal chinos",             vibe: "smart-casual" },
+      { color: "cream beige",      garment: "lightweight blazer over white tee with navy chinos", vibe: "smart-casual" },
+      { color: "olive green",      garment: "button-up shirt with rolled sleeves and sand chinos", vibe: "smart-casual" },
+      { color: "navy blue",        garment: "lightweight knit sweater with charcoal chinos",    vibe: "smart-casual" },
+      // ── casual ──
+      { color: "charcoal grey",    garment: "polo shirt with indigo dark jeans",                vibe: "casual" },
+      { color: "forest green",     garment: "henley tee with rolled sleeves and charcoal jeans", vibe: "casual" },
+      { color: "dusty teal",       garment: "polo shirt with subtle stripes and sand chinos",   vibe: "casual" },
+      { color: "sand brown",       garment: "linen button-up shirt with cream linen pants",     vibe: "casual" },
+      { color: "indigo blue",      garment: "casual henley tee with light-wash jeans",          vibe: "casual" },
+      { color: "warm rust",        garment: "casual button-up shirt with sand cargo pants",     vibe: "casual" },
+      { color: "stone grey",       garment: "long-sleeve henley with dark jeans",               vibe: "casual" },
+      // ── lounge ──
+      { color: "deep maroon",      garment: "knit cardigan over white tee with relaxed grey pants", vibe: "lounge" },
+      { color: "warm taupe",       garment: "oversized loose linen shirt with relaxed cream pants", vibe: "lounge" },
+      { color: "soft charcoal",    garment: "loose henley with relaxed jogger-style pants",     vibe: "lounge" },
+      // ── athleisure ──
+      { color: "charcoal black",   garment: "performance tee with matching sport joggers",      vibe: "athleisure" },
+      { color: "deep navy",        garment: "long-sleeve training top with matching sport pants", vibe: "athleisure" },
+      { color: "olive green",      garment: "sport polo with matching technical joggers",       vibe: "athleisure" },
     ];
-    const basePalette: OutfitRow[] =
+
+    // ── Vibe detection: when ideaStyle is provided, infer the vibe from
+    // keyword matching so the outfit palette can be filtered to match.
+    // Returns null when no clear vibe is detected → caller uses full
+    // palette (current behaviour). Multilingual keyword pool covers
+    // Bahasa Melayu + English since user briefs mix both. ──
+    function detectIdeaVibe(idea: string): OutfitVibe | null {
+      if (!idea) return null;
+      const t = idea.toLowerCase();
+      // athleisure keywords
+      if (/\b(gym|workout|exercise|fitness|yoga|sport|sukan|jogging|run|treadmill|aerobic|crossfit|cycling)\b/.test(t))
+        return "athleisure";
+      // formal keywords (work / office / event / kebaya)
+      if (/\b(office|meeting|kerja|pejabat|formal|gala|dinner|majlis|wedding|kahwin|kebaya|graduation|interview|presentation|raya)\b/.test(t))
+        return "formal";
+      // lounge keywords (cozy / morning / home / sofa)
+      if (/\b(lounge|cozy|relax|santai|morning|pagi|sofa|katil|bed|bedroom|tidur|wfh|home|rumah|coffee|kopi)\b/.test(t))
+        return "lounge";
+      // smart-casual keywords (mirror try-on / shopping / preview)
+      if (/\b(mirror|cermin|preview|try.?on|fitting|outfit|ootd|shopping|shop|brunch|cafe|date|kencan)\b/.test(t))
+        return "smart-casual";
+      // casual keywords (everyday / outdoor / friends)
+      if (/\b(casual|everyday|hari.?hari|outdoor|park|taman|kawan|friends|jalan.?jalan|chill|hangout)\b/.test(t))
+        return "casual";
+      return null;
+    }
+    const detectedVibe = detectIdeaVibe(ideaStyle);
+    const fullPalette: OutfitRow[] =
       gender === "male"
         ? malePalette
         : hijabMode
           ? femaleHijabPalette
           : femaleNoHijabPalette;
 
+    // Vibe filter: when ideaStyle implies a vibe (gym → athleisure,
+    // office → formal, etc.), narrow the palette to outfit rows
+    // tagged with that vibe so the assigned outfit naturally fits the
+    // scene. Falls back to full palette if too few matches.
+    const vibeFiltered = detectedVibe
+      ? fullPalette.filter((o) => o.vibe === detectedVibe)
+      : fullPalette;
+    const basePalette: OutfitRow[] =
+      vibeFiltered.length >= 3 ? vibeFiltered : fullPalette;
+
     // Shuffle a COPY of the palette per request so every batch gets a
-    // different colour order — without this, every batch starts at
-    // "soft lilac"/"charcoal grey" and the first few videos always
-    // look identical across runs. Fisher-Yates over a clone.
+    // different colour order — without this, every batch starts at the
+    // same row and the first few videos always look identical across
+    // runs. Fisher-Yates over a clone.
     const palette: OutfitRow[] = [...basePalette];
     for (let i = palette.length - 1; i > 0; i--) {
       const j = Math.floor(Math.random() * (i + 1));
@@ -576,14 +686,27 @@ THE RULES (read all 6 before you plan a single video):
        hijab = ${hijabMode ? "YES (tudung labuh, hair fully covered)" : "NO (hair visible, casual modern)"},
        age = ${ageRange}. Every UGC video MUST contain these exact
        attributes. The idea-driven scene must accommodate them.
+     ${hijabMode ? `• AURAT LOCK (Muslim modesty — NON-NEGOTIABLE for hijab persona):
+       Long sleeves to wrist (no exposed arms), hijab covers all hair
+       + ears + neck (no strands), loose-fit garments that don't show
+       body shape (no skin-tight), full leg coverage (no exposed
+       calves/ankles in casual contexts), no cleavage, no midriff.
+       The idea must respect this — e.g. "preview baju depan cermin"
+       NEVER means a sleeveless tank top; it means previewing a
+       modest aurat-compliant outfit.` : ""}
      • CTA LOCK (from <content_settings>) — ${ctaInstruction.split(".")[0]}.
        The idea controls the SCENE, the framework controls the
        DIALOG SHAPE, but the CTA mode controls WHAT WORDS land in
        the 6-8s slot. ${noCta ? "noCta is ON — end with an open outro, never a buy/shop/link line." : shopMode ? "shopMode is ON — last 2s MUST mention 'beg kuning' regardless of how poetic the idea is." : customCtaResolved ? `customCta is set — last 2s MUST use EXACTLY: "${customCtaResolved}".` : "freeCta — write a natural Malay CTA that fits the idea + framework."}
      • OUTFIT LOCK (from <outfit_table>) — each video uses its
-       PRE-ASSIGNED outfit colour. Don't let the idea pick its own
+       PRE-ASSIGNED outfit colour FROM the table when the product is
+       a PRODUCT (non-wearable). When the product is a WEARABLE
+       (clothes/hijab/shoes/bag/jewelry/abaya/watch), see
+       <wearable_outfit_override> — the product IS the outfit and
+       <outfit_table> is bypassed. Don't let the idea pick its own
        colour ("white dress in mirror") — use the assigned row's
-       colour ("dusty rose blouse in mirror").
+       colour ("dusty rose blouse in mirror") OR the product itself.
+       ${detectedVibe ? `Current batch's outfit palette was already vibe-filtered to "${detectedVibe}" based on your idea, so the assigned rows naturally fit the scene.` : ""}
      • LANGUAGE LOCK — dialog is BAHASA MELAYU only, Malaysian
        markers, never Bahasa Indonesia. Idea phrasing doesn't change
        the dialog language.
@@ -1482,7 +1605,45 @@ Age:    ${ageRange} (write this exact age in every UGC/lifestyle prompt)
 Each video number below is PRE-ASSIGNED a unique outfit. Copy the exact colour + garment text into that video's imagePrompt and videoPromptShot1${is16s ? " and videoPromptShot2 (same outfit for both shots of the same video)" : ""}. DO NOT invent your own colour. DO NOT default to "plain brown" or "neutral".
 
 ${outfitTableText}
+${detectedVibe ? `\n📌 Palette was vibe-filtered to "${detectedVibe}" because the client's idea implied that context. Every video uses ${detectedVibe} outfits across the batch.` : ""}
 </outfit_table>
+
+<wearable_outfit_override>
+🚨 OUTFIT_TABLE IS IGNORED WHEN THE PRODUCT ITSELF IS A WEARABLE.
+
+Read your <attachment_classifier> result for each video:
+
+  • If attachment_classifier == PRODUCT (skincare / supplement / food /
+    drink / device / accessory held in hand) →
+        USE <outfit_table> verbatim. The avatar wears the assigned
+        colour + garment AND holds/uses the product.
+
+  • If attachment_classifier == WEARABLE (clothing / pants / shirt /
+    hijab / shoes / bag / jewelry / abaya / watch / scarf) →
+        IGNORE <outfit_table> ENTIRELY for the WEARABLE side.
+        The PRODUCT ITSELF is the outfit. The avatar wears the
+        product directly. DO NOT layer a second outfit on top.
+        Persona base (gender, age, hijab presence) still applies.
+        For hijab + female: pick a hijab colour that
+        complements the product (not from <outfit_table>).
+
+        Example: Product = "black slim-fit pants" + hijab persona →
+        prompt reads "A beautiful Malay woman in her 30s, wearing a
+        soft grey hijab tudung labuh, WEARING the black slim-fit pants
+        product (the product is the outfit — no separate blouse from
+        the outfit_table), standing in [scene from idea_style], …"
+
+        DO NOT write "wearing soft lilac baju kurung AND the pants
+        product" — that's the bug we're fixing. The PRODUCT IS THE
+        OUTFIT. Period.
+
+        Hijab-aurat rule still applies for wearable bottoms: if the
+        product is form-fitting pants/leggings/shorts, the avatar
+        wears a LONG MODEST TOP (tunic / blouse / kurung-style top)
+        that covers the hips, so body shape stays covered. The
+        wearable bottom + a modest covering top together satisfy
+        aurat.
+</wearable_outfit_override>
 
 <per_video_prefix>
 EVERY UGC + LIFESTYLE video's imagePrompt and videoPromptShot1${is16s ? " and videoPromptShot2" : ""} MUST START with this exact phrase (substitute the right video number):
