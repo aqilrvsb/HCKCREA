@@ -24,13 +24,13 @@
 // produced by ffmpeg concat, NOT by a single 16s Veo call.
 
 import { createAdminClient } from "@/lib/supabase/admin";
-import { p2CreateTask } from "@/lib/p2";
 import { getP2Config } from "@/lib/settings";
 import { falExtractFrame, falMergeVideos, type FrameAnchor } from "@/lib/fal";
 import { productTextLockBlock } from "@/lib/product-ocr";
 import { uploadFromUrl, signedGetUrl, buildKey, rehostToContent, type StorageType } from "@/lib/b2";
 import { buildVeoLocks } from "@/lib/veo-voices";
 import { refineFrameWithProduct } from "@/lib/refine-frame";
+import { generateVideoWithCascade } from "@/lib/video-cascade";
 
 // Rehost a (possibly expired) Crun temp video URL to B2 so fal can fetch
 // it during the merge step. Returns a fresh 7-day signed URL on success,
@@ -321,32 +321,39 @@ async function fireSeg2(parent: Settled, parentOutputUrl: string): Promise<void>
 
   await stampPhase("firing_veo_i2v");
 
-  // 3. Fire seg-2 — Veo i2v in FRAME mode with the refined image
-  // used as BOTH start frame AND end frame.
+  // 3. Fire seg-2 through the VIDEO CASCADE — admin's configured
+  // main+fallback rotation decides which provider this lands on.
+  // No provider is hardcoded; whatever slot is at the top of the
+  // round-robin gets the task. Each provider's CreateVideo handles
+  // model-specific quirks (e.g. frame-mode model id, image_urls
+  // cap) internally so the cascade caller stays provider-agnostic.
   //
-  // Why both: bookending the clip with the same image makes the
-  // 8s seg-2 start and end on a visually consistent shot. When
-  // ffmpeg concatenates seg-1 + seg-2 → 16s merged, the cut is
-  // invisible (seg-2's first frame ≈ seg-1's last frame because
-  // it's the refined version of that same frame; seg-2 also loops
-  // back to it at the end so there's no jarring final-frame drift).
-  //
-  // model: videoI2V (frame mode, takes start + end), not videoR2V
-  // (ingredient mode). The product reference was already consumed
-  // upstream by Banana Pro — Veo seg-2 only needs the refined
-  // composite as its frame anchor.
+  // imageMode="frame" + imageUrls=[refined, refined] = same image
+  // as BOTH start frame AND end frame. Bookending seg-2 with the
+  // refined frame makes the seg-1 → seg-2 cut invisible (start
+  // frame ≈ seg-1's last frame) AND prevents late-clip drift
+  // (end frame locks back to the same shot).
   const cfg = await getP2Config();
   const seg2Model = cfg.videoI2V || cfg.videoR2V;
-  const created = await p2CreateTask({
-    model: seg2Model,
+  const cascaded = await generateVideoWithCascade({
+    primaryModel: seg2Model,
     userId: parent.user_id,
     prompt: seg2Prompt,
     imageUrls: [anchorFrameUrl, anchorFrameUrl],
     durationMode: "8",
     aspectRatio: meta.aspectRatio || "9:16",
     imageMode: "frame",
-    skipR2VTriplicate: true,
+    asset: "video",
   });
+  // Normalise to the legacy shape downstream code expects.
+  const created: {
+    ok: boolean;
+    task_id: string | null;
+    error?: string | null;
+    provider?: string;
+  } = cascaded.ok
+    ? { ok: true, task_id: cascaded.taskId, provider: cascaded.actualProvider }
+    : { ok: false, task_id: null, error: cascaded.error };
 
   // 4. Insert seg-2 history row (cost=0, parent already charged).
   // Inherit type + tab from the parent so Auto Content seg-2 lands in
