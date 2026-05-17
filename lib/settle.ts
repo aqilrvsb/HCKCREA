@@ -595,6 +595,14 @@ export async function settleHistoryRow(hist: HistoryRow): Promise<SettleResult> 
   const admin = createAdminClient();
 
   if (r.status === "succeeded" && r.outputUrl) {
+    // 16s clip billing: charge per-segment, NOT the full 16s rate
+    // upfront. Seg-1 of a 16s chain bills as video_8s (its half),
+    // seg-2 also bills as video_8s. Total = 2 × video_8s only when
+    // both segments succeed. If seg-2 fails, user only paid for the
+    // 8s they actually got — fair pricing.
+    const is16sSeg1 =
+      hist.segment_index === 1 &&
+      (hist.metadata as any)?.duration_mode === "16s";
     const reason =
       hist.type === "image"
         ? "image_generate"
@@ -602,9 +610,11 @@ export async function settleHistoryRow(hist: HistoryRow): Promise<SettleResult> 
           ? "cinema"
           : hist.tab === "seedance"
             ? "seedance"
-            : hist.duration === 16
-              ? "video_16s"
-              : "video_8s";
+            : is16sSeg1
+              ? "video_8s"
+              : hist.duration === 16
+                ? "video_16s"
+                : "video_8s";
 
     // Live cost at the moment of settlement. Inspect the row's recorded
     // model to pick the per-model rate (rate_<model> in app_settings),
