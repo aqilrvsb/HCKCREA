@@ -1519,17 +1519,53 @@ function HistoryCardInner({
                 </div>
               </>
             ) : segmentPlaceholder === "queued" ? (
-              <>
-                <Clock className="w-10 h-10 text-white/40" />
-                <div className="text-xs font-bold text-white/70">
-                  {activeSlide?.label} queued
-                </div>
-                <div className="text-[10px] text-white/50 text-center px-3">
-                  {activeSlide?.id === "seg_1"
-                    ? "Waiting for Seg 1 to finish"
-                    : "Waiting for Seg 2 to finish before merge"}
-                </div>
-              </>
+              (() => {
+                // Decide the right "queued" message based on where in
+                // the 16s chain we are:
+                //   • Seg 2 + parent still pending → seg-1 still running
+                //   • Seg 2 + parent done           → seg-1 done, chain
+                //     is mid-flight (Banana refining + firing Veo i2v).
+                //     No seg-2 row yet because it lands AFTER the
+                //     refine + create call returns.
+                //   • merged + seg-2 not done      → seg-2 still running
+                //   • merged + seg-2 done          → ffmpeg merging
+                const seg1Done = item.status === "done";
+                const seg2Done = !!seg2 && seg2.status === "done";
+                const isSeg2 = activeSlide?.id === "seg_1";
+                const isMerged = activeSlide?.id === "merged";
+                const Icon = (isSeg2 && seg1Done) || (isMerged && seg2Done)
+                  ? Loader2
+                  : Clock;
+                const iconClass =
+                  (isSeg2 && seg1Done) || (isMerged && seg2Done)
+                    ? "w-10 h-10 animate-spin text-orange-400"
+                    : "w-10 h-10 text-white/40";
+                const title = isSeg2
+                  ? seg1Done
+                    ? "Seg 2 generating…"
+                    : "Seg 2 queued"
+                  : seg2Done
+                    ? "Merging Seg 1 + Seg 2…"
+                    : "16s queued";
+                const sub = isSeg2
+                  ? seg1Done
+                    ? "Refining last frame via Banana Pro, then firing Veo i2v"
+                    : "Waiting for Seg 1 to finish"
+                  : seg2Done
+                    ? "ffmpeg concat — usually 10-20s"
+                    : "Waiting for Seg 2 to finish before merge";
+                return (
+                  <>
+                    <Icon className={iconClass} />
+                    <div className={`text-xs font-bold ${(isSeg2 && seg1Done) || (isMerged && seg2Done) ? "text-orange-300" : "text-white/70"}`}>
+                      {title}
+                    </div>
+                    <div className="text-[10px] text-white/50 text-center px-3">
+                      {sub}
+                    </div>
+                  </>
+                );
+              })()
             ) : (
               <>
                 <Loader2 className="w-10 h-10 animate-spin text-orange-400" />
