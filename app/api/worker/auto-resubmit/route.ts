@@ -29,41 +29,40 @@ const MAX_AUTO_RESUBMIT = 3;
 const LOOKBACK_HOURS = 24;
 const BATCH_LIMIT = 30;
 
-// Errors we WILL auto-resubmit — transient upstream / network hiccups
-// where re-firing on the next round-robin slot has a real chance.
-const RETRYABLE_PATTERNS = [
-  /\binternal\b/i,              // "INTERNAL" (Crun terse) / "Internal Server Error"
-  /\b50[0234]\b/,               // 500 / 502 / 503 / 504
-  /service internal/i,          // APIMart phrasing
-  /server exception/i,          // Crun phrasing
-  /please resend/i,             // APIMart hint
-  /upstream/i,                  // "upstream returned ..." / "upstream endpoint"
-  /failed to parse/i,           // APIPod transient ref-image fetch
-  /\bno (task[_ ]?id|result[_ ]?url)\b/i,  // provider returned 200 with empty payload
-  /\btimed?\s*out\b|\btimeout\b/i,
-  /\bfetch failed\b|\beconn|\benotfound\b/i,
-  /network error/i,
-];
-
-// Errors we will NEVER auto-resubmit — re-firing won't help and may
-// burn credits / re-trip the same upstream block. Includes a few
-// patterns that overlap with RETRYABLE on the literal "internal"
-// keyword (e.g. "Internal: content moderation triggered") — exclude
-// wins so moderation never loops.
+// Auto-resubmit policy: RETRY BY DEFAULT, skip only on explicit
+// non-retryable patterns. Previously the cron used a narrow
+// "retryable allowlist" which silently skipped generic messages like
+// "Unknown error. Please contact support." or "Generation failed" —
+// admin had to clean them up manually.
+//
+// MAX_AUTO_RESUBMIT still caps each row at 3 attempts so a genuinely
+// permanent failure can't loop forever even if its message doesn't
+// match any no-retry pattern.
 const NO_RETRY_PATTERNS = [
+  // Content moderation — re-running same prompt will hit the same block
   /moderation|content[- ]policy|safety[- ]filter|blocked content/i,
-  /rate[- ]?limit|too many requests|quota/i,
+  // Rate-limited — backoff doesn't help inside an 8-min window
+  /rate[- ]?limit|too many requests|quota exceeded/i,
+  // Audio gen failures on Veo — model-side bug, re-running same prompt fails again
   /audio[- ]?gen|audio generation/i,
-  /CUE validator|validation failed/i,
-  /not configured|missing.*key/i,
-  /insufficient (quota|credits|balance)/i,
-  /unauthorized|forbidden|invalid api key/i,
+  // CUE validator / schema validation — bad request, won't fix itself
+  /CUE validator|validation failed|invalid model id/i,
+  // Config issues — admin needs to fix, not the cron
+  /not configured|missing.*key|key.*not found/i,
+  // Credit / quota out — user / billing problem
+  /insufficient (quota|credits|balance)|not enough credit/i,
+  // Auth — provider rejected our key, retry won't help
+  /unauthorized|forbidden|invalid api key|api key.*invalid/i,
 ];
 
 function isRetryable(err: string | null | undefined): boolean {
+  // No error_message at all → don't retry (we have no signal)
   if (!err) return false;
+  // Matches a non-retryable pattern → skip
   if (NO_RETRY_PATTERNS.some((re) => re.test(err))) return false;
-  return RETRYABLE_PATTERNS.some((re) => re.test(err));
+  // Default → RETRY. Generic "Unknown error", "Generation failed",
+  // "INTERNAL", etc. all go through. MAX_AUTO_RESUBMIT caps the loop.
+  return true;
 }
 
 export async function GET(req: Request) {
