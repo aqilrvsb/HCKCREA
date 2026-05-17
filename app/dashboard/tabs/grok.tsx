@@ -19,9 +19,17 @@ const ORANGE = "#f97316";
 const ORANGE_SOFT = "rgba(249, 115, 22, 0.18)";
 const ORANGE_FAINT = "rgba(249, 115, 22, 0.06)";
 
+// Three fixed reference slots — user can fill 0-3. APIPod's grok-imagine-i2v
+// supports 1-7 image_urls but per product decision we expose 3 to keep
+// the UI clean and consistent with other tabs.
+const GROK_REF_SLOTS = 3;
+
 export default function GrokTab({ projectId }: { projectId?: string } = {}) {
   const [imageMode, setImageMode] = useState<ImageMode>("text");
-  const [refImages, setRefImages] = useState<string[]>([]);
+  // Length-3 array of slot URLs ("" = empty slot). Stays length 3.
+  const [refSlots, setRefSlots] = useState<string[]>(
+    Array(GROK_REF_SLOTS).fill("")
+  );
   const [prompt, setPrompt] = useState("");
   const [aspect, setAspect] = useState("9:16");
   // Grok bills per-second, 6-30 range. Default 6 per APIPod docs.
@@ -29,7 +37,8 @@ export default function GrokTab({ projectId }: { projectId?: string } = {}) {
   const [ratePerSec, setRatePerSec] = useState<number | null>(null);
   const [status, setStatus] = useState<Status>("idle");
   const [error, setError] = useState<string | null>(null);
-  const [attachmentOpen, setAttachmentOpen] = useState(false);
+  // Which slot index the attachment picker is currently filling.
+  const [pickingSlot, setPickingSlot] = useState<number | null>(null);
 
   useEffect(() => {
     let cancel = false;
@@ -44,7 +53,8 @@ export default function GrokTab({ projectId }: { projectId?: string } = {}) {
     };
   }, []);
 
-  const refImage = refImages[0] || "";
+  // Non-empty refs only — what gets sent to the API.
+  const filledRefs = refSlots.filter((u) => !!u);
   const estCost = ratePerSec ? (ratePerSec * duration).toFixed(2) : null;
 
   async function ensurePublicUrl(v: string): Promise<string> {
@@ -57,12 +67,12 @@ export default function GrokTab({ projectId }: { projectId?: string } = {}) {
 
   async function submit() {
     if (!prompt.trim()) return setError("Sila masukkan prompt.");
-    if (imageMode === "image" && refImages.length === 0)
-      return setError("Pick reference image dulu.");
+    if (imageMode === "image" && filledRefs.length === 0)
+      return setError("Pick at least one reference image.");
     setError(null);
     setStatus("submitting");
     try {
-      const sourceUrls = imageMode === "image" ? refImages : [];
+      const sourceUrls = imageMode === "image" ? filledRefs : [];
       const pubUrls = await Promise.all(sourceUrls.map((u) => ensurePublicUrl(u)));
       const r = await fetch("/api/generate/cinema", {
         method: "POST",
@@ -147,48 +157,53 @@ export default function GrokTab({ projectId }: { projectId?: string } = {}) {
           })}
         </div>
 
-        {/* Reference image picker */}
+        {/* Reference image slots — 3 fixed boxes, fill any 0-3.
+            Click empty box → opens picker, click X on filled → clears. */}
         {imageMode === "image" && (
           <div className="mb-4">
             <label className="block text-[10px] uppercase tracking-widest text-[var(--color-text-secondary)] font-bold mb-2">
-              Reference images (1–7)
+              Reference images (up to {GROK_REF_SLOTS})
             </label>
-            <div className="flex flex-wrap gap-2 mb-2">
-              {refImages.map((url, i) => (
-                <div
-                  key={i}
-                  className="relative w-16 h-16 rounded-lg overflow-hidden"
-                  style={{ border: "1px solid var(--color-border)" }}
-                >
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    src={url}
-                    alt=""
-                    className="w-full h-full object-cover"
-                  />
-                  <button
-                    onClick={() =>
-                      setRefImages(refImages.filter((_, j) => j !== i))
-                    }
-                    className="absolute top-0 right-0 w-5 h-5 rounded-bl-lg flex items-center justify-center"
-                    style={{ background: "rgba(0,0,0,0.7)", color: "white" }}
+            <div className="grid grid-cols-3 gap-2">
+              {refSlots.map((url, i) =>
+                url ? (
+                  <div
+                    key={i}
+                    className="relative aspect-square rounded-lg overflow-hidden"
+                    style={{ border: "1px solid var(--color-border)" }}
                   >
-                    <X className="w-3 h-3" />
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={url}
+                      alt={`Reference ${i + 1}`}
+                      className="w-full h-full object-cover"
+                    />
+                    <button
+                      onClick={() =>
+                        setRefSlots(refSlots.map((u, j) => (j === i ? "" : u)))
+                      }
+                      title="Clear this reference"
+                      className="absolute top-1 right-1 w-6 h-6 rounded-md flex items-center justify-center"
+                      style={{ background: "rgba(0,0,0,0.7)", color: "white" }}
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    key={i}
+                    onClick={() => setPickingSlot(i)}
+                    className="aspect-square rounded-lg text-xs font-bold flex flex-col items-center justify-center gap-1 transition-colors"
+                    style={{
+                      background: "var(--color-bg)",
+                      border: "1px dashed var(--color-border)",
+                      color: "var(--color-text-secondary)",
+                    }}
+                  >
+                    <span className="text-lg">+</span>
+                    <span>Image {i + 1}</span>
                   </button>
-                </div>
-              ))}
-              {refImages.length < 7 && (
-                <button
-                  onClick={() => setAttachmentOpen(true)}
-                  className="w-16 h-16 rounded-lg text-xs font-bold flex items-center justify-center"
-                  style={{
-                    background: "var(--color-bg)",
-                    border: "1px dashed var(--color-border)",
-                    color: "var(--color-text-secondary)",
-                  }}
-                >
-                  + Add
-                </button>
+                )
               )}
             </div>
           </div>
@@ -286,14 +301,16 @@ export default function GrokTab({ projectId }: { projectId?: string } = {}) {
         )}
       </div>
 
-      {attachmentOpen && (
+      {pickingSlot !== null && (
         <Portal>
           <AttachmentPicker
-            open={attachmentOpen}
-            onClose={() => setAttachmentOpen(false)}
+            open={true}
+            onClose={() => setPickingSlot(null)}
             onPick={(a) => {
-              if (refImages.length < 7) setRefImages([...refImages, a.public_url]);
-              setAttachmentOpen(false);
+              setRefSlots(
+                refSlots.map((u, j) => (j === pickingSlot ? a.public_url : u))
+              );
+              setPickingSlot(null);
             }}
           />
         </Portal>

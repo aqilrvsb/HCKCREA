@@ -365,15 +365,74 @@ export default function SeedanceTab({ projectId }: { projectId: string }) {
         </p>
       </div>
 
-      {/* Reference Videos + Reference Audios — hidden for now. Backend
-          + upload endpoints stay in place; re-enable by removing the
-          `false &&` guard once the user is ready to expose them. */}
-      {false && (
-        <div className="hidden" aria-hidden="true">
-          {/* placeholder — see git history (commit d9b007d) for the
-              video + audio upload UI when re-enabling */}
+      {/* Reference Audios — Seedance 2.0 Fast r2v supports up to 3
+          audio_urls (voice clones, music, sfx). Same 3-fixed-slot
+          pattern as the image grid above. Reference Videos still
+          hidden (commit d9b007d in git history). */}
+      <div>
+        <label className="flex items-center gap-2 text-xs font-mono uppercase tracking-wider text-[var(--color-text-muted)] font-bold mb-2">
+          🎵 Reference Audios
+          <span className="text-[10px] font-normal">(up to {MAX_REF_AUDIOS})</span>
+        </label>
+        <div className="flex flex-wrap gap-2">
+          {Array.from({ length: MAX_REF_AUDIOS }).map((_, i) => {
+            const url = audioUrls[i] || "";
+            const inputId = `seedance-audio-${i}`;
+            return (
+              <div
+                key={i}
+                className="relative w-full sm:w-48 rounded-lg overflow-hidden"
+                style={{
+                  border: url
+                    ? "2px solid var(--color-orange)"
+                    : "2px dashed var(--color-border)",
+                  background: url ? "rgba(0,0,0,0.4)" : "transparent",
+                }}
+              >
+                {url ? (
+                  <div className="p-2 flex items-center gap-2">
+                    {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
+                    <audio controls src={url} className="w-full h-8" />
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setAudioUrls((p) => p.filter((_, j) => j !== i))
+                      }
+                      className="flex-shrink-0 w-6 h-6 rounded-full bg-black/70 text-white flex items-center justify-center hover:bg-red-500"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  </div>
+                ) : (
+                  <>
+                    <input
+                      id={inputId}
+                      type="file"
+                      accept="audio/*"
+                      className="hidden"
+                      onChange={(e) => {
+                        const f = e.target.files?.[0];
+                        if (f) uploadAudio(f);
+                        e.target.value = "";
+                      }}
+                    />
+                    <label
+                      htmlFor={inputId}
+                      className="block w-full h-16 cursor-pointer flex flex-col items-center justify-center text-[10px] text-[var(--color-text-muted)] hover:text-orange-400"
+                    >
+                      <span className="text-xl">🎵</span>
+                      <span>Audio {i + 1}</span>
+                    </label>
+                  </>
+                )}
+              </div>
+            );
+          })}
         </div>
-      )}
+        <p className="text-[10px] text-[var(--color-text-muted)] mt-1.5">
+          Optional — voice clone, sound effect, or music to guide audio generation.
+        </p>
+      </div>
 
       {/* History picker modal */}
       {historyOpen && (

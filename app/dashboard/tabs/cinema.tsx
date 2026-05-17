@@ -247,10 +247,11 @@ export default function CinemaTab({ projectId }: { projectId?: string } = {}) {
           'talking-object'). To bring the radio back, undo this block
           and re-enable the SubFeatureCard grid. */}
 
-      {/* Viral feature selector — 5 radio buttons. Talking Object (AI
-          wizard) and Normal Video (free-form prompt) are functional;
-          the other 3 are placeholders for upcoming features. Defaults
-          to Talking Object. */}
+      {/* Viral feature selector — Normal Video sub-tab moved to its own
+          top-level "Grok" tab in the sidebar. Cinema tab is now Talking
+          Object only (plus reserved upcoming-feature slots). The Normal
+          Video JSX below is preserved inside `subFeature === "free"`
+          dead branch since subFeature is locked to "talking-object". */}
       <Card>
         <div className="flex items-center gap-2.5 mb-3">
           <span className="text-lg">🎬</span>
@@ -265,12 +266,7 @@ export default function CinemaTab({ projectId }: { projectId?: string } = {}) {
             emoji="🗣️"
             label="Talking Object"
           />
-          <ViralFeatureBtn
-            active={subFeature === "free"}
-            onClick={() => setSubFeature("free")}
-            emoji="🎞️"
-            label="Normal Video"
-          />
+          <ViralFeatureBtn emoji="✨" label="Coming soon" disabled />
           <ViralFeatureBtn emoji="✨" label="Coming soon" disabled />
           <ViralFeatureBtn emoji="✨" label="Coming soon" disabled />
           <ViralFeatureBtn emoji="✨" label="Coming soon" disabled />
