@@ -173,13 +173,13 @@ async function fireSeg2(parent: Settled, parentOutputUrl: string): Promise<void>
   let refineUsed = false;
   let refineProvider: string | null = null;
 
-  // 1b. BANANA REFINE — if the parent has a product attachment, send
-  // (last frame + product image) to nano-banana-pro so the product in
-  // the start frame for seg-2 is pixel-sharp. Without this step Veo r2v
-  // tends to soften the product label across the 8s seg-2 clip because
-  // its image conditioning is loose. With a clean refined anchor the
-  // drift across the cut is much less visible. Mirrors the manual UGC
-  // Extend dialog's HD refine flow.
+  // 1b. BANANA REFINE — combine (last frame + product image) via
+  // nano-banana-pro so the product in the start frame for seg-2 is
+  // pixel-sharp. Cascade tries p4 → p2 → p6-a/b/c → p5 → p1 → p3 —
+  // every provider runs nano-banana-pro specifically. NEVER falls
+  // back to a different model and NEVER accepts the raw frame.
+  // If ALL providers fail, the seg-2 fire is aborted and the parent
+  // is marked failed so the user can manually retry.
   //
   // Source for the product image, in order of preference:
   //   metadata.image_urls[0] (Auto Content's full attachment array)
@@ -205,16 +205,45 @@ async function fireSeg2(parent: Settled, parentOutputUrl: string): Promise<void>
           `[segment-chain] frame refined via ${refined.provider}/nano-banana-pro for parent ${parent.id}`
         );
       } else {
+        // ALL refine tiers failed — abort seg-2. User can retry from
+        // the failed-card to fire a fresh refine + seg-2 attempt.
+        // tierLog stamps which providers were tried + their error so
+        // admin can see why the whole cascade fell over (e.g. all
+        // p6 keys 429'd, or Banana Pro upstream had a brownout).
         console.warn(
-          `[segment-chain] Banana refine failed for parent ${parent.id}, falling back to raw frame:`,
-          refined.error
+          `[segment-chain] Banana refine ALL tiers failed for parent ${parent.id}:`,
+          refined.error,
+          refined.tierLog
         );
+        await admin
+          .from("history")
+          .update({
+            status: "failed",
+            error_message: `Seg-2 refine failed on all Banana Pro tiers: ${refined.error}`,
+            metadata: {
+              ...meta,
+              refine_failed_at: new Date().toISOString(),
+              refine_tier_log: refined.tierLog,
+            },
+          })
+          .eq("id", parent.id);
+        return;
       }
     } catch (e: any) {
+      // Refine threw an exception (network blip, etc.) — also abort
+      // rather than fall back to raw. User retries from failed card.
       console.warn(
         `[segment-chain] Banana refine threw for parent ${parent.id}:`,
         e?.message || e
       );
+      await admin
+        .from("history")
+        .update({
+          status: "failed",
+          error_message: `Seg-2 refine threw: ${e?.message || e}`,
+        })
+        .eq("id", parent.id);
+      return;
     }
   }
 

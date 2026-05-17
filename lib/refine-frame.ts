@@ -17,9 +17,9 @@
 import { p1CreateTask, p1GetStatus } from "@/lib/p1";
 import { p2CreateTask, p2GetStatus } from "@/lib/p2";
 import { p3CreateImage, p3GetStatus } from "@/lib/p3";
-import { p4GetStatus } from "@/lib/p4";
-import { p5GetStatus } from "@/lib/p5";
-import { p6GetStatus } from "@/lib/p6";
+import { p4CreateImage, p4GetStatus } from "@/lib/p4";
+import { p5CreateImage, p5GetStatus } from "@/lib/p5";
+import { p6CreateImage, p6GetStatus, type P6Slot } from "@/lib/p6";
 
 const REFINE_PROMPT = [
   "Replace the product visible in the FIRST image with the product from the SECOND image.",
@@ -30,7 +30,23 @@ const REFINE_PROMPT = [
 ].join(" ");
 
 type RefineResult = { ok: true; url: string } | { ok: false; error: string };
-type Provider = "p1" | "p2" | "p3" | "p4" | "p5" | "p6";
+// p6 has multiple slots (p6-a..h); each maps to a different APIPod key.
+// We try a fixed rotation (p6-a → p6-b → p6-c) so refine has multiple
+// chances on APIPod without the caller needing to manage slot state.
+type Provider =
+  | "p1"
+  | "p2"
+  | "p3"
+  | "p4"
+  | "p5"
+  | "p6-a"
+  | "p6-b"
+  | "p6-c"
+  | "p6-d"
+  | "p6-e"
+  | "p6-f"
+  | "p6-g"
+  | "p6-h";
 
 type RefineOpts = {
   frameUrl: string;
@@ -57,7 +73,9 @@ async function tryRefineOn(
   const imageUrls = [opts.frameUrl, opts.productUrl];
   const timeoutMs = opts.perTierTimeoutMs ?? 60_000;
 
-  // 1. Create.
+  // 1. Create. Every provider runs nano-banana-pro — we never accept
+  // a different model here even on fallback. If a tier can't run
+  // nano-banana-pro, it errors and the cascade moves on.
   let taskId: string | null = null;
   let createError: string | null = null;
   try {
@@ -80,8 +98,36 @@ async function tryRefineOn(
       });
       taskId = r.ok ? (r.task_id ?? null) : null;
       createError = r.ok ? null : (r.error ?? null);
-    } else {
+    } else if (provider === "p3") {
       const r = await p3CreateImage({
+        model: "nano-banana-pro",
+        prompt: REFINE_PROMPT,
+        imageUrls,
+        aspectRatio: aspect,
+      });
+      taskId = r.ok ? (r.task_id ?? null) : null;
+      createError = r.ok ? null : (r.error ?? null);
+    } else if (provider === "p4") {
+      const r = await p4CreateImage({
+        model: "nano-banana-pro",
+        prompt: REFINE_PROMPT,
+        imageUrls,
+        aspectRatio: aspect,
+      });
+      taskId = r.ok ? (r.task_id ?? null) : null;
+      createError = r.ok ? null : (r.error ?? null);
+    } else if (provider === "p5") {
+      const r = await p5CreateImage({
+        model: "nano-banana-pro",
+        prompt: REFINE_PROMPT,
+        imageUrls,
+        aspectRatio: aspect,
+      });
+      taskId = r.ok ? (r.task_id ?? null) : null;
+      createError = r.ok ? null : (r.error ?? null);
+    } else if (provider.startsWith("p6-")) {
+      const r = await p6CreateImage({
+        slot: provider as P6Slot,
         model: "nano-banana-pro",
         prompt: REFINE_PROMPT,
         imageUrls,
@@ -140,13 +186,15 @@ async function tryRefineOn(
         status = s.status as any;
         outputUrl = s.outputUrl;
         pollError = s.error;
-      } else if (provider === "p6") {
-        // refine-frame is image-only, so always poll image endpoint.
-        const s = await p6GetStatus(taskId, undefined, "image");
+      } else if (provider.startsWith("p6-")) {
+        // refine-frame is image-only — always poll image endpoint.
+        // Use the same slot we submitted on so APIPod scopes the
+        // task_id to the right account key.
+        const s = await p6GetStatus(taskId, provider as P6Slot, "image");
         status = s.status as any;
         outputUrl = s.outputUrl;
         pollError = s.error;
-      } else {
+      } else if (provider === "p3") {
         const s = await p3GetStatus(taskId);
         status = s.status as any;
         outputUrl = s.outputUrl;
@@ -203,13 +251,14 @@ export async function pollRefineTask(
         status = s.status as any;
         outputUrl = s.outputUrl;
         pollError = s.error;
-      } else if (provider === "p6") {
-        // refine-frame is image-only, so always poll image endpoint.
-        const s = await p6GetStatus(taskId, undefined, "image");
+      } else if (provider.startsWith("p6-")) {
+        // refine-frame is image-only — always poll image endpoint
+        // with the same slot we submitted on.
+        const s = await p6GetStatus(taskId, provider as P6Slot, "image");
         status = s.status as any;
         outputUrl = s.outputUrl;
         pollError = s.error;
-      } else {
+      } else if (provider === "p3") {
         const s = await p3GetStatus(taskId);
         status = s.status as any;
         outputUrl = s.outputUrl;
@@ -234,10 +283,30 @@ export async function refineFrameWithProduct(
 
   const tierLog: string[] = [];
 
-  // Default provider: p2 (Crun.ai). Most reliable for nano-banana-pro
-  // throughput in production. Fallback: p1 (GeminiGen) → p3 (Mountsea).
-  // Same cascade ordering as the video pipeline.
-  for (const provider of ["p2", "p1", "p3"] as Provider[]) {
+  // Wide nano-banana-pro cascade — every provider that supports the
+  // model is in the rotation so the refine NEVER falls back to a
+  // different model or to the raw frame. Order tuned for typical
+  // production reliability:
+  //   p4 (Grsai)   — cheapest + most stable for Banana Pro
+  //   p2 (Crun)    — fast, reliable
+  //   p6-a..c      — APIPod multi-key (3 attempts on different keys)
+  //   p5 (APIMart) — cross-vendor backup
+  //   p1 (GeminiGen) — direct Google
+  //   p3 (Mountsea) — legacy backstop
+  // If ALL fail, the caller decides whether to fail the chain or
+  // accept the raw frame. segment-chain.ts is strict and fails the
+  // chain; the manual extend dialog falls back to [product, frame].
+  const cascade: Provider[] = [
+    "p4",
+    "p2",
+    "p6-a",
+    "p6-b",
+    "p6-c",
+    "p5",
+    "p1",
+    "p3",
+  ];
+  for (const provider of cascade) {
     const r = await tryRefineOn(provider, opts);
     tierLog.push(`${provider}:${r.ok ? "ok" : "fail"}${r.ok ? "" : ` (${r.error})`}`);
     if (r.ok) {
