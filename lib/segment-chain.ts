@@ -157,6 +157,38 @@ async function fireSeg2(parent: Settled, parentOutputUrl: string): Promise<void>
   const meta = parent.metadata || {};
   const frameAnchor = (parent.frame_anchor || "last") as FrameAnchor;
 
+  // Stamp chain progress markers on parent.metadata as we go through
+  // the steps — the dashboard's segment placeholder reads
+  // metadata.chain_phase to show the user which sub-step is running
+  // (extract / refine / fire). Without these markers the user just
+  // sees "Seg 2 generating…" for 60-120s with no idea what's
+  // happening server-side.
+  async function stampPhase(phase: string, extra: Record<string, any> = {}) {
+    try {
+      const { data: cur } = await admin
+        .from("history")
+        .select("metadata")
+        .eq("id", parent.id)
+        .maybeSingle();
+      const curMeta = (cur?.metadata as Record<string, any>) || {};
+      await admin
+        .from("history")
+        .update({
+          metadata: {
+            ...curMeta,
+            chain_phase: phase,
+            chain_phase_at: new Date().toISOString(),
+            ...extra,
+          },
+        })
+        .eq("id", parent.id);
+    } catch (e) {
+      console.warn(`[segment-chain] stampPhase ${phase} failed`, e);
+    }
+  }
+
+  await stampPhase("extracting_last_frame");
+
   // 1. Extract frame from seg-1 video
   const frameRes = await falExtractFrame(parentOutputUrl, frameAnchor, 8);
   if (!frameRes.ok || !frameRes.url) {

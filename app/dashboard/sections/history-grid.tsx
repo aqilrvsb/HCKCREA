@@ -920,8 +920,30 @@ function HistoryCardInner({
     const targetRow =
       slide.id === "seg_0" ? item : slide.id === "seg_1" ? seg2 : null;
     const targetId = targetRow?.id;
-    if (!targetId) return;
     if (recheckingId) return;
+
+    // No DB row yet → segment chain is mid-flight (Banana refine
+    // running, seg-2 row not inserted yet). Best we can do is refresh
+    // the history grid so SWR re-fetches and picks up the new row if
+    // it just landed. Show a toast so user knows the click registered.
+    if (!targetId) {
+      setRecheckingId(slide.id);
+      setRecheckMsg({ text: `${slide.label}: refreshing…`, tone: "info" });
+      try {
+        window.dispatchEvent(new CustomEvent("history:refresh"));
+        // Small delay so the spinner is visible and SWR has a tick
+        // to re-fetch before we tell the user the result.
+        await new Promise((r) => setTimeout(r, 1500));
+        setRecheckMsg({
+          text: `${slide.label}: chain still running (Banana refine + Veo i2v) — retry in a moment`,
+          tone: "info",
+        });
+        setTimeout(() => setRecheckMsg(null), 4000);
+      } finally {
+        setRecheckingId(null);
+      }
+      return;
+    }
     setRecheckingId(slide.id);
     setRecheckMsg(null);
     const startedAt = Date.now();
