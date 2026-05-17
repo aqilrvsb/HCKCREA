@@ -12,6 +12,7 @@ import {
   SHOP_CTA_VARIATIONS,
   type Framework,
 } from "@/lib/auto-content-frameworks";
+import { pickScenes, sceneSummary } from "@/lib/auto-content-scene-pool";
 
 // POST /api/generate/auto-content — port of creative-hack-auto 12.8.3 pipeline.
 //
@@ -516,11 +517,60 @@ Keep EACH shot prompt under 1000 characters. Do NOT repeat the voice description
 </no_image_mode_rules>
 ` : ""}
 
+<attachment_classifier>
+🧠 BEFORE choosing TEMPLATE / scene, INSPECT the product reference image
+for THIS video and classify the attachment:
+
+  • PRODUCT  → consumable, holdable item the user uses ON themselves
+               (skincare, supplement, food, drink, electronics, toy).
+               Avatar HOLDS or USES it.
+
+  • WEARABLE → clothing, hijab/tudung, abaya, jewelry, accessories,
+               shoes, bag, watch, glasses — anything the avatar
+               puts ON their body.
+               Avatar WEARS / PREVIEWS / TRIES IT ON. NEVER holds it
+               like a product. If you catch yourself writing "holds
+               the hijab/dress/bag" — STOP and rewrite as
+               "wearing the hijab" / "carrying the bag on shoulder"
+               / "twirling in the dress".
+
+  WEARABLE override rules:
+  - FORCE TEMPLATE A (avatar visible, wearing the item)
+  - SKIP TEMPLATE B (product-only is wrong — no shot of clothes
+    floating in mid-air without a body)
+  - SKIP TEMPLATE C (hand-POV of a hijab makes zero sense)
+  - Pick a scene from <scene_pool> tagged [wearable] or [both]
+  - imagePrompt MUST describe the avatar wearing the item
+    (e.g. "Malay woman in cream baju kurung set, full mirror selfie")
+    NOT holding it (no "holds the dress on a hanger")
+</attachment_classifier>
+
+<scene_pool>
+For EACH video, pick ONE scene from this catalog that matches the
+attachment type. Each batch of videos should use DIFFERENT scenes —
+no two videos in this batch should share the same scene_id.
+
+${(() => {
+  const pickedScenes = pickScenes(Math.max(fwPoolFinal.length + 2, 8), "both");
+  return pickedScenes.map((s) => sceneSummary(s)).join("\n");
+})()}
+
+Per video, after you pick the scene_id, USE the scene's setting,
+camera framing, lighting and action beats. The framework's CTA and
+hook still apply — the scene gives you the WORLD the video lives in
+(in-car / kitchen / cafe / mirror selfie / unboxing / mukbang / ...).
+</scene_pool>
+
 <frameworks>
 For EACH video below, you MUST use the matching TEMPLATE specified at the
 end of the line. NEVER cross-wire — if it says TEMPLATE B, the imagePrompt
 MUST be a product-only shot (no person at all) and the videoPrompt MUST be
 voiceover-only with the product on screen.
+
+⚠️ TEMPLATE selection is OVERRIDDEN by <attachment_classifier> above. If
+the video's attachment is WEARABLE, switch to TEMPLATE A regardless of
+what the framework says, and reflect that in your imagePrompt + scene
+choice.
 
 ${fwPoolFinal.map((fw, i) => {
   // Three template types based on framework flags:
@@ -529,11 +579,11 @@ ${fwPoolFinal.map((fw, i) => {
   //   • else (ugc/lifestyle) → Template A: full character on screen
   let template: string;
   if (fw.handPov) {
-    template = "→ TEMPLATE C (HAND-POV: ONE female hand visible holding the product — NO face, NO body, NO arm above wrist — pure hand+product hero against rotating LUXURY VEHICLE INTERIOR background. Voiceover only, no on-screen speaker.)";
+    template = "→ TEMPLATE C (HAND-POV: ONE female hand visible holding the product — NO face, NO body, NO arm above wrist — pure hand+product hero against rotating LUXURY VEHICLE INTERIOR background. Voiceover only, no on-screen speaker.) ⚠️ Skip if WEARABLE — use TEMPLATE A instead.";
   } else if (fw.type === "product") {
-    template = "→ TEMPLATE B (PRODUCT ONLY: NO person, NO face, NO hands, NO body anywhere — pure product shot + voiceover)";
+    template = "→ TEMPLATE B (PRODUCT ONLY: NO person, NO face, NO hands, NO body anywhere — pure product shot + voiceover) ⚠️ Skip if WEARABLE — use TEMPLATE A instead.";
   } else {
-    template = "→ TEMPLATE A (UGC: character on screen, holds the product, speaks to camera)";
+    template = "→ TEMPLATE A (UGC: character on screen, speaks to camera. PRODUCT → holds it. WEARABLE → wears it.)";
   }
   const strictTag = fw.strictUsp
     ? "  🔒 STRICT USP MODE — read <strict_usp_rules> below. ZERO drift allowed."
