@@ -777,12 +777,29 @@ function HistoryCardInner({
   const isImage =
     !isClonePrompt && (item.type === "image" || item.type === "fairytale-scene");
   const isCinema = item.tab === "cinema";
-  // Extend + Improve are available on every completed video, regardless of
-  // which provider rendered it — fal.ai extracts the last frame from the
-  // output URL and feeds it to Veo i2v for the continuation. Cinema cards get
-  // a Merge action instead. Clone cards get NEITHER (no media).
+  // Extend + Improve are available on every completed Veo video — fal.ai
+  // extracts the last frame from the output URL and feeds it to Veo i2v
+  // for the continuation. Cinema cards get a Merge action instead. Clone
+  // cards get NEITHER (no media). Grok rows are excluded because the
+  // /api/extend/video pipeline is hard-wired to Veo i2v + Banana refine;
+  // chaining a Veo seg-2 onto a Grok seg-1 produces a visible style cut
+  // and the dialog timing model differs (Grok = 2-3 words/sec, Veo =
+  // 20-24 words / 8s). Until Grok-to-Grok extend ships, hide the button.
+  const rawModelLower = String(
+    (item.metadata as any)?.model ||
+      (item.metadata as any)?.actualModel ||
+      ""
+  ).toLowerCase();
+  const isGrokRow =
+    (item.metadata as any)?.modelChoice === "grok" ||
+    /grok-imagine|grok-3/.test(rawModelLower);
   const canExtend =
-    isVideo && !isCinema && !isClonePrompt && item.status === "done" && item.output_url;
+    isVideo &&
+    !isCinema &&
+    !isClonePrompt &&
+    !isGrokRow &&
+    item.status === "done" &&
+    item.output_url;
 
   // Segment slider — UGC + Auto Content cards that went through the 16s
   // pipeline (or were extended) have a parent row + a child seg-2 row. Build
@@ -1522,14 +1539,56 @@ function HistoryCardInner({
             but that slide isn't ready yet. Shows clearly that the
             segment is loading / queued / failed instead of falling
             back to seg-1's video (which is what was happening
-            before, making the thumb click feel broken). */}
-        {item.status === "done" && !isClonePrompt && segmentPlaceholder && (
+            before, making the thumb click feel broken).
+
+            Background image hierarchy (so Seg 2 placeholder doesn't
+            look identical to Seg 1):
+              • Seg 2 placeholder → Banana-refined anchor frame
+                (seg2.reference_url) if the child row exists; that's
+                literally the start frame of seg-2 so it's the most
+                honest preview.
+              • Merged placeholder → seg-2's output if ready, else
+                seg-1's video poster.
+              • Seg 1 placeholder (rare — only when Seg 1 itself is
+                pending but somehow still selectable) → product
+                reference. */}
+        {item.status === "done" && !isClonePrompt && segmentPlaceholder && (() => {
+          const phBgUrl =
+            activeSlide?.id === "seg_1"
+              ? (seg2?.reference_url ||
+                  (seg2 as any)?.metadata?.anchor_frame_url ||
+                  null)
+              : activeSlide?.id === "merged"
+                ? (seg2?.output_url || item.output_url || null)
+                : (item.reference_url || null);
+          const phIsVideo =
+            activeSlide?.id === "merged" && !seg2?.output_url && !!item.output_url;
+          return (
           <div
             className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-white"
             style={{
               background: "linear-gradient(135deg, #1a1a1a 0%, #0a0a0a 100%)",
             }}
           >
+            {phBgUrl && !phIsVideo && (
+              <img
+                src={phBgUrl}
+                alt=""
+                className="absolute inset-0 w-full h-full object-cover pointer-events-none"
+                style={{ opacity: 0.32, filter: "blur(2px) saturate(0.9)" }}
+              />
+            )}
+            {phBgUrl && phIsVideo && (
+              <LazyVideo
+                src={phBgUrl + "#t=1"}
+                muted
+                playsInline
+                className="absolute inset-0 w-full h-full object-cover pointer-events-none"
+                style={{ opacity: 0.32, filter: "blur(2px) saturate(0.9)" }}
+              />
+            )}
+            <div className="absolute inset-0 pointer-events-none" style={{ background: "rgba(0,0,0,0.45)" }} />
+            <div className="relative z-10 flex flex-col items-center justify-center gap-2">
             {segmentPlaceholder === "failed" ? (
               <>
                 <X className="w-10 h-10" style={{ color: "rgb(239, 68, 68)" }} />
@@ -1658,8 +1717,10 @@ function HistoryCardInner({
                 </div>
               </>
             )}
+            </div>
           </div>
-        )}
+          );
+        })()}
       </div>
 
       {/* Segment slider — only renders when the card has a seg-1 + seg-2 +
@@ -1861,7 +1922,7 @@ function HistoryCardInner({
           {item.status === "done" && <CheckCircle2 className="w-3 h-3" style={{ color: "var(--color-lime)" }} />}
           {item.status === "pending" && <Loader2 className="w-3 h-3 animate-spin text-amber-400" />}
           {item.status === "failed" && <XCircle className="w-3 h-3 text-red-400" />}
-          <span className="ml-auto flex items-center gap-1.5">
+          <span className="ml-auto flex items-center gap-1.5 flex-wrap justify-end">
             {videoModeLabel(item) && (
               <span
                 className="text-[9px] font-mono uppercase tracking-wider font-bold px-1.5 py-0.5 rounded"
@@ -1882,6 +1943,25 @@ function HistoryCardInner({
             </span>
           </span>
         </div>
+
+        {/* Framework label — auto-content rows tag each video with the
+            selected framework (e.g. "Hook Tarik", "Pose Mirror") so the
+            user can tell at a glance which template produced this
+            specific card. Hidden when framework is missing (manual UGC,
+            cinema, image, clone). */}
+        {item.framework && item.tab === "auto" && (
+          <div
+            className="text-[9px] font-mono uppercase tracking-wider font-bold mb-1.5 inline-block px-1.5 py-0.5 rounded"
+            style={{
+              background: "rgba(168,85,247,0.12)",
+              color: "#c084fc",
+              border: "1px solid rgba(168,85,247,0.35)",
+            }}
+            title={`Framework: ${item.framework}`}
+          >
+            🎬 {item.framework}
+          </div>
+        )}
 
         {/* Task ID icon — clickable. Tooltip on hover shows the full
             ID; click copies to clipboard + alerts so admins can
@@ -1938,16 +2018,28 @@ function HistoryCardInner({
           </div>
         )}
 
-        {/* Click prompt → modal */}
-        {item.prompt && item.status === "done" && (
-          <button
-            onClick={() => setShowPromptModal(true)}
-            className="w-full text-left text-[10px] text-[var(--color-text-secondary)] line-clamp-2 mb-2 hover:text-[var(--color-orange)] transition-colors"
-            title="Click to view full prompt"
-          >
-            {item.prompt}
-          </button>
-        )}
+        {/* Click prompt → modal. When the user is viewing Seg 2 the
+            prompt area swaps to seg-2's own prompt (segment-chain
+            built that prompt via code-level swapDialogBlock, so it's
+            the actual text fired to Veo for that segment). Merged
+            slide falls back to the parent prompt — there isn't a
+            separate "merged" prompt. */}
+        {item.status === "done" && (() => {
+          const activePrompt =
+            activeSlide?.id === "seg_1"
+              ? (seg2?.prompt || item.prompt)
+              : item.prompt;
+          if (!activePrompt) return null;
+          return (
+            <button
+              onClick={() => setShowPromptModal(true)}
+              className="w-full text-left text-[10px] text-[var(--color-text-secondary)] line-clamp-2 mb-2 hover:text-[var(--color-orange)] transition-colors"
+              title={`Click to view ${activeSlide?.id === "seg_1" ? "Seg 2" : ""} full prompt`.trim()}
+            >
+              {activePrompt}
+            </button>
+          );
+        })()}
 
         {/* Action row — extension's exact icon flow */}
         <div className="flex items-center gap-1 mt-1.5">
@@ -2145,9 +2237,18 @@ function HistoryCardInner({
         />
       )}
 
-      {/* Prompt modal */}
-      {showPromptModal && item.prompt && (
-        <PromptModal prompt={item.prompt} onClose={() => setShowPromptModal(false)} />
+      {/* Prompt modal — shows the active segment's prompt so opening
+          the modal while viewing Seg 2 displays seg-2's text, not
+          seg-1's. */}
+      {showPromptModal && (item.prompt || seg2?.prompt) && (
+        <PromptModal
+          prompt={
+            (activeSlide?.id === "seg_1" ? seg2?.prompt : null) ||
+            item.prompt ||
+            ""
+          }
+          onClose={() => setShowPromptModal(false)}
+        />
       )}
 
       {/* Transfer-to-Attachments — asks the user which category to save

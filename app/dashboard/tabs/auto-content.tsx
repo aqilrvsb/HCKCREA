@@ -1040,9 +1040,8 @@ export default function AutoContentTab({ projectId }: { projectId?: string } = {
             <DurationBtn active={duration === "8"} onClick={() => setDuration("8")}>
               8s (1 shot)
             </DurationBtn>
-            <DurationBtn active={duration === "16"} onClick={() => setDuration("16")}>
-              16s (auto-extend)
-            </DurationBtn>
+            {/* 16s auto-extend hidden — use Extend button on the finished card
+                to add segment 2, exactly like UGC tab. */}
           </div>
         )}
 
