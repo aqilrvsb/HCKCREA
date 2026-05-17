@@ -68,6 +68,19 @@ export async function POST(req: Request) {
   const productName = String(body?.product_name || "").trim();
   const quantity = Math.min(10, Math.max(1, Number(body?.quantity || 5)));
   const durationMode: "8" | "16" = body?.duration === "16" ? "16" : "8";
+  // Provider selection — defaults to Veo to preserve existing-user
+  // muscle memory. When "grok", we ignore the 8/16 button and use
+  // grok_duration (8-30s) as a per-second value instead.
+  const providerChoice: "veo" | "grok" = body?.provider === "grok" ? "grok" : "veo";
+  const grokDurationRaw = Number(body?.grok_duration);
+  const grokDuration =
+    Number.isFinite(grokDurationRaw) && grokDurationRaw >= 8 && grokDurationRaw <= 30
+      ? Math.round(grokDurationRaw)
+      : 8;
+  // Effective duration in seconds — drives cost + master plan dialog
+  // word-count target. Veo: 8 or 16. Grok: 8-30 per slider.
+  const effectiveSec =
+    providerChoice === "grok" ? grokDuration : durationMode === "16" ? 16 : 8;
   const aspectRatio = String(body?.aspect_ratio || "9:16");
   const avatarGender = String(body?.avatar_gender || "auto");
   const avatarHijab = String(body?.avatar_hijab || "auto");
@@ -110,10 +123,19 @@ export async function POST(req: Request) {
 
   // Pre-flight credit check — total = N × video rate (master plan is free).
   // Verify mode skips credit check until /approve fires the actual gens.
-  const videoRate = await priceFor(
+  //   Veo: flat rate per 8s or 16s clip
+  //   Grok: per-second rate × chosen duration
+  const veoRate = await priceFor(
     user.id,
     durationMode === "16" ? "video_16s" : "video_8s"
   );
+  let videoRate = veoRate;
+  if (providerChoice === "grok") {
+    // Reuse the standalone Grok tab's rate (rate_grok per second).
+    const { getGrokRate } = await import("@/lib/settings");
+    const grokRate = await getGrokRate();
+    videoRate = grokRate * grokDuration;
+  }
   const totalCost = videoRate * quantity;
   if (planMode !== "verify") {
     if (!(await hasEnoughCredits(user.id, totalCost))) {
@@ -420,7 +442,13 @@ Before creating ANY content, analyze this product like a RM80k strategist:
 
 <content_settings>
 Total videos: ${quantity}
-Duration: ${is16s ? "16 seconds — ONE continuous story split into 2 shots (Shot 1: 0-8s, Shot 2: 8-16s). NOT two separate videos. Same scene, same voice, story continues seamlessly." : "8 seconds — one single shot"}
+Duration: ${
+  providerChoice === "grok"
+    ? `${grokDuration} seconds — single shot on Grok Imagine. Dialog MUST fit naturally in ${grokDuration}s at conversational pace (target ${Math.round(grokDuration * 3.0)}–${Math.round(grokDuration * 3.5)} Malay words total). Scale the hook + body + outro proportionally to fit. NOT two shots — just ONE continuous take.`
+    : is16s
+      ? "16 seconds — ONE continuous story split into 2 shots (Shot 1: 0-8s, Shot 2: 8-16s). NOT two separate videos. Same scene, same voice, story continues seamlessly."
+      : "8 seconds — one single shot"
+}
 Character: ${gender === "male" ? "Malay man" : "Malay woman"}${hijabMode ? ", wearing hijab tudung labuh" : ", casual modern no hijab"}
 Age: ${ageRange}
 CTA: ${ctaInstruction}
@@ -1540,31 +1568,47 @@ CRITICAL OUTPUT RULES:
       : `Malay woman voice in her ${lockedAgeRange}, warm friendly tone, casual pace, mid-range pitch`) +
     ". Clear studio-quality recording, crisp consonants, natural treble, no muffling.";
 
-  const is16s = durationMode === "16";
+  // Grok always single-shot at the user's chosen N seconds; segment
+  // chain is Veo-only. is16s gates ALL 2-shot behaviour.
+  const is16s = providerChoice === "veo" && durationMode === "16";
   const histories: any[] = [];
   await Promise.all(
     plans.map(async (item, idx) => {
       const refImages = imagesForVideo(idx);
       const refImage = refImages[0] || "";
       const useIngredient = refImages.length > 0;
-      const model = useIngredient ? cfg.videoR2V : cfg.videoT2V;
+      // Grok uses a generic "grok-imagine" model string — p6CreateVideo's
+      // apipodVideoModel detects the "grok" keyword and emits
+      // grok-imagine-t2v / -i2v based on ref presence. No t2v/r2v split
+      // at this layer.
+      const model =
+        providerChoice === "grok"
+          ? "grok-imagine"
+          : useIngredient
+            ? cfg.videoR2V
+            : cfg.videoT2V;
       const seg1Prompt = veoSeg1PromptFor(item, lockedVoiceLine);
       const seg2Prompt = is16s
         ? veoSeg2PromptFor(item, lockedVoiceLine)
         : "";
 
-      // 3-tier video cascade: p2 → p1 → p3. For manual mode with multiple
-      // picked products, we send up to 3 distinct refs. For 1 picked
-      // (or affiliate single-image) we send the same URL 3× (triplicated
-      // in imagesForVideo above).
+      // Veo → video cascade (asset='video'). Grok → grok cascade
+      // (asset='grok' → typically p6-a..h slot pool). Each pool has
+      // independent main+fallback config at /admin/settings.
       const cascaded = await generateVideoWithCascade({
         primaryModel: model,
         userId: user.id,
         prompt: seg1Prompt,
         imageUrls: refImages,
-        durationMode: is16s ? "8" : durationMode,
+        durationMode:
+          providerChoice === "grok"
+            ? String(grokDuration)
+            : is16s
+              ? "8"
+              : durationMode,
         aspectRatio,
         imageMode: useIngredient ? "ingredient" : "text",
+        asset: providerChoice === "grok" ? "grok" : "video",
       });
 
       const { data: hist } = await admin
@@ -1580,7 +1624,13 @@ CRITICAL OUTPUT RULES:
           framework: item.framework || `Video ${idx + 1}`,
           reference_url: refImage || null,
           task_id: cascaded.ok ? cascaded.taskId : null,
-          duration: is16s ? 16 : 8,
+          // Grok: actual per-second duration. Veo: 8 or 16.
+          duration:
+            providerChoice === "grok"
+              ? grokDuration
+              : is16s
+                ? 16
+                : 8,
           cost: videoRate,
           batch_id: batch?.id,
           // 16s chain fields — onSegmentSettled reads these to fire seg-2.
@@ -1608,9 +1658,17 @@ CRITICAL OUTPUT RULES:
             image_prompt: item.imagePrompt,
             video_prompt_shot1: item.videoPromptShot1,
             video_prompt_shot2: item.videoPromptShot2,
+            // Provider chip + tracking on the history card. Grok rows
+            // also stamp modelChoice so retry/auto-cron route them
+            // back through the grok cascade pool, not video.
+            providerChoice,
+            ...(providerChoice === "grok"
+              ? { modelChoice: "grok", grok_duration: grokDuration }
+              : {}),
             // Segment chain — duration_mode + seg2_prompt + voice_line
             // are what segment-chain.ts onSegmentSettled needs to fire
-            // seg-2 automatically when seg-1 settles.
+            // seg-2 automatically when seg-1 settles. ONLY stamped for
+            // Veo 16s rows; Grok is single-shot so the chain is skipped.
             ...(is16s
               ? {
                   duration_mode: "16s",

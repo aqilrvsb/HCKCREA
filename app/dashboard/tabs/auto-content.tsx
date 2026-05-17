@@ -85,7 +85,28 @@ export default function AutoContentTab({ projectId }: { projectId?: string } = {
   const [age, setAge] = useState<"20s" | "30s" | "40s" | "55+">("30s");
 
   // Settings
+  // Provider — Veo 3.1 (default) or Grok. Veo keeps the 8/16 duration
+  // semantics; Grok exposes a 6-30s per-second slider instead. Both
+  // share the master plan; only the dialog word-count target differs.
+  const [provider, setProvider] = useState<"veo" | "grok">("veo");
   const [duration, setDuration] = useState<"8" | "16">("8");
+  // Grok per-second duration (6-30). Default 8 so existing-user muscle
+  // memory carries over when they flip provider.
+  const [grokDuration, setGrokDuration] = useState<number>(8);
+  // Live rate_grok for cost preview. Pulled once on mount.
+  const [grokRate, setGrokRate] = useState<number | null>(null);
+  useEffect(() => {
+    let alive = true;
+    fetch("/api/grok/rate", { cache: "no-store" })
+      .then((r) => r.json())
+      .then((d) => {
+        if (alive && typeof d?.rate === "number") setGrokRate(d.rate);
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, []);
   const [aspect, setAspect] = useState("9:16");
   const [ctaMode, setCtaMode] = useState<CtaMode>("shop");
   const [customCta, setCustomCta] = useState("");
@@ -487,6 +508,8 @@ export default function AutoContentTab({ projectId }: { projectId?: string } = {
         tiktok_product_id: tiktokProductId || "",
         quantity,
         duration,
+        provider,
+        grok_duration: grokDuration,
         aspect_ratio: aspect,
         avatar_gender: gender,
         avatar_hijab: hijab === "yes" ? "hijab" : "no-hijab",
@@ -995,21 +1018,61 @@ export default function AutoContentTab({ projectId }: { projectId?: string } = {
           </div>
         </div>
 
-        {/* Duration — 8s (single shot) or 16s (auto-extended, 2 shots
-            merged). 16s flow: fire shot 1 → segment-chain.ts hooks
-            onSegmentSettled → extracts last frame → auto-fires shot 2
-            with continuation dialog (same scene, same outfit, same
-            voice) → merges into one 16s mp4. Master plan generates
-            BOTH shots' dialog in a single LLM call so wearable
-            detection + scene-pool variety inherit naturally to shot 2. */}
+        {/* Provider — Veo 3.1 keeps the 8/16 duration buttons (16s auto-
+            extends via segment-chain). Grok exposes a per-second slider
+            (8-30s) so the user can dial in exactly how long each
+            dialog should run. Master plan is identical for both — only
+            the dialog word-count target scales with the chosen N. */}
+        <label className="block text-xs font-mono uppercase tracking-widest text-[var(--color-text-muted)] font-bold mb-2">
+          Provider
+        </label>
         <div className="flex gap-2 mb-3">
-          <DurationBtn active={duration === "8"} onClick={() => setDuration("8")}>
-            8s (1 shot)
+          <DurationBtn active={provider === "veo"} onClick={() => setProvider("veo")}>
+            🎬 Veo 3.1
           </DurationBtn>
-          <DurationBtn active={duration === "16"} onClick={() => setDuration("16")}>
-            16s (auto-extend)
+          <DurationBtn active={provider === "grok"} onClick={() => setProvider("grok")}>
+            ⚡ Grok
           </DurationBtn>
         </div>
+
+        {provider === "veo" && (
+          <div className="flex gap-2 mb-3">
+            <DurationBtn active={duration === "8"} onClick={() => setDuration("8")}>
+              8s (1 shot)
+            </DurationBtn>
+            <DurationBtn active={duration === "16"} onClick={() => setDuration("16")}>
+              16s (auto-extend)
+            </DurationBtn>
+          </div>
+        )}
+
+        {provider === "grok" && (
+          <div className="mb-3">
+            <div className="flex items-center justify-between mb-2">
+              <label className="text-xs font-mono uppercase tracking-widest text-[var(--color-text-muted)] font-bold">
+                Duration: {grokDuration}s
+              </label>
+              {grokRate != null && (
+                <span className="text-xs font-bold" style={{ color: "var(--color-orange)" }}>
+                  ~RM{(grokRate * grokDuration).toFixed(2)} / video
+                </span>
+              )}
+            </div>
+            <input
+              type="range"
+              min={8}
+              max={30}
+              step={1}
+              value={grokDuration}
+              onChange={(e) => setGrokDuration(Number(e.target.value))}
+              className="w-full"
+              style={{ accentColor: "var(--color-orange)" }}
+            />
+            <p className="text-[10px] text-[var(--color-text-muted)] mt-1">
+              Per-second billing · 720p · single shot · dialog scales to {grokDuration}s.
+            </p>
+          </div>
+        )}
 
         <div className="flex items-center gap-2 mb-4">
           <Label>Size</Label>

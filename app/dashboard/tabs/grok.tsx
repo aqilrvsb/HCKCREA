@@ -32,8 +32,9 @@ export default function GrokTab({ projectId }: { projectId?: string } = {}) {
   );
   const [prompt, setPrompt] = useState("");
   const [aspect, setAspect] = useState("9:16");
-  // Grok bills per-second, 6-30 range. Default 6 per APIPod docs.
-  const [duration, setDuration] = useState<number>(6);
+  // Grok bills per-second. APIPod accepts 6-30 but we expose 8-30 in
+  // the UI per product call (8s is the natural floor for usable dialog).
+  const [duration, setDuration] = useState<number>(8);
   const [ratePerSec, setRatePerSec] = useState<number | null>(null);
   const [status, setStatus] = useState<Status>("idle");
   const [error, setError] = useState<string | null>(null);
@@ -124,7 +125,7 @@ export default function GrokTab({ projectId }: { projectId?: string } = {}) {
           </h2>
         </div>
         <p className="text-xs text-[var(--color-text-secondary)] mb-4">
-          Per-second billing · 6–30s · 720p. Text-to-video or image-to-video
+          Per-second billing · 8–30s · 720p. Text-to-video or image-to-video
           (1–7 reference images).
         </p>
 
@@ -256,7 +257,7 @@ export default function GrokTab({ projectId }: { projectId?: string } = {}) {
             </label>
             <input
               type="range"
-              min={6}
+              min={8}
               max={30}
               step={1}
               value={duration}
