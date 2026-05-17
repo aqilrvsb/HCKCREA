@@ -668,7 +668,7 @@ export default function Sidebar({
         <a
           href={
             isAffiliate
-              ? "https://chat.whatsapp.com/EJqjOkh3hiX1I2r1zKXJAe"
+              ? "https://chat.whatsapp.com/CRp8ctg8Y40IBrtlPbuCQ2"
               : "https://chat.whatsapp.com/BPORSI7khdIEOGZzWYBwbS"
           }
           target="_blank"

@@ -12,7 +12,7 @@ const WHACENTER_API_URL = "https://api.whacenter.com";
 //
 // Affiliate group: affiliate-only community
 // PRO/Client group: paying-customer community
-export const WHATSAPP_GROUP_AFFILIATE = "https://chat.whatsapp.com/EJqjOkh3hiX1I2r1zKXJAe";
+export const WHATSAPP_GROUP_AFFILIATE = "https://chat.whatsapp.com/CRp8ctg8Y40IBrtlPbuCQ2";
 export const WHATSAPP_GROUP_PRO = "https://chat.whatsapp.com/BPORSI7khdIEOGZzWYBwbS";
 
 export type WhatsappGroupKind = "pro" | "affiliate";
