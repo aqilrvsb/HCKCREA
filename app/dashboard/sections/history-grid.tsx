@@ -1581,9 +1581,32 @@ function HistoryCardInner({
                   : seg2Done
                     ? "Merging Seg 1 + Seg 2…"
                     : "16s queued";
+                // Read the live chain_phase marker stamped by
+                // lib/segment-chain.ts so the user sees the actual
+                // sub-step instead of a generic message.
+                const phase = (item.metadata as any)?.chain_phase as
+                  | "extracting_last_frame"
+                  | "refining_with_banana"
+                  | "firing_veo_i2v"
+                  | undefined;
+                const phaseMs = (item.metadata as any)?.chain_phase_at
+                  ? Date.now() -
+                    new Date((item.metadata as any).chain_phase_at).getTime()
+                  : 0;
+                const phaseMinAgo = Math.floor(phaseMs / 60000);
+                const phaseLabel =
+                  phase === "extracting_last_frame"
+                    ? "Extracting last frame from Seg 1 (fal.ai)…"
+                    : phase === "refining_with_banana"
+                      ? "Refining frame + product via Banana Pro (cascade of admin's image slots)…"
+                      : phase === "firing_veo_i2v"
+                        ? "Refine done. Firing Veo i2v with refined frame…"
+                        : null;
                 const sub = isSeg2
                   ? seg1Done
-                    ? "Refining last frame via Banana Pro, then firing Veo i2v"
+                    ? phaseLabel
+                      ? `${phaseLabel}${phaseMinAgo >= 1 ? ` (${phaseMinAgo} min in)` : ""}`
+                      : "Refining last frame via Banana Pro, then firing Veo i2v"
                     : "Waiting for Seg 1 to finish"
                   : seg2Done
                     ? "ffmpeg concat — usually 10-20s"

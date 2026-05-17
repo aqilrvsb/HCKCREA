@@ -223,6 +223,7 @@ async function fireSeg2(parent: Settled, parentOutputUrl: string): Promise<void>
     parent.reference_url ||
     "";
   if (productImageUrl) {
+    await stampPhase("refining_with_banana");
     try {
       const refined = await refineFrameWithProduct({
         frameUrl: anchorFrameUrl,
@@ -303,24 +304,43 @@ async function fireSeg2(parent: Settled, parentOutputUrl: string): Promise<void>
     return;
   }
 
-  // Compose: seg2_body + character_lock + product_text_lock + locks + voice
+  // seg2_body is now ALREADY the full prompt with locks (built by
+  // auto-content/route.ts veoSeg2PromptFor via swapDialogBlock —
+  // shot 1's full prompt with only the dialog block replaced). For
+  // legacy rows where seg2_body was just a partial prompt, the older
+  // appendLocks path still works — but in the new code path, locks
+  // are already present, so we skip the double-append.
+  const seg2HasLocks =
+    /DIALOG LENGTH LOCK:|ANATOMY LOCK:|AUDIO LOCK:/.test(seg2Body);
   const compose = [seg2Body];
-  if (characterLock) compose.push(characterLock);
-  if (productTextLock) compose.push(productTextLock);
-  const seg2Prompt = appendLocks(compose.join("\n\n"), voiceLine || undefined, isHijab);
+  if (!seg2HasLocks && characterLock) compose.push(characterLock);
+  if (!seg2HasLocks && productTextLock) compose.push(productTextLock);
+  const seg2Prompt = seg2HasLocks
+    ? seg2Body
+    : appendLocks(compose.join("\n\n"), voiceLine || undefined, isHijab);
 
-  // 3. Fire seg-2 P2 task (uses extracted frame as r2v reference, NOT product)
-  //
-  // skipR2VTriplicate=true because this single ref is the seg-1 anchor
-  // frame for continuity, not a product reference. The auto-triplicate
-  // trick exists to anchor a product image more tightly — duplicating a
-  // continuity frame doesn't help and just slows the upstream call.
+  await stampPhase("firing_veo_i2v");
+
+  // 3. Fire seg-2 — use the SAME multi-attachments from seg-1 PLUS
+  // the refined anchor frame as the start frame. Veo treats
+  // imageUrls[0] as the primary visual anchor — we put the refined
+  // last frame there for seamless continuity with seg-1's last frame.
+  // The user's other product attachments (slots 2 and 3) come after
+  // so the product anchoring stays consistent across the merged clip.
+  // Per-model cap is enforced by the cascade slot's CreateVideo.
+  const parentExtraImgs: string[] = Array.isArray(meta.image_urls)
+    ? meta.image_urls.filter(
+        (u: any) => typeof u === "string" && u.trim() && u !== anchorFrameUrl
+      )
+    : [];
+  const seg2ImageUrls = [anchorFrameUrl, ...parentExtraImgs.slice(0, 2)];
+
   const cfg = await getP2Config();
   const created = await p2CreateTask({
     model: cfg.videoR2V,
     userId: parent.user_id,
     prompt: seg2Prompt,
-    imageUrls: [anchorFrameUrl],
+    imageUrls: seg2ImageUrls,
     durationMode: "8",
     aspectRatio: meta.aspectRatio || "9:16",
     imageMode: "ingredient",
