@@ -84,6 +84,12 @@ export function buildVeoLocks(opts: {
   /** true when the persona is hijabi. Caller in auto-content / UGC
    *  passes the value selected by the user in the Style dropdown. */
   hijab?: boolean;
+  /** Duration in seconds for this shot. Drives the DIALOG LENGTH LOCK
+   *  word-count target — rule is N × 3 Malay words at conversational
+   *  pace. Defaults to 8 (Veo 8s shot). Grok callers pass their
+   *  per-second slider value (8-30) so a 12s Grok clip targets 36
+   *  words, a 20s Grok clip targets 60, etc. */
+  durationSec?: number;
 }): string {
   const voiceDesc =
     getVoiceDescription(opts.voiceId) ||
@@ -121,7 +127,7 @@ export function buildVeoLocks(opts: {
 
 ANATOMY LOCK: ONE human only — exactly 2 hands with 5 fingers each (both clearly visible when in frame), symmetric face, normal proportions, no missing limbs, no extra limbs, no fused fingers, no warped joints, no plastic / waxy skin, no uncanny-valley features, no morphing face, no asymmetric eyes, no doubled facial features.
 AUDIO LOCK: ONE single voice only — no chatter, no background voices, no whispered second voice, no echo doubles, NO ghost sound, NO phantom audio, NO unexplained noise. NO background music, NO instrumental, NO sound effects, NO ambient music, NO score, NO jingles. All audio is spoken dialog only.${voiceCharLine}
-DIALOG LENGTH LOCK: Total spoken dialog per 8-second shot MUST be 20-24 words (Bahasa Melayu). Beat budget: hook 4-6 words / core 10-14 words / reaction 0-2 words / outro 4-6 words. Under 18 = character freezes at end. Over 26 = rushed audio. Hit 20-24 every shot.
+DIALOG LENGTH LOCK: Total spoken dialog MUST be ${(() => { const d = Math.max(2, Math.round(opts.durationSec || 8)); const target = d * 3; return `${target - 2}-${target + 2} Malay words for this ${d}-second shot (rule: ${d} seconds × 3 words/sec = ${target} target)`; })()}. Under target − 4 = character mouth freezes at end. Over target + 4 = rushed audio. Hit the target window every shot. Beat budget for an 8-second shot: hook 4-6 / core 10-14 / reaction 0-2 / outro 4-6 = 20-24 total. Scale beats proportionally for longer Grok shots (e.g. 16s = double each beat).
 LANGUAGE LOCK: Spoken dialog is BAHASA MELAYU (Malaysian Malay) ONLY. NEVER Bahasa Indonesia. Use Malaysian markers: korang, aku, ni, tu, memang, gila, kau, lah, je, dah, eh. FORBIDDEN Indonesian words: kalian, gue, lo, banget, sih, dong, kayak, gimana, ngapain, kasihan, doang, mau, nih, tuh.
 VOICE CONSISTENCY LOCK: The character's voice has fixed identity — same gender, same age range, same pitch, same Malaysian accent, same speaking rhythm and energy across the entire clip and any future continuation. Voice MUST stay locked so seg-2 / Extend continuations match seg-1 seamlessly.
 PRODUCT LOCK: Product visual is pixel-identical to reference — same color, shape, label, typography, layout, packaging, finish. Sharp focus on label, no warping, no recoloring, no text drift, no relabel, no re-illustration. When a reference image is attached, the reference is the SINGLE source of truth for the product — anchor framing, lighting, and hand-holding around it.${hijabLockLine}

@@ -444,10 +444,10 @@ Before creating ANY content, analyze this product like a RM80k strategist:
 Total videos: ${quantity}
 Duration: ${
   providerChoice === "grok"
-    ? `${grokDuration} seconds — single shot on Grok Imagine. Dialog MUST fit naturally in ${grokDuration}s at conversational pace (target ${Math.round(grokDuration * 3.0)}–${Math.round(grokDuration * 3.5)} Malay words total). Scale the hook + body + outro proportionally to fit. NOT two shots — just ONE continuous take.`
+    ? `${grokDuration} seconds — single shot on Grok Imagine. 🚨 DIALOG WORD COUNT RULE: ${grokDuration} seconds × 3 words/sec = ${grokDuration * 3} target Malay words (acceptable range: ${grokDuration * 3 - 2}–${grokDuration * 3 + 2}). Scale the hook + core + reaction + outro beats proportionally so the total hits the target. NOT two shots — just ONE continuous take. Example for ${grokDuration}s: hook ~${Math.round(grokDuration * 0.625)} words / core ~${Math.round(grokDuration * 1.5)} words / reaction 0-2 words / outro ~${Math.round(grokDuration * 0.625)} words.`
     : is16s
-      ? "16 seconds — ONE continuous story split into 2 shots (Shot 1: 0-8s, Shot 2: 8-16s). NOT two separate videos. Same scene, same voice, story continues seamlessly."
-      : "8 seconds — one single shot"
+      ? "16 seconds — ONE continuous story split into 2 shots (Shot 1: 0-8s, Shot 2: 8-16s). Each shot dialog = 20-24 Malay words (8s × 3 = 24 target). Same scene, same voice, story continues seamlessly."
+      : "8 seconds — one single shot. Dialog = 20-24 Malay words (8s × 3 = 24 target)."
 }
 Character: ${gender === "male" ? "Malay man" : "Malay woman"}${hijabMode ? ", wearing hijab tudung labuh" : ", casual modern no hijab"}
 Age: ${ageRange}
@@ -1536,9 +1536,18 @@ CRITICAL OUTPUT RULES:
   // and let onSegmentSettled pick it up after seg-1 lands. The chain
   // handles the frame extract + seg-2 fire + ffmpeg merge automatically.
   // For 8s clips, Shot 1 is the only prompt. Locks appended either way.
+  // For Veo this is the canonical 8s shot. For Grok, the user's slider
+  // (8-30s) sets the duration AND the DIALOG LENGTH LOCK target
+  // (rule: N seconds × 3 words). buildVeoLocks reads durationSec and
+  // emits "MUST be N×3 ±2 Malay words" so the LLM has a hard target.
   function veoSeg1PromptFor(p: Plan, voiceLine: string): string {
     return (
-      p.videoPromptShot1 + buildVeoLocks({ voiceLine, hijab: hijabMode })
+      p.videoPromptShot1 +
+      buildVeoLocks({
+        voiceLine,
+        hijab: hijabMode,
+        durationSec: providerChoice === "grok" ? grokDuration : 8,
+      })
     );
   }
 
