@@ -469,7 +469,8 @@ Market: Malaysian TikTok (Malay-speaking, informal)
 
 🚨 REQUIRED PREFIX FOR EVERY UGC + LIFESTYLE imagePrompt AND videoPromptShot1${is16s ? " AND videoPromptShot2" : ""}:
 Each video has a PRE-ASSIGNED outfit (see <outfit_table> in user message). The prompt MUST start with the exact prefix for that video's number. Examples for this batch:
-${outfitAssignments.slice(0, Math.min(3, quantity)).map((_, i) => `- Video ${i + 1} prefix: "${requiredPrefix(i)}, with the product (holding it if PRODUCT type per <attachment_classifier>, OR wearing it if WEARABLE type — clothes/hijab/jewelry/shoes/bag)"`).join("\n")}
+${outfitAssignments.slice(0, Math.min(3, quantity)).map((_, i) => `- Video ${i + 1} (PRODUCT example):  "${requiredPrefix(i)}, holding the product, [shot type + action]"
+- Video ${i + 1} (WEARABLE example): "${requiredPrefix(i)}, WEARING the product on body (NOT holding), [shot type + action]"   ← if product is clothes/hijab/shoes/bag/jewelry/abaya/watch, use THIS form`).join("\n")}
 ${quantity > 3 ? `(...continue for Videos 4-${quantity} using the outfit assigned to each in <outfit_table>)` : ""}
 
 🚨 DO NOT use these forbidden lazy phrases:
@@ -483,6 +484,8 @@ ${quantity > 3 ? `(...continue for Videos 4-${quantity} using the outfit assigne
 - ${hijabMode ? "imagePrompt or videoPrompt missing the word \"hijab\"" : "imagePrompt or videoPrompt contains the word \"hijab\""}
 - Two videos in the batch using the same outfit colour family
 - Any video defaulting to brown / beige / neutral when not assigned
+- 🛑 WEARABLE product (pants / shirt / hijab / shoes / bag / jewelry / abaya / watch / scarf) described as "holding", "holds", "showing", "displaying" — character MUST be WEARING it. Example failure: "Malay man holding black pants and showing them" ✗. Required form: "Malay man wearing the black pants, gesturing to his outfit" ✓.
+- Wearable items "floating", "on a hanger", "on a mannequin", or any depiction of the wearable NOT physically on the character's body
 </HARD_RULES_READ_THIS_FIRST>
 
 ${noImageMode ? `
@@ -1283,7 +1286,21 @@ EVERY UGC + LIFESTYLE video's imagePrompt and videoPromptShot1${is16s ? " and vi
 
 ${outfitAssignments.map((_, i) => `Video ${i + 1}: "${requiredPrefix(i)}"`).join("\n")}
 
-After the prefix, add: ", holding the product, [shot type + action + setting]. Spoken dialog: ..." (continue with the normal prompt body).
+After the prefix, add the product-interaction phrase BASED ON THE attachment_classifier:
+  • PRODUCT (consumable / bottle / packet / box / device / accessory held in hand) → ", holding the product, [shot type + action + setting]. Spoken dialog: ..."
+  • WEARABLE (clothing / pants / shirt / hijab / shoes / bag / jewelry / abaya / watch / scarf) → ", WEARING the product (NOT holding it — the character is physically dressed in / wearing / has it on their body), [shot type + action + setting]. Spoken dialog: ..."
+
+🚨 CRITICAL FOR WEARABLE: NEVER write "holding", "holds", "shows", "displays" with a wearable item. The character must be PHYSICALLY WEARING it:
+  • Pants/jeans/skirt → wearing the pants, standing/sitting/walking
+  • Shirt/blouse/top → wearing the shirt, normal upper-body shot
+  • Hijab/tudung → wearing the hijab on her head (covering hair)
+  • Shoes → wearing the shoes (visible on feet)
+  • Bag → wearing the bag over shoulder / cross-body / handbag style
+  • Jewelry → wearing the necklace / earrings / ring / watch on body
+  • Abaya/baju kurung → wearing the dress / full outfit
+
+WRONG for wearable pants: "Malay man holding black pants and showing them to camera" ✗
+RIGHT for wearable pants: "Malay man wearing the black pants, standing in a bright room, gesturing to his outfit" ✓
 
 For PRODUCT (Template B) and HAND-POV (Template C) videos: SKIP the prefix entirely — no character description, no gender, no hijab, no age. Those videos show product or hand only.
 </per_video_prefix>
