@@ -30,6 +30,7 @@ import { falExtractFrame, falMergeVideos, type FrameAnchor } from "@/lib/fal";
 import { productTextLockBlock } from "@/lib/product-ocr";
 import { uploadFromUrl, signedGetUrl, buildKey, rehostToContent, type StorageType } from "@/lib/b2";
 import { buildVeoLocks } from "@/lib/veo-voices";
+import { refineFrameWithProduct } from "@/lib/refine-frame";
 
 // Rehost a (possibly expired) Crun temp video URL to B2 so fal can fetch
 // it during the merge step. Returns a fresh 7-day signed URL on success,
@@ -168,7 +169,54 @@ async function fireSeg2(parent: Settled, parentOutputUrl: string): Promise<void>
       .eq("id", parent.id);
     return;
   }
-  const anchorFrameUrl = frameRes.url;
+  let anchorFrameUrl = frameRes.url;
+  let refineUsed = false;
+  let refineProvider: string | null = null;
+
+  // 1b. BANANA REFINE — if the parent has a product attachment, send
+  // (last frame + product image) to nano-banana-pro so the product in
+  // the start frame for seg-2 is pixel-sharp. Without this step Veo r2v
+  // tends to soften the product label across the 8s seg-2 clip because
+  // its image conditioning is loose. With a clean refined anchor the
+  // drift across the cut is much less visible. Mirrors the manual UGC
+  // Extend dialog's HD refine flow.
+  //
+  // Source for the product image, in order of preference:
+  //   metadata.image_urls[0] (Auto Content's full attachment array)
+  //   metadata.product_image_url (from manual extend bodies)
+  //   parent.reference_url (legacy single-ref rows)
+  const productImageUrl =
+    (Array.isArray(meta.image_urls) && meta.image_urls[0]) ||
+    meta.product_image_url ||
+    parent.reference_url ||
+    "";
+  if (productImageUrl) {
+    try {
+      const refined = await refineFrameWithProduct({
+        frameUrl: anchorFrameUrl,
+        productUrl: productImageUrl,
+        aspectRatio: meta.aspectRatio || "9:16",
+      });
+      if (refined.ok) {
+        anchorFrameUrl = refined.url;
+        refineUsed = true;
+        refineProvider = refined.provider || null;
+        console.log(
+          `[segment-chain] frame refined via ${refined.provider}/nano-banana-pro for parent ${parent.id}`
+        );
+      } else {
+        console.warn(
+          `[segment-chain] Banana refine failed for parent ${parent.id}, falling back to raw frame:`,
+          refined.error
+        );
+      }
+    } catch (e: any) {
+      console.warn(
+        `[segment-chain] Banana refine threw for parent ${parent.id}:`,
+        e?.message || e
+      );
+    }
+  }
 
   // 2. Build seg-2 prompt with all continuity locks
   const characterLock = String(meta.character_lock || "").trim();
@@ -246,6 +294,11 @@ async function fireSeg2(parent: Settled, parentOutputUrl: string): Promise<void>
       // upstream (P1 vs P2). Without this the recheck path defaults to
       // P2 and a P1 seg-2 stays "pending" forever even when P1 is done.
       provider: created.provider || meta.provider || "p2",
+      // Track whether the start frame went through the Banana refine
+      // step so admin tooling can see why some seg-2's look sharper
+      // than others. Useful for debugging product-drift complaints.
+      refine_used: refineUsed,
+      refine_provider: refineProvider,
     },
   });
 }
