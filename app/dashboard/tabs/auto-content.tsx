@@ -1125,22 +1125,66 @@ export default function AutoContentTab({ projectId }: { projectId?: string } = {
                   AI plan biasa — framework drive scene
                 </div>
               </button>
+              {/* Rainbow gradient draws the eye to the Custom Idea
+                  option so clients notice the new feature. Animated
+                  via CSS keyframes (injected once below). When
+                  selected, the gradient saturates + a glow appears.
+                  When idle, the gradient still pulses softly so it
+                  reads as "new / premium" without being noisy. */}
               <button
                 type="button"
                 onClick={() => setPlanStyle("custom")}
-                className="flex-1 px-3 py-2 rounded-md text-[12px] font-bold transition-colors"
+                className="flex-1 relative overflow-hidden px-3 py-2 rounded-md text-[12px] font-bold transition-all"
                 style={{
-                  background: planStyle === "custom" ? "#fef3c7" : "#fafaf7",
-                  border: `1px solid ${planStyle === "custom" ? "#f59e0b" : "#e8e0d8"}`,
-                  color: planStyle === "custom" ? "#92400e" : "#666",
+                  background:
+                    planStyle === "custom"
+                      ? "linear-gradient(120deg, #fef3c7, #fce7f3, #ede9fe, #dbeafe, #ccfbf1, #fef3c7)"
+                      : "linear-gradient(120deg, #fff5f7, #f5f3ff, #eff6ff, #ecfeff, #f0fdf4, #fff5f7)",
+                  backgroundSize: "300% 100%",
+                  animation: planStyle === "custom"
+                    ? "ac-rainbow 4s linear infinite"
+                    : "ac-rainbow 8s linear infinite",
+                  border: `1px solid ${planStyle === "custom" ? "#f59e0b" : "rgba(168,85,247,0.35)"}`,
+                  color: planStyle === "custom" ? "#92400e" : "#6b21a8",
+                  boxShadow:
+                    planStyle === "custom"
+                      ? "0 0 0 3px rgba(245,158,11,0.18), 0 2px 8px rgba(168,85,247,0.18)"
+                      : "0 2px 8px rgba(168,85,247,0.12)",
                 }}
               >
-                {planStyle === "custom" ? "● " : "○ "}Custom Idea
-                <div className="text-[10px] font-normal mt-0.5 opacity-80">
+                {/* ✨ NEW badge — top-right corner, only when idle so
+                    the user notices the feature exists. Disappears
+                    once they engage. */}
+                {planStyle !== "custom" && (
+                  <span
+                    className="absolute top-0.5 right-1 text-[8px] font-bold tracking-wider px-1 py-0.5 rounded"
+                    style={{
+                      background: "linear-gradient(90deg, #ec4899, #a855f7, #3b82f6)",
+                      color: "#fff",
+                      boxShadow: "0 1px 3px rgba(168,85,247,0.4)",
+                    }}
+                  >
+                    ✨ NEW
+                  </span>
+                )}
+                <span className="relative z-10">
+                  {planStyle === "custom" ? "● " : "○ "}Custom Idea
+                </span>
+                <div className="relative z-10 text-[10px] font-normal mt-0.5 opacity-80">
                   Client kasi idea — AI buat variants
                 </div>
               </button>
             </div>
+            {/* Keyframes for the soft rainbow flow on Custom Idea
+                button. Scoped via the unique animation name so it
+                won't collide with any other animation on the page. */}
+            <style>{`
+              @keyframes ac-rainbow {
+                0%   { background-position: 0% 50%; }
+                50%  { background-position: 100% 50%; }
+                100% { background-position: 0% 50%; }
+              }
+            `}</style>
 
             {planStyle === "custom" && (
               <>

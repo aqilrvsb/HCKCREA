@@ -2114,6 +2114,11 @@ CRITICAL OUTPUT RULES:
             image_prompt: item.imagePrompt,
             video_prompt_shot1: item.videoPromptShot1,
             video_prompt_shot2: item.videoPromptShot2,
+            // Stamp the client-provided idea so the history card can
+            // surface it as a label (rainbow badge alongside framework).
+            // Empty when user used Normal Flow — the card-side check
+            // hides the badge in that case.
+            idea_style: ideaStyle || undefined,
             // Provider chip + tracking on the history card. Grok rows
             // also stamp modelChoice so retry/auto-cron route them
             // back through the grok cascade pool, not video.

@@ -1289,6 +1289,16 @@ function HistoryCardInner({
         borderColor: "var(--color-border)",
       }}
     >
+      {/* Keyframes for the rainbow Custom Idea badge below. Cheap to
+          duplicate per card (browser de-dupes identical rule names);
+          keeps the animation self-contained without a global CSS file. */}
+      <style>{`
+        @keyframes hg-idea-rainbow {
+          0%   { background-position: 0% 50%; }
+          50%  { background-position: 100% 50%; }
+          100% { background-position: 0% 50%; }
+        }
+      `}</style>
       <div
         className={`bg-black relative ${
           isClonePrompt ? "aspect-[1/1]" : "aspect-[9/16]"
@@ -1967,6 +1977,37 @@ function HistoryCardInner({
           >
             🎬 {item.framework}
           </div>
+        )}
+
+        {/* Custom Idea label — rainbow gradient badge that surfaces the
+            client-provided idea_style when one was used for the batch.
+            Hidden when the row was generated via Normal Flow (no idea
+            set). Click expands the full idea text in a small alert so
+            long ideas don't blow out the card width. */}
+        {(item.metadata as any)?.idea_style && (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              const txt = String((item.metadata as any).idea_style || "");
+              alert(`Custom Idea (client brief):\n\n${txt}`);
+            }}
+            className="text-[9px] font-mono uppercase tracking-wider font-bold mb-1.5 px-1.5 py-0.5 rounded inline-flex items-center gap-1 max-w-full text-left transition hover:scale-[1.02]"
+            style={{
+              background: "linear-gradient(120deg, #fef3c7, #fce7f3, #ede9fe, #dbeafe, #ccfbf1)",
+              backgroundSize: "300% 100%",
+              animation: "hg-idea-rainbow 6s linear infinite",
+              color: "#6b21a8",
+              border: "1px solid rgba(168,85,247,0.4)",
+              boxShadow: "0 1px 4px rgba(168,85,247,0.18)",
+            }}
+            title={`Custom Idea: ${(item.metadata as any).idea_style}`}
+          >
+            <span>✨ Idea:</span>
+            <span className="truncate normal-case font-normal" style={{ maxWidth: "180px" }}>
+              {String((item.metadata as any).idea_style)}
+            </span>
+          </button>
         )}
 
         {/* Task ID icon — clickable. Tooltip on hover shows the full
