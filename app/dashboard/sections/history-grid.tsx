@@ -1178,17 +1178,23 @@ function HistoryCardInner({
   }, [item.created_at]);
 
   async function handleDelete() {
-    // Segment-aware delete: when the user is currently viewing the seg-2
-    // slide on an extended UGC / Auto-Content card, "delete" should
-    // remove ONLY that segment (and any later siblings the backend
-    // cascades) instead of nuking the whole 16s clip + seg-1 origin.
-    // Other slides (seg-1 or merged) collapse to the parent-row delete
-    // path which the backend then cascades over all children.
+    // Segment-aware delete (matches the rule the user defined):
+    //   • Viewing Seg 2 slide → delete Seg 2 + any later siblings (Seg
+    //     3/4/…). Seg 1 stays untouched; its merged_url is rolled back
+    //     to the original seg-1 URL by the backend so it reverts from
+    //     a 16s merged clip to its original 8s clip.
+    //   • Viewing Seg 1 slide (or merged) → delete ONLY Seg 1 (the
+    //     parent row). Any existing children are PROMOTED to standalone
+    //     cards by the backend (parent_history_id cleared) so the user
+    //     still has those clips as independent videos.
+    //   • Plain non-chain card → just delete the row.
     const isSeg2View = activeSlide?.id === "seg_1" && !!seg2?.id;
     const targetId = isSeg2View ? seg2!.id : item.id;
     const confirmMsg = isSeg2View
-      ? "Padam Segment 2 saja? Segment 1 (dan segment lain) tetap kekal."
-      : "Padam item ni? Kalau ada segment 2, segment 2 akan ikut hilang sekali.";
+      ? "Padam Segment 2 (dan segmen lepas seperti Seg 3 kalau ada)? Seg 1 akan jadi 8 saat semula."
+      : seg2?.id
+        ? "Padam Seg 1 sahaja? Seg 2 (dan segmen lain) akan jadi video bebas — tak akan hilang."
+        : "Padam item ni?";
     if (!confirm(confirmMsg)) return;
     setDeleting(true);
     try {

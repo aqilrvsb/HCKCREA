@@ -65,26 +65,41 @@ export async function DELETE(req: Request) {
     ownerId = target.user_id;
   }
 
-  // Case 2 — child segment row. Delete ONLY this segment + roll the
-  // parent back to its previous state. Earlier-iteration cascade-deleted
-  // any later siblings too, but the user wants independent deletes:
-  // removing seg-2 should leave seg-3 alone (and vice versa).
+  // Case 2 — child segment row. Delete this segment + cascade to any
+  // LATER siblings (seg-3, seg-4, …) so the chain stays consistent.
+  // Per-user intent: deleting seg-2 should never leave seg-1 stuck on
+  // the merged 16s URL, and should never leave an orphan seg-3 child
+  // pointing back at a parent that no longer has seg-2 to merge into.
+  // Earlier sibling rows (e.g. seg-1 itself) are NEVER touched — only
+  // the deleted row and anything chronologically AFTER it.
   if (target.parent_history_id) {
-    // Roll parent back to a clean seg-1-only state. Three cases to
-    // handle based on where in the 16s chain the parent currently sits:
+    // 2a. Find all later siblings of this segment (same parent, created
+    //     after the target). These are the seg-3 / seg-4 / … rows that
+    //     depended on this seg being present. Delete them all in one
+    //     pass so we don't leave dangling children.
+    const { data: laterSiblings } = await admin
+      .from("history")
+      .select("id, created_at")
+      .eq("user_id", ownerId)
+      .eq("parent_history_id", target.parent_history_id)
+      .neq("id", target.id)
+      .gt("created_at", target.created_at);
+    const laterIds = (laterSiblings || []).map((r: any) => r.id);
+
+    // 2b. Roll parent back to its clean pre-extend state. Three cases:
     //
     //   (A) Already merged — parent.merged_url is set AND
-    //       metadata.seg1_url is preserved. Roll output_url back to
-    //       seg1_url, clear merged_url + the merge metadata.
-    //   (B) Merged but no seg1_url (legacy / partial data). merged_url
-    //       points at a now-dead .mp4. Clear output_url + merged_url
-    //       both so LazyVideo doesn't CORS-loop on the dead URL.
+    //       metadata.seg1_url is preserved by mergeSegments. Roll
+    //       output_url back to seg1_url, clear merged_url + merge meta.
+    //   (B) Merged but no seg1_url (legacy data). Best effort: clear
+    //       merged_url; if we can find the seg-1 url anywhere
+    //       (parent's reference_url for older rows), use it; else null.
     //   (C) Not yet merged — parent.merged_url is NULL and output_url
     //       still holds the seg-1 video URL (set when seg-1 settled).
-    //       Leave output_url alone; just drop seg-2 metadata if present.
+    //       Leave output_url alone; just drop seg-2 metadata.
     const { data: parent } = await admin
       .from("history")
-      .select("id, output_url, merged_url, metadata")
+      .select("id, output_url, merged_url, metadata, reference_url")
       .eq("id", target.parent_history_id)
       .eq("user_id", ownerId)
       .single();
@@ -95,12 +110,19 @@ export async function DELETE(req: Request) {
       delete cleanedMeta.seg2_url;
       delete cleanedMeta.merged_at;
       delete cleanedMeta.seg1_url; // no longer needed once we collapse back
+      // Also clear chain-phase markers so the placeholder doesn't
+      // show "refining with banana…" on a row that just lost its
+      // seg-2 trigger.
+      delete cleanedMeta.chain_phase;
+      delete cleanedMeta.chain_phase_at;
       const update: Record<string, any> = {
         metadata: cleanedMeta,
       };
       if (parent.merged_url) {
-        // Cases A + B — merge happened, so output_url currently points
-        // at the merged.mp4 which is about to become stale.
+        // Cases A + B — merge happened, output_url is the merged.mp4.
+        // Always strip merged_url; restore seg1Url if we have it, else
+        // null (Case B). The card UI handles null output_url with a
+        // "video expired" badge instead of CORS-looping on dead URL.
         update.merged_url = null;
         update.output_url = seg1Url || null;
       }
@@ -108,30 +130,65 @@ export async function DELETE(req: Request) {
       await admin.from("history").update(update).eq("id", parent.id);
     }
 
+    // 2c. Delete the target row + all later siblings in one batch.
+    const idsToDelete = [target.id, ...laterIds];
     const { error: delErr } = await admin
       .from("history")
       .delete()
-      .eq("id", target.id)
+      .in("id", idsToDelete)
       .eq("user_id", ownerId);
     if (delErr) return NextResponse.json({ error: delErr.message }, { status: 500 });
 
     return NextResponse.json({
       ok: true,
       deleted_segment: target.id,
-      cascaded_siblings: 0,
+      cascaded_siblings: laterIds.length,
+      cascaded_ids: laterIds,
       parent_reverted: !!parent,
     });
   }
 
-  // Case 3 — chain root. Delete root + all children.
+  // Case 3 — chain root. Per-user intent: deleting seg-1 should ONLY
+  // delete seg-1, leaving any seg-2 / seg-3 / … as INDEPENDENT cards
+  // (the user still wants those clips, they just don't want the seg-1
+  // origin anymore). Promote each child to a standalone row by
+  // clearing parent_history_id + segment_index + frame_anchor + chain
+  // metadata so the dashboard renders them as their own cards instead
+  // of orphan children pointing to a deleted parent.
   const { data: children } = await admin
     .from("history")
-    .select("id")
+    .select("id, metadata")
     .eq("user_id", ownerId)
     .eq("parent_history_id", target.id);
   const childIds = (children || []).map((r: any) => r.id);
   if (childIds.length > 0) {
-    await admin.from("history").delete().in("id", childIds).eq("user_id", ownerId);
+    // Strip chain-related fields from each child so they render as
+    // standalone clips. Per-row update so we can clean each child's
+    // own metadata blob (parent_id / segment_role / chain_phase get
+    // stale once detached from the chain).
+    await Promise.all(
+      (children || []).map(async (c: any) => {
+        const m = (c.metadata as Record<string, any>) || {};
+        const cleaned = { ...m };
+        delete cleaned.segment_role;
+        delete cleaned.parent_id;
+        delete cleaned.chain_phase;
+        delete cleaned.chain_phase_at;
+        delete cleaned.seg1_url;
+        delete cleaned.seg2_url;
+        delete cleaned.merged_at;
+        await admin
+          .from("history")
+          .update({
+            parent_history_id: null,
+            segment_index: null,
+            frame_anchor: null,
+            metadata: cleaned,
+          })
+          .eq("id", c.id)
+          .eq("user_id", ownerId);
+      })
+    );
   }
 
   // Case 1 (and root) — final delete of the target itself.
@@ -145,6 +202,7 @@ export async function DELETE(req: Request) {
   return NextResponse.json({
     ok: true,
     deleted_root: id,
-    cascaded_children: childIds.length,
+    promoted_children: childIds.length,
+    promoted_ids: childIds,
   });
 }
