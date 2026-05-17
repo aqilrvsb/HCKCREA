@@ -118,13 +118,13 @@ export default function AutoContentTab({ projectId }: { projectId?: string } = {
   const [manualPlanJson, setManualPlanJson] = useState("");
   const [showManualPlanHelp, setShowManualPlanHelp] = useState(false);
 
-  // Optional client-provided "idea style" — free-text description like
-  // "preview the clothes in front of mirror" or "unboxing on bedroom
-  // dresser with morning light". When set, the master plan respects this
-  // as the visual concept and generates N variants of it across the
-  // batch. Dialog structure still follows the framework choice (UGC =
-  // character on screen with face; PRD = product-only voiceover; POV =
-  // hand-only). Sent as `idea_style` in the POST body.
+  // Plan style — "normal" runs the standard master plan (framework-only
+  // driven). "custom" exposes a textarea where the client types a
+  // specific visual idea (e.g. "preview baju depan cermin"); the master
+  // plan then makes that idea the core scene of every video in the
+  // batch. Default is normal so power users don't have to toggle
+  // anything for the usual flow.
+  const [planStyle, setPlanStyle] = useState<"normal" | "custom">("normal");
   const [ideaStyle, setIdeaStyle] = useState("");
 
   // Submit state
@@ -528,10 +528,12 @@ export default function AutoContentTab({ projectId }: { projectId?: string } = {
         plan_mode: planMode,
         selected_frameworks: selectedFrameworks,
         preset_plan: planMode === "manual" ? JSON.parse(manualPlanJson) : null,
-        // Optional client-provided visual idea. Empty string → backend
-        // proceeds with normal master-plan flow. Non-empty → master plan
-        // combines this idea with the chosen framework angles.
-        idea_style: ideaStyle.trim(),
+        // Plan style — when Normal Flow is selected we ALWAYS send
+        // empty string regardless of whether the textarea has stale
+        // content from a previous Custom Idea session. When Custom
+        // Idea is selected we send the trimmed textarea. Backend
+        // treats empty as "no idea, proceed normally".
+        idea_style: planStyle === "custom" ? ideaStyle.trim() : "",
         project_id: projectId,
       };
 
@@ -1098,35 +1100,72 @@ export default function AutoContentTab({ projectId }: { projectId?: string } = {
             Manual Plan JSON UI is preserved below in case we re-enable
             this entry, but the user can no longer reach it from the UI. */}
 
-        {/* Idea Style (optional) — client can describe the visual idea
-            they want, e.g. "preview the clothes in front of mirror",
-            "unboxing on bedroom dresser with morning light". When set,
-            the master plan respects this as the core visual concept and
-            generates N variants of it across the batch. Dialog still
-            follows the chosen framework (UGC → with face, PRD → product
-            only, POV → hand only). When empty, proceeds normally. */}
+        {/* Plan Style radio — Normal Flow vs Custom Idea. Normal Flow
+            uses framework-only master plan (standard behaviour). Custom
+            Idea shows a textarea where the client types the visual
+            concept (e.g. "preview baju depan cermin") and the master
+            plan makes that the core scene of every video. Default is
+            Normal so the usual flow doesn't require a toggle. */}
         {showFrameworks && (
           <>
-            <Label>
-              Idea Style{" "}
-              <span className="text-gray-400 font-normal normal-case tracking-normal">
-                (optional — describe the visual idea you want)
-              </span>
-            </Label>
-            <textarea
-              value={ideaStyle}
-              onChange={(e) => setIdeaStyle(e.target.value)}
-              placeholder={`Contoh: "preview baju depan cermin, lighting natural pagi"\nContoh: "unboxing atas meja kayu, slow reveal label"\nContoh: "duduk atas sofa, sambil minum kopi, casual"\n\nKosongkan kalau nak AI plan biasa.`}
-              rows={3}
-              className="w-full mb-4 px-3 py-2 text-[12px] rounded-md outline-none resize-y"
-              style={{
-                background: "#fafaf7",
-                border: "1px solid #e8e0d8",
-                color: "#2a2a2a",
-                minHeight: "70px",
-                maxHeight: "180px",
-              }}
-            />
+            <Label>Plan Style</Label>
+            <div className="flex gap-2 mb-3">
+              <button
+                type="button"
+                onClick={() => setPlanStyle("normal")}
+                className="flex-1 px-3 py-2 rounded-md text-[12px] font-bold transition-colors"
+                style={{
+                  background: planStyle === "normal" ? "#fef3c7" : "#fafaf7",
+                  border: `1px solid ${planStyle === "normal" ? "#f59e0b" : "#e8e0d8"}`,
+                  color: planStyle === "normal" ? "#92400e" : "#666",
+                }}
+              >
+                {planStyle === "normal" ? "● " : "○ "}Normal Flow
+                <div className="text-[10px] font-normal mt-0.5 opacity-80">
+                  AI plan biasa — framework drive scene
+                </div>
+              </button>
+              <button
+                type="button"
+                onClick={() => setPlanStyle("custom")}
+                className="flex-1 px-3 py-2 rounded-md text-[12px] font-bold transition-colors"
+                style={{
+                  background: planStyle === "custom" ? "#fef3c7" : "#fafaf7",
+                  border: `1px solid ${planStyle === "custom" ? "#f59e0b" : "#e8e0d8"}`,
+                  color: planStyle === "custom" ? "#92400e" : "#666",
+                }}
+              >
+                {planStyle === "custom" ? "● " : "○ "}Custom Idea
+                <div className="text-[10px] font-normal mt-0.5 opacity-80">
+                  Client kasi idea — AI buat variants
+                </div>
+              </button>
+            </div>
+
+            {planStyle === "custom" && (
+              <>
+                <Label>
+                  Idea Style{" "}
+                  <span className="text-gray-400 font-normal normal-case tracking-normal">
+                    (describe the visual idea — every video will be built around this)
+                  </span>
+                </Label>
+                <textarea
+                  value={ideaStyle}
+                  onChange={(e) => setIdeaStyle(e.target.value)}
+                  placeholder={`Contoh: "preview baju depan cermin, lighting natural pagi"\nContoh: "unboxing atas meja kayu, slow reveal label"\nContoh: "duduk atas sofa, sambil minum kopi, casual"\n\nFramework still control dialog + on-screen type. Idea control scene + action.`}
+                  rows={3}
+                  className="w-full mb-4 px-3 py-2 text-[12px] rounded-md outline-none resize-y"
+                  style={{
+                    background: "#fafaf7",
+                    border: "1px solid #e8e0d8",
+                    color: "#2a2a2a",
+                    minHeight: "70px",
+                    maxHeight: "180px",
+                  }}
+                />
+              </>
+            )}
           </>
         )}
 

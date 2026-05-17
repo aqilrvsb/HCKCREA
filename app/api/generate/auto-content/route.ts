@@ -566,6 +566,28 @@ THE RULES (read all 6 before you plan a single video):
        seg-1 set up — never repeat the same beat
    These are non-negotiable craft rules even when the idea is provided.
 
+7. 🔒 LOCKS THAT STAY ABSOLUTE EVEN WHEN AN IDEA IS PROVIDED:
+   The idea controls the SCENE — it does NOT override these locks. If
+   the idea would force a violation (e.g. idea says "men's locker
+   room" but avatar is Malay woman with hijab), ADAPT the idea to fit
+   the locks (e.g. "women's mirror room with hijab-friendly setting"),
+   never break the lock.
+     • AVATAR LOCK (from <locked_avatar>) — gender = ${gender.toUpperCase()},
+       hijab = ${hijabMode ? "YES (tudung labuh, hair fully covered)" : "NO (hair visible, casual modern)"},
+       age = ${ageRange}. Every UGC video MUST contain these exact
+       attributes. The idea-driven scene must accommodate them.
+     • CTA LOCK (from <content_settings>) — ${ctaInstruction.split(".")[0]}.
+       The idea controls the SCENE, the framework controls the
+       DIALOG SHAPE, but the CTA mode controls WHAT WORDS land in
+       the 6-8s slot. ${noCta ? "noCta is ON — end with an open outro, never a buy/shop/link line." : shopMode ? "shopMode is ON — last 2s MUST mention 'beg kuning' regardless of how poetic the idea is." : customCtaResolved ? `customCta is set — last 2s MUST use EXACTLY: "${customCtaResolved}".` : "freeCta — write a natural Malay CTA that fits the idea + framework."}
+     • OUTFIT LOCK (from <outfit_table>) — each video uses its
+       PRE-ASSIGNED outfit colour. Don't let the idea pick its own
+       colour ("white dress in mirror") — use the assigned row's
+       colour ("dusty rose blouse in mirror").
+     • LANGUAGE LOCK — dialog is BAHASA MELAYU only, Malaysian
+       markers, never Bahasa Indonesia. Idea phrasing doesn't change
+       the dialog language.
+
 🚫 HARD FAILURES (Qwen will reject these):
    • Any video that doesn't visibly use the client's idea as its scene
    • Two videos with identical camera + setting + action combo
