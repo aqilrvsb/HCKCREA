@@ -371,7 +371,13 @@ export async function POST(req: Request) {
 
     let ctaInstruction: string;
     if (noCta) {
-      ctaInstruction = "NO CTA — use full 8 seconds for content. Timing: 0-3s hook, 3-8s middle. No closing CTA needed.";
+      ctaInstruction =
+        "NO CTA MODE — user explicitly disabled CTAs (they plan to extend each video later with a fresh segment that carries the CTA). Therefore: " +
+        "1) Use the FULL 8 seconds for hook + value content. " +
+        "2) The 6-8s slot is a natural OUTRO / closing thought (e.g. mid-thought lead-in, reaction word, ellipsis) — NEVER a buy-now / shop / beg-kuning / link-in-bio / order-now line. " +
+        "3) Do NOT mention purchasing, ordering, shopping, links, bio, or any commercial action. " +
+        "4) Do NOT include any closing phrase that signals the end of a sales pitch. " +
+        "5) End the video OPEN — so segment 2 (added via Extend later) can naturally pick up the story.";
     } else if (customCtaResolved) {
       ctaInstruction = `CUSTOM CTA — last 2 seconds (6-8s) MUST use this EXACT text: "${customCtaResolved}". Do NOT modify.`;
     } else if (shopMode) {
@@ -523,8 +529,8 @@ EVERY videoPromptShot1 and videoPromptShot2 must include — CONCISELY — these
 4. ONE action/dialog timeline per shot (timestamps are LOCAL to that 8-second shot, always 0-8s within the shot):
    - 0-2s hook: max 6 words
    - 2-6s middle: max 12 words
-   - 6-8s CTA: max 6 words
-   (For 16s videos: shot 1's 6-8s is NOT the CTA — use mid-story line; the CTA goes in shot 2's 6-8s only.)
+   - 6-8s ${noCta ? "outro / natural closing line (NO CTA — user did NOT pick a CTA mode; this video is meant to be extended later)" : "CTA"}: max 6 words
+   (For 16s videos: shot 1's 6-8s is NOT the ${noCta ? "outro" : "CTA"} — use mid-story line; ${noCta ? "the closing line goes in shot 2's 6-8s only." : "the CTA goes in shot 2's 6-8s only."})
 
 5. ONE anatomy + voice lock sentence — varies by template:
    • TEMPLATE A: "Anatomically perfect: 2 hands, 5 fingers, no extra limbs. Audio: ONE single voice only, no background voices, no chatter, no friends."
@@ -684,8 +690,7 @@ ABSOLUTE RULES:
    Do NOT mix multiple USPs in one strict video.
 
 4. If <product_data> is too vague to make a strong video, write the
-   simplest accurate dialog (just product name + the actual stated benefit
-   + CTA). DO NOT compensate by adding fluff or invented context.
+   simplest accurate dialog (just product name + the actual stated benefit${noCta ? "" : "\n   + CTA"}). DO NOT compensate by adding fluff or invented context.
 
 5. CAPTION must directly mention the actual USP from product_data.
    Hashtags can be generic, but the caption sentence(s) must be factual.
@@ -1017,7 +1022,7 @@ ${noCta ? '6–8s: "[Malay closing — 4-6 words]"' : `6–8s: "${shopMode ? `${
 
 MUST USE EXACT SAME VOICE AS SHOT 1: ${gender === "male" ? "young Malay man voice" : `young Malay woman voice in her ${ageRange}`}
 Same tone, style, framing, character, outfit, product, scene as Shot 1 — because Shot 2 IS Shot 1 with new dialog.
-CRITICAL: 6-8s CTA MUST be present in Shot 2.
+${noCta ? "NOTE: User did NOT select a CTA mode for this batch — 6-8s should be a natural outro/closing line (NOT a CTA), so the video can be extended later with a fresh segment." : "CRITICAL: 6-8s CTA MUST be present in Shot 2."}
 
 FOR PRODUCT FRAMEWORKS (16s):
 videoPromptShot1: [Shot type] of product on [surface]. [Smooth motion].
@@ -1072,7 +1077,7 @@ Use this for UGC frameworks (Hook+Pain, Testimonial, FOMO, BAB, 4Ps, Action Bias
 Spoken dialog:
 0–2s: "[SHORT Malay hook — max 8 words]"
 2–6s: "[Malay value/story — max 20 words]"
-[CTA LINE HERE]
+${noCta ? `6–8s: "[Malay natural outro / closing thought — max 6 words. NOT a CTA. NOT a buy-now line. Just a closing word, reaction, or lead-in to a future segment so this video stays open-ended for extending later]"` : "[CTA LINE HERE]"}
 
 Tone: [santai/excited/confident]
 Voice: ${gender === "male" ? "young Malay man voice" : `young Malay woman voice in her ${ageRange}, cheerful and trendy`}
@@ -1088,7 +1093,7 @@ Use this for Product frameworks (Product Hero, Before/After, USP Showcase, Flat 
 Spoken voiceover:
 0–2s: "[SHORT Malay hook — max 8 words]"
 2–6s: "[Malay benefit/feature — max 20 words]"
-[CTA LINE HERE]
+${noCta ? `6–8s: "[Malay natural outro voiceover — max 6 words. NOT a CTA. Just a closing line so this video stays open-ended for extending later]"` : "[CTA LINE HERE]"}
 
 Tone: warm, professional
 Voice: ${gender === "male" ? "male Malay voiceover" : "female Malay voiceover"}, warm confident tone
