@@ -146,7 +146,12 @@ export async function POST(req: Request) {
 
   const cfg = await getP2Config();
   const bucket = String(meta.bucket || "ugc");
-  const model = bucket === "cinema" ? cfg.grokI2V : cfg.videoR2V;
+  // Match /api/extend/video — prefer i2v so we can use "frame" mode
+  // (refined anchor = start frame). r2v fallback only if i2v not set.
+  const model =
+    bucket === "cinema"
+      ? cfg.grokI2V
+      : cfg.videoI2V || cfg.videoR2V;
   if (!model) {
     return NextResponse.json({ error: "Video model not configured" }, { status: 500 });
   }
@@ -154,18 +159,21 @@ export async function POST(req: Request) {
   const aspectRatio = String(meta.aspectRatio || meta.aspect_ratio || "9:16");
   const duration = Number(row.duration || meta.extend_seconds || 8);
 
-  // Refined frame already has the product baked in pixel-perfectly, so
-  // we send ONLY that single ref to Veo (no separate product attachment).
-  // Cascade routes through admin's main+fallback rotation — same path
-  // as /api/extend/video so a P2 outage doesn't break recover either.
+  // BOOKEND pattern — refined anchor is BOTH the start frame AND the
+  // end frame of seg-2. Same approach as /api/extend/video and the 16s
+  // auto-extend (segment-chain.ts):
+  //   • start = literal first frame (seamless cut from seg-1's last)
+  //   • end   = same image → locks the late-clip pose back to anchor
+  // Refined frame has product baked in pixel-perfect, so no separate
+  // product ref needed. Cascade routes through admin's main+fallback.
   const cascaded = await generateVideoWithCascade({
     primaryModel: model,
     userId: user.id,
     prompt,
-    imageUrls: [startUrl],
+    imageUrls: [startUrl, startUrl],
     durationMode: String(duration),
     aspectRatio,
-    imageMode: bucket === "cinema" ? "frame" : "ingredient",
+    imageMode: "frame",
     asset: bucket === "cinema" ? "cinema" : "video",
   });
   const created: {

@@ -4,7 +4,6 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { getP2Config } from "@/lib/settings";
 import { priceFor } from "@/lib/deduct";
 import { falExtractFrame, type FrameAnchor } from "@/lib/fal";
-import { rehostUrlOnRunningHub } from "@/lib/runninghub-upload";
 import { refineFrameWithProduct } from "@/lib/refine-frame";
 import { generateVideoWithCascade } from "@/lib/video-cascade";
 
@@ -314,8 +313,14 @@ export async function POST(req: Request) {
         (promptHasLocks ? "" : STANDARD_LOCKS);
 
       // 4. Fire seg-2 Crun task using the resolved start frame.
+      // Prefer the i2v model so we can use "frame" mode (start frame =
+      // literal first frame of seg-2). Falls back to r2v if i2v isn't
+      // configured. Cinema bucket uses Grok i2v.
       const cfg = await getP2Config();
-      const model = bucket === "cinema" ? cfg.grokI2V : cfg.videoR2V;
+      const model =
+        bucket === "cinema"
+          ? cfg.grokI2V
+          : cfg.videoI2V || cfg.videoR2V;
       if (!model) {
         await admin.from("history").update({
           status: "failed",
@@ -407,24 +412,22 @@ export async function POST(req: Request) {
         }
       }
 
-      // Build ref array. After the refine step the start frame already
-      // has the product pixels baked in, so we don't need to also attach
-      // the product image as a second ref — would just confuse Veo.
-      // When refine is skipped/failed we fall back to the v0.6 behaviour
-      // of [product, frame] so the user still gets product-first anchoring.
-      const refImages: string[] = [];
-      if (refineUsed) {
-        refImages.push(effectiveFrameUrl);
-      } else {
-        if (bucket !== "cinema" && productImageUrl) {
-          const fresh = await rehostUrlOnRunningHub(productImageUrl);
-          if (fresh) {
-            refImages.push(fresh);
-            console.log("[extend] product image re-hosted on RH:", fresh.slice(0, 80));
-          }
-        }
-        refImages.push(startUrl);
-      }
+      // Build ref array — BOOKEND pattern (start frame = end frame =
+      // refined attachment). Mirrors what segment-chain.ts does for the
+      // 16s auto-extend, so both extend paths produce visually
+      // identical seamless cuts:
+      //   • start frame = literal first frame of seg-2 (no transition
+      //     gap — picks up exactly where seg-1 ended after the user
+      //     picked first/middle/last)
+      //   • end frame = same image → Veo can't drift late in the clip
+      //     because it's locked back to the same anchor pose
+      //
+      // The refined frame already has the product baked in pixel-perfect
+      // (Banana Pro did that work), so we don't attach the product as a
+      // separate ref. If refine failed across all tiers we fall back to
+      // the raw start frame (still bookended) so the extend still fires.
+      const anchorFrame = refineUsed ? effectiveFrameUrl : startUrl;
+      const refImages: string[] = [anchorFrame, anchorFrame];
       // Fire seg-2 through the cascade — admin's main + fallback rotation
       // picks the slot. Previously hardcoded to p2CreateTask, which meant
       // a P2 outage / revoked key / out-of-credits broke every Extend
@@ -438,7 +441,11 @@ export async function POST(req: Request) {
         imageUrls: refImages,
         durationMode: String(extendSeconds),
         aspectRatio,
-        imageMode: bucket === "cinema" ? "frame" : "ingredient",
+        // i2v "frame" mode for all extend paths — refined anchor is the
+        // literal start AND end frame (bookend). No more "ingredient"
+        // r2v mode here; that was producing visible seg-1 → seg-2 cuts
+        // because Veo interpreted the ref instead of starting from it.
+        imageMode: "frame",
         asset: bucket === "cinema" ? "cinema" : "video",
       });
       const created: {
