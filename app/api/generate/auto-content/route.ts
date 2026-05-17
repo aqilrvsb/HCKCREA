@@ -999,15 +999,19 @@ Style: Soft natural lighting, cinematic film look, audio dialogue only, clean ve
 The character speaks directly to camera with clear voice. NO background music. NO subtitles.
 
 videoPromptShot2 (max 1200 chars) — SECOND HALF (8-16s):
-[Different shot type], same person, same setting, same outfit, continues speaking.
+🚨 SHOT 2 MUST BE A VERBATIM COPY OF SHOT 1 — only the spoken dialog block changes. Veo has ZERO memory between segment 1 and segment 2 — it sees ONLY this single prompt when it generates seg-2. If you write "same person as Shot 1" or "continues speaking" Veo has no clue who/what that means. Therefore:
 
-Spoken dialog:
-0–4s: "[Malay payoff/proof — max 20 words, continues from Shot 1]"
+  • Copy the FULL Shot 1 prompt VERBATIM (shot type, character description, outfit description, product description, setting, lighting, camera details, all locks).
+  • Then REPLACE ONLY the "Spoken dialog" block with the new dialog below.
+  • Everything else (scene, framing, character, outfit, product pose) stays IDENTICAL word-for-word.
+
+Spoken dialog (this is the ONLY block that differs from Shot 1):
+0–4s: "[Malay payoff/proof — max 20 words, continues the story from Shot 1's last line]"
 4–6s: "[Malay benefit — max 10 words]"
 ${noCta ? '6–8s: "[Malay closing — max 8 words]"' : `6–8s: "${shopMode ? `${SHOP_CTA_VARIATIONS[0]}" (or similar — MUST mention beg kuning)` : customCtaResolved ? `${customCtaResolved}"` : '[Malay CTA — max 8 words]"'}`}
 
 MUST USE EXACT SAME VOICE AS SHOT 1: ${gender === "male" ? "young Malay man voice" : `young Malay woman voice in her ${ageRange}`}
-Same tone, style as Shot 1. NO background music. NO subtitles.
+Same tone, style, framing, character, outfit, product, scene as Shot 1 — because Shot 2 IS Shot 1 with new dialog.
 CRITICAL: 6-8s CTA MUST be present in Shot 2.
 
 FOR PRODUCT FRAMEWORKS (16s):
@@ -1015,8 +1019,8 @@ videoPromptShot1: [Shot type] of product on [surface]. [Smooth motion].
 Spoken voiceover: 0–2s hook, 2–8s feature/benefit. NO CTA in Shot 1.
 Voice: ${gender === "male" ? "male Malay voiceover" : "female Malay voiceover"}, warm confident tone.
 
-videoPromptShot2: [Different angle]. Same product. [Different motion].
-Spoken voiceover: 0–4s payoff, 4–6s benefit, ${noCta ? "6–8s closing." : "6–8s CTA (beg kuning)."}
+videoPromptShot2: 🚨 VERBATIM COPY of videoPromptShot1 — only the voiceover changes. Veo has no memory between segments, so saying "Same product" or "Different angle" alone gives it nothing. Repeat the full product description, surface, lighting, motion language identically.
+Spoken voiceover (THE ONLY DIFFERENCE FROM SHOT 1): 0–4s payoff, 4–6s benefit, ${noCta ? "6–8s closing." : "6–8s CTA (beg kuning)."}
 MUST USE EXACT SAME VOICE AS SHOT 1: ${gender === "male" ? "male Malay voiceover" : "female Malay voiceover"}, warm confident tone.
 Product only, voiceover only, NO person, NO music.
 ` : `
