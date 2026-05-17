@@ -989,9 +989,12 @@ FOR UGC FRAMEWORKS (16s):
 videoPromptShot1 (max 1200 chars) — FIRST HALF (0-8s):
 [Shot type], same person from reference image, same appearance, with the same product (HOLDING it if PRODUCT type per <attachment_classifier>, OR WEARING it if WEARABLE type — clothes/hijab/jewelry/shoes/bag). [One action].
 
-Spoken dialog:
-0–2s: "[SHORT Malay hook — max 8 words]"
-2–8s: "[Malay build-up/story — max 30 words, end mid-sentence to create suspense]"
+🚨 Spoken dialog — TOTAL MUST BE 20-24 Malay words for this 8-second shot (matches the DIALOG LENGTH LOCK appended by the system). Below 20 = character mouth freezes at end. Above 26 = rushed audio.
+Beat budget (target the word counts EXACTLY):
+0–2s: "[Malay hook — 4-6 words]"
+2–5s: "[Malay core/setup — 10-14 words]"
+5–6s: "[Malay reaction — 0-2 words, can be a short phrase like 'serius!' or 'gila']"
+6–8s: "[Malay outro / lead-in to Shot 2 — 4-6 words, ends mid-thought to create suspense for Shot 2]"
 
 Tone: [match framework emotion]
 Voice: ${gender === "male" ? "young Malay man voice" : `young Malay woman voice in her ${ageRange}`}
@@ -1005,10 +1008,12 @@ videoPromptShot2 (max 1200 chars) — SECOND HALF (8-16s):
   • Then REPLACE ONLY the "Spoken dialog" block with the new dialog below.
   • Everything else (scene, framing, character, outfit, product pose) stays IDENTICAL word-for-word.
 
-Spoken dialog (this is the ONLY block that differs from Shot 1):
-0–4s: "[Malay payoff/proof — max 20 words, continues the story from Shot 1's last line]"
-4–6s: "[Malay benefit — max 10 words]"
-${noCta ? '6–8s: "[Malay closing — max 8 words]"' : `6–8s: "${shopMode ? `${SHOP_CTA_VARIATIONS[0]}" (or similar — MUST mention beg kuning)` : customCtaResolved ? `${customCtaResolved}"` : '[Malay CTA — max 8 words]"'}`}
+🚨 Spoken dialog (this is the ONLY block that differs from Shot 1) — TOTAL MUST BE 20-24 Malay words for this 8-second shot. Same beat-budget structure as Shot 1.
+Beat budget (target the word counts EXACTLY):
+0–2s: "[Malay payoff/proof — 4-6 words, picks up from where Shot 1 ended mid-thought]"
+2–5s: "[Malay benefit/value — 10-14 words]"
+5–6s: "[Malay reaction — 0-2 words]"
+${noCta ? '6–8s: "[Malay closing — 4-6 words]"' : `6–8s: "${shopMode ? `${SHOP_CTA_VARIATIONS[0]}" (or similar 4-6 word beg-kuning CTA — MUST mention beg kuning)` : customCtaResolved ? `${customCtaResolved}"` : '[Malay CTA — 4-6 words]"'}`}
 
 MUST USE EXACT SAME VOICE AS SHOT 1: ${gender === "male" ? "young Malay man voice" : `young Malay woman voice in her ${ageRange}`}
 Same tone, style, framing, character, outfit, product, scene as Shot 1 — because Shot 2 IS Shot 1 with new dialog.
