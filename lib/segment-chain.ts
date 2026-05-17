@@ -321,23 +321,30 @@ async function fireSeg2(parent: Settled, parentOutputUrl: string): Promise<void>
 
   await stampPhase("firing_veo_i2v");
 
-  // 3. Fire seg-2 — START FRAME ONLY (the Banana-refined image).
+  // 3. Fire seg-2 — Veo i2v in FRAME mode with the refined image
+  // used as BOTH start frame AND end frame.
   //
-  // The product attachment was used UPSTREAM in the Banana Pro
-  // refine step (refineFrameWithProduct combined last-frame +
-  // product → sharp composite). That composite IS the start frame
-  // for Veo i2v — we don't pass the raw product image again here,
-  // it would just confuse Veo. seg-2 is single-image i2v anchored
-  // entirely on the refined frame.
+  // Why both: bookending the clip with the same image makes the
+  // 8s seg-2 start and end on a visually consistent shot. When
+  // ffmpeg concatenates seg-1 + seg-2 → 16s merged, the cut is
+  // invisible (seg-2's first frame ≈ seg-1's last frame because
+  // it's the refined version of that same frame; seg-2 also loops
+  // back to it at the end so there's no jarring final-frame drift).
+  //
+  // model: videoI2V (frame mode, takes start + end), not videoR2V
+  // (ingredient mode). The product reference was already consumed
+  // upstream by Banana Pro — Veo seg-2 only needs the refined
+  // composite as its frame anchor.
   const cfg = await getP2Config();
+  const seg2Model = cfg.videoI2V || cfg.videoR2V;
   const created = await p2CreateTask({
-    model: cfg.videoR2V,
+    model: seg2Model,
     userId: parent.user_id,
     prompt: seg2Prompt,
-    imageUrls: [anchorFrameUrl],
+    imageUrls: [anchorFrameUrl, anchorFrameUrl],
     durationMode: "8",
     aspectRatio: meta.aspectRatio || "9:16",
-    imageMode: "ingredient",
+    imageMode: "frame",
     skipR2VTriplicate: true,
   });
 
