@@ -136,21 +136,48 @@ export default function DashboardShell({
   }, []);
 
   // Initial fetch — list projects only. Don't auto-select; the user picks
-  // which project to open from the sidebar.
+  // which project to open from the sidebar. EXCEPTION: if the URL has
+  // ?p={projectId}, jump straight to that project once the list lands.
+  // This is what makes right-click → "Open in new tab" on a project
+  // tile produce a tab that opens directly to that project.
   useEffect(() => {
     (async () => {
       try {
         const r = await fetch("/api/projects", { cache: "no-store" });
         const d = await r.json();
         if (r.ok && d?.ok) {
-          setProjects(d.projects || []);
+          const list: Project[] = d.projects || [];
+          setProjects(list);
           if (typeof d.limit === "number") setProjectLimit(d.limit);
+          if (typeof window !== "undefined") {
+            const qp = new URLSearchParams(window.location.search);
+            const pid = qp.get("p");
+            if (pid && list.some((p) => p.id === pid)) {
+              setView({ kind: "project", projectId: pid });
+            }
+          }
         }
       } finally {
         setProjectsLoaded(true);
       }
     })();
   }, []);
+
+  // Browser back/forward — keep view in sync with the URL.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const onPop = () => {
+      const qp = new URLSearchParams(window.location.search);
+      const pid = qp.get("p");
+      if (pid && projects.some((p) => p.id === pid)) {
+        setView({ kind: "project", projectId: pid });
+      } else if (!pid) {
+        setView({ kind: "dashboard" });
+      }
+    };
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, [projects]);
 
   // UGC's "Use in Video" still works inside a project — just switch the active tab
   useEffect(() => {

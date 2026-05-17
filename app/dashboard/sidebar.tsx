@@ -397,25 +397,36 @@ export default function Sidebar({
             const isActive = activeProjectId === p.id;
             const isRenaming = renamingId === p.id;
             const isMenuOpen = openMenuId === p.id;
+            // Real anchor href so the browser's native right-click /
+            // middle-click / Ctrl+click → "Open in new tab" works.
+            // Left-click is intercepted and routed through SPA state.
+            const projectHref = `/dashboard?p=${encodeURIComponent(p.id)}`;
             return (
-              <div key={p.id} className="relative" ref={isMenuOpen ? menuRef : null}>
-                {/*
-                  div+role="button" instead of <button> so we can nest the
-                  Project Menu <button> inside without violating HTML nesting
-                  rules (which trigger a hydration error). a11y preserved via
-                  role + tabIndex + Enter/Space keyboard handler.
-                */}
-                <div
-                  role="button"
-                  tabIndex={0}
-                  onClick={() => onViewChange({ kind: "project", projectId: p.id })}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" || e.key === " ") {
-                      e.preventDefault();
-                      onViewChange({ kind: "project", projectId: p.id });
+              <div key={p.id} className="group relative" ref={isMenuOpen ? menuRef : null}>
+                <a
+                  href={projectHref}
+                  onClick={(e) => {
+                    // Only intercept plain left-click; let
+                    // Ctrl/Cmd/middle/shift click fall through so the
+                    // browser opens / focuses a new tab natively.
+                    if (
+                      e.button !== 0 ||
+                      e.ctrlKey ||
+                      e.metaKey ||
+                      e.shiftKey ||
+                      e.altKey
+                    ) {
+                      return;
+                    }
+                    e.preventDefault();
+                    onViewChange({ kind: "project", projectId: p.id });
+                    // Push URL so back/forward + refresh-in-place keep
+                    // the active project. No reload — pure history API.
+                    if (typeof window !== "undefined") {
+                      window.history.pushState(null, "", projectHref);
                     }
                   }}
-                  className="group w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-bold transition-all cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-orange)]"
+                  className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-bold transition-all cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-orange)] no-underline"
                   style={
                     isActive
                       ? {
@@ -455,24 +466,29 @@ export default function Sidebar({
                       className="flex-1 min-w-0 bg-transparent outline-none border-b border-[var(--color-orange)] text-sm text-[var(--color-text-primary)]"
                     />
                   ) : (
-                    <span className="flex-1 min-w-0 text-left truncate">{p.name}</span>
+                    <span className="flex-1 min-w-0 text-left truncate pr-7">{p.name}</span>
                   )}
+                </a>
 
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setOpenMenuId(isMenuOpen ? null : p.id);
-                    }}
-                    className="w-6 h-6 rounded flex items-center justify-center opacity-0 group-hover:opacity-100 transition"
-                    style={{
-                      background: isMenuOpen ? "rgba(255,255,255,0.08)" : "transparent",
-                      color: "var(--color-text-muted)",
-                    }}
-                    aria-label="Project menu"
-                  >
-                    <MoreVertical className="w-3.5 h-3.5" />
-                  </button>
-                </div>
+                {/* Menu button — absolute-positioned sibling so it sits
+                    on top of the <a> without HTML-nesting an interactive
+                    element inside a link. */}
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setOpenMenuId(isMenuOpen ? null : p.id);
+                  }}
+                  className="absolute top-1/2 right-2 -translate-y-1/2 w-6 h-6 rounded flex items-center justify-center opacity-0 group-hover:opacity-100 transition z-10"
+                  style={{
+                    background: isMenuOpen ? "rgba(255,255,255,0.08)" : "transparent",
+                    color: "var(--color-text-muted)",
+                  }}
+                  aria-label="Project menu"
+                >
+                  <MoreVertical className="w-3.5 h-3.5" />
+                </button>
 
                 {isMenuOpen && (
                   <div
