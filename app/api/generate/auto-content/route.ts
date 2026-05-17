@@ -1439,26 +1439,18 @@ CRITICAL OUTPUT RULES:
     return productImageUrl;
   }
 
-  // Multi-image array for r2v: returns up to 3 URLs per video.
-  //   • 1 picked    → triplicate (anchors the product reference tighter)
-  //   • 2-3 picked  → sent as distinct refs (Veo r2v takes up to 3)
-  //   • Empty       → fall back to productImageUrl (triplicated)
-  //
-  // Works the same for manual mode AND affiliate mode — affiliate just
-  // pre-fills slot 0 from the TikTok scrape, then the user can stack up
-  // to 2 more attachments via the same ManualProductCard strip.
+  // Distinct attachment URLs per video — no triplication. 1 picked
+  // → 1 sent, 2 → 2, 3 → 3. Both Veo r2v and Grok i2v handle 1+
+  // distinct refs natively; the prior [u,u,u] anchor trick is no
+  // longer needed.
   function imagesForVideo(i: number): string[] {
     if (manualProducts.length) {
       const mp = manualProducts[i % manualProducts.length];
       const arr = (mp.imageUrls || []).filter(Boolean);
       const usable = arr.length ? arr : (mp.imageData ? [mp.imageData] : []);
-      if (usable.length === 1) return [usable[0], usable[0], usable[0]];
-      if (usable.length >= 2) return usable.slice(0, 3);
-      // No usable manual images → fall through to single productImageUrl.
+      if (usable.length) return usable.slice(0, 3);
     }
-    if (productImageUrl) {
-      return [productImageUrl, productImageUrl, productImageUrl];
-    }
+    if (productImageUrl) return [productImageUrl];
     return [];
   }
 
@@ -1574,14 +1566,7 @@ CRITICAL OUTPUT RULES:
   const histories: any[] = [];
   await Promise.all(
     plans.map(async (item, idx) => {
-      const rawRefImages = imagesForVideo(idx);
-      // Veo r2v benefits from the [u,u,u] triplicate (tighter product
-      // anchoring), but Grok i2v doesn't — duplicates just bloat the
-      // payload. For Grok, de-dupe to the distinct image URLs only.
-      const refImages =
-        providerChoice === "grok"
-          ? Array.from(new Set(rawRefImages)).slice(0, 7)
-          : rawRefImages;
+      const refImages = imagesForVideo(idx);
       const refImage = refImages[0] || "";
       const useIngredient = refImages.length > 0;
       // Grok uses a generic "grok-imagine" model string — p6CreateVideo's
