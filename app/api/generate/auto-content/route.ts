@@ -463,7 +463,7 @@ Market: Malaysian TikTok (Malay-speaking, informal)
 
 🚨 REQUIRED PREFIX FOR EVERY UGC + LIFESTYLE imagePrompt AND videoPromptShot1${is16s ? " AND videoPromptShot2" : ""}:
 Each video has a PRE-ASSIGNED outfit (see <outfit_table> in user message). The prompt MUST start with the exact prefix for that video's number. Examples for this batch:
-${outfitAssignments.slice(0, Math.min(3, quantity)).map((_, i) => `- Video ${i + 1} prefix: "${requiredPrefix(i)}, holding the product"`).join("\n")}
+${outfitAssignments.slice(0, Math.min(3, quantity)).map((_, i) => `- Video ${i + 1} prefix: "${requiredPrefix(i)}, with the product (holding it if PRODUCT type per <attachment_classifier>, OR wearing it if WEARABLE type — clothes/hijab/jewelry/shoes/bag)"`).join("\n")}
 ${quantity > 3 ? `(...continue for Videos 4-${quantity} using the outfit assigned to each in <outfit_table>)` : ""}
 
 🚨 DO NOT use these forbidden lazy phrases:
@@ -987,7 +987,7 @@ VOICE LOCK (CRITICAL — DO NOT CHANGE BETWEEN SHOTS):
 
 FOR UGC FRAMEWORKS (16s):
 videoPromptShot1 (max 1200 chars) — FIRST HALF (0-8s):
-[Shot type], same person from reference image, same appearance, holding the same product. [One action].
+[Shot type], same person from reference image, same appearance, with the same product (HOLDING it if PRODUCT type per <attachment_classifier>, OR WEARING it if WEARABLE type — clothes/hijab/jewelry/shoes/bag). [One action].
 
 Spoken dialog:
 0–2s: "[SHORT Malay hook — max 8 words]"
@@ -1024,7 +1024,7 @@ Product only, voiceover only, NO person, NO music.
 
 FOR UGC FRAMEWORKS (8s — character on screen):
 videoPromptShot1 (max 1200 chars):
-- Start: "[Shot type], same person from reference image, same appearance, holding the same product."
+- Start: "[Shot type], same person from reference image, same appearance, with the same product (HOLDING it if PRODUCT type per <attachment_classifier>, OR WEARING it if WEARABLE type — clothes/hijab/jewelry/shoes/bag)."
 - ONE action + camera movement
 
 MUST have this EXACT spoken dialog structure:
@@ -1058,7 +1058,7 @@ EVERY videoPrompt MUST follow ONE of these 2 templates:
 === TEMPLATE A: UGC (character on screen) ===
 Use this for UGC frameworks (Hook+Pain, Testimonial, FOMO, BAB, 4Ps, Action Bias, Solution, Benefit+Result, Fear of Loss)
 
-[Shot type], same person from reference image, same appearance, holding the same product. [One action description].
+[Shot type], same person from reference image, same appearance, with the same product (HOLDING it if PRODUCT type per <attachment_classifier>, OR WEARING it if WEARABLE type — clothes/hijab/jewelry/shoes/bag). [One action description].
 
 Spoken dialog:
 0–2s: "[SHORT Malay hook — max 8 words]"
