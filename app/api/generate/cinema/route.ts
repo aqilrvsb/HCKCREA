@@ -137,15 +137,10 @@ export async function POST(req: Request) {
         return;
       }
 
-      // Veo flows through the 3-tier cascade (p2 → p1 → p3); Grok stays
-      // on p2 only (no Grok fallback path defined). Apply the triplicate
-      // rule: 1 picked → [u,u,u]; 2-3 → distinct refs as-is.
+      // Distinct refs only — no triplicate. Both Veo r2v and Grok
+      // i2v accept 1+ images natively, no benefit from duplicates.
       const imgs =
-        imageMode === "image"
-          ? effectiveImageUrls.length === 1
-            ? [effectiveImageUrls[0], effectiveImageUrls[0], effectiveImageUrls[0]]
-            : effectiveImageUrls.slice(0, 3)
-          : [];
+        imageMode === "image" ? effectiveImageUrls.slice(0, 3) : [];
       const imgMode: "frame" | "ingredient" | "text" =
         imageMode === "image" ? "ingredient" : "text";
 
@@ -159,21 +154,14 @@ export async function POST(req: Request) {
       let fallbackUsed = false;
       let tierLog: any = undefined;
 
-      // Both Veo and Grok now route through the round-robin cascade —
-      // Veo lands on p2-a/b / p5 / p1 (whichever main slot), Grok can
-      // land on p6-a..h (APIPod) which is the only Grok-capable slot
-      // configured in main/fallback. p6CreateVideo's apipodVideoModel
-      // detects 'grok' in the model string and switches to
-      // grok-imagine-t2v / grok-imagine-i2v accordingly.
-      //
-      // Grok i2v takes 1-7 image_urls; Veo r2v takes 1-3 (triplicated
-      // when user picks just 1). Pass the raw effective images and let
-      // the slot's CreateVideo decide the per-model cap.
+      // Both Veo and Grok route through the round-robin cascade.
+      // p6CreateVideo's apipodVideoModel detects 'grok' in the model
+      // string and emits grok-imagine-t2v / grok-imagine-i2v based on
+      // ref presence; Veo r2v slot caps to its own 1-3 limit. Grok
+      // accepts up to 7 i2v refs so for Grok we widen the slice.
       const cascadeImgs =
         modelChoice === "grok"
-          ? imageMode === "image" && effectiveImageUrls[0]
-            ? effectiveImageUrls.slice(0, 7)
-            : []
+          ? imageMode === "image" ? effectiveImageUrls.slice(0, 7) : []
           : imgs;
       const result = await generateVideoWithCascade({
         primaryModel: model,

@@ -185,22 +185,14 @@ async function tryVideoSlot(
   }
 }
 
-// Product-reference triplicate (unchanged from pre-rotation): single
-// image + r2v / ingredient mode → copy it 3× for tighter product anchor.
-function triplicateProductRef(input: VideoCascadeInput): VideoCascadeInput {
-  const imgs = input.imageUrls || [];
-  if (imgs.length !== 1) return input;
-  const isR2V =
-    input.imageMode === "ingredient" ||
-    input.primaryModel.toLowerCase().includes("r2v");
-  if (!isR2V) return input;
-  return { ...input, imageUrls: [imgs[0], imgs[0], imgs[0]] };
-}
+// Triplication removed per product call — every model now accepts
+// 1+ distinct refs natively, so duplicating the same image 3× just
+// bloated the payload with zero benefit. 1 picked → 1 sent.
 
 export async function generateVideoWithCascade(
   rawInput: VideoCascadeInput
 ): Promise<VideoCascadeResult> {
-  const input = triplicateProductRef(rawInput);
+  const input = rawInput;
   const tierLog: VideoCascadeTierLog[] = [];
   const imageCount = input.imageUrls?.length || 0;
 
