@@ -450,7 +450,7 @@ Before creating ANY content, analyze this product like a RM80k strategist:
 Total videos: ${quantity}
 Duration: ${
   providerChoice === "grok"
-    ? `${grokDuration}s single shot on Grok Imagine. Dialog target = ${grokDuration * 2}-${grokDuration * 3} Malay words (2-3 words per second).`
+    ? `${grokDuration}s single shot on Grok Imagine. Dialog target = EXACTLY ${grokDuration * 3} Malay words (FIXED 3 words per second — Grok's lip-sync engine is tuned for this rate; under = mouth freezes, over = clipped audio).`
     : is16s
       ? `16s split into 2 shots (Shot 1: 0-8s, Shot 2: 8-16s). Each shot dialog = 20-24 Malay words. Same scene, same voice, story continues seamlessly.`
       : `8s single shot. Dialog target = 20-24 Malay words.`
@@ -1108,7 +1108,14 @@ LANGUAGE RULE (CRITICAL):
 - FORBIDDEN Indonesian words: kalian, gue, lo, banget, sih, dong, kayak, gimana, ngapain, kasihan, doang, mau, nih, tuh
 - Dialog must match timing — too many words = Veo cuts off mid-sentence
 
-🚨 TOTAL DIALOG LENGTH PER 8-SECOND SHOT = 20-24 WORDS BM (HARDCODED):
+${providerChoice === "grok" ? `🚨 TOTAL DIALOG LENGTH FOR THIS ${grokDuration}-SECOND GROK SHOT = EXACTLY ${grokDuration * 3} WORDS BM (FIXED 3 words per second — Grok's lip-sync is tuned for this rate):
+- 0-2s hook: ~6 words
+- mid section: ${grokDuration > 4 ? (grokDuration - 4) * 3 : 0} words (3 words per second over the middle ${Math.max(0, grokDuration - 4)} seconds)
+- last 2s outro/CTA: ~6 words
+- Sum MUST equal ${grokDuration * 3} words. Under = mouth freezes at end. Over = clipped audio.
+- Single shot — Grok renders one continuous clip; no shot 2.
+
+PER-SECOND CAP: 3 words per second (so any N-second slot caps at N × 3 words).` : `🚨 TOTAL DIALOG LENGTH PER 8-SECOND SHOT = 20-24 WORDS BM (HARDCODED):
 - 0-2s hook: 4-6 words
 - 2-6s core message: 10-14 words
 - 6-8s outro/CTA: 4-6 words
@@ -1118,7 +1125,7 @@ LANGUAGE RULE (CRITICAL):
 PER-SLOT WORD CAPS (do NOT exceed):
   - 2-second slot: 4-6 words
   - 4-second slot: 10-14 words
-  - 6-second slot: 14-18 words
+  - 6-second slot: 14-18 words`}
 
 Example GOOD 8s shot (22 words): "Korang tau tak rahsia muka glow ni? Aku pakai serum ni 2 minggu, kulit dah anjal balik. Cuba la, korang!" ✓
 Example BAD 8s shot (32 words — overshoots): rushed, clipped at end ✗

@@ -130,10 +130,14 @@ AUDIO LOCK: ONE single voice only — no chatter, no background voices, no whisp
 ${(() => {
   const d = Math.max(2, Math.round(opts.durationSec || 8));
   // Veo 8s shots have a tighter 20-24 word window (denser UGC pace).
-  // Everything else (Grok 8-30s) uses 2-3 words/sec range.
-  const lo = d === 8 ? 20 : d * 2;
-  const hi = d === 8 ? 24 : d * 3;
-  return `DIALOG LENGTH LOCK: Total spoken dialog = ${lo}-${hi} Malay words for this ${d}s shot. Under ${lo - 2} = mouth freezes at end. Over ${hi + 2} = rushed audio.`;
+  // Grok (any duration other than 8s, since Veo always runs as 8s
+  // segments) uses a FIXED 3 words/sec rate — Grok's lip-sync engine
+  // is tuned for that pace; under = mouth freezes, over = clipped.
+  if (d === 8) {
+    return `DIALOG LENGTH LOCK: Total spoken dialog = 20-24 Malay words for this 8s shot. Under 18 = mouth freezes at end. Over 26 = rushed audio.`;
+  }
+  const target = d * 3;
+  return `DIALOG LENGTH LOCK: Total spoken dialog = EXACTLY ${target} Malay words for this ${d}s Grok shot (FIXED 3 words per second — Grok's lip-sync is tuned for this rate). Under ${target - 2} = mouth freezes at end. Over ${target + 2} = clipped audio.`;
 })()}
 LANGUAGE LOCK: Spoken dialog is BAHASA MELAYU (Malaysian Malay) ONLY. NEVER Bahasa Indonesia. Use Malaysian markers: korang, aku, ni, tu, memang, gila, kau, lah, je, dah, eh. FORBIDDEN Indonesian words: kalian, gue, lo, banget, sih, dong, kayak, gimana, ngapain, kasihan, doang, mau, nih, tuh.
 VOICE CONSISTENCY LOCK: The character's voice has fixed identity — same gender, same age range, same pitch, same Malaysian accent, same speaking rhythm and energy across the entire clip and any future continuation. Voice MUST stay locked so seg-2 / Extend continuations match seg-1 seamlessly.
