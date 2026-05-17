@@ -127,7 +127,14 @@ export function buildVeoLocks(opts: {
 
 ANATOMY LOCK: ONE human only — exactly 2 hands with 5 fingers each (both clearly visible when in frame), symmetric face, normal proportions, no missing limbs, no extra limbs, no fused fingers, no warped joints, no plastic / waxy skin, no uncanny-valley features, no morphing face, no asymmetric eyes, no doubled facial features.
 AUDIO LOCK: ONE single voice only — no chatter, no background voices, no whispered second voice, no echo doubles, NO ghost sound, NO phantom audio, NO unexplained noise. NO background music, NO instrumental, NO sound effects, NO ambient music, NO score, NO jingles. All audio is spoken dialog only.${voiceCharLine}
-${(() => { const d = Math.max(2, Math.round(opts.durationSec || 8)); const target = d * 3; return `DIALOG LENGTH LOCK: Total spoken dialog = ${target - 2}-${target + 2} Malay words for this ${d}s shot. Under ${target - 4} = mouth freezes at end. Over ${target + 4} = rushed audio.`; })()}
+${(() => {
+  const d = Math.max(2, Math.round(opts.durationSec || 8));
+  // Veo 8s shots have a tighter 20-24 word window (denser UGC pace).
+  // Everything else (Grok 8-30s) uses 2-3 words/sec range.
+  const lo = d === 8 ? 20 : d * 2;
+  const hi = d === 8 ? 24 : d * 3;
+  return `DIALOG LENGTH LOCK: Total spoken dialog = ${lo}-${hi} Malay words for this ${d}s shot. Under ${lo - 2} = mouth freezes at end. Over ${hi + 2} = rushed audio.`;
+})()}
 LANGUAGE LOCK: Spoken dialog is BAHASA MELAYU (Malaysian Malay) ONLY. NEVER Bahasa Indonesia. Use Malaysian markers: korang, aku, ni, tu, memang, gila, kau, lah, je, dah, eh. FORBIDDEN Indonesian words: kalian, gue, lo, banget, sih, dong, kayak, gimana, ngapain, kasihan, doang, mau, nih, tuh.
 VOICE CONSISTENCY LOCK: The character's voice has fixed identity — same gender, same age range, same pitch, same Malaysian accent, same speaking rhythm and energy across the entire clip and any future continuation. Voice MUST stay locked so seg-2 / Extend continuations match seg-1 seamlessly.
 PRODUCT LOCK: Product visual is pixel-identical to reference — same color, shape, label, typography, layout, packaging, finish. Sharp focus on label, no warping, no recoloring, no text drift, no relabel, no re-illustration. When a reference image is attached, the reference is the SINGLE source of truth for the product — anchor framing, lighting, and hand-holding around it.${hijabLockLine}

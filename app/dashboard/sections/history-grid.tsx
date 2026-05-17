@@ -1514,9 +1514,21 @@ function HistoryCardInner({
                 <div className="text-xs font-bold" style={{ color: "rgb(239, 68, 68)" }}>
                   {activeSlide?.label} failed
                 </div>
-                <div className="text-[10px] text-white/50">
-                  Click thumb again to retry
-                </div>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (activeSlide) void retrySlide(activeSlide);
+                  }}
+                  className="mt-2 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-[11px] font-bold transition"
+                  style={{
+                    background: "rgba(239,68,68,0.18)",
+                    border: "1px solid rgba(239,68,68,0.5)",
+                    color: "rgb(252,165,165)",
+                  }}
+                >
+                  <RefreshCw className="w-3 h-3" />
+                  Resubmit
+                </button>
               </>
             ) : segmentPlaceholder === "queued" ? (
               (() => {
@@ -1554,15 +1566,39 @@ function HistoryCardInner({
                   : seg2Done
                     ? "ffmpeg concat — usually 10-20s"
                     : "Waiting for Seg 2 to finish before merge";
+                // Show the "Check now" button when the slide is
+                // actively being worked on (parent.done for seg-2,
+                // seg-2.done for merged) so the user can manually
+                // poll instead of waiting for the next 15s refresh.
+                const showRecheck =
+                  (isSeg2 && seg1Done) || (isMerged && seg2Done);
                 return (
                   <>
                     <Icon className={iconClass} />
-                    <div className={`text-xs font-bold ${(isSeg2 && seg1Done) || (isMerged && seg2Done) ? "text-orange-300" : "text-white/70"}`}>
+                    <div className={`text-xs font-bold ${showRecheck ? "text-orange-300" : "text-white/70"}`}>
                       {title}
                     </div>
                     <div className="text-[10px] text-white/50 text-center px-3">
                       {sub}
                     </div>
+                    {showRecheck && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (activeSlide) void recheckSlide(activeSlide);
+                        }}
+                        disabled={!!recheckingId}
+                        className="mt-2 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-[11px] font-bold transition disabled:opacity-50"
+                        style={{
+                          background: "rgba(251,146,60,0.15)",
+                          border: "1px solid rgba(251,146,60,0.4)",
+                          color: "rgb(251,146,60)",
+                        }}
+                      >
+                        <RefreshCw className={`w-3 h-3 ${recheckingId ? "animate-spin" : ""}`} />
+                        Check now
+                      </button>
+                    )}
                   </>
                 );
               })()
