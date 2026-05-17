@@ -50,7 +50,7 @@ export default function CinemaTab({ projectId }: { projectId?: string } = {}) {
 
   // Model selector for Normal Video sub-feature: Grok (per-second) or
   // Veo (8s flat). Talking Object is locked to Veo internally.
-  const [model, setModel] = useState<"grok" | "veo">("veo");
+  const [model, setModel] = useState<"grok" | "veo">("grok");
   const [imageMode, setImageMode] = useState<ImageMode>("text");
   const [refImage, setRefImage] = useState("");
   // Multi-ref array — up to 3. When 1 picked → triplicated server-side

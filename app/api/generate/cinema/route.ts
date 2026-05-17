@@ -48,6 +48,14 @@ export async function POST(req: Request) {
     : Math.min(30, Math.max(6, Math.round(Number(body?.duration || 6))));
   const imageMode = body?.image_mode === "image" ? "image" : "text";
   const projectId = body?.project_id ? String(body.project_id) : null;
+  // Feature tag — set to "grok" when the new dedicated Grok tab submits
+  // this. History grid uses metadata.featureType to route the row to the
+  // right tab. Legacy callers (Cinema → Normal Video) don't send this,
+  // so we infer "normal-video" so those rows still surface on the old
+  // Cinema sub-tab. The Talking Object route stamps its own values
+  // ("talking-object" / "talking-object-image") in a separate handler.
+  const featureType =
+    body?.feature === "grok" ? "grok" : "normal-video";
 
   if (!prompt) return NextResponse.json({ error: "Prompt required" }, { status: 400 });
   if (imageMode === "image" && effectiveImageUrls.length === 0) {
@@ -78,6 +86,7 @@ export async function POST(req: Request) {
         aspectRatio: imageMode === "image" ? null : aspectRatio,
         cinemaProvider: modelChoice === "veo" ? "veo" : "grok-imagine",
         modelChoice,
+        featureType,
         // Full attachment array for Resubmit re-fire
         image_urls: effectiveImageUrls,
         upload_status: "queued",

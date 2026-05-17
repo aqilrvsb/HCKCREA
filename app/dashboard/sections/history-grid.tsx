@@ -245,10 +245,15 @@ export default function HistoryGrid({
     swrKey,
     async () => {
       const sb = createClient();
+      // tab="grok" is a virtual tab — rows are stored as tab='cinema' in
+      // the DB with metadata.featureType='grok' (or legacy 'normal-video').
+      // Map the virtual tab back to the underlying DB tab here so the
+      // SELECT lands on real rows.
+      const dbTab = tab === "grok" ? "cinema" : tab;
       let q = sb
         .from("history")
         .select("*")
-        .eq("tab", tab)
+        .eq("tab", dbTab)
         .order("created_at", { ascending: false })
         .limit(60);
       if (projectId) q = q.eq("project_id", projectId);
@@ -258,7 +263,12 @@ export default function HistoryGrid({
           storytellingSubTab === "images" ? "fairytale-scene" : "fairytale"
         );
       }
-      if (tab === "cinema") {
+      if (tab === "grok") {
+        // Grok tab — only rows tagged grok (or legacy normal-video).
+        q = q
+          .eq("type", "video")
+          .in("metadata->>featureType", ["grok", "normal-video"]);
+      } else if (tab === "cinema") {
         if (viralFeature === "talking-object") {
           q = q
             .eq("type", viralSubTab === "images" ? "image" : "video")

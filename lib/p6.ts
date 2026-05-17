@@ -175,14 +175,24 @@ export async function p6CreateVideo(input: {
     body.image_urls = refs.slice(0, cap);
   }
 
-  // Only Seedance accepts `duration` (4-15). Veo + Grok schemas don't
-  // declare the field — sending it trips the CUE validator.
+  // Per-model optional fields per APIPod docs:
+  //   • seedance-* : duration 4-15 (required)
+  //   • grok-imagine-* : duration 6-30 (optional, default 6), resolution
+  //                      480p/720p (optional, default 720p)
+  //   • veo3-1-fast / -ref : no duration / no resolution accepted
   if (resolvedModel.startsWith("seedance")) {
     const reqDur = Number(input.durationMode);
     body.duration =
       Number.isFinite(reqDur) && reqDur >= 4 && reqDur <= 15
         ? Math.round(reqDur)
         : 5;
+  } else if (resolvedModel.startsWith("grok-imagine")) {
+    const reqDur = Number(input.durationMode);
+    body.duration =
+      Number.isFinite(reqDur) && reqDur >= 6 && reqDur <= 30
+        ? Math.round(reqDur)
+        : 6;
+    body.resolution = "720p";
   }
 
   const { ok, status, data } = await p6Fetch("POST", "/v1/videos/generations", apiKey, body);

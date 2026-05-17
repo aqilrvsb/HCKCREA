@@ -11,10 +11,12 @@ import {
   Plus,
   Film,
   BookOpen,
+  Zap,
 } from "lucide-react";
 import ImageTab from "./tabs/image";
 import VideoTab from "./tabs/video";
 import CinemaTab from "./tabs/cinema";
+import GrokTab from "./tabs/grok";
 import SeedanceTab from "./tabs/seedance";
 import CloneTab from "./tabs/clone";
 import AutoContentTab from "./tabs/auto-content";
@@ -35,7 +37,7 @@ import { SopButton } from "./sections/sop-modal";
 import { SOP_CONTENT } from "@/lib/sop-content";
 import Sidebar, { type Project, type SidebarView } from "./sidebar";
 
-type TabKey = "image" | "video" | "cinema" | "seedance" | "clone" | "auto" | "fairytale";
+type TabKey = "image" | "video" | "cinema" | "grok" | "seedance" | "clone" | "auto" | "fairytale";
 
 // Tab order: Image → UGC → Auto Content → Story → Cinema (Seedance) →
 // Clone Prompt → Fairytale. "Story" keeps the legacy "cinema" key + the
@@ -52,6 +54,7 @@ const TABS: { key: TabKey; label: string; icon: any; tag: string }[] = [
   { key: "clone",     label: "Clone Prompt", icon: Layers,    tag: "05" },
   { key: "fairytale", label: "Storytelling", icon: BookOpen,  tag: "06" },
   { key: "cinema",    label: "Viral",        icon: Film,      tag: "07" },
+  { key: "grok",      label: "Grok",         icon: Zap,       tag: "08" },
 ];
 
 export default function DashboardShell({
@@ -355,6 +358,7 @@ function resolveActiveSop(view: SidebarView, activeTab: TabKey) {
       video: "ugc",
       auto: "auto-content",
       cinema: "story",
+      grok: "story",
       seedance: "cinema",
       clone: "clone-prompt",
       fairytale: "fairytale",
@@ -515,6 +519,14 @@ function ProjectView({
                 <CinemaTab projectId={project.id} />
               </div>
               <HistoryGrid tab="cinema" title={`Viral — ${project.name}`} projectId={project.id} />
+            </>
+          )}
+          {activeTab === "grok" && (
+            <>
+              <div className="max-w-5xl mx-auto w-full">
+                <GrokTab projectId={project.id} />
+              </div>
+              <HistoryGrid tab="grok" title={`Grok — ${project.name}`} projectId={project.id} />
             </>
           )}
           {activeTab === "seedance" && (
