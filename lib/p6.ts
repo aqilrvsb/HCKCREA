@@ -163,13 +163,13 @@ export async function p6CreateVideo(input: {
   //   • veo3-1-fast             → up to 2 (start + end frame)
   //   • veo3-1-fast-ref         → up to 3 (reference images)
   //   • grok-imagine-i2v        → 1-7
-  //   • seedance-2.0-fast-i2v   → 1   (start frame only)
-  //   • seedance-2.0-fast-r2v   → 1-3 (ingredient mode)
+  //   • seedance-2.0-fast-i2v   → 1-2  (start + end frame)
+  //   • seedance-2.0-fast-r2v   → 0-9  (reference images)
   if (refs.length > 0) {
     let cap = 2;
     if (resolvedModel === "grok-imagine-i2v") cap = 7;
-    else if (resolvedModel === "seedance-2.0-fast-i2v") cap = 1;
-    else if (resolvedModel === "seedance-2.0-fast-r2v") cap = 3;
+    else if (resolvedModel === "seedance-2.0-fast-i2v") cap = 2;
+    else if (resolvedModel === "seedance-2.0-fast-r2v") cap = 9;
     else if (resolvedModel === "veo3-1-fast-ref") cap = 3;
     else if (resolvedModel === "veo3-1-fast") cap = 2;
     body.image_urls = refs.slice(0, cap);
