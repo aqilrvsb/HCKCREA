@@ -573,6 +573,73 @@ THE RULES (read all 6 before you plan a single video):
    • UGC framework video where the character's face is hidden
    • Idea ignored in favour of a generic scene (sofa, kitchen, etc.)
      just because it's easier — the idea is the WHOLE POINT
+
+═══════════════════════════════════════════════════════════════════════
+📚 WORKED EXAMPLE (so you cannot misread the rule)
+═══════════════════════════════════════════════════════════════════════
+
+CLIENT IDEA: "preview baju depan cermin"
+FRAMEWORK chosen for Video 1: "Testimonial" (UGC, character on screen)
+
+✅ CORRECT output (idea visible as the scene, framework drives dialog):
+   "Medium shot, Malay woman in her 30s wearing a sage green hijab and
+   the assigned dusty rose blouse, standing in front of a full-length
+   bedroom mirror, slowly turning to preview her outfit reflection,
+   warm morning light from window. Spoken dialog: 'Dulu aku ingat baju
+   ni biasa je, tapi bila pakai depan cermin baru rasa sebenarnya
+   classy gila. Lepas pakai 2 minggu confirm korang akan suka. Cuba
+   la, memang berbaloi!'"
+   ↳ Idea = mirror preview scene (SHOWN visually). Framework = Testimonial
+     dialog shape (doubt → turning point → recommendation). PERFECT.
+
+❌ WRONG output (idea ignored, generic UGC scene used instead):
+   "Medium shot, Malay woman in her 30s, sitting on a sofa holding the
+   product up to camera. Spoken dialog: '...'"
+   ↳ Where's the mirror? Where's the preview? Idea drifted. REJECTED.
+
+❌ WRONG output (idea respected but framework type ignored):
+   Same idea + framework as above, but written as: "Product folded on a
+   shelf in front of a mirror, slow zoom, no person, voiceover: '...'"
+   ↳ Framework was UGC (character on screen with face) but this is
+     product-only. REJECTED — wrong type. PRD-style execution for a
+     UGC framework slot.
+
+─── Same idea + DIFFERENT framework on Video 2: "Product Hero" (PRD) ───
+
+✅ CORRECT: "Cinematic close-up of the folded dusty rose blouse resting
+   on a marble shelf directly in front of a tall standing mirror, the
+   mirror's reflection shows the blouse from another angle, soft golden
+   afternoon light, slow dolly-in. Voiceover (warm Malay female): '...'"
+   ↳ Same mirror scene → product replaces the person → voiceover from
+     PRD framework. Idea preserved, framework type respected.
+
+═══════════════════════════════════════════════════════════════════════
+✅ SELF-CHECK — for EACH video you write, answer these 4 questions
+   BEFORE moving on. If any answer is NO, rewrite that video.
+═══════════════════════════════════════════════════════════════════════
+
+   Q1. Does the videoPromptShot1 mention the SPECIFIC scene/setting
+       from the client's idea (e.g. "in front of mirror", "on bedroom
+       dresser", "by morning coffee")? Generic "cozy bedroom" doesn't
+       count if the idea was "in front of mirror".
+       → YES / NO
+
+   Q2. Does the videoPromptShot1 show the CENTRAL ACTION from the
+       idea (preview / unbox / pour / try on / hold up / etc.)?
+       → YES / NO
+
+   Q3. Does the on-screen TYPE match the framework?
+        UGC → character visible with face speaking?
+        PRD → zero person, product is the subject?
+        POV → hand only, no face/body?
+       → YES / NO
+
+   Q4. Does this video's staging differ from every other video in the
+       batch (different camera angle OR different action beat OR
+       different time-of-day)?
+       → YES / NO
+
+   If ALL 4 = YES → ship the video. If ANY = NO → rewrite until YES.
 </idea_style>
 
 ` : ""}<HARD_RULES_READ_THIS_FIRST>
