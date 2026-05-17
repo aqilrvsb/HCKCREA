@@ -1637,9 +1637,13 @@ CRITICAL OUTPUT RULES:
             ...(cascaded.ok && cascaded.keyIndex !== undefined
               ? { p6_key_index: cascaded.keyIndex }
               : {}),
-            // Full attachment array (refImage triplicated by the
-            // video cascade for r2v) so Resubmit re-fires with all refs.
-            image_urls: refImage ? [refImage] : [],
+            // Full attachment array — ALL refs the user picked, not
+            // just the first. Auto-cron / retry / manual Resubmit
+            // read this back via metadata.image_urls and re-fire the
+            // cascade with the SAME image set. Previously this stamped
+            // only [refImage] (the first slot), so a retry on a 3-ref
+            // generation would silently drop refs 2 and 3.
+            image_urls: refImages,
             fallback_used: cascaded.ok ? cascaded.fallbackUsed : false,
             tier_log: cascaded.tierLog,
             batch_id: batch?.id,
