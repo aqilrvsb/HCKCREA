@@ -867,10 +867,23 @@ function HistoryCardInner({
   // (segmented chains keep their original per-segment URLs since each
   // seg has its own row).
   const savedUrl = saveStatus?.saved ? saveStatus.url : null;
+  // When the card has a segment slider AND the user clicked a thumb
+  // (slides.length > 0 + activeSlide selected), respect the active
+  // slide's URL — even if null. NEVER fall back to seg-1's URL when
+  // user clicked Seg 2/merged. The placeholder render below handles
+  // the null case (loading spinner for pending, ❌ for failed). Only
+  // non-segmented rows use the savedUrl/item.output_url fallback.
   const playerUrl =
-    slides.length > 0 && activeSlide?.url
-      ? activeSlide.url
+    slides.length > 0
+      ? activeSlide?.url || null
       : savedUrl || item.output_url;
+  // True when user clicked a segment thumb that isn't ready yet
+  // (queued / pending / failed). Used to render the placeholder
+  // overlay instead of an empty video frame.
+  const segmentPlaceholder =
+    slides.length > 0 && !activeSlide?.url
+      ? (activeSlide?.status as Slide["status"]) || "queued"
+      : null;
 
   async function checkNow() {
     setChecking(true);
@@ -1482,6 +1495,53 @@ function HistoryCardInner({
               />
             )}
           </>
+        )}
+        {/* Segment placeholder — user clicked Seg 2 / merged thumb
+            but that slide isn't ready yet. Shows clearly that the
+            segment is loading / queued / failed instead of falling
+            back to seg-1's video (which is what was happening
+            before, making the thumb click feel broken). */}
+        {item.status === "done" && !isClonePrompt && segmentPlaceholder && (
+          <div
+            className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-white"
+            style={{
+              background: "linear-gradient(135deg, #1a1a1a 0%, #0a0a0a 100%)",
+            }}
+          >
+            {segmentPlaceholder === "failed" ? (
+              <>
+                <X className="w-10 h-10" style={{ color: "rgb(239, 68, 68)" }} />
+                <div className="text-xs font-bold" style={{ color: "rgb(239, 68, 68)" }}>
+                  {activeSlide?.label} failed
+                </div>
+                <div className="text-[10px] text-white/50">
+                  Click thumb again to retry
+                </div>
+              </>
+            ) : segmentPlaceholder === "queued" ? (
+              <>
+                <Clock className="w-10 h-10 text-white/40" />
+                <div className="text-xs font-bold text-white/70">
+                  {activeSlide?.label} queued
+                </div>
+                <div className="text-[10px] text-white/50 text-center px-3">
+                  {activeSlide?.id === "seg_1"
+                    ? "Waiting for Seg 1 to finish"
+                    : "Waiting for Seg 2 to finish before merge"}
+                </div>
+              </>
+            ) : (
+              <>
+                <Loader2 className="w-10 h-10 animate-spin text-orange-400" />
+                <div className="text-xs font-bold text-orange-300">
+                  {activeSlide?.label} generating…
+                </div>
+                <div className="text-[10px] text-white/50">
+                  Auto-refresh every 15s
+                </div>
+              </>
+            )}
+          </div>
         )}
       </div>
 
