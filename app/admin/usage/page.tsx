@@ -429,8 +429,8 @@ export default function AdminUsage() {
                   <th className="text-left px-5 py-4 w-32">Action</th>
                   <th className="text-center px-5 py-4 w-20">Engine</th>
                   <th className="text-center px-5 py-4 w-24">Tab</th>
-                  <th className="text-left px-5 py-4 w-32">Framework</th>
-                  <th className="text-left px-5 py-4 w-32">Idea</th>
+                  <th className="text-left px-5 py-4 w-28">Framework</th>
+                  <th className="text-left px-5 py-4 w-24">Idea</th>
                   <th className="text-left px-5 py-4">Prompt</th>
                   <th className="text-center px-5 py-4 w-24">Preview</th>
                   <th className="text-right px-5 py-4 w-24">Cost</th>
@@ -603,11 +603,12 @@ export default function AdminUsage() {
                             }
                             return (
                               <span
-                                className="px-2 py-0.5 rounded text-[10px] font-mono font-bold whitespace-nowrap"
+                                className="inline-block px-2 py-0.5 rounded text-[10px] font-mono font-bold break-words line-clamp-6 max-w-full leading-snug"
                                 style={{
                                   background: "rgba(244,114,182,0.1)",
                                   color: "#ec4899",
                                   border: "1px solid rgba(244,114,182,0.25)",
+                                  wordBreak: "break-word",
                                 }}
                                 title={`Auto Content framework: ${fw}`}
                               >
@@ -642,12 +643,13 @@ export default function AdminUsage() {
                             }
                             return (
                               <span
-                                className="px-2 py-0.5 rounded text-[10px] font-mono font-bold whitespace-nowrap"
+                                className="inline-block px-2 py-0.5 rounded text-[10px] font-mono font-bold break-words line-clamp-6 max-w-full leading-snug"
                                 style={{
                                   background:
                                     "linear-gradient(90deg, rgba(236,72,153,0.15), rgba(168,85,247,0.15), rgba(56,189,248,0.15))",
                                   color: "#a855f7",
                                   border: "1px solid rgba(168,85,247,0.3)",
+                                  wordBreak: "break-word",
                                 }}
                                 title={`Custom Idea: ${idea}`}
                               >
