@@ -27,13 +27,30 @@ export async function POST(req: Request) {
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const body = await req.json().catch(() => ({}));
-  const prompt = String(body?.prompt || "").trim().slice(0, 1500);
+  const rawPrompt = String(body?.prompt || "").trim().slice(0, 1500);
   const aspectRatio = String(body?.aspect_ratio || "9:16");
   const projectId = body?.project_id ? String(body.project_id) : null;
   const sceneIdx = Number.isInteger(body?.scene_idx) ? Number(body.scene_idx) : null;
   const fairytaleGroupId = body?.group_id ? String(body.group_id) : null;
+  // NEW: hero character reference image. When present, every scene's image
+  // generation attaches this URL as a reference and the prompt is prepended
+  // with descriptive anchor text ("Same character from reference image, ...")
+  // so the protagonist stays visually consistent across all scenes. Frontend
+  // passes the resolved hero output_url after the hero image generation
+  // completes via the storyboard.
+  const heroImageUrl =
+    typeof body?.hero_image_url === "string" && body.hero_image_url.trim()
+      ? body.hero_image_url.trim()
+      : "";
 
-  if (!prompt) return NextResponse.json({ error: "prompt required" }, { status: 400 });
+  if (!rawPrompt) return NextResponse.json({ error: "prompt required" }, { status: 400 });
+
+  // Anchor the scene to the hero character when a hero is supplied. The
+  // prefix uses descriptive phrasing (not "use the reference image as...")
+  // to pass APIPod's CUE validator if image cascade routes through p6.
+  const prompt = heroImageUrl
+    ? `Same character from reference image, ${rawPrompt}`
+    : rawPrompt;
 
   const admin = createAdminClient();
 
@@ -56,6 +73,10 @@ export async function POST(req: Request) {
         scene_idx: sceneIdx,
         group_id: fairytaleGroupId,
         upload_status: "queued",
+        // Stamp the hero reference (if any) so retries / event-driven
+        // re-fires can re-attach it without the client having to pass
+        // it again. Settle path reads metadata.hero_image_url too.
+        ...(heroImageUrl ? { hero_image_url: heroImageUrl } : {}),
       },
     })
     .select("id")
@@ -142,6 +163,11 @@ export async function POST(req: Request) {
         prompt,
         aspectRatio,
         fullCascade: true,
+        // Attach hero character as reference image when provided. This is
+        // what gives the protagonist visual consistency across all scenes —
+        // every scene's image generation now uses the same character image
+        // as a ref instead of generating a new character from text each time.
+        ...(heroImageUrl ? { imageUrls: [heroImageUrl] } : {}),
       });
       const createdOk = cascadeResult.ok;
       const createdTaskId = cascadeResult.ok ? cascadeResult.taskId : null;

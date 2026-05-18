@@ -1,7 +1,9 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { orChat } from "@/lib/openrouter";
-import { getSetting } from "@/lib/settings";
+import { getSetting, getP2Config } from "@/lib/settings";
+import { generateImageWithCascade } from "@/lib/image-cascade";
+import { createAdminClient } from "@/lib/supabase/admin";
 
 // POST /api/generate/fairytale/script
 //
@@ -168,9 +170,18 @@ The story-close happens FIRST in the same narration, THEN the question — both 
 OBJECTIVE: keep a Malaysian TikTok viewer watching to the end. The audience speaks Bahasa Melayu and English fluently and watches a wide range of topics — personal stories, biographies of foreign figures, history, science, finance, sports, conspiracy theories, anything. DO NOT force every story into a Malaysian-village setting. The story content is whatever the user's prompt dictates — your job is to make THAT story land for a Malaysian viewer.
 
 OUTPUT FORMAT — STRICT:
-- Output a JSON object: { "scenes": [ { "narration": "...", "image_prompt": "..." }, ... ] }
+- Output a JSON object: { "main_character": "...", "scenes": [ { "narration": "...", "image_prompt": "..." }, ... ] }
 - Exactly ${sceneCount} scenes.
 - No markdown fences, no commentary. JSON only.
+
+MAIN CHARACTER — REQUIRED:
+- Identify the SINGLE protagonist who appears in MOST scenes (typically scenes 2-N — the person/animal/creature/object the story follows). This becomes the "reference character" that anchors every scene image for visual consistency.
+- main_character: ONE detailed visual sentence (40-80 words) capturing the protagonist's APPEARANCE — type (person / animal / object / creature), age if person, gender if relevant, distinctive features (beard, hijab, costume colors, build, eye color, fur, material, era of clothing). Be specific enough that the image model can render the same character identically across multiple scenes.
+- Examples:
+  • Person: "An elderly Malay man in his 70s with full grey beard, weathered tanned skin, kind brown eyes, wearing traditional dark navy baju Melayu with embroidered collar, gentle calm expression, slightly hunched posture."
+  • Animal: "A small grey tabby cat with bright emerald-green eyes, tufted ears, white chest patch, slender build, alert expression, soft fluffy tail."
+  • Object: "An ancient brass tea kettle with curved golden spout, patinated copper body engraved with arabesque patterns, ornate wooden handle, slight green oxidation."
+- If the story has NO single recurring character (pure landscape montage, ensemble cast with no clear lead, abstract concept), set main_character to empty string ("") and the system will fall back to text-only scene generation.
 
 ══════════════════════════════════════════════════════════════════
 THE TIKTOK PACE TEST (every scene must pass)
@@ -489,9 +500,95 @@ Regenerate the FULL JSON. Specifically:
     }))
     .filter((s: any) => s.narration && s.image_prompt);
 
+  // ─── HERO CHARACTER IMAGE (NEW) ──────────────────────────────────
+  // Auto-generate ONE reference image of the story's main character.
+  // Every scene image generation then attaches this hero image as a
+  // reference so the character stays visually consistent across all
+  // ${sceneCount} scenes — same face, same outfit, same build.
+  //
+  // Per product spec:
+  //   • Auto-generated from the story (no upload, no user picker)
+  //   • Regenerate-only via /api/generate/fairytale/regenerate-hero
+  //   • Applies to ALL character types (person / animal / object)
+  //   • If LLM returned main_character="" (no recurring protagonist),
+  //     skip hero gen → scenes fall back to text-only as before.
+  const mainCharacter = String(parsed?.main_character || "").trim().slice(0, 800);
+  let heroImageUrl = "";
+  let heroError: string | null = null;
+  if (mainCharacter) {
+    try {
+      const cfg = await getP2Config();
+      const ftModelSetting = await getSetting<{ model: string }>("fairytale_image_model");
+      const adminModel = ftModelSetting?.model || cfg.imageDefault || "nano-banana-pro";
+      const modelKey = adminModel.toLowerCase().includes("nano-banana")
+        ? adminModel
+        : "nano-banana-pro";
+      const primaryModelP2 =
+        (cfg.imageModels as any)?.[modelKey] || `google/${modelKey}`;
+      // Hero prompt: clean reference-shot framing so the character
+      // is isolated against neutral backdrop — easier for the scene
+      // pipeline to extract identity and re-pose them in new settings.
+      // Visual style suffix is appended so the hero matches the same
+      // aesthetic the scenes will use.
+      const heroPrompt =
+        `${mainCharacter}\n\nClean reference portrait, neutral pose, plain backdrop, full body or 3/4 shot, sharp focus on character features, no other subjects in frame.\n\n${VISUAL_HINTS[visualStyle]}`;
+      const heroCascade = await generateImageWithCascade({
+        primaryProvider: "p4",
+        primaryModel: modelKey,
+        primaryModelP2,
+        prompt: heroPrompt,
+        aspectRatio: "9:16",
+        fullCascade: true,
+      });
+      if (heroCascade.ok && heroCascade.taskId) {
+        // Cascade returns a task_id — for image cascade the result URL
+        // comes back synchronously inside the cascade for some providers,
+        // but for safety we DON'T block here. We return the task_id +
+        // poll-info so the client can show a spinner. To keep this
+        // simple, insert a history row of type='fairytale-hero' that
+        // settle.ts will resolve. Frontend polls /api/history filtered
+        // by the returned hero_history_id.
+        const admin = createAdminClient();
+        const { data: heroHist } = await admin
+          .from("history")
+          .insert({
+            user_id: session.user.id,
+            type: "fairytale-hero",
+            tab: "fairytale",
+            status: "pending",
+            prompt: heroPrompt,
+            task_id: heroCascade.taskId,
+            cost: 0,
+            metadata: {
+              provider: heroCascade.actualProvider,
+              slot: heroCascade.actualSlot,
+              model: heroCascade.actualModel,
+              aspectRatio: "9:16",
+              main_character: mainCharacter,
+              fallback_used: heroCascade.fallbackUsed,
+              tier_log: heroCascade.tierLog,
+              upload_status: "done",
+            },
+          })
+          .select("id, task_id")
+          .single();
+        if (heroHist) {
+          heroImageUrl = `pending:${heroHist.id}`;
+        }
+      } else if (!heroCascade.ok) {
+        heroError = heroCascade.error;
+      }
+    } catch (e: any) {
+      heroError = e?.message || "Hero image generation failed";
+    }
+  }
+
   return NextResponse.json({
     ok: true,
     scenes: cleaned,
+    main_character: mainCharacter,
+    hero_image: heroImageUrl, // "pending:<history_id>" — client polls /api/history
+    hero_error: heroError,
     style,
     tone,
     language,

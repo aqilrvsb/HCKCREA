@@ -421,6 +421,17 @@ export default function FairytaleTab({ projectId }: { projectId?: string } = {})
   const [scriptProgress, setScriptProgress] = useState<number>(0);
   const [scriptLoading, setScriptLoading] = useState(false);
   const [scriptError, setScriptError] = useState<string | null>(null);
+  // Hero character — auto-generated from the LLM-extracted main character
+  // description during script step. Used as a reference image attached to
+  // every scene's image generation, anchoring the protagonist's appearance
+  // (face / outfit / build) across all scenes. "Regenerate Character"
+  // button on the storyboard fires /api/generate/fairytale/regenerate-hero
+  // to swap in a fresh hero image without re-running the LLM.
+  const [mainCharacter, setMainCharacter] = useState<string>("");
+  const [heroHistoryId, setHeroHistoryId] = useState<string | null>(null);
+  const [heroImageUrl, setHeroImageUrl] = useState<string>("");
+  const [heroStatus, setHeroStatus] = useState<"idle" | "generating" | "done" | "failed">("idle");
+  const [heroRegenerating, setHeroRegenerating] = useState<boolean>(false);
   // 0 when no retry in progress, 1-3 during auto-retry attempts.
   // Surfaced in the Preview modal as "Attempt 2 of 3..." so the user
   // sees the system is working through the retries instead of guessing
@@ -739,8 +750,31 @@ export default function FairytaleTab({ projectId }: { projectId?: string } = {})
         setScriptProgress(100);
         setScriptRetryAttempt(0);
         setScriptLoading(false);
-        // Kick off image generation for each scene
-        void fireSceneImages(initial);
+
+        // NEW — capture hero character + start polling for hero image.
+        // d.hero_image is "pending:<history_id>" when LLM extracted a main
+        // character and the script route kicked off hero generation. Empty
+        // string when no recurring protagonist (pure landscape montage) →
+        // scenes fall back to text-only as before.
+        const heroChar = String(d.main_character || "").trim();
+        const heroPending = String(d.hero_image || "");
+        setMainCharacter(heroChar);
+        if (heroPending.startsWith("pending:")) {
+          const hid = heroPending.slice("pending:".length);
+          setHeroHistoryId(hid);
+          setHeroStatus("generating");
+          setHeroImageUrl("");
+          // Don't fire scene images yet — wait for hero to land so each
+          // scene can attach it as reference. The polling effect below
+          // kicks off fireSceneImages once heroImageUrl is filled.
+        } else {
+          // No hero (story has no recurring protagonist) — fall back to
+          // text-only scene generation immediately, same as before.
+          setHeroStatus("idle");
+          setHeroImageUrl("");
+          setHeroHistoryId(null);
+          void fireSceneImages(initial, "");
+        }
         return;
       } catch (e: any) {
         lastError = e?.message || "Script generation failed";
@@ -756,13 +790,18 @@ export default function FairytaleTab({ projectId }: { projectId?: string } = {})
     setScriptLoading(false);
   }
 
-  async function fireSceneImages(initialScenes: Scene[]) {
+  async function fireSceneImages(initialScenes: Scene[], heroUrl: string = "") {
     // Fire all scene image generations in parallel — backend inserts a row
     // per scene with type='fairytale-scene' and group_id matching this batch.
     // Skip scenes the user has already supplied an image for (via the
     // Preview modal's Upload / From-History buttons). Those scenes are
     // marked 'done' immediately with the user's URL — Modal merge picks
     // them up from scene.imageUrl unchanged.
+    //
+    // heroUrl — optional URL of the auto-generated main character image.
+    // When provided, every scene's image generation attaches it as a
+    // reference (anchors character appearance across all scenes). Empty
+    // string when story has no recurring protagonist → text-only scenes.
     const toGenerate = initialScenes.filter(
       (s) => !s.userImageUrl && !s.userImageFile
     );
@@ -779,6 +818,10 @@ export default function FairytaleTab({ projectId }: { projectId?: string } = {})
               project_id: projectId,
               scene_idx: s.idx,
               group_id: groupId,
+              // Anchor scene to hero character (when present). Backend
+              // prepends "Same character from reference image, ..." to
+              // the scene prompt and attaches heroUrl as image_urls[0].
+              ...(heroUrl ? { hero_image_url: heroUrl } : {}),
             }),
           });
           const d = await r.json();
@@ -887,6 +930,10 @@ export default function FairytaleTab({ projectId }: { projectId?: string } = {})
           project_id: projectId,
           scene_idx: idx,
           group_id: groupId,
+          // Per-scene regenerate also anchors to the hero character
+          // (when present) — keeps the regenerated scene visually
+          // consistent with the rest of the storyboard.
+          ...(heroImageUrl ? { hero_image_url: heroImageUrl } : {}),
         }),
       });
       const d = await r.json();
@@ -987,6 +1034,113 @@ export default function FairytaleTab({ projectId }: { projectId?: string } = {})
     void fetchAudioCache();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step, enableVoice, voiceId, voiceSpeed, scenes.map((s) => s.narration).join("|")]);
+
+  // Poll the hero character row (fairytale-hero) every 2.5s until it
+  // lands. Once output_url is populated → set heroImageUrl + fire all
+  // scene image generations with the hero as a reference attachment.
+  // Failure path: hero gen failed (status='failed') → fall back to
+  // text-only scene generation so the user still gets a storyboard.
+  useEffect(() => {
+    if (!heroHistoryId) return;
+    if (heroStatus !== "generating") return;
+
+    const sb = createClient();
+    let cancelled = false;
+    let elapsed = 0;
+    const HERO_TIMEOUT_MS = 90_000; // 90s cap — image cascade shouldn't take longer
+    const tick = async () => {
+      if (cancelled) return;
+      elapsed += 2500;
+      const { data } = await sb
+        .from("history")
+        .select("id, status, output_url")
+        .eq("id", heroHistoryId)
+        .maybeSingle();
+      if (cancelled) return;
+      if (data?.status === "done" && data.output_url) {
+        setHeroImageUrl(data.output_url);
+        setHeroStatus("done");
+        setHeroRegenerating(false);
+        // Now fire scene images with the hero attached as reference.
+        // Use the current `scenes` state snapshot via setScenes-style
+        // closure trick — pull the latest via the functional updater.
+        setScenes((curr) => {
+          // Only fire scene gen for scenes still in 'queued' state
+          // (skip user-supplied scenes and already-fired ones).
+          const toFire = curr.filter((s) => s.imageStatus === "queued");
+          if (toFire.length > 0) {
+            void fireSceneImages(curr, data.output_url);
+          }
+          return curr;
+        });
+      } else if (data?.status === "failed") {
+        // Hero gen failed — fall back to text-only scenes so the user
+        // still gets a usable storyboard. They can hit "Regenerate
+        // Character" to retry the hero step.
+        setHeroStatus("failed");
+        setHeroRegenerating(false);
+        setHeroImageUrl("");
+        setScenes((curr) => {
+          const toFire = curr.filter((s) => s.imageStatus === "queued");
+          if (toFire.length > 0) {
+            void fireSceneImages(curr, "");
+          }
+          return curr;
+        });
+      } else if (elapsed >= HERO_TIMEOUT_MS) {
+        // Timed out — same fallback as failed.
+        setHeroStatus("failed");
+        setHeroRegenerating(false);
+        setHeroImageUrl("");
+        setScenes((curr) => {
+          const toFire = curr.filter((s) => s.imageStatus === "queued");
+          if (toFire.length > 0) {
+            void fireSceneImages(curr, "");
+          }
+          return curr;
+        });
+      } else {
+        setTimeout(tick, 2500);
+      }
+    };
+    setTimeout(tick, 1500); // initial 1.5s before first poll
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [heroHistoryId, heroStatus]);
+
+  // Regenerate the hero character image without re-running the LLM script.
+  // Hits /api/generate/fairytale/regenerate-hero → inserts a fresh
+  // fairytale-hero row → frontend swaps in the new heroHistoryId + flips
+  // heroStatus back to 'generating' so the polling effect above picks it up.
+  async function regenerateHero() {
+    if (!mainCharacter || heroRegenerating) return;
+    setHeroRegenerating(true);
+    setHeroStatus("generating");
+    setHeroImageUrl("");
+    try {
+      const r = await fetch("/api/generate/fairytale/regenerate-hero", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          main_character: mainCharacter,
+          visual_style: visualStyle,
+        }),
+      });
+      const d = await r.json();
+      if (r.ok && d?.hero_history_id) {
+        setHeroHistoryId(d.hero_history_id as string);
+        // Polling effect will detect new heroHistoryId + start polling.
+      } else {
+        setHeroStatus("failed");
+        setHeroRegenerating(false);
+      }
+    } catch {
+      setHeroStatus("failed");
+      setHeroRegenerating(false);
+    }
+  }
 
   // Poll scene image rows every 4s until all done or failed.
   // Triggers on Step 2 entry (was Step 3 in the 3-step wizard).
@@ -2213,6 +2367,84 @@ function Step3(props: any) {
             />
           )}
         </div>
+
+        {/* Main Character — auto-generated reference image that anchors
+            character visual consistency across all scenes. Only renders
+            when the LLM extracted a recurring protagonist; for pure-
+            landscape / no-character stories this section is skipped. */}
+        {mainCharacter && (
+          <div
+            className="rounded-2xl p-5 mb-3"
+            style={{ background: "white", border: "1px solid #e5e7eb" }}
+          >
+            <div className="flex items-center justify-between mb-3">
+              <div className="font-bold text-sm">Main Character</div>
+              <button
+                onClick={() => void regenerateHero()}
+                disabled={heroRegenerating || heroStatus === "generating"}
+                className="text-xs px-3 py-1.5 rounded-lg border inline-flex items-center gap-1.5 transition-colors"
+                style={{
+                  background: heroRegenerating ? "#f3f4f6" : "white",
+                  borderColor: "#e5e7eb",
+                  color: heroRegenerating ? "#9ca3af" : "#374151",
+                  cursor: heroRegenerating ? "not-allowed" : "pointer",
+                }}
+                title="Generate a fresh main-character image (uses the same character description)"
+              >
+                <RotateCw
+                  className={`w-3 h-3 ${heroRegenerating || heroStatus === "generating" ? "animate-spin" : ""}`}
+                />
+                {heroRegenerating || heroStatus === "generating"
+                  ? "Generating…"
+                  : "Regenerate Character"}
+              </button>
+            </div>
+            <div className="flex gap-4 items-start">
+              {/* Hero image preview — fixed 9:16 thumbnail */}
+              <div
+                className="w-24 h-40 rounded-lg overflow-hidden flex items-center justify-center flex-shrink-0"
+                style={{
+                  background: "#f3f4f6",
+                  border: "1px solid #e5e7eb",
+                }}
+              >
+                {heroStatus === "generating" ? (
+                  <div className="text-xs text-gray-500 inline-flex flex-col items-center gap-1">
+                    <RotateCw className="w-4 h-4 animate-spin" />
+                    <span>Generating</span>
+                  </div>
+                ) : heroStatus === "failed" ? (
+                  <div className="text-xs text-red-500 text-center px-2">
+                    Failed —<br />
+                    click Regenerate
+                  </div>
+                ) : heroImageUrl ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={heroImageUrl}
+                    alt="Main character"
+                    className="w-full h-full object-cover"
+                  />
+                ) : (
+                  <div className="text-xs text-gray-400">No image</div>
+                )}
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="text-[10px] uppercase tracking-widest text-gray-500 font-bold mb-1">
+                  Character Description
+                </div>
+                <div className="text-xs text-gray-700 leading-relaxed line-clamp-4">
+                  {mainCharacter}
+                </div>
+                <div className="text-[10px] text-gray-400 mt-2 italic">
+                  This image is attached as a reference to every scene's
+                  generation so the character looks identical across all
+                  {" "}{scenes.length} scenes.
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Video Scenes */}
         <div className="rounded-2xl p-5" style={{ background: "white", border: "1px solid #e5e7eb" }}>
