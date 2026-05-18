@@ -163,12 +163,14 @@ export default function VideoTab({ projectId }: { projectId?: string } = {}) {
         ensurePublicUrl(avatarImage),
       ]);
       const productPubs = await Promise.all(refImages.map((u) => ensurePublicUrl(u)));
-      // Triplicate rule: if exactly 1 product picked, send the same URL 3×
-      // (matches the existing auto-product r2v flow). 2-3 products go as-is.
-      const productSend =
-        productPubs.length === 1
-          ? [productPubs[0], productPubs[0], productPubs[0]]
-          : productPubs;
+      // Triplication REMOVED — every Veo model variant (veo3-1-fast,
+      // veo3-1-fast-ref, etc.) accepts 1+ distinct refs natively. Sending
+      // the same image 3× just bloated the payload, and APIPod's CUE
+      // validator was rejecting duplicate image_urls as "invalid value"
+      // even when the error message pointed at the prompt field.
+      // Now: 1 picked → 1 sent, 2-3 picked → 2-3 sent (as-is). Matches
+      // Auto Content's behaviour which has always sent distinct refs only.
+      const productSend = productPubs;
 
       // Order matters: avatar is image #1 when present, then up to 2
       // products. Without avatar: up to 3 products.
@@ -369,7 +371,7 @@ export default function VideoTab({ projectId }: { projectId?: string } = {}) {
               />
             </div>
             <p className="md:col-span-2 text-[11px] text-gray-500 -mt-1">
-              Both optional. Pick {avatarImage ? "up to 2 products" : "up to 3 products"}; 1 = same image sent 3× to Veo, 2-3 = sent as distinct refs.
+              Both optional. Pick {avatarImage ? "up to 2 products" : "up to 3 products"}; each picked image is sent as a distinct reference to Veo.
             </p>
           </div>
         )}
