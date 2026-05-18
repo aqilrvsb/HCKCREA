@@ -43,12 +43,19 @@ export default function VideoTab({ projectId }: { projectId?: string } = {}) {
   // Without avatar: products fill all 3 slots (max 3 products).
   const [refImages, setRefImages] = useState<string[]>([]);
   const [prompt, setPrompt] = useState("");
+  // Idea mode now uses TWO fields:
+  //   ideaScene — the scene/visual concept ("saya masak tenggiri masam")
+  //   ideaUsp   — optional product USP ("ada extra calcium, anti-inflammatory")
+  // Backend combines both + picks a random UGC framework from
+  // lib/auto-content-frameworks.ts (filtered to type='ugc') and asks
+  // Gemini 3.1 Flash Lite to write the scene + 20-24 Malay-word dialog
+  // following that framework's dialog shape + emotion arc.
+  const [ideaScene, setIdeaScene] = useState("");
+  const [ideaUsp, setIdeaUsp] = useState("");
   // Input mode toggle — "prompt" is the legacy free-form path (user types
-  // full scene + dialog), "idea" is a new shortcut where the user just
-  // types a one-line idea and the backend silently expands it into a
-  // full Veo prompt via Gemini 3.1 Flash Lite. No framework (UGC has
-  // no framework picker like Auto Content); dialog hard-locked at
-  // 20-24 Malay words for 8s via the canonical DIALOG LENGTH LOCK.
+  // full scene + dialog), "idea" is the new shortcut: 2 short fields +
+  // rotated UGC framework + Gemini expansion. Dialog stays hard-locked
+  // at 20-24 Malay words for 8s via the canonical DIALOG LENGTH LOCK.
   const [inputMode, setInputMode] = useState<"prompt" | "idea">("prompt");
   const [aspect, setAspect] = useState("9:16");
   const [count, setCount] = useState(1);
@@ -156,7 +163,15 @@ export default function VideoTab({ projectId }: { projectId?: string } = {}) {
   }
 
   async function submit() {
-    if (!prompt.trim()) return setError("Sila masukkan scene prompt.");
+    // Mode-aware required-input validation. Prompt mode needs the full
+    // textarea; Idea mode needs at least Scene Idea (USP is optional).
+    if (inputMode === "idea") {
+      if (!ideaScene.trim()) {
+        return setError("Sila masukkan Scene Idea (USP optional).");
+      }
+    } else if (!prompt.trim()) {
+      return setError("Sila masukkan scene prompt.");
+    }
     if (imageMode === "frame" && !startFrame)
       return setError("Upload Start Frame dulu.");
     setError(null);
@@ -236,16 +251,23 @@ export default function VideoTab({ projectId }: { projectId?: string } = {}) {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            prompt: finalPrompt,
+            // In Idea mode, prompt is unused — backend reads idea_scene +
+            // idea_usp instead. In Prompt mode, prompt is the verbatim
+            // user-typed Veo prompt (with frontend's ref-image preamble
+            // already prepended).
+            prompt: inputMode === "idea" ? "" : finalPrompt,
             image_urls: imageUrls,
             duration,
             image_mode: effectiveMode,
             aspect_ratio: aspect,
             project_id: projectId,
-            // Idea mode: backend silently runs Gemini 3.1 Flash Lite on the
-            // user's one-liner to produce a full Veo prompt before applying
-            // locks. Prompt mode: backend uses the prompt text verbatim.
             mode: inputMode,
+            ...(inputMode === "idea"
+              ? {
+                  idea_scene: ideaScene.trim(),
+                  idea_usp: ideaUsp.trim(),
+                }
+              : {}),
           }),
         }).then((r) => r.json())
       );
@@ -450,35 +472,89 @@ export default function VideoTab({ projectId }: { projectId?: string } = {}) {
           </button>
         </div>
 
-        <textarea
-          rows={inputMode === "idea" ? 3 : 5}
-          value={prompt}
-          onChange={(e) => setPrompt(e.target.value.substring(0, inputMode === "idea" ? 400 : 1500))}
-          maxLength={inputMode === "idea" ? 400 : 1500}
-          placeholder={
-            inputMode === "idea"
-              ? "One-line idea (e.g. 'saya masak tenggiri masam dan makan dengan nasi')..."
-              : "Scene description + spoken dialog 0-8s..."
-          }
-          className="w-full p-3.5 rounded-xl text-sm resize-y outline-none focus:border-orange-400"
-          style={{
-            background: "#fafaf7",
-            border: "1px solid #e8e0d8",
-            color: "#1a1a1a",
-            lineHeight: 1.5,
-          }}
-        />
         {inputMode === "idea" ? (
-          <p className="text-[10px] text-gray-500 mt-2 leading-relaxed">
-            <span className="font-bold text-purple-600">AI expansion:</span>{" "}
-            Gemini 3.1 Flash Lite reads your idea and writes the full Veo
-            prompt (scene + 20-24 Malay word dialog) silently when you
-            click Generate. Reference images (if attached) are respected.{" "}
-            <span className={prompt.length > 380 ? "text-red-500 font-bold" : ""}>
-              {prompt.length}/400
-            </span>
-          </p>
+          <div className="space-y-3">
+            {/* Scene Idea (required) */}
+            <div>
+              <label className="block text-[10px] uppercase tracking-widest text-gray-500 font-bold mb-1.5">
+                Scene Idea <span className="text-red-500">*</span>
+              </label>
+              <textarea
+                rows={3}
+                value={ideaScene}
+                onChange={(e) => setIdeaScene(e.target.value.substring(0, 400))}
+                maxLength={400}
+                placeholder="What's happening in the scene? e.g. 'saya masak tenggiri masam dan makan dengan nasi panas'"
+                className="w-full p-3.5 rounded-xl text-sm resize-y outline-none focus:border-orange-400"
+                style={{
+                  background: "#fafaf7",
+                  border: "1px solid #e8e0d8",
+                  color: "#1a1a1a",
+                  lineHeight: 1.5,
+                }}
+              />
+              <div className="text-[10px] text-gray-400 mt-1 text-right">
+                <span className={ideaScene.length > 380 ? "text-red-500 font-bold" : ""}>
+                  {ideaScene.length}/400
+                </span>
+              </div>
+            </div>
+
+            {/* USP Produk (optional) */}
+            <div>
+              <label className="block text-[10px] uppercase tracking-widest text-gray-500 font-bold mb-1.5">
+                USP Produk{" "}
+                <span className="font-normal lowercase tracking-normal text-gray-400">
+                  (optional — what's unique about the product?)
+                </span>
+              </label>
+              <textarea
+                rows={2}
+                value={ideaUsp}
+                onChange={(e) => setIdeaUsp(e.target.value.substring(0, 300))}
+                maxLength={300}
+                placeholder="Key benefits or selling points, e.g. 'ada extra calcium · anti-inflammatory · halal certified'"
+                className="w-full p-3.5 rounded-xl text-sm resize-y outline-none focus:border-orange-400"
+                style={{
+                  background: "#fafaf7",
+                  border: "1px solid #e8e0d8",
+                  color: "#1a1a1a",
+                  lineHeight: 1.5,
+                }}
+              />
+              <div className="text-[10px] text-gray-400 mt-1 text-right">
+                <span className={ideaUsp.length > 280 ? "text-red-500 font-bold" : ""}>
+                  {ideaUsp.length}/300
+                </span>
+              </div>
+            </div>
+
+            <p className="text-[10px] text-gray-500 leading-relaxed">
+              <span className="font-bold text-purple-600">AI expansion:</span>{" "}
+              Gemini 3.1 Flash Lite combines your scene idea + USP and
+              writes the full Veo prompt using a randomly-rotated UGC
+              framework from Auto Content's pool. Scene owns the visual;
+              framework owns the dialog shape (20-24 Malay words). Reference
+              images (if attached) are respected.
+            </p>
+          </div>
         ) : (
+          <textarea
+            rows={5}
+            value={prompt}
+            onChange={(e) => setPrompt(e.target.value.substring(0, 1500))}
+            maxLength={1500}
+            placeholder="Scene description + spoken dialog 0-8s..."
+            className="w-full p-3.5 rounded-xl text-sm resize-y outline-none focus:border-orange-400"
+            style={{
+              background: "#fafaf7",
+              border: "1px solid #e8e0d8",
+              color: "#1a1a1a",
+              lineHeight: 1.5,
+            }}
+          />
+        )}
+        {inputMode === "idea" ? null : (
           <p className="text-[10px] text-gray-500 mt-2 leading-relaxed">
             Each shot = 8s · Sweet spot{" "}
             <span className="font-bold text-orange-600">18–22 words</span> of

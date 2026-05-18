@@ -6,6 +6,7 @@ import { getP2Config } from "@/lib/settings";
 import { buildVeoLocks, getVoiceDescription, pickVoiceFromPrompt } from "@/lib/veo-voices";
 import { generateVideoWithCascade } from "@/lib/video-cascade";
 import { orChat } from "@/lib/openrouter";
+import { FRAMEWORKS } from "@/lib/auto-content-frameworks";
 
 // POST /api/generate/video — UGC tab. Placeholder-first + auth-light.
 //
@@ -63,21 +64,39 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Reference image required" }, { status: 400 });
   }
 
-  // ── IDEA MODE: expand one-liner into a full Veo prompt ────────────
-  // Gemini 3.1 Flash Lite reads the user's idea + the attachment context
-  // (avatar / product hint) and writes a complete scene description
-  // with embedded 20-24 Malay-word spoken dialog. No framework layer
-  // (UGC isn't framework-based); dialog is enforced by the canonical
-  // DIALOG LENGTH LOCK appended downstream anyway, so we ask Gemini
-  // for loose-structure dialog (just total word count, no beat budget).
+  // ── IDEA MODE: 2-input expansion with rotated UGC framework ───────
+  // Reads body.idea_scene (required) + body.idea_usp (optional) from
+  // the new 2-field UI. Picks ONE random framework from the UGC pool
+  // in lib/auto-content-frameworks.ts and asks Gemini 3.1 Flash Lite
+  // to write the full Veo prompt:
+  //   - Scene Idea → owns the VISUAL (what's happening in the frame)
+  //   - USP Produk → seeded into the dialog so the script mentions the
+  //     product's actual value (when present)
+  //   - Framework  → owns the DIALOG SHAPE (PAS / AIDA / Testimonial /
+  //     etc.) + emotion arc + CTA style. Random rotation per call so
+  //     repeat clicks on the same scene idea produce different scripts.
   //
-  // Falls back to verbatim if expansion errors — user still gets a
-  // generation, just from their raw idea text instead of the expanded
-  // version. Better than blocking the click.
+  // Mirrors Auto Content's Custom Idea pattern: idea owns visual,
+  // framework owns dialog. Difference is UGC doesn't pre-pick the
+  // framework — backend rotates randomly here so user doesn't have to
+  // think about it. Falls back to verbatim if expansion errors.
   let rawPrompt = rawInput;
   let originalIdea = "";
+  let pickedFrameworkName = "";
   if (inputMode === "idea") {
-    originalIdea = rawInput;
+    const ideaScene = String(body?.idea_scene || rawInput || "").trim().slice(0, 400);
+    const ideaUsp = String(body?.idea_usp || "").trim().slice(0, 300);
+    originalIdea = ideaUsp
+      ? `${ideaScene} · USP: ${ideaUsp}`
+      : ideaScene;
+
+    // Pick a random UGC-type framework from the Auto Content pool.
+    // Filter to type='ugc' (10 frameworks) — exclude product/lifestyle
+    // because UGC tab is always character-on-screen.
+    const ugcFrameworks = FRAMEWORKS.filter((f) => f.type === "ugc");
+    const fw = ugcFrameworks[Math.floor(Math.random() * ugcFrameworks.length)] || ugcFrameworks[0];
+    pickedFrameworkName = fw?.name || "";
+
     try {
       const hasAvatar = imageUrls.length > 0 && imageMode === "ingredient";
       const hasProduct = imageUrls.length > 1 && imageMode === "ingredient";
@@ -88,15 +107,38 @@ export async function POST(req: Request) {
           : hasProduct
             ? "The user has attached a product reference image."
             : "No reference images attached — describe the scene/character fully.";
-      const ideaSystem = `You expand a Malaysian TikTok creator's short idea into a full Veo 3.1 Fast video prompt.
+
+      const frameworkBlock = fw
+        ? `=== ROTATED UGC FRAMEWORK: ${fw.name} ===
+Focus: ${fw.focus}
+Shot direction: ${fw.shot1}
+Emotion arc: ${fw.emotion}
+Dialog shape: ${fw.strategy.dialogShape}
+Example tone: ${fw.strategy.example}
+CTA style: ${fw.ctaStyle}
+
+Use this framework's dialog shape to structure the 20-24 word Malay dialog. The Scene Idea owns the visual (what's happening); the Framework owns the dialog beats (hook → middle → close).`
+        : "";
+
+      const uspBlock = ideaUsp
+        ? `=== PRODUCT USP (weave into dialog where natural) ===
+${ideaUsp}
+
+Mention the USP organically in the middle beat of the dialog — don't list it like a feature dump.`
+        : "=== NO USP PROVIDED — keep dialog scene-focused, don't invent product claims ===";
+
+      const ideaSystem = `You expand a Malaysian TikTok creator's UGC scene idea + product USP into a full Veo 3.1 Fast video prompt, using a rotated dialog framework.
 
 OUTPUT: plain text (NO markdown, NO JSON). One scene description paragraph followed by a "Spoken dialog:" block.
 
+${frameworkBlock}
+
+${uspBlock}
+
 Hard rules:
-- Total spoken dialog = 20-24 Malay words for an 8-second shot. Count the words. Under 18 = TTS mouth freezes. Over 26 = rushed audio.
+- Total spoken dialog = EXACTLY 20-24 Malay words for an 8-second shot. Count the words. Under 18 = TTS mouth freezes. Over 26 = rushed audio.
 - Bahasa Melayu (Malaysian Malay) ONLY. Use: korang, aku, ni, tu, memang, gila, lah, je, dah, eh. NEVER Bahasa Indonesia (kalian, gue, lo, banget, sih, dong, kayak, gimana, mau, nih, tuh).
-- Natural pacing — don't force a hook/middle/CTA beat budget. Write what flows from the idea.
-- Scene description: shot type (e.g. "Selfie-style handheld" or "Medium shot"), what the person/character is doing, setting, lighting, mood. Keep it CONCISE — 80-150 words max.
+- Scene description: shot type (e.g. "Selfie-style handheld" or "Medium shot"), what the character is doing, setting, lighting, mood. Keep it CONCISE — 80-150 words max.
 - ${refContextHint}
 - ${hasAvatar ? 'Anchor the character to the reference: "Same person from reference image (same face, same outfit)."' : ""}
 - ${hasProduct ? 'Anchor the product to the reference: "Same product from reference image (same label, same packaging)."' : ""}
@@ -108,19 +150,26 @@ Selfie-style handheld shot, arm's length. Same person from reference image, hold
 
 Spoken dialog:
 Korang tau tak ni apa? Aku baru jumpa, memang lain rasa dia! Try sekali, lepas tu kau cakap dengan aku. Beli sekarang!`;
+
+      const userBlock = ideaUsp
+        ? `Scene Idea: ${ideaScene}\nUSP Produk: ${ideaUsp}`
+        : `Scene Idea: ${ideaScene}`;
+
       const ideaResult = await orChat({
         systemPrompt: ideaSystem,
-        userPrompt: `Idea: ${rawInput}`,
+        userPrompt: userBlock,
         temperature: 0.8,
-        maxTokens: 600,
+        maxTokens: 700,
       });
       if (ideaResult.ok && ideaResult.content) {
         rawPrompt = ideaResult.content.trim();
+      } else if (ideaScene) {
+        rawPrompt = ideaScene;
       }
     } catch (e) {
-      // Expansion error → fall through using raw input. The user's
-      // idea text still goes to Veo, just unexpanded. Better than
-      // blocking the generation.
+      // Expansion error → fall through using raw scene idea verbatim.
+      // Better than blocking the generation.
+      if (ideaScene) rawPrompt = ideaScene;
     }
   }
 
@@ -176,8 +225,15 @@ Korang tau tak ni apa? Aku baru jumpa, memang lain rasa dia! Try sekali, lepas t
         // Stamp idea-mode origin when the user used the Idea expander
         // so admin/usage Detail Log can surface it under the Idea
         // column (matches Auto Content's idea_style convention).
+        // Also stamp the rotated UGC framework name so admin can see
+        // which framework drove this dialog (same Framework column the
+        // Auto Content rows use — UGC Idea rows now populate it too).
         ...(inputMode === "idea" && originalIdea
-          ? { idea_style: originalIdea.slice(0, 200), expanded_from_idea: true }
+          ? {
+              idea_style: originalIdea.slice(0, 200),
+              expanded_from_idea: true,
+              ...(pickedFrameworkName ? { framework: pickedFrameworkName } : {}),
+            }
           : {}),
         ...(is16s
           ? {

@@ -622,15 +622,17 @@ export default function AdminUsage() {
                             );
                           })()}
                         </td>
-                        {/* Framework — only for Auto Content rows (tab='auto'
-                            or type='auto-content'). Empty dash for everything
-                            else, matching the dash convention used elsewhere. */}
+                        {/* Framework — shown for Auto Content rows AND UGC
+                            rows that used Idea mode (which now rotates a UGC
+                            framework from Auto Content's pool). Dash for
+                            anything else. */}
                         <td className="px-5 py-4">
                           {(() => {
-                            const isAuto =
-                              String(r.tab || "").toLowerCase() === "auto" ||
-                              String(r.type || "").toLowerCase() === "auto-content";
-                            if (!isAuto) {
+                            const tabLower = String(r.tab || "").toLowerCase();
+                            const typeLower = String(r.type || "").toLowerCase();
+                            const isAuto = tabLower === "auto" || typeLower === "auto-content";
+                            const isUgc = tabLower === "video" || typeLower === "video";
+                            if (!isAuto && !isUgc) {
                               return (
                                 <span className="text-[10px] font-mono text-[var(--color-text-muted)]">
                                   —
