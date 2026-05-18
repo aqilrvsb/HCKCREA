@@ -17,6 +17,7 @@ import {
   X,
   Wand2,
   GripVertical,
+  Trash2,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { uploadImage, dataUrlToFile } from "@/lib/upload-image";
@@ -696,6 +697,30 @@ export default function FairytaleTab({ projectId }: { projectId?: string } = {})
     }
   }
 
+  // Delete a single scene from the storyboard — shortens the final
+  // video by that scene's duration. Re-numbers remaining scenes so
+  // SCENE labels stay sequential (1, 2, 3, ...) and the audio cache
+  // / preview index stays consistent. Confirm first because there's
+  // no undo.
+  function deleteScene(idx: number) {
+    const sceneNumber = idx + 1;
+    if (
+      !confirm(
+        `Padam Scene ${sceneNumber}? Video akhir akan jadi pendek (tolak ~${secondsPerSlide}s).`
+      )
+    ) {
+      return;
+    }
+    setScenes((prev) =>
+      prev
+        .filter((s) => s.idx !== idx)
+        .map((s, i) => ({ ...s, idx: i })) // re-sequence remaining scenes
+    );
+    // Audio cache for the dropped scene becomes stale — clear so the
+    // preview / merge step re-derives from the new scene list.
+    setAudioCacheStatus("idle");
+  }
+
   // ─── TTS preview cache ────────────────────────────────────
   // When all scene narrations are present (after script gen), pre-generate
   // MP3 audio for each scene via MiniMax → upload to B2. The live preview
@@ -1004,6 +1029,7 @@ export default function FairytaleTab({ projectId }: { projectId?: string } = {})
           onSceneUpload={attachUploadedFileForScene}
           onSceneHistoryPick={attachHistoryPickForScene}
           onSceneRegenerate={regenerateScene}
+          onSceneDelete={deleteScene}
           scriptLoading={scriptLoading} scriptError={scriptError}
           configTab={configTab} setConfigTab={setConfigTab}
           language={language}
@@ -1684,7 +1710,7 @@ function Step2({
 function Step3(props: any) {
   const {
     scenes, setScenes,
-    onSceneUpload, onSceneHistoryPick, onSceneRegenerate,
+    onSceneUpload, onSceneHistoryPick, onSceneRegenerate, onSceneDelete,
     scriptLoading, scriptError,
     configTab, setConfigTab,
     language,
@@ -1943,6 +1969,7 @@ function Step3(props: any) {
                   isActive={previewIdx === idx}
                   onUpload={(file) => onSceneUpload?.(s.idx, file)}
                   onRegenerate={(newPrompt) => onSceneRegenerate?.(s.idx, newPrompt)}
+                  onDelete={() => onSceneDelete?.(s.idx)}
                   onPickHistory={() => setHistoryPickerIdx(s.idx)}
                   onSetAnimation={(v) => setScenes((prev: Scene[]) =>
                     prev.map((x) => x.idx === s.idx ? { ...x, animation: v } : x)
@@ -2063,7 +2090,7 @@ function Step3(props: any) {
 
 function SceneRow({
   scene, onChange, onPreviewMe, isActive,
-  onUpload, onRegenerate, onPickHistory,
+  onUpload, onRegenerate, onDelete, onPickHistory,
   onSetAnimation, onSetTransition,
   globalAnimation, globalTransition,
 }: {
@@ -2073,6 +2100,7 @@ function SceneRow({
   isActive: boolean;
   onUpload: (file: File) => void;
   onRegenerate: (newPrompt: string) => void;
+  onDelete: () => void;
   onPickHistory: () => void;
   onSetAnimation: (v: string | undefined) => void;
   onSetTransition: (v: string | undefined) => void;
@@ -2081,6 +2109,11 @@ function SceneRow({
 }) {
   const wc = wordCount(scene.narration);
   const fileRef = useRef<HTMLInputElement | null>(null);
+  // Regenerate-prompt modal — opens with the current imagePrompt pre-filled
+  // in a full textarea instead of the tiny single-line window.prompt()
+  // dialog the browser ships. The user can see, edit, and re-fire the
+  // full prompt without losing the rest behind a truncated input.
+  const [editingPrompt, setEditingPrompt] = useState<string | null>(null);
   // What the thumbnail actually shows. User upload preview wins over the
   // AI-generated imageUrl so the swap feels instant.
   const thumb = scene.userImagePreview || scene.userImageUrl || scene.imageUrl;
@@ -2172,20 +2205,31 @@ function SceneRow({
           </button>
           <button
             type="button"
-            title="Re-generate this scene's image (you can edit the prompt)"
+            title="Re-generate this scene's image (you can edit the full prompt)"
             onClick={(e) => {
               e.stopPropagation();
-              const next = window.prompt(
-                "Edit prompt for Scene " + (scene.idx + 1) + ":",
-                scene.imagePrompt || ""
-              );
-              if (next && next.trim()) onRegenerate(next.trim());
+              setEditingPrompt(scene.imagePrompt || "");
             }}
             className="px-2 py-1 rounded text-[10px] font-bold inline-flex items-center gap-1"
             style={{ background: "white", border: "1px solid #e5e7eb", color: "#1a1a1a" }}
           >
             <RotateCw className="w-2.5 h-2.5" /> Regenerate
           </button>
+          {/* Edit-prompt modal — replaces the browser's tiny single-line
+              window.prompt() with a real textarea so the user can see and
+              edit the FULL imagePrompt (often 800+ chars). Esc / Cancel
+              dismisses; Cmd/Ctrl+Enter fires regenerate. */}
+          {editingPrompt !== null && (
+            <RegeneratePromptModal
+              sceneNumber={scene.idx + 1}
+              initialPrompt={editingPrompt}
+              onCancel={() => setEditingPrompt(null)}
+              onSubmit={(finalPrompt) => {
+                setEditingPrompt(null);
+                if (finalPrompt.trim()) onRegenerate(finalPrompt.trim());
+              }}
+            />
+          )}
           <button
             type="button"
             title="Pick an image from your history"
@@ -2194,6 +2238,22 @@ function SceneRow({
             style={{ background: "white", border: "1px solid #e5e7eb", color: "#1a1a1a" }}
           >
             <ImageIcon className="w-2.5 h-2.5" /> History
+          </button>
+          {/* Delete — removes this scene from the storyboard. Shortens
+              the final video by one slide's worth of seconds.
+              Confirmation lives inside onDelete (parent handler). */}
+          <button
+            type="button"
+            title="Delete this scene (shortens the final video)"
+            onClick={(e) => { e.stopPropagation(); onDelete(); }}
+            className="px-2 py-1 rounded text-[10px] font-bold inline-flex items-center gap-1 ml-auto"
+            style={{
+              background: "white",
+              border: "1px solid #fca5a5",
+              color: "#dc2626",
+            }}
+          >
+            <Trash2 className="w-2.5 h-2.5" /> Delete
           </button>
         </div>
 
@@ -2386,6 +2446,148 @@ const SCENE_DURATION_MS = 10_000;
 
 // Animated loading card shown while the AI is generating the 10-scene
 // script. Fakes a smooth progress bar that reaches ~95% over 14s and
+// Full-textarea modal for editing the regenerate prompt — replaces the
+// browser's single-line window.prompt() which truncated long imagePrompts
+// (often 800+ chars) into a tiny scrolling input. Esc / Cancel dismisses.
+// Cmd/Ctrl+Enter submits. The submitted text fires onSubmit; same
+// pipeline as the initial generate, just for one scene.
+function RegeneratePromptModal({
+  sceneNumber,
+  initialPrompt,
+  onCancel,
+  onSubmit,
+}: {
+  sceneNumber: number;
+  initialPrompt: string;
+  onCancel: () => void;
+  onSubmit: (finalPrompt: string) => void;
+}) {
+  const [draft, setDraft] = useState(initialPrompt);
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+
+  // Focus textarea on open. Lock body scroll so background doesn't
+  // shift while the modal is open.
+  useEffect(() => {
+    textareaRef.current?.focus();
+    textareaRef.current?.select();
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = prevOverflow;
+    };
+  }, []);
+
+  // Esc to cancel; Cmd/Ctrl+Enter to submit. Handled on the modal
+  // root so the textarea doesn't need to forward.
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        onCancel();
+      } else if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+        e.preventDefault();
+        onSubmit(draft);
+      }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [draft, onCancel, onSubmit]);
+
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label={`Edit prompt for Scene ${sceneNumber}`}
+      onClick={onCancel}
+      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      style={{ background: "rgba(0,0,0,0.55)", backdropFilter: "blur(4px)" }}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        className="w-full max-w-2xl rounded-xl flex flex-col"
+        style={{
+          background: "white",
+          border: "1px solid #e5e7eb",
+          maxHeight: "85vh",
+          boxShadow: "0 20px 60px rgba(0,0,0,0.35)",
+        }}
+      >
+        <div
+          className="flex items-center justify-between px-4 py-3 border-b"
+          style={{ borderColor: "#e5e7eb" }}
+        >
+          <div className="flex items-center gap-2">
+            <RotateCw className="w-4 h-4" style={{ color: PURPLE }} />
+            <div>
+              <div className="text-sm font-bold text-gray-900">
+                Edit prompt — Scene {sceneNumber}
+              </div>
+              <div className="text-[11px] text-gray-500">
+                Same image-generation pipeline as initial generate — fires one image when you click Regenerate.
+              </div>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={onCancel}
+            aria-label="Close"
+            className="w-7 h-7 rounded inline-flex items-center justify-center hover:bg-gray-100"
+          >
+            <X className="w-4 h-4 text-gray-600" />
+          </button>
+        </div>
+
+        <div className="px-4 py-3 flex-1 overflow-hidden flex flex-col gap-2">
+          <textarea
+            ref={textareaRef}
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            placeholder="Edit the image prompt for this scene…"
+            className="w-full flex-1 min-h-[260px] px-3 py-2 rounded-md text-[12px] leading-relaxed outline-none resize-y font-mono"
+            style={{
+              background: "#fafafa",
+              border: "1px solid #e5e7eb",
+              color: "#1a1a1a",
+            }}
+          />
+          <div className="flex items-center justify-between text-[10px] text-gray-500">
+            <span>{draft.length} chars · {draft.trim().split(/\s+/).filter(Boolean).length} words</span>
+            <span className="font-mono">⌘/Ctrl+Enter to regenerate · Esc to cancel</span>
+          </div>
+        </div>
+
+        <div
+          className="flex items-center justify-end gap-2 px-4 py-3 border-t"
+          style={{ borderColor: "#e5e7eb", background: "#fafafa" }}
+        >
+          <button
+            type="button"
+            onClick={onCancel}
+            className="px-3 py-1.5 rounded-md text-[12px] font-bold"
+            style={{
+              background: "white",
+              border: "1px solid #e5e7eb",
+              color: "#374151",
+            }}
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={() => onSubmit(draft)}
+            disabled={!draft.trim()}
+            className="px-3 py-1.5 rounded-md text-[12px] font-bold inline-flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
+            style={{ background: PURPLE, color: "white" }}
+          >
+            <RotateCw className="w-3 h-3" />
+            Regenerate
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // holds there until the actual API call completes (then component
 // unmounts because scriptLoading flips to false). Cycles the
 // "Writing scene N…" label in step with the progress.
