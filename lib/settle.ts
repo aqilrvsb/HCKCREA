@@ -17,6 +17,13 @@ import { generateUgcPostMeta } from "@/lib/ugc-post-meta";
 import { uploadFromUrlToContent, buildKey, type StorageType } from "@/lib/b2";
 import { generateImageWithCascade } from "@/lib/image-cascade";
 import { generateVideoWithCascade } from "@/lib/video-cascade";
+import {
+  getVideoFallbackSlots,
+  getGrokFallbackSlots,
+  getCinemaFallbackSlots,
+  getImageFallbackSlots,
+  type CascadeAsset,
+} from "@/lib/cascade-rotation";
 
 // Map a model string (from history.metadata.model) to a per-model rate
 // hint. Used at settle time so the live admin rate (rate_<model>) is
@@ -230,13 +237,36 @@ const AUDIO_GEN_FAIL_PATTERNS = [
   /audio synthesis failed/i,
 ];
 
-// Aligned with the slot-rotation cascade's 4-attempt walk (start →
-// next → next → start again). 3 auto-retries + the original = 4 total
-// settle attempts. Each retry re-fires through the cascade, so a row
-// that fails on slot 1 gets up to 12 total provider attempts (3 retries
-// × 4 cascade walks) before giving up. After exhaustion the user can
-// still manually retry from the UI.
-const MAX_AUTO_RETRIES = 3;
+// Floor / ceiling for the dynamic auto-retry cap. The cap itself comes
+// from the count of admin-configured fallback slots in the row's
+// cascade pool (video/grok/cinema/image). Per user direction: when a
+// task errors, immediately fire the next fallback retry; if that errors,
+// fire the next one; until all fallback slots have been visited. This
+// replaces the old hardcoded "3" with admin-driven configuration.
+const MIN_AUTO_RETRIES = 1;
+const MAX_AUTO_RETRIES_CEILING = 10;
+
+// Compute the dynamic retry cap from the admin-configured fallback slots
+// for the row's cascade pool. Cached per cascade asset so we don't hit
+// Supabase 4× per row in a hot loop.
+const _capCache = new Map<CascadeAsset | "image", number>();
+async function getDynamicRetryCap(
+  asset: CascadeAsset | "image"
+): Promise<number> {
+  if (_capCache.has(asset)) return _capCache.get(asset)!;
+  let slots;
+  if (asset === "image") slots = await getImageFallbackSlots();
+  else if (asset === "grok") slots = await getGrokFallbackSlots();
+  else if (asset === "cinema") slots = await getCinemaFallbackSlots();
+  else slots = await getVideoFallbackSlots();
+  const count = slots.filter((s) => s !== "none").length;
+  const cap = Math.max(
+    MIN_AUTO_RETRIES,
+    Math.min(MAX_AUTO_RETRIES_CEILING, count)
+  );
+  _capCache.set(asset, cap);
+  return cap;
+}
 
 function isTransientError(err: string | null | undefined): boolean {
   if (!err) return false;
@@ -301,10 +331,45 @@ async function tryAutoRetry(
 ): Promise<boolean> {
   const meta = (hist.metadata || {}) as Record<string, any>;
   const retryCount = Number(meta.retry_count || 0);
-  if (retryCount >= MAX_AUTO_RETRIES) return false;
   if (!hist.prompt) return false;
 
+  // Determine the row's cascade asset so we can read the right fallback
+  // pool to compute the per-row retry cap. Same detection rules used by
+  // the cron worker (auto-resubmit) — kept in sync so both paths use
+  // the same cap for any given row.
+  const rowModel = String(meta.model || "");
+  const isImageRowForCap =
+    hist.tab === "image" ||
+    hist.type === "image" ||
+    hist.type === "fairytale-scene";
+  let cascadeAsset: CascadeAsset | "image";
+  if (isImageRowForCap) cascadeAsset = "image";
+  else if (hist.tab === "seedance") cascadeAsset = "cinema";
+  else if (
+    hist.tab === "cinema" &&
+    (meta.modelChoice === "grok" || /grok/i.test(rowModel))
+  ) {
+    cascadeAsset = "grok";
+  } else {
+    cascadeAsset = "video";
+  }
+  const dynamicCap = await getDynamicRetryCap(cascadeAsset);
+  if (retryCount >= dynamicCap) return false;
+
   const refImage = hist.reference_url || "";
+  // BUG FIX: previously this branch only passed `refImage` (the first
+  // attachment) which dropped the 2nd/3rd product/avatar refs for
+  // multi-attachment auto-content + UGC rows. Now reads the full
+  // `meta.image_urls` array the wizard stamped on submit, falling back
+  // to refImage only for legacy rows that predate the array stamp.
+  // Cron worker + manual retry route already do this correctly; this
+  // sync brings event-driven retry in line.
+  const allImageUrls: string[] =
+    Array.isArray(meta.image_urls) && meta.image_urls.length > 0
+      ? meta.image_urls.filter((u: any) => typeof u === "string" && u.trim())
+      : refImage
+        ? [refImage]
+        : [];
   const aspectRatio = String(meta.aspectRatio || meta.aspect_ratio || "9:16");
   const durationMode: "8" | "16" = hist.duration === 16 ? "16" : "8";
   const imageMode: "frame" | "ingredient" | "text" =
@@ -369,7 +434,10 @@ async function tryAutoRetry(
       primaryModelP2: model,
       prompt: retryPrompt,
       aspectRatio,
-      imageUrls: refImage ? [refImage] : undefined,
+      // Pass ALL attachments, not just refImage. Multi-ref image gen
+      // (banana with 2-3 product photos) needs every URL or the
+      // retry drops the extras.
+      imageUrls: allImageUrls.length > 0 ? allImageUrls : undefined,
       retry: true,
     });
     tierLog = r.tierLog;
@@ -403,7 +471,8 @@ async function tryAutoRetry(
     const created = await p1CreateTask({
       model,
       prompt: retryPrompt,
-      imageUrls: refImage ? [refImage] : [],
+      // Pass ALL attachments (multi-ref Seedance needs every URL).
+      imageUrls: allImageUrls,
       durationMode,
       aspectRatio,
       imageMode,
@@ -436,21 +505,29 @@ async function tryAutoRetry(
         `[settle/auto-retry] row ${hist.id}: slot ${skipSlot} previously accepted at create but failed during polling — pushing to end of walk`
       );
     }
+    // Pass the row's cascade asset (video/grok/cinema) so the fallback
+    // round-robin uses the same pool family. cascadeAsset is detected at
+    // the top of this function; here it's narrowed to non-image values.
+    const videoAsset: "video" | "grok" | "cinema" =
+      cascadeAsset === "image" ? "video" : cascadeAsset;
     const r = await generateVideoWithCascade({
       primaryModel: model,
       userId: hist.user_id,
       prompt: retryPrompt,
-      imageUrls: refImage ? [refImage] : [],
+      // Pass ALL attachments (multi-ref Veo r2v needs every URL — was
+      // silently truncated to 1 image on event-driven retries before).
+      imageUrls: allImageUrls,
       durationMode,
       aspectRatio,
       imageMode,
       skipSlot,
       retry: true,
+      asset: videoAsset,
     });
     tierLog = r.tierLog;
     if (!r.ok) {
-      // Cascade exhausted all 3 tiers. Stamp tier_log on the row so the
-      // user sees the full attempt history.
+      // Cascade exhausted all fallback tiers. Stamp tier_log on the row
+      // so the user sees the full attempt history.
       await admin
         .from("history")
         .update({
@@ -460,6 +537,12 @@ async function tryAutoRetry(
             last_retry_error: r.error.slice(0, 300),
             last_retry_at: new Date().toISOString(),
             retry_count: retryCount + 1,
+            // Sync auto_resubmit_count with retry_count so the cron sees
+            // the same exhaustion state event-driven retries reached.
+            auto_resubmit_count: Math.max(
+              Number(meta.auto_resubmit_count || 0),
+              retryCount + 1
+            ),
           },
         })
         .eq("id", hist.id);
@@ -698,32 +781,39 @@ export async function settleHistoryRow(hist: HistoryRow): Promise<SettleResult> 
   if (r.status === "failed") {
     const errMsg = r.error || "Generation failed";
 
-    // STORYTELLING AUTO-RETRY: scene image failures break the merge,
-    // so for fairytale-scene rows we auto-retry on ANY failure (not
-    // just transient ones). Walks the image cascade's fallback pool —
-    // typically a different provider than the one that just failed —
-    // up to MAX_AUTO_RETRIES (3) attempts. Most production failures
-    // here are content_moderation rejections from one specific
-    // provider (e.g. Grsai 451 on Malay+hijab combos); the fallback
-    // slot is usually a different provider that accepts the same
-    // prompt. After exhaustion the row stays failed and the user
-    // clicks Regenerate manually.
+    // EVENT-DRIVEN AUTO-RETRY: when a task fails, immediately fire a
+    // fresh retry through the FALLBACK cascade pool — no waiting for the
+    // 8-min cron tick. Walks one fallback slot per retry; auto_resubmit_
+    // count caps the loop at the number of fallback slots admin configured
+    // in the cascade UI (per-asset: video/grok/cinema). After all
+    // fallbacks exhausted, the row stays failed and the cron becomes a
+    // pure safety net for cases where settle.ts itself never ran.
     //
-    // Other row types (auto-content, viral, video) keep the existing
-    // "stay failed, user clicks Resubmit" behavior — only Storytelling
-    // is aggressive about auto-retry because of the merge dependency.
-    if (hist.type === "fairytale-scene") {
+    // Per user direction: "if error, it auto go to fallback 1; if error
+    // again, fallback two; until finish cascade". Previously only
+    // fairytale-scene rows did this; now ALL video tabs (UGC / Auto
+    // Content / Cinema / Talking Object / Extend / AI agent /
+    // storytelling-scene) get the immediate retry path.
+    const isAutoRetryable =
+      hist.type === "fairytale-scene" ||
+      hist.type === "video" ||
+      hist.type === "auto-content" ||
+      hist.tab === "video" ||
+      hist.tab === "auto" ||
+      hist.tab === "cinema" ||
+      hist.tab === "seedance";
+    if (isAutoRetryable) {
       const retried = await tryAutoRetry(admin, hist, errMsg);
       if (retried) {
         console.log(
-          `[settle/storytelling] scene ${hist.id} auto-retried on fallback slot after failure: ${errMsg.slice(0, 120)}`
+          `[settle] row ${hist.id} (${hist.tab}/${hist.type}) auto-retried on fallback slot after failure: ${errMsg.slice(0, 120)}`
         );
         // Row is back in pending — the next poll cycle will settle it.
         // Don't mark failed yet.
         return { state: "pending", p2Status: "pending" };
       }
       console.warn(
-        `[settle/storytelling] scene ${hist.id} auto-retry exhausted, leaving failed: ${errMsg.slice(0, 120)}`
+        `[settle] row ${hist.id} (${hist.tab}/${hist.type}) auto-retry exhausted, leaving failed: ${errMsg.slice(0, 120)}`
       );
     }
 

@@ -320,6 +320,13 @@ export async function POST(req: Request) {
   // Flip the row back to pending with the new task_id so the existing
   // settle / poll path (webhook + cron) picks up the result on the SAME
   // card. Wipe error_message so the failure UI clears immediately.
+  //
+  // CRITICAL: reset auto_resubmit_count to 0 so the cron + event-driven
+  // retry treat this as a FRESH attempt with a full fallback budget.
+  // Per user direction: "when admin click resubmit, it starts from
+  // first fallback cascade again". Without the reset, an admin click
+  // on an already-exhausted row would die after 1 retry because the
+  // count was already at the cap.
   await admin
     .from("history")
     .update({
@@ -336,6 +343,9 @@ export async function POST(req: Request) {
         tier_log: tierLog,
         retried_at: new Date().toISOString(),
         retry_count: Number(meta.retry_count || 0) + 1,
+        // Reset auto-resubmit counter so the row gets a fresh full
+        // cascade walk on subsequent failures.
+        auto_resubmit_count: 0,
         last_retry_error: null,
       },
     })
