@@ -93,10 +93,22 @@ export async function POST(req: Request) {
       const HARDCODED_MODEL_IDS: Record<string, string> = {
         "nano-banana-v2": "google/nano-banana-v2",
         "nano-banana-pro": "google/nano-banana-pro",
+        "nano-banana-2": "google/nano-banana-2",
+        "nano-banana-fast": "google/nano-banana",
         "z-image": "z-image",
         "gpt-image-2": "openai/gpt-image-2-stable",
       };
-      const modelKey = ftModelSetting?.model || cfg.imageDefault || "nano-banana-pro";
+      // STORYTELLING FOCUS: lock to a nano-banana variant. Admin can
+      // pick which variant via fairytale_image_model (defaults to
+      // nano-banana-pro). Anything else (z-image, gpt-image-2) gets
+      // coerced to nano-banana-pro so every cascade slot can serve
+      // the same model family — important now that we walk all
+      // main → fallback slots on failure (a slot that doesn't
+      // support the requested model wastes a tier).
+      const adminModel = ftModelSetting?.model || cfg.imageDefault || "nano-banana-pro";
+      const modelKey = adminModel.toLowerCase().includes("nano-banana")
+        ? adminModel
+        : "nano-banana-pro";
       const rate = typeof ftRateSetting?.rate === "number" ? ftRateSetting.rate : defaultRate;
       // storytelling_provider toggle — default p2 (Crun) for backward
       // compat, p3 (Mountsea) when admin opts in. Mountsea-specific
@@ -109,9 +121,16 @@ export async function POST(req: Request) {
             ? "p3"
             : "p4";
 
-      // 3-tier cascade for scene image generation. See lib/image-cascade.ts
-      // for the full flow (primary → p1 nano-banana-2 → other non-p1 with
-      // primary's model). Handles 451 content blocks + transient outages.
+      // FULL CASCADE for storytelling scene-image. Walks every main
+      // slot in round-robin order, then every fallback slot, until
+      // one CREATE succeeds. Unlike auto-content (single-shot —
+      // failures handled by user clicking Resubmit) the Storytelling
+      // merge breaks if ANY scene image is missing, so it's worth
+      // burning a few slots to land each image.
+      //
+      // Locked to nano-banana family above so every tier serves the
+      // same model — no "this slot doesn't support gpt-image-2" dead
+      // tiers wasting time.
       const primaryModelForP2 =
         (cfg.imageModels as any)?.[modelKey] ||
         HARDCODED_MODEL_IDS[modelKey] ||
@@ -122,6 +141,7 @@ export async function POST(req: Request) {
         primaryModelP2: primaryModelForP2,
         prompt,
         aspectRatio,
+        fullCascade: true,
       });
       const createdOk = cascadeResult.ok;
       const createdTaskId = cascadeResult.ok ? cascadeResult.taskId : null;

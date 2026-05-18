@@ -50,6 +50,12 @@ export type CascadeInput = {
   /** When true, pick from FALLBACK slot pool (round-robin) instead
    *  of MAIN. Set by /api/history/retry. Default false. */
   retry?: boolean;
+  /** When true, walk ALL main slots in round-robin order, then ALL
+   *  fallback slots, until one create succeeds. Used by Storytelling
+   *  scene-image so a single slot outage doesn't break the merge.
+   *  Default false (single-shot — preserves cost on auto-content and
+   *  other callers that already handle failures with explicit retry). */
+  fullCascade?: boolean;
 };
 
 export type CascadeTierLog = {
@@ -183,27 +189,66 @@ export async function generateImageWithCascade(
   const { primaryModel, prompt, aspectRatio, imageUrls, skipSlot } = input;
   const bare = primaryModel.replace(/^google\//, "").replace(/^openai\//, "");
 
-  // SINGLE-SHOT. Two modes:
-  //   retry=false (initial fire): pick ONE main slot via round-robin
-  //   retry=true  (resubmit / auto-cron): pick ONE fallback slot via
-  //                                       independent round-robin
-  const slots = input.retry
-    ? await getImageFallbackSlots()
-    : await getImageMainSlots();
-  let startIdx = input.retry
-    ? await nextFallbackStartIndex("image", slots)
-    : await nextMainStartIndex("image", slots);
-
-  if (skipSlot) {
-    const validIdxs = slots
-      .map((s, i) => (s === "none" ? -1 : i))
-      .filter((i) => i >= 0);
-    if (validIdxs.length > 1 && slots[startIdx] === skipSlot) {
-      const pos = validIdxs.indexOf(startIdx);
-      startIdx = validIdxs[(pos + 1) % validIdxs.length];
+  // Three modes:
+  //   fullCascade=true → walk ALL main slots round-robin, then ALL
+  //                      fallback slots, until one CREATE succeeds.
+  //                      Used by Storytelling (scene image failures
+  //                      break the merge — worth burning a few slots
+  //                      to land one image).
+  //   retry=true       → SINGLE-SHOT one fallback slot via independent
+  //                      round-robin. Used by /api/history/retry.
+  //   default          → SINGLE-SHOT one main slot via round-robin.
+  //                      Used by every other image caller (auto-content,
+  //                      viral, etc.) — failures handled by explicit
+  //                      user retry or auto-resubmit cron.
+  let order: SlotProvider[];
+  if (input.fullCascade) {
+    const [mainSlots, fallbackSlots] = await Promise.all([
+      getImageMainSlots(),
+      getImageFallbackSlots(),
+    ]);
+    const mainStart = await nextMainStartIndex("image", mainSlots);
+    // Rotate the main pool so the round-robin starting point is honored
+    // (otherwise we'd always try slot 0 first and never amortize load).
+    const mainOrdered: SlotProvider[] = [];
+    for (let i = 0; i < mainSlots.length; i++) {
+      mainOrdered.push(mainSlots[(mainStart + i) % mainSlots.length]);
     }
+    // Fallback pool gets its own round-robin so concurrent failures
+    // don't all hammer the same fallback slot.
+    const fbStart = await nextFallbackStartIndex("image", fallbackSlots);
+    const fbOrdered: SlotProvider[] = [];
+    for (let i = 0; i < fallbackSlots.length; i++) {
+      fbOrdered.push(fallbackSlots[(fbStart + i) % fallbackSlots.length]);
+    }
+    // Drop "none" + skipSlot + dedupe so we don't waste tries.
+    const seen = new Set<SlotProvider>();
+    order = [...mainOrdered, ...fbOrdered].filter((s) => {
+      if (s === "none") return false;
+      if (skipSlot && s === skipSlot) return false;
+      if (seen.has(s)) return false;
+      seen.add(s);
+      return true;
+    });
+  } else {
+    // Original single-shot path. Picks ONE slot via round-robin.
+    const slots = input.retry
+      ? await getImageFallbackSlots()
+      : await getImageMainSlots();
+    let startIdx = input.retry
+      ? await nextFallbackStartIndex("image", slots)
+      : await nextMainStartIndex("image", slots);
+    if (skipSlot) {
+      const validIdxs = slots
+        .map((s, i) => (s === "none" ? -1 : i))
+        .filter((i) => i >= 0);
+      if (validIdxs.length > 1 && slots[startIdx] === skipSlot) {
+        const pos = validIdxs.indexOf(startIdx);
+        startIdx = validIdxs[(pos + 1) % validIdxs.length];
+      }
+    }
+    order = slots[startIdx] === "none" ? [] : [slots[startIdx]];
   }
-  const order: SlotProvider[] = slots[startIdx] === "none" ? [] : [slots[startIdx]];
 
   for (let i = 0; i < order.length; i++) {
     const slot = order[i];
@@ -216,7 +261,9 @@ export async function generateImageWithCascade(
     if (t.ok && t.taskId) {
       const fallbackUsed = i > 0;
       if (fallbackUsed) {
-        console.warn(`[image-cascade] slot ${slot} saved the row (start=${slots[startIdx]}, retry=${!!input.retry})`);
+        console.warn(
+          `[image-cascade] slot ${slot} saved the row at tier ${i + 1}/${order.length} (full=${!!input.fullCascade}, retry=${!!input.retry})`
+        );
       }
       return {
         ok: true,
