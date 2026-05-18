@@ -654,11 +654,29 @@ export default function FairytaleTab({ projectId }: { projectId?: string } = {})
         setAudioCache(s.audioCache);
         setAudioCacheStatus("ready");
       }
-      // Jump to saved step (defaults to Step 2 — Review & Generate —
-      // since most drafts are partway through scene editing)
-      const stepNum = Number(draft.step);
-      if (stepNum === 1 || stepNum === 2) setStep(stepNum as 1 | 2);
-      else setStep(2);
+      // Resume routing — load the user back into the "preview" view
+      // they were last working in:
+      //   • Draft has scenes saved (user clicked Next at least once) →
+      //     jump straight to Step 2 (Review & Generate, with the live
+      //     player + scene list + motion/subtitle/audio config). This
+      //     is what the user calls "preview" — it has all the editing
+      //     surface in image 1 of their screenshots.
+      //   • Draft has 0 scenes (saved early, before script gen completed
+      //     — image 2 of their screenshots) → jump to Step 1 and auto-
+      //     open the Preview modal so the AI re-generates the script
+      //     from the saved prompt. User doesn't have to retype.
+      const sceneCount = Array.isArray(s.scenes) ? s.scenes.length : 0;
+      if (sceneCount > 0) {
+        setStep(2);
+      } else {
+        setStep(1);
+        // Defer slightly so the Step 1 render completes before opening
+        // the preview modal — opening before the wizard mounts the
+        // textarea can flash an empty form.
+        setTimeout(() => {
+          setPreviewModalOpen(true);
+        }, 50);
+      }
     }
     window.addEventListener("storytelling:resume-draft", onResume as EventListener);
     return () => window.removeEventListener("storytelling:resume-draft", onResume as EventListener);
@@ -985,6 +1003,64 @@ export default function FairytaleTab({ projectId }: { projectId?: string } = {})
     };
   }, [step, scenes.map((s) => `${s.idx}:${s.imageStatus}`).join("|")]);
 
+  // ─── Auto-save while editing on Step 2 ───────────────────
+  // Saves draft 2 seconds after any change on Step 2 (debounced).
+  // Captures motion / subtitle / audio / scene-narration / animation
+  // / transition tweaks automatically — no 15s polling, no idle
+  // writes, just one save per editing burst once the user pauses.
+  //
+  // Guarded by currentDraftId so we don't auto-save before the user
+  // has explicitly committed to a draft via the Next-in-Preview
+  // click (that's the only path that should CREATE a new draft).
+  // Subsequent saves UPDATE that same draft.
+  //
+  // Skips Step 1 entirely (user is still typing the prompt — no
+  // draft exists yet).
+  useEffect(() => {
+    if (step !== 2) return;
+    if (!currentDraftId) return;
+    if (scenes.length === 0) return;
+    const t = setTimeout(() => {
+      void saveDraft();
+    }, 2000);
+    return () => clearTimeout(t);
+    // Watch every field that should trigger a save. Joined string
+    // comparators for arrays/objects so dep equality works.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    step,
+    currentDraftId,
+    // Scenes — content + per-scene overrides
+    scenes
+      .map(
+        (s) =>
+          `${s.idx}|${s.narration}|${s.imageUrl || ""}|${s.userImageUrl || ""}|${s.imageStatus}|${s.animation || ""}|${s.transition || ""}`
+      )
+      .join("§"),
+    // Global motion
+    transition,
+    sceneAnimation,
+    // Voice + CTA
+    enableVoice,
+    voiceId,
+    voiceSpeed,
+    ctaMode,
+    ctaText,
+    // Music
+    musicTrackId,
+    voiceVolume,
+    musicVolume,
+    // Text overlay
+    enableText,
+    textAnimation,
+    textPlacement,
+    fontType,
+    textSize,
+    textColor,
+    uppercase,
+    textBackground,
+  ]);
+
   // ─── Step nav ──────────────────────────────────────────────
   // 2-step wizard: Step 1 = combined prompt + visual + pacing form,
   // Step 2 = Review & Generate (was Step 3). Visual style picker is
@@ -1175,13 +1251,12 @@ export default function FairytaleTab({ projectId }: { projectId?: string } = {})
           styleDropdownOpen={styleDropdownOpen} setStyleDropdownOpen={setStyleDropdownOpen}
           onPreview={() => {
             setPreviewModalOpen(true);
-            // Lazy-trigger script gen on first Preview open
+            // Lazy-trigger script gen on first Preview open.
+            // Draft save is NOT done here — it fires when the user
+            // clicks Next inside the Preview modal (commits to Step 2)
+            // so we don't create drafts for users who open the
+            // preview just to glance at the AI output.
             if (scenes.length === 0 && !scriptLoading) void generateScript();
-            // Save draft snapshot — fire-and-forget so Preview opens
-            // instantly. Server-side upsert keyed on currentDraftId so
-            // subsequent clicks update the same row instead of
-            // littering the DB with copies.
-            void saveDraft();
           }}
         />
       )}
@@ -1197,6 +1272,12 @@ export default function FairytaleTab({ projectId }: { projectId?: string } = {})
           onContinue={() => {
             setPreviewModalOpen(false);
             goNext();
+            // Save draft NOW — user committed to Step 2. At this point
+            // scenes are populated (script gen completed inside the
+            // preview modal) so the draft captures the full scene list,
+            // not the empty 0-scene snapshot the old save-on-Preview
+            // behavior produced.
+            void saveDraft();
           }}
           secondsPerSlide={secondsPerSlide}
         />
