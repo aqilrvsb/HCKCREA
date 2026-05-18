@@ -549,10 +549,12 @@ export default function AdminUsage() {
                             // user/admin deleted the history row).
                             const rawTab = String(r.tab || "").toLowerCase();
                             const rawType = String(r.type || "").toLowerCase();
+                            const featureType = String(r.metadata?.featureType || "").toLowerCase();
                             const TAB_MAP: Record<string, { label: string; bg: string; fg: string; bd: string }> = {
                               video:     { label: "UGC",        bg: "rgba(34,197,94,0.12)",  fg: "#16a34a", bd: "rgba(34,197,94,0.3)" },
                               auto:      { label: "AUTO",       bg: "rgba(56,189,248,0.12)", fg: "#0ea5e9", bd: "rgba(56,189,248,0.3)" },
                               cinema:    { label: "CINEMA",     bg: "rgba(168,85,247,0.12)", fg: "#a855f7", bd: "rgba(168,85,247,0.3)" },
+                              viral:     { label: "VIRAL",      bg: "rgba(239,68,68,0.12)",  fg: "#ef4444", bd: "rgba(239,68,68,0.3)" },
                               seedance:  { label: "SEEDANCE",   bg: "rgba(244,114,182,0.12)", fg: "#ec4899", bd: "rgba(244,114,182,0.3)" },
                               clone:     { label: "CLONE",      bg: "rgba(251,146,60,0.12)", fg: "#f97316", bd: "rgba(251,146,60,0.3)" },
                               image:     { label: "IMAGE",      bg: "rgba(250,204,21,0.12)", fg: "#eab308", bd: "rgba(250,204,21,0.3)" },
@@ -563,16 +565,24 @@ export default function AdminUsage() {
                               "fairytale-scene":   "fairytale",
                               "fairytale-hero":    "fairytale",
                             };
-                            // type='image' overrides whatever tab the row is
-                            // stamped with (Viral Talking Object stamps
-                            // tab='cinema' on its source-image row, which is
-                            // misleading because Cinema tab has no standalone
-                            // image-gen feature). Source-of-truth ordering:
-                            //   1. type='image' → IMAGE always
-                            //   2. raw tab if mapped
-                            //   3. type-based fallback (auto-content → auto, etc.)
-                            const tabKey =
-                              rawType === "image"
+                            // Source-of-truth ordering for the TAB chip:
+                            //   1. metadata.featureType matches viral / talking-
+                            //      object → VIRAL (catches the Talking Object
+                            //      feature regardless of whether it inserted
+                            //      tab='cinema' or any other tag). Both the
+                            //      video row + the source-image row of one
+                            //      Talking Object generation share this
+                            //      featureType, so they group correctly under
+                            //      VIRAL in the Detail Log.
+                            //   2. type='image' → IMAGE (raw image-gen rows)
+                            //   3. raw tab if mapped
+                            //   4. type-based fallback (auto-content → auto, etc.)
+                            const isViral =
+                              featureType.includes("talking-object") ||
+                              featureType.includes("viral");
+                            const tabKey = isViral
+                              ? "viral"
+                              : rawType === "image"
                                 ? "image"
                                 : rawTab || TYPE_FALLBACK[rawType] || rawType;
                             const t = TAB_MAP[tabKey];
