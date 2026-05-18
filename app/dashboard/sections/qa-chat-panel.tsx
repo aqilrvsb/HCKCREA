@@ -175,22 +175,106 @@ export default function QAChatPanel({ tab }: { tab: QATab }) {
 
   return (
     <>
-      {/* Floating Q&A button — bottom-right, always visible while tab
-          is active. Pulses when there are unread messages (TODO if we
-          add async notifications later). */}
-      <button
-        onClick={() => setOpen((v) => !v)}
-        className="fixed bottom-6 right-6 w-14 h-14 rounded-full shadow-lg flex items-center justify-center text-white transition-all hover:scale-105"
-        style={{
-          background: theme.gradient,
-          zIndex: 50,
-          boxShadow: `0 8px 24px ${theme.color}40`,
-        }}
-        aria-label={open ? "Close Q&A chat" : "Open Q&A chat"}
-        title={`${theme.label} — paste a screenshot and ask anything`}
-      >
-        {open ? <X className="w-6 h-6" /> : <MessageCircle className="w-6 h-6" />}
-      </button>
+      {/* Floating Q&A button — bottom-right. Continuously pulsing ring +
+          subtle scale blink so it stays visible to users. Stops pulsing
+          when the chat is OPEN (no need to attract attention once user
+          is engaged). Inline <style> defines two keyframe animations:
+          qa-ring-pulse expands a ring outward and fades it (mimics a
+          notification badge), qa-button-blink does a soft 2-beat scale
+          shimmer on the button itself. */}
+      <style jsx>{`
+        @keyframes qa-ring-pulse {
+          0% {
+            transform: scale(1);
+            opacity: 0.7;
+          }
+          80% {
+            transform: scale(1.7);
+            opacity: 0;
+          }
+          100% {
+            transform: scale(1.7);
+            opacity: 0;
+          }
+        }
+        @keyframes qa-button-blink {
+          0%, 100% {
+            transform: scale(1);
+            box-shadow: 0 8px 24px ${theme.color}40;
+          }
+          25% {
+            transform: scale(1.06);
+            box-shadow: 0 10px 32px ${theme.color}80;
+          }
+          50% {
+            transform: scale(1);
+            box-shadow: 0 8px 24px ${theme.color}40;
+          }
+          75% {
+            transform: scale(1.06);
+            box-shadow: 0 10px 32px ${theme.color}80;
+          }
+        }
+        .qa-fab-wrap {
+          position: fixed;
+          bottom: 24px;
+          right: 24px;
+          width: 56px;
+          height: 56px;
+          z-index: 50;
+        }
+        .qa-fab-ring {
+          position: absolute;
+          inset: 0;
+          border-radius: 9999px;
+          background: ${theme.color};
+          pointer-events: none;
+        }
+        .qa-fab-ring-1 {
+          animation: qa-ring-pulse 1.6s ease-out infinite;
+        }
+        .qa-fab-ring-2 {
+          animation: qa-ring-pulse 1.6s ease-out infinite;
+          animation-delay: 0.8s;
+        }
+        .qa-fab-btn {
+          position: relative;
+          width: 56px;
+          height: 56px;
+          border-radius: 9999px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          color: white;
+          background: ${theme.gradient};
+          box-shadow: 0 8px 24px ${theme.color}40;
+          transition: transform 0.18s ease;
+          cursor: pointer;
+          border: none;
+        }
+        .qa-fab-btn:hover {
+          transform: scale(1.08);
+        }
+        .qa-fab-blink {
+          animation: qa-button-blink 2.4s ease-in-out infinite;
+        }
+      `}</style>
+      <div className="qa-fab-wrap">
+        {!open && (
+          <>
+            <span className="qa-fab-ring qa-fab-ring-1" />
+            <span className="qa-fab-ring qa-fab-ring-2" />
+          </>
+        )}
+        <button
+          onClick={() => setOpen((v) => !v)}
+          className={`qa-fab-btn ${!open ? "qa-fab-blink" : ""}`}
+          aria-label={open ? "Close Q&A chat" : "Open Q&A chat"}
+          title={`${theme.label} — paste a screenshot and ask anything`}
+        >
+          {open ? <X className="w-6 h-6" /> : <MessageCircle className="w-6 h-6" />}
+        </button>
+      </div>
 
       {open && (
         <Portal>
