@@ -278,6 +278,12 @@ export async function POST(req: Request) {
       imageMode,
       skipSlot,
       retry: true,
+      // Admin Resubmit (single + bulk both flow through this route) →
+      // start at the FIRST configured fallback slot, not wherever the
+      // round-robin counter is. Per user direction. Event-driven retry
+      // in settle.ts keeps the normal round-robin so retries naturally
+      // spread across slots.
+      forceFirstFallback: true,
       asset,
     });
     if (r.ok) {

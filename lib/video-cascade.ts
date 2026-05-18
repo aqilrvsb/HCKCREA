@@ -58,6 +58,12 @@ export type VideoCascadeInput = {
    *  of MAIN. Set by /api/history/retry + auto-resubmit cron.
    *  Default false = first fire on a main slot. */
   retry?: boolean;
+  /** When true, bypass the round-robin counter and start at fallback
+   *  position 0 (the FIRST configured fallback slot). Used by the
+   *  admin Resubmit button per user direction: "when admin click
+   *  resubmit, it starts from first fallback cascade". Combined with
+   *  retry=true. No effect when retry=false. */
+  forceFirstFallback?: boolean;
   /** Which cascade pool to draw from. Defaults to "video" (UGC + Auto
    *  Content + Veo cinema). "grok" routes through the Grok cascade
    *  (typically p6-a..h). "cinema" routes through the Cinema (Seedance)
@@ -222,9 +228,20 @@ export async function generateVideoWithCascade(
   //   retry=true  (resubmit / auto-cron): pick ONE fallback slot via
   //                                       independent round-robin
   const slots = input.retry ? await getFbs() : await getMains();
-  let startIdx = input.retry
-    ? await nextFallbackStartIndex(asset, slots)
-    : await nextMainStartIndex(asset, slots);
+  let startIdx: number;
+  if (input.retry && input.forceFirstFallback) {
+    // Admin Resubmit: bypass round-robin and start at the FIRST non-"none"
+    // fallback slot so the row gets a fresh full-cascade walk every time
+    // an admin manually clicks Resubmit. Without this, repeated admin
+    // clicks would keep advancing the round-robin counter and skip earlier
+    // slots that may have recovered by now.
+    const firstValid = slots.findIndex((s) => s !== "none");
+    startIdx = firstValid >= 0 ? firstValid : 0;
+  } else {
+    startIdx = input.retry
+      ? await nextFallbackStartIndex(asset, slots)
+      : await nextMainStartIndex(asset, slots);
+  }
 
   // skipSlot: if rotation landed on the same slot that just failed,
   // advance to the next non-none slot.
