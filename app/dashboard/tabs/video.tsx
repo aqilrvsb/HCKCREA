@@ -200,16 +200,24 @@ export default function VideoTab({ projectId }: { projectId?: string } = {}) {
       // the user hasn't already written one ("reference image" not in
       // their prompt) — protects power users with custom phrasing. Skipped
       // entirely when no image is uploaded (text-to-video path).
+      //
+      // PHRASING: descriptive, not instructive. APIPod's CUE validator
+      // for veo3-1-fast-ref rejects prompts that meta-instruct the model
+      // ("Use the reference image as X") because reference handling is
+      // controlled at the API level (image_urls + generation_type=reference).
+      // The validator wants the prompt to DESCRIBE the desired output
+      // ("same person from reference image, holding same product"), not
+      // tell the model how to consume its input. This matches the phrasing
+      // Auto Content's Gemini-generated prompts use, which pass validation.
       let finalPrompt = prompt.trim();
       if (effectiveMode === "ingredient" && !/reference image/i.test(finalPrompt)) {
         const lines: string[] = [];
         if (avatarPub && refPub) {
-          lines.push("Use the first reference image as the main character (same face, same outfit, same lighting style).");
-          lines.push("Use the second reference image as the product (same label, same shape, same colors, no modification).");
+          lines.push("Same person from the first reference image (same face, same outfit, same lighting), holding the same product from the second reference image (same label, same shape, same colors, no modification).");
         } else if (avatarPub) {
-          lines.push("Use the reference image as the main character (same face, same outfit, same lighting style).");
+          lines.push("Same person from reference image (same face, same outfit, same lighting style).");
         } else if (refPub) {
-          lines.push("Use the reference image as the product (same label, same shape, same colors, no modification).");
+          lines.push("Same product from reference image (same label, same shape, same colors, no modification).");
         }
         if (lines.length) finalPrompt = lines.join("\n") + "\n\n" + finalPrompt;
       }
