@@ -61,6 +61,16 @@ export type HistoryItem = {
 // Pretty model name for the badge under each card
 function modelLabel(item: HistoryItem): string {
   const m = item.metadata?.model || "";
+
+  // SHORT-CIRCUIT: merged Storytelling videos are stitched from scene
+  // images via ffmpeg on Modal — NO Veo / Grok / model call. Earlier
+  // versions of this function fell through to the m.includes("veo")
+  // branch below because per-scene image cascades sometimes leak a
+  // model string into the merged row's metadata, and the merged row
+  // ended up badged "VEO 3.1 • P6 A". Storytelling videos are always
+  // Storytelling — return early before any model-string parsing.
+  if (item.type === "fairytale") return "Storytelling";
+
   // Provider tag — prefer metadata.slot (e.g. "p2-a"/"p2-b"/"p4"/"p5")
   // so the chip distinguishes Crun key A vs B. For rows fired before
   // the slot field was stamped, fall back to extracting the slot from
@@ -115,7 +125,6 @@ function modelLabel(item: HistoryItem): string {
     return "Talking Object" + (m.includes("veo") ? providerSuffix : "");
   }
   if (m.includes("veo")) return "Veo 3.1" + providerSuffix;
-  if (item.type === "fairytale") return "Storytelling";
   return item.type;
 }
 
