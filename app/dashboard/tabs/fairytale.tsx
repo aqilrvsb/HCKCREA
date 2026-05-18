@@ -1529,6 +1529,11 @@ export default function FairytaleTab({ projectId }: { projectId?: string } = {})
           onBack={goBack}
           onSubmit={submitRender}
           onRetryScript={generateScript}
+          mainCharacter={mainCharacter}
+          heroImageUrl={heroImageUrl}
+          heroStatus={heroStatus}
+          heroRegenerating={heroRegenerating}
+          regenerateHero={regenerateHero}
         />
       )}
     </div>
@@ -2205,6 +2210,15 @@ function Step3(props: any) {
     musicVolume, setMusicVolume,
     renderStatus, renderError,
     onBack, onSubmit, onRetryScript,
+    // Hero character (NEW) — auto-generated main character reference
+    // image that anchors visual consistency across all scenes. Passed
+    // from parent so the storyboard can render the hero card + the
+    // Regenerate Character button without owning the state.
+    mainCharacter,
+    heroImageUrl,
+    heroStatus,
+    heroRegenerating,
+    regenerateHero,
   } = props;
 
   // Per-scene history-picker — when set, opens the PreviewHistoryPicker
