@@ -487,7 +487,7 @@ export default function HistoryGrid({
           sub-tab. Lists unfinished wizard sessions; click a card to
           fire the resume event the FairytaleTab listens for. */}
       {tab === "fairytale" && storytellingSubTab === "drafts" && (
-        <StorytellingDraftsPane />
+        <StorytellingDraftsPane projectId={projectId} />
       )}
 
       {/* Viral tab: 2-level selector. Top row picks the sub-feature
@@ -3712,7 +3712,7 @@ type DraftListItem = {
   scene_count: number;
 };
 
-function StorytellingDraftsPane() {
+function StorytellingDraftsPane({ projectId }: { projectId?: string | null }) {
   const [drafts, setDrafts] = useState<DraftListItem[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [resumingId, setResumingId] = useState<string | null>(null);
@@ -3720,7 +3720,11 @@ function StorytellingDraftsPane() {
 
   async function load() {
     try {
-      const r = await fetch("/api/fairytale/drafts", { cache: "no-store" });
+      // Scope drafts to the current project so the Projects sub-tab on
+      // NUR only shows drafts saved under NUR (not EXCLUSIVE / Project 1).
+      // Matches the rest of the history grid which is also project-scoped.
+      const qs = projectId ? `?project_id=${encodeURIComponent(projectId)}` : "";
+      const r = await fetch(`/api/fairytale/drafts${qs}`, { cache: "no-store" });
       const d = await r.json();
       if (!r.ok || !d?.ok) {
         setError(d?.error || `HTTP ${r.status}`);
@@ -3736,7 +3740,10 @@ function StorytellingDraftsPane() {
   }
   useEffect(() => {
     void load();
-  }, []);
+    // Re-fetch when the active project changes so switching tabs
+    // (NUR → EXCLUSIVE) immediately reloads the correct draft list.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projectId]);
 
   async function resume(d: DraftListItem) {
     if (resumingId) return;

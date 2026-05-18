@@ -23,7 +23,7 @@ const MAX_STATE_BYTES = 256 * 1024; // 256 KB — comfortably more than any
                                     // realistic wizard snapshot (12 scenes
                                     // × ~3 KB each = ~36 KB)
 
-export async function GET() {
+export async function GET(req: Request) {
   const sb = await createClient();
   const { data: { session } } = await sb.auth.getSession();
   const user = session?.user;
@@ -31,13 +31,26 @@ export async function GET() {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
+  // Project-scoped listing — when a project_id is provided we only return
+  // drafts that belong to that project, matching the rest of the
+  // history grid which scopes by project (UGC/Images/Cinema all do this).
+  // Without the filter, the user sees drafts from OTHER projects on
+  // the current project's Projects sub-tab. Empty string means "no
+  // project filter" (legacy/global view).
+  const url = new URL(req.url);
+  const projectFilter = (url.searchParams.get("project_id") || "").trim();
+
   const admin = createAdminClient();
   // Thin list payload — only what the Drafts tab card needs. The full
   // state blob is fetched on click via GET /api/fairytale/drafts/[id].
-  const { data, error } = await admin
+  let query = admin
     .from("fairytale_drafts")
-    .select("id, title, step, updated_at, created_at, state")
-    .eq("user_id", user.id)
+    .select("id, title, step, updated_at, created_at, state, project_id")
+    .eq("user_id", user.id);
+  if (projectFilter) {
+    query = query.eq("project_id", projectFilter);
+  }
+  const { data, error } = await query
     .order("updated_at", { ascending: false })
     .limit(50);
 
