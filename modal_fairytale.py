@@ -539,27 +539,42 @@ def _concat_scenes(scene_paths: list, out_path: Path) -> Path:
 def _b2_content_config() -> tuple[str, str, str, str, str]:
     """Resolve B2 config for the peninglab-content (public CDN) bucket.
 
-    Same bucket scene images already upload to via Vercel's
-    lib/b2.ts → uploadBufferToContent. The merged Storytelling MP4
-    now goes to the same place so:
+    Same bucket + same credentials scene images already upload to via
+    Vercel's lib/b2.ts → uploadBufferToContent. The merged Storytelling
+    MP4 now goes to the same place so:
       • the URL shape (https://peninglab-content.{ep}/{key}) matches
         scene images — rest of the system already understands it
       • the 30-day immutable browser cache via cache-control header
       • the 30-day B2 lifecycle rule auto-expires unsaved files
 
-    Bucket is HARDCODED to peninglab-content (no env-var fallback to
-    the private bucket) so this can't silently regress to writing to
-    peninglab-storage. Credentials reuse Modal's existing B2_KEY_ID /
-    B2_APP_KEY — these are a B2 master key with write access to all
-    buckets in the account, so no new Modal Secrets are required.
+    REQUIRES B2_CONTENT_* env vars on Modal Secrets — the legacy
+    B2_KEY_ID / B2_APP_KEY is a B2 application key scoped to the
+    peninglab-storage bucket only, so reusing it for peninglab-content
+    would fail with AccessDenied. We fail fast (KeyError) with a clear
+    diagnostic when these aren't set rather than silently falling back
+    and producing a confusing 403.
+
+    Bucket defaults to 'peninglab-content' but respects B2_CONTENT_BUCKET
+    override (matches lib/b2.ts uploadBufferToContent's default).
 
     Returns (endpoint, region, access_key, secret_key, bucket).
     """
-    endpoint = os.environ["B2_ENDPOINT"]
-    region = os.environ.get("B2_REGION", "us-east-005")
-    access_key = os.environ["B2_KEY_ID"]
-    secret_key = os.environ["B2_APP_KEY"]
-    bucket = "peninglab-content"
+    missing = [
+        k for k in ("B2_CONTENT_ENDPOINT", "B2_CONTENT_KEY_ID", "B2_CONTENT_APP_KEY")
+        if not os.environ.get(k)
+    ]
+    if missing:
+        raise RuntimeError(
+            f"Storytelling merge upload misconfigured: missing Modal Secrets {missing}. "
+            "Copy B2_CONTENT_ENDPOINT, B2_CONTENT_KEY_ID, B2_CONTENT_APP_KEY (and "
+            "optionally B2_CONTENT_REGION, B2_CONTENT_BUCKET) from your Vercel env vars "
+            "to the peninglab-fairytale Modal app's Secrets, then `modal deploy modal_fairytale.py`."
+        )
+    endpoint = os.environ["B2_CONTENT_ENDPOINT"]
+    region = os.environ.get("B2_CONTENT_REGION", "us-east-005")
+    access_key = os.environ["B2_CONTENT_KEY_ID"]
+    secret_key = os.environ["B2_CONTENT_APP_KEY"]
+    bucket = os.environ.get("B2_CONTENT_BUCKET", "peninglab-content")
     return endpoint, region, access_key, secret_key, bucket
 
 
