@@ -636,7 +636,13 @@ export default function HistoryGrid({
             </div>
           )}
 
-          <div className="grid grid-cols-3 md:grid-cols-4 gap-3">
+          {/* Card grid breakpoints — sized so cards never get so narrow
+              that the STORYTELLING badge / action row buttons truncate
+              or overflow. At 393px viewport (iPhone 14 Pro), 3 columns
+              produced ~112px cards which clipped the badge and the
+              30d/Download/Delete trailing action buttons. Single-column
+              on mobile gives ~360px cards (roomy). */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
             {pageItems.map((it) => (
               <HistoryCard
                 key={it.id}
@@ -3833,7 +3839,7 @@ function StorytellingDraftsPane({ projectId }: { projectId?: string | null }) {
   }
 
   return (
-    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
       {drafts.map((d) => {
         const isResuming = resumingId === d.id;
         const isDeleting = deletingId === d.id;
