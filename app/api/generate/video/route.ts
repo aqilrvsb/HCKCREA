@@ -98,15 +98,47 @@ export async function POST(req: Request) {
     pickedFrameworkName = fw?.name || "";
 
     try {
-      const hasAvatar = imageUrls.length > 0 && imageMode === "ingredient";
-      const hasProduct = imageUrls.length > 1 && imageMode === "ingredient";
-      const refContextHint = hasAvatar && hasProduct
-        ? "The user has attached a character avatar AND a product reference image."
-        : hasAvatar
-          ? "The user has attached a character avatar reference image."
-          : hasProduct
-            ? "The user has attached a product reference image."
-            : "No reference images attached — describe the scene/character fully.";
+      // Image-mode aware context — Custom Idea must respect whichever
+      // input mode the user picked: ingredient (avatar+product refs),
+      // frame (i2v start/end frames), or text (pure t2v, no refs).
+      // The Gemini system prompt branches on this so the expanded
+      // Veo prompt matches the actual data being sent.
+      let refContextHint = "";
+      let refAnchorHint = "";
+      if (imageMode === "ingredient") {
+        // R2V — avatar (image_urls[0] when present) + 1-2 product refs.
+        const hasAvatar = imageUrls.length > 0;
+        const hasProduct = imageUrls.length > 1;
+        refContextHint = hasAvatar && hasProduct
+          ? "INGREDIENT MODE (R2V): character avatar attached as ref #1, product attached as ref #2. Both treated as scene ingredients — Veo composes a fresh scene featuring BOTH."
+          : hasAvatar
+            ? "INGREDIENT MODE (R2V): character avatar attached as reference. Product (if mentioned) is described in the prompt text only — no product image attached."
+            : hasProduct
+              ? "INGREDIENT MODE (R2V): product attached as reference. No avatar — character will be invented by Veo based on the scene description."
+              : "INGREDIENT MODE but no images attached — falling back to t2v.";
+        refAnchorHint = [
+          hasAvatar ? 'Anchor the character: "Same person from reference image (same face, same outfit)."' : "",
+          hasProduct ? 'Anchor the product: "Same product from reference image (same label, same packaging, no modification)."' : "",
+        ].filter(Boolean).join("\n- ");
+      } else if (imageMode === "frame") {
+        // I2V — 1-2 images used as START FRAME and optional END FRAME.
+        // Veo interpolates motion between them. Prompt must describe
+        // the MOTION, not just the scene.
+        const hasStart = imageUrls.length > 0;
+        const hasEnd = imageUrls.length > 1;
+        refContextHint = hasStart && hasEnd
+          ? "FRAME MODE (I2V): two reference images — first is the video START FRAME, second is the END FRAME. Veo interpolates MOTION between them across 8 seconds."
+          : hasStart
+            ? "FRAME MODE (I2V): one reference image used as the video START FRAME. Veo generates 8s of motion forward from this frame."
+            : "FRAME MODE but no start image attached — falling back to t2v.";
+        refAnchorHint = hasStart
+          ? 'Describe the MOTION that unfolds from the start frame (and toward the end frame if present): "Camera slowly pushes in", "Character lifts the product", "Slow pan reveals the setting", etc. Do NOT re-describe the static scene from the reference — describe what HAPPENS.'
+          : "";
+      } else {
+        // T2V — pure text-to-video, no reference images.
+        refContextHint = "TEXT MODE (T2V): NO reference images attached. Veo generates everything from your text. Describe the character (gender, age, outfit, expression), the product (color, shape, packaging if mentioned in USP), the setting, and the motion fully — Veo has no visual anchor.";
+        refAnchorHint = "";
+      }
 
       const frameworkBlock = fw
         ? `=== ROTATED UGC FRAMEWORK: ${fw.name} ===
@@ -139,9 +171,11 @@ Hard rules:
 - Total spoken dialog = EXACTLY 20-24 Malay words for an 8-second shot. Count the words. Under 18 = TTS mouth freezes. Over 26 = rushed audio.
 - Bahasa Melayu (Malaysian Malay) ONLY. Use: korang, aku, ni, tu, memang, gila, lah, je, dah, eh. NEVER Bahasa Indonesia (kalian, gue, lo, banget, sih, dong, kayak, gimana, mau, nih, tuh).
 - Scene description: shot type (e.g. "Selfie-style handheld" or "Medium shot"), what the character is doing, setting, lighting, mood. Keep it CONCISE — 80-150 words max.
-- ${refContextHint}
-- ${hasAvatar ? 'Anchor the character to the reference: "Same person from reference image (same face, same outfit)."' : ""}
-- ${hasProduct ? 'Anchor the product to the reference: "Same product from reference image (same label, same packaging)."' : ""}
+
+=== INPUT MODE CONTEXT ===
+${refContextHint}
+${refAnchorHint ? `- ${refAnchorHint}` : ""}
+
 - Audio: spoken dialog only, no background music or SFX (system appends AUDIO LOCK that enforces this).
 - Format: just the scene paragraph, then "Spoken dialog:" line, then the dialog itself. Nothing else.
 
