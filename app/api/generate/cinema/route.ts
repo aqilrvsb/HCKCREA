@@ -170,13 +170,13 @@ export async function POST(req: Request) {
         durationMode: String(duration),
         aspectRatio,
         imageMode: imgMode,
-        // Both Veo (Viral) AND Grok share the VIDEO cascade pool — admin
-        // configures one list at /admin/settings → Cascade → VIDEO CASCADE
-        // and every video-producing tab follows it. p6.ts apipodVideoModel()
-        // still detects 'grok' in the model string and routes to the right
-        // APIPod endpoint, so slot p6-* will fire grok-imagine-* when
-        // modelChoice='grok' and veo3-1-fast when modelChoice='veo'.
-        asset: "video",
+        // Per-asset cascade routing:
+        //   • Grok tab (modelChoice='grok')  → GROK cascade
+        //   • Viral tab Veo (modelChoice='veo') → VIDEO cascade
+        // Admin configures each pool independently in /admin/settings
+        // → Cascade. Auto Content with Grok also uses GROK (see
+        // /api/generate/auto-content), Seedance uses CINEMA cascade.
+        asset: modelChoice === "grok" ? "grok" : "video",
       });
       if (result.ok) {
         createdOk = true;
