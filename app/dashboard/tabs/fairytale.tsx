@@ -1061,6 +1061,24 @@ export default function FairytaleTab({ projectId }: { projectId?: string } = {})
     textBackground,
   ]);
 
+  // MOBILE FAILSAFE auto-save — fires on Step 1 the moment scenes
+  // populate (script gen finished inside Preview modal). Without this,
+  // mobile users who close the modal instead of clicking the small
+  // "Next →" button (easy to miss-tap) lose their work — no draft is
+  // ever created. This guarantees a draft exists as soon as the AI
+  // has produced something worth saving, regardless of how the user
+  // exits the modal.
+  useEffect(() => {
+    if (step !== 1) return;          // only on Step 1
+    if (currentDraftId) return;      // already saved, nothing to do
+    if (scenes.length === 0) return; // nothing to save yet
+    const t = setTimeout(() => {
+      void saveDraft();
+    }, 2500); // small delay so we don't fire while scenes are still streaming in
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step, currentDraftId, scenes.length]);
+
   // ─── Step nav ──────────────────────────────────────────────
   // 2-step wizard: Step 1 = combined prompt + visual + pacing form,
   // Step 2 = Review & Generate (was Step 3). Visual style picker is
@@ -2254,8 +2272,11 @@ function Step3(props: any) {
           )}
         </div>
 
-        {/* Bottom nav */}
-        <div className="flex justify-between gap-3 pt-2">
+        {/* Bottom nav — inline on desktop, hidden on mobile (mobile uses
+            the sticky bar at the very bottom of this component instead so
+            the Merge button is always reachable without scrolling past 12
+            scenes). */}
+        <div className="hidden lg:flex justify-between gap-3 pt-2">
           <button
             onClick={onBack}
             className="px-6 py-2.5 rounded-xl font-bold text-sm inline-flex items-center gap-2"
@@ -2296,15 +2317,56 @@ function Step3(props: any) {
           </div>
         )}
         {!allDone && scenes.length > 0 && (
-          <p className="text-[11px] text-gray-500 text-center">
+          <p className="text-[11px] text-gray-500 text-center hidden lg:block">
             Merge button unlocks once all scene images finish loading.
           </p>
         )}
         {allDone && renderStatus === "idle" && (
-          <p className="text-[11px] text-gray-500 text-center">
+          <p className="text-[11px] text-gray-500 text-center hidden lg:block">
             All {scenes.length} scenes ready. Click Merge to combine them into one MP4 (audio + karaoke text + Ken Burns motion). Render takes ~{Math.ceil(scenes.length * 6)}s.
           </p>
         )}
+        {/* MOBILE-ONLY sticky bottom Merge bar — always visible regardless
+            of scroll position. Solves the bug where a 12-scene project
+            buried the Merge button ~960px down the page. Padding-bottom
+            on the page below adds 80px of clearance so the last scene's
+            content isn't hidden behind this bar. */}
+        <div className="lg:hidden h-20" aria-hidden="true" />
+        <div
+          className="fixed bottom-0 left-0 right-0 z-30 lg:hidden px-3 py-3 backdrop-blur"
+          style={{
+            background: "rgba(255,255,255,0.95)",
+            borderTop: "1px solid #e5e7eb",
+            boxShadow: "0 -4px 12px rgba(0,0,0,0.08)",
+          }}
+        >
+          <div className="flex gap-2 max-w-md mx-auto">
+            <button
+              onClick={onBack}
+              className="px-4 py-3 rounded-xl font-bold text-sm inline-flex items-center gap-1.5"
+              style={{ background: "white", border: "1px solid #e5e7eb", color: "#1a1a1a" }}
+            >
+              <ArrowLeft className="w-4 h-4" />
+            </button>
+            <button
+              onClick={onSubmit}
+              disabled={!canMerge || renderStatus === "submitting"}
+              className="flex-1 px-4 py-3 rounded-xl font-bold text-sm text-white inline-flex items-center justify-center gap-2 disabled:opacity-50"
+              style={{
+                background: "linear-gradient(135deg, #c084fc 0%, #818cf8 100%)",
+                boxShadow: "0 4px 12px rgba(168,85,247,0.3)",
+              }}
+            >
+              {renderStatus === "submitting" ? (
+                <><Loader2 className="w-4 h-4 animate-spin" /> Merging…</>
+              ) : renderStatus === "done" ? (
+                <><Check className="w-4 h-4" /> Merged ✓</>
+              ) : (
+                <><Sparkles className="w-4 h-4" /> Merge → 1 Video</>
+              )}
+            </button>
+          </div>
+        </div>
       </div>
 
       {/* RIGHT COLUMN — sticky preview */}
