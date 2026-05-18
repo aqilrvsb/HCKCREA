@@ -78,24 +78,22 @@ type ChatMessage = {
   images?: string[]; // data: URLs (base64) for pasted images
 };
 
-// localStorage persistence + 24h auto-expiry. Each tab's conversation
-// lives at its own key so UGC ↔ Auto Content ↔ Storytelling chats don't
-// bleed into each other. On load we check the saved timestamp — if older
-// than 24h (TTL_MS), the conversation is silently cleared and the user
-// starts fresh. The user can also clear manually via the Trash icon.
+// localStorage persistence. Each tab's conversation lives at its own
+// key so UGC ↔ Auto Content ↔ Storytelling chats don't bleed into
+// each other. Conversations persist FOREVER until the user clicks
+// the Trash icon to clear them — per user direction: "let client
+// clear if they think serabut". No auto-expiry.
 //
 // Why localStorage (not DB):
-//   - Help chats are ephemeral; nobody needs cross-device sync for
-//     "how do I write a UGC prompt" sessions
+//   - Help chats are local-context only; no cross-device sync needed
 //   - No DB write/read cost per message
-//   - Auto-expiry is trivial (just a timestamp compare on load)
-const TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
+//   - User owns when to clear (Trash icon does the deed)
 function storageKey(tab: QATab) {
   return `qa-chat:${tab}`;
 }
 type StoredConversation = {
   messages: ChatMessage[];
-  updated_at: number; // epoch ms
+  updated_at: number; // epoch ms — kept for debugging / future filters
 };
 function loadConversation(tab: QATab): ChatMessage[] {
   if (typeof window === "undefined") return [];
@@ -103,12 +101,7 @@ function loadConversation(tab: QATab): ChatMessage[] {
     const raw = window.localStorage.getItem(storageKey(tab));
     if (!raw) return [];
     const parsed = JSON.parse(raw) as StoredConversation;
-    if (!parsed?.updated_at || !Array.isArray(parsed.messages)) return [];
-    // 24h TTL — silently drop expired conversations
-    if (Date.now() - parsed.updated_at > TTL_MS) {
-      window.localStorage.removeItem(storageKey(tab));
-      return [];
-    }
+    if (!Array.isArray(parsed?.messages)) return [];
     return parsed.messages;
   } catch {
     return [];
@@ -159,37 +152,13 @@ export default function QAChatPanel({ tab }: { tab: QATab }) {
     setError(null);
   }, [tab]);
 
-  // Persist messages whenever they change. Skip the initial mount empty
-  // state via length check — saveConversation removes the key when
-  // messages is empty, so this also handles the "user clicked Clear"
-  // path naturally.
+  // Persist messages whenever they change. saveConversation removes
+  // the localStorage key when messages is empty, so the "user clicked
+  // Trash" path is handled naturally — set state to [] → effect fires
+  // → key removed → next reload starts clean.
   useEffect(() => {
     saveConversation(tab, messages);
   }, [tab, messages]);
-
-  // Global 24h sweep — fires when the panel mounts AND every hour
-  // thereafter. Walks all QATab keys and drops any with updated_at >
-  // 24h ago. Catches expired conversations on tabs the user hasn't
-  // opened today (the per-tab load above only sweeps the active tab).
-  useEffect(() => {
-    function sweepExpired() {
-      if (typeof window === "undefined") return;
-      const allTabs: QATab[] = ["ugc", "auto", "cinema", "seedance", "fairytale", "image"];
-      for (const t of allTabs) {
-        try {
-          const raw = window.localStorage.getItem(storageKey(t));
-          if (!raw) continue;
-          const parsed = JSON.parse(raw);
-          if (!parsed?.updated_at || Date.now() - parsed.updated_at > TTL_MS) {
-            window.localStorage.removeItem(storageKey(t));
-          }
-        } catch {}
-      }
-    }
-    sweepExpired();
-    const id = setInterval(sweepExpired, 60 * 60 * 1000); // hourly
-    return () => clearInterval(id);
-  }, []);
 
   // Paste handler — extract image blobs from clipboard, convert to
   // data URLs, attach to pendingImages. Text paste falls through to
