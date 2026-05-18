@@ -592,12 +592,21 @@ def _concat_scenes(scene_paths: list, out_path: Path) -> Path:
     listfile.write_text(
         "\n".join(f"file '{p.as_posix()}'" for p in scene_paths)
     )
+    # Stream-copy concat — no re-encode. All scene clips were rendered
+    # with identical codec params (libx264 ultrafast / 120fps / yuv420p /
+    # aac 128k) so the concat demuxer can just stitch the bitstreams
+    # together without decoding/re-encoding. Benefits:
+    #   • Fixes the "laggy after merge" perception users reported. Each
+    #     re-encode introduces sub-frame timing drift between clips and
+    #     motion-estimation artifacts at clip boundaries — stream copy
+    #     preserves the exact frames the per-scene renders produced.
+    #   • ~3-5× faster than re-encoding (no encoder pass needed).
+    #   • No quality loss — bit-perfect copy of the source streams.
     cmd = [
         "ffmpeg", "-y", "-f", "concat", "-safe", "0",
         "-i", str(listfile),
-        "-c:v", "libx264", "-preset", "ultrafast", "-crf", "23",
-        "-pix_fmt", "yuv420p",
-        "-c:a", "aac", "-b:a", "128k",
+        "-c", "copy",
+        "-movflags", "+faststart",  # web-friendly: moov atom at start
         str(out_path),
     ]
     res = subprocess.run(cmd, capture_output=True, text=True)

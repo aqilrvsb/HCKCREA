@@ -64,7 +64,7 @@ export async function POST(
   const admin = createAdminClient();
   const { data: row, error: fetchErr } = await admin
     .from("history")
-    .select("id, user_id, type, status, output_url, error_message, metadata")
+    .select("id, user_id, type, status, output_url, error_message, metadata, created_at")
     .eq("id", id)
     .maybeSingle();
 
@@ -99,16 +99,47 @@ export async function POST(
       new HeadObjectCommand({ Bucket: B2_CONTENT_BUCKET, Key: key })
     );
   } catch (e: any) {
-    // 404 / NotFound = file isn't on B2 → merge truly failed.
-    // Any other error = surface so the user knows recheck itself broke.
+    // 404 / NotFound = file isn't on B2 (yet).
+    //
+    // Two possibilities:
+    //   • Modal is STILL RENDERING (typical render = 60-180s for a 12-scene
+    //     story at 120fps). The file legitimately isn't on B2 yet.
+    //   • Modal genuinely failed and the file will never appear.
+    //
+    // Use row age as a proxy: if the row was created less than 8 minutes ago,
+    // assume Modal might still be working and tell the user to wait. After
+    // 8 minutes, anything still missing IS a real failure (largest 15-scene
+    // stories cap out around 5-6 min render time).
     const status = e?.$metadata?.httpStatusCode || e?.statusCode || 0;
     const code = e?.name || e?.Code || "";
     if (status === 404 || /NotFound|NoSuchKey/i.test(code)) {
+      const createdAt = row.created_at ? new Date(row.created_at).getTime() : 0;
+      const ageSec = createdAt ? Math.floor((Date.now() - createdAt) / 1000) : 0;
+      const STILL_RENDERING_WINDOW_SEC = 8 * 60; // 8 minutes
+      if (ageSec > 0 && ageSec < STILL_RENDERING_WINDOW_SEC) {
+        const remainingSec = STILL_RENDERING_WINDOW_SEC - ageSec;
+        return NextResponse.json({
+          ok: false,
+          found: false,
+          reason: "still_rendering",
+          message:
+            `Modal is probably still rendering (started ${Math.floor(ageSec / 60)}m ${ageSec % 60}s ago). ` +
+            `12-scene stories typically take 2-5 minutes at 120fps. ` +
+            `Please wait — the card will auto-update when the video is ready. ` +
+            `If nothing happens in ${Math.ceil(remainingSec / 60)} more minutes, click recheck again to confirm the merge truly failed.`,
+          age_sec: ageSec,
+          checked_key: key,
+          bucket: B2_CONTENT_BUCKET,
+        });
+      }
       return NextResponse.json({
         ok: false,
         found: false,
         reason: "not_found_in_b2",
-        message: "Merged video is NOT in B2. Modal merge didn't finish. Delete this row and click Merge again.",
+        message:
+          `Merged video is NOT in B2 after ${Math.floor(ageSec / 60)}m ${ageSec % 60}s. ` +
+          `Modal merge truly didn't finish. Delete this row and click Merge again.`,
+        age_sec: ageSec,
         checked_key: key,
         bucket: B2_CONTENT_BUCKET,
       });
