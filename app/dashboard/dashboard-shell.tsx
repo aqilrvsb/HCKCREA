@@ -32,7 +32,7 @@ import SavedPromptsSection from "./sections/saved-prompts";
 import StorageSection from "./sections/storage";
 import AttachmentsSection from "./sections/attachments";
 import ActivityFeed from "./sections/activity-feed";
-import AgentChatPanel, { type AgentTab } from "./sections/agent-chat-panel";
+import QAChatPanel, { type QATab } from "./sections/qa-chat-panel";
 import { SopButton } from "./sections/sop-modal";
 import { SOP_CONTENT } from "@/lib/sop-content";
 import Sidebar, { type Project, type SidebarView } from "./sidebar";
@@ -595,18 +595,32 @@ function ProjectView({
         </div>
       )}
 
-      {/* AI agent chat panel — mounted ONCE at this level so it survives
-          tab switches between image/video/cinema. Auto-content + clone tabs
-          don't get an agent (rigid framework), so we unmount there.
-          The component itself reloads its conversation when the `tab` prop
-          changes (per-tab DB rows), but its open/closed state and any
-          in-flight chat request live on. */}
-      {planActive && (activeTab === "image" || activeTab === "video" || activeTab === "cinema") && (
-        <AgentChatPanel
-          tab={(activeTab === "video" ? "ugc" : activeTab) as AgentTab}
-          projectId={project.id}
-        />
-      )}
+      {/* Q&A help chat panel — replaces the legacy AI-agent (tool-calling)
+          panel with a pure knowledge assistant scoped per tab. Lives at
+          this level so it follows the user across all tabs.
+          Knowledge per tab in lib/qa-knowledge.ts. Image-paste supported
+          (user pastes screenshots, Gemini 3.1 Flash Lite reads + replies).
+          Excludes "storage" + "clone" + "grok" tabs (no help knowledge
+          yet) and "fairytale" is mapped to its own knowledge base. */}
+      {planActive &&
+        (activeTab === "image" ||
+          activeTab === "video" ||
+          activeTab === "cinema" ||
+          activeTab === "seedance" ||
+          activeTab === "auto" ||
+          activeTab === "fairytale") && (
+          <QAChatPanel
+            tab={
+              (activeTab === "video"
+                ? "ugc"
+                : activeTab === "auto"
+                  ? "auto"
+                  : activeTab === "fairytale"
+                    ? "fairytale"
+                    : activeTab) as QATab
+            }
+          />
+        )}
     </>
   );
 }
