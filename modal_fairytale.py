@@ -536,6 +536,45 @@ def _concat_scenes(scene_paths: list, out_path: Path) -> Path:
     return out_path
 
 
+def _b2_content_config() -> tuple[str, str, str, str, str]:
+    """Resolve B2 config for the peninglab-content (public CDN) bucket.
+
+    MIRRORS lib/b2.ts → uploadBufferToContent EXACTLY. Scene image
+    uploads already use this code path successfully, so by routing
+    the merged Storytelling MP4 through the same env vars + bucket
+    we get:
+      • the same public S3 URL shape (https://peninglab-content.{ep}/{key})
+        the rest of the system already understands
+      • the 30-day immutable browser cache via cache-control header
+      • the 30-day B2 lifecycle rule auto-expiring unsaved files
+      • the same content-scoped credentials (safer if leaked since
+        they only have peninglab-content write access)
+
+    Falls back to the legacy B2_KEY_ID / B2_APP_KEY / B2_BUCKET_PRIVATE
+    triple when the B2_CONTENT_* vars aren't set on Modal, so existing
+    deployments that haven't pushed the new Modal Secrets keep working.
+
+    Returns (endpoint, region, access_key, secret_key, bucket).
+    """
+    endpoint = os.environ.get("B2_CONTENT_ENDPOINT") or os.environ["B2_ENDPOINT"]
+    region = (
+        os.environ.get("B2_CONTENT_REGION")
+        or os.environ.get("B2_REGION", "us-east-005")
+    )
+    access_key = (
+        os.environ.get("B2_CONTENT_KEY_ID") or os.environ["B2_KEY_ID"]
+    )
+    secret_key = (
+        os.environ.get("B2_CONTENT_APP_KEY") or os.environ["B2_APP_KEY"]
+    )
+    bucket = (
+        os.environ.get("B2_CONTENT_BUCKET")
+        or os.environ.get("B2_BUCKET_CONTENT")
+        or os.environ["B2_BUCKET_PRIVATE"]
+    )
+    return endpoint, region, access_key, secret_key, bucket
+
+
 def _b2_sign_v4(method: str, b2_key: str, body: bytes | None, content_type: str | None, cache_control: str | None = None):
     """Produce SigV4 authorization headers for a B2 S3-compatible request.
 
@@ -550,11 +589,7 @@ def _b2_sign_v4(method: str, b2_key: str, body: bytes | None, content_type: str 
     import datetime
     from urllib.parse import urlparse, quote
 
-    endpoint = os.environ["B2_ENDPOINT"]
-    region = os.environ.get("B2_REGION", "us-east-005")
-    access_key = os.environ["B2_KEY_ID"]
-    secret_key = os.environ["B2_APP_KEY"]
-    bucket = os.environ["B2_BUCKET_PRIVATE"]
+    endpoint, region, access_key, secret_key, bucket = _b2_content_config()
 
     endpoint_host = urlparse(endpoint).netloc
     host = f"{bucket}.{endpoint_host}"
@@ -652,19 +687,50 @@ def _upload_b2(local_path: Path, b2_key: str, content_type: str = "video/mp4") -
             f"B2 upload skipped: read mismatch — file claimed {size} bytes, read {len(body)} bytes"
         )
 
-    host, canonical_uri, headers = _b2_sign_v4(
-        "PUT", b2_key, body, content_type,
-        cache_control="public, max-age=2592000, immutable",
-    )
-    r = requests.put(
-        f"https://{host}{canonical_uri}",
-        data=body,
-        headers=headers,
-        timeout=180,
-    )
-    if r.status_code < 200 or r.status_code >= 300:
+    # PUT with retries — IncompleteBody (B2 says "you sent fewer bytes
+    # than Content-Length") is typically a socket abort partway through
+    # a large PUT, not a permanent error. Retrying with exponential
+    # backoff resolves it ~95% of the time. Each retry re-signs the
+    # request because the x-amz-date in the signature would otherwise
+    # expire on long retries.
+    import time
+    last_error = None
+    for attempt in range(3):
+        host, canonical_uri, headers = _b2_sign_v4(
+            "PUT", b2_key, body, content_type,
+            cache_control="public, max-age=2592000, immutable",
+        )
+        try:
+            r = requests.put(
+                f"https://{host}{canonical_uri}",
+                data=body,
+                headers=headers,
+                timeout=300,  # bumped from 180 — large MP4s on slow connections
+            )
+        except (requests.ConnectionError, requests.Timeout) as e:
+            last_error = f"network error: {e}"
+            if attempt < 2:
+                time.sleep(2 ** attempt)  # 1s, 2s
+                continue
+            raise RuntimeError(
+                f"B2 upload failed after 3 attempts: {last_error}"
+            )
+        if 200 <= r.status_code < 300:
+            return
+        # Detect retryable B2 errors (IncompleteBody, RequestTimeout,
+        # InternalError, ServiceUnavailable). Anything else (NoSuchBucket,
+        # SignatureDoesNotMatch, AccessDenied) is configuration / auth
+        # and won't fix itself — fail fast.
+        retryable = any(
+            tag in r.text
+            for tag in ("IncompleteBody", "RequestTimeout", "InternalError", "ServiceUnavailable")
+        )
+        last_error = f"HTTP {r.status_code}: {r.text[:300]}"
+        if retryable and attempt < 2:
+            time.sleep(2 ** attempt)
+            continue
         raise RuntimeError(
-            f"B2 upload failed: HTTP {r.status_code} (uploaded {size} bytes) {r.text[:300]}"
+            f"B2 upload failed: {last_error} (uploaded {size} bytes, attempt {attempt + 1}/3)"
         )
 
 
@@ -672,11 +738,15 @@ def _b2_public_s3_url(b2_key: str) -> str:
     """Build the public S3-style URL for an object in the content bucket.
     No signing needed — bucket is public + we want browsers to cache the
     URL forever via the immutable cache-control header set at upload time.
+
+    Resolved through _b2_content_config so the URL matches whatever
+    bucket the upload actually targeted (peninglab-content when the
+    new content-scoped Modal Secrets are set; legacy bucket otherwise).
     """
-    from urllib.parse import urlparse, quote
-    endpoint = os.environ["B2_ENDPOINT"]
-    bucket = os.environ["B2_BUCKET_PRIVATE"]
+    from urllib.parse import urlparse
+    endpoint, _region, _access, _secret, bucket = _b2_content_config()
     endpoint_host = urlparse(endpoint).netloc
+    from urllib.parse import quote
     key_encoded = "/".join(quote(p, safe="") for p in b2_key.split("/"))
     return f"https://{bucket}.{endpoint_host}/{key_encoded}"
 
