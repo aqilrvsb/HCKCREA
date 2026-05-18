@@ -578,7 +578,7 @@ export default function ExtendDialog({
 
             {productImageUrl && (
               <div className="text-[10px] text-gray-500 leading-relaxed -mt-2">
-                ⓘ Product label auto-locked dari product reference (Gemini scan). Character / setting / wardrobe lock dari prompt yang korang edit kat atas.
+                ⓘ Product label auto-locked dari product reference (AI scan). Character / setting / wardrobe lock dari prompt yang korang edit kat atas.
               </div>
             )}
 

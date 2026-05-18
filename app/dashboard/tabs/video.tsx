@@ -535,11 +535,10 @@ export default function VideoTab({ projectId }: { projectId?: string } = {}) {
 
             <p className="text-[10px] text-gray-500 leading-relaxed">
               <span className="font-bold text-purple-600">AI expansion:</span>{" "}
-              Gemini 3.1 Flash Lite combines your scene idea + USP and
-              writes the full Veo prompt using a randomly-rotated UGC
-              framework from Auto Content's pool. Scene owns the visual;
-              framework owns the dialog shape (20-24 Malay words). Reference
-              images (if attached) are respected.
+              AI combines your scene idea + USP and writes the full
+              prompt using a randomly-rotated UGC framework. Scene owns
+              the visual; framework owns the dialog shape (20-24 Malay
+              words). Reference images (if attached) are respected.
             </p>
           </div>
         ) : (

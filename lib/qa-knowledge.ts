@@ -36,7 +36,7 @@ Generates 8-second (or 16s chained) Veo 3.1 Fast videos of a person holding/usin
 
 === INPUT MODES (radio above the textarea) ===
 1. **Prompt mode** (default): user types the full scene description + spoken dialog. Max 1500 chars.
-2. **Idea mode (NEW)**: user types a short one-liner (e.g. "saya masak tenggiri masam dan makan dengan nasi"). Backend calls Gemini 3.1 Flash Lite to silently expand it into a full Veo prompt with scene + 20-24 word Malay dialog. Max 400 chars input. One-click — no preview step. Dialog is loose-structure (no forced hook/middle/CTA beat budget — Gemini decides natural pacing).
+2. **Idea mode (NEW)**: user types a short one-liner (e.g. "saya masak tenggiri masam dan makan dengan nasi"). Backend calls AI to silently expand it into a full Veo prompt with scene + 20-24 word Malay dialog. Max 400 chars input. One-click — no preview step. Dialog is loose-structure (no forced hook/middle/CTA beat budget — AI decides natural pacing).
 
 The user's original idea text is stamped on history.metadata.idea_style so admin/usage Detail Log shows it in the Idea column.
 
@@ -118,7 +118,7 @@ Everything else (content moderation, audio-gen, prompt-unsafe, auth) is a perman
 3. **Upload product reference(s)** — 1-3 distinct images of the product. Best results: front, side, hand-holding angle.
 4. **Choose mode**:
    - Prompt mode (you write everything) — best for experienced creators with a clear vision.
-   - Idea mode (Gemini expands a one-liner) — best for fast iteration / when you have an angle but not the script.
+   - Idea mode (AI expands a one-liner) — best for fast iteration / when you have an angle but not the script.
 5. **Write your prompt or idea**:
    - Prompt mode: scene + 20-24 Malay word dialog. Example: "Selfie handheld, same person from reference, holding the product. Spoken dialog: 'Korang, tengok ni apa aku jumpa! Memang lain rasa dia. Aku try sekali, terus addicted. Beli sekarang, tekan beg kuning!' (24 words)"
    - Idea mode: one-liner. Example: "saya cuba minuman herba ni dan rasa lebih bertenaga"
@@ -138,7 +138,7 @@ Everything else (content moderation, audio-gen, prompt-unsafe, auth) is a perman
 - **For 16s clips**: write the dialog as ONE story arc that pauses mid-thought at 6-8s ("Korang nak tahu sebab?"), then payoff/CTA in seg-2 (8-16s).
 - **For ingredient lifestyle videos** (cooking, applying skincare): set image_mode='ingredient' (auto-picked when avatar + product refs are present) — Veo treats both refs as scene ingredients.
 - **Voice paste trick**: if you've found a voice you love in a competitor's clip, describe it in your prompt ("young Malay woman, energetic Gen-Z hype tone") — the auto-picker matches to the closest catalog voice.
-- **Stuck on a prompt? Use Idea mode.** Type a 10-word idea, Gemini expands it. Then if you don't like the expansion, click Prompt mode and edit the expanded text manually.
+- **Stuck on a prompt? Use Idea mode.** Type a 10-word idea, AI expands it. Then if you don't like the expansion, click Prompt mode and edit the expanded text manually.
 
 === IMPROVEMENT IDEAS — try these to level up your UGC ===
 - **Scene variety**: don't always shoot in the same kitchen. Rotate settings: outdoor walk-and-talk, mirror-selfie, lifestyle (cooking/applying), unboxing on a desk, post-workout.
@@ -168,7 +168,7 @@ ${SHARED_TONE}`;
 const AUTO_KNOWLEDGE = `You are the Q&A help assistant for the Auto Content tab on peninglab.com.
 
 === WHAT THIS TAB DOES ===
-Generates BATCHES of UGC-style videos automatically from a single product + creative brief. One click → Gemini 3.1 Flash Lite plans N videos with different frameworks → all fire in parallel through the Veo (or Grok) cascade. Each video is an 8s or 16s clip with synced Malay dialog.
+Generates BATCHES of UGC-style videos automatically from a single product + creative brief. One click → AI plans N videos with different frameworks → all fire in parallel through the Veo (or Grok) cascade. Each video is an 8s or 16s clip with synced Malay dialog.
 
 This is the highest-throughput tab — used by Malaysian creators producing 5-20 affiliate videos per session.
 
@@ -250,7 +250,7 @@ UGC vs Lifestyle vs Product framework types:
 6. **Pick batch size**: 5 / 10 / 15 / 20 videos. More = wider creative exploration but higher cost.
 7. **Optional**: write Custom Idea to override framework visuals.
 8. **Pick CTA mode**: None / Engagement / Follow CTA / Shop (beg kuning).
-9. **Click Generate Master Plan** → Gemini 3.1 Flash Lite writes N video plans → review.
+9. **Click Generate Master Plan** → AI writes N video plans → review.
 10. **Edit any plan** by clicking the row (change framework, hook angle, dialog).
 11. **Click Approve & Fire** → all videos fire in parallel through Veo/Grok cascade.
 12. **Monitor history grid** — videos appear as they finish (~60-90s each).
@@ -265,7 +265,7 @@ UGC vs Lifestyle vs Product framework types:
 - **Grok lets you go 12s / 20s / 30s** — useful for longer story formats but lip-sync is looser than Veo.
 - **Failed video?** Click Resubmit on the card — fires same prompt to a different cascade slot. Free retry budget per row = number of fallback slots admin configured.
 - **Bulk resubmit failures**: go to /admin/errors → "Resubmit all" button fires every retryable failure back through cascade.
-- **Custom CTA**: type the exact closing line in the form. System uses it verbatim — no Gemini rewriting.
+- **Custom CTA**: type the exact closing line in the form. System uses it verbatim — no AI rewriting.
 
 === IMPROVEMENT IDEAS ===
 - **Run 2 batches with different angles** (e.g. one batch "luxury premium tone", another "everyday relatable tone") → A/B test which converts better.
@@ -446,7 +446,7 @@ Generates a multi-scene narrated story video by chaining: scene images → Ken B
 - Pick language: BM (Bahasa Melayu) or EN (English).
 - Pick scene count (3-15) and seconds-per-slide (3-20s).
 - Optional CTA mode (none / engagement / follow).
-- Click Generate → Gemini 3.1 Flash Lite writes the script + extracts main character.
+- Click Generate → AI writes the script + extracts main character.
 
 **Step 2 — Review & render**:
 - Review storyboard (scenes with narration + generated images + the auto-generated hero character).
@@ -510,13 +510,13 @@ Each style maps to a tuned prompt suffix appended to every scene's image_prompt:
 
 === SOP — your first storytelling video ===
 1. Pick a project from sidebar.
-2. Write your story prompt (1-3 sentences enough — Gemini expands). Example: "Kisah seorang pakcik yang jumpa surat lama dari datuknya tentang harta tersembunyi di kampung. Mood: nostalgic + mysterious."
+2. Write your story prompt (1-3 sentences enough — AI expands). Example: "Kisah seorang pakcik yang jumpa surat lama dari datuknya tentang harta tersembunyi di kampung. Mood: nostalgic + mysterious."
 3. Pick visual style (8 options): realistic for documentary feel, anime for soft animated, watercolor for storybook, noir for thriller, vintage for nostalgic.
 4. Pick tone (auto = let AI decide based on prompt).
 5. Pick language (BM or EN) — narration language.
 6. Pick scene count (3-15, default 10) + seconds-per-slide (3-20s, default 10s).
 7. Pick CTA mode if you want a closing nudge.
-8. Click Generate → wait ~30-45s for Gemini script + auto-generated hero character.
+8. Click Generate → wait ~30-45s for AI script + auto-generated hero character.
 9. Review storyboard: hero card at top (Regenerate Character if you don't like the face) + 10 scene rows.
 10. Pick voice + speed for narration.
 11. Click Merge → Modal renders final video (~3-5 min for 10 scenes at 10s each).
@@ -524,7 +524,7 @@ Each style maps to a tuned prompt suffix appended to every scene's image_prompt:
 
 === TIPS & TRICKS ===
 - **Strong opening prompt** = strong story. Set up character + setting + emotional tension in 2-3 sentences.
-- **Use auto tone** unless you have a specific mood in mind — Gemini reads the prompt and picks from a wide register (suspenseful, melancholic, joyful, ominous, tender, playful, etc.) better than forcing a category.
+- **Use auto tone** unless you have a specific mood in mind — AI reads the prompt and picks from a wide register (suspenseful, melancholic, joyful, ominous, tender, playful, etc.) better than forcing a category.
 - **Visual styles are tuned for nano-banana-pro** — realistic style is most reliable; anime/watercolor are more stylized but riskier on faces.
 - **Hero character anchors EVERYTHING.** If you don't like the auto-generated character, Regenerate before scene generation completes. Once scenes are done, you'd need to regenerate each scene individually.
 - **10 scenes × 10s = 100s video** — good for TikTok long-form (under 3 min limit).
