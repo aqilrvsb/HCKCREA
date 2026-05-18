@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { filterVisibleToClient } from "@/lib/server-history-visibility";
 import { malaysiaDayToUtcRange } from "@/lib/date-util";
+import { isInternalError } from "@/lib/retry-eligibility";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -93,8 +94,14 @@ export async function GET(req: Request) {
       adminUserIds.add(u.id);
     }
   });
+  // Filter to internal-error-class failures only. Per user direction:
+  // "at admin error also only show internal error". Content moderation,
+  // audio-gen, rate-limit, validator, auth failures, etc. are not
+  // admin-actionable (re-firing same row won't help) — user resolves
+  // them on their own dashboard. Same gate used by all retry paths so
+  // admin only sees rows that the system could/should retry.
   const visibleRows = (failedRows || []).filter(
-    (r: any) => !adminUserIds.has(r.user_id)
+    (r: any) => !adminUserIds.has(r.user_id) && isInternalError(r.error_message)
   );
 
   let videoCount = 0;

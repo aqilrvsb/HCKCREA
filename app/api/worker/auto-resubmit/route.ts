@@ -9,6 +9,7 @@ import {
   getCinemaFallbackSlots,
   type CascadeAsset,
 } from "@/lib/cascade-rotation";
+import { isInternalError } from "@/lib/retry-eligibility";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -57,40 +58,19 @@ async function getAutoRetryCap(asset: CascadeAsset): Promise<number> {
 const LOOKBACK_HOURS = 24;
 const BATCH_LIMIT = 30;
 
-// Auto-resubmit policy: RETRY BY DEFAULT, skip only on explicit
-// non-retryable patterns. Previously the cron used a narrow
-// "retryable allowlist" which silently skipped generic messages like
-// "Unknown error. Please contact support." or "Generation failed" —
-// admin had to clean them up manually.
+// Auto-resubmit policy: INTERNAL-ERROR-ONLY allow-list. Per user
+// direction: "all the logic resubmit is...only for internal error".
+// The shared isInternalError() helper in lib/retry-eligibility.ts is
+// the single source of truth — same gate used by event-driven settle,
+// admin Resubmit, and the admin errors feed filter.
 //
-// MAX_AUTO_RESUBMIT still caps each row at 3 attempts so a genuinely
-// permanent failure can't loop forever even if its message doesn't
-// match any no-retry pattern.
-const NO_RETRY_PATTERNS = [
-  // Content moderation — re-running same prompt will hit the same block
-  /moderation|content[- ]policy|safety[- ]filter|blocked content/i,
-  // Rate-limited — backoff doesn't help inside an 8-min window
-  /rate[- ]?limit|too many requests|quota exceeded/i,
-  // Audio gen failures on Veo — model-side bug, re-running same prompt fails again
-  /audio[- ]?gen|audio generation/i,
-  // CUE validator / schema validation — bad request, won't fix itself
-  /CUE validator|validation failed|invalid model id/i,
-  // Config issues — admin needs to fix, not the cron
-  /not configured|missing.*key|key.*not found/i,
-  // Credit / quota out — user / billing problem
-  /insufficient (quota|credits|balance)|not enough credit/i,
-  // Auth — provider rejected our key, retry won't help
-  /unauthorized|forbidden|invalid api key|api key.*invalid/i,
-];
+// Anything else (content moderation, audio-gen, rate-limit, validator,
+// auth, etc.) is a permanent failure from the cron's POV — user sees
+// it on their own dashboard and resolves it manually (rewrite prompt,
+// wait out rate limit, etc.). Cron never touches it.
 
 function isRetryable(err: string | null | undefined): boolean {
-  // No error_message at all → don't retry (we have no signal)
-  if (!err) return false;
-  // Matches a non-retryable pattern → skip
-  if (NO_RETRY_PATTERNS.some((re) => re.test(err))) return false;
-  // Default → RETRY. Generic "Unknown error", "Generation failed",
-  // "INTERNAL", etc. all go through. MAX_AUTO_RESUBMIT caps the loop.
-  return true;
+  return isInternalError(err);
 }
 
 export async function GET(req: Request) {

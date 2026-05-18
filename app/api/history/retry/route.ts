@@ -5,6 +5,7 @@ import { p2CreateTask } from "@/lib/p2";
 import { getP2Config } from "@/lib/settings";
 import { generateImageWithCascade } from "@/lib/image-cascade";
 import { generateVideoWithCascade } from "@/lib/video-cascade";
+import { isInternalError } from "@/lib/retry-eligibility";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -43,7 +44,7 @@ export async function POST(req: Request) {
   const { data: row, error: selErr } = await admin
     .from("history")
     .select(
-      "id, user_id, type, tab, status, prompt, reference_url, duration, cost, metadata"
+      "id, user_id, type, tab, status, prompt, reference_url, duration, cost, metadata, error_message"
     )
     .eq("id", historyId)
     .maybeSingle();
@@ -92,6 +93,25 @@ export async function POST(req: Request) {
     return NextResponse.json(
       {
         error: `Row is "${row.status}" — only failed rows can be retried`,
+      },
+      { status: 400 }
+    );
+  }
+
+  // Internal-error-only gate. Per user direction: "all the logic
+  // resubmit is...only for internal error". Re-firing a row that
+  // failed due to content moderation, audio-gen, rate-limit, etc.
+  // won't help — same prompt + same provider = same failure.
+  //
+  // ESCAPE HATCH: if the user provided a promptOverride (edited their
+  // prompt before clicking Resubmit), allow regardless of original
+  // error — the new prompt may resolve the moderation/validation
+  // problem. Without override, only internal-error rows can retry.
+  if (!promptOverride && !isInternalError(row.error_message)) {
+    return NextResponse.json(
+      {
+        error:
+          "This failure is not retryable. Edit the prompt and try again, or generate a fresh row.",
       },
       { status: 400 }
     );

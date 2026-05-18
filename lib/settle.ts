@@ -24,6 +24,7 @@ import {
   getImageFallbackSlots,
   type CascadeAsset,
 } from "@/lib/cascade-rotation";
+import { isInternalError } from "@/lib/retry-eligibility";
 
 // Map a model string (from history.metadata.model) to a per-model rate
 // hint. Used at settle time so the live admin rate (rate_<model>) is
@@ -848,6 +849,23 @@ export async function settleHistoryRow(hist: HistoryRow): Promise<SettleResult> 
   if (r.status === "failed") {
     const errMsg = r.error || "Generation failed";
 
+    // CRITICAL ORDERING: mark the row as 'failed' in DB BEFORE calling
+    // tryAutoRetry. tryAutoRetry's atomic claim uses .eq("status", "failed")
+    // as its race gate; without this pre-write the row is still 'pending'
+    // when the claim runs → claim matches zero rows → event-driven retry
+    // silently no-ops. (Previous behaviour: bug — every failure waited 8
+    // min for the cron tick instead of retrying immediately.) The brief
+    // 'failed' state before tryAutoRetry flips it back to 'pending' is
+    // harmless: UI polls at 15s, race window is sub-second; the early-
+    // return guard at the top of settleHistoryRow correctly skips genuine
+    // failed rows that aren't being actively retried.
+    await admin
+      .from("history")
+      .update({ status: "failed", error_message: errMsg })
+      .eq("id", hist.id);
+    hist.status = "failed";
+    hist.error_message = errMsg;
+
     // EVENT-DRIVEN AUTO-RETRY: when a task fails, immediately fire a
     // fresh retry through the FALLBACK cascade pool — no waiting for the
     // 8-min cron tick. Walks one fallback slot per retry; auto_resubmit_
@@ -861,7 +879,10 @@ export async function settleHistoryRow(hist: HistoryRow): Promise<SettleResult> 
     // fairytale-scene rows did this; now ALL video tabs (UGC / Auto
     // Content / Cinema / Talking Object / Extend / AI agent /
     // storytelling-scene) get the immediate retry path.
-    const isAutoRetryable =
+    // Tab-level eligibility: only video-producing tabs use the cascade
+    // retry path (image rows go through image-cascade; storytelling-
+    // scene shares the video gate).
+    const isRetryableTab =
       hist.type === "fairytale-scene" ||
       hist.type === "video" ||
       hist.type === "auto-content" ||
@@ -869,6 +890,13 @@ export async function settleHistoryRow(hist: HistoryRow): Promise<SettleResult> 
       hist.tab === "auto" ||
       hist.tab === "cinema" ||
       hist.tab === "seedance";
+    // Error-level eligibility: only internal-server-class failures
+    // ("Internal Error", 5xx, "Unknown error. Please contact support",
+    // etc.) trigger retry. Content moderation, audio-gen failures,
+    // rate-limits, validator errors, etc. are permanent failures from
+    // the cascade's POV — re-firing the same row won't help. Per user
+    // direction: "all the logic resubmit is...only for internal error".
+    const isAutoRetryable = isRetryableTab && isInternalError(errMsg);
     if (isAutoRetryable) {
       const retried = await tryAutoRetry(admin, hist, errMsg);
       if (retried) {
@@ -876,7 +904,6 @@ export async function settleHistoryRow(hist: HistoryRow): Promise<SettleResult> 
           `[settle] row ${hist.id} (${hist.tab}/${hist.type}) auto-retried on fallback slot after failure: ${errMsg.slice(0, 120)}`
         );
         // Row is back in pending — the next poll cycle will settle it.
-        // Don't mark failed yet.
         return { state: "pending", p2Status: "pending" };
       }
       console.warn(
@@ -884,16 +911,6 @@ export async function settleHistoryRow(hist: HistoryRow): Promise<SettleResult> 
       );
     }
 
-    // No auto-retry / cascade-fallback inside settle for non-storytelling
-    // rows. Polling (cron, webhook, manual refresh icon) ONLY checks
-    // task status and flips the row to done or failed. The user clicks
-    // the Resubmit button on a failed row to fire a fresh cascade
-    // attempt (which rotates to a different slot via skipSlot in
-    // retry route).
-    await admin
-      .from("history")
-      .update({ status: "failed", error_message: errMsg })
-      .eq("id", hist.id);
     return { state: "settled", status: "failed", error: r.error };
   }
 
