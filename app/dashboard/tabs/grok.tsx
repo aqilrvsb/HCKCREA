@@ -74,7 +74,19 @@ export default function GrokTab({ projectId }: { projectId?: string } = {}) {
     setStatus("submitting");
     try {
       const sourceUrls = imageMode === "image" ? filledRefs : [];
-      const pubUrls = await Promise.all(sourceUrls.map((u) => ensurePublicUrl(u)));
+      const rawPubUrls = await Promise.all(sourceUrls.map((u) => ensurePublicUrl(u)));
+      // GROK-SPECIFIC RULE per user direction: never send a single
+      // image URL to Grok. When the user uploaded only ONE reference,
+      // duplicate it so Grok receives [url, url] instead of [url].
+      // Empirically Grok's i2v model treats a single ref as ambiguous
+      // (sometimes ignores it, sometimes treats as start-only) — a
+      // duplicate pair forces it to anchor the same image as both
+      // start and end frame, giving a much more stable output.
+      // 2-7 picked refs are sent as-is.
+      const pubUrls =
+        rawPubUrls.length === 1
+          ? [rawPubUrls[0], rawPubUrls[0]]
+          : rawPubUrls;
       const r = await fetch("/api/generate/cinema", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
