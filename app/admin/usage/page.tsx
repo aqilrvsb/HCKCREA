@@ -52,6 +52,10 @@ export default function AdminUsage() {
   // widen if they want. Avoid Date.toISOString here (off-by-one to UTC).
   const [start, setStart] = useState(localDateStr());
   const [end, setEnd] = useState(localDateStr());
+  // Media filter — limit Detail Log + Summary to image-only or video-only
+  // rows. "all" shows everything. Logic mirrors the cell isImg/isVid
+  // detection so the filter agrees with what the rows render as.
+  const [mediaFilter, setMediaFilter] = useState<"all" | "image" | "video">("all");
   const [search, setSearch] = useState("");
 
   useEffect(() => {
@@ -83,14 +87,30 @@ export default function AdminUsage() {
     );
   }, [rows, search]);
 
-  // Only image + video count for usage stats (auto_plan / clone_plan / signup_bonus excluded)
+  // Only image + video count for usage stats (auto_plan / clone_plan /
+  // signup_bonus excluded). Then narrow further by mediaFilter so admin
+  // can isolate just image-gen or just video-gen rows.
   const generationRows = useMemo(
-    () =>
-      filtered.filter(
+    () => {
+      const base = filtered.filter(
         (r) =>
           r.reason.startsWith("image") || r.reason.startsWith("video")
-      ),
-    [filtered]
+      );
+      if (mediaFilter === "all") return base;
+      return base.filter((r) => {
+        // Match the cell logic — type='image' is authoritative.
+        const isImg = r.type === "image";
+        if (mediaFilter === "image") return isImg;
+        // mediaFilter === "video"
+        return !isImg && (
+          r.type === "video" ||
+          r.type === "auto-content" ||
+          r.type === "clone" ||
+          r.tab === "cinema"
+        );
+      });
+    },
+    [filtered, mediaFilter]
   );
 
   const summary = useMemo<SummaryRow[]>(() => {
@@ -257,8 +277,8 @@ export default function AdminUsage() {
           </div>
         </div>
 
-        {/* Quick presets */}
-        <div className="flex gap-2 mt-4">
+        {/* Quick presets + media filter dropdown */}
+        <div className="flex gap-2 mt-4 items-center flex-wrap">
           {[
             { label: "Today", days: 0 },
             { label: "Yesterday", days: -2 }, // sentinel: special handling below
@@ -303,6 +323,29 @@ export default function AdminUsage() {
               {p.label}
             </button>
           ))}
+
+          {/* Media filter — narrow rows to images-only or videos-only.
+              Sits next to the date presets so admin can stack filters
+              (e.g. "Today + only Images" or "7d + only Videos"). */}
+          <div className="ml-2 flex items-center gap-1.5">
+            <span className="text-[10px] font-mono uppercase tracking-widest text-[var(--color-text-muted)] font-bold">
+              Media
+            </span>
+            <select
+              value={mediaFilter}
+              onChange={(e) => setMediaFilter(e.target.value as any)}
+              className="px-2.5 py-1.5 rounded-lg text-xs font-bold cursor-pointer outline-none"
+              style={{
+                background: "var(--color-bg)",
+                border: "1px solid var(--color-border)",
+                color: "var(--color-text-primary)",
+              }}
+            >
+              <option value="all">All</option>
+              <option value="image">Images only</option>
+              <option value="video">Videos only</option>
+            </select>
+          </div>
         </div>
       </div>
 
@@ -899,11 +942,17 @@ function PreviewModal({
     };
   }, [onClose]);
 
+  // type='image' wins over tab='cinema' — fixes Viral Talking Object
+  // source-image rows (type='image', tab='cinema') from opening in a
+  // video player. Matches the table cell's isImg/isVid order.
+  const isImg = row.type === "image";
   const isVid =
-    row.type === "video" ||
-    row.type === "auto-content" ||
-    row.type === "clone" ||
-    row.tab === "cinema";
+    !isImg && (
+      row.type === "video" ||
+      row.type === "auto-content" ||
+      row.type === "clone" ||
+      row.tab === "cinema"
+    );
 
   return (
     <div
