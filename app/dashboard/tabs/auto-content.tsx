@@ -89,16 +89,25 @@ export default function AutoContentTab({ projectId }: { projectId?: string } = {
   // Provider — Veo 3.1 (default) or Grok. Veo keeps the 8/16 duration
   // semantics; Grok exposes a 6-30s per-second slider instead. Both
   // share the master plan; only the dialog word-count target differs.
+  // Provider state — "grok" key is preserved internally to avoid a wide
+  // backend refactor (auto-content route has many providerChoice="grok"
+  // branches). UI relabels it as "⚡ Sora 2" per user direction (Grok
+  // server unstable, Sora 2 is the replacement). When the user picks
+  // "Sora 2", we still set state to "grok" but the backend body sends
+  // model: "sora2" instead of "grok" so it routes through APIPod's
+  // sora-2-vip endpoint (via lib/p6.ts apipodVideoModel detection).
   const [provider, setProvider] = useState<"veo" | "grok">("veo");
   const [duration, setDuration] = useState<"8" | "16">("8");
-  // Grok per-second duration (6-30). Default 8 so existing-user muscle
-  // memory carries over when they flip provider.
-  const [grokDuration, setGrokDuration] = useState<number>(8);
-  // Live rate_grok for cost preview. Pulled once on mount.
+  // Sora 2 duration (4 / 8 / 12 only per APIPod spec). Default 4 (shortest
+  // / cheapest). Internal state name kept as grokDuration for backward
+  // compat with backend providerChoice='grok' branches.
+  const [grokDuration, setGrokDuration] = useState<number>(4);
+  // Live rate_sora2 for cost preview. /api/sora2/rate falls back to
+  // cinema_rate × 2 when no dedicated sora2_rate is configured.
   const [grokRate, setGrokRate] = useState<number | null>(null);
   useEffect(() => {
     let alive = true;
-    fetch("/api/grok/rate", { cache: "no-store" })
+    fetch("/api/sora2/rate", { cache: "no-store" })
       .then((r) => r.json())
       .then((d) => {
         if (alive && typeof d?.rate === "number") setGrokRate(d.rate);
@@ -1034,25 +1043,22 @@ export default function AutoContentTab({ projectId }: { projectId?: string } = {
           </div>
         </div>
 
-        {/* Provider picker hidden per user direction — Auto Content is
-            now Veo-only. Grok branch kept in the file (and below) so
-            re-enabling is a 1-line UI toggle. Submit always sends
-            provider='veo' as a result. */}
-        {false && (
-          <>
-            <label className="block text-xs font-mono uppercase tracking-widest text-[var(--color-text-muted)] font-bold mb-2">
-              Provider
-            </label>
-            <div className="flex gap-2 mb-3">
-              <DurationBtn active={provider === "veo"} onClick={() => setProvider("veo")}>
-                🎬 Veo 3.1
-              </DurationBtn>
-              <DurationBtn active={provider === "grok"} onClick={() => setProvider("grok")}>
-                ⚡ Grok
-              </DurationBtn>
-            </div>
-          </>
-        )}
+        {/* Provider picker — Veo 3.1 (Google) or Sora 2 (OpenAI). The
+            "grok" state key is preserved internally for backward compat
+            with the auto-content backend's many providerChoice='grok'
+            branches; UI relabels it as Sora 2 and the submit body sends
+            model: "sora2" so p6.ts routes it to sora-2-vip. */}
+        <label className="block text-xs font-mono uppercase tracking-widest text-[var(--color-text-muted)] font-bold mb-2">
+          Provider
+        </label>
+        <div className="flex gap-2 mb-3">
+          <DurationBtn active={provider === "veo"} onClick={() => setProvider("veo")}>
+            🎬 Veo 3.1
+          </DurationBtn>
+          <DurationBtn active={provider === "grok"} onClick={() => setProvider("grok")}>
+            ⚡ Sora 2
+          </DurationBtn>
+        </div>
 
         {provider === "veo" && (
           <div className="flex gap-2 mb-3">
@@ -1064,7 +1070,7 @@ export default function AutoContentTab({ projectId }: { projectId?: string } = {
           </div>
         )}
 
-        {false && provider === "grok" && (
+        {provider === "grok" && (
           <div className="mb-3">
             <div className="flex items-center justify-between mb-2">
               <label className="text-xs font-mono uppercase tracking-widest text-[var(--color-text-muted)] font-bold">
@@ -1076,18 +1082,27 @@ export default function AutoContentTab({ projectId }: { projectId?: string } = {
                 </span>
               )}
             </div>
-            <input
-              type="range"
-              min={8}
-              max={30}
-              step={1}
-              value={grokDuration}
-              onChange={(e) => setGrokDuration(Number(e.target.value))}
-              className="w-full"
-              style={{ accentColor: "var(--color-orange)" }}
-            />
+            {/* Sora 2 supports only 4 / 8 / 12s per APIPod spec — show
+                as button group instead of slider so users can't pick
+                invalid durations. grokDuration state name preserved
+                for backward compat with backend wiring. */}
+            <div className="flex gap-2 mb-1">
+              {([4, 8, 12] as const).map((d) => {
+                const active = grokDuration === d;
+                return (
+                  <DurationBtn
+                    key={d}
+                    active={active}
+                    onClick={() => setGrokDuration(d)}
+                  >
+                    {d}s
+                  </DurationBtn>
+                );
+              })}
+            </div>
             <p className="text-[10px] text-[var(--color-text-muted)] mt-1">
-              Per-second billing · 720p · single shot · dialog scales to {grokDuration}s.
+              Sora 2 (OpenAI) · 4 / 8 / 12s · 9:16 or 16:9 only · more
+              stable than Grok but higher per-clip cost.
             </p>
           </div>
         )}

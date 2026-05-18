@@ -72,11 +72,16 @@ export async function POST(req: Request) {
   // muscle memory. When "grok", we ignore the 8/16 button and use
   // grok_duration (8-30s) as a per-second value instead.
   const providerChoice: "veo" | "grok" = body?.provider === "grok" ? "grok" : "veo";
+  // Duration validation — providerChoice='grok' now routes to Sora 2,
+  // which has a strict 4/8/12 enum (vs old Grok's 8-30 slider). Clamp
+  // the incoming value to the closest valid Sora 2 duration. Field name
+  // 'grok_duration' kept for backward compat with existing batch state.
   const grokDurationRaw = Number(body?.grok_duration);
   const grokDuration =
-    Number.isFinite(grokDurationRaw) && grokDurationRaw >= 8 && grokDurationRaw <= 30
-      ? Math.round(grokDurationRaw)
-      : 8;
+    grokDurationRaw === 4 ? 4
+    : grokDurationRaw === 8 ? 8
+    : grokDurationRaw === 12 ? 12
+    : 4;
   // Effective duration in seconds — drives cost + master plan dialog
   // word-count target. Veo: 8 or 16. Grok: 8-30 per slider.
   const effectiveSec =
@@ -2029,13 +2034,16 @@ CRITICAL OUTPUT RULES:
       const refImages = imagesForVideo(idx);
       const refImage = refImages[0] || "";
       const useIngredient = refImages.length > 0;
-      // Grok uses a generic "grok-imagine" model string — p6CreateVideo's
-      // apipodVideoModel detects the "grok" keyword and emits
-      // grok-imagine-t2v / -i2v based on ref presence. No t2v/r2v split
-      // at this layer.
+      // providerChoice='grok' now routes to Sora 2 (model='sora2'). The
+      // UI relabels the Grok button as "⚡ Sora 2" but keeps the internal
+      // state key as "grok" to avoid a wide backend refactor — every
+      // existing providerChoice='grok' branch stays in place; only the
+      // MODEL STRING sent to the cascade changes from 'grok-imagine'
+      // → 'sora2'. lib/p6.ts apipodVideoModel detects 'sora' keyword and
+      // emits 'sora-2-vip' as the API model id.
       const model =
         providerChoice === "grok"
-          ? "grok-imagine"
+          ? "sora2"
           : useIngredient
             ? cfg.videoR2V
             : cfg.videoT2V;

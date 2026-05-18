@@ -62,6 +62,7 @@ export default function AdminSettings() {
   const [rateVeo8, setRateVeo8] = useState("");
   const [rateVeo16, setRateVeo16] = useState("");
   const [rateGrok, setRateGrok] = useState("");
+  const [rateSora2, setRateSora2] = useState("");
   const [rateSeedance, setRateSeedance] = useState("");
   const [savingRates, setSavingRates] = useState(false);
   const [ratesMsg, setRatesMsg] = useState<string | null>(null);
@@ -201,6 +202,7 @@ export default function AdminSettings() {
           setRateVeo16(fmt(row.value?.per_video_16s));
         }
         if (row.key === "rate_grok") setRateGrok(fmt(row.value?.per_second));
+        if (row.key === "sora2_rate") setRateSora2(fmt(row.value?.rate));
         if (row.key === "rate_seedance") setRateSeedance(fmt(row.value?.per_second));
         if (row.key === "fairytale_image_model") {
           setStorytellingModel(String(row.value?.model || ""));
@@ -438,6 +440,14 @@ export default function AdminSettings() {
           body: JSON.stringify({
             key: "rate_grok",
             value: { per_second: num(rateGrok, 0.10) },
+          }),
+        }),
+        fetch("/api/admin/settings", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            key: "sora2_rate",
+            value: { rate: num(rateSora2, 0.20) },
           }),
         }),
         fetch("/api/admin/settings", {
@@ -773,6 +783,8 @@ export default function AdminSettings() {
     "rate_seedance",
     "seedance_rate",
     "cinema_rate_per_sec",
+    // Sora 2 rate — exposed via the dedicated "Model Pricing" card above.
+    "sora2_rate",
     // Both pricing keys below are noise in the admin UI — credit_topup_price
     // is an unused orphan (only seeded in 0001_init, no code reads it),
     // and credit_costs is consumed only as a fallback for auto_plan /
@@ -1189,6 +1201,27 @@ export default function AdminSettings() {
                 onChange={(e) => setRateGrok(e.target.value)}
                 className="input !pl-10"
                 placeholder="0.10"
+              />
+            </div>
+          </div>
+          {/* Sora 2 (OpenAI via APIPod) — per-second rate. Used by:
+              standalone Sora 2 tab + Auto Content when Sora 2 picker
+              selected. Defaults to 0.20/sec (~2x Grok rate per APIPod
+              docs: "more stable but higher unit price"). */}
+          <div>
+            <label className="block text-xs font-mono uppercase tracking-wider text-[var(--color-text-muted)] font-bold mb-1.5 flex items-center gap-1.5">
+              <Film className="w-3.5 h-3.5" /> Sora 2 <span className="text-[10px] font-normal text-[var(--color-text-muted)]">(OpenAI) / second</span>
+            </label>
+            <div className="relative">
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs font-bold text-[var(--color-text-muted)]">RM</span>
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                value={rateSora2}
+                onChange={(e) => setRateSora2(e.target.value)}
+                className="input !pl-10"
+                placeholder="0.20"
               />
             </div>
           </div>
