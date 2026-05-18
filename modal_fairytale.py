@@ -584,8 +584,150 @@ def _render_scene(
     return out_path
 
 
+# Maps the wizard's transition names to ffmpeg xfade types. Anything
+# not listed falls back to "fade" which is the safest default.
+_XFADE_MAP = {
+    "fade":         "fade",
+    "slide-left":   "slideleft",
+    "slide-right":  "slideright",
+    "slide-up":     "slideup",
+    "slide-down":   "slidedown",
+    "wipe-left":    "wipeleft",
+    "wipe-right":   "wiperight",
+    "wipe-up":      "wipeup",
+    "wipe-down":    "wipedown",
+    "circle-open":  "circleopen",
+    "circle-close": "circleclose",
+    "dissolve":     "dissolve",
+    "radial":       "radial",
+    "none":         "fade",  # treat 'no transition' as instant fade (0.05s)
+}
+
+
+def _xfade_merge(
+    scene_paths: list,
+    transitions: list,
+    xfade_dur: float,
+    out_path: Path,
+) -> Path:
+    """Single-pass merge: stitches all scene clips with xfade transitions
+    in ONE ffmpeg invocation — no per-scene "concat boundary" abrupt cuts.
+
+    Why this replaces _concat_scenes for multi-scene cases:
+      • The previous concat (even with stream copy) hard-cut from scene N
+        to scene N+1. Visually: the Ken Burns zoom on scene N ends at
+        scale=1.18, then scene N+1 instantly starts at scale=1.0 — the
+        camera appears to "jump back" at every boundary. That's what
+        the user reported as "laggy".
+      • xfade chains the clips with a configurable crossfade window
+        (typically 0.5s). During the fade, scene N's final zoom blends
+        into scene N+1's initial state — eye sees a smooth transition
+        instead of a snap-back.
+      • acrossfade does the same for audio so the narration crossfades
+        gently instead of an abrupt cut.
+
+    `transitions[i]` is applied between clip i and clip i+1, so
+    `len(transitions) == len(scene_paths) - 1`. Any transition name not
+    in _XFADE_MAP falls back to plain "fade".
+
+    Single-scene case is handled by the caller (just rename the lone
+    clip — no transition needed).
+    """
+    n = len(scene_paths)
+    if n < 2:
+        raise ValueError("_xfade_merge requires at least 2 clips")
+    if len(transitions) < n - 1:
+        # Pad missing transitions with "fade" so we never index out of range
+        transitions = list(transitions) + ["fade"] * (n - 1 - len(transitions))
+
+    # ffprobe each clip to get its actual duration. The per-frame xfade
+    # `offset` parameter needs the cumulative duration up to clip i so
+    # the transition window starts in the right place. Cheaper than
+    # computing from audio durations because the clip's container
+    # already encodes the final length.
+    durations = [_ffprobe_duration(p) for p in scene_paths]
+
+    # Build the inputs flat list: -i clip0 -i clip1 ... -i clipN-1
+    inputs_args: list = []
+    for p in scene_paths:
+        inputs_args.extend(["-i", str(p)])
+
+    # Build filter_complex:
+    #   • Video chain: [0:v][1:v]xfade=t=...:d=X:o=O[vx1];
+    #                  [vx1][2:v]xfade=t=...:d=X:o=O'[vx2]; ...
+    #   • Audio chain: [0:a][1:a]acrossfade=d=X[ax1];
+    #                  [ax1][2:a]acrossfade=d=X[ax2]; ...
+    # `offset` for xfade is the timestamp (in the OUTPUT timeline) when
+    # the transition starts. Cumulative duration grows by
+    # (durations[i] - xfade_dur) each step because each xfade overlaps
+    # the prior clip by xfade_dur seconds.
+    parts: list = []
+    # Video
+    prev_v = "[0:v]"
+    cumulative = durations[0]
+    for i in range(1, n):
+        xname = _XFADE_MAP.get(transitions[i - 1], "fade")
+        offset = max(0.0, cumulative - xfade_dur)
+        new_label = f"[vx{i}]"
+        parts.append(
+            f"{prev_v}[{i}:v]xfade="
+            f"transition={xname}:duration={xfade_dur}:offset={offset:.3f}"
+            f"{new_label}"
+        )
+        prev_v = new_label
+        cumulative += durations[i] - xfade_dur
+    final_v = prev_v
+
+    # Audio — acrossfade between each consecutive pair. c1/c2=tri gives
+    # a triangular fade curve which sounds natural for spoken narration.
+    prev_a = "[0:a]"
+    for i in range(1, n):
+        new_label = f"[ax{i}]"
+        parts.append(
+            f"{prev_a}[{i}:a]acrossfade="
+            f"d={xfade_dur}:c1=tri:c2=tri"
+            f"{new_label}"
+        )
+        prev_a = new_label
+    final_a = prev_a
+
+    filter_complex = ";".join(parts)
+
+    cmd = [
+        "ffmpeg", "-y",
+        *inputs_args,
+        "-filter_complex", filter_complex,
+        "-map", final_v,
+        "-map", final_a,
+        # Re-encode the final stitched stream. We can't stream-copy here
+        # because xfade fundamentally requires decode + blend + encode at
+        # every transition boundary. CRF 23 keeps quality high; ultrafast
+        # preset keeps render time reasonable.
+        "-c:v", "libx264", "-preset", "ultrafast", "-crf", "23",
+        "-pix_fmt", "yuv420p",
+        "-c:a", "aac", "-b:a", "128k",
+        "-movflags", "+faststart",
+        str(out_path),
+    ]
+    res = subprocess.run(cmd, capture_output=True, text=True, errors="replace")
+    if res.returncode != 0:
+        raise RuntimeError(
+            f"ffmpeg xfade merge failed (rc={res.returncode}): "
+            f"{res.stderr[-2500:]}"
+        )
+    if not out_path.exists() or out_path.stat().st_size < 1024:
+        size = out_path.stat().st_size if out_path.exists() else 0
+        raise RuntimeError(
+            f"xfade merge produced empty/tiny output ({size} bytes). "
+            f"stderr tail: {res.stderr[-400:]}"
+        )
+    return out_path
+
+
 def _concat_scenes(scene_paths: list, out_path: Path) -> Path:
-    """Concat scene mp4s with xfade-style crossfade. Uses concat demuxer +
+    """Legacy concat — kept as a fallback. New flow uses _xfade_merge.
+
+    Concat scene mp4s with xfade-style crossfade. Uses concat demuxer +
     optional xfade chain via filter_complex."""
     # Simplest reliable concat: demuxer with re-encode for clean joins.
     listfile = out_path.parent / "concat.txt"
@@ -1045,8 +1187,17 @@ def _render_story_impl(payload: dict) -> dict:
     started = time.time()
     workdir = Path(tempfile.mkdtemp(prefix="fairytale-"))
 
+    # Payload-level transition + xfade duration. Per-scene `transition`
+    # on individual scene objects overrides this. Wizard sends names
+    # like 'fade' / 'slide-left' / 'circle-open' — mapped to ffmpeg's
+    # xfade types in _XFADE_MAP. Xfade duration is the OVERLAP between
+    # consecutive scenes (0.5s gives a noticeable but not sluggish blend).
+    payload_transition = (payload.get("transition") or "fade").strip()
+    xfade_duration = max(0.1, min(2.0, float(payload.get("xfade_duration") or 0.5)))
+
     try:
         scene_clips: list = []
+        scene_transitions: list = []  # transition between clip i and clip i+1
         for idx, scene in enumerate(scenes):
             image_url = scene.get("image_url") or ""
             narration = (scene.get("narration") or "").strip()
@@ -1082,6 +1233,12 @@ def _render_story_impl(payload: dict) -> dict:
                 min_duration=scene_duration,
             )
             scene_clips.append(clip_path)
+            # Per-scene transition override — scene i's `transition`
+            # determines the xfade type entering scene i+1. We collect
+            # all of them but only the first n-1 are used (last scene
+            # has no "next" transition).
+            scene_transition = (scene.get("transition") or payload_transition or "fade").strip()
+            scene_transitions.append(scene_transition)
 
         if not scene_clips:
             _update_history(
@@ -1090,11 +1247,17 @@ def _render_story_impl(payload: dict) -> dict:
             )
             return {"ok": False, "error": "no valid scenes"}
 
+        # SINGLE-PASS xfade merge: one ffmpeg invocation handles all
+        # scene-to-scene transitions in one filter_complex. No more
+        # per-scene "hard cut + zoom snap-back" boundary the user saw
+        # as laggy. transitions[i] is applied between clip i and i+1
+        # (so we only need n-1 of them; trim the trailing entry).
         concat_path = workdir / "story_concat.mp4"
         if len(scene_clips) == 1:
             scene_clips[0].rename(concat_path)
         else:
-            _concat_scenes(scene_clips, concat_path)
+            transitions_between = scene_transitions[: len(scene_clips) - 1]
+            _xfade_merge(scene_clips, transitions_between, xfade_duration, concat_path)
 
         # Background music mix step. If a music URL was provided AND the
         # url is reachable, download the track and amix it under the
