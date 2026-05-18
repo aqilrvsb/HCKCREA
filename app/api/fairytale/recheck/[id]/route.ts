@@ -89,6 +89,97 @@ export async function POST(
     });
   }
 
+  // ─── PATH 1: ask Modal directly via the new check_render endpoint ───
+  //
+  // If the row was created via the new start_render flow, its metadata
+  // carries a modal_call_id. Modal can tell us authoritatively whether
+  // the function call is queued/running/done/failed/expired — no more
+  // guessing via "is the file on B2" + age heuristics.
+  //
+  // This is the path Vercel uses going forward; legacy rows (no
+  // modal_call_id) still fall through to the B2 HEAD path below.
+  const meta = (row.metadata as Record<string, any>) || {};
+  const callId: string | undefined = meta.modal_call_id;
+  const modalEndpoint = process.env.MODAL_FAIRYTALE_ENDPOINT || "";
+  const checkRenderEndpoint = modalEndpoint.replace(
+    /-render-story\.modal\.run/,
+    "-check-render.modal.run"
+  );
+  if (callId && checkRenderEndpoint && checkRenderEndpoint !== modalEndpoint) {
+    try {
+      const r = await fetch(checkRenderEndpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ call_id: callId }),
+      });
+      const j: any = await r.json().catch(() => null);
+      if (j?.ok) {
+        const modalStatus: string = String(j.status || "unknown");
+        if (modalStatus === "queued" || modalStatus === "running") {
+          return NextResponse.json({
+            ok: false,
+            found: false,
+            reason: "still_rendering",
+            message:
+              `Modal says: ${modalStatus}. The render is still in progress — ` +
+              `the card will auto-update when it finishes. Please wait.`,
+            modal_status: modalStatus,
+            call_id: callId,
+          });
+        }
+        if (modalStatus === "done") {
+          // Modal completed. The impl writes status='done' + output_url
+          // to the row directly, but SWR poll might not have refreshed
+          // yet — re-read the row to surface the current state.
+          const { data: fresh } = await admin
+            .from("history")
+            .select("status, output_url")
+            .eq("id", row.id)
+            .maybeSingle();
+          return NextResponse.json({
+            ok: true,
+            recovered: fresh?.status === "done",
+            output_url: fresh?.output_url || j.output_url || null,
+            modal_status: "done",
+            message:
+              fresh?.status === "done"
+                ? "Modal finished — video is ready."
+                : "Modal finished — refreshing the row now, please wait a moment.",
+          });
+        }
+        if (modalStatus === "failed") {
+          return NextResponse.json({
+            ok: false,
+            found: false,
+            reason: "modal_failed",
+            message:
+              `Modal render failed: ${j.error || "unknown error"}. ` +
+              `Delete this row and click Merge again.`,
+            modal_status: "failed",
+            modal_error: j.error,
+          });
+        }
+        if (modalStatus === "expired") {
+          // Modal's output retention expired — fall through to the B2
+          // HEAD path so we can still recover the file if it was
+          // uploaded before retention lapsed.
+          // (no early return)
+        }
+      }
+      // Modal check returned !ok or an unknown shape — fall through to
+      // B2 HEAD as a safety net. We don't surface the Modal error here
+      // because the B2 path may still recover the row.
+    } catch (e: any) {
+      // Network error reaching Modal — fall through to B2 HEAD.
+      console.warn(`[recheck] check_render unreachable for ${row.id}: ${e?.message}`);
+    }
+  }
+
+  // ─── PATH 2 (fallback): HEAD B2 for the expected key ───
+  // For legacy rows (no modal_call_id) OR when check_render is
+  // unreachable / returns expired. Same logic as before — file present
+  // = recover the row, file absent + recent = "still rendering", file
+  // absent + old = real failure.
   // Expected key follows the Modal convention: users/{user_id}/fairytale/{id}.mp4
   const key = `users/${row.user_id}/fairytale/${row.id}.mp4`;
   const client = contentClient();

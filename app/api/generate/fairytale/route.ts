@@ -136,6 +136,14 @@ export async function POST(req: Request) {
       { status: 500 }
     );
   }
+  // New async flow: derive the start_render endpoint URL from the
+  // legacy render_story URL. Modal exposes one URL per @web_endpoint;
+  // the function name maps to the URL slug (underscores → hyphens).
+  // Falls back to the legacy synchronous endpoint if derivation fails.
+  const startRenderEndpoint = modalEndpoint.replace(
+    /-render-story\.modal\.run/,
+    "-start-render.modal.run"
+  );
 
   // Compute storytelling cost from admin-set rates. Same formula the
   // wizard shows in the cost-preview badge:
@@ -208,11 +216,23 @@ export async function POST(req: Request) {
   // user nothing. row.cost stays = totalCost as a "what we'll charge if
   // this succeeds" placeholder (Modal reads it back).
 
-  // Fire Modal in the background — Vercel returns NOW, doesn't wait for the
-  // 30-60s render. Modal updates the row directly via service-role key.
+  // Fire Modal in the background using the ASYNC start_render endpoint.
+  //
+  // start_render does NOT block on the actual render — it spawns the
+  // function call inside Modal and returns within a few hundred ms with
+  // a `call_id`. We stash that call_id on the history row's metadata so
+  // the recheck button (and any future background poller) can ask
+  // Modal directly for the function's status instead of guessing via
+  // B2 HEAD + row-age heuristic.
+  //
+  // Modal's _render_story_impl still writes status='done' + output_url
+  // to the Supabase row when it finishes — SWR poll on the dashboard
+  // picks it up within 15s. The new call_id path is purely additive:
+  // it gives recheck authoritative status without changing the happy
+  // path.
   after(async () => {
     try {
-      const r = await fetch(modalEndpoint, {
+      const r = await fetch(startRenderEndpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -245,19 +265,13 @@ export async function POST(req: Request) {
         }),
       });
 
-      // Modal writes the row itself on success/failure. A non-2xx response
-      // here (commonly 422) usually means Modal's WEB ENDPOINT timed out
-      // waiting for the long render, NOT that the render failed — the
-      // function call continues in the background and Modal flips the row
-      // to status='done' when ffmpeg+upload finish (verified in production:
-      // every "422 from Vercel" run still produced a 200 in Modal Function
-      // Calls and a real MP4 on B2).
-      //
-      // So: don't mark the row failed here. Stamp a soft warning in metadata
-      // for diagnostics, keep status='pending' so the user sees the loading
-      // placeholder (not a misleading red X), and let Modal's callback OR
-      // the recheck button resolve the final state.
       if (!r.ok) {
+        // start_render itself failed (couldn't spawn). Modal didn't even
+        // kick off the render. Stamp a soft warning in metadata but
+        // keep status='pending' so the recheck flow can still attempt
+        // recovery — sometimes Modal's web endpoint hiccups but the
+        // function call DOES start. If the user retries the merge they
+        // get a fresh call_id.
         const txt = await r.text().catch(() => "");
         await admin
           .from("history")
@@ -266,8 +280,37 @@ export async function POST(req: Request) {
               scene_count: scenes.length,
               voice_id: voiceId,
               upload_status: "queued",
-              trigger_warning: `Modal HTTP ${r.status}: ${txt.slice(0, 200)}`,
+              trigger_warning: `start_render HTTP ${r.status}: ${txt.slice(0, 200)}`,
               trigger_warning_at: new Date().toISOString(),
+            },
+          })
+          .eq("id", historyId);
+        return;
+      }
+
+      // Capture the Modal call_id so recheck can query its status
+      // directly. Shape: { ok, call_id, history_id, status: "queued" }
+      const j: any = await r.json().catch(() => ({}));
+      const callId: string | undefined = j?.call_id;
+      if (callId) {
+        await admin
+          .from("history")
+          .update({
+            metadata: {
+              scene_count: scenes.length,
+              scene_duration_sec: sceneDurationSec,
+              voice_id: voiceId,
+              animation,
+              placement,
+              upload_status: "queued",
+              pricing: {
+                per_image: pricing.per_image,
+                per_audio_sec: pricing.per_audio_sec,
+              },
+              // The new authoritative field — recheck/poller read this
+              // and call Modal's check_render endpoint with it.
+              modal_call_id: callId,
+              modal_call_started_at: new Date().toISOString(),
             },
           })
           .eq("id", historyId);

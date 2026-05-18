@@ -980,32 +980,30 @@ def _deduct_storytelling(user_id: str, amount: float, history_id: str) -> None:
     image=image,
     cpu=8.0,
     memory=4096,
-    timeout=300,
+    timeout=600,  # 10 min — covers worst case (15-scene 120fps render)
     # Two secret bundles attached:
     #   fairytale-secrets    — legacy B2_KEY_ID / B2_APP_KEY / B2_BUCKET_PRIVATE
-    #                          (scoped to peninglab-storage; was the only
-    #                          bundle attached before)
-    #   b2-content-secrets   — B2_CONTENT_KEY_ID / B2_CONTENT_APP_KEY /
-    #                          B2_CONTENT_BUCKET / B2_CONTENT_ENDPOINT /
-    #                          B2_CONTENT_REGION  — needed to write the
-    #                          merged Storytelling MP4 to peninglab-content
-    #                          (the same bucket scene images use). Already
-    #                          existed in Modal Secrets but wasn't attached
-    #                          to render_story, so the env vars never
-    #                          appeared inside the container.
+    #   b2-content-secrets   — B2_CONTENT_* for peninglab-content uploads
     secrets=[
         modal.Secret.from_name("fairytale-secrets"),
         modal.Secret.from_name("b2-content-secrets"),
     ],
 )
-@modal.fastapi_endpoint(method="POST")
-def render_story(payload: dict):
-    """
+def _render_story_impl(payload: dict) -> dict:
+    """Internal implementation of the storytelling render.
+
+    Same shape as the original render_story body — kept as a regular
+    @app.function (no web_endpoint) so it can be invoked via .spawn()
+    for async background execution. The synchronous render_story web
+    endpoint below calls this via .remote() for backward compatibility,
+    and the new start_render endpoint calls .spawn() to return a
+    call_id immediately so Vercel never has to wait the full 60-180s.
+
     Payload shape:
     {
       "history_id": "uuid",
       "user_id": "uuid",
-      "voice_id": "moss_audio_60caaba6-4799-11f1-bb39-7aa70590506b",  # MiniMax voice id (Jamal default)
+      "voice_id": "moss_audio_60caaba6-4799-11f1-bb39-7aa70590506b",
       "voice_speed": 1.0,
       "animation": "zoom-in" | "zoom-out" | "pan-left" | "pan-right",
       "placement": "top" | "middle" | "bottom",
@@ -1200,6 +1198,142 @@ def render_story(payload: dict):
             workdir.rmdir()
         except Exception:
             pass
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# Async architecture (replaces the synchronous render_story endpoint)
+# ──────────────────────────────────────────────────────────────────────────
+#
+# Vercel routes flow:
+#   1. /api/generate/fairytale POSTs to /start_render → returns immediately
+#      with {call_id, status: "queued"}. Vercel stores call_id on the row
+#      and the user gets a "pending" placeholder card instantly.
+#   2. /api/fairytale/recheck POSTs to /check_render with {call_id} →
+#      returns Modal's actual function-call status (queued/running/done/
+#      failed/expired). No more guessing via B2 HEAD + age heuristic.
+#   3. _render_story_impl still writes status='done' + output_url to the
+#      Supabase row directly when finished — SWR poll on the dashboard
+#      picks that up within 15s without anyone needing to query Modal.
+#
+# The legacy render_story web endpoint is kept (calls .remote() which
+# blocks) so any unmigrated Vercel deploy keeps working during cutover.
+
+
+@app.function(
+    image=image,
+    secrets=[
+        modal.Secret.from_name("fairytale-secrets"),
+        modal.Secret.from_name("b2-content-secrets"),
+    ],
+)
+@modal.fastapi_endpoint(method="POST")
+def start_render(payload: dict):
+    """Async start: spawn the render and return the call_id immediately.
+
+    Vercel stores the returned call_id on history.metadata.modal_call_id
+    so the recheck button (and any future background poller) can query
+    the exact function call status from Modal — no more B2 HEAD guessing.
+    """
+    history_id = payload.get("history_id")
+    if not history_id:
+        return {"ok": False, "error": "history_id required"}
+    if not payload.get("scenes"):
+        return {"ok": False, "error": "scenes required"}
+    # spawn() returns a FunctionCall handle whose object_id is the call_id
+    # we'll use to query status later. The actual render runs in a
+    # separate container; this endpoint returns within a few hundred ms.
+    call = _render_story_impl.spawn(payload)
+    return {
+        "ok": True,
+        "call_id": call.object_id,
+        "history_id": history_id,
+        "status": "queued",
+    }
+
+
+@app.function(image=image)
+@modal.fastapi_endpoint(method="POST")
+def check_render(payload: dict):
+    """Query a FunctionCall by its call_id and report Modal's actual status.
+
+    States:
+      queued   — spawned but no container assigned yet (rare, <5s window)
+      running  — container running the render right now
+      done     — finished successfully; result dict included
+      failed   — finished with an exception/error
+      expired  — call_id too old; Modal's output retention expired
+
+    Vercel decides what to do with each status. Typically:
+      queued/running → tell user "still rendering"
+      done → row is already updated by the impl (it writes directly);
+             just confirm to the user
+      failed → row is already marked failed by the impl; surface the
+               error message
+      expired → fall back to B2 HEAD as before
+    """
+    call_id = payload.get("call_id")
+    if not call_id:
+        return {"ok": False, "error": "call_id required"}
+    try:
+        call = modal.FunctionCall.from_id(call_id)
+    except Exception as e:
+        return {"ok": False, "error": f"invalid call_id: {e}"}
+    try:
+        # .get(timeout=0) returns instantly:
+        #   - if function finished → returns the result
+        #   - if still running    → raises TimeoutError
+        #   - if expired          → raises OutputExpiredError
+        result = call.get(timeout=0)
+        if isinstance(result, dict):
+            if result.get("ok"):
+                return {
+                    "ok": True,
+                    "status": "done",
+                    "output_url": result.get("output_url"),
+                    "elapsed_sec": result.get("elapsed_sec"),
+                }
+            return {
+                "ok": True,
+                "status": "failed",
+                "error": str(result.get("error") or "unknown error"),
+            }
+        return {"ok": True, "status": "done", "raw": str(result)[:200]}
+    except modal.exception.OutputExpiredError:
+        return {"ok": True, "status": "expired"}
+    except TimeoutError:
+        return {"ok": True, "status": "running"}
+    except Exception as e:
+        # Unknown error — surface so we can debug. NOT marked as failed
+        # because we don't know that for sure; the impl writes the
+        # authoritative status to the row when it finishes.
+        return {
+            "ok": False,
+            "status": "unknown",
+            "error": f"{type(e).__name__}: {e}",
+        }
+
+
+@app.function(
+    image=image,
+    cpu=8.0,
+    memory=4096,
+    timeout=600,
+    secrets=[
+        modal.Secret.from_name("fairytale-secrets"),
+        modal.Secret.from_name("b2-content-secrets"),
+    ],
+)
+@modal.fastapi_endpoint(method="POST")
+def render_story(payload: dict):
+    """Legacy synchronous endpoint — kept for backward compat.
+
+    Old Vercel deployments POST here and block. New deployments use
+    start_render + check_render instead. This wrapper just calls the
+    impl in the same container so behavior is identical to before the
+    refactor. Once all Vercel routes are on the new flow this can be
+    removed.
+    """
+    return _render_story_impl.local(payload)
 
 
 # Local dev: `modal serve modal_fairytale.py` to test endpoint without deploy.
