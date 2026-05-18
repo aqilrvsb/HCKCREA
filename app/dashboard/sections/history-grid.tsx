@@ -1411,6 +1411,26 @@ function HistoryCardInner({
             >
               <RefreshCw className={`w-3.5 h-3.5 ${checking ? "animate-spin" : ""}`} />
             </button>
+            {/* Delete icon during pending state — per user direction:
+                "all history tab..add icon delete also when loading".
+                Lets users cancel/discard a stuck or unwanted generation
+                without waiting for it to finish or fail first. handleDelete
+                soft-deletes the row (same path as the done/failed Trash
+                button) — no charge if the upstream task never settles. */}
+            <button
+              onClick={handleDelete}
+              disabled={deleting}
+              title="Delete this generation"
+              className="absolute top-2 right-11 w-7 h-7 rounded-full flex items-center justify-center disabled:opacity-50 transition"
+              style={{
+                background: "rgba(20,20,20,0.85)",
+                border: "1px solid rgba(239,68,68,0.4)",
+                backdropFilter: "blur(8px)",
+                color: "#ef4444",
+              }}
+            >
+              <Trash2 className={`w-3.5 h-3.5 ${deleting ? "animate-pulse" : ""}`} strokeWidth={2.4} />
+            </button>
           </>
         )}
         {item.status === "failed" && (
