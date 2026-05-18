@@ -539,39 +539,27 @@ def _concat_scenes(scene_paths: list, out_path: Path) -> Path:
 def _b2_content_config() -> tuple[str, str, str, str, str]:
     """Resolve B2 config for the peninglab-content (public CDN) bucket.
 
-    MIRRORS lib/b2.ts → uploadBufferToContent EXACTLY. Scene image
-    uploads already use this code path successfully, so by routing
-    the merged Storytelling MP4 through the same env vars + bucket
-    we get:
-      • the same public S3 URL shape (https://peninglab-content.{ep}/{key})
-        the rest of the system already understands
+    Same bucket scene images already upload to via Vercel's
+    lib/b2.ts → uploadBufferToContent. The merged Storytelling MP4
+    now goes to the same place so:
+      • the URL shape (https://peninglab-content.{ep}/{key}) matches
+        scene images — rest of the system already understands it
       • the 30-day immutable browser cache via cache-control header
-      • the 30-day B2 lifecycle rule auto-expiring unsaved files
-      • the same content-scoped credentials (safer if leaked since
-        they only have peninglab-content write access)
+      • the 30-day B2 lifecycle rule auto-expires unsaved files
 
-    Falls back to the legacy B2_KEY_ID / B2_APP_KEY / B2_BUCKET_PRIVATE
-    triple when the B2_CONTENT_* vars aren't set on Modal, so existing
-    deployments that haven't pushed the new Modal Secrets keep working.
+    Bucket is HARDCODED to peninglab-content (no env-var fallback to
+    the private bucket) so this can't silently regress to writing to
+    peninglab-storage. Credentials reuse Modal's existing B2_KEY_ID /
+    B2_APP_KEY — these are a B2 master key with write access to all
+    buckets in the account, so no new Modal Secrets are required.
 
     Returns (endpoint, region, access_key, secret_key, bucket).
     """
-    endpoint = os.environ.get("B2_CONTENT_ENDPOINT") or os.environ["B2_ENDPOINT"]
-    region = (
-        os.environ.get("B2_CONTENT_REGION")
-        or os.environ.get("B2_REGION", "us-east-005")
-    )
-    access_key = (
-        os.environ.get("B2_CONTENT_KEY_ID") or os.environ["B2_KEY_ID"]
-    )
-    secret_key = (
-        os.environ.get("B2_CONTENT_APP_KEY") or os.environ["B2_APP_KEY"]
-    )
-    bucket = (
-        os.environ.get("B2_CONTENT_BUCKET")
-        or os.environ.get("B2_BUCKET_CONTENT")
-        or os.environ["B2_BUCKET_PRIVATE"]
-    )
+    endpoint = os.environ["B2_ENDPOINT"]
+    region = os.environ.get("B2_REGION", "us-east-005")
+    access_key = os.environ["B2_KEY_ID"]
+    secret_key = os.environ["B2_APP_KEY"]
+    bucket = "peninglab-content"
     return endpoint, region, access_key, secret_key, bucket
 
 
