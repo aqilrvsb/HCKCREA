@@ -1,7 +1,7 @@
 import { NextResponse, after } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { p2CreateTask, p2GetStatus } from "@/lib/p2";
+import { p2GetStatus } from "@/lib/p2";
 import { p3CreateImage, p3GetStatus } from "@/lib/p3";
 import { p4GetStatus } from "@/lib/p4";
 import { p5GetStatus } from "@/lib/p5";
@@ -270,8 +270,12 @@ export async function POST(req: Request) {
         return;
       }
 
-      const veoCreate = await p2CreateTask({
-        model: veoModel,
+      // Route through the video cascade (same pool as UGC + Auto Content)
+      // so a P2 outage doesn't kill the t2v path — it'll fall through to
+      // p6/p5/p1 automatically. The i2v path below already cascades; this
+      // brings t2v in line.
+      const veoResult = await generateVideoWithCascade({
+        primaryModel: veoModel,
         userId: user.id,
         prompt: promptPair.video_prompt,
         imageUrls: [],
@@ -279,6 +283,14 @@ export async function POST(req: Request) {
         aspectRatio: "9:16",
         imageMode: "text",
       });
+      const veoCreate: {
+        ok: boolean;
+        task_id?: string;
+        provider?: "p1" | "p2" | "p3" | "p4" | "p5" | "p6";
+        error?: string;
+      } = veoResult.ok
+        ? { ok: true, task_id: veoResult.taskId, provider: veoResult.actualProvider }
+        : { ok: false, error: veoResult.error };
       const veoProvider = veoCreate.provider || "p2";
 
       if (!veoCreate.ok || !veoCreate.task_id) {
@@ -298,6 +310,7 @@ export async function POST(req: Request) {
               character_block: promptPair.character_block,
               model: veoModel,
               provider: veoProvider,
+              tier_log: veoResult.tierLog,
               cinemaProvider: "veo",
               modelChoice: "veo",
               imageMode: "text",
@@ -324,8 +337,14 @@ export async function POST(req: Request) {
             dialog_line: promptPair.dialog_line,
             scene_block: promptPair.scene_block,
             character_block: promptPair.character_block,
-            model: veoModel,
+            model: veoResult.ok ? veoResult.actualModel : veoModel,
             provider: veoProvider,
+            slot: veoResult.ok ? veoResult.actualSlot : undefined,
+            ...(veoResult.ok && veoResult.keyIndex !== undefined
+              ? { p6_key_index: veoResult.keyIndex }
+              : {}),
+            fallback_used: veoResult.ok ? veoResult.fallbackUsed : false,
+            tier_log: veoResult.tierLog,
             cinemaProvider: "veo",
             modelChoice: "veo",
             imageMode: "text",
