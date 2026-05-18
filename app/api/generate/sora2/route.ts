@@ -119,12 +119,40 @@ export async function POST(req: Request) {
         durationMode: String(duration),
       });
 
-      if (!r.ok || !r.task_id) {
+      // Discriminated union — split the narrowing so TS sees r.error
+      // only on the failure branch (where it actually exists) and
+      // r.task_id only on the success branch.
+      if (!r.ok) {
         await admin
           .from("history")
           .update({
             status: "failed",
             error_message: r.error || "APIPod create failed",
+            metadata: {
+              aspectRatio,
+              imageMode,
+              resolution: aspectRatio === "9:16" ? "720x1280" : "1280x720",
+              sora2Provider: "apipod",
+              modelChoice: "sora2",
+              model: "sora-2-vip",
+              featureType: "sora2",
+              slot,
+              image_urls: imageUrl ? [imageUrl] : [],
+              upload_status: "failed",
+            },
+          })
+          .eq("id", historyId);
+        return;
+      }
+      if (!r.task_id) {
+        // Defensive — should never happen since the success branch
+        // always carries a task_id, but guards against future shape
+        // changes in p6CreateVideo.
+        await admin
+          .from("history")
+          .update({
+            status: "failed",
+            error_message: "APIPod returned no task_id",
             metadata: {
               aspectRatio,
               imageMode,
