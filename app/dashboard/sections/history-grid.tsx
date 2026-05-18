@@ -167,7 +167,7 @@ export default function HistoryGrid({
   //   • intermediate scene images (type='fairytale-scene') ← the raw assets
   // Sub-tab toggles which the query returns. Default = "videos" (parity
   // with the old behaviour). Only relevant when tab === "fairytale".
-  const [storytellingSubTab, setStorytellingSubTab] = useState<"videos" | "images">("videos");
+  const [storytellingSubTab, setStorytellingSubTab] = useState<"videos" | "images" | "drafts">("videos");
   // Viral tab sub-tab — Talking Object AI generates BOTH a banana-pro
   // image AND a Veo video; users want to browse them as separate lists,
   // same UX as Storytelling. "videos" = the final mp4s (type=video).
@@ -443,13 +443,23 @@ export default function HistoryGrid({
         </span>
       </div>
 
-      {/* Storytelling has two artifact types worth surfacing — the
-          merged final videos AND the raw scene images that fed into
-          them. Sub-tab toggles between them. */}
+      {/* Storytelling has three artifact types worth surfacing — the
+          merged final videos, the raw scene images that fed into them,
+          AND in-progress drafts (unfinished wizard sessions). Sub-tab
+          toggles between the three. Drafts persist across browser
+          close/device switch; merging a draft does NOT auto-delete it
+          so the user can reopen the same draft to iterate on a new
+          variation. */}
       {tab === "fairytale" && (
-        <div className="flex gap-1 p-1 rounded-xl bg-[var(--color-bg-card)] mb-4 max-w-xs">
-          {(["videos", "images"] as const).map((t) => {
+        <div className="flex gap-1 p-1 rounded-xl bg-[var(--color-bg-card)] mb-4 max-w-md">
+          {(["videos", "images", "drafts"] as const).map((t) => {
             const active = storytellingSubTab === t;
+            const label =
+              t === "videos"
+                ? "🎬 Videos"
+                : t === "images"
+                  ? "🖼️ Images"
+                  : "📝 Drafts";
             return (
               <button
                 key={t}
@@ -466,11 +476,18 @@ export default function HistoryGrid({
                     : { background: "transparent", color: "var(--color-text-muted)" }
                 }
               >
-                {t === "videos" ? "🎬 Videos" : "🖼️ Images"}
+                {label}
               </button>
             );
           })}
         </div>
+      )}
+
+      {/* Drafts pane — only renders when Storytelling tab + drafts
+          sub-tab. Lists unfinished wizard sessions; click a card to
+          fire the resume event the FairytaleTab listens for. */}
+      {tab === "fairytale" && storytellingSubTab === "drafts" && (
+        <StorytellingDraftsPane />
       )}
 
       {/* Viral tab: 2-level selector. Top row picks the sub-feature
@@ -537,7 +554,11 @@ export default function HistoryGrid({
         </>
       )}
 
-      {items.length === 0 ? (
+      {/* Skip the regular history grid when the Storytelling Drafts
+          sub-tab is active — drafts come from fairytale_drafts table
+          (rendered above via StorytellingDraftsPane), not from the
+          history table. */}
+      {tab === "fairytale" && storytellingSubTab === "drafts" ? null : items.length === 0 ? (
         <div className="flex flex-col items-center justify-center text-center py-16">
           <div
             className="w-16 h-16 rounded-2xl flex items-center justify-center mb-4"
@@ -3620,4 +3641,256 @@ function ExtendFrameZone({
       </div>
     </div>
   );
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// Storytelling drafts pane — renders inside the Storytelling history grid
+// when the Drafts sub-tab is active. Lists unfinished wizard sessions
+// (rows from fairytale_drafts) so the user can resume editing.
+//
+// Click a draft → fetches the full state from GET /api/fairytale/drafts/[id]
+// → fires a "storytelling:resume-draft" CustomEvent that the FairytaleTab
+// listens for. FairytaleTab hydrates every wizard field from the state
+// blob and jumps to the saved step. Drafts persist across browser close
+// + device switch; merging a draft does NOT delete it (the user can
+// reopen the same draft to iterate on a new variation).
+// ──────────────────────────────────────────────────────────────────────────
+
+type DraftListItem = {
+  id: string;
+  title: string;
+  step: number;
+  updated_at: string;
+  created_at: string;
+  thumb_url: string | null;
+  scene_count: number;
+};
+
+function StorytellingDraftsPane() {
+  const [drafts, setDrafts] = useState<DraftListItem[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [resumingId, setResumingId] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+
+  async function load() {
+    try {
+      const r = await fetch("/api/fairytale/drafts", { cache: "no-store" });
+      const d = await r.json();
+      if (!r.ok || !d?.ok) {
+        setError(d?.error || `HTTP ${r.status}`);
+        setDrafts([]);
+        return;
+      }
+      setDrafts(d.drafts || []);
+      setError(null);
+    } catch (e: any) {
+      setError(e?.message || "Failed to load drafts");
+      setDrafts([]);
+    }
+  }
+  useEffect(() => {
+    void load();
+  }, []);
+
+  async function resume(d: DraftListItem) {
+    if (resumingId) return;
+    setResumingId(d.id);
+    try {
+      const r = await fetch(`/api/fairytale/drafts/${d.id}`, { cache: "no-store" });
+      const j = await r.json();
+      if (!r.ok || !j?.ok) {
+        alert(`Resume failed: ${j?.error || `HTTP ${r.status}`}`);
+        return;
+      }
+      // Fire the event FairytaleTab listens for. Detail carries the full
+      // draft object (id, step, state) so the tab can hydrate every field.
+      window.dispatchEvent(
+        new CustomEvent("storytelling:resume-draft", { detail: j.draft })
+      );
+      // Scroll to the top so the user sees the wizard restored.
+      try {
+        window.scrollTo({ top: 0, behavior: "smooth" });
+      } catch {}
+    } catch (e: any) {
+      alert(`Resume failed: ${e?.message || "network"}`);
+    } finally {
+      setResumingId(null);
+    }
+  }
+
+  async function deleteDraft(d: DraftListItem) {
+    if (deletingId) return;
+    if (!confirm(`Padam draft "${d.title}"? Tindakan ini tidak boleh undo.`)) return;
+    setDeletingId(d.id);
+    try {
+      const r = await fetch(`/api/fairytale/drafts/${d.id}`, { method: "DELETE" });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok || !j?.ok) {
+        alert(`Delete failed: ${j?.error || `HTTP ${r.status}`}`);
+        return;
+      }
+      setDrafts((prev) => (prev || []).filter((x) => x.id !== d.id));
+    } finally {
+      setDeletingId(null);
+    }
+  }
+
+  if (drafts === null) {
+    return (
+      <div className="flex items-center justify-center py-16">
+        <Loader2 className="w-5 h-5 animate-spin text-[var(--color-text-muted)]" />
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="text-center py-16 text-sm text-red-400">
+        Failed to load drafts: {error}
+      </div>
+    );
+  }
+
+  if (drafts.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center text-center py-16">
+        <div
+          className="w-16 h-16 rounded-2xl flex items-center justify-center mb-4"
+          style={{
+            background: "var(--color-bg-card)",
+            border: "1px solid var(--color-border)",
+          }}
+        >
+          <Copy className="w-7 h-7 text-[var(--color-text-muted)]" />
+        </div>
+        <p className="text-[var(--color-text-secondary)] font-medium mb-1">
+          Tiada draft lagi.
+        </p>
+        <p className="text-sm text-[var(--color-text-muted)] max-w-md">
+          Bila kau click <b>Preview</b> kat Storytelling wizard, kerja kau
+          auto-save jadi draft. Boleh sambung balik dari sini bila-bila masa.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+      {drafts.map((d) => {
+        const isResuming = resumingId === d.id;
+        const isDeleting = deletingId === d.id;
+        const updatedAt = new Date(d.updated_at);
+        const updatedAgo = formatAgo(updatedAt);
+        return (
+          <div
+            key={d.id}
+            className="rounded-xl overflow-hidden border flex flex-col"
+            style={{
+              background: "var(--color-bg-card)",
+              borderColor: "var(--color-border)",
+            }}
+          >
+            <button
+              type="button"
+              onClick={() => resume(d)}
+              disabled={isResuming}
+              className="aspect-[9/16] bg-black relative flex items-center justify-center text-center transition hover:opacity-90 disabled:opacity-50"
+              title="Click to resume editing"
+            >
+              {d.thumb_url ? (
+                <img
+                  src={d.thumb_url}
+                  alt=""
+                  className="w-full h-full object-cover"
+                  referrerPolicy="no-referrer"
+                />
+              ) : (
+                <div className="flex flex-col items-center text-white/50 px-3">
+                  <Copy className="w-8 h-8 mb-2" />
+                  <span className="text-[10px]">No preview</span>
+                </div>
+              )}
+              {isResuming && (
+                <div className="absolute inset-0 flex items-center justify-center bg-black/60">
+                  <Loader2 className="w-6 h-6 animate-spin text-white" />
+                </div>
+              )}
+              {/* DRAFT badge top-left */}
+              <span
+                className="absolute top-1.5 left-1.5 text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded"
+                style={{
+                  background: "rgba(245,158,11,0.92)",
+                  color: "white",
+                }}
+              >
+                📝 Draft
+              </span>
+            </button>
+            <div className="p-2.5 flex flex-col gap-1.5">
+              <div
+                className="text-[11px] font-semibold truncate"
+                style={{ color: "var(--color-text-primary)" }}
+                title={d.title}
+              >
+                {d.title}
+              </div>
+              <div className="text-[10px] text-[var(--color-text-muted)] flex items-center justify-between">
+                <span>{d.scene_count} scene{d.scene_count === 1 ? "" : "s"}</span>
+                <span title={updatedAt.toLocaleString()}>{updatedAgo}</span>
+              </div>
+              <div className="flex gap-1.5 mt-1">
+                <button
+                  type="button"
+                  onClick={() => resume(d)}
+                  disabled={isResuming}
+                  className="flex-1 h-7 rounded-lg text-[9px] font-extrabold uppercase tracking-wider text-white flex items-center justify-center gap-1 disabled:opacity-50"
+                  style={{
+                    background: "linear-gradient(135deg, #a855f7, #c084fc)",
+                  }}
+                >
+                  {isResuming ? (
+                    <Loader2 className="w-3 h-3 animate-spin" />
+                  ) : (
+                    <>
+                      <RotateCw className="w-3 h-3" /> Continue
+                    </>
+                  )}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => deleteDraft(d)}
+                  disabled={isDeleting}
+                  title="Delete draft permanently"
+                  className="w-8 h-7 rounded-lg flex items-center justify-center disabled:opacity-50"
+                  style={{
+                    background: "rgba(239,68,68,0.12)",
+                    border: "1px solid rgba(239,68,68,0.35)",
+                    color: "#fca5a5",
+                  }}
+                >
+                  {isDeleting ? (
+                    <Loader2 className="w-3 h-3 animate-spin" />
+                  ) : (
+                    <Trash2 className="w-3 h-3" />
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function formatAgo(d: Date): string {
+  const sec = Math.floor((Date.now() - d.getTime()) / 1000);
+  if (sec < 60) return "just now";
+  const min = Math.floor(sec / 60);
+  if (min < 60) return `${min}m ago`;
+  const hr = Math.floor(min / 60);
+  if (hr < 24) return `${hr}h ago`;
+  const day = Math.floor(hr / 24);
+  if (day < 7) return `${day}d ago`;
+  return d.toLocaleDateString();
 }

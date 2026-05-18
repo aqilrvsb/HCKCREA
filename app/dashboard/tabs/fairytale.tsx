@@ -406,6 +406,16 @@ export default function FairytaleTab({ projectId }: { projectId?: string } = {})
   // before committing to the full image generation in Step 2.
   const [previewModalOpen, setPreviewModalOpen] = useState(false);
 
+  // Draft tracking — set when the user clicks Preview the first time
+  // (creates a server-side fairytale_drafts row). Subsequent Preview
+  // clicks UPDATE the same draft instead of creating new rows. Persists
+  // across browser close + device switch via the new Drafts sub-tab in
+  // Storytelling history. Drafts are NEVER auto-deleted on merge — the
+  // user can reopen a draft to iterate on a new variation of the same
+  // story.
+  const [currentDraftId, setCurrentDraftId] = useState<string | null>(null);
+  const [draftSaveStatus, setDraftSaveStatus] = useState<"idle" | "saving" | "saved" | "failed">("idle");
+
   // Step 3 state — scenes + config
   const [scenes, setScenes] = useState<Scene[]>([]);
   const [scriptProgress, setScriptProgress] = useState<number>(0);
@@ -489,6 +499,170 @@ export default function FairytaleTab({ projectId }: { projectId?: string } = {})
   const [textColor, setTextColor] = useState("#fde047");
   const [uppercase, setUppercase] = useState(true);
   const [textBackground, setTextBackground] = useState(false);
+
+  // ─── Draft auto-save ──────────────────────────────────────
+  // Snapshot ALL wizard state for resume. Only stable, server-side
+  // references (URLs, IDs) — no File objects, no data: URLs, no
+  // browser-only fields. Anything not captured here CANNOT be restored
+  // on resume; if you add a new wizard field that should survive,
+  // mirror it here.
+  function buildDraftState() {
+    return {
+      step,
+      // Step 1 form
+      prompt,
+      style,
+      tone,
+      language,
+      aspect,
+      sceneCount,
+      secondsPerSlide,
+      visualStyle,
+      // Voice + CTA
+      voiceId,
+      voiceSpeed,
+      enableVoice,
+      ctaMode,
+      ctaText,
+      // Music
+      musicTrackId,
+      voiceVolume,
+      musicVolume,
+      // Animation
+      transition,
+      sceneAnimation,
+      // Text overlay
+      enableText,
+      textAnimation,
+      textPlacement,
+      fontType,
+      textSize,
+      textColor,
+      uppercase,
+      textBackground,
+      // Per-scene state — drop File objects + data URLs (can't restore)
+      scenes: scenes.map((s) => ({
+        idx: s.idx,
+        narration: s.narration,
+        imagePrompt: s.imagePrompt,
+        imageUrl: s.imageUrl,
+        userImageUrl: s.userImageUrl,
+        imageStatus: s.imageStatus,
+        imageHistoryId: s.imageHistoryId,
+        animation: s.animation,
+        transition: s.transition,
+      })),
+      // Audio cache map (scene idx → public mp3 URL). Reusable on
+      // resume so the user doesn't re-pay for TTS.
+      audioCache,
+    };
+  }
+
+  // Persist current wizard state to the backend. Idempotent — same
+  // currentDraftId on retries. Fire-and-forget from the caller's
+  // perspective (we don't block Preview opening on the save).
+  async function saveDraft(opts: { title?: string } = {}) {
+    setDraftSaveStatus("saving");
+    try {
+      const r = await fetch("/api/fairytale/drafts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: currentDraftId,
+          project_id: projectId,
+          title: opts.title || prompt.slice(0, 80) || undefined,
+          step,
+          state: buildDraftState(),
+        }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok || !d?.ok) {
+        console.warn("[storytelling] draft save failed:", d?.error || r.status);
+        setDraftSaveStatus("failed");
+        return;
+      }
+      if (d.id && d.id !== currentDraftId) {
+        setCurrentDraftId(d.id);
+      }
+      setDraftSaveStatus("saved");
+    } catch (e: any) {
+      console.warn("[storytelling] draft save threw:", e?.message);
+      setDraftSaveStatus("failed");
+    }
+  }
+
+  // Listen for resume events fired by the Drafts sub-tab in the
+  // Storytelling history grid. Restores every captured field +
+  // jumps to the saved step.
+  useEffect(() => {
+    function onResume(e: Event) {
+      const draft = (e as CustomEvent).detail;
+      if (!draft || typeof draft !== "object") return;
+      const s = draft.state || {};
+      setCurrentDraftId(draft.id || null);
+      // Step 1
+      if (typeof s.prompt === "string") setPrompt(s.prompt);
+      if (s.style) setStyle(s.style);
+      if (s.tone) setTone(s.tone);
+      if (s.language) setLanguage(s.language);
+      if (s.aspect) setAspect(s.aspect);
+      if (typeof s.sceneCount === "number") setSceneCount(s.sceneCount);
+      if (typeof s.secondsPerSlide === "number") setSecondsPerSlide(s.secondsPerSlide);
+      if (s.visualStyle) setVisualStyle(s.visualStyle);
+      // Voice + CTA
+      if (s.voiceId) setVoiceId(s.voiceId);
+      if (typeof s.voiceSpeed === "number") setVoiceSpeed(s.voiceSpeed);
+      if (typeof s.enableVoice === "boolean") setEnableVoice(s.enableVoice);
+      if (s.ctaMode) setCtaMode(s.ctaMode);
+      if (typeof s.ctaText === "string") setCtaText(s.ctaText);
+      // Music
+      if (s.musicTrackId !== undefined) setMusicTrackId(s.musicTrackId);
+      if (typeof s.voiceVolume === "number") setVoiceVolume(s.voiceVolume);
+      if (typeof s.musicVolume === "number") setMusicVolume(s.musicVolume);
+      // Animation
+      if (s.transition) setTransition(s.transition);
+      if (s.sceneAnimation) setSceneAnimation(s.sceneAnimation);
+      // Text overlay
+      if (typeof s.enableText === "boolean") setEnableText(s.enableText);
+      if (s.textAnimation) setTextAnimation(s.textAnimation);
+      if (s.textPlacement) setTextPlacement(s.textPlacement);
+      if (s.fontType) setFontType(s.fontType);
+      if (typeof s.textSize === "number") setTextSize(s.textSize);
+      if (s.textColor) setTextColor(s.textColor);
+      if (typeof s.uppercase === "boolean") setUppercase(s.uppercase);
+      if (typeof s.textBackground === "boolean") setTextBackground(s.textBackground);
+      // Scenes — restore as-is (File + data URLs are gone by design)
+      if (Array.isArray(s.scenes)) {
+        setScenes(
+          s.scenes.map((sc: any) => ({
+            idx: Number(sc.idx) || 0,
+            narration: String(sc.narration || ""),
+            imagePrompt: String(sc.imagePrompt || ""),
+            imageUrl: sc.imageUrl || undefined,
+            userImageUrl: sc.userImageUrl || undefined,
+            userImageFile: undefined,
+            userImagePreview: undefined,
+            imageStatus: sc.imageStatus || "done",
+            imageHistoryId: sc.imageHistoryId || null,
+            animation: sc.animation || undefined,
+            transition: sc.transition || undefined,
+          }))
+        );
+      }
+      // Audio cache
+      if (s.audioCache && typeof s.audioCache === "object") {
+        setAudioCache(s.audioCache);
+        setAudioCacheStatus("ready");
+      }
+      // Jump to saved step (defaults to Step 2 — Review & Generate —
+      // since most drafts are partway through scene editing)
+      const stepNum = Number(draft.step);
+      if (stepNum === 1 || stepNum === 2) setStep(stepNum as 1 | 2);
+      else setStep(2);
+    }
+    window.addEventListener("storytelling:resume-draft", onResume as EventListener);
+    return () => window.removeEventListener("storytelling:resume-draft", onResume as EventListener);
+  }, []);
 
   // Step 3 → start AI script generation when entering
   async function generateScript() {
@@ -1003,6 +1177,11 @@ export default function FairytaleTab({ projectId }: { projectId?: string } = {})
             setPreviewModalOpen(true);
             // Lazy-trigger script gen on first Preview open
             if (scenes.length === 0 && !scriptLoading) void generateScript();
+            // Save draft snapshot — fire-and-forget so Preview opens
+            // instantly. Server-side upsert keyed on currentDraftId so
+            // subsequent clicks update the same row instead of
+            // littering the DB with copies.
+            void saveDraft();
           }}
         />
       )}
