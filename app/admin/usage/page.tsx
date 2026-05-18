@@ -428,6 +428,9 @@ export default function AdminUsage() {
                   <th className="text-left px-5 py-4">Email</th>
                   <th className="text-left px-5 py-4 w-32">Action</th>
                   <th className="text-center px-5 py-4 w-20">Engine</th>
+                  <th className="text-center px-5 py-4 w-24">Tab</th>
+                  <th className="text-left px-5 py-4 w-32">Framework</th>
+                  <th className="text-left px-5 py-4 w-32">Idea</th>
                   <th className="text-left px-5 py-4">Prompt</th>
                   <th className="text-center px-5 py-4 w-24">Preview</th>
                   <th className="text-right px-5 py-4 w-24">Cost</th>
@@ -437,7 +440,7 @@ export default function AdminUsage() {
                 {generationRows.length === 0 ? (
                   <tr>
                     <td
-                      colSpan={8}
+                      colSpan={11}
                       className="px-4 py-16 text-center text-[var(--color-text-muted)] text-sm"
                     >
                       Tiada usage log.
@@ -528,6 +531,130 @@ export default function AdminUsage() {
                           >
                             {slotLabel}
                           </span>
+                        </td>
+                        <td className="px-5 py-4 text-center">
+                          {(() => {
+                            // Map history.tab + type values to a friendly label
+                            // and a per-tab color. Falls back to "—" / grey
+                            // when both fields are missing (orphan tx after
+                            // user/admin deleted the history row).
+                            const rawTab = String(r.tab || "").toLowerCase();
+                            const rawType = String(r.type || "").toLowerCase();
+                            const TAB_MAP: Record<string, { label: string; bg: string; fg: string; bd: string }> = {
+                              video:     { label: "UGC",        bg: "rgba(34,197,94,0.12)",  fg: "#16a34a", bd: "rgba(34,197,94,0.3)" },
+                              auto:      { label: "AUTO",       bg: "rgba(56,189,248,0.12)", fg: "#0ea5e9", bd: "rgba(56,189,248,0.3)" },
+                              cinema:    { label: "CINEMA",     bg: "rgba(168,85,247,0.12)", fg: "#a855f7", bd: "rgba(168,85,247,0.3)" },
+                              seedance:  { label: "SEEDANCE",   bg: "rgba(244,114,182,0.12)", fg: "#ec4899", bd: "rgba(244,114,182,0.3)" },
+                              clone:     { label: "CLONE",      bg: "rgba(251,146,60,0.12)", fg: "#f97316", bd: "rgba(251,146,60,0.3)" },
+                              image:     { label: "IMAGE",      bg: "rgba(250,204,21,0.12)", fg: "#eab308", bd: "rgba(250,204,21,0.3)" },
+                              fairytale: { label: "STORY",      bg: "rgba(139,92,246,0.12)", fg: "#8b5cf6", bd: "rgba(139,92,246,0.3)" },
+                            };
+                            const TYPE_FALLBACK: Record<string, string> = {
+                              "auto-content":      "auto",
+                              "fairytale-scene":   "fairytale",
+                              "fairytale-hero":    "fairytale",
+                            };
+                            const tabKey = rawTab || TYPE_FALLBACK[rawType] || rawType;
+                            const t = TAB_MAP[tabKey];
+                            if (!t) {
+                              return (
+                                <span className="text-[10px] font-mono text-[var(--color-text-muted)]">
+                                  —
+                                </span>
+                              );
+                            }
+                            return (
+                              <span
+                                className="px-2 py-0.5 rounded text-[10px] font-mono font-bold whitespace-nowrap"
+                                style={{
+                                  background: t.bg,
+                                  color: t.fg,
+                                  border: `1px solid ${t.bd}`,
+                                }}
+                                title={`Generated from ${t.label} tab`}
+                              >
+                                {t.label}
+                              </span>
+                            );
+                          })()}
+                        </td>
+                        {/* Framework — only for Auto Content rows (tab='auto'
+                            or type='auto-content'). Empty dash for everything
+                            else, matching the dash convention used elsewhere. */}
+                        <td className="px-5 py-4">
+                          {(() => {
+                            const isAuto =
+                              String(r.tab || "").toLowerCase() === "auto" ||
+                              String(r.type || "").toLowerCase() === "auto-content";
+                            if (!isAuto) {
+                              return (
+                                <span className="text-[10px] font-mono text-[var(--color-text-muted)]">
+                                  —
+                                </span>
+                              );
+                            }
+                            const fw = String(r.metadata?.framework || "").trim();
+                            if (!fw) {
+                              return (
+                                <span className="text-[10px] font-mono text-[var(--color-text-muted)]">
+                                  —
+                                </span>
+                              );
+                            }
+                            return (
+                              <span
+                                className="px-2 py-0.5 rounded text-[10px] font-mono font-bold whitespace-nowrap"
+                                style={{
+                                  background: "rgba(244,114,182,0.1)",
+                                  color: "#ec4899",
+                                  border: "1px solid rgba(244,114,182,0.25)",
+                                }}
+                                title={`Auto Content framework: ${fw}`}
+                              >
+                                {fw}
+                              </span>
+                            );
+                          })()}
+                        </td>
+                        {/* Idea — Auto Content's optional Custom Idea style
+                            tag (metadata.idea_style). When user used Normal
+                            Flow this is empty → shows dash. Rainbow chip mirrors
+                            the badge shown on the history card. */}
+                        <td className="px-5 py-4">
+                          {(() => {
+                            const isAuto =
+                              String(r.tab || "").toLowerCase() === "auto" ||
+                              String(r.type || "").toLowerCase() === "auto-content";
+                            if (!isAuto) {
+                              return (
+                                <span className="text-[10px] font-mono text-[var(--color-text-muted)]">
+                                  —
+                                </span>
+                              );
+                            }
+                            const idea = String(r.metadata?.idea_style || "").trim();
+                            if (!idea) {
+                              return (
+                                <span className="text-[10px] font-mono text-[var(--color-text-muted)]">
+                                  normal
+                                </span>
+                              );
+                            }
+                            return (
+                              <span
+                                className="px-2 py-0.5 rounded text-[10px] font-mono font-bold whitespace-nowrap"
+                                style={{
+                                  background:
+                                    "linear-gradient(90deg, rgba(236,72,153,0.15), rgba(168,85,247,0.15), rgba(56,189,248,0.15))",
+                                  color: "#a855f7",
+                                  border: "1px solid rgba(168,85,247,0.3)",
+                                }}
+                                title={`Custom Idea: ${idea}`}
+                              >
+                                {idea}
+                              </span>
+                            );
+                          })()}
                         </td>
                         <td className="px-5 py-4 max-w-[320px]">
                           {promptShort ? (
