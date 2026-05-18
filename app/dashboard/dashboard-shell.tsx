@@ -17,6 +17,7 @@ import ImageTab from "./tabs/image";
 import VideoTab from "./tabs/video";
 import CinemaTab from "./tabs/cinema";
 import GrokTab from "./tabs/grok";
+import Sora2Tab from "./tabs/sora2";
 import SeedanceTab from "./tabs/seedance";
 import CloneTab from "./tabs/clone";
 import AutoContentTab from "./tabs/auto-content";
@@ -37,7 +38,7 @@ import { SopButton } from "./sections/sop-modal";
 import { SOP_CONTENT } from "@/lib/sop-content";
 import Sidebar, { type Project, type SidebarView } from "./sidebar";
 
-type TabKey = "image" | "video" | "cinema" | "grok" | "seedance" | "clone" | "auto" | "fairytale";
+type TabKey = "image" | "video" | "cinema" | "grok" | "sora2" | "seedance" | "clone" | "auto" | "fairytale";
 
 // Tab order: Image → UGC → Auto Content → Story → Cinema (Seedance) →
 // Clone Prompt → Fairytale. "Story" keeps the legacy "cinema" key + the
@@ -54,7 +55,13 @@ const TABS: { key: TabKey; label: string; icon: any; tag: string }[] = [
   { key: "clone",     label: "Clone Prompt", icon: Layers,    tag: "05" },
   { key: "fairytale", label: "Storytelling", icon: BookOpen,  tag: "06" },
   { key: "cinema",    label: "Viral",        icon: Film,      tag: "07" },
-  { key: "grok",      label: "Grok",         icon: Zap,       tag: "08" },
+  // Grok hidden per user direction (server unstable). Sora 2 takes its
+  // slot — more stable, same shape (text/image to video, per-second-ish
+  // billing via APIPod). Existing Grok history rows still render
+  // because their cards live in the Cinema/Viral history grid via
+  // shared tab='cinema' tagging.
+  // { key: "grok",   label: "Grok",         icon: Zap,       tag: "08" },
+  { key: "sora2",     label: "Sora 2",       icon: Zap,       tag: "08" },
 ];
 
 export default function DashboardShell({
@@ -386,6 +393,7 @@ function resolveActiveSop(view: SidebarView, activeTab: TabKey) {
       auto: "auto-content",
       cinema: "story",
       grok: "story",
+      sora2: "story", // Sora 2 reuses Story SOP content
       seedance: "cinema",
       clone: "clone-prompt",
       fairytale: "fairytale",
@@ -554,6 +562,14 @@ function ProjectView({
                 <GrokTab projectId={project.id} />
               </div>
               <HistoryGrid tab="grok" title={`Grok — ${project.name}`} projectId={project.id} />
+            </>
+          )}
+          {activeTab === "sora2" && (
+            <>
+              <div className="max-w-5xl mx-auto w-full">
+                <Sora2Tab projectId={project.id} />
+              </div>
+              <HistoryGrid tab="sora2" title={`Sora 2 — ${project.name}`} projectId={project.id} />
             </>
           )}
           {activeTab === "seedance" && (

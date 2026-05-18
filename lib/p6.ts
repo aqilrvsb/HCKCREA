@@ -82,6 +82,13 @@ function apipodVideoModel(input: {
   const refs = input.imageUrls?.length || 0;
   const mode = input.imageMode || (refs > 0 ? "ingredient" : "text");
 
+  // Sora 2 (sora-2-vip) — single fixed model name, no t2v/i2v variant
+  // split. APIPod's endpoint accepts image_url for first-frame or omits
+  // it for pure text mode. Aspect ratio enforced at request body level.
+  if (m.includes("sora")) {
+    return "sora-2-vip";
+  }
+
   if (m.includes("grok")) {
     return refs > 0 && mode !== "text" ? "grok-imagine-i2v" : "grok-imagine-t2v";
   }
@@ -168,13 +175,26 @@ export async function p6CreateVideo(input: {
     aspect_ratio: input.aspectRatio || "9:16",
   };
 
-  // Per-model image_urls cap per APIPod docs:
-  //   • veo3-1-fast             → up to 2 (start + end frame)
-  //   • veo3-1-fast-ref         → up to 3 (reference images)
-  //   • grok-imagine-i2v        → 1-7
-  //   • seedance-2.0-fast-i2v   → 1-2  (start + end frame)
-  //   • seedance-2.0-fast-r2v   → 0-9  (reference images)
-  if (refs.length > 0) {
+  // Sora 2 uses image_url (singular, string) NOT image_urls (array).
+  // Aspect_ratio enum restricted to 9:16 / 16:9 only — clamp if other.
+  if (resolvedModel === "sora-2-vip") {
+    if (body.aspect_ratio !== "9:16" && body.aspect_ratio !== "16:9") {
+      body.aspect_ratio = "9:16";
+    }
+    if (refs.length > 0) {
+      body.image_url = refs[0]; // single first-frame image
+    }
+    // Sora 2 has strict duration enum: 4 / 8 / 12 only.
+    const reqDur = Number(input.durationMode);
+    body.duration =
+      reqDur === 8 ? 8 : reqDur === 12 ? 12 : 4;
+  } else if (refs.length > 0) {
+    // Per-model image_urls cap per APIPod docs:
+    //   • veo3-1-fast             → up to 2 (start + end frame)
+    //   • veo3-1-fast-ref         → up to 3 (reference images)
+    //   • grok-imagine-i2v        → 1-7
+    //   • seedance-2.0-fast-i2v   → 1-2  (start + end frame)
+    //   • seedance-2.0-fast-r2v   → 0-9  (reference images)
     let cap = 2;
     if (resolvedModel === "grok-imagine-i2v") cap = 7;
     else if (resolvedModel === "seedance-2.0-fast-i2v") cap = 2;
