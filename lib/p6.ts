@@ -155,7 +155,12 @@ export async function p6CreateVideo(input: {
   });
   const body: any = {
     model: resolvedModel,
-    prompt: input.prompt.slice(0, 2000),
+    // Bumped 2000 → 4000 to match APIPod's documented prompt limit
+    // for Grok (`<= 4000 characters`). Auto-content video prompts
+    // (LLM scene + buildVeoLocks) commonly land around 2400-3000
+    // chars; the previous 2000-char cap was truncating the canonical
+    // lock block mid-string before sending to APIPod.
+    prompt: input.prompt.slice(0, 4000),
     aspect_ratio: input.aspectRatio || "9:16",
   };
 
