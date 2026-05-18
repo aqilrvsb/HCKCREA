@@ -63,41 +63,170 @@ export function getVoiceDescription(id?: string | null): string {
   return getVoice(id)?.description || "";
 }
 
-// Persona → Veo voice ID picker for Auto Content. The user selects
-// gender + age in the Auto Content form but doesn't pick a specific
-// Veo voice (unlike UGC tab which exposes the full dropdown). Without
-// a voice ID, buildVeoLocks falls back to a generic string description
-// like "Malay woman voice in her 30s, warm friendly tone…" which Veo's
-// TTS interprets loosely — different videos in the same batch can end
-// up with subtly different voice characters, breaking continuity.
+// Persona → Veo voice ID picker. Two forms:
 //
-// This picker maps (gender, age) → one specific Veo voice ID so the
-// LOCK line resolves to a real catalog entry like "Callirrhoe — Female,
-// easy-going, mid-pitch. Natural conversational tone." — same format
-// UGC tab uses. Same persona = same voice across the entire batch AND
-// across any future Extend segment, so seg-1 → seg-2 continuity is
-// preserved.
+//   pickAutoContentVoice(gender, age) — legacy 8-entry mapping (kept for
+//   backward compat with any caller that doesn't pass vibe). One
+//   canonical voice per (gender, age) — no rotation.
 //
-// Picks favor the most natural Malay-conversational match for each
-// persona (warm/friendly for adults, youthful for 20s, mature/warm
-// for makcik/nenek). One canonical voice per persona — no rotation,
-// so retries / extends always land on the same voice.
+//   pickVoiceByPersona(gender, age, vibe?) — NEW "close match" picker
+//   that scores ALL 30 voices in the catalog against the persona's
+//   traits and returns the best match. When vibe is provided (e.g.
+//   from a framework's target_emotion or scene tone), the score boosts
+//   voices whose description matches that vibe. When vibe is absent,
+//   degrades gracefully to the same picks pickAutoContentVoice makes.
+//
+// The picker is deterministic per (gender, age, vibe) tuple — same input
+// always returns the same voice ID, so retries / Extend continuations /
+// auto-resubmit stay on the same voice as seg-1.
 export type AutoContentAge = "20s" | "30s" | "40s" | "55+";
+export type VoiceVibe =
+  | "hype"      // energetic, excitable — HOOK / CTA emotion
+  | "warm"      // friendly, gentle — VALUE / REASSURANCE emotion
+  | "firm"      // confident, authoritative — REVEAL / DECISIVE emotion
+  | "calm"      // smooth, even — STORYTELLING / NARRATION emotion
+  | "playful"   // upbeat, breezy — LIGHT / FUN emotion
+  | "serious"   // informative, knowledgeable — EDUCATIONAL / EXPERT emotion
+  | "youthful"  // Gen-Z trendy — VIRAL HOOK emotion
+  | "mature";   // motherly, deep — NOSTALGIC / WISE emotion
+
 export function pickAutoContentVoice(
   gender: "male" | "female",
   age: AutoContentAge
 ): string {
-  if (gender === "female") {
-    if (age === "20s") return "leda";          // youthful, mid-high — Gen Z energy
-    if (age === "30s") return "callirrhoe";    // easy-going, mid — bestie tone
-    if (age === "40s") return "gacrux";        // mature, mid — makcik warmth
-    return "vindemiatrix";                     // 55+: gentle, mid — nenek calm
+  return pickVoiceByPersona(gender, age);
+}
+
+// Parse persona traits out of a freeform Veo prompt — used by manual
+// UGC tab and UGC AI agent where the caller doesn't have an explicit
+// avatar gender/age form field but DOES have a scene description that
+// usually mentions the character.
+//
+// Returns gender + age + optional vibe. Defaults:
+//   gender = female (most Malaysian TikTok UGC is female-fronted)
+//   age = 30s (most common bestie-tone register)
+//   vibe = undefined (no biasing)
+//
+// Detection is keyword-based and case-insensitive. When multiple age
+// keywords match, the MORE SPECIFIC one wins (nenek > older woman >
+// woman). Same for gender (male/man wins over woman if both appear,
+// because male reference often follows "and a woman" framing).
+export function detectPersonaFromPrompt(prompt: string): {
+  gender: "male" | "female";
+  age: AutoContentAge;
+  vibe?: VoiceVibe;
+} {
+  const p = String(prompt || "").toLowerCase();
+
+  // Gender — female cues are stronger because Malaysian UGC defaults
+  // female; only flip to male when male cues appear and female don't.
+  const femaleCues = /\b(female|woman|lady|girl|makcik|nenek|kakak|adik perempuan|wife|mother|daughter|sister|aunt|aunty|granddaughter|hijab|tudung|baju kurung|baju kebaya|she\b|her\b)/i;
+  const maleCues = /\b(male|\bman\b|guy|boy|pakcik|atok|abang|adik lelaki|husband|father|son|brother|uncle|grandson|baju melayu|kopiah|songkok|\bhe\b|\bhis\b)/i;
+  const hasFemale = femaleCues.test(p);
+  const hasMale = maleCues.test(p);
+  let gender: "male" | "female" = "female";
+  if (hasMale && !hasFemale) gender = "male";
+  else if (hasMale && hasFemale) {
+    // Both present — first match wins (subject typically mentioned first)
+    const fIdx = p.search(femaleCues);
+    const mIdx = p.search(maleCues);
+    gender = mIdx >= 0 && mIdx < fIdx ? "male" : "female";
   }
-  // male
-  if (age === "20s") return "fenrir";          // excitable, younger — hype
-  if (age === "30s") return "achird";          // friendly, mid — warm confident
-  if (age === "40s") return "alnilam";         // firm, mid-low — pakcik steady
-  return "charon";                             // 55+: informative, lower — atok authority
+
+  // Age — most-specific keywords first
+  let age: AutoContentAge = "30s";
+  if (/\b(nenek|grandma|grandmother|atok|grandfather|grandpa|elderly|granny|in (his|her) (50s|60s|70s|80s))\b/.test(p)) {
+    age = "55+";
+  } else if (/\b(makcik|pakcik|aunt|uncle|aunty|middle.?aged|mature|in (his|her) 40s)\b/.test(p)) {
+    age = "40s";
+  } else if (/\b(young|gen.?z|teen|teenager|college|student|youthful|trendy|in (his|her) 20s|early.?20s)\b/.test(p)) {
+    age = "20s";
+  } else if (/\b(in (his|her) 30s|professional adult|adult woman|adult man)\b/.test(p)) {
+    age = "30s";
+  }
+
+  // Vibe — optional biasing toward voices matching the scene tone
+  let vibe: VoiceVibe | undefined;
+  if (/\b(excited|hype|hyped|energetic|trendy|viral|wild|epic|crazy|gila)\b/.test(p)) vibe = "hype";
+  else if (/\b(playful|fun|cheerful|upbeat|silly|cute|lively)\b/.test(p)) vibe = "playful";
+  else if (/\b(warm|friendly|kind|caring|gentle|cozy|welcoming|approachable)\b/.test(p)) vibe = "warm";
+  else if (/\b(firm|confident|direct|authoritative|serious|knowledgeable)\b/.test(p)) vibe = "firm";
+  else if (/\b(calm|peaceful|soft|quiet|smooth|relaxed|reflective)\b/.test(p)) vibe = "calm";
+  else if (/\b(mature|wise|experienced|nostalgic|traditional)\b/.test(p)) vibe = "mature";
+
+  return { gender, age, vibe };
+}
+
+// One-call helper for prompt-based callers (manual UGC, UGC agent).
+// Parses persona from the prompt + returns the picked voice ID. Same
+// determinism as pickVoiceByPersona — identical prompts return identical
+// voices across retries / segments, so the character's voice stays
+// locked through the whole clip + any continuations.
+export function pickVoiceFromPrompt(prompt: string): string {
+  const { gender, age, vibe } = detectPersonaFromPrompt(prompt);
+  return pickVoiceByPersona(gender, age, vibe);
+}
+
+export function pickVoiceByPersona(
+  gender: "male" | "female",
+  age: AutoContentAge,
+  vibe?: VoiceVibe
+): string {
+  // Hard filter — female personas only consider female-labelled voices,
+  // male personas only male. pulcherrima (ungendered) is excluded by
+  // this filter, kept available for manual UGC dropdown selection only.
+  const candidates = VEO_VOICES.filter((v) => {
+    const lbl = v.label;
+    if (gender === "female") return /\bFemale\b/.test(lbl);
+    return /\bMale\b/.test(lbl) && !/\bFemale\b/.test(lbl);
+  });
+
+  // Age-band scoring — match the trait keywords in each voice's
+  // description against typical traits for that age band.
+  const AGE_KEYWORDS: Record<AutoContentAge, RegExp> = {
+    "20s":  /youthful|young|gen.?z|excitable|upbeat|energetic|bright|hype|trendy|high pitch|mid-high/i,
+    "30s":  /friendly|warm|easy-going|natural|conversational|smooth|breezy/i,
+    "40s":  /mature|warm|firm|motherly|steady|authoritative|smooth|knowledgeable|even/i,
+    "55+":  /gentle|deep|mature|wise|calm|caring|informative|lower pitch|low pitch/i,
+  };
+  const AGE_PITCH_BONUS: Record<AutoContentAge, RegExp> = {
+    "20s":  /high pitch|mid-high pitch/i,
+    "30s":  /mid pitch|mid-pitch/i,
+    "40s":  /mid pitch|mid-low pitch/i,
+    "55+":  /low pitch|lower pitch|mid-low pitch/i,
+  };
+
+  // Vibe scoring — boost voices whose description matches the requested
+  // emotional tone. Optional — vibe=undefined skips this step.
+  const VIBE_KEYWORDS: Record<VoiceVibe, RegExp> = {
+    hype:     /hype|excitable|excited|energetic|upbeat|cheerful/i,
+    warm:     /warm|friendly|gentle|caring|approachable|motherly/i,
+    firm:     /firm|steady|authoritative|direct|confident|knowledgeable/i,
+    calm:     /gentle|smooth|even|caring|calm|breathy/i,
+    playful:  /playful|upbeat|excitable|cheerful|hype|breezy|lively/i,
+    serious:  /informative|authoritative|knowledgeable|firm|deep|mature/i,
+    youthful: /youthful|young|gen.?z|trendy|energetic|bright|excitable/i,
+    mature:   /mature|warm|motherly|caring|deep|gentle|knowledgeable/i,
+  };
+
+  const scored = candidates.map((v) => {
+    const desc = v.description;
+    let score = 0;
+    if (AGE_KEYWORDS[age].test(desc)) score += 30;
+    if (AGE_PITCH_BONUS[age].test(desc)) score += 10;
+    if (vibe && VIBE_KEYWORDS[vibe].test(desc)) score += 25;
+    return { voice: v, score };
+  });
+
+  // Deterministic tie-break by voice ID alphabetical order, so same
+  // input always produces same output across server restarts and
+  // retries — critical for seg-1 ↔ seg-2 voice continuity.
+  scored.sort((a, b) => {
+    if (b.score !== a.score) return b.score - a.score;
+    return a.voice.id.localeCompare(b.voice.id);
+  });
+
+  return scored[0]?.voice.id || (gender === "female" ? "callirrhoe" : "achird");
 }
 
 // The full lock block appended to every Veo prompt — same wording across
@@ -116,8 +245,25 @@ export function pickAutoContentVoice(
 // Without this flag (or hijab=false), nothing about hijab is asserted —
 // the persona stays free-hair-allowed, same as the pre-fix behaviour.
 export function buildVeoLocks(opts: {
+  /** Explicit catalog voice ID (e.g. "callirrhoe", "fenrir"). When
+   *  provided, used verbatim — manual UGC tab passes the user's
+   *  dropdown selection here. */
   voiceId?: string | null;
-  voiceLine?: string | null; // legacy free-text fallback (auto-content's gender/age block)
+  /** Auto-pick context (used when voiceId is missing). Persona gender +
+   *  age — pickVoiceByPersona scores all 30 catalog voices and returns
+   *  the closest match (e.g. fenrir for male 20s hype, callirrhoe for
+   *  female 30s, vindemiatrix for female 55+). Same input always returns
+   *  the same voice ID, so seg-1 ↔ seg-2 ↔ retries stay locked. */
+  gender?: "male" | "female";
+  age?: AutoContentAge;
+  /** Optional emotion hint that biases auto-pick. Comes from framework
+   *  target_emotion in Auto Content (HOOK=hype, VALUE=warm, REVEAL=firm,
+   *  STORYTELLING=calm) or scene template in UGC agent. */
+  vibe?: VoiceVibe;
+  /** Legacy free-text voice description. DEPRECATED — STRICT catalog pick
+   *  is preferred (every Veo prompt now resolves to ONE specific catalog
+   *  voice, not a free-text description). Kept as last-resort fallback. */
+  voiceLine?: string | null;
   /** true when the persona is hijabi. Caller in auto-content / UGC
    *  passes the value selected by the user in the Style dropdown. */
   hijab?: boolean;
@@ -128,12 +274,29 @@ export function buildVeoLocks(opts: {
    *  words, a 20s Grok clip targets 60, etc. */
   durationSec?: number;
 }): string {
+  // STRICT VOICE PICK — every Veo prompt now resolves to ONE specific
+  // catalog voice ID (1 of 30 in VEO_VOICES). Generic free-text
+  // descriptions like "warm Malay woman in her 30s" let Veo's TTS drift
+  // between voices across retries / segments. A specific catalog ID
+  // ("Callirrhoe — Female, easy-going, mid-pitch. Natural conversational
+  // tone.") is treated as a hard constraint.
+  //
+  // Resolution order:
+  //   1. opts.voiceId (explicit pick — manual UGC dropdown)
+  //   2. pickVoiceByPersona(gender, age, vibe) (auto-content / agent)
+  //   3. opts.voiceLine (legacy free-text, kept for back-compat)
+  //   4. Hard default "callirrhoe" (sensible female 30s)
+  let resolvedVoiceId = String(opts.voiceId || "").trim();
+  if (!resolvedVoiceId && opts.gender && opts.age) {
+    resolvedVoiceId = pickVoiceByPersona(opts.gender, opts.age, opts.vibe);
+  }
+  const catalogDesc = resolvedVoiceId ? getVoiceDescription(resolvedVoiceId) : "";
   const voiceDesc =
-    getVoiceDescription(opts.voiceId) ||
-    String(opts.voiceLine || "").trim();
-  const voiceCharLine = voiceDesc
-    ? `\nVOICE CHARACTER (LOCKED — use this exact voice for the entire clip and all continuations): ${voiceDesc}`
-    : "";
+    catalogDesc ||
+    String(opts.voiceLine || "").trim() ||
+    getVoiceDescription("callirrhoe"); // last-resort hard default
+  const voiceCharLine =
+    `\nVOICE CHARACTER (LOCKED — use this exact voice for the entire clip and all continuations): ${voiceDesc}`;
 
   const isHijab = !!opts.hijab;
 
@@ -192,7 +355,6 @@ ${(() => {
   return `DIALOG LENGTH LOCK: EXACTLY ${target} Malay words for this ${d}s Grok shot (FIXED 3 words/sec — Grok lip-sync tuned for this rate). <${target - 2} = freeze. >${target + 2} = clipped.`;
 })()}
 LANGUAGE LOCK: Bahasa Melayu (Malaysian Malay) ONLY — never Bahasa Indonesia. Use: korang, aku, ni, tu, memang, gila, lah, je, dah, eh. NEVER: kalian, gue, lo, banget, sih, dong, kayak, gimana, kasihan, mau, nih, tuh.
-VOICE CONSISTENCY LOCK: Same voice identity (gender, age, pitch, Malaysian accent, rhythm) across entire clip + Extend continuations. seg-1 ↔ seg-2 must match seamlessly.
 PRODUCT LOCK: Pixel-identical to reference — same color, shape, label, typography, packaging. Sharp focus on label, no warp/recolor/relabel/text-drift. Reference = single source of truth.${hijabLockLine}
 ${ugcAuthLine}
 MODESTY LOCK (Malaysian-Muslim, ALL personas): FEMALE — loose-fit only, short-sleeve OK, NO tight body-hugging tops, cleavage, V-necks, crop tops, midriff/navel exposure, short shorts, mini skirts, thigh exposure. Bottoms cover thighs (long pants, maxi/midi skirts, baju kurung). Hair visible only if non-hijab. MALE — long sleeves preferred, smart short-sleeve OK, NO shirtless, tank tops, tight muscle-tees. Modest casual only.

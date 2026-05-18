@@ -1,4 +1,4 @@
-import { VEO_VOICE_IDS, getVoiceDescription, buildVeoLocks } from "@/lib/veo-voices";
+import { VEO_VOICE_IDS, getVoiceDescription, buildVeoLocks, pickVoiceFromPrompt } from "@/lib/veo-voices";
 
 // UGC Agent v2 — slim orchestrator + skill library architecture.
 //
@@ -218,8 +218,10 @@ export const UGC_SYSTEM_PROMPT = UGC_ORCHESTRATOR.replace(
 // ──────────────────────────────────────────────────────────────────────────
 
 // Append the canonical Veo lock block (lib/veo-voices.ts buildVeoLocks)
-// to a UGC core prompt. voiceLine is the voice description string already
-// resolved upstream (caller used getVoiceDescription on the voice id).
+// to a UGC core prompt. STRICT voice pick — parses the prompt for
+// persona traits (gender / age / vibe) via pickVoiceFromPrompt and
+// resolves to ONE specific catalog voice ID. Same prompt => same voice
+// across retries / segment-chain / Extend.
 // hijab triggers HIJAB LOCK + removes "loose hair" from UGC AUTHENTICITY
 // so Veo doesn't drop the tudung mid-generation.
 function withLocks(
@@ -227,7 +229,8 @@ function withLocks(
   voiceLine?: string,
   hijab?: boolean
 ): string {
-  return `${corePrompt.trim()}${buildVeoLocks({ voiceLine, hijab })}`;
+  const autoPickedVoiceId = pickVoiceFromPrompt(corePrompt);
+  return `${corePrompt.trim()}${buildVeoLocks({ voiceId: autoPickedVoiceId, voiceLine, hijab })}`;
 }
 
 // ──────────────────────────────────────────────────────────────────────────

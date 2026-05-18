@@ -6,7 +6,7 @@ import { priceFor } from "@/lib/deduct";
 import { getP2Config } from "@/lib/settings";
 import { getCachedProductOcr } from "@/lib/product-ocr";
 import { loadConversation } from "@/lib/agent";
-import { buildVeoLocks } from "@/lib/veo-voices";
+import { buildVeoLocks, pickVoiceFromPrompt } from "@/lib/veo-voices";
 
 // Build a PRODUCT INFO LOCK block for the USP/description the user typed
 // in the product-reference modal. Pinned to the front of every variant
@@ -50,8 +50,17 @@ export const dynamic = "force-dynamic";
 
 // Locks come from lib/veo-voices.ts — single source shared with the UGC
 // agent, manual UGC route, and Auto Content. Don't duplicate here.
+//
+// VOICE CHARACTER is strict-picked from the 30-voice catalog. The agent
+// generates a freeform variant prompt that mentions the character (e.g.
+// "Malay woman in her 30s..."); pickVoiceFromPrompt parses gender / age
+// / vibe from that text and resolves to a specific catalog voice ID like
+// "callirrhoe" or "fenrir". buildVeoLocks then emits the canonical
+// "VOICE CHARACTER (LOCKED): <Name> — <traits>" line. Same prompt =>
+// same voice across retries / segment-chain / Extend continuations.
 function withLocks(corePrompt: string, voiceLine?: string): string {
-  return `${corePrompt.trim()}${buildVeoLocks({ voiceLine })}`;
+  const autoPickedVoiceId = pickVoiceFromPrompt(corePrompt);
+  return `${corePrompt.trim()}${buildVeoLocks({ voiceId: autoPickedVoiceId, voiceLine })}`;
 }
 
 export async function POST(req: Request) {

@@ -3,7 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { priceFor } from "@/lib/deduct";
 import { getP2Config } from "@/lib/settings";
-import { buildVeoLocks, getVoiceDescription } from "@/lib/veo-voices";
+import { buildVeoLocks, getVoiceDescription, pickVoiceFromPrompt } from "@/lib/veo-voices";
 import { generateVideoWithCascade } from "@/lib/video-cascade";
 
 // POST /api/generate/video — UGC tab. Placeholder-first + auth-light.
@@ -57,13 +57,20 @@ export async function POST(req: Request) {
   }
 
   // Append the canonical Veo lock block (same one used by UGC agent + Auto
-  // Content). Voice character — when picked — embeds into the AUDIO LOCK
-  // so the model uses the exact same voice across the clip and any
-  // future Extend continuation. Hijab toggles the HIJAB LOCK + removes
-  // "loose hair" from UGC AUTHENTICITY.
+  // Content). Voice character — STRICT pick from the 30-voice catalog:
+  //   1. If user picked voice via the dropdown → use that voiceId
+  //   2. Else → auto-detect persona (gender / age / vibe) from the
+  //      prompt text via pickVoiceFromPrompt → resolve to a catalog voice
+  // Either way buildVeoLocks emits a specific "VOICE CHARACTER (LOCKED):
+  // <Name> — <traits>" line that Veo treats as a hard constraint.
+  // Hijab toggles HIJAB LOCK + removes "loose hair" from UGC AUTHENTICITY.
+  const autoPickedVoiceId = voiceId ? "" : pickVoiceFromPrompt(rawPrompt);
   const prompt =
     rawPrompt +
-    buildVeoLocks({ voiceId, voiceLine: voiceDesc || undefined, hijab: isHijab });
+    buildVeoLocks({
+      voiceId: voiceId || autoPickedVoiceId,
+      hijab: isHijab,
+    });
 
   const reason = durationMode === "16" ? "video_16s" : "video_8s";
   const is16s = durationMode === "16";
