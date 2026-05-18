@@ -245,26 +245,37 @@ export async function POST(req: Request) {
         }),
       });
 
-      // Modal writes the row itself on success. We only patch on outright HTTP
-      // failure (non-2xx) so the placeholder doesn't hang forever. No refund
-      // needed — we never deducted in the first place; Modal does the deduct
-      // ONLY when render succeeds.
+      // Modal writes the row itself on success/failure. A non-2xx response
+      // here (commonly 422) usually means Modal's WEB ENDPOINT timed out
+      // waiting for the long render, NOT that the render failed — the
+      // function call continues in the background and Modal flips the row
+      // to status='done' when ffmpeg+upload finish (verified in production:
+      // every "422 from Vercel" run still produced a 200 in Modal Function
+      // Calls and a real MP4 on B2).
+      //
+      // So: don't mark the row failed here. Stamp a soft warning in metadata
+      // for diagnostics, keep status='pending' so the user sees the loading
+      // placeholder (not a misleading red X), and let Modal's callback OR
+      // the recheck button resolve the final state.
       if (!r.ok) {
         const txt = await r.text().catch(() => "");
         await admin
           .from("history")
           .update({
-            status: "failed",
-            error_message: `Modal HTTP ${r.status}: ${txt.slice(0, 200)}`,
             metadata: {
               scene_count: scenes.length,
               voice_id: voiceId,
-              upload_status: "failed",
+              upload_status: "queued",
+              trigger_warning: `Modal HTTP ${r.status}: ${txt.slice(0, 200)}`,
+              trigger_warning_at: new Date().toISOString(),
             },
           })
           .eq("id", historyId);
       }
     } catch (e: any) {
+      // Network-level throw — Modal NEVER received the request. This IS a
+      // definitive failure (no background work happening), so mark failed
+      // so the user can delete + retry.
       await admin
         .from("history")
         .update({
