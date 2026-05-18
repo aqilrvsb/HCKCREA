@@ -192,140 +192,108 @@ def _ffprobe_duration(path: Path) -> float:
 
 
 def _ken_burns_filter(animation: str, duration: float, fps: int = 120) -> str:
-    """Return ffmpeg filter string for the chosen Ken Burns animation.
+    """Return ffmpeg zoompan filter string for the chosen animation style.
 
-    Path C — Premiere/FCP-style scale+crop with eval=frame.
+    REVERTED from Path C (scale+crop+eval=frame) — that approach
+    produced odd intermediate pixel dimensions which libx264 yuv420p
+    cannot encode, killing every merge. The proven zoompan pattern
+    (formula form, not increment form) gives sub-pixel-precise zoom
+    expressions and reliable output dimensions.
 
-    Why this beats zoompan: ffmpeg's `zoompan` rounds the crop window to
-    integer pixels every frame — that's where the micro-jitter comes
-    from, regardless of framerate. The fix is to never rely on a
-    per-frame crop window in the first place:
+    Tuned to match the wizard's CSS preview:
+      • 120 fps output (matches 120Hz ProMotion / OLED Android displays
+        and gives denser motion samples on 60Hz displays).
+      • Zoom range 1.0 → 1.18 matches CSS ftKenBurnsZoomIn keyframes.
+      • Per-frame zoom is computed via formula `1.0 + 0.18*on/N` so
+        ffmpeg evaluates it fresh each frame (no accumulator drift).
+      • Pan amplitude matches CSS translateX/Y ±3%.
 
-      • Pre-upscale source 3× → 3240×5760 (one-time cost)
-      • PER FRAME: scale the upscaled image to a slightly-different
-        target size using `eval=frame` so ffmpeg's bilinear/bicubic
-        interpolator does sub-pixel-precise resampling (floating-point
-        scale factors, not integer pixel offsets)
-      • Crop the fixed 1080×1920 center from that per-frame-sized image
-
-    The "smoothness" lives in the SCALE step (sub-pixel interpolation),
-    not the crop step (fixed center). This matches how the browser
-    handles `transform: scale()` on the GPU — sub-pixel everywhere.
-
-    Framerate also bumped 60 → 120 fps. On 60Hz displays the extra
-    frames are dropped, but on ProMotion iPhones / 120Hz Androids the
-    playback is buttery. File size ~2× vs 60fps, render time ~80%
-    longer — acceptable for "100% smooth" target the user asked for.
-
-    Animation amplitudes match wizard CSS @keyframes:
-      • Zoom range 1.0 → 1.18 (matches ftKenBurnsZoomIn)
-      • Pan amplitude ±3% (matches translateX/Y ±3%)
+    100% pixel-perfect to the preview is not achievable with ffmpeg —
+    zoompan rounds the crop window to integer pixels. For true match,
+    use the browser-record path (Path A).
     """
-    # Source upscale: 3× output dimensions. Higher than 2× we used before
-    # so the sub-pixel scale step has more pixels to interpolate from
-    # (less chance of any visible aliasing at extreme zooms).
-    UP_W, UP_H = 3240, 5760
-    OUT_W, OUT_H = 1080, 1920
-
-    # Zoom-in: scale the upscaled image to a per-frame target size that
-    # grows linearly from 1× output to 1.18× output, then crop center.
-    # At t=0: target = OUT × 1.0 = 1080×1920 (image fits exactly = no zoom)
-    # At t=D: target = OUT × 1.18 = 1274×2266 (image larger than viewport = zoomed)
+    total_frames = max(1, int(duration * fps))
+    # Zoom-in: linear scale(1.0) → scale(1.18) over the scene duration.
     if animation == "zoom-in":
         return (
-            f"scale={UP_W}:{UP_H},"
-            f"scale=w='{OUT_W}*(1.0+0.18*t/{duration:.4f})':h='{OUT_H}*(1.0+0.18*t/{duration:.4f})':eval=frame,"
-            f"crop={OUT_W}:{OUT_H},fps={fps}"
+            f"scale=2160:3840,zoompan=z='1.0+0.18*on/{total_frames}':"
+            f"x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':"
+            f"d={total_frames}:s=1080x1920:fps={fps}"
         )
-    # Zoom-out: reverse — start at 1.18×, shrink to 1×.
+    # Zoom-out: linear scale(1.18) → scale(1.0).
     if animation == "zoom-out":
         return (
-            f"scale={UP_W}:{UP_H},"
-            f"scale=w='{OUT_W}*(1.18-0.18*t/{duration:.4f})':h='{OUT_H}*(1.18-0.18*t/{duration:.4f})':eval=frame,"
-            f"crop={OUT_W}:{OUT_H},fps={fps}"
+            f"scale=2160:3840,zoompan=z='1.18-0.18*on/{total_frames}':"
+            f"x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':"
+            f"d={total_frames}:s=1080x1920:fps={fps}"
         )
-    # Pan-left: hold scale at 1.06 (just enough to give pan room),
-    # walk the crop window from right → left edge of the scaled image.
-    # Crop window width = OUT_W < scaled_w, so we have wiggle room.
+    # Pan-left: hold zoom at 1.15, slide x from right→left across 6% of width.
     if animation == "pan-left":
-        scaled_w = int(OUT_W * 1.06)
         return (
-            f"scale={UP_W}:{UP_H},"
-            f"scale={scaled_w}:-2,"  # scale once to slightly-bigger-than-output
-            f"crop={OUT_W}:{OUT_H}:x='(in_w-{OUT_W})*(1-t/{duration:.4f})':y='(in_h-{OUT_H})/2':eval=frame,"
-            f"fps={fps}"
+            f"scale=2160:3840,zoompan=z=1.15:"
+            f"x='(iw-iw/zoom)*(1-on/{total_frames})':y='ih/2-(ih/zoom/2)':"
+            f"d={total_frames}:s=1080x1920:fps={fps}"
         )
-    # Pan-right: same setup, walk left → right.
+    # Pan-right: same but left→right.
     if animation == "pan-right":
-        scaled_w = int(OUT_W * 1.06)
         return (
-            f"scale={UP_W}:{UP_H},"
-            f"scale={scaled_w}:-2,"
-            f"crop={OUT_W}:{OUT_H}:x='(in_w-{OUT_W})*(t/{duration:.4f})':y='(in_h-{OUT_H})/2':eval=frame,"
-            f"fps={fps}"
+            f"scale=2160:3840,zoompan=z=1.15:"
+            f"x='(iw-iw/zoom)*on/{total_frames}':y='ih/2-(ih/zoom/2)':"
+            f"d={total_frames}:s=1080x1920:fps={fps}"
         )
-    # Pan-down: vertical equivalent. Scale to slightly-taller-than-output,
-    # walk crop window from top → bottom.
+    # Pan-down: zoom 1.15, slide y from top→bottom.
     if animation == "pan-down":
-        scaled_h = int(OUT_H * 1.06)
         return (
-            f"scale={UP_W}:{UP_H},"
-            f"scale=-2:{scaled_h},"
-            f"crop={OUT_W}:{OUT_H}:x='(in_w-{OUT_W})/2':y='(in_h-{OUT_H})*(t/{duration:.4f})':eval=frame,"
-            f"fps={fps}"
+            f"scale=2160:3840,zoompan=z=1.15:"
+            f"x='iw/2-(iw/zoom/2)':y='(ih-ih/zoom)*on/{total_frames}':"
+            f"d={total_frames}:s=1080x1920:fps={fps}"
         )
-    # Zoom-pan: zoom-in + slight x-pan. Combine: per-frame growing scale
-    # + per-frame x-walking crop.
+    # Zoom-pan: combined zoom-in + slight x-pan.
     if animation == "zoom-pan":
         return (
-            f"scale={UP_W}:{UP_H},"
-            f"scale=w='{OUT_W}*(1.0+0.18*t/{duration:.4f})':h='{OUT_H}*(1.0+0.18*t/{duration:.4f})':eval=frame,"
-            f"crop={OUT_W}:{OUT_H}:x='(in_w-{OUT_W})*(0.3+0.4*t/{duration:.4f})':y='(in_h-{OUT_H})/2':eval=frame,"
-            f"fps={fps}"
+            f"scale=2160:3840,zoompan=z='1.0+0.18*on/{total_frames}':"
+            f"x='(iw-iw/zoom)*(0.3+0.4*on/{total_frames})':y='ih/2-(ih/zoom/2)':"
+            f"d={total_frames}:s=1080x1920:fps={fps}"
         )
-    # Slide-reveal-left: small zoom (1.05) + horizontal pan from right.
+    # Slide-reveal-left: approximate with horizontal pan.
     if animation == "slide-reveal-left":
-        scaled_w = int(OUT_W * 1.10)
         return (
-            f"scale={UP_W}:{UP_H},"
-            f"scale={scaled_w}:-2,"
-            f"crop={OUT_W}:{OUT_H}:x='(in_w-{OUT_W})*(0.85-0.7*t/{duration:.4f})':y='(in_h-{OUT_H})/2':eval=frame,"
-            f"fps={fps}"
+            f"scale=2160:3840,zoompan=z=1.05:"
+            f"x='(iw-iw/zoom)*(0.65-0.15*on/{total_frames})':y='ih/2-(ih/zoom/2)':"
+            f"d={total_frames}:s=1080x1920:fps={fps}"
         )
-    # Fade-in: subtle zoom-in 1.05 → 1.10 + opacity ramp via fade filter.
+    # Fade-in: subtle zoom + opacity ramp via fade filter chain.
     if animation == "fade-in":
         return (
-            f"scale={UP_W}:{UP_H},"
-            f"scale=w='{OUT_W}*(1.05+0.05*t/{duration:.4f})':h='{OUT_H}*(1.05+0.05*t/{duration:.4f})':eval=frame,"
-            f"crop={OUT_W}:{OUT_H},"
-            f"fade=in:0:{max(1, int(0.6 * fps))},"
-            f"fps={fps}"
+            f"scale=2160:3840,zoompan=z='1.05+0.05*on/{total_frames}':"
+            f"x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':"
+            f"d={total_frames}:s=1080x1920:fps={fps},"
+            f"fade=in:0:{max(1, int(0.6 * fps))}"
         )
-    # Scale-pulse: 1.05 → 1.15 → 1.05 sinusoidal over scene length.
-    # cos(2π·t/D) starts at 1, dips to -1 at midpoint, returns to 1.
+    # Scale-pulse: sinusoidal 1.05 ↔ 1.15.
     if animation == "scale-pulse":
         return (
-            f"scale={UP_W}:{UP_H},"
-            f"scale=w='{OUT_W}*(1.10-0.05*cos(2*PI*t/{duration:.4f}))':h='{OUT_H}*(1.10-0.05*cos(2*PI*t/{duration:.4f}))':eval=frame,"
-            f"crop={OUT_W}:{OUT_H},fps={fps}"
+            f"scale=2160:3840,zoompan=z='1.10-0.05*cos(2*PI*on/{total_frames})':"
+            f"x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':"
+            f"d={total_frames}:s=1080x1920:fps={fps}"
         )
-    # Color-shift: standard zoom-in + chained hue cycle.
+    # Color-shift: standard zoom-in + hue cycle.
     if animation == "color-shift":
         return (
-            f"scale={UP_W}:{UP_H},"
-            f"scale=w='{OUT_W}*(1.0+0.18*t/{duration:.4f})':h='{OUT_H}*(1.0+0.18*t/{duration:.4f})':eval=frame,"
-            f"crop={OUT_W}:{OUT_H},"
-            f"hue=h='20*sin(2*PI*t/{duration:.4f})':s='1+0.3*abs(sin(2*PI*t/{duration:.4f}))',"
-            f"fps={fps}"
+            f"scale=2160:3840,zoompan=z='1.0+0.18*on/{total_frames}':"
+            f"x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':"
+            f"d={total_frames}:s=1080x1920:fps={fps},"
+            f"hue=h='20*sin(2*PI*t/{duration:.3f})':"
+            f"s='1+0.3*abs(sin(2*PI*t/{duration:.3f}))'"
         )
-    # None: static image at output size, just bumped to fps.
+    # None: static image at output size.
     if animation == "none":
-        return f"scale={OUT_W}:{OUT_H},fps={fps}"
-    # Default: zoom-in (matches preview default).
+        return f"scale=1080:1920,fps={fps}"
+    # Default: subtle zoom-in matching CSS preview.
     return (
-        f"scale={UP_W}:{UP_H},"
-        f"scale=w='{OUT_W}*(1.0+0.18*t/{duration:.4f})':h='{OUT_H}*(1.0+0.18*t/{duration:.4f})':eval=frame,"
-        f"crop={OUT_W}:{OUT_H},fps={fps}"
+        f"scale=2160:3840,zoompan=z='1.0+0.18*on/{total_frames}':"
+        f"x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':"
+        f"d={total_frames}:s=1080x1920:fps={fps}"
     )
 
 
