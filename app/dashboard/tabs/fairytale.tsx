@@ -1239,7 +1239,18 @@ export default function FairytaleTab({ projectId }: { projectId?: string } = {})
 
   // ─── Render ────────────────────────────────────────────────
   return (
-    <div className="rounded-3xl p-6 md:p-10 bg-white" style={{ minHeight: "60vh" }}>
+    <div
+      className={
+        "rounded-3xl p-6 md:p-10 bg-white" +
+        // 96px scroll padding at bottom on mobile so users can scroll
+        // past the sticky bottom Merge bar (~70px tall) on Step 2.
+        // Without this, the bottom row of content was hidden behind
+        // the fixed bar at viewport bottom. Only added on Step 2 where
+        // the sticky bar is rendered.
+        (step === 2 ? " pb-28 lg:pb-10" : "")
+      }
+      style={{ minHeight: "60vh" }}
+    >
       {/* Header */}
       <div className="text-center mb-6">
         <h2 className="font-display font-extrabold text-2xl text-[#1a1a1a]">Storytelling</h2>
