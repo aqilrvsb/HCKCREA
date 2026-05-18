@@ -1033,22 +1033,25 @@ export default function AutoContentTab({ projectId }: { projectId?: string } = {
           </div>
         </div>
 
-        {/* Provider — Veo 3.1 keeps the 8/16 duration buttons (16s auto-
-            extends via segment-chain). Grok exposes a per-second slider
-            (8-30s) so the user can dial in exactly how long each
-            dialog should run. Master plan is identical for both — only
-            the dialog word-count target scales with the chosen N. */}
-        <label className="block text-xs font-mono uppercase tracking-widest text-[var(--color-text-muted)] font-bold mb-2">
-          Provider
-        </label>
-        <div className="flex gap-2 mb-3">
-          <DurationBtn active={provider === "veo"} onClick={() => setProvider("veo")}>
-            🎬 Veo 3.1
-          </DurationBtn>
-          <DurationBtn active={provider === "grok"} onClick={() => setProvider("grok")}>
-            ⚡ Grok
-          </DurationBtn>
-        </div>
+        {/* Provider picker hidden per user direction — Auto Content is
+            now Veo-only. Grok branch kept in the file (and below) so
+            re-enabling is a 1-line UI toggle. Submit always sends
+            provider='veo' as a result. */}
+        {false && (
+          <>
+            <label className="block text-xs font-mono uppercase tracking-widest text-[var(--color-text-muted)] font-bold mb-2">
+              Provider
+            </label>
+            <div className="flex gap-2 mb-3">
+              <DurationBtn active={provider === "veo"} onClick={() => setProvider("veo")}>
+                🎬 Veo 3.1
+              </DurationBtn>
+              <DurationBtn active={provider === "grok"} onClick={() => setProvider("grok")}>
+                ⚡ Grok
+              </DurationBtn>
+            </div>
+          </>
+        )}
 
         {provider === "veo" && (
           <div className="flex gap-2 mb-3">
@@ -1060,7 +1063,7 @@ export default function AutoContentTab({ projectId }: { projectId?: string } = {
           </div>
         )}
 
-        {provider === "grok" && (
+        {false && provider === "grok" && (
           <div className="mb-3">
             <div className="flex items-center justify-between mb-2">
               <label className="text-xs font-mono uppercase tracking-widest text-[var(--color-text-muted)] font-bold">

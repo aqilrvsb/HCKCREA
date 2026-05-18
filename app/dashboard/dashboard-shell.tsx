@@ -54,7 +54,11 @@ const TABS: { key: TabKey; label: string; icon: any; tag: string }[] = [
   { key: "clone",     label: "Clone Prompt", icon: Layers,    tag: "05" },
   { key: "fairytale", label: "Storytelling", icon: BookOpen,  tag: "06" },
   { key: "cinema",    label: "Viral",        icon: Film,      tag: "07" },
-  { key: "grok",      label: "Grok",         icon: Zap,       tag: "08" },
+  // Grok tab hidden from nav per user direction — keep the route + import
+  // alive so existing history rows still render (their cards live in the
+  // Cinema/Viral history grid since they share tab='cinema' in the DB).
+  // Re-enable by uncommenting the line below.
+  // { key: "grok",      label: "Grok",         icon: Zap,       tag: "08" },
 ];
 
 export default function DashboardShell({
