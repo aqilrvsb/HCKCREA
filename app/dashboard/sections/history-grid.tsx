@@ -2157,8 +2157,13 @@ function HistoryCardInner({
           );
         })()}
 
-        {/* Action row — extension's exact icon flow */}
-        <div className="flex items-center gap-1 mt-1.5">
+        {/* Action row — extension's exact icon flow.
+            flex-wrap lets the 6-button row (Extend/Combine/Improve/30d/
+            Download/Delete) break to a second row on narrow mobile cards
+            (2-col grid at 393px viewport ≈ 180px card width). Without
+            wrap, 30d/Download/Delete used to overflow off the card edge
+            and become untappable. */}
+        <div className="flex flex-wrap items-center gap-1 mt-1.5">
           {/* DONE — clone prompt: Copy + Delete only (no media, no extend) */}
           {item.status === "done" && isClonePrompt && (
             <>
