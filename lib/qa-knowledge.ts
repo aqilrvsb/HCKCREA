@@ -490,7 +490,7 @@ Each style maps to a tuned prompt suffix appended to every scene's image_prompt:
 === MERGE & RENDER (Modal.com) ===
 - Modal renders the final video at 1080p with smooth Ken Burns zoompan (1.0 → 1.18 scale at 120fps) + xfade transitions between scenes.
 - **Single-pass xfade merge** (not hard-cut concat) for cinema-grade smoothness.
-- Async architecture: `/start_render` spawns the Modal function, returns call_id; `/check_render` queries by call_id for status.
+- Async architecture: /start_render spawns the Modal function, returns call_id; /check_render queries by call_id for status.
 - Output saved to history as a regular video row with B2 storage.
 
 === RECHECK ICON ===
