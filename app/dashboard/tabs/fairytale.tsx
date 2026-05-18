@@ -421,6 +421,11 @@ export default function FairytaleTab({ projectId }: { projectId?: string } = {})
   const [scriptProgress, setScriptProgress] = useState<number>(0);
   const [scriptLoading, setScriptLoading] = useState(false);
   const [scriptError, setScriptError] = useState<string | null>(null);
+  // 0 when no retry in progress, 1-3 during auto-retry attempts.
+  // Surfaced in the Preview modal as "Attempt 2 of 3..." so the user
+  // sees the system is working through the retries instead of guessing
+  // whether anything is happening.
+  const [scriptRetryAttempt, setScriptRetryAttempt] = useState<number>(0);
   // Default to Voice tab — quickest knob users want to access (turn
   // narration on/off). Voice picker itself lives in Step 1.
   const [configTab, setConfigTab] = useState<ConfigTab>("voice");
@@ -687,48 +692,68 @@ export default function FairytaleTab({ projectId }: { projectId?: string } = {})
     setScriptLoading(true);
     setScriptError(null);
     setScriptProgress(0);
-    try {
-      const r = await fetch("/api/generate/fairytale/script", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          prompt,
-          style,
-          tone,
-          language,
-          visual_style: visualStyle,
-          scene_count: sceneCount,
-          // Target narration duration per scene — helps the LLM size each
-          // beat to match the slide it'll be paired with.
-          scene_duration_sec: secondsPerSlide,
-          // CTA flow — three modes:
-          //   none = natural story close, no CTA
-          //   engagement = AI ends with topic-relevant comment-bait question
-          //   follow = AI appends the user-typed follow CTA verbatim
-          cta_mode: ctaMode,
-          cta_text: ctaText.trim(),
-        }),
-      });
-      const d = await r.json();
-      if (!r.ok || !d?.ok) throw new Error(d?.error || `HTTP ${r.status}`);
+    // 3-attempt auto-retry with exponential backoff. OpenRouter / Gemini
+    // Flash Lite occasionally returns transient "Provider returned error"
+    // even for valid prompts — usually resolves on the next attempt.
+    // Previously we surfaced that error on attempt 1 and the user had
+    // to click "Try again" manually. Now we retry up to 3× internally
+    // (waits 1s, then 3s between attempts) before showing the error.
+    const MAX_ATTEMPTS = 3;
+    let lastError: string = "Script generation failed";
+    for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+      setScriptRetryAttempt(attempt);
+      try {
+        const r = await fetch("/api/generate/fairytale/script", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            prompt,
+            style,
+            tone,
+            language,
+            visual_style: visualStyle,
+            scene_count: sceneCount,
+            // Target narration duration per scene — helps the LLM size each
+            // beat to match the slide it'll be paired with.
+            scene_duration_sec: secondsPerSlide,
+            // CTA flow — three modes:
+            //   none = natural story close, no CTA
+            //   engagement = AI ends with topic-relevant comment-bait question
+            //   follow = AI appends the user-typed follow CTA verbatim
+            cta_mode: ctaMode,
+            cta_text: ctaText.trim(),
+          }),
+        });
+        const d = await r.json();
+        if (!r.ok || !d?.ok) throw new Error(d?.error || `HTTP ${r.status}`);
 
-      const initial: Scene[] = (d.scenes || []).map((s: any, i: number) => ({
-        idx: i,
-        narration: s.narration || "",
-        imagePrompt: s.image_prompt || "",
-        imageUrl: "",
-        imageHistoryId: null,
-        imageStatus: "queued" as const,
-      }));
-      setScenes(initial);
-      setScriptProgress(100);
-      // Kick off image generation for each scene
-      void fireSceneImages(initial);
-    } catch (e: any) {
-      setScriptError(e?.message || "Script generation failed");
-    } finally {
-      setScriptLoading(false);
+        const initial: Scene[] = (d.scenes || []).map((s: any, i: number) => ({
+          idx: i,
+          narration: s.narration || "",
+          imagePrompt: s.image_prompt || "",
+          imageUrl: "",
+          imageHistoryId: null,
+          imageStatus: "queued" as const,
+        }));
+        setScenes(initial);
+        setScriptProgress(100);
+        setScriptRetryAttempt(0);
+        setScriptLoading(false);
+        // Kick off image generation for each scene
+        void fireSceneImages(initial);
+        return;
+      } catch (e: any) {
+        lastError = e?.message || "Script generation failed";
+        if (attempt < MAX_ATTEMPTS) {
+          // Backoff before next attempt: 1s, then 3s
+          await new Promise((f) => setTimeout(f, attempt === 1 ? 1000 : 3000));
+        }
+      }
     }
+    // All 3 attempts failed — surface the error
+    setScriptError(`${lastError} (failed after ${MAX_ATTEMPTS} attempts — click Try again to retry)`);
+    setScriptRetryAttempt(0);
+    setScriptLoading(false);
   }
 
   async function fireSceneImages(initialScenes: Scene[]) {
@@ -1296,6 +1321,7 @@ export default function FairytaleTab({ projectId }: { projectId?: string } = {})
           setScenes={setScenes}
           scriptLoading={scriptLoading}
           scriptError={scriptError}
+          scriptRetryAttempt={scriptRetryAttempt}
           onRetryScript={generateScript}
           onClose={() => setPreviewModalOpen(false)}
           onContinue={() => {
@@ -3763,6 +3789,7 @@ function PreviewModal(props: {
   setScenes: (s: Scene[] | ((prev: Scene[]) => Scene[])) => void;
   scriptLoading: boolean;
   scriptError: string | null;
+  scriptRetryAttempt?: number;
   onRetryScript: () => void;
   onClose: () => void;
   // Forward to Step 2 — wired so the user MUST preview before they can
@@ -3872,7 +3899,9 @@ function PreviewModal(props: {
             </h2>
             <p className="text-[11px] text-gray-500 mt-0.5">
               {props.scriptLoading
-                ? "Hang on — the AI is writing your 10 scenes. Don't close this window."
+                ? (props.scriptRetryAttempt && props.scriptRetryAttempt > 1
+                    ? `Provider hiccup on attempt ${props.scriptRetryAttempt - 1} — retrying (attempt ${props.scriptRetryAttempt} of 3)…`
+                    : "Hang on — the AI is writing your 10 scenes. Don't close this window.")
                 : "Edit dialogs · supply your own images per scene · close to keep changes"}
             </p>
           </div>
