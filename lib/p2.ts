@@ -151,7 +151,11 @@ async function p2CreateTaskInternal(input: {
   const isBanana = !isVideo && !isGptImage && !isGrok && !isSeedance && !isZImage;
 
   const innerInput: Record<string, any> = {};
-  if (input.prompt) innerInput.prompt = input.prompt.substring(0, 5000);
+  // Aligned to 4000 chars across all video providers (p5/p6 cap at 4000
+  // per APIPod's documented limit). Uniform cap means admin can swap
+  // cascade slots without worrying about which provider can fit a
+  // bigger prompt.
+  if (input.prompt) innerInput.prompt = input.prompt.substring(0, 4000);
 
   if (isGrok) {
     // Grok Imagine — t2v takes aspect_ratio, i2v doesn't (inherits from img).

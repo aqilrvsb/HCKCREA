@@ -139,7 +139,11 @@ export async function p1CreateTask(input: {
   }
 
   const fd = new FormData();
-  if (input.prompt) fd.append("prompt", input.prompt.substring(0, 5000));
+  // Aligned to 4000 chars across all video providers (p5/p6 cap at 4000
+  // per APIPod's documented limit). Uniform cap means admin can swap
+  // cascade slots without worrying about which provider can fit a
+  // bigger prompt.
+  if (input.prompt) fd.append("prompt", input.prompt.substring(0, 4000));
   fd.append("model", normalisedModel);
 
   const imgUrls = (input.imageUrls || []).filter(Boolean);
