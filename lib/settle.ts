@@ -754,8 +754,18 @@ export async function settleHistoryRow(hist: HistoryRow): Promise<SettleResult> 
     const is16sSeg1 =
       hist.segment_index === 1 &&
       (hist.metadata as any)?.duration_mode === "16s";
+    // Billing reason — type='image' is the canonical image-gen marker,
+    // but storytelling uses type='fairytale-scene' (per-scene image) and
+    // type='fairytale-hero' (auto-generated main character) which are
+    // ALSO image generations. Without explicit handling they'd fall
+    // through to 'video_8s' (wrong reason → wrong rate lookup, wrong
+    // admin/usage Action chip).
+    const isImageGen =
+      hist.type === "image" ||
+      hist.type === "fairytale-scene" ||
+      hist.type === "fairytale-hero";
     const reason =
-      hist.type === "image"
+      isImageGen
         ? "image_generate"
         : hist.tab === "cinema"
           ? "cinema"

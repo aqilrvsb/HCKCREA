@@ -98,8 +98,12 @@ export default function AdminUsage() {
       );
       if (mediaFilter === "all") return base;
       return base.filter((r) => {
-        // Match the cell logic — type='image' is authoritative.
-        const isImg = r.type === "image";
+        // Match the cell logic — includes storytelling image types
+        // (fairytale-scene / fairytale-hero) so they're filterable too.
+        const isImg =
+          r.type === "image" ||
+          r.type === "fairytale-scene" ||
+          r.type === "fairytale-hero";
         if (mediaFilter === "image") return isImg;
         // mediaFilter === "video"
         return !isImg && (
@@ -505,14 +509,16 @@ export default function AdminUsage() {
                   </tr>
                 ) : (
                   generationRows.map((r, i) => {
-                    // type='image' is authoritative — overrides any tab
-                    // tagging. Fixes the case where Viral Talking Object
-                    // inserts both a video row AND an image row both
-                    // tagged tab='cinema'; without this the image row's
-                    // Preview button defaults to "Video" (wrong) and the
-                    // Tab column shows "CINEMA" (misleading — Cinema tab
-                    // doesn't have a standalone image-generation feature).
-                    const isImg = r.type === "image";
+                    // Image detection — includes 'image', 'fairytale-scene'
+                    // (storytelling per-scene image), and 'fairytale-hero'
+                    // (storytelling auto-generated main character image).
+                    // Authoritative over tab tagging — Viral Talking Object
+                    // inserts image rows tagged tab='cinema' that would
+                    // otherwise fall into the video branch.
+                    const isImg =
+                      r.type === "image" ||
+                      r.type === "fairytale-scene" ||
+                      r.type === "fairytale-hero";
                     const isVid =
                       !isImg && (
                         r.type === "video" ||
@@ -942,10 +948,13 @@ function PreviewModal({
     };
   }, [onClose]);
 
-  // type='image' wins over tab='cinema' — fixes Viral Talking Object
-  // source-image rows (type='image', tab='cinema') from opening in a
-  // video player. Matches the table cell's isImg/isVid order.
-  const isImg = row.type === "image";
+  // Image detection — includes 'image', 'fairytale-scene', and
+  // 'fairytale-hero' so storytelling image rows open in <img> preview
+  // not <video>. Matches the table cell's isImg/isVid order.
+  const isImg =
+    row.type === "image" ||
+    row.type === "fairytale-scene" ||
+    row.type === "fairytale-hero";
   const isVid =
     !isImg && (
       row.type === "video" ||
