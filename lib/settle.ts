@@ -356,6 +356,39 @@ async function tryAutoRetry(
   const dynamicCap = await getDynamicRetryCap(cascadeAsset);
   if (retryCount >= dynamicCap) return false;
 
+  // ATOMIC CLAIM — flip status from "failed" → "pending" before firing
+  // the cascade. Guarantees only ONE retry path (event-driven settle,
+  // cron worker, admin click) can fire for this row at a time. If two
+  // callers race here, only the first succeeds — the update's
+  // .eq("status", "failed") filter makes the second one's update match
+  // zero rows. Without this lock the same failed row could be retried
+  // 2-3 times in parallel = duplicate provider charges.
+  const { data: claimed, error: claimErr } = await admin
+    .from("history")
+    .update({
+      status: "pending",
+      error_message: null,
+      metadata: {
+        ...meta,
+        // Stamp who claimed (audit trail). Real metadata update happens
+        // at the bottom once the cascade returns.
+        last_retry_kind: "settle-claim",
+        last_retry_claimed_at: new Date().toISOString(),
+      },
+    })
+    .eq("id", hist.id)
+    .eq("status", "failed") // ← atomic gate
+    .select("id");
+  if (claimErr || !claimed || claimed.length === 0) {
+    // Race lost — another retry path (cron tick OR admin click OR a
+    // parallel webhook callback) already claimed this row. Bail out
+    // silently; the row will be processed by whoever won.
+    console.log(
+      `[settle/auto-retry] row ${hist.id} race lost — another retry path already claimed it, skipping to prevent duplicate charge`
+    );
+    return false;
+  }
+
   const refImage = hist.reference_url || "";
   // BUG FIX: previously this branch only passed `refImage` (the first
   // attachment) which dropped the 2nd/3rd product/avatar refs for
@@ -442,17 +475,25 @@ async function tryAutoRetry(
     });
     tierLog = r.tierLog;
     if (!r.ok) {
-      // Cascade exhausted all 3 tiers. Stamp tier_log on the row so the
-      // user can see "tried p2, p1, p3 — all failed" instead of guessing.
+      // Cascade exhausted all tiers. Revert status to "failed" (was set
+      // to "pending" by the atomic claim above) + stamp tier_log so the
+      // user can see "tried p2, p1, p3 — all failed" instead of seeing
+      // an infinite pending spinner.
       await admin
         .from("history")
         .update({
+          status: "failed",
+          error_message: r.error.slice(0, 300),
           metadata: {
             ...meta,
             tier_log: tierLog,
             last_retry_error: r.error.slice(0, 300),
             last_retry_at: new Date().toISOString(),
             retry_count: retryCount + 1,
+            auto_resubmit_count: Math.max(
+              Number(meta.auto_resubmit_count || 0),
+              retryCount + 1
+            ),
           },
         })
         .eq("id", hist.id);
@@ -477,7 +518,29 @@ async function tryAutoRetry(
       aspectRatio,
       imageMode,
     });
-    if (!created.ok || !created.task_id) return false;
+    if (!created.ok || !created.task_id) {
+      // Seedance create failed. Revert status (was set to "pending"
+      // by the atomic claim) back to "failed" so the row doesn't
+      // appear stuck in a permanent loading state.
+      await admin
+        .from("history")
+        .update({
+          status: "failed",
+          error_message: (created.error || "Seedance retry failed").slice(0, 300),
+          metadata: {
+            ...meta,
+            last_retry_error: (created.error || "Seedance retry failed").slice(0, 300),
+            last_retry_at: new Date().toISOString(),
+            retry_count: retryCount + 1,
+            auto_resubmit_count: Math.max(
+              Number(meta.auto_resubmit_count || 0),
+              retryCount + 1
+            ),
+          },
+        })
+        .eq("id", hist.id);
+      return false;
+    }
     newTaskId = created.task_id;
     newProvider = "p1";
   } else {
@@ -526,11 +589,15 @@ async function tryAutoRetry(
     });
     tierLog = r.tierLog;
     if (!r.ok) {
-      // Cascade exhausted all fallback tiers. Stamp tier_log on the row
-      // so the user sees the full attempt history.
+      // Cascade exhausted all fallback tiers. Revert status from "pending"
+      // (set by the atomic claim above) back to "failed" so the row shows
+      // as failed in the UI — otherwise the user would see a spinner
+      // forever. Also stamp tier_log + error_message for diagnostics.
       await admin
         .from("history")
         .update({
+          status: "failed",
+          error_message: r.error.slice(0, 300),
           metadata: {
             ...meta,
             tier_log: tierLog,
