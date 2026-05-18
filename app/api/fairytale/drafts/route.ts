@@ -56,7 +56,7 @@ export async function GET() {
       : 0;
     return {
       id: row.id,
-      title: row.title || "Untitled draft",
+      title: row.title || "Untitled project",
       step: row.step,
       updated_at: row.updated_at,
       created_at: row.created_at,
@@ -104,7 +104,7 @@ export async function POST(req: Request) {
     const firstNarration = Array.isArray((state as any)?.scenes)
       ? String((state as any).scenes[0]?.narration || "").trim()
       : "";
-    title = firstNarration.slice(0, 80) || "Untitled draft";
+    title = firstNarration.slice(0, 80) || "Untitled project";
   }
 
   const admin = createAdminClient();

@@ -459,7 +459,7 @@ export default function HistoryGrid({
                 ? "🎬 Videos"
                 : t === "images"
                   ? "🖼️ Images"
-                  : "📝 Drafts";
+                  : "📝 Projects";
             return (
               <button
                 key={t}
@@ -935,6 +935,45 @@ function HistoryCardInner({
   async function checkNow() {
     setChecking(true);
     try {
+      // Storytelling merged videos (type=fairytale) follow a different
+      // recovery path. The render runs on Modal (not the Crun providers
+      // /api/generate/status polls), so the upstream-status endpoint
+      // returns nothing useful for these rows. Instead, hit the
+      // dedicated recheck endpoint that HEADs the expected B2 key on
+      // peninglab-content — if Modal finished the upload but Vercel's
+      // after() hook died before stamping output_url, this recovers the
+      // row in one click without re-rendering anything on Modal.
+      if (item.type === "fairytale") {
+        try {
+          const r = await fetch(`/api/fairytale/recheck/${item.id}`, {
+            method: "POST",
+            cache: "no-store",
+            credentials: "include",
+          });
+          const d = await r.json().catch(() => ({}));
+          if (r.ok && d?.ok && d?.recovered) {
+            alert(
+              `Recovered! Found the merged MP4 in B2 (${Math.round(
+                (d.size_bytes || 0) / 1024 / 1024
+              )} MB). Row updated to done.`
+            );
+          } else if (r.ok && d?.already_done) {
+            alert("Row already marked done. Refreshing.");
+          } else if (d?.reason === "not_found_in_b2") {
+            alert(
+              `Merge did NOT complete on Modal — no file at the expected B2 key. Delete this row and re-merge.`
+            );
+          } else if (d?.reason === "file_too_small") {
+            alert(d?.message || "File found but too small to be valid.");
+          } else if (!r.ok) {
+            alert(d?.message || d?.error || `Recheck failed (HTTP ${r.status})`);
+          }
+        } catch (e: any) {
+          alert(`Recheck failed: ${e?.message || "network error"}`);
+        }
+        window.dispatchEvent(new CustomEvent("history:refresh"));
+        return;
+      }
       // Clone rows have no Crun task — just re-fetch from DB to see if
       // after() has updated the row. Other types poke the Crun status
       // endpoint which can also flip pending → done if the webhook missed.
@@ -2280,18 +2319,25 @@ function HistoryCardInner({
             </>
           )}
 
-          {/* FAILED — Retry + Delete */}
+          {/* FAILED — Retry + Delete (Storytelling merged videos skip
+              Resubmit because the render is expensive (~60s+ Modal
+              compute), and the recheck icon at top-right already
+              handles the common case where Modal succeeded but the
+              row got stuck. Resubmit here would just spend money
+              re-rendering what may already exist in B2). */}
           {item.status === "failed" && (
             <>
-              <button
-                onClick={handleRetry}
-                disabled={checking}
-                title="Resubmit"
-                className="flex-1 h-7 rounded-lg text-[9px] font-extrabold uppercase tracking-wider text-white flex items-center justify-center gap-1 disabled:opacity-50 transition-transform hover:scale-105"
-                style={{ background: ACTION.retry, boxShadow: "0 2px 6px rgba(34,197,94,0.4)" }}
-              >
-                {checking ? <Loader2 className="w-3 h-3 animate-spin" /> : <><RotateCw className="w-3 h-3" />Resubmit</>}
-              </button>
+              {item.type !== "fairytale" && (
+                <button
+                  onClick={handleRetry}
+                  disabled={checking}
+                  title="Resubmit"
+                  className="flex-1 h-7 rounded-lg text-[9px] font-extrabold uppercase tracking-wider text-white flex items-center justify-center gap-1 disabled:opacity-50 transition-transform hover:scale-105"
+                  style={{ background: ACTION.retry, boxShadow: "0 2px 6px rgba(34,197,94,0.4)" }}
+                >
+                  {checking ? <Loader2 className="w-3 h-3 animate-spin" /> : <><RotateCw className="w-3 h-3" />Resubmit</>}
+                </button>
+              )}
               <ActionBtn title="Delete" onClick={handleDelete} bg={ACTION.delete} disabled={deleting}>
                 <Trash2 className="w-3.5 h-3.5" strokeWidth={2.4} />
               </ActionBtn>
@@ -3720,7 +3766,7 @@ function StorytellingDraftsPane() {
 
   async function deleteDraft(d: DraftListItem) {
     if (deletingId) return;
-    if (!confirm(`Padam draft "${d.title}"? Tindakan ini tidak boleh undo.`)) return;
+    if (!confirm(`Padam project "${d.title}"? Tindakan ini tidak boleh undo.`)) return;
     setDeletingId(d.id);
     try {
       const r = await fetch(`/api/fairytale/drafts/${d.id}`, { method: "DELETE" });
@@ -3764,11 +3810,11 @@ function StorytellingDraftsPane() {
           <Copy className="w-7 h-7 text-[var(--color-text-muted)]" />
         </div>
         <p className="text-[var(--color-text-secondary)] font-medium mb-1">
-          Tiada draft lagi.
+          Tiada project lagi.
         </p>
         <p className="text-sm text-[var(--color-text-muted)] max-w-md">
           Bila kau click <b>Preview</b> kat Storytelling wizard, kerja kau
-          auto-save jadi draft. Boleh sambung balik dari sini bila-bila masa.
+          auto-save jadi project. Boleh sambung balik dari sini bila-bila masa.
         </p>
       </div>
     );
@@ -3815,7 +3861,7 @@ function StorytellingDraftsPane() {
                   <Loader2 className="w-6 h-6 animate-spin text-white" />
                 </div>
               )}
-              {/* DRAFT badge top-left */}
+              {/* PROJECT badge top-left */}
               <span
                 className="absolute top-1.5 left-1.5 text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded"
                 style={{
@@ -3823,7 +3869,7 @@ function StorytellingDraftsPane() {
                   color: "white",
                 }}
               >
-                📝 Draft
+                📝 Project
               </span>
             </button>
             <div className="p-2.5 flex flex-col gap-1.5">
@@ -3860,7 +3906,7 @@ function StorytellingDraftsPane() {
                   type="button"
                   onClick={() => deleteDraft(d)}
                   disabled={isDeleting}
-                  title="Delete draft permanently"
+                  title="Delete project permanently"
                   className="w-8 h-7 rounded-lg flex items-center justify-center disabled:opacity-50"
                   style={{
                     background: "rgba(239,68,68,0.12)",
