@@ -868,7 +868,22 @@ def _deduct_storytelling(user_id: str, amount: float, history_id: str) -> None:
     cpu=8.0,
     memory=4096,
     timeout=300,
-    secrets=[modal.Secret.from_name("fairytale-secrets")],
+    # Two secret bundles attached:
+    #   fairytale-secrets    — legacy B2_KEY_ID / B2_APP_KEY / B2_BUCKET_PRIVATE
+    #                          (scoped to peninglab-storage; was the only
+    #                          bundle attached before)
+    #   b2-content-secrets   — B2_CONTENT_KEY_ID / B2_CONTENT_APP_KEY /
+    #                          B2_CONTENT_BUCKET / B2_CONTENT_ENDPOINT /
+    #                          B2_CONTENT_REGION  — needed to write the
+    #                          merged Storytelling MP4 to peninglab-content
+    #                          (the same bucket scene images use). Already
+    #                          existed in Modal Secrets but wasn't attached
+    #                          to render_story, so the env vars never
+    #                          appeared inside the container.
+    secrets=[
+        modal.Secret.from_name("fairytale-secrets"),
+        modal.Secret.from_name("b2-content-secrets"),
+    ],
 )
 @modal.fastapi_endpoint(method="POST")
 def render_story(payload: dict):
