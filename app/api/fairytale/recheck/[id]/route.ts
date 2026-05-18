@@ -275,7 +275,8 @@ export async function POST(
 
   // Recover the row — flip to done + set output_url + clear the error.
   // Preserve existing metadata + tag with recovery info for audit.
-  const meta = (row.metadata as Record<string, any>) || {};
+  // (Reuses the `meta` already pulled at the top of the function for
+  // the Modal call_id check — no need to re-cast.)
   await admin
     .from("history")
     .update({
