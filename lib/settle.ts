@@ -697,11 +697,42 @@ export async function settleHistoryRow(hist: HistoryRow): Promise<SettleResult> 
 
   if (r.status === "failed") {
     const errMsg = r.error || "Generation failed";
-    // No auto-retry / cascade-fallback inside settle anymore. Polling
-    // (cron, webhook, manual refresh icon) ONLY checks task status and
-    // flips the row to done or failed. The user clicks the Resubmit
-    // button on a failed row to fire a fresh cascade attempt (which
-    // rotates to a different slot via skipSlot in retry route).
+
+    // STORYTELLING AUTO-RETRY: scene image failures break the merge,
+    // so for fairytale-scene rows we auto-retry on ANY failure (not
+    // just transient ones). Walks the image cascade's fallback pool —
+    // typically a different provider than the one that just failed —
+    // up to MAX_AUTO_RETRIES (3) attempts. Most production failures
+    // here are content_moderation rejections from one specific
+    // provider (e.g. Grsai 451 on Malay+hijab combos); the fallback
+    // slot is usually a different provider that accepts the same
+    // prompt. After exhaustion the row stays failed and the user
+    // clicks Regenerate manually.
+    //
+    // Other row types (auto-content, viral, video) keep the existing
+    // "stay failed, user clicks Resubmit" behavior — only Storytelling
+    // is aggressive about auto-retry because of the merge dependency.
+    if (hist.type === "fairytale-scene") {
+      const retried = await tryAutoRetry(admin, hist, errMsg);
+      if (retried) {
+        console.log(
+          `[settle/storytelling] scene ${hist.id} auto-retried on fallback slot after failure: ${errMsg.slice(0, 120)}`
+        );
+        // Row is back in pending — the next poll cycle will settle it.
+        // Don't mark failed yet.
+        return { state: "pending", p2Status: "pending" };
+      }
+      console.warn(
+        `[settle/storytelling] scene ${hist.id} auto-retry exhausted, leaving failed: ${errMsg.slice(0, 120)}`
+      );
+    }
+
+    // No auto-retry / cascade-fallback inside settle for non-storytelling
+    // rows. Polling (cron, webhook, manual refresh icon) ONLY checks
+    // task status and flips the row to done or failed. The user clicks
+    // the Resubmit button on a failed row to fire a fresh cascade
+    // attempt (which rotates to a different slot via skipSlot in
+    // retry route).
     await admin
       .from("history")
       .update({ status: "failed", error_message: errMsg })
