@@ -87,6 +87,10 @@ export default function AdminErrors() {
   const [kindFilter, setKindFilter] = useState<"all" | "video" | "image">("all");
   // Per-row resubmit state: "idle" | "loading" | "done" | error message.
   const [resubmitState, setResubmitState] = useState<Record<string, string>>({});
+  // Bulk resubmit state — true while the resubmitSelected loop is firing.
+  const [bulkResubmitting, setBulkResubmitting] = useState(false);
+  // Bulk resubmit progress (X of Y submitted so far) — shown in the button.
+  const [bulkProgress, setBulkProgress] = useState<{ done: number; total: number } | null>(null);
 
   // Bulk delete the selected rows. Fires sequentially so partial
   // failures show up in the UI rather than burying every error in
@@ -188,6 +192,71 @@ export default function AdminErrors() {
     }
   }
 
+  // Bulk resubmit. Two modes:
+  //   • If user has selected rows → resubmit only the selected
+  //   • If nothing selected → resubmit ALL currently-visible filtered rows
+  // Fires sequentially (1-by-1, no Promise.all) so we don't hammer the
+  // backend with N parallel retry calls. Progress bar updates after each
+  // submission so the admin sees movement on long lists.
+  async function resubmitSelected() {
+    const ids = selected.size > 0
+      ? Array.from(selected)
+      : filtered.map((r) => r.id);
+    if (ids.length === 0) return;
+
+    const confirmed = window.confirm(
+      `Resubmit ${ids.length} failed row${ids.length > 1 ? "s" : ""}? ` +
+      `Each will fire a fresh generation through the cascade — same cost as a manual retry per row.`
+    );
+    if (!confirmed) return;
+
+    setBulkResubmitting(true);
+    setBulkProgress({ done: 0, total: ids.length });
+    const removedKinds: Array<"video" | "image"> = [];
+    for (let i = 0; i < ids.length; i++) {
+      const id = ids[i];
+      try {
+        setResubmitState((s) => ({ ...s, [id]: "loading" }));
+        const r = await fetch("/api/history/retry", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ history_id: id }),
+        });
+        const d = await r.json().catch(() => ({}));
+        if (r.ok) {
+          const row = rows.find((x) => x.id === id);
+          if (row) removedKinds.push(row.kind);
+          setRows((rs) => rs.filter((x) => x.id !== id));
+          setResubmitState((s) => ({ ...s, [id]: "done" }));
+        } else {
+          setResubmitState((s) => ({
+            ...s,
+            [id]: d?.error || "Retry failed",
+          }));
+        }
+      } catch (e: any) {
+        setResubmitState((s) => ({
+          ...s,
+          [id]: e?.message || "Network error",
+        }));
+      }
+      setBulkProgress({ done: i + 1, total: ids.length });
+    }
+    // Update counts once at the end so we don't flash N times.
+    setCounts((c) => {
+      const vDrop = removedKinds.filter((k) => k === "video").length;
+      const iDrop = removedKinds.filter((k) => k === "image").length;
+      return {
+        total: Math.max(0, c.total - removedKinds.length),
+        video: Math.max(0, c.video - vDrop),
+        image: Math.max(0, c.image - iDrop),
+      };
+    });
+    setSelected(new Set());
+    setBulkResubmitting(false);
+    setBulkProgress(null);
+  }
+
   useEffect(() => {
     void load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -270,6 +339,36 @@ export default function AdminErrors() {
           </p>
         </div>
         <div className="ml-auto flex items-center gap-2">
+          {/* Bulk Resubmit — fires the retry endpoint for every selected
+              row (or every visible row if nothing selected). Sequential
+              so we don't hammer the cascade with N parallel calls. */}
+          <button
+            onClick={() => void resubmitSelected()}
+            disabled={bulkResubmitting || filtered.length === 0}
+            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-bold disabled:opacity-60"
+            style={{
+              background: "rgba(245, 158, 11, 0.18)",
+              border: "1px solid rgba(245, 158, 11, 0.5)",
+              color: "rgb(245, 158, 11)",
+            }}
+            title={
+              selected.size > 0
+                ? `Resubmit ${selected.size} selected row${selected.size > 1 ? "s" : ""}`
+                : `Resubmit all ${filtered.length} visible row${filtered.length > 1 ? "s" : ""}`
+            }
+          >
+            {bulkResubmitting ? (
+              <>
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                {bulkProgress ? `${bulkProgress.done}/${bulkProgress.total}` : "..."}
+              </>
+            ) : (
+              <>
+                <RotateCw className="w-3.5 h-3.5" />
+                Resubmit {selected.size > 0 ? selected.size : "all"}
+              </>
+            )}
+          </button>
           {selected.size > 0 && (
             <button
               onClick={() => void deleteSelected()}
