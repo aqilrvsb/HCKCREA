@@ -1954,6 +1954,12 @@ CRITICAL OUTPUT RULES:
         voiceLine, // legacy fallback if voiceId ever fails to resolve
         hijab: hijabMode,
         durationSec: providerChoice === "grok" ? grokDuration : 8,
+        // When the user provided a Custom Idea, drop the UGC Authenticity
+        // line so the visual aesthetic isn't locked to "amateur iPhone
+        // handheld" — the idea may explicitly call for a studio /
+        // cinematic / editorial look that fights the amateur lock.
+        // Normal flow (no idea) keeps the lock as the default UGC look.
+        skipUgcAuthenticity: !!ideaStyle,
       })
     );
   }

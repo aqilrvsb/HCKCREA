@@ -127,6 +127,16 @@ export function buildVeoLocks(opts: {
    *  per-second slider value (8-30) so a 12s Grok clip targets 36
    *  words, a 20s Grok clip targets 60, etc. */
   durationSec?: number;
+  /** When true, OMIT the UGC AUTHENTICITY line ("iPhone amateur
+   *  handheld, no softbox, no studio") so the visual aesthetic is
+   *  free to match whatever the caller's idea dictates. Auto Content
+   *  passes this when the user provides a Custom Idea — that idea
+   *  may explicitly call for a studio / cinematic / editorial look
+   *  which fights the amateur lock and produces muddled output.
+   *  Without this flag the iPhone-amateur signal goes into every
+   *  prompt as a quality baseline (which is correct for plain UGC
+   *  but wrong for idea-driven creative briefs). */
+  skipUgcAuthenticity?: boolean;
 }): string {
   const voiceDesc =
     getVoiceDescription(opts.voiceId) ||
@@ -149,9 +159,16 @@ export function buildVeoLocks(opts: {
   // UGC AUTHENTICITY drops "loose hair" for hijab personas because that
   // phrase was overriding the hijab description silently. For non-hijab
   // personas the original phrasing is preserved.
-  const ugcAuthLine = isHijab
-    ? `UGC AUTHENTICITY: Authentic amateur iPhone UGC — handheld arm's-length, natural skin texture with pores and subtle T-zone shine (NOT airbrushed), no-makeup-makeup, ordinary mixed lighting (NOT softbox), lived-in background with minor clutter.`
-    : `UGC AUTHENTICITY: Authentic amateur iPhone UGC — handheld arm's-length, natural skin texture with pores and subtle T-zone shine (NOT airbrushed), no-makeup-makeup, loose hair, ordinary mixed lighting (NOT softbox), lived-in background with minor clutter.`;
+  //
+  // skipUgcAuthenticity (set by callers that use a Custom Idea) omits
+  // this line entirely so the visual aesthetic can match whatever the
+  // idea dictates (studio / cinematic / editorial / etc.) instead of
+  // being forced into the iPhone-amateur look.
+  const ugcAuthLine = opts.skipUgcAuthenticity
+    ? ""
+    : isHijab
+      ? `UGC AUTHENTICITY: Authentic amateur iPhone UGC — handheld arm's-length, natural skin texture with pores and subtle T-zone shine (NOT airbrushed), no-makeup-makeup, ordinary mixed lighting (NOT softbox), lived-in background with minor clutter.`
+      : `UGC AUTHENTICITY: Authentic amateur iPhone UGC — handheld arm's-length, natural skin texture with pores and subtle T-zone shine (NOT airbrushed), no-makeup-makeup, loose hair, ordinary mixed lighting (NOT softbox), lived-in background with minor clutter.`;
 
   // Negative list — hijab-specific terms are appended only when hijab=true.
   const hijabNegatives = isHijab
