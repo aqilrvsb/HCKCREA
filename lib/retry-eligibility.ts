@@ -5,16 +5,24 @@
 //   • app/api/admin/errors/route.ts          (admin feed filter)
 //   • app/api/history/retry/route.ts         (manual + bulk Resubmit gate)
 //
-// Per user direction (tightened): the ONLY two error categories that
-// qualify for retry / admin visibility are:
+// Per user direction: the ONLY four error categories that qualify for
+// retry / admin visibility are:
 //
 //   1. "Internal Error, Please try again later."     (5xx-class)
 //   2. "Unknown error. Please contact support."      (provider-side)
+//   3. "Rate limited / too many requests"            (429-class — different
+//                                                     slot has separate
+//                                                     quota, so rotation
+//                                                     CAN recover)
+//   4. "CUE validator failed"                        (Crun's prompt-schema
+//                                                     validator — different
+//                                                     slot uses different
+//                                                     validator config, so
+//                                                     rotation CAN recover)
 //
-// Everything else — content moderation, audio-gen, rate-limit,
-// validator, auth, prompt-unsafe, etc. — is a permanent failure as
-// far as the system is concerned. User resolves on their own
-// dashboard (edit prompt, wait out rate limit) and never appears on
+// Everything else — content moderation, audio-gen, prompt-unsafe, auth,
+// etc. — is a permanent failure as far as the system is concerned. User
+// resolves on their own dashboard (edit prompt) and never appears on
 // the admin errors page.
 
 const RETRYABLE_ERROR_PATTERNS: RegExp[] = [
@@ -23,6 +31,15 @@ const RETRYABLE_ERROR_PATTERNS: RegExp[] = [
   /internal error[^\n]{0,20}please try again/i,
   // 2. "Unknown error. Please contact support" — same flexibility.
   /unknown error[^\n]{0,20}please contact support/i,
+  // 3. Rate limit — covers "rate limit", "rate-limited", "Rate limited",
+  //    "too many requests", and bare HTTP 429.
+  /rate[\s-]?limit/i,
+  /too many requests/i,
+  /\b429\b/,
+  // 4. CUE validator — Crun.ai's prompt-schema validator. Different slot
+  //    runs a different validator instance with different config, so
+  //    rotating CAN recover the request.
+  /cue validator/i,
 ];
 
 export function isInternalError(err: string | null | undefined): boolean {
