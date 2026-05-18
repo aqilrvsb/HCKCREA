@@ -15,6 +15,7 @@ import {
 import type { Attachment, AttachmentCategory } from "./attachments";
 import { CategoryPickModal } from "./attachments";
 import Portal from "./portal";
+import { compressImageIfNeeded } from "@/lib/compress-image";
 
 const PAGE_SIZE = 25;
 
@@ -148,10 +149,14 @@ export default function AttachmentPicker({
       if (!files.length) return;
       setUploading(files.length);
       const added: Attachment[] = [];
+      const failures: { name: string; reason: string }[] = [];
       for (const file of files) {
         try {
+          // Browser-side compression — see Attachments section for why
+          // (Vercel rejects >4.5MB bodies as HTML, crashing the client).
+          const compressed = await compressImageIfNeeded(file);
           const fd = new FormData();
-          fd.append("file", file);
+          fd.append("file", compressed.file);
           fd.append("name", file.name.replace(/\.[^.]+$/, ""));
           fd.append("category", category);
           const r = await fetch("/api/attachments/upload", {
@@ -159,13 +164,28 @@ export default function AttachmentPicker({
             body: fd,
             credentials: "include",
           });
-          const j = await r.json();
-          if (j.ok && j.attachment) added.push(j.attachment);
+          const txt = await r.text();
+          let j: any = null;
+          try { j = txt ? JSON.parse(txt) : null; } catch { j = { error: txt.slice(0, 200) }; }
+          if (j?.ok && j.attachment) {
+            added.push(j.attachment);
+          } else {
+            failures.push({
+              name: file.name,
+              reason: j?.error || `HTTP ${r.status}`,
+            });
+          }
         } catch (e: any) {
-          console.error("Picker upload error:", e?.message);
+          failures.push({ name: file.name, reason: e?.message || "Upload failed" });
         } finally {
           setUploading((n) => Math.max(0, n - 1));
         }
+      }
+      if (failures.length) {
+        alert(
+          `Upload failed for ${failures.length} image(s):\n` +
+            failures.map((f) => `• ${f.name}: ${f.reason}`).join("\n")
+        );
       }
       if (added.length) {
         // Switch filter to the uploaded category so user sees them

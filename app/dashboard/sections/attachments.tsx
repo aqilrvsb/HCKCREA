@@ -14,6 +14,7 @@ import {
   ChevronLeft,
   ChevronRight,
 } from "lucide-react";
+import { compressImageIfNeeded } from "@/lib/compress-image";
 
 export type AttachmentCategory = "product" | "avatar";
 
@@ -146,10 +147,17 @@ export default function AttachmentsSection() {
       if (!files.length) return;
       setUploading(files.length);
       const added: Attachment[] = [];
+      const failures: { name: string; reason: string }[] = [];
       for (const file of files) {
         try {
+          // Compress in the browser first. Vercel rejects request bodies
+          // larger than ~4.5 MB with a plain-text "Request Entity Too Large"
+          // response, which crashes JSON.parse on the client and looks
+          // silent to the user. Resizing the long edge to 2048px + JPEG@92
+          // brings a typical 5-15 MB phone photo down to ~600 KB.
+          const compressed = await compressImageIfNeeded(file);
           const fd = new FormData();
-          fd.append("file", file);
+          fd.append("file", compressed.file);
           fd.append("name", file.name.replace(/\.[^.]+$/, ""));
           fd.append("category", category);
           const r = await fetch("/api/attachments/upload", {
@@ -157,13 +165,31 @@ export default function AttachmentsSection() {
             body: fd,
             credentials: "include",
           });
-          const j = await r.json();
-          if (j.ok && j.attachment) added.push(j.attachment);
+          // Vercel's body-too-large response is HTML, not JSON. Guard
+          // against the JSON.parse blowing up so the user sees a useful
+          // error instead of nothing.
+          const txt = await r.text();
+          let j: any = null;
+          try { j = txt ? JSON.parse(txt) : null; } catch { j = { error: txt.slice(0, 200) }; }
+          if (j?.ok && j.attachment) {
+            added.push(j.attachment);
+          } else {
+            failures.push({
+              name: file.name,
+              reason: j?.error || `HTTP ${r.status}`,
+            });
+          }
         } catch (e: any) {
-          console.error("Upload error:", e?.message);
+          failures.push({ name: file.name, reason: e?.message || "Upload failed" });
         } finally {
           setUploading((n) => Math.max(0, n - 1));
         }
+      }
+      if (failures.length) {
+        alert(
+          `Upload failed for ${failures.length} image(s):\n` +
+            failures.map((f) => `• ${f.name}: ${f.reason}`).join("\n")
+        );
       }
       if (added.length) {
         // If current filter matches, prepend; otherwise just refresh count.

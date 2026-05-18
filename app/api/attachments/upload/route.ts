@@ -2,10 +2,15 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { uploadBufferToStoragePublic } from "@/lib/b2";
-import { compressImageIfNeeded } from "@/lib/compress-image";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+
+// NOTE: compression happens on the CLIENT (compressImageIfNeeded in
+// attachments.tsx + attachment-picker.tsx) before the body hits Vercel.
+// The previous server-side call to that helper was dead code — it uses
+// `document` / `URL.createObjectURL` which throw in Node, and Vercel
+// rejects bodies > 4.5 MB before the route even runs.
 
 // POST /api/attachments/upload
 // Accepts multipart/form-data with field 'file' (Blob) and optional 'name'.
@@ -61,11 +66,10 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: e?.message || "Read failed" }, { status: 400 });
   }
 
-  // Compress if > 4 MB so the B2 PUT stays inside Vercel's body limit.
-  const compressed = await compressImageIfNeeded(file);
-  const finalFile = compressed.file;
-  const finalCt = finalFile.type || file.type || "image/jpeg";
-  const buffer = Buffer.from(await finalFile.arrayBuffer());
+  // Client already compressed (long edge ≤ 2048 px, JPEG@92) so the body
+  // is guaranteed under Vercel's limit by the time we get here.
+  const finalCt = file.type || "image/jpeg";
+  const buffer = Buffer.from(await file.arrayBuffer());
 
   const admin = createAdminClient();
 
