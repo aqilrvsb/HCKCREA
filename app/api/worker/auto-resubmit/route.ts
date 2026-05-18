@@ -3,6 +3,12 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { getP2Config } from "@/lib/settings";
 import { generateVideoWithCascade } from "@/lib/video-cascade";
 import { filterVisibleToClient } from "@/lib/server-history-visibility";
+import {
+  getVideoFallbackSlots,
+  getGrokFallbackSlots,
+  getCinemaFallbackSlots,
+  type CascadeAsset,
+} from "@/lib/cascade-rotation";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -25,7 +31,29 @@ export const maxDuration = 60;
 //
 // Auth: Vercel Cron sends `Authorization: Bearer ${CRON_SECRET}`.
 
-const MAX_AUTO_RESUBMIT = 3;
+// MAX_AUTO_RESUBMIT is no longer a hardcoded number. It's computed
+// per-row from the actual count of non-"none" fallback slots in the
+// row's cascade pool (video/grok/cinema) — so if admin configured 5
+// fallback slots for VIDEO CASCADE, video rows auto-retry up to 5
+// times. If they configured 1, only 1 retry. Sensible floor of 1 +
+// hard ceiling of 10 to prevent runaway loops on misconfigurations.
+const MIN_AUTO_RESUBMIT_CAP = 1;
+const MAX_AUTO_RESUBMIT_CAP = 10;
+
+async function getAutoRetryCap(asset: CascadeAsset): Promise<number> {
+  let slots;
+  if (asset === "grok") slots = await getGrokFallbackSlots();
+  else if (asset === "cinema") slots = await getCinemaFallbackSlots();
+  else slots = await getVideoFallbackSlots();
+  // Count active slots only — "none" entries are placeholders, not
+  // real retry destinations.
+  const activeCount = slots.filter((s) => s !== "none").length;
+  return Math.max(
+    MIN_AUTO_RESUBMIT_CAP,
+    Math.min(MAX_AUTO_RESUBMIT_CAP, activeCount)
+  );
+}
+
 const LOOKBACK_HOURS = 24;
 const BATCH_LIMIT = 30;
 
@@ -110,6 +138,16 @@ export async function GET(req: Request) {
     hidden_skipped: hiddenSkipped,
   };
 
+  // Cache per-asset caps so we don't hit Supabase 3× per cron tick
+  // (one per asset, even though the same rows reuse the same asset).
+  const capCache = new Map<CascadeAsset, number>();
+  async function capFor(asset: CascadeAsset): Promise<number> {
+    if (!capCache.has(asset)) {
+      capCache.set(asset, await getAutoRetryCap(asset));
+    }
+    return capCache.get(asset)!;
+  }
+
   for (const row of rows || []) {
     summary.scanned += 1;
     if (!isRetryable(row.error_message)) {
@@ -118,7 +156,21 @@ export async function GET(req: Request) {
     }
     const meta = (row.metadata || {}) as Record<string, any>;
     const autoCount = Number(meta.auto_resubmit_count || 0);
-    if (autoCount >= MAX_AUTO_RESUBMIT) {
+
+    // Determine the row's cascade asset (same logic used later when
+    // firing the actual retry — match the row's original pool).
+    const rowModel = String(meta.model || "");
+    let rowAsset: CascadeAsset = "video";
+    if (row.tab === "seedance") rowAsset = "cinema";
+    else if (
+      row.tab === "cinema" &&
+      (meta.modelChoice === "grok" || /grok/i.test(rowModel))
+    ) {
+      rowAsset = "grok";
+    }
+    const rowCap = await capFor(rowAsset);
+
+    if (autoCount >= rowCap) {
       summary.exhausted += 1;
       continue;
     }
@@ -175,17 +227,9 @@ export async function GET(req: Request) {
       if (parts.length >= 2) skipSlot = parts[1];
     }
 
-    // Match the row's original cascade pool so the fallback rotation
-    // stays in the right family (Grok rows → grok cascade, Seedance
-    // rows → cinema cascade, everything else → video cascade).
-    let asset: "video" | "grok" | "cinema" = "video";
-    if (row.tab === "seedance") asset = "cinema";
-    else if (
-      row.tab === "cinema" &&
-      (meta.modelChoice === "grok" || /grok/i.test(model))
-    ) {
-      asset = "grok";
-    }
+    // Asset already detected at the top of the loop (rowAsset) so the
+    // retry cap could be computed from the matching cascade pool. Reuse
+    // it here for the actual generateVideoWithCascade call.
 
     const r = await generateVideoWithCascade({
       primaryModel: model,
@@ -197,7 +241,7 @@ export async function GET(req: Request) {
       imageMode,
       skipSlot,
       retry: true,
-      asset,
+      asset: rowAsset,
     });
 
     if (!r.ok) {

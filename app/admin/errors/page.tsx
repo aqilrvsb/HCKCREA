@@ -433,7 +433,7 @@ export default function AdminErrors() {
               </span>
             )}
             <span className="ml-auto text-[10px] text-[var(--color-text-secondary)]">
-              Schedule: every 8 min · scans last 24h · max 3 auto-retries / row
+              Schedule: every 8 min · scans last 24h · max auto-retries = count of fallback slots configured in admin cascade (per asset: video/grok/cinema)
             </span>
           </div>
         );
