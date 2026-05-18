@@ -1071,7 +1071,7 @@ export default function AutoContentTab({ projectId }: { projectId?: string } = {
               </label>
               {grokRate != null && (
                 <span className="text-xs font-bold" style={{ color: "var(--color-orange)" }}>
-                  ~RM{(grokRate * grokDuration).toFixed(2)} / video
+                  ~RM{((grokRate ?? 0) * grokDuration).toFixed(2)} / video
                 </span>
               )}
             </div>
