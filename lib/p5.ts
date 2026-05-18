@@ -166,15 +166,13 @@ export async function p5CreateVideo(input: {
 
   const body: any = {
     model,
-    // Bumped 2000 → 4000 to match APIPod's documented Grok limit and
-    // Veo's ~5000-char attention window. Auto-content's buildVeoLocks
-    // block alone is ~280 words (~1800 chars) with hijab, and the
-    // LLM-generated scene description adds another 100-150 words —
-    // total ~2400-3000 chars. The old 2000-char cap was silently
-    // truncating the canonical VOICE CHARACTER / DIALOG LENGTH / etc.
-    // locks mid-string, which is what the user saw on production
-    // failed cards.
-    prompt: input.prompt.slice(0, 4000),
+    // 8000-char cap. Previously 4000, before that 2000 — kept hitting
+    // the next ceiling as the canonical lock block grew. Production
+    // rows in May 2026 truncated mid-MODESTY-LOCK at the 4000 mark.
+    // Real prompts land at ~4500-5000 chars with all locks + LLM
+    // scene description; 8000 leaves ~30% headroom. APIMart forwards
+    // verbatim to Veo, which accepts well above this.
+    prompt: input.prompt.slice(0, 8000),
     duration: Number(input.durationMode) || 8,
     aspect_ratio: input.aspectRatio || "9:16",
   };

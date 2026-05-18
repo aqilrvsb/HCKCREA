@@ -139,11 +139,15 @@ export async function p1CreateTask(input: {
   }
 
   const fd = new FormData();
-  // Aligned to 4000 chars across all video providers (p5/p6 cap at 4000
-  // per APIPod's documented limit). Uniform cap means admin can swap
-  // cascade slots without worrying about which provider can fit a
-  // bigger prompt.
-  if (input.prompt) fd.append("prompt", input.prompt.substring(0, 4000));
+  // 8000-char cap. Bumped 4000 → 8000 after production rows truncated
+  // mid-MODESTY-LOCK (user-reported, May 2026): real prompt with all
+  // canonical locks (CLEAN FRAME / ANATOMY / AUDIO / DIALOG / LANGUAGE /
+  // VOICE / PRODUCT / UGC / MODESTY / NEGATIVE) lands at ~4500-5000
+  // chars before the LLM scene description, ~6000-6500 with it. 8000
+  // gives ~30% headroom for future lock additions without rejection.
+  // Veo's actual attention window is well above this; all upstream
+  // wrappers (Crun/APIMart/APIPod) forward verbatim.
+  if (input.prompt) fd.append("prompt", input.prompt.substring(0, 8000));
   fd.append("model", normalisedModel);
 
   const imgUrls = (input.imageUrls || []).filter(Boolean);

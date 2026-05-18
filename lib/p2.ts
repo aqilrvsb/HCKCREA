@@ -151,11 +151,11 @@ async function p2CreateTaskInternal(input: {
   const isBanana = !isVideo && !isGptImage && !isGrok && !isSeedance && !isZImage;
 
   const innerInput: Record<string, any> = {};
-  // Aligned to 4000 chars across all video providers (p5/p6 cap at 4000
-  // per APIPod's documented limit). Uniform cap means admin can swap
-  // cascade slots without worrying about which provider can fit a
-  // bigger prompt.
-  if (input.prompt) innerInput.prompt = input.prompt.substring(0, 4000);
+  // 8000-char cap. Bumped 4000 → 8000 after production rows truncated
+  // mid-MODESTY-LOCK (user-reported, May 2026). All video providers
+  // aligned to 8000. Crun forwards prompt verbatim to Veo, which has
+  // a much larger attention window than 8000 chars.
+  if (input.prompt) innerInput.prompt = input.prompt.substring(0, 8000);
 
   if (isGrok) {
     // Grok Imagine — t2v takes aspect_ratio, i2v doesn't (inherits from img).
