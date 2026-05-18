@@ -43,6 +43,13 @@ export default function VideoTab({ projectId }: { projectId?: string } = {}) {
   // Without avatar: products fill all 3 slots (max 3 products).
   const [refImages, setRefImages] = useState<string[]>([]);
   const [prompt, setPrompt] = useState("");
+  // Input mode toggle — "prompt" is the legacy free-form path (user types
+  // full scene + dialog), "idea" is a new shortcut where the user just
+  // types a one-line idea and the backend silently expands it into a
+  // full Veo prompt via Gemini 3.1 Flash Lite. No framework (UGC has
+  // no framework picker like Auto Content); dialog hard-locked at
+  // 20-24 Malay words for 8s via the canonical DIALOG LENGTH LOCK.
+  const [inputMode, setInputMode] = useState<"prompt" | "idea">("prompt");
   const [aspect, setAspect] = useState("9:16");
   const [count, setCount] = useState(1);
   const duration: "8" = "8"; // Veo 3.1 Fast — 8s only
@@ -235,6 +242,10 @@ export default function VideoTab({ projectId }: { projectId?: string } = {}) {
             image_mode: effectiveMode,
             aspect_ratio: aspect,
             project_id: projectId,
+            // Idea mode: backend silently runs Gemini 3.1 Flash Lite on the
+            // user's one-liner to produce a full Veo prompt before applying
+            // locks. Prompt mode: backend uses the prompt text verbatim.
+            mode: inputMode,
           }),
         }).then((r) => r.json())
       );
@@ -404,12 +415,51 @@ export default function VideoTab({ projectId }: { projectId?: string } = {}) {
           </div>
         )}
 
+        {/* Mode toggle — "Prompt" = legacy full-text textarea; "Idea" =
+            type a short one-liner, backend expands into a full Veo prompt
+            via Gemini 3.1 Flash Lite (silent — single Generate click).
+            Same expansion model Auto Content uses, minus the framework
+            layer (UGC doesn't have frameworks). Dialog stays at the
+            canonical 20-24 Malay words for 8s via DIALOG LENGTH LOCK. */}
+        <div className="flex gap-2 mb-3">
+          <button
+            type="button"
+            onClick={() => setInputMode("prompt")}
+            className="flex-1 px-3 py-2 rounded-xl text-xs font-bold transition-all border"
+            style={{
+              background: inputMode === "prompt" ? "#1a1a1a" : "white",
+              color: inputMode === "prompt" ? "white" : "#1a1a1a",
+              borderColor: inputMode === "prompt" ? "#1a1a1a" : "#e8e0d8",
+            }}
+          >
+            ✍️ Prompt
+          </button>
+          <button
+            type="button"
+            onClick={() => setInputMode("idea")}
+            className="flex-1 px-3 py-2 rounded-xl text-xs font-bold transition-all border"
+            style={{
+              background: inputMode === "idea"
+                ? "linear-gradient(90deg, #ec4899, #a855f7, #38bdf8)"
+                : "white",
+              color: inputMode === "idea" ? "white" : "#1a1a1a",
+              borderColor: inputMode === "idea" ? "#a855f7" : "#e8e0d8",
+            }}
+          >
+            💡 Idea (AI expand)
+          </button>
+        </div>
+
         <textarea
-          rows={5}
+          rows={inputMode === "idea" ? 3 : 5}
           value={prompt}
-          onChange={(e) => setPrompt(e.target.value.substring(0, 1500))}
-          maxLength={1500}
-          placeholder="Scene description + spoken dialog 0-8s..."
+          onChange={(e) => setPrompt(e.target.value.substring(0, inputMode === "idea" ? 400 : 1500))}
+          maxLength={inputMode === "idea" ? 400 : 1500}
+          placeholder={
+            inputMode === "idea"
+              ? "One-line idea (e.g. 'saya masak tenggiri masam dan makan dengan nasi')..."
+              : "Scene description + spoken dialog 0-8s..."
+          }
           className="w-full p-3.5 rounded-xl text-sm resize-y outline-none focus:border-orange-400"
           style={{
             background: "#fafaf7",
@@ -418,25 +468,37 @@ export default function VideoTab({ projectId }: { projectId?: string } = {}) {
             lineHeight: 1.5,
           }}
         />
-        <p className="text-[10px] text-gray-500 mt-2 leading-relaxed">
-          Each shot = 8s · Sweet spot{" "}
-          <span className="font-bold text-orange-600">18–22 words</span> of
-          spoken dialog (split: 0-2s hook ≤6 words · 2-6s middle ≤14 words ·
-          6-8s CTA ≤6 words) ·{" "}
-          <span
-            className={
-              prompt.trim().split(/\s+/).filter(Boolean).length > 26
-                ? "text-red-500 font-bold"
-                : "text-gray-700 font-semibold"
-            }
-          >
-            {prompt.trim().split(/\s+/).filter(Boolean).length} words
-          </span>{" "}
-          ·{" "}
-          <span className={prompt.length > 1425 ? "text-red-500 font-bold" : ""}>
-            {prompt.length}/1500
-          </span>
-        </p>
+        {inputMode === "idea" ? (
+          <p className="text-[10px] text-gray-500 mt-2 leading-relaxed">
+            <span className="font-bold text-purple-600">AI expansion:</span>{" "}
+            Gemini 3.1 Flash Lite reads your idea and writes the full Veo
+            prompt (scene + 20-24 Malay word dialog) silently when you
+            click Generate. Reference images (if attached) are respected.{" "}
+            <span className={prompt.length > 380 ? "text-red-500 font-bold" : ""}>
+              {prompt.length}/400
+            </span>
+          </p>
+        ) : (
+          <p className="text-[10px] text-gray-500 mt-2 leading-relaxed">
+            Each shot = 8s · Sweet spot{" "}
+            <span className="font-bold text-orange-600">18–22 words</span> of
+            spoken dialog (split: 0-2s hook ≤6 words · 2-6s middle ≤14 words ·
+            6-8s CTA ≤6 words) ·{" "}
+            <span
+              className={
+                prompt.trim().split(/\s+/).filter(Boolean).length > 26
+                  ? "text-red-500 font-bold"
+                  : "text-gray-700 font-semibold"
+              }
+            >
+              {prompt.trim().split(/\s+/).filter(Boolean).length} words
+            </span>{" "}
+            ·{" "}
+            <span className={prompt.length > 1425 ? "text-red-500 font-bold" : ""}>
+              {prompt.length}/1500
+            </span>
+          </p>
+        )}
       </Card>
 
       {/* SIZE + GENERATE */}

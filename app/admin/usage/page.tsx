@@ -618,15 +618,18 @@ export default function AdminUsage() {
                           })()}
                         </td>
                         {/* Idea — Auto Content's optional Custom Idea style
-                            tag (metadata.idea_style). When user used Normal
-                            Flow this is empty → shows dash. Rainbow chip mirrors
+                            tag (metadata.idea_style) AND UGC tab's new Idea
+                            mode (metadata.expanded_from_idea=true). When
+                            user used the legacy "Prompt" mode on either tab
+                            this is empty → shows dash. Rainbow chip mirrors
                             the badge shown on the history card. */}
                         <td className="px-5 py-4">
                           {(() => {
-                            const isAuto =
-                              String(r.tab || "").toLowerCase() === "auto" ||
-                              String(r.type || "").toLowerCase() === "auto-content";
-                            if (!isAuto) {
+                            const tabLower = String(r.tab || "").toLowerCase();
+                            const typeLower = String(r.type || "").toLowerCase();
+                            const isAuto = tabLower === "auto" || typeLower === "auto-content";
+                            const isUgc = tabLower === "video" || typeLower === "video";
+                            if (!isAuto && !isUgc) {
                               return (
                                 <span className="text-[10px] font-mono text-[var(--color-text-muted)]">
                                   —

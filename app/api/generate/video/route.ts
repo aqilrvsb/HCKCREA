@@ -5,6 +5,7 @@ import { priceFor } from "@/lib/deduct";
 import { getP2Config } from "@/lib/settings";
 import { buildVeoLocks, getVoiceDescription, pickVoiceFromPrompt } from "@/lib/veo-voices";
 import { generateVideoWithCascade } from "@/lib/video-cascade";
+import { orChat } from "@/lib/openrouter";
 
 // POST /api/generate/video — UGC tab. Placeholder-first + auth-light.
 //
@@ -23,7 +24,13 @@ export async function POST(req: Request) {
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const body = await req.json().catch(() => ({}));
-  const rawPrompt = String(body?.prompt || "").trim();
+  const rawInput = String(body?.prompt || "").trim();
+  // Input mode: "prompt" (default — legacy verbatim) or "idea" (NEW —
+  // backend silently runs Gemini 3.1 Flash Lite to expand the user's
+  // one-liner into a full Veo prompt with scene + 20-24 word Malay
+  // dialog before applying locks). Same expansion model Auto Content
+  // uses minus the framework layer (UGC has no frameworks).
+  const inputMode: "prompt" | "idea" = body?.mode === "idea" ? "idea" : "prompt";
   const imageUrls: string[] = Array.isArray(body?.image_urls) ? body.image_urls : [];
   const aspectRatio = String(body?.aspect_ratio || "9:16");
   const durationMode: "8" | "16" = body?.duration === "16" ? "16" : "8";
@@ -51,9 +58,70 @@ export async function POST(req: Request) {
     rawHijab === "hijab" ||
     rawHijab === 1;
 
-  if (!rawPrompt) return NextResponse.json({ error: "Prompt required" }, { status: 400 });
+  if (!rawInput) return NextResponse.json({ error: "Prompt required" }, { status: 400 });
   if (imageMode !== "text" && !imageUrls.length) {
     return NextResponse.json({ error: "Reference image required" }, { status: 400 });
+  }
+
+  // ── IDEA MODE: expand one-liner into a full Veo prompt ────────────
+  // Gemini 3.1 Flash Lite reads the user's idea + the attachment context
+  // (avatar / product hint) and writes a complete scene description
+  // with embedded 20-24 Malay-word spoken dialog. No framework layer
+  // (UGC isn't framework-based); dialog is enforced by the canonical
+  // DIALOG LENGTH LOCK appended downstream anyway, so we ask Gemini
+  // for loose-structure dialog (just total word count, no beat budget).
+  //
+  // Falls back to verbatim if expansion errors — user still gets a
+  // generation, just from their raw idea text instead of the expanded
+  // version. Better than blocking the click.
+  let rawPrompt = rawInput;
+  let originalIdea = "";
+  if (inputMode === "idea") {
+    originalIdea = rawInput;
+    try {
+      const hasAvatar = imageUrls.length > 0 && imageMode === "ingredient";
+      const hasProduct = imageUrls.length > 1 && imageMode === "ingredient";
+      const refContextHint = hasAvatar && hasProduct
+        ? "The user has attached a character avatar AND a product reference image."
+        : hasAvatar
+          ? "The user has attached a character avatar reference image."
+          : hasProduct
+            ? "The user has attached a product reference image."
+            : "No reference images attached — describe the scene/character fully.";
+      const ideaSystem = `You expand a Malaysian TikTok creator's short idea into a full Veo 3.1 Fast video prompt.
+
+OUTPUT: plain text (NO markdown, NO JSON). One scene description paragraph followed by a "Spoken dialog:" block.
+
+Hard rules:
+- Total spoken dialog = 20-24 Malay words for an 8-second shot. Count the words. Under 18 = TTS mouth freezes. Over 26 = rushed audio.
+- Bahasa Melayu (Malaysian Malay) ONLY. Use: korang, aku, ni, tu, memang, gila, lah, je, dah, eh. NEVER Bahasa Indonesia (kalian, gue, lo, banget, sih, dong, kayak, gimana, mau, nih, tuh).
+- Natural pacing — don't force a hook/middle/CTA beat budget. Write what flows from the idea.
+- Scene description: shot type (e.g. "Selfie-style handheld" or "Medium shot"), what the person/character is doing, setting, lighting, mood. Keep it CONCISE — 80-150 words max.
+- ${refContextHint}
+- ${hasAvatar ? 'Anchor the character to the reference: "Same person from reference image (same face, same outfit)."' : ""}
+- ${hasProduct ? 'Anchor the product to the reference: "Same product from reference image (same label, same packaging)."' : ""}
+- Audio: spoken dialog only, no background music or SFX (system appends AUDIO LOCK that enforces this).
+- Format: just the scene paragraph, then "Spoken dialog:" line, then the dialog itself. Nothing else.
+
+Example output shape:
+Selfie-style handheld shot, arm's length. Same person from reference image, holding the same product from the second reference image. Bright natural daylight, kitchen setting, smiling naturally while showing the product to camera.
+
+Spoken dialog:
+Korang tau tak ni apa? Aku baru jumpa, memang lain rasa dia! Try sekali, lepas tu kau cakap dengan aku. Beli sekarang!`;
+      const ideaResult = await orChat({
+        systemPrompt: ideaSystem,
+        userPrompt: `Idea: ${rawInput}`,
+        temperature: 0.8,
+        maxTokens: 600,
+      });
+      if (ideaResult.ok && ideaResult.content) {
+        rawPrompt = ideaResult.content.trim();
+      }
+    } catch (e) {
+      // Expansion error → fall through using raw input. The user's
+      // idea text still goes to Veo, just unexpanded. Better than
+      // blocking the generation.
+    }
   }
 
   // Append the canonical Veo lock block (same one used by UGC agent + Auto
@@ -105,6 +173,12 @@ export async function POST(req: Request) {
         // first). Crucial for r2v / ingredient mode product anchoring.
         image_urls: imageUrls,
         upload_status: "queued",
+        // Stamp idea-mode origin when the user used the Idea expander
+        // so admin/usage Detail Log can surface it under the Idea
+        // column (matches Auto Content's idea_style convention).
+        ...(inputMode === "idea" && originalIdea
+          ? { idea_style: originalIdea.slice(0, 200), expanded_from_idea: true }
+          : {}),
         ...(is16s
           ? {
               duration_mode: "16s",
