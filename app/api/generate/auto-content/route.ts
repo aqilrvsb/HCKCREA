@@ -1320,7 +1320,7 @@ VOICE LOCK (CRITICAL — DO NOT CHANGE BETWEEN SHOTS):
 - Copy the EXACT Voice line from Shot 1 into Shot 2.
 
 FOR UGC FRAMEWORKS (16s):
-videoPromptShot1 (max 1200 chars) — FIRST HALF (0-8s):
+videoPromptShot1 (max 700 chars — Veo 3.1 Fast spec: total prompt ≤ 2000 chars including locks; custom idea details still take priority — be terse but never drop user's idea content) — FIRST HALF (0-8s):
 [Shot type], same person from reference image, same appearance, with the same product (HOLDING it if PRODUCT type per <attachment_classifier>, OR WEARING it if WEARABLE type — clothes/hijab/jewelry/shoes/bag). [One action].
 
 🚨 Spoken dialog — TOTAL MUST BE 20-24 Malay words for this 8-second shot (matches the DIALOG LENGTH LOCK appended by the system). Below 20 = character mouth freezes at end. Above 26 = rushed audio.
@@ -1335,7 +1335,7 @@ Voice: ${gender === "male" ? "young Malay man voice" : `young Malay woman voice 
 Style: Soft natural lighting, cinematic film look, audio dialogue only, clean vertical frame.
 The character speaks directly to camera with clear voice. NO background music. NO subtitles.
 
-videoPromptShot2 (max 1200 chars) — SECOND HALF (8-16s):
+videoPromptShot2 (max 700 chars — Veo 3.1 Fast spec: total prompt ≤ 2000 chars including locks; custom idea details still take priority) — SECOND HALF (8-16s):
 🚨 SHOT 2 MUST BE A VERBATIM COPY OF SHOT 1 — only the spoken dialog block changes. Veo has ZERO memory between segment 1 and segment 2 — it sees ONLY this single prompt when it generates seg-2. If you write "same person as Shot 1" or "continues speaking" Veo has no clue who/what that means. Therefore:
 
   • Copy the FULL Shot 1 prompt VERBATIM (shot type, character description, outfit description, product description, setting, lighting, camera details, all locks).
@@ -1366,7 +1366,7 @@ Product only, voiceover only, NO person, NO music.
 8-SECOND VIDEO = ONE complete shot.
 
 FOR UGC FRAMEWORKS (8s — character on screen):
-videoPromptShot1 (max 1200 chars):
+videoPromptShot1 (max 700 chars — Veo 3.1 Fast spec: total prompt ≤ 2000 chars including locks; custom idea details still take priority — be terse but never drop user's idea content):
 - Start: "[Shot type], same person from reference image, same appearance, with the same product (HOLDING it if PRODUCT type per <attachment_classifier>, OR WEARING it if WEARABLE type — clothes/hijab/jewelry/shoes/bag)."
 - ONE action + camera movement
 
@@ -1380,7 +1380,7 @@ MUST have this EXACT spoken dialog structure:
 ${noCta ? "" : "CRITICAL: The 6-8s CTA line MUST be present. Without it, the video is INCOMPLETE."}
 
 FOR PRODUCT / LIFESTYLE FRAMEWORKS (8s — NO person on screen):
-videoPromptShot1 (max 1200 chars):
+videoPromptShot1 (max 700 chars — Veo 3.1 Fast spec: total prompt ≤ 2000 chars including locks; custom idea details still take priority — be terse but never drop user's idea content):
 - Start: "[Shot type] of the product [${productData.productName || "product"}] on [elegant surface/setting]." NO person, NO face, NO hands, NO body in frame.
 - ONE smooth motion: slow rotation / zoom in / floating reveal / volumetric reveal / dramatic lighting shift
 - The avatar block is IGNORED — this video is product-only

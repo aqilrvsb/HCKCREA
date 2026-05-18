@@ -158,12 +158,27 @@ export function buildVeoLocks(opts: {
     ? ", free hair, loose hair, uncovered hair, visible hair, hair strands, fringe showing, bangs, no hijab, hijab removed, head uncovered, ears visible, neck exposed, salon-style hair"
     : "";
 
+  // Compressed lock block — keeps EVERY constraint category from the
+  // original verbose version (CLEAN FRAME / ANATOMY / AUDIO / VOICE
+  // CHARACTER / DIALOG LENGTH / LANGUAGE / VOICE CONSISTENCY / PRODUCT /
+  // HIJAB / UGC AUTHENTICITY / MODESTY / Negative). Phrasing is terser
+  // per MindStudio's Veo 3.1 Fast spec:
+  //   "Veo 3.1 Fast processes prompts up to 2,000 characters. Longer
+  //    descriptions don't improve results and may slow generation."
+  // Old version was ~2,200-3,000 chars of locks alone — total prompts
+  // (with scene description) consistently hit 4,500-5,500 chars,
+  // 2-3× over Veo's effective attention budget. Compressed version
+  // lands at ~1,200-1,500 chars so total prompts fit under 2,000.
+  // No structural changes: same opts signature (voiceId, voiceLine,
+  // hijab, durationSec), same hijab branching, same per-second Grok
+  // dialog math, same negative list (just deduped against positive
+  // locks).
   return `
 
-🚫 CLEAN FRAME LOCK (READ FIRST — most violated rule): This is a RAW CAMERA RECORDING. The character / product fills the frame naturally edge-to-edge as a normal phone-recorded video. ZERO graphics rendered into the video. ZERO yellow shopping bag icons. ZERO yellow basket icons. ZERO TikTok Shop badges. ZERO floating product icons. ZERO emojis. ZERO stickers. ZERO buttons. ZERO captions. ZERO subtitles. ZERO text overlays. ZERO UI elements of any kind. The phrase "beg kuning" exists ONLY as spoken audio coming from the character's mouth — it is NEVER, under ANY circumstances, drawn / illustrated / rendered / composited as a yellow bag, shopping cart, basket, or any visual symbol in the frame. If you see a yellow shopping icon anywhere in the output, the entire generation is wrong. Frame contains ONLY: the person (if Template A) and the product, filling the natural shot composition — NOT confined to the top portion. NOTHING ELSE EXISTS IN THE FRAME.
+🚫 CLEAN FRAME LOCK (top violation): Raw camera footage. Subject + product fill frame edge-to-edge. ZERO icons, badges, emojis, stickers, buttons, captions, subtitles, text overlays, UI of any kind. "beg kuning" = SPOKEN AUDIO ONLY — NEVER drawn as a yellow bag, basket, cart, or any visual symbol. Yellow shopping icon in frame = wrong output.
 
-ANATOMY LOCK: ONE human only — exactly 2 hands with 5 fingers each (both clearly visible when in frame), symmetric face, normal proportions, no missing limbs, no extra limbs, no fused fingers, no warped joints, no plastic / waxy skin, no uncanny-valley features, no morphing face, no asymmetric eyes, no doubled facial features.
-AUDIO LOCK: ONE single voice only — no chatter, no background voices, no whispered second voice, no echo doubles, NO ghost sound, NO phantom audio, NO unexplained noise. NO background music, NO instrumental, NO sound effects, NO ambient music, NO score, NO jingles. All audio is spoken dialog only.${voiceCharLine}
+ANATOMY LOCK: 1 human, 2 hands × 5 fingers (both visible when in frame), symmetric face, normal proportions. No extra/missing/fused limbs, warped joints, plastic skin, morphing face, doubled features.
+AUDIO LOCK: ONE voice only. No chatter, background voices, whispered overdubs, echo doubles, ghost sound, phantom audio. No music, instrumental, SFX, ambient, score, jingles. Spoken dialog only.${voiceCharLine}
 ${(() => {
   const d = Math.max(2, Math.round(opts.durationSec || 8));
   // Veo 8s shots have a tighter 20-24 word window (denser UGC pace).
@@ -171,16 +186,16 @@ ${(() => {
   // segments) uses a FIXED 3 words/sec rate — Grok's lip-sync engine
   // is tuned for that pace; under = mouth freezes, over = clipped.
   if (d === 8) {
-    return `DIALOG LENGTH LOCK: Total spoken dialog = 20-24 Malay words for this 8s shot. Under 18 = mouth freezes at end. Over 26 = rushed audio.`;
+    return `DIALOG LENGTH LOCK: 20-24 Malay words for this 8s shot. Under 18 = mouth freezes. Over 26 = rushed.`;
   }
   const target = d * 3;
-  return `DIALOG LENGTH LOCK: Total spoken dialog = EXACTLY ${target} Malay words for this ${d}s Grok shot (FIXED 3 words per second — Grok's lip-sync is tuned for this rate). Under ${target - 2} = mouth freezes at end. Over ${target + 2} = clipped audio.`;
+  return `DIALOG LENGTH LOCK: EXACTLY ${target} Malay words for this ${d}s Grok shot (FIXED 3 words/sec — Grok lip-sync tuned for this rate). <${target - 2} = freeze. >${target + 2} = clipped.`;
 })()}
-LANGUAGE LOCK: Spoken dialog is BAHASA MELAYU (Malaysian Malay) ONLY. NEVER Bahasa Indonesia. Use Malaysian markers: korang, aku, ni, tu, memang, gila, kau, lah, je, dah, eh. FORBIDDEN Indonesian words: kalian, gue, lo, banget, sih, dong, kayak, gimana, ngapain, kasihan, doang, mau, nih, tuh.
-VOICE CONSISTENCY LOCK: The character's voice has fixed identity — same gender, same age range, same pitch, same Malaysian accent, same speaking rhythm and energy across the entire clip and any future continuation. Voice MUST stay locked so seg-2 / Extend continuations match seg-1 seamlessly.
-PRODUCT LOCK: Product visual is pixel-identical to reference — same color, shape, label, typography, layout, packaging, finish. Sharp focus on label, no warping, no recoloring, no text drift, no relabel, no re-illustration. When a reference image is attached, the reference is the SINGLE source of truth for the product — anchor framing, lighting, and hand-holding around it.${hijabLockLine}
+LANGUAGE LOCK: Bahasa Melayu (Malaysian Malay) ONLY — never Bahasa Indonesia. Use: korang, aku, ni, tu, memang, gila, lah, je, dah, eh. NEVER: kalian, gue, lo, banget, sih, dong, kayak, gimana, kasihan, mau, nih, tuh.
+VOICE CONSISTENCY LOCK: Same voice identity (gender, age, pitch, Malaysian accent, rhythm) across entire clip + Extend continuations. seg-1 ↔ seg-2 must match seamlessly.
+PRODUCT LOCK: Pixel-identical to reference — same color, shape, label, typography, packaging. Sharp focus on label, no warp/recolor/relabel/text-drift. Reference = single source of truth.${hijabLockLine}
 ${ugcAuthLine}
-MODESTY LOCK (Malaysian-Muslim audience — applies to ALL personas regardless of hijab choice): For FEMALE — short-sleeve T-shirts are FINE; loose-fit only. NO tight body-hugging tops that show breast/chest contour, NO cleavage, NO V-necks low enough to expose chest, NO crop tops, NO midriff or navel exposure, NO short shorts, NO mini skirts, NO thigh exposure. Bottoms must cover thighs (long pants, jeans, maxi/midi skirts, baju kurung). Hair MAY be visible only if persona is non-hijab. For MALE — long sleeves preferred but smart short-sleeve shirts/polos are fine. NO shirtless, NO tank tops, NO tight muscle-tees. Modest casual / smart-casual silhouettes only.
+MODESTY LOCK (Malaysian-Muslim, ALL personas): FEMALE — loose-fit only, short-sleeve OK, NO tight body-hugging tops, cleavage, V-necks, crop tops, midriff/navel exposure, short shorts, mini skirts, thigh exposure. Bottoms cover thighs (long pants, maxi/midi skirts, baju kurung). Hair visible only if non-hijab. MALE — long sleeves preferred, smart short-sleeve OK, NO shirtless, tank tops, tight muscle-tees. Modest casual only.
 
-Negative: yellow shopping basket, yellow shopping bag, yellow basket icon, yellow bag icon, shopping cart icon, basket emoji, bag emoji, TikTok shop badge, TikTok shop button, beg kuning icon, beg kuning graphic, affiliate sticker, affiliate button, product floating icon, interface overlay, app overlay, on-screen button, on-screen icon, brand watermark, brand name watermark, brand logo overlay, brand name text overlay, store name overlay, store watermark, burned-in brand text, burned-in store name, burned-in watermark, registered trademark symbol overlay, copyright symbol overlay, brand name in capital letters as bottom overlay, ALL CAPS brand text watermark, lower-third brand text, lower-third product name text, letterbox bars, black bars top, black bars bottom, empty bottom band, cropped composition, vertical letterbox, cartoon, 3D cartoon, anime, airbrushed plastic skin, uncanny valley, glam makeup, salon hair, softbox studio lighting, tripod static shot (unless explicitly chosen), staged background, posed billboard framing, closed mouth while audio plays, duplicate limbs, extra fingers, fused fingers, distorted fingers, deformed hand, hand out of frame, warped product label, blurry product, motion-blurred product, text drift, subtitle burn-in, auto-captions, on-screen dialog text, burned-in lyrics, karaoke text, multiple speakers, second voice, whispered overdub, ghost voice, phantom audio, ambient noise, voiceover narration, music score, background music, instrumental track, sound effects, ambient music, jingles, Bahasa Indonesia, Indonesian accent, Indonesian slang${hijabNegatives}.`;
+Negative: yellow shopping bag/basket/cart icon, TikTok shop badge, affiliate sticker/button, product floating icon, interface/app overlay, brand watermark/logo/text overlay, store name overlay, letterbox/black bars, cropped composition, cartoon, 3D cartoon, anime, airbrushed plastic skin, uncanny valley, glam makeup, salon hair, softbox lighting, posed billboard framing, closed mouth while audio plays, extra/fused/deformed fingers, hand out of frame, warped product label, blurry product, text drift, subtitle burn-in, auto-captions, on-screen dialog text, second voice, whispered overdub, ghost voice, music, instrumental, SFX, ambient, jingles, Bahasa Indonesia, Indonesian slang${hijabNegatives}.`;
 }

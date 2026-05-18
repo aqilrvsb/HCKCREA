@@ -166,13 +166,12 @@ export async function p5CreateVideo(input: {
 
   const body: any = {
     model,
-    // 8000-char cap. Previously 4000, before that 2000 — kept hitting
-    // the next ceiling as the canonical lock block grew. Production
-    // rows in May 2026 truncated mid-MODESTY-LOCK at the 4000 mark.
-    // Real prompts land at ~4500-5000 chars with all locks + LLM
-    // scene description; 8000 leaves ~30% headroom. APIMart forwards
-    // verbatim to Veo, which accepts well above this.
-    prompt: input.prompt.slice(0, 8000),
+    // 3000-char cap matching MindStudio Veo 3.1 Fast spec. With
+    // compressed buildVeoLocks (~1,200-1,500 chars) + Gemini's 700-
+    // char scene description, real prompts land at ~1,900-2,200 chars
+    // — under Veo's 2,000-char effective attention window so back-of-
+    // prompt locks actually get weighted.
+    prompt: input.prompt.slice(0, 3000),
     duration: Number(input.durationMode) || 8,
     aspect_ratio: input.aspectRatio || "9:16",
   };

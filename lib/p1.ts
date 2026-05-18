@@ -139,15 +139,17 @@ export async function p1CreateTask(input: {
   }
 
   const fd = new FormData();
-  // 8000-char cap. Bumped 4000 → 8000 after production rows truncated
-  // mid-MODESTY-LOCK (user-reported, May 2026): real prompt with all
-  // canonical locks (CLEAN FRAME / ANATOMY / AUDIO / DIALOG / LANGUAGE /
-  // VOICE / PRODUCT / UGC / MODESTY / NEGATIVE) lands at ~4500-5000
-  // chars before the LLM scene description, ~6000-6500 with it. 8000
-  // gives ~30% headroom for future lock additions without rejection.
-  // Veo's actual attention window is well above this; all upstream
-  // wrappers (Crun/APIMart/APIPod) forward verbatim.
-  if (input.prompt) fd.append("prompt", input.prompt.substring(0, 8000));
+  // 3000-char cap. Per MindStudio Veo 3.1 Fast spec:
+  //   "Veo 3.1 Fast processes prompts up to 2,000 characters. Longer
+  //    descriptions don't improve results and may slow generation."
+  // 3000 = 2000 target + 50% buffer for verbose custom ideas / voice
+  // descriptions. With compressed buildVeoLocks (~1,200-1,500 chars)
+  // + Gemini's 700-char scene description budget, real prompts now
+  // land at ~1,900-2,200 chars — under Veo's effective attention
+  // window, so MODESTY / HIJAB / NEGATIVE locks at the back actually
+  // get weighted. Was 8000 (over Veo's limit, helped nothing) → 4000
+  // (still truncated locks) → 3000 (matches MindStudio + safety).
+  if (input.prompt) fd.append("prompt", input.prompt.substring(0, 3000));
   fd.append("model", normalisedModel);
 
   const imgUrls = (input.imageUrls || []).filter(Boolean);

@@ -153,15 +153,15 @@ export async function p6CreateVideo(input: {
     imageMode: input.imageMode,
     imageUrls: refs,
   });
-  // Per-model prompt cap. APIPod's docs say Grok is hard-capped at 4000
-  // characters — exceeding it returns a rejection rather than a silent
-  // truncation. Veo / Seedance accept much longer prompts (Veo's
-  // attention window is well above 8000 chars; APIPod forwards verbatim).
-  // Production rows in May 2026 were silently truncating mid-MODESTY-
-  // LOCK on Veo paths because we'd capped all models at 4000 to match
-  // Grok's limit. Now: Grok keeps 4000 (per docs), everyone else gets
-  // 8000 so the full canonical lock stack + LLM scene description fits.
-  const promptCap = resolvedModel.startsWith("grok") ? 4000 : 8000;
+  // Per-model prompt cap.
+  // - Grok keeps 4000 chars (APIPod's documented Grok hard limit).
+  // - Veo / Seedance use 3000 chars matching MindStudio's Veo 3.1 Fast
+  //   spec (2,000-char effective attention window + 50% safety buffer).
+  //   Real prompts with compressed buildVeoLocks + Gemini's 700-char
+  //   scene desc land at ~1,900-2,200 chars — under Veo's attention
+  //   window so back-of-prompt locks (MODESTY / HIJAB / NEGATIVE)
+  //   actually get weighted instead of being deprioritized.
+  const promptCap = resolvedModel.startsWith("grok") ? 4000 : 3000;
   const body: any = {
     model: resolvedModel,
     prompt: input.prompt.slice(0, promptCap),

@@ -151,11 +151,12 @@ async function p2CreateTaskInternal(input: {
   const isBanana = !isVideo && !isGptImage && !isGrok && !isSeedance && !isZImage;
 
   const innerInput: Record<string, any> = {};
-  // 8000-char cap. Bumped 4000 → 8000 after production rows truncated
-  // mid-MODESTY-LOCK (user-reported, May 2026). All video providers
-  // aligned to 8000. Crun forwards prompt verbatim to Veo, which has
-  // a much larger attention window than 8000 chars.
-  if (input.prompt) innerInput.prompt = input.prompt.substring(0, 8000);
+  // 3000-char cap matching MindStudio Veo 3.1 Fast spec (2000-char
+  // effective limit + 50% safety buffer). Compressed buildVeoLocks +
+  // Gemini's tighter scene description put real prompts at ~1,900-
+  // 2,200 chars — within Veo's attention window so back-of-prompt
+  // locks (MODESTY / HIJAB / NEGATIVE) actually get weighted.
+  if (input.prompt) innerInput.prompt = input.prompt.substring(0, 3000);
 
   if (isGrok) {
     // Grok Imagine — t2v takes aspect_ratio, i2v doesn't (inherits from img).
