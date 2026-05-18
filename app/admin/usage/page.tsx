@@ -42,7 +42,7 @@ type SummaryRow = {
 };
 
 export default function AdminUsage() {
-  const [view, setView] = useState<"summary" | "detail">("summary");
+  const [view, setView] = useState<"summary" | "detail">("detail");
   const [rows, setRows] = useState<UsageRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [promptModal, setPromptModal] = useState<UsageRow | null>(null);
@@ -261,6 +261,7 @@ export default function AdminUsage() {
         <div className="flex gap-2 mt-4">
           {[
             { label: "Today", days: 0 },
+            { label: "Yesterday", days: -2 }, // sentinel: special handling below
             { label: "7d", days: 6 },
             { label: "Month", days: -1 },
           ].map((p) => (
@@ -269,13 +270,23 @@ export default function AdminUsage() {
               onClick={() => {
                 const today = localDateStr();
                 if (p.days === -1) {
+                  // Month-to-date — first of current month → today
                   const d = new Date();
                   setStart(localDateStr(new Date(d.getFullYear(), d.getMonth(), 1)));
                   setEnd(today);
+                } else if (p.days === -2) {
+                  // Yesterday — exactly one day in the past (start = end)
+                  const d = new Date();
+                  d.setDate(d.getDate() - 1);
+                  const y = localDateStr(d);
+                  setStart(y);
+                  setEnd(y);
                 } else if (p.days === 0) {
+                  // Today — single day
                   setStart(today);
                   setEnd(today);
                 } else {
+                  // N-days rolling window — N days ago → today
                   const d = new Date();
                   d.setDate(d.getDate() - p.days);
                   setStart(localDateStr(d));
@@ -302,8 +313,11 @@ export default function AdminUsage() {
       >
         {(
           [
-            { k: "summary", label: "Summary by User" },
+            // Detail Log first — per admin workflow it's the more
+            // frequently scanned view (per-row debugging, per-prompt
+            // inspection). Summary stays available as the second toggle.
             { k: "detail", label: "Detail Log" },
+            { k: "summary", label: "Summary by User" },
           ] as { k: typeof view; label: string }[]
         ).map((t) => {
           const active = view === t.k;

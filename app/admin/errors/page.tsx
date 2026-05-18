@@ -516,6 +516,7 @@ export default function AdminErrors() {
         <div className="flex gap-1">
           {[
             { label: "Today", days: 0 },
+            { label: "Yesterday", days: -2 }, // sentinel: special handling below
             { label: "7d", days: 6 },
             { label: "Month", days: -1 },
           ].map((p) => (
@@ -524,12 +525,22 @@ export default function AdminErrors() {
               onClick={() => {
                 const today = localDateStr();
                 if (p.days === -1) {
+                  // Month-to-date — first of current month → today
                   setStart(startOfMonthLocal());
                   setEnd(today);
+                } else if (p.days === -2) {
+                  // Yesterday — exactly one day in the past (start = end)
+                  const d = new Date();
+                  d.setDate(d.getDate() - 1);
+                  const y = localDateStr(d);
+                  setStart(y);
+                  setEnd(y);
                 } else if (p.days === 0) {
+                  // Today — single day
                   setStart(today);
                   setEnd(today);
                 } else {
+                  // N-days rolling window — N days ago → today
                   const d = new Date();
                   d.setDate(d.getDate() - p.days);
                   setStart(localDateStr(d));

@@ -73,7 +73,11 @@ export default function AdminTransactions() {
   const [rows, setRows] = useState<Payment[]>([]);
   const [profiles, setProfiles] = useState<Record<string, Profile>>({});
   // Malaysia-local dates (UTC+8) — toISOString would off-by-one to UTC.
-  const [start, setStart] = useState(startOfMonthLocal());
+  // Default to TODAY (per user direction across all admin pages — every
+  // date filter defaults to today, presets give quick jumps to other
+  // ranges). Was month-to-date previously; admin can click Month preset
+  // to restore that view.
+  const [start, setStart] = useState(localDateStr());
   const [end, setEnd] = useState(localDateStr());
   const [statusFilter, setStatusFilter] = useState<Status | "all">("all");
   const [busy, setBusy] = useState<string | null>(null);
@@ -276,6 +280,51 @@ export default function AdminTransactions() {
               <option value="refunded">Refunded</option>
             </select>
           </div>
+        </div>
+
+        {/* Quick preset buttons — Today / Yesterday / 7d / Month —
+            matches admin/usage and admin/errors for consistent UX
+            across every date-filtered admin page. */}
+        <div className="flex gap-2 mt-4">
+          {[
+            { label: "Today", days: 0 },
+            { label: "Yesterday", days: -2 },
+            { label: "7d", days: 6 },
+            { label: "Month", days: -1 },
+          ].map((p) => (
+            <button
+              key={p.label}
+              onClick={() => {
+                const today = localDateStr();
+                if (p.days === -1) {
+                  setStart(startOfMonthLocal());
+                  setEnd(today);
+                } else if (p.days === -2) {
+                  const d = new Date();
+                  d.setDate(d.getDate() - 1);
+                  const y = localDateStr(d);
+                  setStart(y);
+                  setEnd(y);
+                } else if (p.days === 0) {
+                  setStart(today);
+                  setEnd(today);
+                } else {
+                  const d = new Date();
+                  d.setDate(d.getDate() - p.days);
+                  setStart(localDateStr(d));
+                  setEnd(today);
+                }
+              }}
+              className="px-3 py-1.5 rounded-lg text-xs font-bold transition-transform hover:-translate-y-0.5"
+              style={{
+                background: "var(--color-bg)",
+                border: "1px solid var(--color-border)",
+                color: "var(--color-text-primary)",
+              }}
+            >
+              {p.label}
+            </button>
+          ))}
         </div>
       </div>
 
