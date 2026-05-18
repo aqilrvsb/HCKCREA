@@ -5,6 +5,12 @@ import { getSettings } from "@/lib/settings";
 
 export async function orChat(opts: {
   modelKey?: "model_auto" | "model_clone" | "model_vision" | "model_retry" | "model_product_ocr";
+  /** Bypass app_settings entirely and use this exact model id.
+   *  Callers with a specific model in mind (e.g. Storytelling script
+   *  gen using its own storytelling_script_model setting) pass this
+   *  to avoid wiring a new modelKey enum value for every dedicated
+   *  caller. */
+  modelOverride?: string;
   systemPrompt: string;
   userPrompt: string;
   temperature?: number;
@@ -17,7 +23,7 @@ export async function orChat(opts: {
   ]);
   const base = s.or_base?.url;
   const key = s.or_key?.key;
-  const model = s[opts.modelKey || "model_auto"]?.model;
+  const model = opts.modelOverride || s[opts.modelKey || "model_auto"]?.model;
   if (!base || !key || !model) {
     return { ok: false, error: "OpenRouter not configured" };
   }

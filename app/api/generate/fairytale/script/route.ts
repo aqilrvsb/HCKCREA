@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { orChat } from "@/lib/openrouter";
+import { getSetting } from "@/lib/settings";
 
 // POST /api/generate/fairytale/script
 //
@@ -370,11 +371,21 @@ Generate the JSON now.`;
   }
 
   // ─── First call ──────────────────────────────────────────────────
+  // Storytelling has its OWN model setting (storytelling_script_model)
+  // independent from model_auto so admin can use a stronger JSON
+  // producer here without making Auto Content's master plan more
+  // expensive. Empty → falls back to model_auto via orChat's default
+  // modelKey="model_auto", preserving backward compat.
+  const scriptModelSetting = await getSetting<{ model: string }>(
+    "storytelling_script_model"
+  );
+  const dedicatedModel = scriptModelSetting?.model?.trim();
   let result = await orChat({
     systemPrompt,
     userPrompt: userMsg,
     temperature: 0.85,
     maxTokens: 4500,
+    ...(dedicatedModel ? { modelOverride: dedicatedModel } : {}),
   });
 
   if (!result.ok || !result.content) {
@@ -447,6 +458,7 @@ Regenerate the FULL JSON. Specifically:
       userPrompt: userMsg,
       temperature: 0.7, // lower temp on retry — more compliant
       maxTokens: 4500,
+      ...(dedicatedModel ? { modelOverride: dedicatedModel } : {}),
     });
     if (retry.ok && retry.content) {
       const retryParsed = tryParse(retry.content);

@@ -82,6 +82,13 @@ export default function AdminSettings() {
   // matches the AI Call project's tuned value. See
   // app_settings.storytelling_voice_speed.
   const [storytellingVoiceSpeed, setStorytellingVoiceSpeed] = useState("");
+  // Independent LLM for Storytelling script generation. Separate from
+  // model_auto (which powers Auto Content's master plan) because the
+  // Storytelling JSON output is 6-10K tokens — needs a stronger model
+  // than Auto Content's 1-2-scene plans. Empty string falls back to
+  // model_auto for backward compatibility. Stored as
+  // app_settings.storytelling_script_model = { model: "openrouter-id" }.
+  const [storytellingScriptModel, setStorytellingScriptModel] = useState("");
   const [savingStorytelling, setSavingStorytelling] = useState(false);
   const [storytellingMsg, setStorytellingMsg] = useState<string | null>(null);
 
@@ -197,6 +204,9 @@ export default function AdminSettings() {
         if (row.key === "rate_seedance") setRateSeedance(fmt(row.value?.per_second));
         if (row.key === "fairytale_image_model") {
           setStorytellingModel(String(row.value?.model || ""));
+        }
+        if (row.key === "storytelling_script_model") {
+          setStorytellingScriptModel(String(row.value?.model || ""));
         }
         if (row.key === "storytelling_pricing") {
           setStorytellingPerImage(fmt(row.value?.per_image));
@@ -495,6 +505,14 @@ export default function AdminSettings() {
           body: JSON.stringify({
             key: "storytelling_provider",
             value: { provider: storytellingProvider },
+          }),
+        }),
+        fetch("/api/admin/settings", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            key: "storytelling_script_model",
+            value: { model: storytellingScriptModel.trim() },
           }),
         }),
       ]);
@@ -1264,6 +1282,34 @@ export default function AdminSettings() {
             </div>
             <p className="text-[10px] text-[var(--color-text-muted)] mt-1">
               Charged per scene image (slide_count × this rate).
+            </p>
+          </div>
+        </div>
+        {/* AI script model — INDEPENDENT from Auto Content's model_auto.
+            Storytelling script gen demands a strong JSON producer (12
+            scenes × ~800 chars each = 6-10K output tokens, strict
+            schema), so admin sets a dedicated model here. Empty falls
+            back to model_auto for backward compat. Free-text input so
+            admin can paste any OpenRouter model id without waiting
+            for a code change to add it to a dropdown. */}
+        <div className="grid grid-cols-1 gap-4 mb-3 mt-3">
+          <div>
+            <label className="block text-xs font-mono uppercase tracking-widest text-[var(--color-text-muted)] font-bold mb-2">
+              AI Script Model (independent from Auto Content)
+            </label>
+            <input
+              type="text"
+              value={storytellingScriptModel}
+              onChange={(e) => setStorytellingScriptModel(e.target.value)}
+              placeholder="e.g. google/gemini-3.1-pro, anthropic/claude-haiku-4-5, openai/gpt-5.4"
+              className="input"
+              style={{ color: "white" }}
+            />
+            <p className="text-[10px] text-[var(--color-text-muted)] mt-1">
+              {storytellingScriptModel.trim()
+                ? <>Currently active: <strong>{storytellingScriptModel.trim()}</strong></>
+                : <>Empty = falls back to <strong>model_auto</strong> (shared with Auto Content). Set this when Storytelling script gen fails with &quot;invalid JSON&quot; — Flash-Lite-tier models often truncate the 6–10K token JSON. Use a stronger model (gemini-3.1-pro / claude-haiku-4-5 / gpt-5.4) here without making Auto Content more expensive.</>
+              }
             </p>
           </div>
         </div>
