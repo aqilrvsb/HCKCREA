@@ -167,66 +167,73 @@ export function pickVoiceFromPrompt(prompt: string): string {
   return pickVoiceByPersona(gender, age, vibe);
 }
 
+// Primary ★ anchors — one canonical voice per (gender, age) tuple that
+// matches the user-spec'd catalog table. Without a vibe override, the
+// picker ALWAYS returns these exact picks for the 8 standard personas.
+// Same persona = same voice across every Auto Content batch, every UGC
+// agent variant, every seg-1 ↔ seg-2 continuation, every retry.
+//
+// These cannot be reordered or remapped — they ARE the contract with
+// the user's catalog spec.
+const PRIMARY_ANCHORS: Record<string, string> = {
+  "female:20s": "leda",          // Youthful, trendy Gen-Z energy
+  "female:30s": "callirrhoe",    // Easy-going, natural conversational
+  "female:40s": "gacrux",        // Mature, warm motherly tone (makcik)
+  "female:55+": "vindemiatrix",  // Gentle, soft caring delivery (nenek)
+  "male:20s":   "fenrir",        // Excitable, energetic hype
+  "male:30s":   "achird",        // Friendly, warm conversational
+  "male:40s":   "alnilam",       // Firm, steady authoritative (pakcik)
+  "male:55+":   "charon",        // Informative, deep authoritative (atok)
+};
+
 export function pickVoiceByPersona(
   gender: "male" | "female",
   age: AutoContentAge,
   vibe?: VoiceVibe
 ): string {
-  // Hard filter — female personas only consider female-labelled voices,
-  // male personas only male. pulcherrima (ungendered) is excluded by
-  // this filter, kept available for manual UGC dropdown selection only.
+  const anchorKey = `${gender}:${age}`;
+  const anchor = PRIMARY_ANCHORS[anchorKey];
+
+  // No vibe override → return the primary anchor directly. Guarantees
+  // the 8 standard personas always resolve to the user-spec'd picks.
+  if (!vibe) return anchor;
+
+  // Vibe override → score the candidates to allow tone-specific picks
+  // (e.g. hype-tone female 30s might pick laomedeia instead of
+  // callirrhoe). Anchor still gets a baseline bonus so vibe has to
+  // strongly match a non-anchor before the picker swaps away from it.
   const candidates = VEO_VOICES.filter((v) => {
     const lbl = v.label;
     if (gender === "female") return /\bFemale\b/.test(lbl);
     return /\bMale\b/.test(lbl) && !/\bFemale\b/.test(lbl);
   });
 
-  // Age-band scoring — match the trait keywords in each voice's
-  // description against typical traits for that age band.
-  const AGE_KEYWORDS: Record<AutoContentAge, RegExp> = {
-    "20s":  /youthful|young|gen.?z|excitable|upbeat|energetic|bright|hype|trendy|high pitch|mid-high/i,
-    "30s":  /friendly|warm|easy-going|natural|conversational|smooth|breezy/i,
-    "40s":  /mature|warm|firm|motherly|steady|authoritative|smooth|knowledgeable|even/i,
-    "55+":  /gentle|deep|mature|wise|calm|caring|informative|lower pitch|low pitch/i,
-  };
-  const AGE_PITCH_BONUS: Record<AutoContentAge, RegExp> = {
-    "20s":  /high pitch|mid-high pitch/i,
-    "30s":  /mid pitch|mid-pitch/i,
-    "40s":  /mid pitch|mid-low pitch/i,
-    "55+":  /low pitch|lower pitch|mid-low pitch/i,
-  };
-
-  // Vibe scoring — boost voices whose description matches the requested
-  // emotional tone. Optional — vibe=undefined skips this step.
   const VIBE_KEYWORDS: Record<VoiceVibe, RegExp> = {
-    hype:     /hype|excitable|excited|energetic|upbeat|cheerful/i,
+    hype:     /hype|excitable|excited|energetic|upbeat/i,
     warm:     /warm|friendly|gentle|caring|approachable|motherly/i,
     firm:     /firm|steady|authoritative|direct|confident|knowledgeable/i,
-    calm:     /gentle|smooth|even|caring|calm|breathy/i,
-    playful:  /playful|upbeat|excitable|cheerful|hype|breezy|lively/i,
-    serious:  /informative|authoritative|knowledgeable|firm|deep|mature/i,
-    youthful: /youthful|young|gen.?z|trendy|energetic|bright|excitable/i,
-    mature:   /mature|warm|motherly|caring|deep|gentle|knowledgeable/i,
+    calm:     /smooth|even|caring|breathy|soft caring|polished/i,
+    playful:  /playful|upbeat|excitable|cheerful|breezy|lively/i,
+    serious:  /informative|authoritative|knowledgeable|deep|expert/i,
+    youthful: /youthful|gen.?z|trendy|energetic|excitable/i,
+    mature:   /mature|motherly|caring|deep|gentle|knowledgeable/i,
   };
 
   const scored = candidates.map((v) => {
-    const desc = v.description;
     let score = 0;
-    if (AGE_KEYWORDS[age].test(desc)) score += 30;
-    if (AGE_PITCH_BONUS[age].test(desc)) score += 10;
-    if (vibe && VIBE_KEYWORDS[vibe].test(desc)) score += 25;
+    if (v.id === anchor) score += 20;                       // anchor baseline
+    if (VIBE_KEYWORDS[vibe].test(v.description)) score += 30; // vibe match
     return { voice: v, score };
   });
 
-  // Deterministic tie-break by voice ID alphabetical order, so same
-  // input always produces same output across server restarts and
-  // retries — critical for seg-1 ↔ seg-2 voice continuity.
+  // Deterministic tie-break by voice ID alphabetical order — same
+  // input always returns same output across retries / restarts.
   scored.sort((a, b) => {
     if (b.score !== a.score) return b.score - a.score;
     return a.voice.id.localeCompare(b.voice.id);
   });
 
-  return scored[0]?.voice.id || (gender === "female" ? "callirrhoe" : "achird");
+  return scored[0]?.voice.id || anchor;
 }
 
 // The full lock block appended to every Veo prompt — same wording across
