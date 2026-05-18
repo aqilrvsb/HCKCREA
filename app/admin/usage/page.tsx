@@ -448,12 +448,21 @@ export default function AdminUsage() {
                   </tr>
                 ) : (
                   generationRows.map((r, i) => {
-                    const isVid =
-                      r.type === "video" ||
-                      r.type === "auto-content" ||
-                      r.type === "clone" ||
-                      r.tab === "cinema";
+                    // type='image' is authoritative — overrides any tab
+                    // tagging. Fixes the case where Viral Talking Object
+                    // inserts both a video row AND an image row both
+                    // tagged tab='cinema'; without this the image row's
+                    // Preview button defaults to "Video" (wrong) and the
+                    // Tab column shows "CINEMA" (misleading — Cinema tab
+                    // doesn't have a standalone image-generation feature).
                     const isImg = r.type === "image";
+                    const isVid =
+                      !isImg && (
+                        r.type === "video" ||
+                        r.type === "auto-content" ||
+                        r.type === "clone" ||
+                        r.tab === "cinema"
+                      );
                     const promptShort = (r.prompt || "").trim().substring(0, 80);
                     // Linked history row was deleted (by user or admin) but
                     // the cost ledger entry remains. Mark visibly.
@@ -554,7 +563,18 @@ export default function AdminUsage() {
                               "fairytale-scene":   "fairytale",
                               "fairytale-hero":    "fairytale",
                             };
-                            const tabKey = rawTab || TYPE_FALLBACK[rawType] || rawType;
+                            // type='image' overrides whatever tab the row is
+                            // stamped with (Viral Talking Object stamps
+                            // tab='cinema' on its source-image row, which is
+                            // misleading because Cinema tab has no standalone
+                            // image-gen feature). Source-of-truth ordering:
+                            //   1. type='image' → IMAGE always
+                            //   2. raw tab if mapped
+                            //   3. type-based fallback (auto-content → auto, etc.)
+                            const tabKey =
+                              rawType === "image"
+                                ? "image"
+                                : rawTab || TYPE_FALLBACK[rawType] || rawType;
                             const t = TAB_MAP[tabKey];
                             if (!t) {
                               return (
