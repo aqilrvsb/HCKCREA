@@ -54,9 +54,28 @@ export async function orChat(opts: {
     return { ok: false, error: json?.error?.message || `HTTP ${res.status}` };
   }
 
+  // OpenRouter sometimes returns HTTP 200 with `error: { message: ... }`
+  // at the top of the body when an upstream provider (Qwen, etc.) fails
+  // mid-stream. In that case choices is empty/missing and we'd treat it
+  // as success with empty content downstream. Detect + surface as a
+  // real error so the caller's retry logic kicks in.
+  if (json?.error?.message || json?.error?.code) {
+    return {
+      ok: false,
+      error: String(json.error.message || `Provider error code ${json.error.code}`),
+    };
+  }
+  const content = json?.choices?.[0]?.message?.content || "";
+  if (!content) {
+    return {
+      ok: false,
+      error: `Empty completion (finish_reason=${json?.choices?.[0]?.finish_reason || "unknown"})`,
+    };
+  }
+
   return {
     ok: true,
-    content: json?.choices?.[0]?.message?.content || "",
+    content,
     finishReason: json?.choices?.[0]?.finish_reason,
   };
 }
@@ -122,9 +141,25 @@ export async function orChatVision(opts: {
     return { ok: false, error: json?.error?.message || `HTTP ${res.status}` };
   }
 
+  // Same 200-with-error-in-body handling as orChat above. OpenRouter
+  // wraps upstream provider failures this way even on HTTP 200.
+  if (json?.error?.message || json?.error?.code) {
+    return {
+      ok: false,
+      error: String(json.error.message || `Provider error code ${json.error.code}`),
+    };
+  }
+  const visionContent = json?.choices?.[0]?.message?.content || "";
+  if (!visionContent) {
+    return {
+      ok: false,
+      error: `Empty completion (finish_reason=${json?.choices?.[0]?.finish_reason || "unknown"})`,
+    };
+  }
+
   return {
     ok: true,
-    content: json?.choices?.[0]?.message?.content || "",
+    content: visionContent,
     finishReason: json?.choices?.[0]?.finish_reason,
   };
 }
