@@ -9,6 +9,7 @@ import { uploadImage, dataUrlToFile } from "@/lib/upload-image";
 import { isVisibleAfterTtl, fetchSavedSet } from "@/lib/history-filter";
 import AttachmentPicker from "../sections/attachment-picker";
 import ScrapePicker from "../sections/scrape-picker";
+import ProductRefTips from "../sections/product-ref-tips";
 
 // Video tab — 1:1 port of creative-hack-auto's video-mode-section.
 // Three image modes (frame / ingredient / text), with a Scene card that
@@ -403,9 +404,12 @@ export default function VideoTab({ projectId }: { projectId?: string } = {}) {
                 }
               />
             </div>
-            <p className="md:col-span-2 text-[11px] text-gray-500 -mt-1">
-              Both optional. Pick {avatarImage ? "up to 2 products" : "up to 3 products"}; each picked image is sent as a distinct reference to Veo.
-            </p>
+            <div className="md:col-span-2 -mt-1 flex items-center gap-2 flex-wrap">
+              <p className="text-[11px] text-gray-500">
+                Both optional. Pick {avatarImage ? "up to 2 products" : "up to 3 products"}; each picked image is sent as a distinct reference to Veo.
+              </p>
+              <ProductRefTips />
+            </div>
           </div>
         )}
 

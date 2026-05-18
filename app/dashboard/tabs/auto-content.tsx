@@ -7,6 +7,7 @@ import Portal from "../sections/portal";
 import { uploadImage, dataUrlToFile } from "@/lib/upload-image";
 import { isVisibleAfterTtl, fetchSavedSet } from "@/lib/history-filter";
 import AttachmentPicker from "../sections/attachment-picker";
+import ProductRefTips from "../sections/product-ref-tips";
 import ScrapePicker from "../sections/scrape-picker";
 import {
   FRAMEWORKS,
@@ -1637,6 +1638,11 @@ function ManualProductCard({
         className="w-full p-2 rounded text-xs resize-y outline-none mb-2"
         style={{ background: "#ffffff", border: "1px solid #e8e0d8", color: "#1a1a1a" }}
       />
+      {idx === 0 && (
+        <div className="mb-2">
+          <ProductRefTips />
+        </div>
+      )}
       <div className="flex items-stretch gap-2">
         {/* Three slots: empty placeholders if not picked. Clicking any
             opens the multi-pick AttachmentPicker. 1 picked → triplicated

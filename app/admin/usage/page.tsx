@@ -90,16 +90,39 @@ export default function AdminUsage() {
   // Only image + video count for usage stats (auto_plan / clone_plan /
   // signup_bonus excluded). Then narrow further by mediaFilter so admin
   // can isolate just image-gen or just video-gen rows.
+  //
+  // INTERMEDIATE IMAGE EXCLUSION — per user direction, hide image rows
+  // that are auxiliary steps within a larger generation:
+  //   - fairytale-scene: per-scene image inside a Storytelling video
+  //   - fairytale-hero: auto-generated main character ref for Storytelling
+  //   - talking-object-image: source image for a Viral Talking Object video
+  // The "main" output rows for those features (Storytelling merged video,
+  // Talking Object talking video) still appear normally — only the
+  // intermediate image steps are dropped from the admin Detail Log
+  // so the log stays focused on user-facing outputs.
   const generationRows = useMemo(
     () => {
-      const base = filtered.filter(
-        (r) =>
-          r.reason.startsWith("image") || r.reason.startsWith("video")
-      );
+      const base = filtered.filter((r) => {
+        if (!(r.reason.startsWith("image") || r.reason.startsWith("video"))) {
+          return false;
+        }
+        // Drop Storytelling intermediate image rows (per-scene + hero).
+        if (r.type === "fairytale-scene" || r.type === "fairytale-hero") {
+          return false;
+        }
+        // Drop Viral Talking Object source-image row (the still image
+        // that gets animated into the Talking Object video).
+        const featureType = String((r.metadata as any)?.featureType || "").toLowerCase();
+        if (featureType === "talking-object-image") {
+          return false;
+        }
+        return true;
+      });
       if (mediaFilter === "all") return base;
       return base.filter((r) => {
         // Match the cell logic — includes storytelling image types
-        // (fairytale-scene / fairytale-hero) so they're filterable too.
+        // (fairytale-scene / fairytale-hero) so they're filterable too,
+        // even though those should now be excluded above.
         const isImg =
           r.type === "image" ||
           r.type === "fairytale-scene" ||
