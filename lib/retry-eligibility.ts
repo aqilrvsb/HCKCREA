@@ -36,10 +36,21 @@ const RETRYABLE_ERROR_PATTERNS: RegExp[] = [
   /rate[\s-]?limit/i,
   /too many requests/i,
   /\b429\b/,
-  // 4. CUE validator — Crun.ai's prompt-schema validator. Different slot
-  //    runs a different validator instance with different config, so
-  //    rotating CAN recover the request.
+  // 4. CUE validator / prompt-schema validator — both Crun.ai and APIPod
+  //    run schema validators against the prompt. Different slot runs a
+  //    different validator instance with different config, so rotating
+  //    CAN recover (e.g., p6 CUE rejects → p5 APIMart accepts).
+  //
+  //    Real production phrasings observed:
+  //      • Crun: "CUE validator failed: ..."
+  //      • APIPod: "attempt1: validation failed: #/Validators.\"veo3-1-fast-ref\".prompt: invalid value ..."
+  //
+  //    Patterns cover both literal "cue validator" AND APIPod's
+  //    "#/Validators.\"<model>\"" + "validation failed: invalid value"
+  //    formats so event-driven retry fires for either provider's reject.
   /cue validator/i,
+  /#\/validators\./i,
+  /validation failed.*invalid value/i,
 ];
 
 export function isInternalError(err: string | null | undefined): boolean {
