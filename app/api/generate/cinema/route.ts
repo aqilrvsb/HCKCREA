@@ -170,10 +170,13 @@ export async function POST(req: Request) {
         durationMode: String(duration),
         aspectRatio,
         imageMode: imgMode,
-        // Grok routes through the Grok cascade (typically p6-a..h);
-        // Veo stays on the Video cascade. Each has its own admin-tuned
-        // main+fallback pool + independent round-robin counter.
-        asset: modelChoice === "grok" ? "grok" : "video",
+        // Both Veo (Viral) AND Grok share the VIDEO cascade pool — admin
+        // configures one list at /admin/settings → Cascade → VIDEO CASCADE
+        // and every video-producing tab follows it. p6.ts apipodVideoModel()
+        // still detects 'grok' in the model string and routes to the right
+        // APIPod endpoint, so slot p6-* will fire grok-imagine-* when
+        // modelChoice='grok' and veo3-1-fast when modelChoice='veo'.
+        asset: "video",
       });
       if (result.ok) {
         createdOk = true;
