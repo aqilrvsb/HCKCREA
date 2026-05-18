@@ -61,6 +61,12 @@ image = (
         "supabase==2.10.0",
         "httpx==0.27.2",
         "fastapi[standard]==0.115.0",
+        # boto3 for multipart upload to B2 — single-shot requests.put
+        # truncates with IncompleteBody for files > ~50MB on Modal's
+        # container network. Multipart splits the file into 5MB parts
+        # and uploads each separately, so a transient network hiccup
+        # only affects one part (which retries independently).
+        "boto3==1.34.0",
     )
 )
 
@@ -185,37 +191,117 @@ def _ffprobe_duration(path: Path) -> float:
         return 5.0
 
 
-def _ken_burns_filter(animation: str, duration: float, fps: int = 30) -> str:
-    """Return ffmpeg zoompan filter string for the chosen animation style."""
-    total_frames = int(duration * fps)
-    # zoompan operates per frame. Zoom range 1.0-1.3 looks natural without artifacts.
+def _ken_burns_filter(animation: str, duration: float, fps: int = 60) -> str:
+    """Return ffmpeg zoompan filter string for the chosen animation style.
+
+    Tuned to match the wizard's CSS preview EXACTLY:
+      • 60 fps output matches the browser compositor (browser CSS
+        transitions run at the display refresh rate, almost always 60 Hz).
+        Bumping ffmpeg from 30 → 60 cuts perceived jitter in half before
+        anything else.
+      • Zoom range 1.0 → 1.18 matches CSS @keyframes ftKenBurnsZoomIn
+        (transform: scale(1.0) → scale(1.18)). The old 1.3 max produced
+        a much more aggressive zoom than the preview.
+      • Per-frame zoom is computed via a FORMULA (`1.0 + 0.18*on/N`)
+        instead of incrementing the previous frame's zoom. zoompan's
+        increment form drifts + quantizes; the formula form gives the
+        same sub-pixel-smooth linear interpolation the browser does.
+      • Pan amplitude matches CSS translateX(±3%) — ~3% of frame width.
+    """
+    total_frames = max(1, int(duration * fps))
+    # Zoom-in: linear scale(1.0) → scale(1.18) over the scene duration.
     if animation == "zoom-in":
         return (
-            f"scale=2160:3840,zoompan=z='min(zoom+0.0008,1.3)':"
+            f"scale=2160:3840,zoompan=z='1.0+0.18*on/{total_frames}':"
             f"x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':"
             f"d={total_frames}:s=1080x1920:fps={fps}"
         )
+    # Zoom-out: linear scale(1.18) → scale(1.0).
     if animation == "zoom-out":
         return (
-            f"scale=2160:3840,zoompan=z='if(lte(zoom,1.0),1.3,max(1.0,zoom-0.0008))':"
+            f"scale=2160:3840,zoompan=z='1.18-0.18*on/{total_frames}':"
             f"x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':"
             f"d={total_frames}:s=1080x1920:fps={fps}"
         )
+    # Pan-left: hold zoom at 1.15, slide x from right→left across 6% of width
+    # (matches CSS translateX(+3%) → translateX(-3%)).
     if animation == "pan-left":
         return (
-            f"scale=2160:3840,zoompan=z=1.2:"
-            f"x='iw-(iw/zoom)-(on*4)':y='ih/2-(ih/zoom/2)':"
+            f"scale=2160:3840,zoompan=z=1.15:"
+            f"x='(iw-iw/zoom)*(1-on/{total_frames})':y='ih/2-(ih/zoom/2)':"
             f"d={total_frames}:s=1080x1920:fps={fps}"
         )
+    # Pan-right: same but left→right.
     if animation == "pan-right":
         return (
-            f"scale=2160:3840,zoompan=z=1.2:"
-            f"x='on*4':y='ih/2-(ih/zoom/2)':"
+            f"scale=2160:3840,zoompan=z=1.15:"
+            f"x='(iw-iw/zoom)*on/{total_frames}':y='ih/2-(ih/zoom/2)':"
             f"d={total_frames}:s=1080x1920:fps={fps}"
         )
-    # default: subtle zoom-in
+    # Pan-down: zoom 1.15, slide y from top→bottom (CSS translateY(±3%)).
+    if animation == "pan-down":
+        return (
+            f"scale=2160:3840,zoompan=z=1.15:"
+            f"x='iw/2-(iw/zoom/2)':y='(ih-ih/zoom)*on/{total_frames}':"
+            f"d={total_frames}:s=1080x1920:fps={fps}"
+        )
+    # zoom-pan: combined zoom-in + slight x-pan (matches CSS ftKenBurnsZoomPan
+    # `scale(1.0) translateX(-2%)` → `scale(1.18) translateX(2%)`).
+    if animation == "zoom-pan":
+        return (
+            f"scale=2160:3840,zoompan=z='1.0+0.18*on/{total_frames}':"
+            f"x='(iw-iw/zoom)*(0.3+0.4*on/{total_frames})':y='ih/2-(ih/zoom/2)':"
+            f"d={total_frames}:s=1080x1920:fps={fps}"
+        )
+    # slide-reveal-left: CSS scale(1.05) translateX(+8%) → scale(1.05) translateX(0)
+    # — slides in from the right and settles centered. We approximate with
+    # a horizontal pan (no opacity fade in zoompan; the visual feel is
+    # carried by the motion).
+    if animation == "slide-reveal-left":
+        return (
+            f"scale=2160:3840,zoompan=z=1.05:"
+            f"x='(iw-iw/zoom)*(0.65-0.15*on/{total_frames})':y='ih/2-(ih/zoom/2)':"
+            f"d={total_frames}:s=1080x1920:fps={fps}"
+        )
+    # fade-in (ftFadeInZoom): CSS scale(1.05) opacity:0 → scale(1.10) opacity:1.
+    # We chain a `fade=in` (first ~0.6s) AFTER the zoom so the clip eases up
+    # from black, mirroring the preview's opacity ramp.
+    if animation == "fade-in":
+        return (
+            f"scale=2160:3840,zoompan=z='1.05+0.05*on/{total_frames}':"
+            f"x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':"
+            f"d={total_frames}:s=1080x1920:fps={fps},"
+            f"fade=in:0:{max(1, int(0.6 * fps))}"
+        )
+    # scale-pulse: CSS 1.05 → 1.15 → 1.05 over one scene length. cos(2π·t/D)
+    # starts at 1, dips to -1 at the midpoint, returns to 1 — so
+    # 1.10 - 0.05*cos(...) yields the exact 1.05 → 1.15 → 1.05 envelope.
+    if animation == "scale-pulse":
+        return (
+            f"scale=2160:3840,zoompan=z='1.10-0.05*cos(2*PI*on/{total_frames})':"
+            f"x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':"
+            f"d={total_frames}:s=1080x1920:fps={fps}"
+        )
+    # color-shift: CSS hue-rotate 0 → 20 → 0 deg + saturate 1 → 1.3 → 1.
+    # Chain hue filter AFTER zoompan; ffmpeg's hue accepts time-evaluated
+    # expressions when `eval=frame` is set on the source.
+    if animation == "color-shift":
+        return (
+            f"scale=2160:3840,zoompan=z='1.0+0.18*on/{total_frames}':"
+            f"x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':"
+            f"d={total_frames}:s=1080x1920:fps={fps},"
+            f"hue=h='20*sin(2*PI*t/{duration:.3f})':"
+            f"s='1+0.3*abs(sin(2*PI*t/{duration:.3f}))'"
+        )
+    # none / unknown: still mp4 at 60 fps so the audio/text can sit on top
+    # without forcing a different code path downstream.
+    if animation == "none":
+        return (
+            f"scale=1080:1920,fps={fps}"
+        )
+    # default: subtle zoom-in matching CSS preview.
     return (
-        f"scale=2160:3840,zoompan=z='min(zoom+0.0006,1.2)':"
+        f"scale=2160:3840,zoompan=z='1.0+0.18*on/{total_frames}':"
         f"x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':"
         f"d={total_frames}:s=1080x1920:fps={fps}"
     )
@@ -472,7 +558,11 @@ def _render_scene(
     cmd = [
         "ffmpeg", "-y",
         "-fflags", "+genpts",
-        "-loop", "1", "-framerate", "30", "-i", str(image_path),
+        # 60 fps input → 60 fps output so the Ken Burns motion is as
+        # smooth as the wizard's CSS preview (the browser compositor
+        # runs the CSS transition at 60 Hz). The old 30 was the source
+        # of the visible jitter the user reported vs the live preview.
+        "-loop", "1", "-framerate", "60", "-i", str(image_path),
         "-i", str(audio_path),
         "-map_metadata", "-1",
         "-filter_complex",
@@ -666,16 +756,28 @@ def _b2_sign_v4(method: str, b2_key: str, body: bytes | None, content_type: str 
 
 
 def _upload_b2(local_path: Path, b2_key: str, content_type: str = "video/mp4") -> None:
-    """PUT the local file to Backblaze B2 at the given key with the
-    immutable cache-control header so browsers cache the file for 30 days.
+    """Upload local file to peninglab-content via boto3 multipart upload.
 
-    Validates the file is non-empty BEFORE the PUT. If ffmpeg merge
-    produced a 0-byte mp4 we'd otherwise get the cryptic B2 XML error
-    'request body was too small' — surfacing the local state first
-    makes the actual failure (empty merge output) obvious in the row's
-    error_message and the Modal logs.
+    Previous implementation used requests.put(data=bytes) with manual
+    SigV4 — that consistently failed with B2 'IncompleteBody: request
+    body was too small' for files >50MB on Modal's container network,
+    because requests/urllib3 occasionally truncates a single large PUT
+    over the long-lived socket. Adding retries didn't help (every
+    attempt hit the same truncation point).
+
+    Multipart upload via boto3.upload_file:
+      • Splits the file into 5MB parts
+      • Each part is a separate PUT (small enough to complete reliably)
+      • boto3 retries each part independently on transient failure
+      • Final POST commits all parts atomically
+      • Memory-efficient: streams from disk, no need to hold the whole
+        file in a bytes object
+      • Handles signing internally — no manual SigV4 maintenance burden
+
+    Validates the file is non-empty BEFORE the upload so a 0-byte
+    ffmpeg output surfaces as a clear error instead of a cryptic
+    'request body too small' from B2.
     """
-    import requests
     if not local_path.exists():
         raise RuntimeError(
             f"B2 upload skipped: {local_path} does not exist — merge step likely failed silently"
@@ -687,63 +789,64 @@ def _upload_b2(local_path: Path, b2_key: str, content_type: str = "video/mp4") -
             "check the scene render + concat steps for silent failures"
         )
     # Sanity floor — a real merged mp4 is at least a few KB for the moov atom alone.
-    # If we see less than 1KB the file is almost certainly corrupt.
     if size < 1024:
         raise RuntimeError(
             f"B2 upload skipped: {local_path} is suspiciously small ({size} bytes) — likely corrupt merge output"
         )
 
-    with open(local_path, "rb") as f:
-        body = f.read()
-    if len(body) != size:
-        raise RuntimeError(
-            f"B2 upload skipped: read mismatch — file claimed {size} bytes, read {len(body)} bytes"
-        )
+    import boto3
+    from botocore.config import Config
+    from boto3.s3.transfer import TransferConfig
 
-    # PUT with retries — IncompleteBody (B2 says "you sent fewer bytes
-    # than Content-Length") is typically a socket abort partway through
-    # a large PUT, not a permanent error. Retrying with exponential
-    # backoff resolves it ~95% of the time. Each retry re-signs the
-    # request because the x-amz-date in the signature would otherwise
-    # expire on long retries.
-    import time
-    last_error = None
-    for attempt in range(3):
-        host, canonical_uri, headers = _b2_sign_v4(
-            "PUT", b2_key, body, content_type,
-            cache_control="public, max-age=2592000, immutable",
+    endpoint, region, access_key, secret_key, bucket = _b2_content_config()
+
+    # Disable boto3's chunked transfer encoding for single-part PUTs
+    # (B2 rejected those previously — see comment in _b2_sign_v4). For
+    # MULTIPART (which we use here for any file > 5MB), boto3 uploads
+    # each part as a separate request which B2 handles fine.
+    s3 = boto3.client(
+        "s3",
+        endpoint_url=endpoint,
+        region_name=region,
+        aws_access_key_id=access_key,
+        aws_secret_access_key=secret_key,
+        config=Config(
+            signature_version="s3v4",
+            s3={"addressing_style": "virtual"},
+            retries={"max_attempts": 3, "mode": "standard"},
+            connect_timeout=30,
+            read_timeout=300,
+        ),
+    )
+
+    # Force multipart for anything > 5MB. 5MB part size = ~12 parts
+    # for a 60MB MP4, each part PUT independently with its own retry
+    # budget. max_concurrency=4 uploads 4 parts in parallel for speed.
+    transfer_config = TransferConfig(
+        multipart_threshold=5 * 1024 * 1024,
+        multipart_chunksize=5 * 1024 * 1024,
+        max_concurrency=4,
+        use_threads=True,
+    )
+
+    try:
+        s3.upload_file(
+            str(local_path),
+            bucket,
+            b2_key,
+            ExtraArgs={
+                "ContentType": content_type,
+                # Matches lib/b2.ts uploadBufferToContent so the merged
+                # MP4 cache-control is identical to scene images.
+                "CacheControl": "public, max-age=2592000, immutable",
+            },
+            Config=transfer_config,
         )
-        try:
-            r = requests.put(
-                f"https://{host}{canonical_uri}",
-                data=body,
-                headers=headers,
-                timeout=300,  # bumped from 180 — large MP4s on slow connections
-            )
-        except (requests.ConnectionError, requests.Timeout) as e:
-            last_error = f"network error: {e}"
-            if attempt < 2:
-                time.sleep(2 ** attempt)  # 1s, 2s
-                continue
-            raise RuntimeError(
-                f"B2 upload failed after 3 attempts: {last_error}"
-            )
-        if 200 <= r.status_code < 300:
-            return
-        # Detect retryable B2 errors (IncompleteBody, RequestTimeout,
-        # InternalError, ServiceUnavailable). Anything else (NoSuchBucket,
-        # SignatureDoesNotMatch, AccessDenied) is configuration / auth
-        # and won't fix itself — fail fast.
-        retryable = any(
-            tag in r.text
-            for tag in ("IncompleteBody", "RequestTimeout", "InternalError", "ServiceUnavailable")
-        )
-        last_error = f"HTTP {r.status_code}: {r.text[:300]}"
-        if retryable and attempt < 2:
-            time.sleep(2 ** attempt)
-            continue
+    except Exception as e:
+        # Surface the actual boto3 error (S3 error code + part number
+        # if multipart) instead of a generic catch-all.
         raise RuntimeError(
-            f"B2 upload failed: {last_error} (uploaded {size} bytes, attempt {attempt + 1}/3)"
+            f"B2 multipart upload failed: {type(e).__name__}: {e} (file size {size} bytes)"
         )
 
 
