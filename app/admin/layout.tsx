@@ -12,6 +12,7 @@ import {
   Banknote,
   UserPlus,
   AlertTriangle,
+  Megaphone,
 } from "lucide-react";
 
 export default async function AdminLayout({
@@ -61,6 +62,7 @@ export default async function AdminLayout({
 
   const NAV = [
     { href: "/admin/transactions", label: "Transactions", icon: CreditCard },
+    { href: "/admin/ads", label: "Ads Performance", icon: Megaphone },
     { href: "/admin/affiliate", label: "Affiliate Apps", icon: UserPlus },
     { href: "/admin/cashout", label: "Cashout", icon: Banknote },
     { href: "/admin/clients", label: "Clients", icon: Users },

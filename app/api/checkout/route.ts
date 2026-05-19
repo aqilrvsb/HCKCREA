@@ -47,6 +47,11 @@ export async function POST(req: Request) {
     const name = String(body?.name || "").trim();
     const whatsappRaw = String(body?.whatsapp || "");
     const email = String(body?.email || "").trim().toLowerCase();
+    // UTM payload from the checkout form (read from peninglab_utm cookie
+    // set by FBPixel when the visitor landed via an ad link). Stamped
+    // into payment.metadata.utm so /admin/ads can attribute purchases
+    // back to the originating ad source/campaign/placement.
+    const utm = (body?.utm && typeof body.utm === "object") ? body.utm : null;
 
     if (plan !== "pro") {
       return NextResponse.json(
@@ -91,6 +96,18 @@ export async function POST(req: Request) {
           free_credits: cfg.freeCredits,
           signup: { name, whatsapp, email },
           referred_by_code: referredByCode,
+          // UTM attribution — only present when the visitor arrived from
+          // a paid ad link. Used by /api/admin/ads/stats to count
+          // ads-attributed purchases (vs organic signups).
+          utm: utm && utm.source
+            ? {
+                source: String(utm.source).slice(0, 64),
+                medium: utm.medium ? String(utm.medium).slice(0, 64) : null,
+                campaign: utm.campaign ? String(utm.campaign).slice(0, 128) : null,
+                content: utm.content ? String(utm.content).slice(0, 128) : null,
+                term: utm.term ? String(utm.term).slice(0, 128) : null,
+              }
+            : null,
         },
       })
       .select()

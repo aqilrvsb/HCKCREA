@@ -68,6 +68,24 @@ export default function CheckoutForm() {
       return setError("Email tak valid.");
     if (!agree) return setError("Sila tick untuk persetujuan.");
 
+    // Read peninglab_utm cookie (set by FBPixel when visitor landed
+    // from an ad link). Attached to the checkout request so the payment
+    // row gets UTM-attributed for /admin/ads reporting.
+    let utmPayload: Record<string, any> | null = null;
+    try {
+      const match = document.cookie
+        .split("; ")
+        .find((c) => c.startsWith("peninglab_utm="));
+      if (match) {
+        const raw = decodeURIComponent(match.split("=")[1] || "");
+        const parsed = JSON.parse(raw);
+        if (parsed && parsed.source) utmPayload = parsed;
+      }
+    } catch {
+      // Cookie missing/corrupt — proceed without UTM. Payment will be
+      // recorded as organic (no attribution) which is correct behaviour.
+    }
+
     setLoading(true);
     try {
       const res = await fetch("/api/checkout", {
@@ -78,6 +96,7 @@ export default function CheckoutForm() {
           name: name.trim(),
           whatsapp: wa,
           email: email.trim().toLowerCase(),
+          utm: utmPayload,
         }),
       });
       const data = await res.json();
