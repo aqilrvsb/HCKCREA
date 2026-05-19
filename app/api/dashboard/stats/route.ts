@@ -34,7 +34,7 @@ export async function GET(req: Request) {
   // Pull all done rows in range — small data, easy to aggregate JS-side
   const { data: rows } = await admin
     .from("history")
-    .select("id, type, tab, cost, status, created_at")
+    .select("id, type, tab, cost, status, created_at, metadata")
     .eq("user_id", user.id)
     .gte("created_at", start + "T00:00:00")
     .lte("created_at", end + "T23:59:59")
