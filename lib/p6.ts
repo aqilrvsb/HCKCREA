@@ -211,13 +211,13 @@ export async function p6CreateVideo(input: {
   //   • seedance-* : duration 4-15 (required)
   //   • grok-imagine-* : duration 6-30 (optional, default 6), resolution
   //                      480p/720p (optional, default 720p)
-  //   • veo3-1-fast / -ref : APIPod docs say "no duration accepted" BUT
-  //     empirically Veo was returning 6s files when we omitted duration.
-  //     Replicate.com's Veo 3.1 Fast endpoint exposes `duration: 8` as a
-  //     valid param (https://replicate.com/google/veo-3.1-fast), proving
-  //     the underlying Google model accepts it. We pass duration + resolution
-  //     here and trust APIPod to forward to Google — works in practice
-  //     even though APIPod's docs don't document it.
+  //   • veo3-1-fast / -ref : no duration / no resolution accepted — we
+  //     do NOT pass either field. APIPod was empirically returning 6s
+  //     files for Veo, but the duration:8/resolution:720p attempt was
+  //     reverted per user direction (preempt potential APIPod rejection).
+  //     Veo's effective length is governed by the DIALOG LENGTH LOCK
+  //     in buildVeoLocks — keep the 20-24 word lock in place so the
+  //     model self-pads to 8s through dialog pacing instead.
   if (resolvedModel.startsWith("seedance")) {
     const reqDur = Number(input.durationMode);
     body.duration =
@@ -230,18 +230,6 @@ export async function p6CreateVideo(input: {
       Number.isFinite(reqDur) && reqDur >= 6 && reqDur <= 30
         ? Math.round(reqDur)
         : 6;
-    body.resolution = "720p";
-  } else if (resolvedModel.startsWith("veo")) {
-    // STRICT 8s — per user direction, Veo Fast ALWAYS runs at 8 seconds
-    // regardless of input.durationMode. The canonical UGC length matches
-    // our DIALOG LENGTH LOCK (20-24 Malay words for 8s shot). Without
-    // this param, APIPod was returning 6s files which truncated dialog
-    // (mouth-freeze + perceived "tak HD / tak full" symptom).
-    //
-    // Not dynamic on purpose — every Veo path through APIPod produces
-    // exactly 8s output. Auto Content, UGC tab, Viral Talking Object,
-    // and every cascade fallback slot all benefit uniformly.
-    body.duration = 8;
     body.resolution = "720p";
   }
 
