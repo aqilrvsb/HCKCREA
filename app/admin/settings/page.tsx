@@ -12,7 +12,7 @@ import {
   Video,
   Film,
   Puzzle,
-  Facebook,
+  Megaphone,
 } from "lucide-react";
 
 type Setting = { key: string; value: any; description: string | null; category: string };
@@ -1790,7 +1790,7 @@ export default function AdminSettings() {
       {/* Facebook Conversions API (CAPI) — for Sales-objective FB Ads */}
       <div className="card p-6 mb-6 border-2 border-sky-100 bg-sky-50/40">
         <div className="flex items-center gap-2 mb-4">
-          <Facebook className="w-5 h-5 text-sky-600" />
+          <Megaphone className="w-5 h-5 text-sky-600" />
           <h2 className="font-display font-bold text-lg">Facebook Conversions API</h2>
         </div>
         <p className="text-sm text-[var(--color-text-secondary)] mb-4">
