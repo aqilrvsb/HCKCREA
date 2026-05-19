@@ -82,6 +82,21 @@ export default function CheckoutForm() {
       });
       const data = await res.json();
       if (data?.checkout_url) {
+        // Fire Facebook Pixel InitiateCheckout BEFORE redirecting to
+        // Chip. Lets Meta build retargeting audiences of users who
+        // started but didn't finish payment. payment_id is the
+        // event_id — same id will be reused for the Purchase event on
+        // success so Meta dedupes browser + server CAPI events into one.
+        try {
+          (window as any).fbq?.(
+            "track",
+            "InitiateCheckout",
+            { value: PLAN.price, currency: "MYR", content_name: PLAN.name },
+            { eventID: data.payment_id || `ic-${Date.now()}` }
+          );
+        } catch {
+          // Pixel not loaded / blocked — non-critical, ignore.
+        }
         window.location.href = data.checkout_url;
       } else {
         const detail = data?.detail ? ` — ${data.detail}` : "";

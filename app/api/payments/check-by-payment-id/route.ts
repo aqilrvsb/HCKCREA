@@ -23,11 +23,17 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: "Payment not found" }, { status: 404 });
   }
 
+  // amount + currency are echoed back so the browser Pixel Purchase
+  // event on /payment/success can fire with the real transacted value
+  // instead of falling back to the canonical 75 MYR placeholder.
+  const amount = Number(payment.amount || 0);
+  const currency = String(payment.currency || "MYR");
+
   if (payment.status === "paid" || payment.status === "failed") {
-    return NextResponse.json({ ok: true, status: payment.status });
+    return NextResponse.json({ ok: true, status: payment.status, amount, currency });
   }
   if (!payment.chip_purchase_id) {
-    return NextResponse.json({ ok: true, status: "pending" });
+    return NextResponse.json({ ok: true, status: "pending", amount, currency });
   }
 
   // Trigger the same processing the webhook does
@@ -43,10 +49,21 @@ export async function GET(req: Request) {
         { cache: "no-store" }
       );
       const data = await passthroughRes.json().catch(() => ({}));
-      return NextResponse.json({ ok: true, status: data?.status || newStatus });
+      return NextResponse.json({
+        ok: true,
+        status: data?.status || newStatus,
+        amount,
+        currency,
+      });
     }
-    return NextResponse.json({ ok: true, status: newStatus });
+    return NextResponse.json({ ok: true, status: newStatus, amount, currency });
   } catch (e: any) {
-    return NextResponse.json({ ok: true, status: "pending", note: e?.message });
+    return NextResponse.json({
+      ok: true,
+      status: "pending",
+      note: e?.message,
+      amount,
+      currency,
+    });
   }
 }

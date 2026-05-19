@@ -8,6 +8,7 @@ import {
   notifyAdmins,
   buildAdminPaymentAlert,
 } from "@/lib/whatsapp";
+import { sendPurchase } from "@/lib/fb-capi";
 
 // Resolve a referrer's user.id from a referral_code, validating
 // (a) it exists, (b) it's not the same user (self-ref guard), and
@@ -172,6 +173,14 @@ async function processPurchase(purchaseId: string) {
     } else if (payment.type === "checkout_signup") {
       await applyCheckoutSignup(admin, payment);
     }
+
+    // Fire server-side Facebook CAPI Purchase event for ad attribution.
+    // Same event_id as the browser fbq Purchase fired from /payment/success
+    // so Meta dedupes (browser+server count as ONE conversion). Fire-and-
+    // forget — CAPI failures must NOT block the payment flow.
+    void fireCapiPurchase(admin, payment).catch((e) =>
+      console.warn("[capi] purchase failed:", e?.message)
+    );
   }
 
   return NextResponse.json({
@@ -375,6 +384,62 @@ async function applyCheckoutSignup(admin: any, payment: any) {
   } catch (e: any) {
     console.warn("[checkout_signup] admin notify failed:", e?.message);
   }
+}
+
+// Send the Purchase event to Meta's Conversions API. user_data is
+// pulled from the freshest source for each payment type:
+//   - checkout_signup → metadata.signup (email/whatsapp typed at checkout)
+//   - subscription / credit_topup → auth.users + profiles for the user_id
+// external_id is always the payments.user_id (or null for unlinked signups).
+async function fireCapiPurchase(admin: any, payment: any): Promise<void> {
+  const value = Number(payment.amount || 0);
+  if (value <= 0) return; // can't attribute revenue with no value
+
+  const meta = payment.metadata || {};
+  let email: string | null = null;
+  let phone: string | null = null;
+  let externalId: string | null = payment.user_id || null;
+
+  if (payment.type === "checkout_signup") {
+    const signup = meta.signup || {};
+    email = String(signup.email || "").toLowerCase() || null;
+    phone = String(signup.whatsapp || "") || null;
+  } else if (payment.user_id) {
+    // Look up the auth email + profile WhatsApp so server-side hashed
+    // PII matches what the user submits on next login (Meta uses these
+    // to attribute the ad click to a person).
+    try {
+      const [authRes, profRes] = await Promise.all([
+        admin.auth.admin.getUserById(payment.user_id),
+        admin.from("profiles").select("whatsapp").eq("id", payment.user_id).maybeSingle(),
+      ]);
+      email = authRes?.data?.user?.email?.toLowerCase() || null;
+      phone = profRes?.data?.whatsapp || null;
+    } catch {
+      // PII lookup is best-effort — Meta accepts CAPI events with
+      // external_id alone, just with weaker match quality.
+    }
+  }
+
+  const contentName =
+    payment.type === "credit_topup"
+      ? `Credit Top-up (${payment.credits || meta.credits || 0})`
+      : payment.type === "subscription"
+        ? `${String(payment.plan || "").toUpperCase()} Plan`
+        : "Pro Plan";
+
+  await sendPurchase({
+    orderId: payment.id, // == browser fbq eventID → Meta dedupes
+    value,
+    currency: payment.currency || "MYR",
+    contentName,
+    userData: {
+      email,
+      phone,
+      external_id: externalId,
+    },
+    eventSourceUrl: "https://peninglab.com/payment/success",
+  });
 }
 
 function generatePassword(len: number): string {

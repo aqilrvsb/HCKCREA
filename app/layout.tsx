@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Bricolage_Grotesque, DM_Sans, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
+import FBPixel from "./components/fb-pixel";
 
 // Self-host fonts via next/font — eliminates blocking @import to fonts.googleapis.com
 // (was costing 200-600ms LCP). Subsets + weights match what we actually use across
@@ -81,7 +82,10 @@ export default function RootLayout({
         />
         <link rel="dns-prefetch" href="https://zoxgcqlqovkvlrmpcikt.supabase.co" />
       </head>
-      <body className="min-h-full flex flex-col">{children}</body>
+      <body className="min-h-full flex flex-col">
+        <FBPixel />
+        {children}
+      </body>
     </html>
   );
 }

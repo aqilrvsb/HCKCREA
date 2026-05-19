@@ -12,6 +12,7 @@ import {
   Video,
   Film,
   Puzzle,
+  Facebook,
 } from "lucide-react";
 
 type Setting = { key: string; value: any; description: string | null; category: string };
@@ -162,6 +163,16 @@ export default function AdminSettings() {
   const [savingMfSlots, setSavingMfSlots] = useState<"video" | "image" | "grok" | "cinema" | "sora2" | null>(null);
   const [mfSlotsMsg, setMfSlotsMsg] = useState<string | null>(null);
 
+  // Facebook Conversions API config (single app_settings.fb_capi row).
+  // pixel_id is also served publicly via /api/fb-pixel/config to bootstrap
+  // the browser snippet — access_token stays server-only.
+  const [fbPixelId, setFbPixelId] = useState("");
+  const [fbAccessToken, setFbAccessToken] = useState("");
+  const [fbTestEventCode, setFbTestEventCode] = useState("");
+  const [fbCapiEnabled, setFbCapiEnabled] = useState(true);
+  const [savingFbCapi, setSavingFbCapi] = useState(false);
+  const [fbCapiMsg, setFbCapiMsg] = useState<string | null>(null);
+
   useEffect(() => {
     void load();
     void loadAdminDevice();
@@ -243,6 +254,12 @@ export default function AdminSettings() {
         if (row.key === "affiliate_signup_credits") {
           const n = Number(row.value?.credits);
           setAffiliateCredits(Number.isFinite(n) ? String(n) : "");
+        }
+        if (row.key === "fb_capi") {
+          setFbPixelId(String(row.value?.pixel_id || ""));
+          setFbAccessToken(String(row.value?.access_token || ""));
+          setFbTestEventCode(String(row.value?.test_event_code || ""));
+          setFbCapiEnabled(row.value?.enabled !== false);
         }
         // Main+fallback architecture
         const allowedV: string[] = [
@@ -785,6 +802,36 @@ export default function AdminSettings() {
     }
   }
 
+  // Saves the fb_capi setting blob. Sent as a single JSON object so the
+  // generic /api/admin/settings handler can upsert it like any other key.
+  async function saveFbCapi() {
+    setSavingFbCapi(true);
+    setFbCapiMsg(null);
+    try {
+      const value: Record<string, any> = {
+        enabled: fbCapiEnabled,
+      };
+      if (fbPixelId.trim()) value.pixel_id = fbPixelId.trim();
+      if (fbAccessToken.trim()) value.access_token = fbAccessToken.trim();
+      if (fbTestEventCode.trim()) value.test_event_code = fbTestEventCode.trim();
+      const res = await fetch("/api/admin/settings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ key: "fb_capi", value }),
+      });
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        throw new Error(d?.error || `HTTP ${res.status}`);
+      }
+      setFbCapiMsg("Saved. Ads conversion tracking active.");
+      await load();
+    } catch (e: any) {
+      setFbCapiMsg(`Save failed: ${e?.message || "unknown"}`);
+    } finally {
+      setSavingFbCapi(false);
+    }
+  }
+
   // Keys hidden from the raw category cards because they're either
   // dead/orphan or already exposed via a friendlier dedicated UI above.
   // - price_video_16s: legacy orphan, no code reads it.
@@ -803,6 +850,10 @@ export default function AdminSettings() {
     "cinema_rate_per_sec",
     // Sora 2 rate — exposed via the dedicated "Model Pricing" card above.
     "sora2_rate",
+    // FB CAPI — exposed via the dedicated "Facebook Conversions API"
+    // card above. Hiding the raw JSON because the access_token field is
+    // a secret and shouldn't be visible in plain text in the generic list.
+    "fb_capi",
     // Both pricing keys below are noise in the admin UI — credit_topup_price
     // is an unused orphan (only seeded in 0001_init, no code reads it),
     // and credit_costs is consumed only as a fallback for auto_plan /
@@ -1733,6 +1784,80 @@ export default function AdminSettings() {
         </button>
         {extMsg && (
           <div className="text-xs mt-2 text-emerald-700">{extMsg}</div>
+        )}
+      </div>
+
+      {/* Facebook Conversions API (CAPI) — for Sales-objective FB Ads */}
+      <div className="card p-6 mb-6 border-2 border-sky-100 bg-sky-50/40">
+        <div className="flex items-center gap-2 mb-4">
+          <Facebook className="w-5 h-5 text-sky-600" />
+          <h2 className="font-display font-bold text-lg">Facebook Conversions API</h2>
+        </div>
+        <p className="text-sm text-[var(--color-text-secondary)] mb-4">
+          Server-side + browser Pixel tracking untuk Sales-objective FB Ads.
+          Browser Pixel auto-load di landing page (bukan /dashboard / /admin).
+          Server CAPI fire dari payment webhook — Meta dedupes browser +
+          server events guna event_id sama.
+        </p>
+        <div className="grid md:grid-cols-2 gap-3">
+          <div>
+            <label className="text-xs font-bold text-[var(--color-text-secondary)] mb-1 block">
+              Pixel ID
+            </label>
+            <input
+              value={fbPixelId}
+              onChange={(e) => setFbPixelId(e.target.value)}
+              placeholder="1511282347248812"
+              className="input font-mono text-xs w-full"
+            />
+          </div>
+          <div>
+            <label className="text-xs font-bold text-[var(--color-text-secondary)] mb-1 block">
+              Test Event Code{" "}
+              <span className="text-[var(--color-text-muted)] font-normal">
+                (kosong untuk production)
+              </span>
+            </label>
+            <input
+              value={fbTestEventCode}
+              onChange={(e) => setFbTestEventCode(e.target.value)}
+              placeholder="TEST12345"
+              className="input font-mono text-xs w-full"
+            />
+          </div>
+          <div className="md:col-span-2">
+            <label className="text-xs font-bold text-[var(--color-text-secondary)] mb-1 block">
+              Access Token{" "}
+              <span className="text-red-600 font-normal">(server-only, jangan share)</span>
+            </label>
+            <input
+              type="password"
+              value={fbAccessToken}
+              onChange={(e) => setFbAccessToken(e.target.value)}
+              placeholder="EAAxxxx..."
+              className="input font-mono text-xs w-full"
+            />
+          </div>
+        </div>
+        <label className="flex items-center gap-2 mt-3 text-sm cursor-pointer">
+          <input
+            type="checkbox"
+            checked={fbCapiEnabled}
+            onChange={(e) => setFbCapiEnabled(e.target.checked)}
+            className="w-4 h-4 accent-sky-500"
+          />
+          <span>Enabled (uncheck untuk pause tracking sementara)</span>
+        </label>
+        <button
+          onClick={saveFbCapi}
+          disabled={savingFbCapi}
+          className="btn-primary mt-3 disabled:opacity-50"
+        >
+          {savingFbCapi ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+          Save Facebook config
+        </button>
+        {fbCapiMsg && (
+          <div className="text-xs mt-2 text-sky-700">{fbCapiMsg}</div>
         )}
       </div>
 

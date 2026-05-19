@@ -22,6 +22,7 @@ function SuccessInner() {
       return;
     }
     let attempts = 0;
+    let purchaseFired = false; // guard — fire Purchase event only ONCE per page session
     const tick = async () => {
       attempts++;
       try {
@@ -33,6 +34,33 @@ function SuccessInner() {
         const data = await r.json();
         if (data?.status === "paid") {
           setStatus("paid");
+          // Fire Facebook Pixel Purchase event the MOMENT we confirm
+          // the payment landed. event_id = payment_id so it dedupes
+          // with the server-side CAPI Purchase event fired from
+          // /api/payments/webhook (Meta picks one, ignores duplicate).
+          //
+          // Browser amount/currency come from the check endpoint when
+          // available — falls back to the canonical 75 MYR pro-plan
+          // price so the event has SOME value even if the check API
+          // is light on detail. The server-side CAPI call has the
+          // authoritative amount from the payments table.
+          if (!purchaseFired) {
+            purchaseFired = true;
+            try {
+              const value = Number(data?.amount) > 0 ? Number(data.amount) : 75;
+              const currency = String(data?.currency || "MYR");
+              (window as any).fbq?.(
+                "track",
+                "Purchase",
+                { value, currency, content_name: "Pro Plan" },
+                { eventID: id }
+              );
+            } catch {
+              // Pixel not loaded — non-critical. Server CAPI still
+              // fires from the webhook so the conversion still lands
+              // in Meta Events Manager.
+            }
+          }
           return;
         }
         if (data?.status === "failed") {
