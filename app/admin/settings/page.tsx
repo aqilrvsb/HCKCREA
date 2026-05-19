@@ -858,7 +858,7 @@ export default function AdminSettings() {
           Admin can grow / shrink each list with + / - buttons. */}
       {(() => {
         const assets: Array<{
-          asset: "video" | "image" | "grok" | "cinema";
+          asset: "video" | "image" | "grok" | "cinema" | "sora2";
           color: string;
           options: { value: string; label: string }[];
           mainCount: number;

@@ -1043,22 +1043,25 @@ export default function AutoContentTab({ projectId }: { projectId?: string } = {
           </div>
         </div>
 
-        {/* Provider picker — Veo 3.1 (Google) or Sora 2 (OpenAI). The
-            "grok" state key is preserved internally for backward compat
-            with the auto-content backend's many providerChoice='grok'
-            branches; UI relabels it as Sora 2 and the submit body sends
-            model: "sora2" so p6.ts routes it to sora-2-vip. */}
-        <label className="block text-xs font-mono uppercase tracking-widest text-[var(--color-text-muted)] font-bold mb-2">
-          Provider
-        </label>
-        <div className="flex gap-2 mb-3">
-          <DurationBtn active={provider === "veo"} onClick={() => setProvider("veo")}>
-            🎬 Veo 3.1
-          </DurationBtn>
-          <DurationBtn active={provider === "grok"} onClick={() => setProvider("grok")}>
-            ⚡ Sora 2
-          </DurationBtn>
-        </div>
+        {/* Provider picker hidden per user direction — Auto Content is
+            Veo-only for now. Sora 2 standalone tab covers the OpenAI
+            path. Re-enable by changing the {false &&} guard back to a
+            plain fragment. */}
+        {false && (
+          <>
+            <label className="block text-xs font-mono uppercase tracking-widest text-[var(--color-text-muted)] font-bold mb-2">
+              Provider
+            </label>
+            <div className="flex gap-2 mb-3">
+              <DurationBtn active={provider === "veo"} onClick={() => setProvider("veo")}>
+                🎬 Veo 3.1
+              </DurationBtn>
+              <DurationBtn active={provider === "grok"} onClick={() => setProvider("grok")}>
+                ⚡ Sora 2
+              </DurationBtn>
+            </div>
+          </>
+        )}
 
         {provider === "veo" && (
           <div className="flex gap-2 mb-3">

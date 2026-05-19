@@ -124,7 +124,10 @@ export default function Sora2Tab({ projectId }: { projectId?: string } = {}) {
           higher per-clip cost.
         </p>
 
-        {/* Mode toggle */}
+        {/* Mode toggle — white card with purple accent on active so
+            inactive state doesn't render as harsh black on the
+            dashboard's dark theme (was using var(--color-bg) which is
+            near-black on most user themes). */}
         <div className="flex gap-2 mb-4">
           {(["text", "image"] as const).map((m) => {
             const active = imageMode === m;
@@ -132,17 +135,18 @@ export default function Sora2Tab({ projectId }: { projectId?: string } = {}) {
               <button
                 key={m}
                 onClick={() => setImageMode(m)}
-                className="flex-1 px-3 py-2 rounded-lg text-xs font-bold transition-all"
+                className="flex-1 px-3 py-2 rounded-xl text-xs font-bold transition-all"
                 style={
                   active
                     ? {
-                        background: PURPLE,
+                        background: `linear-gradient(135deg, ${PURPLE}, #7c3aed)`,
                         color: "white",
                         boxShadow: `0 4px 12px ${PURPLE_SOFT}`,
+                        border: "1px solid transparent",
                       }
                     : {
-                        background: "var(--color-bg)",
-                        border: "1px solid var(--color-border)",
+                        background: PURPLE_FAINT,
+                        border: `1px solid ${PURPLE_SOFT}`,
                         color: "var(--color-text-primary)",
                       }
                 }
@@ -256,12 +260,14 @@ export default function Sora2Tab({ projectId }: { projectId?: string } = {}) {
                     style={
                       active
                         ? {
-                            background: PURPLE,
+                            background: `linear-gradient(135deg, ${PURPLE}, #7c3aed)`,
                             color: "white",
+                            border: "1px solid transparent",
+                            boxShadow: `0 4px 12px ${PURPLE_SOFT}`,
                           }
                         : {
-                            background: "var(--color-bg)",
-                            border: "1px solid var(--color-border)",
+                            background: PURPLE_FAINT,
+                            border: `1px solid ${PURPLE_SOFT}`,
                             color: "var(--color-text-primary)",
                           }
                     }
@@ -287,12 +293,14 @@ export default function Sora2Tab({ projectId }: { projectId?: string } = {}) {
                     style={
                       active
                         ? {
-                            background: PURPLE,
+                            background: `linear-gradient(135deg, ${PURPLE}, #7c3aed)`,
                             color: "white",
+                            border: "1px solid transparent",
+                            boxShadow: `0 4px 12px ${PURPLE_SOFT}`,
                           }
                         : {
-                            background: "var(--color-bg)",
-                            border: "1px solid var(--color-border)",
+                            background: PURPLE_FAINT,
+                            border: `1px solid ${PURPLE_SOFT}`,
                             color: "var(--color-text-primary)",
                           }
                     }
