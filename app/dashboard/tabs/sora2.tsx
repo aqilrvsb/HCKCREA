@@ -46,6 +46,10 @@ export default function Sora2Tab({ projectId }: { projectId?: string } = {}) {
   const [status, setStatus] = useState<Status>("idle");
   const [error, setError] = useState<string | null>(null);
   const [pickingSlot, setPickingSlot] = useState<boolean>(false);
+  // Tips modal — exposes Sora 2's required dialog format + other
+  // important knowledge (image dims, real-portrait failure, etc.).
+  // Default closed; user opens via the "Tip Sora 2" header button.
+  const [tipsOpen, setTipsOpen] = useState<boolean>(false);
 
   useEffect(() => {
     let cancel = false;
@@ -119,16 +123,37 @@ export default function Sora2Tab({ projectId }: { projectId?: string } = {}) {
           borderColor: PURPLE_SOFT,
         }}
       >
-        <div className="flex items-center gap-2 mb-1">
-          <Zap className="w-5 h-5" style={{ color: PURPLE }} strokeWidth={2.4} />
-          <h2 className="font-display font-extrabold text-lg text-[var(--color-text-primary)]">
-            Sora 2
-          </h2>
+        <div className="flex items-center justify-between gap-2 mb-1">
+          <div className="flex items-center gap-2">
+            <Zap className="w-5 h-5" style={{ color: PURPLE }} strokeWidth={2.4} />
+            <h2 className="font-display font-extrabold text-lg text-[var(--color-text-primary)]">
+              Sora 2
+            </h2>
+          </div>
+          {/* Tip Sora 2 — opens a modal explaining the dialog format
+              gotcha (Veo's `Spoken dialog: '...'` doesn't fire audio
+              in Sora 2; needs `Dialogue:` block) + other important
+              Sora 2 specifics (image dims, real-portrait failure,
+              duration limits). */}
+          <button
+            type="button"
+            onClick={() => setTipsOpen(true)}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all hover:-translate-y-0.5"
+            style={{
+              background: PURPLE_FAINT,
+              border: `1px solid ${PURPLE_SOFT}`,
+              color: PURPLE,
+            }}
+            title="Sora 2 prompting tips + dialog format"
+          >
+            <Info className="w-3.5 h-3.5" />
+            Tip Sora 2
+          </button>
         </div>
         <p className="text-xs text-[var(--color-text-secondary)] mb-4">
-          OpenAI Sora 2 · 4 / 8 / 12s · 9:16 or 16:9. Text-to-video or
-          image-to-video (single first frame). More stable than Grok but
-          higher per-clip cost.
+          OpenAI Sora 2 · 8 / 12s · 9:16 or 16:9. Text-to-video or
+          image-to-video (single first frame). Native dialog + ambient
+          audio. Higher per-clip cost than Veo.
         </p>
 
         {/* Mode toggle — white card with purple accent on active so
@@ -365,6 +390,207 @@ export default function Sora2Tab({ projectId }: { projectId?: string } = {}) {
           />
         </Portal>
       )}
+
+      {tipsOpen && (
+        <Portal>
+          <Sora2TipsModal onClose={() => setTipsOpen(false)} />
+        </Portal>
+      )}
+    </div>
+  );
+}
+
+// Sora 2 tips modal — knowledge distilled from OpenAI's official
+// Sora 2 prompting guide (March 2026 release). Same content lives in
+// lib/qa-knowledge.ts SORA2_KNOWLEDGE for the Q&A chat, surfaced here
+// so users hit it BEFORE they write a broken prompt rather than after.
+function Sora2TipsModal({ onClose }: { onClose: () => void }) {
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      style={{ background: "rgba(0,0,0,0.7)", backdropFilter: "blur(4px)" }}
+      onClick={onClose}
+    >
+      <div
+        className="bg-[var(--color-bg-card)] rounded-2xl border max-w-2xl w-full max-h-[85vh] overflow-y-auto"
+        style={{ borderColor: PURPLE_SOFT }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div
+          className="sticky top-0 px-6 py-4 flex items-center justify-between border-b"
+          style={{
+            borderColor: PURPLE_SOFT,
+            background: `linear-gradient(135deg, ${PURPLE_FAINT}, transparent)`,
+          }}
+        >
+          <div className="flex items-center gap-2">
+            <Info className="w-5 h-5" style={{ color: PURPLE }} strokeWidth={2.4} />
+            <h3 className="font-display font-extrabold text-lg text-[var(--color-text-primary)]">
+              Sora 2 Tips
+            </h3>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="p-1.5 rounded-lg hover:bg-white/5"
+            aria-label="Close"
+          >
+            <X className="w-4 h-4 text-[var(--color-text-muted)]" />
+          </button>
+        </div>
+
+        <div className="px-6 py-5 space-y-5 text-sm text-[var(--color-text-secondary)]">
+          {/* DIALOG FORMAT — the #1 thing that catches users out */}
+          <section>
+            <h4
+              className="font-display font-bold text-base mb-2 flex items-center gap-2"
+              style={{ color: PURPLE }}
+            >
+              🎙️ Kalau nak character bercakap (Dialog format)
+            </h4>
+            <p className="mb-2">
+              Sora 2 <strong>tak terima</strong> format Veo (
+              <code>Spoken dialog: '...'</code>). Kalau guna format Veo,
+              video akan jadi <strong>mute</strong> (mulut bergerak tapi tiada bunyi).
+              Gunakan format ni:
+            </p>
+            <pre
+              className="text-[11px] p-3 rounded-lg overflow-x-auto whitespace-pre-wrap"
+              style={{
+                background: "rgba(0,0,0,0.4)",
+                border: `1px solid ${PURPLE_SOFT}`,
+                color: "var(--color-text-primary)",
+              }}
+            >{`Dialogue:
+- Woman: "Ini produk terbaik untuk hilangkan sakit saraf belakang kaki."
+
+Background Sound:
+ambient room tone, soft fabric rustle`}</pre>
+            <p className="mt-2 text-xs">
+              <strong>Label speaker</strong> (Woman / Man / Detective / etc) +
+              <strong> quoted line</strong>. Tambah <code>Background Sound:</code>{" "}
+              walaupun scene senyap — Sora 2 perlu rhythm cue, kalau tak audio
+              jadi dead silence.
+            </p>
+          </section>
+
+          {/* IMAGE INPUT GOTCHAS */}
+          <section>
+            <h4 className="font-display font-bold text-base mb-2" style={{ color: PURPLE }}>
+              🖼️ First-frame image (kalau attach)
+            </h4>
+            <ul className="list-disc pl-5 space-y-1 text-xs">
+              <li>
+                Saiz <strong>MESTI</strong> 1280×720 (16:9) atau 720×1280 (9:16). Saiz lain
+                akan ditolak oleh API.
+              </li>
+              <li>
+                <strong>Elak gambar muka orang sebenar</strong> — Sora 2 sengaja avoid
+                real-identity reproduction. Selalu fail atau output pelik. Guna gambar
+                AI-generated (dari tab Image) lebih baik.
+              </li>
+              <li>SINGLE first frame only — bukan multi-ref macam Grok / Seedance.</li>
+            </ul>
+          </section>
+
+          {/* DURATION + STRUCTURE */}
+          <section>
+            <h4 className="font-display font-bold text-base mb-2" style={{ color: PURPLE }}>
+              ⏱️ Duration + Dialog timing
+            </h4>
+            <ul className="list-disc pl-5 space-y-1 text-xs">
+              <li>
+                <strong>8s clip</strong> — max 1-2 short exchanges. Dialog panjang =
+                audio cut mid-word.
+              </li>
+              <li>
+                <strong>12s clip</strong> — max 3-4 short beats. Tetap kena ringkas.
+              </li>
+              <li>
+                Sora 2 lebih reliable untuk <strong>shorter clips</strong>. Kalau nak
+                cerita panjang, generate 2 × 8s clips dan stitch dalam editor.
+              </li>
+            </ul>
+          </section>
+
+          {/* CINEMATOGRAPHY HINTS */}
+          <section>
+            <h4 className="font-display font-bold text-base mb-2" style={{ color: PURPLE }}>
+              🎬 Cinematography (optional tapi powerful)
+            </h4>
+            <p className="text-xs mb-2">
+              Tambah block <code>Cinematography:</code> kalau nak control camera +
+              mood. Set <strong>STYLE awal</strong> supaya carry through ke shot lain:
+            </p>
+            <pre
+              className="text-[11px] p-3 rounded-lg overflow-x-auto whitespace-pre-wrap"
+              style={{
+                background: "rgba(0,0,0,0.4)",
+                border: `1px solid ${PURPLE_SOFT}`,
+                color: "var(--color-text-primary)",
+              }}
+            >{`Cinematography:
+Camera shot: medium close-up, slight angle from behind
+Mood: cinematic and tense
+
+Actions:
+- She unscrews the cap with slow deliberate motion.
+- A drop of liquid catches the overhead light.
+- She brings the bottle to her nose.`}</pre>
+          </section>
+
+          {/* MOTION RULE */}
+          <section>
+            <h4 className="font-display font-bold text-base mb-2" style={{ color: PURPLE }}>
+              🎯 Motion rule (paling penting)
+            </h4>
+            <p className="text-xs">
+              <strong>ONE clear camera move + ONE clear subject action per shot.</strong>
+              {" "}Lebih dari satu = chaos. Pecahkan action kepada beats:{" "}
+              <em>"Actor takes four steps to the window, pauses, pulls the curtain in the final second"</em>{" "}
+              — bukan <em>"Actor walks across the room"</em>.
+            </p>
+          </section>
+
+          {/* COMMON ISSUES */}
+          <section>
+            <h4 className="font-display font-bold text-base mb-2" style={{ color: PURPLE }}>
+              ❌ Common issues
+            </h4>
+            <ul className="list-disc pl-5 space-y-1 text-xs">
+              <li>
+                <strong>Video mute</strong> → dialog format salah. Guna{" "}
+                <code>Dialogue:</code> block (atas).
+              </li>
+              <li>
+                <strong>Muka tak sama dengan reference</strong> → Sora 2 tak reliable
+                untuk real portraits. Use AI-gen images.
+              </li>
+              <li>
+                <strong>Audio cut mid-word</strong> → dialog terlalu panjang untuk
+                durasi. Pendekkan.
+              </li>
+              <li>
+                <strong>Camera chaos</strong> → describe more than 1 camera move. Limit
+                kepada satu.
+              </li>
+            </ul>
+          </section>
+
+          {/* ITERATION */}
+          <section>
+            <h4 className="font-display font-bold text-base mb-2" style={{ color: PURPLE }}>
+              🔄 Iteration
+            </h4>
+            <p className="text-xs">
+              Same prompt run 2× = output berbeza (by design). Cuba 2-3 kali, pilih
+              yang terbaik. Kalau dekat tapi tak perfect, ubah <strong>ONE thing
+              at a time</strong> ("same shot, switch to 85mm" / "same lighting, new
+              palette: teal sand rust").
+            </p>
+          </section>
+        </div>
+      </div>
     </div>
   );
 }

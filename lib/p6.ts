@@ -61,6 +61,62 @@ export async function getAllP6Keys(): Promise<Record<P6Slot, string>> {
   return out as Record<P6Slot, string>;
 }
 
+// Sora 2 prompt transform.
+//
+// Veo's `Spoken dialog: '...'` inline format does NOT register as a
+// dialogue cue for Sora 2 — Sora interprets it as descriptive prose
+// and renders the video with NO audio (mouth moves, silent track).
+// OpenAI's official Sora 2 guide (baked into qa-knowledge.ts under
+// SORA2_KNOWLEDGE) specifies a labelled block format:
+//
+//   Dialogue:
+//   - Woman: "Korang tau tak ni apa? ..."
+//
+//   Background Sound:
+//   ambient room tone, soft fabric rustle
+//
+// Per user direction we ONLY swap the dialog block — every other lock
+// (CLEAN FRAME, ANATOMY, AUDIO, HIJAB, MODESTY, Negative, etc.) stays
+// in place because they don't break audio for Sora 2 in practice, and
+// keeping them parallel to Veo lets the same scene description work
+// across both engines without divergence.
+//
+// Detection: matches the Veo conventions emitted by buildVeoLocks and
+// the auto-content/agent-* prompt builders:
+//   - "Spoken dialog: '..."'  (single or double quotes)
+//   - "Spoken dialog: \"...\"" (escaped)
+//   - "Character says: '...'" (auto-content variant)
+//   - "Spoken voiceover: '...'" (PRD framework voiceover variant)
+// Speaker label is inferred from the prompt's persona hints (Malay man
+// / Malay woman) — defaults to "Speaker" for ambiguous prompts.
+function transformPromptForSora2(prompt: string): string {
+  const isMale = /\b(malay\s+)?(man|male|boy|bapak|ayah|pak\s+cik)\b/i.test(prompt);
+  const isFemale = /\b(malay\s+)?(woman|female|girl|wanita|nenek|mak\s+cik|kakak)\b/i.test(prompt);
+  const speaker = isMale && !isFemale ? "Man" : isFemale ? "Woman" : "Speaker";
+
+  // Capture the dialog text after one of the recognised cue phrases.
+  // Stop at the closing quote — Veo conventions always wrap dialog in
+  // a single pair of matching quotes on the same line.
+  const dialogRegex =
+    /(Spoken dialog|Spoken voiceover|Character says|She says|He says)\s*:\s*['"‘’“”]([^'"‘’“”]+)['"‘’“”]/i;
+
+  const match = prompt.match(dialogRegex);
+  if (!match) {
+    // No dialog cue found — most likely a silent/atmospheric Sora 2
+    // shot. Append just a Background Sound rhythm cue so the audio
+    // track isn't dead silent (per OpenAI guide recommendation).
+    return `${prompt}\n\nBackground Sound:\nambient room tone, soft fabric rustle`;
+  }
+
+  const dialogText = match[2].trim();
+  const block = `Dialogue:\n- ${speaker}: "${dialogText}"\n\nBackground Sound:\nambient room tone, soft fabric rustle`;
+
+  // Replace ONLY the matched dialog line — keep every other lock,
+  // negative, and structural element exactly as the upstream prompt
+  // builder emitted them.
+  return prompt.replace(dialogRegex, block);
+}
+
 // Map cascade video model strings → APIPod's catalog names. Per
 // APIPod docs the model IDs are mode-specific:
 //   • Veo 3.1 Fast
@@ -171,9 +227,21 @@ export async function p6CreateVideo(input: {
   //   Veo handles them fine. Cap stays at 4000 to leave headroom for
   //   the LSL (long Negative) list at the end.
   const promptCap = 4000;
+
+  // Sora 2 audio fix: APIPod's sora-2-vip needs OpenAI's documented
+  // Dialogue: block + Background Sound: block — NOT Veo's inline
+  // `Spoken dialog: '...'` convention. Without the conversion, Sora 2
+  // sees dialog as descriptive prose and renders silent video (mouth
+  // moves, no audio). Conversion only runs for sora-2-vip; every other
+  // model path receives the prompt unchanged.
+  const promptForApi =
+    resolvedModel === "sora-2-vip"
+      ? transformPromptForSora2(input.prompt)
+      : input.prompt;
+
   const body: any = {
     model: resolvedModel,
-    prompt: input.prompt.slice(0, promptCap),
+    prompt: promptForApi.slice(0, promptCap),
     aspect_ratio: input.aspectRatio || "9:16",
   };
 
