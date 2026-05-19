@@ -188,7 +188,23 @@ ${uspBlock}
 Hard rules:
 - Total spoken dialog = EXACTLY 20-24 Malay words for an 8-second shot. Count the words. Under 18 = TTS mouth freezes. Over 26 = rushed audio.
 - Bahasa Melayu (Malaysian Malay) ONLY. Use: korang, aku, ni, tu, memang, gila, lah, je, dah, eh. NEVER Bahasa Indonesia (kalian, gue, lo, banget, sih, dong, kayak, gimana, mau, nih, tuh).
-- Scene description: shot type (e.g. "Selfie-style handheld" or "Medium shot"), what the character is doing, setting, lighting, mood. Keep it CONCISE — 80-150 words max.
+
+=== ACTION-RICH SCENE (NON-NEGOTIABLE) ===
+Scene description = 150-220 words. The character MUST be performing a SPECIFIC ACTIVE VERB throughout the 8 seconds — never a static pose. Reject phrases like "gesturing to her stomach" / "holding product and smiling" / "standing while talking" — these are creative failures.
+
+GOOD action verbs (use one matched to the scene idea + product):
+  cooking · stirring · frying · pouring · blending · chopping · grilling
+  vacuuming · cleaning · wiping · spraying · sprinkling · folding · dressing
+  applying · massaging · brushing · smelling · tasting · sipping · slicing
+  unboxing · demonstrating · pressing button · shaking bottle · tilting
+
+For EACH scene, you MUST include all 6 layers:
+  1) ACTION: specific verb the character is doing with the product (NOT just holding)
+  2) CAMERA: movement style — "slow handheld cinematic", "smooth push-in", "medium shot dengan depth of field cetek", "close-up sinematik"
+  3) SENSORY: at least 1 sensory detail relevant to the scene — steam rising, oil sizzling, fabric texture, liquid pouring smoothly, splash, reflection, blue gas flame, condensation, etc.
+  4) BACKGROUND: specific room details — "dapur moden warna putih krim dengan kabinet kayu cerah", "ruang tamu dengan sofa warm beige", "vanity table dengan pampas grass". Avoid generic "in a kitchen" / "in a bedroom".
+  5) LIGHTING: specific style — "warm tungsten lighting", "soft natural daylight", "warm under-cabinet glow", "golden hour ambient"
+  6) AESTHETIC VIBE: 1-2 descriptors — "cozy luxury kitchen atmosphere", "premium TikTok ad vibe", "Scandinavian aesthetic", "cinematic food commercial style"
 
 === INPUT MODE CONTEXT ===
 ${refContextHint}
@@ -197,8 +213,8 @@ ${refAnchorHint ? `- ${refAnchorHint}` : ""}
 - Audio: spoken dialog only, no background music or SFX (system appends AUDIO LOCK that enforces this).
 - Format: just the scene paragraph, then "Spoken dialog:" line, then the dialog itself. Nothing else.
 
-Example output shape:
-Selfie-style handheld shot, arm's length. Same person from reference image, holding the same product from the second reference image. Bright natural daylight, kitchen setting, smiling naturally while showing the product to camera.
+Example output shape (ACTION-RICH — note the verbs, sensory details, camera movement, background richness):
+Medium shot cinematic, slow handheld push-in, dengan depth of field cetek. Same person from reference image, sedang memasak telur goreng dalam wok stainless steel besar menggunakan sudip kayu, asap nipis naik perlahan dari telur yang sizzling dengan minyak panas. Background dapur moden warna putih krim, kabinet kayu cerah, pokok hijau kecil di tepi tingkap, warm tungsten lighting dari atas. Kamera bergerak slow dari side ke depan, ultra realistic skin texture, lived-in countertop dengan minor clutter (kain dapur, bawang merah dipotong). Cozy luxury kitchen atmosphere, premium TikTok cooking commercial style, smooth motion, realistic steam, natural blue flame visible at the corner.
 
 Spoken dialog:
 Korang tau tak ni apa? Aku baru jumpa, memang lain rasa dia! Try sekali, lepas tu kau cakap dengan aku. Beli sekarang!`;

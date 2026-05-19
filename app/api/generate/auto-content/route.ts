@@ -716,6 +716,39 @@ THE RULES (read all 6 before you plan a single video):
        markers, never Bahasa Indonesia. Idea phrasing doesn't change
        the dialog language.
 
+8. 🎬 ACTION-RICH SCENE LAYERS (every videoPromptShot1 MUST include all 6):
+   Static "holding + gesturing" prompts read as cheap AI output. The
+   client's "best HD" reference prompts (the ones that produce viral-
+   tier results) ALWAYS include these 6 layers — never less:
+     (1) ACTION verb: SPECIFIC physical activity the character is doing
+         with the product. NOT "gesturing to" / "holding and smiling" /
+         "standing while talking". GOOD verbs: cooking, stirring, frying,
+         pouring, blending, chopping, grilling, vacuuming, cleaning,
+         wiping, spraying, applying, massaging, brushing, smelling,
+         tasting, sipping, slicing, unboxing, demonstrating, pressing
+         button, shaking bottle, tilting jug, lifting lid.
+     (2) CAMERA movement: "slow handheld cinematic", "smooth push-in",
+         "close-up sinematik dengan depth of field cetek", "medium shot
+         dari side ke depan", "slow pan reveal". Never just "medium shot".
+     (3) SENSORY detail: at least 1 — steam rising, oil sizzling, smoke
+         nipis, splash, condensation, fabric texture, reflection, blue
+         gas flame, golden grill marks, liquid pouring smoothly, foam,
+         crispy texture. Pulls the viewer in.
+     (4) BACKGROUND richness: specific room/setting details — "dapur
+         moden warna putih krim dengan kabinet kayu cerah, pokok hijau
+         kecil di tepi tingkap", "Scandinavian white cabinets, wooden
+         countertop", "vanity table dengan pampas grass". Avoid generic
+         "in a kitchen" / "in a bedroom".
+     (5) LIGHTING style: "warm tungsten lighting", "soft natural daylight",
+         "warm under-cabinet glow", "golden hour ambient", "cinematic
+         warm tone with shallow depth of field". Specific, not "good
+         lighting".
+     (6) AESTHETIC VIBE: 1-2 descriptors — "cozy luxury kitchen
+         atmosphere", "premium TikTok cooking commercial style",
+         "Scandinavian lifestyle aesthetic", "cinematic food commercial
+         style", "raw UGC phone-recorded vibe".
+   A scene missing ANY of these 6 = creative failure. Reject and rewrite.
+
 🚫 HARD FAILURES (Qwen will reject these):
    • Any video that doesn't visibly use the client's idea as its scene
    • Two videos with identical camera + setting + action combo
@@ -723,6 +756,10 @@ THE RULES (read all 6 before you plan a single video):
    • UGC framework video where the character's face is hidden
    • Idea ignored in favour of a generic scene (sofa, kitchen, etc.)
      just because it's easier — the idea is the WHOLE POINT
+   • Static pose without specific action verb (just "holding product
+     and gesturing") — violates rule 8 layer (1)
+   • Generic "in a kitchen" / "in a bedroom" background — violates rule
+     8 layer (4). Always paint specific room details.
 
 ═══════════════════════════════════════════════════════════════════════
 📚 WORKED EXAMPLE (so you cannot misread the rule)
