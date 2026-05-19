@@ -59,7 +59,25 @@ export async function POST(req: Request) {
     rawHijab === "hijab" ||
     rawHijab === 1;
 
-  if (!rawInput) return NextResponse.json({ error: "Prompt required" }, { status: 400 });
+  // Mode-aware required-input validation.
+  //   - Prompt mode: needs body.prompt (the verbatim Veo prompt textarea)
+  //   - Idea mode:   needs body.idea_scene; body.prompt is intentionally
+  //                  empty because the backend expands idea_scene+idea_usp
+  //                  into the full Veo prompt below
+  // Previously this check ran on rawInput only — which is body.prompt —
+  // so Idea mode submissions always errored "Prompt required" even with
+  // a valid Scene Idea + USP filled in.
+  if (inputMode === "idea") {
+    const ideaSceneCheck = String(body?.idea_scene || "").trim();
+    if (!ideaSceneCheck) {
+      return NextResponse.json(
+        { error: "Scene idea required" },
+        { status: 400 }
+      );
+    }
+  } else if (!rawInput) {
+    return NextResponse.json({ error: "Prompt required" }, { status: 400 });
+  }
   if (imageMode !== "text" && !imageUrls.length) {
     return NextResponse.json({ error: "Reference image required" }, { status: 400 });
   }
