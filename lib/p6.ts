@@ -211,7 +211,13 @@ export async function p6CreateVideo(input: {
   //   • seedance-* : duration 4-15 (required)
   //   • grok-imagine-* : duration 6-30 (optional, default 6), resolution
   //                      480p/720p (optional, default 720p)
-  //   • veo3-1-fast / -ref : no duration / no resolution accepted
+  //   • veo3-1-fast / -ref : APIPod docs say "no duration accepted" BUT
+  //     empirically Veo was returning 6s files when we omitted duration.
+  //     Replicate.com's Veo 3.1 Fast endpoint exposes `duration: 8` as a
+  //     valid param (https://replicate.com/google/veo-3.1-fast), proving
+  //     the underlying Google model accepts it. We pass duration + resolution
+  //     here and trust APIPod to forward to Google — works in practice
+  //     even though APIPod's docs don't document it.
   if (resolvedModel.startsWith("seedance")) {
     const reqDur = Number(input.durationMode);
     body.duration =
@@ -224,6 +230,17 @@ export async function p6CreateVideo(input: {
       Number.isFinite(reqDur) && reqDur >= 6 && reqDur <= 30
         ? Math.round(reqDur)
         : 6;
+    body.resolution = "720p";
+  } else if (resolvedModel.startsWith("veo")) {
+    // Force 8s — Veo 3.1 Fast supports 4-8s, 8 is the canonical UGC
+    // length matched to our DIALOG LENGTH LOCK (20-24 Malay words).
+    // Without this param, APIPod was returning 6s files which truncated
+    // the dialog (mouth-freeze symptom + perceived "tak HD / tak full").
+    const reqDur = Number(input.durationMode);
+    body.duration =
+      Number.isFinite(reqDur) && reqDur >= 4 && reqDur <= 8
+        ? Math.round(reqDur)
+        : 8;
     body.resolution = "720p";
   }
 
