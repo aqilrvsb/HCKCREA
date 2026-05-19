@@ -304,19 +304,6 @@ export default function VideoTab({ projectId }: { projectId?: string } = {}) {
       <Card borderColor={ORANGE}>
         <CardHeader icon="🎬" title="Video Generator" />
 
-        <Label>Duration</Label>
-        <button
-          type="button"
-          className="w-full h-11 rounded-lg text-xs font-extrabold text-black mb-4"
-          style={{
-            background:
-              "linear-gradient(135deg, #facc15 0%, #fde047 100%)",
-            boxShadow: "0 4px 14px rgba(250,204,21,0.3)",
-          }}
-        >
-          8s (1 shot)
-        </button>
-
         <Label>Image Mode</Label>
         <Select
           value={imageMode}
