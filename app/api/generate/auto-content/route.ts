@@ -571,11 +571,46 @@ Before creating ANY content, analyze this product like a RM80k strategist:
 Total videos: ${quantity}
 Duration: ${
   providerChoice === "grok"
-    ? `${grokDuration}s single shot on Grok Imagine. Dialog target = EXACTLY ${grokDuration * 3} Malay words (FIXED 3 words per second — Grok's lip-sync engine is tuned for this rate; under = mouth freezes, over = clipped audio).`
+    ? `${grokDuration}s single shot on Sora 2 (sora-2-vip). Dialog target = EXACTLY ${grokDuration * 3} Malay words (3 words per second — keeps dialog inside Sora 2's tight pacing window; under = mouth freezes, over = clipped audio).`
     : is16s
       ? `16s split into 2 shots (Shot 1: 0-8s, Shot 2: 8-16s). Each shot dialog = 20-24 Malay words. Same scene, same voice, story continues seamlessly.`
       : `8s single shot. Dialog target = 20-24 Malay words.`
 }
+${providerChoice === "grok" ? `
+🚨🚨🚨 SORA 2 DIALOG MODERATION (NON-NEGOTIABLE — VIDEOS WITH BANNED CLAIMS LOSE AUDIO) 🚨🚨🚨
+
+OpenAI's Sora 2 safety layer SILENTLY drops audio (keeps video) when dialog reads as an unverified medical / efficacy claim. We've reproduced this 4 times with the EXACT same locks — the only differentiator is dialog content. To make Sora 2 generate audio reliably, the dialog MUST avoid the BANNED CLAIM PATTERN and follow the REQUIRED FRAMING.
+
+❌ BANNED IN SORA 2 DIALOG (these cause silent video):
+- Efficacy verbs: "berkesan", "menyembuhkan", "merawat", "hilangkan [body part pain]", "mengubati"
+- Mechanism claims: "melegakan saraf", "membaiki sendi", "mengeluarkan toksin", "menguatkan otot"
+- Medical diagnosis terms: "terhimpit", "kronik", "akut", "radang", "inflammation"
+- Suffering language paired with diagnosis: "seksa", "siksa", "menderita" + body-part anatomy
+- Superlative + medical: "produk terbaik untuk [condition]", "paling berkesan", "no.1 untuk [condition]"
+- Dosage instructions: "guna [X] setiap hari", "[X] kali sehari", "minum [X] gelas sehari"
+- Monopoly/preference claims: "takkan cari yang lain", "tinggalkan produk lain"
+- Direct cure promises: "hilangkan [condition]", "buang [condition]", "habiskan [condition]"
+
+✅ REQUIRED IN SORA 2 DIALOG (testimonial / lifestyle framing that PASSES audio):
+- First-person experience: "Aku dulu...", "Sebelum ni aku...", "Bertahun-tahun aku..."
+- Subjective feelings (not mechanisms): "terus rasa lega", "rasa selesa", "rasa segar", "rasa lighter"
+- Lifestyle outcome (not medical outcome): "boleh jalan jauh", "boleh tidur lena", "boleh main dengan anak"
+- Practical action framing: "sapu je", "minum je", "guna je", "spray je"
+- Comparison framing: "lain rasa dia", "memang beza", "totally different"
+- Soft CTA: "try sekali", "test sekali", "grab sekarang", "tekan beg kuning"
+
+EXAMPLES — REWRITE BAD → GOOD:
+BAD:  "Habaflex memang berkesan, melegakan saraf belakang kaki yang terhimpit."
+GOOD: "Aku dulu sakit belakang kaki teruk, sampai tak boleh tidur. Lepas guna Habaflex sebulan, terus rasa selesa!"
+
+BAD:  "Produk terbaik untuk hilangkan sakit. Guna setiap hari, memang berkesan."
+GOOD: "Aku try Habaflex ni sebab kawan recommend. Memang lain rasa dia, hari-hari rasa lighter!"
+
+BAD:  "Habaflex menyembuhkan saraf terhimpit, serious berkesan."
+GOOD: "Dulu aku ingat tak boleh kembali normal, sampai aku jumpa Habaflex. Boleh jalan jauh balik!"
+
+This rule applies to EVERY video in the batch when providerChoice='grok' (= Sora 2). Veo batches don't need this — Veo's moderation is looser.
+` : ""}
 Character: ${gender === "male" ? "Malay man" : "Malay woman"}${hijabMode ? ", wearing hijab tudung labuh" : ", casual modern no hijab"}
 Age: ${ageRange}
 CTA: ${ctaInstruction}

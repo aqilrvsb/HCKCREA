@@ -474,6 +474,128 @@ ambient room tone, soft fabric rustle`}</pre>
             </p>
           </section>
 
+          {/* AUDIO MODERATION — the #2 thing that catches users out */}
+          <section>
+            <h4
+              className="font-display font-bold text-base mb-2 flex items-center gap-2"
+              style={{ color: "#ef4444" }}
+            >
+              🚨 Kenapa video aku takde audio? (Medical claim filter)
+            </h4>
+            <p className="mb-2">
+              Sora 2 ada <strong>safety filter</strong> yang akan{" "}
+              <strong>silent audio</strong> (video pass, suara hilang) kalau
+              dialog mengandungi <strong>medical efficacy claims</strong>.
+              Pattern dah confirmed dengan 4 video — pasti reproduce.
+            </p>
+
+            <div className="grid md:grid-cols-2 gap-3 mt-3 mb-3">
+              {/* BAD column */}
+              <div
+                className="p-3 rounded-lg border text-xs"
+                style={{
+                  background: "rgba(239,68,68,0.08)",
+                  borderColor: "rgba(239,68,68,0.3)",
+                }}
+              >
+                <div className="font-bold mb-2" style={{ color: "#ef4444" }}>
+                  ❌ JANGAN guna (audio akan hilang)
+                </div>
+                <ul className="list-disc pl-4 space-y-1">
+                  <li>
+                    <code>berkesan</code>, <code>menyembuhkan</code>,{" "}
+                    <code>merawat</code>, <code>mengubati</code>
+                  </li>
+                  <li>
+                    <code>melegakan saraf</code>, <code>membaiki sendi</code>,{" "}
+                    <code>menguatkan otot</code>
+                  </li>
+                  <li>
+                    <code>terhimpit</code>, <code>kronik</code>, <code>akut</code>
+                  </li>
+                  <li>
+                    <code>seksa</code>, <code>siksa</code> + body part
+                  </li>
+                  <li>
+                    <code>produk terbaik untuk [condition]</code>
+                  </li>
+                  <li>
+                    <code>guna setiap hari</code> (dosage advice)
+                  </li>
+                  <li>
+                    <code>hilangkan [pain/condition]</code>
+                  </li>
+                </ul>
+              </div>
+
+              {/* GOOD column */}
+              <div
+                className="p-3 rounded-lg border text-xs"
+                style={{
+                  background: PURPLE_FAINT,
+                  borderColor: PURPLE_SOFT,
+                }}
+              >
+                <div className="font-bold mb-2" style={{ color: PURPLE }}>
+                  ✅ GUNA ni (audio pass)
+                </div>
+                <ul className="list-disc pl-4 space-y-1">
+                  <li>
+                    <code>Aku dulu...</code>, <code>Sebelum ni aku...</code>{" "}
+                    (first-person)
+                  </li>
+                  <li>
+                    <code>terus rasa lega / selesa / segar / lighter</code>{" "}
+                    (feelings)
+                  </li>
+                  <li>
+                    <code>boleh jalan jauh</code>, <code>boleh tidur lena</code>{" "}
+                    (lifestyle outcome)
+                  </li>
+                  <li>
+                    <code>sapu je</code>, <code>minum je</code>,{" "}
+                    <code>spray je</code> (action)
+                  </li>
+                  <li>
+                    <code>memang lain rasa dia</code> (subjective comparison)
+                  </li>
+                  <li>
+                    <code>try sekali</code>, <code>grab sekarang</code> (soft CTA)
+                  </li>
+                </ul>
+              </div>
+            </div>
+
+            <div className="text-xs space-y-2 mt-3">
+              <div>
+                <strong className="text-red-400">❌ BAD example:</strong>
+                <div
+                  className="font-mono text-[11px] mt-1 p-2 rounded"
+                  style={{ background: "rgba(239,68,68,0.06)" }}
+                >
+                  "Habaflex memang <strong>berkesan, melegakan saraf belakang kaki yang terhimpit</strong>."
+                </div>
+              </div>
+              <div>
+                <strong style={{ color: PURPLE }}>✅ GOOD rewrite:</strong>
+                <div
+                  className="font-mono text-[11px] mt-1 p-2 rounded"
+                  style={{ background: PURPLE_FAINT }}
+                >
+                  "<strong>Aku dulu sakit belakang kaki teruk, sampai tak boleh tidur.</strong> Lepas guna Habaflex sebulan, <strong>terus rasa selesa</strong>!"
+                </div>
+              </div>
+            </div>
+
+            <p className="mt-3 text-xs text-[var(--color-text-secondary)]">
+              <strong>Rule of thumb:</strong> Cerita pengalaman peribadi
+              (testimonial), bukan claim ubat. Kalau dialog macam advertorial
+              FDA-style ("X cures Y, take daily"), Sora 2 akan silent.
+              Kalau macam orang biasa berkongsi pengalaman ("Aku try ni, rasa
+              lain"), Sora 2 akan generate audio normal.
+            </p>
+          </section>
+
           {/* IMAGE INPUT GOTCHAS */}
           <section>
             <h4 className="font-display font-bold text-base mb-2" style={{ color: PURPLE }}>
