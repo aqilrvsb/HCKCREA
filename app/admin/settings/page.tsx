@@ -1806,6 +1806,39 @@ export default function AdminSettings() {
           dari Meta Events Manager → Settings → Conversions API → Generate
           access token. Pixel ID + Test Event Code optional.
         </p>
+        <div className="mb-4 flex flex-wrap items-center gap-2 text-xs">
+          <span className="text-[var(--color-text-muted)]">Quick links:</span>
+          <a
+            href={`https://business.facebook.com/events_manager2/list/pixel/${
+              fbPixelId.trim() || "1511282347248812"
+            }/settings`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="px-2 py-1 rounded-md bg-sky-100 text-sky-700 hover:bg-sky-200 font-semibold"
+          >
+            → Generate Access Token
+          </a>
+          <a
+            href={`https://business.facebook.com/events_manager2/list/pixel/${
+              fbPixelId.trim() || "1511282347248812"
+            }/test_events`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="px-2 py-1 rounded-md bg-amber-100 text-amber-700 hover:bg-amber-200 font-semibold"
+          >
+            → Test Events (get Test Code)
+          </a>
+          <a
+            href={`https://business.facebook.com/events_manager2/list/pixel/${
+              fbPixelId.trim() || "1511282347248812"
+            }/overview`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="px-2 py-1 rounded-md bg-emerald-100 text-emerald-700 hover:bg-emerald-200 font-semibold"
+          >
+            → Events Overview
+          </a>
+        </div>
         <div className="grid md:grid-cols-2 gap-3">
           <div>
             <label className="text-xs font-bold text-[var(--color-text-secondary)] mb-1 block">
