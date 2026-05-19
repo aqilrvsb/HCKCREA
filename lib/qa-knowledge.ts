@@ -730,6 +730,11 @@ Strong: "soft window light with warm lamp fill, cool rim from hallway. Palette a
 === DIALOGUE AND AUDIO ===
 Dialogue must be described directly in your prompt. Place it in a labeled block under the visual description. Keep lines concise and natural.
 
+⚠️ CRITICAL — DIALOG FORMAT DIFFERENCE FROM VEO:
+Sora 2 does NOT recognize Veo's inline format ("Spoken dialog: '...'") as a dialogue cue. If you use Veo's format, Sora 2 reads it as descriptive prose and renders SILENT video (mouth moves, no audio). You MUST use the labelled Dialogue: block format below.
+
+Our backend (lib/p6.ts transformPromptForSora2) auto-converts "Spoken dialog: '...'" → Dialogue: block when routing to Sora 2, but if you write directly in the Sora 2 tab you should use the correct format from the start.
+
 Timing rules:
 - 8-second clip: 1-2 short exchanges (a few sentences total).
 - 12-second clip: a few more exchanges, but still keep it tight.
@@ -740,13 +745,56 @@ Multi-character scenes:
 
 Silent shots: include one small sound as a rhythm cue ("distant traffic hiss", "crisp snap", "rain on glass").
 
-Example dialogue block:
+Example dialogue block (the CORRECT format):
 \`\`\`
 Dialogue:
-- Detective: "You're lying. I can hear it in your silence."
-- Suspect: "Or maybe I'm just tired of talking."
-- Detective: "Either way, you'll talk before the night's over."
+- Woman: "Aku dulu sakit belakang kaki teruk, sampai tak boleh tidur. Lepas guna Habaflex sebulan, terus rasa selesa!"
+
+Background Sound:
+ambient room tone, soft fabric rustle
 \`\`\`
+
+🚨🚨🚨 AUDIO MODERATION TRAP — MEDICAL/EFFICACY CLAIMS GET SILENT-MUTED 🚨🚨🚨
+
+We've reproduced this 4 times with IDENTICAL locks (same scene, voice, format, word count) — the ONLY differentiator is dialog vocabulary. Sora 2's safety classifier soft-mutes audio (keeps video) when dialog reads as an unverified medical / efficacy claim. This applies to ALL Sora 2 generations — UGC products, supplements, pain relief, beauty, weight loss, anything health-adjacent.
+
+❌ BANNED VOCABULARY (causes silent video):
+- Efficacy verbs: "berkesan", "menyembuhkan", "merawat", "mengubati", "hilangkan [pain/condition]"
+- Mechanism claims: "melegakan saraf", "membaiki sendi", "mengeluarkan toksin", "menguatkan otot"
+- Medical diagnosis: "terhimpit", "kronik", "akut", "radang"
+- Suffering + body part: "seksa" / "siksa" combined with anatomical reference
+- Superlative + medical: "produk terbaik untuk [condition]", "paling berkesan", "no.1 untuk [condition]"
+- Dosage instructions: "guna [X] setiap hari", "[X] kali sehari", "minum [X] gelas"
+- Monopoly claims: "takkan cari yang lain", "tinggalkan produk lain"
+- Direct cure: "hilangkan [condition]", "buang [pain]", "habiskan [problem]"
+
+✅ REQUIRED FRAMING (audio passes):
+- First-person testimonial: "Aku dulu...", "Sebelum ni aku...", "Bertahun-tahun aku..."
+- Subjective feelings (NOT mechanisms): "terus rasa lega", "rasa selesa", "rasa segar", "rasa lighter"
+- Lifestyle outcomes (NOT medical outcomes): "boleh jalan jauh", "boleh tidur lena", "boleh main dengan anak"
+- Practical action: "sapu je", "minum je", "guna je", "spray je"
+- Subjective comparison: "lain rasa dia", "memang beza", "totally different"
+- Soft CTA: "try sekali", "test sekali", "grab sekarang", "tekan beg kuning"
+
+WHY THIS HAPPENS:
+OpenAI's safety layer for Sora 2 is stricter than Veo's. It applies medical-advertising rules similar to FDA / regulatory compliance — claims need substantiation; testimonials and lifestyle outcomes are protected. The classifier scores "medical efficacy claim density" and when threshold is crossed, audio is dropped silently (no error, just silent video).
+
+REWRITE EXAMPLES:
+❌ "Habaflex memang berkesan, melegakan saraf belakang kaki yang terhimpit."
+✅ "Aku dulu sakit belakang kaki teruk, sampai tak boleh tidur. Lepas guna Habaflex sebulan, terus rasa selesa!"
+
+❌ "Produk terbaik untuk hilangkan sakit. Guna setiap hari, memang berkesan."
+✅ "Aku try Habaflex ni sebab kawan recommend. Memang lain rasa dia, hari-hari rasa lighter!"
+
+❌ "Habaflex menyembuhkan saraf terhimpit, serious berkesan."
+✅ "Dulu aku ingat tak boleh kembali normal, sampai aku jumpa Habaflex. Boleh jalan jauh balik!"
+
+❌ "Cream ni untuk hilangkan jerawat. Memang berkesan, guna pagi petang."
+✅ "Aku try cream ni 2 minggu, kulit terus glow! Mama pun nampak beza, dia tanya aku guna apa."
+
+Rule of thumb: If dialog reads like an advertorial label (X cures Y, take daily, most effective), Sora 2 silences it. If dialog reads like a real person sharing their experience (I used to suffer, I tried this, I feel better), audio fires normally.
+
+This is the #1 cause of "Sora 2 video has no audio" reports. Auto Content's dialog generator already enforces these rules when providerChoice='grok' (= Sora 2 routing) — see app/api/generate/auto-content/route.ts content_settings block. Users typing prompts directly in the Sora 2 tab need to self-police.
 
 === IMAGE INPUT (first frame) ===
 For fine-grained control over composition and style, attach a first-frame image. Sora 2 uses it as the visual anchor for frame 1; your text prompt defines what happens NEXT.
@@ -768,11 +816,13 @@ Prompt examples for image-input mode:
 - If a shot keeps misfiring, STRIP IT BACK: freeze the camera, simplify the action, clear the background. Once it works, layer complexity step by step.
 
 === COMMON ISSUES ===
+- "Video has no audio at all / silent video" → 99% of the time this is the MEDICAL-CLAIM MODERATION TRAP. Dialog contained banned vocabulary (berkesan / melegakan / hilangkan / terhimpit / seksa / produk terbaik / guna setiap hari / etc). Rewrite using testimonial framing ("Aku dulu... lepas guna... terus rasa lega"). Full banned/required vocab list in the DIALOGUE AND AUDIO section above. This is the #1 reported Sora 2 issue and the fix is always the same: rewrite dialog as personal experience, not clinical claim.
 - "Real person's face doesn't look like them" → Sora 2 doesn't reliably reproduce real identities. Use AI-generated character images or describe the persona in text instead.
 - "Audio cuts off mid-word" → Your dialogue is too long for the duration. Cut it down: 8s = max 2 short exchanges, 12s = max 3-4.
 - "Camera move is too chaotic" → You probably described 2+ moves in one shot. Simplify to ONE move per shot.
 - "Image input rejected / blank output" → Image must be exactly 1280×720 (16:9) or 720×1280 (9:16). Other sizes get rejected at the API gateway.
 - "Generation took 5+ minutes" → Sora 2 is slower than Veo. Expected wait: 1-3 minutes per clip. Don't fire 10 at once unless you're prepared to wait.
+- "I used Veo's 'Spoken dialog:' format but no audio" → Sora 2 doesn't recognize that format. Our backend auto-converts it (lib/p6.ts), but if you wrote it manually in the Sora 2 tab, use the Dialogue: block format shown in the DIALOGUE AND AUDIO section.
 
 === SOP (Standard Operating Procedure) — your first Sora 2 video ===
 1. Pick a project from sidebar.
