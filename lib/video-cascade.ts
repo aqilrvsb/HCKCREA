@@ -33,6 +33,8 @@ import {
   getGrokFallbackSlots,
   getCinemaMainSlots,
   getCinemaFallbackSlots,
+  getSora2MainSlots,
+  getSora2FallbackSlots,
   nextMainStartIndex,
   nextFallbackStartIndex,
   slotToProvider,
@@ -69,7 +71,7 @@ export type VideoCascadeInput = {
    *  (typically p6-a..h). "cinema" routes through the Cinema (Seedance)
    *  cascade (p1 + p6). Each asset has independent slot lists +
    *  round-robin counters in lib/cascade-rotation.ts. */
-  asset?: "video" | "grok" | "cinema";
+  asset?: "video" | "grok" | "cinema" | "sora2";
 };
 
 export type VideoCascadeTierLog = {
@@ -204,8 +206,9 @@ export async function generateVideoWithCascade(
 
   // Pick the slot pool based on asset:
   //   • "video"  (default) — UGC + Auto Content + Veo (Viral talking-object)
-  //   • "grok"   — new Grok tab + cinema route when modelChoice='grok'
+  //   • "grok"   — legacy Grok tab + cinema route when modelChoice='grok'
   //   • "cinema" — Seedance tab
+  //   • "sora2"  — Sora 2 tab + Auto Content Sora 2 provider (APIPod-only)
   // Each asset has its own main/fallback lists + independent round-robin
   // counters so admins can tune providers per-feature without one
   // tab's traffic affecting another's rotation.
@@ -215,13 +218,17 @@ export async function generateVideoWithCascade(
       ? getGrokMainSlots
       : asset === "cinema"
         ? getCinemaMainSlots
-        : getVideoMainSlots;
+        : asset === "sora2"
+          ? getSora2MainSlots
+          : getVideoMainSlots;
   const getFbs =
     asset === "grok"
       ? getGrokFallbackSlots
       : asset === "cinema"
         ? getCinemaFallbackSlots
-        : getVideoFallbackSlots;
+        : asset === "sora2"
+          ? getSora2FallbackSlots
+          : getVideoFallbackSlots;
 
   // SINGLE-SHOT per user direction. Two modes:
   //   retry=false (initial fire): pick ONE main slot via round-robin

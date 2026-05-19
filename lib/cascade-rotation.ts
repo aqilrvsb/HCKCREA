@@ -54,6 +54,12 @@ const DEFAULT_GROK_FALLBACK: SlotProvider[] = ["p2-a", "p5", "none", "none", "no
 // Cinema/Seedance runs on GeminiGen (p1) + APIPod (p6).
 const DEFAULT_CINEMA_MAIN: SlotProvider[] = ["p1", "p6-a", "none", "none", "none", "none", "none", "none", "none", "none"];
 const DEFAULT_CINEMA_FALLBACK: SlotProvider[] = ["p6-b", "p6-c", "none", "none", "none", "none", "none", "none", "none", "none"];
+// Sora 2 (OpenAI) is APIPod-only — only p6 slots are valid. Main pool
+// rotates across multiple p6 keys for parallel throughput; fallback
+// pool covers the remaining p6 keys so retries land on a different
+// APIPod account when the primary key hits a rate limit / 5xx.
+const DEFAULT_SORA2_MAIN: SlotProvider[] = ["p6-a", "p6-b", "p6-c", "none", "none", "none", "none", "none", "none", "none"];
+const DEFAULT_SORA2_FALLBACK: SlotProvider[] = ["p6-d", "p6-e", "none", "none", "none", "none", "none", "none", "none", "none"];
 
 function sanitizeSlotList(
   raw: unknown,
@@ -140,7 +146,28 @@ export async function getCinemaFallbackSlots(): Promise<SlotProvider[]> {
   return sanitizeSlotList(raw?.slots, count, VIDEO_ALLOWED, DEFAULT_CINEMA_FALLBACK);
 }
 
-export type CascadeAsset = "video" | "image" | "grok" | "cinema";
+// Sora 2 (OpenAI via APIPod) — only p6 slots are valid since other
+// providers (Crun, APIMart, GeminiGen) don't host Sora 2. The slot
+// validation still uses VIDEO_ALLOWED so admin can theoretically pick
+// other slots, but they'll fail at the create step — kept this way
+// for forward compat if APIMart/Crun add Sora 2 support later.
+export async function getSora2MainSlots(): Promise<SlotProvider[]> {
+  const [count, raw] = await Promise.all([
+    getSlotCount("sora2_main_count"),
+    getSetting<{ slots: SlotProvider[] }>("sora2_main_slots"),
+  ]);
+  return sanitizeSlotList(raw?.slots, count, VIDEO_ALLOWED, DEFAULT_SORA2_MAIN);
+}
+
+export async function getSora2FallbackSlots(): Promise<SlotProvider[]> {
+  const [count, raw] = await Promise.all([
+    getSlotCount("sora2_fallback_count"),
+    getSetting<{ slots: SlotProvider[] }>("sora2_fallback_slots"),
+  ]);
+  return sanitizeSlotList(raw?.slots, count, VIDEO_ALLOWED, DEFAULT_SORA2_FALLBACK);
+}
+
+export type CascadeAsset = "video" | "image" | "grok" | "cinema" | "sora2";
 
 // Atomic round-robin counter for either MAIN or FALLBACK slot list.
 // Two separate counters per asset so main/fallback rotation are

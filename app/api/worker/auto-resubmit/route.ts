@@ -7,6 +7,7 @@ import {
   getVideoFallbackSlots,
   getGrokFallbackSlots,
   getCinemaFallbackSlots,
+  getSora2FallbackSlots,
   type CascadeAsset,
 } from "@/lib/cascade-rotation";
 import { isInternalError } from "@/lib/retry-eligibility";
@@ -45,6 +46,7 @@ async function getAutoRetryCap(asset: CascadeAsset): Promise<number> {
   let slots;
   if (asset === "grok") slots = await getGrokFallbackSlots();
   else if (asset === "cinema") slots = await getCinemaFallbackSlots();
+  else if (asset === "sora2") slots = await getSora2FallbackSlots();
   else slots = await getVideoFallbackSlots();
   // Count active slots only — "none" entries are placeholders, not
   // real retry destinations.
@@ -141,7 +143,13 @@ export async function GET(req: Request) {
     // firing the actual retry — match the row's original pool).
     const rowModel = String(meta.model || "");
     let rowAsset: CascadeAsset = "video";
-    if (row.tab === "seedance") rowAsset = "cinema";
+    if (row.tab === "sora2") rowAsset = "sora2";
+    else if (meta.modelChoice === "sora2" || /sora/i.test(rowModel)) {
+      // Auto Content Sora 2 rows (tab='auto', modelChoice='sora2')
+      // also route through the sora2 pool for retries.
+      rowAsset = "sora2";
+    }
+    else if (row.tab === "seedance") rowAsset = "cinema";
     else if (
       row.tab === "cinema" &&
       (meta.modelChoice === "grok" || /grok/i.test(rowModel))

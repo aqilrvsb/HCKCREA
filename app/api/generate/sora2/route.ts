@@ -1,8 +1,8 @@
 import { NextResponse, after } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { p6CreateVideo, type P6Slot } from "@/lib/p6";
 import { getSetting, getCinemaRate } from "@/lib/settings";
+import { generateVideoWithCascade } from "@/lib/video-cascade";
 
 // POST /api/generate/sora2 — Sora 2 tab.
 //
@@ -104,30 +104,27 @@ export async function POST(req: Request) {
 
   after(async () => {
     try {
-      // Pick the first available p6 slot. Sora 2 only exists on APIPod,
-      // so we use whichever p6 slot is configured. Future: admin can
-      // configure dedicated sora2_main_slots / sora2_fallback_slots like
-      // we did for video/grok/cinema.
-      const slot: P6Slot = "p6-a";
-      const r = await p6CreateVideo({
-        slot,
+      // Route through the same cascade infrastructure as other tabs —
+      // asset='sora2' picks from sora2_main_slots / sora2_fallback_slots
+      // via round-robin counter. Same retry / event-driven failover
+      // semantics as video / grok / cinema cascades.
+      const cascaded = await generateVideoWithCascade({
+        primaryModel: "sora2", // p6.ts maps to sora-2-vip
+        userId: user.id,
         prompt,
-        model: "sora-2-vip",
-        aspectRatio,
-        imageUrls: imageUrl ? [imageUrl] : undefined,
+        imageUrls: imageUrl ? [imageUrl] : [],
         imageMode: imageMode === "image" ? "frame" : "text",
+        aspectRatio,
         durationMode: String(duration),
+        asset: "sora2",
       });
 
-      // Discriminated union — split the narrowing so TS sees r.error
-      // only on the failure branch (where it actually exists) and
-      // r.task_id only on the success branch.
-      if (!r.ok) {
+      if (!cascaded.ok) {
         await admin
           .from("history")
           .update({
             status: "failed",
-            error_message: r.error || "APIPod create failed",
+            error_message: cascaded.error || "Sora 2 cascade exhausted",
             metadata: {
               aspectRatio,
               imageMode,
@@ -136,32 +133,8 @@ export async function POST(req: Request) {
               modelChoice: "sora2",
               model: "sora-2-vip",
               featureType: "sora2",
-              slot,
-              image_urls: imageUrl ? [imageUrl] : [],
-              upload_status: "failed",
-            },
-          })
-          .eq("id", historyId);
-        return;
-      }
-      if (!r.task_id) {
-        // Defensive — should never happen since the success branch
-        // always carries a task_id, but guards against future shape
-        // changes in p6CreateVideo.
-        await admin
-          .from("history")
-          .update({
-            status: "failed",
-            error_message: "APIPod returned no task_id",
-            metadata: {
-              aspectRatio,
-              imageMode,
-              resolution: aspectRatio === "9:16" ? "720x1280" : "1280x720",
-              sora2Provider: "apipod",
-              modelChoice: "sora2",
-              model: "sora-2-vip",
-              featureType: "sora2",
-              slot,
+              fallback_used: cascaded.tierLog ? true : false,
+              tier_log: cascaded.tierLog,
               image_urls: imageUrl ? [imageUrl] : [],
               upload_status: "failed",
             },
@@ -173,17 +146,19 @@ export async function POST(req: Request) {
       await admin
         .from("history")
         .update({
-          task_id: r.task_id,
+          task_id: cascaded.taskId,
           metadata: {
             aspectRatio,
             imageMode,
             resolution: aspectRatio === "9:16" ? "720x1280" : "1280x720",
             sora2Provider: "apipod",
             modelChoice: "sora2",
-            model: "sora-2-vip",
-            provider: "p6",
-            slot,
+            model: cascaded.actualModel || "sora-2-vip",
+            provider: cascaded.actualProvider,
+            slot: cascaded.actualSlot,
             featureType: "sora2",
+            fallback_used: cascaded.fallbackUsed,
+            tier_log: cascaded.tierLog,
             image_urls: imageUrl ? [imageUrl] : [],
             upload_status: "queued",
           },

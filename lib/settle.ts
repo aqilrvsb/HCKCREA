@@ -21,6 +21,7 @@ import {
   getVideoFallbackSlots,
   getGrokFallbackSlots,
   getCinemaFallbackSlots,
+  getSora2FallbackSlots,
   getImageFallbackSlots,
   type CascadeAsset,
 } from "@/lib/cascade-rotation";
@@ -259,6 +260,7 @@ async function getDynamicRetryCap(
   if (asset === "image") slots = await getImageFallbackSlots();
   else if (asset === "grok") slots = await getGrokFallbackSlots();
   else if (asset === "cinema") slots = await getCinemaFallbackSlots();
+  else if (asset === "sora2") slots = await getSora2FallbackSlots();
   else slots = await getVideoFallbackSlots();
   const count = slots.filter((s) => s !== "none").length;
   const cap = Math.max(
@@ -345,6 +347,15 @@ async function tryAutoRetry(
     hist.type === "fairytale-scene";
   let cascadeAsset: CascadeAsset | "image";
   if (isImageRowForCap) cascadeAsset = "image";
+  else if (hist.tab === "sora2") cascadeAsset = "sora2";
+  else if (
+    meta.modelChoice === "sora2" ||
+    /sora/i.test(rowModel)
+  ) {
+    // Auto Content Sora 2 rows (tab='auto', metadata.modelChoice='sora2')
+    // also route through the sora2 cascade.
+    cascadeAsset = "sora2";
+  }
   else if (hist.tab === "seedance") cascadeAsset = "cinema";
   else if (
     hist.tab === "cinema" &&
@@ -569,10 +580,12 @@ async function tryAutoRetry(
         `[settle/auto-retry] row ${hist.id}: slot ${skipSlot} previously accepted at create but failed during polling — pushing to end of walk`
       );
     }
-    // Pass the row's cascade asset (video/grok/cinema) so the fallback
-    // round-robin uses the same pool family. cascadeAsset is detected at
-    // the top of this function; here it's narrowed to non-image values.
-    const videoAsset: "video" | "grok" | "cinema" =
+    // Pass the row's cascade asset (video/grok/cinema/sora2) so the
+    // fallback round-robin uses the same pool family. cascadeAsset is
+    // detected at the top of this function; here it's narrowed to
+    // non-image values (image rows take the dedicated image branch
+    // above and never reach this point).
+    const videoAsset: "video" | "grok" | "cinema" | "sora2" =
       cascadeAsset === "image" ? "video" : cascadeAsset;
     const r = await generateVideoWithCascade({
       primaryModel: model,

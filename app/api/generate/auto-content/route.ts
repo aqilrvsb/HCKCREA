@@ -2052,9 +2052,11 @@ CRITICAL OUTPUT RULES:
         ? veoSeg2PromptFor(item, lockedVoiceLine)
         : "";
 
-      // Veo → video cascade (asset='video'). Grok → grok cascade
-      // (asset='grok' → typically p6-a..h slot pool). Each pool has
-      // independent main+fallback config at /admin/settings.
+      // Veo → video cascade. Sora 2 (previously labelled Grok in the
+      // internal providerChoice state for backward compat) → sora2
+      // cascade. Each pool has independent main+fallback config at
+      // /admin/settings (sora2_main_slots / sora2_fallback_slots etc.)
+      // and its own round-robin counter.
       const cascaded = await generateVideoWithCascade({
         primaryModel: model,
         userId: user.id,
@@ -2068,7 +2070,7 @@ CRITICAL OUTPUT RULES:
               : durationMode,
         aspectRatio,
         imageMode: useIngredient ? "ingredient" : "text",
-        asset: providerChoice === "grok" ? "grok" : "video",
+        asset: providerChoice === "grok" ? "sora2" : "video",
       });
 
       const { data: hist } = await admin
@@ -2127,12 +2129,17 @@ CRITICAL OUTPUT RULES:
             // Empty when user used Normal Flow — the card-side check
             // hides the badge in that case.
             idea_style: ideaStyle || undefined,
-            // Provider chip + tracking on the history card. Grok rows
-            // also stamp modelChoice so retry/auto-cron route them
-            // back through the grok cascade pool, not video.
+            // Provider chip + tracking on the history card. Sora 2 rows
+            // (providerChoice='grok' internally for backward compat)
+            // stamp modelChoice='sora2' so settle.ts + auto-resubmit
+            // route them back through the sora2 cascade pool.
             providerChoice,
             ...(providerChoice === "grok"
-              ? { modelChoice: "grok", grok_duration: grokDuration }
+              ? {
+                  modelChoice: "sora2",
+                  grok_duration: grokDuration, // legacy field name
+                  sora2_duration: grokDuration,
+                }
               : {}),
             // Segment chain — duration_mode + seg2_prompt + voice_line
             // are what segment-chain.ts onSegmentSettled needs to fire

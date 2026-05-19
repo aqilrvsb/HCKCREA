@@ -276,11 +276,16 @@ export async function POST(req: Request) {
 
     // Asset detection — match the cascade pool the row originally
     // fired through so the fallback round-robin uses the same family:
+    //   • Sora 2 rows  → tab='sora2' OR modelChoice='sora2' → sora2 cascade
     //   • Seedance rows → tab='seedance' → cinema cascade
     //   • Grok rows     → tab='cinema' + modelChoice='grok' → grok cascade
     //   • Everything else (UGC, Auto, Veo viral, clone) → video cascade
-    let asset: "video" | "grok" | "cinema" = "video";
-    if (row.tab === "seedance") asset = "cinema";
+    let asset: "video" | "grok" | "cinema" | "sora2" = "video";
+    if (row.tab === "sora2") asset = "sora2";
+    else if (meta.modelChoice === "sora2" || /sora/i.test(model)) {
+      asset = "sora2";
+    }
+    else if (row.tab === "seedance") asset = "cinema";
     else if (
       row.tab === "cinema" &&
       (meta.modelChoice === "grok" || /grok/i.test(model))

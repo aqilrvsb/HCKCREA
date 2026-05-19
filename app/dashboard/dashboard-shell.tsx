@@ -51,7 +51,10 @@ const TABS: { key: TabKey; label: string; icon: any; tag: string }[] = [
   { key: "image",     label: "Image",        icon: ImageIcon, tag: "01" },
   { key: "video",     label: "UGC",          icon: Video,     tag: "02" },
   { key: "auto",      label: "Auto Content", icon: Wand2,     tag: "03" },
-  { key: "seedance",  label: "Cinema",       icon: Film,      tag: "04" },
+  // Seedance/Cinema tab hidden per user direction. Route + import kept
+  // so existing seedance history rows still render via their cards in
+  // the Sora 2 / Viral grids if shared. Re-enable by uncommenting.
+  // { key: "seedance",  label: "Cinema",       icon: Film,      tag: "04" },
   { key: "clone",     label: "Clone Prompt", icon: Layers,    tag: "05" },
   { key: "fairytale", label: "Storytelling", icon: BookOpen,  tag: "06" },
   { key: "cinema",    label: "Viral",        icon: Film,      tag: "07" },
