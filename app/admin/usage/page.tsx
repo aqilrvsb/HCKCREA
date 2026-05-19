@@ -241,14 +241,19 @@ export default function AdminUsage() {
         </p>
       </div>
 
-      {/* Stats — unified lime accent for all primary numbers */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+      {/* Stats — unified lime accent for all primary numbers.
+          Per-user cards (Total Users + Avg per User) are hidden when
+          viewing the Detail Log tab because that view is row-level
+          (what was generated), not user-level (who generated it).
+          Both per-user cards re-appear on Summary by User tab where
+          they make sense as the summary header. */}
+      <div className={`grid gap-4 mb-6 grid-cols-2 ${view === "detail" ? "md:grid-cols-2" : "md:grid-cols-4"}`}>
         {[
-          { label: "Total Users", value: stats.totalUsers, icon: UsersIcon, glow: "rgba(200,245,62,0.18)" },
-          { label: "Total Requests", value: stats.totalRequests, icon: Activity, glow: "rgba(200,245,62,0.18)" },
-          { label: "Total Usage", value: `RM${stats.totalUsage.toFixed(2)}`, icon: DollarSign, glow: "rgba(255,87,34,0.18)" },
-          { label: "Avg per User", value: `RM${stats.avg.toFixed(2)}`, icon: TrendingUp, glow: "rgba(200,245,62,0.18)" },
-        ].map((s, i) => {
+          { label: "Total Users", value: stats.totalUsers, icon: UsersIcon, glow: "rgba(200,245,62,0.18)", perUser: true },
+          { label: "Total Requests", value: stats.totalRequests, icon: Activity, glow: "rgba(200,245,62,0.18)", perUser: false },
+          { label: "Total Usage", value: `RM${stats.totalUsage.toFixed(2)}`, icon: DollarSign, glow: "rgba(255,87,34,0.18)", perUser: false },
+          { label: "Avg per User", value: `RM${stats.avg.toFixed(2)}`, icon: TrendingUp, glow: "rgba(200,245,62,0.18)", perUser: true },
+        ].filter((s) => (view === "detail" ? !s.perUser : true)).map((s, i) => {
           const Icon = s.icon;
           const isMoney = String(s.value).startsWith("RM");
           return (
