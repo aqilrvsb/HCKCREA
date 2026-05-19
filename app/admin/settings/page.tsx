@@ -1793,20 +1793,33 @@ export default function AdminSettings() {
           <Megaphone className="w-5 h-5 text-sky-600" />
           <h2 className="font-display font-bold text-lg">Facebook Conversions API</h2>
         </div>
+        <p className="text-sm text-[var(--color-text-secondary)] mb-2">
+          Browser Pixel <strong>1511282347248812</strong> dah hardcoded
+          sebagai default — auto-fire <code>PageView</code> /{" "}
+          <code>InitiateCheckout</code> / <code>Purchase</code> di landing +
+          checkout + success page. Tak perlu paste apa-apa untuk Pixel browser
+          jalan.
+        </p>
         <p className="text-sm text-[var(--color-text-secondary)] mb-4">
-          Server-side + browser Pixel tracking untuk Sales-objective FB Ads.
-          Browser Pixel auto-load di landing page (bukan /dashboard / /admin).
-          Server CAPI fire dari payment webhook — Meta dedupes browser +
-          server events guna event_id sama.
+          Untuk dapat <strong>server-side CAPI</strong> (capture conversion
+          yang iOS Safari / ad-blocker block) — paste <strong>Access Token</strong>{" "}
+          dari Meta Events Manager → Settings → Conversions API → Generate
+          access token. Pixel ID + Test Event Code optional.
         </p>
         <div className="grid md:grid-cols-2 gap-3">
           <div>
             <label className="text-xs font-bold text-[var(--color-text-secondary)] mb-1 block">
-              Pixel ID
+              Pixel ID{" "}
+              <span className="text-[var(--color-text-muted)] font-normal">
+                (kosong = guna default 1511282347248812)
+              </span>
             </label>
             <input
+              name="fb_pixel_id_override"
+              autoComplete="off"
+              inputMode="numeric"
               value={fbPixelId}
-              onChange={(e) => setFbPixelId(e.target.value)}
+              onChange={(e) => setFbPixelId(e.target.value.replace(/[^0-9]/g, ""))}
               placeholder="1511282347248812"
               className="input font-mono text-xs w-full"
             />
@@ -1819,6 +1832,8 @@ export default function AdminSettings() {
               </span>
             </label>
             <input
+              name="fb_test_event_code"
+              autoComplete="off"
               value={fbTestEventCode}
               onChange={(e) => setFbTestEventCode(e.target.value)}
               placeholder="TEST12345"
@@ -1832,6 +1847,8 @@ export default function AdminSettings() {
             </label>
             <input
               type="password"
+              name="fb_capi_access_token"
+              autoComplete="new-password"
               value={fbAccessToken}
               onChange={(e) => setFbAccessToken(e.target.value)}
               placeholder="EAAxxxx..."
