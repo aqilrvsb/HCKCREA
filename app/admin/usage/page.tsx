@@ -173,6 +173,57 @@ export default function AdminUsage() {
     return { totalUsers, totalRequests, totalUsage, avg };
   }, [summary, generationRows]);
 
+  // Per-engine VIDEO breakdown — counts shown above the Detail Log so
+  // admin sees at-a-glance how many of each engine generated in the
+  // current date+media filter window. Classification mirrors the TAB
+  // chip detection so the counts match the visible row tags:
+  //   - Sora     : tab='sora2' OR metadata.modelChoice='sora2'
+  //   - Story    : tab='fairytale' OR type='fairytale-*' (intermediate
+  //                steps already excluded from generationRows, so this
+  //                catches only the final merged video row)
+  //   - Grok     : tab='cinema' OR metadata.modelChoice contains 'grok'
+  //                OR metadata.provider='grok'
+  //   - Veo      : everything else that's a video — UGC, Auto Content,
+  //                Viral Talking Object all route through Veo
+  // Image rows are excluded entirely from these counts (image breakdown
+  // would be its own future card if needed).
+  const videoBreakdown = useMemo(() => {
+    let veo = 0;
+    let grok = 0;
+    let sora = 0;
+    let story = 0;
+    for (const r of generationRows) {
+      const isImg =
+        r.type === "image" ||
+        r.type === "fairytale-scene" ||
+        r.type === "fairytale-hero";
+      if (isImg) continue;
+      const rawTab = String(r.tab || "").toLowerCase();
+      const rawType = String(r.type || "").toLowerCase();
+      const modelChoice = String((r.metadata as any)?.modelChoice || "").toLowerCase();
+      const provider = String((r.metadata as any)?.provider || "").toLowerCase();
+      if (rawTab === "sora2" || modelChoice === "sora2") {
+        sora++;
+      } else if (
+        rawTab === "fairytale" ||
+        rawType.startsWith("fairytale")
+      ) {
+        story++;
+      } else if (
+        rawTab === "cinema" ||
+        modelChoice.includes("grok") ||
+        provider === "grok"
+      ) {
+        grok++;
+      } else {
+        // Default video bucket = Veo (UGC tab + Auto Content + Viral
+        // Talking Object all currently route through Veo).
+        veo++;
+      }
+    }
+    return { veo, grok, sora, story };
+  }, [generationRows]);
+
   return (
     <div>
       <div className="mb-8">
@@ -497,6 +548,44 @@ export default function AdminUsage() {
         )}
 
         {!loading && view === "detail" && (
+          <>
+            {/* Per-engine VIDEO breakdown — counts of which engine generated
+                in the current date+media filter window. Hidden when the
+                media filter is "image" because the breakdown is video-only. */}
+            {mediaFilter !== "image" && (
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
+                {[
+                  { label: "Veo Videos", value: videoBreakdown.veo,   tone: "rgba(34,197,94,0.18)",  fg: "#16a34a", sub: "UGC + Auto + Viral (8s/16s Veo)" },
+                  { label: "Grok Videos", value: videoBreakdown.grok, tone: "rgba(99,102,241,0.18)", fg: "#6366f1", sub: "Cinema / Grok-routed" },
+                  { label: "Sora 2 Videos", value: videoBreakdown.sora, tone: "rgba(74,222,128,0.18)", fg: "#4ade80", sub: "tab='sora2' or modelChoice='sora2'" },
+                  { label: "Storytelling", value: videoBreakdown.story, tone: "rgba(139,92,246,0.18)", fg: "#8b5cf6", sub: "Final merged story video" },
+                ].map((b) => (
+                  <div
+                    key={b.label}
+                    className="rounded-2xl px-5 py-4 border"
+                    style={{
+                      background: "rgba(255,255,255,0.015)",
+                      borderColor: "var(--color-border)",
+                      boxShadow: `inset 0 0 60px ${b.tone}`,
+                    }}
+                  >
+                    <div className="text-[10px] font-mono uppercase tracking-widest font-bold text-[var(--color-text-muted)]">
+                      {b.label}
+                    </div>
+                    <div
+                      className="font-display font-extrabold text-3xl mt-1"
+                      style={{ color: b.fg }}
+                    >
+                      {b.value}
+                    </div>
+                    <div className="text-[10px] text-[var(--color-text-muted)] mt-1">
+                      {b.sub}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
           <div className="overflow-x-auto">
             <table className="w-full text-sm min-w-[640px]">
               <thead>
@@ -509,7 +598,10 @@ export default function AdminUsage() {
                 >
                   <th className="text-left px-5 py-4 w-12">#</th>
                   <th className="text-left px-5 py-4 w-36">Date</th>
-                  <th className="text-left px-5 py-4">Email</th>
+                  {/* Email column intentionally omitted from Detail Log per
+                      admin direction — Summary by User is the canonical
+                      per-user view. Detail Log focuses on what was generated,
+                      not who generated it. */}
                   <th className="text-left px-5 py-4 w-32">Action</th>
                   <th className="text-center px-5 py-4 w-20">Engine</th>
                   <th className="text-center px-5 py-4 w-24">Tab</th>
@@ -524,7 +616,7 @@ export default function AdminUsage() {
                 {generationRows.length === 0 ? (
                   <tr>
                     <td
-                      colSpan={11}
+                      colSpan={10}
                       className="px-4 py-16 text-center text-[var(--color-text-muted)] text-sm"
                     >
                       Tiada usage log.
@@ -599,9 +691,11 @@ export default function AdminUsage() {
                             hour12: false,
                           })}
                         </td>
-                        <td className="px-5 py-4 text-[var(--color-text-primary)] truncate max-w-[180px]">
-                          {r.email}
-                        </td>
+                        {/* Email cell intentionally omitted from Detail
+                            Log per admin direction — see header comment
+                            above. The row's user is still searchable via
+                            the search box (matches r.email) and visible
+                            in the Summary by User tab. */}
                         <td className="px-5 py-4">
                           <span
                             className="px-2 py-0.5 rounded text-[10px] font-mono font-bold whitespace-nowrap"
@@ -843,6 +937,7 @@ export default function AdminUsage() {
               </tbody>
             </table>
           </div>
+          </>
         )}
       </div>
 
