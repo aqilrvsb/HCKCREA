@@ -80,11 +80,31 @@ export default function AdminUsage() {
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     if (!q) return rows;
-    return rows.filter(
-      (r) =>
-        r.email.toLowerCase().includes(q) ||
-        r.reason.toLowerCase().includes(q)
-    );
+    // Search matches across every meaningful row identifier so admin can
+    // type 'sora', 'auto', 'veo', 'p6', a framework name, or a prompt
+    // fragment and have rows narrow correctly. Without metadata + tab +
+    // type + prompt + provider matches, typing 'sora' returned 0 rows
+    // even though the Sora 2 count chip showed 7 — search felt broken.
+    return rows.filter((r) => {
+      const meta = (r.metadata as any) || {};
+      const haystack = [
+        r.email,
+        r.reason,
+        r.tab,
+        r.type,
+        r.prompt,
+        meta.modelChoice,
+        meta.provider,
+        meta.slot,
+        meta.featureType,
+        meta.framework,
+        meta.ideaStyle,
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
+      return haystack.includes(q);
+    });
   }, [rows, search]);
 
   // Only image + video count for usage stats (auto_plan / clone_plan /
@@ -349,12 +369,12 @@ export default function AdminUsage() {
               Search
             </label>
             <div className="relative">
-              <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--color-text-muted)] pointer-events-none" />
+              <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--color-text-muted)] pointer-events-none z-10" />
               <input
-                placeholder="email or model…"
+                placeholder="email, tab, prompt, model…"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                className="input pl-11"
+                className="input pl-12"
               />
             </div>
           </div>
