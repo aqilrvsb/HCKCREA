@@ -232,15 +232,16 @@ export async function p6CreateVideo(input: {
         : 6;
     body.resolution = "720p";
   } else if (resolvedModel.startsWith("veo")) {
-    // Force 8s — Veo 3.1 Fast supports 4-8s, 8 is the canonical UGC
-    // length matched to our DIALOG LENGTH LOCK (20-24 Malay words).
-    // Without this param, APIPod was returning 6s files which truncated
-    // the dialog (mouth-freeze symptom + perceived "tak HD / tak full").
-    const reqDur = Number(input.durationMode);
-    body.duration =
-      Number.isFinite(reqDur) && reqDur >= 4 && reqDur <= 8
-        ? Math.round(reqDur)
-        : 8;
+    // STRICT 8s — per user direction, Veo Fast ALWAYS runs at 8 seconds
+    // regardless of input.durationMode. The canonical UGC length matches
+    // our DIALOG LENGTH LOCK (20-24 Malay words for 8s shot). Without
+    // this param, APIPod was returning 6s files which truncated dialog
+    // (mouth-freeze + perceived "tak HD / tak full" symptom).
+    //
+    // Not dynamic on purpose — every Veo path through APIPod produces
+    // exactly 8s output. Auto Content, UGC tab, Viral Talking Object,
+    // and every cascade fallback slot all benefit uniformly.
+    body.duration = 8;
     body.resolution = "720p";
   }
 
