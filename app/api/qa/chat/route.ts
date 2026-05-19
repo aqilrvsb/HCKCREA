@@ -35,7 +35,7 @@ export async function POST(req: Request) {
 
   const body = await req.json().catch(() => ({}));
   const tab = String(body?.tab || "ugc") as QATab;
-  const validTabs: QATab[] = ["ugc", "auto", "cinema", "seedance", "fairytale", "image"];
+  const validTabs: QATab[] = ["ugc", "auto", "cinema", "seedance", "fairytale", "image", "sora2"];
   if (!validTabs.includes(tab)) {
     return NextResponse.json({ error: "Invalid tab" }, { status: 400 });
   }

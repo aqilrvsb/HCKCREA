@@ -28,7 +28,7 @@ import Portal from "./portal";
 // fine for a help chat: questions are usually one-off. If we want
 // persisted threads later, add localStorage keyed by (user, tab).
 
-export type QATab = "ugc" | "auto" | "cinema" | "seedance" | "fairytale" | "image";
+export type QATab = "ugc" | "auto" | "cinema" | "seedance" | "fairytale" | "image" | "sora2";
 
 const TAB_THEME: Record<
   QATab,
@@ -69,6 +69,12 @@ const TAB_THEME: Record<
     color: "#facc15",
     gradient: "linear-gradient(135deg, #facc15 0%, #eab308 100%)",
     emoji: "🖼️",
+  },
+  sora2: {
+    label: "Sora 2 Help",
+    color: "#4ade80",
+    gradient: "linear-gradient(135deg, #4ade80 0%, #16a34a 100%)",
+    emoji: "⚡",
   },
 };
 

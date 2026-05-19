@@ -623,7 +623,8 @@ function ProjectView({
           activeTab === "cinema" ||
           activeTab === "seedance" ||
           activeTab === "auto" ||
-          activeTab === "fairytale") && (
+          activeTab === "fairytale" ||
+          activeTab === "sora2") && (
           <QAChatPanel
             tab={
               (activeTab === "video"
@@ -632,7 +633,9 @@ function ProjectView({
                   ? "auto"
                   : activeTab === "fairytale"
                     ? "fairytale"
-                    : activeTab) as QATab
+                    : activeTab === "sora2"
+                      ? "sora2"
+                      : activeTab) as QATab
             }
           />
         )}
