@@ -21,6 +21,9 @@ type Stats = {
     cinema: number;
     auto: number;
     clone: number;
+    sora2: number;
+    talking_object: number;
+    story: number;
     total: number;
   };
   total_cost: number;
@@ -143,8 +146,10 @@ export default function DashboardOverview({ name }: { name: string }) {
         </p>
       </div>
 
-      {/* Stat cards row — 4 type counts + total cost */}
-      <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 mb-5">
+      {/* Stat cards row — Cinema hidden per user direction; Sora 2 +
+          Talking Object + Storytelling added. Layout now 4 cols on
+          mobile / 7 cols on lg so all cards fit without wrapping. */}
+      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3 mb-5">
         <StatCard
           label="Image"
           value={loading ? "—" : String(stats?.counts.image ?? 0)}
@@ -158,16 +163,28 @@ export default function DashboardOverview({ name }: { name: string }) {
           icon={<Video className="w-4 h-4" />}
         />
         <StatCard
-          label="Cinema"
-          value={loading ? "—" : String(stats?.counts.cinema ?? 0)}
-          accent="#7c4dff"
-          icon={<Film className="w-4 h-4" />}
-        />
-        <StatCard
           label="Auto Content"
           value={loading ? "—" : String(stats?.counts.auto ?? 0)}
           accent="#f59e0b"
           icon={<Sparkles className="w-4 h-4" />}
+        />
+        <StatCard
+          label="Sora 2"
+          value={loading ? "—" : String(stats?.counts.sora2 ?? 0)}
+          accent="#a855f7"
+          icon={<Film className="w-4 h-4" />}
+        />
+        <StatCard
+          label="Talking Object"
+          value={loading ? "—" : String(stats?.counts.talking_object ?? 0)}
+          accent="#ef4444"
+          icon={<Sparkles className="w-4 h-4" />}
+        />
+        <StatCard
+          label="Storytelling"
+          value={loading ? "—" : String(stats?.counts.story ?? 0)}
+          accent="#8b5cf6"
+          icon={<Video className="w-4 h-4" />}
         />
         <StatCard
           label="Total Cost"

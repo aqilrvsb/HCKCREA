@@ -152,7 +152,14 @@ export default function AdminSettings() {
   const [cinemaFallbackCount, setCinemaFallbackCount] = useState(10);
   const [cinemaMainSlots, setCinemaMainSlots] = useState<SlotV[]>([]);
   const [cinemaFallbackSlots, setCinemaFallbackSlots] = useState<SlotV[]>([]);
-  const [savingMfSlots, setSavingMfSlots] = useState<"video" | "image" | "grok" | "cinema" | null>(null);
+  // Sora 2 cascade — APIPod-only (only p6 slots make sense) but uses
+  // the same SlotV allowed list so admin can theoretically pick other
+  // providers (those will fail at submit time, kept as forward-compat).
+  const [sora2MainCount, setSora2MainCount] = useState(10);
+  const [sora2FallbackCount, setSora2FallbackCount] = useState(10);
+  const [sora2MainSlots, setSora2MainSlots] = useState<SlotV[]>([]);
+  const [sora2FallbackSlots, setSora2FallbackSlots] = useState<SlotV[]>([]);
+  const [savingMfSlots, setSavingMfSlots] = useState<"video" | "image" | "grok" | "cinema" | "sora2" | null>(null);
   const [mfSlotsMsg, setMfSlotsMsg] = useState<string | null>(null);
 
   useEffect(() => {
@@ -330,48 +337,59 @@ export default function AdminSettings() {
           const cnt = (list.find((r) => r.key === "cinema_fallback_count")?.value?.count) || 10;
           setCinemaFallbackSlots(fitArr<SlotV>(arr, cnt, allowedV));
         }
+        // Sora 2 cascade
+        if (row.key === "sora2_main_count") {
+          const n = Number(row.value?.count);
+          if (Number.isFinite(n) && n >= 1) setSora2MainCount(Math.floor(n));
+        }
+        if (row.key === "sora2_fallback_count") {
+          const n = Number(row.value?.count);
+          if (Number.isFinite(n) && n >= 1) setSora2FallbackCount(Math.floor(n));
+        }
+        if (row.key === "sora2_main_slots") {
+          const arr = Array.isArray(row.value?.slots) ? row.value.slots : [];
+          const cnt = (list.find((r) => r.key === "sora2_main_count")?.value?.count) || 10;
+          setSora2MainSlots(fitArr<SlotV>(arr, cnt, allowedV));
+        }
+        if (row.key === "sora2_fallback_slots") {
+          const arr = Array.isArray(row.value?.slots) ? row.value.slots : [];
+          const cnt = (list.find((r) => r.key === "sora2_fallback_count")?.value?.count) || 10;
+          setSora2FallbackSlots(fitArr<SlotV>(arr, cnt, allowedV));
+        }
       }
     } finally {
       setLoading(false);
     }
   }
 
-  async function saveMainFallback(asset: "video" | "image" | "grok" | "cinema") {
+  async function saveMainFallback(asset: "video" | "image" | "grok" | "cinema" | "sora2") {
     setSavingMfSlots(asset);
     setMfSlotsMsg(null);
     try {
       const mainCount =
-        asset === "video"
-          ? videoMainCount
-          : asset === "image"
-            ? imageMainCount
-            : asset === "grok"
-              ? grokMainCount
-              : cinemaMainCount;
+        asset === "video" ? videoMainCount
+        : asset === "image" ? imageMainCount
+        : asset === "grok" ? grokMainCount
+        : asset === "sora2" ? sora2MainCount
+        : cinemaMainCount;
       const fbCount =
-        asset === "video"
-          ? videoFallbackCount
-          : asset === "image"
-            ? imageFallbackCount
-            : asset === "grok"
-              ? grokFallbackCount
-              : cinemaFallbackCount;
+        asset === "video" ? videoFallbackCount
+        : asset === "image" ? imageFallbackCount
+        : asset === "grok" ? grokFallbackCount
+        : asset === "sora2" ? sora2FallbackCount
+        : cinemaFallbackCount;
       const main =
-        asset === "video"
-          ? videoMainSlots
-          : asset === "image"
-            ? imageMainSlots
-            : asset === "grok"
-              ? grokMainSlots
-              : cinemaMainSlots;
+        asset === "video" ? videoMainSlots
+        : asset === "image" ? imageMainSlots
+        : asset === "grok" ? grokMainSlots
+        : asset === "sora2" ? sora2MainSlots
+        : cinemaMainSlots;
       const fb =
-        asset === "video"
-          ? videoFallbackSlots
-          : asset === "image"
-            ? imageFallbackSlots
-            : asset === "grok"
-              ? grokFallbackSlots
-              : cinemaFallbackSlots;
+        asset === "video" ? videoFallbackSlots
+        : asset === "image" ? imageFallbackSlots
+        : asset === "grok" ? grokFallbackSlots
+        : asset === "sora2" ? sora2FallbackSlots
+        : cinemaFallbackSlots;
       const calls = [
         { key: `${asset}_main_count`, value: { count: mainCount } },
         { key: `${asset}_fallback_count`, value: { count: fbCount } },
@@ -960,6 +978,38 @@ export default function AdminSettings() {
             setMainSlots: (s) => setCinemaMainSlots(s as SlotV[]),
             fbSlots: cinemaFallbackSlots,
             setFbSlots: (s) => setCinemaFallbackSlots(s as SlotV[]),
+          },
+          {
+            // Sora 2 (OpenAI) cascade — APIPod-only model. We expose the
+            // full p6-a..h pool plus non-p6 options for forward compat
+            // (if APIMart/Crun add Sora 2 later, admin can switch
+            // without a code change), but realistically only p6 keys
+            // will actually accept sora-2-vip today.
+            asset: "sora2",
+            color: "#a855f7",
+            options: [
+              { value: "p1", label: "P1 — GeminiGen" },
+              { value: "p2-a", label: "P2 — Crun (key A)" },
+              { value: "p2-b", label: "P2 — Crun (key B)" },
+              { value: "p5", label: "P5 — APIMart" },
+              { value: "p6-a", label: "P6 — APIPod (A)" },
+              { value: "p6-b", label: "P6 — APIPod (B)" },
+              { value: "p6-c", label: "P6 — APIPod (C)" },
+              { value: "p6-d", label: "P6 — APIPod (D)" },
+              { value: "p6-e", label: "P6 — APIPod (E)" },
+              { value: "p6-f", label: "P6 — APIPod (F)" },
+              { value: "p6-g", label: "P6 — APIPod (G)" },
+              { value: "p6-h", label: "P6 — APIPod (H)" },
+              { value: "none", label: "— None —" },
+            ],
+            mainCount: sora2MainCount,
+            setMainCount: setSora2MainCount,
+            fbCount: sora2FallbackCount,
+            setFbCount: setSora2FallbackCount,
+            mainSlots: sora2MainSlots,
+            setMainSlots: (s) => setSora2MainSlots(s as SlotV[]),
+            fbSlots: sora2FallbackSlots,
+            setFbSlots: (s) => setSora2FallbackSlots(s as SlotV[]),
           },
         ];
         return (

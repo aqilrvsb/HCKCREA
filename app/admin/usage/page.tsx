@@ -641,6 +641,7 @@ export default function AdminUsage() {
                               auto:      { label: "AUTO",       bg: "rgba(56,189,248,0.12)", fg: "#0ea5e9", bd: "rgba(56,189,248,0.3)" },
                               cinema:    { label: "CINEMA",     bg: "rgba(168,85,247,0.12)", fg: "#a855f7", bd: "rgba(168,85,247,0.3)" },
                               viral:     { label: "VIRAL",      bg: "rgba(239,68,68,0.12)",  fg: "#ef4444", bd: "rgba(239,68,68,0.3)" },
+                              sora2:     { label: "SORA 2",     bg: "rgba(168,85,247,0.12)", fg: "#a855f7", bd: "rgba(168,85,247,0.4)" },
                               seedance:  { label: "SEEDANCE",   bg: "rgba(244,114,182,0.12)", fg: "#ec4899", bd: "rgba(244,114,182,0.3)" },
                               clone:     { label: "CLONE",      bg: "rgba(251,146,60,0.12)", fg: "#f97316", bd: "rgba(251,146,60,0.3)" },
                               image:     { label: "IMAGE",      bg: "rgba(250,204,21,0.12)", fg: "#eab308", bd: "rgba(250,204,21,0.3)" },
@@ -655,22 +656,27 @@ export default function AdminUsage() {
                             //   1. metadata.featureType matches viral / talking-
                             //      object → VIRAL (catches the Talking Object
                             //      feature regardless of whether it inserted
-                            //      tab='cinema' or any other tag). Both the
-                            //      video row + the source-image row of one
-                            //      Talking Object generation share this
-                            //      featureType, so they group correctly under
-                            //      VIRAL in the Detail Log.
-                            //   2. type='image' → IMAGE (raw image-gen rows)
-                            //   3. raw tab if mapped
-                            //   4. type-based fallback (auto-content → auto, etc.)
+                            //      tab='cinema' or any other tag).
+                            //   2. tab='sora2' OR modelChoice='sora2' → SORA 2
+                            //      (catches both standalone Sora 2 tab rows
+                            //      AND Auto Content Sora 2 batches).
+                            //   3. type='image' → IMAGE (raw image-gen rows)
+                            //   4. raw tab if mapped
+                            //   5. type-based fallback (auto-content → auto, etc.)
                             const isViral =
                               featureType.includes("talking-object") ||
                               featureType.includes("viral");
+                            const modelChoiceLower = String(r.metadata?.modelChoice || "").toLowerCase();
+                            const isSora2 =
+                              rawTab === "sora2" ||
+                              modelChoiceLower === "sora2";
                             const tabKey = isViral
                               ? "viral"
-                              : rawType === "image"
-                                ? "image"
-                                : rawTab || TYPE_FALLBACK[rawType] || rawType;
+                              : isSora2
+                                ? "sora2"
+                                : rawType === "image"
+                                  ? "image"
+                                  : rawTab || TYPE_FALLBACK[rawType] || rawType;
                             const t = TAB_MAP[tabKey];
                             if (!t) {
                               return (

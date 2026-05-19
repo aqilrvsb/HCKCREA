@@ -40,16 +40,20 @@ export async function GET(req: Request) {
     .lte("created_at", end + "T23:59:59")
     .eq("status", "done");
 
-  // Per-tab counts + cost, plus per-day-per-bucket rollup for the multi-line
-  // chart (4 series: image / ugc / cinema / auto). Each bucket gets its own
-  // daily count so the user can compare production trends head-to-head.
+  // Per-tab counts + cost. Buckets expanded to include Sora 2, Talking
+  // Object (Viral), and Storytelling (final merged video only — excludes
+  // per-scene fairytale-scene + fairytale-hero auxiliary images).
+  // Cinema bucket KEPT in the API for back-compat but no longer surfaced
+  // as a stat card in the dashboard overview.
   let imageCount = 0;
   let ugcCount = 0;
   let cinemaCount = 0;
   let autoCount = 0;
   let cloneCount = 0;
+  let sora2Count = 0;
+  let talkingObjectCount = 0;
+  let storyCount = 0;
   let totalCost = 0;
-  // Map<dateKey, { image, ugc, cinema, auto, total }>
   const dailyMap = new Map<
     string,
     { image: number; ugc: number; cinema: number; auto: number; total: number }
@@ -59,8 +63,24 @@ export async function GET(req: Request) {
     const cost = Number(r.cost || 0);
     totalCost += cost;
     const tab = (r.tab as string) || "";
+    const type = (r.type as string) || "";
+    const meta = ((r.metadata as any) || {}) as Record<string, any>;
+    const featureType = String(meta.featureType || "").toLowerCase();
+    const modelChoice = String(meta.modelChoice || "").toLowerCase();
+
     let bucket: "image" | "ugc" | "cinema" | "auto" | null = null;
-    if (tab === "image") {
+    // Sora 2 — detected by tab OR modelChoice (Auto Content Sora 2 rows
+    // still have tab='auto' but metadata.modelChoice='sora2').
+    if (tab === "sora2" || modelChoice === "sora2") {
+      sora2Count += 1;
+    } else if (tab === "cinema" && featureType === "talking-object") {
+      // Viral Talking Object video (skip the source-image auxiliary row).
+      talkingObjectCount += 1;
+      bucket = "cinema";
+    } else if (tab === "fairytale" && type === "fairytale") {
+      // Storytelling final merged video only — scene/hero images excluded.
+      storyCount += 1;
+    } else if (tab === "image") {
       imageCount += 1;
       bucket = "image";
     } else if (tab === "video" || tab === "ugc") {
@@ -132,8 +152,12 @@ export async function GET(req: Request) {
       cinema: cinemaCount,
       auto: autoCount,
       clone: cloneCount,
+      sora2: sora2Count,
+      talking_object: talkingObjectCount,
+      story: storyCount,
       total:
-        imageCount + ugcCount + cinemaCount + autoCount + cloneCount,
+        imageCount + ugcCount + cinemaCount + autoCount + cloneCount +
+        sora2Count + talkingObjectCount + storyCount,
     },
     total_cost: Number(totalCost.toFixed(4)),
     daily,
