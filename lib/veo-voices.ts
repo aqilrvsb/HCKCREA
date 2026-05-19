@@ -302,8 +302,15 @@ export function buildVeoLocks(opts: {
     catalogDesc ||
     String(opts.voiceLine || "").trim() ||
     getVoiceDescription("callirrhoe"); // last-resort hard default
+  // VOICE CHARACTER + audio quality directive bundled together. The
+  // second sentence ("Clear studio-quality recording, crisp consonants,
+  // natural treble, no muffling.") is the difference between Veo's TTS
+  // producing crisp, dry vocals vs muffled-radio-tone audio that reads
+  // as "not HD / not clear" on playback. Hardcoded for ALL Veo prompts
+  // (UGC tab + Auto Content) because audio crispness is universally
+  // desired across every persona / framework / tab.
   const voiceCharLine =
-    `\nVOICE CHARACTER (LOCKED — use this exact voice for the entire clip and all continuations): ${voiceDesc}`;
+    `\nVOICE CHARACTER (LOCKED — use this exact voice for the entire clip and all continuations): ${voiceDesc} Clear studio-quality recording, crisp consonants, natural treble, no muffling.`;
 
   const isHijab = !!opts.hijab;
 
@@ -345,7 +352,9 @@ export function buildVeoLocks(opts: {
   // locks).
   return `
 
-🚫 CLEAN FRAME LOCK (top violation): Raw camera footage. Subject + product fill frame edge-to-edge. ZERO icons, badges, emojis, stickers, buttons, captions, subtitles, text overlays, UI of any kind. "beg kuning" = SPOKEN AUDIO ONLY — NEVER drawn as a yellow bag, basket, cart, or any visual symbol. Yellow shopping icon in frame = wrong output.
+RAW UNEDITED FOOTAGE AESTHETIC: this is a raw camera recording, NOT a published TikTok post. Character or product fills the frame naturally edge-to-edge like a normal phone-shot video. Zero subtitles, zero captions, zero auto-generated dialog text, zero TikTok-style animated captions, zero sticker text, zero pop-up text bubbles, zero closed captions, zero icons, zero emojis, zero graphics, zero overlays, zero watermarks, zero UI elements, zero handles, zero hashtags. The phrase 'beg kuning' is SPOKEN DIALOG ONLY. Product must be pixel-identical to the product reference.
+
+🚫 CLEAN FRAME LOCK (READ FIRST — most violated rule): This is a RAW CAMERA RECORDING. The character / product fills the frame naturally edge-to-edge as a normal phone-recorded video. ZERO graphics rendered into the video. ZERO yellow shopping bag icons. ZERO yellow basket icons. ZERO TikTok Shop badges. ZERO floating product icons. ZERO emojis. ZERO stickers. ZERO buttons. ZERO captions. ZERO subtitles. ZERO text overlays. ZERO UI elements of any kind. The phrase "beg kuning" exists ONLY as spoken audio coming from the character's mouth — it is NEVER, under ANY circumstances, drawn / illustrated / rendered / composited as a yellow bag, shopping cart, basket, or any visual symbol in the frame. If you see a yellow shopping icon anywhere in the output, the entire generation is wrong.
 
 ANATOMY LOCK: 1 human, 2 hands × 5 fingers (both visible when in frame), symmetric face, normal proportions. No extra/missing/fused limbs, warped joints, plastic skin, morphing face, doubled features.
 AUDIO LOCK: ONE voice only. No chatter, background voices, whispered overdubs, echo doubles, ghost sound, phantom audio. No music, instrumental, SFX, ambient, score, jingles. Spoken dialog only.${voiceCharLine}
@@ -366,5 +375,5 @@ PRODUCT LOCK: Pixel-identical to reference — same color, shape, label, typogra
 ${ugcAuthLine}
 MODESTY LOCK (Malaysian-Muslim, ALL personas): FEMALE — loose-fit only, short-sleeve OK, NO tight body-hugging tops, cleavage, V-necks, crop tops, midriff/navel exposure, short shorts, mini skirts, thigh exposure. Bottoms cover thighs (long pants, maxi/midi skirts, baju kurung). Hair visible only if non-hijab. MALE — long sleeves preferred, smart short-sleeve OK, NO shirtless, tank tops, tight muscle-tees. Modest casual only.
 
-Negative: yellow shopping bag/basket/cart icon, TikTok shop badge, affiliate sticker/button, product floating icon, interface/app overlay, brand watermark/logo/text overlay, store name overlay, letterbox/black bars, cropped composition, cartoon, 3D cartoon, anime, airbrushed plastic skin, uncanny valley, glam makeup, salon hair, softbox lighting, posed billboard framing, closed mouth while audio plays, extra/fused/deformed fingers, hand out of frame, warped product label, blurry product, text drift, subtitle burn-in, auto-captions, on-screen dialog text, second voice, whispered overdub, ghost voice, music, instrumental, SFX, ambient, jingles, Bahasa Indonesia, Indonesian slang${hijabNegatives}.`;
+Negative: yellow shopping bag/basket/cart icon, TikTok shop badge, affiliate sticker/button, product floating icon, interface/app overlay, brand watermark/logo/text overlay, store name overlay, burned-in brand text, burned-in store name, burned-in watermark, lower-third brand text, lower-third product name text, letterbox bars, black bars top, black bars bottom, empty bottom band, cropped composition, vertical letterbox, cartoon, 3D cartoon, anime, airbrushed plastic skin, uncanny valley, glam makeup, salon hair, softbox studio lighting, staged background, posed billboard framing, closed mouth while audio plays, duplicate limbs, extra/fused/deformed fingers, hand out of frame, warped product label, blurry product, motion-blurred product, text drift, subtitle burn-in, auto-captions, on-screen dialog text, burned-in lyrics, karaoke text, multiple speakers, second voice, whispered overdub, ghost voice, phantom audio, ambient noise, voiceover narration, music score, background music, instrumental track, sound effects, ambient music, jingles, Bahasa Indonesia, Indonesian accent, Indonesian slang${hijabNegatives}.`;
 }
