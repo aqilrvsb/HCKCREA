@@ -986,7 +986,7 @@ export default function AdminSettings() {
             // without a code change), but realistically only p6 keys
             // will actually accept sora-2-vip today.
             asset: "sora2",
-            color: "#a855f7",
+            color: "#b87333", // light brown — matches Sora 2 tab theme
             options: [
               { value: "p1", label: "P1 — GeminiGen" },
               { value: "p2-a", label: "P2 — Crun (key A)" },

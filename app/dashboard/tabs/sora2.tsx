@@ -24,9 +24,13 @@ type Status = "idle" | "submitting" | "failed";
 type ImageMode = "text" | "image";
 type SoraDuration = 4 | 8 | 12;
 
-const PURPLE = "#a855f7";
-const PURPLE_SOFT = "rgba(168, 85, 247, 0.18)";
-const PURPLE_FAINT = "rgba(168, 85, 247, 0.06)";
+// Light brown theme for Sora 2 — per user direction (distinct from
+// Grok's orange + Auto Content's amber + Veo's lime). Reads as warm
+// tan, harmonizes with the dashboard's dark theme via soft/faint
+// alphas for borders + inactive backgrounds.
+const PURPLE = "#b87333"; // light brown (kept const name for diff size)
+const PURPLE_SOFT = "rgba(184, 115, 51, 0.25)";
+const PURPLE_FAINT = "rgba(184, 115, 51, 0.08)";
 
 export default function Sora2Tab({ projectId }: { projectId?: string } = {}) {
   const [imageMode, setImageMode] = useState<ImageMode>("text");
@@ -139,7 +143,7 @@ export default function Sora2Tab({ projectId }: { projectId?: string } = {}) {
                 style={
                   active
                     ? {
-                        background: `linear-gradient(135deg, ${PURPLE}, #7c3aed)`,
+                        background: `linear-gradient(135deg, ${PURPLE}, #8b5a2b)`,
                         color: "white",
                         boxShadow: `0 4px 12px ${PURPLE_SOFT}`,
                         border: "1px solid transparent",
@@ -260,7 +264,7 @@ export default function Sora2Tab({ projectId }: { projectId?: string } = {}) {
                     style={
                       active
                         ? {
-                            background: `linear-gradient(135deg, ${PURPLE}, #7c3aed)`,
+                            background: `linear-gradient(135deg, ${PURPLE}, #8b5a2b)`,
                             color: "white",
                             border: "1px solid transparent",
                             boxShadow: `0 4px 12px ${PURPLE_SOFT}`,
@@ -293,7 +297,7 @@ export default function Sora2Tab({ projectId }: { projectId?: string } = {}) {
                     style={
                       active
                         ? {
-                            background: `linear-gradient(135deg, ${PURPLE}, #7c3aed)`,
+                            background: `linear-gradient(135deg, ${PURPLE}, #8b5a2b)`,
                             color: "white",
                             border: "1px solid transparent",
                             boxShadow: `0 4px 12px ${PURPLE_SOFT}`,

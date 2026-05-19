@@ -171,7 +171,7 @@ export default function DashboardOverview({ name }: { name: string }) {
         <StatCard
           label="Sora 2"
           value={loading ? "—" : String(stats?.counts.sora2 ?? 0)}
-          accent="#a855f7"
+          accent="#b87333"
           icon={<Film className="w-4 h-4" />}
         />
         <StatCard
