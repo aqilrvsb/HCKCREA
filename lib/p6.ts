@@ -184,10 +184,11 @@ export async function p6CreateVideo(input: {
     if (refs.length > 0) {
       body.image_url = refs[0]; // single first-frame image
     }
-    // Sora 2 has strict duration enum: 4 / 8 / 12 only.
+    // Sora 2 duration enum — client UI exposes 8 / 12 only (4 removed
+    // per user direction as too short for useful UGC). APIPod still
+    // technically accepts 4 but we never send it.
     const reqDur = Number(input.durationMode);
-    body.duration =
-      reqDur === 8 ? 8 : reqDur === 12 ? 12 : 4;
+    body.duration = reqDur === 12 ? 12 : 8;
   } else if (refs.length > 0) {
     // Per-model image_urls cap per APIPod docs:
     //   • veo3-1-fast             → up to 2 (start + end frame)

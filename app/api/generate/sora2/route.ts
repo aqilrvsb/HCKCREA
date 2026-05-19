@@ -36,8 +36,10 @@ export async function POST(req: Request) {
   const imageUrl = body?.image_url ? String(body.image_url) : "";
   const aspectRatio: "9:16" | "16:9" =
     body?.aspect_ratio === "16:9" ? "16:9" : "9:16";
-  const duration: 4 | 8 | 12 =
-    body?.duration === 8 ? 8 : body?.duration === 12 ? 12 : 4;
+  // 4s removed from client UI per user direction — backend defaults
+  // to 8s if anything other than 8 or 12 is sent.
+  const duration: 8 | 12 =
+    body?.duration === 12 ? 12 : 8;
   const imageMode: "text" | "image" =
     body?.image_mode === "image" && imageUrl ? "image" : "text";
   const projectId = body?.project_id ? String(body.project_id) : null;

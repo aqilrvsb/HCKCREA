@@ -22,15 +22,18 @@ import AttachmentPicker from "../sections/attachment-picker";
 
 type Status = "idle" | "submitting" | "failed";
 type ImageMode = "text" | "image";
-type SoraDuration = 4 | 8 | 12;
+// 4s removed per user direction (too short for useful UGC). Sora 2
+// now supports 8s and 12s only on the client; APIPod still accepts
+// 4 if someone hits the API directly.
+type SoraDuration = 8 | 12;
 
-// Light brown theme for Sora 2 — per user direction (distinct from
-// Grok's orange + Auto Content's amber + Veo's lime). Reads as warm
-// tan, harmonizes with the dashboard's dark theme via soft/faint
-// alphas for borders + inactive backgrounds.
-const PURPLE = "#b87333"; // light brown (kept const name for diff size)
-const PURPLE_SOFT = "rgba(184, 115, 51, 0.25)";
-const PURPLE_FAINT = "rgba(184, 115, 51, 0.08)";
+// Light green theme for Sora 2 — per user direction. Distinct from
+// UGC's darker green (#22c55e) by using a lighter, mint-leaning
+// shade. Pops cleanly on the dashboard's dark theme via the soft/
+// faint alphas for borders + inactive backgrounds.
+const PURPLE = "#4ade80"; // light green (green-400) — kept const name for diff size
+const PURPLE_SOFT = "rgba(74, 222, 128, 0.25)";
+const PURPLE_FAINT = "rgba(74, 222, 128, 0.08)";
 
 export default function Sora2Tab({ projectId }: { projectId?: string } = {}) {
   const [imageMode, setImageMode] = useState<ImageMode>("text");
@@ -38,7 +41,7 @@ export default function Sora2Tab({ projectId }: { projectId?: string } = {}) {
   const [refUrl, setRefUrl] = useState<string>("");
   const [prompt, setPrompt] = useState("");
   const [aspect, setAspect] = useState<"9:16" | "16:9">("9:16");
-  const [duration, setDuration] = useState<SoraDuration>(4);
+  const [duration, setDuration] = useState<SoraDuration>(8);
   const [ratePerSec, setRatePerSec] = useState<number | null>(null);
   const [status, setStatus] = useState<Status>("idle");
   const [error, setError] = useState<string | null>(null);
@@ -143,7 +146,7 @@ export default function Sora2Tab({ projectId }: { projectId?: string } = {}) {
                 style={
                   active
                     ? {
-                        background: `linear-gradient(135deg, ${PURPLE}, #8b5a2b)`,
+                        background: `linear-gradient(135deg, ${PURPLE}, #16a34a)`,
                         color: "white",
                         boxShadow: `0 4px 12px ${PURPLE_SOFT}`,
                         border: "1px solid transparent",
@@ -264,7 +267,7 @@ export default function Sora2Tab({ projectId }: { projectId?: string } = {}) {
                     style={
                       active
                         ? {
-                            background: `linear-gradient(135deg, ${PURPLE}, #8b5a2b)`,
+                            background: `linear-gradient(135deg, ${PURPLE}, #16a34a)`,
                             color: "white",
                             border: "1px solid transparent",
                             boxShadow: `0 4px 12px ${PURPLE_SOFT}`,
@@ -287,7 +290,7 @@ export default function Sora2Tab({ projectId }: { projectId?: string } = {}) {
               Duration
             </label>
             <div className="flex gap-2">
-              {([4, 8, 12] as const).map((d) => {
+              {([8, 12] as const).map((d) => {
                 const active = duration === d;
                 return (
                   <button
@@ -297,7 +300,7 @@ export default function Sora2Tab({ projectId }: { projectId?: string } = {}) {
                     style={
                       active
                         ? {
-                            background: `linear-gradient(135deg, ${PURPLE}, #8b5a2b)`,
+                            background: `linear-gradient(135deg, ${PURPLE}, #16a34a)`,
                             color: "white",
                             border: "1px solid transparent",
                             boxShadow: `0 4px 12px ${PURPLE_SOFT}`,

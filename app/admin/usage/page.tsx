@@ -641,7 +641,7 @@ export default function AdminUsage() {
                               auto:      { label: "AUTO",       bg: "rgba(56,189,248,0.12)", fg: "#0ea5e9", bd: "rgba(56,189,248,0.3)" },
                               cinema:    { label: "CINEMA",     bg: "rgba(168,85,247,0.12)", fg: "#a855f7", bd: "rgba(168,85,247,0.3)" },
                               viral:     { label: "VIRAL",      bg: "rgba(239,68,68,0.12)",  fg: "#ef4444", bd: "rgba(239,68,68,0.3)" },
-                              sora2:     { label: "SORA 2",     bg: "rgba(184,115,51,0.12)", fg: "#b87333", bd: "rgba(184,115,51,0.4)" },
+                              sora2:     { label: "SORA 2",     bg: "rgba(74,222,128,0.12)", fg: "#4ade80", bd: "rgba(74,222,128,0.4)" },
                               seedance:  { label: "SEEDANCE",   bg: "rgba(244,114,182,0.12)", fg: "#ec4899", bd: "rgba(244,114,182,0.3)" },
                               clone:     { label: "CLONE",      bg: "rgba(251,146,60,0.12)", fg: "#f97316", bd: "rgba(251,146,60,0.3)" },
                               image:     { label: "IMAGE",      bg: "rgba(250,204,21,0.12)", fg: "#eab308", bd: "rgba(250,204,21,0.3)" },
