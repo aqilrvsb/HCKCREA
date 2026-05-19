@@ -99,14 +99,19 @@ export async function GET(req: Request) {
   //
   // metadata is jsonb — Supabase's .filter() with the "->>"" syntax
   // produces the right SQL: metadata->'utm'->>'source' IS NOT NULL.
+  //
+  // Selecting paid_at + created_at so the detail lists can sort by the
+  // most-recent activity. 500-row cap is enough for any practical date
+  // window — at scale we'd add pagination but not needed yet.
   const { data: payments, error: payErr } = await admin
     .from("payments")
-    .select("id, status, amount, metadata")
+    .select("id, status, amount, metadata, paid_at, created_at")
     .eq("type", "checkout_signup")
     .gte("created_at", startUtc)
     .lte("created_at", endUtc)
     .not("metadata->utm->>source", "is", null)
-    .limit(50000);
+    .order("created_at", { ascending: false })
+    .limit(500);
   if (payErr) {
     return NextResponse.json({ error: payErr.message }, { status: 500 });
   }
@@ -118,6 +123,43 @@ export async function GET(req: Request) {
     (acc: number, p: any) => acc + Number(p.amount || 0),
     0
   );
+
+  // Build the detail rows. Stripping to just the fields the UI needs
+  // keeps the payload small and avoids leaking unrelated metadata
+  // (e.g. temp_password) to the client.
+  type DetailRow = {
+    id: string;
+    name: string | null;
+    email: string | null;
+    whatsapp: string | null;
+    amount: number;
+    created_at: string;
+    paid_at: string | null;
+    utm_source: string | null;
+    utm_campaign: string | null;
+    utm_content: string | null;
+  };
+  const toDetail = (p: any): DetailRow => {
+    const meta = p.metadata || {};
+    const signup = meta.signup || {};
+    const utm = meta.utm || {};
+    return {
+      id: p.id,
+      name: signup.name || null,
+      email: signup.email || null,
+      whatsapp: signup.whatsapp || null,
+      amount: Number(p.amount || 0),
+      created_at: p.created_at,
+      paid_at: p.paid_at,
+      utm_source: utm.source || null,
+      utm_campaign: utm.campaign || null,
+      utm_content: utm.content || null,
+    };
+  };
+  const abandonedList: DetailRow[] = (payments || [])
+    .filter((p: any) => p.status !== "paid")
+    .map(toDetail);
+  const purchasedList: DetailRow[] = paidRows.map(toDetail);
 
   // Conversion rates — null when denominator is 0 so the UI can render
   // "—" instead of NaN%. Round to one decimal for display sanity.
@@ -139,5 +181,7 @@ export async function GET(req: Request) {
     cvr_v2c: pct(checkouts, visitors),
     cvr_c2p: pct(purchases, checkouts),
     cvr_v2p: pct(purchases, visitors),
+    abandoned: abandonedList,
+    purchased: purchasedList,
   });
 }
