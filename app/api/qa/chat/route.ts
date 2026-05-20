@@ -2,6 +2,11 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getSettings } from "@/lib/settings";
 import { getQAKnowledge, type QATab } from "@/lib/qa-knowledge";
+import {
+  parseModelSetting,
+  providerCreds,
+  type ProviderSlot,
+} from "@/lib/openrouter";
 
 // POST /api/qa/chat
 //
@@ -62,20 +67,27 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "messages required" }, { status: 400 });
   }
 
-  // OpenRouter credentials + model — separate model_qa key with fallback
-  // to model_auto if admin hasn't configured a dedicated chat model.
-  const s = await getSettings(["or_base", "or_key", "model_qa", "model_auto"]);
-  const base = (s.or_base as any)?.url;
-  const key = (s.or_key as any)?.key;
-  const model =
-    (s.model_qa as any)?.model ||
-    (s.model_auto as any)?.model ||
-    "google/gemini-flash-1.5-8b";
-  if (!base || !key) {
-    return NextResponse.json(
-      { error: "OpenRouter not configured" },
-      { status: 500 }
-    );
+  // Model routing — model_qa cascade (main → fallback → model_auto
+  // cascade). Same cascade infrastructure other model knobs use; lets
+  // admin configure OpenRouter primary + Grsai fallback (or vice versa)
+  // from /admin/settings → Model Routing.
+  const s = await getSettings([
+    "or_base", "or_key",
+    "gr_base", "gr_key",
+    "model_qa", "model_auto",
+  ]);
+
+  const layers: Array<{ main: ProviderSlot; fallback?: ProviderSlot }> = [];
+  const primary = parseModelSetting(s.model_qa);
+  if (primary) layers.push(primary);
+  const auto = parseModelSetting(s.model_auto);
+  if (auto) layers.push(auto);
+  // Hard fallback if admin hasn't configured ANY model setting — use
+  // a sensible default model on OpenRouter so Q&A stays functional.
+  if (layers.length === 0) {
+    layers.push({
+      main: { provider: "openrouter", model: "google/gemini-flash-1.5-8b" },
+    });
   }
 
   // Compose OpenAI-compat message array. System prompt first, then
@@ -85,7 +97,6 @@ export async function POST(req: Request) {
   const apiMessages: any[] = [{ role: "system", content: systemPrompt }];
   for (const m of messages) {
     if (m.images && m.images.length > 0) {
-      // Multimodal user/assistant message — must use content-parts array.
       const parts: any[] = [];
       if (m.content) parts.push({ type: "text", text: m.content });
       for (const img of m.images) {
@@ -97,54 +108,52 @@ export async function POST(req: Request) {
     }
   }
 
-  try {
-    const res = await fetch(`${base}/chat/completions`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${key}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model,
-        messages: apiMessages,
-        temperature: 0.5,
-        max_tokens: 1200,
-        stream: false,
-      }),
-    });
-
-    const text = await res.text().catch(() => "");
-    let json: any = null;
-    try {
-      json = JSON.parse(text);
-    } catch {}
-
-    if (!res.ok || !json) {
-      return NextResponse.json(
-        { error: json?.error?.message || `HTTP ${res.status}` },
-        { status: 502 }
-      );
+  // Walk the cascade: main → fallback per layer. Returns the first
+  // success; bubbles up the last error if every attempt fails.
+  let lastError = "All providers exhausted (qa)";
+  for (const layer of layers) {
+    for (const slot of [layer.main, layer.fallback].filter(Boolean) as ProviderSlot[]) {
+      const { base, key } = await providerCreds(slot.provider, s);
+      if (!base || !key) {
+        lastError = `${slot.provider} not configured`;
+        continue;
+      }
+      try {
+        const res = await fetch(`${base}/chat/completions`, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${key}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            model: slot.model,
+            messages: apiMessages,
+            temperature: 0.5,
+            max_tokens: 1200,
+            stream: false,
+          }),
+        });
+        const text = await res.text().catch(() => "");
+        let json: any = null;
+        try { json = JSON.parse(text); } catch {}
+        if (!res.ok || !json) {
+          lastError = json?.error?.message || `${slot.provider} HTTP ${res.status}`;
+          continue;
+        }
+        if (json?.error?.message || json?.error?.code) {
+          lastError = String(json.error.message || `${slot.provider} error ${json.error.code}`);
+          continue;
+        }
+        const reply = json?.choices?.[0]?.message?.content || "";
+        if (!reply) {
+          lastError = `${slot.provider} empty completion (${json?.choices?.[0]?.finish_reason || "?"})`;
+          continue;
+        }
+        return NextResponse.json({ ok: true, reply, provider: slot.provider, model: slot.model });
+      } catch (e: any) {
+        lastError = e?.message || `${slot.provider} network error`;
+      }
     }
-    // OpenRouter occasionally returns HTTP 200 with an error in body —
-    // mirror the orChat helper's handling.
-    if (json?.error?.message || json?.error?.code) {
-      return NextResponse.json(
-        { error: String(json.error.message || `Provider error ${json.error.code}`) },
-        { status: 502 }
-      );
-    }
-    const reply = json?.choices?.[0]?.message?.content || "";
-    if (!reply) {
-      return NextResponse.json(
-        { error: `Empty completion (finish_reason=${json?.choices?.[0]?.finish_reason || "unknown"})` },
-        { status: 502 }
-      );
-    }
-    return NextResponse.json({ ok: true, reply });
-  } catch (e: any) {
-    return NextResponse.json(
-      { error: e?.message || "Chat request failed" },
-      { status: 500 }
-    );
   }
+  return NextResponse.json({ error: lastError }, { status: 502 });
 }
