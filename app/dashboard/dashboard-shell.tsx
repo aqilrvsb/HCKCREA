@@ -70,14 +70,14 @@ const TABS: { key: TabKey; label: string; icon: any; tag: string }[] = [
   { key: "clone",     label: "Clone Prompt", icon: Layers,    tag: "05" },
   { key: "fairytale", label: "Storytelling", icon: BookOpen,  tag: "06" },
   { key: "cinema",    label: "Viral",        icon: Film,      tag: "07" },
-  // Grok hidden per user direction (server unstable). Sora 2 takes its
-  // slot — more stable, same shape (text/image to video, per-second-ish
-  // billing via APIPod). Existing Grok history rows still render
-  // because their cards live in the Cinema/Viral history grid via
-  // shared tab='cinema' tagging. Original Video tab (04) now exposes
-  // all 3 providers (Veo + Grok + Sora 2) as a power-user raw tab.
+  // Grok hidden per user direction (server unstable).
+  // Sora 2 standalone tab hidden — Original Video (04) now exposes
+  // Sora 2 as a provider option alongside Veo + Grok, making the
+  // dedicated tab redundant. Existing Sora 2 history rows still
+  // render under the Original Video / cinema history grid via
+  // shared metadata.modelChoice='sora2' detection.
   // { key: "grok",   label: "Grok",         icon: Zap,       tag: "08" },
-  { key: "sora2",     label: "Sora 2",       icon: Zap,       tag: "08" },
+  // { key: "sora2",  label: "Sora 2",       icon: Zap,       tag: "08" },
 ];
 
 export default function DashboardShell({
