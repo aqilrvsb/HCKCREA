@@ -33,7 +33,8 @@ export type PriceModelHint =
   | "gpt_image"
   | "veo"
   | "grok"
-  | "seedance";
+  | "seedance"
+  | "sora2";
 
 // What rate applies for the given user + reason. Per-model rates
 // (rate_banana_pro / rate_gpt_image / rate_veo / rate_grok / rate_seedance)
@@ -53,6 +54,14 @@ export async function priceFor(
   }
   if (modelHint === "grok") return await getGrokRate();
   if (modelHint === "seedance") return await getSeedanceRate();
+  if (modelHint === "sora2") {
+    // Sora 2 per-second rate. Admin sets sora2_rate; falls back to
+    // cinema rate × 2 (matches /api/generate/cinema and /api/generate/sora2).
+    const { getSetting } = await import("@/lib/settings");
+    const cfg = await getSetting<{ rate: number }>("sora2_rate");
+    if (typeof cfg?.rate === "number") return cfg.rate;
+    return (await getGrokRate()) * 2;
+  }
 
   // Reason-based fallback paths preserved for backward compat.
   const admin = createAdminClient();

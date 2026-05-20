@@ -35,6 +35,7 @@ import { isInternalError } from "@/lib/retry-eligibility";
 function inferModelHint(model?: string | null): PriceModelHint | undefined {
   const m = String(model || "").toLowerCase();
   if (!m) return undefined;
+  if (m.includes("sora")) return "sora2";
   if (m.includes("seedance")) return "seedance";
   if (m.includes("grok")) return "grok";
   if (m.includes("veo")) return "veo";
@@ -801,9 +802,13 @@ export async function settleHistoryRow(hist: HistoryRow): Promise<SettleResult> 
     if (modelHint) {
       const baseRate = await priceFor(hist.user_id, reason as any, modelHint);
       const durationSec = Number(hist.duration) || 8;
-      // Grok + Seedance bill per second; Veo + image models are flat.
+      // Grok / Seedance / Sora 2 bill per second; Veo + image models
+      // are flat. Sora 2 added per-second billing when Original Video
+      // and Sora 2 standalone tab were wired through cinema settle.
       const liveRate =
-        modelHint === "grok" || modelHint === "seedance"
+        modelHint === "grok" ||
+        modelHint === "seedance" ||
+        modelHint === "sora2"
           ? Number((baseRate * durationSec).toFixed(4))
           : Number(baseRate.toFixed(4));
       // Only override the row's stored cost when we got a positive rate

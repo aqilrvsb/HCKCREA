@@ -169,8 +169,18 @@ export async function POST(req: Request) {
         "google/nano-banana-pro";
       model = String(imgModel);
     } else if (row.tab === "cinema") {
-      // Cinema r2v if reference, t2v otherwise
-      model = refImage ? cfg.grokI2V : cfg.grokT2V;
+      // Cinema can be Veo, Grok, or Sora 2 — disambiguate via the
+      // row's modelChoice tag stamped at insert time. Falls back to
+      // Grok for legacy rows that pre-date the modelChoice metadata.
+      if (meta.modelChoice === "veo") {
+        model = refImage ? cfg.videoR2V : cfg.videoT2V;
+      } else if (meta.modelChoice === "sora2") {
+        // p6.ts apipodVideoModel maps "sora2" → "sora-2-vip" regardless
+        // of refs (sora-2-vip is a single endpoint).
+        model = "sora2";
+      } else {
+        model = refImage ? cfg.grokI2V : cfg.grokT2V;
+      }
     } else {
       // video / ugc / auto-content / clone
       model = refImage ? cfg.videoR2V : cfg.videoT2V;
