@@ -629,6 +629,7 @@ export default function AdminUsage() {
                       not who generated it. */}
                   <th className="text-left px-5 py-4 w-32">Action</th>
                   <th className="text-center px-5 py-4 w-20">Engine</th>
+                  <th className="text-center px-5 py-4 w-24">Model</th>
                   <th className="text-center px-5 py-4 w-24">Tab</th>
                   <th className="text-left px-5 py-4 w-28">Framework</th>
                   <th className="text-left px-5 py-4 w-24">Idea</th>
@@ -641,7 +642,7 @@ export default function AdminUsage() {
                 {generationRows.length === 0 ? (
                   <tr>
                     <td
-                      colSpan={10}
+                      colSpan={11}
                       className="px-4 py-16 text-center text-[var(--color-text-muted)] text-sm"
                     >
                       Tiada usage log.
@@ -745,6 +746,82 @@ export default function AdminUsage() {
                           >
                             {slotLabel}
                           </span>
+                        </td>
+                        {/* MODEL chip — classifies the actual generator
+                            model family (Veo / Grok / Sora 2 / Seedance /
+                            Image-gen). Detection chain mirrors the TAB
+                            chip but reads from metadata.model +
+                            metadata.modelChoice + reason so it works
+                            regardless of which tab the row came from. */}
+                        <td className="px-5 py-4 text-center">
+                          {(() => {
+                            const modelStr = String(r.metadata?.model || "").toLowerCase();
+                            const modelChoice = String(r.metadata?.modelChoice || "").toLowerCase();
+                            const rawTabM = String(r.tab || "").toLowerCase();
+                            const reasonM = String(r.reason || "").toLowerCase();
+                            const typeM = String(r.type || "").toLowerCase();
+
+                            // Image-gen rows — short-circuit before video
+                            // family detection so banana/imagen etc. don't
+                            // misroute through the Veo bucket.
+                            const isImageRow =
+                              reasonM.startsWith("image") ||
+                              typeM === "image" ||
+                              typeM === "fairytale-scene" ||
+                              typeM === "fairytale-hero";
+
+                            type ModelStyle = { label: string; bg: string; fg: string; bd: string };
+                            let style: ModelStyle | null = null;
+
+                            if (isImageRow) {
+                              // Sub-classify image model when known.
+                              if (modelStr.includes("banana")) {
+                                style = { label: "BANANA",   bg: "rgba(250,204,21,0.12)", fg: "#eab308", bd: "rgba(250,204,21,0.3)" };
+                              } else if (modelStr.includes("imagen")) {
+                                style = { label: "IMAGEN",   bg: "rgba(168,85,247,0.12)", fg: "#a855f7", bd: "rgba(168,85,247,0.3)" };
+                              } else if (modelStr.includes("gpt-image")) {
+                                style = { label: "GPT IMG",  bg: "rgba(56,189,248,0.12)", fg: "#0ea5e9", bd: "rgba(56,189,248,0.3)" };
+                              } else {
+                                style = { label: "IMAGE",    bg: "rgba(250,204,21,0.12)", fg: "#eab308", bd: "rgba(250,204,21,0.3)" };
+                              }
+                            } else if (
+                              modelChoice === "sora2" ||
+                              rawTabM === "sora2" ||
+                              modelStr.includes("sora")
+                            ) {
+                              style = { label: "SORA 2",   bg: "rgba(74,222,128,0.12)",  fg: "#4ade80", bd: "rgba(74,222,128,0.4)" };
+                            } else if (
+                              modelChoice === "grok" ||
+                              modelStr.includes("grok")
+                            ) {
+                              style = { label: "GROK",     bg: "rgba(99,102,241,0.12)",  fg: "#6366f1", bd: "rgba(99,102,241,0.3)" };
+                            } else if (modelStr.includes("seedance")) {
+                              style = { label: "SEEDANCE", bg: "rgba(244,114,182,0.12)", fg: "#ec4899", bd: "rgba(244,114,182,0.3)" };
+                            } else if (modelStr.includes("veo")) {
+                              style = { label: "VEO 3.1",  bg: "rgba(34,197,94,0.12)",   fg: "#16a34a", bd: "rgba(34,197,94,0.3)" };
+                            }
+
+                            if (!style) {
+                              return (
+                                <span className="text-[10px] font-mono text-[var(--color-text-muted)]">
+                                  —
+                                </span>
+                              );
+                            }
+                            return (
+                              <span
+                                className="px-2 py-0.5 rounded text-[10px] font-mono font-bold whitespace-nowrap"
+                                style={{
+                                  background: style.bg,
+                                  color: style.fg,
+                                  border: `1px solid ${style.bd}`,
+                                }}
+                                title={modelStr || style.label}
+                              >
+                                {style.label}
+                              </span>
+                            );
+                          })()}
                         </td>
                         <td className="px-5 py-4 text-center">
                           {(() => {
