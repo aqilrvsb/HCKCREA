@@ -213,18 +213,17 @@ export async function POST(req: Request) {
       // and other provider adapters use this to pick the right
       // endpoint variant (t2v / i2v / r2v).
       const imgMode: "frame" | "ingredient" | "text" = imageMode;
-      // Per-provider image cap (matches each provider's API limit):
-      //   • Sora 2 → 1 first frame only
+      // Per-provider image cap (frontend UX-aligned, may be tighter
+      // than the API's max):
+      //   • Sora 2 → 1 first frame only (API-mandated)
       //   • Veo r2v / i2v → up to 3
-      //   • Grok i2v → up to 7
+      //   • Grok i2v → up to 3 (UX cap; APIPod supports 1-7)
       const imgs =
         imageMode === "text"
           ? []
           : modelChoice === "sora2"
             ? effectiveImageUrls.slice(0, 1)
-            : modelChoice === "grok"
-              ? effectiveImageUrls.slice(0, 7)
-              : effectiveImageUrls.slice(0, 3);
+            : effectiveImageUrls.slice(0, 3);
 
       let createdOk = false;
       let createdTaskId: string | null = null;

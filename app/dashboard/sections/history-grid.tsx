@@ -154,10 +154,16 @@ export default function HistoryGrid({
   tab,
   title,
   projectId,
+  hideViralSubTabs,
 }: {
   tab: "image" | "video" | "cinema" | "grok" | "sora2" | "seedance" | "clone" | "auto" | "fairytale";
   title: string;
   projectId?: string;
+  /** When true on a tab='cinema' grid, suppress the Talking Object /
+   *  Normal Video sub-tab picker. Used by Original Video tab which
+   *  shares the cinema history table but doesn't want Viral's sub-
+   *  selector since it has its own provider-based filtering upstream. */
+  hideViralSubTabs?: boolean;
 }) {
   const [page, setPage] = useState(0);
   const PAGE_SIZE = 12;
@@ -493,8 +499,10 @@ export default function HistoryGrid({
       {/* Viral tab: 2-level selector. Top row picks the sub-feature
           (Talking Object vs Normal Video). Second row picks Videos or
           Images, but only renders for Talking Object — Normal Video is
-          videos-only. */}
-      {tab === "cinema" && (
+          videos-only. Suppressed when hideViralSubTabs=true (Original
+          Video tab reuses tab='cinema' grid but doesn't need the
+          sub-feature picker since it has its own provider filter). */}
+      {tab === "cinema" && !hideViralSubTabs && (
         <>
           <div className="flex gap-1 p-1 rounded-xl bg-[var(--color-bg-card)] mb-2 max-w-md">
             {(

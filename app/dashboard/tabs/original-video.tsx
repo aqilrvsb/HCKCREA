@@ -61,29 +61,41 @@ const PROVIDER_THEME: Record<
   },
 };
 
-// Per-provider image-mode availability. Veo gets all 3, Grok + Sora 2
-// drop the multi-ref "ingredient" mode since their APIs only accept
-// a single first-frame image (Grok technically supports 1-7 but the
-// raw tab keeps the UX uniform with Sora 2).
+// Per-provider image-mode availability. Per user direction every
+// provider should expose its full set of meaningful modes so the user
+// always picks explicitly:
+//   • Veo  → all 3 modes (text-to-video, start-frame i2v, multi-ref r2v)
+//   • Grok → text + multi-ref (Grok's API takes image_urls as a single
+//            array — start-frame is just "ref with 1 image", so we
+//            collapse to text + ingredient)
+//   • Sora 2 → text + start-frame (single first frame, API-mandated)
 const PROVIDER_MODES: Record<Provider, ImageMode[]> = {
   veo: ["text", "frame", "ingredient"],
-  grok: ["text", "frame"],
+  grok: ["text", "ingredient"],
   sora2: ["text", "frame"],
 };
 
-// Per-provider image cap (frontend mirrors the backend cap in
-// /api/generate/cinema). Sora 2 = 1 first frame, Veo = up to 3 refs.
-const PROVIDER_REF_CAP: Record<Provider, number> = {
-  veo: 3,
-  grok: 1,
-  sora2: 1,
-};
+// Per-(provider, mode) slot count. text=0 by definition; frame is 1
+// (Sora 2) or 2 (Veo start+end frame); ingredient is 3 (Veo + Grok
+// multi-ref). API caps in /api/generate/cinema mirror these.
+function getRefCap(provider: Provider, mode: ImageMode): number {
+  if (mode === "text") return 0;
+  if (mode === "frame") return provider === "veo" ? 2 : 1;
+  // ingredient
+  return 3;
+}
 
-const MODE_LABEL: Record<ImageMode, string> = {
-  text: "📝 Text only",
-  frame: "🖼️ Start frame",
-  ingredient: "🧩 Product reference",
-};
+// Mode picker button labels. Per user direction, both multi-ref
+// (ingredient) and single-image (frame) modes use the "References"
+// nomenclature when the provider treats refs as a generic input list.
+// Veo keeps the "Start frame" label for its frame mode because its
+// frame mode is semantically distinct (i2v start+end frame, not r2v).
+function modeLabel(provider: Provider, mode: ImageMode): string {
+  if (mode === "text") return "📝 Text only";
+  if (mode === "frame") return "🖼️ Start frame";
+  // ingredient (multi-ref) → "References" for all providers
+  return "🧩 References";
+}
 
 export default function OriginalVideoTab({
   projectId,
@@ -142,7 +154,7 @@ export default function OriginalVideoTab({
 
   const theme = PROVIDER_THEME[provider];
   const availableModes = PROVIDER_MODES[provider];
-  const refCap = PROVIDER_REF_CAP[provider];
+  const refCap = getRefCap(provider, imageMode);
   const filledRefs = refSlots.filter((u) => !!u);
 
   // Live cost preview. Veo + Grok use cinema rate × duration; Sora 2
@@ -295,23 +307,74 @@ export default function OriginalVideoTab({
                       }
                 }
               >
-                {MODE_LABEL[m]}
+                {modeLabel(provider, m)}
               </button>
             );
           })}
         </div>
 
-        {/* Ref image slots — compact MultiRefRow layout (mirrors UGC
-            tab's Product Reference component). Tiny 16×16 numbered
-            squares + side "Reference" picker button. Total height ~80px
-            instead of ~250px the larger grid was producing. */}
-        {imageMode !== "text" && (
+        {/* Per-(provider, mode) slot layouts. Mirrors UGC tab's
+            FrameZoneRow / MultiRefRow structure but inlined here to
+            keep the file self-contained. Slot semantics:
+              • Veo + frame      → Start Frame * + End Frame (2 labeled zones)
+              • Veo + ingredient → Multi-ref Product Reference (up to 3)
+              • Grok + ingredient → Multi-ref Product Reference (up to 3)
+              • Sora 2 + frame   → single Start Frame zone
+              • any provider + text → no slots */}
+
+        {/* === Veo Start + End Frame layout === */}
+        {provider === "veo" && imageMode === "frame" && (
+          <div className="mb-4 grid grid-cols-2 gap-3">
+            <FrameZone
+              label="Start Frame *"
+              required
+              theme={theme}
+              url={refSlots[0] || ""}
+              onPick={() => setPickingSlot(0)}
+              onClear={() =>
+                setRefSlots(refSlots.map((u, j) => (j === 0 ? "" : u)))
+              }
+            />
+            <FrameZone
+              label="End Frame"
+              theme={theme}
+              url={refSlots[1] || ""}
+              onPick={() => setPickingSlot(1)}
+              onClear={() =>
+                setRefSlots(refSlots.map((u, j) => (j === 1 ? "" : u)))
+              }
+            />
+          </div>
+        )}
+
+        {/* === Sora 2 single Start Frame zone === */}
+        {provider === "sora2" && imageMode === "frame" && (
+          <div className="mb-4 grid grid-cols-2 gap-3">
+            <FrameZone
+              label="Start Frame *"
+              required
+              theme={theme}
+              url={refSlots[0] || ""}
+              onPick={() => setPickingSlot(0)}
+              onClear={() =>
+                setRefSlots(refSlots.map((u, j) => (j === 0 ? "" : u)))
+              }
+            />
+            <div className="text-[10px] text-[var(--color-text-muted)] self-center">
+              ⚠️ Sora 2 needs 720×1280 (9:16) or 1280×720 (16:9). Real
+              portrait photos often fail — use AI-gen images.
+            </div>
+          </div>
+        )}
+
+        {/* === Multi-ref Product Reference (Veo + Grok) === */}
+        {imageMode === "ingredient" && (
           <div className="mb-4">
             <div
               className="text-[11px] font-bold uppercase tracking-wider mb-1.5"
               style={{ color: theme.primary }}
             >
-              Reference image{refCap === 1 ? "" : "s"} ({filledRefs.length}/{refCap})
+              References ({filledRefs.length}/{refCap})
             </div>
             <div className="flex items-stretch gap-2">
               <div className="flex gap-1.5 flex-wrap">
@@ -376,12 +439,6 @@ export default function OriginalVideoTab({
                 Reference
               </button>
             </div>
-            {imageMode === "frame" && provider === "sora2" && (
-              <p className="text-[10px] text-[var(--color-text-muted)] mt-1.5">
-                ⚠️ Sora 2 needs 720×1280 (9:16) or 1280×720 (16:9). Real
-                portrait photos often fail — use AI-gen images.
-              </p>
-            )}
           </div>
         )}
 
@@ -539,6 +596,85 @@ export default function OriginalVideoTab({
           />
         </Portal>
       )}
+    </div>
+  );
+}
+
+// Single labeled image picker zone — used by Veo Start/End Frame mode
+// and Sora 2 single first-frame mode. Mirrors UGC tab's FrameZoneRow
+// shape: label above, 64×64 slot, side "Reference" picker button,
+// inline × clear when filled. `required` shows an asterisk + solid
+// border accent to signal mandatory.
+function FrameZone({
+  label,
+  required,
+  theme,
+  url,
+  onPick,
+  onClear,
+}: {
+  label: string;
+  required?: boolean;
+  theme: { primary: string; soft: string; faint: string };
+  url: string;
+  onPick: () => void;
+  onClear: () => void;
+}) {
+  return (
+    <div>
+      <div
+        className="text-[11px] font-bold uppercase tracking-wider mb-1.5"
+        style={{ color: theme.primary }}
+      >
+        {label}
+      </div>
+      <div className="flex items-stretch gap-2">
+        <button
+          type="button"
+          onClick={onPick}
+          className="relative w-16 h-16 rounded-lg overflow-hidden flex-shrink-0 flex items-center justify-center"
+          style={{
+            border: url
+              ? `2px solid ${theme.primary}`
+              : required
+                ? `2px solid ${theme.soft}`
+                : `2px dashed ${theme.soft}`,
+            background: url ? "#000" : "var(--color-bg)",
+          }}
+        >
+          {url ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={url} alt="" className="w-full h-full object-cover" />
+          ) : (
+            <span className="text-lg" style={{ color: theme.primary }}>
+              {required ? "🖼️" : "+"}
+            </span>
+          )}
+          {url && (
+            <span
+              onClick={(e) => {
+                e.stopPropagation();
+                onClear();
+              }}
+              className="absolute top-0 right-0 w-4 h-4 rounded-bl bg-black/70 text-white text-[10px] flex items-center justify-center cursor-pointer"
+            >
+              ×
+            </span>
+          )}
+        </button>
+        <button
+          type="button"
+          onClick={onPick}
+          className="px-3 py-1 rounded text-[11px] font-bold whitespace-nowrap self-start"
+          style={{
+            background: theme.faint,
+            border: `1px solid ${theme.primary}`,
+            color: theme.primary,
+          }}
+        >
+          Reference
+        </button>
+      </div>
     </div>
   );
 }
