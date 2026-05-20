@@ -828,28 +828,39 @@ function HistoryCardInner({
       item.type === "fairytale");
   const isImage =
     !isClonePrompt && (item.type === "image" || item.type === "fairytale-scene");
+  // Viral tab uses tab='cinema'. Original Video tab uses tab='original-video'.
+  // Cinema (Viral) cards keep the Merge action. Original Video Veo cards
+  // can use Extend just like UGC tab Veo (Veo-only — Grok/Sora 2 excluded
+  // below).
   const isCinema = item.tab === "cinema";
   // Extend + Improve are available on every completed Veo video — fal.ai
   // extracts the last frame from the output URL and feeds it to Veo i2v
-  // for the continuation. Cinema cards get a Merge action instead. Clone
-  // cards get NEITHER (no media). Grok rows are excluded because the
-  // /api/extend/video pipeline is hard-wired to Veo i2v + Banana refine;
-  // chaining a Veo seg-2 onto a Grok seg-1 produces a visible style cut
-  // and the dialog timing model differs (Grok = 2-3 words/sec, Veo =
-  // 20-24 words / 8s). Until Grok-to-Grok extend ships, hide the button.
+  // for the continuation. Cinema (Viral) cards get a Merge action
+  // instead. Clone cards get NEITHER (no media). Grok + Sora 2 rows are
+  // excluded because the /api/extend/video pipeline is hard-wired to
+  // Veo i2v + Banana refine; chaining a Veo seg-2 onto a Grok / Sora 2
+  // seg-1 produces a visible style cut and the dialog timing model
+  // differs (Grok / Sora 2 ≠ Veo's 20-24 words / 8s rhythm).
   const rawModelLower = String(
     (item.metadata as any)?.model ||
       (item.metadata as any)?.actualModel ||
       ""
   ).toLowerCase();
+  const modelChoiceLower = String(
+    (item.metadata as any)?.modelChoice || ""
+  ).toLowerCase();
   const isGrokRow =
-    (item.metadata as any)?.modelChoice === "grok" ||
+    modelChoiceLower === "grok" ||
     /grok-imagine|grok-3/.test(rawModelLower);
+  const isSora2Row =
+    modelChoiceLower === "sora2" ||
+    /sora/i.test(rawModelLower);
   const canExtend =
     isVideo &&
     !isCinema &&
     !isClonePrompt &&
     !isGrokRow &&
+    !isSora2Row &&
     item.status === "done" &&
     item.output_url;
 
