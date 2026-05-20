@@ -588,17 +588,14 @@ function ProjectView({
                 <OriginalVideoTab projectId={project.id} />
               </div>
               {/* Original Video posts to /api/generate/cinema with
-                  feature='original-video' but the underlying history
-                  row is still tagged tab='cinema' (consistent with how
-                  cinema route inserts). hideViralSubTabs suppresses
-                  Viral tab's Talking Object / Normal Video selector
-                  since Original Video has its own provider-based
-                  filtering upstream. */}
+                  feature='original-video'; the route stamps the row
+                  with tab='original-video' so this history grid query
+                  picks up only Original Video rows (not legacy Viral
+                  rows that still carry tab='cinema'). */}
               <HistoryGrid
-                tab="cinema"
+                tab="original-video"
                 title={`Original Video — ${project.name}`}
                 projectId={project.id}
-                hideViralSubTabs
               />
             </>
           )}

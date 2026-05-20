@@ -156,13 +156,23 @@ export default function HistoryGrid({
   projectId,
   hideViralSubTabs,
 }: {
-  tab: "image" | "video" | "cinema" | "grok" | "sora2" | "seedance" | "clone" | "auto" | "fairytale";
+  tab:
+    | "image"
+    | "video"
+    | "cinema"
+    | "grok"
+    | "sora2"
+    | "seedance"
+    | "clone"
+    | "auto"
+    | "fairytale"
+    | "original-video";
   title: string;
   projectId?: string;
-  /** When true on a tab='cinema' grid, suppress the Talking Object /
-   *  Normal Video sub-tab picker. Used by Original Video tab which
-   *  shares the cinema history table but doesn't want Viral's sub-
-   *  selector since it has its own provider-based filtering upstream. */
+  /** Legacy flag — Original Video used to share the cinema grid and
+   *  needed to suppress the Viral sub-tab picker. Now Original Video
+   *  has its own tab='original-video' DB tag so this prop is rarely
+   *  needed. Kept for back-compat in case other callers set it. */
   hideViralSubTabs?: boolean;
 }) {
   const [page, setPage] = useState(0);

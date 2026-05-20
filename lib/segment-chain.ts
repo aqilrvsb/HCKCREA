@@ -462,7 +462,11 @@ async function mergeSegments(seg2: Settled, seg2OutputUrl: string): Promise<void
   // lives on our B2 with cache-control + S3 URL, same as every other
   // generation. Falls back to the fal URL if rehost fails.
   const sType: StorageType =
-    parent.tab === "auto" ? "auto" : parent.tab === "cinema" ? "cinema" : "ugc";
+    parent.tab === "auto"
+      ? "auto"
+      : parent.tab === "cinema" || parent.tab === "original-video"
+        ? "cinema"
+        : "ugc";
   const rehosted = await rehostToContent({
     url: mergeRes.url,
     userId: parent.user_id,

@@ -58,7 +58,10 @@ function storageTypeForHistory(hist: HistoryRow): StorageType | null {
   if (hist.type === "fairytale") return "fairytale";
   if (hist.tab === "video" || hist.type === "video") return "ugc";
   if (hist.tab === "auto" || hist.type === "auto-content") return "auto";
-  if (hist.tab === "cinema") return "cinema";
+  // 'original-video' rows share the cinema B2 storage prefix — same
+  // type=video output, just routed from a different tab. Keeps the B2
+  // bucket layout consistent and avoids needing a new StorageType.
+  if (hist.tab === "cinema" || hist.tab === "original-video") return "cinema";
   if (hist.tab === "seedance") return "seedance";
   if (hist.tab === "clone" || hist.type === "clone") return "clone";
   return null;
@@ -158,6 +161,7 @@ function bucketForTab(tab: string | null | undefined): string {
     case "ugc":
       return "ugc";
     case "cinema":
+    case "original-video":
       return "cinema";
     case "image":
       return "image";
@@ -359,7 +363,7 @@ async function tryAutoRetry(
   }
   else if (hist.tab === "seedance") cascadeAsset = "cinema";
   else if (
-    hist.tab === "cinema" &&
+    (hist.tab === "cinema" || hist.tab === "original-video") &&
     (meta.modelChoice === "grok" || /grok/i.test(rowModel))
   ) {
     cascadeAsset = "grok";
@@ -430,8 +434,19 @@ async function tryAutoRetry(
     const cfg = await getP2Config();
     if (hist.tab === "image" || hist.type === "image") {
       model = String(meta.image_model || cfg.imageDefault || "google/nano-banana-pro");
-    } else if (hist.tab === "cinema") {
-      model = refImage ? cfg.grokI2V : cfg.grokT2V;
+    } else if (hist.tab === "cinema" || hist.tab === "original-video") {
+      // Both cinema (Viral) and original-video tabs share the same
+      // 3-provider routing. Disambiguate by modelChoice when present:
+      //   • sora2 → "sora2" (p6.ts maps to sora-2-vip)
+      //   • veo   → cfg.videoR2V / cfg.videoT2V
+      //   • grok or unset → cfg.grokI2V / cfg.grokT2V
+      if (meta.modelChoice === "sora2" || /sora/i.test(model)) {
+        model = "sora2";
+      } else if (meta.modelChoice === "veo") {
+        model = refImage ? cfg.videoR2V : cfg.videoT2V;
+      } else {
+        model = refImage ? cfg.grokI2V : cfg.grokT2V;
+      }
     } else {
       model = refImage ? cfg.videoR2V : cfg.videoT2V;
     }
@@ -781,7 +796,7 @@ export async function settleHistoryRow(hist: HistoryRow): Promise<SettleResult> 
     const reason =
       isImageGen
         ? "image_generate"
-        : hist.tab === "cinema"
+        : hist.tab === "cinema" || hist.tab === "original-video"
           ? "cinema"
           : hist.tab === "seedance"
             ? "seedance"
@@ -917,6 +932,7 @@ export async function settleHistoryRow(hist: HistoryRow): Promise<SettleResult> 
       hist.tab === "video" ||
       hist.tab === "auto" ||
       hist.tab === "cinema" ||
+      hist.tab === "original-video" ||
       hist.tab === "seedance";
     // Error-level eligibility: only internal-server-class failures
     // ("Internal Error", 5xx, "Unknown error. Please contact support",

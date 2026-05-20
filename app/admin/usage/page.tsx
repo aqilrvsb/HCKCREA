@@ -230,14 +230,26 @@ export default function AdminUsage() {
       ) {
         story++;
       } else if (
-        rawTab === "cinema" ||
+        modelChoice === "grok" ||
         modelChoice.includes("grok") ||
         provider === "grok"
       ) {
+        // Grok detection by modelChoice/provider works for both
+        // Original Video (tab='original-video') and Viral (tab='cinema')
+        // rows that picked Grok as the provider.
         grok++;
+      } else if (
+        modelChoice === "veo" ||
+        rawTab === "video" ||
+        rawTab === "auto" ||
+        rawTab === "original-video"
+      ) {
+        // Default Veo bucket — UGC tab + Auto Content + Original Video
+        // (with veo modelChoice) + Viral Talking Object (no modelChoice
+        // tag because Talking Object always runs Veo).
+        veo++;
       } else {
-        // Default video bucket = Veo (UGC tab + Auto Content + Viral
-        // Talking Object all currently route through Veo).
+        // Catch-all (legacy rows without modelChoice tag) → Veo bucket.
         veo++;
       }
     }
@@ -580,9 +592,9 @@ export default function AdminUsage() {
             {mediaFilter !== "image" && (
               <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
                 {[
-                  { label: "Veo Videos", value: videoBreakdown.veo,   tone: "rgba(34,197,94,0.18)",  fg: "#16a34a", sub: "UGC + Auto + Viral (8s/16s Veo)" },
-                  { label: "Grok Videos", value: videoBreakdown.grok, tone: "rgba(99,102,241,0.18)", fg: "#6366f1", sub: "Cinema / Grok-routed" },
-                  { label: "Sora 2 Videos", value: videoBreakdown.sora, tone: "rgba(74,222,128,0.18)", fg: "#4ade80", sub: "tab='sora2' or modelChoice='sora2'" },
+                  { label: "Veo Videos", value: videoBreakdown.veo,   tone: "rgba(34,197,94,0.18)",  fg: "#16a34a", sub: "UGC + Auto + Original Video (Veo) + Viral" },
+                  { label: "Grok Videos", value: videoBreakdown.grok, tone: "rgba(99,102,241,0.18)", fg: "#6366f1", sub: "Original Video (Grok) + legacy Cinema" },
+                  { label: "Sora 2 Videos", value: videoBreakdown.sora, tone: "rgba(74,222,128,0.18)", fg: "#4ade80", sub: "Original Video (Sora 2) + Auto Content Sora 2" },
                   { label: "Storytelling", value: videoBreakdown.story, tone: "rgba(139,92,246,0.18)", fg: "#8b5cf6", sub: "Final merged story video" },
                 ].map((b) => (
                   <div
@@ -842,6 +854,7 @@ export default function AdminUsage() {
                               clone:     { label: "CLONE",      bg: "rgba(251,146,60,0.12)", fg: "#f97316", bd: "rgba(251,146,60,0.3)" },
                               image:     { label: "IMAGE",      bg: "rgba(250,204,21,0.12)", fg: "#eab308", bd: "rgba(250,204,21,0.3)" },
                               fairytale: { label: "STORY",      bg: "rgba(139,92,246,0.12)", fg: "#8b5cf6", bd: "rgba(139,92,246,0.3)" },
+                              "original-video": { label: "ORIGINAL", bg: "rgba(250,204,21,0.12)", fg: "#facc15", bd: "rgba(250,204,21,0.35)" },
                             };
                             const TYPE_FALLBACK: Record<string, string> = {
                               "auto-content":      "auto",

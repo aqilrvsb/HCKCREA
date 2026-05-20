@@ -151,10 +151,14 @@ export async function GET(req: Request) {
     }
     else if (row.tab === "seedance") rowAsset = "cinema";
     else if (
-      row.tab === "cinema" &&
+      (row.tab === "cinema" || row.tab === "original-video") &&
       (meta.modelChoice === "grok" || /grok/i.test(rowModel))
     ) {
       rowAsset = "grok";
+    }
+    else if (row.tab === "original-video" && meta.modelChoice === "veo") {
+      // Original Video Veo rows retry through the video cascade pool.
+      rowAsset = "video";
     }
     const rowCap = await capFor(rowAsset);
 

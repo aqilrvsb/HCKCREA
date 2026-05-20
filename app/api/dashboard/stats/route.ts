@@ -86,7 +86,10 @@ export async function GET(req: Request) {
     } else if (tab === "video" || tab === "ugc") {
       ugcCount += 1;
       bucket = "ugc";
-    } else if (tab === "cinema") {
+    } else if (tab === "cinema" || tab === "original-video") {
+      // Original Video tab rows (tab='original-video') share the cinema
+      // bucket on the dashboard summary chart — same surface, same
+      // visual treatment.
       cinemaCount += 1;
       bucket = "cinema";
     } else if (tab === "auto") {

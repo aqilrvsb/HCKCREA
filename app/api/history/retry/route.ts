@@ -168,10 +168,11 @@ export async function POST(req: Request) {
         cfg.imageDefault ||
         "google/nano-banana-pro";
       model = String(imgModel);
-    } else if (row.tab === "cinema") {
-      // Cinema can be Veo, Grok, or Sora 2 — disambiguate via the
-      // row's modelChoice tag stamped at insert time. Falls back to
-      // Grok for legacy rows that pre-date the modelChoice metadata.
+    } else if (row.tab === "cinema" || row.tab === "original-video") {
+      // Cinema + Original Video can be Veo, Grok, or Sora 2 —
+      // disambiguate via the row's modelChoice tag stamped at insert
+      // time. Falls back to Grok for legacy rows that pre-date the
+      // modelChoice metadata.
       if (meta.modelChoice === "veo") {
         model = refImage ? cfg.videoR2V : cfg.videoT2V;
       } else if (meta.modelChoice === "sora2") {

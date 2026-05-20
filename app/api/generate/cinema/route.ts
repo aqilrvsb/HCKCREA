@@ -79,14 +79,25 @@ export async function POST(req: Request) {
   }
   const imageMode = imageModeRaw;
   const projectId = body?.project_id ? String(body.project_id) : null;
-  // Feature tag — set to "grok" when the new dedicated Grok tab submits
-  // this. History grid uses metadata.featureType to route the row to the
-  // right tab. Legacy callers (Cinema → Normal Video) don't send this,
-  // so we infer "normal-video" so those rows still surface on the old
-  // Cinema sub-tab. The Talking Object route stamps its own values
-  // ("talking-object" / "talking-object-image") in a separate handler.
+  // Feature tag — distinguishes which tab submitted this row:
+  //   • feature='original-video' → Original Video tab (3-provider raw)
+  //   • feature='grok'           → dedicated Grok tab (hidden but route
+  //                                still wired for back-compat)
+  //   • else (no feature)        → legacy Viral / Cinema → Normal Video
+  // featureType drives admin chip detection + history grid filtering.
   const featureType =
-    body?.feature === "grok" ? "grok" : "normal-video";
+    body?.feature === "original-video"
+      ? "original-video"
+      : body?.feature === "grok"
+        ? "grok"
+        : "normal-video";
+
+  // Tab tag — Original Video gets its own tab='original-video' so the
+  // history grid + admin chip + cron asset detection can scope to just
+  // this tab. Legacy Viral / Grok rows keep tab='cinema' so existing
+  // history is unaffected.
+  const tabTag: "cinema" | "original-video" =
+    featureType === "original-video" ? "original-video" : "cinema";
 
   if (!prompt) return NextResponse.json({ error: "Prompt required" }, { status: 400 });
   if (imageMode !== "text" && effectiveImageUrls.length === 0) {
@@ -104,7 +115,7 @@ export async function POST(req: Request) {
       user_id: user.id,
       project_id: projectId,
       type: "video",
-      tab: "cinema",
+      tab: tabTag,
       status: "pending",
       prompt,
       reference_url: effectiveImageUrls[0] || null,
