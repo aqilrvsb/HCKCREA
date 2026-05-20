@@ -2,12 +2,10 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { ArrowRight, Loader2, Sparkles } from "lucide-react";
 
 export default function LoginPage() {
-  const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
@@ -19,8 +17,8 @@ export default function LoginPage() {
     setError(null);
 
     const supabase = createClient();
-    const { error: signInError } = await supabase.auth.signInWithPassword({
-      email,
+    const { data, error: signInError } = await supabase.auth.signInWithPassword({
+      email: email.trim().toLowerCase(),
       password,
     });
 
@@ -29,9 +27,27 @@ export default function LoginPage() {
       setLoading(false);
       return;
     }
+    if (!data?.session) {
+      // Defence: signInWithPassword resolved without error but no session
+      // came back. Treat as a failure so the user gets feedback instead
+      // of a silent "form clears + nothing happens".
+      setError("Sign in did not return a session. Try again.");
+      setLoading(false);
+      return;
+    }
 
-    router.push("/dashboard");
-    router.refresh();
+    // iOS Safari fix — Next.js router.push() is a soft client-side
+    // navigation that may run BEFORE Safari has committed the freshly
+    // -set auth cookie to disk. The middleware then sees no session
+    // cookie on the /dashboard request and redirects right back to
+    // /login, which makes the form look like it "cleared itself" with
+    // no error shown to the user.
+    //
+    // window.location.assign() forces a hard full-page navigation —
+    // the browser flushes pending cookies first, then issues a fresh
+    // GET /dashboard with the session cookie attached. Works reliably
+    // on iOS Safari + Chrome on iOS + Android Chrome.
+    window.location.assign("/dashboard");
   }
 
   return (
