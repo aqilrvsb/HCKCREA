@@ -91,57 +91,40 @@ export async function POST(req: Request) {
       const hasProduct = !!productImageUrl;
       const hasDialog = customDialog.length > 0;
 
-      const baseSystem =
-        mode === "ugc"
-          ? `You are a video director. Produce SHORT, SHARP, STRUCTURED prompts for an 8-second text-to-video model (Veo 3.1).
+      // Provider-agnostic frame-by-frame clone. The prompt describes
+      // the reference video EXACTLY as observed (location, subject,
+      // outfit, camera, action) and emits a placeholder "Dialog: 0s-Xs"
+      // line for the user to fill in later. X is the segment's actual
+      // end second (e.g. an 8s segment → "Dialog: 0s-8s [user fills]").
+      // The output is intentionally generic — user pastes it into UGC /
+      // Original Video / Auto Content / etc, picks the provider there.
+      const baseSystem = `You are a video frame-by-frame describer. Your job is to study the attached frames and produce a SELF-CONTAINED text prompt that, if fed to any video model (Veo / Grok / Sora 2), would reproduce the segment as closely as possible to the SECOND frame onwards.
 
 Each segment uses this EXACT structure (short lines, no prose paragraphs):
 
-SCENE: [one line — location + main subject + main action]
-TIMELINE:
-- 0-4s: [action + dialog chunk if any]
-- 4-8s: [action + dialog chunk if any]
-CHARACTER: beautiful attractive Malay [woman|man] with clear glowing skin, [exact outfit seen in reference]
-VOICE:
-- Tone: [observed in reference]
-- Voice: Malay [woman|man] voice, [age band], [energy]
-- Quality: clear studio recording, crisp consonants, no muffling
-STYLE: [visual style], shallow depth of field, audio dialogue only, clean vertical frame
-CAMERA: [angle + movement]
-HANDS: [which hand holds what]
-CONSTRAINTS:
-- Anatomy: 2 hands, 5 fingers each, no extra limbs
-- Product: pixel-identical to reference — no warped label, no recolor, no text drift
-- AUDIO + VISUAL LOCK: speak directly to camera, NO music, NO SFX, dialog only. NO subtitles, captions, overlays. Bottom 25% of frame EMPTY. RAW UNEDITED FOOTAGE — never a TikTok post.
+SCENE: [one concrete line — exact location + main subject + main action observed in the frames]
+CHARACTER: [exact appearance from the frames — gender, age band, ethnicity if visible, outfit pieces with colors and fabric, hair/hijab, accessories]
+HANDS: [which hand holds what — left hand vs right hand, what they're touching/lifting/pointing at]
+CAMERA: [shot type + angle + movement observed — e.g. medium shot, eye level, slow handheld push-in / static / pan-left]
+LIGHTING: [observed light direction + temperature + mood — e.g. warm window light from camera-left, soft fill from front, cozy daylight]
+BACKGROUND: [specific elements visible behind subject — furniture, props, plants, walls, kitchen items, etc. Not generic "in a kitchen", instead "modern kitchen with white cabinets, wooden countertop, small plant in window"]
+ACTION: [exact beat-by-beat motion across the segment — what the subject DOES from second 0 to second N]
+Dialog: 0s-{segDur}s — [USER FILLS THIS IN LATER]
 
-Every segment is SELF-CONTAINED — do NOT write "same as segment 1". Only SCENE / TIMELINE / HANDS differ per segment.`
-          : `You are a cinematic director. Produce structured prompts for a 30-second text-to-video model (Grok Imagine).
+Rules:
+- The SECOND frame onwards is what the prompt must match. The first frame may be a flash/cut transition; trust the second frame as the canonical start state.
+- Be SPECIFIC about every visible element. Reject generic phrasing ("standing in a room", "wearing a shirt"). Name colors, textures, brands if visible.
+- Anatomy lock: state "2 hands, 5 fingers each" if subject's hands are visible.
+- Provider-agnostic: do NOT mention Veo, Grok, Sora 2, or any model-specific format (no "Dialogue:" block, no "Spoken dialog:", no "Cinematography:" block). Just the SCENE / CHARACTER / HANDS / CAMERA / LIGHTING / BACKGROUND / ACTION / Dialog: lines.
+- Output the Dialog: line VERBATIM as "Dialog: 0s-{segDur}s — [USER FILLS THIS IN LATER]" so the user knows the timing window when they paste the prompt elsewhere.
 
-Use this structure per segment:
-
-SCENE: [location + subject + main action]
-TIMELINE:
-- 0-10s: [setup + first beat]
-- 10-20s: [development + main beat]
-- 20-30s: [resolution + final beat]
-CHARACTER: [physical description, outfit, personality]
-VOICE: [tone, language, pace, emotion arc]
-STYLE: [cinematic style — film stock, color grade, lighting key, lens]
-CAMERA: [shot list — establishing, mediums, close-ups, movement]
-SOUND DESIGN: [atmosphere, ambient, music cues if any]
-PACING: [emotional rhythm across the 30s]
-
-Every segment is SELF-CONTAINED — do NOT cross-reference. Cinematic and evocative.`;
-
-      const dialogBlock = hasDialog
-        ? `\n\nDIALOG (USER-PROVIDED, MUST USE VERBATIM):\n"""\n${customDialog.replace(/"""/g, '"""')}\n"""\nSplit dialog naturally across segments by their time windows.`
-        : "";
+Every segment is SELF-CONTAINED — do NOT write "same as segment 1". Each prompt must stand alone and contain every detail needed to reproduce that segment from scratch.`.replace(/\{segDur\}/g, String(segDur));
 
       const productBlock = hasProduct
         ? `\n\nThe LAST image attached is the product reference. Keep it pixel-identical in every prompt — preserve label text, logo, colors exactly.`
         : "";
 
-      const systemPrompt = baseSystem + dialogBlock + productBlock;
+      const systemPrompt = baseSystem + productBlock;
       const textPrompt = `These are ${allFrames.length} frames extracted at 1 frame per second from a ${refDuration}s reference video. Study every frame carefully and produce ${segCount} segment prompt${segCount > 1 ? "s" : ""} that recreate the video.
 
 Return JSON ONLY in this exact shape (no markdown, no commentary):

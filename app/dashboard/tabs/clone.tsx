@@ -147,13 +147,17 @@ export default function CloneTab({ projectId }: { projectId?: string } = {}) {
     setLog([]);
     setResultPrompts([]);
 
+    // Frame-by-frame clone — segment by every 8s of source video so each
+    // generated prompt fits in a typical video model's window. Mode is
+    // locked to "ugc" (8s segments) since the prompt is provider-
+    // agnostic anyway; the dropdown that used to expose Cinema (30s
+    // segments) was removed.
     const frameCount = Math.min(MAX_FRAMES, Math.max(2, videoDuration));
-    const segDur = mode === "cinema" ? SEG_DUR_CINEMA : SEG_DUR_UGC;
-    const segCount = Math.ceil(frameCount / (mode === "cinema" ? 30 : 8));
+    const segDur = SEG_DUR_UGC; // 8s per segment (provider-agnostic chunking)
+    const segCount = Math.ceil(frameCount / 8);
 
     pushLog(`Extracting ${frameCount} frames (1 fps)…`);
-    pushLog(`Mode: ${mode === "cinema" ? "Cinema (Grok Imagine)" : "UGC (Veo 3.1)"}`);
-    pushLog(`Will plan ${segCount} segment(s) in parallel.`);
+    pushLog(`Will plan ${segCount} × ${segDur}s segment(s) in parallel.`);
 
     try {
       const frames = await extractFrames(videoFile, frameCount);
@@ -178,10 +182,16 @@ export default function CloneTab({ projectId }: { projectId?: string } = {}) {
         body: JSON.stringify({
           frames,
           product_image_url: productPub,
-          custom_dialog: dialog,
+          // No custom_dialog — backend generates placeholder
+          // "Dialog: 0s-Xs ..." lines based on actual segment duration
+          // so user can fill in their script later.
+          custom_dialog: "",
           duration: videoDuration,
-          mode,
-          aspect_ratio: aspect,
+          // Provider-agnostic. mode/aspect_ratio still passed but the
+          // server uses them only for chunking math, not for picking a
+          // specific provider.
+          mode: "ugc",
+          aspect_ratio: "9:16",
           project_id: projectId,
         }),
       });
@@ -268,43 +278,12 @@ export default function CloneTab({ projectId }: { projectId?: string } = {}) {
           </div>
         )}
 
-        {/* Mode + Size */}
-        <div className="flex items-center gap-4 mb-4">
-          <div>
-            <Label>Output</Label>
-            <Select value={mode} onChange={(v) => setMode(v as Mode)} width={150}>
-              <option value="ugc">UGC</option>
-              <option value="cinema">Cinema</option>
-            </Select>
-          </div>
-          <div>
-            <Label>Size</Label>
-            <Select value={aspect} onChange={(v) => setAspect(v)} width={100}>
-              <option value="9:16">9:16</option>
-              <option value="16:9">16:9</option>
-            </Select>
-          </div>
-        </div>
-
-        {/* Dialog */}
-        <Label>
-          Dialog{" "}
-          <span className="text-gray-400 font-normal normal-case tracking-normal">
-            (optional — leave empty to follow reference exactly)
-          </span>
-        </Label>
-        <textarea
-          rows={5}
-          value={dialog}
-          onChange={(e) => setDialog(e.target.value)}
-          placeholder={`Use timestamps for exact timing (recommended):\n0s-4s Okey real talk, dendeng ni memang hits different\n4s-8s aku tak boleh stop makan\n8s-12s korang tunggu apa lagi\n12s-16s tekan je beg kuning dekat bawah tu\n\nOr just free-form text — AI will split it across segments.`}
-          className="w-full p-3 rounded-xl text-sm resize-y outline-none mb-4"
-          style={{
-            background: "#fafaf7",
-            border: "1px solid #e8e0d8",
-            color: "#1a1a1a",
-          }}
-        />
+        {/* Output / Size / Dialog inputs removed per admin direction —
+            Clone Prompt is now provider-agnostic. The generated prompt
+            describes the reference video frame-by-frame and contains
+            placeholder "Dialog: 0s-Xs ..." lines for the user to fill
+            in later. User picks provider + size when they paste the
+            prompt into Original Video / UGC / etc. */}
 
         <button
           onClick={submit}
