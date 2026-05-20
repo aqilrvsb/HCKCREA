@@ -1,10 +1,11 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Loader2, Sparkles, X } from "lucide-react";
+import { Loader2, Sparkles, X, Info } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import Portal from "../sections/portal";
 import UgcTab from "./ugc";
+import Sora2TipsModal from "../sections/sora2-tips-modal";
 import { uploadImage, dataUrlToFile } from "@/lib/upload-image";
 import { isVisibleAfterTtl, fetchSavedSet } from "@/lib/history-filter";
 import AttachmentPicker from "../sections/attachment-picker";
@@ -78,6 +79,10 @@ export default function VideoTab({ projectId }: { projectId?: string } = {}) {
   // on the Generate button when provider === "sora2". Endpoint falls
   // back to cinema_rate × 2 when admin hasn't configured sora2_rate.
   const [soraRatePerSec, setSoraRatePerSec] = useState<number | null>(null);
+  // Tips modal (Sora 2 dialog format + medical-claim warning + image
+  // dims + iteration tips). Shared component used by both Sora 2 tab
+  // and UGC tab so the warnings stay in sync.
+  const [sora2TipsOpen, setSora2TipsOpen] = useState(false);
   useEffect(() => {
     let cancel = false;
     fetch("/api/sora2/rate", { cache: "no-store" })
@@ -429,7 +434,23 @@ export default function VideoTab({ projectId }: { projectId?: string } = {}) {
         {provider === "sora2" && (
           <div className="mt-4">
             <div className="flex items-center justify-between mb-2">
-              <Label>Duration</Label>
+              <div className="flex items-center gap-2">
+                <Label>Duration</Label>
+                <button
+                  type="button"
+                  onClick={() => setSora2TipsOpen(true)}
+                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider transition-transform hover:-translate-y-0.5"
+                  style={{
+                    background: "rgba(74,222,128,0.12)",
+                    color: "#16a34a",
+                    border: "1px solid rgba(74,222,128,0.35)",
+                  }}
+                  title="Sora 2 dialog format + medical-claim warning"
+                >
+                  <Info className="w-3 h-3" />
+                  Tip Sora 2
+                </button>
+              </div>
               {soraRatePerSec != null && (
                 <span
                   className="text-xs font-bold"
@@ -812,6 +833,12 @@ export default function VideoTab({ projectId }: { projectId?: string } = {}) {
       />
 
       {showUgcModal && <UgcModal onClose={() => setShowUgcModal(false)} />}
+
+      {sora2TipsOpen && (
+        <Portal>
+          <Sora2TipsModal onClose={() => setSora2TipsOpen(false)} />
+        </Portal>
+      )}
 
       {/* UGC Agent panel is mounted at dashboard-shell level so it
           persists across tab switches — see DashboardShell. */}
