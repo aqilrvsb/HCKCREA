@@ -2,22 +2,26 @@ import { NextResponse, after } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { generateVideoWithCascade } from "@/lib/video-cascade";
-import { getCinemaRate, getP2Config } from "@/lib/settings";
+import { getCinemaRate, getP2Config, getSetting } from "@/lib/settings";
 
-// POST /api/generate/cinema — Viral tab. Two model options:
-//   • model="grok"  → grok-imagine/t2v or /i2v, 6-30s, per-second pricing
-//   • model="veo"   → google/veo3-1-fast t2v / r2v, fixed 8s, flat-ish pricing
+// POST /api/generate/cinema — Original Video tab + legacy Viral. Three
+// provider options:
+//   • model="grok"   → grok-imagine/t2v or /i2v, 6-30s, per-second pricing
+//   • model="veo"    → google/veo3-1-fast t2v / r2v, fixed 8s
+//   • model="sora2"  → openai/sora-2-vip, 8s or 12s, per-second pricing
 //
-// Both image modes are supported on both models:
+// Image modes:
 //   • text  → no img_urls
-//   • image → single img_urls
+//   • image → 1 (Sora 2) or 1-3 (Veo r2v) or 1-7 (Grok i2v) img_urls
 //
-// Resolution 720p, mode "normal". Price = duration * cinema_rate_per_sec.
-// (For Veo, duration is forced to 8 so price = 8 × rate.)
+// Pricing: Grok + Veo = duration × cinema_rate_per_sec, Sora 2 = duration ×
+// sora2_rate (admin setting, falls back to cinema_rate × 2).
 //
 // IMPORTANT: prompt is sent to the provider 100% verbatim. No locks, no
 // templates, no character/anatomy injection at this layer. Whatever the
-// user types in the textarea is what reaches the model.
+// user types in the textarea is what reaches the model — including for
+// Sora 2 (the auto-Dialogue:-block transform in p6.ts is SUPPRESSED for
+// this route via rawPrompt=true so power-user prompts stay untouched).
 export async function POST(req: Request) {
   const sb = await createClient();
   const { data: { session } } = await sb.auth.getSession();
@@ -40,12 +44,40 @@ export async function POST(req: Request) {
         : [];
   const aspectRatio = String(body?.aspect_ratio || "9:16");
   const resolution = body?.resolution === "480p" ? "480p" : "720p";
-  const modelChoice: "grok" | "veo" = body?.model === "veo" ? "veo" : "grok";
-  // Veo is fixed 8s. Grok ranges 6-30s. Defaults to 6 for Grok.
-  const duration = modelChoice === "veo"
-    ? 8
-    : Math.min(30, Math.max(6, Math.round(Number(body?.duration || 6))));
-  const imageMode = body?.image_mode === "image" ? "image" : "text";
+  const modelChoice: "grok" | "veo" | "sora2" =
+    body?.model === "veo"
+      ? "veo"
+      : body?.model === "sora2"
+        ? "sora2"
+        : "grok";
+  // Per-provider duration constraints:
+  //   • Veo    → fixed 8s (model only emits 8s natively)
+  //   • Sora 2 → 8 or 12 (APIPod's sora-2-vip enum)
+  //   • Grok   → 6-30 (slider, per-second billing)
+  const duration =
+    modelChoice === "veo"
+      ? 8
+      : modelChoice === "sora2"
+        ? body?.duration === 12 || body?.duration === "12"
+          ? 12
+          : 8
+        : Math.min(30, Math.max(6, Math.round(Number(body?.duration || 6))));
+  // Three image modes (richer than the old image/text split):
+  //   • "text"       → no reference images
+  //   • "frame"      → single first-frame image (i2v, all 3 providers)
+  //   • "ingredient" → multi-ref (r2v, Veo only — Grok/Sora 2 clamped to frame)
+  // Legacy "image" string maps to "frame" for backwards-compat.
+  let imageModeRaw: "text" | "frame" | "ingredient" =
+    body?.image_mode === "ingredient"
+      ? "ingredient"
+      : body?.image_mode === "frame" || body?.image_mode === "image"
+        ? "frame"
+        : "text";
+  // Clamp ingredient → frame for Grok/Sora 2 (they don't support r2v).
+  if (imageModeRaw === "ingredient" && modelChoice !== "veo") {
+    imageModeRaw = "frame";
+  }
+  const imageMode = imageModeRaw;
   const projectId = body?.project_id ? String(body.project_id) : null;
   // Feature tag — set to "grok" when the new dedicated Grok tab submits
   // this. History grid uses metadata.featureType to route the row to the
@@ -57,9 +89,9 @@ export async function POST(req: Request) {
     body?.feature === "grok" ? "grok" : "normal-video";
 
   if (!prompt) return NextResponse.json({ error: "Prompt required" }, { status: 400 });
-  if (imageMode === "image" && effectiveImageUrls.length === 0) {
+  if (imageMode !== "text" && effectiveImageUrls.length === 0) {
     return NextResponse.json(
-      { error: "Reference image required for Image-to-Video mode" },
+      { error: "Reference image required for this image mode" },
       { status: 400 }
     );
   }
@@ -82,13 +114,26 @@ export async function POST(req: Request) {
       metadata: {
         imageMode,
         resolution,
-        aspectRatio: imageMode === "image" ? null : aspectRatio,
-        cinemaProvider: modelChoice === "veo" ? "veo" : "grok-imagine",
+        aspectRatio: imageMode !== "text" ? null : aspectRatio,
+        cinemaProvider:
+          modelChoice === "veo"
+            ? "veo"
+            : modelChoice === "sora2"
+              ? "apipod"
+              : "grok-imagine",
         modelChoice,
         featureType,
         // Full attachment array for Resubmit re-fire
         image_urls: effectiveImageUrls,
         upload_status: "queued",
+        // Sora 2 routing — let history grid + admin chip detection pick
+        // up the SORA 2 tag (matches existing detection patterns).
+        ...(modelChoice === "sora2"
+          ? {
+              model: "sora-2-vip",
+              sora2Provider: "apipod",
+            }
+          : {}),
       },
     })
     .select("id")
@@ -105,19 +150,40 @@ export async function POST(req: Request) {
 
   after(async () => {
     try {
-      const [cfg, ratePerSec] = await Promise.all([
+      const [cfg, cinemaRatePerSec] = await Promise.all([
         getP2Config(),
         getCinemaRate(),
       ]);
+      // Sora 2 has its own per-second rate setting. Falls back to cinema
+      // rate × 2 when admin hasn't configured it. Grok + Veo share the
+      // cinema rate (Veo billed flat as 8 × cinemaRate).
+      let ratePerSec = cinemaRatePerSec;
+      if (modelChoice === "sora2") {
+        const sora2RateSetting = await getSetting<{ rate: number }>("sora2_rate");
+        ratePerSec =
+          typeof sora2RateSetting?.rate === "number"
+            ? sora2RateSetting.rate
+            : cinemaRatePerSec * 2;
+      }
       const cost = Number((ratePerSec * duration).toFixed(4));
 
       // Pick the actual provider model id based on (modelChoice, imageMode).
-      // Grok and Veo each have separate t2v / i2v (or r2v) endpoints.
+      // Each provider has its own t2v / i2v (or r2v) endpoints:
+      //   • Veo    → text/frame/ingredient → t2v / fast / fast-ref
+      //   • Grok   → text or frame → grok-imagine t2v / i2v
+      //   • Sora 2 → text or frame → sora-2-vip (single endpoint,
+      //     p6.ts handles t2v vs i2v by presence of image_url)
       let model: string | undefined;
       if (modelChoice === "veo") {
-        model = imageMode === "image" ? cfg.videoR2V : cfg.videoT2V;
+        model = imageMode === "ingredient"
+          ? cfg.videoR2V
+          : imageMode === "frame"
+            ? cfg.videoI2V
+            : cfg.videoT2V;
+      } else if (modelChoice === "sora2") {
+        model = "sora2"; // p6.ts apipodVideoModel maps to "sora-2-vip"
       } else {
-        model = imageMode === "image" ? cfg.grokI2V : cfg.grokT2V;
+        model = imageMode !== "text" ? cfg.grokI2V : cfg.grokT2V;
       }
 
       if (!model) {
@@ -127,8 +193,13 @@ export async function POST(req: Request) {
           error_message: `Viral model not configured (${modelChoice}/${imageMode})`,
           metadata: {
             imageMode, resolution,
-            aspectRatio: imageMode === "image" ? null : aspectRatio,
-            cinemaProvider: modelChoice === "veo" ? "veo" : "grok-imagine",
+            aspectRatio: imageMode !== "text" ? null : aspectRatio,
+            cinemaProvider:
+              modelChoice === "veo"
+                ? "veo"
+                : modelChoice === "sora2"
+                  ? "apipod"
+                  : "grok-imagine",
             modelChoice,
             featureType,
             upload_status: "failed",
@@ -137,12 +208,23 @@ export async function POST(req: Request) {
         return;
       }
 
-      // Distinct refs only — no triplicate. Both Veo r2v and Grok
-      // i2v accept 1+ images natively, no benefit from duplicates.
+      // Image mode passes through verbatim now — the route exposes
+      // "text" / "frame" / "ingredient" directly to the cascade. p6.ts
+      // and other provider adapters use this to pick the right
+      // endpoint variant (t2v / i2v / r2v).
+      const imgMode: "frame" | "ingredient" | "text" = imageMode;
+      // Per-provider image cap (matches each provider's API limit):
+      //   • Sora 2 → 1 first frame only
+      //   • Veo r2v / i2v → up to 3
+      //   • Grok i2v → up to 7
       const imgs =
-        imageMode === "image" ? effectiveImageUrls.slice(0, 3) : [];
-      const imgMode: "frame" | "ingredient" | "text" =
-        imageMode === "image" ? "ingredient" : "text";
+        imageMode === "text"
+          ? []
+          : modelChoice === "sora2"
+            ? effectiveImageUrls.slice(0, 1)
+            : modelChoice === "grok"
+              ? effectiveImageUrls.slice(0, 7)
+              : effectiveImageUrls.slice(0, 3);
 
       let createdOk = false;
       let createdTaskId: string | null = null;
@@ -154,29 +236,27 @@ export async function POST(req: Request) {
       let fallbackUsed = false;
       let tierLog: any = undefined;
 
-      // Both Veo and Grok route through the round-robin cascade.
-      // p6CreateVideo's apipodVideoModel detects 'grok' in the model
-      // string and emits grok-imagine-t2v / grok-imagine-i2v based on
-      // ref presence; Veo r2v slot caps to its own 1-3 limit. Grok
-      // accepts up to 7 i2v refs so for Grok we widen the slice.
-      const cascadeImgs =
-        modelChoice === "grok"
-          ? imageMode === "image" ? effectiveImageUrls.slice(0, 7) : []
-          : imgs;
+      // Per-asset cascade routing:
+      //   • modelChoice='grok'  → GROK cascade pool
+      //   • modelChoice='veo'   → VIDEO cascade pool
+      //   • modelChoice='sora2' → SORA2 cascade pool (APIPod p6 slots)
+      // Admin configures each pool independently in /admin/settings →
+      // Cascade. Original Video tab + Auto Content Grok + UGC tab all
+      // share the same per-asset pools so a slot rotation in admin
+      // updates every consumer at once.
       const result = await generateVideoWithCascade({
         primaryModel: model,
         prompt,
-        imageUrls: cascadeImgs,
+        imageUrls: imgs,
         durationMode: String(duration),
         aspectRatio,
         imageMode: imgMode,
-        // Per-asset cascade routing:
-        //   • Grok tab (modelChoice='grok')  → GROK cascade
-        //   • Viral tab Veo (modelChoice='veo') → VIDEO cascade
-        // Admin configures each pool independently in /admin/settings
-        // → Cascade. Auto Content with Grok also uses GROK (see
-        // /api/generate/auto-content), Seedance uses CINEMA cascade.
-        asset: modelChoice === "grok" ? "grok" : "video",
+        asset:
+          modelChoice === "grok"
+            ? "grok"
+            : modelChoice === "sora2"
+              ? "sora2"
+              : "video",
       });
       if (result.ok) {
         createdOk = true;
@@ -198,8 +278,13 @@ export async function POST(req: Request) {
           error_message: createdError || "Viral create failed",
           metadata: {
             model, imageMode, resolution,
-            aspectRatio: imageMode === "image" ? null : aspectRatio,
-            cinemaProvider: modelChoice === "veo" ? "veo" : "grok-imagine",
+            aspectRatio: imageMode !== "text" ? null : aspectRatio,
+            cinemaProvider:
+              modelChoice === "veo"
+                ? "veo"
+                : modelChoice === "sora2"
+                  ? "apipod"
+                  : "grok-imagine",
             modelChoice,
             featureType,
             provider: actualProvider,
@@ -217,7 +302,7 @@ export async function POST(req: Request) {
         cost,
         metadata: {
           model: actualModel, imageMode, resolution,
-          aspectRatio: imageMode === "image" ? null : aspectRatio,
+          aspectRatio: imageMode !== "text" ? null : aspectRatio,
           cinemaProvider: modelChoice === "veo" ? "veo" : "grok-imagine",
           modelChoice,
           featureType,
@@ -235,7 +320,7 @@ export async function POST(req: Request) {
         error_message: e?.message || "Background error",
         metadata: {
           imageMode, resolution,
-          aspectRatio: imageMode === "image" ? null : aspectRatio,
+          aspectRatio: imageMode !== "text" ? null : aspectRatio,
           cinemaProvider: modelChoice === "veo" ? "veo" : "grok-imagine",
           modelChoice,
           featureType,

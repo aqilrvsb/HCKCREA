@@ -18,6 +18,7 @@ import VideoTab from "./tabs/video";
 import CinemaTab from "./tabs/cinema";
 import GrokTab from "./tabs/grok";
 import Sora2Tab from "./tabs/sora2";
+import OriginalVideoTab from "./tabs/original-video";
 import SeedanceTab from "./tabs/seedance";
 import CloneTab from "./tabs/clone";
 import AutoContentTab from "./tabs/auto-content";
@@ -38,7 +39,17 @@ import { SopButton } from "./sections/sop-modal";
 import { SOP_CONTENT } from "@/lib/sop-content";
 import Sidebar, { type Project, type SidebarView } from "./sidebar";
 
-type TabKey = "image" | "video" | "cinema" | "grok" | "sora2" | "seedance" | "clone" | "auto" | "fairytale";
+type TabKey =
+  | "image"
+  | "video"
+  | "cinema"
+  | "grok"
+  | "sora2"
+  | "seedance"
+  | "clone"
+  | "auto"
+  | "fairytale"
+  | "original-video";
 
 // Tab order: Image → UGC → Auto Content → Story → Cinema (Seedance) →
 // Clone Prompt → Fairytale. "Story" keeps the legacy "cinema" key + the
@@ -55,6 +66,7 @@ const TABS: { key: TabKey; label: string; icon: any; tag: string }[] = [
   // so existing seedance history rows still render via their cards in
   // the Sora 2 / Viral grids if shared. Re-enable by uncommenting.
   // { key: "seedance",  label: "Cinema",       icon: Film,      tag: "04" },
+  { key: "original-video", label: "Original Video", icon: Film, tag: "04" },
   { key: "clone",     label: "Clone Prompt", icon: Layers,    tag: "05" },
   { key: "fairytale", label: "Storytelling", icon: BookOpen,  tag: "06" },
   { key: "cinema",    label: "Viral",        icon: Film,      tag: "07" },
@@ -62,7 +74,8 @@ const TABS: { key: TabKey; label: string; icon: any; tag: string }[] = [
   // slot — more stable, same shape (text/image to video, per-second-ish
   // billing via APIPod). Existing Grok history rows still render
   // because their cards live in the Cinema/Viral history grid via
-  // shared tab='cinema' tagging.
+  // shared tab='cinema' tagging. Original Video tab (04) now exposes
+  // all 3 providers (Veo + Grok + Sora 2) as a power-user raw tab.
   // { key: "grok",   label: "Grok",         icon: Zap,       tag: "08" },
   { key: "sora2",     label: "Sora 2",       icon: Zap,       tag: "08" },
 ];
@@ -400,6 +413,8 @@ function resolveActiveSop(view: SidebarView, activeTab: TabKey) {
       seedance: "cinema",
       clone: "clone-prompt",
       fairytale: "fairytale",
+      // Original Video reuses Story SOP for now (no dedicated SOP yet).
+      "original-video": "story",
     };
     key = map[activeTab];
   } else if (view.kind === "billing") key = "billing";
@@ -565,6 +580,19 @@ function ProjectView({
                 <GrokTab projectId={project.id} />
               </div>
               <HistoryGrid tab="grok" title={`Grok — ${project.name}`} projectId={project.id} />
+            </>
+          )}
+          {activeTab === "original-video" && (
+            <>
+              <div className="max-w-5xl mx-auto w-full">
+                <OriginalVideoTab projectId={project.id} />
+              </div>
+              {/* Original Video posts to /api/generate/cinema with
+                  feature='original-video' but the underlying history
+                  row is still tagged tab='cinema' (consistent with how
+                  cinema route inserts). The Cinema/Viral history grid
+                  picks up these rows via the shared tag. */}
+              <HistoryGrid tab="cinema" title={`Original Video — ${project.name}`} projectId={project.id} />
             </>
           )}
           {activeTab === "sora2" && (
