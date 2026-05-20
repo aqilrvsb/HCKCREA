@@ -125,7 +125,10 @@ export default function AdminUsage() {
   const generationRows = useMemo(
     () => {
       const base = filtered.filter((r) => {
-        if (!(r.reason.startsWith("image") || r.reason.startsWith("video"))) {
+        // VIDEO-ONLY DETAIL LOG — per admin direction, exclude all
+        // image rows from the usage log entirely. The breakdown +
+        // table + counters all only consider video generations.
+        if (!r.reason.startsWith("video")) {
           return false;
         }
         // Drop Storytelling intermediate image rows (per-scene + hero).
@@ -138,13 +141,14 @@ export default function AdminUsage() {
         if (featureType === "talking-object-image") {
           return false;
         }
+        // Drop raw image-tab rows (type='image') as a final safety net.
+        if (r.type === "image") return false;
         return true;
       });
+      // mediaFilter retained for backward compat but always evaluates
+      // to "video" path now since all image rows are filtered out above.
       if (mediaFilter === "all") return base;
       return base.filter((r) => {
-        // Match the cell logic — includes storytelling image types
-        // (fairytale-scene / fairytale-hero) so they're filterable too,
-        // even though those should now be excluded above.
         const isImg =
           r.type === "image" ||
           r.type === "fairytale-scene" ||
@@ -610,14 +614,13 @@ export default function AdminUsage() {
                 in the current date+media filter window. Hidden when the
                 media filter is "image" because the breakdown is video-only. */}
             {mediaFilter !== "image" && (
-              <div className="grid grid-cols-2 md:grid-cols-6 gap-3 mb-5">
+              <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-5">
                 {[
                   { label: "Veo Videos", value: videoBreakdown.veo,   tone: "rgba(34,197,94,0.18)",  fg: "#16a34a", sub: "UGC + Auto + Original Video (Veo) + Viral" },
                   { label: "Grok Videos", value: videoBreakdown.grok, tone: "rgba(99,102,241,0.18)", fg: "#6366f1", sub: "Original Video (Grok) + legacy Cinema" },
                   { label: "Sora 2 Videos", value: videoBreakdown.sora, tone: "rgba(74,222,128,0.18)", fg: "#4ade80", sub: "Original Video (Sora 2) + Auto Content Sora 2" },
                   { label: "Seedance", value: videoBreakdown.seedance, tone: "rgba(244,114,182,0.18)", fg: "#ec4899", sub: "Cinema Seedance + Auto Content Seedance" },
                   { label: "Storytelling", value: videoBreakdown.story, tone: "rgba(139,92,246,0.18)", fg: "#8b5cf6", sub: "Final merged story video" },
-                  { label: "Images", value: videoBreakdown.image, tone: "rgba(250,204,21,0.18)", fg: "#eab308", sub: "Image tab + storytelling/viral aux images" },
                 ].map((b) => (
                   <div
                     key={b.label}
