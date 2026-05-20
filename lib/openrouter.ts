@@ -4,7 +4,7 @@
 import { getSettings } from "@/lib/settings";
 
 export async function orChat(opts: {
-  modelKey?: "model_auto" | "model_clone" | "model_vision" | "model_retry" | "model_product_ocr";
+  modelKey?: "model_auto" | "model_clone" | "model_vision" | "model_retry" | "model_product_ocr" | "model_qa";
   /** Bypass app_settings entirely and use this exact model id.
    *  Callers with a specific model in mind (e.g. Storytelling script
    *  gen using its own storytelling_script_model setting) pass this

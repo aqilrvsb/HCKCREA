@@ -163,6 +163,16 @@ export default function AdminSettings() {
   const [savingMfSlots, setSavingMfSlots] = useState<"video" | "image" | "grok" | "cinema" | "sora2" | null>(null);
   const [mfSlotsMsg, setMfSlotsMsg] = useState<string | null>(null);
 
+  // Q&A chat model — independent override for the Q&A chat panel on
+  // every tab (UGC / Auto / Cinema / Storytelling / Image / Sora 2).
+  // Falls back to model_auto when empty. Lets admin route Q&A to a
+  // faster/cheaper model (e.g. flash-1.5-8b) while keeping Auto Content
+  // + Custom Idea on a stronger model (gemini-3.1-pro) for prompt
+  // generation quality. Stored as app_settings.model_qa = {model: "..."}.
+  const [qaChatModel, setQaChatModel] = useState("");
+  const [savingQa, setSavingQa] = useState(false);
+  const [qaMsg, setQaMsg] = useState<string | null>(null);
+
   // Facebook Conversions API config (single app_settings.fb_capi row).
   // pixel_id is also served publicly via /api/fb-pixel/config to bootstrap
   // the browser snippet — access_token stays server-only.
@@ -260,6 +270,9 @@ export default function AdminSettings() {
           setFbAccessToken(String(row.value?.access_token || ""));
           setFbTestEventCode(String(row.value?.test_event_code || ""));
           setFbCapiEnabled(row.value?.enabled !== false);
+        }
+        if (row.key === "model_qa") {
+          setQaChatModel(String(row.value?.model || ""));
         }
         // Main+fallback architecture
         const allowedV: string[] = [
@@ -802,6 +815,39 @@ export default function AdminSettings() {
     }
   }
 
+  // Saves the model_qa setting. Empty value = "fall back to model_auto"
+  // (the /api/qa/chat route already handles this fallback). Stored as
+  // {model: "<id>"} to match the shape every other model_X setting uses.
+  async function saveQaModel() {
+    setSavingQa(true);
+    setQaMsg(null);
+    try {
+      const res = await fetch("/api/admin/settings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          key: "model_qa",
+          value: { model: qaChatModel.trim() },
+        }),
+      });
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        throw new Error(d?.error || `HTTP ${res.status}`);
+      }
+      setQaMsg(
+        qaChatModel.trim()
+          ? `✓ Saved. Q&A chat now uses ${qaChatModel.trim()}.`
+          : "✓ Cleared. Q&A chat falls back to model_auto."
+      );
+      await load();
+      setTimeout(() => setQaMsg(null), 5000);
+    } catch (e: any) {
+      setQaMsg(`✗ Save failed: ${e?.message || "unknown"}`);
+    } finally {
+      setSavingQa(false);
+    }
+  }
+
   // Saves the fb_capi setting blob. Sent as a single JSON object so the
   // generic /api/admin/settings handler can upsert it like any other key.
   async function saveFbCapi() {
@@ -854,6 +900,10 @@ export default function AdminSettings() {
     // card above. Hiding the raw JSON because the access_token field is
     // a secret and shouldn't be visible in plain text in the generic list.
     "fb_capi",
+    // Q&A chat model — exposed via the dedicated "Q&A Chat Model" card.
+    // Hidden from raw JSON to prevent admin editing it in two places
+    // with conflicting values.
+    "model_qa",
     // Both pricing keys below are noise in the admin UI — credit_topup_price
     // is an unused orphan (only seeded in 0001_init, no code reads it),
     // and credit_costs is consumed only as a fallback for auto_plan /
@@ -1784,6 +1834,67 @@ export default function AdminSettings() {
         </button>
         {extMsg && (
           <div className="text-xs mt-2 text-emerald-700">{extMsg}</div>
+        )}
+      </div>
+
+      {/* Q&A Chat Model — independent override for the floating Q&A
+          assistant on every tab. Decoupled from model_auto so admin can
+          route Q&A to cheap fast model while Auto Content + Custom Idea
+          keep using a stronger model for prompt generation quality. */}
+      <div className="card p-6 mb-6 border-2 border-violet-100 bg-violet-50/30">
+        <div className="flex items-center gap-2 mb-4">
+          <Cpu className="w-5 h-5 text-violet-600" />
+          <h2 className="font-display font-bold text-lg">Q&A Chat Model</h2>
+        </div>
+        <p className="text-sm text-[var(--color-text-secondary)] mb-4">
+          Model untuk floating Q&A chat di setiap tab. <strong>Berasingan</strong>{" "}
+          dari <code>model_auto</code> (yang dipakai oleh Auto Content +
+          Custom Idea expansion). Set di sini untuk route Q&A ke model
+          cheaper/faster tanpa affect quality Auto Content prompts.
+        </p>
+        <div>
+          <label className="block text-xs font-mono uppercase tracking-widest text-[var(--color-text-muted)] font-bold mb-2">
+            Q&A Chat Model
+          </label>
+          <input
+            type="text"
+            value={qaChatModel}
+            onChange={(e) => setQaChatModel(e.target.value)}
+            placeholder="e.g. google/gemini-flash-1.5-8b, anthropic/claude-haiku-4-5, openai/gpt-5.4-mini"
+            className="input w-full"
+            style={{ color: "white" }}
+          />
+          <p className="text-[10px] text-[var(--color-text-muted)] mt-1">
+            {qaChatModel.trim() ? (
+              <>
+                Currently active: <strong>{qaChatModel.trim()}</strong>
+              </>
+            ) : (
+              <>
+                Empty = falls back to <strong>model_auto</strong> (shared with
+                Auto Content + Custom Idea). Recommended dedicated model for
+                Q&A: <code>google/gemini-flash-1.5-8b</code> (fast + cheap,
+                Q&A doesn't need master-plan reasoning).
+              </>
+            )}
+          </p>
+        </div>
+        <button
+          onClick={saveQaModel}
+          disabled={savingQa}
+          className="btn-primary mt-3 disabled:opacity-50"
+        >
+          {savingQa ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+          Save Q&A model
+        </button>
+        {qaMsg && (
+          <div
+            className={`text-xs mt-2 ${
+              qaMsg.startsWith("✓") ? "text-violet-700" : "text-red-600"
+            }`}
+          >
+            {qaMsg}
+          </div>
         )}
       </div>
 
