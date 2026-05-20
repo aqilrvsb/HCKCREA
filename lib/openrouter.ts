@@ -4,7 +4,28 @@
 import { getSettings } from "@/lib/settings";
 
 export async function orChat(opts: {
-  modelKey?: "model_auto" | "model_clone" | "model_vision" | "model_retry" | "model_product_ocr" | "model_qa";
+  // Per-feature model keys. Admin can configure each one independently
+  // in /admin/settings, OR leave them empty to fall back to model_auto.
+  // The five user-facing buckets:
+  //   model_qa          → Q&A chat panel on every tab
+  //   model_custom_idea → UGC Custom Idea expansion + Auto Content master plan
+  //   model_viral       → Viral Talking Object scene + prompt builder
+  //   model_clone       → Clone tab text generation
+  //   storytelling_script_model → Storytelling 12-scene JSON (uses modelOverride, not modelKey)
+  // Plus internal keys that don't need admin UI:
+  //   model_auto        → universal fallback when a specific key is empty
+  //   model_product_ocr → product label OCR (vision)
+  //   model_vision      → generic vision tasks
+  //   model_retry       → failed-prompt retry path
+  modelKey?:
+    | "model_auto"
+    | "model_clone"
+    | "model_vision"
+    | "model_retry"
+    | "model_product_ocr"
+    | "model_qa"
+    | "model_custom_idea"
+    | "model_viral";
   /** Bypass app_settings entirely and use this exact model id.
    *  Callers with a specific model in mind (e.g. Storytelling script
    *  gen using its own storytelling_script_model setting) pass this
@@ -16,14 +37,22 @@ export async function orChat(opts: {
   temperature?: number;
   maxTokens?: number;
 }): Promise<{ ok: boolean; content?: string; finishReason?: string; error?: string }> {
-  const s = await getSettings([
-    "or_base",
-    "or_key",
-    opts.modelKey || "model_auto",
-  ]);
+  const requestedKey = opts.modelKey || "model_auto";
+  // Always fetch model_auto alongside the requested key so we have a
+  // fallback when the specific key is empty. Admin gets per-feature
+  // overrides without losing the "leave empty = use main model" UX.
+  const fetchKeys = ["or_base", "or_key", requestedKey];
+  if (requestedKey !== "model_auto") fetchKeys.push("model_auto");
+  const s = await getSettings(fetchKeys);
   const base = s.or_base?.url;
   const key = s.or_key?.key;
-  const model = opts.modelOverride || s[opts.modelKey || "model_auto"]?.model;
+  // Resolution chain: explicit override → admin-set per-feature key →
+  // admin-set model_auto. Each layer is skipped when empty so we land
+  // on the most-specific configured value.
+  const model =
+    opts.modelOverride ||
+    s[requestedKey]?.model ||
+    s["model_auto"]?.model;
   if (!base || !key || !model) {
     return { ok: false, error: "OpenRouter not configured" };
   }

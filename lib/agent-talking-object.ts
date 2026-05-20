@@ -328,7 +328,10 @@ async function inferIdealScene(
   if (!trimmed) return null;
   try {
     const r = await orChat({
-      modelKey: "model_auto",
+      // Viral Talking Object scene inference — uses model_viral so
+      // admin can route Viral content to a different model than Auto
+      // Content / Custom Idea. Falls back to model_auto when empty.
+      modelKey: "model_viral",
       systemPrompt: SCENE_INFERENCE_SYSTEM,
       userPrompt: `OBJECT: ${object}\nPURPOSE: ${trimmed}\n\nIdeal cinematic scene?`,
       temperature: 0.6,
@@ -419,7 +422,9 @@ export async function generateTalkingObjectPrompts(
   const userPrompt = buildUserPrompt(input, series, inferredScene);
 
   const r = await orChat({
-    modelKey: "model_auto",
+    // Viral Talking Object main prompt builder — model_viral lets admin
+    // route this independently from Auto Content. Falls back to model_auto.
+    modelKey: "model_viral",
     systemPrompt: SYSTEM_PROMPT,
     userPrompt,
     temperature: 0.85,

@@ -163,15 +163,26 @@ export default function AdminSettings() {
   const [savingMfSlots, setSavingMfSlots] = useState<"video" | "image" | "grok" | "cinema" | "sora2" | null>(null);
   const [mfSlotsMsg, setMfSlotsMsg] = useState<string | null>(null);
 
-  // Q&A chat model — independent override for the Q&A chat panel on
-  // every tab (UGC / Auto / Cinema / Storytelling / Image / Sora 2).
-  // Falls back to model_auto when empty. Lets admin route Q&A to a
-  // faster/cheaper model (e.g. flash-1.5-8b) while keeping Auto Content
-  // + Custom Idea on a stronger model (gemini-3.1-pro) for prompt
-  // generation quality. Stored as app_settings.model_qa = {model: "..."}.
+  // Per-feature model overrides. Each falls back to model_auto when
+  // empty so admin can leave any/all blank and behaviour stays
+  // identical to pre-refactor. The 5 admin-visible model knobs:
+  //   - model_qa          → Q&A chat panel on every tab
+  //   - model_custom_idea → UGC Custom Idea + Auto Content master plan
+  //   - model_viral       → Viral Talking Object scene + prompt builder
+  //   - model_clone       → Clone tab text generation
+  //   - storytelling_script_model → Storytelling 12-scene JSON (separate card)
   const [qaChatModel, setQaChatModel] = useState("");
   const [savingQa, setSavingQa] = useState(false);
   const [qaMsg, setQaMsg] = useState<string | null>(null);
+  const [customIdeaModel, setCustomIdeaModel] = useState("");
+  const [savingCustomIdea, setSavingCustomIdea] = useState(false);
+  const [customIdeaMsg, setCustomIdeaMsg] = useState<string | null>(null);
+  const [viralModel, setViralModel] = useState("");
+  const [savingViralModel, setSavingViralModel] = useState(false);
+  const [viralModelMsg, setViralModelMsg] = useState<string | null>(null);
+  const [cloneModel, setCloneModel] = useState("");
+  const [savingClone, setSavingClone] = useState(false);
+  const [cloneMsg, setCloneMsg] = useState<string | null>(null);
 
   // Facebook Conversions API config (single app_settings.fb_capi row).
   // pixel_id is also served publicly via /api/fb-pixel/config to bootstrap
@@ -273,6 +284,15 @@ export default function AdminSettings() {
         }
         if (row.key === "model_qa") {
           setQaChatModel(String(row.value?.model || ""));
+        }
+        if (row.key === "model_custom_idea") {
+          setCustomIdeaModel(String(row.value?.model || ""));
+        }
+        if (row.key === "model_viral") {
+          setViralModel(String(row.value?.model || ""));
+        }
+        if (row.key === "model_clone") {
+          setCloneModel(String(row.value?.model || ""));
         }
         // Main+fallback architecture
         const allowedV: string[] = [
@@ -815,37 +835,80 @@ export default function AdminSettings() {
     }
   }
 
-  // Saves the model_qa setting. Empty value = "fall back to model_auto"
-  // (the /api/qa/chat route already handles this fallback). Stored as
-  // {model: "<id>"} to match the shape every other model_X setting uses.
-  async function saveQaModel() {
-    setSavingQa(true);
-    setQaMsg(null);
+  // Generic save for a model_X setting. Each per-feature card uses
+  // this with its own label + state setters. Empty value = "fall back
+  // to model_auto" — backend orChat() already handles the fallback.
+  async function saveModelKey(opts: {
+    key: string;
+    value: string;
+    label: string;
+    setSaving: (v: boolean) => void;
+    setMsg: (v: string | null) => void;
+  }) {
+    opts.setSaving(true);
+    opts.setMsg(null);
     try {
       const res = await fetch("/api/admin/settings", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          key: "model_qa",
-          value: { model: qaChatModel.trim() },
+          key: opts.key,
+          value: { model: opts.value.trim() },
         }),
       });
       if (!res.ok) {
         const d = await res.json().catch(() => ({}));
         throw new Error(d?.error || `HTTP ${res.status}`);
       }
-      setQaMsg(
-        qaChatModel.trim()
-          ? `✓ Saved. Q&A chat now uses ${qaChatModel.trim()}.`
-          : "✓ Cleared. Q&A chat falls back to model_auto."
+      opts.setMsg(
+        opts.value.trim()
+          ? `✓ Saved. ${opts.label} now uses ${opts.value.trim()}.`
+          : `✓ Cleared. ${opts.label} falls back to model_auto.`
       );
       await load();
-      setTimeout(() => setQaMsg(null), 5000);
+      setTimeout(() => opts.setMsg(null), 5000);
     } catch (e: any) {
-      setQaMsg(`✗ Save failed: ${e?.message || "unknown"}`);
+      opts.setMsg(`✗ Save failed: ${e?.message || "unknown"}`);
     } finally {
-      setSavingQa(false);
+      opts.setSaving(false);
     }
+  }
+
+  function saveQaModel() {
+    return saveModelKey({
+      key: "model_qa",
+      value: qaChatModel,
+      label: "Q&A chat",
+      setSaving: setSavingQa,
+      setMsg: setQaMsg,
+    });
+  }
+  function saveCustomIdeaModel() {
+    return saveModelKey({
+      key: "model_custom_idea",
+      value: customIdeaModel,
+      label: "Custom Idea (UGC + Auto Content)",
+      setSaving: setSavingCustomIdea,
+      setMsg: setCustomIdeaMsg,
+    });
+  }
+  function saveViralModel() {
+    return saveModelKey({
+      key: "model_viral",
+      value: viralModel,
+      label: "Viral Talking Object",
+      setSaving: setSavingViralModel,
+      setMsg: setViralModelMsg,
+    });
+  }
+  function saveCloneModel() {
+    return saveModelKey({
+      key: "model_clone",
+      value: cloneModel,
+      label: "Clone",
+      setSaving: setSavingClone,
+      setMsg: setCloneMsg,
+    });
   }
 
   // Saves the fb_capi setting blob. Sent as a single JSON object so the
@@ -900,10 +963,12 @@ export default function AdminSettings() {
     // card above. Hiding the raw JSON because the access_token field is
     // a secret and shouldn't be visible in plain text in the generic list.
     "fb_capi",
-    // Q&A chat model — exposed via the dedicated "Q&A Chat Model" card.
-    // Hidden from raw JSON to prevent admin editing it in two places
-    // with conflicting values.
+    // Per-feature model overrides — each has its own dedicated card.
+    // Hidden from raw JSON to prevent two-place conflicting edits.
     "model_qa",
+    "model_custom_idea",
+    "model_viral",
+    "model_clone",
     // Both pricing keys below are noise in the admin UI — credit_topup_price
     // is an unused orphan (only seeded in 0001_init, no code reads it),
     // and credit_costs is consumed only as a fallback for auto_plan /
@@ -1837,60 +1902,82 @@ export default function AdminSettings() {
         )}
       </div>
 
-      {/* Q&A Chat Model — independent override for the floating Q&A
-          assistant on every tab. Decoupled from model_auto so admin can
-          route Q&A to cheap fast model while Auto Content + Custom Idea
-          keep using a stronger model for prompt generation quality. */}
+      {/* Model Routing — per-feature OpenRouter model overrides. Each
+          knob is independent and falls back to model_auto when empty,
+          so admin can configure as many or as few as they want. */}
       <div className="card p-6 mb-6 border-2 border-violet-100 bg-violet-50/30">
         <div className="flex items-center gap-2 mb-4">
           <Cpu className="w-5 h-5 text-violet-600" />
-          <h2 className="font-display font-bold text-lg">Q&A Chat Model</h2>
+          <h2 className="font-display font-bold text-lg">Model Routing</h2>
         </div>
         <p className="text-sm text-[var(--color-text-secondary)] mb-4">
-          Model untuk floating Q&A chat di setiap tab. <strong>Berasingan</strong>{" "}
-          dari <code>model_auto</code> (yang dipakai oleh Auto Content +
-          Custom Idea expansion). Set di sini untuk route Q&A ke model
-          cheaper/faster tanpa affect quality Auto Content prompts.
+          Per-feature OpenRouter model overrides. Setiap field{" "}
+          <strong>
+            kosong = fallback ke <code>model_auto</code>
+          </strong>{" "}
+          (backward compat). Set untuk route feature tertentu ke model yang
+          berbeza — example: Q&A pakai cheap fast model, Custom Idea pakai
+          stronger model untuk quality prompt generation.
         </p>
-        <div>
-          <label className="block text-xs font-mono uppercase tracking-widest text-[var(--color-text-muted)] font-bold mb-2">
-            Q&A Chat Model
-          </label>
-          <input
-            type="text"
+        <div className="space-y-4">
+          <ModelKnob
+            label="Q&A Chat Model"
             value={qaChatModel}
-            onChange={(e) => setQaChatModel(e.target.value)}
-            placeholder="e.g. google/gemini-flash-1.5-8b, anthropic/claude-haiku-4-5, openai/gpt-5.4-mini"
-            className="input w-full"
-            style={{ color: "white" }}
+            onChange={setQaChatModel}
+            onSave={saveQaModel}
+            saving={savingQa}
+            msg={qaMsg}
+            placeholder="e.g. google/gemini-flash-1.5-8b"
+            usedBy="Floating Q&A panel on every tab (UGC / Auto / Cinema / Story / Image / Sora 2)"
+            recommendation="Fast + cheap (Q&A doesn't need master-plan reasoning)"
           />
-          <p className="text-[10px] text-[var(--color-text-muted)] mt-1">
-            {qaChatModel.trim() ? (
-              <>
-                Currently active: <strong>{qaChatModel.trim()}</strong>
-              </>
-            ) : (
-              <>
-                Empty = falls back to <strong>model_auto</strong> (shared with
-                Auto Content + Custom Idea). Recommended dedicated model for
-                Q&A: <code>google/gemini-flash-1.5-8b</code> (fast + cheap,
-                Q&A doesn't need master-plan reasoning).
-              </>
-            )}
-          </p>
+          <ModelKnob
+            label="Custom Idea Model"
+            value={customIdeaModel}
+            onChange={setCustomIdeaModel}
+            onSave={saveCustomIdeaModel}
+            saving={savingCustomIdea}
+            msg={customIdeaMsg}
+            placeholder="e.g. google/gemini-2.5-flash, anthropic/claude-haiku-4-5"
+            usedBy="UGC tab Custom Idea expansion + Auto Content master plan (the heavy-lifting prompt generators)"
+            recommendation="Strong model — drives prompt quality across batches"
+          />
+          <ModelKnob
+            label="Viral Talking Object Model"
+            value={viralModel}
+            onChange={setViralModel}
+            onSave={saveViralModel}
+            saving={savingViralModel}
+            msg={viralModelMsg}
+            placeholder="e.g. anthropic/claude-haiku-4-5"
+            usedBy="Viral Talking Object scene inference + main prompt builder"
+            recommendation="Stronger model — Viral content needs creative scene-building"
+          />
+          <ModelKnob
+            label="Clone Model"
+            value={cloneModel}
+            onChange={setCloneModel}
+            onSave={saveCloneModel}
+            saving={savingClone}
+            msg={cloneMsg}
+            placeholder="e.g. google/gemini-2.5-flash"
+            usedBy="Clone tab text generation"
+            recommendation="Mid-tier model for tone-matching variations"
+          />
         </div>
-        <button
-          onClick={saveQaModel}
-          disabled={savingQa}
-          className="btn-primary mt-3 disabled:opacity-50"
-        >
-          {savingQa ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-          Save Q&A model
-        </button>
-        {qaMsg && (
+        <p className="text-[10px] text-[var(--color-text-muted)] mt-4 pt-3 border-t border-violet-100">
+          ℹ️ <strong>Storytelling</strong> has its own dedicated model setting
+          in the Storytelling section above (<code>storytelling_script_model</code>).{" "}
+          <strong>Vision / OCR / Retry</strong> internals share{" "}
+          <code>model_auto</code> — no per-feature override needed.
+        </p>
+        {/* legacy single-card stub kept hidden — UI now lives in the
+            ModelKnob children above. The msg state vars still drive the
+            inline status messages inside each card. */}
+        {false && (
           <div
             className={`text-xs mt-2 ${
-              qaMsg.startsWith("✓") ? "text-violet-700" : "text-red-600"
+              qaMsg?.startsWith("✓") ? "text-violet-700" : "text-red-600"
             }`}
           >
             {qaMsg}
@@ -2133,6 +2220,84 @@ export default function AdminSettings() {
               </div>
             );
           })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// One model-routing knob — label + input + save button + status msg.
+// Used 4× inside the Model Routing card so the markup stays DRY.
+// Empty value displays "Empty = falls back to model_auto" hint;
+// non-empty value displays "Currently active: <model>" hint.
+function ModelKnob({
+  label,
+  value,
+  onChange,
+  onSave,
+  saving,
+  msg,
+  placeholder,
+  usedBy,
+  recommendation,
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  onSave: () => void | Promise<void>;
+  saving: boolean;
+  msg: string | null;
+  placeholder: string;
+  usedBy: string;
+  recommendation: string;
+}) {
+  return (
+    <div className="rounded-xl border border-violet-100 bg-white/40 p-4">
+      <label className="block text-xs font-mono uppercase tracking-widest text-[var(--color-text-muted)] font-bold mb-2">
+        {label}
+      </label>
+      <input
+        type="text"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        className="input w-full"
+        style={{ color: "white" }}
+      />
+      <div className="text-[10px] text-[var(--color-text-muted)] mt-1.5 space-y-0.5">
+        <div>
+          <strong>Used by:</strong> {usedBy}
+        </div>
+        {value.trim() ? (
+          <div>
+            <strong>Active:</strong> {value.trim()}
+          </div>
+        ) : (
+          <div>
+            Empty = falls back to <strong>model_auto</strong>. Recommended:{" "}
+            {recommendation}.
+          </div>
+        )}
+      </div>
+      <button
+        onClick={onSave}
+        disabled={saving}
+        className="btn-primary mt-3 disabled:opacity-50 text-xs"
+      >
+        {saving ? (
+          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+        ) : (
+          <Save className="w-3.5 h-3.5" />
+        )}
+        Save
+      </button>
+      {msg && (
+        <div
+          className={`text-[10px] mt-2 ${
+            msg.startsWith("✓") ? "text-violet-700" : "text-red-600"
+          }`}
+        >
+          {msg}
         </div>
       )}
     </div>

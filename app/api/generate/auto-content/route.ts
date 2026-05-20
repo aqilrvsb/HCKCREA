@@ -1756,8 +1756,11 @@ CRITICAL OUTPUT RULES:
 
     // Text-only call — extension uses orChat (no vision). Product OCR done
     // separately above and folded into productData.descriptionText.
+    // Routes through model_custom_idea (shared with UGC tab Custom Idea
+    // expansion since both do "expand brief → structured Veo prompt").
+    // Falls back to model_auto when admin hasn't set a dedicated model.
     const plan = await orChat({
-      modelKey: "model_auto",
+      modelKey: "model_custom_idea",
       systemPrompt,
       userPrompt,
       temperature: 0.7,

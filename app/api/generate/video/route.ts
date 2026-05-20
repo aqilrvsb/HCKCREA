@@ -224,6 +224,11 @@ Korang tau tak ni apa? Aku baru jumpa, memang lain rasa dia! Try sekali, lepas t
         : `Scene Idea: ${ideaScene}`;
 
       const ideaResult = await orChat({
+        // Custom Idea expansion shares model_custom_idea with Auto
+        // Content's master plan — both do the same "expand brief →
+        // structured Veo prompt" job. Falls back to model_auto when
+        // admin hasn't configured a dedicated model.
+        modelKey: "model_custom_idea",
         systemPrompt: ideaSystem,
         userPrompt: userBlock,
         temperature: 0.8,
