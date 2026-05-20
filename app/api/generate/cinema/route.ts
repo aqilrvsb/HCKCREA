@@ -302,7 +302,12 @@ export async function POST(req: Request) {
         metadata: {
           model: actualModel, imageMode, resolution,
           aspectRatio: imageMode !== "text" ? null : aspectRatio,
-          cinemaProvider: modelChoice === "veo" ? "veo" : "grok-imagine",
+          cinemaProvider:
+            modelChoice === "veo"
+              ? "veo"
+              : modelChoice === "sora2"
+                ? "apipod"
+                : "grok-imagine",
           modelChoice,
           featureType,
           provider: actualProvider,
@@ -311,6 +316,13 @@ export async function POST(req: Request) {
           fallback_used: fallbackUsed,
           tier_log: tierLog,
           upload_status: "done",
+          // Stamp Sora 2 routing on success metadata so admin chip
+          // detection + history grid show the right tag for these rows.
+          ...(modelChoice === "sora2"
+            ? {
+                sora2Provider: "apipod",
+              }
+            : {}),
         },
       }).eq("id", historyId);
     } catch (e: any) {
@@ -320,7 +332,12 @@ export async function POST(req: Request) {
         metadata: {
           imageMode, resolution,
           aspectRatio: imageMode !== "text" ? null : aspectRatio,
-          cinemaProvider: modelChoice === "veo" ? "veo" : "grok-imagine",
+          cinemaProvider:
+            modelChoice === "veo"
+              ? "veo"
+              : modelChoice === "sora2"
+                ? "apipod"
+                : "grok-imagine",
           modelChoice,
           featureType,
           upload_status: "failed",

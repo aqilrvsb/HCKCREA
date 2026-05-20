@@ -53,10 +53,14 @@ const PROVIDER_THEME: Record<
     emoji: "⚡",
   },
   sora2: {
-    primary: "#4ade80",
-    soft: "rgba(74,222,128,0.25)",
-    faint: "rgba(74,222,128,0.08)",
-    gradient: "linear-gradient(135deg, #4ade80, #16a34a)",
+    // Light red per user direction (was green, then briefly blue).
+    // Red-400 → Red-500 gradient — distinct from Veo's gold and Grok's
+    // orange so the 3 provider chips read as 3 visibly different
+    // colors at a glance.
+    primary: "#f87171",
+    soft: "rgba(248,113,113,0.25)",
+    faint: "rgba(248,113,113,0.08)",
+    gradient: "linear-gradient(135deg, #f87171, #ef4444)",
     emoji: "✨",
   },
 };
@@ -326,7 +330,7 @@ export default function OriginalVideoTab({
         {provider === "veo" && imageMode === "frame" && (
           <div className="mb-4 grid grid-cols-2 gap-3">
             <FrameZone
-              label="Start Frame *"
+              label="Start Frame"
               required
               theme={theme}
               url={refSlots[0] || ""}
@@ -351,7 +355,7 @@ export default function OriginalVideoTab({
         {provider === "sora2" && imageMode === "frame" && (
           <div className="mb-4 grid grid-cols-2 gap-3">
             <FrameZone
-              label="Start Frame *"
+              label="Start Frame"
               required
               theme={theme}
               url={refSlots[0] || ""}
@@ -367,7 +371,7 @@ export default function OriginalVideoTab({
           </div>
         )}
 
-        {/* === Multi-ref Product Reference (Veo + Grok) === */}
+        {/* === Multi-ref References (Veo + Grok) === */}
         {imageMode === "ingredient" && (
           <div className="mb-4">
             <div
@@ -380,48 +384,66 @@ export default function OriginalVideoTab({
               <div className="flex gap-1.5 flex-wrap">
                 {Array.from({ length: refCap }).map((_, i) => {
                   const url = refSlots[i] || "";
+                  // Slot 1 is mandatory, slots 2+ optional per user
+                  // direction. Mandatory slot uses a solid (not dashed)
+                  // border so the "must fill this one" affordance is
+                  // visible at a glance even when empty.
+                  const isRequired = i === 0;
                   return (
-                    <button
-                      key={i}
-                      type="button"
-                      onClick={() => setPickingSlot(i)}
-                      className="relative w-16 h-16 rounded-lg overflow-hidden flex-shrink-0 flex items-center justify-center"
-                      style={{
-                        border: url
-                          ? `2px solid ${theme.primary}`
-                          : `2px dashed ${theme.soft}`,
-                        background: url ? "#000" : "var(--color-bg)",
-                      }}
-                    >
-                      {url ? (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img
-                          src={url}
-                          alt=""
-                          className="w-full h-full object-cover"
-                        />
-                      ) : (
-                        <span
-                          className="text-xs font-semibold"
-                          style={{ color: theme.primary }}
-                        >
-                          {i + 1}
-                        </span>
-                      )}
-                      {url && (
-                        <span
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setRefSlots(
-                              refSlots.map((u, j) => (j === i ? "" : u))
-                            );
-                          }}
-                          className="absolute top-0 right-0 w-4 h-4 rounded-bl bg-black/70 text-white text-[10px] flex items-center justify-center cursor-pointer"
-                        >
-                          ×
-                        </span>
-                      )}
-                    </button>
+                    <div key={i} className="flex flex-col items-center gap-0.5">
+                      <button
+                        type="button"
+                        onClick={() => setPickingSlot(i)}
+                        className="relative w-16 h-16 rounded-lg overflow-hidden flex-shrink-0 flex items-center justify-center"
+                        style={{
+                          border: url
+                            ? `2px solid ${theme.primary}`
+                            : isRequired
+                              ? `2px solid ${theme.soft}`
+                              : `2px dashed ${theme.soft}`,
+                          background: url ? "#000" : "var(--color-bg)",
+                        }}
+                      >
+                        {url ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img
+                            src={url}
+                            alt=""
+                            className="w-full h-full object-cover"
+                          />
+                        ) : (
+                          <span
+                            className="text-xs font-semibold"
+                            style={{ color: theme.primary }}
+                          >
+                            {i + 1}
+                          </span>
+                        )}
+                        {url && (
+                          <span
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setRefSlots(
+                                refSlots.map((u, j) => (j === i ? "" : u))
+                              );
+                            }}
+                            className="absolute top-0 right-0 w-4 h-4 rounded-bl bg-black/70 text-white text-[10px] flex items-center justify-center cursor-pointer"
+                          >
+                            ×
+                          </span>
+                        )}
+                      </button>
+                      <span
+                        className="text-[9px] font-mono uppercase tracking-wider"
+                        style={{
+                          color: isRequired
+                            ? "#ef4444"
+                            : "var(--color-text-muted)",
+                        }}
+                      >
+                        {isRequired ? "REQUIRED" : "OPTIONAL"}
+                      </span>
+                    </div>
                   );
                 })}
               </div>
@@ -623,10 +645,20 @@ function FrameZone({
   return (
     <div>
       <div
-        className="text-[11px] font-bold uppercase tracking-wider mb-1.5"
+        className="text-[11px] font-bold uppercase tracking-wider mb-1.5 flex items-baseline gap-1.5"
         style={{ color: theme.primary }}
       >
-        {label}
+        <span>{label}</span>
+        {required ? (
+          <span style={{ color: "#ef4444" }}>*</span>
+        ) : (
+          <span
+            className="font-normal normal-case tracking-normal"
+            style={{ color: "var(--color-text-muted)" }}
+          >
+            (optional)
+          </span>
+        )}
       </div>
       <div className="flex items-stretch gap-2">
         <button
