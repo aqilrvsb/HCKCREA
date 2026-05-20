@@ -55,7 +55,9 @@ export default function AdminUsage() {
   // Media filter — limit Detail Log + Summary to image-only or video-only
   // rows. "all" shows everything. Logic mirrors the cell isImg/isVid
   // detection so the filter agrees with what the rows render as.
-  const [mediaFilter, setMediaFilter] = useState<"all" | "image" | "video">("all");
+  // Defaulted to "video" per admin direction: usage log is video-first
+  // (admin can still flip to "Images" or "All" via the dropdown).
+  const [mediaFilter, setMediaFilter] = useState<"all" | "image" | "video">("video");
   const [search, setSearch] = useState("");
 
   useEffect(() => {
@@ -211,18 +213,24 @@ export default function AdminUsage() {
     let veo = 0;
     let grok = 0;
     let sora = 0;
+    let seedance = 0;
     let story = 0;
+    let image = 0;
     for (const r of generationRows) {
       const isImg =
         r.type === "image" ||
         r.type === "fairytale-scene" ||
         r.type === "fairytale-hero";
-      if (isImg) continue;
+      if (isImg) {
+        image++;
+        continue;
+      }
       const rawTab = String(r.tab || "").toLowerCase();
       const rawType = String(r.type || "").toLowerCase();
+      const modelStr = String((r.metadata as any)?.model || "").toLowerCase();
       const modelChoice = String((r.metadata as any)?.modelChoice || "").toLowerCase();
       const provider = String((r.metadata as any)?.provider || "").toLowerCase();
-      if (rawTab === "sora2" || modelChoice === "sora2") {
+      if (rawTab === "sora2" || modelChoice === "sora2" || modelStr.includes("sora")) {
         sora++;
       } else if (
         rawTab === "fairytale" ||
@@ -230,11 +238,21 @@ export default function AdminUsage() {
       ) {
         story++;
       } else if (
+        rawTab === "seedance" ||
+        modelStr.includes("seedance")
+      ) {
+        // Seedance rows — Cinema tab's Seedance feature + any
+        // Auto Content batches that ever picked Seedance. Detect by
+        // model substring to also catch legacy rows without the
+        // modelChoice tag.
+        seedance++;
+      } else if (
         modelChoice === "grok" ||
         modelChoice.includes("grok") ||
-        provider === "grok"
+        provider === "grok" ||
+        modelStr.includes("grok")
       ) {
-        // Grok detection by modelChoice/provider works for both
+        // Grok detection by modelChoice/model/provider — works for both
         // Original Video (tab='original-video') and Viral (tab='cinema')
         // rows that picked Grok as the provider.
         grok++;
@@ -242,18 +260,20 @@ export default function AdminUsage() {
         modelChoice === "veo" ||
         rawTab === "video" ||
         rawTab === "auto" ||
-        rawTab === "original-video"
+        rawTab === "original-video" ||
+        modelStr.includes("veo")
       ) {
-        // Default Veo bucket — UGC tab + Auto Content + Original Video
-        // (with veo modelChoice) + Viral Talking Object (no modelChoice
-        // tag because Talking Object always runs Veo).
+        // Veo bucket — UGC tab + Auto Content + Original Video (Veo)
+        // + Viral Talking Object (no modelChoice but always Veo).
         veo++;
       } else {
-        // Catch-all (legacy rows without modelChoice tag) → Veo bucket.
+        // Catch-all (legacy rows without any tag we recognise) → Veo
+        // bucket as the most common video family. Should be very rare
+        // after the metadata stamping landed.
         veo++;
       }
     }
-    return { veo, grok, sora, story };
+    return { veo, grok, sora, seedance, story, image };
   }, [generationRows]);
 
   return (
@@ -590,12 +610,14 @@ export default function AdminUsage() {
                 in the current date+media filter window. Hidden when the
                 media filter is "image" because the breakdown is video-only. */}
             {mediaFilter !== "image" && (
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
+              <div className="grid grid-cols-2 md:grid-cols-6 gap-3 mb-5">
                 {[
                   { label: "Veo Videos", value: videoBreakdown.veo,   tone: "rgba(34,197,94,0.18)",  fg: "#16a34a", sub: "UGC + Auto + Original Video (Veo) + Viral" },
                   { label: "Grok Videos", value: videoBreakdown.grok, tone: "rgba(99,102,241,0.18)", fg: "#6366f1", sub: "Original Video (Grok) + legacy Cinema" },
                   { label: "Sora 2 Videos", value: videoBreakdown.sora, tone: "rgba(74,222,128,0.18)", fg: "#4ade80", sub: "Original Video (Sora 2) + Auto Content Sora 2" },
+                  { label: "Seedance", value: videoBreakdown.seedance, tone: "rgba(244,114,182,0.18)", fg: "#ec4899", sub: "Cinema Seedance + Auto Content Seedance" },
                   { label: "Storytelling", value: videoBreakdown.story, tone: "rgba(139,92,246,0.18)", fg: "#8b5cf6", sub: "Final merged story video" },
+                  { label: "Images", value: videoBreakdown.image, tone: "rgba(250,204,21,0.18)", fg: "#eab308", sub: "Image tab + storytelling/viral aux images" },
                 ].map((b) => (
                   <div
                     key={b.label}
