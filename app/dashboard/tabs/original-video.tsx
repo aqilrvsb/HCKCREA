@@ -301,59 +301,80 @@ export default function OriginalVideoTab({
           })}
         </div>
 
-        {/* Ref image slots */}
+        {/* Ref image slots — compact MultiRefRow layout (mirrors UGC
+            tab's Product Reference component). Tiny 16×16 numbered
+            squares + side "Reference" picker button. Total height ~80px
+            instead of ~250px the larger grid was producing. */}
         {imageMode !== "text" && (
           <div className="mb-4">
-            <label className="block text-[10px] uppercase tracking-widest text-[var(--color-text-secondary)] font-bold mb-2">
-              Reference image{refCap === 1 ? "" : "s"} (up to {refCap})
-            </label>
-            {/* Always a 3-col grid so a single Sora 2 slot stays
-                ~1/3 viewport-width (matches the UGC tab thumb sizing).
-                Slots beyond refCap render as invisible spacers so the
-                visible slots stay left-aligned at consistent width. */}
-            <div className="grid grid-cols-3 gap-2 max-w-2xl">
-              {Array.from({ length: REF_SLOTS }).map((_, i) => {
-                if (i >= refCap) return <div key={i} aria-hidden />;
-                const url = refSlots[i];
-                return url ? (
-                  <div
-                    key={i}
-                    className="relative aspect-square rounded-lg overflow-hidden"
-                    style={{ border: "1px solid var(--color-border)" }}
-                  >
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img
-                      src={url}
-                      alt={`Reference ${i + 1}`}
-                      className="w-full h-full object-cover"
-                    />
+            <div
+              className="text-[11px] font-bold uppercase tracking-wider mb-1.5"
+              style={{ color: theme.primary }}
+            >
+              Reference image{refCap === 1 ? "" : "s"} ({filledRefs.length}/{refCap})
+            </div>
+            <div className="flex items-stretch gap-2">
+              <div className="flex gap-1.5 flex-wrap">
+                {Array.from({ length: refCap }).map((_, i) => {
+                  const url = refSlots[i] || "";
+                  return (
                     <button
-                      onClick={() =>
-                        setRefSlots(refSlots.map((u, j) => (j === i ? "" : u)))
-                      }
-                      title="Clear this reference"
-                      className="absolute top-1 right-1 w-6 h-6 rounded-md flex items-center justify-center"
-                      style={{ background: "rgba(0,0,0,0.7)", color: "white" }}
+                      key={i}
+                      type="button"
+                      onClick={() => setPickingSlot(i)}
+                      className="relative w-16 h-16 rounded-lg overflow-hidden flex-shrink-0 flex items-center justify-center"
+                      style={{
+                        border: url
+                          ? `2px solid ${theme.primary}`
+                          : `2px dashed ${theme.soft}`,
+                        background: url ? "#000" : "var(--color-bg)",
+                      }}
                     >
-                      <X className="w-3.5 h-3.5" />
+                      {url ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                          src={url}
+                          alt=""
+                          className="w-full h-full object-cover"
+                        />
+                      ) : (
+                        <span
+                          className="text-xs font-semibold"
+                          style={{ color: theme.primary }}
+                        >
+                          {i + 1}
+                        </span>
+                      )}
+                      {url && (
+                        <span
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setRefSlots(
+                              refSlots.map((u, j) => (j === i ? "" : u))
+                            );
+                          }}
+                          className="absolute top-0 right-0 w-4 h-4 rounded-bl bg-black/70 text-white text-[10px] flex items-center justify-center cursor-pointer"
+                        >
+                          ×
+                        </span>
+                      )}
                     </button>
-                  </div>
-                ) : (
-                  <button
-                    key={i}
-                    onClick={() => setPickingSlot(i)}
-                    className="aspect-square rounded-lg text-xs font-bold flex flex-col items-center justify-center gap-1 transition-colors"
-                    style={{
-                      background: "var(--color-bg)",
-                      border: "1px dashed var(--color-border)",
-                      color: "var(--color-text-secondary)",
-                    }}
-                  >
-                    <span className="text-lg">+</span>
-                    <span>Image {i + 1}</span>
-                  </button>
-                );
-              })}
+                  );
+                })}
+              </div>
+              <button
+                type="button"
+                onClick={() => setPickingSlot(filledRefs.length)}
+                disabled={filledRefs.length >= refCap}
+                className="px-3 py-1 rounded text-[11px] font-bold whitespace-nowrap disabled:opacity-40 self-start"
+                style={{
+                  background: theme.faint,
+                  border: `1px solid ${theme.primary}`,
+                  color: theme.primary,
+                }}
+              >
+                Reference
+              </button>
             </div>
             {imageMode === "frame" && provider === "sora2" && (
               <p className="text-[10px] text-[var(--color-text-muted)] mt-1.5">
