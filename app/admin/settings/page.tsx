@@ -163,26 +163,51 @@ export default function AdminSettings() {
   const [savingMfSlots, setSavingMfSlots] = useState<"video" | "image" | "grok" | "cinema" | "sora2" | null>(null);
   const [mfSlotsMsg, setMfSlotsMsg] = useState<string | null>(null);
 
-  // Per-feature model overrides. Each falls back to model_auto when
-  // empty so admin can leave any/all blank and behaviour stays
-  // identical to pre-refactor. The 5 admin-visible model knobs:
+  // Per-feature model overrides — cascade with main + fallback. Admin
+  // configures each knob with two slots; orChat tries main first, falls
+  // back to fallback on error, then falls through to model_auto cascade.
+  // Each slot is {provider: "openrouter"|"grsai", model: "..."}.
+  //
   //   - model_qa          → Q&A chat panel on every tab
   //   - model_custom_idea → UGC Custom Idea + Auto Content master plan
   //   - model_viral       → Viral Talking Object scene + prompt builder
   //   - model_clone       → Clone tab text generation
+  //   - model_auto        → universal fallback (last layer of every cascade)
   //   - storytelling_script_model → Storytelling 12-scene JSON (separate card)
-  const [qaChatModel, setQaChatModel] = useState("");
+  type ModelSlotProvider = "openrouter" | "grsai";
+  type ModelKnobState = {
+    mainProvider: ModelSlotProvider;
+    mainModel: string;
+    fallbackProvider: ModelSlotProvider;
+    fallbackModel: string;
+  };
+  const emptyKnob = (): ModelKnobState => ({
+    mainProvider: "openrouter",
+    mainModel: "",
+    fallbackProvider: "openrouter",
+    fallbackModel: "",
+  });
+  const [qaKnob, setQaKnob] = useState<ModelKnobState>(emptyKnob());
   const [savingQa, setSavingQa] = useState(false);
   const [qaMsg, setQaMsg] = useState<string | null>(null);
-  const [customIdeaModel, setCustomIdeaModel] = useState("");
+  const [customIdeaKnob, setCustomIdeaKnob] = useState<ModelKnobState>(emptyKnob());
   const [savingCustomIdea, setSavingCustomIdea] = useState(false);
   const [customIdeaMsg, setCustomIdeaMsg] = useState<string | null>(null);
-  const [viralModel, setViralModel] = useState("");
+  const [viralKnob, setViralKnob] = useState<ModelKnobState>(emptyKnob());
   const [savingViralModel, setSavingViralModel] = useState(false);
   const [viralModelMsg, setViralModelMsg] = useState<string | null>(null);
-  const [cloneModel, setCloneModel] = useState("");
+  const [cloneKnob, setCloneKnob] = useState<ModelKnobState>(emptyKnob());
   const [savingClone, setSavingClone] = useState(false);
   const [cloneMsg, setCloneMsg] = useState<string | null>(null);
+  const [autoKnob, setAutoKnob] = useState<ModelKnobState>(emptyKnob());
+  const [savingAuto, setSavingAuto] = useState(false);
+  const [autoMsg, setAutoMsg] = useState<string | null>(null);
+
+  // Grsai credentials — separate small card.
+  const [grBase, setGrBase] = useState("");
+  const [grKey, setGrKey] = useState("");
+  const [savingGr, setSavingGr] = useState(false);
+  const [grMsg, setGrMsg] = useState<string | null>(null);
 
   // Facebook Conversions API config (single app_settings.fb_capi row).
   // pixel_id is also served publicly via /api/fb-pixel/config to bootstrap
@@ -282,18 +307,36 @@ export default function AdminSettings() {
           setFbTestEventCode(String(row.value?.test_event_code || ""));
           setFbCapiEnabled(row.value?.enabled !== false);
         }
-        if (row.key === "model_qa") {
-          setQaChatModel(String(row.value?.model || ""));
-        }
-        if (row.key === "model_custom_idea") {
-          setCustomIdeaModel(String(row.value?.model || ""));
-        }
-        if (row.key === "model_viral") {
-          setViralModel(String(row.value?.model || ""));
-        }
-        if (row.key === "model_clone") {
-          setCloneModel(String(row.value?.model || ""));
-        }
+        // Parse a model_X row into the {main, fallback} cascade shape.
+        // Back-compat: legacy { model: "..." } rows are treated as
+        // openrouter main with no fallback.
+        const parseKnob = (val: any): ModelKnobState => {
+          const out = emptyKnob();
+          if (!val) return out;
+          if (val.main && val.main.model) {
+            out.mainProvider =
+              (val.main.provider === "grsai" ? "grsai" : "openrouter");
+            out.mainModel = String(val.main.model);
+          } else if (val.model) {
+            // Legacy shape
+            out.mainProvider =
+              (val.provider === "grsai" ? "grsai" : "openrouter");
+            out.mainModel = String(val.model);
+          }
+          if (val.fallback && val.fallback.model) {
+            out.fallbackProvider =
+              (val.fallback.provider === "grsai" ? "grsai" : "openrouter");
+            out.fallbackModel = String(val.fallback.model);
+          }
+          return out;
+        };
+        if (row.key === "model_qa") setQaKnob(parseKnob(row.value));
+        if (row.key === "model_custom_idea") setCustomIdeaKnob(parseKnob(row.value));
+        if (row.key === "model_viral") setViralKnob(parseKnob(row.value));
+        if (row.key === "model_clone") setCloneKnob(parseKnob(row.value));
+        if (row.key === "model_auto") setAutoKnob(parseKnob(row.value));
+        if (row.key === "gr_base") setGrBase(String(row.value?.url || ""));
+        if (row.key === "gr_key") setGrKey(String(row.value?.key || ""));
         // Main+fallback architecture
         const allowedV: string[] = [
           "p1", "p2-a", "p2-b", "p5",
@@ -835,12 +878,14 @@ export default function AdminSettings() {
     }
   }
 
-  // Generic save for a model_X setting. Each per-feature card uses
-  // this with its own label + state setters. Empty value = "fall back
-  // to model_auto" — backend orChat() already handles the fallback.
-  async function saveModelKey(opts: {
+  // Generic save for a model_X cascade setting. Serializes the knob's
+  // {mainProvider, mainModel, fallbackProvider, fallbackModel} into
+  // the wire shape { main: {provider, model}, fallback?: {provider,
+  // model} }. Empty main = "fall back to model_auto"; empty fallback
+  // = no second-attempt provider (cascade just tries main → model_auto).
+  async function saveCascadeKnob(opts: {
     key: string;
-    value: string;
+    knob: ModelKnobState;
     label: string;
     setSaving: (v: boolean) => void;
     setMsg: (v: string | null) => void;
@@ -848,67 +893,120 @@ export default function AdminSettings() {
     opts.setSaving(true);
     opts.setMsg(null);
     try {
+      const main = opts.knob.mainModel.trim();
+      const fb = opts.knob.fallbackModel.trim();
+      const value: any = {};
+      if (main) {
+        value.main = { provider: opts.knob.mainProvider, model: main };
+      }
+      if (fb) {
+        value.fallback = { provider: opts.knob.fallbackProvider, model: fb };
+      }
       const res = await fetch("/api/admin/settings", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          key: opts.key,
-          value: { model: opts.value.trim() },
-        }),
+        body: JSON.stringify({ key: opts.key, value }),
       });
       if (!res.ok) {
         const d = await res.json().catch(() => ({}));
         throw new Error(d?.error || `HTTP ${res.status}`);
       }
+      const parts: string[] = [];
+      if (main) parts.push(`main: ${opts.knob.mainProvider}/${main}`);
+      if (fb) parts.push(`fallback: ${opts.knob.fallbackProvider}/${fb}`);
       opts.setMsg(
-        opts.value.trim()
-          ? `✓ Saved. ${opts.label} now uses ${opts.value.trim()}.`
+        parts.length
+          ? `✓ Saved. ${opts.label} → ${parts.join(" → ")}.`
           : `✓ Cleared. ${opts.label} falls back to model_auto.`
       );
       await load();
-      setTimeout(() => opts.setMsg(null), 5000);
+      setTimeout(() => opts.setMsg(null), 6000);
     } catch (e: any) {
       opts.setMsg(`✗ Save failed: ${e?.message || "unknown"}`);
     } finally {
       opts.setSaving(false);
     }
   }
-
   function saveQaModel() {
-    return saveModelKey({
+    return saveCascadeKnob({
       key: "model_qa",
-      value: qaChatModel,
+      knob: qaKnob,
       label: "Q&A chat",
       setSaving: setSavingQa,
       setMsg: setQaMsg,
     });
   }
   function saveCustomIdeaModel() {
-    return saveModelKey({
+    return saveCascadeKnob({
       key: "model_custom_idea",
-      value: customIdeaModel,
-      label: "Custom Idea (UGC + Auto Content)",
+      knob: customIdeaKnob,
+      label: "Custom Idea",
       setSaving: setSavingCustomIdea,
       setMsg: setCustomIdeaMsg,
     });
   }
   function saveViralModel() {
-    return saveModelKey({
+    return saveCascadeKnob({
       key: "model_viral",
-      value: viralModel,
+      knob: viralKnob,
       label: "Viral Talking Object",
       setSaving: setSavingViralModel,
       setMsg: setViralModelMsg,
     });
   }
   function saveCloneModel() {
-    return saveModelKey({
+    return saveCascadeKnob({
       key: "model_clone",
-      value: cloneModel,
+      knob: cloneKnob,
       label: "Clone",
       setSaving: setSavingClone,
       setMsg: setCloneMsg,
     });
+  }
+  function saveAutoModel() {
+    return saveCascadeKnob({
+      key: "model_auto",
+      knob: autoKnob,
+      label: "Model Auto (universal fallback)",
+      setSaving: setSavingAuto,
+      setMsg: setAutoMsg,
+    });
+  }
+  async function saveGrsai() {
+    setSavingGr(true);
+    setGrMsg(null);
+    try {
+      const responses = await Promise.all([
+        fetch("/api/admin/settings", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            key: "gr_base",
+            value: { url: grBase.trim() || "https://grsaiapi.com" },
+          }),
+        }),
+        fetch("/api/admin/settings", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            key: "gr_key",
+            value: { key: grKey.trim() },
+          }),
+        }),
+      ]);
+      const failed = responses.find((r) => !r.ok);
+      if (failed) {
+        const d = await failed.json().catch(() => ({}));
+        throw new Error(d?.error || `HTTP ${failed.status}`);
+      }
+      setGrMsg(grKey.trim() ? "✓ Grsai credentials saved." : "✓ Grsai key cleared.");
+      await load();
+      setTimeout(() => setGrMsg(null), 5000);
+    } catch (e: any) {
+      setGrMsg(`✗ Save failed: ${e?.message || "unknown"}`);
+    } finally {
+      setSavingGr(false);
+    }
   }
 
   // Saves the fb_capi setting blob. Sent as a single JSON object so the
@@ -969,6 +1067,10 @@ export default function AdminSettings() {
     "model_custom_idea",
     "model_viral",
     "model_clone",
+    "model_auto",
+    // Grsai credentials — exposed via the dedicated Grsai card.
+    "gr_base",
+    "gr_key",
     // Both pricing keys below are noise in the admin UI — credit_topup_price
     // is an unused orphan (only seeded in 0001_init, no code reads it),
     // and credit_costs is consumed only as a fallback for auto_plan /
@@ -1902,9 +2004,99 @@ export default function AdminSettings() {
         )}
       </div>
 
-      {/* Model Routing — per-feature OpenRouter model overrides. Each
-          knob is independent and falls back to model_auto when empty,
-          so admin can configure as many or as few as they want. */}
+      {/* Grsai credentials — second AI provider for the cascade.
+          Same OpenAI-compat /v1/chat/completions shape as OpenRouter
+          so the same Bearer-token + base URL pattern applies. Cards
+          stacked side-by-side aren't necessary; this lives as its own
+          card to keep auth secrets visually separate from model picks. */}
+      <div
+        className="card p-6 mb-6 border-2"
+        style={{
+          borderColor: "rgba(34,197,94,0.3)",
+          boxShadow: "inset 0 0 80px rgba(34,197,94,0.05)",
+        }}
+      >
+        <div className="flex items-center gap-2 mb-4">
+          <KeyRound className="w-5 h-5" style={{ color: "#16a34a" }} />
+          <h2 className="font-display font-bold text-lg text-[var(--color-text-primary)]">
+            Grsai Credentials
+          </h2>
+        </div>
+        <p className="text-sm text-[var(--color-text-secondary)] mb-4">
+          Second AI provider for the Model Routing cascade. Same shape
+          as OpenRouter (OpenAI-compatible /v1/chat/completions). Get
+          your API key from{" "}
+          <a
+            href="https://grsai.ai/zh/dashboard/api-keys"
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{ color: "#16a34a" }}
+            className="font-semibold underline"
+          >
+            grsai.ai/dashboard/api-keys
+          </a>
+          .
+        </p>
+        <div className="grid md:grid-cols-2 gap-3">
+          <div>
+            <label className="block text-xs font-mono uppercase tracking-widest text-[var(--color-text-muted)] font-bold mb-2">
+              Base URL{" "}
+              <span className="text-[var(--color-text-muted)] font-normal">
+                (empty = https://grsaiapi.com)
+              </span>
+            </label>
+            <input
+              type="text"
+              name="gr_base_override"
+              autoComplete="off"
+              value={grBase}
+              onChange={(e) => setGrBase(e.target.value)}
+              placeholder="https://grsaiapi.com  (global) or https://grsai.dakka.com.cn (China)"
+              className="input font-mono text-xs w-full"
+              style={{ color: "var(--color-text-primary)" }}
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-mono uppercase tracking-widest text-[var(--color-text-muted)] font-bold mb-2">
+              API Key{" "}
+              <span className="text-red-600 font-normal">
+                (server-only — required for Grsai cascade)
+              </span>
+            </label>
+            <input
+              type="password"
+              name="gr_key_secret"
+              autoComplete="new-password"
+              value={grKey}
+              onChange={(e) => setGrKey(e.target.value)}
+              placeholder="sk-xxxxxxxxxxx"
+              className="input font-mono text-xs w-full"
+              style={{ color: "var(--color-text-primary)" }}
+            />
+          </div>
+        </div>
+        <button
+          onClick={saveGrsai}
+          disabled={savingGr}
+          className="btn-primary mt-3 disabled:opacity-50"
+        >
+          {savingGr ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+          Save Grsai credentials
+        </button>
+        {grMsg && (
+          <div
+            className="text-xs mt-2"
+            style={{ color: grMsg.startsWith("✓") ? "#16a34a" : "#ef4444" }}
+          >
+            {grMsg}
+          </div>
+        )}
+      </div>
+
+      {/* Model Routing — per-feature cascade with main + fallback.
+          Each knob can mix providers (e.g. OpenRouter main + Grsai
+          fallback for reliability across vendors). Empty knob falls
+          through to model_auto cascade. */}
       <div
         className="card p-6 mb-6 border-2"
         style={{
@@ -1931,47 +2123,53 @@ export default function AdminSettings() {
         <div className="space-y-4">
           <ModelKnob
             label="Q&A Chat Model"
-            value={qaChatModel}
-            onChange={setQaChatModel}
+            value={qaKnob}
+            onChange={setQaKnob}
             onSave={saveQaModel}
             saving={savingQa}
             msg={qaMsg}
-            placeholder="e.g. google/gemini-flash-1.5-8b"
             usedBy="Floating Q&A panel on every tab (UGC / Auto / Cinema / Story / Image / Sora 2)"
             recommendation="Fast + cheap (Q&A doesn't need master-plan reasoning)"
           />
           <ModelKnob
             label="Custom Idea Model"
-            value={customIdeaModel}
-            onChange={setCustomIdeaModel}
+            value={customIdeaKnob}
+            onChange={setCustomIdeaKnob}
             onSave={saveCustomIdeaModel}
             saving={savingCustomIdea}
             msg={customIdeaMsg}
-            placeholder="e.g. google/gemini-2.5-flash, anthropic/claude-haiku-4-5"
             usedBy="UGC tab Custom Idea expansion + Auto Content master plan (the heavy-lifting prompt generators)"
             recommendation="Strong model — drives prompt quality across batches"
           />
           <ModelKnob
             label="Viral Talking Object Model"
-            value={viralModel}
-            onChange={setViralModel}
+            value={viralKnob}
+            onChange={setViralKnob}
             onSave={saveViralModel}
             saving={savingViralModel}
             msg={viralModelMsg}
-            placeholder="e.g. anthropic/claude-haiku-4-5"
             usedBy="Viral Talking Object scene inference + main prompt builder"
             recommendation="Stronger model — Viral content needs creative scene-building"
           />
           <ModelKnob
             label="Clone Model"
-            value={cloneModel}
-            onChange={setCloneModel}
+            value={cloneKnob}
+            onChange={setCloneKnob}
             onSave={saveCloneModel}
             saving={savingClone}
             msg={cloneMsg}
-            placeholder="e.g. google/gemini-2.5-flash"
             usedBy="Clone tab text generation"
             recommendation="Mid-tier model for tone-matching variations"
+          />
+          <ModelKnob
+            label="Model Auto (universal fallback)"
+            value={autoKnob}
+            onChange={setAutoKnob}
+            onSave={saveAutoModel}
+            saving={savingAuto}
+            msg={autoMsg}
+            usedBy="Last layer of every cascade. Used when a per-feature knob's main + fallback both fail (or aren't set). Also the default for any code path that doesn't pass a specific modelKey."
+            recommendation="A reliable cheap workhorse (e.g. google/gemini-2.5-flash) — the safety net for everything else"
           />
         </div>
         <p
@@ -2246,10 +2444,17 @@ export default function AdminSettings() {
   );
 }
 
-// One model-routing knob — label + input + save button + status msg.
-// Used 4× inside the Model Routing card so the markup stays DRY.
-// Empty value displays "Empty = falls back to model_auto" hint;
-// non-empty value displays "Currently active: <model>" hint.
+// Cascade model knob — main + fallback. Each slot has a provider
+// dropdown (OpenRouter / Grsai) + a model text input. On save, the
+// {main, fallback?} cascade shape is written to app_settings.model_X.
+// Empty main = "no override, fall back to model_auto cascade".
+// Empty fallback = "main only, no second-attempt provider".
+type CascadeKnobValue = {
+  mainProvider: "openrouter" | "grsai";
+  mainModel: string;
+  fallbackProvider: "openrouter" | "grsai";
+  fallbackModel: string;
+};
 function ModelKnob({
   label,
   value,
@@ -2257,20 +2462,32 @@ function ModelKnob({
   onSave,
   saving,
   msg,
-  placeholder,
   usedBy,
   recommendation,
 }: {
   label: string;
-  value: string;
-  onChange: (v: string) => void;
+  value: CascadeKnobValue;
+  onChange: (v: CascadeKnobValue) => void;
   onSave: () => void | Promise<void>;
   saving: boolean;
   msg: string | null;
-  placeholder: string;
   usedBy: string;
   recommendation: string;
 }) {
+  const providerStyle = (p: "openrouter" | "grsai") =>
+    p === "openrouter"
+      ? { bg: "rgba(139,92,246,0.12)", fg: "#a78bfa", bd: "rgba(139,92,246,0.4)" }
+      : { bg: "rgba(34,197,94,0.12)", fg: "#16a34a", bd: "rgba(34,197,94,0.4)" };
+  const summary = (() => {
+    const parts: string[] = [];
+    if (value.mainModel.trim()) {
+      parts.push(`${value.mainProvider}/${value.mainModel.trim()}`);
+    }
+    if (value.fallbackModel.trim()) {
+      parts.push(`${value.fallbackProvider}/${value.fallbackModel.trim()}`);
+    }
+    return parts;
+  })();
   return (
     <div
       className="rounded-xl p-4 border"
@@ -2280,19 +2497,92 @@ function ModelKnob({
       }}
     >
       <label
-        className="block text-xs font-mono uppercase tracking-widest font-bold mb-2"
+        className="block text-xs font-mono uppercase tracking-widest font-bold mb-3"
         style={{ color: "var(--color-text-secondary)" }}
       >
         {label}
       </label>
-      <input
-        type="text"
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        placeholder={placeholder}
-        className="input w-full"
-        style={{ color: "var(--color-text-primary)" }}
-      />
+
+      {/* Main slot */}
+      <div className="mb-2">
+        <div
+          className="text-[10px] font-mono uppercase tracking-widest font-bold mb-1.5"
+          style={{ color: "var(--color-text-muted)" }}
+        >
+          🎯 Main
+        </div>
+        <div className="grid grid-cols-[120px_1fr] gap-2">
+          <select
+            value={value.mainProvider}
+            onChange={(e) =>
+              onChange({
+                ...value,
+                mainProvider: e.target.value as "openrouter" | "grsai",
+              })
+            }
+            className="px-2 py-2 rounded-lg text-xs font-bold cursor-pointer outline-none"
+            style={{
+              ...providerStyle(value.mainProvider),
+              border: `1px solid ${providerStyle(value.mainProvider).bd}`,
+            }}
+          >
+            <option value="openrouter">OpenRouter</option>
+            <option value="grsai">Grsai</option>
+          </select>
+          <input
+            type="text"
+            value={value.mainModel}
+            onChange={(e) => onChange({ ...value, mainModel: e.target.value })}
+            placeholder={
+              value.mainProvider === "grsai"
+                ? "e.g. gemini-3.1-pro"
+                : "e.g. google/gemini-flash-1.5-8b"
+            }
+            className="input w-full"
+            style={{ color: "var(--color-text-primary)" }}
+          />
+        </div>
+      </div>
+
+      {/* Fallback slot */}
+      <div className="mb-2">
+        <div
+          className="text-[10px] font-mono uppercase tracking-widest font-bold mb-1.5"
+          style={{ color: "var(--color-text-muted)" }}
+        >
+          🛟 Fallback (optional)
+        </div>
+        <div className="grid grid-cols-[120px_1fr] gap-2">
+          <select
+            value={value.fallbackProvider}
+            onChange={(e) =>
+              onChange({
+                ...value,
+                fallbackProvider: e.target.value as "openrouter" | "grsai",
+              })
+            }
+            className="px-2 py-2 rounded-lg text-xs font-bold cursor-pointer outline-none"
+            style={{
+              ...providerStyle(value.fallbackProvider),
+              border: `1px solid ${providerStyle(value.fallbackProvider).bd}`,
+            }}
+          >
+            <option value="openrouter">OpenRouter</option>
+            <option value="grsai">Grsai</option>
+          </select>
+          <input
+            type="text"
+            value={value.fallbackModel}
+            onChange={(e) =>
+              onChange({ ...value, fallbackModel: e.target.value })
+            }
+            placeholder="Empty = no fallback (skip straight to model_auto cascade)"
+            className="input w-full"
+            style={{ color: "var(--color-text-primary)" }}
+          />
+        </div>
+      </div>
+
       <div
         className="text-xs mt-2 space-y-1"
         style={{ color: "var(--color-text-secondary)" }}
@@ -2301,10 +2591,19 @@ function ModelKnob({
           <strong style={{ color: "var(--color-text-primary)" }}>Used by:</strong>{" "}
           {usedBy}
         </div>
-        {value.trim() ? (
+        {summary.length > 0 ? (
           <div>
-            <strong style={{ color: "var(--color-text-primary)" }}>Active:</strong>{" "}
-            <code style={{ color: "#a78bfa" }}>{value.trim()}</code>
+            <strong style={{ color: "var(--color-text-primary)" }}>
+              Active cascade:
+            </strong>{" "}
+            {summary.map((s, i) => (
+              <span key={i}>
+                {i > 0 && (
+                  <span style={{ color: "var(--color-text-muted)" }}> → </span>
+                )}
+                <code style={{ color: "#a78bfa" }}>{s}</code>
+              </span>
+            ))}
           </div>
         ) : (
           <div>
