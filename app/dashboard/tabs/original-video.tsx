@@ -307,14 +307,15 @@ export default function OriginalVideoTab({
             <label className="block text-[10px] uppercase tracking-widest text-[var(--color-text-secondary)] font-bold mb-2">
               Reference image{refCap === 1 ? "" : "s"} (up to {refCap})
             </label>
-            <div
-              className="grid gap-2"
-              style={{
-                gridTemplateColumns: `repeat(${Math.min(refCap, REF_SLOTS)}, minmax(0, 1fr))`,
-              }}
-            >
-              {refSlots.slice(0, refCap).map((url, i) =>
-                url ? (
+            {/* Always a 3-col grid so a single Sora 2 slot stays
+                ~1/3 viewport-width (matches the UGC tab thumb sizing).
+                Slots beyond refCap render as invisible spacers so the
+                visible slots stay left-aligned at consistent width. */}
+            <div className="grid grid-cols-3 gap-2 max-w-2xl">
+              {Array.from({ length: REF_SLOTS }).map((_, i) => {
+                if (i >= refCap) return <div key={i} aria-hidden />;
+                const url = refSlots[i];
+                return url ? (
                   <div
                     key={i}
                     className="relative aspect-square rounded-lg overflow-hidden"
@@ -351,8 +352,8 @@ export default function OriginalVideoTab({
                     <span className="text-lg">+</span>
                     <span>Image {i + 1}</span>
                   </button>
-                )
-              )}
+                );
+              })}
             </div>
             {imageMode === "frame" && provider === "sora2" && (
               <p className="text-[10px] text-[var(--color-text-muted)] mt-1.5">
