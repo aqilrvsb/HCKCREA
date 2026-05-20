@@ -1905,15 +1905,24 @@ export default function AdminSettings() {
       {/* Model Routing — per-feature OpenRouter model overrides. Each
           knob is independent and falls back to model_auto when empty,
           so admin can configure as many or as few as they want. */}
-      <div className="card p-6 mb-6 border-2 border-violet-100 bg-violet-50/30">
+      <div
+        className="card p-6 mb-6 border-2"
+        style={{
+          borderColor: "rgba(139,92,246,0.3)",
+          boxShadow: "inset 0 0 80px rgba(139,92,246,0.06)",
+        }}
+      >
         <div className="flex items-center gap-2 mb-4">
-          <Cpu className="w-5 h-5 text-violet-600" />
-          <h2 className="font-display font-bold text-lg">Model Routing</h2>
+          <Cpu className="w-5 h-5" style={{ color: "#a78bfa" }} />
+          <h2 className="font-display font-bold text-lg text-[var(--color-text-primary)]">
+            Model Routing
+          </h2>
         </div>
         <p className="text-sm text-[var(--color-text-secondary)] mb-4">
           Per-feature OpenRouter model overrides. Setiap field{" "}
-          <strong>
-            kosong = fallback ke <code>model_auto</code>
+          <strong className="text-[var(--color-text-primary)]">
+            kosong = fallback ke{" "}
+            <code style={{ color: "#a78bfa" }}>model_auto</code>
           </strong>{" "}
           (backward compat). Set untuk route feature tertentu ke model yang
           berbeza — example: Q&A pakai cheap fast model, Custom Idea pakai
@@ -1965,11 +1974,22 @@ export default function AdminSettings() {
             recommendation="Mid-tier model for tone-matching variations"
           />
         </div>
-        <p className="text-[10px] text-[var(--color-text-muted)] mt-4 pt-3 border-t border-violet-100">
-          ℹ️ <strong>Storytelling</strong> has its own dedicated model setting
-          in the Storytelling section above (<code>storytelling_script_model</code>).{" "}
-          <strong>Vision / OCR / Retry</strong> internals share{" "}
-          <code>model_auto</code> — no per-feature override needed.
+        <p
+          className="text-xs mt-4 pt-3 border-t"
+          style={{
+            color: "var(--color-text-secondary)",
+            borderColor: "var(--color-border)",
+          }}
+        >
+          ℹ️{" "}
+          <strong className="text-[var(--color-text-primary)]">Storytelling</strong>{" "}
+          has its own dedicated model setting in the Storytelling section above
+          (<code style={{ color: "#a78bfa" }}>storytelling_script_model</code>).{" "}
+          <strong className="text-[var(--color-text-primary)]">
+            Vision / OCR / Retry
+          </strong>{" "}
+          internals share <code style={{ color: "#a78bfa" }}>model_auto</code> —
+          no per-feature override needed.
         </p>
         {/* legacy single-card stub kept hidden — UI now lives in the
             ModelKnob children above. The msg state vars still drive the
@@ -2252,8 +2272,17 @@ function ModelKnob({
   recommendation: string;
 }) {
   return (
-    <div className="rounded-xl border border-violet-100 bg-white/40 p-4">
-      <label className="block text-xs font-mono uppercase tracking-widest text-[var(--color-text-muted)] font-bold mb-2">
+    <div
+      className="rounded-xl p-4 border"
+      style={{
+        background: "var(--color-bg-card)",
+        borderColor: "var(--color-border)",
+      }}
+    >
+      <label
+        className="block text-xs font-mono uppercase tracking-widest font-bold mb-2"
+        style={{ color: "var(--color-text-secondary)" }}
+      >
         {label}
       </label>
       <input
@@ -2262,19 +2291,25 @@ function ModelKnob({
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
         className="input w-full"
-        style={{ color: "white" }}
+        style={{ color: "var(--color-text-primary)" }}
       />
-      <div className="text-[10px] text-[var(--color-text-muted)] mt-1.5 space-y-0.5">
+      <div
+        className="text-xs mt-2 space-y-1"
+        style={{ color: "var(--color-text-secondary)" }}
+      >
         <div>
-          <strong>Used by:</strong> {usedBy}
+          <strong style={{ color: "var(--color-text-primary)" }}>Used by:</strong>{" "}
+          {usedBy}
         </div>
         {value.trim() ? (
           <div>
-            <strong>Active:</strong> {value.trim()}
+            <strong style={{ color: "var(--color-text-primary)" }}>Active:</strong>{" "}
+            <code style={{ color: "#a78bfa" }}>{value.trim()}</code>
           </div>
         ) : (
           <div>
-            Empty = falls back to <strong>model_auto</strong>. Recommended:{" "}
+            Empty = falls back to{" "}
+            <code style={{ color: "#a78bfa" }}>model_auto</code>. Recommended:{" "}
             {recommendation}.
           </div>
         )}
@@ -2293,9 +2328,8 @@ function ModelKnob({
       </button>
       {msg && (
         <div
-          className={`text-[10px] mt-2 ${
-            msg.startsWith("✓") ? "text-violet-700" : "text-red-600"
-          }`}
+          className="text-xs mt-2"
+          style={{ color: msg.startsWith("✓") ? "#a78bfa" : "#ef4444" }}
         >
           {msg}
         </div>
