@@ -113,8 +113,12 @@ export default function OriginalVideoTab({
   const [aspect, setAspect] = useState("9:16");
   // Veo = fixed 8s. Grok = slider 8-30. Sora 2 = 8 or 12.
   const [duration, setDuration] = useState<number>(8);
-  // Per-provider rates (cinema rate for Veo/Grok, sora2 rate for Sora 2).
-  const [cinemaRatePerSec, setCinemaRatePerSec] = useState<number | null>(null);
+  // Per-provider rates:
+  //   • Veo    → /api/veo/rate (flat per-video price, rate_veo setting)
+  //   • Grok   → /api/grok/rate (per-second rate × duration)
+  //   • Sora 2 → /api/sora2/rate (per-second rate × duration)
+  const [veoFlatRate, setVeoFlatRate] = useState<number | null>(null);
+  const [grokRatePerSec, setGrokRatePerSec] = useState<number | null>(null);
   const [sora2RatePerSec, setSora2RatePerSec] = useState<number | null>(null);
   const [status, setStatus] = useState<Status>("idle");
   const [error, setError] = useState<string | null>(null);
@@ -122,12 +126,21 @@ export default function OriginalVideoTab({
 
   useEffect(() => {
     let cancel = false;
+    // Veo flat rate (rate_veo.per_video_8s setting — admin-driven).
+    fetch("/api/veo/rate", { cache: "no-store" })
+      .then((r) => r.json())
+      .then((d) => {
+        if (!cancel && typeof d?.rate === "number") setVeoFlatRate(d.rate);
+      })
+      .catch(() => {});
+    // Grok per-second rate (shares cinema rate setting).
     fetch("/api/grok/rate", { cache: "no-store" })
       .then((r) => r.json())
       .then((d) => {
-        if (!cancel && typeof d?.rate === "number") setCinemaRatePerSec(d.rate);
+        if (!cancel && typeof d?.rate === "number") setGrokRatePerSec(d.rate);
       })
       .catch(() => {});
+    // Sora 2 per-second rate (sora2_rate setting, falls back to cinema × 2).
     fetch("/api/sora2/rate", { cache: "no-store" })
       .then((r) => r.json())
       .then((d) => {
@@ -163,10 +176,20 @@ export default function OriginalVideoTab({
 
   // Live cost preview. Veo + Grok use cinema rate × duration; Sora 2
   // uses its own rate. Null when admin hasn't configured the rate yet.
-  const effectiveRate = provider === "sora2" ? sora2RatePerSec : cinemaRatePerSec;
-  const estCost = effectiveRate != null
-    ? (effectiveRate * duration).toFixed(2)
-    : null;
+  // Per-provider cost preview — mirrors the backend pricing branch in
+  // /api/generate/cinema so what user sees on the button = what they
+  // pay on settlement.
+  //   • Veo    → flat veoFlatRate (regardless of duration since Veo is fixed 8s)
+  //   • Grok   → grokRatePerSec × duration (per-second)
+  //   • Sora 2 → sora2RatePerSec × duration (per-second)
+  let estCost: string | null = null;
+  if (provider === "veo" && veoFlatRate != null) {
+    estCost = veoFlatRate.toFixed(2);
+  } else if (provider === "grok" && grokRatePerSec != null) {
+    estCost = (grokRatePerSec * duration).toFixed(2);
+  } else if (provider === "sora2" && sora2RatePerSec != null) {
+    estCost = (sora2RatePerSec * duration).toFixed(2);
+  }
 
   async function ensurePublicUrl(v: string): Promise<string> {
     if (!v) return "";

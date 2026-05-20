@@ -2,7 +2,7 @@ import { NextResponse, after } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { generateVideoWithCascade } from "@/lib/video-cascade";
-import { getCinemaRate, getP2Config, getSetting } from "@/lib/settings";
+import { getCinemaRate, getP2Config, getSetting, getVeoRate } from "@/lib/settings";
 
 // POST /api/generate/cinema — Original Video tab + legacy Viral. Three
 // provider options:
@@ -165,18 +165,29 @@ export async function POST(req: Request) {
         getP2Config(),
         getCinemaRate(),
       ]);
-      // Sora 2 has its own per-second rate setting. Falls back to cinema
-      // rate × 2 when admin hasn't configured it. Grok + Veo share the
-      // cinema rate (Veo billed flat as 8 × cinemaRate).
-      let ratePerSec = cinemaRatePerSec;
-      if (modelChoice === "sora2") {
+      // Per-provider pricing — each provider reads its own admin
+      // setting. No more shared rate / cinema-rate fallback noise:
+      //   • Veo    → rate_veo.per_video_8s (flat per-video price)
+      //   • Sora 2 → sora2_rate × duration (per-second, falls back
+      //               to cinema rate × 2 if admin hasn't set sora2_rate)
+      //   • Grok   → cinema rate × duration (per-second)
+      // Each provider's price preview on the frontend reads from a
+      // matching /api endpoint so what user sees = what they pay.
+      let cost: number;
+      if (modelChoice === "veo") {
+        const veoFlat = await getVeoRate("8");
+        cost = Number(veoFlat.toFixed(4));
+      } else if (modelChoice === "sora2") {
         const sora2RateSetting = await getSetting<{ rate: number }>("sora2_rate");
-        ratePerSec =
+        const ratePerSec =
           typeof sora2RateSetting?.rate === "number"
             ? sora2RateSetting.rate
             : cinemaRatePerSec * 2;
+        cost = Number((ratePerSec * duration).toFixed(4));
+      } else {
+        // Grok per-second
+        cost = Number((cinemaRatePerSec * duration).toFixed(4));
       }
-      const cost = Number((ratePerSec * duration).toFixed(4));
 
       // Pick the actual provider model id based on (modelChoice, imageMode).
       // Each provider has its own t2v / i2v (or r2v) endpoints:
