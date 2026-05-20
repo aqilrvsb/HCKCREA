@@ -1071,6 +1071,23 @@ export default function AdminSettings() {
     // Grsai credentials — exposed via the dedicated Grsai card.
     "gr_base",
     "gr_key",
+    // Internal cascade state — automatically managed by
+    // lib/cascade-rotation.ts (round-robin counters) + the cron worker
+    // (last_auto_resubmit_run heartbeat). Admin never needs to edit
+    // these manually; if a counter drifts, it self-corrects on the
+    // next rotation. Showing them in the raw JSON list creates risk
+    // of accidental edits without any upside.
+    "video_rotation_counter",
+    "video_fallback_counter",
+    "grok_rotation_counter",
+    "grok_fallback_counter",
+    "cinema_rotation_counter",
+    "cinema_fallback_counter",
+    "sora2_rotation_counter",
+    "sora2_fallback_counter",
+    "image_rotation_counter",
+    "image_fallback_counter",
+    "last_auto_resubmit_run",
     // Both pricing keys below are noise in the admin UI — credit_topup_price
     // is an unused orphan (only seeded in 0001_init, no code reads it),
     // and credit_costs is consumed only as a fallback for auto_plan /
