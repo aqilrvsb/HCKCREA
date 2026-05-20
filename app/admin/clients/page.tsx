@@ -486,6 +486,57 @@ function EditClientModal({
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // "Send account details" flow — resets password to a fresh temp +
+  // sends a WhatsApp message with email + new password. Inline status
+  // so the admin sees confirmation without leaving the modal.
+  const [sendingDetails, setSendingDetails] = useState(false);
+  const [detailsStatus, setDetailsStatus] = useState<{
+    tone: "ok" | "err";
+    text: string;
+  } | null>(null);
+
+  async function sendAccountDetails() {
+    setDetailsStatus(null);
+    if (!client.whatsapp) {
+      setDetailsStatus({
+        tone: "err",
+        text: "No WhatsApp number on file — save one above first.",
+      });
+      return;
+    }
+    if (
+      !confirm(
+        "Reset this user's password to a NEW temp + WhatsApp the details to them?\n\n(Their current password will stop working.)"
+      )
+    ) {
+      return;
+    }
+    setSendingDetails(true);
+    try {
+      const r = await fetch("/api/admin/clients/reset-password", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ user_id: client.id }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok || !d?.ok) {
+        throw new Error(d?.error || `HTTP ${r.status}`);
+      }
+      setDetailsStatus({
+        tone: d.sent ? "ok" : "err",
+        text: d.sent
+          ? `✓ Sent to ${client.whatsapp} — they'll see it within ~30s.`
+          : "Password reset, but WhatsApp send failed. Check WA Center device.",
+      });
+    } catch (e: any) {
+      setDetailsStatus({
+        tone: "err",
+        text: e?.message || "Network error",
+      });
+    } finally {
+      setSendingDetails(false);
+    }
+  }
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
@@ -700,8 +751,65 @@ function EditClientModal({
               placeholder="Leave empty to keep current password"
             />
             <div className="text-[10px] text-[var(--color-text-muted)] mt-1">
-              Minimum 6 characters. Tell the client manually — we don't auto-WhatsApp here.
+              Minimum 6 characters. Manual reset — admin shares the new
+              password with the client themselves. Use the button below
+              if the client forgot their password and needs it auto-sent.
             </div>
+          </Section>
+
+          {/* Send account details via WhatsApp — for clients who forgot
+              their password. Resets to a fresh temp + sends WhatsApp
+              with email + new password. Uses the same /api endpoint
+              the signup flow uses, so message format is consistent. */}
+          <Section title="Send account details">
+            <div className="flex items-center gap-3 flex-wrap">
+              <button
+                type="button"
+                onClick={() => void sendAccountDetails()}
+                disabled={sendingDetails || !client.whatsapp}
+                className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-bold disabled:opacity-50"
+                style={{
+                  background: "rgba(34,197,94,0.12)",
+                  border: "1px solid rgba(34,197,94,0.4)",
+                  color: "#16a34a",
+                }}
+                title={
+                  client.whatsapp
+                    ? "Reset password + auto-send via WhatsApp"
+                    : "No WhatsApp number on file"
+                }
+              >
+                {sendingDetails ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <span>📱</span>
+                )}
+                Reset Password + Send via WhatsApp
+              </button>
+              <div className="text-[10px] text-[var(--color-text-muted)] flex-1 min-w-[180px]">
+                Resets to a fresh temp password + WhatsApps the client.
+                Use this when client forgets their password.
+              </div>
+            </div>
+            {detailsStatus && (
+              <div
+                className="mt-2 px-3 py-2 rounded-lg text-xs font-semibold"
+                style={{
+                  background:
+                    detailsStatus.tone === "ok"
+                      ? "rgba(34,197,94,0.12)"
+                      : "rgba(244,67,54,0.12)",
+                  border:
+                    detailsStatus.tone === "ok"
+                      ? "1px solid rgba(34,197,94,0.4)"
+                      : "1px solid rgba(244,67,54,0.4)",
+                  color:
+                    detailsStatus.tone === "ok" ? "#86efac" : "#fca5a5",
+                }}
+              >
+                {detailsStatus.text}
+              </div>
+            )}
           </Section>
 
           {error && (
