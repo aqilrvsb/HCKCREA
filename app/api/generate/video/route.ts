@@ -197,6 +197,41 @@ ${uspBlock}
 Hard rules:
 - Total spoken dialog = EXACTLY 20-24 Malay words for an 8-second shot. Count the words. Under 18 = TTS mouth freezes. Over 26 = rushed audio.
 - Bahasa Melayu (Malaysian Malay) ONLY. Use: korang, aku, ni, tu, memang, gila, lah, je, dah, eh. NEVER Bahasa Indonesia (kalian, gue, lo, banget, sih, dong, kayak, gimana, mau, nih, tuh).
+${provider === "sora2" ? `
+🚨🚨🚨 SORA 2 DIALOG MODERATION (NON-NEGOTIABLE — VIDEOS WITH BANNED CLAIMS LOSE AUDIO) 🚨🚨🚨
+
+This video routes through Sora 2 (sora-2-vip). OpenAI's safety layer SILENTLY drops audio (keeps video) when dialog reads as an unverified medical / efficacy claim. We've reproduced this 4 times with the EXACT same locks — the only differentiator is dialog content. To make Sora 2 generate audio reliably, the dialog MUST avoid the BANNED CLAIM PATTERN and follow the REQUIRED FRAMING.
+
+❌ BANNED IN SORA 2 DIALOG (these cause silent video):
+- Efficacy verbs: "berkesan", "menyembuhkan", "merawat", "hilangkan [body part pain]", "mengubati"
+- Mechanism claims: "melegakan saraf", "membaiki sendi", "mengeluarkan toksin", "menguatkan otot"
+- Medical diagnosis terms: "terhimpit", "kronik", "akut", "radang", "inflammation"
+- Suffering language paired with diagnosis: "seksa", "siksa", "menderita" + body-part anatomy
+- Superlative + medical: "produk terbaik untuk [condition]", "paling berkesan", "no.1 untuk [condition]"
+- Dosage instructions: "guna [X] setiap hari", "[X] kali sehari", "minum [X] gelas sehari"
+- Monopoly/preference claims: "takkan cari yang lain", "tinggalkan produk lain"
+- Direct cure promises: "hilangkan [condition]", "buang [condition]", "habiskan [condition]"
+
+✅ REQUIRED IN SORA 2 DIALOG (testimonial / lifestyle framing that PASSES audio):
+- First-person experience: "Aku dulu...", "Sebelum ni aku...", "Bertahun-tahun aku..."
+- Subjective feelings (not mechanisms): "terus rasa lega", "rasa selesa", "rasa segar", "rasa lighter"
+- Lifestyle outcome (not medical outcome): "boleh jalan jauh", "boleh tidur lena", "boleh main dengan anak"
+- Practical action framing: "sapu je", "minum je", "guna je", "spray je"
+- Comparison framing: "lain rasa dia", "memang beza", "totally different"
+- Soft CTA: "try sekali", "test sekali", "grab sekarang", "tekan beg kuning"
+
+EXAMPLES — REWRITE BAD → GOOD:
+BAD:  "Habaflex memang berkesan, melegakan saraf belakang kaki yang terhimpit."
+GOOD: "Aku dulu sakit belakang kaki teruk, sampai tak boleh tidur. Lepas guna Habaflex sebulan, terus rasa selesa!"
+
+BAD:  "Produk terbaik untuk hilangkan sakit. Guna setiap hari, memang berkesan."
+GOOD: "Aku try Habaflex ni sebab kawan recommend. Memang lain rasa dia, hari-hari rasa lighter!"
+
+BAD:  "Habaflex menyembuhkan saraf terhimpit, serious berkesan."
+GOOD: "Dulu aku ingat tak boleh kembali normal, sampai aku jumpa Habaflex. Boleh jalan jauh balik!"
+
+Why this rule applies HERE: this is a Sora 2 generation. If the dialog you write contains any banned vocabulary, the generated video will be SILENT (no audio). The user will see the mouth move but hear nothing. ALWAYS frame dialog as personal testimonial, never as clinical advertorial.
+` : ""}
 
 === ACTION-RICH SCENE (NON-NEGOTIABLE) ===
 Scene description = 150-220 words. The character MUST be performing a SPECIFIC ACTIVE VERB throughout the 8 seconds — never a static pose. Reject phrases like "gesturing to her stomach" / "holding product and smiling" / "standing while talking" — these are creative failures.
