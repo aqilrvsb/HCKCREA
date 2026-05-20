@@ -32,9 +32,18 @@ export async function POST(req: Request) {
   // dialog before applying locks). Same expansion model Auto Content
   // uses minus the framework layer (UGC has no frameworks).
   const inputMode: "prompt" | "idea" = body?.mode === "idea" ? "idea" : "prompt";
+  // Provider routing — Veo (default) vs Sora 2. Sora 2 routes through
+  // the sora2 cascade asset, uses sora2_rate × duration for cost, and
+  // p6.ts auto-transforms the inline 'Spoken dialog:' format into Sora 2's
+  // required Dialogue: block. Veo path stays bit-for-bit identical.
+  const provider: "veo" | "sora2" = body?.provider === "sora2" ? "sora2" : "veo";
   const imageUrls: string[] = Array.isArray(body?.image_urls) ? body.image_urls : [];
   const aspectRatio = String(body?.aspect_ratio || "9:16");
+  // Veo duration is "8" or "16" (16 chains two 8s clips).
+  // Sora 2 duration is 8 or 12 (single native clip).
   const durationMode: "8" | "16" = body?.duration === "16" ? "16" : "8";
+  const soraDuration: 8 | 12 =
+    provider === "sora2" && body?.duration === "12" ? 12 : 8;
   const requestedMode = body?.image_mode as
     | "frame"
     | "ingredient"
@@ -262,8 +271,25 @@ Korang tau tak ni apa? Aku baru jumpa, memang lain rasa dia! Try sekali, lepas t
       hijab: isHijab,
     });
 
-  const reason = durationMode === "16" ? "video_16s" : "video_8s";
-  const is16s = durationMode === "16";
+  // Billing reason — Sora 2 always bills under video_8s for now (admin
+  // can refine later). Veo uses the canonical video_8s / video_16s split.
+  const reason =
+    provider === "sora2" ? "video_8s" : durationMode === "16" ? "video_16s" : "video_8s";
+  const is16s = provider === "veo" && durationMode === "16";
+
+  // Sora 2 cost: sora2_rate × duration (per-second pricing). Computed
+  // here so the placeholder row carries the correct cost from the start.
+  let sora2Cost = 0;
+  if (provider === "sora2") {
+    const { getSetting, getCinemaRate } = await import("@/lib/settings");
+    const sora2RateSetting = await getSetting<{ rate: number }>("sora2_rate");
+    const cinemaRate = await getCinemaRate();
+    const ratePerSec =
+      typeof sora2RateSetting?.rate === "number"
+        ? sora2RateSetting.rate
+        : cinemaRate * 2;
+    sora2Cost = Number((ratePerSec * soraDuration).toFixed(4));
+  }
 
   // Insert placeholder NOW. task_id + cost populated by after().
   // For 16s: this row IS seg-1 of a chained 16s clip. The settle hook
@@ -283,13 +309,23 @@ Korang tau tak ni apa? Aku baru jumpa, memang lain rasa dia! Try sekali, lepas t
       prompt,
       reference_url: imageUrls[0] || null,
       task_id: null,
-      duration: is16s ? 16 : 8,
-      cost: 0,
+      duration: provider === "sora2" ? soraDuration : is16s ? 16 : 8,
+      cost: provider === "sora2" ? sora2Cost : 0,
       segment_index: is16s ? 1 : null,
       frame_anchor: is16s ? "last" : null,
       metadata: {
         aspectRatio,
         imageMode,
+        // Stamp Sora 2 routing on the metadata so admin/usage Detail
+        // Log shows the right TAB chip (SORA 2 green) for these rows.
+        ...(provider === "sora2"
+          ? {
+              modelChoice: "sora2",
+              model: "sora-2-vip",
+              sora2Provider: "apipod",
+              resolution: aspectRatio === "9:16" ? "720x1280" : "1280x720",
+            }
+          : {}),
         // Full attachment array so Resubmit can re-fire with all 3
         // reference images, not just reference_url (which is only the
         // first). Crucial for r2v / ingredient mode product anchoring.
@@ -335,6 +371,71 @@ Korang tau tak ni apa? Aku baru jumpa, memang lain rasa dia! Try sekali, lepas t
 
   after(async () => {
     try {
+      // Sora 2 routing — bypass Veo's p2 model resolution and dispatch
+      // through the sora2 cascade asset directly. p6.ts's
+      // transformPromptForSora2() auto-rewrites inline 'Spoken dialog:'
+      // into Sora 2's required Dialogue: block before sending to APIPod.
+      if (provider === "sora2") {
+        const rate = sora2Cost; // already computed above (sora2_rate × duration)
+        const cascaded = await generateVideoWithCascade({
+          primaryModel: "sora2", // p6.ts maps to sora-2-vip
+          userId: user.id,
+          prompt,
+          // Sora 2 takes a single first-frame image only.
+          imageUrls: imageUrls.slice(0, 1),
+          imageMode: imageMode === "ingredient" ? "frame" : imageMode,
+          aspectRatio,
+          durationMode: String(soraDuration),
+          asset: "sora2",
+        });
+
+        if (!cascaded.ok) {
+          await admin.from("history").update({
+            status: "failed",
+            cost: rate,
+            error_message: cascaded.error || "Sora 2 cascade exhausted",
+            metadata: {
+              aspectRatio, imageMode,
+              modelChoice: "sora2",
+              model: "sora-2-vip",
+              sora2Provider: "apipod",
+              tier_log: cascaded.tierLog,
+              upload_status: "failed",
+            },
+          }).eq("id", historyId);
+          return;
+        }
+
+        await admin.from("history").update({
+          task_id: cascaded.taskId,
+          cost: rate,
+          metadata: {
+            aspectRatio,
+            imageMode,
+            modelChoice: "sora2",
+            model: cascaded.actualModel || "sora-2-vip",
+            sora2Provider: "apipod",
+            provider: cascaded.actualProvider,
+            slot: cascaded.actualSlot,
+            ...(cascaded.keyIndex !== undefined ? { p6_key_index: cascaded.keyIndex } : {}),
+            fallback_used: cascaded.fallbackUsed,
+            tier_log: cascaded.tierLog,
+            resolution: aspectRatio === "9:16" ? "720x1280" : "1280x720",
+            upload_status: "queued",
+            featureType: "sora2",
+            ...(inputMode === "idea" && originalIdea
+              ? {
+                  idea_style: originalIdea.slice(0, 200),
+                  expanded_from_idea: true,
+                  ...(pickedFrameworkName ? { framework: pickedFrameworkName } : {}),
+                }
+              : {}),
+          },
+        }).eq("id", historyId);
+        return;
+      }
+
+      // ─────────────── Veo path (default) ───────────────
       const [cfg, rate] = await Promise.all([
         getP2Config(),
         priceFor(user.id, reason as any),

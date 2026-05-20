@@ -28,6 +28,16 @@ const ORANGE_SOFT = "rgba(255, 87, 34, 0.18)";
 const ORANGE_FAINT = "rgba(255, 87, 34, 0.06)";
 
 export default function VideoTab({ projectId }: { projectId?: string } = {}) {
+  // Provider picker — Veo 3.1 (default talking-head UGC) or Sora 2
+  // (cinematic with native synced audio). Each provider constrains the
+  // downstream pickers:
+  //   - Veo:    3 image modes, fixed 8s duration, multi-ref allowed
+  //   - Sora 2: text/frame mode only, 8s or 12s duration, single ref
+  const [provider, setProvider] = useState<"veo" | "sora2">("veo");
+  // Sora 2 supports 8 or 12s natively. APIPod also accepts 4s but our
+  // UI dropped it (too short for useful UGC). State is independent from
+  // Veo's fixed 8s so switching providers doesn't reset the other.
+  const [soraDuration, setSoraDuration] = useState<8 | 12>(8);
   // Default to Product Reference (ingredient) — most common UGC flow.
   const [imageMode, setImageMode] = useState<ImageMode>("ingredient");
   const [startFrame, setStartFrame] = useState("");
@@ -63,6 +73,33 @@ export default function VideoTab({ projectId }: { projectId?: string } = {}) {
   const duration: "8" = "8"; // Veo 3.1 Fast — 8s only
   const [status, setStatus] = useState<Status>("idle");
   const [error, setError] = useState<string | null>(null);
+
+  // Live Sora 2 per-second rate. Drives the dynamic cost preview shown
+  // on the Generate button when provider === "sora2". Endpoint falls
+  // back to cinema_rate × 2 when admin hasn't configured sora2_rate.
+  const [soraRatePerSec, setSoraRatePerSec] = useState<number | null>(null);
+  useEffect(() => {
+    let cancel = false;
+    fetch("/api/sora2/rate", { cache: "no-store" })
+      .then((r) => r.json())
+      .then((d) => {
+        if (!cancel && typeof d?.rate === "number") setSoraRatePerSec(d.rate);
+      })
+      .catch(() => {});
+    return () => {
+      cancel = true;
+    };
+  }, []);
+
+  // When user switches to Sora 2, clamp imageMode to text/frame only.
+  // Sora 2 doesn't support multi-ref ingredient mode (single first frame
+  // only per APIPod spec). Without this clamp, Veo's "ingredient"
+  // default would silently fail to pass refs through to Sora 2.
+  useEffect(() => {
+    if (provider === "sora2" && imageMode === "ingredient") {
+      setImageMode("frame");
+    }
+  }, [provider, imageMode]);
 
   const [pickerSlot, setPickerSlot] = useState<RefSlot | null>(null);
   // Attachment picker replaces local-file uploads on this tab.
@@ -247,6 +284,12 @@ export default function VideoTab({ projectId }: { projectId?: string } = {}) {
         if (lines.length) finalPrompt = lines.join("\n") + "\n\n" + finalPrompt;
       }
 
+      // Sora 2 only accepts a single first-frame image — drop extra
+      // refs at the frontend so the backend never has to guess which
+      // ref to keep. Veo path is unchanged (sends all picked refs).
+      const apiImageUrls =
+        provider === "sora2" ? imageUrls.slice(0, 1) : imageUrls;
+
       const calls = Array.from({ length: count }).map(() =>
         fetch("/api/generate/video", {
           method: "POST",
@@ -257,12 +300,17 @@ export default function VideoTab({ projectId }: { projectId?: string } = {}) {
             // user-typed Veo prompt (with frontend's ref-image preamble
             // already prepended).
             prompt: inputMode === "idea" ? "" : finalPrompt,
-            image_urls: imageUrls,
-            duration,
+            image_urls: apiImageUrls,
+            // Sora 2 uses soraDuration (8|12), Veo is fixed at 8.
+            duration: provider === "sora2" ? String(soraDuration) : duration,
             image_mode: effectiveMode,
             aspect_ratio: aspect,
             project_id: projectId,
             mode: inputMode,
+            // Provider switch — backend uses this to pick cascade asset,
+            // rate, and prompt-format transform. Defaults to "veo" when
+            // omitted so old clients keep working unchanged.
+            provider,
             ...(inputMode === "idea"
               ? {
                   idea_scene: ideaScene.trim(),
@@ -300,21 +348,138 @@ export default function VideoTab({ projectId }: { projectId?: string } = {}) {
 
   return (
     <div className="rounded-3xl p-6 md:p-8 space-y-5" style={sectionBg}>
-      {/* VIDEO GENERATOR — Duration + Image Mode */}
+      {/* VIDEO GENERATOR — Provider + Image Mode + Duration */}
       <Card borderColor={ORANGE}>
         <CardHeader icon="🎬" title="Video Generator" />
+
+        {/* Provider picker — Veo 3.1 (default talking-head UGC) vs Sora 2
+            (cinematic with native synced audio). Wired all the way
+            through: changes the cascade asset, cost rate, available
+            image modes, and duration options. */}
+        <Label>Provider</Label>
+        <div className="grid grid-cols-2 gap-2 mb-4">
+          <button
+            type="button"
+            onClick={() => setProvider("veo")}
+            className="px-3 py-3 rounded-xl text-sm font-extrabold transition-all"
+            style={
+              provider === "veo"
+                ? {
+                    background: "linear-gradient(135deg, #facc15, #f59e0b)",
+                    color: "#1a1a1a",
+                    boxShadow: "0 4px 12px rgba(250,204,21,0.35)",
+                    border: "1px solid transparent",
+                  }
+                : {
+                    background: "white",
+                    color: "#1a1a1a",
+                    border: "1px solid #e8e0d8",
+                  }
+            }
+          >
+            🎬 Veo 3.1 · 8s
+          </button>
+          <button
+            type="button"
+            onClick={() => setProvider("sora2")}
+            className="px-3 py-3 rounded-xl text-sm font-extrabold transition-all"
+            style={
+              provider === "sora2"
+                ? {
+                    background: "linear-gradient(135deg, #4ade80, #16a34a)",
+                    color: "white",
+                    boxShadow: "0 4px 12px rgba(74,222,128,0.35)",
+                    border: "1px solid transparent",
+                  }
+                : {
+                    background: "white",
+                    color: "#1a1a1a",
+                    border: "1px solid #e8e0d8",
+                  }
+            }
+          >
+            ⚡ Sora 2 · 8 / 12s
+          </button>
+        </div>
 
         <Label>Image Mode</Label>
         <Select
           value={imageMode}
           onChange={(v) => setImageMode(v as ImageMode)}
         >
-          <option value="ingredient">
-            Product Reference (AI creates scene)
+          {/* Sora 2 doesn't support multi-ref ingredient mode (single
+              first frame only). The "ingredient" option is hidden when
+              Sora 2 is selected; useEffect clamps state to "frame" if
+              user switches mid-flow. */}
+          {provider === "veo" && (
+            <option value="ingredient">
+              Product Reference (AI creates scene)
+            </option>
+          )}
+          <option value="frame">
+            {provider === "sora2"
+              ? "First Frame (single image)"
+              : "First Frame (animate from image)"}
           </option>
-          <option value="frame">First Frame (animate from image)</option>
           <option value="text">Text to Video (no image needed)</option>
         </Select>
+
+        {/* Duration picker — Sora 2 only. Veo is fixed at 8s so no
+            picker shown for it. */}
+        {provider === "sora2" && (
+          <div className="mt-4">
+            <div className="flex items-center justify-between mb-2">
+              <Label>Duration</Label>
+              {soraRatePerSec != null && (
+                <span
+                  className="text-xs font-bold"
+                  style={{ color: "#16a34a" }}
+                >
+                  ~RM{((soraRatePerSec ?? 0) * soraDuration).toFixed(2)} / video
+                </span>
+              )}
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              {([8, 12] as const).map((d) => {
+                const active = soraDuration === d;
+                return (
+                  <button
+                    key={d}
+                    type="button"
+                    onClick={() => setSoraDuration(d)}
+                    className="px-3 py-2.5 rounded-xl text-sm font-extrabold transition-all"
+                    style={
+                      active
+                        ? {
+                            background:
+                              "linear-gradient(135deg, #4ade80, #16a34a)",
+                            color: "white",
+                            boxShadow: "0 4px 12px rgba(74,222,128,0.35)",
+                            border: "1px solid transparent",
+                          }
+                        : {
+                            background: "white",
+                            color: "#1a1a1a",
+                            border: "1px solid #e8e0d8",
+                          }
+                    }
+                  >
+                    {d}s
+                  </button>
+                );
+              })}
+            </div>
+            <p
+              className="text-[10px] mt-1.5"
+              style={{ color: "#6b6357" }}
+            >
+              Sora 2 supports 8s or 12s only. Dialog format auto-converts to
+              Sora 2 spec (Dialogue: block). Avoid medical claim
+              vocabulary — Sora 2's safety filter silences audio on
+              clinical efficacy phrasing.
+            </p>
+          </div>
+        )}
       </Card>
 
       {/* SCENE — adapts to image mode */}
