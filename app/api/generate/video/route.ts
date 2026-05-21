@@ -277,6 +277,11 @@ Korang tau tak ni apa? Aku baru jumpa, memang lain rasa dia! Try sekali, lepas t
         userPrompt: userBlock,
         temperature: 0.8,
         maxTokens: 700,
+        // Tag for admin Usage Chat log — distinguishes UGC tab Custom
+        // Idea from Auto Content's master plan since both use the same
+        // model_custom_idea cascade.
+        logFeature: "ugc_custom_idea",
+        logUserId: user.id,
       });
       if (ideaResult.ok && ideaResult.content) {
         rawPrompt = ideaResult.content.trim();

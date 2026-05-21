@@ -1765,6 +1765,12 @@ CRITICAL OUTPUT RULES:
       userPrompt,
       temperature: 0.7,
       maxTokens: Math.max(4000, Math.min(quantity * 800, 32000)),
+      // Tag for admin Usage Chat log — `auto_with_idea` when the user
+      // typed a custom idea (idea_style), else plain `auto_only`. Lets
+      // admin distinguish the three Custom-Idea-cascade flows in one
+      // log: UGC tab Custom Idea / Auto + idea / Auto only.
+      logFeature: ideaStyle ? "auto_with_idea" : "auto_only",
+      logUserId: user?.id || null,
     });
     if (!plan.ok || !plan.content) {
       return NextResponse.json({ error: plan.error || "Master plan failed" }, { status: 502 });

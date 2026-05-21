@@ -18,8 +18,62 @@
 // Add a new provider by extending callProvider() below.
 
 import { getSettings } from "@/lib/settings";
+import { createAdminClient } from "@/lib/supabase/admin";
 
 export type Provider = "openrouter" | "grsai";
+
+// Feature tag for chat_usage rows. Currently only the Custom Idea
+// cascade gets logged — add more buckets here as the admin Usage Chat
+// tab grows. Tag is stamped at the call site so the admin UI can
+// filter by which surface triggered the call.
+export type ChatUsageFeature =
+  | "ugc_custom_idea"
+  | "auto_with_idea"
+  | "auto_only";
+
+type CascadeAttempt = {
+  provider: Provider;
+  model: string;
+  ok: boolean;
+  error?: string;
+  ms: number;
+};
+
+// Fire-and-forget chat_usage insert. Runs on the next tick so the
+// caller's response isn't blocked on the DB write. Swallows any error
+// so a logging failure can never break a Custom Idea generation.
+function logChatUsage(opts: {
+  feature: ChatUsageFeature;
+  modelKey: string;
+  userId?: string | null;
+  cascadeTrace: CascadeAttempt[];
+  succeeded: boolean;
+  promptSnippet?: string;
+}) {
+  setTimeout(() => {
+    void (async () => {
+      try {
+        const admin = createAdminClient();
+        const last = opts.cascadeTrace[opts.cascadeTrace.length - 1];
+        const totalLatency = opts.cascadeTrace.reduce((a, x) => a + (x.ms || 0), 0);
+        await admin.from("chat_usage").insert({
+          user_id: opts.userId || null,
+          feature: opts.feature,
+          model_key: opts.modelKey,
+          cascade_trace: opts.cascadeTrace,
+          final_provider: opts.succeeded ? last?.provider : null,
+          final_model: opts.succeeded ? last?.model : null,
+          succeeded: opts.succeeded,
+          total_attempts: opts.cascadeTrace.length,
+          total_latency_ms: totalLatency,
+          prompt_snippet: opts.promptSnippet?.slice(0, 200) || null,
+        });
+      } catch {
+        // Best-effort logging only — never throw out of the cascade.
+      }
+    })();
+  }, 0);
+}
 
 export type ProviderSlot = {
   provider: Provider;
@@ -229,6 +283,11 @@ export async function orChat(opts: {
   userPrompt: string;
   temperature?: number;
   maxTokens?: number;
+  /** Tag for the admin Usage Chat log. When set, every cascade attempt
+   *  is captured and written to chat_usage so admin can see how often
+   *  each fallback layer is being hit. */
+  logFeature?: ChatUsageFeature;
+  logUserId?: string | null;
 }): Promise<{ ok: boolean; content?: string; finishReason?: string; error?: string }> {
   const requestedKey = opts.modelKey || "model_auto";
   // Fetch all 4 credential keys + the requested model key + model_auto
@@ -270,10 +329,12 @@ export async function orChat(opts: {
   // → ... on each layer. Stop at the first success. If every attempt
   // fails return the last error so the caller surfaces something concrete.
   let lastError = "All providers exhausted";
+  const trace: CascadeAttempt[] = [];
   for (const layer of layers) {
     const chain: ProviderSlot[] = [layer.main, ...layer.fallbacks];
     for (const slot of chain) {
       const { base, key } = await providerCreds(slot.provider, s);
+      const t0 = Date.now();
       const r = await callProvider({
         provider: slot.provider,
         model: slot.model,
@@ -283,9 +344,38 @@ export async function orChat(opts: {
         maxTokens: opts.maxTokens,
         base, key,
       });
-      if (r.ok) return r;
+      trace.push({
+        provider: slot.provider,
+        model: slot.model,
+        ok: r.ok,
+        error: r.ok ? undefined : r.error,
+        ms: Date.now() - t0,
+      });
+      if (r.ok) {
+        if (opts.logFeature) {
+          logChatUsage({
+            feature: opts.logFeature,
+            modelKey: requestedKey,
+            userId: opts.logUserId,
+            cascadeTrace: trace,
+            succeeded: true,
+            promptSnippet: opts.userPrompt,
+          });
+        }
+        return r;
+      }
       lastError = r.error || lastError;
     }
+  }
+  if (opts.logFeature) {
+    logChatUsage({
+      feature: opts.logFeature,
+      modelKey: requestedKey,
+      userId: opts.logUserId,
+      cascadeTrace: trace,
+      succeeded: false,
+      promptSnippet: opts.userPrompt,
+    });
   }
   return { ok: false, error: lastError };
 }

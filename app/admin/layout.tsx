@@ -13,6 +13,7 @@ import {
   UserPlus,
   AlertTriangle,
   Megaphone,
+  MessageSquare,
 } from "lucide-react";
 
 export default async function AdminLayout({
@@ -67,6 +68,7 @@ export default async function AdminLayout({
     { href: "/admin/cashout", label: "Cashout", icon: Banknote },
     { href: "/admin/clients", label: "Clients", icon: Users },
     { href: "/admin/usage", label: "Usage", icon: Activity },
+    { href: "/admin/usage-chat", label: "Usage Chat", icon: MessageSquare },
     { href: "/admin/errors", label: "Errors", icon: AlertTriangle },
     { href: "/admin/settings", label: "Settings", icon: Settings },
   ];
