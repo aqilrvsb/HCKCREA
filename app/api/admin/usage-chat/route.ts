@@ -30,36 +30,48 @@ export async function GET(req: Request) {
   const end = url.searchParams.get("end");
 
   const admin = createAdminClient();
-  let q = admin
-    .from("chat_usage")
-    .select(
-      "id, user_id, feature, model_key, cascade_trace, final_provider, final_model, succeeded, total_attempts, total_latency_ms, prompt_snippet, created_at"
-    )
-    .order("created_at", { ascending: false })
-    .limit(2000);
   // Same Malaysia-local → UTC day boundary conversion the video usage
   // endpoint uses so the date pickers behave identically across both
   // admin pages.
-  if (start) q = q.gte("created_at", malaysiaDayToUtcRange(start, "start"));
-  if (end) q = q.lte("created_at", malaysiaDayToUtcRange(end, "end"));
+  const fromIso = start ? malaysiaDayToUtcRange(start, "start") : null;
+  const toIso = end ? malaysiaDayToUtcRange(end, "end") : null;
 
-  const { data: rows } = await q;
+  // Chunked .range() fetch — Supabase caps every SELECT at 1000 rows
+  // by default. Walk the rowset in 1000-row pages until the upstream
+  // returns fewer than the page size.
+  const PAGE = 1000;
+  const rows: any[] = [];
+  for (let offset = 0; ; offset += PAGE) {
+    let q = admin
+      .from("chat_usage")
+      .select(
+        "id, user_id, feature, model_key, cascade_trace, final_provider, final_model, succeeded, total_attempts, total_latency_ms, prompt_snippet, created_at"
+      )
+      .order("created_at", { ascending: false })
+      .range(offset, offset + PAGE - 1);
+    if (fromIso) q = q.gte("created_at", fromIso);
+    if (toIso) q = q.lte("created_at", toIso);
+    const { data: page, error: pageErr } = await q;
+    if (pageErr || !page || page.length === 0) break;
+    rows.push(...page);
+    if (page.length < PAGE) break;
+  }
 
-  // Email lookup — same pattern as /api/admin/usage. 500-user page is
-  // fine for the admin client.
-  const ids = Array.from(
-    new Set((rows || []).map((r: any) => r.user_id).filter(Boolean))
-  );
-  const { data: authList } = await admin.auth.admin.listUsers({
-    page: 1,
-    perPage: 500,
-  });
+  // Email lookup — listUsers paginates at 1000/page max; walk every
+  // page until empty so installs > 1000 users still resolve emails on
+  // every row.
   const emailById = new Map<string, string>();
-  (authList?.users || []).forEach((u: any) =>
-    emailById.set(u.id, u.email || "")
-  );
+  for (let pageNum = 1; ; pageNum++) {
+    const { data: authList } = await admin.auth.admin.listUsers({
+      page: pageNum,
+      perPage: 1000,
+    });
+    const users = authList?.users || [];
+    users.forEach((u: any) => emailById.set(u.id, u.email || ""));
+    if (users.length < 1000) break;
+  }
 
-  const out = (rows || []).map((r: any) => ({
+  const out = rows.map((r: any) => ({
     ...r,
     email: r.user_id ? emailById.get(r.user_id) || "—" : "—",
   }));

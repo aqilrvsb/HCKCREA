@@ -26,28 +26,41 @@ export async function GET(req: Request) {
   const end = url.searchParams.get("end");
 
   const admin = createAdminClient();
-  let q = admin
-    .from("credit_transactions")
-    .select("id, user_id, amount, reason, created_at, history_id")
-    .lt("amount", 0)
-    .order("created_at", { ascending: false })
-    .limit(2000);
   // Date inputs are Malaysia-local (UTC+8). Convert each wall-clock day
   // into the corresponding UTC boundary so a row at 17 May 07:19 MYT
   // (=16 May 23:19 UTC) is included when admin filters "May 17".
-  if (start) q = q.gte("created_at", malaysiaDayToUtcRange(start, "start"));
-  if (end) q = q.lte("created_at", malaysiaDayToUtcRange(end, "end"));
+  const fromIso = start ? malaysiaDayToUtcRange(start, "start") : null;
+  const toIso = end ? malaysiaDayToUtcRange(end, "end") : null;
 
-  const { data: txns } = await q;
+  // Chunked fetch — Supabase silently caps every SELECT at 1000 rows by
+  // default. Old code passed .limit(2000), but month-wide ranges
+  // routinely cross that threshold (worst case: an active client doing
+  // 100 generations/day × 30 days = 3000+ deduction rows), so the table
+  // was truncating the oldest entries. Walk the rowset via .range() in
+  // 1000-row chunks until the upstream returns fewer than the page
+  // size — that's the natural "we've drained the result set" signal.
+  const PAGE = 1000;
+  const txns: any[] = [];
+  for (let offset = 0; ; offset += PAGE) {
+    let q = admin
+      .from("credit_transactions")
+      .select("id, user_id, amount, reason, created_at, history_id")
+      .lt("amount", 0)
+      .order("created_at", { ascending: false })
+      .range(offset, offset + PAGE - 1);
+    if (fromIso) q = q.gte("created_at", fromIso);
+    if (toIso) q = q.lte("created_at", toIso);
+    const { data: page, error: pageErr } = await q;
+    if (pageErr || !page || page.length === 0) break;
+    txns.push(...page);
+    if (page.length < PAGE) break;
+  }
 
-  // Pull all linked history rows. Supabase silently caps a single
-  // .in() query at the default 1000-row limit, so batch through the
-  // ids in chunks and pass .limit(chunk.length) to defeat the cap.
-  // Without this, a month-wide filter (>1000 unique history_ids)
-  // would show "(history deleted)" for the rows whose history did
-  // exist but fell off the truncated response.
+  // Pull all linked history rows. Same 1000-row Supabase cap applies
+  // to .in() queries — batch through the ids in chunks and pass
+  // .limit(chunk.length) to defeat it.
   const historyIds = Array.from(
-    new Set((txns || []).map((t: any) => t.history_id).filter(Boolean))
+    new Set(txns.map((t: any) => t.history_id).filter(Boolean))
   );
   const histById = new Map<string, any>();
   const CHUNK = 500;
@@ -61,13 +74,22 @@ export async function GET(req: Request) {
     (hists || []).forEach((h: any) => histById.set(h.id, h));
   }
 
-  // Email lookup
-  const ids = Array.from(new Set((txns || []).map((t: any) => t.user_id)));
-  const { data: authList } = await admin.auth.admin.listUsers({ page: 1, perPage: 500 });
+  // Email lookup — listUsers paginates at 1000/page max, so walk every
+  // page until empty. Previously hardcoded perPage: 500 with no second
+  // page, which meant any installation past 500 users showed "—" for
+  // the email column on the older accounts' rows.
   const emailById = new Map<string, string>();
-  (authList?.users || []).forEach((u: any) => emailById.set(u.id, u.email || ""));
+  for (let pageNum = 1; ; pageNum++) {
+    const { data: authList } = await admin.auth.admin.listUsers({
+      page: pageNum,
+      perPage: 1000,
+    });
+    const users = authList?.users || [];
+    users.forEach((u: any) => emailById.set(u.id, u.email || ""));
+    if (users.length < 1000) break;
+  }
 
-  const rows = (txns || []).map((t: any) => {
+  const rows = txns.map((t: any) => {
     const h = t.history_id ? histById.get(t.history_id) : null;
     return {
       id: t.id,
