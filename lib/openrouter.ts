@@ -156,9 +156,14 @@ export async function providerCreds(
     };
   }
   if (provider === "grsai") {
+    // Reuse the existing p4_key — p4 is already the Grsai image-gen
+    // client (see lib/p4.ts) so admin doesn't need to manage two keys
+    // for the same provider. Base URL is hardcoded to the global host;
+    // the .cn mirror exists but our Vercel egress is geofenced out of
+    // China so we'd never use it.
     return {
-      base: String(cache.gr_base?.url || "https://grsaiapi.com"),
-      key: String(cache.gr_key?.key || ""),
+      base: "https://grsaiapi.com",
+      key: String(cache.p4_key?.key || ""),
     };
   }
   return { base: "", key: "" };
@@ -201,7 +206,7 @@ export async function orChat(opts: {
   const requestedKey = opts.modelKey || "model_auto";
   // Fetch all 4 credential keys + the requested model key + model_auto
   // fallback in ONE round-trip. getSettings batches these via cache.
-  const fetchKeys = ["or_base", "or_key", "gr_base", "gr_key", requestedKey];
+  const fetchKeys = ["or_base", "or_key", "p4_key", requestedKey];
   if (requestedKey !== "model_auto") fetchKeys.push("model_auto");
   const s = await getSettings(fetchKeys);
 
@@ -274,7 +279,7 @@ export async function orChatVision(opts: {
   maxTokens?: number;
 }): Promise<{ ok: boolean; content?: string; finishReason?: string; error?: string }> {
   const requestedKey = opts.modelKey || "model_clone";
-  const fetchKeys = ["or_base", "or_key", "gr_base", "gr_key", requestedKey];
+  const fetchKeys = ["or_base", "or_key", "p4_key", requestedKey];
   if (requestedKey !== "model_auto") fetchKeys.push("model_auto");
   const s = await getSettings(fetchKeys);
 

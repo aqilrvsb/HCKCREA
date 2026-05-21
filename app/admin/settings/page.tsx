@@ -203,11 +203,9 @@ export default function AdminSettings() {
   const [savingAuto, setSavingAuto] = useState(false);
   const [autoMsg, setAutoMsg] = useState<string | null>(null);
 
-  // Grsai credentials — separate small card.
-  const [grBase, setGrBase] = useState("");
-  const [grKey, setGrKey] = useState("");
-  const [savingGr, setSavingGr] = useState(false);
-  const [grMsg, setGrMsg] = useState<string | null>(null);
+  // Grsai credentials: the chat cascade reuses the existing p4_key
+  // (Grsai image-gen client) so admin doesn't need a separate gr_key
+  // card. State + save handler for gr_base/gr_key removed.
 
   // Facebook Conversions API config (single app_settings.fb_capi row).
   // pixel_id is also served publicly via /api/fb-pixel/config to bootstrap
@@ -335,8 +333,7 @@ export default function AdminSettings() {
         if (row.key === "model_viral") setViralKnob(parseKnob(row.value));
         if (row.key === "model_clone") setCloneKnob(parseKnob(row.value));
         if (row.key === "model_auto") setAutoKnob(parseKnob(row.value));
-        if (row.key === "gr_base") setGrBase(String(row.value?.url || ""));
-        if (row.key === "gr_key") setGrKey(String(row.value?.key || ""));
+        // gr_base / gr_key reads removed — Grsai chat uses p4_key now.
         // Main+fallback architecture
         const allowedV: string[] = [
           "p1", "p2-a", "p2-b", "p5",
@@ -972,42 +969,8 @@ export default function AdminSettings() {
       setMsg: setAutoMsg,
     });
   }
-  async function saveGrsai() {
-    setSavingGr(true);
-    setGrMsg(null);
-    try {
-      const responses = await Promise.all([
-        fetch("/api/admin/settings", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            key: "gr_base",
-            value: { url: grBase.trim() || "https://grsaiapi.com" },
-          }),
-        }),
-        fetch("/api/admin/settings", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            key: "gr_key",
-            value: { key: grKey.trim() },
-          }),
-        }),
-      ]);
-      const failed = responses.find((r) => !r.ok);
-      if (failed) {
-        const d = await failed.json().catch(() => ({}));
-        throw new Error(d?.error || `HTTP ${failed.status}`);
-      }
-      setGrMsg(grKey.trim() ? "✓ Grsai credentials saved." : "✓ Grsai key cleared.");
-      await load();
-      setTimeout(() => setGrMsg(null), 5000);
-    } catch (e: any) {
-      setGrMsg(`✗ Save failed: ${e?.message || "unknown"}`);
-    } finally {
-      setSavingGr(false);
-    }
-  }
+  // saveGrsai removed — Grsai chat cascade reads the existing p4_key
+  // setting now, so there's nothing separate to save here.
 
   // Saves the fb_capi setting blob. Sent as a single JSON object so the
   // generic /api/admin/settings handler can upsert it like any other key.
@@ -1068,9 +1031,9 @@ export default function AdminSettings() {
     "model_viral",
     "model_clone",
     "model_auto",
-    // Grsai credentials — exposed via the dedicated Grsai card.
-    "gr_base",
-    "gr_key",
+    // gr_base / gr_key removed — Grsai chat reuses the existing
+    // p4_key from the Grsai image-gen client (lib/p4.ts). Admin
+    // manages one key total for Grsai across image + chat.
     // Internal cascade state — automatically managed by
     // lib/cascade-rotation.ts (round-robin counters) + the cron worker
     // (last_auto_resubmit_run heartbeat). Admin never needs to edit
@@ -2067,94 +2030,9 @@ export default function AdminSettings() {
         )}
       </div>
 
-      {/* Grsai credentials — second AI provider for the cascade.
-          Same OpenAI-compat /v1/chat/completions shape as OpenRouter
-          so the same Bearer-token + base URL pattern applies. Cards
-          stacked side-by-side aren't necessary; this lives as its own
-          card to keep auth secrets visually separate from model picks. */}
-      <div
-        className="card p-6 mb-6 border-2"
-        style={{
-          borderColor: "rgba(34,197,94,0.3)",
-          boxShadow: "inset 0 0 80px rgba(34,197,94,0.05)",
-        }}
-      >
-        <div className="flex items-center gap-2 mb-4">
-          <KeyRound className="w-5 h-5" style={{ color: "#16a34a" }} />
-          <h2 className="font-display font-bold text-lg text-[var(--color-text-primary)]">
-            Grsai Credentials
-          </h2>
-        </div>
-        <p className="text-sm text-[var(--color-text-secondary)] mb-4">
-          Second AI provider for the Model Routing cascade. Same shape
-          as OpenRouter (OpenAI-compatible /v1/chat/completions). Get
-          your API key from{" "}
-          <a
-            href="https://grsai.ai/zh/dashboard/api-keys"
-            target="_blank"
-            rel="noopener noreferrer"
-            style={{ color: "#16a34a" }}
-            className="font-semibold underline"
-          >
-            grsai.ai/dashboard/api-keys
-          </a>
-          .
-        </p>
-        <div className="grid md:grid-cols-2 gap-3">
-          <div>
-            <label className="block text-xs font-mono uppercase tracking-widest text-[var(--color-text-muted)] font-bold mb-2">
-              Base URL{" "}
-              <span className="text-[var(--color-text-muted)] font-normal">
-                (empty = https://grsaiapi.com)
-              </span>
-            </label>
-            <input
-              type="text"
-              name="gr_base_override"
-              autoComplete="off"
-              value={grBase}
-              onChange={(e) => setGrBase(e.target.value)}
-              placeholder="https://grsaiapi.com  (global) or https://grsai.dakka.com.cn (China)"
-              className="input font-mono text-xs w-full"
-              style={{ color: "var(--color-text-primary)" }}
-            />
-          </div>
-          <div>
-            <label className="block text-xs font-mono uppercase tracking-widest text-[var(--color-text-muted)] font-bold mb-2">
-              API Key{" "}
-              <span className="text-red-600 font-normal">
-                (server-only — required for Grsai cascade)
-              </span>
-            </label>
-            <input
-              type="password"
-              name="gr_key_secret"
-              autoComplete="new-password"
-              value={grKey}
-              onChange={(e) => setGrKey(e.target.value)}
-              placeholder="sk-xxxxxxxxxxx"
-              className="input font-mono text-xs w-full"
-              style={{ color: "var(--color-text-primary)" }}
-            />
-          </div>
-        </div>
-        <button
-          onClick={saveGrsai}
-          disabled={savingGr}
-          className="btn-primary mt-3 disabled:opacity-50"
-        >
-          {savingGr ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-          Save Grsai credentials
-        </button>
-        {grMsg && (
-          <div
-            className="text-xs mt-2"
-            style={{ color: grMsg.startsWith("✓") ? "#16a34a" : "#ef4444" }}
-          >
-            {grMsg}
-          </div>
-        )}
-      </div>
+      {/* Grsai Credentials card removed — the chat cascade reuses the
+          existing p4_key (Grsai image-gen client, see lib/p4.ts) so
+          admin manages one key total for Grsai across image + chat. */}
 
       {/* Model Routing — per-feature cascade with main + fallback.
           Each knob can mix providers (e.g. OpenRouter main + Grsai

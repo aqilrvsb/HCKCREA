@@ -73,7 +73,7 @@ export async function POST(req: Request) {
   // from /admin/settings → Model Routing.
   const s = await getSettings([
     "or_base", "or_key",
-    "gr_base", "gr_key",
+    "p4_key", // Grsai shares the existing image-gen key (see lib/openrouter.ts providerCreds)
     "model_qa", "model_auto",
   ]);
 
