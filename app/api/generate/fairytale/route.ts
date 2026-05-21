@@ -1,8 +1,6 @@
 import { NextResponse, after } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { priceAndCheck } from "@/lib/deduct";
-import { getStorytellingPricing } from "@/lib/settings";
 
 // POST /api/generate/fairytale — placeholder-first, Pattern A (Vercel never waits).
 //
@@ -145,30 +143,13 @@ export async function POST(req: Request) {
     "-start-render.modal.run"
   );
 
-  // Compute storytelling cost from admin-set rates. Same formula the
-  // wizard shows in the cost-preview badge:
-  //   per_image × scene_count + per_audio_sec × scene_dur × scene_count
-  const pricing = await getStorytellingPricing();
-  const totalCost = Number(
-    (
-      pricing.per_image * scenes.length +
-      pricing.per_audio_sec * sceneDurationSec * scenes.length
-    ).toFixed(4)
-  );
-
-  // Block here if user can't afford the render — saves a Modal call we'd
-  // have to refund anyway.
-  const funds = await priceAndCheck(user.id, "storytelling", totalCost);
-  if (!funds.hasFunds) {
-    return NextResponse.json(
-      {
-        error:
-          `Insufficient credit. Need RM ${totalCost.toFixed(2)}, ` +
-          `you have RM ${funds.credits.toFixed(2)}. Top up to continue.`,
-      },
-      { status: 402 }
-    );
-  }
+  // MERGE IS FREE — per user direction: "deduction only happen once when
+  // generate a picture and video become a project..once it project..don't
+  // deduct..project and merge..no deduction at there". The per-scene
+  // image generations already charged the user (rate_banana_pro per scene
+  // via settle.ts/image_generate). Compositing those into a final MP4 is
+  // a value-add we don't bill separately. cost=0 + no upfront priceAndCheck.
+  const totalCost = 0;
 
   const admin = createAdminClient();
 
@@ -193,10 +174,6 @@ export async function POST(req: Request) {
         animation,
         placement,
         upload_status: "queued",
-        pricing: {
-          per_image: pricing.per_image,
-          per_audio_sec: pricing.per_audio_sec,
-        },
       },
     })
     .select("id")
@@ -258,9 +235,11 @@ export async function POST(req: Request) {
           background_music_url: backgroundMusicUrl,
           voice_volume: voiceVolume,
           music_volume: musicVolume,
-          // Modal does the deduct on success using this exact amount.
-          // Vercel never deducts — failures cost the user nothing.
-          cost: totalCost,
+          // Merge is free — already paid for each scene image upfront.
+          // Modal's _deduct_storytelling is no-op'd by the cost > 0
+          // gate, so passing 0 here means zero double-charging on
+          // retries.
+          cost: 0,
           scenes,
         }),
       });
@@ -303,10 +282,6 @@ export async function POST(req: Request) {
               animation,
               placement,
               upload_status: "queued",
-              pricing: {
-                per_image: pricing.per_image,
-                per_audio_sec: pricing.per_audio_sec,
-              },
               // The new authoritative field — recheck/poller read this
               // and call Modal's check_render endpoint with it.
               modal_call_id: callId,
@@ -316,17 +291,21 @@ export async function POST(req: Request) {
           .eq("id", historyId);
       }
     } catch (e: any) {
-      // Network-level throw — Modal NEVER received the request. This IS a
-      // definitive failure (no background work happening), so mark failed
-      // so the user can delete + retry.
+      // Network-level throw — Modal NEVER received the request. Stamp
+      // a soft warning in metadata but DO NOT mark the row failed.
+      // The history-grid UI now renders fairytale 'failed' rows as
+      // loading anyway (since Modal is the authoritative writer), so
+      // we'd just be confusing the SWR cache for no benefit. If
+      // Modal genuinely never started, the user can hit Delete from
+      // the loading state and re-merge.
       await admin
         .from("history")
         .update({
-          status: "failed",
-          error_message: e?.message || "Modal trigger failed",
           metadata: {
             scene_count: scenes.length,
-            upload_status: "failed",
+            upload_status: "queued",
+            trigger_warning: `start_render threw: ${(e?.message || "unknown").slice(0, 200)}`,
+            trigger_warning_at: new Date().toISOString(),
           },
         })
         .eq("id", historyId);

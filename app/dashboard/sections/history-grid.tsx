@@ -1406,11 +1406,22 @@ function HistoryCardInner({
           isClonePrompt ? "aspect-[1/1]" : "aspect-[9/16]"
         }`}
       >
-        {item.status === "pending" && (
+        {/* Storytelling merge rows: ALWAYS render the loading state
+            while Modal works. Even if some intermediate path flipped
+            status to 'failed' (e.g. a stale poll-pending tick from
+            before settle.ts learned to skip modal-managed rows), the
+            actual render is owned by Modal — it'll write status='done'
+            + output_url when finished. Showing "Failed" prematurely
+            confused clients into deleting + re-merging, which wasted
+            credits. */}
+        {(item.status === "pending" ||
+          (item.type === "fairytale" && item.status === "failed")) && (
           <>
             <div className="absolute inset-0 flex flex-col items-center justify-center text-amber-400 text-xs font-bold gap-2 px-2 text-center">
               <Loader2 className="w-5 h-5 animate-spin" />
-              <span>Generating…</span>
+              <span>
+                {item.type === "fairytale" ? "Rendering story…" : "Generating…"}
+              </span>
               {/* Seedance + Cinema (Grok) take a lot longer than Veo
                   UGC. Surface the expected wait so clients don't think
                   the pipeline is stuck. */}
@@ -1425,32 +1436,48 @@ function HistoryCardInner({
                   {item.type === "image" ? "~ 30s–1 minit" : "~ 1–3 minit"}
                 </span>
               )}
+              {item.type === "fairytale" && (
+                <span className="text-[10px] font-mono text-amber-300/80 mt-1 leading-tight">
+                  Modal merge
+                  <br />~ 2–5 minit
+                </span>
+              )}
             </div>
-            <button
-              onClick={checkNow}
-              disabled={checking}
-              title="Check status now"
-              className="absolute top-2 right-2 w-7 h-7 rounded-full flex items-center justify-center disabled:opacity-50 transition"
-              style={{
-                background: "rgba(20,20,20,0.85)",
-                border: "1px solid var(--color-border)",
-                backdropFilter: "blur(8px)",
-                color: "var(--color-text-primary)",
-              }}
-            >
-              <RefreshCw className={`w-3.5 h-3.5 ${checking ? "animate-spin" : ""}`} />
-            </button>
+            {/* Recheck icon hidden for storytelling — Modal is the
+                authoritative writer, manual recheck added no value and
+                surfaced confusing intermediate states. The row will
+                self-update via SWR poll the moment Modal writes done. */}
+            {item.type !== "fairytale" && (
+              <button
+                onClick={checkNow}
+                disabled={checking}
+                title="Check status now"
+                className="absolute top-2 right-2 w-7 h-7 rounded-full flex items-center justify-center disabled:opacity-50 transition"
+                style={{
+                  background: "rgba(20,20,20,0.85)",
+                  border: "1px solid var(--color-border)",
+                  backdropFilter: "blur(8px)",
+                  color: "var(--color-text-primary)",
+                }}
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${checking ? "animate-spin" : ""}`} />
+              </button>
+            )}
             {/* Delete icon during pending state — per user direction:
                 "all history tab..add icon delete also when loading".
                 Lets users cancel/discard a stuck or unwanted generation
                 without waiting for it to finish or fail first. handleDelete
                 soft-deletes the row (same path as the done/failed Trash
-                button) — no charge if the upstream task never settles. */}
+                button) — no charge if the upstream task never settles.
+                Position shifts to right-2 for fairytale since there's no
+                recheck button taking that slot. */}
             <button
               onClick={handleDelete}
               disabled={deleting}
               title="Delete this generation"
-              className="absolute top-2 right-11 w-7 h-7 rounded-full flex items-center justify-center disabled:opacity-50 transition"
+              className={`absolute top-2 ${
+                item.type === "fairytale" ? "right-2" : "right-11"
+              } w-7 h-7 rounded-full flex items-center justify-center disabled:opacity-50 transition`}
               style={{
                 background: "rgba(20,20,20,0.85)",
                 border: "1px solid rgba(239,68,68,0.4)",
@@ -1462,7 +1489,7 @@ function HistoryCardInner({
             </button>
           </>
         )}
-        {item.status === "failed" && (
+        {item.status === "failed" && item.type !== "fairytale" && (
           <>
             <div className="absolute inset-0 flex flex-col items-center justify-center text-red-400 text-xs font-bold gap-2 px-3 text-center">
               <XCircle className="w-5 h-5" />

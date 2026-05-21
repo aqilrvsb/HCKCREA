@@ -713,6 +713,26 @@ export async function settleHistoryRow(hist: HistoryRow): Promise<SettleResult> 
     return { state: "skipped", reason: "no task_id" };
   }
 
+  // Storytelling merge rows are managed end-to-end by Modal, NOT by
+  // any Crun/APIPod provider. Their task_id is the sentinel
+  // `modal:<timestamp>` we stamp at insert (so poll-pending picks
+  // them up at all) — there's no real upstream task to poll. Modal
+  // writes status='done' + output_url directly to the row when the
+  // render finishes (or status='failed' if it genuinely fails).
+  //
+  // If we don't skip here, settleHistoryRow falls through to
+  // p2GetStatus("modal:...") which Crun answers with HTTP 422
+  // ("task not found") — settle then marks the row failed even
+  // though Modal is mid-render. The user sees "Failed HTTP 422" in
+  // the UI while Modal silently completes the merge in the
+  // background. Skipping here lets Modal be the only writer.
+  if (
+    hist.type === "fairytale" ||
+    String(hist.task_id).startsWith("modal:")
+  ) {
+    return { state: "skipped", reason: "modal-managed (storytelling merge)" };
+  }
+
   // Pick the backend the row was originally created on. Two metadata keys
   // may carry the provider tag depending on which insert path created the
   // row: `provider` is set by the original dispatcher; `webhook_provider`
