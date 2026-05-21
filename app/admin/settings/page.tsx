@@ -1111,6 +1111,52 @@ export default function AdminSettings() {
     "viral_image_model",
     // Already exposed via the dedicated "Affiliate Commission" card.
     "referral_commission_rate",
+    "affiliate_signup_credits",
+    // All five Storytelling settings have dedicated inputs in the
+    // Storytelling card above — raw JSON would just duplicate them
+    // and risk inconsistent saves.
+    "fairytale_image_model",
+    "storytelling_pricing",
+    "storytelling_voice_speed",
+    "storytelling_provider",
+    "storytelling_script_model",
+    // OpenRouter base URL + key — exposed via the API Keys card.
+    // Raw JSON exposure of the key would leak the secret in the
+    // generic list (no password-masking on that input).
+    "or_base",
+    "or_key",
+    // P6 (APIPod) keys — exposed via dedicated APIPod section per
+    // slot. Raw JSON would leak the secret + risk per-slot drift.
+    "p6_key_a",
+    "p6_key_b",
+    "p6_key_c",
+    "p6_key_d",
+    "p6_key_e",
+    "p6_key_f",
+    "p6_key_g",
+    "p6_key_h",
+    // Per-slot cascade configuration — managed via the Cascade
+    // section above (slot count + per-slot provider selectors).
+    "video_main_count",
+    "video_main_slots",
+    "video_fallback_count",
+    "video_fallback_slots",
+    "image_main_count",
+    "image_main_slots",
+    "image_fallback_count",
+    "image_fallback_slots",
+    "grok_main_count",
+    "grok_main_slots",
+    "grok_fallback_count",
+    "grok_fallback_slots",
+    "cinema_main_count",
+    "cinema_main_slots",
+    "cinema_fallback_count",
+    "cinema_fallback_slots",
+    "sora2_main_count",
+    "sora2_main_slots",
+    "sora2_fallback_count",
+    "sora2_fallback_slots",
   ]);
 
   const grouped = useMemo(() => {
