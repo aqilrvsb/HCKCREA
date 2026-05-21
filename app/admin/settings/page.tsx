@@ -2463,12 +2463,13 @@ function ModelKnob({
             }
             className="px-2 py-2 rounded-lg text-xs font-bold cursor-pointer outline-none"
             style={{
-              ...providerStyle(value.mainProvider),
+              background: providerStyle(value.mainProvider).bg,
+              color: providerStyle(value.mainProvider).fg,
               border: `1px solid ${providerStyle(value.mainProvider).bd}`,
-            }}
+            } satisfies React.CSSProperties}
           >
-            <option value="openrouter">OpenRouter</option>
-            <option value="grsai">Grsai</option>
+            <option value="openrouter" style={{ background: "#1a1a1a", color: "#ffffff" }}>OpenRouter</option>
+            <option value="grsai" style={{ background: "#1a1a1a", color: "#ffffff" }}>Grsai</option>
           </select>
           <input
             type="text"
@@ -2504,12 +2505,13 @@ function ModelKnob({
             }
             className="px-2 py-2 rounded-lg text-xs font-bold cursor-pointer outline-none"
             style={{
-              ...providerStyle(value.fallbackProvider),
+              background: providerStyle(value.fallbackProvider).bg,
+              color: providerStyle(value.fallbackProvider).fg,
               border: `1px solid ${providerStyle(value.fallbackProvider).bd}`,
-            }}
+            } satisfies React.CSSProperties}
           >
-            <option value="openrouter">OpenRouter</option>
-            <option value="grsai">Grsai</option>
+            <option value="openrouter" style={{ background: "#1a1a1a", color: "#ffffff" }}>OpenRouter</option>
+            <option value="grsai" style={{ background: "#1a1a1a", color: "#ffffff" }}>Grsai</option>
           </select>
           <input
             type="text"
