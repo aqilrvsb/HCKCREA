@@ -239,11 +239,14 @@ export async function providerCreds(
   if (provider === "grsai") {
     // Reuse the existing p4_key — p4 is already the Grsai image-gen
     // client (see lib/p4.ts) so admin doesn't need to manage two keys
-    // for the same provider. Base URL is hardcoded to the global host;
-    // the .cn mirror exists but our Vercel egress is geofenced out of
-    // China so we'd never use it.
+    // for the same provider. Base URL must include the /v1 prefix —
+    // Grsai's chat endpoint is https://grsaiapi.com/v1/chat/completions
+    // (verified via the Usage Chat log: requests without /v1 returned
+    // HTTP 404 across every model so the cascade always fell through
+    // to OpenRouter). The .cn mirror exists but our Vercel egress is
+    // geofenced out of China so we'd never use it.
     return {
-      base: "https://grsaiapi.com",
+      base: "https://grsaiapi.com/v1",
       key: String(cache.p4_key?.key || ""),
     };
   }
