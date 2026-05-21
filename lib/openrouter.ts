@@ -1,13 +1,15 @@
 // Multi-provider AI chat completions helper. Reads provider + model
 // from app_settings so admin can rotate without redeploy. Supports
-// cascade fallback per model key:
+// cascade fallback per model key — main, then walk every fallback in
+// order, then fall through to model_auto's cascade.
 //
-//   model_X setting shape (new):
-//     { main: { provider, model }, fallback?: { provider, model } }
+//   model_X setting shape (v3, current):
+//     { main: { provider, model }, fallbacks: [{ provider, model }, ...] }
 //
-//   Legacy shape (still accepted for back-compat):
-//     { model: "..." }                    → treated as openrouter main
-//     { model: "...", provider: "..." }   → treated as that provider's main
+//   Legacy shapes (still accepted for back-compat):
+//     { main, fallback: { provider, model } }   v2 — single fallback object
+//     { model: "..." }                          v1 — treated as openrouter main
+//     { model: "...", provider: "..." }         v1 — that provider's main
 //
 // Providers:
 //   • openrouter (https://openrouter.ai/api/v1)
@@ -25,43 +27,68 @@ export type ProviderSlot = {
 };
 
 type ModelSettingValue = {
-  // New shape
+  // Current shape (v3) — variadic fallbacks array
   main?: ProviderSlot;
+  fallbacks?: ProviderSlot[];
+  // Older shape (v2) — single fallback object
   fallback?: ProviderSlot;
-  // Legacy shape (back-compat)
+  // Oldest shape (v1) — bare model string
   model?: string;
   provider?: Provider;
 };
 
-// Parse any historical model_X setting shape into a normalised
-// { main, fallback? } tuple. Returns null when nothing usable is set
-// so the caller can fall back to the next layer in the resolution chain.
-export function parseModelSetting(raw: any): { main: ProviderSlot; fallback?: ProviderSlot } | null {
+export type ParsedModel = {
+  main: ProviderSlot;
+  fallbacks: ProviderSlot[];
+};
+
+// Normalise any historical model_X setting shape into { main, fallbacks[] }.
+// Returns null when nothing usable is set so the caller can fall back
+// to the next layer in the resolution chain (e.g. model_auto).
+//
+// Schema evolution:
+//   v1 (oldest): { model: "...", provider?: "..." }
+//   v2:          { main: {...}, fallback?: {...} }            (single fallback)
+//   v3 (now):    { main: {...}, fallbacks: [{...}, {...}, ...] } (variadic)
+// All three are accepted on read. Saves write the current schema (v3).
+export function parseModelSetting(raw: any): ParsedModel | null {
   if (!raw) return null;
   const v = raw as ModelSettingValue;
-  // New shape — { main: { provider, model }, fallback?: {...} }
+  const toSlot = (s: any): ProviderSlot | null =>
+    s && s.model
+      ? {
+          provider: (s.provider === "grsai" ? "grsai" : "openrouter") as Provider,
+          model: String(s.model),
+        }
+      : null;
+
+  // v3 / v2: main present
   if (v.main && v.main.model) {
-    return {
-      main: {
-        provider: (v.main.provider || "openrouter") as Provider,
-        model: String(v.main.model),
-      },
-      fallback:
-        v.fallback && v.fallback.model
-          ? {
-              provider: (v.fallback.provider || "openrouter") as Provider,
-              model: String(v.fallback.model),
-            }
-          : undefined,
+    const main: ProviderSlot = {
+      provider: (v.main.provider === "grsai" ? "grsai" : "openrouter") as Provider,
+      model: String(v.main.model),
     };
+    const fallbacks: ProviderSlot[] = [];
+    if (Array.isArray(v.fallbacks)) {
+      for (const f of v.fallbacks) {
+        const s = toSlot(f);
+        if (s) fallbacks.push(s);
+      }
+    }
+    // v2 single fallback — keep it when v.fallbacks array is absent
+    const legacyFb = toSlot(v.fallback);
+    if (legacyFb && fallbacks.length === 0) fallbacks.push(legacyFb);
+    return { main, fallbacks };
   }
-  // Legacy shape — { model: "...", provider?: "..." }
+
+  // v1 legacy bare model
   if (v.model) {
     return {
       main: {
-        provider: (v.provider || "openrouter") as Provider,
+        provider: (v.provider === "grsai" ? "grsai" : "openrouter") as Provider,
         model: String(v.model),
       },
+      fallbacks: [],
     };
   }
   return null;
@@ -225,10 +252,10 @@ export async function orChat(opts: {
   }
 
   // Resolution chain: per-feature setting → model_auto fallback. Each
-  // layer parses to {main, fallback?}. The first non-null layer drives
+  // layer parses to {main, fallbacks[]}. The first non-null layer drives
   // the cascade. Returns the first call that succeeds, otherwise the
   // last error message we saw.
-  const layers: Array<{ main: ProviderSlot; fallback?: ProviderSlot }> = [];
+  const layers: ParsedModel[] = [];
   const primary = parseModelSetting(s[requestedKey]);
   if (primary) layers.push(primary);
   if (requestedKey !== "model_auto") {
@@ -239,12 +266,13 @@ export async function orChat(opts: {
     return { ok: false, error: "No model configured (model_auto empty)" };
   }
 
-  // Walk the layers in order, trying main then fallback on each.
-  // Stop at the first success. If every attempt fails return the
-  // last error so the caller surfaces something concrete.
+  // Walk the layers in order, trying main → fallbacks[0] → fallbacks[1]
+  // → ... on each layer. Stop at the first success. If every attempt
+  // fails return the last error so the caller surfaces something concrete.
   let lastError = "All providers exhausted";
   for (const layer of layers) {
-    for (const slot of [layer.main, layer.fallback].filter(Boolean) as ProviderSlot[]) {
+    const chain: ProviderSlot[] = [layer.main, ...layer.fallbacks];
+    for (const slot of chain) {
       const { base, key } = await providerCreds(slot.provider, s);
       const r = await callProvider({
         provider: slot.provider,
@@ -298,7 +326,7 @@ export async function orChatVision(opts: {
     });
   }
 
-  const layers: Array<{ main: ProviderSlot; fallback?: ProviderSlot }> = [];
+  const layers: ParsedModel[] = [];
   const primary = parseModelSetting(s[requestedKey]);
   if (primary) layers.push(primary);
   if (requestedKey !== "model_auto") {
@@ -311,7 +339,8 @@ export async function orChatVision(opts: {
 
   let lastError = "All providers exhausted (vision)";
   for (const layer of layers) {
-    for (const slot of [layer.main, layer.fallback].filter(Boolean) as ProviderSlot[]) {
+    const chain: ProviderSlot[] = [layer.main, ...layer.fallbacks];
+    for (const slot of chain) {
       const { base, key } = await providerCreds(slot.provider, s);
       const r = await callProvider({
         provider: slot.provider,

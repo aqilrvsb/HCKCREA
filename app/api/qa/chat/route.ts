@@ -77,7 +77,7 @@ export async function POST(req: Request) {
     "model_qa", "model_auto",
   ]);
 
-  const layers: Array<{ main: ProviderSlot; fallback?: ProviderSlot }> = [];
+  const layers: Array<{ main: ProviderSlot; fallbacks: ProviderSlot[] }> = [];
   const primary = parseModelSetting(s.model_qa);
   if (primary) layers.push(primary);
   const auto = parseModelSetting(s.model_auto);
@@ -87,6 +87,7 @@ export async function POST(req: Request) {
   if (layers.length === 0) {
     layers.push({
       main: { provider: "openrouter", model: "google/gemini-flash-1.5-8b" },
+      fallbacks: [],
     });
   }
 
@@ -112,7 +113,8 @@ export async function POST(req: Request) {
   // success; bubbles up the last error if every attempt fails.
   let lastError = "All providers exhausted (qa)";
   for (const layer of layers) {
-    for (const slot of [layer.main, layer.fallback].filter(Boolean) as ProviderSlot[]) {
+    const chain: ProviderSlot[] = [layer.main, ...layer.fallbacks];
+    for (const slot of chain) {
       const { base, key } = await providerCreds(slot.provider, s);
       if (!base || !key) {
         lastError = `${slot.provider} not configured`;

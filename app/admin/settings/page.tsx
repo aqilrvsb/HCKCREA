@@ -175,31 +175,40 @@ export default function AdminSettings() {
   //   - model_auto        → universal fallback (last layer of every cascade)
   //   - storytelling_script_model → Storytelling 12-scene JSON (separate card)
   type ModelSlotProvider = "openrouter" | "grsai";
+  type ModelSlot = { provider: ModelSlotProvider; model: string };
   type ModelKnobState = {
-    mainProvider: ModelSlotProvider;
-    mainModel: string;
-    fallbackProvider: ModelSlotProvider;
-    fallbackModel: string;
+    main: ModelSlot;
+    fallbacks: ModelSlot[]; // variadic; UI exposes as many rows as the knob's maxFallbacks
   };
-  const emptyKnob = (): ModelKnobState => ({
-    mainProvider: "openrouter",
-    mainModel: "",
-    fallbackProvider: "openrouter",
-    fallbackModel: "",
+  const emptySlot = (): ModelSlot => ({ provider: "openrouter", model: "" });
+  // Default knob — most features need just 1 fallback. Custom Idea
+  // bumps this to 3 below via parseKnob padding + ModelKnob maxFallbacks.
+  const emptyKnob = (maxFallbacks: number = 1): ModelKnobState => ({
+    main: emptySlot(),
+    fallbacks: Array.from({ length: maxFallbacks }, () => emptySlot()),
   });
-  const [qaKnob, setQaKnob] = useState<ModelKnobState>(emptyKnob());
+  // Per-knob max fallback slots — Custom Idea is the heaviest user
+  // of the cascade (Auto Content fires many parallel LLM calls so the
+  // cost of an OpenRouter rate-limit miss is high) so it gets 3
+  // fallbacks. Other knobs default to 1.
+  const QA_MAX_FB = 1;
+  const CUSTOM_IDEA_MAX_FB = 3;
+  const VIRAL_MAX_FB = 1;
+  const CLONE_MAX_FB = 1;
+  const AUTO_MAX_FB = 1;
+  const [qaKnob, setQaKnob] = useState<ModelKnobState>(emptyKnob(QA_MAX_FB));
   const [savingQa, setSavingQa] = useState(false);
   const [qaMsg, setQaMsg] = useState<string | null>(null);
-  const [customIdeaKnob, setCustomIdeaKnob] = useState<ModelKnobState>(emptyKnob());
+  const [customIdeaKnob, setCustomIdeaKnob] = useState<ModelKnobState>(emptyKnob(CUSTOM_IDEA_MAX_FB));
   const [savingCustomIdea, setSavingCustomIdea] = useState(false);
   const [customIdeaMsg, setCustomIdeaMsg] = useState<string | null>(null);
-  const [viralKnob, setViralKnob] = useState<ModelKnobState>(emptyKnob());
+  const [viralKnob, setViralKnob] = useState<ModelKnobState>(emptyKnob(VIRAL_MAX_FB));
   const [savingViralModel, setSavingViralModel] = useState(false);
   const [viralModelMsg, setViralModelMsg] = useState<string | null>(null);
-  const [cloneKnob, setCloneKnob] = useState<ModelKnobState>(emptyKnob());
+  const [cloneKnob, setCloneKnob] = useState<ModelKnobState>(emptyKnob(CLONE_MAX_FB));
   const [savingClone, setSavingClone] = useState(false);
   const [cloneMsg, setCloneMsg] = useState<string | null>(null);
-  const [autoKnob, setAutoKnob] = useState<ModelKnobState>(emptyKnob());
+  const [autoKnob, setAutoKnob] = useState<ModelKnobState>(emptyKnob(AUTO_MAX_FB));
   const [savingAuto, setSavingAuto] = useState(false);
   const [autoMsg, setAutoMsg] = useState<string | null>(null);
 
@@ -305,34 +314,55 @@ export default function AdminSettings() {
           setFbTestEventCode(String(row.value?.test_event_code || ""));
           setFbCapiEnabled(row.value?.enabled !== false);
         }
-        // Parse a model_X row into the {main, fallback} cascade shape.
-        // Back-compat: legacy { model: "..." } rows are treated as
-        // openrouter main with no fallback.
-        const parseKnob = (val: any): ModelKnobState => {
-          const out = emptyKnob();
+        // Parse a model_X row into the {main, fallbacks[]} cascade
+        // shape. Accepts all 3 historical schemas (bare model, single
+        // fallback, fallbacks array). `maxFallbacks` pads or truncates
+        // the fallbacks array so the UI always renders the expected
+        // number of input rows.
+        const parseKnob = (val: any, maxFallbacks: number): ModelKnobState => {
+          const out = emptyKnob(maxFallbacks);
           if (!val) return out;
+          const toSlot = (s: any): ModelSlot | null =>
+            s && s.model
+              ? {
+                  provider: s.provider === "grsai" ? "grsai" : "openrouter",
+                  model: String(s.model),
+                }
+              : null;
+          // main
           if (val.main && val.main.model) {
-            out.mainProvider =
-              (val.main.provider === "grsai" ? "grsai" : "openrouter");
-            out.mainModel = String(val.main.model);
+            out.main = {
+              provider: val.main.provider === "grsai" ? "grsai" : "openrouter",
+              model: String(val.main.model),
+            };
           } else if (val.model) {
-            // Legacy shape
-            out.mainProvider =
-              (val.provider === "grsai" ? "grsai" : "openrouter");
-            out.mainModel = String(val.model);
+            // v1 legacy
+            out.main = {
+              provider: val.provider === "grsai" ? "grsai" : "openrouter",
+              model: String(val.model),
+            };
           }
-          if (val.fallback && val.fallback.model) {
-            out.fallbackProvider =
-              (val.fallback.provider === "grsai" ? "grsai" : "openrouter");
-            out.fallbackModel = String(val.fallback.model);
+          // fallbacks — v3 array → v2 single → v1 none
+          const fbs: ModelSlot[] = [];
+          if (Array.isArray(val.fallbacks)) {
+            for (const f of val.fallbacks) {
+              const s = toSlot(f);
+              if (s) fbs.push(s);
+            }
           }
+          const legacy = toSlot(val.fallback);
+          if (legacy && fbs.length === 0) fbs.push(legacy);
+          // Pad / truncate to the knob's maxFallbacks so the UI is
+          // stable regardless of what's stored.
+          while (fbs.length < maxFallbacks) fbs.push(emptySlot());
+          out.fallbacks = fbs.slice(0, maxFallbacks);
           return out;
         };
-        if (row.key === "model_qa") setQaKnob(parseKnob(row.value));
-        if (row.key === "model_custom_idea") setCustomIdeaKnob(parseKnob(row.value));
-        if (row.key === "model_viral") setViralKnob(parseKnob(row.value));
-        if (row.key === "model_clone") setCloneKnob(parseKnob(row.value));
-        if (row.key === "model_auto") setAutoKnob(parseKnob(row.value));
+        if (row.key === "model_qa") setQaKnob(parseKnob(row.value, QA_MAX_FB));
+        if (row.key === "model_custom_idea") setCustomIdeaKnob(parseKnob(row.value, CUSTOM_IDEA_MAX_FB));
+        if (row.key === "model_viral") setViralKnob(parseKnob(row.value, VIRAL_MAX_FB));
+        if (row.key === "model_clone") setCloneKnob(parseKnob(row.value, CLONE_MAX_FB));
+        if (row.key === "model_auto") setAutoKnob(parseKnob(row.value, AUTO_MAX_FB));
         // gr_base / gr_key reads removed — Grsai chat uses p4_key now.
         // Main+fallback architecture
         const allowedV: string[] = [
@@ -876,10 +906,10 @@ export default function AdminSettings() {
   }
 
   // Generic save for a model_X cascade setting. Serializes the knob's
-  // {mainProvider, mainModel, fallbackProvider, fallbackModel} into
-  // the wire shape { main: {provider, model}, fallback?: {provider,
-  // model} }. Empty main = "fall back to model_auto"; empty fallback
-  // = no second-attempt provider (cascade just tries main → model_auto).
+  // {main, fallbacks[]} into the wire shape:
+  //   { main: {provider, model}, fallbacks: [{provider, model}, ...] }
+  // Empty main = "fall back to model_auto"; empty fallback rows are
+  // skipped so the cascade only walks the configured providers.
   async function saveCascadeKnob(opts: {
     key: string;
     knob: ModelKnobState;
@@ -890,14 +920,16 @@ export default function AdminSettings() {
     opts.setSaving(true);
     opts.setMsg(null);
     try {
-      const main = opts.knob.mainModel.trim();
-      const fb = opts.knob.fallbackModel.trim();
+      const main = opts.knob.main.model.trim();
+      const fbs = opts.knob.fallbacks
+        .map((f) => ({ provider: f.provider, model: f.model.trim() }))
+        .filter((f) => f.model);
       const value: any = {};
       if (main) {
-        value.main = { provider: opts.knob.mainProvider, model: main };
+        value.main = { provider: opts.knob.main.provider, model: main };
       }
-      if (fb) {
-        value.fallback = { provider: opts.knob.fallbackProvider, model: fb };
+      if (fbs.length > 0) {
+        value.fallbacks = fbs;
       }
       const res = await fetch("/api/admin/settings", {
         method: "POST",
@@ -909,8 +941,10 @@ export default function AdminSettings() {
         throw new Error(d?.error || `HTTP ${res.status}`);
       }
       const parts: string[] = [];
-      if (main) parts.push(`main: ${opts.knob.mainProvider}/${main}`);
-      if (fb) parts.push(`fallback: ${opts.knob.fallbackProvider}/${fb}`);
+      if (main) parts.push(`main: ${opts.knob.main.provider}/${main}`);
+      for (let i = 0; i < fbs.length; i++) {
+        parts.push(`fb${i + 1}: ${fbs[i].provider}/${fbs[i].model}`);
+      }
       opts.setMsg(
         parts.length
           ? `✓ Saved. ${opts.label} → ${parts.join(" → ")}.`
@@ -2385,16 +2419,15 @@ export default function AdminSettings() {
   );
 }
 
-// Cascade model knob — main + fallback. Each slot has a provider
+// Cascade model knob — main + N fallbacks. Each slot has a provider
 // dropdown (OpenRouter / Grsai) + a model text input. On save, the
-// {main, fallback?} cascade shape is written to app_settings.model_X.
+// {main, fallbacks: []} cascade shape is written to app_settings.model_X.
 // Empty main = "no override, fall back to model_auto cascade".
-// Empty fallback = "main only, no second-attempt provider".
-type CascadeKnobValue = {
-  mainProvider: "openrouter" | "grsai";
-  mainModel: string;
-  fallbackProvider: "openrouter" | "grsai";
-  fallbackModel: string;
+// Empty fallback rows are skipped at save time.
+type ModelKnobSlot = { provider: "openrouter" | "grsai"; model: string };
+type ModelKnobValue = {
+  main: ModelKnobSlot;
+  fallbacks: ModelKnobSlot[];
 };
 function ModelKnob({
   label,
@@ -2407,8 +2440,8 @@ function ModelKnob({
   recommendation,
 }: {
   label: string;
-  value: CascadeKnobValue;
-  onChange: (v: CascadeKnobValue) => void;
+  value: ModelKnobValue;
+  onChange: (v: ModelKnobValue) => void;
   onSave: () => void | Promise<void>;
   saving: boolean;
   msg: string | null;
@@ -2421,14 +2454,26 @@ function ModelKnob({
       : { bg: "rgba(34,197,94,0.12)", fg: "#16a34a", bd: "rgba(34,197,94,0.4)" };
   const summary = (() => {
     const parts: string[] = [];
-    if (value.mainModel.trim()) {
-      parts.push(`${value.mainProvider}/${value.mainModel.trim()}`);
+    if (value.main.model.trim()) {
+      parts.push(`${value.main.provider}/${value.main.model.trim()}`);
     }
-    if (value.fallbackModel.trim()) {
-      parts.push(`${value.fallbackProvider}/${value.fallbackModel.trim()}`);
+    for (const f of value.fallbacks) {
+      if (f.model.trim()) {
+        parts.push(`${f.provider}/${f.model.trim()}`);
+      }
     }
     return parts;
   })();
+  const updateMain = (next: Partial<ModelKnobSlot>) =>
+    onChange({ ...value, main: { ...value.main, ...next } });
+  const updateFallback = (idx: number, next: Partial<ModelKnobSlot>) => {
+    const fbs = value.fallbacks.map((f, i) => (i === idx ? { ...f, ...next } : f));
+    onChange({ ...value, fallbacks: fbs });
+  };
+  const fbLabel = (idx: number) =>
+    value.fallbacks.length === 1
+      ? "🛟 Fallback (optional)"
+      : `🛟 Fallback ${idx + 1} (optional)`;
   return (
     <div
       className="rounded-xl p-4 border"
@@ -2454,18 +2499,15 @@ function ModelKnob({
         </div>
         <div className="grid grid-cols-[120px_1fr] gap-2">
           <select
-            value={value.mainProvider}
+            value={value.main.provider}
             onChange={(e) =>
-              onChange({
-                ...value,
-                mainProvider: e.target.value as "openrouter" | "grsai",
-              })
+              updateMain({ provider: e.target.value as "openrouter" | "grsai" })
             }
             className="px-2 py-2 rounded-lg text-xs font-bold cursor-pointer outline-none"
             style={{
-              background: providerStyle(value.mainProvider).bg,
-              color: providerStyle(value.mainProvider).fg,
-              border: `1px solid ${providerStyle(value.mainProvider).bd}`,
+              background: providerStyle(value.main.provider).bg,
+              color: providerStyle(value.main.provider).fg,
+              border: `1px solid ${providerStyle(value.main.provider).bd}`,
             } satisfies React.CSSProperties}
           >
             <option value="openrouter" style={{ background: "#1a1a1a", color: "#ffffff" }}>OpenRouter</option>
@@ -2473,10 +2515,10 @@ function ModelKnob({
           </select>
           <input
             type="text"
-            value={value.mainModel}
-            onChange={(e) => onChange({ ...value, mainModel: e.target.value })}
+            value={value.main.model}
+            onChange={(e) => updateMain({ model: e.target.value })}
             placeholder={
-              value.mainProvider === "grsai"
+              value.main.provider === "grsai"
                 ? "e.g. gemini-3.1-pro"
                 : "e.g. google/gemini-flash-1.5-8b"
             }
@@ -2486,45 +2528,48 @@ function ModelKnob({
         </div>
       </div>
 
-      {/* Fallback slot */}
-      <div className="mb-2">
-        <div
-          className="text-[10px] font-mono uppercase tracking-widest font-bold mb-1.5"
-          style={{ color: "var(--color-text-muted)" }}
-        >
-          🛟 Fallback (optional)
-        </div>
-        <div className="grid grid-cols-[120px_1fr] gap-2">
-          <select
-            value={value.fallbackProvider}
-            onChange={(e) =>
-              onChange({
-                ...value,
-                fallbackProvider: e.target.value as "openrouter" | "grsai",
-              })
-            }
-            className="px-2 py-2 rounded-lg text-xs font-bold cursor-pointer outline-none"
-            style={{
-              background: providerStyle(value.fallbackProvider).bg,
-              color: providerStyle(value.fallbackProvider).fg,
-              border: `1px solid ${providerStyle(value.fallbackProvider).bd}`,
-            } satisfies React.CSSProperties}
+      {/* Fallback slots — N rows, all optional */}
+      {value.fallbacks.map((fb, i) => (
+        <div key={i} className="mb-2">
+          <div
+            className="text-[10px] font-mono uppercase tracking-widest font-bold mb-1.5"
+            style={{ color: "var(--color-text-muted)" }}
           >
-            <option value="openrouter" style={{ background: "#1a1a1a", color: "#ffffff" }}>OpenRouter</option>
-            <option value="grsai" style={{ background: "#1a1a1a", color: "#ffffff" }}>Grsai</option>
-          </select>
-          <input
-            type="text"
-            value={value.fallbackModel}
-            onChange={(e) =>
-              onChange({ ...value, fallbackModel: e.target.value })
-            }
-            placeholder="Empty = no fallback (skip straight to model_auto cascade)"
-            className="input w-full"
-            style={{ color: "var(--color-text-primary)" }}
-          />
+            {fbLabel(i)}
+          </div>
+          <div className="grid grid-cols-[120px_1fr] gap-2">
+            <select
+              value={fb.provider}
+              onChange={(e) =>
+                updateFallback(i, {
+                  provider: e.target.value as "openrouter" | "grsai",
+                })
+              }
+              className="px-2 py-2 rounded-lg text-xs font-bold cursor-pointer outline-none"
+              style={{
+                background: providerStyle(fb.provider).bg,
+                color: providerStyle(fb.provider).fg,
+                border: `1px solid ${providerStyle(fb.provider).bd}`,
+              } satisfies React.CSSProperties}
+            >
+              <option value="openrouter" style={{ background: "#1a1a1a", color: "#ffffff" }}>OpenRouter</option>
+              <option value="grsai" style={{ background: "#1a1a1a", color: "#ffffff" }}>Grsai</option>
+            </select>
+            <input
+              type="text"
+              value={fb.model}
+              onChange={(e) => updateFallback(i, { model: e.target.value })}
+              placeholder={
+                i === 0
+                  ? "Empty = no fallback (skip straight to model_auto cascade)"
+                  : "Empty = skip this fallback layer"
+              }
+              className="input w-full"
+              style={{ color: "var(--color-text-primary)" }}
+            />
+          </div>
         </div>
-      </div>
+      ))}
 
       <div
         className="text-xs mt-2 space-y-1"
