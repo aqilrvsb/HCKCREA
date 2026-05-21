@@ -14,6 +14,13 @@ import {
 } from "@/lib/auto-content-frameworks";
 import { pickScenes, sceneSummary } from "@/lib/auto-content-scene-pool";
 
+// Hot-path budget — the master plan orChat call is inline (no after())
+// and can take up to ~30s when Grsai is the main provider in the
+// Custom Idea cascade. Default Vercel timeout (15s) would kill the
+// request mid-LLM-call. 300s matches the other long-running routes
+// (clone, viral/talking-object, fairytale).
+export const maxDuration = 300;
+
 // POST /api/generate/auto-content — port of creative-hack-auto 12.8.3 pipeline.
 //
 // Plan modes:
