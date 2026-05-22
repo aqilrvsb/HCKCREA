@@ -43,45 +43,84 @@ export async function GET() {
     );
   }
 
-  try {
-    const r = await fetch(
-      `https://gate.chip-in.asia/api/v1/payment_methods/?brand_id=${encodeURIComponent(brand)}&currency=MYR`,
-      {
+  // Chip's /payment_methods/ endpoint silently filters out every method
+  // that has ANY amount-based rule when `amount` is not provided —
+  // that's why an unparametrised call returns an empty array even on
+  // a healthy brand with active FPX payments. Probing at three real
+  // price points covers every published min/max threshold:
+  //   - RM 1     (lowest): catches FPX min (RM 1) + anything always-on
+  //   - RM 75    (Pro)   : the most common real purchase amount
+  //   - RM 500   (large) : surfaces methods with low max (e.g. some
+  //                        e-Wallets cap individual transactions)
+  // The union of all three responses is the true picture of what's
+  // active on the brand.
+  const PROBES = [
+    { label: "RM 1 (smallest)", amount: 100 },
+    { label: "RM 75 (Pro Plan)", amount: 7500 },
+    { label: "RM 500 (large)", amount: 50_000 },
+  ];
+
+  const probes: any[] = [];
+  const union = new Set<string>();
+  for (const p of PROBES) {
+    const url =
+      `https://gate.chip-in.asia/api/v1/payment_methods/` +
+      `?brand_id=${encodeURIComponent(brand)}` +
+      `&currency=MYR` +
+      `&country=MY` +
+      `&language=en` +
+      `&amount=${p.amount}`;
+    try {
+      const r = await fetch(url, {
         headers: {
           Authorization: `Bearer ${key}`,
           "Content-Type": "application/json",
         },
         cache: "no-store",
-      }
-    );
-    const text = await r.text();
-    let json: any = null;
-    try {
-      json = JSON.parse(text);
-    } catch {
-      // Pass through raw text if Chip returned non-JSON
+      });
+      const text = await r.text();
+      let json: any = null;
+      try {
+        json = JSON.parse(text);
+      } catch {}
+      const methods: string[] = json?.available_payment_methods || [];
+      methods.forEach((m) => union.add(m));
+      probes.push({
+        label: p.label,
+        amount_sen: p.amount,
+        http: r.status,
+        methods,
+        names: json?.names || {},
+        ...(r.ok ? {} : { raw: json || text.slice(0, 400) }),
+      });
+    } catch (e: any) {
+      probes.push({
+        label: p.label,
+        amount_sen: p.amount,
+        error: e?.message || "network error",
+      });
     }
-    if (!r.ok) {
-      return NextResponse.json(
-        {
-          error: `Chip HTTP ${r.status}`,
-          body: json || text.slice(0, 800),
-        },
-        { status: 502 }
-      );
-    }
-    return NextResponse.json({
-      ok: true,
-      brand_id: brand,
-      currency: "MYR",
-      available_payment_methods: json?.available_payment_methods || [],
-      by_country: json?.by_country || null,
-      raw: json,
-    });
-  } catch (e: any) {
-    return NextResponse.json(
-      { error: e?.message || "Network error" },
-      { status: 502 }
-    );
   }
+
+  return NextResponse.json({
+    ok: true,
+    brand_id: brand,
+    currency: "MYR",
+    all_enabled_methods: Array.from(union).sort(),
+    has_card:
+      union.has("card") ||
+      union.has("visa") ||
+      union.has("mastercard") ||
+      union.has("american_express"),
+    has_fpx: union.has("fpx") || union.has("fpx_b2b1"),
+    has_duitnow_qr: union.has("duitnow_qr"),
+    has_ewallet:
+      union.has("e_wallet") ||
+      union.has("razer") ||
+      union.has("grabpay") ||
+      union.has("tng") ||
+      union.has("shopeepay") ||
+      union.has("boost"),
+    probes,
+  });
 }
