@@ -498,9 +498,13 @@ function ProPlanCard({
           </div>
           <div className="flex flex-col items-center gap-1">
             <ShieldCheck className="w-4 h-4 text-emerald-500" />
-            <span>FPX online banking</span>
+            <span>FPX / Card / QR</span>
           </div>
         </div>
+        <p className="mt-3 text-center text-[11px] text-[var(--color-text-muted)]">
+          Bayar via FPX, Credit/Debit Card (Visa, Mastercard), DuitNow QR, atau
+          e-Wallet — pilih method di Chip checkout.
+        </p>
       </div>
     </div>
   );

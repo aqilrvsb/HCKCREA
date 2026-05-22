@@ -276,7 +276,7 @@ export default function CreditSection({ credits }: { credits: number }) {
           </span>
         </button>
         <p className="text-center text-xs text-[var(--color-text-muted)] mt-3">
-          Secured payment via Chip · FPX, e-wallet, card supported
+          Secured via Chip · FPX, Credit/Debit Card, DuitNow QR &amp; e-Wallet
         </p>
       </div>
 
