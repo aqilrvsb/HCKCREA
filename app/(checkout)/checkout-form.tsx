@@ -4,14 +4,12 @@ import { useState } from "react";
 import {
   ArrowRight,
   CheckCircle2,
-  CreditCard,
   Loader2,
   Lock,
   MessageCircle,
   QrCode,
   ShieldCheck,
   Sparkles,
-  Wallet,
 } from "lucide-react";
 
 const PLAN = {
@@ -146,9 +144,9 @@ export default function CheckoutForm() {
           <span className="gradient-text-warm">dalam 1 minit.</span>
         </h2>
         <p className="mt-5 text-lg text-[var(--color-text-secondary)] max-w-xl mx-auto">
-          Tiada sign-up form berasingan. Isi info di bawah, bayar via FPX,
-          Credit/Debit Card, DuitNow QR atau e-Wallet — akaun anda auto-aktif.
-          Login info dihantar di WhatsApp.
+          Tiada sign-up form berasingan. Isi info di bawah, bayar via FPX
+          (online banking) atau DuitNow QR — akaun anda auto-aktif. Login info
+          dihantar di WhatsApp.
         </p>
       </div>
 
@@ -254,32 +252,24 @@ export default function CheckoutForm() {
           ) : (
             <>
               <Lock className="w-4 h-4" />
-              Bayar RM{PLAN.price} — Pilih method di Chip
+              Bayar RM{PLAN.price} — FPX / DuitNow QR
               <ArrowRight className="w-4 h-4" />
             </>
           )}
         </button>
 
-        <div className="mt-5 flex flex-wrap items-center justify-center gap-x-4 gap-y-2 text-xs text-[var(--color-text-muted)]">
+        <div className="mt-5 flex flex-wrap items-center justify-center gap-x-5 gap-y-2 text-xs text-[var(--color-text-muted)]">
           <div className="flex items-center gap-1">
             <ShieldCheck className="w-3.5 h-3.5 text-emerald-500" />
             <span>Secured via Chip Payment</span>
           </div>
           <div className="flex items-center gap-1">
             <Lock className="w-3.5 h-3.5 text-emerald-500" />
-            <span>FPX</span>
-          </div>
-          <div className="flex items-center gap-1">
-            <CreditCard className="w-3.5 h-3.5 text-emerald-500" />
-            <span>Visa / Mastercard</span>
+            <span>FPX online banking</span>
           </div>
           <div className="flex items-center gap-1">
             <QrCode className="w-3.5 h-3.5 text-emerald-500" />
             <span>DuitNow QR</span>
-          </div>
-          <div className="flex items-center gap-1">
-            <Wallet className="w-3.5 h-3.5 text-emerald-500" />
-            <span>e-Wallet</span>
           </div>
         </div>
       </form>
