@@ -20,6 +20,14 @@ import type { VideoHTMLAttributes } from "react";
 
 type Props = VideoHTMLAttributes<HTMLVideoElement> & {
   rootMargin?: string;
+  /** Server-side first-frame JPG on B2 (settle.ts generatePosterAsync
+   *  stores this on metadata.poster_url for every newly-settled video).
+   *  When provided, we short-circuit the IndexedDB capture flow and
+   *  render <img src={posterUrl}> directly — instant load, no video
+   *  element, no canvas capture, no CORS hassle. Browser caches the
+   *  B2 image like any normal asset. Falls back to the legacy capture-
+   *  on-mount path when posterUrl is null/missing (old videos). */
+  posterUrl?: string | null;
 };
 
 // ── IndexedDB ────────────────────────────────────────────────────────
@@ -107,8 +115,29 @@ export default function LazyVideo({
   className,
   style,
   onClick,
+  posterUrl,
   ...rest
 }: Props) {
+  // Fast path — server already extracted + uploaded the first frame
+  // to B2 (settle.ts). Render <img> directly, skip every IndexedDB +
+  // canvas-capture step. The image is served from peninglab-content
+  // with `cache-control: public, max-age=2592000, immutable` so the
+  // browser caches it forever between grid loads.
+  if (posterUrl) {
+    return (
+      <img
+        src={posterUrl}
+        alt=""
+        className={className}
+        style={style}
+        onClick={onClick as any}
+        loading="lazy"
+        decoding="async"
+        draggable={false}
+      />
+    );
+  }
+
   const ref = useRef<HTMLVideoElement | null>(null);
   // Phase progression:
   //   idle        — out of view, nothing mounted
@@ -119,7 +148,7 @@ export default function LazyVideo({
   const [phase, setPhase] = useState<
     "idle" | "queued" | "loading" | "video-ready" | "poster"
   >("idle");
-  const [posterUrl, setPosterUrl] = useState<string | null>(null);
+  const [cachedPosterUrl, setCachedPosterUrl] = useState<string | null>(null);
   // crossOrigin="anonymous" lets canvas extract the frame, but if the
   // host doesn't return CORS headers the video errors out. On error we
   // flip this off and remount — display works, capture is skipped.
@@ -138,7 +167,7 @@ export default function LazyVideo({
       const blob = await dbGet(cacheKey);
       if (cancelled || !blob) return;
       const url = URL.createObjectURL(blob);
-      setPosterUrl(url);
+      setCachedPosterUrl(url);
       setPhase("poster");
     })();
     return () => {
@@ -149,9 +178,9 @@ export default function LazyVideo({
   // Revoke poster URL on unmount.
   useEffect(() => {
     return () => {
-      if (posterUrl) URL.revokeObjectURL(posterUrl);
+      if (cachedPosterUrl) URL.revokeObjectURL(cachedPosterUrl);
     };
-  }, [posterUrl]);
+  }, [cachedPosterUrl]);
 
   // IntersectionObserver — only relevant if NOT cached (still idle).
   useEffect(() => {
@@ -215,7 +244,7 @@ export default function LazyVideo({
             });
             if (blob) {
               await dbPut(cacheKey, blob);
-              setPosterUrl(URL.createObjectURL(blob));
+              setCachedPosterUrl(URL.createObjectURL(blob));
               finish("poster");
               return;
             }
@@ -266,10 +295,10 @@ export default function LazyVideo({
   // ── Render ───────────────────────────────────────────────────────
   // Cached poster — fast path. Renders as <img>, same className/style/onClick
   // as the consumer expected on the <video>.
-  if (phase === "poster" && posterUrl) {
+  if (phase === "poster" && cachedPosterUrl) {
     return (
       <img
-        src={posterUrl}
+        src={cachedPosterUrl}
         alt=""
         className={className}
         style={style}

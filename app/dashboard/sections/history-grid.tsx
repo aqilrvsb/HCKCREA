@@ -1692,6 +1692,7 @@ function HistoryCardInner({
             {isVideo && (
               <LazyVideo
                 src={playerUrl + "#t=1"}
+                posterUrl={item.metadata?.poster_url || null}
                 muted
                 playsInline
                 className="w-full h-full object-cover cursor-pointer"
