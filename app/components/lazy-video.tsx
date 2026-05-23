@@ -28,7 +28,19 @@ type Props = VideoHTMLAttributes<HTMLVideoElement> & {
    *  B2 image like any normal asset. Falls back to the legacy capture-
    *  on-mount path when posterUrl is null/missing (old videos). */
   posterUrl?: string | null;
+  /** History row id. When provided AND posterUrl is null AND we
+   *  successfully capture a first-frame locally, we POST the JPG to
+   *  /api/extension/save-poster so the server can rehost it to B2 and
+   *  stamp metadata.poster_url. Every subsequent viewer on any surface
+   *  (dashboard or extension) then gets the cheap <img> fast path
+   *  without having to re-capture. Self-healing backfill. */
+  historyId?: string;
 };
+
+// Module-level guard so we only attempt one upload per row per page
+// session (avoid hammering the endpoint if the same card re-mounts
+// repeatedly from React re-renders).
+const _uploadedThisSession = new Set<string>();
 
 // ── IndexedDB ────────────────────────────────────────────────────────
 const DB_NAME = "peninglab-posters";
@@ -116,6 +128,7 @@ export default function LazyVideo({
   style,
   onClick,
   posterUrl,
+  historyId,
   ...rest
 }: Props) {
   // Fast path — server already extracted + uploaded the first frame
@@ -245,6 +258,26 @@ export default function LazyVideo({
             if (blob) {
               await dbPut(cacheKey, blob);
               setCachedPosterUrl(URL.createObjectURL(blob));
+              // Self-healing backfill — if this row doesn't have a
+              // server-side poster_url yet, upload our captured JPG
+              // so every other viewer (any device, any surface) gets
+              // the cheap <img> fast path on next load. Fire-and-
+              // forget; never blocks the visible render.
+              if (historyId && !_uploadedThisSession.has(historyId)) {
+                _uploadedThisSession.add(historyId);
+                const dataUrl = canvas.toDataURL("image/jpeg", 0.78);
+                fetch("/api/extension/save-poster", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({
+                    history_id: historyId,
+                    poster_data_url: dataUrl,
+                  }),
+                }).catch(() => {
+                  // Silent — next view will try again from a fresh page session.
+                  _uploadedThisSession.delete(historyId);
+                });
+              }
               finish("poster");
               return;
             }

@@ -1693,6 +1693,7 @@ function HistoryCardInner({
               <LazyVideo
                 src={playerUrl + "#t=1"}
                 posterUrl={item.metadata?.poster_url || null}
+                historyId={item.id}
                 muted
                 playsInline
                 className="w-full h-full object-cover cursor-pointer"
@@ -1994,6 +1995,9 @@ function HistoryCardInner({
                 {ready && slide.url ? (
                   <LazyVideo
                     src={slide.url + "#t=1"}
+                    historyId={
+                      slide.id === "seg_1" ? seg2?.id : item.id
+                    }
                     muted
                     playsInline
                     className="w-full h-full object-cover pointer-events-none"
