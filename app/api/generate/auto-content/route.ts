@@ -352,17 +352,18 @@ export async function POST(req: Request) {
     // Modesty rule applies regardless of hijab choice — Malaysian-Muslim
     // audience requirement. Female allows short-sleeve T-shirts (loose
     // fit, no chest contour) but never cleavage / midriff / thighs.
-    // NOTE: the LLM picks each video's outfit freely from the
-    // <clothing_variety> Malaysian-style pool. This is the static
-    // modesty + style guardrail that goes into the characterBlock —
-    // the actual outfit phrase is added per-video by the LLM.
+    // NOTE: the LLM picks each video's outfit freely. This is just the
+    // static modesty + hijab-loose guardrail that goes into the
+    // characterBlock — the actual outfit phrase is added per-video by
+    // the LLM based on modern Malaysian fashion (no forced traditional
+    // wear). See <clothing_variety> in the system prompt.
     const outfitDescription = hijabMode
       ? gender === "male"
-        ? "[YOU pick a Malaysian-style male outfit unique to this video — see <clothing_variety>], neat modern fit, modest"
-        : "LOOSE hijab tudung labuh ([YOU pick the hijab colour to coordinate with the outfit, never tight, fully covers all hair/ears/neck]) and [YOU pick a Malaysian-style modest outfit unique to this video — kebaya / baju kurung / modest blouse + maxi skirt / kaftan — see <clothing_variety>]"
+        ? "[YOU pick a modern Malaysian-style outfit unique to this video — see <clothing_variety>], neat modern fit, modest (no tank tops, no shirtless)"
+        : "LOOSE hijab tudung labuh ([YOU pick the hijab colour to coordinate with the outfit, never tight, fully covers all hair/ears/neck]) and [YOU pick a modern Malaysian-style modest outfit unique to this video — see <clothing_variety>]"
       : gender === "male"
-        ? "[YOU pick a Malaysian-style male outfit unique to this video — kemeja Melayu / button-up + chinos / polo / casual baju Melayu — see <clothing_variety>], short hair neatly styled, modest fit (no tank tops, no shirtless)"
-        : "[YOU pick a Malaysian-style modest outfit unique to this video — modest blouse + long skirt / midi dress / loose top + long pants — see <clothing_variety>], hair visible, no hijab — short-sleeve T-shirts and loose blouses are OK, but loose fit only, NO tight tops showing breast shape, NO cleavage, NO crop tops / midriff / navel exposure, NO short shorts / mini skirts / thigh exposure. Bottoms must cover thighs.";
+        ? "[YOU pick a modern Malaysian-style outfit unique to this video — see <clothing_variety>], short hair neatly styled, modest fit (no tank tops, no shirtless)"
+        : "[YOU pick a modern Malaysian-style modest outfit unique to this video — see <clothing_variety>], hair visible, no hijab — short-sleeve T-shirts and loose blouses are OK, but loose fit only, NO tight tops showing breast shape, NO cleavage, NO crop tops / midriff / navel exposure, NO short shorts / mini skirts / thigh exposure. Bottoms must cover thighs.";
     // Character block is the SUBJECT LINE injected into every UGC/lifestyle
     // prompt. Gender + age + hijab/no-hijab are LOCKED here so they appear
     // verbatim in every per-video prompt — Veo cannot drop these the way it
@@ -1146,62 +1147,63 @@ VALIDATION RULE: Before you write each video's imagePrompt and videoPrompt, re-r
 </locked_avatar>
 
 <clothing_variety>
-🎨 OUTFIT — MALAYSIAN STYLE, YOU DECIDE PER VIDEO (NO HARDCODED TABLE)
+🎨 OUTFIT — MODERN MALAYSIAN FASHION, YOU DECIDE PER VIDEO
 
-The client wants AI-decided outfits with Malaysian flavour — not a fixed
-palette. Pick freely from the categories below, vary across the batch.
+You are dressing a real Malaysian for TikTok in 2026 — think how Malaysians
+ACTUALLY dress today, not stereotypes. Modern Malaysian street style is
+broad: jeans + oversized tee, modest casual sets, modern abaya, loose
+button-ups, hoodies, cardigans, modern modest activewear, smart-casual
+office wear, lounge-at-home fits, AND occasionally traditional pieces
+(kebaya / baju kurung / kemeja Melayu) when the scene calls for it. Pick
+what a real person in that scene would wear — not what a costume designer
+would put on them.
 
-🚫 FORBIDDEN — never use these as the outfit description (lazy defaults):
-- "plain brown ___"  /  "plain beige ___"
-- "neutral ___" without a colour
-- "simple ___" without a colour
-- "casual outfit" without specifying colour + pattern + garment
-- Generic Western mini-dress / crop-top / sleeveless tank — not Malaysian-modest
+🚫 FORBIDDEN — never use these as the outfit description:
+- "plain brown ___"  /  "plain beige ___"  / generic "neutral" / "simple"
+- "casual outfit" without specifying colour + garment
+- Forcing traditional wear (kebaya / baju Melayu / baju kurung) for every
+  video — that's stereotyping; modern Malaysians dress modern most days
 - Repeating the same garment silhouette or colour family on consecutive videos
+${hijabMode ? "- Tight hijab, fitted hijab, sport hijab that hugs the head — hijab is ALWAYS loose tudung labuh\n- Skinny jeans / tight leggings / form-fitting pants — modest fit only" : "- Tank tops, sleeveless, crop tops, anything showing midriff or cleavage"}
+${gender === "female" ? "- Mini skirts, short shorts, anything above the knee" : "- Shirtless, tank tops, anything showing chest"}
 
 ✅ REQUIRED — every video's imagePrompt AND videoPrompt MUST specify:
-   COLOUR + GARMENT TYPE (Malaysian style) + optional pattern
-   Example: "soft lilac long-sleeve baju kurung with small floral print"
-   Example: "olive green kemeja Melayu with matching slim-fit pants"
-
-MALAYSIAN-STYLE GARMENT POOL — pick freely, rotate across batch:
-${hijabMode
-  ? gender === "female"
-    ? `   FORMAL / TRADITIONAL: baju kurung kebaya, modest kaftan with subtle embroidery, kebaya nyonya, long-sleeve baju kurung
-   EVERYDAY MODEST: loose long-sleeve blouse + maxi skirt, modest midi dress, modest tunic + wide-leg pants, modest abaya
-   SMART-CASUAL: long-sleeve baju kurung with floral print, kaftan with batik motif, modest cardigan over modest top + long skirt
-   LOUNGE / MORNING: oversized loose linen tunic + relaxed pants, knit cardigan over loose tee + maxi skirt
-   ATHLEISURE (modest aurat-compliant): LOOSE long-sleeve sport tunic worn OVER relaxed wide-leg activewear pants — NEVER form-fitting leggings/joggers, NEVER tight tops
-   HIJAB: ALWAYS loose tudung labuh, never tight. Coordinate colour with outfit but never identical to previous video's hijab.`
-    : `   FORMAL / TRADITIONAL: kemeja Melayu with matching slim-fit pants, baju Melayu for evening shots, tailored blazer over white shirt
-   SMART-CASUAL: button-up shirt with chinos, lightweight knit sweater with chinos, casual blazer over tee
-   CASUAL: polo shirt + dark jeans, henley tee with rolled sleeves + chinos, linen button-up + linen pants
-   LOUNGE: knit cardigan over white tee + relaxed pants, oversized loose linen shirt + relaxed pants
-   ATHLEISURE: performance tee + sport joggers, long-sleeve training top + sport pants, sport polo + technical joggers
-   Pick neat modern fit, modest cut. NEVER tank tops, NEVER shirtless.`
-  : gender === "female"
-    ? `   FORMAL: tailored blazer over cream blouse + long pants, structured midi dress, satin blouse + cream wide-leg pants
-   EVERYDAY MODEST: loose midi dress, loose linen blouse + cream wide-leg pants, oversized button-up + cream maxi skirt
-   SMART-CASUAL: knit cardigan over white tee + sage maxi skirt, modest tunic + long pants, modest jumpsuit (long pants)
-   CASUAL: loose short-sleeve blouse + indigo long pants, long-sleeve loose blouse + long skirt, oversized linen shirt + cropped pants
-   LOUNGE: oversized loose linen shirt + relaxed cream pants, loose knit sweater over white tee + relaxed pants
-   ATHLEISURE: loose sport tee + full-coverage long leggings, modest activewear top + long joggers
-   Hair visible. Short sleeves OK. NEVER cleavage, NEVER tight tops showing breast shape, NEVER shorts/skirts above knee, NEVER midriff/navel.`
-    : `   FORMAL / TRADITIONAL: kemeja Melayu, tailored blazer + dress pants, button-up + charcoal trousers
-   SMART-CASUAL: button-up shirt + chinos, lightweight blazer over white tee + navy chinos
-   CASUAL: polo shirt + dark jeans, henley tee + chinos, linen button-up + linen pants, casual button-up + cargo pants
-   LOUNGE: knit cardigan over white tee + relaxed pants, oversized loose linen shirt + relaxed pants
-   ATHLEISURE: performance tee + sport joggers, training top + sport pants
-   Pick neat modern fit. NEVER tank tops, NEVER shirtless.`}
+   COLOUR + GARMENT TYPE + optional pattern
+   Modern examples that feel like real Malaysians:
+   ${hijabMode
+     ? gender === "female"
+       ? `- "olive green oversized button-up + loose dark jeans + LOOSE cream hijab"
+   - "soft beige modest knit cardigan over white tee + flowy maxi skirt + LOOSE soft pink hijab"
+   - "navy blue modest activewear set (loose tunic over wide-leg track pants) + LOOSE soft grey hijab"
+   - "dusty rose long-sleeve modest midi dress + LOOSE mauve hijab"
+   - "terracotta modest blouse + flowy palazzo pants + LOOSE warm beige hijab"
+   - Traditional pieces (baju kurung, kebaya) work too — but only when the scene/idea calls for it, not by default`
+       : `- "charcoal grey oversized hoodie + relaxed dark jeans"
+   - "olive green button-up shirt with rolled sleeves + sand chinos"
+   - "cream knit sweater + relaxed charcoal trousers"
+   - "navy blue casual blazer over white tee + slim chinos"
+   - "burgundy henley + dark indigo jeans"
+   - Traditional pieces (kemeja Melayu, baju Melayu) work too — but only when the scene/idea calls for it`
+     : gender === "female"
+       ? `- "oversized cream knit sweater + indigo straight-leg jeans"
+   - "loose sage green linen button-up + cream wide-leg pants"
+   - "dusty rose long-sleeve midi dress with subtle floral print"
+   - "modest mustard yellow blouse + flowy maxi skirt"
+   - "navy oversized blazer + white tee + relaxed beige trousers"`
+       : `- "charcoal grey hoodie + relaxed dark jeans"
+   - "olive green button-up + sand chinos"
+   - "cream knit sweater + charcoal trousers"
+   - "burgundy henley + indigo jeans"
+   - "navy blazer over white tee + slim chinos"`}
 
 COLOUR INSPIRATION (pick freely, never default to plain brown/beige):
-- Earthy Malaysian: terracotta, dusty rose, olive, navy, sage green, warm taupe, cream
+- Earthy: terracotta, dusty rose, olive, navy, sage green, warm taupe, cream, rust
 - Pastels: soft pink, lilac, mint sage, butter yellow, baby blue, peach, blush
 - Jewel tones: emerald green, sapphire blue, ruby red, plum, mustard, burgundy, deep teal
 - Neutrals (with character): charcoal grey, deep navy, forest green, sand brown, indigo
-- Patterns (use sparingly, max 1-2 videos per batch): small floral, batik motif, gingham, polka dot, abstract watercolour
+- Patterns (use sparingly): small floral, gingham, polka dot, abstract watercolour, subtle batik
 
-RULE: For a batch of ${quantity} videos, the outfits MUST span at LEAST ${Math.min(Math.max(quantity, 3), 8)} distinct garment types and ${Math.min(Math.max(quantity, 3), 8)} distinct colour families. NO TWO CONSECUTIVE videos may share the same garment silhouette OR the same colour family.
+VARIATION RULE: For a batch of ${quantity} videos, outfits MUST span at LEAST ${Math.min(Math.max(quantity, 3), 8)} distinct garment silhouettes and ${Math.min(Math.max(quantity, 3), 8)} distinct colour families. NO TWO CONSECUTIVE videos may share garment silhouette OR colour family.
 
 Write the outfit phrase BEFORE finalising each video's prompts so you have it in hand when composing imagePrompt + videoPrompt.
 </clothing_variety>
@@ -1216,7 +1218,7 @@ FOR UGC FRAMEWORKS (character ONLY — NO product in image):
 - MUST be STANDING or MEDIUM SHOT (waist up minimum) — show body, arms, hands visible. NEVER close-up face only. Facing slightly to the side while looking at camera.
 - FACE: Invent a UNIQUE specific attractive face — describe smooth glowing skin, natural makeup (blush, glossy lips, defined brows), specific features (dimples, face shape, skin tone). Make this person look like a REAL beautiful individual. NEVER use generic "oval face, warm brown eyes".
 - BACKGROUND: Softly lit elegant indoor setting — warm tones, subtle drapery, soft gradient, or blurred aesthetic backdrop. No mirrors, no reflections, no glass. Clean and premium feel.
-- Outfit: PICK A SPECIFIC COLOUR + GARMENT from <clothing_variety> Malaysian-style pool — DIFFERENT every video, NEVER "plain brown" or "neutral beige" defaults. ${gender === "male" ? "Garment options: kemeja Melayu / button-up / polo / lightweight knit sweater / casual blazer over tee / henley + cardigan (different each video). Well-fitted, stylish, modest fit (no tank tops, no shirtless). State the exact colour, e.g. \"navy blue knit polo\", \"charcoal grey button-up\", \"olive green kemeja Melayu\"." : hijabMode ? "Elegant Malaysian modest wear — baju kurung kebaya / blouse + long skirt / cardigan over modest top / kaftan / modest midi dress (different each video) + LOOSE hijab tudung labuh that fully covers all hair (different hijab colour each video to coordinate with the outfit). State exact colours, e.g. \"soft lilac baju kurung with floral print and sage green LOOSE hijab\", \"emerald green kaftan with cream LOOSE hijab\"." : "Malaysian modest casual — short-sleeve loose blouse / long-sleeve oversized button-up / knit cardigan over loose tee / midi or maxi dress / modest top + long pants or maxi skirt (different each video). Hair visible. State exact colours + pattern, e.g. \"butter yellow loose linen blouse + cream maxi skirt\", \"sage green cardigan over white tee + indigo wide-leg pants\". Short sleeves OK; NEVER cleavage, NEVER tight tops showing breast shape, NEVER shorts/skirts above knee, NEVER midriff."}
+- Outfit: PICK A SPECIFIC COLOUR + GARMENT from <clothing_variety> — modern Malaysian fashion, DIFFERENT every video, NEVER "plain brown" or "neutral beige" defaults. Think how Malaysians ACTUALLY dress today (modern smart-casual / lounge / street style) — traditional pieces only when the scene/idea calls for it. ${gender === "male" ? "Real examples: \"charcoal grey hoodie + relaxed dark jeans\", \"olive green button-up + sand chinos\", \"cream knit sweater + charcoal trousers\". Well-fitted modest cut (no tank tops, no shirtless). State the exact colour every time." : hijabMode ? "Real examples: \"olive green oversized button-up + loose dark jeans + LOOSE cream hijab\", \"soft beige modest knit cardigan over white tee + flowy maxi skirt + LOOSE soft pink hijab\", \"navy modest activewear set + LOOSE soft grey hijab\". Hijab is ALWAYS loose tudung labuh, different hijab colour each video coordinating with outfit." : "Real examples: \"oversized cream knit sweater + indigo straight-leg jeans\", \"loose sage green linen button-up + cream wide-leg pants\", \"dusty rose long-sleeve midi dress\". Hair visible. Short sleeves OK; NEVER cleavage, NEVER tight tops showing breast shape, NEVER shorts/skirts above knee, NEVER midriff."}
 - DIFFERENT pose, emotion + outfit per image
 - Lighting: soft, diffused, warm, natural glow highlighting face and outfit. Cinematic.
 - Style: photorealistic, luxury portrait, high-end editorial, ultra-realistic skin texture, sharp focus, depth of field with soft bokeh, 85mm lens, f/1.8
