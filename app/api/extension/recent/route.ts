@@ -61,24 +61,49 @@ export async function GET(req: Request) {
   // Strip down to the fields the extension actually uses to render
   // cards. Includes everything needed for auto-post (videoUrl,
   // caption, coverTitle, coverSubtitle, productId, productName).
-  const rows = (data || []).map((r: any) => ({
-    id: r.id,
-    type: r.type,
-    tab: r.tab,
-    prompt_preview: (r.prompt || "").substring(0, 200),
-    caption: r.caption || "",
-    output_url: r.output_url,
-    thumbnail_url: r.thumbnail_url,
-    reference_url: r.reference_url,
-    duration: r.duration,
-    posted_to_tiktok: r.posted_to_tiktok,
-    posted_at: r.posted_at,
-    created_at: r.created_at,
-    cover_title: r.metadata?.cover_title || null,
-    cover_subtitle: r.metadata?.cover_subtitle || null,
-    tiktok_product_id: r.metadata?.tiktok_product_id || null,
-    product_name: r.metadata?.product_name || null,
-  }));
+  //
+  // `poster_url` is a derived field — the real image to show as the
+  // card thumbnail in the extension's View Videos grid. `thumbnail_url`
+  // on history rows is actually the MP4 URL (settle.ts stamps it that
+  // way for video rows so the dashboard can use the same field for
+  // hover-preview), so loading it in an <img> tag fails. The actual
+  // poster image is one of:
+  //   • UGC tab          → reference_url (avatar image generated alongside)
+  //   • Auto Content tab → metadata.image_urls[0] (first reference / character
+  //                        avatar attached to the batch)
+  // Both are B2 S3 URLs (peninglab-content bucket) and are cheap to
+  // load lazily as <img>. The extension renders 1000+ cards with these
+  // posters without spinning up MP4 decoders → no more crashes.
+  const rows = (data || []).map((r: any) => {
+    const metaImageUrls = Array.isArray(r.metadata?.image_urls)
+      ? r.metadata.image_urls.filter((u: any) => typeof u === "string" && u.trim())
+      : [];
+    const posterUrl =
+      r.reference_url ||
+      metaImageUrls[0] ||
+      r.metadata?.image_url ||
+      null;
+    return {
+      id: r.id,
+      type: r.type,
+      tab: r.tab,
+      prompt_preview: (r.prompt || "").substring(0, 200),
+      caption: r.caption || "",
+      output_url: r.output_url,
+      thumbnail_url: r.thumbnail_url,
+      // NEW — real poster image for the extension's card grid.
+      poster_url: posterUrl,
+      reference_url: r.reference_url,
+      duration: r.duration,
+      posted_to_tiktok: r.posted_to_tiktok,
+      posted_at: r.posted_at,
+      created_at: r.created_at,
+      cover_title: r.metadata?.cover_title || null,
+      cover_subtitle: r.metadata?.cover_subtitle || null,
+      tiktok_product_id: r.metadata?.tiktok_product_id || null,
+      product_name: r.metadata?.product_name || null,
+    };
+  });
 
   return NextResponse.json({ ok: true, rows });
 }
