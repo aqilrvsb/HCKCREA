@@ -15,6 +15,7 @@ import { deduct, priceFor, type PriceModelHint } from "@/lib/deduct";
 import { onSegmentSettled } from "@/lib/segment-chain";
 import { generateUgcPostMeta } from "@/lib/ugc-post-meta";
 import { uploadFromUrlToContent, buildKey, type StorageType } from "@/lib/b2";
+import { falExtractFrame } from "@/lib/fal";
 import { generateImageWithCascade } from "@/lib/image-cascade";
 import { generateVideoWithCascade } from "@/lib/video-cascade";
 import {
@@ -118,6 +119,22 @@ async function rehostOutputToB2(
         thumbnail_url: hist.type === "video" || hist.type === "auto-content" ? b2Url : null,
       })
       .eq("id", hist.id);
+
+    // After the video lands on B2, kick off a fire-and-forget poster
+    // generation. Extracts the first frame via fal.ai, rehosts the JPG
+    // onto our B2 bucket, then stamps the URL on metadata.poster_url.
+    // The extension's View Videos grid + dashboard's history cards
+    // both read this — one source of truth, served from B2 CDN cache
+    // forever. Runs in background so settle() returns immediately;
+    // the row's poster_url just appears ~5-10s later on next fetch.
+    if (!isImage && hist.type !== "fairytale") {
+      generatePosterAsync(admin, hist, b2Url).catch((e) => {
+        console.warn(
+          `[settle] poster gen failed for ${hist.id}:`,
+          e?.message || e
+        );
+      });
+    }
   } catch (e: any) {
     console.warn(
       `[settle] B2 rehost failed for ${hist.id} (${hist.type}):`,
@@ -125,6 +142,71 @@ async function rehostOutputToB2(
     );
     // Don't throw — the provider URL is still in DB, file will play
     // for as long as the provider keeps it (~7 days for Crun).
+  }
+}
+
+// Background poster generation. Extracts first frame from a freshly-
+// settled video, rehosts the JPG to B2, and stamps the URL on
+// metadata.poster_url. Both the extension's auto-post grid AND the
+// dashboard's history cards read this field — so generating once gives
+// us a permanent, CDN-served thumbnail for every consumer.
+//
+// Fire-and-forget — caller doesn't await. If extraction fails, the
+// row just doesn't get a poster_url and the consumers fall back to
+// their own first-frame video-element rendering. Worst case is a
+// missing thumb, never a broken settle.
+async function generatePosterAsync(
+  admin: ReturnType<typeof createAdminClient>,
+  hist: HistoryRow,
+  videoB2Url: string
+): Promise<void> {
+  // Extract first frame via fal.ai. Synchronous endpoint (~3s).
+  const frame = await falExtractFrame(videoB2Url, "first", hist.duration || 8);
+  if (!frame.ok || !frame.url) {
+    console.warn(
+      `[settle] poster extract failed for ${hist.id}: ${frame.error || "unknown"}`
+    );
+    return;
+  }
+
+  // Rehost the fal JPG onto our B2 so it's served from peninglab-
+  // content with the same cache-control as the video. Key uses a
+  // -poster suffix so we don't clash with the video object.
+  const sType = storageTypeForHistory(hist);
+  if (!sType) return;
+  const videoKey = buildKey({
+    userId: hist.user_id,
+    type: sType,
+    historyId: hist.id,
+    ext: "mp4",
+  });
+  const posterKey = videoKey.replace(/\.mp4$/i, "-poster.jpg");
+
+  try {
+    const { publicUrl: posterB2Url } = await uploadFromUrlToContent({
+      url: frame.url,
+      key: posterKey,
+      contentType: "image/jpeg",
+    });
+
+    // Merge into existing metadata (don't clobber other fields).
+    const { data: row } = await admin
+      .from("history")
+      .select("metadata")
+      .eq("id", hist.id)
+      .maybeSingle();
+    const existingMeta = (row?.metadata as Record<string, any>) || {};
+    await admin
+      .from("history")
+      .update({
+        metadata: { ...existingMeta, poster_url: posterB2Url },
+      })
+      .eq("id", hist.id);
+  } catch (e: any) {
+    console.warn(
+      `[settle] poster rehost failed for ${hist.id}:`,
+      e?.message || e
+    );
   }
 }
 
