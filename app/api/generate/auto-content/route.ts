@@ -294,185 +294,25 @@ export async function POST(req: Request) {
     const is16s = durationMode === "16";
 
     // ─────────────────────────────────────────────────────────────────────
-    // Per-video OUTFIT ASSIGNMENT TABLE — Qwen Flash 3.6 / Gemini Flash
-    // Lite are weak with "pick from a palette" instructions and default
-    // to "plain brown". We pre-compute a deterministic colour + garment
-    // + hijab-colour + VIBE TAG for every video and inject it into the
-    // user prompt as a numbered table the model MUST copy verbatim. Far
-    // more reliable than free choice.
+    // OUTFIT: AI-decided, Malaysian style. Per user direction:
+    //   "ai decide malaysia outfit..only need to care for is - hijab..
+    //    which must loose..other than that..ai decide malaysia style"
     //
-    // vibe tags drive ideaStyle-aware filtering (Issue #5 from review):
-    //   formal        → kebaya, blazer, baju kurung kebaya, button-up
-    //   smart-casual  → midi dress, button-up + chinos, henley + blazer
-    //   casual        → loose blouse + maxi skirt, polo, t-shirt + jeans
-    //   lounge        → knit cardigan + maxi, oversized linen, henley
-    //   athleisure    → modest sportswear, joggers, fitness sets
-    //
-    // Palettes expanded to 20 rows each (was 10) so quantity ≤ 20 never
-    // repeats an outfit. Male palette now includes BOTTOMS on every row
-    // (was tops-only — Veo defaulted to generic jeans every time).
-    // Female no-hijab palette de-duplicated (3 rows previously used
-    // "cream wide-leg pants" with only the top colour varied).
+    // Hardcoded palettes + vibe detection + outfitAssignments table were
+    // removed — they boxed every batch into the same colour-coded grid
+    // and clients complained that outfits felt repetitive / generic.
+    // Now the master-plan LLM picks each video's outfit freely, with
+    // only two hard rules carried into the prompt:
+    //   1. Style must be Malaysian-modest (kebaya, baju kurung, baju
+    //      Melayu, modern modest blouse + maxi skirt, polo + chinos, etc.)
+    //   2. When hijabMode=true → tudung labuh, LOOSE, fully covers all
+    //      hair / ears / neck. Zero hair strands visible.
     // ─────────────────────────────────────────────────────────────────────
-    type OutfitVibe =
-      | "formal"
-      | "smart-casual"
-      | "casual"
-      | "lounge"
-      | "athleisure";
-    type OutfitRow = {
-      color: string;
-      garment: string;
-      hijabColor?: string;
-      vibe: OutfitVibe;
-    };
-    const femaleHijabPalette: OutfitRow[] = [
-      // ── formal (kebaya, embroidery, evening) ──
-      { color: "navy blue",        garment: "baju kurung kebaya with gold embroidery",          hijabColor: "champagne gold", vibe: "formal" },
-      { color: "emerald green",    garment: "modest kaftan with subtle gold trim",              hijabColor: "cream",          vibe: "formal" },
-      { color: "burgundy",         garment: "modest baju kurung with cream maxi skirt",         hijabColor: "soft beige",     vibe: "formal" },
-      { color: "deep teal",        garment: "kebaya nyonya with traditional motif",             hijabColor: "champagne",      vibe: "formal" },
-      // ── smart-casual (midi dress, structured) ──
-      { color: "dusty rose",       garment: "long-sleeve modest midi dress",                     hijabColor: "mauve",          vibe: "smart-casual" },
-      { color: "soft lilac",       garment: "long-sleeve baju kurung with small floral print",  hijabColor: "dusty pink",     vibe: "smart-casual" },
-      { color: "powder blue",      garment: "long-sleeve blouse with cream wide-leg pants",     hijabColor: "white",          vibe: "smart-casual" },
-      { color: "mustard yellow",   garment: "modest kaftan with subtle batik print",            hijabColor: "olive",          vibe: "smart-casual" },
-      // ── casual (loose blouse + skirt, everyday) ──
-      { color: "butter yellow",    garment: "loose linen blouse with cream long maxi skirt",    hijabColor: "sage green",     vibe: "casual" },
-      { color: "sage mint",        garment: "loose long-sleeve top with white maxi skirt",      hijabColor: "blush pink",     vibe: "casual" },
-      { color: "blush peach",      garment: "loose long-sleeve top with terracotta long skirt", hijabColor: "ivory",          vibe: "casual" },
-      { color: "terracotta",       garment: "modest cotton tunic with cream long pants",        hijabColor: "warm beige",     vibe: "casual" },
-      { color: "dusty sky",        garment: "loose chiffon blouse with charcoal long pants",    hijabColor: "soft grey",      vibe: "casual" },
-      { color: "olive khaki",      garment: "modest long-sleeve top with cream maxi skirt",     hijabColor: "soft sand",      vibe: "casual" },
-      // ── lounge (oversized linen, cardigan) ──
-      { color: "warm taupe",       garment: "oversized linen tunic with relaxed cream pants",   hijabColor: "soft cream",     vibe: "lounge" },
-      { color: "blush mauve",      garment: "knit cardigan over loose tee with maxi skirt",     hijabColor: "soft pink",      vibe: "lounge" },
-      { color: "soft sage",        garment: "loose cotton kaftan with relaxed long pants",      hijabColor: "ivory cream",    vibe: "lounge" },
-      // ── athleisure (aurat-compliant modest sport: loose long-sleeve
-      // tunic that fully covers body shape WORN OVER loose wide-leg
-      // activewear pants — no form-fitting joggers/leggings revealing
-      // body shape, no exposed arms, hijab stays on through movement).
-      { color: "charcoal grey",    garment: "loose long-sleeve modest sport tunic worn over relaxed wide-leg activewear pants (loose-fit, NOT body-hugging)", hijabColor: "soft black", vibe: "athleisure" },
-      { color: "dusty rose",       garment: "long modest sport tunic covering hips, loose wide-leg track pants underneath (full coverage, loose-fit)",          hijabColor: "soft pink",  vibe: "athleisure" },
-      { color: "deep navy",        garment: "loose long-sleeve modest activewear tunic with relaxed wide-leg sport pants (modest aurat-compliant fit)",        hijabColor: "soft grey",  vibe: "athleisure" },
-    ];
-    const femaleNoHijabPalette: OutfitRow[] = [
-      // ── formal ──
-      { color: "navy blue",        garment: "tailored blazer over cream blouse with matching long pants", vibe: "formal" },
-      { color: "emerald green",    garment: "structured midi dress with belted waist",          vibe: "formal" },
-      { color: "burgundy",         garment: "satin blouse with high-waisted cream wide-leg pants", vibe: "formal" },
-      // ── smart-casual ──
-      { color: "powder blue",      garment: "loose midi dress with subtle floral print",        vibe: "smart-casual" },
-      { color: "soft lilac",       garment: "loose linen blouse with cream wide-leg pants",     vibe: "smart-casual" },
-      { color: "emerald green",    garment: "oversized button-up shirt with cream maxi skirt",  vibe: "smart-casual" },
-      { color: "dusty rose",       garment: "knit cardigan over white tee with sage maxi skirt", vibe: "smart-casual" },
-      { color: "blush peach",      garment: "knit cardigan over loose white tee with maxi skirt", vibe: "smart-casual" },
-      // ── casual ──
-      { color: "butter yellow",    garment: "loose short-sleeve blouse with indigo long pants", vibe: "casual" },
-      { color: "navy blue",        garment: "long-sleeve loose blouse with cream long skirt",   vibe: "casual" },
-      { color: "sage mint",        garment: "oversized linen shirt with charcoal cropped pants", vibe: "casual" },
-      { color: "burgundy",         garment: "loose long-sleeve top with indigo long jeans",     vibe: "casual" },
-      { color: "mustard yellow",   garment: "loose short-sleeve blouse with charcoal long pants", vibe: "casual" },
-      { color: "terracotta",       garment: "loose cotton blouse with olive cargo pants",       vibe: "casual" },
-      { color: "dusty sky",        garment: "loose chambray shirt with sand-coloured long pants", vibe: "casual" },
-      // ── lounge ──
-      { color: "warm taupe",       garment: "oversized loose linen shirt with relaxed cream pants", vibe: "lounge" },
-      { color: "soft sage",        garment: "loose knit sweater over white tee with relaxed long pants", vibe: "lounge" },
-      // ── athleisure ──
-      { color: "charcoal grey",    garment: "loose sport tee with full-coverage long leggings", vibe: "athleisure" },
-      { color: "dusty rose",       garment: "modest activewear top with matching long joggers", vibe: "athleisure" },
-      { color: "deep navy",        garment: "loose long-sleeve sport top with matching joggers", vibe: "athleisure" },
-    ];
-    const malePalette: OutfitRow[] = [
-      // ── formal ──
-      { color: "charcoal grey",    garment: "tailored blazer over white shirt with matching dress pants", vibe: "formal" },
-      { color: "navy blue",        garment: "button-up shirt tucked into charcoal trousers",    vibe: "formal" },
-      { color: "deep maroon",      garment: "kemeja Melayu (formal) with matching slim-fit pants", vibe: "formal" },
-      // ── smart-casual ──
-      { color: "burgundy",         garment: "button-up shirt with charcoal chinos",             vibe: "smart-casual" },
-      { color: "cream beige",      garment: "lightweight blazer over white tee with navy chinos", vibe: "smart-casual" },
-      { color: "olive green",      garment: "button-up shirt with rolled sleeves and sand chinos", vibe: "smart-casual" },
-      { color: "navy blue",        garment: "lightweight knit sweater with charcoal chinos",    vibe: "smart-casual" },
-      // ── casual ──
-      { color: "charcoal grey",    garment: "polo shirt with indigo dark jeans",                vibe: "casual" },
-      { color: "forest green",     garment: "henley tee with rolled sleeves and charcoal jeans", vibe: "casual" },
-      { color: "dusty teal",       garment: "polo shirt with subtle stripes and sand chinos",   vibe: "casual" },
-      { color: "sand brown",       garment: "linen button-up shirt with cream linen pants",     vibe: "casual" },
-      { color: "indigo blue",      garment: "casual henley tee with light-wash jeans",          vibe: "casual" },
-      { color: "warm rust",        garment: "casual button-up shirt with sand cargo pants",     vibe: "casual" },
-      { color: "stone grey",       garment: "long-sleeve henley with dark jeans",               vibe: "casual" },
-      // ── lounge ──
-      { color: "deep maroon",      garment: "knit cardigan over white tee with relaxed grey pants", vibe: "lounge" },
-      { color: "warm taupe",       garment: "oversized loose linen shirt with relaxed cream pants", vibe: "lounge" },
-      { color: "soft charcoal",    garment: "loose henley with relaxed jogger-style pants",     vibe: "lounge" },
-      // ── athleisure ──
-      { color: "charcoal black",   garment: "performance tee with matching sport joggers",      vibe: "athleisure" },
-      { color: "deep navy",        garment: "long-sleeve training top with matching sport pants", vibe: "athleisure" },
-      { color: "olive green",      garment: "sport polo with matching technical joggers",       vibe: "athleisure" },
-    ];
-
-    // ── Vibe detection: when ideaStyle is provided, infer the vibe from
-    // keyword matching so the outfit palette can be filtered to match.
-    // Returns null when no clear vibe is detected → caller uses full
-    // palette (current behaviour). Multilingual keyword pool covers
-    // Bahasa Melayu + English since user briefs mix both. ──
-    function detectIdeaVibe(idea: string): OutfitVibe | null {
-      if (!idea) return null;
-      const t = idea.toLowerCase();
-      // athleisure keywords
-      if (/\b(gym|workout|exercise|fitness|yoga|sport|sukan|jogging|run|treadmill|aerobic|crossfit|cycling)\b/.test(t))
-        return "athleisure";
-      // formal keywords (work / office / event / kebaya)
-      if (/\b(office|meeting|kerja|pejabat|formal|gala|dinner|majlis|wedding|kahwin|kebaya|graduation|interview|presentation|raya)\b/.test(t))
-        return "formal";
-      // lounge keywords (cozy / morning / home / sofa)
-      if (/\b(lounge|cozy|relax|santai|morning|pagi|sofa|katil|bed|bedroom|tidur|wfh|home|rumah|coffee|kopi)\b/.test(t))
-        return "lounge";
-      // smart-casual keywords (mirror try-on / shopping / preview)
-      if (/\b(mirror|cermin|preview|try.?on|fitting|outfit|ootd|shopping|shop|brunch|cafe|date|kencan)\b/.test(t))
-        return "smart-casual";
-      // casual keywords (everyday / outdoor / friends)
-      if (/\b(casual|everyday|hari.?hari|outdoor|park|taman|kawan|friends|jalan.?jalan|chill|hangout)\b/.test(t))
-        return "casual";
-      return null;
-    }
-    const detectedVibe = detectIdeaVibe(ideaStyle);
-    const fullPalette: OutfitRow[] =
-      gender === "male"
-        ? malePalette
-        : hijabMode
-          ? femaleHijabPalette
-          : femaleNoHijabPalette;
-
-    // Vibe filter: when ideaStyle implies a vibe (gym → athleisure,
-    // office → formal, etc.), narrow the palette to outfit rows
-    // tagged with that vibe so the assigned outfit naturally fits the
-    // scene. Falls back to full palette if too few matches.
-    const vibeFiltered = detectedVibe
-      ? fullPalette.filter((o) => o.vibe === detectedVibe)
-      : fullPalette;
-    const basePalette: OutfitRow[] =
-      vibeFiltered.length >= 3 ? vibeFiltered : fullPalette;
-
-    // Shuffle a COPY of the palette per request so every batch gets a
-    // different colour order — without this, every batch starts at the
-    // same row and the first few videos always look identical across
-    // runs. Fisher-Yates over a clone.
-    const palette: OutfitRow[] = [...basePalette];
-    for (let i = palette.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [palette[i], palette[j]] = [palette[j], palette[i]];
-    }
-
-    const outfitAssignments: OutfitRow[] = [];
-    for (let i = 0; i < quantity; i++) {
-      outfitAssignments.push(palette[i % palette.length]);
-    }
-
-    // The exact required-prefix string every UGC/lifestyle prompt MUST
-    // start with. Qwen Flash imitates this verbatim if shown clearly.
-    function requiredPrefix(idx: number): string {
-      const o = outfitAssignments[idx];
+    // Minimal required-prefix — locks ONLY person identity + (when
+    // hijabMode) the loose-tudung-labuh rule. The LLM is free to pick
+    // a Malaysian-style outfit for each video, with variation enforced
+    // via the <clothing_variety> rules in the system prompt.
+    function requiredPrefix(): string {
       const personBase =
         gender === "male"
           ? `A handsome attractive Malay man in his ${ageRange}`
@@ -480,22 +320,11 @@ export async function POST(req: Request) {
       const styleClause =
         gender === "female"
           ? hijabMode
-            ? `, wearing a ${o.hijabColor} hijab tudung labuh that fully covers all hair, ears, and neck (zero hair strands visible)`
+            ? `, wearing a LOOSE hijab tudung labuh that fully covers all hair, ears, and neck (zero hair strands visible — loose, never tight)`
             : `, hair visible (no hijab)`
           : "";
-      const outfitClause = `, wearing a ${o.color} ${o.garment}`;
-      return personBase + styleClause + outfitClause;
+      return personBase + styleClause;
     }
-
-    // Pretty table for the user prompt — Qwen reads tabular data well.
-    const outfitTableText = outfitAssignments
-      .map((o, i) => {
-        if (gender === "female" && hijabMode) {
-          return `Video ${i + 1}: ${o.hijabColor} hijab + ${o.color} ${o.garment}`;
-        }
-        return `Video ${i + 1}: ${o.color} ${o.garment}`;
-      })
-      .join("\n");
 
     let ctaInstruction: string;
     if (noCta) {
@@ -523,17 +352,17 @@ export async function POST(req: Request) {
     // Modesty rule applies regardless of hijab choice — Malaysian-Muslim
     // audience requirement. Female allows short-sleeve T-shirts (loose
     // fit, no chest contour) but never cleavage / midriff / thighs.
-    // NOTE: the outfit COLOUR + GARMENT is filled in per-video by the LLM
-    // (see <clothing_variety> in the system prompt). Here we only define
-    // the static modesty + style guardrails — colour is intentionally
-    // marked [PICK FROM PALETTE] so the model doesn't default to brown.
+    // NOTE: the LLM picks each video's outfit freely from the
+    // <clothing_variety> Malaysian-style pool. This is the static
+    // modesty + style guardrail that goes into the characterBlock —
+    // the actual outfit phrase is added per-video by the LLM.
     const outfitDescription = hijabMode
       ? gender === "male"
-        ? "[PICK COLOUR + GARMENT FROM <clothing_variety> palette — different every video], neat modern fit, modest"
-        : "hijab tudung labuh ([PICK HIJAB COLOUR from palette, different every video]) and modest long-sleeve outfit ([PICK TOP COLOUR + PATTERN + GARMENT from palette, different every video])"
+        ? "[YOU pick a Malaysian-style male outfit unique to this video — see <clothing_variety>], neat modern fit, modest"
+        : "LOOSE hijab tudung labuh ([YOU pick the hijab colour to coordinate with the outfit, never tight, fully covers all hair/ears/neck]) and [YOU pick a Malaysian-style modest outfit unique to this video — kebaya / baju kurung / modest blouse + maxi skirt / kaftan — see <clothing_variety>]"
       : gender === "male"
-        ? "[PICK COLOUR + GARMENT FROM <clothing_variety> palette — different every video], short hair neatly styled, modest fit (no tank tops, no shirtless)"
-        : "[PICK COLOUR + PATTERN + GARMENT from <clothing_variety> palette — different every video], hair visible, no hijab — short-sleeve T-shirts and loose blouses are OK, but loose fit only, NO tight tops showing breast shape, NO cleavage, NO crop tops / midriff / navel exposure, NO short shorts / mini skirts / thigh exposure. Bottoms must cover thighs.";
+        ? "[YOU pick a Malaysian-style male outfit unique to this video — kemeja Melayu / button-up + chinos / polo / casual baju Melayu — see <clothing_variety>], short hair neatly styled, modest fit (no tank tops, no shirtless)"
+        : "[YOU pick a Malaysian-style modest outfit unique to this video — modest blouse + long skirt / midi dress / loose top + long pants — see <clothing_variety>], hair visible, no hijab — short-sleeve T-shirts and loose blouses are OK, but loose fit only, NO tight tops showing breast shape, NO cleavage, NO crop tops / midriff / navel exposure, NO short shorts / mini skirts / thigh exposure. Bottoms must cover thighs.";
     // Character block is the SUBJECT LINE injected into every UGC/lifestyle
     // prompt. Gender + age + hijab/no-hijab are LOCKED here so they appear
     // verbatim in every per-video prompt — Veo cannot drop these the way it
@@ -655,7 +484,7 @@ THE RULES (read all 6 before you plan a single video):
      • Action beat inside the idea: walking up / turning around / adjusting / posing / reacting / wider context
      • Time-of-day: morning soft golden / midday clean / evening warm / blue hour
      • Energy: calm reveal / excited gesture / casual everyday / dramatic pause
-     • Outfit (already enforced by <outfit_table>) — different colour per video
+     • Outfit (YOU pick from <clothing_variety> Malaysian pool) — different garment + colour per video, no two consecutive videos sharing silhouette or colour family
    Same IDEA, different EXECUTION. Two videos with the exact same
    staging = creative failure, FYP kills the second view.
 
@@ -745,15 +574,13 @@ THE RULES (read all 6 before you plan a single video):
        The idea controls the SCENE, the framework controls the
        DIALOG SHAPE, but the CTA mode controls WHAT WORDS land in
        the 6-8s slot. ${noCta ? "noCta is ON — end with an open outro, never a buy/shop/link line." : shopMode ? "shopMode is ON — last 2s MUST mention 'beg kuning' regardless of how poetic the idea is." : customCtaResolved ? `customCta is set — last 2s MUST use EXACTLY: "${customCtaResolved}".` : "freeCta — write a natural Malay CTA that fits the idea + framework."}
-     • OUTFIT LOCK (from <outfit_table>) — each video uses its
-       PRE-ASSIGNED outfit colour FROM the table when the product is
-       a PRODUCT (non-wearable). When the product is a WEARABLE
-       (clothes/hijab/shoes/bag/jewelry/abaya/watch), see
-       <wearable_outfit_override> — the product IS the outfit and
-       <outfit_table> is bypassed. Don't let the idea pick its own
-       colour ("white dress in mirror") — use the assigned row's
-       colour ("dusty rose blouse in mirror") OR the product itself.
-       ${detectedVibe ? `Current batch's outfit palette was already vibe-filtered to "${detectedVibe}" based on your idea, so the assigned rows naturally fit the scene.` : ""}
+     • OUTFIT (YOU decide — Malaysian style): for each video pick a
+       DIFFERENT Malaysian-style outfit that fits the scene + product.
+       See <clothing_variety> below for the variation rule + Malaysian
+       options. ${hijabMode ? "Hijab MUST be tudung labuh, LOOSE, fully covers all hair/ears/neck (zero hair strands visible)." : "Modest casual — hair visible, no head-covering."} When the product
+       is a WEARABLE (clothes/hijab/shoes/bag/jewelry/abaya/watch), see
+       <wearable_outfit_override> — the product IS the outfit so your
+       free outfit choice is bypassed for that video.
      • LANGUAGE LOCK — dialog is BAHASA MELAYU only, Malaysian
        markers, never Bahasa Indonesia. Idea phrasing doesn't change
        the dialog language.
@@ -878,22 +705,23 @@ FRAMEWORK chosen for Video 1: "Testimonial" (UGC, character on screen)
 3. AGE    = ${ageRange}   → must appear in every UGC/lifestyle prompt
 
 🚨 REQUIRED PREFIX FOR EVERY UGC + LIFESTYLE imagePrompt AND videoPromptShot1${is16s ? " AND videoPromptShot2" : ""}:
-Each video has a PRE-ASSIGNED outfit (see <outfit_table> in user message). The prompt MUST start with the exact prefix for that video's number. Examples for this batch:
-${outfitAssignments.slice(0, Math.min(3, quantity)).map((_, i) => `- Video ${i + 1} (PRODUCT example):  "${requiredPrefix(i)}, holding the product, [shot type + action]"
-- Video ${i + 1} (WEARABLE example): "${requiredPrefix(i)}, WEARING the product on body (NOT holding), [shot type + action]"   ← if product is clothes/hijab/shoes/bag/jewelry/abaya/watch, use THIS form`).join("\n")}
-${quantity > 3 ? `(...continue for Videos 4-${quantity} using the outfit assigned to each in <outfit_table>)` : ""}
+The prompt MUST start with this exact person-lock prefix, then YOU add a Malaysian-style outfit clause + action. Examples:
+- PRODUCT example:  "${requiredPrefix()}, wearing [YOUR PICK: Malaysian-style outfit unique to this video — see <clothing_variety>], holding the product, [shot type + action]"
+- WEARABLE example: "${requiredPrefix()}, WEARING the product on body (NOT holding), [shot type + action]"   ← if product is clothes/hijab/shoes/bag/jewelry/abaya/watch, use THIS form (no separate outfit clause — product IS the outfit)
 
 🚨 DO NOT use these forbidden lazy phrases:
-- "plain brown ___"    "neutral ___"    "casual outfit"    "modest outfit"    "simple ___"
+- "plain brown ___"    "neutral ___"    "casual outfit"    "modest outfit"    "simple ___"   "generic ___"
 - ${hijabMode ? '"loose hair", "free hair", "hair visible", "uncovered" — character ALWAYS has hijab' : '"hijab", "tudung", "headscarf" — character has NO hijab'}
 - "person" / "individual" — always write the exact gender word
+- Same Malaysian outfit silhouette / colour-family across two consecutive videos
 
 🚨 FAILURE CONDITIONS (Qwen will reject these outputs as broken):
 - imagePrompt or videoPrompt missing the gender word "${gender === "male" ? "Malay man" : "Malay woman"}"
 - imagePrompt or videoPrompt missing the age "${ageRange}"
-- ${hijabMode ? "imagePrompt or videoPrompt missing the word \"hijab\"" : "imagePrompt or videoPrompt contains the word \"hijab\""}
-- Two videos in the batch using the same outfit colour family
-- Any video defaulting to brown / beige / neutral when not assigned
+- ${hijabMode ? "imagePrompt or videoPrompt missing the word \"hijab\" — and hijab MUST be described as LOOSE tudung labuh, never tight" : "imagePrompt or videoPrompt contains the word \"hijab\""}
+- Outfit not Malaysian-style (e.g. Western mini dress, crop top, gym leggings without modest tunic on top)
+- Two consecutive videos in the batch using the same outfit silhouette or colour family
+- Any video defaulting to plain brown / beige / neutral with no specific Malaysian garment
 - 🛑 WEARABLE product (pants / shirt / hijab / shoes / bag / jewelry / abaya / watch / scarf) described as "holding", "holds", "showing", "displaying" — character MUST be WEARING it. Example failure: "Malay man holding black pants and showing them" ✗. Required form: "Malay man wearing the black pants, gesturing to his outfit" ✓.
 - Wearable items "floating", "on a hanger", "on a mannequin", or any depiction of the wearable NOT physically on the character's body
 </HARD_RULES_READ_THIS_FIRST>
@@ -1318,31 +1146,62 @@ VALIDATION RULE: Before you write each video's imagePrompt and videoPrompt, re-r
 </locked_avatar>
 
 <clothing_variety>
-🎨 CLOTHING ROTATION — MANDATORY VARIETY (NO MORE "BROWN PLAIN" DEFAULT)
+🎨 OUTFIT — MALAYSIAN STYLE, YOU DECIDE PER VIDEO (NO HARDCODED TABLE)
 
-DEFAULT PROBLEM: Veo loves to generate the same beige/brown/plain shirt over and over. This is BORING and makes the batch feel like one person filmed 10 videos in the same outfit. WE FIX THIS by FORCING you to pick a SPECIFIC colour + pattern + style for EVERY video — and rotate across the batch.
+The client wants AI-decided outfits with Malaysian flavour — not a fixed
+palette. Pick freely from the categories below, vary across the batch.
 
 🚫 FORBIDDEN — never use these as the outfit description (lazy defaults):
 - "plain brown ___"  /  "plain beige ___"
 - "neutral ___" without a colour
 - "simple ___" without a colour
 - "casual outfit" without specifying colour + pattern + garment
-- Repeating the same colour family across consecutive videos in the batch
+- Generic Western mini-dress / crop-top / sleeveless tank — not Malaysian-modest
+- Repeating the same garment silhouette or colour family on consecutive videos
 
 ✅ REQUIRED — every video's imagePrompt AND videoPrompt MUST specify:
-   COLOUR + PATTERN + GARMENT TYPE
-   Example: "soft lilac long-sleeve linen blouse with subtle floral print"
+   COLOUR + GARMENT TYPE (Malaysian style) + optional pattern
+   Example: "soft lilac long-sleeve baju kurung with small floral print"
+   Example: "olive green kemeja Melayu with matching slim-fit pants"
 
-COLOUR PALETTE — rotate across the batch (don't repeat a colour family until palette exhausted):
+MALAYSIAN-STYLE GARMENT POOL — pick freely, rotate across batch:
 ${hijabMode
-  ? `   ${gender === "female"
-    ? "PASTELS (hijab + top): soft pink, lilac, mint sage, butter yellow, baby blue, peach\n   JEWEL TONES: emerald green, sapphire blue, ruby red, amethyst purple, mustard\n   EARTHY (varied): terracotta, dusty rose, olive, navy, cream (NOT plain brown)\n   PRINTS: small floral, gingham, polka dot, paisley, batik motif, abstract watercolour\n   HIJAB COLOURS: each video uses a different hijab colour — coordinate with outfit but never identical to last video"
-    : "MEN PALETTE: charcoal grey, navy blue, forest green, burgundy, cream, dusty teal, sand, deep maroon, indigo\n   PATTERNS: solid, subtle stripes, small check, henley texture, knit cardigan\n   GARMENT VARIETY: polo shirt, button-up shirt, lightweight knit sweater, kemeja Melayu, baju Melayu (for evening shots), casual blazer over tee"}`
-  : `   ${gender === "female"
-    ? "PASTELS: soft pink, lilac, mint sage, butter yellow, baby blue, peach\n   JEWEL TONES: emerald green, sapphire blue, ruby red, plum, mustard\n   PRINTS: small floral, gingham, polka dot, ditzy floral, abstract watercolour\n   GARMENT VARIETY: loose blouse, oversized button-up, knit cardigan over tee, midi dress (long), maxi skirt + loose top, jumpsuit (long pants), kebaya for elegant looks"
-    : "MEN PALETTE: charcoal grey, navy blue, forest green, burgundy, cream, dusty teal, sand, deep maroon, indigo\n   PATTERNS: solid, subtle stripes, small check, henley texture\n   GARMENT VARIETY: polo shirt, button-up shirt, lightweight knit sweater, henley tee + cardigan, casual blazer over tee, t-shirt + bomber jacket"}`}
+  ? gender === "female"
+    ? `   FORMAL / TRADITIONAL: baju kurung kebaya, modest kaftan with subtle embroidery, kebaya nyonya, long-sleeve baju kurung
+   EVERYDAY MODEST: loose long-sleeve blouse + maxi skirt, modest midi dress, modest tunic + wide-leg pants, modest abaya
+   SMART-CASUAL: long-sleeve baju kurung with floral print, kaftan with batik motif, modest cardigan over modest top + long skirt
+   LOUNGE / MORNING: oversized loose linen tunic + relaxed pants, knit cardigan over loose tee + maxi skirt
+   ATHLEISURE (modest aurat-compliant): LOOSE long-sleeve sport tunic worn OVER relaxed wide-leg activewear pants — NEVER form-fitting leggings/joggers, NEVER tight tops
+   HIJAB: ALWAYS loose tudung labuh, never tight. Coordinate colour with outfit but never identical to previous video's hijab.`
+    : `   FORMAL / TRADITIONAL: kemeja Melayu with matching slim-fit pants, baju Melayu for evening shots, tailored blazer over white shirt
+   SMART-CASUAL: button-up shirt with chinos, lightweight knit sweater with chinos, casual blazer over tee
+   CASUAL: polo shirt + dark jeans, henley tee with rolled sleeves + chinos, linen button-up + linen pants
+   LOUNGE: knit cardigan over white tee + relaxed pants, oversized loose linen shirt + relaxed pants
+   ATHLEISURE: performance tee + sport joggers, long-sleeve training top + sport pants, sport polo + technical joggers
+   Pick neat modern fit, modest cut. NEVER tank tops, NEVER shirtless.`
+  : gender === "female"
+    ? `   FORMAL: tailored blazer over cream blouse + long pants, structured midi dress, satin blouse + cream wide-leg pants
+   EVERYDAY MODEST: loose midi dress, loose linen blouse + cream wide-leg pants, oversized button-up + cream maxi skirt
+   SMART-CASUAL: knit cardigan over white tee + sage maxi skirt, modest tunic + long pants, modest jumpsuit (long pants)
+   CASUAL: loose short-sleeve blouse + indigo long pants, long-sleeve loose blouse + long skirt, oversized linen shirt + cropped pants
+   LOUNGE: oversized loose linen shirt + relaxed cream pants, loose knit sweater over white tee + relaxed pants
+   ATHLEISURE: loose sport tee + full-coverage long leggings, modest activewear top + long joggers
+   Hair visible. Short sleeves OK. NEVER cleavage, NEVER tight tops showing breast shape, NEVER shorts/skirts above knee, NEVER midriff/navel.`
+    : `   FORMAL / TRADITIONAL: kemeja Melayu, tailored blazer + dress pants, button-up + charcoal trousers
+   SMART-CASUAL: button-up shirt + chinos, lightweight blazer over white tee + navy chinos
+   CASUAL: polo shirt + dark jeans, henley tee + chinos, linen button-up + linen pants, casual button-up + cargo pants
+   LOUNGE: knit cardigan over white tee + relaxed pants, oversized loose linen shirt + relaxed pants
+   ATHLEISURE: performance tee + sport joggers, training top + sport pants
+   Pick neat modern fit. NEVER tank tops, NEVER shirtless.`}
 
-RULE: For a batch of ${quantity} videos, the outfits MUST span at LEAST ${Math.min(Math.max(quantity, 3), 8)} distinct colour families and at least 3 distinct garment types. NO TWO consecutive videos may share the same colour family or the same garment silhouette.
+COLOUR INSPIRATION (pick freely, never default to plain brown/beige):
+- Earthy Malaysian: terracotta, dusty rose, olive, navy, sage green, warm taupe, cream
+- Pastels: soft pink, lilac, mint sage, butter yellow, baby blue, peach, blush
+- Jewel tones: emerald green, sapphire blue, ruby red, plum, mustard, burgundy, deep teal
+- Neutrals (with character): charcoal grey, deep navy, forest green, sand brown, indigo
+- Patterns (use sparingly, max 1-2 videos per batch): small floral, batik motif, gingham, polka dot, abstract watercolour
+
+RULE: For a batch of ${quantity} videos, the outfits MUST span at LEAST ${Math.min(Math.max(quantity, 3), 8)} distinct garment types and ${Math.min(Math.max(quantity, 3), 8)} distinct colour families. NO TWO CONSECUTIVE videos may share the same garment silhouette OR the same colour family.
 
 Write the outfit phrase BEFORE finalising each video's prompts so you have it in hand when composing imagePrompt + videoPrompt.
 </clothing_variety>
@@ -1357,7 +1216,7 @@ FOR UGC FRAMEWORKS (character ONLY — NO product in image):
 - MUST be STANDING or MEDIUM SHOT (waist up minimum) — show body, arms, hands visible. NEVER close-up face only. Facing slightly to the side while looking at camera.
 - FACE: Invent a UNIQUE specific attractive face — describe smooth glowing skin, natural makeup (blush, glossy lips, defined brows), specific features (dimples, face shape, skin tone). Make this person look like a REAL beautiful individual. NEVER use generic "oval face, warm brown eyes".
 - BACKGROUND: Softly lit elegant indoor setting — warm tones, subtle drapery, soft gradient, or blurred aesthetic backdrop. No mirrors, no reflections, no glass. Clean and premium feel.
-- Outfit: PICK A SPECIFIC COLOUR + PATTERN + GARMENT from <clothing_variety> palette — DIFFERENT every video, NEVER "plain brown" or "neutral beige" defaults. ${gender === "male" ? "Garment options: polo shirt / button-up / lightweight knit sweater / casual blazer over tee / henley + cardigan / kemeja (different each video). Well-fitted, stylish, modest fit (no tank tops, no shirtless). State the exact colour, e.g. \"navy blue knit polo\", \"charcoal grey button-up\", \"forest green henley\"." : hijabMode ? "Elegant modest wear — baju kurung kebaya / blouse + long skirt / cardigan over modest top / kaftan / modest midi dress (different each video) + hijab that fully covers all hair (different hijab colour each video). State exact colours, e.g. \"soft lilac baju kurung with floral print and sage green hijab\", \"emerald green kaftan with cream hijab\"." : "Modest casual — short-sleeve loose blouse / long-sleeve oversized button-up / knit cardigan over loose tee / midi or maxi dress / modest top + long pants or maxi skirt (different each video). Hair visible. State exact colours + pattern, e.g. \"butter yellow loose linen blouse + cream maxi skirt\", \"sage green cardigan over white tee + indigo wide-leg pants\". Short sleeves OK; NEVER cleavage, NEVER tight tops showing breast shape, NEVER shorts/skirts above knee, NEVER midriff."}
+- Outfit: PICK A SPECIFIC COLOUR + GARMENT from <clothing_variety> Malaysian-style pool — DIFFERENT every video, NEVER "plain brown" or "neutral beige" defaults. ${gender === "male" ? "Garment options: kemeja Melayu / button-up / polo / lightweight knit sweater / casual blazer over tee / henley + cardigan (different each video). Well-fitted, stylish, modest fit (no tank tops, no shirtless). State the exact colour, e.g. \"navy blue knit polo\", \"charcoal grey button-up\", \"olive green kemeja Melayu\"." : hijabMode ? "Elegant Malaysian modest wear — baju kurung kebaya / blouse + long skirt / cardigan over modest top / kaftan / modest midi dress (different each video) + LOOSE hijab tudung labuh that fully covers all hair (different hijab colour each video to coordinate with the outfit). State exact colours, e.g. \"soft lilac baju kurung with floral print and sage green LOOSE hijab\", \"emerald green kaftan with cream LOOSE hijab\"." : "Malaysian modest casual — short-sleeve loose blouse / long-sleeve oversized button-up / knit cardigan over loose tee / midi or maxi dress / modest top + long pants or maxi skirt (different each video). Hair visible. State exact colours + pattern, e.g. \"butter yellow loose linen blouse + cream maxi skirt\", \"sage green cardigan over white tee + indigo wide-leg pants\". Short sleeves OK; NEVER cleavage, NEVER tight tops showing breast shape, NEVER shorts/skirts above knee, NEVER midriff."}
 - DIFFERENT pose, emotion + outfit per image
 - Lighting: soft, diffused, warm, natural glow highlighting face and outfit. Cinematic.
 - Style: photorealistic, luxury portrait, high-end editorial, ultra-realistic skin texture, sharp focus, depth of field with soft bokeh, 85mm lens, f/1.8
@@ -1685,41 +1544,46 @@ Hijab:  ${hijabMode ? "YES — write \"hijab tudung labuh fully covering hair, e
 Age:    ${ageRange} (write this exact age in every UGC/lifestyle prompt)
 </character_lock>
 
-<outfit_table>
-Each video number below is PRE-ASSIGNED a unique outfit. Copy the exact colour + garment text into that video's imagePrompt and videoPromptShot1${is16s ? " and videoPromptShot2 (same outfit for both shots of the same video)" : ""}. DO NOT invent your own colour. DO NOT default to "plain brown" or "neutral".
+<outfit_freedom>
+🎨 YOU pick a Malaysian-style outfit for EACH video. No pre-assigned table.
 
-${outfitTableText}
-${detectedVibe ? `\n📌 Palette was vibe-filtered to "${detectedVibe}" because the client's idea implied that context. Every video uses ${detectedVibe} outfits across the batch.` : ""}
-</outfit_table>
+For every UGC / lifestyle video pick a Malaysian outfit yourself based on:
+  • the scene + framework you've chosen
+  • the product category and tone
+  • the client's idea_style (if any) — let it guide the vibe
+  • previous videos in the batch — never repeat silhouette + colour family
+
+Variation rule — see <clothing_variety> below for the Malaysian options
+pool. Across the batch, the outfits MUST span at LEAST ${Math.min(Math.max(quantity, 3), 8)} distinct garment types and ${Math.min(Math.max(quantity, 3), 8)} distinct colour families. No two CONSECUTIVE videos may share garment silhouette OR colour family.
+${hijabMode ? "\n🚨 Hijab is locked: every UGC/lifestyle prompt MUST describe the hijab as LOOSE tudung labuh fully covering all hair, ears, neck. Zero hair strands visible. The hijab is never tight, never form-revealing. You pick the colour per video to coordinate with the outfit." : ""}
+</outfit_freedom>
 
 <wearable_outfit_override>
-🚨 OUTFIT_TABLE IS IGNORED WHEN THE PRODUCT ITSELF IS A WEARABLE.
+🚨 OUTFIT FREEDOM IS BYPASSED WHEN THE PRODUCT ITSELF IS A WEARABLE.
 
 Read your <attachment_classifier> result for each video:
 
   • If attachment_classifier == PRODUCT (skincare / supplement / food /
     drink / device / accessory held in hand) →
-        USE <outfit_table> verbatim. The avatar wears the assigned
-        colour + garment AND holds/uses the product.
+        Use your own Malaysian-style outfit pick. The avatar wears the
+        outfit you chose AND holds/uses the product.
 
   • If attachment_classifier == WEARABLE (clothing / pants / shirt /
     hijab / shoes / bag / jewelry / abaya / watch / scarf) →
-        IGNORE <outfit_table> ENTIRELY for the WEARABLE side.
-        The PRODUCT ITSELF is the outfit. The avatar wears the
-        product directly. DO NOT layer a second outfit on top.
-        Persona base (gender, age, hijab presence) still applies.
-        For hijab + female: pick a hijab colour that
-        complements the product (not from <outfit_table>).
+        SKIP your outfit pick. The PRODUCT ITSELF is the outfit. The
+        avatar wears the product directly. DO NOT layer a second
+        outfit on top. Persona base (gender, age, hijab presence)
+        still applies. For hijab + female: pick a hijab colour that
+        complements the product.
 
         Example: Product = "black slim-fit pants" + hijab persona →
         prompt reads "A beautiful Malay woman in her 30s, wearing a
-        soft grey hijab tudung labuh, WEARING the black slim-fit pants
-        product (the product is the outfit — no separate blouse from
-        the outfit_table), standing in [scene from idea_style], …"
+        LOOSE soft grey hijab tudung labuh, WEARING the black
+        slim-fit pants product (the product is the outfit — no
+        separate blouse on top), standing in [scene], …"
 
-        DO NOT write "wearing soft lilac baju kurung AND the pants
-        product" — that's the bug we're fixing. The PRODUCT IS THE
-        OUTFIT. Period.
+        DO NOT write "wearing baju kurung AND the pants product" —
+        the PRODUCT IS THE OUTFIT. Period.
 
         Hijab-aurat rule still applies for wearable bottoms: if the
         product is form-fitting pants/leggings/shorts, the avatar
@@ -1730,12 +1594,14 @@ Read your <attachment_classifier> result for each video:
 </wearable_outfit_override>
 
 <per_video_prefix>
-EVERY UGC + LIFESTYLE video's imagePrompt and videoPromptShot1${is16s ? " and videoPromptShot2" : ""} MUST START with this exact phrase (substitute the right video number):
+EVERY UGC + LIFESTYLE video's imagePrompt and videoPromptShot1${is16s ? " and videoPromptShot2" : ""} MUST START with this exact person-lock phrase:
 
-${outfitAssignments.map((_, i) => `Video ${i + 1}: "${requiredPrefix(i)}"`).join("\n")}
+"${requiredPrefix()}"
 
-After the prefix, add the product-interaction phrase BASED ON THE attachment_classifier:
-  • PRODUCT (consumable / bottle / packet / box / device / accessory held in hand) → ", holding the product, [shot type + action + setting]. Spoken dialog: ..."
+Then YOU append a Malaysian-style outfit clause (from <clothing_variety>) that is DIFFERENT from previous videos in the batch.
+
+After that, add the product-interaction phrase BASED ON THE attachment_classifier:
+  • PRODUCT (consumable / bottle / packet / box / device / accessory held in hand) → ", wearing [your Malaysian outfit pick], holding the product, [shot type + action + setting]. Spoken dialog: ..."
   • WEARABLE (clothing / pants / shirt / hijab / shoes / bag / jewelry / abaya / watch / scarf) → ", WEARING the product (NOT holding it — the character is physically dressed in / wearing / has it on their body), [shot type + action + setting]. Spoken dialog: ..."
 
 🚨 CRITICAL FOR WEARABLE: NEVER write "holding", "holds", "shows", "displays" with a wearable item. The character must be PHYSICALLY WEARING it:
@@ -1757,9 +1623,9 @@ Plan ${quantity} unique viral TikTok videos for this product.
 
 CRITICAL OUTPUT RULES:
 1. Respond with ONLY a JSON array. NO analysis, NO explanation, NO markdown, NO text before or after the JSON. Start your response with [ and end with ].
-2. For each video N in your output: the imagePrompt and videoPromptShot1 MUST start with the exact prefix for Video N shown above (only for UGC + lifestyle frameworks).
-3. Every UGC/lifestyle video must contain the gender word "${gender === "male" ? "Malay man" : "Malay woman"}", the age "${ageRange}", and ${hijabMode ? '"hijab" (with the assigned hijab colour)' : "MUST NOT contain the word \"hijab\""}.
-4. No two videos may share an outfit colour — each uses ITS OWN row from <outfit_table>.`;
+2. Every UGC + lifestyle video's imagePrompt and videoPromptShot1 MUST start with the person-lock prefix above, then YOUR chosen Malaysian outfit clause.
+3. Every UGC/lifestyle video must contain the gender word "${gender === "male" ? "Malay man" : "Malay woman"}", the age "${ageRange}", and ${hijabMode ? '"hijab" (described as LOOSE tudung labuh fully covering hair/ears/neck)' : "MUST NOT contain the word \"hijab\""}.
+4. No two CONSECUTIVE videos may share garment silhouette OR colour family. Across the batch the outfits must span at LEAST ${Math.min(Math.max(quantity, 3), 8)} distinct garment types.`;
 
     // Text-only call — extension uses orChat (no vision). Product OCR done
     // separately above and folded into productData.descriptionText.
