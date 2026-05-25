@@ -143,9 +143,23 @@ export async function POST(req: Request) {
   // Prefer the full image_urls array stamped at original-fire time so
   // Resubmit re-fires with ALL attachments (up to 3). Falls back to
   // [reference_url] for legacy rows that didn't stamp the full array.
-  const allImageUrls: string[] = Array.isArray(meta.image_urls) && meta.image_urls.length > 0
-    ? meta.image_urls.filter((u: any) => typeof u === "string" && u.trim())
-    : (refImage ? [refImage] : []);
+  //
+  // GeminiOmni-storyboard rows: when meta.storyboard_url is present,
+  // re-fire with [storyboard_url] instead of the raw refs — saves the
+  // RM 0.30 GPT Image 2 re-render and ensures GeminiOmni animates the
+  // SAME storyboard it used originally (preserves composition).
+  // Falls back to raw refs when storyboard_url is missing (storyboard
+  // step itself failed originally), so the row still gets a video on
+  // resubmit even without the storyboard pre-render.
+  const isGeminiStoryboard =
+    meta.modelChoice === "gemini" &&
+    typeof meta.storyboard_url === "string" &&
+    !!meta.storyboard_url;
+  const allImageUrls: string[] = isGeminiStoryboard
+    ? [meta.storyboard_url as string]
+    : Array.isArray(meta.image_urls) && meta.image_urls.length > 0
+      ? meta.image_urls.filter((u: any) => typeof u === "string" && u.trim())
+      : (refImage ? [refImage] : []);
   const aspectRatio = String(meta.aspectRatio || meta.aspect_ratio || "9:16");
   const durationMode: "8" | "16" = row.duration === 16 ? "16" : "8";
   const imageMode: "frame" | "ingredient" | "text" =
