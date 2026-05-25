@@ -351,6 +351,20 @@ export async function getVeoRate(durationMode: "8" | "16" = "8"): Promise<number
   return durationMode === "16" ? cost.video_16s : cost.video_8s;
 }
 
+// GeminiOmni (Crun /api/v1/client/job/CreateTask, model="google/gemini-omni")
+// — flat per-video rate. Tab fixes duration at 10s + resolution at 1080p,
+// so admin only sets one number (rate_gemini.per_video_10s). When
+// unconfigured, falls through to Veo's 8s rate so the row still bills
+// something sane (cinema rate × duration doesn't apply — Gemini is flat).
+export async function getGeminiRate(durationMode: "10" = "10"): Promise<number> {
+  const v = await getSetting<any>("rate_gemini");
+  const key = durationMode === "10" ? "per_video_10s" : "per_video_10s";
+  const n = Number(v?.[key]);
+  if (Number.isFinite(n) && n > 0) return n;
+  // Sane default: Veo's 8s rate. Admin can override in /admin/settings.
+  return await getVeoRate("8");
+}
+
 export async function getGrokRate(): Promise<number> {
   const v = await getSetting<any>("rate_grok");
   const n = Number(v?.per_second);

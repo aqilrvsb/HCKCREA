@@ -65,8 +65,8 @@ export async function priceFor(
   }
   if (modelHint === "gemini") {
     // GeminiOmni (Crun) — flat per-10s-video rate. Admin sets
-    // rate_gemini.per_video_10s; falls back to Veo's 8s rate × 1.25
-    // when missing (rough proxy — Gemini's compute footprint is similar).
+    // rate_gemini.per_video_10s; falls back to Veo's 8s rate when
+    // missing (rough proxy — Gemini's compute footprint is similar).
     const { getGeminiRate } = await import("@/lib/settings");
     return await getGeminiRate("10");
   }
