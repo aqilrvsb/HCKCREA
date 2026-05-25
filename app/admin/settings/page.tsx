@@ -65,6 +65,10 @@ export default function AdminSettings() {
   const [rateGrok, setRateGrok] = useState("");
   const [rateSora2, setRateSora2] = useState("");
   const [rateSeedance, setRateSeedance] = useState("");
+  // GeminiOmni flat per-10s-video rate. Stored as
+  // app_settings.rate_gemini = { per_video_10s: number }. /api/gemini/rate
+  // serves this to the Original Video tab's GeminiOmni cost preview.
+  const [rateGemini, setRateGemini] = useState("");
   const [savingRates, setSavingRates] = useState(false);
   const [ratesMsg, setRatesMsg] = useState<string | null>(null);
 
@@ -160,7 +164,14 @@ export default function AdminSettings() {
   const [sora2FallbackCount, setSora2FallbackCount] = useState(10);
   const [sora2MainSlots, setSora2MainSlots] = useState<SlotV[]>([]);
   const [sora2FallbackSlots, setSora2FallbackSlots] = useState<SlotV[]>([]);
-  const [savingMfSlots, setSavingMfSlots] = useState<"video" | "image" | "grok" | "cinema" | "sora2" | null>(null);
+  // GeminiOmni cascade — Crun is currently the only Gemini host so
+  // MAIN defaults seed p2-a / p2-b; FALLBACK is empty until a second
+  // provider is wired in.
+  const [geminiMainCount, setGeminiMainCount] = useState(10);
+  const [geminiFallbackCount, setGeminiFallbackCount] = useState(10);
+  const [geminiMainSlots, setGeminiMainSlots] = useState<SlotV[]>([]);
+  const [geminiFallbackSlots, setGeminiFallbackSlots] = useState<SlotV[]>([]);
+  const [savingMfSlots, setSavingMfSlots] = useState<"video" | "image" | "grok" | "cinema" | "sora2" | "gemini" | null>(null);
   const [mfSlotsMsg, setMfSlotsMsg] = useState<string | null>(null);
 
   // Per-feature model overrides — cascade with main + fallback. Admin
@@ -274,6 +285,7 @@ export default function AdminSettings() {
         }
         if (row.key === "rate_grok") setRateGrok(fmt(row.value?.per_second));
         if (row.key === "sora2_rate") setRateSora2(fmt(row.value?.rate));
+        if (row.key === "rate_gemini") setRateGemini(fmt(row.value?.per_video_10s));
         if (row.key === "rate_seedance") setRateSeedance(fmt(row.value?.per_second));
         if (row.key === "fairytale_image_model") {
           setStorytellingModel(String(row.value?.model || ""));
@@ -476,13 +488,32 @@ export default function AdminSettings() {
           const cnt = (list.find((r) => r.key === "sora2_fallback_count")?.value?.count) || 10;
           setSora2FallbackSlots(fitArr<SlotV>(arr, cnt, allowedV));
         }
+        // GeminiOmni cascade
+        if (row.key === "gemini_main_count") {
+          const n = Number(row.value?.count);
+          if (Number.isFinite(n) && n >= 1) setGeminiMainCount(Math.floor(n));
+        }
+        if (row.key === "gemini_fallback_count") {
+          const n = Number(row.value?.count);
+          if (Number.isFinite(n) && n >= 1) setGeminiFallbackCount(Math.floor(n));
+        }
+        if (row.key === "gemini_main_slots") {
+          const arr = Array.isArray(row.value?.slots) ? row.value.slots : [];
+          const cnt = (list.find((r) => r.key === "gemini_main_count")?.value?.count) || 10;
+          setGeminiMainSlots(fitArr<SlotV>(arr, cnt, allowedV));
+        }
+        if (row.key === "gemini_fallback_slots") {
+          const arr = Array.isArray(row.value?.slots) ? row.value.slots : [];
+          const cnt = (list.find((r) => r.key === "gemini_fallback_count")?.value?.count) || 10;
+          setGeminiFallbackSlots(fitArr<SlotV>(arr, cnt, allowedV));
+        }
       }
     } finally {
       setLoading(false);
     }
   }
 
-  async function saveMainFallback(asset: "video" | "image" | "grok" | "cinema" | "sora2") {
+  async function saveMainFallback(asset: "video" | "image" | "grok" | "cinema" | "sora2" | "gemini") {
     setSavingMfSlots(asset);
     setMfSlotsMsg(null);
     try {
@@ -491,24 +522,28 @@ export default function AdminSettings() {
         : asset === "image" ? imageMainCount
         : asset === "grok" ? grokMainCount
         : asset === "sora2" ? sora2MainCount
+        : asset === "gemini" ? geminiMainCount
         : cinemaMainCount;
       const fbCount =
         asset === "video" ? videoFallbackCount
         : asset === "image" ? imageFallbackCount
         : asset === "grok" ? grokFallbackCount
         : asset === "sora2" ? sora2FallbackCount
+        : asset === "gemini" ? geminiFallbackCount
         : cinemaFallbackCount;
       const main =
         asset === "video" ? videoMainSlots
         : asset === "image" ? imageMainSlots
         : asset === "grok" ? grokMainSlots
         : asset === "sora2" ? sora2MainSlots
+        : asset === "gemini" ? geminiMainSlots
         : cinemaMainSlots;
       const fb =
         asset === "video" ? videoFallbackSlots
         : asset === "image" ? imageFallbackSlots
         : asset === "grok" ? grokFallbackSlots
         : asset === "sora2" ? sora2FallbackSlots
+        : asset === "gemini" ? geminiFallbackSlots
         : cinemaFallbackSlots;
       const calls = [
         { key: `${asset}_main_count`, value: { count: mainCount } },
@@ -586,6 +621,14 @@ export default function AdminSettings() {
           body: JSON.stringify({
             key: "sora2_rate",
             value: { rate: num(rateSora2, 0.20) },
+          }),
+        }),
+        fetch("/api/admin/settings", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            key: "rate_gemini",
+            value: { per_video_10s: num(rateGemini, 0.40) },
           }),
         }),
         fetch("/api/admin/settings", {
@@ -1054,6 +1097,7 @@ export default function AdminSettings() {
     "cinema_rate_per_sec",
     // Sora 2 rate — exposed via the dedicated "Model Pricing" card above.
     "sora2_rate",
+    "rate_gemini",
     // FB CAPI — exposed via the dedicated "Facebook Conversions API"
     // card above. Hiding the raw JSON because the access_token field is
     // a secret and shouldn't be visible in plain text in the generic list.
@@ -1082,6 +1126,8 @@ export default function AdminSettings() {
     "cinema_fallback_counter",
     "sora2_rotation_counter",
     "sora2_fallback_counter",
+    "gemini_rotation_counter",
+    "gemini_fallback_counter",
     "image_rotation_counter",
     "image_fallback_counter",
     "last_auto_resubmit_run",
@@ -1154,6 +1200,10 @@ export default function AdminSettings() {
     "sora2_main_slots",
     "sora2_fallback_count",
     "sora2_fallback_slots",
+    "gemini_main_count",
+    "gemini_main_slots",
+    "gemini_fallback_count",
+    "gemini_fallback_slots",
   ]);
 
   const grouped = useMemo(() => {
@@ -1186,7 +1236,7 @@ export default function AdminSettings() {
           Admin can grow / shrink each list with + / - buttons. */}
       {(() => {
         const assets: Array<{
-          asset: "video" | "image" | "grok" | "cinema" | "sora2";
+          asset: "video" | "image" | "grok" | "cinema" | "sora2" | "gemini";
           color: string;
           options: { value: string; label: string }[];
           mainCount: number;
@@ -1338,6 +1388,38 @@ export default function AdminSettings() {
             setMainSlots: (s) => setSora2MainSlots(s as SlotV[]),
             fbSlots: sora2FallbackSlots,
             setFbSlots: (s) => setSora2FallbackSlots(s as SlotV[]),
+          },
+          {
+            // GeminiOmni cascade — Crun is the primary backend (p2-a /
+            // p2-b). VIDEO_ALLOWED is the same pool other video assets
+            // use; non-p2 slots will fail at create today (Crun is the
+            // only host) but the option list stays consistent so admin
+            // can wire in a second provider later without code changes.
+            asset: "gemini",
+            color: "#06b6d4", // cyan — matches GeminiOmni chip theme
+            options: [
+              { value: "p1", label: "P1 — GeminiGen" },
+              { value: "p2-a", label: "P2 — Crun (key A)" },
+              { value: "p2-b", label: "P2 — Crun (key B)" },
+              { value: "p5", label: "P5 — APIMart" },
+              { value: "p6-a", label: "P6 — APIPod (A)" },
+              { value: "p6-b", label: "P6 — APIPod (B)" },
+              { value: "p6-c", label: "P6 — APIPod (C)" },
+              { value: "p6-d", label: "P6 — APIPod (D)" },
+              { value: "p6-e", label: "P6 — APIPod (E)" },
+              { value: "p6-f", label: "P6 — APIPod (F)" },
+              { value: "p6-g", label: "P6 — APIPod (G)" },
+              { value: "p6-h", label: "P6 — APIPod (H)" },
+              { value: "none", label: "— None —" },
+            ],
+            mainCount: geminiMainCount,
+            setMainCount: setGeminiMainCount,
+            fbCount: geminiFallbackCount,
+            setFbCount: setGeminiFallbackCount,
+            mainSlots: geminiMainSlots,
+            setMainSlots: (s) => setGeminiMainSlots(s as SlotV[]),
+            fbSlots: geminiFallbackSlots,
+            setFbSlots: (s) => setGeminiFallbackSlots(s as SlotV[]),
           },
         ];
         return (
@@ -1600,6 +1682,27 @@ export default function AdminSettings() {
                 onChange={(e) => setRateSora2(e.target.value)}
                 className="input !pl-10"
                 placeholder="0.20"
+              />
+            </div>
+          </div>
+          {/* GeminiOmni (Google via Crun) — flat per-10s-video rate.
+              Original Video tab fixes duration at 10s + resolution at
+              1080p so admin only sets one number. Default RM 0.40 mirrors
+              Veo's 8s rate (Gemini's compute footprint is similar). */}
+          <div>
+            <label className="block text-xs font-mono uppercase tracking-wider text-[var(--color-text-muted)] font-bold mb-1.5 flex items-center gap-1.5">
+              <Film className="w-3.5 h-3.5" /> GeminiOmni <span className="text-[10px] font-normal text-[var(--color-text-muted)]">(Google) / 10s video</span>
+            </label>
+            <div className="relative">
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs font-bold text-[var(--color-text-muted)]">RM</span>
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                value={rateGemini}
+                onChange={(e) => setRateGemini(e.target.value)}
+                className="input !pl-10"
+                placeholder="0.40"
               />
             </div>
           </div>
