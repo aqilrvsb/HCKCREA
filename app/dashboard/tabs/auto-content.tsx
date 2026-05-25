@@ -96,7 +96,7 @@ export default function AutoContentTab({ projectId }: { projectId?: string } = {
   // "Sora 2", we still set state to "grok" but the backend body sends
   // model: "sora2" instead of "grok" so it routes through APIPod's
   // sora-2-vip endpoint (via lib/p6.ts apipodVideoModel detection).
-  const [provider, setProvider] = useState<"veo" | "grok">("veo");
+  const [provider, setProvider] = useState<"veo" | "grok" | "gemini">("veo");
   const [duration, setDuration] = useState<"8" | "16">("8");
   // Sora 2 duration (4 / 8 / 12 only per APIPod spec). Default 4 (shortest
   // / cheapest). Internal state name kept as grokDuration for backward
@@ -105,12 +105,22 @@ export default function AutoContentTab({ projectId }: { projectId?: string } = {
   // Live rate_sora2 for cost preview. /api/sora2/rate falls back to
   // cinema_rate × 2 when no dedicated sora2_rate is configured.
   const [grokRate, setGrokRate] = useState<number | null>(null);
+  // GeminiOmni flat per-10s-video rate. The Auto Content storyboard
+  // mode also charges a hidden GPT Image 2 fee (~RM 0.30 per row) but
+  // per user direction the preview UI only shows the video rate.
+  const [geminiRate, setGeminiRate] = useState<number | null>(null);
   useEffect(() => {
     let alive = true;
     fetch("/api/sora2/rate", { cache: "no-store" })
       .then((r) => r.json())
       .then((d) => {
         if (alive && typeof d?.rate === "number") setGrokRate(d.rate);
+      })
+      .catch(() => {});
+    fetch("/api/gemini/rate", { cache: "no-store" })
+      .then((r) => r.json())
+      .then((d) => {
+        if (alive && typeof d?.rate === "number") setGeminiRate(d.rate);
       })
       .catch(() => {});
     return () => {
@@ -1058,6 +1068,31 @@ export default function AutoContentTab({ projectId }: { projectId?: string } = {
           <DurationBtn active={provider === "grok"} onClick={() => setProvider("grok")}>
             ⚡ Sora 2
           </DurationBtn>
+          {/* GeminiOmni chip — cyan/blue gradient matches the Original
+              Video tab's GeminiOmni styling so the provider reads as
+              the same product across surfaces. DurationBtn's hardcoded
+              yellow palette doesn't fit; use a custom button with the
+              same height + className shape. */}
+          <button
+            type="button"
+            onClick={() => setProvider("gemini")}
+            className="flex-1 h-9 rounded-lg text-xs font-extrabold transition-all"
+            style={
+              provider === "gemini"
+                ? {
+                    background: "linear-gradient(135deg, #3b82f6, #06b6d4)",
+                    color: "white",
+                    boxShadow: "0 4px 14px rgba(6,182,212,0.4)",
+                  }
+                : {
+                    background: "#fafaf7",
+                    border: "1px solid #e8e0d8",
+                    color: "#888",
+                  }
+            }
+          >
+            🔷 GeminiOmni
+          </button>
         </div>
 
         {provider === "veo" && (
@@ -1104,6 +1139,35 @@ export default function AutoContentTab({ projectId }: { projectId?: string } = {
             <p className="text-[10px] text-[var(--color-text-muted)] mt-1">
               Sora 2 (OpenAI) · 8 / 12s · 9:16 or 16:9 only · native
               dialog + ambient audio · higher per-clip cost than Veo.
+            </p>
+          </div>
+        )}
+
+        {/* GeminiOmni — fixed 10s · 1080p (no duration picker). The
+            storyboard pipeline always runs at this single setting; the
+            pill replaces the picker so the user knows there's nothing
+            to choose. Cyan/blue tint mirrors the chip + Original Video
+            tab's Gemini surface. */}
+        {provider === "gemini" && (
+          <div className="mb-3">
+            <div
+              className="px-3 py-2 rounded-lg text-sm font-bold text-center"
+              style={{
+                background: "rgba(6,182,212,0.08)",
+                border: "1px solid rgba(6,182,212,0.25)",
+                color: "#06b6d4",
+              }}
+            >
+              Fixed 10s · 1080p
+              {geminiRate != null && (
+                <span className="ml-2 text-xs font-bold" style={{ color: "#06b6d4" }}>
+                  · ~RM{geminiRate.toFixed(2)} / video
+                </span>
+              )}
+            </div>
+            <p className="text-[10px] text-[var(--color-text-muted)] mt-1">
+              GeminiOmni (Google) · 10s · 1080p · storyboard pipeline
+              (GPT Image 2 → animate) · single fixed-cost run per row.
             </p>
           </div>
         )}
