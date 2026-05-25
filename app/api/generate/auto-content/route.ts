@@ -78,7 +78,12 @@ export async function POST(req: Request) {
   // Provider selection — defaults to Veo to preserve existing-user
   // muscle memory. When "grok", we ignore the 8/16 button and use
   // grok_duration (8-30s) as a per-second value instead.
-  const providerChoice: "veo" | "grok" = body?.provider === "grok" ? "grok" : "veo";
+  const providerChoice: "veo" | "grok" | "gemini" =
+    body?.provider === "grok"
+      ? "grok"
+      : body?.provider === "gemini"
+        ? "gemini"
+        : "veo";
   // Duration validation — providerChoice='grok' now routes to Sora 2,
   // which has a strict 4/8/12 enum (vs old Grok's 8-30 slider). Clamp
   // the incoming value to the closest valid Sora 2 duration. Field name
@@ -141,20 +146,30 @@ export async function POST(req: Request) {
 
   // Pre-flight credit check — total = N × video rate (master plan is free).
   // Verify mode skips credit check until /approve fires the actual gens.
-  //   Veo: flat rate per 8s or 16s clip
-  //   Grok: per-second rate × chosen duration
+  //   Veo:    flat rate per 8s or 16s clip
+  //   Grok:   per-second rate × chosen duration (Sora 2 internally)
+  //   Gemini: flat per-10s-video rate + GPT Image 2 storyboard rate
+  //           (storyboard is real money even though preview UI hides it)
   const veoRate = await priceFor(
     user.id,
     durationMode === "16" ? "video_16s" : "video_8s"
   );
   let videoRate = veoRate;
+  let storyboardRate = 0;
   if (providerChoice === "grok") {
     // Reuse the standalone Grok tab's rate (rate_grok per second).
     const { getGrokRate } = await import("@/lib/settings");
     const grokRate = await getGrokRate();
     videoRate = grokRate * grokDuration;
+  } else if (providerChoice === "gemini") {
+    // GeminiOmni — flat per-10s-video rate. Plus GPT Image 2 storyboard
+    // step that runs once per row (admin-set rate_gpt_image).
+    const { getGeminiRate, getGptImageRate } = await import("@/lib/settings");
+    videoRate = await getGeminiRate("10");
+    storyboardRate = await getGptImageRate();
   }
-  const totalCost = videoRate * quantity;
+  const perRowCost = videoRate + storyboardRate;
+  const totalCost = perRowCost * quantity;
   if (planMode !== "verify") {
     if (!(await hasEnoughCredits(user.id, totalCost))) {
       return NextResponse.json(
