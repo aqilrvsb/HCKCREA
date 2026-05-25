@@ -1289,16 +1289,29 @@ STORYBOARD COMPOSITION RULES:
 - Setting + lighting + camera angle MUST be explicit
 - 300-500 chars target (GPT Image 2 sweet spot — longer dilutes
   composition fidelity)
+- TONE: soft-selling UGC — natural, conversational, NOT robotic /
+  staged. The character should look caught mid-thought, like a
+  candid photo, not posed for a brochure.
+- The 10-second video that GeminiOmni will animate from this
+  storyboard has 5 visual beats (~1-2 seconds each). The storyboard
+  captures the SINGLE most arresting beat (typically the product
+  reveal or the character's reaction moment). Compose the frame so
+  it implies the other 4 beats are about to happen — slight
+  asymmetric framing, mid-gesture pose, eye-line just off-camera.
+- ${hijabMode ? "Aurat coverage is MANDATORY when hijabMode is on — every storyboard MUST show loose tudung labuh covering all hair/ears/neck, long sleeves, modest hem, NO skin-tight silhouettes. Reinforce this in the prompt explicitly even if it feels redundant." : "Standard modest Malaysian dress — long sleeves OK, no cleavage, no thigh exposure."}
 - ALWAYS end with this exact style suffix:
   ", photoreal cinematic 85mm lens, soft natural lighting, vertical 9:16 composition."
 
-EXAMPLE (UGC framework with product):
-"Malay woman in her 30s wearing loose dusty-rose hijab tudung labuh and
-cream knit cardigan, seated at a sunlit wooden table in a cozy kitchen,
-holding a Sambal X jar at chest height with both hands, gentle smile
-directed slightly off-camera, soft afternoon golden light streaming
-through a window behind her, warm muted background, photoreal cinematic
-85mm lens, soft natural lighting, vertical 9:16 composition."
+EXAMPLE (UGC framework with product — soft-sell, 5-beat anticipation):
+"Malay woman in her 30s wearing loose dusty-rose hijab tudung labuh
+and cream knit cardigan, caught mid-gesture seated at a sunlit wooden
+kitchen table, holding a Sambal X jar at chest height with both hands
+tilted slightly toward camera, lips just parting as if about to speak,
+warm candid expression with eye-line drifting toward the product, soft
+afternoon golden light streaming through a window behind her, mug of
+teh tarik and a small open notebook visible in soft-focus background,
+warm muted kitchen tones, photoreal cinematic 85mm lens, soft natural
+lighting, vertical 9:16 composition."
 
 EXAMPLE (Product framework, no person):
 "A Sambal X glass jar centered on a polished marble slab, gentle steam
