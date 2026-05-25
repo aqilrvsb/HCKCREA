@@ -159,10 +159,24 @@ export async function p5CreateVideo(input: {
   else if (m.includes("veo") && m.includes("lite")) model = "veo3.1-lite";
   else if (m.includes("veo")) model = "veo3.1-fast";
   else if (m.includes("grok")) model = "grok-imagine-1.0-video-apimart";
+  // GeminiOmni — APIMart hosts this as Omni-Flash-Ext. Same body shape
+  // as Crun's google/gemini-omni (prompt + duration + aspect_ratio +
+  // resolution + image_urls 0/1/3) so the only translation needed is
+  // the model id. Check BEFORE the veo branches above guard against
+  // a "google/" substring match — google/gemini-omni doesn't contain
+  // "veo" so the existing branches won't claim it, but ordering this
+  // last keeps the precedent that the catch-all default is veo3.1-fast.
+  else if (m.includes("gemini-omni")) model = "Omni-Flash-Ext";
 
   const mode = input.imageMode || (refs.length > 0 ? "ingredient" : "text");
-  const generationType =
-    mode === "frame" ? "frame" : mode === "ingredient" && refs.length > 0 ? "reference" : undefined;
+  // Omni-Flash-Ext (GeminiOmni on APIMart) does NOT accept generation_type
+  // — its endpoint only uses image_urls count to determine mode (0=t2v,
+  // 1=i2v, 3=reference fusion). Sending generation_type returns 400
+  // invalid_request_error. So suppress it for that model only.
+  const isOmniFlashExt = model === "Omni-Flash-Ext";
+  const generationType = isOmniFlashExt
+    ? undefined
+    : mode === "frame" ? "frame" : mode === "ingredient" && refs.length > 0 ? "reference" : undefined;
 
   const body: any = {
     model,
@@ -172,10 +186,16 @@ export async function p5CreateVideo(input: {
     // — under Veo's 2,000-char effective attention window so back-of-
     // prompt locks actually get weighted.
     prompt: input.prompt.slice(0, 3000),
-    duration: Number(input.durationMode) || 8,
+    // Omni-Flash-Ext default duration is 6s; we want 10s for parity
+    // with the GeminiOmni chip's fixed pill. Other p5 models keep
+    // their existing 8s default.
+    duration: Number(input.durationMode) || (isOmniFlashExt ? 10 : 8),
     aspect_ratio: input.aspectRatio || "9:16",
   };
+  // Force 1080p for Omni-Flash-Ext (matches Crun GeminiOmni's UX pill).
+  // For other models, only set resolution if caller passed one.
   if (input.resolution) body.resolution = input.resolution;
+  else if (isOmniFlashExt) body.resolution = "1080p";
   if (refs.length > 0) body.image_urls = refs.slice(0, 3);
   if (generationType) body.generation_type = generationType;
 

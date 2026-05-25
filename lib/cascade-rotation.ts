@@ -66,7 +66,10 @@ const DEFAULT_SORA2_FALLBACK: SlotProvider[] = ["p6-d", "p6-e", "none", "none", 
 // at launch; when a second GeminiOmni-capable provider is wired in, admin
 // adds its slot id here.
 const DEFAULT_GEMINI_MAIN: SlotProvider[] = ["p2-a", "p2-b", "none", "none", "none", "none", "none", "none", "none", "none"];
-const DEFAULT_GEMINI_FALLBACK: SlotProvider[] = ["none", "none", "none", "none", "none", "none", "none", "none", "none", "none"];
+// p5 (APIMart) hosts GeminiOmni as Omni-Flash-Ext — different vendor than
+// Crun (p2-a/p2-b in MAIN) so survives a Crun-platform-wide outage.
+// Slot 0 = p5; rest empty until more providers come online.
+const DEFAULT_GEMINI_FALLBACK: SlotProvider[] = ["p5", "none", "none", "none", "none", "none", "none", "none", "none", "none"];
 
 function sanitizeSlotList(
   raw: unknown,
