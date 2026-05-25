@@ -13,6 +13,11 @@ import {
   type Framework,
 } from "@/lib/auto-content-frameworks";
 import { pickScenes, sceneSummary } from "@/lib/auto-content-scene-pool";
+import {
+  buildStoryboardFallback,
+  runStoryboardCascadeWithRetry,
+  pollImageTaskUntilDone,
+} from "@/lib/auto-content-storyboard";
 
 // Hot-path budget — the master plan orChat call is inline (no after())
 // and can take up to ~30s when Grsai is the main provider in the
@@ -2056,6 +2061,86 @@ CRITICAL OUTPUT RULES:
       const refImages = imagesForVideo(idx);
       const refImage = refImages[0] || "";
       const useIngredient = refImages.length > 0;
+
+      // ── GeminiOmni 2-stage path ────────────────────────────────────
+      // When the user picks GeminiOmni: first generate a key-frame
+      // storyboard via GPT Image 2 (using the user's refs + the master
+      // plan's storyboardPrompt), then animate that single storyboard
+      // image through GeminiOmni. Storyboard URL is cached on metadata
+      // so resubmit can skip the RM 0.30 redo.
+      let geminiStoryboardUrl: string | null = null;
+      let geminiStoryboardAttempts = 0;
+      let geminiStoryboardError: string | null = null;
+      let geminiStoryboardUsedPrompt = "";
+      if (providerChoice === "gemini") {
+        const sbPrompt =
+          (item.storyboardPrompt && item.storyboardPrompt.trim()) ||
+          buildStoryboardFallback(item);
+        geminiStoryboardUsedPrompt = sbPrompt;
+        const sbResult = await runStoryboardCascadeWithRetry({
+          prompt: sbPrompt,
+          aspectRatio,
+          imageUrls: refImages,
+        });
+        geminiStoryboardAttempts = sbResult.attempts;
+        if (sbResult.ok) {
+          const polled = await pollImageTaskUntilDone({
+            taskId: sbResult.taskId,
+            slot: sbResult.slot,
+          });
+          if (polled.ok) {
+            geminiStoryboardUrl = polled.outputUrl;
+          } else {
+            geminiStoryboardError = polled.error;
+          }
+        } else {
+          geminiStoryboardError = sbResult.error;
+        }
+
+        // Storyboard failure → insert failed row and return (no video call).
+        if (!geminiStoryboardUrl) {
+          await admin.from("history").insert({
+            user_id: user.id,
+            project_id: projectId,
+            type: "auto-content",
+            tab: "auto",
+            status: "failed",
+            prompt: veoSeg1PromptFor(item, lockedVoiceLine),
+            caption: item.caption || "",
+            framework: item.framework || `Video ${idx + 1}`,
+            reference_url: refImage || null,
+            task_id: null,
+            duration: 10,
+            cost: 0,
+            batch_id: batch?.id,
+            error_message: geminiStoryboardError || "Storyboard generation failed",
+            metadata: {
+              idx,
+              modelChoice: "gemini",
+              providerChoice,
+              storyboard_attempts: geminiStoryboardAttempts,
+              storyboardPrompt: geminiStoryboardUsedPrompt,
+              image_urls: refImages,
+              framework: item.framework,
+              framework_type: item.frameworkType,
+              target_emotion: item.targetEmotion,
+              hook_angle: item.hookAngle,
+              image_prompt: item.imagePrompt,
+              video_prompt_shot1: item.videoPromptShot1,
+              video_prompt_shot2: item.videoPromptShot2,
+              idea_style: ideaStyle || undefined,
+              product_name: productName || null,
+              tiktok_product_id: tiktokProductId || null,
+              cover_title: item.coverTitle,
+              cover_subtitle: item.coverSubtitle,
+              imageMode: "ingredient",
+            },
+          });
+          return; // Skip the video call for this row.
+        }
+      }
+      // ── End GeminiOmni 2-stage path ────────────────────────────────
+
       // providerChoice='grok' now routes to Sora 2 (model='sora2'). The
       // UI relabels the Grok button as "⚡ Sora 2" but keeps the internal
       // state key as "grok" to avoid a wide backend refactor — every
@@ -2063,36 +2148,58 @@ CRITICAL OUTPUT RULES:
       // MODEL STRING sent to the cascade changes from 'grok-imagine'
       // → 'sora2'. lib/p6.ts apipodVideoModel detects 'sora' keyword and
       // emits 'sora-2-vip' as the API model id.
+      // GeminiOmni uses model='google/gemini-omni' + asset='gemini' (the
+      // dedicated Gemini cascade pool wired in Tasks 1-14).
       const model =
-        providerChoice === "grok"
-          ? "sora2"
-          : useIngredient
-            ? cfg.videoR2V
-            : cfg.videoT2V;
+        providerChoice === "gemini"
+          ? "google/gemini-omni"
+          : providerChoice === "grok"
+            ? "sora2"
+            : useIngredient
+              ? cfg.videoR2V
+              : cfg.videoT2V;
       const seg1Prompt = veoSeg1PromptFor(item, lockedVoiceLine);
       const seg2Prompt = is16s
         ? veoSeg2PromptFor(item, lockedVoiceLine)
         : "";
 
-      // Veo → video cascade. Sora 2 (previously labelled Grok in the
-      // internal providerChoice state for backward compat) → sora2
-      // cascade. Each pool has independent main+fallback config at
-      // /admin/settings (sora2_main_slots / sora2_fallback_slots etc.)
-      // and its own round-robin counter.
+      // For GeminiOmni: img_urls = [storyboardUrl] (single image, not
+      // the user's raw refs). Other providers pass the raw refs through.
+      const videoRefs: string[] =
+        providerChoice === "gemini"
+          ? [geminiStoryboardUrl!]
+          : refImages;
+      const videoImageMode: "ingredient" | "text" =
+        providerChoice === "gemini"
+          ? "ingredient" // Gemini's only mode for refs
+          : useIngredient
+            ? "ingredient"
+            : "text";
+
+      // Veo → video cascade. Sora 2 → sora2 cascade. GeminiOmni →
+      // gemini cascade. Each pool has independent main+fallback config
+      // at /admin/settings and its own round-robin counter.
       const cascaded = await generateVideoWithCascade({
         primaryModel: model,
         userId: user.id,
         prompt: seg1Prompt,
-        imageUrls: refImages,
+        imageUrls: videoRefs,
         durationMode:
-          providerChoice === "grok"
-            ? String(grokDuration)
-            : is16s
-              ? "8"
-              : durationMode,
+          providerChoice === "gemini"
+            ? "10"
+            : providerChoice === "grok"
+              ? String(grokDuration)
+              : is16s
+                ? "8"
+                : durationMode,
         aspectRatio,
-        imageMode: useIngredient ? "ingredient" : "text",
-        asset: providerChoice === "grok" ? "sora2" : "video",
+        imageMode: videoImageMode,
+        asset:
+          providerChoice === "gemini"
+            ? "gemini"
+            : providerChoice === "grok"
+              ? "sora2"
+              : "video",
       });
 
       const { data: hist } = await admin
