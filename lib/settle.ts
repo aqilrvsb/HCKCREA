@@ -521,8 +521,18 @@ async function tryAutoRetry(
     meta.modelChoice === "gemini" &&
     typeof meta.storyboard_url === "string" &&
     !!meta.storyboard_url;
+  // Gemini-storyboard auto-retry: storyboard at position 0 + original
+  // user refs at positions 1+ (matches the original fire's img_urls
+  // composition). Storyboard URL is reused from cache. User refs come
+  // from meta.image_urls which the original fire stamped with the
+  // raw uploads. Manual Resubmit (retry/route.ts) does the same.
+  const userRefsForGemini: string[] = isGeminiStoryboard
+    ? (Array.isArray(meta.image_urls)
+        ? meta.image_urls.filter((u: any) => typeof u === "string" && u.trim())
+        : [])
+    : [];
   const allImageUrls: string[] = isGeminiStoryboard
-    ? [meta.storyboard_url as string]
+    ? [meta.storyboard_url as string, ...userRefsForGemini]
     : Array.isArray(meta.image_urls) && meta.image_urls.length > 0
       ? meta.image_urls.filter((u: any) => typeof u === "string" && u.trim())
       : refImage

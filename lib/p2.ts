@@ -255,7 +255,12 @@ async function p2CreateTaskInternal(input: {
     // before this call, so slice is defensive. duration must be one of
     // 4|6|8|10 (we always send 10 — Original Video tab fixes it).
     // resolution lowercase per Crun spec; tab fixes at "1080p".
-    if (imgUrls.length > 0) innerInput.img_urls = imgUrls.slice(0, 3);
+    // GeminiOmni API allows up to 7 img_urls. For Auto Content
+    // storyboard mode the caller sends [storyboardUrl, ...userRefs]
+    // (1 storyboard + up to 3 user refs = 4 typical). For Original
+    // Video tab standalone mode the UI caps at 3 refs via
+    // getRefCap(), so this 7-slice never triggers truncation there.
+    if (imgUrls.length > 0) innerInput.img_urls = imgUrls.slice(0, 7);
     innerInput.duration = Number(input.durationMode || 10);
     if (input.aspectRatio) innerInput.aspect_ratio = input.aspectRatio;
     innerInput.resolution = String(input.resolution || "1080p").toLowerCase();

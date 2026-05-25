@@ -162,8 +162,18 @@ export async function POST(req: Request) {
   const videoCascadePrompt = isGeminiStoryboard
     ? pickGeminiVideoPrompt(meta.framework_type)
     : effectivePrompt;
+  // Gemini-storyboard resubmit: storyboard at position 0 + original
+  // user refs at positions 1+ (matches the original fire's img_urls
+  // composition). Storyboard URL is reused from cache (saves the
+  // RM 0.30 GPT Image 2 re-render). User refs come from meta.image_urls
+  // which the original fire stamped with the raw uploads.
+  const userRefsForGemini: string[] = isGeminiStoryboard
+    ? (Array.isArray(meta.image_urls)
+        ? meta.image_urls.filter((u: any) => typeof u === "string" && u.trim())
+        : [])
+    : [];
   const allImageUrls: string[] = isGeminiStoryboard
-    ? [meta.storyboard_url as string]
+    ? [meta.storyboard_url as string, ...userRefsForGemini]
     : Array.isArray(meta.image_urls) && meta.image_urls.length > 0
       ? meta.image_urls.filter((u: any) => typeof u === "string" && u.trim())
       : (refImage ? [refImage] : []);

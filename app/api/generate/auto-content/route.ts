@@ -2170,11 +2170,16 @@ CRITICAL OUTPUT RULES:
         ? veoSeg2PromptFor(item, lockedVoiceLine)
         : "";
 
-      // For GeminiOmni: img_urls = [storyboardUrl] (single image, not
-      // the user's raw refs). Other providers pass the raw refs through.
+      // For GeminiOmni: img_urls = [storyboardUrl, ...userRefs]. The
+      // storyboard at position 0 anchors composition (most video models
+      // weight the first ref most heavily). User refs at positions 1+
+      // preserve character / product details so the animation doesn't
+      // drift even if GeminiOmni interprets the storyboard loosely.
+      // Total typically 4 (1 storyboard + 3 user refs); API cap is 7.
+      // Other providers pass the raw refs through unchanged.
       const videoRefs: string[] =
         providerChoice === "gemini"
-          ? [geminiStoryboardUrl!]
+          ? [geminiStoryboardUrl!, ...refImages]
           : refImages;
       const videoImageMode: "ingredient" | "text" =
         providerChoice === "gemini"
