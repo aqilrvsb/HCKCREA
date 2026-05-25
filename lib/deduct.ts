@@ -34,7 +34,8 @@ export type PriceModelHint =
   | "veo"
   | "grok"
   | "seedance"
-  | "sora2";
+  | "sora2"
+  | "gemini";
 
 // What rate applies for the given user + reason. Per-model rates
 // (rate_banana_pro / rate_gpt_image / rate_veo / rate_grok / rate_seedance)
@@ -61,6 +62,13 @@ export async function priceFor(
     const cfg = await getSetting<{ rate: number }>("sora2_rate");
     if (typeof cfg?.rate === "number") return cfg.rate;
     return (await getGrokRate()) * 2;
+  }
+  if (modelHint === "gemini") {
+    // GeminiOmni (Crun) — flat per-10s-video rate. Admin sets
+    // rate_gemini.per_video_10s; falls back to Veo's 8s rate × 1.25
+    // when missing (rough proxy — Gemini's compute footprint is similar).
+    const { getGeminiRate } = await import("@/lib/settings");
+    return await getGeminiRate("10");
   }
 
   // Reason-based fallback paths preserved for backward compat.
