@@ -187,6 +187,12 @@ export async function POST(req: Request) {
     targetEmotion: string;
     hookAngle: string;
     imagePrompt: string;
+    // NEW (storyboard mode): purpose-built single-frame prompt for
+    // GPT Image 2 storyboard generation. Required when providerChoice
+    // === "gemini"; mechanically derived from videoPromptShot1 via
+    // buildStoryboardFallback() when the LLM omits it. Other providers
+    // ignore this field.
+    storyboardPrompt: string;
     videoPromptShot1: string;
     videoPromptShot2: string;
     caption: string;
@@ -211,6 +217,7 @@ export async function POST(req: Request) {
         targetEmotion: String(p.targetEmotion || ""),
         hookAngle: String(p.hookAngle || ""),
         imagePrompt: String(p.imagePrompt || ""),
+        storyboardPrompt: String(p.storyboardPrompt || ""),
         videoPromptShot1: String(p.videoPromptShot1 || legacyPrompt),
         videoPromptShot2: String(p.videoPromptShot2 || ""),
         caption: String(p.caption || ""),
@@ -1695,6 +1702,7 @@ CRITICAL OUTPUT RULES:
           targetEmotion: String(p.targetEmotion || ""),
           hookAngle: String(p.hookAngle || ""),
           imagePrompt: String(p.imagePrompt || ""),
+          storyboardPrompt: String(p.storyboardPrompt || ""),
           videoPromptShot1: String(p.videoPromptShot1 || ""),
           videoPromptShot2: String(p.videoPromptShot2 || ""),
           caption: String(p.caption || ""),
