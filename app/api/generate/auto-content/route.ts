@@ -2133,7 +2133,7 @@ CRITICAL OUTPUT RULES:
               tiktok_product_id: tiktokProductId || null,
               cover_title: item.coverTitle,
               cover_subtitle: item.coverSubtitle,
-              imageMode: "ingredient",
+              imageMode: useIngredient ? "ingredient" : "text",
             },
           });
           return; // Skip the video call for this row.
@@ -2215,14 +2215,21 @@ CRITICAL OUTPUT RULES:
           framework: item.framework || `Video ${idx + 1}`,
           reference_url: refImage || null,
           task_id: cascaded.ok ? cascaded.taskId : null,
-          // Grok: actual per-second duration. Veo: 8 or 16.
+          // Grok: actual per-second duration. Veo: 8 or 16. Gemini: 10.
           duration:
-            providerChoice === "grok"
-              ? grokDuration
-              : is16s
-                ? 16
-                : 8,
-          cost: videoRate,
+            providerChoice === "gemini"
+              ? 10
+              : providerChoice === "grok"
+                ? grokDuration
+                : is16s
+                  ? 16
+                  : 8,
+          // Gemini: storyboard cost + video cost (both real money).
+          // Veo / Sora 2: video only.
+          cost:
+            providerChoice === "gemini"
+              ? videoRate + storyboardRate
+              : videoRate,
           batch_id: batch?.id,
           // 16s chain fields — onSegmentSettled reads these to fire seg-2.
           segment_index: is16s ? 1 : null,
@@ -2270,6 +2277,21 @@ CRITICAL OUTPUT RULES:
                   sora2_duration: grokDuration,
                 }
               : {}),
+            // GeminiOmni 2-stage metadata — storyboard fields so
+            // settle.ts + retry route can reuse the cached storyboard
+            // image instead of regenerating it on resubmit (saves
+            // ~RM 0.30 per retry). modelChoice='gemini' routes the row
+            // through the gemini cascade pool on auto-retry.
+            ...(providerChoice === "gemini"
+              ? {
+                  modelChoice: "gemini",
+                  storyboard_url: geminiStoryboardUrl,
+                  storyboard_cost: storyboardRate,
+                  storyboard_attempts: geminiStoryboardAttempts,
+                  storyboardPrompt: geminiStoryboardUsedPrompt,
+                  video_cost: videoRate,
+                }
+              : {}),
             // Segment chain — duration_mode + seg2_prompt + voice_line
             // are what segment-chain.ts onSegmentSettled needs to fire
             // seg-2 automatically when seg-1 settles. ONLY stamped for
@@ -2292,7 +2314,12 @@ CRITICAL OUTPUT RULES:
             tiktok_product_id: tiktokProductId || null,
             cover_title: item.coverTitle,
             cover_subtitle: item.coverSubtitle,
-            imageMode: useIngredient ? "ingredient" : "text",
+            imageMode:
+              providerChoice === "gemini"
+                ? "ingredient"
+                : useIngredient
+                  ? "ingredient"
+                  : "text",
           },
         })
         .select()
