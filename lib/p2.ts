@@ -32,12 +32,19 @@ async function pickProvider(model: string, userId?: string): Promise<"p1" | "p2"
   const m = model.toLowerCase();
   const isGrok = m.includes("grok");
   const isSeedance = !isGrok && m.includes("seedance");
-  const isVideo = !isGrok && !isSeedance && m.includes("veo");
+  // GeminiOmni model id is "google/gemini-omni" — match "gemini-omni"
+  // specifically to avoid clashing with "veo" or other Google models.
+  const isGemini = !isGrok && !isSeedance && m.includes("gemini-omni");
+  const isVideo = !isGrok && !isSeedance && !isGemini && m.includes("veo");
+  // Gemini routes through the "video" asset for the gen_provider_<asset>
+  // admin toggle (getGenProvider only knows about a fixed enum). Crun is
+  // currently the only Gemini host, so video's existing toggle is fine —
+  // when a second Gemini provider ships, we can split it out then.
   const asset = isSeedance
     ? "seedance"
     : isGrok
       ? "cinema"
-      : isVideo
+      : isVideo || isGemini
         ? "video"
         : "image";
   return await getGenProvider(asset, userId);
@@ -145,10 +152,14 @@ async function p2CreateTaskInternal(input: {
   const m = input.model.toLowerCase();
   const isGrok = m.includes("grok-imagine");
   const isSeedance = !isGrok && m.includes("seedance");
-  const isVideo = !isGrok && !isSeedance && m.includes("veo");
-  const isGptImage = !isGrok && !isSeedance && m.includes("gpt-image");
-  const isZImage = !isGrok && !isSeedance && !isVideo && !isGptImage && m === "z-image";
-  const isBanana = !isVideo && !isGptImage && !isGrok && !isSeedance && !isZImage;
+  // GeminiOmni — google/gemini-omni. Detect before isVideo because the
+  // model name contains "google" not "veo", and before isBanana because
+  // the catch-all default would otherwise eat it.
+  const isGemini = !isGrok && !isSeedance && m.includes("gemini-omni");
+  const isVideo = !isGrok && !isSeedance && !isGemini && m.includes("veo");
+  const isGptImage = !isGrok && !isSeedance && !isGemini && m.includes("gpt-image");
+  const isZImage = !isGrok && !isSeedance && !isVideo && !isGemini && !isGptImage && m === "z-image";
+  const isBanana = !isVideo && !isGptImage && !isGrok && !isSeedance && !isZImage && !isGemini;
 
   const innerInput: Record<string, any> = {};
   // 3000-char cap matching MindStudio Veo 3.1 Fast spec (2000-char
@@ -238,6 +249,16 @@ async function p2CreateTaskInternal(input: {
     // No resolution / img_urls fields — pure t2i. Optional seed via extras.
     if (input.aspectRatio) innerInput.aspect_ratio = input.aspectRatio;
     if (innerInput.prompt_extend === undefined) innerInput.prompt_extend = true;
+  } else if (isGemini) {
+    // GeminiOmni (google/gemini-omni via Crun /api/v1/client/job/CreateTask).
+    // API accepts up to 7 img_urls; UX caps at 3 in /api/generate/cinema
+    // before this call, so slice is defensive. duration must be one of
+    // 4|6|8|10 (we always send 10 — Original Video tab fixes it).
+    // resolution lowercase per Crun spec; tab fixes at "1080p".
+    if (imgUrls.length > 0) innerInput.img_urls = imgUrls.slice(0, 3);
+    innerInput.duration = Number(input.durationMode || 10);
+    if (input.aspectRatio) innerInput.aspect_ratio = input.aspectRatio;
+    innerInput.resolution = String(input.resolution || "1080p").toLowerCase();
   } else if (isBanana) {
     // nano-banana-pro: resolution dial + native aspect ratio support.
     if (input.aspectRatio) innerInput.aspect_ratio = input.aspectRatio;
