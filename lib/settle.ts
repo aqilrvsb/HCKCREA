@@ -510,8 +510,19 @@ async function tryAutoRetry(
   // to refImage only for legacy rows that predate the array stamp.
   // Cron worker + manual retry route already do this correctly; this
   // sync brings event-driven retry in line.
-  const allImageUrls: string[] =
-    Array.isArray(meta.image_urls) && meta.image_urls.length > 0
+  //
+  // GeminiOmni storyboard rows: auto-retry should reuse the cached
+  // storyboard image instead of regenerating from raw refs. Otherwise
+  // the event-driven retry would re-introduce the drift the storyboard
+  // step originally solved. Falls back to raw refs when storyboard_url
+  // is missing (legacy rows or rows where storyboard step itself failed).
+  const isGeminiStoryboard =
+    meta.modelChoice === "gemini" &&
+    typeof meta.storyboard_url === "string" &&
+    !!meta.storyboard_url;
+  const allImageUrls: string[] = isGeminiStoryboard
+    ? [meta.storyboard_url as string]
+    : Array.isArray(meta.image_urls) && meta.image_urls.length > 0
       ? meta.image_urls.filter((u: any) => typeof u === "string" && u.trim())
       : refImage
         ? [refImage]
