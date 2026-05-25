@@ -2,7 +2,7 @@ import { NextResponse, after } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { generateVideoWithCascade } from "@/lib/video-cascade";
-import { getCinemaRate, getP2Config, getSetting, getVeoRate } from "@/lib/settings";
+import { getCinemaRate, getGeminiRate, getP2Config, getSetting, getVeoRate } from "@/lib/settings";
 
 // POST /api/generate/cinema — Original Video tab + legacy Viral. Three
 // provider options:
@@ -43,17 +43,29 @@ export async function POST(req: Request) {
         ? [imageUrl]
         : [];
   const aspectRatio = String(body?.aspect_ratio || "9:16");
-  const resolution = body?.resolution === "480p" ? "480p" : "720p";
-  const modelChoice: "grok" | "veo" | "sora2" =
+  // Gemini fixes resolution at 1080p; other providers honour the request
+  // body (or default to 720p). Sora 2 / Veo / Grok still go through their
+  // existing 720/480p validation.
+  const modelChoice: "grok" | "veo" | "sora2" | "gemini" =
     body?.model === "veo"
       ? "veo"
       : body?.model === "sora2"
         ? "sora2"
-        : "grok";
+        : body?.model === "gemini"
+          ? "gemini"
+          : "grok";
+  const resolution =
+    modelChoice === "gemini"
+      ? "1080p"
+      : body?.resolution === "480p"
+        ? "480p"
+        : "720p";
   // Per-provider duration constraints:
-  //   • Veo    → fixed 8s (model only emits 8s natively)
-  //   • Sora 2 → 8 or 12 (APIPod's sora-2-vip enum)
-  //   • Grok   → 6-30 (slider, per-second billing)
+  //   • Veo     → fixed 8s (model only emits 8s natively)
+  //   • Sora 2  → 8 or 12 (APIPod's sora-2-vip enum)
+  //   • Gemini  → fixed 10s (Original Video tab UX choice; API accepts
+  //              4|6|8|10 but the chip only exposes 10)
+  //   • Grok    → 6-30 (slider, per-second billing)
   const duration =
     modelChoice === "veo"
       ? 8
@@ -61,7 +73,9 @@ export async function POST(req: Request) {
         ? body?.duration === 12 || body?.duration === "12"
           ? 12
           : 8
-        : Math.min(30, Math.max(6, Math.round(Number(body?.duration || 6))));
+        : modelChoice === "gemini"
+          ? 10
+          : Math.min(30, Math.max(6, Math.round(Number(body?.duration || 6))));
   // Three image modes (richer than the old image/text split):
   //   • "text"       → no reference images
   //   • "frame"      → single first-frame image (i2v, all 3 providers)
@@ -74,8 +88,14 @@ export async function POST(req: Request) {
         ? "frame"
         : "text";
   // Clamp ingredient → frame for Grok/Sora 2 (they don't support r2v).
-  if (imageModeRaw === "ingredient" && modelChoice !== "veo") {
+  // Gemini is the inverse: it only has img_urls (no first-frame concept),
+  // so "frame" → "ingredient" with a single image. The cinema route still
+  // sends "ingredient" so video-cascade + p2 see the canonical mode.
+  if (imageModeRaw === "ingredient" && modelChoice !== "veo" && modelChoice !== "gemini") {
     imageModeRaw = "frame";
+  }
+  if (imageModeRaw === "frame" && modelChoice === "gemini") {
+    imageModeRaw = "ingredient";
   }
   const imageMode = imageModeRaw;
   const projectId = body?.project_id ? String(body.project_id) : null;
@@ -131,7 +151,9 @@ export async function POST(req: Request) {
             ? "veo"
             : modelChoice === "sora2"
               ? "apipod"
-              : "grok-imagine",
+              : modelChoice === "gemini"
+                ? "crun"
+                : "grok-imagine",
         modelChoice,
         featureType,
         // Full attachment array for Resubmit re-fire
@@ -143,6 +165,14 @@ export async function POST(req: Request) {
           ? {
               model: "sora-2-vip",
               sora2Provider: "apipod",
+            }
+          : {}),
+        // Gemini routing — stamp the canonical model id so retry/settle
+        // pick it back up via meta.model when modelChoice is unset on
+        // legacy rows. cinemaProvider="crun" already disambiguates.
+        ...(modelChoice === "gemini"
+          ? {
+              model: "google/gemini-omni",
             }
           : {}),
       },
@@ -184,6 +214,11 @@ export async function POST(req: Request) {
             ? sora2RateSetting.rate
             : cinemaRatePerSec * 2;
         cost = Number((ratePerSec * duration).toFixed(4));
+      } else if (modelChoice === "gemini") {
+        // GeminiOmni — flat per-video rate, duration is fixed 10s
+        // server-side so we don't multiply.
+        const geminiFlat = await getGeminiRate("10");
+        cost = Number(geminiFlat.toFixed(4));
       } else {
         // Grok per-second
         cost = Number((cinemaRatePerSec * duration).toFixed(4));
@@ -204,6 +239,11 @@ export async function POST(req: Request) {
             : cfg.videoT2V;
       } else if (modelChoice === "sora2") {
         model = "sora2"; // p6.ts apipodVideoModel maps to "sora-2-vip"
+      } else if (modelChoice === "gemini") {
+        // GeminiOmni — single Crun model id regardless of imageMode
+        // (text + ingredient both go to the same endpoint; p2.ts handles
+        // the conditional img_urls payload).
+        model = "google/gemini-omni";
       } else {
         model = imageMode !== "text" ? cfg.grokI2V : cfg.grokT2V;
       }
@@ -221,7 +261,9 @@ export async function POST(req: Request) {
                 ? "veo"
                 : modelChoice === "sora2"
                   ? "apipod"
-                  : "grok-imagine",
+                  : modelChoice === "gemini"
+                    ? "crun"
+                    : "grok-imagine",
             modelChoice,
             featureType,
             upload_status: "failed",
@@ -277,7 +319,9 @@ export async function POST(req: Request) {
             ? "grok"
             : modelChoice === "sora2"
               ? "sora2"
-              : "video",
+              : modelChoice === "gemini"
+                ? "gemini"
+                : "video",
       });
       if (result.ok) {
         createdOk = true;
@@ -305,7 +349,9 @@ export async function POST(req: Request) {
                 ? "veo"
                 : modelChoice === "sora2"
                   ? "apipod"
-                  : "grok-imagine",
+                  : modelChoice === "gemini"
+                    ? "crun"
+                    : "grok-imagine",
             modelChoice,
             featureType,
             provider: actualProvider,
@@ -329,7 +375,9 @@ export async function POST(req: Request) {
               ? "veo"
               : modelChoice === "sora2"
                 ? "apipod"
-                : "grok-imagine",
+                : modelChoice === "gemini"
+                  ? "crun"
+                  : "grok-imagine",
           modelChoice,
           featureType,
           provider: actualProvider,
@@ -359,7 +407,9 @@ export async function POST(req: Request) {
               ? "veo"
               : modelChoice === "sora2"
                 ? "apipod"
-                : "grok-imagine",
+                : modelChoice === "gemini"
+                  ? "crun"
+                  : "grok-imagine",
           modelChoice,
           featureType,
           upload_status: "failed",
