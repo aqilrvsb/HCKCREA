@@ -2117,6 +2117,12 @@ CRITICAL OUTPUT RULES:
             metadata: {
               idx,
               modelChoice: "gemini",
+              // Stamp the canonical model id even on storyboard-failure
+              // so manual Resubmit's meta.model shortcircuit picks the
+              // right model. Without this, retry/route.ts falls through
+              // to cfg.videoR2V (Veo) and fires it at the gemini cascade
+              // pool — which Crun rejects.
+              model: "google/gemini-omni",
               providerChoice,
               storyboard_attempts: geminiStoryboardAttempts,
               storyboardPrompt: geminiStoryboardUsedPrompt,
