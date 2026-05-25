@@ -169,8 +169,8 @@ export async function POST(req: Request) {
         "google/nano-banana-pro";
       model = String(imgModel);
     } else if (row.tab === "cinema" || row.tab === "original-video") {
-      // Cinema + Original Video can be Veo, Grok, or Sora 2 —
-      // disambiguate via the row's modelChoice tag stamped at insert
+      // Cinema + Original Video can be Veo, Grok, Sora 2, or GeminiOmni
+      // — disambiguate via the row's modelChoice tag stamped at insert
       // time. Falls back to Grok for legacy rows that pre-date the
       // modelChoice metadata.
       if (meta.modelChoice === "veo") {
@@ -179,6 +179,10 @@ export async function POST(req: Request) {
         // p6.ts apipodVideoModel maps "sora2" → "sora-2-vip" regardless
         // of refs (sora-2-vip is a single endpoint).
         model = "sora2";
+      } else if (meta.modelChoice === "gemini") {
+        // GeminiOmni — single Crun model id; p2.ts builds the body
+        // shape (img_urls + duration + 1080p) based on imageMode.
+        model = "google/gemini-omni";
       } else {
         model = refImage ? cfg.grokI2V : cfg.grokT2V;
       }
@@ -291,10 +295,16 @@ export async function POST(req: Request) {
     //   • Seedance rows → tab='seedance' → cinema cascade
     //   • Grok rows     → tab='cinema' + modelChoice='grok' → grok cascade
     //   • Everything else (UGC, Auto, Veo viral, clone) → video cascade
-    let asset: "video" | "grok" | "cinema" | "sora2" = "video";
+    let asset: "video" | "grok" | "cinema" | "sora2" | "gemini" = "video";
     if (row.tab === "sora2") asset = "sora2";
     else if (meta.modelChoice === "sora2" || /sora/i.test(model)) {
       asset = "sora2";
+    }
+    else if (meta.modelChoice === "gemini" || /gemini-omni/i.test(model)) {
+      // GeminiOmni rows route through the dedicated gemini cascade pool
+      // so resubmits walk the same provider family (Crun) the original
+      // fire used — not the generic video pool which may route p6/p5.
+      asset = "gemini";
     }
     else if (row.tab === "seedance") asset = "cinema";
     else if (
