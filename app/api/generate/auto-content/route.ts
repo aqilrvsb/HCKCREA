@@ -154,13 +154,19 @@ export async function POST(req: Request) {
   // Verify mode skips credit check until /approve fires the actual gens.
   //   Veo:    flat rate per 8s or 16s clip
   //   Grok:   per-second rate × chosen duration (Sora 2 internally)
-  //   Gemini: flat per-10s-video rate + GPT Image 2 storyboard rate
-  //           (storyboard is real money even though preview UI hides it)
+  //   Gemini: flat per-10s-video rate ONLY. The GPT Image 2 storyboard
+  //           step still runs and still costs real money (~RM 0.30 per
+  //           row) but is absorbed by the platform as operational
+  //           expense — user is NOT charged for it. We still track it
+  //           in metadata.storyboard_cost for admin audit / margin
+  //           analysis in /admin/usage.
   const veoRate = await priceFor(
     user.id,
     durationMode === "16" ? "video_16s" : "video_8s"
   );
   let videoRate = veoRate;
+  // storyboardRate = real GPT Image 2 spend per Gemini row. Stamped on
+  // metadata for audit but NOT included in the user's charged cost.
   let storyboardRate = 0;
   if (providerChoice === "grok") {
     // Reuse the standalone Grok tab's rate (rate_grok per second).
@@ -168,13 +174,14 @@ export async function POST(req: Request) {
     const grokRate = await getGrokRate();
     videoRate = grokRate * grokDuration;
   } else if (providerChoice === "gemini") {
-    // GeminiOmni — flat per-10s-video rate. Plus GPT Image 2 storyboard
-    // step that runs once per row (admin-set rate_gpt_image).
+    // GeminiOmni — flat per-10s-video rate is what user pays.
+    // storyboardRate tracked separately for metadata.
     const { getGeminiRate, getGptImageRate } = await import("@/lib/settings");
     videoRate = await getGeminiRate("10");
     storyboardRate = await getGptImageRate();
   }
-  const perRowCost = videoRate + storyboardRate;
+  // perRowCost = what the user is charged. Does NOT include storyboardRate.
+  const perRowCost = videoRate;
   const totalCost = perRowCost * quantity;
   if (planMode !== "verify") {
     if (!(await hasEnoughCredits(user.id, totalCost))) {
@@ -2239,12 +2246,12 @@ CRITICAL OUTPUT RULES:
                 : is16s
                   ? 16
                   : 8,
-          // Gemini: storyboard cost + video cost (both real money).
-          // Veo / Sora 2: video only.
-          cost:
-            providerChoice === "gemini"
-              ? videoRate + storyboardRate
-              : videoRate,
+          // Charged cost = videoRate for ALL providers. For Gemini the
+          // GPT Image 2 storyboard step ALSO incurs ~RM 0.30 of real
+          // platform spend but it's absorbed (not billed to the user).
+          // metadata.storyboard_cost stamps the real provider spend so
+          // admin can compute margin in /admin/usage.
+          cost: videoRate,
           batch_id: batch?.id,
           // 16s chain fields — onSegmentSettled reads these to fire seg-2.
           segment_index: is16s ? 1 : null,
