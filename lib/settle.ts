@@ -39,6 +39,11 @@ function inferModelHint(model?: string | null): PriceModelHint | undefined {
   if (m.includes("sora")) return "sora2";
   if (m.includes("seedance")) return "seedance";
   if (m.includes("grok")) return "grok";
+  // Gemini check ordered before veo because the model id is
+  // "google/gemini-omni" — substring matches neither "sora" nor "grok"
+  // but we want to claim it BEFORE the broader "veo" includes pattern
+  // in case a future google/veo3-1 string contains a substring overlap.
+  if (m.includes("gemini-omni")) return "gemini";
   if (m.includes("veo")) return "veo";
   if (m.includes("nano-banana") || m.includes("banana")) return "banana_pro";
   if (m.includes("gpt-image")) return "gpt_image";
@@ -443,6 +448,15 @@ async function tryAutoRetry(
     // also route through the sora2 cascade.
     cascadeAsset = "sora2";
   }
+  else if (
+    meta.modelChoice === "gemini" ||
+    /gemini-omni/i.test(rowModel)
+  ) {
+    // GeminiOmni rows route through the dedicated gemini cascade pool
+    // so auto-resubmit walks the same Crun-backed slots, not the generic
+    // video pool which may include p6 keys that don't accept this model.
+    cascadeAsset = "gemini";
+  }
   else if (hist.tab === "seedance") cascadeAsset = "cinema";
   else if (
     (hist.tab === "cinema" || hist.tab === "original-video") &&
@@ -518,14 +532,17 @@ async function tryAutoRetry(
       model = String(meta.image_model || cfg.imageDefault || "google/nano-banana-pro");
     } else if (hist.tab === "cinema" || hist.tab === "original-video") {
       // Both cinema (Viral) and original-video tabs share the same
-      // 3-provider routing. Disambiguate by modelChoice when present:
-      //   • sora2 → "sora2" (p6.ts maps to sora-2-vip)
-      //   • veo   → cfg.videoR2V / cfg.videoT2V
+      // 4-provider routing. Disambiguate by modelChoice when present:
+      //   • sora2  → "sora2" (p6.ts maps to sora-2-vip)
+      //   • veo    → cfg.videoR2V / cfg.videoT2V
+      //   • gemini → "google/gemini-omni" (Crun via p2)
       //   • grok or unset → cfg.grokI2V / cfg.grokT2V
       if (meta.modelChoice === "sora2" || /sora/i.test(model)) {
         model = "sora2";
       } else if (meta.modelChoice === "veo") {
         model = refImage ? cfg.videoR2V : cfg.videoT2V;
+      } else if (meta.modelChoice === "gemini") {
+        model = "google/gemini-omni";
       } else {
         model = refImage ? cfg.grokI2V : cfg.grokT2V;
       }
@@ -683,7 +700,7 @@ async function tryAutoRetry(
     // detected at the top of this function; here it's narrowed to
     // non-image values (image rows take the dedicated image branch
     // above and never reach this point).
-    const videoAsset: "video" | "grok" | "cinema" | "sora2" =
+    const videoAsset: "video" | "grok" | "cinema" | "sora2" | "gemini" =
       cascadeAsset === "image" ? "video" : cascadeAsset;
     const r = await generateVideoWithCascade({
       primaryModel: model,
