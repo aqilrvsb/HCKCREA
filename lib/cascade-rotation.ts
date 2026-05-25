@@ -60,6 +60,13 @@ const DEFAULT_CINEMA_FALLBACK: SlotProvider[] = ["p6-b", "p6-c", "none", "none",
 // APIPod account when the primary key hits a rate limit / 5xx.
 const DEFAULT_SORA2_MAIN: SlotProvider[] = ["p6-a", "p6-b", "p6-c", "none", "none", "none", "none", "none", "none", "none"];
 const DEFAULT_SORA2_FALLBACK: SlotProvider[] = ["p6-d", "p6-e", "none", "none", "none", "none", "none", "none", "none", "none"];
+// GeminiOmni (Crun /api/v1/client/job/CreateTask, model="google/gemini-omni")
+// — Crun is the only provider currently supporting this model, so MAIN
+// rotates between the two Crun accounts (p2-a / p2-b). FALLBACK is empty
+// at launch; when a second GeminiOmni-capable provider is wired in, admin
+// adds its slot id here.
+const DEFAULT_GEMINI_MAIN: SlotProvider[] = ["p2-a", "p2-b", "none", "none", "none", "none", "none", "none", "none", "none"];
+const DEFAULT_GEMINI_FALLBACK: SlotProvider[] = ["none", "none", "none", "none", "none", "none", "none", "none", "none", "none"];
 
 function sanitizeSlotList(
   raw: unknown,
@@ -167,7 +174,28 @@ export async function getSora2FallbackSlots(): Promise<SlotProvider[]> {
   return sanitizeSlotList(raw?.slots, count, VIDEO_ALLOWED, DEFAULT_SORA2_FALLBACK);
 }
 
-export type CascadeAsset = "video" | "image" | "grok" | "cinema" | "sora2";
+// GeminiOmni cascade — uses VIDEO_ALLOWED so admin can pick any video-
+// capable slot (today only p2-a/p2-b actually accept google/gemini-omni
+// at the provider; the rest fail at create and the cascade walks on).
+// Once a second provider supports Gemini, no code change needed — admin
+// just adds its slot to the FALLBACK list in /admin/settings.
+export async function getGeminiMainSlots(): Promise<SlotProvider[]> {
+  const [count, raw] = await Promise.all([
+    getSlotCount("gemini_main_count"),
+    getSetting<{ slots: SlotProvider[] }>("gemini_main_slots"),
+  ]);
+  return sanitizeSlotList(raw?.slots, count, VIDEO_ALLOWED, DEFAULT_GEMINI_MAIN);
+}
+
+export async function getGeminiFallbackSlots(): Promise<SlotProvider[]> {
+  const [count, raw] = await Promise.all([
+    getSlotCount("gemini_fallback_count"),
+    getSetting<{ slots: SlotProvider[] }>("gemini_fallback_slots"),
+  ]);
+  return sanitizeSlotList(raw?.slots, count, VIDEO_ALLOWED, DEFAULT_GEMINI_FALLBACK);
+}
+
+export type CascadeAsset = "video" | "image" | "grok" | "cinema" | "sora2" | "gemini";
 
 // Atomic round-robin counter for either MAIN or FALLBACK slot list.
 // Two separate counters per asset so main/fallback rotation are
