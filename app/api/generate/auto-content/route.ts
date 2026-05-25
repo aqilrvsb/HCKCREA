@@ -1239,6 +1239,48 @@ FOR PRODUCT FRAMEWORKS (styled product shot — NO person):
 - NO person in frame — product only
 </image_prompt_rules>
 
+<storyboard_prompt_rules>
+GeminiOmni mode ONLY (skip for Veo / Sora 2). EVERY video MUST also have
+a storyboardPrompt field — a single FROZEN MOMENT describing the most
+visually arresting frame of the 10-second scene. GPT Image 2 will
+generate this frame, then GeminiOmni will animate from it.
+
+STORYBOARD COMPOSITION RULES:
+- Capture the SINGLE most arresting frozen moment (a pose, a gaze, a
+  product-in-hand beat) — NOT the whole scene's narrative arc
+- ${hijabMode ? "Character MUST wear LOOSE tudung labuh, fully covering hair / ears / neck" : "Character has visible hair, modest modern Malaysian outfit"}
+- FOR UGC frameworks: BOTH character AND product visible TOGETHER in
+  the frame (different from imagePrompt which says character-only)
+- FOR PRODUCT frameworks: hero product shot with environment + lighting,
+  no person
+- FOR LIFESTYLE frameworks: scene + product naturally placed; character
+  optional / incidental
+- NO motion verbs ("turning", "walking", "reaching") — describe the
+  pose / state as if photographed at 1/250th sec
+- NO dialog quotes, NO timing markers, NO audio cues
+- Setting + lighting + camera angle MUST be explicit
+- 300-500 chars target (GPT Image 2 sweet spot — longer dilutes
+  composition fidelity)
+- ALWAYS end with this exact style suffix:
+  ", photoreal cinematic 85mm lens, soft natural lighting, vertical 9:16 composition."
+
+EXAMPLE (UGC framework with product):
+"Malay woman in her 30s wearing loose dusty-rose hijab tudung labuh and
+cream knit cardigan, seated at a sunlit wooden table in a cozy kitchen,
+holding a Sambal X jar at chest height with both hands, gentle smile
+directed slightly off-camera, soft afternoon golden light streaming
+through a window behind her, warm muted background, photoreal cinematic
+85mm lens, soft natural lighting, vertical 9:16 composition."
+
+EXAMPLE (Product framework, no person):
+"A Sambal X glass jar centered on a polished marble slab, gentle steam
+rising from a small ceramic dipping bowl beside it, scattered fresh
+chili and lime leaves in the foreground, soft side-light from camera
+left casting a long subtle shadow, shallow depth of field, warm muted
+backdrop, photoreal cinematic 85mm lens, soft natural lighting, vertical
+9:16 composition."
+</storyboard_prompt_rules>
+
 <locked_elements>
 These are LOCKED across ALL videos — NEVER change:
 1. AVATAR: Same person from reference image. Same face, same gender, same age.
@@ -1527,6 +1569,7 @@ Respond with ONLY valid JSON array. No explanation, no markdown, no code blocks.
     "targetEmotion": "the emotion this video targets",
     "hookAngle": "what makes this hook unique",
     "imagePrompt": "...",
+    "storyboardPrompt": "<300-500 char storyboard prompt — see <storyboard_prompt_rules>>",
     "videoPromptShot1": "...",
     ${is16s ? '"videoPromptShot2": "...",' : ""}
     "caption": "...",
