@@ -19,6 +19,14 @@ import type { SlotProvider } from "@/lib/cascade-rotation";
 // before the row fails.
 export const MAX_STORYBOARD_RETRIES = 3;
 
+// Hardcoded prompt for the GeminiOmni animate step. The storyboard
+// image already captures scene/composition/character/product, so the
+// video prompt is a generic "animate this" instruction rather than a
+// re-description that could conflict with the visual reference.
+// VERBATIM per user direction — typos / spacing preserved intentionally.
+export const GEMINI_VIDEO_PROMPT =
+  "make a seamless video UGC style using storyboard I've upload. maintain the exact visual style, characters , shape and colours. smooth motion. realistic video style with audio and dialoge";
+
 // Strip the "Spoken dialog:" timing block + any trailing whitespace from
 // a videoPromptShot1 string. Mirrors the regex used by extractDialogBlock
 // in app/api/generate/auto-content/route.ts so the storyboard prompt is

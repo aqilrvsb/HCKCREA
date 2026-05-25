@@ -27,6 +27,7 @@ import {
   type CascadeAsset,
 } from "@/lib/cascade-rotation";
 import { isInternalError } from "@/lib/retry-eligibility";
+import { GEMINI_VIDEO_PROMPT } from "@/lib/auto-content-storyboard";
 
 // Map a model string (from history.metadata.model) to a per-model rate
 // hint. Used at settle time so the live admin rate (rate_<model>) is
@@ -570,6 +571,12 @@ async function tryAutoRetry(
   const retryPrompt = audioFail
     ? sanitiseForAudioRetry(hist.prompt)
     : hist.prompt;
+  // For Gemini-storyboard rows the cascade input is the hardcoded
+  // "animate the storyboard" prompt — same as original fire. Manual
+  // retry route does the same.
+  const videoCascadePrompt = isGeminiStoryboard
+    ? GEMINI_VIDEO_PROMPT
+    : retryPrompt;
 
   // Route to the right cascade based on row type:
   //   • image / fairytale-scene → image cascade (p2 ↔ p4 bidirectional)
@@ -716,7 +723,7 @@ async function tryAutoRetry(
     const r = await generateVideoWithCascade({
       primaryModel: model,
       userId: hist.user_id,
-      prompt: retryPrompt,
+      prompt: videoCascadePrompt,
       // Pass ALL attachments (multi-ref Veo r2v needs every URL — was
       // silently truncated to 1 image on event-driven retries before).
       imageUrls: allImageUrls,

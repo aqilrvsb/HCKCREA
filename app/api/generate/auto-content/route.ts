@@ -17,6 +17,7 @@ import {
   buildStoryboardFallback,
   runStoryboardCascadeWithRetry,
   pollImageTaskUntilDone,
+  GEMINI_VIDEO_PROMPT,
 } from "@/lib/auto-content-storyboard";
 
 // Hot-path budget — the master plan orChat call is inline (no after())
@@ -2188,7 +2189,10 @@ CRITICAL OUTPUT RULES:
       const cascaded = await generateVideoWithCascade({
         primaryModel: model,
         userId: user.id,
-        prompt: seg1Prompt,
+        prompt:
+          providerChoice === "gemini"
+            ? GEMINI_VIDEO_PROMPT
+            : seg1Prompt,
         imageUrls: videoRefs,
         durationMode:
           providerChoice === "gemini"

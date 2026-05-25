@@ -6,6 +6,7 @@ import { getP2Config } from "@/lib/settings";
 import { generateImageWithCascade } from "@/lib/image-cascade";
 import { generateVideoWithCascade } from "@/lib/video-cascade";
 import { isInternalError } from "@/lib/retry-eligibility";
+import { GEMINI_VIDEO_PROMPT } from "@/lib/auto-content-storyboard";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -155,6 +156,12 @@ export async function POST(req: Request) {
     meta.modelChoice === "gemini" &&
     typeof meta.storyboard_url === "string" &&
     !!meta.storyboard_url;
+  // For Gemini-storyboard rows the cascade input is the hardcoded
+  // "animate the storyboard" prompt — same as original fire. The
+  // master plan's prose stays on row.prompt for admin audit visibility.
+  const videoCascadePrompt = isGeminiStoryboard
+    ? GEMINI_VIDEO_PROMPT
+    : effectivePrompt;
   const allImageUrls: string[] = isGeminiStoryboard
     ? [meta.storyboard_url as string]
     : Array.isArray(meta.image_urls) && meta.image_urls.length > 0
@@ -331,7 +338,7 @@ export async function POST(req: Request) {
     const r = await generateVideoWithCascade({
       primaryModel: model,
       userId: actingUserId,
-      prompt: effectivePrompt,
+      prompt: videoCascadePrompt,
       imageUrls: allImageUrls,
       durationMode,
       aspectRatio,
