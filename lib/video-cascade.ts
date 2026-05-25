@@ -35,6 +35,8 @@ import {
   getCinemaFallbackSlots,
   getSora2MainSlots,
   getSora2FallbackSlots,
+  getGeminiMainSlots,
+  getGeminiFallbackSlots,
   nextMainStartIndex,
   nextFallbackStartIndex,
   slotToProvider,
@@ -69,9 +71,10 @@ export type VideoCascadeInput = {
   /** Which cascade pool to draw from. Defaults to "video" (UGC + Auto
    *  Content + Veo cinema). "grok" routes through the Grok cascade
    *  (typically p6-a..h). "cinema" routes through the Cinema (Seedance)
-   *  cascade (p1 + p6). Each asset has independent slot lists +
+   *  cascade (p1 + p6). "gemini" routes through the GeminiOmni cascade
+   *  (p2-a + p2-b at launch). Each asset has independent slot lists +
    *  round-robin counters in lib/cascade-rotation.ts. */
-  asset?: "video" | "grok" | "cinema" | "sora2";
+  asset?: "video" | "grok" | "cinema" | "sora2" | "gemini";
 };
 
 export type VideoCascadeTierLog = {
@@ -220,7 +223,9 @@ export async function generateVideoWithCascade(
         ? getCinemaMainSlots
         : asset === "sora2"
           ? getSora2MainSlots
-          : getVideoMainSlots;
+          : asset === "gemini"
+            ? getGeminiMainSlots
+            : getVideoMainSlots;
   const getFbs =
     asset === "grok"
       ? getGrokFallbackSlots
@@ -228,7 +233,9 @@ export async function generateVideoWithCascade(
         ? getCinemaFallbackSlots
         : asset === "sora2"
           ? getSora2FallbackSlots
-          : getVideoFallbackSlots;
+          : asset === "gemini"
+            ? getGeminiFallbackSlots
+            : getVideoFallbackSlots;
 
   // SINGLE-SHOT per user direction. Two modes:
   //   retry=false (initial fire): pick ONE main slot via round-robin
