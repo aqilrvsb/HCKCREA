@@ -17,7 +17,7 @@ import {
   buildStoryboardFallback,
   runStoryboardCascadeWithRetry,
   pollImageTaskUntilDone,
-  GEMINI_VIDEO_PROMPT,
+  pickGeminiVideoPrompt,
 } from "@/lib/auto-content-storyboard";
 
 // Hot-path budget — the master plan orChat call is inline (no after())
@@ -2191,7 +2191,7 @@ CRITICAL OUTPUT RULES:
         userId: user.id,
         prompt:
           providerChoice === "gemini"
-            ? GEMINI_VIDEO_PROMPT
+            ? pickGeminiVideoPrompt(item.frameworkType)
             : seg1Prompt,
         imageUrls: videoRefs,
         durationMode:

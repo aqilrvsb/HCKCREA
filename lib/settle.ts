@@ -27,7 +27,7 @@ import {
   type CascadeAsset,
 } from "@/lib/cascade-rotation";
 import { isInternalError } from "@/lib/retry-eligibility";
-import { GEMINI_VIDEO_PROMPT } from "@/lib/auto-content-storyboard";
+import { pickGeminiVideoPrompt } from "@/lib/auto-content-storyboard";
 
 // Map a model string (from history.metadata.model) to a per-model rate
 // hint. Used at settle time so the live admin rate (rate_<model>) is
@@ -575,7 +575,7 @@ async function tryAutoRetry(
   // "animate the storyboard" prompt — same as original fire. Manual
   // retry route does the same.
   const videoCascadePrompt = isGeminiStoryboard
-    ? GEMINI_VIDEO_PROMPT
+    ? pickGeminiVideoPrompt(meta.framework_type)
     : retryPrompt;
 
   // Route to the right cascade based on row type:

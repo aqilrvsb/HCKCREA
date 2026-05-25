@@ -27,6 +27,26 @@ export const MAX_STORYBOARD_RETRIES = 3;
 export const GEMINI_VIDEO_PROMPT =
   "make a seamless video UGC style using storyboard I've upload. maintain the exact visual style, characters , shape and colours. smooth motion. realistic video style with audio and dialoge";
 
+// Product-framework variant of the GeminiOmni animate-step prompt.
+// Used when the master plan picks a "product" framework (Product Hero,
+// USP Showcase, Flat Lay, etc.) — these have no character on screen
+// so "product" wording fits better than "characters".
+// VERBATIM per user direction — typos / spacing preserved (note the
+// double space before the comma after "product").
+export const GEMINI_VIDEO_PROMPT_PRODUCT =
+  "make a seamless video product style using storyboard I've upload. maintain the exact visual style, product  , shape and colours. smooth motion. realistic video style with audio and dialoge";
+
+// Pick the right Gemini video prompt based on the framework's type.
+// Defaults to the UGC variant for ugc + lifestyle frameworks (both
+// typically have a person in frame). Only "product" frameworks (no
+// character) get the product variant. Pass meta.framework_type from
+// history rows or item.frameworkType from in-flight plans.
+export function pickGeminiVideoPrompt(frameworkType?: string | null): string {
+  return frameworkType === "product"
+    ? GEMINI_VIDEO_PROMPT_PRODUCT
+    : GEMINI_VIDEO_PROMPT;
+}
+
 // Strip the "Spoken dialog:" timing block + any trailing whitespace from
 // a videoPromptShot1 string. Mirrors the regex used by extractDialogBlock
 // in app/api/generate/auto-content/route.ts so the storyboard prompt is
