@@ -28,7 +28,7 @@ import AttachmentPicker from "../sections/attachment-picker";
 // provider pulls from its own admin-configured slot pool.
 
 type Status = "idle" | "submitting" | "failed";
-type Provider = "veo" | "grok" | "sora2";
+type Provider = "veo" | "grok" | "sora2" | "gemini";
 type ImageMode = "text" | "frame" | "ingredient";
 
 const REF_SLOTS = 3; // max slots in the UI; per-provider cap clamps at submit time
@@ -63,6 +63,16 @@ const PROVIDER_THEME: Record<
     gradient: "linear-gradient(135deg, #f87171, #ef4444)",
     emoji: "✨",
   },
+  gemini: {
+    // GeminiOmni — blue/cyan gradient (#3b82f6 → #06b6d4). Distinct
+    // from Veo's gold, Grok's orange, Sora 2's red so the 4-chip row
+    // reads as four visibly different providers at a glance.
+    primary: "#06b6d4",
+    soft: "rgba(6,182,212,0.25)",
+    faint: "rgba(6,182,212,0.08)",
+    gradient: "linear-gradient(135deg, #3b82f6, #06b6d4)",
+    emoji: "🔷",
+  },
 };
 
 // Per-provider image-mode availability. Per user direction every
@@ -77,6 +87,10 @@ const PROVIDER_MODES: Record<Provider, ImageMode[]> = {
   veo: ["text", "frame", "ingredient"],
   grok: ["text", "ingredient"],
   sora2: ["text", "frame"],
+  // GeminiOmni: text + ingredient (multi-ref up to 3). API has no
+  // first-frame concept (just generic img_urls) — frame mode would
+  // be UX duplication of single-image ingredient mode.
+  gemini: ["text", "ingredient"],
 };
 
 // Per-(provider, mode) slot count. text=0 by definition; frame is 1
@@ -85,7 +99,8 @@ const PROVIDER_MODES: Record<Provider, ImageMode[]> = {
 function getRefCap(provider: Provider, mode: ImageMode): number {
   if (mode === "text") return 0;
   if (mode === "frame") return provider === "veo" ? 2 : 1;
-  // ingredient
+  // ingredient — Veo + Grok + GeminiOmni all cap at 3 (Gemini API allows
+  // 7 but Original Video tab UX matches Veo's 3 for layout consistency).
   return 3;
 }
 
@@ -120,6 +135,8 @@ export default function OriginalVideoTab({
   const [veoFlatRate, setVeoFlatRate] = useState<number | null>(null);
   const [grokRatePerSec, setGrokRatePerSec] = useState<number | null>(null);
   const [sora2RatePerSec, setSora2RatePerSec] = useState<number | null>(null);
+  // GeminiOmni — flat per-10s-video rate (like Veo, not per-second).
+  const [geminiFlatRate, setGeminiFlatRate] = useState<number | null>(null);
   const [status, setStatus] = useState<Status>("idle");
   const [error, setError] = useState<string | null>(null);
   const [pickingSlot, setPickingSlot] = useState<number | null>(null);
@@ -147,6 +164,13 @@ export default function OriginalVideoTab({
         if (!cancel && typeof d?.rate === "number") setSora2RatePerSec(d.rate);
       })
       .catch(() => {});
+    // GeminiOmni flat per-video rate (rate_gemini.per_video_10s).
+    fetch("/api/gemini/rate", { cache: "no-store" })
+      .then((r) => r.json())
+      .then((d) => {
+        if (!cancel && typeof d?.rate === "number") setGeminiFlatRate(d.rate);
+      })
+      .catch(() => {});
     return () => {
       cancel = true;
     };
@@ -166,6 +190,8 @@ export default function OriginalVideoTab({
     if (provider === "grok" && (duration < 8 || duration > 30)) {
       setDuration(Math.min(30, Math.max(8, duration)));
     }
+    // GeminiOmni — fixed 10s.
+    if (provider === "gemini" && duration !== 10) setDuration(10);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [provider]);
 
@@ -189,6 +215,9 @@ export default function OriginalVideoTab({
     estCost = (grokRatePerSec * duration).toFixed(2);
   } else if (provider === "sora2" && sora2RatePerSec != null) {
     estCost = (sora2RatePerSec * duration).toFixed(2);
+  } else if (provider === "gemini" && geminiFlatRate != null) {
+    // Gemini is flat per-video (10s fixed) — don't multiply by duration.
+    estCost = geminiFlatRate.toFixed(2);
   }
 
   async function ensurePublicUrl(v: string): Promise<string> {
@@ -218,11 +247,14 @@ export default function OriginalVideoTab({
           image_url: pubUrls[0] || "",
           image_urls: pubUrls,
           duration,
-          resolution: "720p",
+          // Gemini forces 1080p server-side; we still send the right
+          // value here so the optimistic UI cost preview matches what
+          // /api/generate/cinema will actually compute.
+          resolution: provider === "gemini" ? "1080p" : "720p",
           aspect_ratio: aspect,
           // Cinema route uses "text" / "frame" / "ingredient" directly.
           image_mode: imageMode,
-          model: provider, // "veo" | "grok" | "sora2"
+          model: provider, // "veo" | "grok" | "sora2" | "gemini"
           // Tag so history grid can route this row into the Original
           // Video tab (separate from legacy Cinema / Grok rows).
           feature: "original-video",
@@ -270,8 +302,8 @@ export default function OriginalVideoTab({
         <label className="block text-[10px] uppercase tracking-widest text-[var(--color-text-secondary)] font-bold mb-2">
           Provider
         </label>
-        <div className="grid grid-cols-3 gap-2 mb-4">
-          {(["veo", "grok", "sora2"] as const).map((p) => {
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-4">
+          {(["veo", "grok", "sora2", "gemini"] as const).map((p) => {
             const active = provider === p;
             const t = PROVIDER_THEME[p];
             return (
@@ -296,7 +328,13 @@ export default function OriginalVideoTab({
                 }
               >
                 {t.emoji}{" "}
-                {p === "veo" ? "Veo 3.1" : p === "grok" ? "Grok" : "Sora 2"}
+                {p === "veo"
+                  ? "Veo 3.1"
+                  : p === "grok"
+                    ? "Grok"
+                    : p === "sora2"
+                      ? "Sora 2"
+                      : "GeminiOmni"}
               </button>
             );
           })}
@@ -590,6 +628,18 @@ export default function OriginalVideoTab({
                 })}
               </div>
             )}
+            {provider === "gemini" && (
+              <div
+                className="px-3 py-2 rounded-lg text-sm font-bold text-center"
+                style={{
+                  background: theme.faint,
+                  border: `1px solid ${theme.soft}`,
+                  color: theme.primary,
+                }}
+              >
+                Fixed 10s
+              </div>
+            )}
           </div>
         </div>
 
@@ -609,7 +659,7 @@ export default function OriginalVideoTab({
               <Loader2 className="w-4 h-4 animate-spin" /> Generating…
             </span>
           ) : (
-            `${theme.emoji} Generate ${provider === "veo" ? "Veo" : provider === "grok" ? "Grok" : "Sora 2"} Video${estCost ? ` · ~RM${estCost}` : ""}`
+            `${theme.emoji} Generate ${provider === "veo" ? "Veo" : provider === "grok" ? "Grok" : provider === "sora2" ? "Sora 2" : "GeminiOmni"} Video${estCost ? ` · ~RM${estCost}` : ""}`
           )}
         </button>
 
