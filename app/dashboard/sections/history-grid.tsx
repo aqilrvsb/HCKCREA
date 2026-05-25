@@ -855,12 +855,20 @@ function HistoryCardInner({
   const isSora2Row =
     modelChoiceLower === "sora2" ||
     /sora/i.test(rawModelLower);
+  // GeminiOmni rows are excluded from Extend for the same reason as
+  // Grok / Sora 2 — extend pipeline is hard-wired to Veo i2v + Banana
+  // refine. Chaining a Veo seg-2 onto a Gemini seg-1 produces a visible
+  // style cut.
+  const isGeminiRow =
+    modelChoiceLower === "gemini" ||
+    /gemini-omni/i.test(rawModelLower);
   const canExtend =
     isVideo &&
     !isCinema &&
     !isClonePrompt &&
     !isGrokRow &&
     !isSora2Row &&
+    !isGeminiRow &&
     item.status === "done" &&
     item.output_url;
 
