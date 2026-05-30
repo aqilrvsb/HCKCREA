@@ -670,10 +670,7 @@ export default function AdminUsage() {
                 >
                   <th className="text-left px-5 py-4 w-12">#</th>
                   <th className="text-left px-5 py-4 w-36">Date</th>
-                  {/* Email column intentionally omitted from Detail Log per
-                      admin direction — Summary by User is the canonical
-                      per-user view. Detail Log focuses on what was generated,
-                      not who generated it. */}
+                  <th className="text-left px-5 py-4 w-48">Email</th>
                   <th className="text-left px-5 py-4 w-32">Action</th>
                   <th className="text-center px-5 py-4 w-20">Engine</th>
                   <th className="text-center px-5 py-4 w-24">Model</th>
@@ -689,7 +686,7 @@ export default function AdminUsage() {
                 {generationRows.length === 0 ? (
                   <tr>
                     <td
-                      colSpan={11}
+                      colSpan={12}
                       className="px-4 py-16 text-center text-[var(--color-text-muted)] text-sm"
                     >
                       Tiada usage log.
@@ -764,11 +761,9 @@ export default function AdminUsage() {
                             hour12: false,
                           })}
                         </td>
-                        {/* Email cell intentionally omitted from Detail
-                            Log per admin direction — see header comment
-                            above. The row's user is still searchable via
-                            the search box (matches r.email) and visible
-                            in the Summary by User tab. */}
+                        <td className="px-5 py-4 text-[var(--color-text-secondary)] font-mono text-xs truncate" title={r.email}>
+                          {r.email}
+                        </td>
                         <td className="px-5 py-4">
                           <span
                             className="px-2 py-0.5 rounded text-[10px] font-mono font-bold whitespace-nowrap"
