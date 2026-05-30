@@ -124,6 +124,10 @@ function modelLabel(item: HistoryItem): string {
   ) {
     return "Talking Object" + (m.includes("veo") ? providerSuffix : "");
   }
+  // GeminiOmni — model id "google/gemini-omni". Check BEFORE veo because
+  // the string doesn't overlap (gemini-omni vs veo) but ordering here
+  // matches the videoBreakdown detection order in /admin/usage.
+  if (m.includes("gemini-omni")) return "GeminiOmni" + providerSuffix;
   if (m.includes("veo")) return "Veo 3.1" + providerSuffix;
   return item.type;
 }

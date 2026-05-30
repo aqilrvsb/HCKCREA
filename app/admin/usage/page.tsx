@@ -220,6 +220,7 @@ export default function AdminUsage() {
     let seedance = 0;
     let story = 0;
     let image = 0;
+    let gemini = 0;
     for (const r of generationRows) {
       const isImg =
         r.type === "image" ||
@@ -261,6 +262,14 @@ export default function AdminUsage() {
         // rows that picked Grok as the provider.
         grok++;
       } else if (
+        modelChoice === "gemini" ||
+        modelStr.includes("gemini-omni")
+      ) {
+        // GeminiOmni — covers Original Video tab Gemini rows AND
+        // Auto Content Gemini rows. Detect by modelChoice tag stamped
+        // at fire time, or by model substring for legacy rows.
+        gemini++;
+      } else if (
         modelChoice === "veo" ||
         rawTab === "video" ||
         rawTab === "auto" ||
@@ -277,7 +286,7 @@ export default function AdminUsage() {
         veo++;
       }
     }
-    return { veo, grok, sora, seedance, story, image };
+    return { veo, grok, sora, seedance, story, image, gemini };
   }, [generationRows]);
 
   return (
@@ -614,11 +623,12 @@ export default function AdminUsage() {
                 in the current date+media filter window. Hidden when the
                 media filter is "image" because the breakdown is video-only. */}
             {mediaFilter !== "image" && (
-              <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-5">
+              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 mb-5">
                 {[
                   { label: "Veo Videos", value: videoBreakdown.veo,   tone: "rgba(34,197,94,0.18)",  fg: "#16a34a", sub: "UGC + Auto + Original Video (Veo) + Viral" },
                   { label: "Grok Videos", value: videoBreakdown.grok, tone: "rgba(99,102,241,0.18)", fg: "#6366f1", sub: "Original Video (Grok) + legacy Cinema" },
                   { label: "Sora 2 Videos", value: videoBreakdown.sora, tone: "rgba(74,222,128,0.18)", fg: "#4ade80", sub: "Original Video (Sora 2) + Auto Content Sora 2" },
+                  { label: "GeminiOmni", value: videoBreakdown.gemini, tone: "rgba(6,182,212,0.18)", fg: "#06b6d4", sub: "Original Video (Gemini) + Auto Content Gemini" },
                   { label: "Seedance", value: videoBreakdown.seedance, tone: "rgba(244,114,182,0.18)", fg: "#ec4899", sub: "Cinema Seedance + Auto Content Seedance" },
                   { label: "Storytelling", value: videoBreakdown.story, tone: "rgba(139,92,246,0.18)", fg: "#8b5cf6", sub: "Final merged story video" },
                 ].map((b) => (
