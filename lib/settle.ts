@@ -27,7 +27,6 @@ import {
   type CascadeAsset,
 } from "@/lib/cascade-rotation";
 import { isInternalError } from "@/lib/retry-eligibility";
-import { pickGeminiVideoPrompt } from "@/lib/auto-content-storyboard";
 
 // Map a model string (from history.metadata.model) to a per-model rate
 // hint. Used at settle time so the live admin rate (rate_<model>) is
@@ -511,29 +510,8 @@ async function tryAutoRetry(
   // to refImage only for legacy rows that predate the array stamp.
   // Cron worker + manual retry route already do this correctly; this
   // sync brings event-driven retry in line.
-  //
-  // GeminiOmni storyboard rows: auto-retry should reuse the cached
-  // storyboard image instead of regenerating from raw refs. Otherwise
-  // the event-driven retry would re-introduce the drift the storyboard
-  // step originally solved. Falls back to raw refs when storyboard_url
-  // is missing (legacy rows or rows where storyboard step itself failed).
-  const isGeminiStoryboard =
-    meta.modelChoice === "gemini" &&
-    typeof meta.storyboard_url === "string" &&
-    !!meta.storyboard_url;
-  // Gemini-storyboard auto-retry: storyboard at position 0 + original
-  // user refs at positions 1+ (matches the original fire's img_urls
-  // composition). Storyboard URL is reused from cache. User refs come
-  // from meta.image_urls which the original fire stamped with the
-  // raw uploads. Manual Resubmit (retry/route.ts) does the same.
-  const userRefsForGemini: string[] = isGeminiStoryboard
-    ? (Array.isArray(meta.image_urls)
-        ? meta.image_urls.filter((u: any) => typeof u === "string" && u.trim())
-        : [])
-    : [];
-  const allImageUrls: string[] = isGeminiStoryboard
-    ? [meta.storyboard_url as string, ...userRefsForGemini]
-    : Array.isArray(meta.image_urls) && meta.image_urls.length > 0
+  const allImageUrls: string[] =
+    Array.isArray(meta.image_urls) && meta.image_urls.length > 0
       ? meta.image_urls.filter((u: any) => typeof u === "string" && u.trim())
       : refImage
         ? [refImage]
@@ -581,12 +559,6 @@ async function tryAutoRetry(
   const retryPrompt = audioFail
     ? sanitiseForAudioRetry(hist.prompt)
     : hist.prompt;
-  // For Gemini-storyboard rows the cascade input is the hardcoded
-  // "animate the storyboard" prompt — same as original fire. Manual
-  // retry route does the same.
-  const videoCascadePrompt = isGeminiStoryboard
-    ? pickGeminiVideoPrompt(meta.framework_type)
-    : retryPrompt;
 
   // Route to the right cascade based on row type:
   //   • image / fairytale-scene → image cascade (p2 ↔ p4 bidirectional)
@@ -733,7 +705,7 @@ async function tryAutoRetry(
     const r = await generateVideoWithCascade({
       primaryModel: model,
       userId: hist.user_id,
-      prompt: videoCascadePrompt,
+      prompt: retryPrompt,
       // Pass ALL attachments (multi-ref Veo r2v needs every URL — was
       // silently truncated to 1 image on event-driven retries before).
       imageUrls: allImageUrls,

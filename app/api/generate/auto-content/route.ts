@@ -13,12 +13,6 @@ import {
   type Framework,
 } from "@/lib/auto-content-frameworks";
 import { pickScenes, sceneSummary } from "@/lib/auto-content-scene-pool";
-import {
-  buildStoryboardFallback,
-  runStoryboardCascadeWithRetry,
-  pollImageTaskUntilDone,
-  pickGeminiVideoPrompt,
-} from "@/lib/auto-content-storyboard";
 
 // Hot-path budget — the master plan orChat call is inline (no after())
 // and can take up to ~30s when Grsai is the main provider in the
@@ -154,35 +148,23 @@ export async function POST(req: Request) {
   // Verify mode skips credit check until /approve fires the actual gens.
   //   Veo:    flat rate per 8s or 16s clip
   //   Grok:   per-second rate × chosen duration (Sora 2 internally)
-  //   Gemini: flat per-10s-video rate ONLY. The GPT Image 2 storyboard
-  //           step still runs and still costs real money (~RM 0.30 per
-  //           row) but is absorbed by the platform as operational
-  //           expense — user is NOT charged for it. We still track it
-  //           in metadata.storyboard_cost for admin audit / margin
-  //           analysis in /admin/usage.
+  //   Gemini: flat per-10s-video rate (google/gemini-omni via Crun/APIMart)
   const veoRate = await priceFor(
     user.id,
     durationMode === "16" ? "video_16s" : "video_8s"
   );
   let videoRate = veoRate;
-  // storyboardRate = real GPT Image 2 spend per Gemini row. Stamped on
-  // metadata for audit but NOT included in the user's charged cost.
-  let storyboardRate = 0;
   if (providerChoice === "grok") {
     // Reuse the standalone Grok tab's rate (rate_grok per second).
     const { getGrokRate } = await import("@/lib/settings");
     const grokRate = await getGrokRate();
     videoRate = grokRate * grokDuration;
   } else if (providerChoice === "gemini") {
-    // GeminiOmni — flat per-10s-video rate is what user pays.
-    // storyboardRate tracked separately for metadata.
-    const { getGeminiRate, getGptImageRate } = await import("@/lib/settings");
+    // GeminiOmni — flat per-10s-video rate.
+    const { getGeminiRate } = await import("@/lib/settings");
     videoRate = await getGeminiRate("10");
-    storyboardRate = await getGptImageRate();
   }
-  // perRowCost = what the user is charged. Does NOT include storyboardRate.
-  const perRowCost = videoRate;
-  const totalCost = perRowCost * quantity;
+  const totalCost = videoRate * quantity;
   if (planMode !== "verify") {
     if (!(await hasEnoughCredits(user.id, totalCost))) {
       return NextResponse.json(
@@ -215,12 +197,6 @@ export async function POST(req: Request) {
     targetEmotion: string;
     hookAngle: string;
     imagePrompt: string;
-    // NEW (storyboard mode): purpose-built single-frame prompt for
-    // GPT Image 2 storyboard generation. Required when providerChoice
-    // === "gemini"; mechanically derived from videoPromptShot1 via
-    // buildStoryboardFallback() when the LLM omits it. Other providers
-    // ignore this field.
-    storyboardPrompt: string;
     videoPromptShot1: string;
     videoPromptShot2: string;
     caption: string;
@@ -245,7 +221,6 @@ export async function POST(req: Request) {
         targetEmotion: String(p.targetEmotion || ""),
         hookAngle: String(p.hookAngle || ""),
         imagePrompt: String(p.imagePrompt || ""),
-        storyboardPrompt: String(p.storyboardPrompt || ""),
         videoPromptShot1: String(p.videoPromptShot1 || legacyPrompt),
         videoPromptShot2: String(p.videoPromptShot2 || ""),
         caption: String(p.caption || ""),
@@ -1267,61 +1242,6 @@ FOR PRODUCT FRAMEWORKS (styled product shot — NO person):
 - NO person in frame — product only
 </image_prompt_rules>
 
-<storyboard_prompt_rules>
-GeminiOmni mode ONLY (skip for Veo / Sora 2). EVERY video MUST also have
-a storyboardPrompt field — a single FROZEN MOMENT describing the most
-visually arresting frame of the 10-second scene. GPT Image 2 will
-generate this frame, then GeminiOmni will animate from it.
-
-STORYBOARD COMPOSITION RULES:
-- Capture the SINGLE most arresting frozen moment (a pose, a gaze, a
-  product-in-hand beat) — NOT the whole scene's narrative arc
-- ${hijabMode ? "Character MUST wear LOOSE tudung labuh, fully covering hair / ears / neck" : "Character has visible hair, modest modern Malaysian outfit"}
-- FOR UGC frameworks: BOTH character AND product visible TOGETHER in
-  the frame (different from imagePrompt which says character-only)
-- FOR PRODUCT frameworks: hero product shot with environment + lighting,
-  no person
-- FOR LIFESTYLE frameworks: scene + product naturally placed; character
-  optional / incidental
-- NO motion verbs ("turning", "walking", "reaching") — describe the
-  pose / state as if photographed at 1/250th sec
-- NO dialog quotes, NO timing markers, NO audio cues
-- Setting + lighting + camera angle MUST be explicit
-- 300-500 chars target (GPT Image 2 sweet spot — longer dilutes
-  composition fidelity)
-- TONE: soft-selling UGC — natural, conversational, NOT robotic /
-  staged. The character should look caught mid-thought, like a
-  candid photo, not posed for a brochure.
-- The 10-second video that GeminiOmni will animate from this
-  storyboard has 5 visual beats (~1-2 seconds each). The storyboard
-  captures the SINGLE most arresting beat (typically the product
-  reveal or the character's reaction moment). Compose the frame so
-  it implies the other 4 beats are about to happen — slight
-  asymmetric framing, mid-gesture pose, eye-line just off-camera.
-- ${hijabMode ? "Aurat coverage is MANDATORY when hijabMode is on — every storyboard MUST show loose tudung labuh covering all hair/ears/neck, long sleeves, modest hem, NO skin-tight silhouettes. Reinforce this in the prompt explicitly even if it feels redundant." : "Standard modest Malaysian dress — long sleeves OK, no cleavage, no thigh exposure."}
-- ALWAYS end with this exact style suffix:
-  ", photoreal cinematic 85mm lens, soft natural lighting, vertical 9:16 composition."
-
-EXAMPLE (UGC framework with product — soft-sell, 5-beat anticipation):
-"Malay woman in her 30s wearing loose dusty-rose hijab tudung labuh
-and cream knit cardigan, caught mid-gesture seated at a sunlit wooden
-kitchen table, holding a Sambal X jar at chest height with both hands
-tilted slightly toward camera, lips just parting as if about to speak,
-warm candid expression with eye-line drifting toward the product, soft
-afternoon golden light streaming through a window behind her, mug of
-teh tarik and a small open notebook visible in soft-focus background,
-warm muted kitchen tones, photoreal cinematic 85mm lens, soft natural
-lighting, vertical 9:16 composition."
-
-EXAMPLE (Product framework, no person):
-"A Sambal X glass jar centered on a polished marble slab, gentle steam
-rising from a small ceramic dipping bowl beside it, scattered fresh
-chili and lime leaves in the foreground, soft side-light from camera
-left casting a long subtle shadow, shallow depth of field, warm muted
-backdrop, photoreal cinematic 85mm lens, soft natural lighting, vertical
-9:16 composition."
-</storyboard_prompt_rules>
-
 <locked_elements>
 These are LOCKED across ALL videos — NEVER change:
 1. AVATAR: Same person from reference image. Same face, same gender, same age.
@@ -1610,7 +1530,6 @@ Respond with ONLY valid JSON array. No explanation, no markdown, no code blocks.
     "targetEmotion": "the emotion this video targets",
     "hookAngle": "what makes this hook unique",
     "imagePrompt": "...",
-    "storyboardPrompt": "<300-500 char storyboard prompt — see <storyboard_prompt_rules>>",
     "videoPromptShot1": "...",
     ${is16s ? '"videoPromptShot2": "...",' : ""}
     "caption": "...",
@@ -1786,7 +1705,6 @@ CRITICAL OUTPUT RULES:
           targetEmotion: String(p.targetEmotion || ""),
           hookAngle: String(p.hookAngle || ""),
           imagePrompt: String(p.imagePrompt || ""),
-          storyboardPrompt: String(p.storyboardPrompt || ""),
           videoPromptShot1: String(p.videoPromptShot1 || ""),
           videoPromptShot2: String(p.videoPromptShot2 || ""),
           caption: String(p.caption || ""),
@@ -2083,91 +2001,6 @@ CRITICAL OUTPUT RULES:
       const refImage = refImages[0] || "";
       const useIngredient = refImages.length > 0;
 
-      // ── GeminiOmni 2-stage path ────────────────────────────────────
-      // When the user picks GeminiOmni: first generate a key-frame
-      // storyboard via GPT Image 2 (using the user's refs + the master
-      // plan's storyboardPrompt), then animate that single storyboard
-      // image through GeminiOmni. Storyboard URL is cached on metadata
-      // so resubmit can skip the RM 0.30 redo.
-      let geminiStoryboardUrl: string | null = null;
-      let geminiStoryboardAttempts = 0;
-      let geminiStoryboardError: string | null = null;
-      let geminiStoryboardUsedPrompt = "";
-      if (providerChoice === "gemini") {
-        const sbPrompt =
-          (item.storyboardPrompt && item.storyboardPrompt.trim()) ||
-          buildStoryboardFallback(item);
-        geminiStoryboardUsedPrompt = sbPrompt;
-        const sbResult = await runStoryboardCascadeWithRetry({
-          prompt: sbPrompt,
-          aspectRatio,
-          imageUrls: refImages,
-        });
-        geminiStoryboardAttempts = sbResult.attempts;
-        if (sbResult.ok) {
-          const polled = await pollImageTaskUntilDone({
-            taskId: sbResult.taskId,
-            slot: sbResult.slot,
-          });
-          if (polled.ok) {
-            geminiStoryboardUrl = polled.outputUrl;
-          } else {
-            geminiStoryboardError = polled.error;
-          }
-        } else {
-          geminiStoryboardError = sbResult.error;
-        }
-
-        // Storyboard failure → insert failed row and return (no video call).
-        if (!geminiStoryboardUrl) {
-          await admin.from("history").insert({
-            user_id: user.id,
-            project_id: projectId,
-            type: "auto-content",
-            tab: "auto",
-            status: "failed",
-            prompt: veoSeg1PromptFor(item, lockedVoiceLine),
-            caption: item.caption || "",
-            framework: item.framework || `Video ${idx + 1}`,
-            reference_url: refImage || null,
-            task_id: null,
-            duration: 10,
-            cost: 0,
-            batch_id: batch?.id,
-            error_message: geminiStoryboardError || "Storyboard generation failed",
-            metadata: {
-              idx,
-              modelChoice: "gemini",
-              // Stamp the canonical model id even on storyboard-failure
-              // so manual Resubmit's meta.model shortcircuit picks the
-              // right model. Without this, retry/route.ts falls through
-              // to cfg.videoR2V (Veo) and fires it at the gemini cascade
-              // pool — which Crun rejects.
-              model: "google/gemini-omni",
-              providerChoice,
-              storyboard_attempts: geminiStoryboardAttempts,
-              storyboardPrompt: geminiStoryboardUsedPrompt,
-              image_urls: refImages,
-              framework: item.framework,
-              framework_type: item.frameworkType,
-              target_emotion: item.targetEmotion,
-              hook_angle: item.hookAngle,
-              image_prompt: item.imagePrompt,
-              video_prompt_shot1: item.videoPromptShot1,
-              video_prompt_shot2: item.videoPromptShot2,
-              idea_style: ideaStyle || undefined,
-              product_name: productName || null,
-              tiktok_product_id: tiktokProductId || null,
-              cover_title: item.coverTitle,
-              cover_subtitle: item.coverSubtitle,
-              imageMode: useIngredient ? "ingredient" : "text",
-            },
-          });
-          return; // Skip the video call for this row.
-        }
-      }
-      // ── End GeminiOmni 2-stage path ────────────────────────────────
-
       // providerChoice='grok' now routes to Sora 2 (model='sora2'). The
       // UI relabels the Grok button as "⚡ Sora 2" but keeps the internal
       // state key as "grok" to avoid a wide backend refactor — every
@@ -2190,23 +2023,10 @@ CRITICAL OUTPUT RULES:
         ? veoSeg2PromptFor(item, lockedVoiceLine)
         : "";
 
-      // For GeminiOmni: img_urls = [storyboardUrl, ...userRefs]. The
-      // storyboard at position 0 anchors composition (most video models
-      // weight the first ref most heavily). User refs at positions 1+
-      // preserve character / product details so the animation doesn't
-      // drift even if GeminiOmni interprets the storyboard loosely.
-      // Total typically 4 (1 storyboard + 3 user refs); API cap is 7.
-      // Other providers pass the raw refs through unchanged.
-      const videoRefs: string[] =
-        providerChoice === "gemini"
-          ? [geminiStoryboardUrl!, ...refImages]
-          : refImages;
-      const videoImageMode: "ingredient" | "text" =
-        providerChoice === "gemini"
-          ? "ingredient" // Gemini's only mode for refs
-          : useIngredient
-            ? "ingredient"
-            : "text";
+      const videoRefs = refImages;
+      const videoImageMode: "ingredient" | "text" = useIngredient
+        ? "ingredient"
+        : "text";
 
       // Veo → video cascade. Sora 2 → sora2 cascade. GeminiOmni →
       // gemini cascade. Each pool has independent main+fallback config
@@ -2214,10 +2034,7 @@ CRITICAL OUTPUT RULES:
       const cascaded = await generateVideoWithCascade({
         primaryModel: model,
         userId: user.id,
-        prompt:
-          providerChoice === "gemini"
-            ? pickGeminiVideoPrompt(item.frameworkType)
-            : seg1Prompt,
+        prompt: seg1Prompt,
         imageUrls: videoRefs,
         durationMode:
           providerChoice === "gemini"
@@ -2259,11 +2076,7 @@ CRITICAL OUTPUT RULES:
                 : is16s
                   ? 16
                   : 8,
-          // Charged cost = videoRate for ALL providers. For Gemini the
-          // GPT Image 2 storyboard step ALSO incurs ~RM 0.30 of real
-          // platform spend but it's absorbed (not billed to the user).
-          // metadata.storyboard_cost stamps the real provider spend so
-          // admin can compute margin in /admin/usage.
+          // Charged cost = videoRate for ALL providers.
           cost: videoRate,
           batch_id: batch?.id,
           // 16s chain fields — onSegmentSettled reads these to fire seg-2.
@@ -2312,19 +2125,12 @@ CRITICAL OUTPUT RULES:
                   sora2_duration: grokDuration,
                 }
               : {}),
-            // GeminiOmni 2-stage metadata — storyboard fields so
-            // settle.ts + retry route can reuse the cached storyboard
-            // image instead of regenerating it on resubmit (saves
-            // ~RM 0.30 per retry). modelChoice='gemini' routes the row
-            // through the gemini cascade pool on auto-retry.
+            // GeminiOmni rows stamp modelChoice='gemini' so settle.ts
+            // + auto-resubmit route them through the gemini cascade
+            // pool (asset='gemini', main slot p2-a/p2-b, fallback p5).
             ...(providerChoice === "gemini"
               ? {
                   modelChoice: "gemini",
-                  storyboard_url: geminiStoryboardUrl,
-                  storyboard_cost: storyboardRate,
-                  storyboard_attempts: geminiStoryboardAttempts,
-                  storyboardPrompt: geminiStoryboardUsedPrompt,
-                  video_cost: videoRate,
                 }
               : {}),
             // Segment chain — duration_mode + seg2_prompt + voice_line
@@ -2349,12 +2155,7 @@ CRITICAL OUTPUT RULES:
             tiktok_product_id: tiktokProductId || null,
             cover_title: item.coverTitle,
             cover_subtitle: item.coverSubtitle,
-            imageMode:
-              providerChoice === "gemini"
-                ? "ingredient"
-                : useIngredient
-                  ? "ingredient"
-                  : "text",
+            imageMode: useIngredient ? "ingredient" : "text",
           },
         })
         .select()
