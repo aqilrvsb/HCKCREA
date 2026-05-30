@@ -197,6 +197,10 @@ export async function POST(req: Request) {
     targetEmotion: string;
     hookAngle: string;
     imagePrompt: string;
+    // NEW (GeminiOmni mode): rich 10s storyboard text per <gemini_storyboard_rules>.
+    // When providerChoice === "gemini", this becomes the cascade prompt.
+    // Falls back to videoPromptShot1 when LLM omits the field.
+    geminiStoryboard: string;
     videoPromptShot1: string;
     videoPromptShot2: string;
     caption: string;
@@ -221,6 +225,7 @@ export async function POST(req: Request) {
         targetEmotion: String(p.targetEmotion || ""),
         hookAngle: String(p.hookAngle || ""),
         imagePrompt: String(p.imagePrompt || ""),
+        geminiStoryboard: String(p.geminiStoryboard || ""),
         videoPromptShot1: String(p.videoPromptShot1 || legacyPrompt),
         videoPromptShot2: String(p.videoPromptShot2 || ""),
         caption: String(p.caption || ""),
@@ -1242,6 +1247,95 @@ FOR PRODUCT FRAMEWORKS (styled product shot — NO person):
 - NO person in frame — product only
 </image_prompt_rules>
 
+<gemini_storyboard_rules>
+GeminiOmni mode ONLY (skip for Veo / Sora 2). Master plan MUST emit
+a geminiStoryboard field per scene — a rich 10-second cinematic
+storyboard that becomes the prompt sent to GeminiOmni. NO image
+generation involved; this is pure LLM-authored prose. Apply these
+techniques in every storyboard:
+
+STRUCTURE (3-6 shots, LLM picks based on framework):
+- Product Hero / Flat Lay / USP Showcase → 3 shots (slow, premium pacing)
+- Hook + Pain / Testimonial / FOMO / BAB → 5-6 shots (energetic)
+- Soft Sell / Evening Routine / Aesthetic → 4 shots (lifestyle pace)
+- Each shot has: timing range + shot size + camera move + action + mood
+- The FINAL shot ALWAYS delivers the CTA (last 1.5-2s)
+- Total runtime always 10 seconds
+
+CAMERA LANGUAGE — use professional cinematography terms verbatim:
+oner, push in, dolly zoom, punch in, locked off, over-the-shoulder
+(OTS), wide shot (WS), extreme wide shot (EWS), medium shot (MS),
+close-up (CU), extreme close-up (ECU), tracking shot, handheld,
+pan, tilt, drone pull back
+
+CHARACTER LOCK (from <locked_elements> above):
+- Same person in every shot. Specify: ${gender}, ${ageRange}${hijabMode ? ", LOOSE tudung labuh fully covering hair / ears / neck (zero hair strands visible)" : ", hair visible (no hijab)"}
+- Modern Malaysian outfit — pick ONE specific colour + garment (e.g.
+  "olive green button-up + sand chinos"). Same outfit ALL shots.
+- Voice: warm conversational ${gender} Malay, mid-range pitch
+
+LOCATION (specific, reused across all shots):
+- Pick ONE specific location (e.g. "cozy kitchen with wooden table,
+  warm afternoon light from window left"). Don't drift between locations.
+- Specify: indoor/outdoor, time of day, key props in frame, weather/light source
+
+LIGHTING (consistent across all shots):
+- Specify direction (front/side/back), quality (soft/hard), temperature
+  (warm 2700-3500K / cool 5000-6500K), source (window, lamp, golden hour)
+- Mood-led: cozy → soft warm side light. Premium → directional rim light.
+
+STYLE & GRADING:
+- Always end the style block with: "photoreal cinematic 85mm lens"
+- Specify color palette (3-5 colours matching mood — e.g. "warm amber +
+  cream + muted teal")
+- Color grade direction (e.g. "amber highlights + soft shadows" /
+  "high contrast cool tones")
+- 24fps, sharp 4K-equivalent feel
+
+PRODUCT INTEGRATION:
+- Reference the user's uploaded product BY NAME from productData
+- Product visible in at least 2 shots (3+ for Product frameworks)
+- Describe product handling: held, placed, applied, opened, etc.
+
+AUDIO SYNC:
+- Note where music swells / beat drops / ambient sounds occur
+- Dialog ONLY in CTA shot (final shot). Prior shots are visual.
+- Specify: dialog language (Malay), tone, exact CTA line
+
+EXAMPLE (Testimonial framework, female + hijabMode=true, Sambal X product):
+"Cinematic 10s UGC testimonial. Same Malay woman in her 30s, loose
+dusty-rose tudung labuh fully covering hair/ears/neck, cream knit
+cardigan. Cozy kitchen with wooden table, warm afternoon golden hour
+light streaming from window camera-left.
+
+Shot 1 (0–1.5s, MS, locked off): Woman seated at wooden table, holds
+Sambal X jar at chest with both hands, gentle smile, glances down at
+product. Soft warm light catches her face. Mood: warm intro. Light
+acoustic music begins.
+
+Shot 2 (1.5–3.5s, slow push in to CU): Camera dollies forward as she
+unscrews jar cap, lips parting subtle in micro-smile. Soft Foley jar
+twist. Background falls into bokeh.
+
+Shot 3 (3.5–6s, OTS, handheld slight sway): Over-her-shoulder POV
+onto plate of nasi lemak. She spoons Sambal X onto plate; steam rises.
+Macro-detail texture of sambal hitting rice.
+
+Shot 4 (6–7.5s, MS reverse, locked off): Cuts back to her face, eyes
+closed, takes first bite, satisfied micro-expression with slow nod.
+Mood: reaction / payoff. Music swells gently.
+
+Shot 5 (7.5–10s, MS frontal, slight handheld): Holds jar toward
+camera with confident smile, direct eye contact, speaks the CTA in
+warm conversational Malay: 'Tekan beg kuning, jangan lepas!' Music
+peaks then resolves.
+
+Style: photoreal cinematic 85mm lens, warm amber + cream + soft brown
+palette, golden-hour soft natural light, color grade: amber highlights
++ teal shadows for warmth + contrast. 24fps. Audio: warm acoustic
+guitar bed + spoon Foley shot 3 + dialog only in shot 5."
+</gemini_storyboard_rules>
+
 <locked_elements>
 These are LOCKED across ALL videos — NEVER change:
 1. AVATAR: Same person from reference image. Same face, same gender, same age.
@@ -1530,6 +1624,7 @@ Respond with ONLY valid JSON array. No explanation, no markdown, no code blocks.
     "targetEmotion": "the emotion this video targets",
     "hookAngle": "what makes this hook unique",
     "imagePrompt": "...",
+    "geminiStoryboard": "<10s storyboard text per <gemini_storyboard_rules> — required for GeminiOmni mode, optional for others>",
     "videoPromptShot1": "...",
     ${is16s ? '"videoPromptShot2": "...",' : ""}
     "caption": "...",
@@ -1705,6 +1800,7 @@ CRITICAL OUTPUT RULES:
           targetEmotion: String(p.targetEmotion || ""),
           hookAngle: String(p.hookAngle || ""),
           imagePrompt: String(p.imagePrompt || ""),
+          geminiStoryboard: String(p.geminiStoryboard || ""),
           videoPromptShot1: String(p.videoPromptShot1 || ""),
           videoPromptShot2: String(p.videoPromptShot2 || ""),
           caption: String(p.caption || ""),
@@ -2034,7 +2130,14 @@ CRITICAL OUTPUT RULES:
       const cascaded = await generateVideoWithCascade({
         primaryModel: model,
         userId: user.id,
-        prompt: seg1Prompt,
+        // GeminiOmni: use the LLM-authored geminiStoryboard (rich
+        // 10s cinematic plan with shot timing + camera language +
+        // style/lighting/audio sync). Falls back to seg1Prompt if
+        // the LLM omitted the field. Veo / Sora 2 always use seg1Prompt.
+        prompt:
+          providerChoice === "gemini" && item.geminiStoryboard && item.geminiStoryboard.trim()
+            ? item.geminiStoryboard
+            : seg1Prompt,
         imageUrls: videoRefs,
         durationMode:
           providerChoice === "gemini"
