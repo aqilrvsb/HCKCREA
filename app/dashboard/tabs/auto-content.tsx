@@ -1065,34 +1065,40 @@ export default function AutoContentTab({ projectId }: { projectId?: string } = {
           <DurationBtn active={provider === "veo"} onClick={() => setProvider("veo")}>
             🎬 Veo 3.1
           </DurationBtn>
-          <DurationBtn active={provider === "grok"} onClick={() => setProvider("grok")}>
-            ⚡ Sora 2
-          </DurationBtn>
-          {/* GeminiOmni chip — cyan/blue gradient matches the Original
-              Video tab's GeminiOmni styling so the provider reads as
-              the same product across surfaces. DurationBtn's hardcoded
-              yellow palette doesn't fit; use a custom button with the
-              same height + className shape. */}
-          <button
-            type="button"
-            onClick={() => setProvider("gemini")}
-            className="flex-1 h-9 rounded-lg text-xs font-extrabold transition-all"
-            style={
-              provider === "gemini"
-                ? {
-                    background: "linear-gradient(135deg, #3b82f6, #06b6d4)",
-                    color: "white",
-                    boxShadow: "0 4px 14px rgba(6,182,212,0.4)",
-                  }
-                : {
-                    background: "#fafaf7",
-                    border: "1px solid #e8e0d8",
-                    color: "#888",
-                  }
-            }
-          >
-            🔷 GeminiOmni
-          </button>
+          {/* Sora 2 chip hidden per admin direction — backend still wired
+              (providerChoice='grok' → model:'sora2'). Re-enable by removing
+              this `false &&` guard. */}
+          {false && (
+            <DurationBtn active={provider === "grok"} onClick={() => setProvider("grok")}>
+              ⚡ Sora 2
+            </DurationBtn>
+          )}
+          {/* GeminiOmni chip hidden per admin direction — backend still
+              wired (providerChoice='gemini'). Re-enable by removing the
+              `false &&` guard below. Pairs with the Sora 2 hide above so
+              Auto Content is Veo-only in V1. */}
+          {false && (
+            <button
+              type="button"
+              onClick={() => setProvider("gemini")}
+              className="flex-1 h-9 rounded-lg text-xs font-extrabold transition-all"
+              style={
+                provider === "gemini"
+                  ? {
+                      background: "linear-gradient(135deg, #3b82f6, #06b6d4)",
+                      color: "white",
+                      boxShadow: "0 4px 14px rgba(6,182,212,0.4)",
+                    }
+                  : {
+                      background: "#fafaf7",
+                      border: "1px solid #e8e0d8",
+                      color: "#888",
+                    }
+              }
+            >
+              🔷 GeminiOmni
+            </button>
+          )}
         </div>
 
         {provider === "veo" && (

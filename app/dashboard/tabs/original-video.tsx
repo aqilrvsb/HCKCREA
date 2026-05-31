@@ -302,8 +302,13 @@ export default function OriginalVideoTab({
         <label className="block text-[10px] uppercase tracking-widest text-[var(--color-text-secondary)] font-bold mb-2">
           Provider
         </label>
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-4">
-          {(["veo", "grok", "sora2", "gemini"] as const).map((p) => {
+        {/* Sora 2 chip hidden per admin direction — backend cascade
+            (asset='sora2', model='sora2') still wired so re-enable is a
+            single-line array edit (add "sora2" back to VISIBLE_PROVIDERS).
+            Grid tightened from sm:grid-cols-4 → sm:grid-cols-3 so the
+            remaining 3 chips fill the row cleanly. */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 mb-4">
+          {(["veo", "grok", "gemini"] as const).map((p) => {
             const active = provider === p;
             const t = PROVIDER_THEME[p];
             return (
@@ -332,9 +337,7 @@ export default function OriginalVideoTab({
                   ? "Veo 3.1"
                   : p === "grok"
                     ? "Grok"
-                    : p === "sora2"
-                      ? "Sora 2"
-                      : "GeminiOmni"}
+                    : "GeminiOmni"}
               </button>
             );
           })}
