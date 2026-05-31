@@ -2,7 +2,7 @@ import { NextResponse, after } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { generateVideoWithCascade } from "@/lib/video-cascade";
-import { getCinemaRate, getGeminiRate, getP2Config, getSetting, getVeoRate } from "@/lib/settings";
+import { getCinemaRate, getGeminiRate, getP2Config, getSeedanceRate, getSetting, getVeoRate } from "@/lib/settings";
 
 // POST /api/generate/cinema — Original Video tab + legacy Viral. Three
 // provider options:
@@ -46,14 +46,16 @@ export async function POST(req: Request) {
   // Gemini fixes resolution at 1080p; other providers honour the request
   // body (or default to 720p). Sora 2 / Veo / Grok still go through their
   // existing 720/480p validation.
-  const modelChoice: "grok" | "veo" | "sora2" | "gemini" =
+  const modelChoice: "grok" | "veo" | "sora2" | "gemini" | "seedance" =
     body?.model === "veo"
       ? "veo"
       : body?.model === "sora2"
         ? "sora2"
         : body?.model === "gemini"
           ? "gemini"
-          : "grok";
+          : body?.model === "seedance"
+            ? "seedance"
+            : "grok";
   const resolution =
     modelChoice === "gemini"
       ? "1080p"
@@ -61,11 +63,12 @@ export async function POST(req: Request) {
         ? "480p"
         : "720p";
   // Per-provider duration constraints:
-  //   • Veo     → fixed 8s (model only emits 8s natively)
-  //   • Sora 2  → 8 or 12 (APIPod's sora-2-vip enum)
-  //   • Gemini  → fixed 10s (Original Video tab UX choice; API accepts
-  //              4|6|8|10 but the chip only exposes 10)
-  //   • Grok    → 6-30 (slider, per-second billing)
+  //   • Veo      → fixed 8s (model only emits 8s natively)
+  //   • Sora 2   → 8 or 12 (APIPod's sora-2-vip enum)
+  //   • Gemini   → fixed 10s (Original Video tab UX choice; API accepts
+  //               4|6|8|10 but the chip only exposes 10)
+  //   • Seedance → 4-15 (Seedance 2.0 Fast spec; slider)
+  //   • Grok     → 6-30 (slider, per-second billing)
   const duration =
     modelChoice === "veo"
       ? 8
@@ -75,7 +78,9 @@ export async function POST(req: Request) {
           : 8
         : modelChoice === "gemini"
           ? 10
-          : Math.min(30, Math.max(6, Math.round(Number(body?.duration || 6))));
+          : modelChoice === "seedance"
+            ? Math.min(15, Math.max(4, Math.round(Number(body?.duration || 5))))
+            : Math.min(30, Math.max(6, Math.round(Number(body?.duration || 6))));
   // Three image modes (richer than the old image/text split):
   //   • "text"       → no reference images
   //   • "frame"      → single first-frame image (i2v, all 3 providers)
@@ -91,7 +96,13 @@ export async function POST(req: Request) {
   // Gemini is the inverse: it only has img_urls (no first-frame concept),
   // so "frame" → "ingredient" with a single image. The cinema route still
   // sends "ingredient" so video-cascade + p2 see the canonical mode.
-  if (imageModeRaw === "ingredient" && modelChoice !== "veo" && modelChoice !== "gemini") {
+  // Seedance supports all 3 modes natively (t2v/i2v/r2v) so no clamp.
+  if (
+    imageModeRaw === "ingredient" &&
+    modelChoice !== "veo" &&
+    modelChoice !== "gemini" &&
+    modelChoice !== "seedance"
+  ) {
     imageModeRaw = "frame";
   }
   if (imageModeRaw === "frame" && modelChoice === "gemini") {
@@ -153,7 +164,9 @@ export async function POST(req: Request) {
               ? "apipod"
               : modelChoice === "gemini"
                 ? "crun"
-                : "grok-imagine",
+                : modelChoice === "seedance"
+                  ? "bytedance"
+                  : "grok-imagine",
         modelChoice,
         featureType,
         // Full attachment array for Resubmit re-fire
@@ -219,6 +232,10 @@ export async function POST(req: Request) {
         // server-side so we don't multiply.
         const geminiFlat = await getGeminiRate("10");
         cost = Number(geminiFlat.toFixed(4));
+      } else if (modelChoice === "seedance") {
+        // Seedance 2.0 Fast — per-second rate × duration (4-15s range).
+        const seedanceRate = await getSeedanceRate();
+        cost = Number((seedanceRate * duration).toFixed(4));
       } else {
         // Grok per-second
         cost = Number((cinemaRatePerSec * duration).toFixed(4));
@@ -244,6 +261,14 @@ export async function POST(req: Request) {
         // (text + ingredient both go to the same endpoint; p2.ts handles
         // the conditional img_urls payload).
         model = "google/gemini-omni";
+      } else if (modelChoice === "seedance") {
+        // Seedance 2.0 Fast — pass the bare "seedance" keyword. Both
+        // adapters auto-resolve to the right variant based on refs:
+        //   • lib/p2.ts isSeedance branch  → bytedance/seedance2-0-fast-{t2v,r2v}
+        //   • lib/p6.ts apipodVideoModel   → seedance-2.0-fast-{t2v,i2v,r2v}
+        // No per-mode resolution here — the substring "seedance" is what
+        // both adapters key off.
+        model = "seedance";
       } else {
         model = imageMode !== "text" ? cfg.grokI2V : cfg.grokT2V;
       }
@@ -263,7 +288,9 @@ export async function POST(req: Request) {
                   ? "apipod"
                   : modelChoice === "gemini"
                     ? "crun"
-                    : "grok-imagine",
+                    : modelChoice === "seedance"
+                      ? "bytedance"
+                      : "grok-imagine",
             modelChoice,
             featureType,
             upload_status: "failed",
@@ -321,7 +348,9 @@ export async function POST(req: Request) {
               ? "sora2"
               : modelChoice === "gemini"
                 ? "gemini"
-                : "video",
+                : modelChoice === "seedance"
+                  ? "cinema"
+                  : "video",
       });
       if (result.ok) {
         createdOk = true;
@@ -351,7 +380,9 @@ export async function POST(req: Request) {
                   ? "apipod"
                   : modelChoice === "gemini"
                     ? "crun"
-                    : "grok-imagine",
+                    : modelChoice === "seedance"
+                      ? "bytedance"
+                      : "grok-imagine",
             modelChoice,
             featureType,
             provider: actualProvider,
@@ -377,7 +408,9 @@ export async function POST(req: Request) {
                 ? "apipod"
                 : modelChoice === "gemini"
                   ? "crun"
-                  : "grok-imagine",
+                  : modelChoice === "seedance"
+                    ? "bytedance"
+                    : "grok-imagine",
           modelChoice,
           featureType,
           provider: actualProvider,
@@ -409,7 +442,9 @@ export async function POST(req: Request) {
                 ? "apipod"
                 : modelChoice === "gemini"
                   ? "crun"
-                  : "grok-imagine",
+                  : modelChoice === "seedance"
+                    ? "bytedance"
+                    : "grok-imagine",
           modelChoice,
           featureType,
           upload_status: "failed",

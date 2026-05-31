@@ -183,6 +183,11 @@ export async function POST(req: Request) {
         // GeminiOmni — single Crun model id; p2.ts builds the body
         // shape (img_urls + duration + 1080p) based on imageMode.
         model = "google/gemini-omni";
+      } else if (meta.modelChoice === "seedance") {
+        // Seedance 2.0 Fast — pass bare "seedance" keyword. p2.ts +
+        // p6.ts both auto-resolve to the right t2v/i2v/r2v variant
+        // based on refs.
+        model = "seedance";
       } else {
         model = refImage ? cfg.grokI2V : cfg.grokT2V;
       }
@@ -307,6 +312,13 @@ export async function POST(req: Request) {
       asset = "gemini";
     }
     else if (row.tab === "seedance") asset = "cinema";
+    else if (meta.modelChoice === "seedance" || /seedance/i.test(model)) {
+      // Original Video tab Seedance rows have tab='original-video', not
+      // tab='seedance', so they'd fall through to the default 'video'
+      // pool without this branch. Route them through the cinema cascade
+      // (same pool used by the dedicated Seedance tab).
+      asset = "cinema";
+    }
     else if (
       row.tab === "cinema" &&
       (meta.modelChoice === "grok" || /grok/i.test(model))

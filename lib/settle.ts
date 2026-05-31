@@ -459,6 +459,15 @@ async function tryAutoRetry(
   }
   else if (hist.tab === "seedance") cascadeAsset = "cinema";
   else if (
+    meta.modelChoice === "seedance" ||
+    /seedance/i.test(rowModel)
+  ) {
+    // Original Video tab Seedance rows have tab='original-video', not
+    // tab='seedance', so route them through the cinema cascade pool
+    // (same pool used by the dedicated Seedance tab).
+    cascadeAsset = "cinema";
+  }
+  else if (
     (hist.tab === "cinema" || hist.tab === "original-video") &&
     (meta.modelChoice === "grok" || /grok/i.test(rowModel))
   ) {
@@ -543,6 +552,10 @@ async function tryAutoRetry(
         model = refImage ? cfg.videoR2V : cfg.videoT2V;
       } else if (meta.modelChoice === "gemini") {
         model = "google/gemini-omni";
+      } else if (meta.modelChoice === "seedance") {
+        // Seedance 2.0 Fast — pass bare "seedance" keyword; p2.ts +
+        // p6.ts auto-resolve to the right variant based on refs.
+        model = "seedance";
       } else {
         model = refImage ? cfg.grokI2V : cfg.grokT2V;
       }

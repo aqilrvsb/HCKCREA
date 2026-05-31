@@ -28,7 +28,7 @@ import AttachmentPicker from "../sections/attachment-picker";
 // provider pulls from its own admin-configured slot pool.
 
 type Status = "idle" | "submitting" | "failed";
-type Provider = "veo" | "grok" | "sora2" | "gemini";
+type Provider = "veo" | "grok" | "sora2" | "gemini" | "seedance";
 type ImageMode = "text" | "frame" | "ingredient";
 
 const REF_SLOTS = 3; // max slots in the UI; per-provider cap clamps at submit time
@@ -73,6 +73,17 @@ const PROVIDER_THEME: Record<
     gradient: "linear-gradient(135deg, #3b82f6, #06b6d4)",
     emoji: "🔷",
   },
+  seedance: {
+    // Seedance 2.0 Fast (Bytedance Doubao) — pink/magenta gradient
+    // matching the SEEDANCE badge in /admin/usage (#ec4899). Routes
+    // through the existing cinema cascade pool (asset='cinema') which
+    // already handles Seedance via p2 (Crun) + p6 (APIPod) adapters.
+    primary: "#ec4899",
+    soft: "rgba(236,72,153,0.25)",
+    faint: "rgba(236,72,153,0.08)",
+    gradient: "linear-gradient(135deg, #f472b6, #ec4899)",
+    emoji: "🌸",
+  },
 };
 
 // Per-provider image-mode availability. Per user direction every
@@ -91,6 +102,10 @@ const PROVIDER_MODES: Record<Provider, ImageMode[]> = {
   // first-frame concept (just generic img_urls) — frame mode would
   // be UX duplication of single-image ingredient mode.
   gemini: ["text", "ingredient"],
+  // Seedance 2.0 Fast: all 3 modes (t2v / i2v / r2v). Frame mode is
+  // start+end frame i2v (2 images max per APIPod spec). Ingredient is
+  // r2v with up to 9 refs (capped at 3 here for UX consistency).
+  seedance: ["text", "frame", "ingredient"],
 };
 
 // Per-(provider, mode) slot count. text=0 by definition; frame is 1
@@ -98,9 +113,12 @@ const PROVIDER_MODES: Record<Provider, ImageMode[]> = {
 // multi-ref). API caps in /api/generate/cinema mirror these.
 function getRefCap(provider: Provider, mode: ImageMode): number {
   if (mode === "text") return 0;
-  if (mode === "frame") return provider === "veo" ? 2 : 1;
-  // ingredient — Veo + Grok + GeminiOmni all cap at 3 (Gemini API allows
-  // 7 but Original Video tab UX matches Veo's 3 for layout consistency).
+  // frame: Veo + Seedance accept start+end (2 images); Sora 2 + others
+  // accept a single first frame.
+  if (mode === "frame") return provider === "veo" || provider === "seedance" ? 2 : 1;
+  // ingredient — all providers cap at 3 (Gemini API allows 7, Seedance
+  // allows 9, but Original Video tab UX standardises at 3 for layout
+  // consistency).
   return 3;
 }
 
@@ -137,6 +155,9 @@ export default function OriginalVideoTab({
   const [sora2RatePerSec, setSora2RatePerSec] = useState<number | null>(null);
   // GeminiOmni — flat per-10s-video rate (like Veo, not per-second).
   const [geminiFlatRate, setGeminiFlatRate] = useState<number | null>(null);
+  // Seedance 2.0 Fast — per-second rate (rate_seedance.per_second admin
+  // setting). Cost = rate × duration like Grok / Sora 2.
+  const [seedanceRatePerSec, setSeedanceRatePerSec] = useState<number | null>(null);
   const [status, setStatus] = useState<Status>("idle");
   const [error, setError] = useState<string | null>(null);
   const [pickingSlot, setPickingSlot] = useState<number | null>(null);
@@ -171,6 +192,18 @@ export default function OriginalVideoTab({
         if (!cancel && typeof d?.rate === "number") setGeminiFlatRate(d.rate);
       })
       .catch(() => {});
+    // Seedance 2.0 Fast per-second rate (rate_seedance.per_second).
+    // The endpoint returns { per_second: <number> } (different shape
+    // than the other rate endpoints which return { rate }).
+    fetch("/api/seedance/rate", { cache: "no-store" })
+      .then((r) => r.json())
+      .then((d) => {
+        const rps = Number(d?.per_second);
+        if (!cancel && Number.isFinite(rps) && rps > 0) {
+          setSeedanceRatePerSec(rps);
+        }
+      })
+      .catch(() => {});
     return () => {
       cancel = true;
     };
@@ -192,6 +225,10 @@ export default function OriginalVideoTab({
     }
     // GeminiOmni — fixed 10s.
     if (provider === "gemini" && duration !== 10) setDuration(10);
+    // Seedance 2.0 Fast — slider 4-15s, default 5 when switching in.
+    if (provider === "seedance" && (duration < 4 || duration > 15)) {
+      setDuration(5);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [provider]);
 
@@ -218,6 +255,9 @@ export default function OriginalVideoTab({
   } else if (provider === "gemini" && geminiFlatRate != null) {
     // Gemini is flat per-video (10s fixed) — don't multiply by duration.
     estCost = geminiFlatRate.toFixed(2);
+  } else if (provider === "seedance" && seedanceRatePerSec != null) {
+    // Seedance per-second × duration (4-15s range).
+    estCost = (seedanceRatePerSec * duration).toFixed(2);
   }
 
   async function ensurePublicUrl(v: string): Promise<string> {
@@ -254,7 +294,7 @@ export default function OriginalVideoTab({
           aspect_ratio: aspect,
           // Cinema route uses "text" / "frame" / "ingredient" directly.
           image_mode: imageMode,
-          model: provider, // "veo" | "grok" | "sora2" | "gemini"
+          model: provider, // "veo" | "grok" | "sora2" | "gemini" | "seedance"
           // Tag so history grid can route this row into the Original
           // Video tab (separate from legacy Cinema / Grok rows).
           feature: "original-video",
@@ -305,10 +345,10 @@ export default function OriginalVideoTab({
         {/* Sora 2 + Grok chips hidden per admin direction — backend
             cascades (asset='sora2', asset='grok', asset='video' for Veo,
             asset='gemini') all still wired so re-enable is a single
-            array edit (add "grok" / "sora2" back). Grid tightened to
-            sm:grid-cols-2 so the remaining 2 chips fill the row. */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-4">
-          {(["veo", "gemini"] as const).map((p) => {
+            array edit (add "grok" / "sora2" back). Grid sized for 3
+            visible chips (Veo + Gemini + Seedance). */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 mb-4">
+          {(["veo", "gemini", "seedance"] as const).map((p) => {
             const active = provider === p;
             const t = PROVIDER_THEME[p];
             return (
@@ -333,7 +373,7 @@ export default function OriginalVideoTab({
                 }
               >
                 {t.emoji}{" "}
-                {p === "veo" ? "Veo 3.1" : "GeminiOmni"}
+                {p === "veo" ? "Veo 3.1" : p === "gemini" ? "GeminiOmni" : "Seedance"}
               </button>
             );
           })}
@@ -567,6 +607,14 @@ export default function OriginalVideoTab({
                   <option value="3:2">3:2</option>
                 </>
               ) : null}
+              {provider === "seedance" ? (
+                <>
+                  <option value="1:1">1:1 (Square)</option>
+                  <option value="3:4">3:4</option>
+                  <option value="4:3">4:3</option>
+                  <option value="21:9">21:9 (Ultrawide)</option>
+                </>
+              ) : null}
             </select>
           </div>
           <div>
@@ -639,6 +687,18 @@ export default function OriginalVideoTab({
                 Fixed 10s
               </div>
             )}
+            {provider === "seedance" && (
+              <input
+                type="range"
+                min={4}
+                max={15}
+                step={1}
+                value={duration}
+                onChange={(e) => setDuration(Number(e.target.value))}
+                className="w-full"
+                style={{ accentColor: theme.primary }}
+              />
+            )}
           </div>
         </div>
 
@@ -658,7 +718,7 @@ export default function OriginalVideoTab({
               <Loader2 className="w-4 h-4 animate-spin" /> Generating…
             </span>
           ) : (
-            `${theme.emoji} Generate ${provider === "veo" ? "Veo" : provider === "grok" ? "Grok" : provider === "sora2" ? "Sora 2" : "GeminiOmni"} Video${estCost ? ` · ~RM${estCost}` : ""}`
+            `${theme.emoji} Generate ${provider === "veo" ? "Veo" : provider === "grok" ? "Grok" : provider === "sora2" ? "Sora 2" : provider === "gemini" ? "GeminiOmni" : "Seedance"} Video${estCost ? ` · ~RM${estCost}` : ""}`
           )}
         </button>
 
