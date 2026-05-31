@@ -31,7 +31,11 @@ type Status = "idle" | "submitting" | "failed";
 type Provider = "veo" | "grok" | "sora2" | "gemini" | "seedance";
 type ImageMode = "text" | "frame" | "ingredient";
 
-const REF_SLOTS = 3; // max slots in the UI; per-provider cap clamps at submit time
+// Max slots state array can hold. Seedance ingredient mode caps at 5;
+// other providers cap at 3 (per-provider cap enforced by getRefCap at
+// render time + submit-time slice in cinema route). Extra state slots
+// stay empty for non-Seedance providers — harmless.
+const REF_SLOTS = 5;
 
 // Per-provider theme — picker chips use these as the active gradient.
 const PROVIDER_THEME: Record<
@@ -116,9 +120,11 @@ function getRefCap(provider: Provider, mode: ImageMode): number {
   // frame: Veo + Seedance accept start+end (2 images); Sora 2 + others
   // accept a single first frame.
   if (mode === "frame") return provider === "veo" || provider === "seedance" ? 2 : 1;
-  // ingredient — all providers cap at 3 (Gemini API allows 7, Seedance
-  // allows 9, but Original Video tab UX standardises at 3 for layout
-  // consistency).
+  // ingredient — Seedance accepts up to 9 refs natively; we cap at 5
+  // here (sweet spot between API capacity and UI layout). Other providers
+  // stay at 3 (Gemini API allows 7, Veo/Grok at 3 by spec). REF_SLOTS=5
+  // so state can hold 5 picks for Seedance.
+  if (provider === "seedance") return 5;
   return 3;
 }
 
@@ -426,30 +432,34 @@ export default function OriginalVideoTab({
               • Sora 2 + frame   → single Start Frame zone
               • any provider + text → no slots */}
 
-        {/* === Veo Start + End Frame layout === */}
-        {provider === "veo" && imageMode === "frame" && (
-          <div className="mb-4 grid grid-cols-2 gap-3">
-            <FrameZone
-              label="Start Frame"
-              required
-              theme={theme}
-              url={refSlots[0] || ""}
-              onPick={() => setPickingSlot(0)}
-              onClear={() =>
-                setRefSlots(refSlots.map((u, j) => (j === 0 ? "" : u)))
-              }
-            />
-            <FrameZone
-              label="End Frame"
-              theme={theme}
-              url={refSlots[1] || ""}
-              onPick={() => setPickingSlot(1)}
-              onClear={() =>
-                setRefSlots(refSlots.map((u, j) => (j === 1 ? "" : u)))
-              }
-            />
-          </div>
-        )}
+        {/* === Veo + Seedance Start + End Frame layout ===
+            Both providers support i2v with start+end frame (Veo
+            cfg.videoI2V / Seedance seedance-2.0-fast-i2v). Identical
+            2-slot UI — slot 0 = start (required), slot 1 = end (optional). */}
+        {(provider === "veo" || provider === "seedance") &&
+          imageMode === "frame" && (
+            <div className="mb-4 grid grid-cols-2 gap-3">
+              <FrameZone
+                label="Start Frame"
+                required
+                theme={theme}
+                url={refSlots[0] || ""}
+                onPick={() => setPickingSlot(0)}
+                onClear={() =>
+                  setRefSlots(refSlots.map((u, j) => (j === 0 ? "" : u)))
+                }
+              />
+              <FrameZone
+                label="End Frame"
+                theme={theme}
+                url={refSlots[1] || ""}
+                onPick={() => setPickingSlot(1)}
+                onClear={() =>
+                  setRefSlots(refSlots.map((u, j) => (j === 1 ? "" : u)))
+                }
+              />
+            </div>
+          )}
 
         {/* === Sora 2 single Start Frame zone === */}
         {provider === "sora2" && imageMode === "frame" && (

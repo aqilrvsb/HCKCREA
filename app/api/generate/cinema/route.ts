@@ -314,7 +314,9 @@ export async function POST(req: Request) {
           ? []
           : modelChoice === "sora2"
             ? effectiveImageUrls.slice(0, 1)
-            : effectiveImageUrls.slice(0, 3);
+            : modelChoice === "seedance"
+              ? effectiveImageUrls.slice(0, 5)
+              : effectiveImageUrls.slice(0, 3);
 
       let createdOk = false;
       let createdTaskId: string | null = null;
