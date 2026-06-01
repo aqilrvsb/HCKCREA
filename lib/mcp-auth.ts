@@ -50,13 +50,21 @@ export async function validateMcpKey(req: Request): Promise<McpAuthResult> {
   }
 
   // Best-effort update of last_used_at — don't block on it.
+  // Re-fetch the current row to avoid spreading a stale cached value
+  // back over a freshly rotated key.
   void (async () => {
     try {
       const admin = createAdminClient();
+      const { data: row } = await admin
+        .from("app_settings")
+        .select("value")
+        .eq("key", "mcp_api_key")
+        .single();
+      if (!row?.value) return;
       await admin
         .from("app_settings")
         .update({
-          value: { ...cfg, last_used_at: new Date().toISOString() },
+          value: { ...row.value, last_used_at: new Date().toISOString() },
         })
         .eq("key", "mcp_api_key");
     } catch {}
@@ -65,10 +73,10 @@ export async function validateMcpKey(req: Request): Promise<McpAuthResult> {
   return { ok: true, userId: cfg.owner_user_id, keyPrefix: cfg.prefix };
 }
 
-// Returns a SHA-256-style hash of the key prefix for use as
-// metadata.mcp_caller_id — gives audit visibility without leaking the
-// real key. Just hashes the key prefix (first 12 chars) — that's a
-// stable identifier that survives key rotation.
+// Returns a stable audit tag for metadata.mcp_caller_id by prefixing
+// the public key prefix with "mcp_". The prefix is non-secret (it's
+// shown in the admin UI) — using it as the caller id gives audit
+// visibility without leaking the full key.
 export function mcpCallerId(keyPrefix: string): string {
   return `mcp_${keyPrefix}`;
 }
