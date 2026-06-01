@@ -1740,6 +1740,8 @@ export default function AdminSettings() {
         </div>
       </div>
 
+      <McpKeyCard />
+
       {/* Storytelling (fairytale) image generator — dedicated card so admin
           can pick which Crun.ai model is used to render the 10 scene images
           + override the per-image rate. Falls back to global image_default
@@ -2724,6 +2726,116 @@ function ModelKnob({
           {msg}
         </div>
       )}
+    </div>
+  );
+}
+
+function McpKeyCard() {
+  const [meta, setMeta] = useState<{ configured: boolean; prefix: string | null; created_at: string | null; last_used_at: string | null }>({
+    configured: false, prefix: null, created_at: null, last_used_at: null,
+  });
+  const [loading, setLoading] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [showKey, setShowKey] = useState<string | null>(null);
+
+  async function load() {
+    setLoading(true);
+    try {
+      const r = await fetch("/api/admin/mcp-key", { cache: "no-store" });
+      const d = await r.json();
+      if (d?.ok) setMeta({
+        configured: !!d.configured,
+        prefix: d.prefix ?? null,
+        created_at: d.created_at ?? null,
+        last_used_at: d.last_used_at ?? null,
+      });
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => { void load(); }, []);
+
+  async function generate() {
+    if (meta.configured) {
+      const ok = window.confirm(
+        "Regenerating will invalidate the existing key. Any other projects using the old key will stop working until you update them. Continue?"
+      );
+      if (!ok) return;
+    }
+    setBusy(true);
+    try {
+      const r = await fetch("/api/admin/mcp-key", { method: "POST" });
+      const d = await r.json();
+      if (d?.ok && d?.key) {
+        setShowKey(d.key);
+        await load();
+      } else {
+        alert(d?.error || "Generate failed");
+      }
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function copyKey() {
+    if (!showKey) return;
+    try {
+      await navigator.clipboard.writeText(showKey);
+      alert("Copied to clipboard");
+    } catch {
+      alert("Copy failed — copy manually from the box above");
+    }
+  }
+
+  return (
+    <div className="card p-6 mb-6 border-2 border-cyan-100 bg-cyan-50/40">
+      <div className="flex items-center gap-2 mb-1">
+        <h2 className="font-display font-bold text-lg">MCP API Key</h2>
+      </div>
+      <p className="text-xs text-[var(--color-text-secondary)] mb-4">
+        Single shared key for the <code>@peninglab/mcp</code> npm package. Shown
+        once at generation — copy and paste into consuming projects' MCP config.
+        Bcrypt-hashed on the server; not recoverable if lost (regenerate to issue
+        a new one).
+      </p>
+
+      {loading ? (
+        <div className="text-sm text-[var(--color-text-muted)]">Loading…</div>
+      ) : meta.configured ? (
+        <div className="space-y-2 text-sm">
+          <div><b>Prefix:</b> <code>{meta.prefix}…</code></div>
+          <div><b>Created:</b> {meta.created_at ? new Date(meta.created_at).toLocaleString("en-GB", { timeZone: "Asia/Kuala_Lumpur" }) : "—"}</div>
+          <div><b>Last used:</b> {meta.last_used_at ? new Date(meta.last_used_at).toLocaleString("en-GB", { timeZone: "Asia/Kuala_Lumpur" }) : "Never"}</div>
+        </div>
+      ) : (
+        <div className="text-sm text-[var(--color-text-muted)] mb-3">No key configured yet.</div>
+      )}
+
+      {showKey && (
+        <div className="mt-4 p-3 rounded-lg border-2 border-amber-300 bg-amber-50">
+          <div className="text-xs font-bold text-amber-900 mb-2">
+            ⚠ Copy this now — it will not be shown again
+          </div>
+          <code className="block break-all text-xs bg-white p-2 rounded border border-amber-200">
+            {showKey}
+          </code>
+          <button
+            onClick={() => void copyKey()}
+            className="mt-2 px-3 py-1 rounded bg-amber-600 text-white text-xs font-bold"
+          >
+            Copy to clipboard
+          </button>
+        </div>
+      )}
+
+      <button
+        onClick={() => void generate()}
+        disabled={busy}
+        className="btn-primary text-sm mt-4 disabled:opacity-50"
+      >
+        {busy ? "Generating…" : meta.configured ? "Regenerate Key" : "Generate Key"}
+      </button>
     </div>
   );
 }
