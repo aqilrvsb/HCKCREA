@@ -348,13 +348,12 @@ export default function OriginalVideoTab({
         <label className="block text-[10px] uppercase tracking-widest text-[var(--color-text-secondary)] font-bold mb-2">
           Provider
         </label>
-        {/* Sora 2 + Grok chips hidden per admin direction — backend
-            cascades (asset='sora2', asset='grok', asset='video' for Veo,
-            asset='gemini') all still wired so re-enable is a single
-            array edit (add "grok" / "sora2" back). Grid sized for 3
-            visible chips (Veo + Gemini + Seedance). */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 mb-4">
-          {(["veo", "gemini", "seedance"] as const).map((p) => {
+        {/* Grok chip stays hidden per admin direction — Sora 2 restored.
+            All backend cascades (asset='sora2', asset='grok', asset='video'
+            for Veo, asset='gemini', asset='cinema' for Seedance) wired and
+            ready. Grid sized for 4 visible chips. */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-4">
+          {(["veo", "sora2", "gemini", "seedance"] as const).map((p) => {
             const active = provider === p;
             const t = PROVIDER_THEME[p];
             return (
@@ -379,7 +378,13 @@ export default function OriginalVideoTab({
                 }
               >
                 {t.emoji}{" "}
-                {p === "veo" ? "Veo 3.1" : p === "gemini" ? "GeminiOmni" : "Seedance"}
+                {p === "veo"
+                  ? "Veo 3.1"
+                  : p === "sora2"
+                    ? "Sora 2"
+                    : p === "gemini"
+                      ? "GeminiOmni"
+                      : "Seedance"}
               </button>
             );
           })}

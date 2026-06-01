@@ -1065,14 +1065,9 @@ export default function AutoContentTab({ projectId }: { projectId?: string } = {
           <DurationBtn active={provider === "veo"} onClick={() => setProvider("veo")}>
             🎬 Veo 3.1
           </DurationBtn>
-          {/* Sora 2 chip hidden per admin direction — backend still wired
-              (providerChoice='grok' → model:'sora2'). Re-enable by removing
-              this `false &&` guard. */}
-          {false && (
-            <DurationBtn active={provider === "grok"} onClick={() => setProvider("grok")}>
-              ⚡ Sora 2
-            </DurationBtn>
-          )}
+          <DurationBtn active={provider === "grok"} onClick={() => setProvider("grok")}>
+            ⚡ Sora 2
+          </DurationBtn>
           {/* GeminiOmni chip hidden per admin direction — backend still
               wired (providerChoice='gemini'). Re-enable by removing the
               `false &&` guard below. Pairs with the Sora 2 hide above so

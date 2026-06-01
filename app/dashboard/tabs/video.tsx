@@ -362,11 +362,7 @@ export default function VideoTab({ projectId }: { projectId?: string } = {}) {
             through: changes the cascade asset, cost rate, available
             image modes, and duration options. */}
         <Label>Provider</Label>
-        {/* Sora 2 chip hidden per admin direction — backend still wired
-            (provider='sora2' branches intact). Re-enable by flipping the
-            grid back to `grid-cols-2` and removing the `false &&` guard
-            on the Sora 2 button below. */}
-        <div className="grid grid-cols-1 gap-2 mb-4">
+        <div className="grid grid-cols-2 gap-2 mb-4">
           <button
             type="button"
             onClick={() => setProvider("veo")}
@@ -388,29 +384,27 @@ export default function VideoTab({ projectId }: { projectId?: string } = {}) {
           >
             🎬 Veo 3.1 · 8s
           </button>
-          {false && (
-            <button
-              type="button"
-              onClick={() => setProvider("sora2")}
-              className="px-3 py-3 rounded-xl text-sm font-extrabold transition-all"
-              style={
-                provider === "sora2"
-                  ? {
-                      background: "linear-gradient(135deg, #4ade80, #16a34a)",
-                      color: "white",
-                      boxShadow: "0 4px 12px rgba(74,222,128,0.35)",
-                      border: "1px solid transparent",
-                    }
-                  : {
-                      background: "white",
-                      color: "#1a1a1a",
-                      border: "1px solid #e8e0d8",
-                    }
-              }
-            >
-              ⚡ Sora 2 · 8 / 12s
-            </button>
-          )}
+          <button
+            type="button"
+            onClick={() => setProvider("sora2")}
+            className="px-3 py-3 rounded-xl text-sm font-extrabold transition-all"
+            style={
+              provider === "sora2"
+                ? {
+                    background: "linear-gradient(135deg, #4ade80, #16a34a)",
+                    color: "white",
+                    boxShadow: "0 4px 12px rgba(74,222,128,0.35)",
+                    border: "1px solid transparent",
+                  }
+                : {
+                    background: "white",
+                    color: "#1a1a1a",
+                    border: "1px solid #e8e0d8",
+                  }
+            }
+          >
+            ⚡ Sora 2 · 8 / 12s
+          </button>
         </div>
 
         <Label>Image Mode</Label>
