@@ -765,16 +765,31 @@ export default function AdminUsage() {
                           {r.email}
                         </td>
                         <td className="px-5 py-4">
-                          <span
-                            className="px-2 py-0.5 rounded text-[10px] font-mono font-bold whitespace-nowrap"
-                            style={{
-                              background: "rgba(200,245,62,0.1)",
-                              color: "var(--color-lime)",
-                              border: "1px solid rgba(200,245,62,0.25)",
-                            }}
-                          >
-                            {r.reason}
-                          </span>
+                          <div className="flex items-center gap-1.5">
+                            <span
+                              className="px-2 py-0.5 rounded text-[10px] font-mono font-bold whitespace-nowrap"
+                              style={{
+                                background: "rgba(200,245,62,0.1)",
+                                color: "var(--color-lime)",
+                                border: "1px solid rgba(200,245,62,0.25)",
+                              }}
+                            >
+                              {r.reason}
+                            </span>
+                            {(r.metadata as any)?.mcp_caller_id && (
+                              <span
+                                className="px-1.5 py-0.5 rounded text-[9px] font-mono font-bold whitespace-nowrap"
+                                style={{
+                                  background: "rgba(6,182,212,0.12)",
+                                  color: "#06b6d4",
+                                  border: "1px solid rgba(6,182,212,0.3)",
+                                }}
+                                title={`Triggered via MCP (${(r.metadata as any).mcp_caller_id})`}
+                              >
+                                MCP
+                              </span>
+                            )}
+                          </div>
                         </td>
                         <td className="px-5 py-4 text-center">
                           <span
