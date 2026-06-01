@@ -1,6 +1,6 @@
 # Peninglab MCP — Design Spec
 
-**Goal:** Build a public npm package `@peninglab/mcp` that exposes peninglab.com's image and video generation as MCP tools. AI agents and other projects can install the package, authenticate with a private API key, and trigger any admin-configured generation model. Results come back via webhook (with long-poll fallback). Latest credit balance returned with every successful call.
+**Goal:** Build a public npm package `@peninglab/mcp` that exposes peninglab.com's image and video generation as MCP tools. AI agents and other projects can install the package, authenticate with a private API key, and trigger any admin-configured generation model. The MCP tool internally polls peninglab.com every 60s and returns the final URL synchronously to the AI agent — no webhook infrastructure required on the consumer side. Latest credit balance returned with every successful call.
 
 **Out of scope (V1):**
 - Auto Content batch generation (defer to V2 — adds multi-row + framework dispatcher complexity)
@@ -16,33 +16,44 @@
 
 ```
 [AI agent / other project]
-   │
+   │  calls MCP tool: generate_video({ model, prompt, ... })
    ▼
 [@peninglab/mcp npm package — stdio MCP server]
    │  reads PENINGLAB_API_KEY env var
    │  exposes tools: generate_image, generate_video, list_models,
    │                 get_balance, get_status
+   │
+   │  ── Step 1: submit task ──
    ▼
-HTTPS calls to peninglab.com
+HTTPS POST /api/mcp/generate/video
    │  Authorization: Bearer <PENINGLAB_API_KEY>
    ▼
 [peninglab.com Next.js routes /api/mcp/*]
    │  - validate API key against app_settings.mcp_api_key
    │  - dispatch to existing /api/generate/* infrastructure
-   │  - stamp metadata.mcp_callback_url + mcp_caller_id
+   │  - stamp metadata.mcp_caller_id
+   │  - returns { task_id, estimated_cost, balance_after_estimate }
    ▼
 [existing cascade fires]
    │  Crun → APIMart → APIPod cascade, settle.ts, B2 upload, etc.
-   ▼
-[settle.ts auto-poll OR p* callback]
-   │  on status → done: read metadata.mcp_callback_url
-   │  if present → POST { task_id, status, output_url, cost, balance } to it
-   ▼
-[caller's webhook OR caller is long-polling /api/mcp/status/:id]
+   │  (this proceeds asynchronously in the background)
    │
+   │  ── Step 2: package polls every 60s ──
+[@peninglab/mcp npm package]
+   │  GET /api/mcp/status/{task_id}  ← every 60s
+   │  GET /api/mcp/status/{task_id}  ← every 60s
+   │  GET /api/mcp/status/{task_id}  ← status: "done" + output_url
    ▼
-[AI agent receives final URL]
+[MCP tool returns to AI agent]
+   │  { url, cost, balance, model, duration }
+   ▼
+[AI agent receives final URL — synchronous from its POV]
 ```
+
+The polling loop is completely internal to the npm package. The AI agent
+sees a single synchronous-feeling tool call: `generate_video(...)` → returns
+finished URL after the wait. No webhook infrastructure, no public URL,
+nothing exotic required on the consumer side.
 
 ### Key infrastructure reuse
 
@@ -145,7 +156,7 @@ Body:
 - `prompt` required
 - `image_urls` optional (for img2img / refs)
 - `aspect_ratio` optional (default `1:1`)
-- `callback_url` optional (if absent, caller must poll `/api/mcp/status/:id`)
+No `callback_url` — caller polls `/api/mcp/status/:id` (npm package does this internally, every 60s).
 
 Response:
 ```json
@@ -157,7 +168,7 @@ Response:
 }
 ```
 
-Server flow: reuses `/api/generate/image` logic (cascade, settle, B2 upload), stamps `metadata.mcp_caller_id = <api-key-hash>` and `metadata.mcp_callback_url = <url>` on the history row.
+Server flow: reuses `/api/generate/image` logic (cascade, settle, B2 upload), stamps `metadata.mcp_caller_id = <api-key-hash>` on the history row. Credit pre-flight check fires the same as UI calls — returns 402 if balance insufficient.
 
 ### 3.4 `POST /api/mcp/generate/video`
 Same shape as image but for video.
@@ -170,8 +181,7 @@ Body:
   "image_urls": ["https://..."],
   "image_mode": "text",
   "duration": 5,
-  "aspect_ratio": "16:9",
-  "callback_url": "https://my-project.com/peninglab-webhook"
+  "aspect_ratio": "16:9"
 }
 ```
 
@@ -181,10 +191,10 @@ Body:
 
 Response: same shape as image.
 
-Server flow: dispatches to existing `/api/generate/cinema` logic with model-routed cascade.
+Server flow: dispatches to existing `/api/generate/cinema` logic with model-routed cascade. Pre-flight credit check fires the same as UI calls. Final deduction happens on settle (when status flips to done) via the existing `deduct()` helper.
 
 ### 3.5 `GET /api/mcp/status/:task_id`
-Returns current status of a task. Use this if caller didn't provide `callback_url` OR webhook delivery failed.
+Returns current status of a task. **This is the primary mechanism** — the npm package polls this every 60s until status is `done` or `failed`. Lightweight DB read; safe to hammer.
 
 Response (still pending):
 ```json
@@ -234,33 +244,18 @@ Response:
 
 ---
 
-## 4. Webhook firing (settle.ts patch)
+## 4. settle.ts — NO changes needed
 
-In `lib/settle.ts`, after a row settles to `done` (or `failed`), check for `metadata.mcp_callback_url`. If present, fire a webhook:
+Because the MCP uses polling instead of webhooks, `lib/settle.ts` is untouched. The existing settle flow already:
+1. Polls the upstream provider task
+2. Updates `history.status` to `done`/`failed`
+3. Sets `history.output_url`
+4. Deducts credits via `deduct()`
+5. Auto-rehosts to Backblaze B2
 
-```ts
-// Pseudocode added near the end of settleHistoryRow on done branch
-if (meta.mcp_callback_url && typeof meta.mcp_callback_url === "string") {
-  void fireMcpCallback(meta.mcp_callback_url, {
-    task_id: hist.id,
-    status: "done",
-    output_url: hist.output_url,
-    cost: chargeAmount,
-    balance: <refreshed from profiles>,
-    duration_sec: hist.duration,
-    model: hist.metadata?.model,
-  });
-}
-```
+The MCP npm package just calls `/api/mcp/status/:task_id` every 60s, which reads the current `history` row state. Whatever settle.ts has written by that point is what the caller gets.
 
-Same fire on `failed` branch.
-
-**Retry strategy:**
-- Initial fire with 5-second timeout
-- On non-2xx OR timeout: retry after 30s, then 5min, then 30min, then give up
-- Track attempts in `metadata.mcp_callback_attempts`
-
-**Signing:** Include `X-Peninglab-Signature: hmac-sha256(api_key, body)` header so caller can verify webhook authenticity.
+**Why no patch:** simpler code surface, no webhook delivery failures, no HMAC signing complexity, no retry backoff state. The existing async cron + event-driven settle path already does everything we need — the MCP just observes.
 
 ---
 
@@ -314,7 +309,7 @@ Each tool follows the standard MCP shape: name, description, inputSchema (JSON S
 ```typescript
 {
   name: "generate_image",
-  description: "Generate an image via peninglab.com. Returns task_id; result delivered via webhook OR via get_status polling.",
+  description: "Generate an image via peninglab.com. Waits for completion and returns the final URL synchronously (internally polls every 60s, up to 10 min).",
   inputSchema: {
     type: "object",
     required: ["model", "prompt"],
@@ -322,35 +317,75 @@ Each tool follows the standard MCP shape: name, description, inputSchema (JSON S
       model: { type: "string", description: "Model name from list_models" },
       prompt: { type: "string", description: "Image generation prompt" },
       image_urls: { type: "array", items: { type: "string" }, description: "Optional reference images for img2img" },
-      aspect_ratio: { type: "string", enum: ["1:1", "9:16", "16:9", "2:3", "3:2"], default: "1:1" },
-      callback_url: { type: "string", description: "Optional webhook URL — server pings this when done. If omitted, use get_status to poll." }
+      aspect_ratio: { type: "string", enum: ["1:1", "9:16", "16:9", "2:3", "3:2"], default: "1:1" }
     }
   }
 }
 ```
 
-**`generate_video`:** same shape + `image_mode`, `duration`.
+Output (returned synchronously after polling):
+```typescript
+{
+  url: string,        // final B2 URL
+  cost: number,       // RM charged
+  balance: number,    // remaining credits after deduct
+  model: string,
+  task_id: string     // for reference / debug
+}
+```
 
-**`list_models`:** no input.
+**`generate_video`:** same shape + `image_mode`, `duration`. Same wait-for-completion semantics.
 
-**`get_balance`:** no input.
+**`list_models`:** no input. Returns array of `{ name, type, rate, unit }`.
 
-**`get_status`:** input `task_id`.
+**`get_balance`:** no input. Returns `{ balance, plan }`.
 
-### 6.3 Long-poll fallback
+**`get_status`:** input `task_id`. For manual lookup of a task the package already submitted (rare — usually unneeded since generate_* waits internally).
 
-If caller doesn't provide `callback_url`, the MCP tool internally polls `/api/mcp/status/:id` every 5 seconds for up to 5 minutes, then returns whatever state it found. This makes the tool feel synchronous to the AI agent ("call → wait → get URL").
+### 6.3 Internal polling loop (the primary pattern)
 
-For longer-running jobs (Gemini 10s video can take 2+ min, Seedance 1-min video can take 5+ min), the long-poll might time out. Document this clearly — recommend webhook for production.
+When the AI agent calls `generate_image` or `generate_video`:
+
+1. Package calls `POST /api/mcp/generate/*` → receives `task_id`
+2. Package starts polling `GET /api/mcp/status/:task_id` every **60 seconds**
+3. When `status === "done"` → return `{ url, cost, balance, ... }` to AI agent
+4. When `status === "failed"` → throw MCP error with reason
+5. **Max wait: 10 minutes** (configurable via `PENINGLAB_MAX_WAIT_SEC` env var). If exceeded, throws "Task still pending after 10 min; check manually with get_status(task_id)" so the AI agent can decide what to do.
+
+The 60s interval is the balance:
+- **Long jobs (Seedance 1-min video, ~5 min inference)**: ~5 polls. Cheap.
+- **Short jobs (image gen, ~20s inference)**: 1 poll catches it. Lightly stale (up to 60s wait past completion) but fine.
+
+For latency-sensitive callers, the env var `PENINGLAB_POLL_INTERVAL_SEC` can drop the interval (e.g. 15s for snappier UX on image gen).
+
+**Tool call timeout caveat:** Claude Code / Cursor / other MCP clients typically allow long tool execution times (no hard limit in the MCP spec itself). If a specific client has a 5-min tool timeout, the AI agent can simply re-call `get_status(task_id)` to check the same task — it persists on the server.
 
 ---
 
-## 7. Cost & deduction
+## 7. Cost & deduction (charged the SAME as UI calls)
 
-- MCP calls deduct from the same `profiles.credits` table the UI uses
-- All MCP rows are tagged `metadata.mcp_caller_id = <hashed-key>` for admin audit
-- Admin usage table gains a new column or filter: "MCP" vs "UI" source
-- Pre-flight credit check on every MCP call: return 402 with `{ error: "Insufficient credits", balance: <current> }` if not enough
+**Critical guarantee:** MCP-triggered generations charge the user's account **exactly the same way** UI-triggered generations do. No free rides for the MCP. The flow:
+
+1. **Pre-flight check** (in `/api/mcp/generate/*` before submitting): call `priceFor(user.id, reason, modelHint)` to compute cost. If `profiles.credits < cost`, return HTTP 402 immediately with `{ error: "Insufficient credits", balance: <current>, needed: <cost> }`. The AI agent sees this as a tool error and can react.
+
+2. **Insert history row** with the calculated cost and `status: "pending"`. Same row shape as UI calls — same `tab`, `type`, `metadata.model`, etc.
+
+3. **Cascade fires** through existing infrastructure (`generateVideoWithCascade` / `generateImageWithCascade`). No new code path.
+
+4. **Settle path** (existing `lib/settle.ts`) runs on success and calls `deduct(user.id, reason, amount, history.id)` exactly the same as UI calls. Credit deducted, balance updated, ledger row written.
+
+5. **MCP polling endpoint** (`/api/mcp/status/:id`) reads the now-updated `profiles.credits` and returns the fresh balance to the caller alongside the output URL.
+
+**Audit & visibility:**
+- All MCP rows tagged `metadata.mcp_caller_id = <hashed-key>` so admin can filter in `/admin/usage`
+- Same row appears in admin's per-model breakdown tile (Veo Videos / Seedance / etc.) — counted exactly like UI rows
+- New "Source" badge in `/admin/usage` detail log: `UI` (default) vs `MCP` (when `metadata.mcp_caller_id` present)
+
+**What this guarantees:**
+- Running a generation via MCP costs the same RM as the same generation via UI
+- Admin sees real spend in usage analytics
+- No way to bypass billing by routing through MCP
+- Balance returned with every MCP response always reflects the true ledger state
 
 ---
 
@@ -369,13 +404,13 @@ For longer-running jobs (Gemini 10s video can take 2+ min, Seedance 1-min video 
 | Requirement | How it works |
 |---|---|
 | Single hidden API key | `app_settings.mcp_api_key` (one row, bcrypt hashed) |
-| Webhook callback delivery | settle.ts fires after row done, with retry + HMAC signing |
-| Long-poll fallback | npm package polls `/api/mcp/status/:id` if no callback_url given |
+| Synchronous wait for result | npm package polls `/api/mcp/status/:task_id` every 60s; returns to AI agent when status flips to done |
+| Credits charged the same as UI | Pre-flight `priceFor` + `hasEnoughCredits` checks + settle path deducts via `deduct()` — identical to UI flow |
 | All admin-configured models accessible | `/api/mcp/models` reads existing rate settings; backend dispatches via existing cascade |
 | Cascade fallback works transparently | Reuses existing settle.ts auto-retry — no new logic |
-| Balance returned with every result | Settle.ts re-reads `profiles.credits` after deduct, includes in webhook payload + `/api/mcp/status` response |
-| Failure handling | Cascade exhaust → row fails → webhook fires with `status: "failed"` + error message |
-| Audit trail | All MCP rows tagged `metadata.mcp_caller_id`, visible in admin/usage |
+| Balance returned with every result | `/api/mcp/status` reads fresh `profiles.credits` and returns it alongside output_url |
+| Failure handling | Cascade exhaust → row fails → status endpoint returns `status: "failed"` + error_message |
+| Audit trail | All MCP rows tagged `metadata.mcp_caller_id`, visible in admin/usage with `MCP` source badge |
 
 ---
 
@@ -383,12 +418,12 @@ For longer-running jobs (Gemini 10s video can take 2+ min, Seedance 1-min video 
 
 | Risk | Severity | Mitigation |
 |---|---|---|
-| Webhook delivery fails (caller's server down) | Medium | 4-retry exponential backoff; caller can still poll `/api/mcp/status/:id` |
-| API key leaked → drains credits | High | Rate limit per key; admin can regenerate; alert email on >RM 50 spent in 1 hour |
-| Long-poll times out on slow video gen | Low | Document recommendation: use webhook for video >1 min |
-| Vercel 300s function timeout on long-poll | Medium | Cap long-poll at 270s (Vercel limit is 300s), return `status: "still_pending"` with `task_id` so caller can retry |
-| Caller spams `/api/mcp/generate/*` without checking balance | Medium | Pre-flight check returns 402 immediately if balance insufficient |
+| API key leaked → drains credits | High | Rate limit per key (60 req/min); admin can regenerate; alert email on >RM 50 spent in 1 hour |
+| MCP polling exceeds AI agent's tool execution timeout (5-10 min depending on client) | Medium | AI agent can re-call `get_status(task_id)` for the same task — server keeps state. Document in package README. |
+| Caller spams `/api/mcp/generate/*` without checking balance | Medium | Pre-flight `priceFor` + `hasEnoughCredits` returns 402 immediately if balance insufficient |
 | Model name typo by caller | Low | Validate against `/api/mcp/models` list, return 400 with valid model list |
+| Status endpoint hammered (polls every 60s × N concurrent jobs) | Low | Single Supabase row read per call; negligible. Vercel function rate limits are fine at this scale. |
+| Cascade fails completely → row sits `failed` forever | Low | Existing settle.ts auto-resubmit handles this; if all retries exhaust, status endpoint returns `failed` with the error message and AI agent surfaces it. |
 
 ---
 
