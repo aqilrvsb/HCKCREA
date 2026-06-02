@@ -50,6 +50,7 @@ export async function GET(
   const balance = Number(profile?.credits ?? 0);
 
   if (row.status === "done") {
+    const meta = (row.metadata as any) || {};
     return NextResponse.json({
       ok: true,
       status: "done",
@@ -58,7 +59,16 @@ export async function GET(
       cost: Number(row.cost ?? 0),
       balance,
       duration_sec: row.duration,
-      model: (row.metadata as any)?.model ?? null,
+      model: meta.model ?? null,
+      // Routing info — which cascade slot/provider actually fulfilled
+      // this generation. Slot is the routing tier (p2-a, p5, p6-c, etc.)
+      // chosen by the admin-configured round-robin cascade. Provider is
+      // the upstream vendor (crun, apipod, bytedance, etc.). key_index
+      // is set when slot is a p6 multi-key family.
+      slot: meta.slot ?? null,
+      provider: meta.provider ?? null,
+      key_index: meta.p6_key_index ?? null,
+      fallback_used: meta.fallback_used ?? null,
       created_at: row.created_at,
     });
   }
