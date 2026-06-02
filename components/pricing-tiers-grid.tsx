@@ -138,8 +138,16 @@ export default function PricingTiersGrid({
                   /{cfg.days} hari
                 </span>
               </div>
-              <div className="mt-1 text-sm font-semibold" style={{ color: accent.badgeText }}>
-                + RM{cfg.credits} credits
+              <div
+                className="mt-1 text-sm font-semibold"
+                style={{
+                  // accent.badgeText is tuned for INSIDE the amber chip
+                  // (black on Pro). This line sits OUTSIDE the chip on the
+                  // card's dark background — needs a bright color instead.
+                  color: accent.highlight ? "#fbbf24" : "var(--color-orange)",
+                }}
+              >
+                + {cfg.credits} credits
               </div>
             </div>
 
