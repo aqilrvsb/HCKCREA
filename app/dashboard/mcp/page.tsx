@@ -24,7 +24,7 @@ export default async function McpSettingsPage() {
         </div>
         <h1 className="font-display font-bold text-3xl mb-2">MCP API Keys</h1>
         <p className="text-sm text-[var(--color-text-secondary)] mb-8 max-w-2xl">
-          Mint API keys for the <code>@aqilaz/mcp</code> npm package so AI agents
+          Mint API keys for the <code>peninglab-mcp</code> npm package so AI agents
           (Claude Desktop, Cursor, Claude Code, etc.) can generate images and
           videos on peninglab.com on your behalf. Each key bills <strong>your</strong>{" "}
           credit balance. Generate a separate key per project so you can revoke

@@ -171,7 +171,7 @@ export default function McpKeysCard({ email }: { email: string }) {
         <p className="text-[11px] text-[var(--color-text-muted)] mt-2">
           Keys are bcrypt-hashed on the server and not recoverable if lost.
           Paste the plaintext into your MCP client&apos;s config (see docs at
-          <code className="mx-1">@aqilaz/mcp</code>).
+          <code className="mx-1">peninglab-mcp</code>).
         </p>
       </div>
 
