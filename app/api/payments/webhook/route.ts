@@ -523,12 +523,11 @@ async function applySubscription(admin: any, payment: any) {
     .eq("id", userId)
     .single();
 
+  // 4-tier policy: every purchase resets the cycle to a fresh 30 days
+  // from now. Users knowingly forfeit remaining days when buying again.
+  // Credits still ADD to the existing balance (see nextCredits below).
   const now = new Date();
-  const currentExpiry = profile?.plan_expires_at
-    ? new Date(profile.plan_expires_at)
-    : null;
-  const base = currentExpiry && currentExpiry > now ? currentExpiry : now;
-  const newExpiry = new Date(base.getTime() + days * 24 * 60 * 60 * 1000);
+  const newExpiry = new Date(now.getTime() + days * 24 * 60 * 60 * 1000);
 
   const currentCredits = Number(profile?.credits || 0);
   const nextCredits = currentCredits + credits;
