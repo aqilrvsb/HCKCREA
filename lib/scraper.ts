@@ -91,6 +91,20 @@ function isShopeeUrl(url: string): boolean {
   return SHOPEE_HOSTS.some((t) => h === t || h.endsWith("." + t));
 }
 
+// Pull the trailing numeric item_id out of any Shopee PDP URL shape:
+//   .../product/{shopId}/{itemId}                     ← new short form
+//   .../product/{slug}-i.{shopId}.{itemId}            ← legacy SEO form
+// The Chrome extension uses the item_id as product_id when caching,
+// so this extractor lets the server-side fetch reuse those rows
+// instead of always going to Crawlbase (which often fails for Shopee).
+function extractShopeeProductId(url: string): string | null {
+  let m = url.match(/\/product\/\d+\/(\d+)/);
+  if (m) return m[1];
+  m = url.match(/-i\.\d+\.(\d+)/);
+  if (m) return m[1];
+  return null;
+}
+
 // Pull the long numeric product_id out of any TikTok Shop PDP URL shape:
 //   .../shop/my/pdp/{slug}/1729703709970891793?…
 //   .../view/product/1729493620818874839
@@ -679,6 +693,23 @@ export async function scrapeAffiliateUrl(rawUrl: string): Promise<ScrapedProduct
     return scrapeTikTokWithRetry(rawUrl);
   }
   if (isShopeeUrl(rawUrl)) {
+    // 1. Try cache first — extension scrapes write to
+    //    tiktok_product_cache with item_id as product_id. Serving from
+    //    cache is the only path that actually works for Shopee
+    //    Malaysia: Crawlbase frequently fails for shopee.com.my due to
+    //    region/anti-bot blocks, so without this short-circuit users
+    //    see "Scrape returned no product data" even when the extension
+    //    successfully cached the product.
+    const productId = extractShopeeProductId(rawUrl);
+    if (productId) {
+      const cached = await readCache(productId);
+      if (cached) {
+        bumpCacheUseCount(productId).catch(() => {});
+        return cached;
+      }
+    }
+    // 2. Cache miss — fall through to live Crawlbase scrape. Tell the
+    //    user to use the extension via the route layer's error message.
     return scrapeViaCrawlbase(rawUrl);
   }
   return errResult(
