@@ -10,20 +10,37 @@ import {
   getSetting,
 } from "@/lib/settings";
 
-// GET /api/mcp/models — list every generation model the admin has
-// configured a rate for. Includes per-model rate + unit so callers
-// can compute cost ahead of generate.
-//
-// Read-only and cheap (cached settings).
+// GET /api/mcp/models — list every generation model with its rate +
+// machine-readable constraints (duration, image_urls limits, supported
+// modes/aspect-ratios/resolutions). AI agents should call this FIRST
+// and validate generate_* inputs against the constraints object.
 
 export const dynamic = "force-dynamic";
+
+type DurationRule =
+  | { fixed: number }
+  | { enum: number[] }
+  | { min: number; max: number; default: number };
+
+type ModelConstraints = {
+  duration?: DurationRule;
+  image_urls?: { max: number };
+  image_modes?: ("text" | "frame" | "ingredient")[];
+  aspect_ratios?: string[];
+  resolutions?: string[];
+};
 
 type ModelEntry = {
   name: string;
   type: "image" | "video";
   rate: number;
   unit: "per_image" | "per_second" | "per_video_8s" | "per_video_10s";
+  constraints: ModelConstraints;
 };
+
+const IMAGE_ASPECTS = ["1:1", "9:16", "16:9", "2:3", "3:2"];
+const VIDEO_ASPECTS = ["9:16", "16:9", "1:1"];
+const VIDEO_MODES: ("text" | "frame" | "ingredient")[] = ["text", "frame", "ingredient"];
 
 export async function GET(req: Request) {
   const auth = await validateMcpKey(req);
@@ -45,13 +62,70 @@ export async function GET(req: Request) {
   ]);
 
   const models: ModelEntry[] = [
-    { name: "nano-banana-pro", type: "image", rate: bananaPro, unit: "per_image" },
-    { name: "gpt-image-2",     type: "image", rate: gptImage,  unit: "per_image" },
-    { name: "veo",             type: "video", rate: veo,       unit: "per_video_8s" },
-    { name: "grok",            type: "video", rate: grok,      unit: "per_second" },
-    { name: "sora2",           type: "video", rate: sora2,     unit: "per_second" },
-    { name: "gemini",          type: "video", rate: gemini,    unit: "per_video_10s" },
-    { name: "seedance",        type: "video", rate: seedance,  unit: "per_second" },
+    {
+      name: "nano-banana-pro", type: "image", rate: bananaPro, unit: "per_image",
+      constraints: {
+        image_urls: { max: 4 },
+        aspect_ratios: IMAGE_ASPECTS,
+      },
+    },
+    {
+      name: "gpt-image-2", type: "image", rate: gptImage, unit: "per_image",
+      constraints: {
+        image_urls: { max: 4 },
+        aspect_ratios: IMAGE_ASPECTS,
+      },
+    },
+    {
+      name: "veo", type: "video", rate: veo, unit: "per_video_8s",
+      constraints: {
+        duration: { fixed: 8 },
+        image_urls: { max: 3 },
+        image_modes: VIDEO_MODES,
+        aspect_ratios: VIDEO_ASPECTS,
+        resolutions: ["720p"],
+      },
+    },
+    {
+      name: "grok", type: "video", rate: grok, unit: "per_second",
+      constraints: {
+        duration: { min: 6, max: 30, default: 6 },
+        image_urls: { max: 3 },
+        image_modes: ["text", "frame"],
+        aspect_ratios: VIDEO_ASPECTS,
+        resolutions: ["720p", "480p"],
+      },
+    },
+    {
+      name: "sora2", type: "video", rate: sora2, unit: "per_second",
+      constraints: {
+        duration: { enum: [8, 12] },
+        image_urls: { max: 1 },
+        image_modes: ["text", "frame"],
+        aspect_ratios: VIDEO_ASPECTS,
+        resolutions: ["720p", "480p"],
+      },
+    },
+    {
+      name: "gemini", type: "video", rate: gemini, unit: "per_video_10s",
+      constraints: {
+        duration: { fixed: 10 },
+        image_urls: { max: 3 },
+        image_modes: VIDEO_MODES,
+        aspect_ratios: VIDEO_ASPECTS,
+        resolutions: ["1080p"],
+      },
+    },
+    {
+      name: "seedance", type: "video", rate: seedance, unit: "per_second",
+      constraints: {
+        duration: { min: 4, max: 15, default: 5 },
+        image_urls: { max: 5 },
+        image_modes: VIDEO_MODES,
+        aspect_ratios: VIDEO_ASPECTS,
+        resolutions: ["720p", "480p"],
+      },
+    },
   ];
 
   return NextResponse.json({ ok: true, models });
