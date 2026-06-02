@@ -592,7 +592,6 @@ export default function Sidebar({
           [
             { kind: "attachments" as const, label: "Attachments", Icon: ImageIcon },
             { kind: "billing" as const, label: "Billing", Icon: CreditCard },
-            { kind: "credit" as const, label: "Top Up Credit", Icon: Wallet },
             { kind: "affiliate" as const, label: "Affiliate", Icon: Users },
             { kind: "usage" as const, label: "Usage", Icon: Activity },
             // Saved Prompts hidden — per-tab agents now persist their
@@ -714,7 +713,7 @@ export default function Sidebar({
             {credits.toFixed(2)}
           </div>
           <button
-            onClick={() => onViewChange({ kind: "credit" })}
+            onClick={() => onViewChange({ kind: "billing" })}
             className="mt-2 w-full py-2 rounded-lg text-xs font-extrabold transition-transform hover:scale-[1.02]"
             style={{
               background:
@@ -723,7 +722,7 @@ export default function Sidebar({
               boxShadow: "0 4px 14px rgba(250,204,21,0.3)",
             }}
           >
-            + Top Up
+            Subscribe
           </button>
         </div>
 
