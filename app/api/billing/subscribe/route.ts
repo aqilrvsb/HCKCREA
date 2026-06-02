@@ -2,27 +2,11 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createChipPurchase } from "@/lib/chip";
+import { isPlanKey, loadPlan } from "@/lib/plans";
 
-// Single Pro Plan subscribe flow. Reads price/days/credits from
-// app_settings.plan_pro so admin can tune in /admin without a redeploy.
-// The legacy starter/growth/empire keys are gone — billing.tsx renders
-// only Pro Plan and submits plan="pro".
-const PRO_DEFAULTS = { price: 75, days: 30, credits: 0, label: "Pro Plan" };
-
-async function loadProPlan(admin: ReturnType<typeof createAdminClient>) {
-  const { data } = await admin
-    .from("app_settings")
-    .select("value")
-    .eq("key", "plan_pro")
-    .maybeSingle();
-  const v = (data?.value as any) || {};
-  return {
-    price: Number(v.price ?? PRO_DEFAULTS.price),
-    days: Number(v.days ?? PRO_DEFAULTS.days),
-    credits: Number(v.credits ?? PRO_DEFAULTS.credits),
-    label: String(v.label ?? PRO_DEFAULTS.label),
-  };
-}
+// 4-tier subscribe flow. Reads price/days/credits/label from
+// app_settings.plan_<key> via loadPlan() so admin can tune any tier
+// in /admin/settings without a redeploy.
 
 export async function POST(req: Request) {
   try {
@@ -33,16 +17,17 @@ export async function POST(req: Request) {
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
     const body = await req.json().catch(() => ({}));
-    const plan = String(body?.plan || "pro").toLowerCase();
-    if (plan !== "pro") {
+    const planRaw = String(body?.plan || "").toLowerCase();
+    if (!isPlanKey(planRaw)) {
       return NextResponse.json(
-        { error: "Only the Pro Plan is available" },
+        { error: "Invalid plan. Expected one of: starter, standard, pro, premium" },
         { status: 400 }
       );
     }
+    const plan = planRaw;
 
     const admin = createAdminClient();
-    const cfg = await loadProPlan(admin);
+    const cfg = await loadPlan(admin, plan);
 
     const { data: profile } = await admin
       .from("profiles")
@@ -63,18 +48,18 @@ export async function POST(req: Request) {
     const referredByCode = refProfile?.referred_by || null;
 
     // Create payment record in pending state. Webhook will flip to paid +
-    // call applySubscription which extends plan_expires_at by `days`.
+    // call applySubscription which sets plan_expires_at = now + days.
     const { data: payment, error: payErr } = await admin
       .from("payments")
       .insert({
         user_id: user.id,
         type: "subscription",
-        plan: "pro",
+        plan,
         amount: cfg.price,
         currency: "MYR",
         status: "pending",
         metadata: {
-          plan: "pro",
+          plan,
           credits: cfg.credits,
           days: cfg.days,
           label: cfg.label,
@@ -97,14 +82,14 @@ export async function POST(req: Request) {
     const purchase = await createChipPurchase({
       email: user.email!,
       fullName,
-      productName: `PeningLab ${cfg.label} — ${cfg.days} days`,
+      productName: `PeningLab ${cfg.label} Plan — ${cfg.days} days`,
       amountMYR: cfg.price,
       reference: `SUB-${payment.id.substring(0, 8)}`,
       metadata: {
         type: "subscription",
         user_id: user.id,
         payment_id: payment.id,
-        plan: "pro",
+        plan,
         credits: cfg.credits,
         days: cfg.days,
       },
