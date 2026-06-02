@@ -93,7 +93,7 @@ const FAQ = [
   },
   {
     q: "Berapa cepat saya boleh dapat video pertama?",
-    a: "3 minit. Subscribe Pro Plan, top-up kredit ikut kadar (image 20 sen, video 40 sen), terus generate. Tak ada minimum top-up.",
+    a: "3 minit. Pilih tier (Starter/Standard/Pro/Premium), dapat kredit RM serta-merta, terus generate. Image 20 sen, video 40 sen — auto-deduct setiap generate.",
   },
   {
     q: "Bahasa Melayu betul ke? Bukan Indonesia?",
@@ -147,7 +147,7 @@ export default function Home() {
         <div className="mx-auto max-w-7xl px-6 py-2 flex items-center justify-center gap-2 text-xs sm:text-sm font-semibold text-center">
           <Flame className="w-3.5 h-3.5 animate-pulse flex-shrink-0" style={{ color: "#ea580c" }} />
           <span>
-            <strong>Promo RM75/bulan</strong> ditutup dalam{" "}
+            <strong>Promo bermula RM35/bulan</strong> ditutup dalam{" "}
             <Countdown inline />. Tinggal{" "}
             <strong>13 slot</strong> dari 80 — 67 seller dah claim hari ni.
           </span>
@@ -450,7 +450,7 @@ export default function Home() {
                 Termurah <span style={{ color: "var(--color-lime)" }}>di planet ni</span>
               </h3>
               <p className="text-sm text-[var(--color-text-secondary)] leading-relaxed">
-                RM75/bulan untuk akses penuh. Kompetitor charge RM500+. Maths senang — ROI dalam 1 video viral.
+                Bermula RM35/bulan untuk akses penuh — 4 tier ikut bajet. Kompetitor charge RM500+. Maths senang — ROI dalam 1 video viral.
               </p>
             </div>
           </div>
