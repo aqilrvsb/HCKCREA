@@ -2,16 +2,18 @@
 
 import { useEffect, useState } from "react";
 import {
-  CheckCircle2,
   Sparkles,
   ArrowRight,
   Calendar,
   ShieldCheck,
   Loader2,
   Receipt,
+  CheckCircle2,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import CheckStatusButton from "./check-status-button";
+import PricingTiersGrid from "@/components/pricing-tiers-grid";
+import { PLAN_DEFAULTS, isPlanKey, type PlanKey } from "@/lib/plans";
 
 type Payment = {
   id: string;
@@ -25,35 +27,12 @@ type Payment = {
   created_at: string;
 };
 
-// Single-plan SaaS — Pro Plan only. Pricing + features mirror the landing
-// page hero so the dashboard subscribe flow stays consistent. RM75 promo
-// price vs RM300 markup, monthly recurring.
-const PRO_PLAN = {
-  key: "pro",
-  name: "Pro Plan",
-  price: 75,
-  markup: 300,
-  period: "/bulan",
-  features: [
-    "Image AI — 20 sen",
-    "Video AI — 40 sen",
-    "Unlimited Generate",
-    "Access Prompt Library",
-    "Access Image Studio",
-    "Access Video Studio",
-    "Access Auto Content",
-    "Access Clone Video",
-    "Access Story Telling",
-    "Access Group VIP",
-  ],
-};
-
 export default function BillingSection() {
   const [currentPlan, setCurrentPlan] = useState<string>("free");
-  const [renewalDate, setRenewalDate] = useState<string>("—");
   const [renewalRaw, setRenewalRaw] = useState<string | null>(null);
+  const [renewalDate, setRenewalDate] = useState<string>("—");
   const [payments, setPayments] = useState<Payment[]>([]);
-  const [loadingSub, setLoadingSub] = useState(false);
+  const [loading, setLoading] = useState<PlanKey | null>(null);
 
   useEffect(() => {
     void loadProfile();
@@ -106,49 +85,60 @@ export default function BillingSection() {
     setPayments((data as Payment[]) || []);
   }
 
-  async function startSubscribe() {
-    setLoadingSub(true);
+  async function handleSelect(plan: PlanKey) {
+    setLoading(plan);
     try {
       const res = await fetch("/api/billing/subscribe", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ plan: PRO_PLAN.key }),
+        body: JSON.stringify({ plan }),
       });
       const data = await res.json();
       if (data?.checkout_url) {
         window.location.href = data.checkout_url;
       } else {
         alert(data?.error || "Failed to start subscription");
-        setLoadingSub(false);
+        setLoading(null);
       }
     } catch (e: any) {
       alert(e?.message || "Network error");
-      setLoadingSub(false);
+      setLoading(null);
     }
   }
 
-  const isPro = currentPlan === "pro";
-  const expired = renewalRaw ? new Date(renewalRaw) < new Date() : false;
-  const isActive = isPro && !expired;
+  const planActive =
+    isPlanKey(currentPlan) &&
+    !!renewalRaw &&
+    new Date(renewalRaw) > new Date();
+  const planLabel = isPlanKey(currentPlan)
+    ? PLAN_DEFAULTS[currentPlan].label
+    : "Free";
 
   return (
-    <div className="space-y-6">
-      {/* Hero — current plan summary */}
-      {isActive ? (
-        <ActivePlanHero name={PRO_PLAN.name} renewalDate={renewalDate} />
+    <div className="space-y-8">
+      {/* Status hero — current plan summary OR no-plan CTA */}
+      {planActive ? (
+        <ActivePlanHero name={planLabel} renewalDate={renewalDate} />
       ) : (
         <NoPlanHero
-          expired={expired}
+          expired={!!renewalRaw && new Date(renewalRaw) < new Date()}
           renewalDate={renewalDate}
-          onSubscribe={startSubscribe}
-          loading={loadingSub}
         />
       )}
 
-      {/* Pro Plan card — shown unless user is already on Pro & active */}
-      {!isActive && (
-        <ProPlanCard onSubscribe={startSubscribe} loading={loadingSub} />
-      )}
+      {/* Pricing grid — 4 tiers */}
+      <div>
+        <h3 className="font-display font-extrabold text-2xl tracking-tight mb-5">
+          Choose your plan
+        </h3>
+        <PricingTiersGrid
+          mode="dashboard"
+          currentPlan={currentPlan}
+          currentExpiry={renewalRaw}
+          loading={loading}
+          onSelect={handleSelect}
+        />
+      </div>
 
       {/* Payment history */}
       <div>
@@ -191,7 +181,11 @@ export default function BillingSection() {
                   </span>
                   <span className="flex-1 text-sm font-semibold">
                     {p.type === "subscription"
-                      ? `Pro Plan ${p.plan ? `· ${p.plan.toUpperCase()}` : ""}`
+                      ? `${
+                          isPlanKey(p.plan ?? "")
+                            ? PLAN_DEFAULTS[p.plan as PlanKey].label
+                            : (p.plan || "Plan").toUpperCase()
+                        } Plan`
                       : `Top up ${p.credits ?? 0} credits`}
                   </span>
                   <span className="w-24 text-sm font-bold">
@@ -261,12 +255,9 @@ function ActivePlanHero({
           <h2 className="font-display font-extrabold text-5xl md:text-6xl tracking-tight text-white mb-3">
             {name}
           </h2>
-          <p className="text-white/80 text-lg mb-6">
+          <p className="text-white/80 text-lg">
             Active subscription · Renews {renewalDate}
           </p>
-          <button className="inline-flex items-center gap-2 px-6 py-3 rounded-full bg-white/10 border border-white/20 text-white font-semibold text-sm hover:bg-white/15 transition backdrop-blur-md">
-            Cancel subscription
-          </button>
         </div>
 
         <div className="grid grid-cols-2 gap-3">
@@ -290,18 +281,6 @@ function ActivePlanHero({
               <span className="text-white font-semibold text-sm">Active</span>
             </div>
           </div>
-          <div className="rounded-2xl p-5 bg-white/10 border border-white/15 backdrop-blur-md col-span-2">
-            <div className="text-xs uppercase tracking-wider text-white/60 font-bold mb-1.5">
-              Rates
-            </div>
-            <div className="flex items-baseline gap-3 text-white">
-              <span className="font-display font-extrabold text-2xl">RM 0.20</span>
-              <span className="text-sm text-white/70">image</span>
-              <span className="text-white/40">·</span>
-              <span className="font-display font-extrabold text-2xl">RM 0.40</span>
-              <span className="text-sm text-white/70">video 8s</span>
-            </div>
-          </div>
         </div>
       </div>
     </div>
@@ -311,13 +290,9 @@ function ActivePlanHero({
 function NoPlanHero({
   expired,
   renewalDate,
-  onSubscribe,
-  loading,
 }: {
   expired: boolean;
   renewalDate: string;
-  onSubscribe: () => void;
-  loading: boolean;
 }) {
   return (
     <div
@@ -345,165 +320,12 @@ function NoPlanHero({
           {expired ? "Expired" : "No active plan"}
         </div>
         <h2 className="font-display font-extrabold text-4xl md:text-5xl tracking-tight text-white mb-3">
-          {expired ? "Subscription expired" : "Subscribe Pro Plan"}
+          {expired ? "Subscription expired" : "Pick a plan to start"}
         </h2>
-        <p className="text-white/70 text-base mb-6 max-w-xl">
+        <p className="text-white/70 text-base max-w-xl">
           {expired
-            ? `Subscription habis tempoh pada ${renewalDate}. Renew untuk continue generating tanpa limit.`
-            : "Akses penuh — Image AI, Video AI, Auto Content, Clone Video. Unlimited generate. Tukar bila-bila, pro-rated billing."}
-        </p>
-        <button
-          onClick={onSubscribe}
-          disabled={loading}
-          className="inline-flex items-center gap-2 px-6 py-3 rounded-full font-extrabold text-sm transition-transform hover:-translate-y-0.5 disabled:opacity-60"
-          style={{
-            background: "linear-gradient(90deg, #facc15 0%, #eab308 100%)",
-            color: "#000",
-            boxShadow: "0 8px 24px rgba(250,204,21,0.35)",
-          }}
-        >
-          {loading ? (
-            <>
-              <Loader2 className="w-4 h-4 animate-spin" />
-              Redirecting…
-            </>
-          ) : (
-            <>
-              {expired ? "Renew now" : "Subscribe RM75/bulan"}
-              <ArrowRight className="w-4 h-4" />
-            </>
-          )}
-        </button>
-      </div>
-    </div>
-  );
-}
-
-// ── Single Pro Plan card ──────────────────────────────────────────────────
-function ProPlanCard({
-  onSubscribe,
-  loading,
-}: {
-  onSubscribe: () => void;
-  loading: boolean;
-}) {
-  return (
-    <div className="max-w-2xl mx-auto relative pt-6">
-      <div
-        className="absolute top-0 left-1/2 -translate-x-1/2 z-10 px-5 py-2 rounded-full text-[11px] font-bold uppercase tracking-widest text-black shadow-lg whitespace-nowrap"
-        style={{
-          background: "linear-gradient(90deg, #facc15 0%, #eab308 100%)",
-          boxShadow: "0 8px 24px rgba(250,204,21,0.35)",
-        }}
-      >
-        ⚡ Limited offer · Save 75%
-      </div>
-      <div
-        className="card relative overflow-visible"
-        style={{
-          borderColor: "rgba(255,87,34,0.4)",
-          borderWidth: 2,
-          padding: "2.5rem 2rem 2rem",
-        }}
-      >
-        <div className="text-center mb-6">
-          <div
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] font-bold uppercase tracking-widest mb-4"
-            style={{
-              background: "rgba(255,87,34,0.1)",
-              border: "1px solid rgba(255,87,34,0.3)",
-              color: "var(--color-orange)",
-            }}
-          >
-            <Sparkles className="w-3 h-3" />
-            Pro Plan
-          </div>
-
-          <div className="flex items-center justify-center gap-3 mb-1">
-            <span className="text-2xl font-display font-bold text-[var(--color-text-muted)] line-through decoration-red-500 decoration-[3px]">
-              RM300
-            </span>
-            <span
-              className="px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider rounded-md"
-              style={{
-                background: "rgba(244,67,54,0.15)",
-                color: "#ef4444",
-                border: "1px solid rgba(244,67,54,0.3)",
-              }}
-            >
-              Save RM225
-            </span>
-          </div>
-          <div className="flex items-baseline justify-center gap-1">
-            <span
-              className="font-display font-extrabold text-7xl md:text-8xl tracking-tight leading-none"
-              style={{
-                background:
-                  "linear-gradient(135deg, #facc15 0%, #eab308 60%, #ca8a04 100%)",
-                WebkitBackgroundClip: "text",
-                WebkitTextFillColor: "transparent",
-              }}
-            >
-              RM75
-            </span>
-            <span className="text-[var(--color-text-muted)] text-base">/bulan</span>
-          </div>
-          <div
-            className="mt-3 text-sm font-semibold"
-            style={{ color: "var(--color-orange)" }}
-          >
-            Promo period — harga naik balik selepas habis.
-          </div>
-        </div>
-
-        <div className="grid md:grid-cols-2 gap-x-6 gap-y-3 mb-7">
-          {PRO_PLAN.features.map((f, j) => (
-            <div key={j} className="flex items-start gap-2.5 text-sm">
-              <CheckCircle2 className="w-5 h-5 text-emerald-500 flex-shrink-0 mt-0.5" />
-              <span className="text-[var(--color-text-secondary)]">{f}</span>
-            </div>
-          ))}
-        </div>
-
-        <button
-          onClick={onSubscribe}
-          disabled={loading}
-          className="w-full py-4 rounded-2xl font-extrabold text-base text-black transition-transform hover:-translate-y-0.5 disabled:opacity-60 inline-flex items-center justify-center gap-2"
-          style={{
-            background: "linear-gradient(90deg, #facc15 0%, #eab308 100%)",
-            boxShadow: "0 8px 24px rgba(250,204,21,0.35)",
-          }}
-        >
-          {loading ? (
-            <>
-              <Loader2 className="w-4 h-4 animate-spin" />
-              Redirecting to Chip…
-            </>
-          ) : (
-            <>
-              Klaim harga RM75 sekarang
-              <ArrowRight className="w-4 h-4" />
-            </>
-          )}
-        </button>
-
-        <div className="mt-5 grid grid-cols-3 gap-2 text-center text-[11px] text-[var(--color-text-muted)]">
-          <div className="flex flex-col items-center gap-1">
-            <ShieldCheck className="w-4 h-4 text-emerald-500" />
-            <span>30-day money back</span>
-          </div>
-          <div className="flex flex-col items-center gap-1">
-            <CheckCircle2 className="w-4 h-4 text-emerald-500" />
-            <span>Cancel bila-bila</span>
-          </div>
-          <div className="flex flex-col items-center gap-1">
-            <ShieldCheck className="w-4 h-4 text-emerald-500" />
-            <span>FPX / DuitNow QR</span>
-          </div>
-        </div>
-        <p className="mt-3 text-center text-[11px] text-[var(--color-text-muted)]">
-          Bayar via FPX online banking atau DuitNow QR — pilih method di Chip
-          checkout.
+            ? `Subscription habis tempoh pada ${renewalDate}. Subscribe semula bawah untuk continue generating.`
+            : "Akses penuh — Image AI, Video AI, Auto Content, Clone, Story Telling. Pilih plan ikut bajet bawah."}
         </p>
       </div>
     </div>
