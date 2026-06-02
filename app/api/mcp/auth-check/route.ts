@@ -16,17 +16,28 @@ export async function GET(req: Request) {
   }
 
   const admin = createAdminClient();
-  const { data: profile } = await admin
-    .from("profiles")
-    .select("email, credits, plan")
-    .eq("id", auth.userId)
-    .maybeSingle();
+
+  // profiles holds the wallet (credits) + plan. Email lives on auth.users —
+  // not duplicated to profiles. Fetch both in parallel so a slow auth lookup
+  // doesn't add latency.
+  const [profileRes, userRes] = await Promise.all([
+    admin
+      .from("profiles")
+      .select("credits, plan, full_name")
+      .eq("id", auth.userId)
+      .maybeSingle(),
+    admin.auth.admin.getUserById(auth.userId),
+  ]);
+
+  const profile = profileRes.data;
+  const email = userRes.data?.user?.email ?? null;
 
   return NextResponse.json({
     ok: true,
     user_id: auth.userId,
     key_prefix: auth.keyPrefix,
-    email: profile?.email ?? null,
+    email,
+    full_name: profile?.full_name ?? null,
     balance: Number(profile?.credits ?? 0),
     plan: profile?.plan ?? "light",
   });
