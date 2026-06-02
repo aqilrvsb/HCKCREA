@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { isPlanKey } from "@/lib/plans";
 import DashboardShell from "./dashboard-shell";
 
 export default async function DashboardPage() {
@@ -44,7 +45,7 @@ export default async function DashboardPage() {
   const plan = (profile?.plan as string) || "free";
   const planExpiresAt = (profile?.plan_expires_at as string) || null;
   const planActive =
-    plan === "pro" &&
+    isPlanKey(plan) &&
     !!planExpiresAt &&
     new Date(planExpiresAt) > new Date();
 
