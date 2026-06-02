@@ -159,26 +159,19 @@ export default function PricingTiersGrid({
               >
                 Boleh generate
               </div>
-              <div className="flex items-baseline gap-1.5">
-                <span
-                  className="font-display font-extrabold text-lg leading-none"
-                  style={{ color: accent.badgeText }}
-                >
+              <div
+                className="flex items-baseline gap-1.5"
+                style={{ color: accent.badgeText }}
+              >
+                <span className="font-display font-extrabold text-lg leading-none">
                   ~{quoteVideos}
                 </span>
-                <span className="text-[11px] text-[var(--color-text-secondary)]">
-                  video AI
-                </span>
-                <span className="text-[var(--color-text-muted)] mx-1">·</span>
-                <span
-                  className="font-display font-extrabold text-lg leading-none"
-                  style={{ color: accent.badgeText }}
-                >
+                <span className="text-[11px] opacity-75">video AI</span>
+                <span className="mx-1 opacity-50">·</span>
+                <span className="font-display font-extrabold text-lg leading-none">
                   ~{quoteImages}
                 </span>
-                <span className="text-[11px] text-[var(--color-text-secondary)]">
-                  image AI
-                </span>
+                <span className="text-[11px] opacity-75">image AI</span>
               </div>
             </div>
 
