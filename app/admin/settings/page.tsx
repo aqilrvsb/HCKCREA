@@ -2817,7 +2817,7 @@ function McpKeyCard() {
           <div className="text-xs font-bold text-amber-900 mb-2">
             ⚠ Copy this now — it will not be shown again
           </div>
-          <code className="block break-all text-xs bg-white p-2 rounded border border-amber-200">
+          <code className="block break-all text-xs bg-white p-2 rounded border border-amber-200 text-amber-950 font-mono">
             {showKey}
           </code>
           <button
