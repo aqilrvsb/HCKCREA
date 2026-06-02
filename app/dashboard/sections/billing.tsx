@@ -1,15 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import {
-  Sparkles,
-  ArrowRight,
-  Calendar,
-  ShieldCheck,
-  Loader2,
-  Receipt,
-  CheckCircle2,
-} from "lucide-react";
+import { Sparkles, Calendar, Receipt } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import CheckStatusButton from "./check-status-button";
 import PricingTiersGrid from "@/components/pricing-tiers-grid";
