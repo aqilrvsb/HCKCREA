@@ -27,6 +27,7 @@ import {
 } from "lucide-react";
 import Countdown from "./components/countdown";
 import LazyVideo from "./components/lazy-video";
+import PricingTiersGrid from "@/components/pricing-tiers-grid";
 
 // Dynamic-import every below-the-fold client component so they don't bloat
 // the first-5s payload. Each has "use client" of its own and ships as a
@@ -1119,127 +1120,17 @@ export default function Home() {
             <span className="gradient-text-warm">scale UGC</span>.
           </h2>
           <p className="mt-5 text-lg text-[var(--color-text-secondary)] max-w-2xl mx-auto">
-            Subscription bulanan + top up kredit. Setiap generate auto-deduct
-            ikut rate plan anda.
+            Pilih tier ikut bajet — setiap plan datang dengan kredit RM
+            terus boleh generate. Setiap generate auto-deduct ikut rate.
           </p>
         </div>
 
         {/* Countdown timer */}
         <Countdown />
 
-        {/* Single exclusive Pro plan */}
-        <div className="max-w-2xl mx-auto relative pt-6">
-          <div className="absolute top-0 left-1/2 -translate-x-1/2 z-10 px-5 py-2 rounded-full text-[11px] font-bold uppercase tracking-widest bg-gradient-to-r from-orange-500 to-orange-600 text-white shadow-lg shadow-orange-500/35 whitespace-nowrap">
-            ⚡ Limited offer · Save 75%
-          </div>
-          <div
-            className="card border-2 border-orange-300 shadow-2xl shadow-orange-500/15 p-8 md:p-12 relative"
-            style={{ overflow: "visible" }}
-          >
-            <div
-              className="absolute pointer-events-none rounded-3xl opacity-50"
-              style={{
-                top: -40,
-                right: -40,
-                width: 220,
-                height: 220,
-                background:
-                  "radial-gradient(circle, rgba(255,77,0,0.18), transparent 70%)",
-                filter: "blur(40px)",
-              }}
-            />
-            <div className="relative">
-              <div className="text-center mb-6">
-                <div
-                  className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-full text-[11px] font-bold uppercase tracking-widest text-white mb-4"
-                  style={{
-                    background:
-                      "linear-gradient(135deg, #f97316 0%, #ea580c 100%)",
-                    boxShadow:
-                      "0 4px 12px rgba(234, 88, 12, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.18)",
-                  }}
-                >
-                  <Sparkles className="w-3 h-3" />
-                  Exclusive PeningLab Pro
-                </div>
-                <h3 className="font-display font-extrabold text-3xl md:text-4xl tracking-tight mb-2">
-                  Akses penuh untuk seller serius.
-                </h3>
-                <p className="text-sm text-[var(--color-text-secondary)] max-w-md mx-auto">
-                  Satu plan, semua features. Tiada upsell, tiada hidden fee.
-                </p>
-              </div>
-
-              {/* Price block with markup */}
-              <div className="text-center mb-7">
-                <div className="flex items-center justify-center gap-3 mb-1">
-                  <span className="text-2xl font-display font-bold text-[var(--color-text-muted)] line-through decoration-red-500 decoration-[3px]">
-                    RM300
-                  </span>
-                  <span className="px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider bg-red-100 text-red-700 border border-red-200 rounded-md">
-                    Save RM225
-                  </span>
-                </div>
-                <div className="flex items-baseline justify-center gap-1">
-                  <span className="font-display font-extrabold text-7xl md:text-8xl tracking-tight gradient-text-warm leading-none">
-                    RM75
-                  </span>
-                  <span className="text-[var(--color-text-muted)] text-base">
-                    /bulan
-                  </span>
-                </div>
-                <div className="mt-3 text-sm font-semibold text-orange">
-                  Promo period — harga naik balik selepas countdown habis.
-                </div>
-              </div>
-
-              {/* Features grid */}
-              <div className="grid md:grid-cols-2 gap-x-6 gap-y-3 mb-8">
-                {[
-                  "Image AI — 20 sen",
-                  "Video AI — 40 sen",
-                  "Unlimited Generate",
-                  "Access Prompt Library",
-                  "Access Image Studio",
-                  "Access Video Studio",
-                  "Access Auto Content",
-                  "Access Clone Video",
-                  "Access Story Telling",
-                  "Access Group VIP",
-                ].map((f, j) => (
-                  <div key={j} className="flex items-start gap-2.5 text-sm">
-                    <CheckCircle2 className="w-5 h-5 text-emerald-500 flex-shrink-0 mt-0.5" />
-                    <span className="text-[var(--color-text-secondary)]">
-                      {f}
-                    </span>
-                  </div>
-                ))}
-              </div>
-
-              <a
-                href="#checkout"
-                className="btn-primary w-full justify-center text-base py-4"
-              >
-                Klaim harga RM75 sekarang
-                <ArrowRight className="w-4 h-4" />
-              </a>
-
-              <div className="mt-5 grid grid-cols-3 gap-2 text-center text-[11px] text-[var(--color-text-muted)]">
-                <div className="flex flex-col items-center gap-1">
-                  <ShieldCheck className="w-4 h-4 text-emerald-500" />
-                  <span>30-day money back</span>
-                </div>
-                <div className="flex flex-col items-center gap-1">
-                  <CheckCircle2 className="w-4 h-4 text-emerald-500" />
-                  <span>Cancel bila-bila</span>
-                </div>
-                <div className="flex flex-col items-center gap-1">
-                  <Wallet className="w-4 h-4 text-emerald-500" />
-                  <span>FPX online banking</span>
-                </div>
-              </div>
-            </div>
-          </div>
+        {/* 4-tier pricing grid */}
+        <div className="mt-2">
+          <PricingTiersGrid mode="marketing" />
         </div>
 
         {/* Rate-deduction explainer */}
@@ -1252,8 +1143,8 @@ export default function Home() {
                   Subscribe plan
                 </div>
                 <p className="text-sm text-[var(--color-text-secondary)] leading-relaxed">
-                  Bayar RM75 — unlock semua features + dapat rate generate
-                  paling rendah.
+                  Pilih tier (Starter / Standard / Pro / Premium) ikut bajet —
+                  semua tier unlock features yang sama.
                 </p>
               </div>
             </div>
@@ -1261,10 +1152,11 @@ export default function Home() {
               <div className="step-pill flex-shrink-0">2</div>
               <div>
                 <div className="font-display font-bold text-base mb-1">
-                  Top up kredit
+                  Dapat kredit RM serta-merta
                 </div>
                 <p className="text-sm text-[var(--color-text-secondary)] leading-relaxed">
-                  RM1 = 1 kredit. Top up bila perlu. Kredit tak hangus.
+                  Setiap plan datang dengan RM credits sekali. Tak perlu top
+                  up berasingan.
                 </p>
               </div>
             </div>
@@ -1284,13 +1176,13 @@ export default function Home() {
             <span className="font-mono text-xs uppercase tracking-wider text-orange font-bold">
               Contoh
             </span>{" "}
-            — RM75 plan + top up RM30 ={" "}
+            — Plan Pro RM100 + RM50 credits ={" "}
             <span className="font-bold text-[var(--color-text-primary)]">
-              ~150 image
+              250 image
             </span>{" "}
             atau{" "}
             <span className="font-bold text-[var(--color-text-primary)]">
-              75 video 8s
+              125 video 8s
             </span>
             .
           </div>
