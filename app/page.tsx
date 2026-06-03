@@ -166,8 +166,8 @@ export default function Home() {
         </Link>
 
         <div className="flex items-center gap-2 sm:gap-3">
-          <Link
-            href="/affiliate"
+          <a
+            href="#pricing"
             className="inline-flex items-center gap-1.5 px-4 sm:px-5 py-3 rounded-2xl text-xs sm:text-sm font-extrabold transition-transform hover:scale-[1.04] hover:-translate-y-0.5"
             style={{
               background:
@@ -176,9 +176,8 @@ export default function Home() {
               boxShadow: "0 6px 20px rgba(249,115,22,0.35)",
             }}
           >
-            <Flame className="w-4 h-4" strokeWidth={2.5} />
-            Nak Jana Income?
-          </Link>
+            Pricing
+          </a>
           <Link
             href="/login"
             className="inline-flex items-center gap-2 px-5 sm:px-6 py-3 rounded-2xl text-sm sm:text-base font-extrabold transition-transform hover:scale-[1.04] hover:-translate-y-0.5"
