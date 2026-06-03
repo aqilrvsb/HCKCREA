@@ -46,13 +46,15 @@ export async function POST(req: Request) {
     const productId =
       extractTikTokProductId(url) || extractShopeeProductId(url);
     if (productId) {
-      void createAdminClient()
-        .from("user_product_history")
-        .delete()
-        .eq("user_id", user.id)
-        .eq("product_id", productId)
-        .then(() => {})
-        .catch(() => {});
+      void (async () => {
+        try {
+          await createAdminClient()
+            .from("user_product_history")
+            .delete()
+            .eq("user_id", user.id)
+            .eq("product_id", productId);
+        } catch {}
+      })();
     }
     return NextResponse.json(
       {
