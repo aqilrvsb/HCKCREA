@@ -610,7 +610,12 @@ export async function getRecentProductsForUser(
     raw_url: string;
     product_name: string;
     product_image_url: string;
+    hosted_image_url: string | null;
+    description: string | null;
     price: string | null;
+    rating: string | null;
+    total_sold: string | null;
+    category: string | null;
     last_used_at: string;
   }>
 > {
@@ -627,7 +632,7 @@ export async function getRecentProductsForUser(
     const { data: products } = await admin
       .from("tiktok_product_cache")
       .select(
-        "product_id, raw_url, product_name, product_image_url, hosted_image_url, price"
+        "product_id, raw_url, product_name, product_image_url, hosted_image_url, description, price, rating, total_sold, category"
       )
       .in("product_id", ids);
     const byId = new Map((products || []).map((p: any) => [p.product_id, p]));
@@ -645,7 +650,12 @@ export async function getRecentProductsForUser(
           // hot-link Referer block doesn't kill the thumbnail.
           product_image_url:
             p.product_image_url || p.hosted_image_url || "",
+          hosted_image_url: p.hosted_image_url || null,
+          description: p.description || null,
           price: p.price || null,
+          rating: p.rating || null,
+          total_sold: p.total_sold || null,
+          category: p.category || null,
           last_used_at: h.last_used_at,
         };
       })

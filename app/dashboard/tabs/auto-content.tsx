@@ -45,7 +45,12 @@ type RecentProduct = {
   raw_url: string;
   product_name: string;
   product_image_url: string;
+  hosted_image_url: string | null;
+  description: string | null;
   price: string | null;
+  rating: string | null;
+  total_sold: string | null;
+  category: string | null;
   last_used_at: string;
 };
 
@@ -330,6 +335,59 @@ export default function AutoContentTab({ projectId }: { projectId?: string } = {
   // directly instead of relying on the input state (avoids a render
   // round-trip race when the user clicks a row and we want to fetch
   // immediately).
+  // Apply a product the user picked from the saved-dropdown DIRECTLY
+  // from in-memory data — no /api/scrape/affiliate roundtrip. The
+  // dropdown already has every field the form needs (description,
+  // price, rating, total_sold, category) from the enriched
+  // /api/scrape/recent payload. We just bump last_used_at in the
+  // background so cross-session ordering stays correct.
+  function applyRecentProduct(p: RecentProduct) {
+    setAffiliateUrl(p.raw_url);
+    setShowRecent(false);
+    setScrapeMsg(null);
+
+    const lines: string[] = [p.product_name];
+    if (p.price) lines.push(`Price: ${p.price}`);
+    if (p.rating) lines.push(`Rating: ${p.rating}`);
+    if (p.total_sold) lines.push(`Sold: ${p.total_sold}`);
+    if (p.category) lines.push(`Category: ${p.category}`);
+    if (p.description) lines.push("", p.description);
+    const info = lines.filter((l) => l !== undefined).join("\n");
+
+    setManualProducts((prev) => {
+      const next = [...prev];
+      next[0] = {
+        info,
+        imageData: p.product_image_url || "",
+        imageUrls: p.product_image_url ? [p.product_image_url] : [],
+      };
+      return next;
+    });
+    setTiktokProductId(p.product_id);
+    setScrapeMsg({
+      ok: true,
+      text: `✓ Loaded "${p.product_name.substring(0, 60)}${
+        p.product_name.length > 60 ? "…" : ""
+      }" — edit below if needed.`,
+    });
+
+    // Optimistic local reorder so the picked product floats to the top
+    // without a /api/scrape/recent refetch.
+    const nowIso = new Date().toISOString();
+    setRecentProducts((prev) => {
+      const without = prev.filter((x) => x.product_id !== p.product_id);
+      return [{ ...p, last_used_at: nowIso }, ...without];
+    });
+
+    // Fire-and-forget bump to persist last_used_at server-side so the
+    // ordering survives a refresh / next session.
+    void fetch("/api/scrape/touch", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ productId: p.product_id }),
+    }).catch(() => {});
+  }
+
   async function fetchAffiliate(overrideUrl?: string) {
     const url = (overrideUrl ?? affiliateUrl).trim();
     if (!url) return;
@@ -852,10 +910,7 @@ export default function AutoContentTab({ projectId }: { projectId?: string } = {
                       >
                         <button
                           type="button"
-                          onClick={() => {
-                            setShowRecent(false);
-                            fetchAffiliate(p.raw_url);
-                          }}
+                          onClick={() => applyRecentProduct(p)}
                           className="flex-1 min-w-0 flex items-center gap-2.5 text-left"
                         >
                         {p.product_image_url ? (
