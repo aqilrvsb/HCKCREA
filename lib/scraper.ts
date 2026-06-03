@@ -97,7 +97,7 @@ function isShopeeUrl(url: string): boolean {
 // The Chrome extension uses the item_id as product_id when caching,
 // so this extractor lets the server-side fetch reuse those rows
 // instead of always going to Crawlbase (which often fails for Shopee).
-function extractShopeeProductId(url: string): string | null {
+export function extractShopeeProductId(url: string): string | null {
   let m = url.match(/\/product\/\d+\/(\d+)/);
   if (m) return m[1];
   m = url.match(/-i\.\d+\.(\d+)/);
@@ -111,7 +111,7 @@ function extractShopeeProductId(url: string): string | null {
 //   .../shop/.../product/1729703709970891793
 // Returns null for short links (vt.tiktok.com/ABC) — caller follows
 // redirects and re-extracts from the resolved URL.
-function extractTikTokProductId(url: string): string | null {
+export function extractTikTokProductId(url: string): string | null {
   // Last 13–20 digit run before the query string.
   const m = url.match(/(?:product|pdp(?:\/[^/?]+)*)\/(\d{13,20})(?:[/?#]|$)/i);
   if (m) return m[1];
@@ -472,18 +472,23 @@ async function scrapeViaCrawlbase(rawUrl: string): Promise<ScrapedProduct> {
 // win for viral products that 100s of users paste.
 // ──────────────────────────────────────────────────────────────────────────
 
-async function readCache(productId: string): Promise<ScrapedProduct | null> {
+async function readCache(
+  productId: string,
+  opts: { anyAge?: boolean } = {}
+): Promise<ScrapedProduct | null> {
   try {
     const admin = createAdminClient();
-    const cutoff = new Date(
-      Date.now() - CACHE_TTL_DAYS * 86_400_000
-    ).toISOString();
-    const { data } = await admin
+    let q = admin
       .from("tiktok_product_cache")
       .select("*")
-      .eq("product_id", productId)
-      .gt("scraped_at", cutoff)
-      .maybeSingle();
+      .eq("product_id", productId);
+    if (!opts.anyAge) {
+      const cutoff = new Date(
+        Date.now() - CACHE_TTL_DAYS * 86_400_000
+      ).toISOString();
+      q = q.gt("scraped_at", cutoff);
+    }
+    const { data } = await q.maybeSingle();
     if (!data) return null;
     return {
       ok: true,
@@ -675,46 +680,49 @@ async function scrapeTikTokWithRetry(rawUrl: string): Promise<ScrapedProduct> {
 // ──────────────────────────────────────────────────────────────────────────
 
 export async function scrapeAffiliateUrl(rawUrl: string): Promise<ScrapedProduct> {
+  // V2 policy (2026-06-02): Auto Content's Affiliate mode is CACHE-ONLY.
+  // The Chrome extension (running in the user's real browser session) is
+  // the canonical source of scrapes — it works for both TikTok Shop and
+  // shopee.com.my, region-aware and authenticated. Server-side TikHub /
+  // Crawlbase scrapes used to fire as fallback but they fail too often
+  // for the Malaysian region and cost real money per call.
+  //
+  // Lookup is by product_id with NO age filter (anyAge=true) — if the
+  // user picked a row from THEIR history dropdown they want THAT row's
+  // data even if it was scraped months ago. If no cache row exists at
+  // all, return a helpful error pointing them at the extension.
+
   if (isTikTokUrl(rawUrl)) {
-    // 1. Try cache first — extract product_id directly from the URL so
-    //    we don't burn a TikHub call just to look up an existing entry.
-    //    Short-link URLs (vt.tiktok.com / vm.tiktok.com) won't have an
-    //    extractable id; those skip the cache and go straight to scrape.
     const productId = extractTikTokProductId(rawUrl);
     if (productId) {
-      const cached = await readCache(productId);
+      const cached = await readCache(productId, { anyAge: true });
       if (cached) {
         bumpCacheUseCount(productId).catch(() => {});
         return cached;
       }
     }
-    // 2. Cache miss — scrape with retry. The route layer handles the
-    //    RH re-upload + writeback to the cache.
-    return scrapeTikTokWithRetry(rawUrl);
+    return errResult(
+      rawUrl,
+      "Product not in cache. Open the Chrome extension on the TikTok Shop product page to scrape it first."
+    );
   }
   if (isShopeeUrl(rawUrl)) {
-    // 1. Try cache first — extension scrapes write to
-    //    tiktok_product_cache with item_id as product_id. Serving from
-    //    cache is the only path that actually works for Shopee
-    //    Malaysia: Crawlbase frequently fails for shopee.com.my due to
-    //    region/anti-bot blocks, so without this short-circuit users
-    //    see "Scrape returned no product data" even when the extension
-    //    successfully cached the product.
     const productId = extractShopeeProductId(rawUrl);
     if (productId) {
-      const cached = await readCache(productId);
+      const cached = await readCache(productId, { anyAge: true });
       if (cached) {
         bumpCacheUseCount(productId).catch(() => {});
         return cached;
       }
     }
-    // 2. Cache miss — fall through to live Crawlbase scrape. Tell the
-    //    user to use the extension via the route layer's error message.
-    return scrapeViaCrawlbase(rawUrl);
+    return errResult(
+      rawUrl,
+      "Product not in cache. Open the Chrome extension on the Shopee product page to scrape it first."
+    );
   }
   return errResult(
     rawUrl,
-    "Only TikTok Shop and Shopee links are supported for now. Use Manual Product for other platforms."
+    "Only TikTok Shop and Shopee links are supported. Use Manual Product for other platforms."
   );
 }
 

@@ -1,9 +1,12 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import {
   scrapeAffiliateUrl,
   cacheTikTokProduct,
   recordUserHistory,
+  extractTikTokProductId,
+  extractShopeeProductId,
 } from "@/lib/scraper";
 import { getRunningHubConfig } from "@/lib/settings";
 
@@ -35,6 +38,22 @@ export async function POST(req: Request) {
 
   const scraped = await scrapeAffiliateUrl(url);
   if (!scraped.ok) {
+    // Self-healing dropdown: if the cache lookup failed for this URL,
+    // the product is either uncached or the row is unusable. Drop the
+    // user's user_product_history entry so the stale item stops
+    // appearing in their picker. They re-scrape via the Chrome
+    // extension to bring it back. Best-effort — never block the error.
+    const productId =
+      extractTikTokProductId(url) || extractShopeeProductId(url);
+    if (productId) {
+      void createAdminClient()
+        .from("user_product_history")
+        .delete()
+        .eq("user_id", user.id)
+        .eq("product_id", productId)
+        .then(() => {})
+        .catch(() => {});
+    }
     return NextResponse.json(
       {
         error: scraped.error || "Scrape returned no product data",
