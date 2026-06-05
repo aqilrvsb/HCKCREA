@@ -592,6 +592,7 @@ export default function Sidebar({
           [
             { kind: "attachments" as const, label: "Attachments", Icon: ImageIcon },
             { kind: "billing" as const, label: "Billing", Icon: CreditCard },
+            { kind: "credit" as const, label: "Top Up Credit", Icon: Wallet },
             { kind: "affiliate" as const, label: "Affiliate", Icon: Users },
             { kind: "usage" as const, label: "Usage", Icon: Activity },
             // Saved Prompts hidden — per-tab agents now persist their
