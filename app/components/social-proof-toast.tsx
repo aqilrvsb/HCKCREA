@@ -19,10 +19,11 @@ const CITIES = [
 
 const ACTIONS = [
   "subscribe Pro Plan",
-  "klaim harga RM75",
-  "top up kredit",
+  "subscribe Starter plan",
+  "subscribe Standard plan",
   "generate 10 video UGC",
-  "subscribe sebelum naik harga",
+  "claim BEST SELLER Pro",
+  "subscribe Premium plan",
 ];
 
 type Toast = { name: string; city: string; action: string; minutesAgo: number };

@@ -33,26 +33,25 @@ export default function StickyCTABar() {
         <div className="flex items-center gap-3 px-4 py-3 rounded-2xl bg-white border border-orange-200 shadow-2xl shadow-orange-500/25">
           <div className="hidden sm:block flex-1">
             <div className="text-xs font-mono uppercase tracking-wider text-orange font-bold">
-              Promo period
+              4 plan tersedia
             </div>
             <div className="font-bold text-sm">
-              <span className="text-[var(--color-text-muted)] line-through decoration-red-500 decoration-2 mr-1.5">
-                RM300
+              Bermula <span className="text-base">RM 35</span>{" "}
+              <span className="text-[var(--color-text-muted)] font-normal">
+                / 30 hari · termasuk credits
               </span>
-              RM75 / bulan
             </div>
           </div>
           <div className="sm:hidden flex-1 text-xs">
-            <span className="line-through text-[var(--color-text-muted)] decoration-red-500">
-              RM300
-            </span>
-            <span className="font-bold ml-1.5 text-base">RM75</span>
+            <span className="text-[var(--color-text-muted)]">Bermula</span>
+            <span className="font-bold ml-1.5 text-base">RM 35</span>
+            <span className="text-[var(--color-text-muted)]"> / bulan</span>
           </div>
           <a
-            href="#checkout"
+            href="#pricing"
             className="btn-primary !py-3 !px-5 text-sm whitespace-nowrap"
           >
-            Bayar Sekarang
+            Pilih Plan
             <ArrowRight className="w-4 h-4" />
           </a>
         </div>

@@ -801,10 +801,10 @@ export const SOP_CONTENT: Record<string, SopPage> = {
   // ─────────────────────────────────────────────────────────────────
   billing: {
     pageKey: "billing",
-    title: "Billing — Subscription Pro Plan",
-    subtitle: "RM 75 / bulan · access semua tab generation",
+    title: "Billing — 4 Plan Subscription",
+    subtitle: "Starter RM 35 sampai Premium RM 200 · access semua tab generation",
     intro:
-      "Billing page tunjuk status Pro Plan korang — bila renew, status active, rates per generation, payment history. Pro Plan unlocks semua tab (Image / UGC / Auto Content / Story / Cinema / Clone). Tanpa Pro, tab generation locked.",
+      "Billing page tunjuk status plan korang — bila renew, status active, rates per generation, payment history. Semua 4 plan (Starter / Standard / Pro / Premium) unlock semua tab (Image / UGC / Auto Content / Story / Cinema / Clone) — beza cuma harga + credits termasuk. Tanpa plan aktif, tab generation locked.",
     whenToUse:
       "Untuk tengok bila plan expire, cancel subscription, tengok payment history. Atau bila ada masalah payment / nak switch payment method.",
     sections: [
@@ -838,7 +838,7 @@ export const SOP_CONTENT: Record<string, SopPage> = {
           {
             title: "Field 'CURRENT PLAN'",
             description:
-              "Pro Plan — RM 75 / bulan. Unlocks semua tab generation (Image / UGC / Auto Content / Story / Cinema / Clone). Includes baseline credit balance bulanan.\n\nKalau plan inactive (lapse), button generate akan locked dan redirect ke Billing.",
+              "4 plan tersedia — Starter (RM 35 + RM 10 credits), Standard (RM 50 + RM 25), Pro (RM 100 + RM 50, BEST SELLER), Premium (RM 200 + RM 100). Semua plan unlock semua tab generation (Image / UGC / Auto Content / Story / Cinema / Clone). Beza cuma harga + credits yang termasuk per 30 hari.\n\nKalau plan inactive (lapse), button generate akan locked dan redirect ke Billing.",
           },
           {
             title: "Field 'RENEWAL'",

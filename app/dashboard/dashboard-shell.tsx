@@ -724,7 +724,7 @@ function SubscriptionLocked({
           <p className="text-white/80 text-base mb-6 max-w-lg">
             {wasOnce
               ? `Subscription habis tempoh pada ${expiredOn}. Renew untuk akses balik Image, UGC, Cinema, Clone Prompt, dan Auto Content.`
-              : "Subscribe Pro Plan untuk unlock semua features — Image AI, UGC, Cinema, Clone Prompt, Auto Content. RM75/bulan, cancel bila-bila."}
+              : "Pilih plan untuk unlock semua features — Image AI, UGC, Cinema, Clone Prompt, Auto Content. Starter RM 35 sampai Premium RM 200 · termasuk credits."}
           </p>
           <button
             onClick={onGotoBilling}
@@ -735,7 +735,7 @@ function SubscriptionLocked({
               boxShadow: "0 8px 24px rgba(250,204,21,0.35)",
             }}
           >
-            {wasOnce ? "Renew now" : "Subscribe RM75/bulan"}
+            {wasOnce ? "Renew now" : "Pilih Plan"}
             →
           </button>
         </div>
