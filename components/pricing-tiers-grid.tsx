@@ -167,7 +167,7 @@ export default function PricingTiersGrid({
                   color: accent.highlight ? "#fbbf24" : "var(--color-orange)",
                 }}
               >
-                + {cfg.credits} credits
+                + RM {cfg.credits} credits
               </div>
             </div>
 
