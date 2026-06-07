@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   ArrowRight,
   CheckCircle2,
@@ -11,30 +11,48 @@ import {
   ShieldCheck,
   Sparkles,
 } from "lucide-react";
+import {
+  PLAN_KEYS,
+  PLAN_DEFAULTS,
+  BEST_SELLER,
+  isPlanKey,
+  type PlanKey,
+} from "@/lib/plans";
 
-const PLAN = {
-  key: "pro" as const,
-  name: "Pro Plan",
-  price: 75,
-  markup: 300,
-  desc: "Akses penuh — semua features unlocked",
-  rate: "Image 20 sen · Video 40 sen",
-  features: [
-    "Image AI",
-    "Video AI",
-    "Unlimited generate",
-    "Auto Content + Clone Video + Story Telling",
-    "Access Group VIP",
-  ],
-};
+// Storage key shared with PricingTiersGrid — clicking Subscribe on a
+// pricing card writes the chosen plan here, dispatches a custom event,
+// and scrolls to #checkout. This form picks the value up so the user
+// lands with the right tier pre-selected.
+const SELECTED_PLAN_STORAGE_KEY = "peninglab:selected-plan";
+const PLAN_CHANGE_EVENT = "peninglab:plan-changed";
 
 export default function CheckoutForm() {
+  const [selectedPlan, setSelectedPlan] = useState<PlanKey>(BEST_SELLER);
   const [name, setName] = useState("");
   const [whatsapp, setWhatsapp] = useState("");
   const [email, setEmail] = useState("");
   const [agree, setAgree] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Initial read + cross-component listener — when a pricing card up
+  // top is clicked, it writes to sessionStorage and dispatches the
+  // PLAN_CHANGE_EVENT. We update state in response so the radio + the
+  // button price reflect the latest selection without a full page nav.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const readStored = () => {
+      try {
+        const v = sessionStorage.getItem(SELECTED_PLAN_STORAGE_KEY);
+        if (v && isPlanKey(v)) setSelectedPlan(v);
+      } catch {
+        // sessionStorage blocked — keep default selection.
+      }
+    };
+    readStored();
+    window.addEventListener(PLAN_CHANGE_EVENT, readStored);
+    return () => window.removeEventListener(PLAN_CHANGE_EVENT, readStored);
+  }, []);
 
   function normalizeWhatsapp(raw: string): string | null {
     const digits = raw.replace(/\D/g, "");
@@ -44,13 +62,6 @@ export default function CheckoutForm() {
     return "+60" + digits;
   }
 
-  // Sanitiser for the visible input — the +60 country code is rendered as
-  // a locked prefix, so the user is only typing the local part. Strip:
-  //   • any non-digit char (including "+", spaces, dashes)
-  //   • a leading "60" (full international prefix re-typed by mistake)
-  //   • a leading "0"  (national-format zero — Malaysian "012…" → "12…")
-  // After sanitising, cap to 10 digits — Malaysian mobile local part is
-  // 9-10 digits; allowing more would always fail normalizeWhatsapp anyway.
   function sanitizeWhatsappInput(raw: string): string {
     let v = raw.replace(/\D/g, "");
     while (v.startsWith("60")) v = v.slice(2);
@@ -58,6 +69,17 @@ export default function CheckoutForm() {
     if (v.length > 10) v = v.slice(0, 10);
     return v;
   }
+
+  function pickPlan(key: PlanKey) {
+    setSelectedPlan(key);
+    try {
+      sessionStorage.setItem(SELECTED_PLAN_STORAGE_KEY, key);
+    } catch {
+      // Non-fatal — UI still works without persistence.
+    }
+  }
+
+  const cfg = PLAN_DEFAULTS[selectedPlan];
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -69,9 +91,6 @@ export default function CheckoutForm() {
       return setError("Email tak valid.");
     if (!agree) return setError("Sila tick untuk persetujuan.");
 
-    // Read peninglab_utm cookie (set by FBPixel when visitor landed
-    // from an ad link). Attached to the checkout request so the payment
-    // row gets UTM-attributed for /admin/ads reporting.
     let utmPayload: Record<string, any> | null = null;
     try {
       const match = document.cookie
@@ -83,8 +102,7 @@ export default function CheckoutForm() {
         if (parsed && parsed.source) utmPayload = parsed;
       }
     } catch {
-      // Cookie missing/corrupt — proceed without UTM. Payment will be
-      // recorded as organic (no attribution) which is correct behaviour.
+      // Cookie missing/corrupt — proceed without UTM.
     }
 
     setLoading(true);
@@ -93,7 +111,7 @@ export default function CheckoutForm() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          plan: PLAN.key,
+          plan: selectedPlan,
           name: name.trim(),
           whatsapp: wa,
           email: email.trim().toLowerCase(),
@@ -102,20 +120,15 @@ export default function CheckoutForm() {
       });
       const data = await res.json();
       if (data?.checkout_url) {
-        // Fire Facebook Pixel InitiateCheckout BEFORE redirecting to
-        // Chip. Lets Meta build retargeting audiences of users who
-        // started but didn't finish payment. payment_id is the
-        // event_id — same id will be reused for the Purchase event on
-        // success so Meta dedupes browser + server CAPI events into one.
         try {
           (window as any).fbq?.(
             "track",
             "InitiateCheckout",
-            { value: PLAN.price, currency: "MYR", content_name: PLAN.name },
+            { value: cfg.price, currency: "MYR", content_name: cfg.label + " Plan" },
             { eventID: data.payment_id || `ic-${Date.now()}` }
           );
         } catch {
-          // Pixel not loaded / blocked — non-critical, ignore.
+          // Pixel not loaded / blocked — non-critical.
         }
         window.location.href = data.checkout_url;
       } else {
@@ -144,13 +157,88 @@ export default function CheckoutForm() {
           <span className="gradient-text-warm">dalam 1 minit.</span>
         </h2>
         <p className="mt-5 text-lg text-[var(--color-text-secondary)] max-w-xl mx-auto">
-          Tiada sign-up form berasingan. Isi info di bawah, bayar via FPX
-          (online banking) atau DuitNow QR — akaun anda auto-aktif. Login info
-          dihantar di WhatsApp.
+          Tiada sign-up form berasingan. Pilih plan, isi info di bawah, bayar
+          via FPX (online banking) atau DuitNow QR — akaun anda auto-aktif.
+          Login info dihantar di WhatsApp.
         </p>
       </div>
 
       <form onSubmit={submit} className="card p-7 md:p-9">
+        {/* Plan selector — 4 radio cards. Pre-populated from the
+            pricing grid pick when user clicked Subscribe on a tier. */}
+        <div className="mb-6">
+          <label className="block text-sm font-semibold mb-3">
+            Pilih plan
+          </label>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+            {PLAN_KEYS.map((key) => {
+              const p = PLAN_DEFAULTS[key];
+              const active = selectedPlan === key;
+              const highlight = key === BEST_SELLER;
+              return (
+                <button
+                  key={key}
+                  type="button"
+                  onClick={() => pickPlan(key)}
+                  className="relative rounded-xl px-3 py-3 text-left transition-transform hover:-translate-y-0.5"
+                  style={{
+                    background: active
+                      ? "rgba(250, 204, 21, 0.10)"
+                      : "var(--color-bg-card)",
+                    border: `2px solid ${
+                      active
+                        ? "rgba(250, 204, 21, 0.75)"
+                        : highlight
+                          ? "rgba(250, 204, 21, 0.35)"
+                          : "var(--color-border)"
+                    }`,
+                  }}
+                >
+                  {highlight && (
+                    <div
+                      className="absolute -top-2 left-1/2 -translate-x-1/2 px-2 py-0.5 rounded-full text-[8px] font-bold uppercase tracking-widest whitespace-nowrap"
+                      style={{
+                        background:
+                          "linear-gradient(90deg, #facc15 0%, #eab308 100%)",
+                        color: "#000",
+                      }}
+                    >
+                      ★ Best
+                    </div>
+                  )}
+                  <div className="flex items-center gap-1.5 mb-1">
+                    <div
+                      className="w-3.5 h-3.5 rounded-full flex items-center justify-center flex-shrink-0"
+                      style={{
+                        border: `2px solid ${
+                          active ? "#eab308" : "var(--color-text-muted)"
+                        }`,
+                        background: active ? "#eab308" : "transparent",
+                      }}
+                    >
+                      {active && (
+                        <CheckCircle2
+                          className="w-2 h-2 text-black"
+                          strokeWidth={3}
+                        />
+                      )}
+                    </div>
+                    <span className="text-[10px] uppercase tracking-wider font-bold">
+                      {p.label}
+                    </span>
+                  </div>
+                  <div className="font-display font-extrabold text-lg leading-none">
+                    RM{p.price}
+                  </div>
+                  <div className="text-[10px] text-[var(--color-text-muted)] mt-0.5">
+                    + RM{p.credits} credits
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
         <div className="space-y-4 mb-5">
           <div>
             <label className="block text-sm font-semibold mb-2">
@@ -252,7 +340,7 @@ export default function CheckoutForm() {
           ) : (
             <>
               <Lock className="w-4 h-4" />
-              Bayar RM{PLAN.price} — FPX / DuitNow QR
+              Bayar RM{cfg.price} ({cfg.label}) — FPX / DuitNow QR
               <ArrowRight className="w-4 h-4" />
             </>
           )}

@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { CheckCircle2, Sparkles, ArrowRight, Loader2 } from "lucide-react";
 import {
   PLAN_KEYS,
@@ -9,6 +8,27 @@ import {
   type PlanKey,
   type PlanConfig,
 } from "@/lib/plans";
+
+// Cross-component plumbing for the marketing-mode "Subscribe" click:
+// we save the picked plan to sessionStorage and dispatch a custom event
+// so the inline CheckoutForm can react without a full page navigation.
+// Keys MUST match those used in app/(checkout)/checkout-form.tsx.
+const SELECTED_PLAN_STORAGE_KEY = "peninglab:selected-plan";
+const PLAN_CHANGE_EVENT = "peninglab:plan-changed";
+
+function selectPlanAndScrollToCheckout(key: PlanKey) {
+  try {
+    sessionStorage.setItem(SELECTED_PLAN_STORAGE_KEY, key);
+    window.dispatchEvent(new Event(PLAN_CHANGE_EVENT));
+  } catch {
+    // sessionStorage blocked — checkout form will fall back to its
+    // default plan, user can still re-pick from the radio cards.
+  }
+  const target = document.getElementById("checkout");
+  if (target) {
+    target.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+}
 
 // 4-card pricing grid. Used in dashboard Billing tab AND landing page.
 // The 4 plan configs come from PLAN_DEFAULTS so the marketing surface
@@ -242,16 +262,15 @@ export default function PricingTiersGrid({
                 )}
               </button>
             ) : (
-              <Link
-                href={`/login?next=${encodeURIComponent(
-                  `/dashboard/billing?plan=${key}`
-                )}`}
+              <button
+                type="button"
+                onClick={() => selectPlanAndScrollToCheckout(key)}
                 className="w-full py-3 rounded-xl text-sm font-extrabold transition-transform hover:-translate-y-0.5 inline-flex items-center justify-center gap-2"
                 style={{ background: accent.cta, color: "#000" }}
               >
                 Subscribe
                 <ArrowRight className="w-4 h-4" />
-              </Link>
+              </button>
             )}
           </div>
         );

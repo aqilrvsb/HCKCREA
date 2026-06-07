@@ -2,31 +2,11 @@ import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createChipPurchase } from "@/lib/chip";
+import { isPlanKey, loadPlan } from "@/lib/plans";
 
-// Single Pro Plan — defaults overridden at runtime by app_settings.plan_pro.
-// `freeCredits` is 0 because subscription unlocks access, not a credit pile;
-// users top up credits separately via /api/credit/topup.
-const PLAN_DEFAULTS: Record<string, { price: number; days: number; freeCredits: number; label: string }> = {
-  pro: { price: 75, days: 30, freeCredits: 0, label: "Pro Plan" },
-};
-
-async function loadPlan(plan: string) {
-  const admin = createAdminClient();
-  const { data } = await admin
-    .from("app_settings")
-    .select("value")
-    .eq("key", `plan_${plan}`)
-    .maybeSingle();
-  const v = (data?.value as any) || {};
-  const d = PLAN_DEFAULTS[plan];
-  if (!d) return null;
-  return {
-    price: Number(v.price ?? d.price),
-    days: Number(v.days ?? d.days),
-    freeCredits: Number(v.credits ?? d.freeCredits),
-    label: String(v.label ?? d.label),
-  };
-}
+// 4-tier signup checkout flow. Accepts any of starter/standard/pro/premium
+// from the landing-page checkout form. The browser pre-pays + auto-creates
+// the account; the webhook hands login credentials over via WhatsApp.
 
 function normalizeWhatsapp(raw: string): string | null {
   const digits = (raw || "").replace(/\D/g, "");
@@ -43,7 +23,7 @@ function isValidEmail(s: string) {
 export async function POST(req: Request) {
   try {
     const body = await req.json().catch(() => ({}));
-    const plan = String(body?.plan || "").toLowerCase();
+    const planRaw = String(body?.plan || "").toLowerCase();
     const name = String(body?.name || "").trim();
     const whatsappRaw = String(body?.whatsapp || "");
     const email = String(body?.email || "").trim().toLowerCase();
@@ -53,12 +33,14 @@ export async function POST(req: Request) {
     // back to the originating ad source/campaign/placement.
     const utm = (body?.utm && typeof body.utm === "object") ? body.utm : null;
 
-    if (plan !== "pro") {
+    if (!isPlanKey(planRaw)) {
       return NextResponse.json(
-        { error: "Only the Pro Plan is available" },
+        { error: "Invalid plan. Expected one of: starter, standard, pro, premium" },
         { status: 400 }
       );
     }
+    const plan = planRaw;
+
     if (!name) return NextResponse.json({ error: "Name required" }, { status: 400 });
     const whatsapp = normalizeWhatsapp(whatsappRaw);
     if (!whatsapp) return NextResponse.json({ error: "Invalid WhatsApp number" }, { status: 400 });
@@ -66,8 +48,8 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Invalid email" }, { status: 400 });
     }
 
-    const cfg = await loadPlan(plan);
-    if (!cfg) return NextResponse.json({ error: "Plan config missing" }, { status: 500 });
+    const admin = createAdminClient();
+    const cfg = await loadPlan(admin, plan);
 
     // Affiliate cookie — set by middleware when visitor lands with ?ref=
     // Carried into payment metadata so the webhook can resolve the
@@ -75,8 +57,6 @@ export async function POST(req: Request) {
     const refCookie = (await cookies()).get("peninglab_ref")?.value || null;
     const referredByCode =
       refCookie && /^[A-Z0-9]{4,16}$/.test(refCookie) ? refCookie : null;
-
-    const admin = createAdminClient();
 
     // Pre-create payment row WITHOUT a user_id — auto-register happens on
     // success. We stash the signup payload in metadata for the webhook.
@@ -93,12 +73,13 @@ export async function POST(req: Request) {
           plan,
           plan_label: cfg.label,
           days: cfg.days,
-          free_credits: cfg.freeCredits,
+          // Existing applyCheckoutSignup() reads metadata.free_credits to
+          // populate profiles.credits at signup time. Map cfg.credits → it
+          // so 4-tier signups grant the right credit allotment.
+          free_credits: cfg.credits,
+          credits: cfg.credits,
           signup: { name, whatsapp, email },
           referred_by_code: referredByCode,
-          // UTM attribution — only present when the visitor arrived from
-          // a paid ad link. Used by /api/admin/ads/stats to count
-          // ads-attributed purchases (vs organic signups).
           utm: utm && utm.source
             ? {
                 source: String(utm.source).slice(0, 64),
@@ -115,9 +96,6 @@ export async function POST(req: Request) {
 
     if (payErr || !payment) {
       console.error("checkout payment insert failed:", payErr);
-      // Surface the underlying SQL error to the client so we can diagnose
-      // schema / RLS / constraint issues without having to grep Vercel logs.
-      // payErr fields from supabase-js: .message, .details, .hint, .code.
       return NextResponse.json(
         {
           error: "Failed to create payment record",
@@ -137,7 +115,7 @@ export async function POST(req: Request) {
     const purchase = await createChipPurchase({
       email,
       fullName: name,
-      productName: `PeningLab ${cfg.label} — ${cfg.days} days`,
+      productName: `PeningLab ${cfg.label} Plan — ${cfg.days} days`,
       amountMYR: cfg.price,
       reference: `SU-${payment.id.substring(0, 8)}`,
       metadata: {
@@ -145,7 +123,8 @@ export async function POST(req: Request) {
         payment_id: payment.id,
         plan,
         days: cfg.days,
-        free_credits: cfg.freeCredits,
+        free_credits: cfg.credits,
+        credits: cfg.credits,
         name,
         whatsapp,
         email,
