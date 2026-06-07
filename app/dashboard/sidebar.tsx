@@ -660,34 +660,37 @@ export default function Sidebar({
           Auto Post TikTok
         </button>
 
-        {/* External link — WhatsApp discussion group. Themed in green to
-            match WhatsApp brand and stand out as a non-nav item.
-            Affiliate users get routed to the affiliate-only group instead
-            of the general public one. */}
-        <a
-          href={
-            isAffiliate
-              ? "https://chat.whatsapp.com/CRp8ctg8Y40IBrtlPbuCQ2"
-              : "https://chat.whatsapp.com/BPORSI7khdIEOGZzWYBwbS"
-          }
-          target="_blank"
-          rel="noopener noreferrer"
-          className="sidebar-row w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-bold"
-          style={{ color: "var(--color-text-secondary)" }}
-        >
-          <MessageCircle
-            className="sidebar-row-icon w-4 h-4 flex-shrink-0"
-            strokeWidth={2.4}
-            style={{ color: "#22c55e" }}
-          />
-          <span>
-            {isAffiliate ? "Affiliate WhatsApp Group" : "Join Discussion WhatsApp"}
-          </span>
-          <ArrowUpRight
-            className="w-3.5 h-3.5 ml-auto opacity-60"
-            strokeWidth={2.4}
-          />
-        </a>
+        {/* External link — WhatsApp discussion group. HIDDEN per user
+            direction. Themed in green to match WhatsApp brand and stand
+            out as a non-nav item. Affiliate users used to get routed to
+            the affiliate-only group instead of the general public one.
+            Re-enable by removing the `false &&` guard below. */}
+        {false && (
+          <a
+            href={
+              isAffiliate
+                ? "https://chat.whatsapp.com/CRp8ctg8Y40IBrtlPbuCQ2"
+                : "https://chat.whatsapp.com/BPORSI7khdIEOGZzWYBwbS"
+            }
+            target="_blank"
+            rel="noopener noreferrer"
+            className="sidebar-row w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-bold"
+            style={{ color: "var(--color-text-secondary)" }}
+          >
+            <MessageCircle
+              className="sidebar-row-icon w-4 h-4 flex-shrink-0"
+              strokeWidth={2.4}
+              style={{ color: "#22c55e" }}
+            />
+            <span>
+              {isAffiliate ? "Affiliate WhatsApp Group" : "Join Discussion WhatsApp"}
+            </span>
+            <ArrowUpRight
+              className="w-3.5 h-3.5 ml-auto opacity-60"
+              strokeWidth={2.4}
+            />
+          </a>
+        )}
       </div>
 
       {/* Credit pill + subscription status */}
