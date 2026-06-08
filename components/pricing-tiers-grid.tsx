@@ -6,6 +6,7 @@ import {
   PLAN_DEFAULTS,
   BEST_SELLER,
   MCP_TIERS,
+  AFFILIATE_TIERS,
   GROUP_VIP_TIERS,
   TOPUP_TIERS,
   type PlanKey,
@@ -78,6 +79,9 @@ function featureLinesFor(key: PlanKey): FeatureLine[] {
   ];
   if ((MCP_TIERS as readonly string[]).includes(key)) {
     lines.push({ text: "MCP API access (peninglab-mcp npm)" });
+  }
+  if ((AFFILIATE_TIERS as readonly string[]).includes(key)) {
+    lines.push({ text: "Affiliate program (20% referral commission)" });
   }
   if ((GROUP_VIP_TIERS as readonly string[]).includes(key)) {
     lines.push({ text: "Group VIP support" });

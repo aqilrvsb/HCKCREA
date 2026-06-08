@@ -367,7 +367,15 @@ export default function DashboardShell({
           )}
           {view.kind === "affiliate" && (
             <SectionWrap>
-              <AffiliateSection />
+              {planActive && (plan === "pro" || plan === "premium") ? (
+                <AffiliateSection />
+              ) : (
+                <PerkUpgradeNotice
+                  perkLabel="Affiliate program"
+                  description="Affiliate program (20% referral commission) termasuk dalam plan Pro (RM 120) dan Premium (RM 200) sahaja. Subscribe untuk dapat referral code anda + dashboard commission tracking."
+                  onGotoBilling={() => setView({ kind: "billing" })}
+                />
+              )}
             </SectionWrap>
           )}
           {view.kind === "usage" && (
@@ -820,6 +828,92 @@ function EmptyState({ title, hint }: { title: string; hint: string }) {
           {title}
         </h2>
         <p className="text-sm text-[var(--color-text-secondary)]">{hint}</p>
+      </div>
+    </div>
+  );
+}
+
+// Generic "this perk is gated to higher tiers" panel. Used when a
+// Starter / Standard user lands on a dashboard view that only
+// Pro / Premium can use (e.g. Affiliate). Renders the same upgrade
+// CTA layout the MCP page uses.
+function PerkUpgradeNotice({
+  perkLabel,
+  description,
+  onGotoBilling,
+}: {
+  perkLabel: string;
+  description: string;
+  onGotoBilling: () => void;
+}) {
+  return (
+    <div className="max-w-2xl mx-auto w-full">
+      <div
+        className="card p-8 border-2"
+        style={{
+          background: "rgba(250, 204, 21, 0.05)",
+          borderColor: "rgba(250, 204, 21, 0.35)",
+        }}
+      >
+        <div className="text-center mb-6">
+          <div
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] font-bold uppercase tracking-widest mb-4"
+            style={{
+              background: "linear-gradient(90deg, #facc15 0%, #eab308 100%)",
+              color: "#000",
+            }}
+          >
+            Pro / Premium only
+          </div>
+          <h2 className="font-display font-extrabold text-2xl mb-3">
+            Upgrade untuk akses {perkLabel}
+          </h2>
+          <p className="text-sm text-[var(--color-text-secondary)] max-w-md mx-auto">
+            {description}
+          </p>
+        </div>
+        <div className="grid sm:grid-cols-2 gap-3 mb-6">
+          <div
+            className="p-4 rounded-xl"
+            style={{
+              background: "var(--color-bg-elev)",
+              border: "1px solid var(--color-border)",
+            }}
+          >
+            <div className="text-[10px] uppercase tracking-wider font-bold text-[var(--color-text-muted)] mb-1">
+              Pro
+            </div>
+            <div className="font-display font-extrabold text-2xl">RM 120</div>
+            <div className="text-xs text-[var(--color-text-muted)] mt-0.5">
+              /30 hari + RM 50 credits
+            </div>
+          </div>
+          <div
+            className="p-4 rounded-xl"
+            style={{
+              background: "var(--color-bg-elev)",
+              border: "1px solid var(--color-border)",
+            }}
+          >
+            <div className="text-[10px] uppercase tracking-wider font-bold text-[var(--color-text-muted)] mb-1">
+              Premium
+            </div>
+            <div className="font-display font-extrabold text-2xl">RM 200</div>
+            <div className="text-xs text-[var(--color-text-muted)] mt-0.5">
+              /30 hari + RM 100 credits
+            </div>
+          </div>
+        </div>
+        <button
+          onClick={onGotoBilling}
+          className="w-full py-3 rounded-xl text-sm font-extrabold inline-flex items-center justify-center"
+          style={{
+            background: "linear-gradient(90deg, #facc15 0%, #eab308 100%)",
+            color: "#000",
+          }}
+        >
+          Pergi ke Billing → Upgrade
+        </button>
       </div>
     </div>
   );

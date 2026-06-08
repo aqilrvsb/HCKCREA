@@ -31,6 +31,7 @@ export const BEST_SELLER: PlanKey = "pro";
 // sidebar, page-level guards, and the MCP auth check all agree.
 export const TOPUP_TIERS: readonly PlanKey[] = ["pro", "premium"];
 export const MCP_TIERS: readonly PlanKey[] = ["pro", "premium"];
+export const AFFILIATE_TIERS: readonly PlanKey[] = ["pro", "premium"];
 export const GROUP_VIP_TIERS: readonly PlanKey[] = ["premium"];
 
 export function isPlanKey(s: unknown): s is PlanKey {
@@ -46,6 +47,9 @@ export function canUseTopup(plan: string | null | undefined): boolean {
 }
 export function canUseMcp(plan: string | null | undefined): boolean {
   return isPlanKey(plan) && (MCP_TIERS as readonly string[]).includes(plan);
+}
+export function canUseAffiliate(plan: string | null | undefined): boolean {
+  return isPlanKey(plan) && (AFFILIATE_TIERS as readonly string[]).includes(plan);
 }
 export function canAccessGroupVip(plan: string | null | undefined): boolean {
   return isPlanKey(plan) && (GROUP_VIP_TIERS as readonly string[]).includes(plan);

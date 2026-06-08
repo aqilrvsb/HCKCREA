@@ -604,7 +604,13 @@ export default function Sidebar({
             ...(planActive && (plan === "pro" || plan === "premium")
               ? [{ kind: "credit" as const, label: "Top Up Credit", Icon: Wallet }]
               : []),
-            { kind: "affiliate" as const, label: "Affiliate", Icon: Users },
+            // Affiliate nav — same Pro/Premium gate. AFFILIATE_TIERS
+            // in lib/plans.ts is the source of truth; sidebar mirrors
+            // it inline to avoid pulling the constant into a server
+            // boundary unnecessarily.
+            ...(planActive && (plan === "pro" || plan === "premium")
+              ? [{ kind: "affiliate" as const, label: "Affiliate", Icon: Users }]
+              : []),
             { kind: "usage" as const, label: "Usage", Icon: Activity },
             // Saved Prompts hidden — per-tab agents now persist their
             // own prompt history, so the standalone library page is
