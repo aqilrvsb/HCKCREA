@@ -32,6 +32,7 @@ export const BEST_SELLER: PlanKey = "pro";
 export const TOPUP_TIERS: readonly PlanKey[] = ["pro", "premium"];
 export const MCP_TIERS: readonly PlanKey[] = ["pro", "premium"];
 export const AFFILIATE_TIERS: readonly PlanKey[] = ["pro", "premium"];
+export const AUTO_POST_TIERS: readonly PlanKey[] = ["standard", "pro", "premium"];
 export const GROUP_VIP_TIERS: readonly PlanKey[] = ["premium"];
 
 export function isPlanKey(s: unknown): s is PlanKey {
@@ -50,6 +51,9 @@ export function canUseMcp(plan: string | null | undefined): boolean {
 }
 export function canUseAffiliate(plan: string | null | undefined): boolean {
   return isPlanKey(plan) && (AFFILIATE_TIERS as readonly string[]).includes(plan);
+}
+export function canUseAutoPost(plan: string | null | undefined): boolean {
+  return isPlanKey(plan) && (AUTO_POST_TIERS as readonly string[]).includes(plan);
 }
 export function canAccessGroupVip(plan: string | null | undefined): boolean {
   return isPlanKey(plan) && (GROUP_VIP_TIERS as readonly string[]).includes(plan);

@@ -7,6 +7,7 @@ import {
   BEST_SELLER,
   MCP_TIERS,
   AFFILIATE_TIERS,
+  AUTO_POST_TIERS,
   GROUP_VIP_TIERS,
   TOPUP_TIERS,
   type PlanKey,
@@ -77,6 +78,9 @@ function featureLinesFor(key: PlanKey): FeatureLine[] {
     { text: "Unlimited generate (within credit balance)" },
     { text: "Auto Content, Clone Video, Story Telling" },
   ];
+  if ((AUTO_POST_TIERS as readonly string[]).includes(key)) {
+    lines.push({ text: "Auto Post TikTok (Chrome extension)" });
+  }
   if ((MCP_TIERS as readonly string[]).includes(key)) {
     lines.push({ text: "MCP API access (peninglab-mcp npm)" });
   }

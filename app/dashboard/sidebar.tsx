@@ -663,20 +663,26 @@ export default function Sidebar({
 
         {/* Auto Post TikTok — opens install SOP modal (matches the
             Hack Creative Extension SOP style). Click pulls the current
-            extension version + download URL from /api/extension/info. */}
-        <button
-          type="button"
-          onClick={() => void openAutoPostModal()}
-          className="sidebar-row w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-bold"
-          style={{ color: "var(--color-text-secondary)" }}
-        >
-          <Send
-            className="sidebar-row-icon w-4 h-4 flex-shrink-0"
-            strokeWidth={2.4}
-            style={{ color: "var(--color-orange)" }}
-          />
-          Auto Post TikTok
-        </button>
+            extension version + download URL from /api/extension/info.
+            Visible to Standard / Pro / Premium (AUTO_POST_TIERS in
+            lib/plans.ts). Hidden for Starter + free + expired so the
+            extension feels like a deliberate upgrade perk. */}
+        {planActive &&
+          (plan === "standard" || plan === "pro" || plan === "premium") && (
+            <button
+              type="button"
+              onClick={() => void openAutoPostModal()}
+              className="sidebar-row w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-bold"
+              style={{ color: "var(--color-text-secondary)" }}
+            >
+              <Send
+                className="sidebar-row-icon w-4 h-4 flex-shrink-0"
+                strokeWidth={2.4}
+                style={{ color: "var(--color-orange)" }}
+              />
+              Auto Post TikTok
+            </button>
+          )}
 
         {/* External link — WhatsApp Group VIP. Visible ONLY for active
             Premium users (the tier that includes Group VIP support per
