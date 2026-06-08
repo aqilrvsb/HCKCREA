@@ -94,22 +94,27 @@ const PROVIDER_THEME: Record<
 // Per-provider image-mode availability. Per user direction every
 // provider should expose its full set of meaningful modes so the user
 // always picks explicitly:
-//   • Veo  → all 3 modes (text-to-video, start-frame i2v, multi-ref r2v)
+//   • Veo  → all 3 modes (multi-ref r2v, text-to-video, start-frame i2v)
 //   • Grok → frame ONLY (1.5 Preview requires a single image — no t2v,
 //            no multi-ref per APIPod spec 2026-06-08)
 //   • Sora 2 → text + start-frame (single first frame, API-mandated)
+//
+// Mode ORDER per user direction 2026-06-08: References (ingredient) first
+// because it's the recommended path for production-quality affiliate
+// content; Text only in the middle; Start frame LAST. Grok stays
+// frame-only.
 const PROVIDER_MODES: Record<Provider, ImageMode[]> = {
-  veo: ["text", "frame", "ingredient"],
+  veo: ["ingredient", "text", "frame"],
   grok: ["frame"],
   sora2: ["text", "frame"],
-  // GeminiOmni: text + ingredient (multi-ref up to 3). API has no
-  // first-frame concept (just generic img_urls) — frame mode would
-  // be UX duplication of single-image ingredient mode.
-  gemini: ["text", "ingredient"],
-  // Seedance 2.0 Fast: all 3 modes (t2v / i2v / r2v). Frame mode is
+  // GeminiOmni: ingredient + text. API has no first-frame concept (just
+  // generic img_urls) — frame mode would be UX duplication of single-
+  // image ingredient mode.
+  gemini: ["ingredient", "text"],
+  // Seedance 2.0 Fast: all 3 modes (r2v / t2v / i2v). Frame mode is
   // start+end frame i2v (2 images max per APIPod spec). Ingredient is
   // r2v with up to 9 refs (capped at 3 here for UX consistency).
-  seedance: ["text", "frame", "ingredient"],
+  seedance: ["ingredient", "text", "frame"],
 };
 
 // Per-(provider, mode) slot count. text=0 by definition; frame is 1
@@ -136,8 +141,19 @@ function getRefCap(provider: Provider, mode: ImageMode): number {
 function modeLabel(provider: Provider, mode: ImageMode): string {
   if (mode === "text") return "📝 Text only";
   if (mode === "frame") return "🖼️ Start frame";
-  // ingredient (multi-ref) → "References" for all providers
-  return "🧩 References";
+  // ingredient (multi-ref) → "References" for all providers. The
+  // "(Recommend)" tag steers new users to the highest-quality path
+  // (multi-ref produces the most consistent affiliate output).
+  return "🧩 References (Recommend)";
+}
+
+// Bahasa Melayu inline help text shown UNDER each mode button so new
+// users understand the trade-off before picking. Per user direction
+// 2026-06-08: short Malay one-liners, not English.
+function modeDescription(mode: ImageMode): string {
+  if (mode === "text") return "Tak perlu letak gambar, prompt je keluar video";
+  if (mode === "frame") return "Image yang di-upload dijadikan first frame dalam video";
+  return "Guna gambar sebagai rujukan untuk hasilkan video cantik";
 }
 
 export default function OriginalVideoTab({
@@ -419,7 +435,7 @@ export default function OriginalVideoTab({
                 key={m}
                 type="button"
                 onClick={() => setImageMode(m)}
-                className="px-3 py-2 rounded-lg text-xs font-bold transition-all"
+                className="px-3 py-2.5 rounded-lg text-xs font-bold transition-all text-left"
                 style={
                   active
                     ? {
@@ -434,7 +450,15 @@ export default function OriginalVideoTab({
                       }
                 }
               >
-                {modeLabel(provider, m)}
+                <div className="text-center text-xs font-extrabold leading-tight mb-1">
+                  {modeLabel(provider, m)}
+                </div>
+                <div
+                  className="text-center text-[10px] font-normal leading-snug"
+                  style={{ opacity: active ? 0.85 : 0.65 }}
+                >
+                  {modeDescription(m)}
+                </div>
               </button>
             );
           })}

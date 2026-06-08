@@ -718,16 +718,20 @@ export default function Sidebar({
             </button>
           )}
 
-        {/* External link — WhatsApp Group VIP. Visible ONLY for active
-            Premium users (the tier that includes Group VIP support per
-            the pricing grid's GROUP_VIP_TIERS gate). Affiliate users
-            with Premium see the affiliate-only variant. */}
-        {planActive && plan === "premium" && (
+        {/* External link — WhatsApp Group. Visible for active Pro and
+            Premium users (per user direction 2026-06-08). Each tier
+            gets its own group invite so Premium stays a curated VIP
+            community while Pro gets the broader paid-customer group.
+            Affiliate users always see the affiliate-only variant
+            regardless of plan tier. */}
+        {planActive && (plan === "pro" || plan === "premium") && (
           <a
             href={
               isAffiliate
                 ? "https://chat.whatsapp.com/CRp8ctg8Y40IBrtlPbuCQ2"
-                : "https://chat.whatsapp.com/D0rL4xE5qspKIoEDpCaiFd"
+                : plan === "premium"
+                  ? "https://chat.whatsapp.com/D0rL4xE5qspKIoEDpCaiFd"
+                  : "https://chat.whatsapp.com/BPORSI7khdIEOGZzWYBwbS"
             }
             target="_blank"
             rel="noopener noreferrer"
@@ -740,7 +744,11 @@ export default function Sidebar({
               style={{ color: "#22c55e" }}
             />
             <span>
-              {isAffiliate ? "Affiliate WhatsApp Group" : "Join Group VIP"}
+              {isAffiliate
+                ? "Affiliate WhatsApp Group"
+                : plan === "premium"
+                  ? "Join Group VIP"
+                  : "Join Pro Group"}
             </span>
             <ArrowUpRight
               className="w-3.5 h-3.5 ml-auto opacity-60"

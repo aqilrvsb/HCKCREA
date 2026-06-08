@@ -5,20 +5,27 @@ import { createAdminClient } from "@/lib/supabase/admin";
 
 const WHACENTER_API_URL = "https://api.whacenter.com";
 
-// WhatsApp group invite URLs. Keep both literals here so the message
-// builder can pick the right one by KIND ("pro" | "affiliate") and call
-// sites can NEVER accidentally pass the wrong link — they choose the
-// audience, not the URL.
+// WhatsApp group invite URLs. Keep all literals here so the message
+// builder can pick the right one by KIND and call sites can NEVER
+// accidentally pass the wrong link — they choose the audience, not
+// the URL.
 //
-// Affiliate group: affiliate-only community
-// PRO/Client group: paying-customer community
+// Three audiences (per user direction 2026-06-08):
+//   - Affiliate: affiliate-only community (any plan with affiliate role)
+//   - PRO tier:  paying customers on the Pro plan (RM 120)
+//   - PREMIUM tier: paying customers on Premium plan (RM 200) — VIP
+//                   tier with One-on-One Zoom access; separate group
+//                   from Pro for a more curated community.
 export const WHATSAPP_GROUP_AFFILIATE = "https://chat.whatsapp.com/CRp8ctg8Y40IBrtlPbuCQ2";
-export const WHATSAPP_GROUP_PRO = "https://chat.whatsapp.com/D0rL4xE5qspKIoEDpCaiFd";
+export const WHATSAPP_GROUP_PRO = "https://chat.whatsapp.com/BPORSI7khdIEOGZzWYBwbS";
+export const WHATSAPP_GROUP_PREMIUM = "https://chat.whatsapp.com/D0rL4xE5qspKIoEDpCaiFd";
 
-export type WhatsappGroupKind = "pro" | "affiliate";
+export type WhatsappGroupKind = "pro" | "premium" | "affiliate";
 
 export function whatsappGroupUrl(kind: WhatsappGroupKind): string {
-  return kind === "affiliate" ? WHATSAPP_GROUP_AFFILIATE : WHATSAPP_GROUP_PRO;
+  if (kind === "affiliate") return WHATSAPP_GROUP_AFFILIATE;
+  if (kind === "premium") return WHATSAPP_GROUP_PREMIUM;
+  return WHATSAPP_GROUP_PRO;
 }
 
 function toMalayDigits(raw: string): string | null {
