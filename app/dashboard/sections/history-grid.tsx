@@ -1646,6 +1646,47 @@ function HistoryCardInner({
                   </div>
                 </div>
               )}
+              {/* Task ID — surfaced on failed cards so admin / support can
+                  cross-reference the provider's dashboard (APIPod, Crun,
+                  etc.) when investigating WHY a slot rejected the prompt.
+                  Click to copy. history.task_id is null until the cascade
+                  successfully reaches a provider; for pre-cascade failures
+                  (e.g. credit check) we fall back to history.id. */}
+              <div
+                className="mt-2 pt-2 border-t w-full"
+                style={{ borderColor: "rgba(239,68,68,0.25)" }}
+              >
+                <div className="text-[9px] font-mono uppercase tracking-wider mb-1 opacity-60">
+                  TASK ID
+                </div>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    const id = item.task_id || item.id;
+                    void navigator.clipboard
+                      .writeText(id)
+                      .then(() => {
+                        const btn = e.currentTarget;
+                        const original = btn.dataset.label || btn.textContent || "";
+                        btn.dataset.label = original;
+                        btn.textContent = "✓ copied";
+                        setTimeout(() => {
+                          btn.textContent = original;
+                        }, 1200);
+                      })
+                      .catch(() => {});
+                  }}
+                  title="Click to copy"
+                  className="text-[9px] font-mono text-left break-all w-full hover:underline"
+                  style={{ color: "rgba(252,165,165,0.85)" }}
+                >
+                  {item.task_id || item.id || "—"}
+                  {!item.task_id && (
+                    <span className="ml-1 opacity-50">(history id — never reached provider)</span>
+                  )}
+                </button>
+              </div>
             </div>
             <button
               onClick={checkNow}
