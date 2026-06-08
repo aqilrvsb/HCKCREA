@@ -745,6 +745,43 @@ export default function AutoContentTab({ projectId }: { projectId?: string } = {
           </span>
         </div>
 
+        {/* IMPORTANT RULE — prominent attachment-quality guidance.
+            Surfaced at the top of Auto Content so users see it BEFORE
+            picking a product. Bad attachments are the #1 cause of poor
+            AI video output (wrong product size, distracting clutter). */}
+        <div
+          className="rounded-2xl p-5 mb-5"
+          style={{
+            background: "linear-gradient(135deg, #fee2e2 0%, #fef3c7 100%)",
+            border: "2px solid #dc2626",
+            boxShadow: "0 4px 16px rgba(220, 38, 38, 0.15)",
+          }}
+        >
+          <div className="flex items-center gap-2 mb-3">
+            <span className="text-2xl">⚠️</span>
+            <h3 className="text-xl md:text-2xl font-extrabold uppercase tracking-tight" style={{ color: "#991b1b" }}>
+              Important Rule — Tip Untuk Video Konsisten
+            </h3>
+          </div>
+          <p className="text-sm font-bold mb-3" style={{ color: "#7f1d1d" }}>
+            3 Attachment yang WAJIB ikut format ni:
+          </p>
+          <ol className="space-y-2.5 text-sm" style={{ color: "#1a1a1a" }}>
+            <li className="flex gap-2">
+              <span className="font-extrabold flex-shrink-0" style={{ color: "#dc2626" }}>1)</span>
+              <span>
+                <strong>Gambar Pertama:</strong> Mestilah tangan pegang product <strong>tanpa tunjuk muka</strong> — supaya AI boleh baca <strong>exactly size product</strong>.
+              </span>
+            </li>
+            <li className="flex gap-2">
+              <span className="font-extrabold flex-shrink-0" style={{ color: "#dc2626" }}>2-3)</span>
+              <span>
+                <strong>Gambar Kedua &amp; Ketiga:</strong> Gambar product yang <strong>RAW</strong> — tiada tambahan harga, pakej, atau sebarang object lain kat tepi. <strong>Naked product sahaja.</strong>
+              </span>
+            </li>
+          </ol>
+        </div>
+
         {/* Affiliate / Manual toggle. Affiliate = paste URL, scrape via
             Crawlbase, auto-fill manual_products[0]. Manual = upload
             directly. The submit body is identical either way (both paths

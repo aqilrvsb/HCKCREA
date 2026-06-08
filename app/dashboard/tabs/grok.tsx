@@ -1,45 +1,40 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Loader2, X, Zap } from "lucide-react";
+import { Loader2, X, Zap, Info } from "lucide-react";
 import Portal from "../sections/portal";
 import { uploadImage, dataUrlToFile } from "@/lib/upload-image";
 import AttachmentPicker from "../sections/attachment-picker";
 
-// Grok tab — dedicated home for Grok Imagine video generation.
-// Replaces the "Normal Video" sub-feature that used to live inside the
-// Viral (cinema) tab. Model is locked to Grok (no Veo option here —
-// Veo lives in UGC / Auto Content). Posts to /api/generate/cinema with
-// model=grok which routes through the p6 (APIPod) cascade.
+// Grok Imagine 1.5 Preview tab — replaces legacy Grok Imagine (t2v/i2v)
+// entirely per user direction 2026-06-08. APIPod model:
+// grok-imagine-1.5-preview. Single image_url MANDATORY (string, not
+// array). No text-only mode. Posts to /api/generate/cinema with
+// model='grok' which routes through the p6 (APIPod) cascade.
+//
+// API constraints (per APIPod grok-imagine-1.5-preview spec):
+//   - image_url: REQUIRED, single reference image only
+//   - aspect_ratio: 1:1 / 2:3 / 3:2 / 9:16 / 16:9 (5 options)
+//   - duration: 1-15 (default 10), per-second pricing
+//   - resolution: fixed 720p
 
 type Status = "idle" | "submitting" | "failed";
-type ImageMode = "text" | "image";
+type Aspect = "9:16" | "16:9" | "1:1" | "2:3" | "3:2";
 
 const ORANGE = "#f97316";
 const ORANGE_SOFT = "rgba(249, 115, 22, 0.18)";
 const ORANGE_FAINT = "rgba(249, 115, 22, 0.06)";
 
-// Three fixed reference slots — user can fill 0-3. APIPod's grok-imagine-i2v
-// supports 1-7 image_urls but per product decision we expose 3 to keep
-// the UI clean and consistent with other tabs.
-const GROK_REF_SLOTS = 3;
-
 export default function GrokTab({ projectId }: { projectId?: string } = {}) {
-  const [imageMode, setImageMode] = useState<ImageMode>("text");
-  // Length-3 array of slot URLs ("" = empty slot). Stays length 3.
-  const [refSlots, setRefSlots] = useState<string[]>(
-    Array(GROK_REF_SLOTS).fill("")
-  );
+  const [refUrl, setRefUrl] = useState<string>("");
   const [prompt, setPrompt] = useState("");
-  const [aspect, setAspect] = useState("9:16");
-  // Grok bills per-second. APIPod accepts 6-30 but we expose 8-30 in
-  // the UI per product call (8s is the natural floor for usable dialog).
-  const [duration, setDuration] = useState<number>(8);
+  const [aspect, setAspect] = useState<Aspect>("9:16");
+  // 1.5 Preview supports 1-15s. Default 10 per APIPod spec.
+  const [duration, setDuration] = useState<number>(10);
   const [ratePerSec, setRatePerSec] = useState<number | null>(null);
   const [status, setStatus] = useState<Status>("idle");
   const [error, setError] = useState<string | null>(null);
-  // Which slot index the attachment picker is currently filling.
-  const [pickingSlot, setPickingSlot] = useState<number | null>(null);
+  const [pickingSlot, setPickingSlot] = useState<boolean>(false);
 
   useEffect(() => {
     let cancel = false;
@@ -54,8 +49,6 @@ export default function GrokTab({ projectId }: { projectId?: string } = {}) {
     };
   }, []);
 
-  // Non-empty refs only — what gets sent to the API.
-  const filledRefs = refSlots.filter((u) => !!u);
   const estCost = ratePerSec ? (ratePerSec * duration).toFixed(2) : null;
 
   async function ensurePublicUrl(v: string): Promise<string> {
@@ -68,39 +61,23 @@ export default function GrokTab({ projectId }: { projectId?: string } = {}) {
 
   async function submit() {
     if (!prompt.trim()) return setError("Sila masukkan prompt.");
-    if (imageMode === "image" && filledRefs.length === 0)
-      return setError("Pick at least one reference image.");
+    if (!refUrl) return setError("Reference image is required for Grok 1.5 Preview.");
     setError(null);
     setStatus("submitting");
     try {
-      const sourceUrls = imageMode === "image" ? filledRefs : [];
-      const rawPubUrls = await Promise.all(sourceUrls.map((u) => ensurePublicUrl(u)));
-      // GROK-SPECIFIC RULE per user direction: never send a single
-      // image URL to Grok. When the user uploaded only ONE reference,
-      // duplicate it so Grok receives [url, url] instead of [url].
-      // Empirically Grok's i2v model treats a single ref as ambiguous
-      // (sometimes ignores it, sometimes treats as start-only) — a
-      // duplicate pair forces it to anchor the same image as both
-      // start and end frame, giving a much more stable output.
-      // 2-7 picked refs are sent as-is.
-      const pubUrls =
-        rawPubUrls.length === 1
-          ? [rawPubUrls[0], rawPubUrls[0]]
-          : rawPubUrls;
+      const pubUrl = await ensurePublicUrl(refUrl);
       const r = await fetch("/api/generate/cinema", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           prompt: prompt.trim(),
-          image_url: pubUrls[0] || "",
-          image_urls: pubUrls,
+          image_url: pubUrl,
+          image_urls: [pubUrl],
           duration,
           resolution: "720p",
           aspect_ratio: aspect,
-          image_mode: imageMode,
+          image_mode: "image",
           model: "grok",
-          // Tag so history-grid can route this row into the Grok tab
-          // (separate from the legacy Cinema → Normal Video sub-tab).
           feature: "grok",
           project_id: projectId,
         }),
@@ -133,94 +110,74 @@ export default function GrokTab({ projectId }: { projectId?: string } = {}) {
         <div className="flex items-center gap-2 mb-1">
           <Zap className="w-5 h-5" style={{ color: ORANGE }} strokeWidth={2.4} />
           <h2 className="font-display font-extrabold text-lg text-[var(--color-text-primary)]">
-            Grok Imagine
+            Grok Imagine 1.5 Preview
           </h2>
         </div>
         <p className="text-xs text-[var(--color-text-secondary)] mb-4">
-          Per-second billing · 8–30s · 720p. Text-to-video or image-to-video
-          (1–7 reference images).
+          xAI Grok Imagine 1.5 · 1–15s · 720p · 5 aspect ratios. Image-to-video
+          only (single reference image required). Fluid cinematic motion,
+          faithful to source image.
         </p>
 
-        {/* Mode toggle */}
-        <div className="flex gap-2 mb-4">
-          {(["text", "image"] as const).map((m) => {
-            const active = imageMode === m;
-            return (
-              <button
-                key={m}
-                onClick={() => setImageMode(m)}
-                className="flex-1 px-3 py-2 rounded-lg text-xs font-bold transition-all"
-                style={
-                  active
-                    ? {
-                        background: ORANGE,
-                        color: "#1a1a1a",
-                        boxShadow: `0 4px 12px ${ORANGE_SOFT}`,
-                      }
-                    : {
-                        background: "var(--color-bg)",
-                        border: "1px solid var(--color-border)",
-                        color: "var(--color-text-primary)",
-                      }
-                }
+        {/* Single reference image — MANDATORY per APIPod spec */}
+        <div className="mb-4">
+          <label className="block text-[10px] uppercase tracking-widest text-[var(--color-text-secondary)] font-bold mb-2">
+            Reference image (required)
+          </label>
+          <div className="grid grid-cols-3 gap-2">
+            {refUrl ? (
+              <div
+                className="relative aspect-square rounded-lg overflow-hidden col-span-1"
+                style={{ border: "1px solid var(--color-border)" }}
               >
-                {m === "text" ? "📝 Text only" : "🖼️ With reference image"}
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={refUrl}
+                  alt="Reference image"
+                  className="w-full h-full object-cover"
+                />
+                <button
+                  onClick={() => setRefUrl("")}
+                  title="Clear reference"
+                  className="absolute top-1 right-1 w-6 h-6 rounded-md flex items-center justify-center"
+                  style={{ background: "rgba(0,0,0,0.7)", color: "white" }}
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            ) : (
+              <button
+                onClick={() => setPickingSlot(true)}
+                className="aspect-square rounded-lg text-xs font-bold flex flex-col items-center justify-center gap-1 transition-colors col-span-1"
+                style={{
+                  background: "var(--color-bg)",
+                  border: "1px dashed var(--color-border)",
+                  color: "var(--color-text-secondary)",
+                }}
+              >
+                <span className="text-lg">+</span>
+                <span>Reference</span>
               </button>
-            );
-          })}
-        </div>
-
-        {/* Reference image slots — 3 fixed boxes, fill any 0-3.
-            Click empty box → opens picker, click X on filled → clears. */}
-        {imageMode === "image" && (
-          <div className="mb-4">
-            <label className="block text-[10px] uppercase tracking-widest text-[var(--color-text-secondary)] font-bold mb-2">
-              Reference images (up to {GROK_REF_SLOTS})
-            </label>
-            <div className="grid grid-cols-3 gap-2">
-              {refSlots.map((url, i) =>
-                url ? (
-                  <div
-                    key={i}
-                    className="relative aspect-square rounded-lg overflow-hidden"
-                    style={{ border: "1px solid var(--color-border)" }}
-                  >
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img
-                      src={url}
-                      alt={`Reference ${i + 1}`}
-                      className="w-full h-full object-cover"
-                    />
-                    <button
-                      onClick={() =>
-                        setRefSlots(refSlots.map((u, j) => (j === i ? "" : u)))
-                      }
-                      title="Clear this reference"
-                      className="absolute top-1 right-1 w-6 h-6 rounded-md flex items-center justify-center"
-                      style={{ background: "rgba(0,0,0,0.7)", color: "white" }}
-                    >
-                      <X className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                ) : (
-                  <button
-                    key={i}
-                    onClick={() => setPickingSlot(i)}
-                    className="aspect-square rounded-lg text-xs font-bold flex flex-col items-center justify-center gap-1 transition-colors"
-                    style={{
-                      background: "var(--color-bg)",
-                      border: "1px dashed var(--color-border)",
-                      color: "var(--color-text-secondary)",
-                    }}
-                  >
-                    <span className="text-lg">+</span>
-                    <span>Image {i + 1}</span>
-                  </button>
-                )
-              )}
+            )}
+          </div>
+          <div
+            className="mt-2 flex items-start gap-2 px-3 py-2 rounded-lg text-[10px]"
+            style={{
+              background: ORANGE_FAINT,
+              border: `1px solid ${ORANGE_SOFT}`,
+              color: "var(--color-text-secondary)",
+            }}
+          >
+            <Info className="w-3 h-3 mt-0.5 flex-shrink-0" style={{ color: ORANGE }} />
+            <div>
+              <div className="font-bold mb-0.5" style={{ color: ORANGE }}>
+                1.5 Preview image rules
+              </div>
+              Single image only. The model animates THIS image — describe the
+              motion / camera move in the prompt below.
             </div>
           </div>
-        )}
+        </div>
 
         {/* Prompt */}
         <label className="block text-[10px] uppercase tracking-widest text-[var(--color-text-secondary)] font-bold mb-2">
@@ -228,17 +185,20 @@ export default function GrokTab({ projectId }: { projectId?: string } = {}) {
         </label>
         <textarea
           value={prompt}
-          onChange={(e) => setPrompt(e.target.value)}
+          onChange={(e) => setPrompt(e.target.value.slice(0, 4000))}
           maxLength={4000}
           rows={4}
-          placeholder="Describe the video — characters, action, mood, camera style…"
-          className="w-full px-3 py-2 rounded-lg text-sm mb-4"
+          placeholder="Describe the motion — camera moves, atmosphere, action, physics…"
+          className="w-full px-3 py-2 rounded-lg text-sm mb-1"
           style={{
             background: "var(--color-bg)",
             border: "1px solid var(--color-border)",
             color: "var(--color-text-primary)",
           }}
         />
+        <div className="text-[10px] text-gray-400 mt-1 text-right mb-3">
+          {prompt.length}/4000
+        </div>
 
         {/* Aspect + Duration */}
         <div className="grid grid-cols-2 gap-3 mb-4">
@@ -248,7 +208,7 @@ export default function GrokTab({ projectId }: { projectId?: string } = {}) {
             </label>
             <select
               value={aspect}
-              onChange={(e) => setAspect(e.target.value)}
+              onChange={(e) => setAspect(e.target.value as Aspect)}
               className="w-full px-3 py-2 rounded-lg text-sm"
               style={{
                 background: "var(--color-bg)",
@@ -269,8 +229,8 @@ export default function GrokTab({ projectId }: { projectId?: string } = {}) {
             </label>
             <input
               type="range"
-              min={8}
-              max={30}
+              min={1}
+              max={15}
               step={1}
               value={duration}
               onChange={(e) => setDuration(Number(e.target.value))}
@@ -296,7 +256,7 @@ export default function GrokTab({ projectId }: { projectId?: string } = {}) {
               <Loader2 className="w-4 h-4 animate-spin" /> Generating…
             </span>
           ) : (
-            `⚡ Generate Grok Video${estCost ? ` · ~RM${estCost}` : ""}`
+            `⚡ Generate Grok 1.5 Video${estCost ? ` · ~RM${estCost}` : ""}`
           )}
         </button>
 
@@ -314,16 +274,14 @@ export default function GrokTab({ projectId }: { projectId?: string } = {}) {
         )}
       </div>
 
-      {pickingSlot !== null && (
+      {pickingSlot && (
         <Portal>
           <AttachmentPicker
             open={true}
-            onClose={() => setPickingSlot(null)}
+            onClose={() => setPickingSlot(false)}
             onPick={(a) => {
-              setRefSlots(
-                refSlots.map((u, j) => (j === pickingSlot ? a.public_url : u))
-              );
-              setPickingSlot(null);
+              setRefUrl(a.public_url);
+              setPickingSlot(false);
             }}
           />
         </Portal>

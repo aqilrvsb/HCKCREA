@@ -3,9 +3,9 @@
 // the relevant flag here and the UI + API surfaces auto-hide it. Avoids
 // scattering hardcoded conditions across the codebase.
 
-// APIPod's sora-2-vip model is currently broken at their worker level —
-// every submission returns [SY_ERR] The model 'sora2' does not exist
-// despite our request body correctly using model="sora-2-vip". See
-// failed task IDs eab71f03-... and eb8a23bc-... (2026-06-08). Flip
-// this to false once APIPod confirms the registry entry is restored.
-export const SORA2_DISABLED = true;
+// Re-enabled 2026-06-08 after APIPod restored the sora-2-vip registry
+// entry (their console banner: "The official transfer API for OpenAI
+// Sora 2 is now restored"). Outage window: 2026-06-07 through
+// 2026-06-08. Failed task IDs from the outage that customers should
+// NOT be charged for: eab71f03-..., eb8a23bc-...
+export const SORA2_DISABLED = false;

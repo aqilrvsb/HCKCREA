@@ -88,13 +88,17 @@ export async function GET(req: Request) {
       },
     },
     {
+      // Grok Imagine 1.5 Preview (xAI via APIPod) — replaces legacy
+      // grok-imagine-t2v/-i2v entirely. Image-to-video only: requires
+      // a single reference image (image_url, singular per APIPod spec).
+      // Five aspect ratios, 1-15s duration, 720p only.
       name: "grok", type: "video", rate: grok, unit: "per_second",
       constraints: {
-        duration: { min: 6, max: 30, default: 6 },
-        image_urls: { max: 3 },
-        image_modes: ["text", "frame"],
-        aspect_ratios: VIDEO_ASPECTS,
-        resolutions: ["720p", "480p"],
+        duration: { min: 1, max: 15, default: 10 },
+        image_urls: { max: 1 },
+        image_modes: ["frame"],
+        aspect_ratios: ["1:1", "2:3", "3:2", "9:16", "16:9"],
+        resolutions: ["720p"],
       },
     },
     {

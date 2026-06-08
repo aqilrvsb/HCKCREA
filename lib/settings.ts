@@ -85,8 +85,13 @@ export async function getP2Config() {
     videoT2V: s.p2_model_t2v?.model || "",
     videoI2V: s.p2_model_i2v?.model || "",
     videoR2V: s.p2_model_r2v?.model || "",
-    grokT2V: s.p2_model_grok_t2v?.model || "grok-imagine/t2v",
-    grokI2V: s.p2_model_grok_i2v?.model || "grok-imagine/i2v",
+    // Grok Imagine 1.5 Preview replaces legacy t2v/i2v per user direction
+    // 2026-06-08. Both default to the same "grok" keyword — p6.ts
+    // apipodVideoModel() maps it to "grok-imagine-1.5-preview" regardless
+    // of imageMode. The 1.5-preview requires an image; tab/route rejects
+    // empty-ref submissions before they reach the cascade.
+    grokT2V: s.p2_model_grok_t2v?.model || "grok",
+    grokI2V: s.p2_model_grok_i2v?.model || "grok",
     imageDefault: s.image_default?.model || "nano-banana-pro",
     imageModels: s.image_models || {},
   };

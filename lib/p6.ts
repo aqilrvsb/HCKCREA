@@ -145,8 +145,14 @@ function apipodVideoModel(input: {
     return "sora-2-vip";
   }
 
+  // Grok Imagine 1.5 Preview — frame-only i2v. Replaces the legacy
+  // grok-imagine-t2v / -i2v variants entirely (per user direction
+  // 2026-06-08). Single image_url (string, NOT array) is MANDATORY per
+  // APIPod spec. Aspect_ratio enum: 1:1 / 2:3 / 3:2 / 9:16 / 16:9.
+  // Duration: 1-15 (default 10), resolution fixed at 720p. Any input
+  // model string matching "grok" maps here so legacy callers stay wired.
   if (m.includes("grok")) {
-    return refs > 0 && mode !== "text" ? "grok-imagine-i2v" : "grok-imagine-t2v";
+    return "grok-imagine-1.5-preview";
   }
 
   if (m.includes("seedance")) {
@@ -267,16 +273,38 @@ export async function p6CreateVideo(input: {
     // technically accepts 4 but we never send it.
     const reqDur = Number(input.durationMode);
     body.duration = reqDur === 12 ? 12 : 8;
+  } else if (resolvedModel === "grok-imagine-1.5-preview") {
+    // Grok Imagine 1.5 Preview — image_url is MANDATORY (singular string,
+    // not array). Aspect_ratio enum: 1:1 / 2:3 / 3:2 / 9:16 / 16:9 — clamp
+    // anything else to 16:9 (the APIPod default). Duration 1-15 default 10.
+    // Resolution fixed at 720p.
+    const allowedAspects = new Set(["1:1", "2:3", "3:2", "9:16", "16:9"]);
+    if (!allowedAspects.has(String(body.aspect_ratio))) {
+      body.aspect_ratio = "16:9";
+    }
+    if (refs.length === 0) {
+      return {
+        ok: false,
+        error: "grok-imagine-1.5-preview requires a reference image",
+        provider: "p6",
+      };
+    }
+    body.image_url = refs[0]; // singular field per APIPod spec
+    const reqDur = Number(input.durationMode);
+    body.duration =
+      Number.isFinite(reqDur) && reqDur >= 1 && reqDur <= 15
+        ? Math.round(reqDur)
+        : 10;
+    body.resolution = "720p";
   } else if (refs.length > 0) {
     // Per-model image_urls cap per APIPod docs:
     //   • veo3-1-fast             → up to 2 (start + end frame)
     //   • veo3-1-fast-ref         → up to 3 (reference images)
-    //   • grok-imagine-i2v        → 1-7
     //   • seedance-2.0-fast-i2v   → 1-2  (start + end frame)
     //   • seedance-2.0-fast-r2v   → 0-9  (reference images)
+    //   • gemini-omni-i2v         → 1-3
     let cap = 2;
-    if (resolvedModel === "grok-imagine-i2v") cap = 7;
-    else if (resolvedModel === "seedance-2.0-fast-i2v") cap = 2;
+    if (resolvedModel === "seedance-2.0-fast-i2v") cap = 2;
     else if (resolvedModel === "seedance-2.0-fast-r2v") cap = 9;
     else if (resolvedModel === "veo3-1-fast-ref") cap = 3;
     else if (resolvedModel === "veo3-1-fast") cap = 2;
@@ -286,8 +314,8 @@ export async function p6CreateVideo(input: {
 
   // Per-model optional fields per APIPod docs:
   //   • seedance-* : duration 4-15 (required)
-  //   • grok-imagine-* : duration 6-30 (optional, default 6), resolution
-  //                      480p/720p (optional, default 720p)
+  //   • grok-imagine-1.5-preview : duration 1-15 (default 10), 720p only —
+  //     handled fully in its own branch above (image_url mandatory).
   //   • veo3-1-fast / -ref : no duration / no resolution accepted — we
   //     do NOT pass either field. APIPod was empirically returning 6s
   //     files for Veo, but the duration:8/resolution:720p attempt was
@@ -301,13 +329,6 @@ export async function p6CreateVideo(input: {
       Number.isFinite(reqDur) && reqDur >= 4 && reqDur <= 15
         ? Math.round(reqDur)
         : 5;
-  } else if (resolvedModel.startsWith("grok-imagine")) {
-    const reqDur = Number(input.durationMode);
-    body.duration =
-      Number.isFinite(reqDur) && reqDur >= 6 && reqDur <= 30
-        ? Math.round(reqDur)
-        : 6;
-    body.resolution = "720p";
   } else if (resolvedModel.startsWith("gemini-omni")) {
     // Gemini Omni — APIPod docs: duration always 10, resolution always
     // "720P" (note uppercase P per the docs), aspect_ratio enum is just

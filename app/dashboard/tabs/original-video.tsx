@@ -356,10 +356,13 @@ export default function OriginalVideoTab({
             balanced. */}
         <div
           className={`grid grid-cols-2 ${
-            SORA2_DISABLED ? "sm:grid-cols-3" : "sm:grid-cols-4"
+            SORA2_DISABLED ? "sm:grid-cols-2" : "sm:grid-cols-3"
           } gap-2 mb-4`}
         >
-          {(["veo", "sora2", "gemini", "seedance"] as const)
+          {/* Seedance hidden from Original Video picker per user direction
+              (2026-06-08) — Seedance has its own dedicated tab and is no
+              longer offered as a model choice inside Original Video. */}
+          {(["veo", "sora2", "gemini"] as const)
             .filter((p) => !(SORA2_DISABLED && p === "sora2"))
             .map((p) => {
             const active = provider === p;
