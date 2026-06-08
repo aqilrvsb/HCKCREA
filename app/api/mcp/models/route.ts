@@ -9,6 +9,7 @@ import {
   getGeminiRate,
   getSetting,
 } from "@/lib/settings";
+import { SORA2_DISABLED } from "@/lib/feature-flags";
 
 // GET /api/mcp/models — list every generation model with its rate +
 // machine-readable constraints (duration, image_urls limits, supported
@@ -131,5 +132,12 @@ export async function GET(req: Request) {
     },
   ];
 
-  return NextResponse.json({ ok: true, models });
+  // Kill-switch for known-broken upstream providers. Currently strips
+  // Sora 2 when APIPod's worker-side registry can't resolve the
+  // canonical model id (SORA2_DISABLED in lib/feature-flags.ts).
+  const filtered = models.filter(
+    (m) => !(SORA2_DISABLED && m.name === "sora2")
+  );
+
+  return NextResponse.json({ ok: true, models: filtered });
 }

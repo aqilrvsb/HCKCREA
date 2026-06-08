@@ -9,6 +9,7 @@ import { isVisibleAfterTtl, fetchSavedSet } from "@/lib/history-filter";
 import AttachmentPicker from "../sections/attachment-picker";
 import ProductRefTips from "../sections/product-ref-tips";
 import ScrapePicker from "../sections/scrape-picker";
+import { SORA2_DISABLED } from "@/lib/feature-flags";
 import {
   FRAMEWORKS,
   TYPE_COLORS,
@@ -1120,9 +1121,11 @@ export default function AutoContentTab({ projectId }: { projectId?: string } = {
           <DurationBtn active={provider === "veo"} onClick={() => setProvider("veo")}>
             🎬 Veo 3.1
           </DurationBtn>
-          <DurationBtn active={provider === "grok"} onClick={() => setProvider("grok")}>
-            ⚡ Sora 2
-          </DurationBtn>
+          {!SORA2_DISABLED && (
+            <DurationBtn active={provider === "grok"} onClick={() => setProvider("grok")}>
+              ⚡ Sora 2
+            </DurationBtn>
+          )}
           {/* GeminiOmni chip hidden per admin direction — backend still
               wired (providerChoice='gemini'). Re-enable by removing the
               `false &&` guard below. Pairs with the Sora 2 hide above so

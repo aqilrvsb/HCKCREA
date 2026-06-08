@@ -5,6 +5,7 @@ import { Loader2, X, Film } from "lucide-react";
 import Portal from "../sections/portal";
 import { uploadImage, dataUrlToFile } from "@/lib/upload-image";
 import AttachmentPicker from "../sections/attachment-picker";
+import { SORA2_DISABLED } from "@/lib/feature-flags";
 
 // Original Video tab — 3-provider raw video generator.
 //
@@ -348,12 +349,19 @@ export default function OriginalVideoTab({
         <label className="block text-[10px] uppercase tracking-widest text-[var(--color-text-secondary)] font-bold mb-2">
           Provider
         </label>
-        {/* Grok chip stays hidden per admin direction — Sora 2 restored.
-            All backend cascades (asset='sora2', asset='grok', asset='video'
-            for Veo, asset='gemini', asset='cinema' for Seedance) wired and
-            ready. Grid sized for 4 visible chips. */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-4">
-          {(["veo", "sora2", "gemini", "seedance"] as const).map((p) => {
+        {/* Grok chip stays hidden per admin direction. Sora 2 also
+            hidden whenever SORA2_DISABLED is true (APIPod-side outage
+            kill-switch — see lib/feature-flags.ts). Grid auto-collapses
+            from 4 → 3 cols when Sora 2 is hidden so chips stay
+            balanced. */}
+        <div
+          className={`grid grid-cols-2 ${
+            SORA2_DISABLED ? "sm:grid-cols-3" : "sm:grid-cols-4"
+          } gap-2 mb-4`}
+        >
+          {(["veo", "sora2", "gemini", "seedance"] as const)
+            .filter((p) => !(SORA2_DISABLED && p === "sora2"))
+            .map((p) => {
             const active = provider === p;
             const t = PROVIDER_THEME[p];
             return (

@@ -6,6 +6,7 @@ import { createClient } from "@/lib/supabase/client";
 import Portal from "../sections/portal";
 import UgcTab from "./ugc";
 import Sora2TipsModal from "../sections/sora2-tips-modal";
+import { SORA2_DISABLED } from "@/lib/feature-flags";
 import { uploadImage, dataUrlToFile } from "@/lib/upload-image";
 import { isVisibleAfterTtl, fetchSavedSet } from "@/lib/history-filter";
 import AttachmentPicker from "../sections/attachment-picker";
@@ -362,7 +363,11 @@ export default function VideoTab({ projectId }: { projectId?: string } = {}) {
             through: changes the cascade asset, cost rate, available
             image modes, and duration options. */}
         <Label>Provider</Label>
-        <div className="grid grid-cols-2 gap-2 mb-4">
+        <div
+          className={`grid ${
+            SORA2_DISABLED ? "grid-cols-1" : "grid-cols-2"
+          } gap-2 mb-4`}
+        >
           <button
             type="button"
             onClick={() => setProvider("veo")}
@@ -384,27 +389,29 @@ export default function VideoTab({ projectId }: { projectId?: string } = {}) {
           >
             🎬 Veo 3.1 · 8s
           </button>
-          <button
-            type="button"
-            onClick={() => setProvider("sora2")}
-            className="px-3 py-3 rounded-xl text-sm font-extrabold transition-all"
-            style={
-              provider === "sora2"
-                ? {
-                    background: "linear-gradient(135deg, #4ade80, #16a34a)",
-                    color: "white",
-                    boxShadow: "0 4px 12px rgba(74,222,128,0.35)",
-                    border: "1px solid transparent",
-                  }
-                : {
-                    background: "white",
-                    color: "#1a1a1a",
-                    border: "1px solid #e8e0d8",
-                  }
-            }
-          >
-            ⚡ Sora 2 · 8 / 12s
-          </button>
+          {!SORA2_DISABLED && (
+            <button
+              type="button"
+              onClick={() => setProvider("sora2")}
+              className="px-3 py-3 rounded-xl text-sm font-extrabold transition-all"
+              style={
+                provider === "sora2"
+                  ? {
+                      background: "linear-gradient(135deg, #4ade80, #16a34a)",
+                      color: "white",
+                      boxShadow: "0 4px 12px rgba(74,222,128,0.35)",
+                      border: "1px solid transparent",
+                    }
+                  : {
+                      background: "white",
+                      color: "#1a1a1a",
+                      border: "1px solid #e8e0d8",
+                    }
+              }
+            >
+              ⚡ Sora 2 · 8 / 12s
+            </button>
+          )}
         </div>
 
         <Label>Image Mode</Label>
