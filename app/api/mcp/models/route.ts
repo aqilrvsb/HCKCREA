@@ -114,7 +114,7 @@ export async function GET(req: Request) {
         // optional (presence chooses i2v vs t2v).
         duration: { fixed: 10 },
         image_urls: { max: 3 },
-        image_modes: ["text", "frame"],
+        image_modes: ["text", "ingredient"],
         aspect_ratios: ["16:9", "9:16"],
         resolutions: ["720p"],
       },
