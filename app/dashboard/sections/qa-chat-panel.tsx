@@ -35,43 +35,43 @@ const TAB_THEME: Record<
   { label: string; color: string; gradient: string; emoji: string }
 > = {
   ugc: {
-    label: "UGC Help",
+    label: "PeningLab Help",
     color: "#22c55e",
     gradient: "linear-gradient(135deg, #22c55e 0%, #16a34a 100%)",
     emoji: "🎬",
   },
   auto: {
-    label: "Auto Content Help",
+    label: "PeningLab Help",
     color: "#0ea5e9",
     gradient: "linear-gradient(135deg, #0ea5e9 0%, #0284c7 100%)",
     emoji: "⚡",
   },
   cinema: {
-    label: "Cinema Help",
+    label: "PeningLab Help",
     color: "#7c4dff",
     gradient: "linear-gradient(135deg, #7c4dff 0%, #5b34d6 100%)",
     emoji: "🎥",
   },
   seedance: {
-    label: "Seedance Help",
+    label: "PeningLab Help",
     color: "#ec4899",
     gradient: "linear-gradient(135deg, #ec4899 0%, #db2777 100%)",
     emoji: "💃",
   },
   fairytale: {
-    label: "Storytelling Help",
+    label: "PeningLab Help",
     color: "#8b5cf6",
     gradient: "linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%)",
     emoji: "📖",
   },
   image: {
-    label: "Image Help",
+    label: "PeningLab Help",
     color: "#facc15",
     gradient: "linear-gradient(135deg, #facc15 0%, #eab308 100%)",
     emoji: "🖼️",
   },
   sora2: {
-    label: "Sora 2 Help",
+    label: "PeningLab Help",
     color: "#4ade80",
     gradient: "linear-gradient(135deg, #4ade80 0%, #16a34a 100%)",
     emoji: "⚡",
@@ -84,18 +84,20 @@ type ChatMessage = {
   images?: string[]; // data: URLs (base64) for pasted images
 };
 
-// localStorage persistence. Each tab's conversation lives at its own
-// key so UGC ↔ Auto Content ↔ Storytelling chats don't bleed into
-// each other. Conversations persist FOREVER until the user clicks
-// the Trash icon to clear them — per user direction: "let client
-// clear if they think serabut". No auto-expiry.
+// localStorage persistence. Per user direction (2026-06-08), ONE
+// unified conversation lives across every tab — switching from Image
+// → Auto Content → Original Video keeps the same chat thread so users
+// can ask follow-up questions in context. Key is constant, not
+// tab-scoped.
 //
 // Why localStorage (not DB):
 //   - Help chats are local-context only; no cross-device sync needed
 //   - No DB write/read cost per message
 //   - User owns when to clear (Trash icon does the deed)
-function storageKey(tab: QATab) {
-  return `qa-chat:${tab}`;
+function storageKey(_tab: QATab) {
+  // _tab param kept for backward-compat with callers; unified storage
+  // key means the same thread surfaces on every tab.
+  return `qa-chat:unified`;
 }
 type StoredConversation = {
   messages: ChatMessage[];

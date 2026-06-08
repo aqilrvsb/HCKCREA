@@ -23,6 +23,7 @@ import {
   Download,
   X,
   Send,
+  Terminal,
   Image as ImageIcon,
 } from "lucide-react";
 import LogoutButton from "./logout-button";
@@ -660,6 +661,28 @@ export default function Sidebar({
             </button>
           );
         })}
+
+        {/* MCP API Key page — for Pro + Premium users who want to use
+            peninglab's image/video generation from external AI agents
+            (Claude Desktop, Cursor, etc.) via the @peninglab/mcp npm
+            package. Real /dashboard/mcp Next.js page (not a view-kind
+            state), so we use a Link. Same Pro/Premium gate as Top Up
+            Credit + Affiliate. */}
+        {planActive && (plan === "pro" || plan === "premium") && (
+          <Link
+            href="/dashboard/mcp"
+            onClick={() => onMobileClose()}
+            className="sidebar-row w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-bold"
+            style={{ color: "var(--color-text-secondary)" }}
+          >
+            <Terminal
+              className="sidebar-row-icon w-4 h-4 flex-shrink-0"
+              strokeWidth={2.4}
+              style={{ color: "var(--color-text-muted)" }}
+            />
+            <span className="flex-1 text-left truncate">MCP API Key</span>
+          </Link>
+        )}
 
         {/* Auto Post TikTok — opens install SOP modal (matches the
             Hack Creative Extension SOP style). Click pulls the current

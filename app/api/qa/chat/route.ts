@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getSettings } from "@/lib/settings";
-import { getQAKnowledge, type QATab } from "@/lib/qa-knowledge";
+import { getUnifiedKnowledge, type QATab } from "@/lib/qa-knowledge";
 import {
   parseModelSetting,
   providerCreds,
@@ -11,15 +11,20 @@ import {
 // POST /api/qa/chat
 //
 // Pure Q&A chat — replaces the legacy AI-agent tool-call endpoints with a
-// scoped knowledge-only assistant. Each request includes:
-//   - tab: which tab's knowledge base to use
+// knowledge-only assistant. Per user direction (2026-06-08) the chat now
+// uses ONE unified knowledge base covering every visible tab + MCP +
+// Chrome extension + onboarding, regardless of which tab the user is
+// viewing. The `tab` request field is kept for telemetry / header label
+// purposes but no longer scopes the system prompt.
+//
+// Each request includes:
+//   - tab: which tab the user is currently on (used by panel header only)
 //   - messages: conversation history [{role: "user"|"assistant", content, images?}]
 // The latest user message may include base64-or-https image URLs that the
 // model will read and reference in its reply.
 //
-// The model is fixed to Gemini 3.1 Flash Lite (model_qa setting → fallback
-// to model_auto). No tool calls, no JSON schema enforcement — just plain
-// text replies, scoped by the tab's system prompt in lib/qa-knowledge.ts.
+// Model fixed to Gemini-class (model_qa setting → fallback to model_auto).
+// No tool calls, no JSON schema enforcement — plain text replies.
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -39,11 +44,11 @@ export async function POST(req: Request) {
   }
 
   const body = await req.json().catch(() => ({}));
-  const tab = String(body?.tab || "ugc") as QATab;
-  const validTabs: QATab[] = ["ugc", "auto", "cinema", "seedance", "fairytale", "image", "sora2"];
-  if (!validTabs.includes(tab)) {
-    return NextResponse.json({ error: "Invalid tab" }, { status: 400 });
-  }
+  // `tab` is kept for telemetry but does NOT scope the prompt anymore —
+  // unified knowledge covers every visible tab + MCP + extension. Accept
+  // any string (panel sends current tab key) and clamp to known list for
+  // logging only. Invalid tabs no longer 400 the request.
+  const _tab = String(body?.tab || "ugc") as QATab;
   const rawMessages = Array.isArray(body?.messages) ? body.messages : [];
   if (rawMessages.length === 0) {
     return NextResponse.json({ error: "messages required" }, { status: 400 });
@@ -93,8 +98,9 @@ export async function POST(req: Request) {
 
   // Compose OpenAI-compat message array. System prompt first, then
   // conversation history with images attached to whatever message
-  // they were sent with (typically the latest user turn).
-  const systemPrompt = getQAKnowledge(tab);
+  // they were sent with (typically the latest user turn). Unified
+  // knowledge covers every visible tab — see lib/qa-knowledge.ts.
+  const systemPrompt = getUnifiedKnowledge();
   const apiMessages: any[] = [{ role: "system", content: systemPrompt }];
   for (const m of messages) {
     if (m.images && m.images.length > 0) {

@@ -659,35 +659,35 @@ function ProjectView({
         </div>
       )}
 
-      {/* Q&A help chat panel — replaces the legacy AI-agent (tool-calling)
-          panel with a pure knowledge assistant scoped per tab. Lives at
-          this level so it follows the user across all tabs.
-          Knowledge per tab in lib/qa-knowledge.ts. Image-paste supported
-          (user pastes screenshots, Gemini 3.1 Flash Lite reads + replies).
-          Excludes "storage" + "clone" + "grok" tabs (no help knowledge
-          yet) and "fairytale" is mapped to its own knowledge base. */}
-      {planActive &&
-        (activeTab === "image" ||
-          activeTab === "video" ||
-          activeTab === "cinema" ||
-          activeTab === "seedance" ||
-          activeTab === "auto" ||
-          activeTab === "fairytale" ||
-          activeTab === "sora2") && (
-          <QAChatPanel
-            tab={
-              (activeTab === "video"
-                ? "ugc"
-                : activeTab === "auto"
-                  ? "auto"
-                  : activeTab === "fairytale"
-                    ? "fairytale"
-                    : activeTab === "sora2"
-                      ? "sora2"
-                      : activeTab) as QATab
-            }
-          />
-        )}
+      {/* PeningLab Live Chat — unified knowledge panel. Per user direction
+          (2026-06-08), the panel uses ONE knowledge base covering every
+          visible tab + MCP API + Auto Post TikTok extension + plans &
+          billing, regardless of which tab is active. Renders on EVERY
+          visible tab + the special clone / original-video routes so new
+          customers can ask anything from anywhere. The `tab` prop is now
+          purely cosmetic (used for the panel header label) — knowledge
+          comes from getUnifiedKnowledge() in lib/qa-knowledge.ts. */}
+      {planActive && (
+        <QAChatPanel
+          tab={
+            (activeTab === "video"
+              ? "ugc"
+              : activeTab === "auto"
+                ? "auto"
+                : activeTab === "fairytale"
+                  ? "fairytale"
+                  : activeTab === "sora2"
+                    ? "sora2"
+                    : activeTab === "original-video"
+                      ? "cinema"
+                      : activeTab === "clone"
+                        ? "image"
+                        : activeTab === "grok"
+                          ? "cinema"
+                          : activeTab) as QATab
+          }
+        />
+      )}
     </>
   );
 }
