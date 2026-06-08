@@ -185,6 +185,12 @@ export default function DashboardShell({
             const pid = qp.get("p");
             if (pid && list.some((p) => p.id === pid)) {
               setView({ kind: "project", projectId: pid });
+            } else if (pid) {
+              // Stale ?p={id} pointing at a project that no longer
+              // exists (deleted, or wrong account, or browser history
+              // residue). Strip it so the URL matches the actual view
+              // (dashboard root) instead of looking broken.
+              window.history.replaceState(null, "", "/dashboard");
             }
           }
         }

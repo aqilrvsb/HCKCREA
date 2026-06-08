@@ -314,7 +314,17 @@ export default function Sidebar({
       {/* Dashboard landing */}
       <div className="px-4 pt-4">
         <button
-          onClick={() => onViewChange({ kind: "dashboard" })}
+          onClick={() => {
+            onViewChange({ kind: "dashboard" });
+            // Strip residual ?p={id} (or other params) from the URL when
+            // the user navigates back to the dashboard root. Without
+            // this, a URL stamped by an earlier session (or by an "Open
+            // in new tab" project link) would persist as ?p=... even
+            // after the user clicks Dashboard, which looks broken.
+            if (typeof window !== "undefined" && window.location.search) {
+              window.history.replaceState(null, "", "/dashboard");
+            }
+          }}
           className="w-full flex items-center gap-3 px-4 py-3 rounded-xl font-bold text-sm transition-all"
           style={
             view.kind === "dashboard"
