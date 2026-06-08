@@ -73,13 +73,15 @@ type FeatureLine = { text: string; highlight?: boolean };
 // tier-gate constants which the sidebar + page guards reuse.
 function featureLinesFor(key: PlanKey): FeatureLine[] {
   // Per user direction 2026-06-08:
-  //   - "Image AI — 20 sen / generate" + "Video AI — 40 sen" hidden
-  //     from every tier (the per-gen rate is no longer a selling point
-  //     surfaced on the pricing card; rates live in the dashboard's
-  //     usage view + the chat panel's knowledge base).
+  //   - Keep "Image AI" + "Video AI" as feature lines (signals what
+  //     the platform offers) but DROP the per-generation rate suffix
+  //     ("— 20 sen / generate" / "— 40 sen"). Rates still live in the
+  //     dashboard usage view + the unified chat knowledge base.
   //   - "One on One Zoom" appended under "Group VIP support" on
   //     Premium ONLY (the tier inside GROUP_VIP_TIERS).
   const lines: FeatureLine[] = [
+    { text: "Image AI" },
+    { text: "Video AI" },
     { text: "Unlimited generate (within credit balance)" },
     { text: "Auto Content, Clone Video, Story Telling" },
   ];
