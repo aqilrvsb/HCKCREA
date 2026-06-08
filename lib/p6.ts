@@ -155,6 +155,14 @@ function apipodVideoModel(input: {
     return "seedance-2.0-fast-r2v";
   }
 
+  // Gemini Omni — APIPod splits into:
+  //   • gemini-omni-i2v : requires image_urls (frame/i2v)
+  //   • gemini-omni-t2v : pure text prompt, no image_urls
+  // Duration fixed at 10s, resolution fixed at 720p, aspect 9:16 | 16:9.
+  if (m.includes("gemini")) {
+    return refs > 0 && mode !== "text" ? "gemini-omni-i2v" : "gemini-omni-t2v";
+  }
+
   // Veo: ingredient (character/style refs) → -ref; frame or text → base.
   if (refs > 0 && mode === "ingredient") return "veo3-1-fast-ref";
   return "veo3-1-fast";
@@ -272,6 +280,7 @@ export async function p6CreateVideo(input: {
     else if (resolvedModel === "seedance-2.0-fast-r2v") cap = 9;
     else if (resolvedModel === "veo3-1-fast-ref") cap = 3;
     else if (resolvedModel === "veo3-1-fast") cap = 2;
+    else if (resolvedModel === "gemini-omni-i2v") cap = 3;
     body.image_urls = refs.slice(0, cap);
   }
 
@@ -299,6 +308,16 @@ export async function p6CreateVideo(input: {
         ? Math.round(reqDur)
         : 6;
     body.resolution = "720p";
+  } else if (resolvedModel.startsWith("gemini-omni")) {
+    // Gemini Omni — APIPod docs: duration always 10, resolution always
+    // "720P" (note uppercase P per the docs), aspect_ratio enum is just
+    // 16:9 | 9:16. Clamp aspect_ratio if caller passed something else
+    // (e.g. 1:1 from a legacy code path).
+    body.duration = 10;
+    body.resolution = "720P";
+    if (body.aspect_ratio !== "9:16" && body.aspect_ratio !== "16:9") {
+      body.aspect_ratio = "9:16";
+    }
   }
 
   const { ok, status, data } = await p6Fetch("POST", "/v1/videos/generations", apiKey, body);

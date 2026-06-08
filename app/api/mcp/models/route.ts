@@ -109,11 +109,14 @@ export async function GET(req: Request) {
     {
       name: "gemini", type: "video", rate: gemini, unit: "per_video_10s",
       constraints: {
+        // APIPod splits Gemini Omni into i2v + t2v variants. Both fixed
+        // at 10s / 720p, aspect enum locked to 16:9 | 9:16, image_urls
+        // optional (presence chooses i2v vs t2v).
         duration: { fixed: 10 },
         image_urls: { max: 3 },
-        image_modes: VIDEO_MODES,
-        aspect_ratios: VIDEO_ASPECTS,
-        resolutions: ["1080p"],
+        image_modes: ["text", "frame"],
+        aspect_ratios: ["16:9", "9:16"],
+        resolutions: ["720p"],
       },
     },
     {
