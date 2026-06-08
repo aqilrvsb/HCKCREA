@@ -95,13 +95,12 @@ const PROVIDER_THEME: Record<
 // provider should expose its full set of meaningful modes so the user
 // always picks explicitly:
 //   • Veo  → all 3 modes (text-to-video, start-frame i2v, multi-ref r2v)
-//   • Grok → text + multi-ref (Grok's API takes image_urls as a single
-//            array — start-frame is just "ref with 1 image", so we
-//            collapse to text + ingredient)
+//   • Grok → frame ONLY (1.5 Preview requires a single image — no t2v,
+//            no multi-ref per APIPod spec 2026-06-08)
 //   • Sora 2 → text + start-frame (single first frame, API-mandated)
 const PROVIDER_MODES: Record<Provider, ImageMode[]> = {
   veo: ["text", "frame", "ingredient"],
-  grok: ["text", "ingredient"],
+  grok: ["frame"],
   sora2: ["text", "frame"],
   // GeminiOmni: text + ingredient (multi-ref up to 3). API has no
   // first-frame concept (just generic img_urls) — frame mode would
@@ -118,8 +117,8 @@ const PROVIDER_MODES: Record<Provider, ImageMode[]> = {
 // multi-ref). API caps in /api/generate/cinema mirror these.
 function getRefCap(provider: Provider, mode: ImageMode): number {
   if (mode === "text") return 0;
-  // frame: Veo + Seedance accept start+end (2 images); Sora 2 + others
-  // accept a single first frame.
+  // frame: Veo + Seedance accept start+end (2 images); Sora 2 + Grok 1.5
+  // + others accept a single first frame.
   if (mode === "frame") return provider === "veo" || provider === "seedance" ? 2 : 1;
   // ingredient — Seedance accepts up to 9 refs natively; we cap at 5
   // here (sweet spot between API capacity and UI layout). Other providers
@@ -227,8 +226,10 @@ export default function OriginalVideoTab({
     if (provider === "sora2" && duration !== 8 && duration !== 12) {
       setDuration(8);
     }
-    if (provider === "grok" && (duration < 8 || duration > 30)) {
-      setDuration(Math.min(30, Math.max(8, duration)));
+    // Grok Imagine 1.5 Preview — slider 1-15s, default 10 (was 8-30 in
+    // legacy Grok; updated 2026-06-08 to match APIPod 1.5 Preview spec).
+    if (provider === "grok" && (duration < 1 || duration > 15)) {
+      setDuration(10);
     }
     // GeminiOmni — fixed 10s.
     if (provider === "gemini" && duration !== 10) setDuration(10);
@@ -356,13 +357,13 @@ export default function OriginalVideoTab({
             balanced. */}
         <div
           className={`grid grid-cols-2 ${
-            SORA2_DISABLED ? "sm:grid-cols-2" : "sm:grid-cols-3"
+            SORA2_DISABLED ? "sm:grid-cols-3" : "sm:grid-cols-4"
           } gap-2 mb-4`}
         >
           {/* Seedance hidden from Original Video picker per user direction
-              (2026-06-08) — Seedance has its own dedicated tab and is no
-              longer offered as a model choice inside Original Video. */}
-          {(["veo", "sora2", "gemini"] as const)
+              (2026-06-08) — Seedance has its own dedicated tab. Grok =
+              Grok Imagine 1.5 Preview (image-to-video, 1-15s, 720p). */}
+          {(["veo", "sora2", "gemini", "grok"] as const)
             .filter((p) => !(SORA2_DISABLED && p === "sora2"))
             .map((p) => {
             const active = provider === p;
@@ -395,7 +396,7 @@ export default function OriginalVideoTab({
                     ? "Sora 2"
                     : p === "gemini"
                       ? "GeminiOmni"
-                      : "Seedance"}
+                      : "Grok 1.5"}
               </button>
             );
           })}
@@ -662,8 +663,8 @@ export default function OriginalVideoTab({
             {provider === "grok" && (
               <input
                 type="range"
-                min={8}
-                max={30}
+                min={1}
+                max={15}
                 step={1}
                 value={duration}
                 onChange={(e) => setDuration(Number(e.target.value))}

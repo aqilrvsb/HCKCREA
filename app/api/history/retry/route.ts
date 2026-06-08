@@ -298,7 +298,8 @@ export async function POST(req: Request) {
     // fired through so the fallback round-robin uses the same family:
     //   • Sora 2 rows  → tab='sora2' OR modelChoice='sora2' → sora2 cascade
     //   • Seedance rows → tab='seedance' → cinema cascade
-    //   • Grok rows     → tab='cinema' + modelChoice='grok' → grok cascade
+    //   • Grok rows     → tab='cinema' or 'original-video' or 'grok' +
+    //                     modelChoice='grok' (or model has 'grok') → grok cascade
     //   • Everything else (UGC, Auto, Veo viral, clone) → video cascade
     let asset: "video" | "grok" | "cinema" | "sora2" | "gemini" = "video";
     if (row.tab === "sora2") asset = "sora2";
@@ -320,9 +321,13 @@ export async function POST(req: Request) {
       asset = "cinema";
     }
     else if (
-      row.tab === "cinema" &&
+      (row.tab === "cinema" || row.tab === "original-video" || row.tab === "grok") &&
       (meta.modelChoice === "grok" || /grok/i.test(model))
     ) {
+      // Grok Imagine 1.5 Preview rows route through the dedicated grok
+      // cascade pool (p6-a/b/c by default). Detection covers BOTH the
+      // legacy Grok tab and the new Original Video Grok chip per user
+      // direction 2026-06-08.
       asset = "grok";
     }
 
