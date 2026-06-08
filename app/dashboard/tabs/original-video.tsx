@@ -478,8 +478,12 @@ export default function OriginalVideoTab({
             </div>
           )}
 
-        {/* === Sora 2 single Start Frame zone === */}
-        {provider === "sora2" && imageMode === "frame" && (
+        {/* === Sora 2 + Grok 1.5 single Start Frame zone ===
+            Both providers accept a single first-frame reference (Sora 2
+            per OpenAI spec; Grok 1.5 Preview per APIPod spec — image_url
+            is mandatory). Same FrameZone, different per-provider hint. */}
+        {(provider === "sora2" || provider === "grok") &&
+          imageMode === "frame" && (
           <div className="mb-4 grid grid-cols-2 gap-3">
             <FrameZone
               label="Start Frame"
@@ -492,8 +496,9 @@ export default function OriginalVideoTab({
               }
             />
             <div className="text-[10px] text-[var(--color-text-muted)] self-center">
-              ⚠️ Sora 2 needs 720×1280 (9:16) or 1280×720 (16:9). Real
-              portrait photos often fail — use AI-gen images.
+              {provider === "sora2"
+                ? "⚠️ Sora 2 needs 720×1280 (9:16) or 1280×720 (16:9). Real portrait photos often fail — use AI-gen images."
+                : "Grok 1.5 animates this image — describe the motion / camera move in the prompt. Single image required."}
             </div>
           </div>
         )}
