@@ -5,7 +5,7 @@
 //   • app/api/admin/errors/route.ts          (admin feed filter)
 //   • app/api/history/retry/route.ts         (manual + bulk Resubmit gate)
 //
-// Per user direction: the ONLY four error categories that qualify for
+// Per user direction: the ONLY five error categories that qualify for
 // retry / admin visibility are:
 //
 //   1. "Internal Error, Please try again later."     (5xx-class)
@@ -19,11 +19,24 @@
 //                                                     slot uses different
 //                                                     validator config, so
 //                                                     rotation CAN recover)
+//   5. "Detected explicit content" / safety filter   (provider safety
+//                                                     classifiers vary
+//                                                     PER ACCOUNT KEY — a
+//                                                     prompt rejected by
+//                                                     p6-a frequently
+//                                                     passes p6-b or p2,
+//                                                     so rotation CAN
+//                                                     recover. Empirical:
+//                                                     ~130 of these per
+//                                                     week across 4 users
+//                                                     all hitting only
+//                                                     p6-a. Added per
+//                                                     user direction
+//                                                     2026-06-08.)
 //
-// Everything else — content moderation, audio-gen, prompt-unsafe, auth,
-// etc. — is a permanent failure as far as the system is concerned. User
-// resolves on their own dashboard (edit prompt) and never appears on
-// the admin errors page.
+// Everything else — audio-gen, prompt-unsafe, auth, etc. — is a permanent
+// failure as far as the system is concerned. User resolves on their own
+// dashboard (edit prompt) and never appears on the admin errors page.
 
 const RETRYABLE_ERROR_PATTERNS: RegExp[] = [
   // 1. "Internal Error, Please try again later" — allow flexible
@@ -51,6 +64,16 @@ const RETRYABLE_ERROR_PATTERNS: RegExp[] = [
   /cue validator/i,
   /#\/validators\./i,
   /validation failed.*invalid value/i,
+  // 5. Safety / content-filter classifier rejections. Provider safety
+  //    layers vary PER ACCOUNT KEY — a prompt that p6-a flags often
+  //    sails through p6-b or p2. Same rotation-recovery logic as the
+  //    CUE validator class above. Real production phrasings observed:
+  //      • APIPod:  "attempt1: Detected explicit content in the prompt..."
+  //      • Generic: "content filter triggered", "content moderation rejected"
+  //      • Safety:  "safety classifier blocked"
+  /detected (?:explicit|inappropriate|unsafe) content/i,
+  /content[\s-]?(?:filter|moderation)/i,
+  /safety[\s-]?(?:classifier|filter|check)[\s-]?(?:rejected|blocked|triggered|flagged)/i,
 ];
 
 export function isInternalError(err: string | null | undefined): boolean {
