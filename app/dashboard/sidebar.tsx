@@ -672,12 +672,11 @@ export default function Sidebar({
           Auto Post TikTok
         </button>
 
-        {/* External link — WhatsApp discussion group. HIDDEN per user
-            direction. Themed in green to match WhatsApp brand and stand
-            out as a non-nav item. Affiliate users used to get routed to
-            the affiliate-only group instead of the general public one.
-            Re-enable by removing the `false &&` guard below. */}
-        {false && (
+        {/* External link — WhatsApp Group VIP. Visible ONLY for active
+            Premium users (the tier that includes Group VIP support per
+            the pricing grid's GROUP_VIP_TIERS gate). Affiliate users
+            with Premium see the affiliate-only variant. */}
+        {planActive && plan === "premium" && (
           <a
             href={
               isAffiliate
@@ -695,7 +694,7 @@ export default function Sidebar({
               style={{ color: "#22c55e" }}
             />
             <span>
-              {isAffiliate ? "Affiliate WhatsApp Group" : "Join Discussion WhatsApp"}
+              {isAffiliate ? "Affiliate WhatsApp Group" : "Join Group VIP"}
             </span>
             <ArrowUpRight
               className="w-3.5 h-3.5 ml-auto opacity-60"

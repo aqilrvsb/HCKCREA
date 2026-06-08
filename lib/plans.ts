@@ -27,8 +27,28 @@ export const PLAN_DEFAULTS: Record<PlanKey, PlanConfig> = {
 
 export const BEST_SELLER: PlanKey = "pro";
 
+// Per-perk tier gates. Keep the source of truth here so pricing grid,
+// sidebar, page-level guards, and the MCP auth check all agree.
+export const TOPUP_TIERS: readonly PlanKey[] = ["pro", "premium"];
+export const MCP_TIERS: readonly PlanKey[] = ["pro", "premium"];
+export const GROUP_VIP_TIERS: readonly PlanKey[] = ["premium"];
+
 export function isPlanKey(s: unknown): s is PlanKey {
   return typeof s === "string" && (PLAN_KEYS as readonly string[]).includes(s);
+}
+
+// Convenience predicates — each takes the raw plan string (which may
+// be null / "free" / a legacy value) and answers "can this user use
+// this perk RIGHT NOW". They do NOT check plan_expires_at — caller
+// is responsible for that (planActive guard).
+export function canUseTopup(plan: string | null | undefined): boolean {
+  return isPlanKey(plan) && (TOPUP_TIERS as readonly string[]).includes(plan);
+}
+export function canUseMcp(plan: string | null | undefined): boolean {
+  return isPlanKey(plan) && (MCP_TIERS as readonly string[]).includes(plan);
+}
+export function canAccessGroupVip(plan: string | null | undefined): boolean {
+  return isPlanKey(plan) && (GROUP_VIP_TIERS as readonly string[]).includes(plan);
 }
 
 export async function loadPlan(

@@ -15,6 +15,7 @@
 // scoped to whichever account minted it.
 
 import { createAdminClient } from "@/lib/supabase/admin";
+import { canUseMcp } from "@/lib/plans";
 import bcrypt from "bcryptjs";
 
 export type McpAuthResult =
@@ -54,6 +55,28 @@ export async function validateMcpKey(req: Request): Promise<McpAuthResult> {
   const matches = await bcrypt.compare(key, row.hash);
   if (!matches) {
     return { ok: false, error: "Invalid API key", status: 401 };
+  }
+
+  // Plan gate — MCP API access is bundled with Pro + Premium tiers
+  // (see MCP_TIERS in lib/plans.ts). The key itself is valid but the
+  // owner's account must be on an eligible plan AND that plan must be
+  // active. Free / Starter / Standard / expired plans get a 403 with
+  // an upgrade hint so the AI agent surfaces a clear path forward.
+  const { data: profile } = await admin
+    .from("profiles")
+    .select("plan, plan_expires_at")
+    .eq("id", row.user_id)
+    .maybeSingle();
+  const planKey = (profile?.plan as string) || "";
+  const expiresAt = profile?.plan_expires_at as string | null;
+  const planActive = !!expiresAt && new Date(expiresAt) > new Date();
+  if (!planActive || !canUseMcp(planKey)) {
+    return {
+      ok: false,
+      error:
+        "MCP API is available on Pro and Premium plans only. Upgrade at https://peninglab.com/dashboard/billing to enable.",
+      status: 403,
+    };
   }
 
   // Best-effort last_used_at update — don't block on it.

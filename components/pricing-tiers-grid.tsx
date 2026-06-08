@@ -5,6 +5,9 @@ import {
   PLAN_KEYS,
   PLAN_DEFAULTS,
   BEST_SELLER,
+  MCP_TIERS,
+  GROUP_VIP_TIERS,
+  TOPUP_TIERS,
   type PlanKey,
   type PlanConfig,
 } from "@/lib/plans";
@@ -61,24 +64,25 @@ const QUOTE_RATE_VIDEO_MYR = 0.40;
 
 type FeatureLine = { text: string; highlight?: boolean };
 
-const FEATURE_LINES: FeatureLine[] = [
-  { text: "Image AI — 20 sen / generate" },
-  { text: "Video AI — 40 sen / 8s" },
-  { text: "Unlimited generate (within credit balance)" },
-  { text: "Auto Content, Clone Video, Story Telling" },
-  { text: "MCP API access (peninglab-mcp npm)" },
-  { text: "Group VIP support" },
-];
-
-// Top up credit access is gated to Pro + Premium — they're the tiers
-// where the user has invested enough that an ad-hoc credit reload
-// makes economic sense. Sidebar nav uses the same gate (see
-// app/dashboard/sidebar.tsx). Surfaced as a highlighted feature on
-// those cards so customers see the perk before they pick.
-const TOPUP_TIERS: PlanKey[] = ["pro", "premium"];
+// Feature lines are composed per-tier so each card shows only what
+// THAT tier unlocks. Common lines (rates, unlimited, generation tabs)
+// go to everyone. MCP API + Group VIP + Top Up Credit are perks
+// gated to specific tiers — see lib/plans.ts for the canonical
+// tier-gate constants which the sidebar + page guards reuse.
 function featureLinesFor(key: PlanKey): FeatureLine[] {
-  const lines = [...FEATURE_LINES];
-  if (TOPUP_TIERS.includes(key)) {
+  const lines: FeatureLine[] = [
+    { text: "Image AI — 20 sen / generate" },
+    { text: "Video AI — 40 sen" },
+    { text: "Unlimited generate (within credit balance)" },
+    { text: "Auto Content, Clone Video, Story Telling" },
+  ];
+  if ((MCP_TIERS as readonly string[]).includes(key)) {
+    lines.push({ text: "MCP API access (peninglab-mcp npm)" });
+  }
+  if ((GROUP_VIP_TIERS as readonly string[]).includes(key)) {
+    lines.push({ text: "Group VIP support" });
+  }
+  if ((TOPUP_TIERS as readonly string[]).includes(key)) {
     lines.push({ text: "Access Top Up Credit (RM1 = 1 credit)", highlight: true });
   }
   return lines;
