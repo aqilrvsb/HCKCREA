@@ -1646,47 +1646,81 @@ function HistoryCardInner({
                   </div>
                 </div>
               )}
-              {/* Task ID — surfaced on failed cards so admin / support can
-                  cross-reference the provider's dashboard (APIPod, Crun,
-                  etc.) when investigating WHY a slot rejected the prompt.
-                  Click to copy. history.task_id is null until the cascade
-                  successfully reaches a provider; for pre-cascade failures
-                  (e.g. credit check) we fall back to history.id. */}
-              <div
-                className="mt-2 pt-2 border-t w-full"
-                style={{ borderColor: "rgba(239,68,68,0.25)" }}
-              >
-                <div className="text-[9px] font-mono uppercase tracking-wider mb-1 opacity-60">
-                  TASK ID
-                </div>
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    const id = item.task_id || item.id;
-                    void navigator.clipboard
-                      .writeText(id)
-                      .then(() => {
-                        const btn = e.currentTarget;
-                        const original = btn.dataset.label || btn.textContent || "";
-                        btn.dataset.label = original;
-                        btn.textContent = "✓ copied";
-                        setTimeout(() => {
-                          btn.textContent = original;
-                        }, 1200);
-                      })
-                      .catch(() => {});
-                  }}
-                  title="Click to copy"
-                  className="text-[9px] font-mono text-left break-all w-full hover:underline"
-                  style={{ color: "rgba(252,165,165,0.85)" }}
-                >
-                  {item.task_id || item.id || "—"}
-                  {!item.task_id && (
-                    <span className="ml-1 opacity-50">(history id — never reached provider)</span>
-                  )}
-                </button>
-              </div>
+              {/* Task ID — surfaced on failed cards so admin / support
+                  can cross-reference the provider's dashboard (APIPod,
+                  Crun, etc.) when investigating WHY a slot rejected the
+                  prompt. Click to copy.
+
+                  history.task_id is non-null only if the provider both
+                  ACCEPTED the submission AND returned a task identifier
+                  we can poll. Three scenarios cover all the cases:
+
+                    1. task_id present
+                       → provider queued it; copy this into their
+                         dashboard to inspect the full request / response
+
+                    2. task_id null + tier_log has failed attempts
+                       → cascade reached the provider but the provider
+                         rejected before queueing (e.g. their pre-flight
+                         safety check returned [SY_ERR] explicit content).
+                         NO task exists on their side — the error banner
+                         above this card is the full investigation surface
+
+                    3. task_id null + tier_log empty
+                       → cascade never fired (pre-flight validation /
+                         credit check / route bug). history.id is the
+                         only thing to reference */}
+              {(() => {
+                const hasTaskId = !!item.task_id;
+                const triedProvider =
+                  Array.isArray(item.metadata?.tier_log) &&
+                  item.metadata.tier_log.length > 0;
+                const displayId = item.task_id || item.id || "—";
+                const note = hasTaskId
+                  ? null
+                  : triedProvider
+                    ? "(provider rejected pre-queue — no task created upstream; error above is the full story)"
+                    : "(failure before cascade fired)";
+                return (
+                  <div
+                    className="mt-2 pt-2 border-t w-full"
+                    style={{ borderColor: "rgba(239,68,68,0.25)" }}
+                  >
+                    <div className="text-[9px] font-mono uppercase tracking-wider mb-1 opacity-60">
+                      {hasTaskId ? "PROVIDER TASK ID" : "HISTORY ID"}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        void navigator.clipboard
+                          .writeText(displayId)
+                          .then(() => {
+                            const btn = e.currentTarget;
+                            const original =
+                              btn.dataset.label || btn.textContent || "";
+                            btn.dataset.label = original;
+                            btn.textContent = "✓ copied";
+                            setTimeout(() => {
+                              btn.textContent = original;
+                            }, 1200);
+                          })
+                          .catch(() => {});
+                      }}
+                      title="Click to copy"
+                      className="text-[9px] font-mono text-left break-all w-full hover:underline"
+                      style={{ color: "rgba(252,165,165,0.85)" }}
+                    >
+                      {displayId}
+                    </button>
+                    {note && (
+                      <div className="text-[9px] mt-1 opacity-50 leading-tight">
+                        {note}
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
             </div>
             <button
               onClick={checkNow}
