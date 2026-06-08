@@ -84,6 +84,7 @@ export default function DashboardShell({
   email,
   name,
   credits: initialCredits,
+  plan,
   planActive,
   planExpiresAt,
   isAffiliate = false,
@@ -91,6 +92,10 @@ export default function DashboardShell({
   email: string;
   name: string;
   credits: number;
+  /** Raw plan key from profiles.plan (free / starter / standard / pro
+   *  / premium / legacy values). Forwarded to Sidebar so it can gate
+   *  the Top Up Credit nav row on the right tiers. */
+  plan: string;
   planActive: boolean;
   planExpiresAt: string | null;
   /** True if this user has an approved affiliate_applications row.
@@ -230,6 +235,7 @@ export default function DashboardShell({
           email={email}
           name={name}
           credits={credits}
+          plan={plan}
           planActive={planActive}
           planExpiresAt={planExpiresAt}
           isAffiliate={isAffiliate}

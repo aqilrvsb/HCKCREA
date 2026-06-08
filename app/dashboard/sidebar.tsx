@@ -57,6 +57,7 @@ export default function Sidebar({
   email,
   name,
   credits,
+  plan,
   planActive,
   planExpiresAt,
   projects,
@@ -74,6 +75,10 @@ export default function Sidebar({
   email: string;
   name: string;
   credits: number;
+  /** Raw plan key (free / starter / standard / pro / premium / legacy).
+   *  Drives the Top Up Credit nav row visibility — only shown on Pro
+   *  and Premium plans where the perk is part of the tier. */
+  plan: string;
   planActive: boolean;
   planExpiresAt: string | null;
   projects: Project[];
@@ -592,6 +597,13 @@ export default function Sidebar({
           [
             { kind: "attachments" as const, label: "Attachments", Icon: ImageIcon },
             { kind: "billing" as const, label: "Billing", Icon: CreditCard },
+            // Top Up Credit nav — visible ONLY for Pro + Premium plan
+            // holders (the tiers that include the perk per the pricing
+            // grid's "Access Top Up Credit" highlighted line). Free /
+            // Starter / Standard users don't see it at all.
+            ...(planActive && (plan === "pro" || plan === "premium")
+              ? [{ kind: "credit" as const, label: "Top Up Credit", Icon: Wallet }]
+              : []),
             { kind: "affiliate" as const, label: "Affiliate", Icon: Users },
             { kind: "usage" as const, label: "Usage", Icon: Activity },
             // Saved Prompts hidden — per-tab agents now persist their

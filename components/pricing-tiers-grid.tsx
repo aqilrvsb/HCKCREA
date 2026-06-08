@@ -59,14 +59,30 @@ type Props = {
 const QUOTE_RATE_IMAGE_MYR = 0.20;
 const QUOTE_RATE_VIDEO_MYR = 0.40;
 
-const FEATURE_LINES = [
-  "Image AI — 20 sen / generate",
-  "Video AI — 40 sen / 8s",
-  "Unlimited generate (within credit balance)",
-  "Auto Content, Clone Video, Story Telling",
-  "MCP API access (peninglab-mcp npm)",
-  "Group VIP support",
+type FeatureLine = { text: string; highlight?: boolean };
+
+const FEATURE_LINES: FeatureLine[] = [
+  { text: "Image AI — 20 sen / generate" },
+  { text: "Video AI — 40 sen / 8s" },
+  { text: "Unlimited generate (within credit balance)" },
+  { text: "Auto Content, Clone Video, Story Telling" },
+  { text: "MCP API access (peninglab-mcp npm)" },
+  { text: "Group VIP support" },
 ];
+
+// Top up credit access is gated to Pro + Premium — they're the tiers
+// where the user has invested enough that an ad-hoc credit reload
+// makes economic sense. Sidebar nav uses the same gate (see
+// app/dashboard/sidebar.tsx). Surfaced as a highlighted feature on
+// those cards so customers see the perk before they pick.
+const TOPUP_TIERS: PlanKey[] = ["pro", "premium"];
+function featureLinesFor(key: PlanKey): FeatureLine[] {
+  const lines = [...FEATURE_LINES];
+  if (TOPUP_TIERS.includes(key)) {
+    lines.push({ text: "Access Top Up Credit (RM1 = 1 credit)", highlight: true });
+  }
+  return lines;
+}
 
 function tierAccent(key: PlanKey): {
   border: string;
@@ -204,10 +220,37 @@ export default function PricingTiersGrid({
             </div>
 
             <div className="flex-1 space-y-2">
-              {FEATURE_LINES.map((line) => (
-                <div key={line} className="flex items-start gap-2 text-[12px]">
-                  <CheckCircle2 className="w-4 h-4 text-emerald-500 flex-shrink-0 mt-0.5" />
-                  <span className="text-[var(--color-text-secondary)]">{line}</span>
+              {featureLinesFor(key).map((line) => (
+                <div
+                  key={line.text}
+                  className="flex items-start gap-2 text-[12px]"
+                  style={
+                    line.highlight
+                      ? {
+                          background: "rgba(250, 204, 21, 0.10)",
+                          border: "1px solid rgba(250, 204, 21, 0.35)",
+                          borderRadius: 8,
+                          padding: "6px 8px",
+                        }
+                      : undefined
+                  }
+                >
+                  <CheckCircle2
+                    className="w-4 h-4 flex-shrink-0 mt-0.5"
+                    style={{
+                      color: line.highlight ? "#facc15" : "#10b981",
+                    }}
+                  />
+                  <span
+                    style={{
+                      color: line.highlight
+                        ? "#fbbf24"
+                        : "var(--color-text-secondary)",
+                      fontWeight: line.highlight ? 700 : undefined,
+                    }}
+                  >
+                    {line.text}
+                  </span>
                 </div>
               ))}
             </div>

@@ -54,6 +54,7 @@ export default async function DashboardPage() {
       email={user.email || ""}
       name={name}
       credits={credits}
+      plan={plan}
       planActive={planActive}
       planExpiresAt={planExpiresAt}
       isAffiliate={isAffiliate}

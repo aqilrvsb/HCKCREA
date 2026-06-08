@@ -21,7 +21,7 @@ export type PlanConfig = {
 export const PLAN_DEFAULTS: Record<PlanKey, PlanConfig> = {
   starter:  { price: 35,  days: 30, credits: 10,  label: "Starter" },
   standard: { price: 50,  days: 30, credits: 25,  label: "Standard" },
-  pro:      { price: 100, days: 30, credits: 50,  label: "Pro" },
+  pro:      { price: 120, days: 30, credits: 50,  label: "Pro" },
   premium:  { price: 200, days: 30, credits: 100, label: "Premium" },
 };
 
