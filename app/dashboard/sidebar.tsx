@@ -426,11 +426,12 @@ export default function Sidebar({
                     }
                     e.preventDefault();
                     onViewChange({ kind: "project", projectId: p.id });
-                    // Push URL so back/forward + refresh-in-place keep
-                    // the active project. No reload — pure history API.
-                    if (typeof window !== "undefined") {
-                      window.history.pushState(null, "", projectHref);
-                    }
+                    // URL push removed per user direction 2026-06-08 —
+                    // left-click on a project keeps the URL clean
+                    // (/dashboard, no ?p= param). The HREF on the anchor
+                    // still drives right-click / middle-click / Ctrl+
+                    // click "Open in new tab" since those skip the
+                    // preventDefault() path above.
                   }}
                   className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-bold transition-all cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-orange)] no-underline"
                   style={
