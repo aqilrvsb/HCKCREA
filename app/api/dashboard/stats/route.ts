@@ -53,6 +53,13 @@ export async function GET(req: Request) {
   let sora2Count = 0;
   let talkingObjectCount = 0;
   let storyCount = 0;
+  // Split cinemaCount into the two NEW visible-tab buckets per user
+  // direction 2026-06-08. Original Video (tab='original-video') and
+  // Viral (tab='cinema') are surfaced as separate stat cards. The
+  // legacy `cinema` field stays in the response = viral + original-video
+  // so the daily chart series and any external consumers keep working.
+  let viralCount = 0;
+  let originalVideoCount = 0;
   let totalCost = 0;
   const dailyMap = new Map<
     string,
@@ -75,7 +82,12 @@ export async function GET(req: Request) {
       sora2Count += 1;
     } else if (tab === "cinema" && featureType === "talking-object") {
       // Viral Talking Object video (skip the source-image auxiliary row).
+      // Counted under Viral (tab='cinema') since the user lives in the
+      // Viral tab regardless of featureType. talkingObjectCount kept
+      // for back-compat / debugging only.
       talkingObjectCount += 1;
+      viralCount += 1;
+      cinemaCount += 1;
       bucket = "cinema";
     } else if (tab === "fairytale" && type === "fairytale") {
       // Storytelling final merged video only — scene/hero images excluded.
@@ -86,10 +98,15 @@ export async function GET(req: Request) {
     } else if (tab === "video" || tab === "ugc") {
       ugcCount += 1;
       bucket = "ugc";
-    } else if (tab === "cinema" || tab === "original-video") {
-      // Original Video tab rows (tab='original-video') share the cinema
-      // bucket on the dashboard summary chart — same surface, same
-      // visual treatment.
+    } else if (tab === "cinema") {
+      // Viral tab rows (tab='cinema', not talking-object).
+      viralCount += 1;
+      cinemaCount += 1;
+      bucket = "cinema";
+    } else if (tab === "original-video") {
+      // Original Video tab — its own stat card. Daily chart series
+      // still rolls into `cinema` for back-compat (same visual line).
+      originalVideoCount += 1;
       cinemaCount += 1;
       bucket = "cinema";
     } else if (tab === "auto") {
@@ -153,14 +170,19 @@ export async function GET(req: Request) {
       image: imageCount,
       ugc: ugcCount,
       cinema: cinemaCount,
+      // New 2026-06-08 visible-tab buckets:
+      viral: viralCount,
+      original_video: originalVideoCount,
       auto: autoCount,
       clone: cloneCount,
       sora2: sora2Count,
       talking_object: talkingObjectCount,
       story: storyCount,
+      // total = sum of every TAB-level bucket. cinemaCount is already
+      // viralCount + originalVideoCount so we do NOT add them again.
       total:
         imageCount + ugcCount + cinemaCount + autoCount + cloneCount +
-        sora2Count + talkingObjectCount + storyCount,
+        sora2Count + storyCount,
     },
     total_cost: Number(totalCost.toFixed(4)),
     daily,

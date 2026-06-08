@@ -19,6 +19,9 @@ type Stats = {
     image: number;
     ugc: number;
     cinema: number;
+    // New 2026-06-08 visible-tab buckets, surfaced as stat cards:
+    viral: number;
+    original_video: number;
     auto: number;
     clone: number;
     sora2: number;
@@ -146,21 +149,19 @@ export default function DashboardOverview({ name }: { name: string }) {
         </p>
       </div>
 
-      {/* Stat cards row — Cinema hidden per user direction; Sora 2 +
-          Talking Object + Storytelling added. Layout now 4 cols on
-          mobile / 7 cols on lg so all cards fit without wrapping. */}
-      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3 mb-5">
+      {/* Stat cards row — visible-tab buckets only per user direction
+          2026-06-08. Dropped: UGC (tab hidden), Sora 2 (now a model
+          inside Original Video, not its own tab), Talking Object
+          (subset of Viral, not its own tab). Added: Original Video,
+          Viral. Final card set mirrors the dashboard nav exactly:
+          Image · Auto Content · Original Video · Storytelling · Viral
+          + Total Cost. Layout: 2 cols mobile / 3 cols md / 6 cols lg. */}
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 mb-5">
         <StatCard
           label="Image"
           value={loading ? "—" : String(stats?.counts.image ?? 0)}
           accent="#facc15"
           icon={<ImageIcon className="w-4 h-4" />}
-        />
-        <StatCard
-          label="UGC"
-          value={loading ? "—" : String(stats?.counts.ugc ?? 0)}
-          accent="#22c55e"
-          icon={<Video className="w-4 h-4" />}
         />
         <StatCard
           label="Auto Content"
@@ -169,22 +170,22 @@ export default function DashboardOverview({ name }: { name: string }) {
           icon={<Sparkles className="w-4 h-4" />}
         />
         <StatCard
-          label="Sora 2"
-          value={loading ? "—" : String(stats?.counts.sora2 ?? 0)}
-          accent="#4ade80"
+          label="Original Video"
+          value={loading ? "—" : String(stats?.counts.original_video ?? 0)}
+          accent="#7c4dff"
           icon={<Film className="w-4 h-4" />}
-        />
-        <StatCard
-          label="Talking Object"
-          value={loading ? "—" : String(stats?.counts.talking_object ?? 0)}
-          accent="#ef4444"
-          icon={<Sparkles className="w-4 h-4" />}
         />
         <StatCard
           label="Storytelling"
           value={loading ? "—" : String(stats?.counts.story ?? 0)}
           accent="#8b5cf6"
           icon={<Video className="w-4 h-4" />}
+        />
+        <StatCard
+          label="Viral"
+          value={loading ? "—" : String(stats?.counts.viral ?? 0)}
+          accent="#22c55e"
+          icon={<Film className="w-4 h-4" />}
         />
         <StatCard
           label="Total Cost"
@@ -195,7 +196,6 @@ export default function DashboardOverview({ name }: { name: string }) {
           }
           accent="#ef4444"
           icon={<Wallet className="w-4 h-4" />}
-          wide
         />
       </div>
 
