@@ -60,10 +60,9 @@ type TabKey =
 // "cinema" key internally so we don't have to rename agent-cinema.ts.
 const TABS: { key: TabKey; label: string; icon: any; tag: string }[] = [
   { key: "image",     label: "Image",        icon: ImageIcon, tag: "01" },
-  // UGC tab hidden per user direction 2026-06-08. Route + VideoTab
-  // component kept so existing UGC history rows still render via the
-  // history grid + admin tooling. Re-enable by uncommenting.
-  // { key: "video",     label: "UGC",          icon: Video,     tag: "02" },
+  // UGC tab — re-enabled 2026-06-10 per user direction. Now exposes a
+  // 3rd provider (Grok Imagine 1.5) alongside Veo 3.1 + Sora 2.
+  { key: "video",     label: "UGC",          icon: Video,     tag: "02" },
   { key: "auto",      label: "Auto Content", icon: Wand2,     tag: "03" },
   // Seedance/Cinema tab hidden per user direction. Route + import kept
   // so existing seedance history rows still render via their cards in

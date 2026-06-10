@@ -5,6 +5,7 @@ import { Loader2, Sparkles, X, Info } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import Portal from "../sections/portal";
 import UgcTab from "./ugc";
+import GrokTab from "./grok";
 import Sora2TipsModal from "../sections/sora2-tips-modal";
 import { SORA2_DISABLED } from "@/lib/feature-flags";
 import { uploadImage, dataUrlToFile } from "@/lib/upload-image";
@@ -35,7 +36,10 @@ export default function VideoTab({ projectId }: { projectId?: string } = {}) {
   // downstream pickers:
   //   - Veo:    3 image modes, fixed 8s duration, multi-ref allowed
   //   - Sora 2: text/frame mode only, 8s or 12s duration, single ref
-  const [provider, setProvider] = useState<"veo" | "sora2">("veo");
+  // "grok" = Grok Imagine 1.5 (image→video, single ref "frame"). When
+  // selected we render the dedicated GrokTab body below — it posts to
+  // /api/generate/cinema with model='grok' (its own validated flow).
+  const [provider, setProvider] = useState<"veo" | "sora2" | "grok">("veo");
   // Sora 2 supports 8 or 12s natively. APIPod also accepts 4s but our
   // UI dropped it (too short for useful UGC). State is independent from
   // Veo's fixed 8s so switching providers doesn't reset the other.
@@ -365,7 +369,7 @@ export default function VideoTab({ projectId }: { projectId?: string } = {}) {
         <Label>Provider</Label>
         <div
           className={`grid ${
-            SORA2_DISABLED ? "grid-cols-1" : "grid-cols-2"
+            SORA2_DISABLED ? "grid-cols-2" : "grid-cols-3"
           } gap-2 mb-4`}
         >
           <button
@@ -412,8 +416,40 @@ export default function VideoTab({ projectId }: { projectId?: string } = {}) {
               ⚡ Sora 2 · 8 / 12s
             </button>
           )}
+          <button
+            type="button"
+            onClick={() => setProvider("grok")}
+            className="px-3 py-3 rounded-xl text-sm font-extrabold transition-all"
+            style={
+              provider === "grok"
+                ? {
+                    background: "linear-gradient(135deg, #f97316, #ea580c)",
+                    color: "white",
+                    boxShadow: "0 4px 12px rgba(249,115,22,0.35)",
+                    border: "1px solid transparent",
+                  }
+                : {
+                    background: "white",
+                    color: "#1a1a1a",
+                    border: "1px solid #e8e0d8",
+                  }
+            }
+          >
+            ⚡ Grok 1.5 · 1–15s
+          </button>
         </div>
 
+        {/* Grok Imagine 1.5 — image→video (single "frame" ref). Renders the
+            dedicated GrokTab body below, so the Veo/Sora image-mode +
+            duration controls are hidden when Grok is selected. */}
+        {provider === "grok" && (
+          <div className="mt-2">
+            <GrokTab projectId={projectId} />
+          </div>
+        )}
+
+        {provider !== "grok" && (
+        <>
         <Label>Image Mode</Label>
         <Select
           value={imageMode}
@@ -508,8 +544,14 @@ export default function VideoTab({ projectId }: { projectId?: string } = {}) {
             </p>
           </div>
         )}
+        </>
+        )}
       </Card>
 
+      {/* SCENE + SIZE/GENERATE — Veo/Sora only. Grok renders its own
+          self-contained body above (inside the provider Card). */}
+      {provider !== "grok" && (
+      <>
       {/* SCENE — adapts to image mode */}
       <Card>
         <div className="flex items-center justify-between mb-4">
@@ -806,6 +848,8 @@ export default function VideoTab({ projectId }: { projectId?: string } = {}) {
           </div>
         )}
       </Card>
+      </>
+      )}
 
       <AttachmentPicker
         open={!!attachmentSlot}
