@@ -45,8 +45,11 @@ export async function POST(req: Request) {
   // required Dialogue: block; Grok reads the inline format directly.
   const provider: "veo" | "sora2" | "grok" =
     body?.provider === "sora2" ? "sora2" : body?.provider === "grok" ? "grok" : "veo";
-  // Grok runs a fixed 8s clip here to match the Veo UI (no duration picker).
-  const grokDuration = 8;
+  // Grok runs 1-15s (per-second), driven by the slider. Clamp + default 8.
+  const grokDuration = Math.min(
+    15,
+    Math.max(1, Math.round(Number(body?.duration) || 8))
+  );
   const imageUrls: string[] = Array.isArray(body?.image_urls) ? body.image_urls : [];
   const aspectRatio = String(body?.aspect_ratio || "9:16");
   // Veo duration is "8" or "16" (16 chains two 8s clips).
@@ -115,6 +118,9 @@ export async function POST(req: Request) {
       gender,
       age: "30s",
       hijab: isHijab,
+      // Grok's DIALOG LENGTH LOCK scales with its slider (3 words/sec);
+      // Veo + Sora stay on the 8s window.
+      durationSec: provider === "grok" ? grokDuration : 8,
     });
 
   // Billing reason — Sora 2 always bills under video_8s for now (admin

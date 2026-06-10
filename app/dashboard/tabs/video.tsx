@@ -40,6 +40,9 @@ export default function VideoTab({ projectId }: { projectId?: string } = {}) {
   // UI dropped it (too short for useful UGC). State is independent from
   // Veo's fixed 8s so switching providers doesn't reset the other.
   const [soraDuration, setSoraDuration] = useState<8 | 12>(8);
+  // Grok Imagine 1.5 supports 1-15s (per-second pricing). Slider lives in
+  // the provider card, same spot as Sora's duration. Default 8s.
+  const [grokDuration, setGrokDuration] = useState(8);
   // FRAME-ONLY now — the client uploads one image (character + product in
   // the same shot) and the backend keeps both consistent. The Product
   // Reference / Text modes were removed from the UI per user direction.
@@ -76,6 +79,7 @@ export default function VideoTab({ projectId }: { projectId?: string } = {}) {
   // on the Generate button when provider === "sora2". Endpoint falls
   // back to cinema_rate × 2 when admin hasn't configured sora2_rate.
   const [soraRatePerSec, setSoraRatePerSec] = useState<number | null>(null);
+  const [grokRatePerSec, setGrokRatePerSec] = useState<number | null>(null);
   // Tips modal (Sora 2 dialog format + medical-claim warning + image
   // dims + iteration tips). Shared component used by both Sora 2 tab
   // and UGC tab so the warnings stay in sync.
@@ -85,6 +89,12 @@ export default function VideoTab({ projectId }: { projectId?: string } = {}) {
       .then((r) => r.json())
       .then((d) => {
         if (!cancel && typeof d?.rate === "number") setSoraRatePerSec(d.rate);
+      })
+      .catch(() => {});
+    fetch("/api/grok/rate", { cache: "no-store" })
+      .then((r) => r.json())
+      .then((d) => {
+        if (!cancel && typeof d?.rate === "number") setGrokRatePerSec(d.rate);
       })
       .catch(() => {});
     return () => {
@@ -230,7 +240,12 @@ export default function VideoTab({ projectId }: { projectId?: string } = {}) {
             gender,
             image_urls: apiImageUrls,
             // Sora 2 uses soraDuration (8|12), Veo is fixed at 8.
-            duration: provider === "sora2" ? String(soraDuration) : duration,
+            duration:
+              provider === "sora2"
+                ? String(soraDuration)
+                : provider === "grok"
+                  ? String(grokDuration)
+                  : duration,
             image_mode: effectiveMode,
             aspect_ratio: aspect,
             project_id: projectId,
@@ -345,7 +360,7 @@ export default function VideoTab({ projectId }: { projectId?: string } = {}) {
                   }
             }
           >
-            ⚡ Grok 1.5 · 8s
+            ⚡ Grok 1.5 · 1–15s
           </button>
         </div>
 
@@ -413,6 +428,37 @@ export default function VideoTab({ projectId }: { projectId?: string } = {}) {
               Sora 2 spec (Dialogue: block). Avoid medical claim
               vocabulary — Sora 2's safety filter silences audio on
               clinical efficacy phrasing.
+            </p>
+          </div>
+        )}
+
+        {/* Grok duration — 1-15s slider, same spot as Sora's duration. */}
+        {provider === "grok" && (
+          <div className="mt-4">
+            <div className="flex items-center justify-between mb-2">
+              <Label>Duration ({grokDuration}s)</Label>
+              {grokRatePerSec != null && (
+                <span
+                  className="text-xs font-bold"
+                  style={{ color: "#b45309" }}
+                >
+                  ~RM{((grokRatePerSec ?? 0) * grokDuration).toFixed(2)} / video
+                </span>
+              )}
+            </div>
+            <input
+              type="range"
+              min={1}
+              max={15}
+              step={1}
+              value={grokDuration}
+              onChange={(e) => setGrokDuration(Number(e.target.value))}
+              className="w-full"
+              style={{ accentColor: "#f97316" }}
+            />
+            <p className="text-[10px] mt-1.5" style={{ color: "#6b6357" }}>
+              Grok Imagine 1.5 · 1–15s · 720p. Rujuk &quot;Cadangan saya&quot; di
+              bawah untuk jumlah perkataan ikut durasi.
             </p>
           </div>
         )}
