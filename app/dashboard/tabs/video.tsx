@@ -80,6 +80,8 @@ export default function VideoTab({ projectId }: { projectId?: string } = {}) {
   // back to cinema_rate × 2 when admin hasn't configured sora2_rate.
   const [soraRatePerSec, setSoraRatePerSec] = useState<number | null>(null);
   const [grokRatePerSec, setGrokRatePerSec] = useState<number | null>(null);
+  // Veo is a FLAT per-video rate (fixed 8s), not per-second.
+  const [veoRatePerVideo, setVeoRatePerVideo] = useState<number | null>(null);
   // Tips modal (Sora 2 dialog format + medical-claim warning + image
   // dims + iteration tips). Shared component used by both Sora 2 tab
   // and UGC tab so the warnings stay in sync.
@@ -95,6 +97,12 @@ export default function VideoTab({ projectId }: { projectId?: string } = {}) {
       .then((r) => r.json())
       .then((d) => {
         if (!cancel && typeof d?.rate === "number") setGrokRatePerSec(d.rate);
+      })
+      .catch(() => {});
+    fetch("/api/veo/rate", { cache: "no-store" })
+      .then((r) => r.json())
+      .then((d) => {
+        if (!cancel && typeof d?.rate === "number") setVeoRatePerVideo(d.rate);
       })
       .catch(() => {});
     return () => {
@@ -364,17 +372,19 @@ export default function VideoTab({ projectId }: { projectId?: string } = {}) {
           </button>
         </div>
 
-        {/* Grok now uses the SAME frame + dialog UI as Veo (no separate
-            panel). It routes through /api/generate/video with provider=grok
-            and a fixed 8s clip to match the Veo layout. */}
+        {/* Veo cost — fixed 8s flat per-video rate (no slider). Shown so
+            all three providers display their dynamic price. */}
+        {provider === "veo" && veoRatePerVideo != null && (
+          <div className="mt-4 flex items-center justify-between">
+            <Label>Duration (8s)</Label>
+            <span className="text-xs font-bold" style={{ color: "#b45309" }}>
+              ~RM{veoRatePerVideo.toFixed(2)} / video
+            </span>
+          </div>
+        )}
 
-        {/* Image mode is FRAME-ONLY (Product Reference hidden per user
-            direction 2026-06-10). The client uploads ONE image where the
-            character is already holding/presenting the product; the backend
-            keeps both consistent. imageMode state stays "frame" always. */}
-
-        {/* Duration picker — Sora 2 only. Veo + Grok are fixed at 8s so no
-            picker shown for them. */}
+        {/* Duration picker — Sora 2 (8/12) below; Grok (1-15s slider)
+            further down. Veo is fixed 8s (cost row above). */}
         {provider === "sora2" && (
           <div className="mt-4">
             <div className="flex items-center justify-between mb-2">
