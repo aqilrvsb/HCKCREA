@@ -1,10 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Loader2, Sparkles, X, Info } from "lucide-react";
+import { Loader2, X, Info } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import Portal from "../sections/portal";
-import UgcTab from "./ugc";
 import GrokTab from "./grok";
 import Sora2TipsModal from "../sections/sora2-tips-modal";
 import { SORA2_DISABLED } from "@/lib/feature-flags";
@@ -59,21 +58,11 @@ export default function VideoTab({ projectId }: { projectId?: string } = {}) {
   // With avatar set: character is image #1, products fill 2-3 (max 2 products).
   // Without avatar: products fill all 3 slots (max 3 products).
   const [refImages, setRefImages] = useState<string[]>([]);
-  const [prompt, setPrompt] = useState("");
-  // Idea mode now uses TWO fields:
-  //   ideaScene — the scene/visual concept ("saya masak tenggiri masam")
-  //   ideaUsp   — optional product USP ("ada extra calcium, anti-inflammatory")
-  // Backend combines both + picks a random UGC framework from
-  // lib/auto-content-frameworks.ts (filtered to type='ugc') and asks
-  // Gemini 3.1 Flash Lite to write the scene + 20-24 Malay-word dialog
-  // following that framework's dialog shape + emotion arc.
-  const [ideaScene, setIdeaScene] = useState("");
-  const [ideaUsp, setIdeaUsp] = useState("");
-  // Input mode toggle — "prompt" is the legacy free-form path (user types
-  // full scene + dialog), "idea" is the new shortcut: 2 short fields +
-  // rotated UGC framework + Gemini expansion. Dialog stays hard-locked
-  // at 20-24 Malay words for 8s via the canonical DIALOG LENGTH LOCK.
-  const [inputMode, setInputMode] = useState<"prompt" | "idea">("prompt");
+  // DIALOG-ONLY input: the client writes just the spoken line. The full
+  // scene/visual prompt is built server-side from the image mode + which
+  // refs were uploaded (see buildUgcScenePrompt in /api/generate/video).
+  // Recommended length is 20-24 Malay words for an 8s shot.
+  const [dialog, setDialog] = useState("");
   const [aspect, setAspect] = useState("9:16");
   const [count, setCount] = useState(1);
   const duration: "8" = "8"; // Veo 3.1 Fast — 8s only
@@ -130,9 +119,9 @@ export default function VideoTab({ projectId }: { projectId?: string } = {}) {
   // separators. Picks land in the user's Attachments library, NOT in
   // the ref slots directly — the user picks from Attachments afterwards.
   async function fireUgcScrape() {
-    const raw = (prompt || "").slice(0, 200).trim();
+    const raw = (dialog || "").slice(0, 200).trim();
     if (!raw) {
-      setScrapeRow({ loading: false, images: null, query: null, error: "Type a prompt first" });
+      setScrapeRow({ loading: false, images: null, query: null, error: "Type the dialog first" });
       return;
     }
     setScrapeRow({ loading: true, images: null, query: null, error: null });
@@ -163,28 +152,6 @@ export default function VideoTab({ projectId }: { projectId?: string } = {}) {
       });
     }
   }
-  const [showUgcModal, setShowUgcModal] = useState(false);
-
-  // Pick up a prompt handed off from the UGC Prompt Builder rendered above
-  // us on the Video page (same-page handoff via custom event). Also reads
-  // any leftover localStorage stash for backwards compat.
-  useEffect(() => {
-    try {
-      const stash = localStorage.getItem("ugc_prompt_stash");
-      if (stash && stash.trim()) {
-        setPrompt(stash);
-        localStorage.removeItem("ugc_prompt_stash");
-      }
-    } catch {}
-    const onHandoff = (e: any) => {
-      const text = typeof e?.detail === "string" ? e.detail : "";
-      if (text.trim()) setPrompt(text);
-      setShowUgcModal(false);
-    };
-    window.addEventListener("ugc:hand-off", onHandoff);
-    return () => window.removeEventListener("ugc:hand-off", onHandoff);
-  }, []);
-
   function pickFromHistory(slot: RefSlot, url: string) {
     if (slot === "start") setStartFrame(url);
     else if (slot === "end") setEndFrame(url);
@@ -211,17 +178,16 @@ export default function VideoTab({ projectId }: { projectId?: string } = {}) {
   }
 
   async function submit() {
-    // Mode-aware required-input validation. Prompt mode needs the full
-    // textarea; Idea mode needs at least Scene Idea (USP is optional).
-    if (inputMode === "idea") {
-      if (!ideaScene.trim()) {
-        return setError("Sila masukkan Scene Idea (USP optional).");
-      }
-    } else if (!prompt.trim()) {
-      return setError("Sila masukkan scene prompt.");
+    // DIALOG-ONLY: only the spoken line is required. Frame mode also
+    // needs a Start Frame. The full scene prompt is built server-side
+    // (buildUgcScenePrompt) from the image mode + uploaded refs.
+    if (!dialog.trim()) {
+      return setError("Sila masukkan dialog (apa nak cakap).");
     }
     if (imageMode === "frame" && !startFrame)
       return setError("Upload Start Frame dulu.");
+    if (imageMode === "ingredient" && !avatarImage && refImages.length === 0)
+      return setError("Upload Avatar atau Product Reference dulu.");
     setError(null);
     setStatus("submitting");
 
@@ -233,13 +199,6 @@ export default function VideoTab({ projectId }: { projectId?: string } = {}) {
         ensurePublicUrl(avatarImage),
       ]);
       const productPubs = await Promise.all(refImages.map((u) => ensurePublicUrl(u)));
-      // Triplication REMOVED — every Veo model variant (veo3-1-fast,
-      // veo3-1-fast-ref, etc.) accepts 1+ distinct refs natively. Sending
-      // the same image 3× just bloated the payload, and APIPod's CUE
-      // validator was rejecting duplicate image_urls as "invalid value"
-      // even when the error message pointed at the prompt field.
-      // Now: 1 picked → 1 sent, 2-3 picked → 2-3 sent (as-is). Matches
-      // Auto Content's behaviour which has always sent distinct refs only.
       const productSend = productPubs;
 
       // Order matters: avatar is image #1 when present, then up to 2
@@ -257,46 +216,10 @@ export default function VideoTab({ projectId }: { projectId?: string } = {}) {
         imageUrls = [];
       }
 
-      // If user is in ingredient mode but didn't upload either ref,
-      // auto-fall-back to text-to-video so the API uses the t2v model
-      // instead of erroring on a missing image.
-      const effectiveMode: ImageMode =
-        imageMode === "ingredient" && imageUrls.length === 0
-          ? "text"
-          : imageMode;
+      // A reference is always present now (validated above) — no text fallback.
+      const effectiveMode: ImageMode = imageMode;
 
-      const refPub = productPubs[0] || "";
-
-      // Auto-prepend a reference-image preamble for the AI Agent UGC flow
-      // so users don't have to remember the exact wording. Only adds when
-      // the user hasn't already written one ("reference image" not in
-      // their prompt) — protects power users with custom phrasing. Skipped
-      // entirely when no image is uploaded (text-to-video path).
-      //
-      // PHRASING: descriptive, not instructive. APIPod's CUE validator
-      // for veo3-1-fast-ref rejects prompts that meta-instruct the model
-      // ("Use the reference image as X") because reference handling is
-      // controlled at the API level (image_urls + generation_type=reference).
-      // The validator wants the prompt to DESCRIBE the desired output
-      // ("same person from reference image, holding same product"), not
-      // tell the model how to consume its input. This matches the phrasing
-      // Auto Content's Gemini-generated prompts use, which pass validation.
-      let finalPrompt = prompt.trim();
-      if (effectiveMode === "ingredient" && !/reference image/i.test(finalPrompt)) {
-        const lines: string[] = [];
-        if (avatarPub && refPub) {
-          lines.push("Same person from the first reference image (same face, same outfit, same lighting), holding the same product from the second reference image (same label, same shape, same colors, no modification).");
-        } else if (avatarPub) {
-          lines.push("Same person from reference image (same face, same outfit, same lighting style).");
-        } else if (refPub) {
-          lines.push("Same product from reference image (same label, same shape, same colors, no modification).");
-        }
-        if (lines.length) finalPrompt = lines.join("\n") + "\n\n" + finalPrompt;
-      }
-
-      // Sora 2 only accepts a single first-frame image — drop extra
-      // refs at the frontend so the backend never has to guess which
-      // ref to keep. Veo path is unchanged (sends all picked refs).
+      // Sora 2 only accepts a single first-frame image.
       const apiImageUrls =
         provider === "sora2" ? imageUrls.slice(0, 1) : imageUrls;
 
@@ -305,28 +228,21 @@ export default function VideoTab({ projectId }: { projectId?: string } = {}) {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            // In Idea mode, prompt is unused — backend reads idea_scene +
-            // idea_usp instead. In Prompt mode, prompt is the verbatim
-            // user-typed Veo prompt (with frontend's ref-image preamble
-            // already prepended).
-            prompt: inputMode === "idea" ? "" : finalPrompt,
+            // Client writes ONLY the dialog; the backend wraps it in the
+            // dynamic, gender-neutral scene template (buildUgcScenePrompt).
+            dialog: dialog.trim(),
+            // Flags an avatar ref so the backend anchors person (image #1)
+            // vs product (image #2) consistency correctly in ingredient mode.
+            has_avatar: effectiveMode === "ingredient" && !!avatarPub,
             image_urls: apiImageUrls,
             // Sora 2 uses soraDuration (8|12), Veo is fixed at 8.
             duration: provider === "sora2" ? String(soraDuration) : duration,
             image_mode: effectiveMode,
             aspect_ratio: aspect,
             project_id: projectId,
-            mode: inputMode,
-            // Provider switch — backend uses this to pick cascade asset,
-            // rate, and prompt-format transform. Defaults to "veo" when
-            // omitted so old clients keep working unchanged.
+            // Provider switch — backend picks cascade asset, rate, and
+            // prompt-format transform. Defaults to "veo" when omitted.
             provider,
-            ...(inputMode === "idea"
-              ? {
-                  idea_scene: ideaScene.trim(),
-                  idea_usp: ideaUsp.trim(),
-                }
-              : {}),
           }),
         }).then((r) => r.json())
       );
@@ -455,13 +371,14 @@ export default function VideoTab({ projectId }: { projectId?: string } = {}) {
           value={imageMode}
           onChange={(v) => setImageMode(v as ImageMode)}
         >
-          {/* Sora 2 doesn't support multi-ref ingredient mode (single
-              first frame only). The "ingredient" option is hidden when
-              Sora 2 is selected; useEffect clamps state to "frame" if
-              user switches mid-flow. */}
+          {/* Text-to-Video removed per user direction — UGC always needs a
+              reference. Sora 2 doesn't support multi-ref ingredient mode
+              (single first frame only), so "Product Reference" is hidden
+              when Sora 2 is selected; a useEffect clamps state to "frame"
+              if the user switches mid-flow. */}
           {provider === "veo" && (
             <option value="ingredient">
-              Product Reference (AI creates scene)
+              Product Reference (keeps product/avatar consistent)
             </option>
           )}
           <option value="frame">
@@ -469,7 +386,6 @@ export default function VideoTab({ projectId }: { projectId?: string } = {}) {
               ? "First Frame (single image)"
               : "First Frame (animate from image)"}
           </option>
-          <option value="text">Text to Video (no image needed)</option>
         </Select>
 
         {/* Duration picker — Sora 2 only. Veo is fixed at 8s so no
@@ -554,50 +470,20 @@ export default function VideoTab({ projectId }: { projectId?: string } = {}) {
       <>
       {/* SCENE — adapts to image mode */}
       <Card>
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-2.5">
-            <span className="text-lg">🎞️</span>
-            <span
-              className="text-[13px] font-extrabold uppercase tracking-[0.06em]"
-              style={{ color: "#1a1a1a" }}
-            >
-              Scene
-            </span>
-          </div>
-          <button
-            type="button"
-            onClick={() => setShowUgcModal(true)}
-            title="UGC Prompt Builder — 5-block Veo formula"
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[10px] font-extrabold uppercase tracking-wider transition-transform hover:-translate-y-0.5"
-            style={{
-              background: "linear-gradient(135deg, #25f4ee, #00bfa5)",
-              color: "white",
-              boxShadow: "0 4px 12px rgba(37,244,238,0.3)",
-            }}
+        <div className="flex items-center gap-2.5 mb-4">
+          <span className="text-lg">🎞️</span>
+          <span
+            className="text-[13px] font-extrabold uppercase tracking-[0.06em]"
+            style={{ color: "#1a1a1a" }}
           >
-            <Sparkles className="w-3.5 h-3.5" strokeWidth={2.6} />
-            Prompt Builder
-          </button>
+            Scene
+          </span>
         </div>
-
-        {imageMode === "text" && (
-          <div
-            className="p-3 rounded-lg mb-3 text-center text-xs font-semibold"
-            style={{
-              background: ORANGE_FAINT,
-              border: `1px dashed ${ORANGE_SOFT}`,
-              color: ORANGE,
-            }}
-          >
-            📝 Text only — no image needed
-          </div>
-        )}
 
         {imageMode === "ingredient" && (
           <div className="mb-3 grid grid-cols-1 md:grid-cols-2 gap-3">
-            {/* Avatar reference (optional) — Crun treats this as the
-                first reference image, so the auto-prepended preamble
-                tells Veo to use it as the main character. */}
+            {/* Avatar reference — image #1 when present. Backend keeps the
+                person consistent (same face/outfit). */}
             <div>
               <FrameZoneRow
                 label="Avatar Reference"
@@ -609,8 +495,8 @@ export default function VideoTab({ projectId }: { projectId?: string } = {}) {
                 onHistory={() => setPickerSlot("avatar")}
               />
             </div>
-            {/* Product reference — multi-pick up to (avatar ? 2 : 3).
-                If exactly 1 picked, it's triplicated server-side. */}
+            {/* Product reference — backend keeps the product consistent
+                (same label/shape/colours). */}
             <div>
               <MultiRefRow
                 label={`Product Reference (${refImages.length}/${avatarImage ? 2 : 3})`}
@@ -628,7 +514,7 @@ export default function VideoTab({ projectId }: { projectId?: string } = {}) {
             </div>
             <div className="md:col-span-2 -mt-1 flex items-center gap-2 flex-wrap">
               <p className="text-[11px] text-gray-500">
-                Both optional. Pick {avatarImage ? "up to 2 products" : "up to 3 products"}; each picked image is sent as a distinct reference to Veo.
+                Upload Avatar, Product, atau kedua-duanya (sekurang-kurangnya satu). Backend pastikan setiap reference kekal consistent.
               </p>
               <ProductRefTips />
             </div>
@@ -663,142 +549,127 @@ export default function VideoTab({ projectId }: { projectId?: string } = {}) {
           </div>
         )}
 
-        {/* Mode toggle — "Prompt" = legacy full-text textarea; "Idea" =
-            type a short one-liner, backend expands into a full Veo prompt
-            via Gemini 3.1 Flash Lite (silent — single Generate click).
-            Same expansion model Auto Content uses, minus the framework
-            layer (UGC doesn't have frameworks). Dialog stays at the
-            canonical 20-24 Malay words for 8s via DIALOG LENGTH LOCK. */}
-        <div className="flex gap-2 mb-3">
-          <button
-            type="button"
-            onClick={() => setInputMode("prompt")}
-            className="flex-1 px-3 py-2 rounded-xl text-xs font-bold transition-all border"
-            style={{
-              background: inputMode === "prompt" ? "#1a1a1a" : "white",
-              color: inputMode === "prompt" ? "white" : "#1a1a1a",
-              borderColor: inputMode === "prompt" ? "#1a1a1a" : "#e8e0d8",
-            }}
-          >
-            ✍️ Prompt
-          </button>
-          <button
-            type="button"
-            onClick={() => setInputMode("idea")}
-            className="flex-1 px-3 py-2 rounded-xl text-xs font-bold transition-all border"
-            style={{
-              background: inputMode === "idea"
-                ? "linear-gradient(90deg, #ec4899, #a855f7, #38bdf8)"
-                : "white",
-              color: inputMode === "idea" ? "white" : "#1a1a1a",
-              borderColor: inputMode === "idea" ? "#a855f7" : "#e8e0d8",
-            }}
-          >
-            💡 Idea (AI expand)
-          </button>
-        </div>
+        {/* DIALOG — the ONLY text the client writes. The full scene/visual
+            prompt is built server-side (buildUgcScenePrompt) from the image
+            mode + uploaded refs. Recommended 20-24 Malay words for an 8s shot. */}
+        <label className="block text-[10px] uppercase tracking-widest text-gray-500 font-bold mb-1.5">
+          Dialog{" "}
+          <span className="font-normal lowercase tracking-normal text-gray-400">
+            (apa yang nak cakap dalam video)
+          </span>
+        </label>
+        <textarea
+          rows={4}
+          value={dialog}
+          onChange={(e) => setDialog(e.target.value.substring(0, 600))}
+          maxLength={600}
+          placeholder='Tulis dialog je. Contoh: "Assalamualaikum, telekung ni selesa gila! Material sejuk, corak floral nampak eksklusif. Grab sekarang, tekan beg kuning!"'
+          className="w-full p-3.5 rounded-xl text-sm resize-y outline-none focus:border-orange-400"
+          style={{
+            background: "#fafaf7",
+            border: "1px solid #e8e0d8",
+            color: "#1a1a1a",
+            lineHeight: 1.5,
+          }}
+        />
+        {(() => {
+          const words = dialog.trim().split(/\s+/).filter(Boolean).length;
+          const off = words > 0 && (words < 18 || words > 26);
+          return (
+            <p className="text-[10px] text-gray-500 mt-2 leading-relaxed">
+              Recommended{" "}
+              <span className="font-bold text-orange-600">20–24 perkataan</span>{" "}
+              untuk 8 saat (hook → isi → CTA) ·{" "}
+              <span
+                className={
+                  off ? "text-red-500 font-bold" : "text-gray-700 font-semibold"
+                }
+              >
+                {words} words
+              </span>{" "}
+              ·{" "}
+              <span className={dialog.length > 560 ? "text-red-500 font-bold" : ""}>
+                {dialog.length}/600
+              </span>
+            </p>
+          );
+        })()}
 
-        {inputMode === "idea" ? (
-          <div className="space-y-3">
-            {/* Scene Idea (required) */}
-            <div>
-              <label className="block text-[10px] uppercase tracking-widest text-gray-500 font-bold mb-1.5">
-                Scene Idea <span className="text-red-500">*</span>
-              </label>
-              <textarea
-                rows={3}
-                value={ideaScene}
-                onChange={(e) => setIdeaScene(e.target.value.substring(0, 400))}
-                maxLength={400}
-                placeholder="What's happening in the scene? e.g. 'saya masak tenggiri masam dan makan dengan nasi panas'"
-                className="w-full p-3.5 rounded-xl text-sm resize-y outline-none focus:border-orange-400"
-                style={{
-                  background: "#fafaf7",
-                  border: "1px solid #e8e0d8",
-                  color: "#1a1a1a",
-                  lineHeight: 1.5,
-                }}
-              />
-              <div className="text-[10px] text-gray-400 mt-1 text-right">
-                <span className={ideaScene.length > 380 ? "text-red-500 font-bold" : ""}>
-                  {ideaScene.length}/400
-                </span>
-              </div>
-            </div>
-
-            {/* USP Produk (optional) */}
-            <div>
-              <label className="block text-[10px] uppercase tracking-widest text-gray-500 font-bold mb-1.5">
-                USP Produk{" "}
-                <span className="font-normal lowercase tracking-normal text-gray-400">
-                  (optional — what's unique about the product?)
-                </span>
-              </label>
-              <textarea
-                rows={2}
-                value={ideaUsp}
-                onChange={(e) => setIdeaUsp(e.target.value.substring(0, 300))}
-                maxLength={300}
-                placeholder="Key benefits or selling points, e.g. 'ada extra calcium · anti-inflammatory · halal certified'"
-                className="w-full p-3.5 rounded-xl text-sm resize-y outline-none focus:border-orange-400"
-                style={{
-                  background: "#fafaf7",
-                  border: "1px solid #e8e0d8",
-                  color: "#1a1a1a",
-                  lineHeight: 1.5,
-                }}
-              />
-              <div className="text-[10px] text-gray-400 mt-1 text-right">
-                <span className={ideaUsp.length > 280 ? "text-red-500 font-bold" : ""}>
-                  {ideaUsp.length}/300
-                </span>
-              </div>
-            </div>
-
-            <p className="text-[10px] text-gray-500 leading-relaxed">
-              <span className="font-bold text-purple-600">AI expansion:</span>{" "}
-              AI combines your scene idea + USP and writes the full
-              prompt using a randomly-rotated UGC framework. Scene owns
-              the visual; framework owns the dialog shape (20-24 Malay
-              words). Reference images (if attached) are respected.
+        {/* Word-count planner — recommended dialog length by duration +
+            speaking pace. Helps the client plan the dialog before
+            generating (Veo 8s · Sora 2 8/12s · Grok 1–15s). */}
+        <details className="mt-2">
+          <summary className="cursor-pointer text-[10px] font-bold text-orange-600 select-none">
+            📋 Panduan jumlah perkataan (ikut durasi &amp; gaya)
+          </summary>
+          <div className="mt-2 overflow-x-auto">
+            <table className="w-full text-[10px] border-collapse">
+              <thead>
+                <tr style={{ background: "#fff7ed" }}>
+                  {["Durasi", "Santai", "Normal", "Seller / TikTok"].map((h) => (
+                    <th
+                      key={h}
+                      className="px-2 py-1 font-extrabold"
+                      style={{ color: "#9a3412", border: "1px solid #fed7aa" }}
+                    >
+                      {h}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {[
+                  ["8s", "16-18", "18-20", "20-24"],
+                  ["9s", "18-20", "20-22", "22-26"],
+                  ["10s", "20-22", "22-24", "24-28"],
+                  ["11s", "22-24", "24-26", "26-30"],
+                  ["12s", "24-26", "26-28", "28-32"],
+                  ["13s", "26-28", "28-30", "30-34"],
+                  ["14s", "28-30", "30-32", "32-36"],
+                  ["15s", "30-32", "32-35", "35-40"],
+                ].map((r) => (
+                  <tr key={r[0]}>
+                    {r.map((cell, i) => (
+                      <td
+                        key={i}
+                        className={`px-2 py-1 ${i === 0 ? "font-bold" : "text-center"}`}
+                        style={{
+                          color: i === 0 ? "#1a1a1a" : "#555",
+                          border: "1px solid #f0e6da",
+                        }}
+                      >
+                        {cell}
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            <p className="text-[9px] text-gray-400 mt-1">
+              Veo = 8s · Sora 2 = 8s / 12s · Grok 1.5 = 1–15s. Pilih ikut durasi
+              &amp; gaya cakap (santai = slow, seller = laju).
             </p>
           </div>
-        ) : (
-          <textarea
-            rows={5}
-            value={prompt}
-            onChange={(e) => setPrompt(e.target.value.substring(0, 1500))}
-            maxLength={1500}
-            placeholder="Scene description + spoken dialog 0-8s..."
-            className="w-full p-3.5 rounded-xl text-sm resize-y outline-none focus:border-orange-400"
+        </details>
+
+        {/* Sora 2 dialog guard — Sora silences audio on medical/efficacy
+            claims. Since the client writes the dialog directly (no AI
+            rewrite), warn them to use testimonial framing. */}
+        {provider === "sora2" && (
+          <div
+            className="mt-2 px-3 py-2 rounded-lg text-[10px] leading-relaxed"
             style={{
-              background: "#fafaf7",
-              border: "1px solid #e8e0d8",
-              color: "#1a1a1a",
-              lineHeight: 1.5,
+              background: "rgba(74,222,128,0.10)",
+              border: "1px solid rgba(74,222,128,0.30)",
+              color: "#166534",
             }}
-          />
-        )}
-        {inputMode === "idea" ? null : (
-          <p className="text-[10px] text-gray-500 mt-2 leading-relaxed">
-            Each shot = 8s · Sweet spot{" "}
-            <span className="font-bold text-orange-600">18–22 words</span> of
-            spoken dialog (split: 0-2s hook ≤6 words · 2-6s middle ≤14 words ·
-            6-8s CTA ≤6 words) ·{" "}
-            <span
-              className={
-                prompt.trim().split(/\s+/).filter(Boolean).length > 26
-                  ? "text-red-500 font-bold"
-                  : "text-gray-700 font-semibold"
-              }
-            >
-              {prompt.trim().split(/\s+/).filter(Boolean).length} words
-            </span>{" "}
-            ·{" "}
-            <span className={prompt.length > 1425 ? "text-red-500 font-bold" : ""}>
-              {prompt.length}/1500
-            </span>
-          </p>
+          >
+            ⚠️ <span className="font-bold">Sora 2:</span> elak ayat medical /
+            efficacy (cth &quot;berkesan&quot;, &quot;rawat&quot;,
+            &quot;sembuh&quot;, &quot;hilangkan sakit&quot;) — kalau tidak audio
+            akan senyap. Guna gaya testimoni: &quot;aku rasa selesa&quot;,
+            &quot;memang lain rasa dia&quot;, &quot;try sekali&quot;.
+          </div>
         )}
       </Card>
 
@@ -883,8 +754,6 @@ export default function VideoTab({ projectId }: { projectId?: string } = {}) {
         productName={scrapeRow?.query || ""}
       />
 
-      {showUgcModal && <UgcModal onClose={() => setShowUgcModal(false)} />}
-
       {sora2TipsOpen && (
         <Portal>
           <Sora2TipsModal onClose={() => setSora2TipsOpen(false)} />
@@ -894,69 +763,6 @@ export default function VideoTab({ projectId }: { projectId?: string } = {}) {
       {/* UGC Agent panel is mounted at dashboard-shell level so it
           persists across tab switches — see DashboardShell. */}
     </div>
-  );
-}
-
-// ── UGC Prompt Builder Modal ───────────────────────────────────────────────
-// Wraps the existing UgcTab in a centered modal. UgcTab dispatches
-// `ugc:hand-off` on Use-in-Video; the parent VideoTab listens and closes the
-// modal when that fires (see useEffect above).
-function UgcModal({ onClose }: { onClose: () => void }) {
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
-    window.addEventListener("keydown", onKey);
-    document.body.style.overflow = "hidden";
-    return () => {
-      window.removeEventListener("keydown", onKey);
-      document.body.style.overflow = "";
-    };
-  }, [onClose]);
-
-  return (
-    <Portal>
-    <div
-      className="fixed inset-0 lg:left-[280px] z-50 flex items-center justify-center p-4"
-      style={{ background: "rgba(0,0,0,0.7)", backdropFilter: "blur(8px)" }}
-      onClick={onClose}
-    >
-      <div
-        className="rounded-2xl max-w-3xl w-full max-h-[92vh] flex flex-col overflow-hidden"
-        style={{
-          background: "#fafaf7",
-          border: "2px solid #25f4ee",
-          boxShadow: "0 20px 60px rgba(37,244,238,0.25)",
-        }}
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div
-          className="flex items-center justify-between px-5 py-4 border-b flex-shrink-0"
-          style={{ borderColor: "#d8e8d0", background: "#ffffff" }}
-        >
-          <div className="flex items-center gap-2.5">
-            <Sparkles className="w-5 h-5" style={{ color: "#25f4ee" }} strokeWidth={2.4} />
-            <h2 className="font-display font-extrabold text-lg" style={{ color: "#1a1a1a" }}>
-              UGC Prompt Builder
-              <span className="ml-2 text-xs font-normal text-gray-500">
-                5-Part Veo 3.1 Formula
-              </span>
-            </h2>
-          </div>
-          <button
-            onClick={onClose}
-            className="w-8 h-8 rounded-lg flex items-center justify-center hover:bg-gray-100 transition"
-            style={{ color: "#666" }}
-            aria-label="Close"
-          >
-            <X className="w-4 h-4" />
-          </button>
-        </div>
-
-        <div className="flex-1 min-h-0 overflow-y-auto p-5">
-          <UgcTab />
-        </div>
-      </div>
-    </div>
-    </Portal>
   );
 }
 
