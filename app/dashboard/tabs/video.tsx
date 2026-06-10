@@ -62,6 +62,10 @@ export default function VideoTab({ projectId }: { projectId?: string } = {}) {
   // refs were uploaded (see buildUgcScenePrompt in /api/generate/video).
   // Recommended length is 20-24 Malay words for an 8s shot.
   const [dialog, setDialog] = useState("");
+  // Character gender — drives the gendered subject in the backend scene
+  // prompt AND the matching voice pick. Default female (most common Malay
+  // UGC seller persona).
+  const [gender, setGender] = useState<"male" | "female">("female");
   const [aspect, setAspect] = useState("9:16");
   const [count, setCount] = useState(1);
   const duration: "8" = "8"; // Veo 3.1 Fast — 8s only
@@ -222,6 +226,8 @@ export default function VideoTab({ projectId }: { projectId?: string } = {}) {
             // Flags an avatar ref so the backend anchors person (image #1)
             // vs product (image #2) consistency correctly in ingredient mode.
             has_avatar: effectiveMode === "ingredient" && !!avatarPub,
+            // Character gender → gendered subject + matching voice.
+            gender,
             image_urls: apiImageUrls,
             // Sora 2 uses soraDuration (8|12), Veo is fixed at 8.
             duration: provider === "sora2" ? String(soraDuration) : duration,
@@ -458,6 +464,45 @@ export default function VideoTab({ projectId }: { projectId?: string } = {}) {
           (contoh: pegang produk, atau berdiri depan meja dengan produk). Video
           kekalkan character + product sama 100% dari mula sampai habis.
         </p>
+
+        {/* Gender toggle — sets the character gender so the VOICE matches
+            (male voice for man, female voice for woman). Hijab isn't asked
+            here: this is frame mode, the uploaded image already defines it. */}
+        <Label>Gender (suara ikut gender)</Label>
+        <div className="grid grid-cols-2 gap-2 mb-3">
+          {(
+            [
+              ["female", "👩 Female"],
+              ["male", "👨 Male"],
+            ] as const
+          ).map(([g, label]) => {
+            const active = gender === g;
+            return (
+              <button
+                key={g}
+                type="button"
+                onClick={() => setGender(g)}
+                className="px-3 py-2.5 rounded-xl text-sm font-extrabold transition-all"
+                style={
+                  active
+                    ? {
+                        background: "linear-gradient(135deg, #facc15, #f59e0b)",
+                        color: "#1a1a1a",
+                        boxShadow: "0 4px 12px rgba(250,204,21,0.35)",
+                        border: "1px solid transparent",
+                      }
+                    : {
+                        background: "white",
+                        color: "#1a1a1a",
+                        border: "1px solid #e8e0d8",
+                      }
+                }
+              >
+                {label}
+              </button>
+            );
+          })}
+        </div>
 
         {/* Word-count planner — recommended dialog length by duration +
             speaking pace. Shown ABOVE the dialog so the client can plan

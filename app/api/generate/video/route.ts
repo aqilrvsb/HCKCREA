@@ -3,7 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { priceFor } from "@/lib/deduct";
 import { getP2Config } from "@/lib/settings";
-import { buildVeoLocks, getVoiceDescription, pickVoiceFromPrompt } from "@/lib/veo-voices";
+import { buildVeoLocks, getVoiceDescription } from "@/lib/veo-voices";
 import { generateVideoWithCascade } from "@/lib/video-cascade";
 
 // POST /api/generate/video — UGC tab. Placeholder-first + auth-light.
@@ -33,6 +33,10 @@ export async function POST(req: Request) {
   // frontend flags it so the template anchors person (image #1) vs
   // product (image #2) consistency correctly.
   const hasAvatar = body?.has_avatar === true;
+  // Character gender (Dialog UGC toggle). Drives the gendered subject in
+  // the scene prompt AND the voice pick (so the audio matches the person).
+  // Defaults to female — the most common Malay UGC seller persona.
+  const gender: "male" | "female" = body?.gender === "male" ? "male" : "female";
   // Provider routing — Veo (default) / Sora 2 / Grok Imagine 1.5. Each
   // non-Veo provider routes through its own cascade asset + per-second
   // pricing. Grok + Sora 2 both build the SAME dialog scene prompt (so
@@ -90,7 +94,7 @@ export async function POST(req: Request) {
   // consistent. Kept concise on purpose so every model (Veo / Sora 2)
   // parses it cleanly. For Sora 2, p6.transformPromptForSora2 rewrites
   // the quoted `Spoken dialog: "..."` line into a Dialogue: block.
-  const rawPrompt = buildUgcScenePrompt({ imageMode, imageUrls, hasAvatar, dialog });
+  const rawPrompt = buildUgcScenePrompt({ imageMode, imageUrls, hasAvatar, dialog, gender });
 
   // Append the canonical Veo lock block (same one used by UGC agent + Auto
   // Content). Voice character — STRICT pick from the 30-voice catalog:
@@ -100,11 +104,16 @@ export async function POST(req: Request) {
   // Either way buildVeoLocks emits a specific "VOICE CHARACTER (LOCKED):
   // <Name> — <traits>" line that Veo treats as a hard constraint.
   // Hijab toggles HIJAB LOCK + removes "loose hair" from UGC AUTHENTICITY.
-  const autoPickedVoiceId = voiceId ? "" : pickVoiceFromPrompt(rawPrompt);
+  // Voice: an explicit dropdown pick wins; otherwise the gender toggle
+  // drives a gender-matched catalog voice (default age 30s) so the audio
+  // matches the on-screen person. buildVeoLocks resolves gender+age via
+  // pickVoiceByPersona.
   const prompt =
     rawPrompt +
     buildVeoLocks({
-      voiceId: voiceId || autoPickedVoiceId,
+      voiceId: voiceId || undefined,
+      gender,
+      age: "30s",
       hijab: isHijab,
     });
 
@@ -441,28 +450,37 @@ function buildUgcScenePrompt(opts: {
   imageUrls: string[];
   hasAvatar: boolean;
   dialog: string;
+  gender: "male" | "female";
 }): string {
   // Strip quote chars: the Sora 2 transform delimits the dialog on quotes,
   // so a stray quote inside would truncate the captured line.
   const dialog = opts.dialog.replace(/["'‘’“”]/g, "").trim();
   const dialogBlock = `Spoken dialog: "${dialog}"`;
+  // Gendered subject + pronoun so the visual + voice match the toggle.
+  const subject = opts.gender === "male" ? "man" : "woman";
+  const pron = opts.gender === "male" ? "He" : "She";
   const speak =
-    "speaks naturally in Malay with realistic lip sync. Warm, friendly, confident expression, natural hand gestures, subtle body movement, realistic blinking and breathing";
-  const camera =
-    "Medium shot with a slow cinematic push-in. Soft professional studio lighting, clean background, shallow depth of field, ultra realistic skin and fabric texture, premium commercial style.";
+    "speaks naturally in Malay with realistic lip sync. Warm, friendly, confident, trustworthy expression, natural hand gestures, subtle body movement, realistic blinking and breathing";
+  // Look + quality directive — NO camera-movement instruction (per user
+  // direction). Lighting + commercial look + render-quality only,
+  // de-duplicated into one concise line.
+  const look =
+    "Soft professional studio lighting, clean background, shallow depth of field, ultra realistic skin texture, highly detailed fabric folds, realistic shadows. Premium product commercial, natural motion, realistic lip sync, 720p, cinematic quality.";
+  const mood =
+    "Dialogue mood: enthusiastic, friendly seller, authentic social-media presentation.";
 
   let scene: string;
   if (opts.imageMode === "frame") {
     const hasEnd = opts.imageUrls.length > 1;
     // Dynamic version of the reference consistency prompt — no hard-coded
-    // gender/outfit/product. The uploaded image already has the character
+    // outfit/product. The uploaded image already has the character
     // holding/presenting the product; we lock BOTH from the source image.
     scene =
-      "Use the uploaded image as the primary character and visual reference. Keep the EXACT same character, face, outfit, colours, patterns, fabric texture, accessories AND the exact same product from the source image — no outfit, colour, pattern, accessory, or product changes for the whole video." +
+      "Use the uploaded image as the primary character and visual reference. Maintain the EXACT same character, face, outfit, colours, patterns, fabric texture, accessories AND the exact same product from the source image — identical clothing and product design. No outfit, colour, pattern, accessory, or product changes anywhere." +
       (hasEnd
         ? " Begin on the first image and transition naturally toward the second image."
         : "") +
-      `\n\nThe character stays in the same setting, looks directly into the camera, and ${speak}. They naturally hold up and present the product while talking, with realistic fabric physics. Near the end, a warm smile and a light gesture toward the screen as a call-to-action.`;
+      `\n\nThe ${subject} stays in the same setting, looks directly into the camera, and ${speak}. ${pron} gently lifts and presents the product while talking, with realistic fabric physics. Near the end, a warm smile and a light gesture toward the screen as a call-to-action.`;
   } else if (opts.imageMode === "ingredient") {
     const hasProduct = opts.hasAvatar
       ? opts.imageUrls.length > 1
@@ -470,20 +488,20 @@ function buildUgcScenePrompt(opts: {
     if (opts.hasAvatar && hasProduct) {
       scene =
         "Use the first reference image as the character and the second reference image as the product. Keep the exact same face, outfit and appearance of the person, and the exact same product — same label, shape, colours and packaging, with no modification." +
-        `\n\nThe person holds and presents the product, looks directly into the camera, and ${speak}.`;
+        `\n\nThe ${subject} holds and presents the product, looks directly into the camera, and ${speak}.`;
     } else if (opts.hasAvatar) {
       scene =
         "Use the reference image as the character. Keep the exact same face, outfit, colours and appearance from the source image — no changes." +
-        `\n\nThe person looks directly into the camera and ${speak}.`;
+        `\n\nThe ${subject} looks directly into the camera and ${speak}.`;
     } else {
       scene =
         "Use the reference image as the product. Keep the exact same product — same label, shape, colours and packaging, with no modification." +
-        `\n\nA natural Malaysian presenter holds and presents this product, looks directly into the camera, and ${speak}.`;
+        `\n\nA Malaysian ${subject} holds and presents this product, looks directly into the camera, and ${speak}.`;
     }
   } else {
     // text-to-video — no reference image (fallback only; UI no longer offers it)
-    scene = `A natural Malaysian presenter looks directly into the camera and ${speak}. Simple clean indoor setting.`;
+    scene = `A Malaysian ${subject} looks directly into the camera and ${speak}. Simple clean indoor setting.`;
   }
 
-  return `${scene}\n\n${camera}\n\n${dialogBlock}`;
+  return `${scene}\n\n${look}\n\n${mood}\n\n${dialogBlock}`;
 }
