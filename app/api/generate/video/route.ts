@@ -458,52 +458,45 @@ function buildUgcScenePrompt(opts: {
   const dialogBlock = `Spoken dialog: "${dialog}"`;
   // Gendered subject so the visual + voice match the toggle.
   const subject = opts.gender === "male" ? "man" : "woman";
+  // Speaking line — mood folded in, kept short. The lock block already
+  // enforces audio / language / dialog-length, so we don't repeat them.
   const speak =
-    "speaks naturally in Malay with realistic lip sync. Warm, friendly, confident, trustworthy expression, natural hand gestures, subtle body movement, realistic blinking and breathing";
-  // Look + quality directive — NO camera-movement instruction (per user
-  // direction). Lighting + commercial look + render-quality only,
-  // de-duplicated into one concise line.
+    "looks at the camera and speaks the dialog naturally in Malay with realistic lip sync — warm, confident, friendly seller tone";
+  // Look line — lighting + render-quality only, compact (no camera move).
   const look =
-    "Soft professional studio lighting, clean background, shallow depth of field, ultra realistic skin texture, highly detailed fabric folds, realistic shadows. Premium product commercial, natural motion, realistic lip sync, 720p, cinematic quality.";
-  const mood =
-    "Dialogue mood: enthusiastic, friendly seller, authentic social-media presentation.";
+    "Soft studio lighting, clean background, shallow depth of field, ultra realistic, premium commercial look, 720p cinematic.";
 
   let scene: string;
   if (opts.imageMode === "frame") {
     const hasEnd = opts.imageUrls.length > 1;
-    // Dynamic version of the reference consistency prompt — no hard-coded
-    // outfit/product. The uploaded image already has the character
-    // holding/presenting the product; we lock BOTH from the source image.
-    // Flexible for all 3 UGC types — product HELD in hand, WORN on the
-    // body (wearable/fashion), or PLACED on a table/surface. We lock
-    // whichever the image shows; we don't force a specific action.
+    // One flexible line for all 3 UGC types — product HELD, WORN, or
+    // PLACED on a table. The lock block enforces pixel-level product
+    // consistency, so the scene just anchors the image + the action.
     scene =
-      "Use the uploaded image as the primary character and visual reference. Maintain the EXACT same character, face, outfit, colours, patterns, fabric texture, accessories AND the exact same product from the source image. Whether the product is held in the hand, worn on the body, or placed on a table or surface, keep it exactly as shown with identical design — no outfit, colour, pattern, accessory, or product changes anywhere." +
-      (hasEnd
-        ? " Begin on the first image and transition naturally toward the second image."
-        : "") +
-      `\n\nThe ${subject} keeps the same pose and setting, looks directly into the camera, and ${speak}.`;
+      "Use the uploaded image as the character and product reference. Keep the EXACT same person, outfit, and product from the image — whether held, worn, or placed on a table, exactly as shown. No character or product changes." +
+      (hasEnd ? " Start on the first image, end on the second." : "") +
+      `\n\nThe ${subject} keeps the same pose and setting, ${speak}.`;
   } else if (opts.imageMode === "ingredient") {
     const hasProduct = opts.hasAvatar
       ? opts.imageUrls.length > 1
       : opts.imageUrls.length > 0;
     if (opts.hasAvatar && hasProduct) {
       scene =
-        "Use the first reference image as the character and the second reference image as the product. Keep the exact same face, outfit and appearance of the person, and the exact same product — same label, shape, colours and packaging, with no modification." +
-        `\n\nThe ${subject} holds and presents the product, looks directly into the camera, and ${speak}.`;
+        "Use the first image as the character and the second as the product. Keep the same person and the same product, no changes." +
+        `\n\nThe ${subject} presents the product and ${speak}.`;
     } else if (opts.hasAvatar) {
       scene =
-        "Use the reference image as the character. Keep the exact same face, outfit, colours and appearance from the source image — no changes." +
-        `\n\nThe ${subject} looks directly into the camera and ${speak}.`;
+        "Use the image as the character. Keep the same person, no changes." +
+        `\n\nThe ${subject} ${speak}.`;
     } else {
       scene =
-        "Use the reference image as the product. Keep the exact same product — same label, shape, colours and packaging, with no modification." +
-        `\n\nA Malaysian ${subject} holds and presents this product, looks directly into the camera, and ${speak}.`;
+        "Use the image as the product. Keep the same product, no changes." +
+        `\n\nA Malaysian ${subject} presents this product and ${speak}.`;
     }
   } else {
     // text-to-video — no reference image (fallback only; UI no longer offers it)
-    scene = `A Malaysian ${subject} looks directly into the camera and ${speak}. Simple clean indoor setting.`;
+    scene = `A Malaysian ${subject} ${speak}. Simple clean indoor setting.`;
   }
 
-  return `${scene}\n\n${look}\n\n${mood}\n\n${dialogBlock}`;
+  return `${scene}\n\n${look}\n\n${dialogBlock}`;
 }
