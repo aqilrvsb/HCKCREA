@@ -43,8 +43,10 @@ export default function VideoTab({ projectId }: { projectId?: string } = {}) {
   // UI dropped it (too short for useful UGC). State is independent from
   // Veo's fixed 8s so switching providers doesn't reset the other.
   const [soraDuration, setSoraDuration] = useState<8 | 12>(8);
-  // Default to Product Reference (ingredient) — most common UGC flow.
-  const [imageMode, setImageMode] = useState<ImageMode>("ingredient");
+  // FRAME-ONLY now — the client uploads one image (character + product in
+  // the same shot) and the backend keeps both consistent. The Product
+  // Reference / Text modes were removed from the UI per user direction.
+  const [imageMode] = useState<ImageMode>("frame");
   const [startFrame, setStartFrame] = useState("");
   const [endFrame, setEndFrame] = useState("");
   // In ingredient mode we now support TWO optional reference images:
@@ -89,16 +91,6 @@ export default function VideoTab({ projectId }: { projectId?: string } = {}) {
       cancel = true;
     };
   }, []);
-
-  // When user switches to Sora 2, clamp imageMode to text/frame only.
-  // Sora 2 doesn't support multi-ref ingredient mode (single first frame
-  // only per APIPod spec). Without this clamp, Veo's "ingredient"
-  // default would silently fail to pass refs through to Sora 2.
-  useEffect(() => {
-    if (provider === "sora2" && imageMode === "ingredient") {
-      setImageMode("frame");
-    }
-  }, [provider, imageMode]);
 
   const [pickerSlot, setPickerSlot] = useState<RefSlot | null>(null);
   // Attachment picker replaces local-file uploads on this tab.
@@ -366,27 +358,10 @@ export default function VideoTab({ projectId }: { projectId?: string } = {}) {
 
         {provider !== "grok" && (
         <>
-        <Label>Image Mode</Label>
-        <Select
-          value={imageMode}
-          onChange={(v) => setImageMode(v as ImageMode)}
-        >
-          {/* Text-to-Video removed per user direction — UGC always needs a
-              reference. Sora 2 doesn't support multi-ref ingredient mode
-              (single first frame only), so "Product Reference" is hidden
-              when Sora 2 is selected; a useEffect clamps state to "frame"
-              if the user switches mid-flow. */}
-          {provider === "veo" && (
-            <option value="ingredient">
-              Product Reference (keeps product/avatar consistent)
-            </option>
-          )}
-          <option value="frame">
-            {provider === "sora2"
-              ? "First Frame (single image)"
-              : "First Frame (animate from image)"}
-          </option>
-        </Select>
+        {/* Image mode is FRAME-ONLY now (Product Reference hidden per user
+            direction 2026-06-10). The client uploads ONE image where the
+            character is already holding/presenting the product; the backend
+            keeps both consistent. imageMode state stays "frame" always. */}
 
         {/* Duration picker — Sora 2 only. Veo is fixed at 8s so no
             picker shown for it. */}
@@ -480,74 +455,39 @@ export default function VideoTab({ projectId }: { projectId?: string } = {}) {
           </span>
         </div>
 
-        {imageMode === "ingredient" && (
-          <div className="mb-3 grid grid-cols-1 md:grid-cols-2 gap-3">
-            {/* Avatar reference — image #1 when present. Backend keeps the
-                person consistent (same face/outfit). */}
-            <div>
-              <FrameZoneRow
-                label="Avatar Reference"
-                color={ORANGE}
-                url={avatarImage}
-                icon="👤"
-                onPick={() => setAttachmentSlot("avatar")}
-                onClear={() => setAvatarImage("")}
-                onHistory={() => setPickerSlot("avatar")}
-              />
-            </div>
-            {/* Product reference — backend keeps the product consistent
-                (same label/shape/colours). */}
-            <div>
-              <MultiRefRow
-                label={`Product Reference (${refImages.length}/${avatarImage ? 2 : 3})`}
-                color={ORANGE}
-                urls={refImages}
-                max={avatarImage ? 2 : 3}
-                onPick={() => setAttachmentSlot("ref")}
-                scrape={scrapeRow}
-                onScrape={fireUgcScrape}
-                onOpenScrapePicker={() => setScrapePickerOpen(true)}
-                onRemove={(i) =>
-                  setRefImages((prev) => prev.filter((_, idx) => idx !== i))
-                }
-              />
-            </div>
-            <div className="md:col-span-2 -mt-1 flex items-center gap-2 flex-wrap">
-              <p className="text-[11px] text-gray-500">
-                Upload Avatar, Product, atau kedua-duanya (sekurang-kurangnya satu). Backend pastikan setiap reference kekal consistent.
-              </p>
-              <ProductRefTips />
-            </div>
+        {/* FRAME-ONLY: one image where the character is already holding /
+            presenting the product. Backend keeps BOTH consistent across the
+            whole video. End frame optional. */}
+        <div className="grid grid-cols-2 gap-3 mb-2">
+          <div>
+            <FrameZoneRow
+              label="Character + Product *"
+              color={ORANGE}
+              url={startFrame}
+              icon="🖼️"
+              required
+              onPick={() => setAttachmentSlot("start")}
+              onClear={() => setStartFrame("")}
+              onHistory={() => setPickerSlot("start")}
+            />
           </div>
-        )}
-
-        {imageMode === "frame" && (
-          <div className="grid grid-cols-2 gap-3 mb-3">
-            <div>
-              <FrameZoneRow
-                label="Start Frame *"
-                color={ORANGE}
-                url={startFrame}
-                icon="🖼️"
-                required
-                onPick={() => setAttachmentSlot("start")}
-                onClear={() => setStartFrame("")}
-                onHistory={() => setPickerSlot("start")}
-              />
-            </div>
-            <div>
-              <FrameZoneRow
-                label="End Frame"
-                color="#888"
-                url={endFrame}
-                icon="🏁"
-                onPick={() => setAttachmentSlot("end")}
-                onClear={() => setEndFrame("")}
-                onHistory={() => setPickerSlot("end")}
-              />
-            </div>
+          <div>
+            <FrameZoneRow
+              label="End Frame (optional)"
+              color="#888"
+              url={endFrame}
+              icon="🏁"
+              onPick={() => setAttachmentSlot("end")}
+              onClear={() => setEndFrame("")}
+              onHistory={() => setPickerSlot("end")}
+            />
           </div>
-        )}
+        </div>
+        <p className="text-[11px] text-gray-500 mb-3">
+          Upload satu gambar — character pegang / present product dalam satu shot
+          (contoh: pegang produk, atau berdiri depan meja dengan produk). Video
+          kekalkan character + product sama 100% dari mula sampai habis.
+        </p>
 
         {/* DIALOG — the ONLY text the client writes. The full scene/visual
             prompt is built server-side (buildUgcScenePrompt) from the image

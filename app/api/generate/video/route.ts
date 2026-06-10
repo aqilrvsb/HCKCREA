@@ -360,12 +360,15 @@ function buildUgcScenePrompt(opts: {
   let scene: string;
   if (opts.imageMode === "frame") {
     const hasEnd = opts.imageUrls.length > 1;
+    // Dynamic version of the reference consistency prompt — no hard-coded
+    // gender/outfit/product. The uploaded image already has the character
+    // holding/presenting the product; we lock BOTH from the source image.
     scene =
-      "Use the uploaded image as the primary character and visual reference. Keep the exact same person, face, outfit, colours, patterns, accessories and overall appearance from the source image throughout the entire video — no outfit, colour, pattern or accessory changes." +
+      "Use the uploaded image as the primary character and visual reference. Keep the EXACT same character, face, outfit, colours, patterns, fabric texture, accessories AND the exact same product from the source image — no outfit, colour, pattern, accessory, or product changes for the whole video." +
       (hasEnd
-        ? " The video begins on the first image and transitions naturally toward the second image."
+        ? " Begin on the first image and transition naturally toward the second image."
         : "") +
-      `\n\nThe subject stays in the same setting, looks directly into the camera, and ${speak}. If a product is visible in the image, they gently hold and present it while talking.`;
+      `\n\nThe character stays in the same setting, looks directly into the camera, and ${speak}. They naturally hold up and present the product while talking, with realistic fabric physics. Near the end, a warm smile and a light gesture toward the screen as a call-to-action.`;
   } else if (opts.imageMode === "ingredient") {
     const hasProduct = opts.hasAvatar
       ? opts.imageUrls.length > 1

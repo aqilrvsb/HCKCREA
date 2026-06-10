@@ -60,9 +60,9 @@ type TabKey =
 // "cinema" key internally so we don't have to rename agent-cinema.ts.
 const TABS: { key: TabKey; label: string; icon: any; tag: string }[] = [
   { key: "image",     label: "Image",        icon: ImageIcon, tag: "01" },
-  // UGC tab — re-enabled 2026-06-10 per user direction. Now exposes a
-  // 3rd provider (Grok Imagine 1.5) alongside Veo 3.1 + Sora 2.
-  { key: "video",     label: "UGC",          icon: Video,     tag: "02" },
+  // Dialog UGC tab — re-enabled 2026-06-10 per user direction. Dialog-only
+  // input; exposes 3 providers (Veo 3.1 · Sora 2 · Grok Imagine 1.5).
+  { key: "video",     label: "Dialog UGC",   icon: Video,     tag: "02" },
   { key: "auto",      label: "Auto Content", icon: Wand2,     tag: "03" },
   // Seedance/Cinema tab hidden per user direction. Route + import kept
   // so existing seedance history rows still render via their cards in
@@ -585,7 +585,7 @@ function ProjectView({
               <div className="max-w-5xl mx-auto w-full">
                 <VideoTab projectId={project.id} />
               </div>
-              <HistoryGrid tab="video" title={`UGC — ${project.name}`} projectId={project.id} />
+              <HistoryGrid tab="video" title={`Dialog UGC — ${project.name}`} projectId={project.id} />
             </>
           )}
           {activeTab === "cinema" && (
