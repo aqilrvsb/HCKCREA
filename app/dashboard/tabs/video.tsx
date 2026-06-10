@@ -535,28 +535,6 @@ export default function VideoTab({ projectId }: { projectId?: string } = {}) {
             lineHeight: 1.5,
           }}
         />
-        {(() => {
-          const words = dialog.trim().split(/\s+/).filter(Boolean).length;
-          const off = words > 0 && (words < 18 || words > 26);
-          return (
-            <p className="text-[10px] text-gray-500 mt-2 leading-relaxed">
-              Recommended{" "}
-              <span className="font-bold text-orange-600">20–24 perkataan</span>{" "}
-              untuk 8 saat (hook → isi → CTA) ·{" "}
-              <span
-                className={
-                  off ? "text-red-500 font-bold" : "text-gray-700 font-semibold"
-                }
-              >
-                {words} words
-              </span>{" "}
-              ·{" "}
-              <span className={dialog.length > 560 ? "text-red-500 font-bold" : ""}>
-                {dialog.length}/600
-              </span>
-            </p>
-          );
-        })()}
 
         {/* Sora 2 dialog guard — Sora silences audio on medical/efficacy
             claims. Since the client writes the dialog directly (no AI
