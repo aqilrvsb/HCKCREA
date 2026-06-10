@@ -474,12 +474,15 @@ function buildUgcScenePrompt(opts: {
     // Dynamic version of the reference consistency prompt — no hard-coded
     // outfit/product. The uploaded image already has the character
     // holding/presenting the product; we lock BOTH from the source image.
+    // Flexible for all 3 UGC types — product HELD in hand, WORN on the
+    // body (wearable/fashion), or PLACED on a table/surface. We lock
+    // whichever the image shows; we don't force a specific action.
     scene =
-      "Use the uploaded image as the primary character and visual reference. Maintain the EXACT same character, face, outfit, colours, patterns, fabric texture, accessories AND the exact same product from the source image — identical clothing and product design. No outfit, colour, pattern, accessory, or product changes anywhere." +
+      "Use the uploaded image as the primary character and visual reference. Maintain the EXACT same character, face, outfit, colours, patterns, fabric texture, accessories AND the exact same product from the source image. Whether the product is held in the hand, worn on the body, or placed on a table or surface, keep it exactly as shown with identical design — no outfit, colour, pattern, accessory, or product changes anywhere." +
       (hasEnd
         ? " Begin on the first image and transition naturally toward the second image."
         : "") +
-      `\n\nThe ${subject} stays in the same setting, looks directly into the camera, and ${speak}.`;
+      `\n\nThe ${subject} keeps the same pose and setting, looks directly into the camera, and ${speak}.`;
   } else if (opts.imageMode === "ingredient") {
     const hasProduct = opts.hasAvatar
       ? opts.imageUrls.length > 1
