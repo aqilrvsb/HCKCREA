@@ -111,16 +111,21 @@ export async function POST(req: Request) {
   const origin = req.headers.get("origin") || process.env.APP_ORIGIN || "https://peninglab.vercel.app";
   const expiry = profile?.plan_expires_at ? new Date(profile.plan_expires_at) : new Date(Date.now() + 30 * 86400000);
 
+  // WhatsApp group is a paid-tier perk — only Pro and Premium get the
+  // invite (mirrors the signup webhook + sidebar gating). Starter/Standard
+  // resends omit groupKind so the group block is skipped entirely.
+  const plan = profile?.plan || "free";
+  const groupKind =
+    plan === "premium" ? "premium" : plan === "pro" ? "pro" : undefined;
+
   const msg = buildLoginMessage({
     name: profile?.full_name || "User",
     email,
     password: newPwd,
-    plan: (profile?.plan || "free").toUpperCase() + " Plan",
+    plan: plan.toUpperCase() + " Plan",
     expiresAt: expiry,
     loginUrl: `${origin}/login`,
-    // Resends are for client payments — include the PRO group invite
-    // so the message matches what the original signup webhook sends.
-    groupKind: "pro",
+    groupKind,
   });
 
   const sent = await sendWhatsApp(whatsapp, msg);

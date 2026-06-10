@@ -190,7 +190,9 @@ export function buildLoginMessage(opts: {
     const groupLabel =
       opts.groupKind === "affiliate"
         ? "PeningLab Affiliate Community"
-        : "PeningLab PRO Community";
+        : opts.groupKind === "premium"
+          ? "PeningLab VIP Community"
+          : "PeningLab PRO Community";
     lines.push(
       "",
       "━━━━━━━━━━━━━━━━━━━",

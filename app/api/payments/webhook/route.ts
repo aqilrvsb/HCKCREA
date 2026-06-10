@@ -326,6 +326,12 @@ async function applyCheckoutSignup(admin: any, payment: any) {
   // Send login info to customer via WhatsApp Center
   try {
     const origin = process.env.APP_ORIGIN || "https://peninglab.vercel.app";
+    // WhatsApp group is a paid-tier perk — only Pro and Premium get the
+    // invite (mirrors the sidebar gating in app/dashboard/sidebar.tsx).
+    // Starter/Standard register without a group link; groupKind omitted
+    // so buildLoginMessage skips the group block entirely.
+    const groupKind =
+      plan === "premium" ? "premium" : plan === "pro" ? "pro" : undefined;
     const msg = buildLoginMessage({
       name,
       email,
@@ -333,8 +339,7 @@ async function applyCheckoutSignup(admin: any, payment: any) {
       plan: plan.toUpperCase() + " Plan",
       expiresAt: expiry,
       loginUrl: `${origin}/login`,
-      // Paying customers get the PRO community group link.
-      groupKind: "pro",
+      groupKind,
     });
     const sent = await sendWhatsApp(whatsapp, msg);
     await admin
