@@ -456,9 +456,8 @@ function buildUgcScenePrompt(opts: {
   // so a stray quote inside would truncate the captured line.
   const dialog = opts.dialog.replace(/["'‘’“”]/g, "").trim();
   const dialogBlock = `Spoken dialog: "${dialog}"`;
-  // Gendered subject + pronoun so the visual + voice match the toggle.
+  // Gendered subject so the visual + voice match the toggle.
   const subject = opts.gender === "male" ? "man" : "woman";
-  const pron = opts.gender === "male" ? "He" : "She";
   const speak =
     "speaks naturally in Malay with realistic lip sync. Warm, friendly, confident, trustworthy expression, natural hand gestures, subtle body movement, realistic blinking and breathing";
   // Look + quality directive — NO camera-movement instruction (per user
@@ -480,7 +479,7 @@ function buildUgcScenePrompt(opts: {
       (hasEnd
         ? " Begin on the first image and transition naturally toward the second image."
         : "") +
-      `\n\nThe ${subject} stays in the same setting, looks directly into the camera, and ${speak}. ${pron} gently lifts and presents the product while talking, with realistic fabric physics. Near the end, a warm smile and a light gesture toward the screen as a call-to-action.`;
+      `\n\nThe ${subject} stays in the same setting, looks directly into the camera, and ${speak}.`;
   } else if (opts.imageMode === "ingredient") {
     const hasProduct = opts.hasAvatar
       ? opts.imageUrls.length > 1
