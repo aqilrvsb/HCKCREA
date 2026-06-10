@@ -33,11 +33,16 @@ export async function POST(req: Request) {
   // frontend flags it so the template anchors person (image #1) vs
   // product (image #2) consistency correctly.
   const hasAvatar = body?.has_avatar === true;
-  // Provider routing — Veo (default) vs Sora 2. Sora 2 routes through
-  // the sora2 cascade asset, uses sora2_rate × duration for cost, and
+  // Provider routing — Veo (default) / Sora 2 / Grok Imagine 1.5. Each
+  // non-Veo provider routes through its own cascade asset + per-second
+  // pricing. Grok + Sora 2 both build the SAME dialog scene prompt (so
+  // the Dialog UGC UI is identical) — only the dispatch asset differs.
   // p6.ts auto-transforms the inline 'Spoken dialog:' format into Sora 2's
-  // required Dialogue: block. Veo path stays bit-for-bit identical.
-  const provider: "veo" | "sora2" = body?.provider === "sora2" ? "sora2" : "veo";
+  // required Dialogue: block; Grok reads the inline format directly.
+  const provider: "veo" | "sora2" | "grok" =
+    body?.provider === "sora2" ? "sora2" : body?.provider === "grok" ? "grok" : "veo";
+  // Grok runs a fixed 8s clip here to match the Veo UI (no duration picker).
+  const grokDuration = 8;
   const imageUrls: string[] = Array.isArray(body?.image_urls) ? body.image_urls : [];
   const aspectRatio = String(body?.aspect_ratio || "9:16");
   // Veo duration is "8" or "16" (16 chains two 8s clips).
@@ -123,6 +128,14 @@ export async function POST(req: Request) {
     sora2Cost = Number((ratePerSec * soraDuration).toFixed(4));
   }
 
+  // Grok cost: grok_rate × duration (per-second pricing, like Sora 2).
+  let grokCost = 0;
+  if (provider === "grok") {
+    const { getGrokRate } = await import("@/lib/settings");
+    const grokRate = await getGrokRate();
+    grokCost = Number((grokRate * grokDuration).toFixed(4));
+  }
+
   // Insert placeholder NOW. task_id + cost populated by after().
   // For 16s: this row IS seg-1 of a chained 16s clip. The settle hook
   // (lib/segment-chain.ts onSegmentSettled) reads metadata.duration_mode +
@@ -141,8 +154,9 @@ export async function POST(req: Request) {
       prompt,
       reference_url: imageUrls[0] || null,
       task_id: null,
-      duration: provider === "sora2" ? soraDuration : is16s ? 16 : 8,
-      cost: provider === "sora2" ? sora2Cost : 0,
+      duration:
+        provider === "sora2" ? soraDuration : provider === "grok" ? grokDuration : is16s ? 16 : 8,
+      cost: provider === "sora2" ? sora2Cost : provider === "grok" ? grokCost : 0,
       segment_index: is16s ? 1 : null,
       frame_anchor: is16s ? "last" : null,
       metadata: {
@@ -156,6 +170,14 @@ export async function POST(req: Request) {
               model: "sora-2-vip",
               sora2Provider: "apipod",
               resolution: aspectRatio === "9:16" ? "720x1280" : "1280x720",
+            }
+          : {}),
+        // Stamp Grok routing so admin/usage shows the right chip.
+        ...(provider === "grok"
+          ? {
+              modelChoice: "grok",
+              model: "grok-imagine",
+              resolution: "720p",
             }
           : {}),
         // Full attachment array so Resubmit can re-fire with all 3
@@ -242,6 +264,78 @@ export async function POST(req: Request) {
             resolution: aspectRatio === "9:16" ? "720x1280" : "1280x720",
             upload_status: "queued",
             featureType: "sora2",
+          },
+        }).eq("id", historyId);
+        return;
+      }
+
+      // ─────────────── Grok Imagine 1.5 path ───────────────
+      // Same dialog scene prompt as Veo (locks included) — only the
+      // dispatch differs: routes through the GROK cascade asset (p2-a/b
+      // Grok slots). UGC always has an image, so grok-imagine i2v.
+      if (provider === "grok") {
+        const cfgGrok = await getP2Config();
+        const grokModel =
+          imageMode === "text" ? cfgGrok.grokT2V : cfgGrok.grokI2V;
+        if (!grokModel) {
+          await admin.from("history").update({
+            status: "failed",
+            cost: grokCost,
+            error_message: "Grok model missing (p2 config)",
+            metadata: {
+              aspectRatio, imageMode,
+              modelChoice: "grok",
+              model: "grok-imagine",
+              resolution: "720p",
+              upload_status: "failed",
+            },
+          }).eq("id", historyId);
+          return;
+        }
+        const cascaded = await generateVideoWithCascade({
+          primaryModel: grokModel,
+          userId: user.id,
+          prompt,
+          imageUrls,
+          imageMode: imageMode === "ingredient" ? "frame" : imageMode,
+          aspectRatio,
+          durationMode: String(grokDuration),
+          asset: "grok",
+        });
+
+        if (!cascaded.ok) {
+          await admin.from("history").update({
+            status: "failed",
+            cost: grokCost,
+            error_message: cascaded.error || "Grok cascade exhausted",
+            metadata: {
+              aspectRatio, imageMode,
+              modelChoice: "grok",
+              model: "grok-imagine",
+              resolution: "720p",
+              tier_log: cascaded.tierLog,
+              upload_status: "failed",
+            },
+          }).eq("id", historyId);
+          return;
+        }
+
+        await admin.from("history").update({
+          task_id: cascaded.taskId,
+          cost: grokCost,
+          metadata: {
+            aspectRatio,
+            imageMode,
+            modelChoice: "grok",
+            model: cascaded.actualModel || "grok-imagine",
+            provider: cascaded.actualProvider,
+            slot: cascaded.actualSlot,
+            ...(cascaded.keyIndex !== undefined ? { p6_key_index: cascaded.keyIndex } : {}),
+            fallback_used: cascaded.fallbackUsed,
+            tier_log: cascaded.tierLog,
+            resolution: "720p",
+            upload_status: "queued",
+            featureType: "grok",
           },
         }).eq("id", historyId);
         return;

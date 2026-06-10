@@ -4,7 +4,6 @@ import { useEffect, useState } from "react";
 import { Loader2, X, Info } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import Portal from "../sections/portal";
-import GrokTab from "./grok";
 import Sora2TipsModal from "../sections/sora2-tips-modal";
 import { SORA2_DISABLED } from "@/lib/feature-flags";
 import { uploadImage, dataUrlToFile } from "@/lib/upload-image";
@@ -35,9 +34,8 @@ export default function VideoTab({ projectId }: { projectId?: string } = {}) {
   // downstream pickers:
   //   - Veo:    3 image modes, fixed 8s duration, multi-ref allowed
   //   - Sora 2: text/frame mode only, 8s or 12s duration, single ref
-  // "grok" = Grok Imagine 1.5 (image→video, single ref "frame"). When
-  // selected we render the dedicated GrokTab body below — it posts to
-  // /api/generate/cinema with model='grok' (its own validated flow).
+  //   - Grok:   same frame + dialog UI as Veo; fixed 8s. Routes through
+  //             /api/generate/video with provider='grok' (grok cascade).
   const [provider, setProvider] = useState<"veo" | "sora2" | "grok">("veo");
   // Sora 2 supports 8 or 12s natively. APIPod also accepts 4s but our
   // UI dropped it (too short for useful UGC). State is independent from
@@ -343,28 +341,21 @@ export default function VideoTab({ projectId }: { projectId?: string } = {}) {
                   }
             }
           >
-            ⚡ Grok 1.5 · 1–15s
+            ⚡ Grok 1.5 · 8s
           </button>
         </div>
 
-        {/* Grok Imagine 1.5 — image→video (single "frame" ref). Renders the
-            dedicated GrokTab body below, so the Veo/Sora image-mode +
-            duration controls are hidden when Grok is selected. */}
-        {provider === "grok" && (
-          <div className="mt-2">
-            <GrokTab projectId={projectId} />
-          </div>
-        )}
+        {/* Grok now uses the SAME frame + dialog UI as Veo (no separate
+            panel). It routes through /api/generate/video with provider=grok
+            and a fixed 8s clip to match the Veo layout. */}
 
-        {provider !== "grok" && (
-        <>
-        {/* Image mode is FRAME-ONLY now (Product Reference hidden per user
+        {/* Image mode is FRAME-ONLY (Product Reference hidden per user
             direction 2026-06-10). The client uploads ONE image where the
             character is already holding/presenting the product; the backend
             keeps both consistent. imageMode state stays "frame" always. */}
 
-        {/* Duration picker — Sora 2 only. Veo is fixed at 8s so no
-            picker shown for it. */}
+        {/* Duration picker — Sora 2 only. Veo + Grok are fixed at 8s so no
+            picker shown for them. */}
         {provider === "sora2" && (
           <div className="mt-4">
             <div className="flex items-center justify-between mb-2">
@@ -435,15 +426,10 @@ export default function VideoTab({ projectId }: { projectId?: string } = {}) {
             </p>
           </div>
         )}
-        </>
-        )}
       </Card>
 
-      {/* SCENE + SIZE/GENERATE — Veo/Sora only. Grok renders its own
-          self-contained body above (inside the provider Card). */}
-      {provider !== "grok" && (
-      <>
-      {/* SCENE — adapts to image mode */}
+      {/* SCENE + SIZE/GENERATE — shared by Veo, Sora 2, and Grok. */}
+      {/* SCENE — frame upload + dialog */}
       <Card>
         <div className="flex items-center gap-2.5 mb-4">
           <span className="text-lg">🎞️</span>
@@ -488,6 +474,59 @@ export default function VideoTab({ projectId }: { projectId?: string } = {}) {
           (contoh: pegang produk, atau berdiri depan meja dengan produk). Video
           kekalkan character + product sama 100% dari mula sampai habis.
         </p>
+
+        {/* Word-count planner — recommended dialog length by duration +
+            speaking pace. Shown ABOVE the dialog so the client can plan
+            before writing (Veo/Grok 8s · Sora 2 8/12s). */}
+        <div className="mb-3">
+          <div className="text-[11px] font-extrabold text-orange-600 mb-1.5">
+            Cadangan saya:
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-[10px] border-collapse">
+              <thead>
+                <tr style={{ background: "#fff7ed" }}>
+                  {["Durasi", "Santai", "Normal", "Seller / TikTok"].map((h) => (
+                    <th
+                      key={h}
+                      className="px-2 py-1 font-extrabold"
+                      style={{ color: "#9a3412", border: "1px solid #fed7aa" }}
+                    >
+                      {h}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {[
+                  ["8s", "16-18", "18-20", "20-24"],
+                  ["9s", "18-20", "20-22", "22-26"],
+                  ["10s", "20-22", "22-24", "24-28"],
+                  ["11s", "22-24", "24-26", "26-30"],
+                  ["12s", "24-26", "26-28", "28-32"],
+                  ["13s", "26-28", "28-30", "30-34"],
+                  ["14s", "28-30", "30-32", "32-36"],
+                  ["15s", "30-32", "32-35", "35-40"],
+                ].map((r) => (
+                  <tr key={r[0]}>
+                    {r.map((cell, i) => (
+                      <td
+                        key={i}
+                        className={`px-2 py-1 ${i === 0 ? "font-bold" : "text-center"}`}
+                        style={{
+                          color: i === 0 ? "#1a1a1a" : "#555",
+                          border: "1px solid #f0e6da",
+                        }}
+                      >
+                        {cell}
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
 
         {/* DIALOG — the ONLY text the client writes. The full scene/visual
             prompt is built server-side (buildUgcScenePrompt) from the image
@@ -534,63 +573,6 @@ export default function VideoTab({ projectId }: { projectId?: string } = {}) {
             </p>
           );
         })()}
-
-        {/* Word-count planner — recommended dialog length by duration +
-            speaking pace. Helps the client plan the dialog before
-            generating (Veo 8s · Sora 2 8/12s · Grok 1–15s). */}
-        <details className="mt-2">
-          <summary className="cursor-pointer text-[10px] font-bold text-orange-600 select-none">
-            📋 Panduan jumlah perkataan (ikut durasi &amp; gaya)
-          </summary>
-          <div className="mt-2 overflow-x-auto">
-            <table className="w-full text-[10px] border-collapse">
-              <thead>
-                <tr style={{ background: "#fff7ed" }}>
-                  {["Durasi", "Santai", "Normal", "Seller / TikTok"].map((h) => (
-                    <th
-                      key={h}
-                      className="px-2 py-1 font-extrabold"
-                      style={{ color: "#9a3412", border: "1px solid #fed7aa" }}
-                    >
-                      {h}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {[
-                  ["8s", "16-18", "18-20", "20-24"],
-                  ["9s", "18-20", "20-22", "22-26"],
-                  ["10s", "20-22", "22-24", "24-28"],
-                  ["11s", "22-24", "24-26", "26-30"],
-                  ["12s", "24-26", "26-28", "28-32"],
-                  ["13s", "26-28", "28-30", "30-34"],
-                  ["14s", "28-30", "30-32", "32-36"],
-                  ["15s", "30-32", "32-35", "35-40"],
-                ].map((r) => (
-                  <tr key={r[0]}>
-                    {r.map((cell, i) => (
-                      <td
-                        key={i}
-                        className={`px-2 py-1 ${i === 0 ? "font-bold" : "text-center"}`}
-                        style={{
-                          color: i === 0 ? "#1a1a1a" : "#555",
-                          border: "1px solid #f0e6da",
-                        }}
-                      >
-                        {cell}
-                      </td>
-                    ))}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-            <p className="text-[9px] text-gray-400 mt-1">
-              Veo = 8s · Sora 2 = 8s / 12s · Grok 1.5 = 1–15s. Pilih ikut durasi
-              &amp; gaya cakap (santai = slow, seller = laju).
-            </p>
-          </div>
-        </details>
 
         {/* Sora 2 dialog guard — Sora silences audio on medical/efficacy
             claims. Since the client writes the dialog directly (no AI
@@ -659,8 +641,6 @@ export default function VideoTab({ projectId }: { projectId?: string } = {}) {
           </div>
         )}
       </Card>
-      </>
-      )}
 
       <AttachmentPicker
         open={!!attachmentSlot}
