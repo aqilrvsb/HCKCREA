@@ -5,8 +5,9 @@
 //   • app/api/admin/errors/route.ts          (admin feed filter)
 //   • app/api/history/retry/route.ts         (manual + bulk Resubmit gate)
 //
-// Per user direction: the ONLY five error categories that qualify for
-// retry / admin visibility are:
+// Per user direction: the ONLY six error categories that qualify for
+// retry / admin visibility are (see #6 at the bottom of the pattern list
+// for the "Job failed / Server exception ... please try again" class):
 //
 //   1. "Internal Error, Please try again later."     (5xx-class)
 //   2. "Unknown error. Please contact support."      (provider-side)
@@ -74,6 +75,19 @@ const RETRYABLE_ERROR_PATTERNS: RegExp[] = [
   /detected (?:explicit|inappropriate|unsafe) content/i,
   /content[\s-]?(?:filter|moderation)/i,
   /safety[\s-]?(?:classifier|filter|check)[\s-]?(?:rejected|blocked|triggered|flagged)/i,
+  // 6. Generic provider transient failure — the task WAS accepted (a
+  //    task_id was created) then the provider failed the generation
+  //    DOWNSTREAM and returned a "... please try again later" message that
+  //    is NOT prefixed "Internal Error". Same recoverable class as #1:
+  //    rotating to a different slot/key regenerates fine. Without this the
+  //    rows show "Job failed, Please try again later" in the user's history
+  //    but never reach the admin Errors feed, event-driven retry, or the
+  //    auto-resubmit cron. Real production phrasings observed:
+  //      • APIPod / RunningHub: "Job failed, Please try again later."
+  //      • Crun:                "Server exception, please try again later."
+  //    Added per user direction 2026-06-11.
+  /job failed[^\n]{0,30}please try again/i,
+  /server exception[^\n]{0,30}please try again/i,
 ];
 
 export function isInternalError(err: string | null | undefined): boolean {
