@@ -147,7 +147,12 @@ export async function POST(req: Request) {
     ? meta.image_urls.filter((u: any) => typeof u === "string" && u.trim())
     : (refImage ? [refImage] : []);
   const aspectRatio = String(meta.aspectRatio || meta.aspect_ratio || "9:16");
-  const durationMode: "8" | "16" = row.duration === 16 ? "16" : "8";
+  // Preserve the ORIGINAL duration on resubmit/fallback. Veo = 8 or 16;
+  // Grok Imagine = 1-15s; Sora 2 = 8 or 12. The old `=== 16 ? "16" : "8"`
+  // collapsed everything else to 8, silently downgrading a 15s Grok job
+  // (or 12s Sora job) to 8s on retry. row.duration is stamped at original
+  // fire time for every provider, so just carry it through.
+  const durationMode: string = String(row.duration || 8);
   const imageMode: "frame" | "ingredient" | "text" =
     meta.imageMode === "frame" || meta.imageMode === "ingredient"
       ? meta.imageMode

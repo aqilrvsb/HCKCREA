@@ -201,7 +201,9 @@ export async function GET(req: Request) {
       ? meta.image_urls.filter((u: any) => typeof u === "string" && u.trim())
       : (refImage ? [refImage] : []);
     const aspectRatio = String(meta.aspectRatio || meta.aspect_ratio || "9:16");
-    const durationMode: "8" | "16" = row.duration === 16 ? "16" : "8";
+    // Preserve the ORIGINAL duration (Veo 8/16, Grok 1-15s, Sora 8/12).
+    // Old `=== 16 ? "16" : "8"` downgraded a 15s Grok job to 8s on retry.
+    const durationMode: string = String(row.duration || 8);
     const imageMode: "frame" | "ingredient" | "text" =
       meta.imageMode === "frame" || meta.imageMode === "ingredient"
         ? meta.imageMode

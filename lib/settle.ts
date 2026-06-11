@@ -526,7 +526,10 @@ async function tryAutoRetry(
         ? [refImage]
         : [];
   const aspectRatio = String(meta.aspectRatio || meta.aspect_ratio || "9:16");
-  const durationMode: "8" | "16" = hist.duration === 16 ? "16" : "8";
+  // Preserve the ORIGINAL duration on event-driven retry/fallback (Veo
+  // 8/16, Grok 1-15s, Sora 8/12). Old `=== 16 ? "16" : "8"` downgraded a
+  // 15s Grok job to 8s when it auto-retried.
+  const durationMode: string = String(hist.duration || 8);
   const imageMode: "frame" | "ingredient" | "text" =
     meta.imageMode === "frame" || meta.imageMode === "ingredient"
       ? meta.imageMode
