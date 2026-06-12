@@ -971,7 +971,7 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
 const STUDIO_CSS = `
 .lh-studio{--bg:#0b0f1a;--panel:#121829;--panel-2:#0e1320;--border:#1f2740;--text:#e6e9f2;--muted:#8b93a7;--accent:#5b6cff;--accent-2:#3ddc97;--danger:#ff5470;color:var(--text);height:100%;}
 .lh-studio *{box-sizing:border-box;}
-.lh-studio .grid{display:grid;grid-template-columns:1.3fr 1fr;gap:10px;height:calc(100vh - 16px);min-height:540px;}
+.lh-studio .grid{display:grid;grid-template-columns:1.9fr 0.7fr;gap:10px;height:calc(100vh - 16px);min-height:540px;}
 @media (max-width:1100px){.lh-studio .grid{grid-template-columns:1fr;height:auto;}}
 .lh-studio .panel{background:var(--panel);border:1px solid var(--border);border-radius:14px;padding:16px;min-height:0;min-width:0;overflow-y:auto;display:flex;flex-direction:column;}
 .lh-studio .panel.single{max-width:860px;}
