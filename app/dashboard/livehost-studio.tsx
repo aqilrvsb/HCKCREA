@@ -299,7 +299,11 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
     const base =
       "You are a friendly, energetic Malaysian live-commerce host on TikTok Live. " +
       "A viewer sent a chat message. Reply in casual Bahasa Melayu, ONE or TWO short " +
-      "spoken sentences, warm and persuasive, no emojis or symbols.";
+      "spoken sentences, warm and persuasive, no emojis or symbols. " +
+      "COMPLIANCE (TikTok policy): never claim to be a doctor, pharmacist, or any " +
+      "professional; never promise medical cures, miracle or instant results; never " +
+      "exaggerate product efficacy beyond the provided knowledge; quote only the " +
+      "prices given. If asked for medical advice, suggest consulting a professional.";
     return kb.trim()
       ? `${base}\n\nAnswer using ONLY this product knowledge. If the answer is not in it, ` +
         `politely say you will check and remind them about the voucher.\n\nPRODUCT KNOWLEDGE:\n${kb.trim()}`
@@ -805,6 +809,9 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
                 {overlayUrl && <img className="overlay" src={overlayUrl} alt="" />}
                 {!active && !previewUrl && <div className="placeholder">Pick a host — it will preview here.</div>}
                 {active && captions && captionLine && <div className="captions">{captionLine}</div>}
+                {/* TikTok AI-content policy: AI-generated content must be
+                    labeled on screen — this badge is part of the captured frame. */}
+                <div className="ai-badge">✨ AI Host</div>
                 {active && soundBlocked && (
                   <button className="unmute-btn" onClick={enableSound}>🔇 Tap to enable sound</button>
                 )}
@@ -890,6 +897,7 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
               onClick={() => setAvatarPickerOpen(true)}>
               {uploading ? "Processing…" : "🖼 Pick avatar from Attachments"}
             </button>
+            <div className="hint">⚠ Guna wajah AI atau wajah anda sendiri sahaja — jangan guna wajah orang lain / selebriti tanpa kebenaran (polisi TikTok).</div>
             {uploading && <div className="status-line">Processing image… detecting face…</div>}
             {!uploading && avatarId && <div className="status-line">✓ Avatar ready — press Start</div>}
 
@@ -939,6 +947,7 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
               </button>
             </div>
             <div className="hint">Status: <b>{serverState}</b> — auto-off selepas 8 minit tiada aktiviti.</div>
+            <div className="hint">📋 Bila Go LIVE di TikTok, AKTIFKAN toggle &quot;AI-generated content&quot; (polisi wajib TikTok Shop).</div>
             <label className="checkbox">
               <input type="checkbox" checked={captions} onChange={(e) => setCaptions(e.target.checked)} style={{ width: "auto" }} />
               Captions
@@ -1104,6 +1113,7 @@ const STUDIO_CSS = `
 .lh-studio .prompter-line.now{color:#fff;background:rgba(91,108,255,.18);border:1px solid var(--accent);font-weight:600;}
 .lh-studio .prompter-line.now .w{color:#cfd5e6;transition:color .12s;}
 .lh-studio .prompter-line.now .w.on{color:#ffd84d;font-weight:700;}
+.lh-studio .ai-badge{position:absolute;top:10px;left:10px;z-index:4;background:rgba(0,0,0,.45);color:#fff;font-size:11px;font-weight:700;letter-spacing:.02em;padding:4px 10px;border-radius:999px;border:1px solid rgba(255,255,255,.25);pointer-events:none;backdrop-filter:blur(2px);}
 .lh-studio .unmute-btn{position:absolute;top:12px;left:50%;transform:translateX(-50%);background:var(--accent);color:#fff;border-radius:999px;padding:8px 16px;font-size:14px;font-weight:600;box-shadow:0 4px 14px rgba(0,0,0,.4);z-index:5;border:none;cursor:pointer;}
 .lh-studio .fs-btn{position:absolute;bottom:12px;right:12px;width:40px;height:40px;padding:0;border-radius:8px;background:rgba(0,0,0,.55);color:#fff;border:1px solid rgba(255,255,255,.25);display:flex;align-items:center;justify-content:center;font-size:20px;line-height:1;cursor:pointer;}
 .lh-studio .fs-btn:hover{background:rgba(0,0,0,.85);}
