@@ -178,6 +178,7 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
   const [gpuUsageErr, setGpuUsageErr] = useState("");
   const [serverState, setServerState] = useState<string>("…");
   const [serverBusy, setServerBusy] = useState(false);
+  const [wakeMsg, setWakeMsg] = useState("");
 
   const gpuAction = useCallback(async (action: "status" | "start" | "stop") => {
     if (action === "stop" && !window.confirm("Shutdown the GPU server? The live stream will end.")) return;
@@ -469,6 +470,31 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
     if (!avatarId) { setError("Pick or upload a face first."); return; }
     setConnecting(true);
     try {
+      // AUTO-WAKE: if the dedicated GPU is asleep, start it and wait until the
+      // backend answers (fully unattended boot ~40-120s), then connect.
+      let backendUp = false;
+      try {
+        const ping = await fetch(`${backendRef.current}/avatars`, { signal: AbortSignal.timeout(5000) });
+        backendUp = ping.ok;
+      } catch {}
+      if (!backendUp) {
+        setWakeMsg("GPU sedang dihidupkan… (~1 minit) ⏳");
+        await fetch("/api/livehost/gpu", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ action: "start" }),
+        }).catch(() => {});
+        for (let i = 0; i < 24; i++) {
+          await new Promise((r) => setTimeout(r, 10000));
+          try {
+            const ping = await fetch(`${backendRef.current}/avatars`, { signal: AbortSignal.timeout(5000) });
+            if (ping.ok) { backendUp = true; break; }
+          } catch {}
+          setWakeMsg(`GPU sedang dihidupkan… ${(i + 1) * 10}s ⏳`);
+        }
+        setWakeMsg("");
+        if (!backendUp) throw new Error("GPU tidak respons selepas 4 minit — cuba sekali lagi atau hubungi support.");
+      }
       const iceRes = await fetch(`${backendRef.current}/ice-servers`);
       if (!iceRes.ok) throw new Error(`ice-servers ${iceRes.status}`);
       const cfg: IceConfig = await iceRes.json();
@@ -841,6 +867,7 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
             <textarea placeholder="Act as a viewer: ask a question…" value={chatText} onChange={(e) => setChatText(e.target.value)} />
             <button className="btn-primary" onClick={sendChat} disabled={!active}>Send chat</button>
 
+            {wakeMsg && <div className="status-line">{wakeMsg}</div>}
             {error && <div className="error">{error}</div>}
             {active && <div className="status-line">● Live</div>}
           </div>
@@ -886,16 +913,10 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
       {/* ============ USAGE VIEW ============ */}
       <div style={{ display: view === "usage" ? undefined : "none" }}>
         <div className="panel single">
-          <div className="label">🖥 GPU server (your dedicated GPU)</div>
+          <div className="label">🖥 GPU server (your dedicated GPU — fully automatic)</div>
           <div className="usage-card">
-            <div className="hint">Server: <b>{serverState}</b></div>
-            <div className="row" style={{ marginTop: 8 }}>
-              <button className="btn-primary" disabled={serverBusy || serverState === "running"}
-                onClick={() => gpuAction("start")}>⏻ Turn ON server</button>
-              <button className="btn-stop" disabled={serverBusy || serverState === "stopped"}
-                onClick={() => gpuAction("stop")}>⏹ Shutdown server</button>
-            </div>
-            <div className="hint">After Turn ON, the server is ready in ~2–3 minutes.</div>
+            <div className="hint">Status: <b>{serverState}</b></div>
+            <div className="hint">Auto: GPU hidup sendiri bila anda tekan Start, dan tidur sendiri selepas ~8 minit idle (jimat kos — anda hanya dikira masa streaming).</div>
           </div>
 
           <div className="label">💰 Bulan ini — kos streaming anda</div>
