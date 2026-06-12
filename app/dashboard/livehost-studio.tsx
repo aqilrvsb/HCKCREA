@@ -90,6 +90,10 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
   const [captionText, setCaptionText] = useState("");
   const [active, setActive] = useState(false);
   const [connecting, setConnecting] = useState(false);
+  const activeRef = useRef(false);
+  const connectingRef = useRef(false);
+  useEffect(() => { activeRef.current = active; }, [active]);
+  useEffect(() => { connectingRef.current = connecting; }, [connecting]);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState("");
   const [overlays, setOverlays] = useState<{ file: string; label: string }[]>([]);
@@ -540,6 +544,18 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
 
       const pc = new RTCPeerConnection({ iceServers: cfg.iceServers, iceTransportPolicy: cfg.iceTransportPolicy || "all" });
       pcRef.current = pc;
+      pc.onconnectionstatechange = () => {
+        if (pcRef.current !== pc) return;
+        if (pc.connectionState === "connected") {
+          setActive(true); setConnecting(false);
+          beginSession();
+        } else if (["failed", "closed", "disconnected"].includes(pc.connectionState)) {
+          if (activeRef.current || connectingRef.current) {
+            setError("Sambungan terputus — tekan ▶ Start semula.");
+            stopRef.current?.();
+          }
+        }
+      };
 
       const remote = new MediaStream();
       remoteStreamRef.current = remote;
@@ -633,8 +649,14 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
       }
       if (!res.ok) throw new Error(`offer ${res.status}: ${await res.text()}`);
       await pc.setRemoteDescription(await res.json());
-      setActive(true); setConnecting(false);
-      beginSession(); // server-side billing clock starts at this exact second
+      // active flips in onconnectionstatechange when ICE truly connects;
+      // guard: if not connected within 25s, fail cleanly so Start can retry.
+      setTimeout(() => {
+        if (pcRef.current === pc && pc.connectionState !== "connected") {
+          setError("Sambungan lambat/gagal — tekan ▶ Start semula.");
+          stopRef.current?.();
+        }
+      }, 25000);
     } catch (e: any) {
       setError(e?.message || String(e));
       stop();
