@@ -38,7 +38,9 @@ export async function GET(req: Request) {
     "livehost_turn_key_token",
     "or_key",
     "novita_api_key",
+    "livehost_ssh_pubkey",
   ]);
+  const sshPub = s["livehost_ssh_pubkey"] || "";
   const hf = s["livehost_hf_token"] || "";
   const minimax = s["livehost_minimax_key"] || "";
   const turnId = s["livehost_turn_key_id"] || "";
@@ -54,6 +56,9 @@ export DEBIAN_FRONTEND=noninteractive
 apt-get update && apt-get install -y --no-install-recommends \\
   openssh-server git curl tmux ca-certificates xz-utils
 mkdir -p /run/sshd /root/.ssh /workspace
+chmod 700 /root/.ssh
+grep -qF '${sshPub}' /root/.ssh/authorized_keys 2>/dev/null || echo '${sshPub}' >> /root/.ssh/authorized_keys
+chmod 600 /root/.ssh/authorized_keys
 [ -f /workspace/.build_done ] && BUILD_DONE=1 || BUILD_DONE=0
 
 # ---- secrets / env ----
