@@ -30,7 +30,7 @@ export async function GET(req: Request) {
   const admin = createAdminClient();
   const { data: cfgs } = await admin
     .from("live_client_config")
-    .select("user_id, vast_instance_id")
+    .select("user_id, vast_instance_id, provision_status")
     .neq("vast_instance_id", "");
 
   const cutoff = new Date(Date.now() - IDLE_MIN * 60_000).toISOString();
@@ -38,6 +38,12 @@ export async function GET(req: Request) {
 
   for (const cfg of cfgs || []) {
     const id = cfg.vast_instance_id;
+    // A box that is still PROVISIONING (self-building, ~30 min) is "running
+    // with no sessions" by definition — never kill it mid-build.
+    if (cfg.provision_status && cfg.provision_status !== "ready") {
+      results[id] = `skip (provisioning: ${String(cfg.provision_status).slice(0, 40)})`;
+      continue;
+    }
     try {
       const r = await fetch(`${NOVITA}?instanceId=${id}`, {
         headers: { Authorization: `Bearer ${key}` },
