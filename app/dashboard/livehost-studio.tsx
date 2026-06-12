@@ -494,6 +494,10 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
         }
         setWakeMsg("");
         if (!backendUp) throw new Error("GPU tidak respons selepas 4 minit — cuba sekali lagi atau hubungi support.");
+        // renderer warm-up settle after a cold boot
+        setWakeMsg("GPU hidup — menyambung… ⏳");
+        await new Promise((r) => setTimeout(r, 12000));
+        setWakeMsg("");
       }
       const iceRes = await fetch(`${backendRef.current}/ice-servers`);
       if (!iceRes.ok) throw new Error(`ice-servers ${iceRes.status}`);
@@ -575,17 +579,23 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
       await pc.setLocalDescription(offer);
       await waitForIceGatheringComplete(pc);
 
-      const res = await fetch(`${backendRef.current}/offer`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          engine: { type: "minimax", voice_id: voiceId, system_prompt: buildKbPrompt(productKb), speed },
-          sdp: pc.localDescription!.sdp,
-          type: pc.localDescription!.type,
-          avatar_id: avatarId,
-          background_id: backgrounds.includes("plain_white") ? "plain_white" : (backgrounds[0] || "plain_white"),
-        }),
+      const offerBody = JSON.stringify({
+        engine: { type: "minimax", voice_id: voiceId, system_prompt: buildKbPrompt(productKb), speed },
+        sdp: pc.localDescription!.sdp,
+        type: pc.localDescription!.type,
+        avatar_id: avatarId,
+        background_id: backgrounds.includes("plain_white") ? "plain_white" : (backgrounds[0] || "plain_white"),
       });
+      let res = await fetch(`${backendRef.current}/offer`, {
+        method: "POST", headers: { "content-type": "application/json" }, body: offerBody,
+      });
+      if (!res.ok) {
+        // renderer may still be warming after a cold boot — one retry
+        await new Promise((r) => setTimeout(r, 15000));
+        res = await fetch(`${backendRef.current}/offer`, {
+          method: "POST", headers: { "content-type": "application/json" }, body: offerBody,
+        });
+      }
       if (!res.ok) throw new Error(`offer ${res.status}: ${await res.text()}`);
       await pc.setRemoteDescription(await res.json());
       setActive(true); setConnecting(false);
