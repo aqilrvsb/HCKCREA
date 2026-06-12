@@ -1,8 +1,9 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { isPlanKey } from "@/lib/plans";
+import { isPlanKey, isLivehost } from "@/lib/plans";
 import DashboardShell from "./dashboard-shell";
+import LivehostDashboard from "./livehost-dashboard";
 
 export default async function DashboardPage() {
   const supabase = await createClient();
@@ -48,6 +49,19 @@ export default async function DashboardPage() {
     isPlanKey(plan) &&
     !!planExpiresAt &&
     new Date(planExpiresAt) > new Date();
+
+  // Livehost is a SEPARATE package — render its own (blank) dashboard
+  // instead of the generation studio. Billing inside it shows only the
+  // Livehost package (see app/dashboard/sections/billing.tsx branch).
+  if (isLivehost(plan)) {
+    return (
+      <LivehostDashboard
+        name={name}
+        email={user.email || ""}
+        planExpiresAt={planExpiresAt}
+      />
+    );
+  }
 
   return (
     <DashboardShell

@@ -28,6 +28,7 @@ import {
 import Countdown from "./components/countdown";
 import LazyVideo from "./components/lazy-video";
 import PricingTiersGrid from "@/components/pricing-tiers-grid";
+import LivehostCard from "@/components/livehost-card";
 
 // Dynamic-import every below-the-fold client component so they don't bloat
 // the first-5s payload. Each has "use client" of its own and ships as a
@@ -1130,6 +1131,11 @@ export default function Home() {
         {/* 4-tier pricing grid */}
         <div className="mt-2">
           <PricingTiersGrid mode="marketing" />
+        </div>
+
+        {/* Livehost — separate package (RM500/mo), own card + dashboard */}
+        <div className="mt-6">
+          <LivehostCard mode="marketing" />
         </div>
 
         {/* Rate-deduction explainer */}

@@ -170,7 +170,7 @@ export default function CheckoutForm() {
           <label className="block text-sm font-semibold mb-3">
             Pilih plan
           </label>
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
             {PLAN_KEYS.map((key) => {
               const p = PLAN_DEFAULTS[key];
               const active = selectedPlan === key;

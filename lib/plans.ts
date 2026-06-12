@@ -8,8 +8,21 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-export const PLAN_KEYS = ["starter", "standard", "pro", "premium"] as const;
+// "livehost" is a SEPARATE package (RM500/mo) — it is a valid plan key
+// (so checkout / subscribe / billing plumbing works) but it is NOT part of
+// the 4-tier generation product: it has its own (currently blank) dashboard,
+// grants no generation credits, and is rendered as its own card rather than
+// inside the 4-tier grid. Use MARKETING_TIERS when you want only the 4
+// generation tiers; use PLAN_KEYS for "is this a recognised plan string".
+export const PLAN_KEYS = ["starter", "standard", "pro", "premium", "livehost"] as const;
 export type PlanKey = (typeof PLAN_KEYS)[number];
+
+// The 4 generation tiers shown in the pricing grid / checkout radios.
+// Excludes "livehost" (separate package, separate card + dashboard).
+export const MARKETING_TIERS = ["starter", "standard", "pro", "premium"] as const;
+export type MarketingTier = (typeof MARKETING_TIERS)[number];
+
+export const LIVEHOST: PlanKey = "livehost";
 
 export type PlanConfig = {
   price: number;   // RM per cycle
@@ -23,9 +36,15 @@ export const PLAN_DEFAULTS: Record<PlanKey, PlanConfig> = {
   standard: { price: 50,  days: 30, credits: 25,  label: "Standard" },
   pro:      { price: 120, days: 30, credits: 50,  label: "Pro" },
   premium:  { price: 200, days: 30, credits: 100, label: "Premium" },
+  // Livehost — separate package, no generation credits (own dashboard).
+  livehost: { price: 500, days: 30, credits: 0,   label: "Livehost" },
 };
 
-export const BEST_SELLER: PlanKey = "pro";
+export const BEST_SELLER: MarketingTier = "pro";
+
+export function isLivehost(plan: string | null | undefined): boolean {
+  return plan === "livehost";
+}
 
 // Per-perk tier gates. Keep the source of truth here so pricing grid,
 // sidebar, page-level guards, and the MCP auth check all agree.

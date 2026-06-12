@@ -5,7 +5,8 @@ import { Sparkles, Calendar, Receipt } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import CheckStatusButton from "./check-status-button";
 import PricingTiersGrid from "@/components/pricing-tiers-grid";
-import { PLAN_DEFAULTS, isPlanKey, type PlanKey } from "@/lib/plans";
+import LivehostCard from "@/components/livehost-card";
+import { PLAN_DEFAULTS, isPlanKey, isLivehost, LIVEHOST, type PlanKey } from "@/lib/plans";
 
 type Payment = {
   id: string;
@@ -118,19 +119,51 @@ export default function BillingSection() {
         />
       )}
 
-      {/* Pricing grid — 4 tiers */}
-      <div>
-        <h3 className="font-display font-extrabold text-2xl tracking-tight mb-5">
-          Choose your plan
-        </h3>
-        <PricingTiersGrid
-          mode="dashboard"
-          currentPlan={currentPlan}
-          currentExpiry={renewalRaw}
-          loading={loading}
-          onSelect={handleSelect}
-        />
-      </div>
+      {/* Livehost users see ONLY the Livehost package; everyone else sees
+          the 4-tier grid plus the Livehost card as a separate option. */}
+      {isLivehost(currentPlan) ? (
+        <div>
+          <h3 className="font-display font-extrabold text-2xl tracking-tight mb-5">
+            Your package
+          </h3>
+          <LivehostCard
+            mode="dashboard"
+            currentPlan={currentPlan}
+            currentExpiry={renewalRaw}
+            loading={loading === LIVEHOST}
+            onSelect={() => handleSelect(LIVEHOST)}
+          />
+        </div>
+      ) : (
+        <>
+          <div>
+            <h3 className="font-display font-extrabold text-2xl tracking-tight mb-5">
+              Choose your plan
+            </h3>
+            <PricingTiersGrid
+              mode="dashboard"
+              currentPlan={currentPlan}
+              currentExpiry={renewalRaw}
+              loading={loading}
+              onSelect={handleSelect}
+            />
+          </div>
+
+          {/* Livehost — separate package option */}
+          <div>
+            <h3 className="font-display font-extrabold text-2xl tracking-tight mb-5">
+              Or go Livehost
+            </h3>
+            <LivehostCard
+              mode="dashboard"
+              currentPlan={currentPlan}
+              currentExpiry={renewalRaw}
+              loading={loading === LIVEHOST}
+              onSelect={() => handleSelect(LIVEHOST)}
+            />
+          </div>
+        </>
+      )}
 
       {/* Payment history */}
       <div>
