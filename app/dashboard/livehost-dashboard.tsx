@@ -111,8 +111,8 @@ export default function LivehostDashboard({
         </div>
       </aside>
 
-      {/* Main */}
-      <main className="flex-1 p-6 md:p-10 min-w-0">
+      {/* Main — studio views go edge-to-edge (no blank padding) */}
+      <main className={`flex-1 min-w-0 ${STUDIO_VIEWS.includes(view) ? "p-2" : "p-6 md:p-10"}`}>
         {/* Studio is ALWAYS mounted (hidden when not active) so the WebRTC
             stream + script playback survive navigation between views. */}
         <div style={{ display: STUDIO_VIEWS.includes(view) ? undefined : "none" }} className="h-full">
