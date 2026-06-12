@@ -559,6 +559,14 @@ type Props = {
   onSelect?: (key: PlanKey) => void;
 };
 
+// Marketing quote rates — used to derive the per-plan
+// "boleh generate" numbers shown on each card. These match the
+// public-facing rates ("Image 20 sen, video 40 sen"). If admin tunes
+// real generate rates in app_settings, those still flow through the
+// cascade — these constants are purely for marketing math.
+const QUOTE_RATE_IMAGE_MYR = 0.20;
+const QUOTE_RATE_VIDEO_MYR = 0.40;
+
 const FEATURE_LINES = [
   "Image AI — 20 sen / generate",
   "Video AI — 40 sen / 8s",
@@ -612,6 +620,8 @@ export default function PricingTiersGrid({
         const accent = tierAccent(key);
         const isCurrent = planActiveNow && currentPlan === key;
         const isLoading = loading === key;
+        const quoteVideos = Math.floor(cfg.credits / QUOTE_RATE_VIDEO_MYR);
+        const quoteImages = Math.floor(cfg.credits / QUOTE_RATE_IMAGE_MYR);
 
         return (
           <div
@@ -658,6 +668,45 @@ export default function PricingTiersGrid({
               </div>
               <div className="mt-1 text-sm font-semibold" style={{ color: accent.badgeText }}>
                 + RM{cfg.credits} credits
+              </div>
+            </div>
+
+            {/* "Boleh generate" math callout — converts the credit
+                allotment into video / image counts using the public
+                marketing rates. Big visible numbers drive conversion. */}
+            <div
+              className="p-3 rounded-xl"
+              style={{
+                background: accent.badgeBg,
+                border: `1px solid ${accent.border}`,
+              }}
+            >
+              <div
+                className="text-[10px] uppercase tracking-wider font-bold mb-1.5"
+                style={{ color: accent.badgeText }}
+              >
+                Boleh generate
+              </div>
+              <div className="flex items-baseline gap-1.5">
+                <span
+                  className="font-display font-extrabold text-lg leading-none"
+                  style={{ color: accent.badgeText }}
+                >
+                  ~{quoteVideos}
+                </span>
+                <span className="text-[11px] text-[var(--color-text-secondary)]">
+                  video AI
+                </span>
+                <span className="text-[var(--color-text-muted)] mx-1">·</span>
+                <span
+                  className="font-display font-extrabold text-lg leading-none"
+                  style={{ color: accent.badgeText }}
+                >
+                  ~{quoteImages}
+                </span>
+                <span className="text-[11px] text-[var(--color-text-secondary)]">
+                  image AI
+                </span>
               </div>
             </div>
 
@@ -758,6 +807,11 @@ feat(components): PricingTiersGrid shared 4-card grid
 Self-contained client component used by both /dashboard Billing tab
 and the landing-page pricing section. Renders 4 tiers from
 PLAN_DEFAULTS with the Pro card highlighted (BEST SELLER ribbon).
+
+Each card shows a "Boleh generate ~N video AI · ~M image AI" callout
+derived from the tier's credit allotment (using 20 sen / 40 sen quote
+rates) so customers see the value upfront — Starter 25 videos / 50
+images, Premium 250 videos / 500 images.
 
 Two modes:
 - "dashboard": Subscribe button calls onSelect(key); active plan

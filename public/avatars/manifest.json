@@ -1,0 +1,20 @@
+[
+  { "id": "stock-01", "file": "stock-01.png", "label": "Hijab • 20s • Standing (pink)" },
+  { "id": "stock-02", "file": "stock-02.png", "label": "Hijab • 20s • Standing (green)" },
+  { "id": "stock-03", "file": "stock-03.png", "label": "Hijab • 30s • Standing (navy)" },
+  { "id": "stock-04", "file": "stock-04.png", "label": "Hijab • 40s • Standing (cream)" },
+  { "id": "stock-05", "file": "stock-05.png", "label": "Hijab • 50s • Standing (maroon)" },
+  { "id": "stock-06", "file": "stock-06.png", "label": "Hijab • 20s • Desk (peach)" },
+  { "id": "stock-07", "file": "stock-07.png", "label": "Hijab • 30s • Desk (teal, laptop)" },
+  { "id": "stock-08", "file": "stock-08.png", "label": "Hijab • 40s • Desk (grey)" },
+  { "id": "stock-09", "file": "stock-09.png", "label": "Female • 20s • Standing" },
+  { "id": "stock-10", "file": "stock-10.png", "label": "Female • 30s • Standing" },
+  { "id": "stock-11", "file": "stock-11.png", "label": "Female • 20s • Desk" },
+  { "id": "stock-12", "file": "stock-12.png", "label": "Female • 30s • Desk" },
+  { "id": "stock-13", "file": "stock-13.png", "label": "Female • 50s • Desk" },
+  { "id": "stock-14", "file": "stock-14.png", "label": "Male • 20s • Standing" },
+  { "id": "stock-15", "file": "stock-15.png", "label": "Male • 30s • Standing" },
+  { "id": "stock-16", "file": "stock-16.png", "label": "Male • 50s • Standing (songkok)" },
+  { "id": "stock-17", "file": "stock-17.png", "label": "Male • 20s • Desk" },
+  { "id": "stock-18", "file": "stock-18.png", "label": "Male • 40s • Desk" }
+]

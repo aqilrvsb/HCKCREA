@@ -1,9 +1,10 @@
 "use client";
 
 import { useState } from "react";
-import { Radio, CreditCard, LayoutDashboard, MessageCircle, ArrowUpRight } from "lucide-react";
+import { Radio, CreditCard, LayoutDashboard, MessageCircle, ArrowUpRight, ScrollText, Package, BarChart3 } from "lucide-react";
 import LogoutButton from "./logout-button";
 import BillingSection from "./sections/billing";
+import LivehostStudio, { type LiveView } from "./livehost-studio";
 
 // Livehost community WhatsApp group. Hardcoded here (client component) —
 // the canonical value also lives in lib/whatsapp.ts (server-only) as
@@ -15,7 +16,9 @@ const WHATSAPP_GROUP_LIVEHOST = "https://chat.whatsapp.com/JIj9Ppto73mIIfitWikCg
 // (which itself shows ONLY the Livehost package for these users) + sign
 // out. None of the generation tabs / sidebar perks appear here.
 
-type View = "home" | "billing";
+type View = "home" | "billing" | "livehost" | "scripts" | "products" | "usage";
+
+const STUDIO_VIEWS: View[] = ["livehost", "scripts", "products", "usage"];
 
 export default function LivehostDashboard({
   name,
@@ -75,6 +78,10 @@ export default function LivehostDashboard({
 
         <div className="space-y-1">
           {navItem("home", "Dashboard", LayoutDashboard)}
+          {navItem("livehost", "Livehost", Radio)}
+          {navItem("scripts", "Scripts", ScrollText)}
+          {navItem("products", "Products", Package)}
+          {navItem("usage", "Usage", BarChart3)}
           {navItem("billing", "Billing", CreditCard)}
           <a
             href={WHATSAPP_GROUP_LIVEHOST}
@@ -105,12 +112,17 @@ export default function LivehostDashboard({
       </aside>
 
       {/* Main */}
-      <main className="flex-1 p-6 md:p-10">
+      <main className="flex-1 p-6 md:p-10 min-w-0">
+        {/* Studio is ALWAYS mounted (hidden when not active) so the WebRTC
+            stream + script playback survive navigation between views. */}
+        <div style={{ display: STUDIO_VIEWS.includes(view) ? undefined : "none" }} className="h-full">
+          <LivehostStudio view={(view === "livehost" ? "live" : view) as LiveView} />
+        </div>
         {view === "billing" ? (
           <div className="max-w-5xl">
             <BillingSection />
           </div>
-        ) : (
+        ) : STUDIO_VIEWS.includes(view) ? null : (
           <div className="flex flex-col items-center justify-center text-center min-h-[60vh]">
             <div
               className="w-16 h-16 rounded-2xl flex items-center justify-center mb-5"
