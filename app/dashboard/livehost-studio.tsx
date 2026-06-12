@@ -131,7 +131,7 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
         body: JSON.stringify({ action }),
       });
       const d = await r.json();
-      setServerState(d.state || d.error || "unknown");
+      setServerState(d.note ? `${d.state} — ${d.note}` : (d.state || d.error || "unknown"));
     } catch (e: any) {
       setServerState(String(e?.message || e));
     } finally {

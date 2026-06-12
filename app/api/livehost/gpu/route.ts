@@ -37,14 +37,19 @@ export async function POST(req: Request) {
 
   const { action } = await req.json().catch(() => ({ action: "status" }));
   try {
+    let note = "";
     if (action === "start" || action === "stop") {
-      await fetch(`${API}/${id}/`, {
+      const r = await fetch(`${API}/${id}/`, {
         method: "PUT",
         headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
         body: JSON.stringify({ state: action === "start" ? "running" : "stopped" }),
       });
+      const d = await r.json().catch(() => ({}));
+      // e.g. "resources_unavailable, state change queued" — GPU host busy;
+      // Vast starts the box automatically once the GPU frees up.
+      if (d && d.success === false && d.msg) note = String(d.msg);
     }
-    return NextResponse.json({ state: await vastState(key, id) });
+    return NextResponse.json({ state: await vastState(key, id), note });
   } catch (e: any) {
     return NextResponse.json({ error: String(e?.message || e) }, { status: 502 });
   }
