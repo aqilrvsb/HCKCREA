@@ -113,6 +113,30 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
   const [offsetX, setOffsetX] = useState(0);
   const [previewUrl, setPreviewUrl] = useState("");
   const dragRef = useRef<{ startX: number; startY: number; baseX: number; baseY: number; active: boolean }>({ startX: 0, startY: 0, baseX: 0, baseY: 0, active: false });
+  // Draggable AI-disclosure badge (TikTok AI-content policy) — position in % of stage.
+  const [badgePos, setBadgePos] = useState<{ x: number; y: number }>({ x: 4, y: 10 });
+  const badgeDragRef = useRef<{ startX: number; startY: number; baseX: number; baseY: number; active: boolean }>({ startX: 0, startY: 0, baseX: 0, baseY: 0, active: false });
+
+  const onBadgePointerDown = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    e.stopPropagation();
+    e.currentTarget.setPointerCapture(e.pointerId);
+    badgeDragRef.current = { startX: e.clientX, startY: e.clientY, baseX: badgePos.x, baseY: badgePos.y, active: true };
+  }, [badgePos]);
+  const onBadgePointerMove = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    const d = badgeDragRef.current;
+    if (!d.active) return;
+    e.stopPropagation();
+    const stage = stageRef.current?.getBoundingClientRect();
+    if (!stage) return;
+    setBadgePos({
+      x: Math.max(0, Math.min(80, d.baseX + ((e.clientX - d.startX) / stage.width) * 100)),
+      y: Math.max(0, Math.min(94, d.baseY + ((e.clientY - d.startY) / stage.height) * 100)),
+    });
+  }, []);
+  const onBadgePointerUp = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    badgeDragRef.current.active = false;
+    try { e.currentTarget.releasePointerCapture(e.pointerId); } catch {}
+  }, []);
   const [stock, setStock] = useState<{ id: string; file: string; label: string }[]>([]);
   const [stockSel, setStockSel] = useState("");
   const [soundBlocked, setSoundBlocked] = useState(false);
@@ -358,6 +382,7 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
     if (typeof saved.scriptLoop === "boolean") { setScriptLoop(saved.scriptLoop); loopRef.current = saved.scriptLoop; }
     if (typeof saved.volume === "number") setVolume(saved.volume);
     if (typeof saved.speed === "number") setSpeed(saved.speed);
+    if (saved.badgePos && typeof saved.badgePos.x === "number") setBadgePos(saved.badgePos);
     if (Array.isArray(saved.rundown)) { setRundown(saved.rundown); rundownRef.current = saved.rundown; }
     try {
       const lib = JSON.parse(localStorage.getItem("livehost_scripts") || "[]");
@@ -379,9 +404,9 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
 
   useEffect(() => {
     try {
-      localStorage.setItem("livehost_settings", JSON.stringify({ stockSel, overlaySel, voiceId, zoom, offsetX, offsetY, scriptLoop, rundown, volume, speed }));
+      localStorage.setItem("livehost_settings", JSON.stringify({ stockSel, overlaySel, voiceId, zoom, offsetX, offsetY, scriptLoop, rundown, volume, speed, badgePos }));
     } catch {}
-  }, [stockSel, overlaySel, voiceId, zoom, offsetX, offsetY, scriptLoop, rundown, volume, speed]);
+  }, [stockSel, overlaySel, voiceId, zoom, offsetX, offsetY, scriptLoop, rundown, volume, speed, badgePos]);
   useEffect(() => {
     try { localStorage.setItem("livehost_scripts", JSON.stringify(scripts)); } catch {}
   }, [scripts]);
@@ -810,8 +835,13 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
                 {!active && !previewUrl && <div className="placeholder">Pick a host — it will preview here.</div>}
                 {active && captions && captionLine && <div className="captions">{captionLine}</div>}
                 {/* TikTok AI-content policy: AI-generated content must be
-                    labeled on screen — this badge is part of the captured frame. */}
-                <div className="ai-badge">✨ AI Host</div>
+                    labeled on screen — part of the captured frame. Draggable. */}
+                <div className="ai-badge" style={{ left: `${badgePos.x}%`, top: `${badgePos.y}%` }}
+                  onPointerDown={onBadgePointerDown} onPointerMove={onBadgePointerMove}
+                  onPointerUp={onBadgePointerUp} onPointerCancel={onBadgePointerUp}
+                  title="Seret untuk ubah kedudukan label">
+                  Saya AI Avatar
+                </div>
                 {active && soundBlocked && (
                   <button className="unmute-btn" onClick={enableSound}>🔇 Tap to enable sound</button>
                 )}
@@ -1113,7 +1143,7 @@ const STUDIO_CSS = `
 .lh-studio .prompter-line.now{color:#fff;background:rgba(91,108,255,.18);border:1px solid var(--accent);font-weight:600;}
 .lh-studio .prompter-line.now .w{color:#cfd5e6;transition:color .12s;}
 .lh-studio .prompter-line.now .w.on{color:#ffd84d;font-weight:700;}
-.lh-studio .ai-badge{position:absolute;top:10px;left:10px;z-index:4;background:rgba(0,0,0,.45);color:#fff;font-size:11px;font-weight:700;letter-spacing:.02em;padding:4px 10px;border-radius:999px;border:1px solid rgba(255,255,255,.25);pointer-events:none;backdrop-filter:blur(2px);}
+.lh-studio .ai-badge{position:absolute;z-index:4;background:#ffffff;color:#111;font-size:13px;font-weight:800;letter-spacing:.01em;padding:5px 12px;border-radius:4px;box-shadow:0 2px 8px rgba(0,0,0,.35);cursor:move;touch-action:none;user-select:none;}
 .lh-studio .unmute-btn{position:absolute;top:12px;left:50%;transform:translateX(-50%);background:var(--accent);color:#fff;border-radius:999px;padding:8px 16px;font-size:14px;font-weight:600;box-shadow:0 4px 14px rgba(0,0,0,.4);z-index:5;border:none;cursor:pointer;}
 .lh-studio .fs-btn{position:absolute;bottom:12px;right:12px;width:40px;height:40px;padding:0;border-radius:8px;background:rgba(0,0,0,.55);color:#fff;border:1px solid rgba(255,255,255,.25);display:flex;align-items:center;justify-content:center;font-size:20px;line-height:1;cursor:pointer;}
 .lh-studio .fs-btn:hover{background:rgba(0,0,0,.85);}
