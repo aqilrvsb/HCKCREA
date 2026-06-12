@@ -143,6 +143,7 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
   const [productKb, setProductKb] = useState("");
   const [volume, setVolume] = useState(1.5);
   const [speed, setSpeed] = useState(1.0);
+  const [emotion, setEmotion] = useState("happy"); // MiniMax: happy|neutral|sad|surprised|angry|fearful|disgusted
   const audioCtxRef = useRef<AudioContext | null>(null);
   const gainRef = useRef<GainNode | null>(null);
 
@@ -383,6 +384,7 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
     if (typeof saved.volume === "number") setVolume(saved.volume);
     if (typeof saved.speed === "number") setSpeed(saved.speed);
     if (saved.badgePos && typeof saved.badgePos.x === "number") setBadgePos(saved.badgePos);
+    if (typeof saved.emotion === "string") setEmotion(saved.emotion);
     if (Array.isArray(saved.rundown)) { setRundown(saved.rundown); rundownRef.current = saved.rundown; }
     try {
       const lib = JSON.parse(localStorage.getItem("livehost_scripts") || "[]");
@@ -404,9 +406,9 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
 
   useEffect(() => {
     try {
-      localStorage.setItem("livehost_settings", JSON.stringify({ stockSel, overlaySel, voiceId, zoom, offsetX, offsetY, scriptLoop, rundown, volume, speed, badgePos }));
+      localStorage.setItem("livehost_settings", JSON.stringify({ stockSel, overlaySel, voiceId, zoom, offsetX, offsetY, scriptLoop, rundown, volume, speed, badgePos, emotion }));
     } catch {}
-  }, [stockSel, overlaySel, voiceId, zoom, offsetX, offsetY, scriptLoop, rundown, volume, speed, badgePos]);
+  }, [stockSel, overlaySel, voiceId, zoom, offsetX, offsetY, scriptLoop, rundown, volume, speed, badgePos, emotion]);
   useEffect(() => {
     try { localStorage.setItem("livehost_scripts", JSON.stringify(scripts)); } catch {}
   }, [scripts]);
@@ -665,7 +667,7 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
       await waitForIceGatheringComplete(pc);
 
       const offerBody = JSON.stringify({
-        engine: { type: "minimax", voice_id: voiceId, system_prompt: buildKbPrompt(productKb), speed },
+        engine: { type: "minimax", voice_id: voiceId, system_prompt: buildKbPrompt(productKb), speed, emotion },
         sdp: pc.localDescription!.sdp,
         type: pc.localDescription!.type,
         avatar_id: avatarId,
@@ -695,7 +697,7 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
       setError(e?.message || String(e));
       stop();
     }
-  }, [avatarId, backgrounds, voiceId, stop, speakNext, startWordSweep, buildKbPrompt, productKb, speed, volume, configErr, addVoiceChars, beginSession]);
+  }, [avatarId, backgrounds, voiceId, stop, speakNext, startWordSweep, buildKbPrompt, productKb, speed, emotion, volume, configErr, addVoiceChars, beginSession]);
 
   const sendControl = useCallback((payload: object): boolean => {
     const dc = dcRef.current;
@@ -799,10 +801,10 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
     if (!active) return;
     const t = setTimeout(() => {
       const dc = dcRef.current;
-      if (dc && dc.readyState === "open") dc.send(JSON.stringify({ kind: "cfg", text: JSON.stringify({ speed }) }));
+      if (dc && dc.readyState === "open") dc.send(JSON.stringify({ kind: "cfg", text: JSON.stringify({ speed, emotion }) }));
     }, 400);
     return () => clearTimeout(t);
-  }, [speed, active]);
+  }, [speed, emotion, active]);
 
   useEffect(() => {
     if (playPos.l >= 0) lineRefs.current[playPos.l]?.scrollIntoView({ block: "center", behavior: "smooth" });
@@ -965,6 +967,14 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
             </div>
             <div className="range-row"><span>Speed {speed.toFixed(2)}×</span>
               <input type="range" min="0.7" max="1.5" step="0.05" value={speed} onChange={(e) => setSpeed(parseFloat(e.target.value))} />
+            </div>
+            <div className="range-row"><span>Emosi suara</span>
+              <select value={emotion} onChange={(e) => setEmotion(e.target.value)} style={{ flex: 1 }}>
+                <option value="happy">Ceria (happy)</option>
+                <option value="neutral">Natural / Fluent (neutral)</option>
+                <option value="surprised">Teruja (surprised)</option>
+                <option value="sad">Lembut (sad)</option>
+              </select>
             </div>
 
             <div className="label">GPU power</div>
