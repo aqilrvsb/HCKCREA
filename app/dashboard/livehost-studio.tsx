@@ -8,6 +8,7 @@
 // /api/livehost/gpu. All CSS is scoped under .lh-studio.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import AttachmentPicker from "./sections/attachment-picker";
 
 export type LiveView = "live" | "scripts" | "products" | "usage";
 
@@ -94,6 +95,10 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
   const [overlays, setOverlays] = useState<{ file: string; label: string }[]>([]);
   const [overlaySel, setOverlaySel] = useState("");
   const [customOverlay, setCustomOverlay] = useState("");
+  // Attachment picker — avatar + overlay/template now come from the user's
+  // PeningLab Attachments library instead of a local file upload.
+  const [avatarPickerOpen, setAvatarPickerOpen] = useState(false);
+  const [overlayPickerOpen, setOverlayPickerOpen] = useState(false);
   const [zoom, setZoom] = useState(1);
   const [offsetY, setOffsetY] = useState(0);
   const [offsetX, setOffsetX] = useState(0);
@@ -221,8 +226,6 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const stageRef = useRef<HTMLDivElement | null>(null);
   const remoteStreamRef = useRef<MediaStream | null>(null);
-  const avatarFileRef = useRef<HTMLInputElement | null>(null);
-  const overlayFileRef = useRef<HTMLInputElement | null>(null);
 
   const overlayUrl = customOverlay || (overlaySel ? `/overlays/${overlaySel}` : "");
 
@@ -375,27 +378,25 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
 
   useEffect(() => { if (backend) loadAvatars(); }, [backend, loadAvatars]);
 
-  const uploadFace = useCallback(async (file: File) => {
+  // Register an avatar from an Attachments library image. The image lives
+  // on B2 (no CORS) so a server route fetches it + forwards the binary to
+  // the GPU backend's /register-avatar.
+  const registerAvatarFromAttachment = useCallback(async (url: string) => {
     setUploading(true); setError("");
-    setPreviewUrl(URL.createObjectURL(file));
+    setStockSel("");
+    setPreviewUrl(url);
     try {
-      const id = "u" + Date.now().toString(36);
-      const r = await fetch(`${backendRef.current}/register-avatar?avatar_id=${id}`, {
+      const r = await fetch("/api/livehost/register-avatar", {
         method: "POST",
-        headers: { "Content-Type": file.type || "image/png" },
-        body: file,
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ url }),
       });
-      const data = await r.json().catch(() => ({}));
-      if (!r.ok || data.error || data.detail) {
-        throw new Error(data.detail || data.error || `HTTP ${r.status}`);
-      }
-      const newId = data.avatar_id as string;
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok || d.error) throw new Error(d.error || `HTTP ${r.status}`);
       await loadAvatars();
-      setAvatarId(newId);
-      setError("");
+      setAvatarId(d.avatar_id as string);
     } catch (e: any) {
-      const msg = String(e?.message || e);
-      setError(msg.includes("No face") ? "No face detected — use a clearer, front-facing photo." : `Upload failed: ${msg}`);
+      setError(`Avatar register failed: ${e?.message || e}`);
     } finally {
       setUploading(false);
     }
@@ -782,11 +783,9 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
               <option value="">— Choose a Malaysian host —</option>
               {stock.map((s) => (<option key={s.id} value={s.id}>{s.label}</option>))}
             </select>
-            <input ref={avatarFileRef} type="file" accept="image/*" style={{ display: "none" }}
-              onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ""; if (f) { setStockSel(""); uploadFace(f); } }} />
             <button type="button" className="filebtn secondary" disabled={uploading}
-              onClick={() => avatarFileRef.current?.click()}>
-              {uploading ? "Uploading…" : "📷 Or upload your own photo"}
+              onClick={() => setAvatarPickerOpen(true)}>
+              {uploading ? "Processing…" : "🖼 Pick avatar from Attachments"}
             </button>
             {uploading && <div className="status-line">Processing image… detecting face…</div>}
             {!uploading && avatarId && <div className="status-line">✓ Avatar ready — press Start</div>}
@@ -797,11 +796,9 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
               {overlays.map((o) => (<option key={o.file} value={o.file}>{o.label}</option>))}
               {customOverlay && <option value="__custom">Custom (uploaded)</option>}
             </select>
-            <input ref={overlayFileRef} type="file" accept="image/png" style={{ display: "none" }}
-              onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ""; if (f) { setCustomOverlay(URL.createObjectURL(f)); setOverlaySel(""); } }} />
             <button type="button" className="filebtn secondary"
-              onClick={() => overlayFileRef.current?.click()}>
-              + Upload custom template (transparent PNG)
+              onClick={() => setOverlayPickerOpen(true)}>
+              🖼 Pick template from Attachments
             </button>
 
             <div className="label">Avatar fit — drag the avatar on screen to move it</div>
@@ -949,6 +946,23 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
           </div>
         </div>
       </div>
+
+      {/* Attachment pickers — avatar + overlay/template now come from the
+          PeningLab Attachments library (Portal-rendered, app-styled). */}
+      <AttachmentPicker
+        open={avatarPickerOpen}
+        onClose={() => setAvatarPickerOpen(false)}
+        title="Pick avatar from Attachments"
+        defaultCategory="avatar"
+        onPick={(a) => registerAvatarFromAttachment(a.public_url)}
+      />
+      <AttachmentPicker
+        open={overlayPickerOpen}
+        onClose={() => setOverlayPickerOpen(false)}
+        title="Pick template / background from Attachments"
+        defaultCategory="all"
+        onPick={(a) => { setCustomOverlay(a.public_url); setOverlaySel(""); }}
+      />
     </div>
   );
 }

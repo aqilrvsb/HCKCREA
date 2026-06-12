@@ -1,9 +1,10 @@
 "use client";
 
 import { useState } from "react";
-import { Radio, CreditCard, LayoutDashboard, MessageCircle, ArrowUpRight, ScrollText, Package, BarChart3 } from "lucide-react";
+import { Radio, CreditCard, LayoutDashboard, MessageCircle, ArrowUpRight, ScrollText, Package, BarChart3, Paperclip } from "lucide-react";
 import LogoutButton from "./logout-button";
 import BillingSection from "./sections/billing";
+import AttachmentsSection from "./sections/attachments";
 import LivehostStudio, { type LiveView } from "./livehost-studio";
 
 // Livehost community WhatsApp group. Hardcoded here (client component) —
@@ -16,7 +17,7 @@ const WHATSAPP_GROUP_LIVEHOST = "https://chat.whatsapp.com/JIj9Ppto73mIIfitWikCg
 // (which itself shows ONLY the Livehost package for these users) + sign
 // out. None of the generation tabs / sidebar perks appear here.
 
-type View = "home" | "billing" | "livehost" | "scripts" | "products" | "usage";
+type View = "home" | "billing" | "livehost" | "scripts" | "products" | "usage" | "attachment";
 
 const STUDIO_VIEWS: View[] = ["livehost", "scripts", "products", "usage"];
 
@@ -81,6 +82,7 @@ export default function LivehostDashboard({
           {navItem("livehost", "Livehost", Radio)}
           {navItem("scripts", "Scripts", ScrollText)}
           {navItem("products", "Products", Package)}
+          {navItem("attachment", "Attachment", Paperclip)}
           {navItem("usage", "Usage", BarChart3)}
           {navItem("billing", "Billing", CreditCard)}
           <a
@@ -121,6 +123,10 @@ export default function LivehostDashboard({
         {view === "billing" ? (
           <div className="max-w-5xl">
             <BillingSection />
+          </div>
+        ) : view === "attachment" ? (
+          <div className="max-w-6xl">
+            <AttachmentsSection />
           </div>
         ) : STUDIO_VIEWS.includes(view) ? null : (
           <div className="flex flex-col items-center justify-center text-center min-h-[60vh]">
