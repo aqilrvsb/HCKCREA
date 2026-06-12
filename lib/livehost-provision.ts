@@ -53,8 +53,9 @@ export async function provisionLivehost(userId: string): Promise<ProvisionResult
       return { ok: true, status: "already provisioned", backendUrl: existing.backend_url };
     }
 
-    const s = await getSettings(["cloudflare_api_token", "novita_api_key", "livehost_box_secret"]);
+    const s = await getSettings(["cloudflare_api_token", "cloudflare_account_id", "novita_api_key", "livehost_box_secret"]);
     const cfToken = s["cloudflare_api_token"];
+    const cfAccountId = s["cloudflare_account_id"];
     const novitaKey = s["novita_api_key"];
     const boxSecret = s["livehost_box_secret"];
     if (!cfToken) {
@@ -71,9 +72,13 @@ export async function provisionLivehost(userId: string): Promise<ProvisionResult
     const backendUrl = `https://${hostname}`;
 
     // --- Cloudflare: account + zone ---
-    const accounts = await cf(`/accounts?per_page=5`, cfToken);
-    const accountId = accounts?.[0]?.id;
-    if (!accountId) throw new Error("no Cloudflare account visible to token");
+    // account id from settings (token may lack account-listing permission)
+    let accountId = cfAccountId;
+    if (!accountId) {
+      const accounts = await cf(`/accounts?per_page=5`, cfToken);
+      accountId = accounts?.[0]?.id;
+    }
+    if (!accountId) throw new Error("no Cloudflare account id (set cloudflare_account_id)");
     const zones = await cf(`/zones?name=${DOMAIN}`, cfToken);
     const zoneId = zones?.[0]?.id;
     if (!zoneId) throw new Error(`zone ${DOMAIN} not found`);
