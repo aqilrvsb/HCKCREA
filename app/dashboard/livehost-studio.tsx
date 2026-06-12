@@ -143,7 +143,7 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
   const [productKb, setProductKb] = useState("");
   const [volume, setVolume] = useState(1.5);
   const [speed, setSpeed] = useState(1.0);
-  const [emotion, setEmotion] = useState("happy"); // MiniMax: happy|neutral|sad|surprised|angry|fearful|disgusted
+  const [emotion, setEmotion] = useState("fluent"); // MiniMax: fluent (natural flow) | happy | neutral | surprised | sad
   const audioCtxRef = useRef<AudioContext | null>(null);
   const gainRef = useRef<GainNode | null>(null);
 
@@ -970,8 +970,9 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
             </div>
             <div className="range-row"><span>Emosi suara</span>
               <select value={emotion} onChange={(e) => setEmotion(e.target.value)} style={{ flex: 1 }}>
+                <option value="fluent">Fluent (natural)</option>
                 <option value="happy">Ceria (happy)</option>
-                <option value="neutral">Natural / Fluent (neutral)</option>
+                <option value="neutral">Neutral</option>
                 <option value="surprised">Teruja (surprised)</option>
                 <option value="sad">Lembut (sad)</option>
               </select>
