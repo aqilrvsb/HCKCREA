@@ -198,6 +198,52 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
     }
   }, []);
 
+  // GPU power buttons: On = start + wait until the backend answers; Off = stop.
+  const loadAvatarsRef = useRef<(() => void) | null>(null);
+  const stopRef = useRef<(() => void) | null>(null);
+
+  const gpuOn = useCallback(async () => {
+    setServerBusy(true);
+    setWakeMsg("GPU sedang dihidupkan… ⏳");
+    try {
+      await fetch("/api/livehost/gpu", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ action: "start" }),
+      }).catch(() => {});
+      for (let i = 0; i < 24; i++) {
+        await new Promise((r) => setTimeout(r, 10000));
+        try {
+          const ping = await fetch(`${backendRef.current}/avatars`, { signal: AbortSignal.timeout(5000) });
+          if (ping.ok) {
+            setWakeMsg("✓ GPU ON — tekan ▶ Start untuk mula streaming");
+            setServerState("running");
+            loadAvatarsRef.current?.();
+            return;
+          }
+        } catch {}
+        setWakeMsg(`GPU sedang dihidupkan… ${(i + 1) * 10}s ⏳`);
+      }
+      setWakeMsg("GPU tidak respons — cuba sekali lagi.");
+    } finally {
+      setServerBusy(false);
+    }
+  }, []);
+
+  const gpuOff = useCallback(async () => {
+    if (!window.confirm("Matikan GPU? Stream akan berhenti.")) return;
+    setServerBusy(true);
+    stopRef.current?.();
+    await fetch("/api/livehost/gpu", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ action: "stop" }),
+    }).catch(() => {});
+    setServerState("stopped");
+    setWakeMsg("");
+    setServerBusy(false);
+  }, []);
+
   // Script library + rundown
   const [scripts, setScripts] = useState<Script[]>([]);
   const [rundown, setRundown] = useState<string[]>([]);
@@ -330,6 +376,13 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
     try { localStorage.setItem("livehost_products", productKb); } catch {}
   }, [productKb]);
 
+  // Light GPU state poll (all views) so the On/Off buttons reflect reality.
+  useEffect(() => {
+    gpuAction("status");
+    const t = setInterval(() => gpuAction("status"), 60000);
+    return () => clearInterval(t);
+  }, [gpuAction]);
+
   // Refresh usage (server sessions + rates) + GPU state when the Usage view is open.
   useEffect(() => {
     if (view !== "usage") return;
@@ -378,6 +431,7 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
   }, []);
 
   useEffect(() => { if (backend) loadAvatars(); }, [backend, loadAvatars]);
+  useEffect(() => { loadAvatarsRef.current = loadAvatars; }, [loadAvatars]);
 
   // Register an avatar from an Attachments library image. The image lives
   // on B2 (no CORS) so a server route fetches it + forwards the binary to
@@ -463,6 +517,7 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
     if (videoRef.current) videoRef.current.srcObject = null;
     setActive(false); setConnecting(false);
   }, [endSession]);
+  useEffect(() => { stopRef.current = stop; }, [stop]);
 
   const start = useCallback(async () => {
     setError("");
@@ -470,34 +525,14 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
     if (!avatarId) { setError("Pick or upload a face first."); return; }
     setConnecting(true);
     try {
-      // AUTO-WAKE: if the dedicated GPU is asleep, start it and wait until the
-      // backend answers (fully unattended boot ~40-120s), then connect.
+      // Start = stream process only. GPU power is the On GPU / Off GPU buttons.
       let backendUp = false;
       try {
-        const ping = await fetch(`${backendRef.current}/avatars`, { signal: AbortSignal.timeout(5000) });
+        const ping = await fetch(`${backendRef.current}/avatars`, { signal: AbortSignal.timeout(6000) });
         backendUp = ping.ok;
       } catch {}
       if (!backendUp) {
-        setWakeMsg("GPU sedang dihidupkan… (~1 minit) ⏳");
-        await fetch("/api/livehost/gpu", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ action: "start" }),
-        }).catch(() => {});
-        for (let i = 0; i < 24; i++) {
-          await new Promise((r) => setTimeout(r, 10000));
-          try {
-            const ping = await fetch(`${backendRef.current}/avatars`, { signal: AbortSignal.timeout(5000) });
-            if (ping.ok) { backendUp = true; break; }
-          } catch {}
-          setWakeMsg(`GPU sedang dihidupkan… ${(i + 1) * 10}s ⏳`);
-        }
-        setWakeMsg("");
-        if (!backendUp) throw new Error("GPU tidak respons selepas 4 minit — cuba sekali lagi atau hubungi support.");
-        // renderer warm-up settle after a cold boot
-        setWakeMsg("GPU hidup — menyambung… ⏳");
-        await new Promise((r) => setTimeout(r, 12000));
-        setWakeMsg("");
+        throw new Error("GPU belum hidup — tekan '⏻ On GPU' dahulu (sedia dalam ~1 minit).");
       }
       const iceRes = await fetch(`${backendRef.current}/ice-servers`);
       if (!iceRes.ok) throw new Error(`ice-servers ${iceRes.status}`);
@@ -775,15 +810,20 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
                 {scripts.map((s) => (<option key={s.id} value={s.id}>{s.title}</option>))}
               </select>
               <div className="loop-row">
-                <label className="checkbox" style={{ marginTop: 0 }}>
-                  <input type="checkbox" checked={scriptLoop} onChange={(e) => setScriptLoop(e.target.checked)} style={{ width: "auto" }} />
-                  🔁 Loop
-                </label>
-                <button className="restart-btn" onClick={scriptPaused ? resumeRundown : pauseRundown}
-                  disabled={!active || (!scriptPlaying && !scriptPaused)}>
-                  {scriptPaused ? "▶ Resume" : "⏸ Pause"}
+                <button className="restart-btn go" onClick={start} disabled={active || connecting}
+                  title="Start streaming (GPU mesti ON dulu)">
+                  {connecting ? "…" : "▶ Start"}
                 </button>
-                <button className="restart-btn" onClick={restartRundown} disabled={!active}>⟳ Restart</button>
+                <button className="restart-btn" onClick={stop} disabled={!active && !connecting} title="Stop streaming">■ Stop</button>
+                <button className="restart-btn" onClick={scriptPaused ? resumeRundown : pauseRundown}
+                  disabled={!active || (!scriptPlaying && !scriptPaused)} title="Pause / Resume">
+                  {scriptPaused ? "▶" : "⏸"}
+                </button>
+                <button className="restart-btn" onClick={restartRundown} disabled={!active} title="Restart script">⟳</button>
+                <label className="checkbox" style={{ marginTop: 0 }} title="Loop rundown">
+                  <input type="checkbox" checked={scriptLoop} onChange={(e) => setScriptLoop(e.target.checked)} style={{ width: "auto" }} />
+                  🔁
+                </label>
               </div>
               {scriptWaiting && <div className="status-line">⏸ Finished — waiting for more scripts…</div>}
             </div>
@@ -862,12 +902,16 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
               <input type="range" min="0.7" max="1.5" step="0.05" value={speed} onChange={(e) => setSpeed(parseFloat(e.target.value))} />
             </div>
 
-            <div className="row">
-              <button className="btn-primary" onClick={start} disabled={active || connecting || !backend}>
-                {connecting ? "Connecting…" : active ? "Streaming…" : "Start"}
+            <div className="label">GPU power</div>
+            <div className="row" style={{ marginTop: 4 }}>
+              <button className="btn-primary" onClick={gpuOn} disabled={serverBusy || serverState === "running"}>
+                ⏻ On GPU
               </button>
-              <button className="btn-stop" onClick={stop} disabled={!active && !connecting}>■ Stop</button>
+              <button className="btn-stop" onClick={gpuOff} disabled={serverBusy || serverState === "stopped"}>
+                ⏹ Off GPU
+              </button>
             </div>
+            <div className="hint">Status: <b>{serverState}</b> — auto-off selepas 8 minit tiada aktiviti.</div>
             <label className="checkbox">
               <input type="checkbox" checked={captions} onChange={(e) => setCaptions(e.target.checked)} style={{ width: "auto" }} />
               Captions
@@ -1032,6 +1076,7 @@ const STUDIO_CSS = `
 .lh-studio .restart-btn{background:var(--panel-2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:6px 8px;font-size:12px;cursor:pointer;}
 .lh-studio .restart-btn:hover{border-color:var(--accent);}
 .lh-studio .restart-btn:disabled{opacity:.5;cursor:not-allowed;}
+.lh-studio .restart-btn.go{background:var(--accent);color:#fff;border-color:var(--accent);font-weight:700;}
 .lh-studio .prompter{flex:1;min-height:0;overflow-y:auto;background:var(--panel-2);border:1px solid var(--border);border-radius:10px;padding:10px 12px;margin-top:6px;}
 .lh-studio .prompter-line{font-size:15px;line-height:1.5;padding:4px 8px;border-radius:6px;color:var(--muted);transition:background .2s,color .2s;}
 .lh-studio .prompter-line.done{color:#5b6480;}
