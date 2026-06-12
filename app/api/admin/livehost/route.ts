@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getSettings, invalidateSettingsCache } from "@/lib/settings";
+import { malaysiaDayToUtcRange } from "@/lib/date-util";
 
 // Admin: list Livehost clients + set each one's streaming config
 // (backend_url = their GPU tunnel URL, vast_instance_id = their GPU).
@@ -14,9 +15,12 @@ async function requireAdmin() {
   return profile?.is_admin ? user : null;
 }
 
-export async function GET() {
+export async function GET(req: Request) {
   if (!(await requireAdmin())) return NextResponse.json({ error: "forbidden" }, { status: 403 });
   const admin = createAdminClient();
+  const url = new URL(req.url);
+  const start = url.searchParams.get("start") || "";
+  const end = url.searchParams.get("end") || "";
   // all profiles on the livehost plan + their config (if any)
   const { data: profiles } = await admin
     .from("profiles")
@@ -30,6 +34,52 @@ export async function GET() {
   // emails live in auth.users — fetch and map
   const { data: usersPage } = await admin.auth.admin.listUsers({ page: 1, perPage: 1000 });
   const emailById = new Map((usersPage?.users || []).map((u) => [u.id, u.email || ""]));
+  // per-client usage aggregation within the MYT date range
+  const fromUtc = start ? malaysiaDayToUtcRange(start, "start") : "";
+  const toUtc = end ? malaysiaDayToUtcRange(end, "end") : "";
+  let sessQ = admin
+    .from("live_sessions")
+    .select("user_id, started_at, ended_at, last_seen, voice_chars, status")
+    .in("user_id", ids.length ? ids : ["00000000-0000-0000-0000-000000000000"]);
+  if (fromUtc) sessQ = sessQ.gte("started_at", fromUtc);
+  if (toUtc) sessQ = sessQ.lte("started_at", toUtc);
+  const { data: sessions } = await sessQ;
+  const now = Date.now();
+  const agg = new Map<string, { sec: number; chars: number; count: number; live: boolean }>();
+  for (const sx of sessions || []) {
+    const endMs = sx.ended_at ? new Date(sx.ended_at).getTime() : now;
+    const durSec = Math.max(0, Math.round((endMs - new Date(sx.started_at).getTime()) / 1000));
+    const a = agg.get(sx.user_id) || { sec: 0, chars: 0, count: 0, live: false };
+    a.sec += durSec;
+    a.chars += Number(sx.voice_chars) || 0;
+    a.count += 1;
+    if (sx.status === "active") a.live = true;
+    agg.set(sx.user_id, a);
+  }
+
+  // live GPU status per instance (Novita)
+  const novitaKey = (await getSettings(["novita_api_key"]))["novita_api_key"];
+  const gpuStatus = new Map<string, string>();
+  if (novitaKey) {
+    await Promise.all(
+      (cfgs || [])
+        .filter((c) => c.vast_instance_id)
+        .map(async (c) => {
+          try {
+            const r = await fetch(
+              `https://api.novita.ai/gpu-instance/openapi/v1/gpu/instance?instanceId=${c.vast_instance_id}`,
+              { headers: { Authorization: `Bearer ${novitaKey}` }, cache: "no-store" },
+            );
+            const d = await r.json();
+            const sNow = String((d?.data || d)?.status || "unknown");
+            gpuStatus.set(c.user_id, sNow === "exited" ? "stopped" : sNow);
+          } catch {
+            gpuStatus.set(c.user_id, "unknown");
+          }
+        }),
+    );
+  }
+
   const rates = await getSettings(["livehost_gpu_rate_hour", "livehost_voice_rate_1k", "livehost_llm"]);
   const llmRaw = rates["livehost_llm"] || {};
   return NextResponse.json({
@@ -51,6 +101,23 @@ export async function GET() {
       vast_instance_id: byId.get(p.id)?.vast_instance_id || "",
       notes: byId.get(p.id)?.notes || "",
       provision_status: byId.get(p.id)?.provision_status || "",
+      gpu_status: gpuStatus.get(p.id) || "no gpu",
+      usage: (() => {
+        const a = agg.get(p.id) || { sec: 0, chars: 0, count: 0, live: false };
+        const gpuRateN = parseFloat(rates["livehost_gpu_rate_hour"] || "6") || 6;
+        const voiceRateN = parseFloat(rates["livehost_voice_rate_1k"] || "0.3") || 0.3;
+        const gpuCost = (a.sec / 3600) * gpuRateN;
+        const voiceCost = (a.chars / 1000) * voiceRateN;
+        return {
+          streamSec: a.sec,
+          sessions: a.count,
+          live: a.live,
+          voiceChars: a.chars,
+          gpuCost: +gpuCost.toFixed(2),
+          voiceCost: +voiceCost.toFixed(2),
+          totalCost: +(gpuCost + voiceCost).toFixed(2),
+        };
+      })(),
     })).sort((a, b) => a.email.localeCompare(b.email)),
   });
 }

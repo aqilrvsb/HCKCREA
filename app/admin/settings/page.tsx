@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import LivehostSettings from "./livehost-settings";
 import {
   Loader2,
   Save,
@@ -1227,6 +1228,8 @@ export default function AdminSettings() {
           Edit values directly. Changes apply immediately on next request.
         </p>
       </div>
+
+      <LivehostSettings />
 
       {/* Main + Fallback Cascade (new architecture).
           Each asset has TWO independent lists with dynamic length:
