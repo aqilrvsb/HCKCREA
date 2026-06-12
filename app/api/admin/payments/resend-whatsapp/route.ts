@@ -116,7 +116,13 @@ export async function POST(req: Request) {
   // resends omit groupKind so the group block is skipped entirely.
   const plan = profile?.plan || "free";
   const groupKind =
-    plan === "premium" ? "premium" : plan === "pro" ? "pro" : undefined;
+    plan === "premium"
+      ? "premium"
+      : plan === "pro"
+        ? "pro"
+        : plan === "livehost"
+          ? "livehost"
+          : undefined;
 
   const msg = buildLoginMessage({
     name: profile?.full_name || "User",

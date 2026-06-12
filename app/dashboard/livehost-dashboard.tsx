@@ -1,9 +1,14 @@
 "use client";
 
 import { useState } from "react";
-import { Radio, CreditCard, LayoutDashboard } from "lucide-react";
+import { Radio, CreditCard, LayoutDashboard, MessageCircle, ArrowUpRight } from "lucide-react";
 import LogoutButton from "./logout-button";
 import BillingSection from "./sections/billing";
+
+// Livehost community WhatsApp group. Hardcoded here (client component) —
+// the canonical value also lives in lib/whatsapp.ts (server-only) as
+// WHATSAPP_GROUP_LIVEHOST; keep them in sync.
+const WHATSAPP_GROUP_LIVEHOST = "https://chat.whatsapp.com/JIj9Ppto73mIIfitWikCgO";
 
 // Livehost gets a SEPARATE, minimal dashboard — intentionally blank for
 // now ("designed later"). It only exposes a placeholder home + Billing
@@ -71,6 +76,17 @@ export default function LivehostDashboard({
         <div className="space-y-1">
           {navItem("home", "Dashboard", LayoutDashboard)}
           {navItem("billing", "Billing", CreditCard)}
+          <a
+            href={WHATSAPP_GROUP_LIVEHOST}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-bold transition-colors"
+            style={{ color: "var(--color-text-secondary)" }}
+          >
+            <MessageCircle className="w-4 h-4 flex-shrink-0" style={{ color: "#22c55e" }} />
+            <span>Join Livehost Group</span>
+            <ArrowUpRight className="w-3.5 h-3.5 ml-auto opacity-60" />
+          </a>
         </div>
 
         <div className="mt-auto space-y-2">

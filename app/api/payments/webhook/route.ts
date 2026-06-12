@@ -331,7 +331,13 @@ async function applyCheckoutSignup(admin: any, payment: any) {
     // Starter/Standard register without a group link; groupKind omitted
     // so buildLoginMessage skips the group block entirely.
     const groupKind =
-      plan === "premium" ? "premium" : plan === "pro" ? "pro" : undefined;
+      plan === "premium"
+        ? "premium"
+        : plan === "pro"
+          ? "pro"
+          : plan === "livehost"
+            ? "livehost"
+            : undefined;
     const msg = buildLoginMessage({
       name,
       email,

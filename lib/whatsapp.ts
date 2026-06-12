@@ -19,12 +19,15 @@ const WHACENTER_API_URL = "https://api.whacenter.com";
 export const WHATSAPP_GROUP_AFFILIATE = "https://chat.whatsapp.com/CRp8ctg8Y40IBrtlPbuCQ2";
 export const WHATSAPP_GROUP_PRO = "https://chat.whatsapp.com/BPORSI7khdIEOGZzWYBwbS";
 export const WHATSAPP_GROUP_PREMIUM = "https://chat.whatsapp.com/D0rL4xE5qspKIoEDpCaiFd";
+// Livehost — separate package, its own community group.
+export const WHATSAPP_GROUP_LIVEHOST = "https://chat.whatsapp.com/JIj9Ppto73mIIfitWikCgO";
 
-export type WhatsappGroupKind = "pro" | "premium" | "affiliate";
+export type WhatsappGroupKind = "pro" | "premium" | "affiliate" | "livehost";
 
 export function whatsappGroupUrl(kind: WhatsappGroupKind): string {
   if (kind === "affiliate") return WHATSAPP_GROUP_AFFILIATE;
   if (kind === "premium") return WHATSAPP_GROUP_PREMIUM;
+  if (kind === "livehost") return WHATSAPP_GROUP_LIVEHOST;
   return WHATSAPP_GROUP_PRO;
 }
 
@@ -192,7 +195,9 @@ export function buildLoginMessage(opts: {
         ? "PeningLab Affiliate Community"
         : opts.groupKind === "premium"
           ? "PeningLab VIP Community"
-          : "PeningLab PRO Community";
+          : opts.groupKind === "livehost"
+            ? "PeningLab Livehost Community"
+            : "PeningLab PRO Community";
     lines.push(
       "",
       "━━━━━━━━━━━━━━━━━━━",
