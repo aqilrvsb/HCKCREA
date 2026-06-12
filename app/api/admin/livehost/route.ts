@@ -30,8 +30,13 @@ export async function GET() {
   // emails live in auth.users — fetch and map
   const { data: usersPage } = await admin.auth.admin.listUsers({ page: 1, perPage: 1000 });
   const emailById = new Map((usersPage?.users || []).map((u) => [u.id, u.email || ""]));
-  const rates = await getSettings(["livehost_gpu_rate_hour", "livehost_voice_rate_1k"]);
+  const rates = await getSettings(["livehost_gpu_rate_hour", "livehost_voice_rate_1k", "livehost_llm"]);
+  const llmRaw = rates["livehost_llm"] || {};
   return NextResponse.json({
+    llm: {
+      main: llmRaw.main || { provider: "grsai", model: "gemini-3.1-flash-lite" },
+      fallback: (Array.isArray(llmRaw.fallbacks) && llmRaw.fallbacks[0]) || llmRaw.fallback || { provider: "openrouter", model: "openai/gpt-4.1" },
+    },
     rates: {
       gpuRateHour: rates["livehost_gpu_rate_hour"] || "6.00",
       voiceRate1k: rates["livehost_voice_rate_1k"] || "0.30",
@@ -52,7 +57,26 @@ export async function GET() {
 export async function POST(req: Request) {
   if (!(await requireAdmin())) return NextResponse.json({ error: "forbidden" }, { status: 403 });
   const body = await req.json().catch(() => ({}));
-  const { userId, backendUrl, vastInstanceId, notes, rates } = body || {};
+  const { userId, backendUrl, vastInstanceId, notes, rates, llm } = body || {};
+
+  // AI Livehost chat-model cascade (main + fallback), same shape as Clone model.
+  if (llm) {
+    const admin = createAdminClient();
+    const norm = (s: any) => ({
+      provider: s?.provider === "grsai" ? "grsai" : "openrouter",
+      model: String(s?.model || "").trim(),
+    });
+    const value = { main: norm(llm.main), fallbacks: llm.fallback?.model ? [norm(llm.fallback)] : [] };
+    if (!value.main.model) return NextResponse.json({ error: "main model required" }, { status: 400 });
+    await admin.from("app_settings").upsert({
+      key: "livehost_llm",
+      value,
+      category: "livehost",
+      updated_at: new Date().toISOString(),
+    });
+    invalidateSettingsCache(["livehost_llm"]);
+    return NextResponse.json({ ok: true });
+  }
 
   // Global client-facing rates update (RM/GPU-hour + RM/1k voice chars).
   if (rates) {
