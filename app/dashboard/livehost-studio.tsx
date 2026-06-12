@@ -425,7 +425,7 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
       setBackgrounds(data.backgrounds || []);
       return av;
     } catch (e: any) {
-      setError(`Server offline — tekan Turn ON di tab Usage (atau tunggu 2-3 min).`);
+      setError("Server offline — tekan ⏻ On GPU (sedia dalam ~1 minit).");
       return [];
     }
   }, []);
@@ -967,12 +967,6 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
       {/* ============ USAGE VIEW ============ */}
       <div style={{ display: view === "usage" ? undefined : "none" }}>
         <div className="panel single">
-          <div className="label">🖥 GPU server (your dedicated GPU — fully automatic)</div>
-          <div className="usage-card">
-            <div className="hint">Status: <b>{serverState}</b></div>
-            <div className="hint">Auto: GPU hidup sendiri bila anda tekan Start, dan tidur sendiri selepas ~8 minit idle (jimat kos — anda hanya dikira masa streaming).</div>
-          </div>
-
           <div className="label">💰 Bulan ini — kos streaming anda</div>
           <div className="usage-card">
             {usageData ? (
