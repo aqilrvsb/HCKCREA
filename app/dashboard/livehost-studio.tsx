@@ -108,14 +108,67 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
   const audioCtxRef = useRef<AudioContext | null>(null);
   const gainRef = useRef<GainNode | null>(null);
 
-  // Usage metering — exact billed chars from say_done + GPU via API.
-  const [usage, setUsage] = useState<{ voiceChars: number }>({ voiceChars: 0 });
-  const [voiceRate, setVoiceRate] = useState(30);
-  const [gpuBaseline, setGpuBaseline] = useState(0);
-  const [periodStart, setPeriodStart] = useState<string>("");
+  // Server-side session metering — the billing source of truth.
+  // start → /api/livehost/session start; heartbeat every 30s with cumulative
+  // voice chars; stop → exact end second. Crashes are closed server-side
+  // from the stale heartbeat, so no second is ever lost.
+  const sessionIdRef = useRef<string | null>(null);
+  const sessionCharsRef = useRef(0);
+  const heartbeatRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  type UsageData = {
+    rates: { gpuRateHour: number; voiceRate1k: number; currency: string };
+    sessions: { id: string; startedAt: string; status: string; durationSec: number; voiceChars: number; gpuCost: number; voiceCost: number; totalCost: number }[];
+    month: { streamSec: number; voiceChars: number; gpuCost: number; voiceCost: number; totalCost: number };
+  };
+  const [usageData, setUsageData] = useState<UsageData | null>(null);
   const addVoiceChars = useCallback((n: number) => {
-    if (n > 0) setUsage((u) => ({ voiceChars: u.voiceChars + n }));
+    if (n > 0) sessionCharsRef.current += n;
   }, []);
+
+  const sessionPost = useCallback((payload: object) => {
+    return fetch("/api/livehost/session", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(payload),
+    }).then((r) => r.json()).catch(() => null);
+  }, []);
+
+  const beginSession = useCallback(async () => {
+    sessionCharsRef.current = 0;
+    const d = await sessionPost({ action: "start" });
+    if (d?.sessionId) {
+      sessionIdRef.current = d.sessionId;
+      if (heartbeatRef.current) clearInterval(heartbeatRef.current);
+      heartbeatRef.current = setInterval(() => {
+        if (sessionIdRef.current) {
+          sessionPost({ action: "heartbeat", sessionId: sessionIdRef.current, voiceChars: sessionCharsRef.current });
+        }
+      }, 30000);
+    }
+  }, [sessionPost]);
+
+  const endSession = useCallback(() => {
+    if (heartbeatRef.current) { clearInterval(heartbeatRef.current); heartbeatRef.current = null; }
+    const id = sessionIdRef.current;
+    sessionIdRef.current = null;
+    if (!id) return;
+    const payload = JSON.stringify({ action: "stop", sessionId: id, voiceChars: sessionCharsRef.current });
+    // sendBeacon survives tab close; fall back to fetch
+    try {
+      if (!navigator.sendBeacon("/api/livehost/session", new Blob([payload], { type: "application/json" }))) {
+        fetch("/api/livehost/session", { method: "POST", headers: { "content-type": "application/json" }, body: payload, keepalive: true }).catch(() => {});
+      }
+    } catch {
+      fetch("/api/livehost/session", { method: "POST", headers: { "content-type": "application/json" }, body: payload, keepalive: true }).catch(() => {});
+    }
+  }, []);
+
+  // Best-effort stop on tab close (crash fallback = stale heartbeat).
+  useEffect(() => {
+    const h = () => endSession();
+    window.addEventListener("pagehide", h);
+    return () => window.removeEventListener("pagehide", h);
+  }, [endSession]);
   const [gpuUsage, setGpuUsage] = useState<{ runtime_hours: number; dph_usd: number; cost_usd: number; state?: string } | null>(null);
   const [gpuUsageErr, setGpuUsageErr] = useState("");
   const [serverState, setServerState] = useState<string>("…");
@@ -251,13 +304,6 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
       const kb = localStorage.getItem("livehost_products");
       if (kb) setProductKb(kb);
     } catch {}
-    try {
-      const u = JSON.parse(localStorage.getItem("livehost_usage") || "{}");
-      if (typeof u.voiceChars === "number") setUsage({ voiceChars: u.voiceChars });
-      if (typeof u.voiceRate === "number") setVoiceRate(u.voiceRate);
-      if (typeof u.gpuBaseline === "number") setGpuBaseline(u.gpuBaseline);
-      if (typeof u.periodStart === "string") setPeriodStart(u.periodStart);
-    } catch {}
     fetch("/overlays/manifest.json").then((r) => r.json()).then(setOverlays).catch(() => {});
     fetch("/avatars/manifest.json").then((r) => r.json()).then((list) => {
       setStock(list);
@@ -279,26 +325,23 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
   useEffect(() => {
     try { localStorage.setItem("livehost_products", productKb); } catch {}
   }, [productKb]);
-  useEffect(() => {
-    try { localStorage.setItem("livehost_usage", JSON.stringify({ ...usage, voiceRate, gpuBaseline, periodStart })); } catch {}
-  }, [usage, voiceRate, gpuBaseline, periodStart]);
 
-  const newBillingPeriod = useCallback(() => {
-    if (!window.confirm("Start a NEW billing period? GPU and voice usage will count from zero.")) return;
-    setGpuBaseline(gpuUsage?.runtime_hours ?? gpuBaseline);
-    setUsage({ voiceChars: 0 });
-    setPeriodStart(new Date().toLocaleDateString("ms-MY", { day: "numeric", month: "short", year: "numeric" }));
-  }, [gpuUsage, gpuBaseline]);
-
-  // Refresh GPU usage when the Usage view is open.
+  // Refresh usage (server sessions + rates) + GPU state when the Usage view is open.
   useEffect(() => {
-    if (view !== "usage" || !backend) return;
+    if (view !== "usage") return;
     let stop = false;
-    const load = () =>
-      fetch(`${backendRef.current}/gpu-usage`)
+    const load = () => {
+      fetch("/api/livehost/session")
         .then((r) => r.json())
-        .then((d) => { if (!stop) { d.error ? setGpuUsageErr(d.error) : (setGpuUsage(d), setGpuUsageErr("")); } })
-        .catch((e) => { if (!stop) setGpuUsageErr(String(e?.message || e)); });
+        .then((d) => { if (!stop && d.rates) setUsageData(d); })
+        .catch(() => {});
+      if (backendRef.current) {
+        fetch(`${backendRef.current}/gpu-usage`)
+          .then((r) => r.json())
+          .then((d) => { if (!stop) { d.error ? setGpuUsageErr(d.error) : (setGpuUsage(d), setGpuUsageErr("")); } })
+          .catch((e) => { if (!stop) setGpuUsageErr(String(e?.message || e)); });
+      }
+    };
     load();
     gpuAction("status");
     const t = setInterval(() => { load(); gpuAction("status"); }, 30000);
@@ -398,6 +441,7 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
   }, []);
 
   const stop = useCallback(() => {
+    endSession(); // server records the exact end second
     playingRef.current = false;
     setScriptPlaying(false);
     setScriptPaused(false);
@@ -416,7 +460,7 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
     pcRef.current = null; dcRef.current = null; remoteStreamRef.current = null;
     if (videoRef.current) videoRef.current.srcObject = null;
     setActive(false); setConnecting(false);
-  }, []);
+  }, [endSession]);
 
   const start = useCallback(async () => {
     setError("");
@@ -518,11 +562,12 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
       if (!res.ok) throw new Error(`offer ${res.status}: ${await res.text()}`);
       await pc.setRemoteDescription(await res.json());
       setActive(true); setConnecting(false);
+      beginSession(); // server-side billing clock starts at this exact second
     } catch (e: any) {
       setError(e?.message || String(e));
       stop();
     }
-  }, [avatarId, backgrounds, voiceId, stop, speakNext, startWordSweep, buildKbPrompt, productKb, speed, volume, configErr, addVoiceChars]);
+  }, [avatarId, backgrounds, voiceId, stop, speakNext, startWordSweep, buildKbPrompt, productKb, speed, volume, configErr, addVoiceChars, beginSession]);
 
   const sendControl = useCallback((payload: object): boolean => {
     const dc = dcRef.current;
@@ -856,31 +901,52 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
             <div className="hint">After Turn ON, the server is ready in ~2–3 minutes.</div>
           </div>
 
-          <div className="label">🖥 GPU usage {periodStart ? `(since ${periodStart})` : "(lifetime — start a billing period below)"}</div>
+          <div className="label">💰 Bulan ini — kos streaming anda</div>
           <div className="usage-card">
-            {gpuUsage ? (
+            {usageData ? (
               <>
-                <div className="usage-big">{Math.max(0, +(gpuUsage.runtime_hours - gpuBaseline).toFixed(2))} h</div>
-                <div className="hint">this period • ${gpuUsage.dph_usd}/hr</div>
-                <div className="usage-cost">≈ ${Math.max(0, (gpuUsage.runtime_hours - gpuBaseline) * gpuUsage.dph_usd).toFixed(2)} USD</div>
+                <div className="usage-big">RM {usageData.month.totalCost.toFixed(2)}</div>
+                <div className="hint">
+                  {Math.floor(usageData.month.streamSec / 3600)}h {Math.floor((usageData.month.streamSec % 3600) / 60)}m streaming
+                  (RM {usageData.month.gpuCost.toFixed(2)}) + {usageData.month.voiceChars.toLocaleString()} voice chars
+                  (RM {usageData.month.voiceCost.toFixed(2)})
+                </div>
+                <div className="hint">
+                  Kadar: RM {usageData.rates.gpuRateHour}/jam GPU • RM {usageData.rates.voiceRate1k}/1k aksara suara
+                </div>
               </>
             ) : (
-              <div className="hint">{gpuUsageErr ? `Unavailable (server off?): ${gpuUsageErr}` : "Loading from GPU provider…"}</div>
+              <div className="hint">Loading usage…</div>
             )}
           </div>
 
-          <div className="label">🎙 Voice usage {periodStart ? `(since ${periodStart})` : ""}</div>
-          <div className="usage-card">
-            <div className="usage-big">{usage.voiceChars.toLocaleString()} chars</div>
-            <div className="hint">Exact billed characters for everything THIS avatar spoke (scripts + chat answers).</div>
-            <div className="range-row"><span>Rate $/1M chars</span>
-              <input type="number" step="1" min="0" value={voiceRate} onChange={(e) => setVoiceRate(parseFloat(e.target.value) || 0)} />
-            </div>
-            <div className="usage-cost">≈ ${((usage.voiceChars / 1_000_000) * voiceRate).toFixed(2)} USD</div>
+          <div className="label">📜 Sesi streaming (50 terkini — direkod tepat ke saat)</div>
+          <div className="usage-card" style={{ padding: 0, overflow: "hidden" }}>
+            <table className="sessions-table">
+              <thead>
+                <tr><th>Tarikh / Masa</th><th>Durasi</th><th>GPU</th><th>Suara</th><th>Jumlah</th><th>Status</th></tr>
+              </thead>
+              <tbody>
+                {(usageData?.sessions || []).map((s) => (
+                  <tr key={s.id}>
+                    <td>{new Date(s.startedAt).toLocaleString("ms-MY", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit", second: "2-digit" })}</td>
+                    <td>{Math.floor(s.durationSec / 3600)}:{String(Math.floor((s.durationSec % 3600) / 60)).padStart(2, "0")}:{String(s.durationSec % 60).padStart(2, "0")}</td>
+                    <td>RM {s.gpuCost.toFixed(2)}</td>
+                    <td>RM {s.voiceCost.toFixed(2)}</td>
+                    <td><b>RM {s.totalCost.toFixed(2)}</b></td>
+                    <td>
+                      <span className={`sess-badge ${s.status}`}>
+                        {s.status === "active" ? "● LIVE" : s.status === "crashed" ? "crashed" : "ended"}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+                {(!usageData || usageData.sessions.length === 0) && (
+                  <tr><td colSpan={6} style={{ textAlign: "center", color: "var(--muted)" }}>Belum ada sesi streaming.</td></tr>
+                )}
+              </tbody>
+            </table>
           </div>
-          <button className="filebtn secondary" onClick={newBillingPeriod}>
-            ⟳ New billing period (renewal — resets GPU + voice to zero)
-          </button>
         </div>
       </div>
     </div>
@@ -958,5 +1024,12 @@ const STUDIO_CSS = `
 .lh-studio .usage-card{background:var(--panel-2);border:1px solid var(--border);border-radius:10px;padding:12px;margin-top:6px;}
 .lh-studio .usage-big{font-size:22px;font-weight:700;}
 .lh-studio .usage-cost{margin-top:6px;font-size:15px;font-weight:600;color:var(--accent-2);}
+.lh-studio .sessions-table{width:100%;border-collapse:collapse;font-size:12px;}
+.lh-studio .sessions-table th{background:rgba(255,255,255,.04);color:var(--muted);text-transform:uppercase;font-size:10px;letter-spacing:.05em;padding:8px 10px;text-align:left;}
+.lh-studio .sessions-table td{padding:8px 10px;border-top:1px solid var(--border);}
+.lh-studio .sess-badge{padding:2px 8px;border-radius:999px;font-size:10px;font-weight:700;}
+.lh-studio .sess-badge.active{background:rgba(61,220,151,.15);color:var(--accent-2);}
+.lh-studio .sess-badge.ended{background:rgba(255,255,255,.08);color:var(--muted);}
+.lh-studio .sess-badge.crashed{background:rgba(255,84,112,.15);color:var(--danger);}
 .lh-studio .panel > button{width:100%;margin-top:10px;border:none;}
 `;

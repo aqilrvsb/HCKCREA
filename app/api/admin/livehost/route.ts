@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { getSettings, invalidateSettingsCache } from "@/lib/settings";
 
 // Admin: list Livehost clients + set each one's streaming config
 // (backend_url = their GPU tunnel URL, vast_instance_id = their GPU).
@@ -29,7 +30,12 @@ export async function GET() {
   // emails live in auth.users — fetch and map
   const { data: usersPage } = await admin.auth.admin.listUsers({ page: 1, perPage: 1000 });
   const emailById = new Map((usersPage?.users || []).map((u) => [u.id, u.email || ""]));
+  const rates = await getSettings(["livehost_gpu_rate_hour", "livehost_voice_rate_1k"]);
   return NextResponse.json({
+    rates: {
+      gpuRateHour: rates["livehost_gpu_rate_hour"] || "6.00",
+      voiceRate1k: rates["livehost_voice_rate_1k"] || "0.30",
+    },
     clients: (profiles || []).map((p) => ({
       id: p.id,
       email: emailById.get(p.id) || "",
@@ -46,7 +52,26 @@ export async function GET() {
 export async function POST(req: Request) {
   if (!(await requireAdmin())) return NextResponse.json({ error: "forbidden" }, { status: 403 });
   const body = await req.json().catch(() => ({}));
-  const { userId, backendUrl, vastInstanceId, notes } = body || {};
+  const { userId, backendUrl, vastInstanceId, notes, rates } = body || {};
+
+  // Global client-facing rates update (RM/GPU-hour + RM/1k voice chars).
+  if (rates) {
+    const admin = createAdminClient();
+    const updates: [string, string][] = [];
+    if (rates.gpuRateHour != null) updates.push(["livehost_gpu_rate_hour", String(rates.gpuRateHour)]);
+    if (rates.voiceRate1k != null) updates.push(["livehost_voice_rate_1k", String(rates.voiceRate1k)]);
+    for (const [key, value] of updates) {
+      await admin.from("app_settings").upsert({
+        key,
+        value: JSON.stringify(value),
+        category: "livehost",
+        updated_at: new Date().toISOString(),
+      });
+    }
+    invalidateSettingsCache(updates.map(([k]) => k));
+    return NextResponse.json({ ok: true });
+  }
+
   if (!userId) return NextResponse.json({ error: "userId required" }, { status: 400 });
   const admin = createAdminClient();
   const { error } = await admin.from("live_client_config").upsert({

@@ -24,6 +24,9 @@ export default function AdminLivehostPage() {
   const [loading, setLoading] = useState(true);
   const [savingId, setSavingId] = useState("");
   const [msg, setMsg] = useState("");
+  const [gpuRate, setGpuRate] = useState("6.00");
+  const [voiceRate, setVoiceRate] = useState("0.30");
+  const [savingRates, setSavingRates] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -31,11 +34,31 @@ export default function AdminLivehostPage() {
       const r = await fetch("/api/admin/livehost");
       const d = await r.json();
       setClients(d.clients || []);
+      if (d.rates) {
+        setGpuRate(String(d.rates.gpuRateHour));
+        setVoiceRate(String(d.rates.voiceRate1k));
+      }
     } finally {
       setLoading(false);
     }
   }, []);
   useEffect(() => { load(); }, [load]);
+
+  const saveRates = async () => {
+    setSavingRates(true);
+    setMsg("");
+    try {
+      const r = await fetch("/api/admin/livehost", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ rates: { gpuRateHour: gpuRate, voiceRate1k: voiceRate } }),
+      });
+      const d = await r.json();
+      setMsg(d.ok ? "Rates saved — applies to all clients immediately" : d.error || "Save failed");
+    } finally {
+      setSavingRates(false);
+    }
+  };
 
   const update = (id: string, patch: Partial<Client>) =>
     setClients((prev) => prev.map((c) => (c.id === id ? { ...c, ...patch } : c)));
@@ -94,6 +117,35 @@ export default function AdminLivehostPage() {
           {msg}
         </div>
       )}
+
+      {/* Global client-facing rates — what clients SEE & are billed in Usage */}
+      <div className="rounded-2xl p-5 mb-6"
+        style={{ background: "var(--color-bg-card)", border: "1px solid var(--color-border)" }}>
+        <h2 className="font-display font-extrabold text-lg mb-1">Client price rates (RM)</h2>
+        <p className="text-xs text-[var(--color-text-muted)] mb-4">
+          Used to calculate every client&apos;s Usage costs. Your cost: GPU ~RM1.65/hr (Novita $0.35),
+          voice ~RM0.14/1k chars (MiniMax bills per character) — set rates above that for margin.
+        </p>
+        <div className="grid md:grid-cols-3 gap-3 items-end">
+          <label className="text-xs font-bold text-[var(--color-text-secondary)]">
+            GPU — RM per streaming hour
+            <input value={gpuRate} onChange={(e) => setGpuRate(e.target.value)} type="number" step="0.10" min="0"
+              className="mt-1 w-full px-3 py-2.5 rounded-lg text-sm font-normal"
+              style={{ background: "var(--color-bg)", border: "1px solid var(--color-border)", color: "var(--color-text-primary)" }} />
+          </label>
+          <label className="text-xs font-bold text-[var(--color-text-secondary)]">
+            Voice — RM per 1,000 characters
+            <input value={voiceRate} onChange={(e) => setVoiceRate(e.target.value)} type="number" step="0.01" min="0"
+              className="mt-1 w-full px-3 py-2.5 rounded-lg text-sm font-normal"
+              style={{ background: "var(--color-bg)", border: "1px solid var(--color-border)", color: "var(--color-text-primary)" }} />
+          </label>
+          <button onClick={saveRates} disabled={savingRates}
+            className="flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl text-sm font-bold text-white disabled:opacity-50"
+            style={{ background: "linear-gradient(135deg, #3b82f6, #2563eb)" }}>
+            <Save className="w-4 h-4" /> {savingRates ? "Saving…" : "Save rates"}
+          </button>
+        </div>
+      </div>
 
       {loading ? (
         <p className="text-[var(--color-text-secondary)]">Loading…</p>
