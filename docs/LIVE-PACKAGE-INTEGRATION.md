@@ -147,6 +147,55 @@ tar the talking-head-live `backend/avtr-mods` files → base64 → paste into
 Manual fallback/debug path stays documented in talking-head-live/CLIENT-SETUP.md.
 Future optimisation (optional): destroy-on-sleep + custom avatar persistence to B2.
 
+## 6b. TikTok interaction loop (Greetings + extension) — DESIGNED, build next
+
+Goal: when a client streams via OBS to TikTok LIVE, viewer events drive the
+avatar — exactly the logic of the user's proven extension at
+`C:\Users\User\Music\extension-aihost` (study it before building).
+
+**How the old extension works (verified by code reading):**
+- content.js on shop.tiktok.com: MutationObserver on the LIVE chat panel.
+  Selectors detect comment (username+text), join ("just joined"), follow, like.
+  Purchases/feedback are NOT DOM events — the LLM classifies comments with
+  [PURCHASE]/[FEEDBACK] tags in its reply.
+- background.js: event queue (cap 50), greeting templates with [username] +
+  random min/max delay (20–45s), OpenRouter replies (sales prompt with (gasps)/
+  (laughs) emotion tags, never-mention-price/yellow-bag rule), MiniMax TTS via
+  Chrome offscreen doc, SFX rules: PURCHASE → bell then voice; FEEDBACK →
+  voice then clap. Stats: seen/replied/skipped/joins/greeted/follows/likes.
+- Login gate pattern (creative-hack-auto): email + site-injected verification.
+
+**Livehost architecture (KEY DIFFERENCE: the avatar speaks, not the extension):**
+1. GPU box has `POST /say {secret, kind: say|ask, text}` (DONE, in bundle) —
+   injects into the same control queue as the WebRTC datachannel → lip-synced.
+2. New extension (fork of extension-aihost):
+   - Login: email+password → POST /api/livehost/ext-login → returns ext token
+     (verify supabase password server-side; token = signed w/ livehost_box_secret).
+   - Config: GET /api/livehost/greet-config (templates, delays, product script
+     rotation, SFX rules) — admin/client edits in the new Greetings tab.
+   - Events: replace TTS path with POST /api/livehost/speak {token, kind, text}
+     → PeningLab relays to that client's backend_url + box secret → avatar talks.
+     SFX (bell/clap) stay in the extension offscreen doc (OBS captures desktop).
+   - Stats: POST /api/livehost/interactions (batch) → table live_interactions.
+3. New **Greetings tab** in LivehostDashboard: greeting templates textarea +
+   greet delay min/max; product/script rotation select + delay min/max; SFX
+   auto-rules toggle. Persist per client (live_client_config jsonb column
+   greet_config or new table).
+4. New **Interactions dashboard** (client): date filter (reuse admin pattern) over
+   live_interactions: SEEN/REPLIED/SKIPPED/JOINS/GREETED/FOLLOWS/LIKES counts.
+
+```sql
+create table live_interactions (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  type text not null,             -- comment|reply|skip|join|greet|follow|like|purchase|feedback
+  username text default '',
+  text text default '',
+  created_at timestamptz default now()
+);
+create index on live_interactions(user_id, created_at desc);
+```
+
 ## 7. Unit economics (for pricing decisions)
 
 | Item | Your cost | Suggested client rate |
