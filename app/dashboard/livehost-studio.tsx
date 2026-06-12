@@ -75,7 +75,12 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
     fetch("/api/livehost/config")
       .then((r) => r.json())
       .then((d) => {
-        if (d.backendUrl) { setBackend(d.backendUrl); backendRef.current = d.backendUrl; }
+        if (d.backendUrl) {
+          setBackend(d.backendUrl); backendRef.current = d.backendUrl;
+          if (d.provisionStatus && d.provisionStatus !== "ready") {
+            setConfigErr(`⚙ GPU anda sedang disediakan secara automatik (~30 minit): ${d.provisionStatus}. Refresh sebentar lagi.`);
+          }
+        }
         else setConfigErr(d.error || "Livehost belum dikonfigurasi.");
       })
       .catch(() => setConfigErr("Could not load Livehost config."));

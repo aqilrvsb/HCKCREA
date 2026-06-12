@@ -50,6 +50,7 @@ export async function GET() {
       backend_url: byId.get(p.id)?.backend_url || "",
       vast_instance_id: byId.get(p.id)?.vast_instance_id || "",
       notes: byId.get(p.id)?.notes || "",
+      provision_status: byId.get(p.id)?.provision_status || "",
     })).sort((a, b) => a.email.localeCompare(b.email)),
   });
 }
@@ -57,7 +58,18 @@ export async function GET() {
 export async function POST(req: Request) {
   if (!(await requireAdmin())) return NextResponse.json({ error: "forbidden" }, { status: 403 });
   const body = await req.json().catch(() => ({}));
-  const { userId, backendUrl, vastInstanceId, notes, rates, llm } = body || {};
+  const { userId, backendUrl, vastInstanceId, notes, rates, llm, action } = body || {};
+
+  // Manual provisioning trigger (same path the payment webhook uses).
+  if (action === "provision" && userId) {
+    const { provisionLivehost } = await import("@/lib/livehost-provision");
+    const res = await provisionLivehost(userId);
+    return NextResponse.json(res);
+  }
+  if (action === "check" && userId) {
+    const { checkProvisionReady } = await import("@/lib/livehost-provision");
+    return NextResponse.json({ status: await checkProvisionReady(userId) });
+  }
 
   // AI Livehost chat-model cascade (main + fallback), same shape as Clone model.
   if (llm) {

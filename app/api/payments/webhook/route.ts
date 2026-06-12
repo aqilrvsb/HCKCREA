@@ -273,6 +273,18 @@ async function applyCheckoutSignup(admin: any, payment: any) {
     { onConflict: "id" }
   );
 
+  // LIVEHOST: auto-provision the client's GPU stack (tunnel + self-building
+  // instance). Fast API calls only (~10s); the build runs on the GPU itself.
+  if (plan === "livehost") {
+    try {
+      const { provisionLivehost } = await import("@/lib/livehost-provision");
+      const res = await provisionLivehost(userId);
+      console.log("[livehost] provision:", JSON.stringify(res));
+    } catch (e) {
+      console.error("[livehost] provision failed:", e);
+    }
+  }
+
   // Add free credits if the plan grants any (currently 0 for both plans)
   if (freeCredits > 0) {
     const { data: profile } = await admin

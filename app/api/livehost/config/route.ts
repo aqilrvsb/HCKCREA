@@ -12,7 +12,7 @@ export async function GET() {
   const admin = createAdminClient();
   const { data } = await admin
     .from("live_client_config")
-    .select("backend_url, vast_instance_id")
+    .select("backend_url, vast_instance_id, provision_status")
     .eq("user_id", user.id)
     .maybeSingle();
 
@@ -25,5 +25,6 @@ export async function GET() {
   return NextResponse.json({
     backendUrl: data.backend_url.replace(/\/+$/, ""),
     hasGpu: !!data.vast_instance_id,
+    provisionStatus: data.provision_status || "",
   });
 }

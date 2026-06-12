@@ -17,6 +17,7 @@ type Client = {
   backend_url: string;
   vast_instance_id: string;
   notes: string;
+  provision_status: string;
 };
 
 export default function AdminLivehostPage() {
@@ -90,6 +91,35 @@ export default function AdminLivehostPage() {
     } finally {
       setSavingLlm(false);
     }
+  };
+
+  const provision = async (c: Client) => {
+    if (!window.confirm(`Auto-provision GPU + tunnel untuk ${c.email}? (~30 min build, ~RM1 GPU time)`)) return;
+    setSavingId(c.id);
+    setMsg("");
+    try {
+      const r = await fetch("/api/admin/livehost", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ action: "provision", userId: c.id }),
+      });
+      const d = await r.json();
+      setMsg(d.ok ? `Provisioning started: ${d.backendUrl || ""} (${d.status})` : d.status || d.error || "failed");
+      load();
+    } finally {
+      setSavingId("");
+    }
+  };
+
+  const checkReady = async (c: Client) => {
+    const r = await fetch("/api/admin/livehost", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ action: "check", userId: c.id }),
+    });
+    const d = await r.json();
+    setMsg(`${c.email}: ${d.status || "no status"}`);
+    load();
   };
 
   const update = (id: string, patch: Partial<Client>) =>
@@ -289,15 +319,38 @@ export default function AdminLivehostPage() {
                   />
                 </label>
               </div>
-              <button
-                onClick={() => save(c)}
-                disabled={savingId === c.id}
-                className="mt-4 flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-bold text-white disabled:opacity-50"
-                style={{ background: "linear-gradient(135deg, #3b82f6, #2563eb)" }}
-              >
-                <Save className="w-4 h-4" />
-                {savingId === c.id ? "Saving…" : "Save"}
-              </button>
+              {c.provision_status && (
+                <p className="mt-3 text-xs font-mono px-3 py-2 rounded-lg"
+                  style={{ background: "rgba(59,130,246,0.08)", border: "1px solid rgba(59,130,246,0.25)", color: "#93c5fd" }}>
+                  Provision: {c.provision_status}
+                </p>
+              )}
+              <div className="mt-4 flex flex-wrap gap-2">
+                <button
+                  onClick={() => save(c)}
+                  disabled={savingId === c.id}
+                  className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-bold text-white disabled:opacity-50"
+                  style={{ background: "linear-gradient(135deg, #3b82f6, #2563eb)" }}
+                >
+                  <Save className="w-4 h-4" />
+                  {savingId === c.id ? "Working…" : "Save"}
+                </button>
+                <button
+                  onClick={() => provision(c)}
+                  disabled={savingId === c.id}
+                  className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-bold text-white disabled:opacity-50"
+                  style={{ background: "linear-gradient(135deg, #16a34a, #15803d)" }}
+                >
+                  ⚡ Auto-provision GPU
+                </button>
+                <button
+                  onClick={() => checkReady(c)}
+                  className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold"
+                  style={{ background: "var(--color-bg)", border: "1px solid var(--color-border)", color: "var(--color-text-secondary)" }}
+                >
+                  Check status
+                </button>
+              </div>
             </div>
           ))}
         </div>

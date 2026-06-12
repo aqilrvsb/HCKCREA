@@ -70,7 +70,7 @@ PeningLab dashboard (Livehost tabs) ──WebRTC (Cloudflare TURN)──► clie
 ```sql
 live_client_config(user_id pk → auth.users, backend_url, vast_instance_id, notes, updated_at)
 live_sessions(id pk, user_id, started_at, last_seen, ended_at, voice_chars, status active|ended|crashed)
-app_settings keys: vast_api_key, livehost_gpu_rate_hour, livehost_voice_rate_1k (category 'livehost')
+app_settings keys (category 'livehost'): novita_api_key, vast_api_key (legacy), livehost_gpu_rate_hour, livehost_voice_rate_1k, livehost_llm, livehost_box_secret, livehost_hf_token, livehost_minimax_key, livehost_turn_key_id, livehost_turn_key_token, cloudflare_api_token (USER MUST ADD for auto-provision)
 plans.ts: livehost { price: 500, days: 30, credits: 0 }
 ```
 
@@ -118,25 +118,34 @@ Each client GPU runs AVTR-1 (github.com/avaturn-live/avtr-1) + our modifications
 - Usage tab shows: month total (combined), rate disclosure, per-session table
   (date/time to the second, duration, GPU/voice/total RM, LIVE/ended/crashed badge).
 
-## 6. Provisioning a new client (manual today → auto soon)
+## 6. Provisioning — FULLY AUTOMATIC (built 2026-06-13)
 
-Manual (today, ~60–90 min — see talking-head-live/CLIENT-SETUP.md):
-1. Novita API: create instance (SGP 4090, 120GB, cuda image + sshd command).
-2. SSH: build AVTR-1 (pixi → download artifacts w/ HF token → build-trt-engines),
-   scp the 9 modified files + box scripts from talking-head-live/backend/, write
-   turn.env (MiniMax/OpenRouter/TURN keys + VAST/NOVITA key for watchdog), register
-   18 stock avatars, install /root/onstart.sh → boot.sh.
-3. Cloudflare: new tunnel (Zero Trust → Networks → Connectors) → token to box →
-   route clientN.peningcast.com → localhost:8000.
-4. Admin → Livehost: paste backend_url + instance id. Client can stream.
+**Flow:** payment success for plan `livehost` → `provisionLivehost(userId)`
+(lib/livehost-provision.ts, also fired manually via Admin → Livehost →
+"⚡ Auto-provision GPU"):
+1. **Cloudflare API**: create named tunnel `lh-XXXX` (reuse if exists) → token →
+   ingress `lh-XXXX.peningcast.com → http://localhost:8000` → DNS CNAME. Needs
+   app_settings **`cloudflare_api_token`** (user-created: Account › Cloudflare
+   Tunnel › Edit + Zone › DNS › Edit on peningcast.com). Until set, status =
+   "pending: add cloudflare_api_token" and admin can retry later.
+2. Save tunnel token + backend_url to live_client_config (status column
+   `provision_status` tracks every step; client sees it in the studio banner).
+3. **Novita API**: create SGP 4090 (60GB rootfs → sleeps in the free disk tier)
+   whose container command curls **`/api/livehost/bootstrap?s=SECRET&u=USERID`**
+   and pipes to bash → the box BUILDS ITSELF unattended (~30 min): pixi → AVTR-1 →
+   TRT engines → our mods (base64-bundled in `lib/livehost-box-bundle.ts`) →
+   event_bus 30s patch → turn.env (keys rendered from app_settings) → tunnel
+   token → sshd auto-boot wrapper → watchdog → registers the 18 stock avatars
+   (pulled from peninglab.com/avatars/*.png) → `PROVISION_COMPLETE`.
+4. "Check status" (admin) / studio config probes the backend; first 200 flips
+   `provision_status` → `ready`.
 
-**Auto-provisioning (the target, build next):** payment webhook →
-(a) Novita create-instance from prebaked template/image (~5 min),
-(b) Cloudflare API create tunnel + DNS (needs CF API token with Tunnel+DNS edit),
-(c) insert live_client_config row. Blockers: bake the template (golden image from
-the SGP box once verified; investigate Novita instance→image snapshot or
-registry image + Image Prewarm), and decide destroy-on-sleep (client stops →
-destroy instance = RM0 idle; custom avatars persisted to B2 and re-registered at boot).
+Bundle regeneration when box mods change (run from anywhere with both repos):
+tar the talking-head-live `backend/avtr-mods` files → base64 → paste into
+`lib/livehost-box-bundle.ts` (see git history of that file for the exact layout).
+
+Manual fallback/debug path stays documented in talking-head-live/CLIENT-SETUP.md.
+Future optimisation (optional): destroy-on-sleep + custom avatar persistence to B2.
 
 ## 7. Unit economics (for pricing decisions)
 
