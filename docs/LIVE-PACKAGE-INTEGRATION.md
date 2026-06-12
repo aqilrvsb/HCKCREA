@@ -89,6 +89,21 @@ Each client GPU runs AVTR-1 (github.com/avaturn-live/avtr-1) + our modifications
 - Box scripts: `/workspace/boot.sh` (streamer+tunnel+watchdog tmux), auto-run at
   every instance start via `/root/onstart.sh`.
 
+## 4b. AI chat model (admin-configurable cascade)
+
+- Admin sets the chat-answer LLM at **/admin/livehost → "AI Livehost — chat model"**:
+  Main + Fallback, provider (grsai | openrouter) + model. Stored in
+  app_settings `livehost_llm` (same schema as Clone model; parsed by
+  `parseModelSetting`, creds via `providerCreds` — or_key / p4_key).
+- Delivery: GPU boxes call `GET /api/livehost/engine-config` with header
+  `x-box-secret` = app_settings `livehost_box_secret` → resolved
+  `{base, key, model}` slots. Keys never touch a browser. Box env needs
+  `LIVEHOST_CONFIG_URL` + `LIVEHOST_BOX_SECRET` in `/workspace/turn.env`;
+  engine caches 2 min, tries main → fallback → env OPENROUTER_* as last resort.
+- Box-side patch required after AVTR-1 build: `event_bus.py ready_timeout
+  5.0 → 30.0` (slow ICE connects otherwise crash sessions with
+  "EventBus.publish() timed out").
+
 ## 5. Billing & metering (how money is tracked)
 
 - **Source of truth = `live_sessions`** (server-side, not browser):
