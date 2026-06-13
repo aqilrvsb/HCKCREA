@@ -5,9 +5,10 @@
 //   • app/api/admin/errors/route.ts          (admin feed filter)
 //   • app/api/history/retry/route.ts         (manual + bulk Resubmit gate)
 //
-// Per user direction: the ONLY six error categories that qualify for
-// retry / admin visibility are (see #6 at the bottom of the pattern list
-// for the "Job failed / Server exception ... please try again" class):
+// Per user direction: the ONLY error categories that qualify for retry /
+// admin visibility are the patterns in RETRYABLE_ERROR_PATTERNS below
+// (#6 "Job failed / Server exception ... please try again", #7
+// "Insufficient Credits" — both rotation-recoverable across slots):
 //
 //   1. "Internal Error, Please try again later."     (5xx-class)
 //   2. "Unknown error. Please contact support."      (provider-side)
@@ -88,6 +89,13 @@ const RETRYABLE_ERROR_PATTERNS: RegExp[] = [
   //    Added per user direction 2026-06-11.
   /job failed[^\n]{0,30}please try again/i,
   /server exception[^\n]{0,30}please try again/i,
+  // 7. Provider-slot "Insufficient Credits" — the slot's UPSTREAM account
+  //    (APIPod/Crun key) ran out of credits, so it rejects pre-queue (no
+  //    task created). Each slot/key has its OWN credit balance, so
+  //    rotating to a different slot CAN recover — same rotation logic as
+  //    rate-limit (#3) and the safety-filter class (#5). Real phrasing:
+  //    "attempt1: Insufficient Credits". Added per user direction 2026-06-13.
+  /insufficient credits/i,
 ];
 
 export function isInternalError(err: string | null | undefined): boolean {
