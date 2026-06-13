@@ -456,6 +456,35 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
       }
     } catch {}
   }, [view]);
+
+  // GPU LIFECYCLE: pre-warm on entering the Live view + keep alive (ping the
+  // box /keepalive) while the Live view is open OR streaming, so the watchdog
+  // never stops it under the host. Leaving the tab (and not streaming) lets the
+  // 8-min watchdog stop it normally.
+  useEffect(() => {
+    const keep = view === "live" || active;
+    if (!keep) return;
+    // pre-warm: if backend isn't up, start the GPU in the background
+    (async () => {
+      try {
+        const ping = await fetch(`${backendRef.current}/avatars`, { signal: AbortSignal.timeout(5000) });
+        if (!ping.ok) throw new Error();
+      } catch {
+        fetch("/api/livehost/gpu", {
+          method: "POST", headers: { "content-type": "application/json" },
+          body: JSON.stringify({ action: "start" }),
+        }).catch(() => {});
+        setServerState("starting");
+      }
+    })();
+    const ping = () => {
+      if (backendRef.current) fetch(`${backendRef.current}/keepalive`, { method: "POST" }).catch(() => {});
+    };
+    ping();
+    const t = setInterval(ping, 60000);
+    return () => clearInterval(t);
+  }, [view, active]);
+
   // Sync the active greeting profile to the DB so the extension uses it.
   useEffect(() => {
     const g = greetProfiles.find((x) => x.id === activeGreetId);
@@ -632,7 +661,7 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
           method: "POST", headers: { "content-type": "application/json" },
           body: JSON.stringify({ action: "start" }),
         }).catch(() => {});
-        for (let i = 0; i < 24 && !backendUp; i++) {
+        for (let i = 0; i < 42 && !backendUp; i++) {
           await new Promise((r) => setTimeout(r, 10000));
           try {
             const ping = await fetch(`${backendRef.current}/avatars`, { signal: AbortSignal.timeout(5000) });
@@ -640,7 +669,7 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
           } catch {}
           if (!backendUp) setWakeMsg(`GPU sedang dihidupkan… ${(i + 1) * 10}s ⏳`);
         }
-        if (!backendUp) { setWakeMsg(""); throw new Error("GPU tak respons selepas 4 minit — cuba lagi."); }
+        if (!backendUp) { setWakeMsg(""); throw new Error("GPU tak respons — cuba ▶ Start sekali lagi."); }
         setServerState("running");
         loadAvatarsRef.current?.();
         setWakeMsg("GPU sedia — menyambung… ⏳");

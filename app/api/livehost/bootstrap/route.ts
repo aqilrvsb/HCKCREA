@@ -135,7 +135,12 @@ IDLE=0
 while true; do
   sleep 60
   active=$(curl -s -m 5 http://localhost:8000/active | grep -c 'true')
-  if [ "$active" = "1" ]; then IDLE=0; else IDLE=$((IDLE+1)); fi
+  ka=0
+  if [ -f /workspace/keepalive ]; then
+    age=$(( $(date +%s) - $(stat -c %Y /workspace/keepalive 2>/dev/null || echo 0) ))
+    [ "$age" -lt 150 ] && ka=1
+  fi
+  if [ "$active" = "1" ] || [ "$ka" = "1" ]; then IDLE=0; else IDLE=$((IDLE+1)); fi
   if [ "$IDLE" -ge 8 ]; then
     curl -s -X POST "https://api.novita.ai/gpu-instance/openapi/v1/gpu/instance/stop" \\
       -H "Authorization: Bearer $NOVITA_API_KEY" -H "Content-Type: application/json" \\
