@@ -91,6 +91,7 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
   const [avatarId, setAvatarId] = useState("");
   const [voiceId, setVoiceId] = useState(VOICES[0].id);
   const [chatText, setChatText] = useState("");
+  const [nameInput, setNameInput] = useState("");
   const [captions, setCaptions] = useState(false);
   const [captionText, setCaptionText] = useState("");
   const [active, setActive] = useState(false);
@@ -333,6 +334,10 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
       "You are a friendly, energetic Malaysian live-commerce host on TikTok Live. " +
       "A viewer sent a chat message. Reply in casual Bahasa Melayu, ONE or TWO short " +
       "spoken sentences, warm and persuasive, no emojis or symbols. " +
+      "RECAP FIRST: the message format is 'Penonton bernama \"NAME\" komen: \"...\"'. " +
+      "Always begin your reply by naming the viewer and briefly restating what they " +
+      "said (e.g. 'Aqil tanya berapa harga ye…', 'Terima kasih Aqil sebab dah beli…', " +
+      "'Best la tu Lisa…'), THEN answer. Never repeat the literal format text. " +
       "COMPLIANCE (TikTok policy): never claim to be a doctor, pharmacist, or any " +
       "professional; never promise medical cures, miracle or instant results; never " +
       "exaggerate product efficacy beyond the provided knowledge; quote only the " +
@@ -928,9 +933,11 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
     const t = chatText.trim(); if (!t) return;
     const g = greetProfiles.find((x) => x.id === activeGreetId);
     const clean = (u: string) => u.replace(/[*_~`]/g, "").trim().slice(0, 40);
-    const ev = t.match(/^(.+?)\s+(JOIN|FOLLOW|LIKE)$/i);
-    if (ev && g) {
-      const u = clean(ev[1]), k = ev[2].toUpperCase();
+    const name = clean(nameInput) || "Penonton";
+    // komen field can be a plain comment OR a JOIN/FOLLOW/LIKE keyword
+    const kw = t.match(/^(JOIN|FOLLOW|LIKE)$/i);
+    if (kw && g) {
+      const k = kw[1].toUpperCase();
       let line = "";
       if (k === "FOLLOW") { line = g.followGreeting; playSfx("clap"); }
       else if (k === "LIKE") line = g.likeGreeting;
@@ -938,22 +945,20 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
         const lines = (g.greetings || "").split(/\n+/).map((l) => l.trim()).filter(Boolean);
         if (lines.length) { line = lines[simRotateRef.current % lines.length]; simRotateRef.current++; }
       }
-      if (line) speakNow("say", line.replaceAll("[username]", u));
-      setCaptionText(`👋 ${u} ${k}`);
+      if (line) speakNow("say", line.replaceAll("[username]", name));
+      setCaptionText(`👋 ${name} ${k}`);
     } else {
-      const cm = t.match(/^([^:]{1,30}):\s*(.+)$/);
-      const username = cm ? clean(cm[1]) : "Penonton";
-      const text = cm ? cm[2].trim() : t;
-      const isPurchase = PURCHASE_RE.test(text);
-      const isFeedback = !isPurchase && FEEDBACK_RE.test(text);
+      const isPurchase = PURCHASE_RE.test(t);
+      const isFeedback = !isPurchase && FEEDBACK_RE.test(t);
       if (isPurchase) playSfx("bell");
       const focus = g?.selectedProduct ? `[FOKUS PRODUK: ${g.selectedProduct}] ` : "";
-      speakNow("ask", `${focus}${username}: ${text}`);
+      // Recap who commented: the avatar names the viewer, then answers.
+      speakNow("ask", `${focus}Penonton bernama "${name}" komen: "${t}". Sebut nama dia dulu, kemudian jawab.`);
       if (isFeedback) setTimeout(() => playSfx("clap"), 4000);
-      setCaptionText(`💬 ${username}: ${text}`);
+      setCaptionText(`💬 ${name}: ${t}`);
     }
     setChatText("");
-  }, [chatText, greetProfiles, activeGreetId, speakNow, playSfx]);
+  }, [chatText, nameInput, greetProfiles, activeGreetId, speakNow, playSfx]);
 
   const enableSound = useCallback(() => {
     audioCtxRef.current?.resume().then(() => setSoundBlocked(false)).catch(() => {});
@@ -1168,21 +1173,26 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
 
             <div className="label">🎮 Simulation — avatar pauses &amp; answers</div>
             <div className="sim-row">
-              <input placeholder='komen | "NAMA JOIN/FOLLOW/LIKE"' value={chatText}
+              <input className="sim-name" placeholder="Nama penonton (cth: Aqil)" value={nameInput}
+                onChange={(e) => setNameInput(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter") sendChat(); }} disabled={!active} />
+            </div>
+            <div className="sim-row">
+              <input placeholder='komen | JOIN / FOLLOW / LIKE' value={chatText}
                 onChange={(e) => setChatText(e.target.value)}
                 onKeyDown={(e) => { if (e.key === "Enter") sendChat(); }} disabled={!active} />
               <button className="sim-send" onClick={sendChat} disabled={!active}>Send</button>
             </div>
-            <div className="hint">Sama macam komen TikTok sebenar:</div>
+            <div className="hint">Avatar akan sebut nama dulu, kemudian jawab komen. Sama macam komen TikTok sebenar:</div>
             <table className="sim-guide">
-              <thead><tr><th>Taip</th><th>Apa jadi</th></tr></thead>
+              <thead><tr><th>Nama</th><th>Komen</th><th>Apa jadi</th></tr></thead>
               <tbody>
-                <tr><td>Ali JOIN</td><td>Avatar greeting ("Selamat datang Ali!") → GREETED</td></tr>
-                <tr><td>Siti FOLLOW</td><td>👏 clap + greeting follow → FOLLOWS</td></tr>
-                <tr><td>Abu LIKE</td><td>Avatar greeting like → LIKES</td></tr>
-                <tr><td>Mira: berapa harga?</td><td>Avatar reply guna Product Knowledge → SEEN/REPLIED</td></tr>
-                <tr><td>dah beli powder</td><td>🔔 bell + avatar ucap terima kasih → BELI</td></tr>
-                <tr><td>best sangat!</td><td>Avatar reply, kemudian 👏 clap (feedback)</td></tr>
+                <tr><td>Ali</td><td>JOIN</td><td>Avatar greeting ("Selamat datang Ali!") → GREETED</td></tr>
+                <tr><td>Siti</td><td>FOLLOW</td><td>👏 clap + greeting follow → FOLLOWS</td></tr>
+                <tr><td>Abu</td><td>LIKE</td><td>Avatar greeting like → LIKES</td></tr>
+                <tr><td>Mira</td><td>berapa harga?</td><td>"Mira tanya berapa harga…" → reply guna Product Knowledge → SEEN/REPLIED</td></tr>
+                <tr><td>Aqil</td><td>dah beli powder</td><td>🔔 bell + "Terima kasih Aqil…" → BELI</td></tr>
+                <tr><td>Lisa</td><td>best sangat!</td><td>Avatar recap + reply, kemudian 👏 clap (feedback)</td></tr>
               </tbody>
             </table>
 
@@ -1388,6 +1398,7 @@ const STUDIO_CSS = `
 .lh-studio .rundown-status .error{font-size:12px;}
 .lh-studio .sim-row{display:flex;gap:8px;margin-top:6px;}
 .lh-studio .sim-row input{flex:1;}
+.lh-studio .sim-name{background:rgba(34,197,94,.06);border-color:rgba(34,197,94,.35)!important;}
 .lh-studio .sim-send{width:84px;border:none;border-radius:10px;font-size:13px;font-weight:800;color:#fff;cursor:pointer;background:linear-gradient(135deg,#fb8c00,#ffa726);box-shadow:0 8px 18px -8px rgba(251,140,0,.7);}
 .lh-studio .sim-send:disabled{opacity:.5;cursor:not-allowed;}
 .lh-studio .sim-guide{width:100%;border-collapse:collapse;margin-top:8px;font-size:11px;}

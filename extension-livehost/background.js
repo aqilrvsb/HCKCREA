@@ -144,7 +144,8 @@ function scheduleComment() {
       const isFeedback = !isPurchase && FEEDBACK_RE.test(c.text);
       if (isPurchase) playSfx("bell"); // 🔔 bell FIRST, then voice
       const focus = config.selectedProduct ? `[FOKUS PRODUK: ${config.selectedProduct}] ` : "";
-      const ask = `${focus}${cleanUsername(c.username)}: ${c.text}`;
+      // Recap format: avatar names the viewer first, then answers (system prompt drives recap).
+      const ask = `${focus}Penonton bernama "${cleanUsername(c.username)}" komen: "${c.text}". Sebut nama dia dulu, kemudian jawab.`;
       const ok = await speak("ask", ask);
       if (ok) {
         stats.replied++;
