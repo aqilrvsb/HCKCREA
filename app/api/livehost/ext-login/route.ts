@@ -1,13 +1,14 @@
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { mintExtToken } from "@/lib/livehost-ext-auth";
+import { getSettings } from "@/lib/settings";
 
 // Chrome-extension login: email+password verified against Supabase auth
 // (password grant via the anon key), then a long-lived signed ext token is
 // returned. Only livehost-plan users may log in.
 
 export async function POST(req: Request) {
-  const { email, password } = await req.json().catch(() => ({}));
+  const { email, password, extension_version } = await req.json().catch(() => ({}));
   if (!email || !password) {
     return NextResponse.json({ error: "email + password required" }, { status: 400 });
   }
@@ -36,5 +37,16 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Langganan Livehost telah tamat" }, { status: 403 });
   }
   const token = await mintExtToken(userId);
-  return NextResponse.json({ token, name: profile.full_name || email });
+  const ver = await getSettings(["livehost_ext_version", "livehost_ext_download_url"]);
+  const requiredVersion = String(ver["livehost_ext_version"] || "").trim();
+  const downloadUrl = String(ver["livehost_ext_download_url"] || "").trim();
+  const clientVersion = String(extension_version || "").trim();
+  const version_ok = !requiredVersion || !clientVersion || clientVersion === requiredVersion;
+  return NextResponse.json({
+    token,
+    name: profile.full_name || email,
+    version_ok,
+    required_version: requiredVersion,
+    download_url: downloadUrl,
+  });
 }

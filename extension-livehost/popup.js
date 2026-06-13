@@ -37,6 +37,11 @@ $("loginBtn").addEventListener("click", async () => {
     $("msg").textContent = "✓ Login berjaya";
     $("msg").className = "msg ok";
     if (r.name) $("user").textContent = r.name;
+    if (r.version_ok === false && r.download_url) {
+      const b = $("updateBanner"), l = $("updateLink");
+      if (b) b.classList.remove("hidden");
+      if (l) l.href = r.download_url;
+    }
     refresh();
   } else {
     $("msg").textContent = r?.error || "Login gagal";
@@ -80,6 +85,11 @@ chrome.runtime.onMessage.addListener((msg) => {
     showStats(msg.stats);
     setRunning(!!msg.running);
   }
+});
+
+// show version pill in the header
+send({ type: "GET_VERSION" }).then((r) => {
+  if (r?.version) { const v = $("ver"); if (v) v.textContent = "v" + r.version; }
 });
 
 refresh();

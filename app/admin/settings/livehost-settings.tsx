@@ -15,6 +15,9 @@ export default function LivehostSettings() {
   const [llmFbProvider, setLlmFbProvider] = useState("openrouter");
   const [llmFbModel, setLlmFbModel] = useState("openai/gpt-4.1");
   const [savingLlm, setSavingLlm] = useState(false);
+  const [extVersion, setExtVersion] = useState("1.0.0");
+  const [extUrl, setExtUrl] = useState("");
+  const [savingExt, setSavingExt] = useState(false);
   const [msg, setMsg] = useState("");
 
   const load = useCallback(async () => {
@@ -31,6 +34,7 @@ export default function LivehostSettings() {
         setLlmFbProvider(d.llm.fallback?.provider || "openrouter");
         setLlmFbModel(d.llm.fallback?.model || "");
       }
+      if (d.ext) { setExtVersion(String(d.ext.version || "1.0.0")); setExtUrl(String(d.ext.downloadUrl || "")); }
     } catch {}
   }, []);
   useEffect(() => { load(); }, [load]);
@@ -64,6 +68,18 @@ export default function LivehostSettings() {
       const d = await r.json();
       setMsg(d.ok ? "AI model saved" : d.error || "Save failed");
     } finally { setSavingLlm(false); }
+  };
+
+  const saveExt = async () => {
+    setSavingExt(true); setMsg("");
+    try {
+      const r = await fetch("/api/admin/livehost", {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ ext: { version: extVersion, downloadUrl: extUrl } }),
+      });
+      const d = await r.json();
+      setMsg(d.ok ? "Extension settings saved" : d.error || "Save failed");
+    } finally { setSavingExt(false); }
   };
 
   const inputStyle = {
@@ -153,6 +169,29 @@ export default function LivehostSettings() {
         className="mt-4 flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-bold text-white disabled:opacity-50"
         style={{ background: "linear-gradient(135deg, #3b82f6, #2563eb)" }}>
         <Save className="w-4 h-4" /> {savingLlm ? "Saving…" : "Save AI model"}
+      </button>
+
+      {/* Livehost Chrome extension version + download */}
+      <h3 className="font-bold text-sm mt-6 mb-1">Livehost Extension (Chrome)</h3>
+      <p className="text-xs text-[var(--color-text-muted)] mb-3">
+        Naikkan versi bila ship build baru. Client versi lama akan nampak prompt update.
+      </p>
+      <div className="grid md:grid-cols-2 gap-3 items-end">
+        <label className="text-xs font-bold text-[var(--color-text-secondary)]">
+          Extension version
+          <input value={extVersion} onChange={(e) => setExtVersion(e.target.value)}
+            className="mt-1 w-full px-3 py-2.5 rounded-lg text-sm font-normal" style={inputStyle} />
+        </label>
+        <label className="text-xs font-bold text-[var(--color-text-secondary)]">
+          Download URL (Google Drive / zip)
+          <input value={extUrl} onChange={(e) => setExtUrl(e.target.value)} placeholder="https://drive.google.com/..."
+            className="mt-1 w-full px-3 py-2.5 rounded-lg text-sm font-normal" style={inputStyle} />
+        </label>
+      </div>
+      <button onClick={saveExt} disabled={savingExt}
+        className="mt-4 flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-bold text-white disabled:opacity-50"
+        style={{ background: "linear-gradient(135deg, #3b82f6, #2563eb)" }}>
+        <Save className="w-4 h-4" /> {savingExt ? "Saving…" : "Save extension settings"}
       </button>
     </div>
   );

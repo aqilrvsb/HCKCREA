@@ -225,11 +225,16 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   (async () => {
     switch (msg.type) {
       case "EXT_LOGIN": {
-        const d = await api("/api/livehost/ext-login", { email: msg.email, password: msg.password });
+        const ver = chrome.runtime?.getManifest?.()?.version || "1.0.0";
+        const d = await api("/api/livehost/ext-login", { email: msg.email, password: msg.password, extension_version: ver });
         if (d.token) {
           await chrome.storage.local.set({ lhToken: d.token, lhName: d.name, lhEmail: msg.email });
-          sendResponse({ ok: true, name: d.name });
+          sendResponse({ ok: true, name: d.name, version_ok: d.version_ok, required_version: d.required_version, download_url: d.download_url, current_version: ver });
         } else sendResponse({ ok: false, error: d.error || "Login gagal" });
+        break;
+      }
+      case "GET_VERSION": {
+        sendResponse({ version: chrome.runtime?.getManifest?.()?.version || "1.0.0" });
         break;
       }
       case "START": sendResponse(await handleStart()); break;

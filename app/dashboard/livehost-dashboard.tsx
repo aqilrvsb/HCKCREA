@@ -1,13 +1,14 @@
 "use client";
 
 import { useState } from "react";
-import { Radio, CreditCard, LayoutDashboard, MessageCircle, ArrowUpRight, ScrollText, Package, BarChart3, Paperclip, HeartHandshake, Activity } from "lucide-react";
+import { Radio, CreditCard, LayoutDashboard, MessageCircle, ArrowUpRight, ScrollText, Package, BarChart3, Paperclip, HeartHandshake, Send } from "lucide-react";
 import LogoutButton from "./logout-button";
 import BillingSection from "./sections/billing";
 import AttachmentsSection from "./sections/attachments";
 import LivehostStudio, { type LiveView } from "./livehost-studio";
 import LivehostGreetings from "./livehost-greetings";
 import LivehostInteractions from "./livehost-interactions";
+import LivehostTiktok from "./livehost-tiktok";
 
 // Livehost community WhatsApp group. Hardcoded here (client component) —
 // the canonical value also lives in lib/whatsapp.ts (server-only) as
@@ -19,7 +20,7 @@ const WHATSAPP_GROUP_LIVEHOST = "https://chat.whatsapp.com/JIj9Ppto73mIIfitWikCg
 // (which itself shows ONLY the Livehost package for these users) + sign
 // out. None of the generation tabs / sidebar perks appear here.
 
-type View = "home" | "billing" | "livehost" | "scripts" | "products" | "usage" | "attachment" | "greetings" | "interactions";
+type View = "home" | "billing" | "livehost" | "scripts" | "products" | "usage" | "attachment" | "greetings" | "tiktok";
 
 const STUDIO_VIEWS: View[] = ["livehost", "scripts", "products", "usage"];
 
@@ -86,6 +87,7 @@ export default function LivehostDashboard({
           {navItem("products", "Products", Package)}
           {navItem("attachment", "Attachment", Paperclip)}
           {navItem("greetings", "Greetings", HeartHandshake)}
+          {navItem("tiktok", "TikTok Live", Send)}
           {navItem("usage", "Usage", BarChart3)}
           {navItem("billing", "Billing", CreditCard)}
           <a
@@ -133,6 +135,8 @@ export default function LivehostDashboard({
           </div>
         ) : view === "greetings" ? (
           <div className="lh-studio max-w-4xl"><LivehostGreetings /></div>
+        ) : view === "tiktok" ? (
+          <LivehostTiktok email={email} />
         ) : STUDIO_VIEWS.includes(view) ? null : (
           /* DASHBOARD (home) = live interaction analytics */
           <div className="lh-studio max-w-6xl">

@@ -80,7 +80,7 @@ export async function GET(req: Request) {
     );
   }
 
-  const rates = await getSettings(["livehost_gpu_rate_hour", "livehost_voice_rate_1k", "livehost_llm"]);
+  const rates = await getSettings(["livehost_gpu_rate_hour", "livehost_voice_rate_1k", "livehost_llm", "livehost_ext_version", "livehost_ext_download_url"]);
   const llmRaw = rates["livehost_llm"] || {};
   return NextResponse.json({
     llm: {
@@ -90,6 +90,10 @@ export async function GET(req: Request) {
     rates: {
       gpuRateHour: rates["livehost_gpu_rate_hour"] || "6.00",
       voiceRate1k: rates["livehost_voice_rate_1k"] || "0.30",
+    },
+    ext: {
+      version: rates["livehost_ext_version"] || "1.0.0",
+      downloadUrl: rates["livehost_ext_download_url"] || "",
     },
     clients: (profiles || []).map((p) => ({
       id: p.id,
@@ -125,7 +129,22 @@ export async function GET(req: Request) {
 export async function POST(req: Request) {
   if (!(await requireAdmin())) return NextResponse.json({ error: "forbidden" }, { status: 403 });
   const body = await req.json().catch(() => ({}));
-  const { userId, backendUrl, vastInstanceId, notes, rates, llm, action } = body || {};
+  const { userId, backendUrl, vastInstanceId, notes, rates, llm, action, ext } = body || {};
+
+  // Livehost extension version + download URL (for version gating + install).
+  if (ext) {
+    const admin = createAdminClient();
+    const updates: [string, string][] = [];
+    if (ext.version != null) updates.push(["livehost_ext_version", String(ext.version)]);
+    if (ext.downloadUrl != null) updates.push(["livehost_ext_download_url", String(ext.downloadUrl)]);
+    for (const [key, value] of updates) {
+      await admin.from("app_settings").upsert({
+        key, value: JSON.stringify(value), category: "livehost", updated_at: new Date().toISOString(),
+      });
+    }
+    invalidateSettingsCache(updates.map(([k]) => k));
+    return NextResponse.json({ ok: true });
+  }
 
   // Manual provisioning trigger (same path the payment webhook uses).
   if (action === "provision" && userId) {
