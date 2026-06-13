@@ -15,6 +15,10 @@
 const BASE = "https://peninglab.com";
 const QUEUE_CAP = 50;
 
+// Clicking the toolbar icon opens the resizable native side panel (studio.html),
+// docked beside the page — drag Chrome's divider to resize width.
+try { chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }); } catch (e) {}
+
 const PURCHASE_RE = /\b(done|dah\s*beli|sudah\s*beli|checkout|dah\s*order|ordered?|dah\s*bayar)\b/i;
 const FEEDBACK_RE = /\b(best|sedap|berkesan|terbaik|memang\s*bagus|puas\s*hati|recommended)\b/i;
 

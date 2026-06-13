@@ -13,8 +13,9 @@ so it comes out of the **avatar's mouth**.
 1. Download the `extension-livehost` folder (or the packed .zip we provide).
 2. Chrome → `chrome://extensions` → enable **Developer mode** (top-right).
 3. **Load unpacked** → select the `extension-livehost` folder.
-4. Pin it, click the icon, **login with the PeningLab email + password**
-   (must be on the Livehost plan).
+4. Click the extension icon — it opens a **resizable side panel** beside the
+   page (drag Chrome's divider to make it wider/narrower). **Login with the
+   PeningLab email + password** (must be on the Livehost plan).
 
 ## Daily use
 1. PeningLab → **Livehost** tab → **⏻ On GPU** → **▶ Start** (avatar streaming).
@@ -66,7 +67,8 @@ never reach the browser.
 - `content.js` — TikTok chat DOM watcher (comment/join/follow/like detection)
 - `background.js` — the brain: queues, greeting rotation, delays, SFX, stats
 - `offscreen.html` / `offscreen.js` — plays bell/clap mp3s (OBS captures audio)
-- `popup.html` / `popup.js` — login, START/STOP, live stats, simulation, SFX
+- `studio.html` — native side-panel UI (login, START/STOP, stats, simulation, SFX)
+- `popup.js` — shared logic for the side panel
 - `sfx/` — bell.mp3, clap.mp3, cheer.mp3
 
 ## Regenerate / update
