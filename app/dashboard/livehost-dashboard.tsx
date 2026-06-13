@@ -87,9 +87,21 @@ export default function LivehostDashboard({
           {navItem("products", "Products", Package)}
           {navItem("attachment", "Attachment", Paperclip)}
           {navItem("greetings", "Greetings", HeartHandshake)}
-          {navItem("tiktok", "TikTok Live", Send)}
           {navItem("usage", "Usage", BarChart3)}
           {navItem("billing", "Billing", CreditCard)}
+          {/* Colourful highlighted CTA — install/connect the extension */}
+          <button
+            onClick={() => setView("tiktok")}
+            className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-extrabold text-white transition-transform hover:-translate-y-0.5"
+            style={{
+              background: "linear-gradient(135deg, #16a34a, #22c55e, #4ade80)",
+              boxShadow: view === "tiktok" ? "0 4px 18px rgba(34,197,94,0.5)" : "0 4px 14px rgba(34,197,94,0.3)",
+              border: view === "tiktok" ? "1px solid #bbf7d0" : "1px solid transparent",
+            }}
+          >
+            <Send className="w-4 h-4 flex-shrink-0" />
+            TikTok Live
+          </button>
           <a
             href={WHATSAPP_GROUP_LIVEHOST}
             target="_blank"

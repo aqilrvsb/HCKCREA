@@ -1,9 +1,10 @@
 "use client";
 
-// "TikTok Live" tab — download + install the PeningLab Livehost Chrome
-// extension and connect a real TikTok LIVE to the AI avatar.
+// "TikTok Live" tab — install SOP card (visual port of the Auto Post SOP),
+// green-themed for Livehost. Download the extension + step-by-step Load Unpacked.
 
 import { useEffect, useState } from "react";
+import { Download, ArrowUpRight } from "lucide-react";
 
 export default function LivehostTiktok({ email }: { email: string }) {
   const [info, setInfo] = useState<{ version: string; download_url: string } | null>(null);
@@ -11,60 +12,73 @@ export default function LivehostTiktok({ email }: { email: string }) {
     fetch("/api/livehost/ext-info").then((r) => r.json()).then(setInfo).catch(() => {});
   }, []);
 
-  const card: React.CSSProperties = {
-    background: "var(--color-bg-card)", border: "1px solid var(--color-border)", borderRadius: 16, padding: 20,
-  };
+  const dot = (
+    <span className="mt-1.5 w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ background: "#16a34a" }} />
+  );
 
   return (
-    <div className="max-w-3xl">
-      <div className="flex items-center gap-3 mb-5">
-        <div className="w-11 h-11 rounded-2xl flex items-center justify-center"
-          style={{ background: "linear-gradient(135deg, #16a34a, #4ade80)" }}>
-          <span style={{ fontSize: 22 }}>🎙️</span>
+    <div className="max-w-md">
+      <div className="bg-white rounded-2xl overflow-hidden shadow-2xl">
+        {/* Green-gradient header */}
+        <div className="px-6 py-5 flex items-center gap-2.5 text-white rounded-t-2xl"
+          style={{ background: "linear-gradient(135deg, #16a34a 0%, #22c55e 100%)" }}>
+          <span className="text-xl">🎙️</span>
+          <h3 className="font-display font-extrabold text-base">PeningLab Livehost — SOP</h3>
         </div>
-        <div>
-          <h1 className="font-display font-extrabold text-2xl">TikTok Live</h1>
-          <p className="text-sm" style={{ color: "var(--color-text-secondary)" }}>
-            Sambung TikTok LIVE sebenar anda ke AI avatar — auto greeting, auto reply, auto sound effects.
-          </p>
-        </div>
-      </div>
 
-      <div style={card} className="mb-4">
-        <div className="flex items-center justify-between flex-wrap gap-3">
-          <div>
-            <div className="font-bold text-lg">PeningLab Livehost Extension</div>
-            <div className="text-xs" style={{ color: "var(--color-text-muted)" }}>
-              Versi semasa: <b>{info?.version || "—"}</b> · Chrome
-            </div>
+        {/* Body */}
+        <div className="p-6 text-gray-900">
+          <div className="flex items-center gap-3 mb-4">
+            <div className="w-7 h-7 rounded-full flex items-center justify-center font-bold text-green-700 text-sm"
+              style={{ background: "#bbf7d0" }}>1</div>
+            <h4 className="font-display font-extrabold text-lg">Install Extension</h4>
           </div>
-          {info?.download_url ? (
-            <a href={info.download_url} target="_blank" rel="noopener noreferrer"
-              className="px-5 py-2.5 rounded-xl text-sm font-bold text-white"
-              style={{ background: "linear-gradient(135deg, #16a34a, #22c55e)" }}>
-              ⬇ Download Extension
-            </a>
-          ) : (
-            <span className="text-xs" style={{ color: "var(--color-text-muted)" }}>Link download belum disediakan admin</span>
-          )}
-        </div>
-      </div>
 
-      <div style={card}>
-        <div className="font-bold mb-3">Cara pasang &amp; guna</div>
-        <ol className="text-sm space-y-2" style={{ color: "var(--color-text-secondary)", paddingLeft: 18, listStyle: "decimal" }}>
-          <li>Download &amp; unzip extension di atas.</li>
-          <li>Buka <b>chrome://extensions</b> → hidupkan <b>Developer mode</b> (atas kanan).</li>
-          <li>Klik <b>Load unpacked</b> → pilih folder extension.</li>
-          <li>Klik ikon extension → ia buka panel sebelah (boleh seret besar/kecil) → <b>Login</b> guna email PeningLab anda (<b>{email}</b>).</li>
-          <li>Di sini: tab <b>Livehost</b> → <b>On GPU</b> → <b>Start</b> (avatar mula streaming).</li>
-          <li>OBS: tangkap avatar (Browser/Window source) → push ke TikTok LIVE.</li>
-          <li>Buka tab <b>TikTok Shop LIVE console</b> → di extension tekan <b>START</b>. Siap — avatar auto greet &amp; reply.</li>
-        </ol>
-        <div className="mt-4 text-xs px-3 py-2 rounded-lg"
-          style={{ background: "rgba(34,197,94,0.08)", border: "1px solid rgba(34,197,94,0.25)", color: "#4ade80" }}>
-          Tetapan greeting, produk &amp; sound effects di tab <b>Greetings</b> / <b>Products</b>. Semua interaksi
-          direkod di <b>Dashboard</b> secara real-time.
+          <p className="text-sm font-bold mb-4" style={{ color: "#16a34a" }}>
+            Current Version: v{info?.version || "…"}
+          </p>
+
+          <ul className="space-y-3 text-sm leading-relaxed">
+            <li className="flex items-start gap-2.5">
+              {dot}
+              <div>
+                <div>Download extension</div>
+                {info?.download_url ? (
+                  <a href={info.download_url} target="_blank" rel="noreferrer"
+                    className="inline-flex items-center gap-1.5 mt-2 px-4 py-2 rounded-lg font-bold text-sm transition-transform hover:-translate-y-0.5"
+                    style={{ background: "#f0fdf4", border: "1px solid #86efac", color: "#16a34a" }}>
+                    <Download className="w-4 h-4" />
+                    Download Extension <ArrowUpRight className="w-3.5 h-3.5" />
+                  </a>
+                ) : (
+                  <div className="text-xs text-gray-500 italic mt-1">
+                    Admin belum sediakan link download. Hubungi support.
+                  </div>
+                )}
+              </div>
+            </li>
+            <li className="flex items-start gap-2.5">{dot}<div>Extract Folder</div></li>
+            <li className="flex items-start gap-2.5">{dot}
+              <div>Open Chrome, type{" "}
+                <span className="font-mono font-bold bg-gray-100 px-1.5 py-0.5 rounded">chrome://extensions/</span>
+              </div>
+            </li>
+            <li className="flex items-start gap-2.5">{dot}<div>Enable <span className="font-bold">Developer Mode</span></div></li>
+            <li className="flex items-start gap-2.5">{dot}<div>Click <span className="font-bold">Load Unpacked</span></div></li>
+            <li className="flex items-start gap-2.5">{dot}<div>Select the extracted extension folder</div></li>
+          </ul>
+
+          <div className="flex items-center gap-3 mt-6 mb-3">
+            <div className="w-7 h-7 rounded-full flex items-center justify-center font-bold text-green-700 text-sm"
+              style={{ background: "#bbf7d0" }}>2</div>
+            <h4 className="font-display font-extrabold text-lg">Login &amp; Connect</h4>
+          </div>
+          <ul className="space-y-3 text-sm leading-relaxed">
+            <li className="flex items-start gap-2.5">{dot}<div>Klik ikon extension → panel buka di tepi → <span className="font-bold">Login</span> guna email <span className="font-bold">{email}</span></div></li>
+            <li className="flex items-start gap-2.5">{dot}<div>Tab <span className="font-bold">Livehost</span> → <span className="font-bold">On GPU</span> → <span className="font-bold">Start</span> (avatar streaming)</div></li>
+            <li className="flex items-start gap-2.5">{dot}<div>OBS: tangkap avatar → push ke TikTok LIVE</div></li>
+            <li className="flex items-start gap-2.5">{dot}<div>Buka tab TikTok Shop LIVE → di extension tekan <span className="font-bold">START</span></div></li>
+          </ul>
         </div>
       </div>
     </div>
