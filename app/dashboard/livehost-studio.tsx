@@ -1133,14 +1133,9 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
           <div className="usage-card">
             {usageData ? (
               <>
-                <div className="usage-big">RM {usageData.month.totalCost.toFixed(2)}</div>
+                <div className="usage-big" style={{ color: "var(--accent-2)" }}>RM {usageData.month.totalCost.toFixed(2)}</div>
                 <div className="hint">
-                  {Math.floor(usageData.month.streamSec / 3600)}h {Math.floor((usageData.month.streamSec % 3600) / 60)}m streaming
-                  (RM {usageData.month.gpuCost.toFixed(2)}) + {usageData.month.voiceChars.toLocaleString()} voice chars
-                  (RM {usageData.month.voiceCost.toFixed(2)})
-                </div>
-                <div className="hint">
-                  Kadar: RM {usageData.rates.gpuRateHour}/jam GPU • RM {usageData.rates.voiceRate1k}/1k aksara suara
+                  Jumlah masa live: {Math.floor(usageData.month.streamSec / 3600)}j {Math.floor((usageData.month.streamSec % 3600) / 60)}m
                 </div>
               </>
             ) : (
@@ -1152,15 +1147,13 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
           <div className="usage-card" style={{ padding: 0, overflow: "hidden" }}>
             <table className="sessions-table">
               <thead>
-                <tr><th>Tarikh / Masa</th><th>Durasi</th><th>GPU</th><th>Suara</th><th>Jumlah</th><th>Status</th></tr>
+                <tr><th>Tarikh / Masa</th><th>Durasi</th><th>Jumlah Kos</th><th>Status</th></tr>
               </thead>
               <tbody>
                 {(usageData?.sessions || []).map((s) => (
                   <tr key={s.id}>
                     <td>{new Date(s.startedAt).toLocaleString("ms-MY", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit", second: "2-digit" })}</td>
                     <td>{Math.floor(s.durationSec / 3600)}:{String(Math.floor((s.durationSec % 3600) / 60)).padStart(2, "0")}:{String(s.durationSec % 60).padStart(2, "0")}</td>
-                    <td>RM {s.gpuCost.toFixed(2)}</td>
-                    <td>RM {s.voiceCost.toFixed(2)}</td>
                     <td><b>RM {s.totalCost.toFixed(2)}</b></td>
                     <td>
                       <span className={`sess-badge ${s.status}`}>
@@ -1170,7 +1163,7 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
                   </tr>
                 ))}
                 {(!usageData || usageData.sessions.length === 0) && (
-                  <tr><td colSpan={6} style={{ textAlign: "center", color: "var(--muted)" }}>Belum ada sesi streaming.</td></tr>
+                  <tr><td colSpan={4} style={{ textAlign: "center", color: "var(--muted)" }}>Belum ada sesi streaming.</td></tr>
                 )}
               </tbody>
             </table>

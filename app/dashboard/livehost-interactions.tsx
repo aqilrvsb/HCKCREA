@@ -70,25 +70,17 @@ export default function LivehostInteractions() {
         </div>
       </div>
 
-      {/* Live time + cost (billed per-second, shown in minutes; admin rates) */}
-      <div className="stats-grid" style={{ marginTop: 14, gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))" }}>
+      {/* Live time + total cost (per-second billing, shown in minutes; admin rates) */}
+      <div className="stats-grid" style={{ marginTop: 14, gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))" }}>
         <div className="usage-card" style={{ textAlign: "center", borderColor: "rgba(91,108,255,.4)" }}>
           <div className="usage-big" style={{ color: "#5b6cff" }}>
             {usage ? `${Math.floor(usage.streamSec / 3600)}j ${Math.floor((usage.streamSec % 3600) / 60)}m` : "—"}
           </div>
           <div className="hint" style={{ marginTop: 2 }}>JUMLAH MASA LIVE</div>
         </div>
-        <div className="usage-card" style={{ textAlign: "center" }}>
-          <div className="usage-big">RM {usage ? usage.gpuCost.toFixed(2) : "0.00"}</div>
-          <div className="hint" style={{ marginTop: 2 }}>KOS GPU{rates ? ` · RM${rates.gpuRateHour}/j` : ""}</div>
-        </div>
-        <div className="usage-card" style={{ textAlign: "center" }}>
-          <div className="usage-big">RM {usage ? usage.voiceCost.toFixed(2) : "0.00"}</div>
-          <div className="hint" style={{ marginTop: 2 }}>KOS SUARA</div>
-        </div>
         <div className="usage-card" style={{ textAlign: "center", borderColor: "rgba(61,220,151,.4)" }}>
           <div className="usage-big" style={{ color: "var(--accent-2)" }}>RM {usage ? usage.totalCost.toFixed(2) : "0.00"}</div>
-          <div className="hint" style={{ marginTop: 2 }}>JUMLAH KOS</div>
+          <div className="hint" style={{ marginTop: 2 }}>JUMLAH KOS LIVE</div>
         </div>
       </div>
 
