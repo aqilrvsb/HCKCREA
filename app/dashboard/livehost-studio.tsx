@@ -140,7 +140,14 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
   const [stock, setStock] = useState<{ id: string; file: string; label: string }[]>([]);
   const [stockSel, setStockSel] = useState("");
   const [soundBlocked, setSoundBlocked] = useState(false);
-  const [productKb, setProductKb] = useState("");
+  // Product Knowledge LIBRARY (pick ONE active in the rundown)
+  const [products, setProducts] = useState<{ id: string; title: string; text: string }[]>([]);
+  const [activeProductId, setActiveProductId] = useState("");
+  // Greetings LIBRARY (pick ONE active in the rundown); full config per profile
+  type GreetProfile = { id: string; title: string; greetings: string; greetDelayMin: number; greetDelayMax: number; followGreeting: string; likeGreeting: string; commentDelayMin: number; commentDelayMax: number; selectedProduct: string; sfxAuto: boolean };
+  const [greetProfiles, setGreetProfiles] = useState<GreetProfile[]>([]);
+  const [activeGreetId, setActiveGreetId] = useState("");
+  const activeKb = (products.find((x) => x.id === activeProductId)?.text) || "";
   const [volume, setVolume] = useState(1.5);
   const [speed, setSpeed] = useState(1.0);
   const [emotion, setEmotion] = useState("fluent"); // MiniMax: fluent (natural flow) | happy | neutral | surprised | sad
@@ -340,10 +347,10 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
     if (!active) return;
     const t = setTimeout(() => {
       const dc = dcRef.current;
-      if (dc && dc.readyState === "open") dc.send(JSON.stringify({ kind: "kb", text: buildKbPrompt(productKb) }));
+      if (dc && dc.readyState === "open") dc.send(JSON.stringify({ kind: "kb", text: buildKbPrompt(activeKb) }));
     }, 800);
     return () => clearTimeout(t);
-  }, [productKb, active, buildKbPrompt]);
+  }, [activeKb, active, buildKbPrompt]);
 
   const onStagePointerDown = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
     if ((e.target as HTMLElement).closest(".fs-btn")) return;
@@ -392,8 +399,21 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
       if (Array.isArray(lib)) { setScripts(lib); scriptsRef.current = lib; }
     } catch {}
     try {
-      const kb = localStorage.getItem("livehost_products");
-      if (kb) setProductKb(kb);
+      const lib = JSON.parse(localStorage.getItem("livehost_products_lib") || "[]");
+      if (Array.isArray(lib) && lib.length) {
+        setProducts(lib);
+        setActiveProductId(localStorage.getItem("livehost_active_product") || lib[0].id);
+      } else {
+        // migrate the old single KB, if any
+        const oldKb = localStorage.getItem("livehost_products");
+        const seed = [{ id: "p1", title: "Produk 1", text: oldKb || "" }];
+        setProducts(seed); setActiveProductId("p1");
+      }
+      const glib = JSON.parse(localStorage.getItem("livehost_greet_lib") || "[]");
+      if (Array.isArray(glib) && glib.length) {
+        setGreetProfiles(glib);
+        setActiveGreetId(localStorage.getItem("livehost_active_greet") || glib[0].id);
+      }
     } catch {}
     fetch("/overlays/manifest.json").then((r) => r.json()).then(setOverlays).catch(() => {});
     fetch("/avatars/manifest.json").then((r) => r.json()).then((list) => {
@@ -414,8 +434,40 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
     try { localStorage.setItem("livehost_scripts", JSON.stringify(scripts)); } catch {}
   }, [scripts]);
   useEffect(() => {
-    try { localStorage.setItem("livehost_products", productKb); } catch {}
-  }, [productKb]);
+    try {
+      localStorage.setItem("livehost_products_lib", JSON.stringify(products));
+      localStorage.setItem("livehost_active_product", activeProductId);
+    } catch {}
+  }, [products, activeProductId]);
+  useEffect(() => {
+    try { localStorage.setItem("livehost_active_greet", activeGreetId); } catch {}
+  }, [activeGreetId]);
+  // Re-read the greeting library (edited in the Greetings tab) when returning
+  // to the Live view, so the dropdown reflects the latest profiles.
+  useEffect(() => {
+    if (view !== "live") return;
+    try {
+      const glib = JSON.parse(localStorage.getItem("livehost_greet_lib") || "[]");
+      if (Array.isArray(glib)) {
+        setGreetProfiles(glib);
+        const act = localStorage.getItem("livehost_active_greet") || (glib[0]?.id || "");
+        setActiveGreetId((cur) => (glib.some((g: any) => g.id === cur) ? cur : act));
+      }
+    } catch {}
+  }, [view]);
+  // Sync the active greeting profile to the DB so the extension uses it.
+  useEffect(() => {
+    const g = greetProfiles.find((x) => x.id === activeGreetId);
+    if (!g) return;
+    const t = setTimeout(() => {
+      const { id, title, ...config } = g;
+      fetch("/api/livehost/greet-config", {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ config }),
+      }).catch(() => {});
+    }, 600);
+    return () => clearTimeout(t);
+  }, [greetProfiles, activeGreetId]);
 
   // Light GPU state poll (all views) so the On/Off buttons reflect reality.
   useEffect(() => {
@@ -668,7 +720,7 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
       await waitForIceGatheringComplete(pc);
 
       const offerBody = JSON.stringify({
-        engine: { type: "minimax", voice_id: voiceId, system_prompt: buildKbPrompt(productKb), speed, emotion },
+        engine: { type: "minimax", voice_id: voiceId, system_prompt: buildKbPrompt(activeKb), speed, emotion },
         sdp: pc.localDescription!.sdp,
         type: pc.localDescription!.type,
         avatar_id: avatarId,
@@ -698,7 +750,7 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
       setError(e?.message || String(e));
       stop();
     }
-  }, [avatarId, backgrounds, voiceId, stop, speakNext, startWordSweep, buildKbPrompt, productKb, speed, emotion, volume, configErr, addVoiceChars, beginSession]);
+  }, [avatarId, backgrounds, voiceId, stop, speakNext, startWordSweep, buildKbPrompt, activeKb, speed, emotion, volume, configErr, addVoiceChars, beginSession]);
 
   const sendControl = useCallback((payload: object): boolean => {
     const dc = dcRef.current;
@@ -748,6 +800,18 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
     speakNext();
     speakNext();
   }, [active, sendControl, speakNext]);
+
+  const addProduct = useCallback(() => {
+    const id = "p" + Date.now().toString(36);
+    setProducts((prev) => [...prev, { id, title: `Produk ${prev.length + 1}`, text: "" }]);
+    setActiveProductId(id);
+  }, []);
+  const updateProduct = useCallback((id: string, patch: Partial<{ title: string; text: string }>) => {
+    setProducts((prev) => prev.map((x) => (x.id === id ? { ...x, ...patch } : x)));
+  }, []);
+  const deleteProduct = useCallback((id: string) => {
+    setProducts((prev) => prev.filter((x) => x.id !== id));
+  }, []);
 
   const addScript = useCallback(() => {
     const id = "s" + Date.now().toString(36);
@@ -853,7 +917,19 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
             </div>
 
             <div className="queue-col">
-              <div className="label">Rundown — play order</div>
+              <div className="label">📦 Product Knowledge</div>
+              <select value={activeProductId} onChange={(e) => setActiveProductId(e.target.value)}>
+                {products.length === 0 && <option value="">— Tiada (tab Products) —</option>}
+                {products.map((pp) => (<option key={pp.id} value={pp.id}>{pp.title}</option>))}
+              </select>
+
+              <div className="label" style={{ marginTop: 10 }}>👋 Greetings</div>
+              <select value={activeGreetId} onChange={(e) => setActiveGreetId(e.target.value)}>
+                {greetProfiles.length === 0 && <option value="">— Tiada (tab Greetings) —</option>}
+                {greetProfiles.map((g) => (<option key={g.id} value={g.id}>{g.title}</option>))}
+              </select>
+
+              <div className="label" style={{ marginTop: 10 }}>📜 Scripts — play order</div>
               <div className="queue-list">
                 {rundown.map((id, i) => {
                   const sc = scripts.find((x) => x.id === id);
@@ -1029,16 +1105,24 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
         </div>
       </div>
 
-      {/* ============ PRODUCTS VIEW ============ */}
+      {/* ============ PRODUCTS VIEW (library) ============ */}
       <div style={{ display: view === "products" ? undefined : "none" }}>
         <div className="panel single">
-          <div className="label">Product knowledge — used to answer customer chat</div>
-          <textarea rows={18} placeholder={"Paste everything about your products:\n\nCompact Powder — RM19.90. Untuk muka berminyak...\nFoundation — RM49.90...\n\nVoucher: RM25 TikTok Live untuk checkout masa live.\nFAQ: COD ada? Ya..."}
-            value={productKb} onChange={(e) => setProductKb(e.target.value)} />
-          <div className="hint">
-            When a viewer chats, the AI answers in casual Bahasa Melayu using ONLY this knowledge.
-            Edits apply <b>live</b> — no restart needed. Saved automatically.
-          </div>
+          <button className="filebtn" onClick={addProduct}>➕ Produk baru</button>
+          {products.length === 0 && <div className="hint">Cipta set product knowledge. Pilih satu yang aktif di Rundown (Livehost tab).</div>}
+          {products.map((pp) => (
+            <div key={pp.id} className="script-card">
+              <div className="script-head">
+                <input value={pp.title} onChange={(e) => updateProduct(pp.id, { title: e.target.value })} />
+                {pp.id === activeProductId && <span className="status-line" style={{ margin: 0, alignSelf: "center" }}>● aktif</span>}
+                <button onClick={() => setActiveProductId(pp.id)} title="Jadikan aktif">✓</button>
+                <button onClick={() => deleteProduct(pp.id)} title="Padam">🗑</button>
+              </div>
+              <textarea rows={10} placeholder={"Compact Powder — RM19.90...\nFoundation — RM49.90...\nVoucher: RM25 checkout masa live."}
+                value={pp.text} onChange={(e) => updateProduct(pp.id, { text: e.target.value })} />
+            </div>
+          ))}
+          <div className="hint">AI jawab chat guna HANYA knowledge yang aktif. Edit apply live.</div>
         </div>
       </div>
 
