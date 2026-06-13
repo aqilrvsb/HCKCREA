@@ -157,7 +157,6 @@ tmux kill-session -t watchdog 2>/dev/null
 TOKEN=$(cat /workspace/cf_tunnel_token)
 tmux new-session -d -s avtr "/workspace/start_streamer.sh > /workspace/streamer.log 2>&1"
 tmux new-session -d -s tunnel "/usr/local/bin/cloudflared tunnel run --token \${TOKEN} > /workspace/tunnel.log 2>&1"
-tmux new-session -d -s watchdog "/workspace/idle_watchdog.sh > /workspace/watchdog.log 2>&1"
 echo booted
 BTEOF
 chmod +x /workspace/start_streamer.sh /workspace/idle_watchdog.sh /workspace/boot.sh

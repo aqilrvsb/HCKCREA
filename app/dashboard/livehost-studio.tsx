@@ -919,13 +919,11 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
     } catch {}
   }, []);
 
-  // Make the avatar speak an immediate line (greeting/reply) — interrupts the
-  // script momentarily, same as a customer interaction.
+  // Make the avatar speak a greeting/reply. NO upfront interrupt — the GPU
+  // engine keeps the script talking and barges in only when the reply audio is
+  // ready (prepare-then-swap), so there is no silent gap.
   const speakNow = useCallback((kind: "say" | "ask", text: string) => {
     if (!text.trim()) return false;
-    if (sayTimerRef.current) { clearTimeout(sayTimerRef.current); sayTimerRef.current = null; }
-    audioEndRef.current = performance.now();
-    sendControl({ kind: "interrupt" });
     const id = "C" + ++sayCounterRef.current;
     pendingSayRef.current.set(id, { chat: true });
     return sendControl({ kind, text, id });
