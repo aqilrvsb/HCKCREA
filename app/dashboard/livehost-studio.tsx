@@ -775,17 +775,24 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
         avatar_id: avatarId,
         background_id: backgrounds.includes("plain_white") ? "plain_white" : (backgrounds[0] || "plain_white"),
       });
-      let res = await fetch(`${backendRef.current}/offer`, {
-        method: "POST", headers: { "content-type": "application/json" }, body: offerBody,
-      });
-      if (!res.ok) {
-        // renderer may still be warming after a cold boot — one retry
-        await new Promise((r) => setTimeout(r, 15000));
-        res = await fetch(`${backendRef.current}/offer`, {
-          method: "POST", headers: { "content-type": "application/json" }, body: offerBody,
-        });
+      // Robust offer: the renderer may still be warming the first few seconds
+      // after a cold boot. Retry up to 6× (~90s) with a fresh SDP each time so
+      // a slightly-slow renderer never surfaces an error to the client.
+      let res: Response | null = null;
+      for (let attempt = 0; attempt < 6; attempt++) {
+        if (attempt > 0) {
+          setWakeMsg("Menyambung ke avatar… ⏳");
+          await new Promise((r) => setTimeout(r, 15000));
+        }
+        try {
+          res = await fetch(`${backendRef.current}/offer`, {
+            method: "POST", headers: { "content-type": "application/json" }, body: offerBody,
+          });
+          if (res.ok) break;
+        } catch { res = null; }
       }
-      if (!res.ok) throw new Error(`offer ${res.status}: ${await res.text()}`);
+      setWakeMsg("");
+      if (!res || !res.ok) throw new Error("Avatar tak sedia lagi — tekan ▶ Start sekali lagi.");
       await pc.setRemoteDescription(await res.json());
       // active flips in onconnectionstatechange when ICE truly connects;
       // guard: if not connected within 25s, fail cleanly so Start can retry.
