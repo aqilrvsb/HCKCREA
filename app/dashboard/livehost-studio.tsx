@@ -655,34 +655,23 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
     if (!avatarId) { setError("Pick or upload a face first."); return; }
     setConnecting(true);
     try {
-      // AUTO-WAKE: check if the GPU is alive; if yes proceed, if not start it
-      // first and wait until the backend answers, then continue streaming.
+      // Start ONLY connects the stream — it does NOT manage GPU power. The GPU
+      // is pre-warmed when the Livehost tab opens and never auto-stops, so it's
+      // already up. We just wait for the backend to answer, then connect.
       let backendUp = false;
-      try {
-        const ping = await fetch(`${backendRef.current}/avatars`, { signal: AbortSignal.timeout(6000) });
-        backendUp = ping.ok;
-      } catch {}
-      if (!backendUp) {
-        setWakeMsg("GPU sedang dihidupkan… ⏳");
-        await fetch("/api/livehost/gpu", {
-          method: "POST", headers: { "content-type": "application/json" },
-          body: JSON.stringify({ action: "start" }),
-        }).catch(() => {});
-        for (let i = 0; i < 42 && !backendUp; i++) {
-          await new Promise((r) => setTimeout(r, 10000));
-          try {
-            const ping = await fetch(`${backendRef.current}/avatars`, { signal: AbortSignal.timeout(5000) });
-            if (ping.ok) backendUp = true;
-          } catch {}
-          if (!backendUp) setWakeMsg(`GPU sedang dihidupkan… ${(i + 1) * 10}s ⏳`);
+      for (let i = 0; i < 42 && !backendUp; i++) {
+        try {
+          const ping = await fetch(`${backendRef.current}/avatars`, { signal: AbortSignal.timeout(5000) });
+          if (ping.ok) backendUp = true;
+        } catch {}
+        if (!backendUp) {
+          setWakeMsg(`Menyambung ke avatar… ${i * 5}s ⏳`);
+          await new Promise((r) => setTimeout(r, 5000));
         }
-        if (!backendUp) { setWakeMsg(""); throw new Error("GPU tak respons — cuba ▶ Start sekali lagi."); }
-        setServerState("running");
-        loadAvatarsRef.current?.();
-        setWakeMsg("GPU sedia — menyambung… ⏳");
-        await new Promise((r) => setTimeout(r, 10000)); // renderer warm-up
-        setWakeMsg("");
       }
+      if (!backendUp) { setWakeMsg(""); throw new Error("Avatar tak sedia — cuba ▶ Start sekali lagi."); }
+      loadAvatarsRef.current?.();
+      setWakeMsg("");
       const iceRes = await fetch(`${backendRef.current}/ice-servers`);
       if (!iceRes.ok) throw new Error(`ice-servers ${iceRes.status}`);
       const cfg: IceConfig = await iceRes.json();
