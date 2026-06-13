@@ -3,107 +3,106 @@
 <head>
 <meta charset="UTF-8">
 <style>
+  :root {
+    --green-400: #4ADE80; --green-500: #22c55e; --green-600: #16a34a; --green-700: #15803d;
+    --radius-sm: 6px; --radius-md: 10px; --radius-lg: 14px;
+  }
   * { margin: 0; padding: 0; box-sizing: border-box; }
   html, body { height: 100%; }
   body {
-    width: 100%;
     font-family: -apple-system, 'SF Pro Display', 'Inter', sans-serif;
-    background: linear-gradient(160deg, #e8f5e9 0%, #f1f8e9 30%, #ffffff 70%, #e8f5e9 100%);
-    color: #1b5e20; overflow-y: auto;
+    background: #f4faf4; color: #1a3a1a; overflow-y: auto; font-size: 13px;
   }
-  .wrap { max-width: 640px; margin: 0 auto; }
 
-  .logo-section { text-align: center; padding: 22px 20px 14px; }
-  .logo-icon {
-    width: 60px; height: 60px;
-    background: linear-gradient(135deg, #4caf50, #66bb6a);
-    border-radius: 18px; display: flex; align-items: center; justify-content: center;
-    margin: 0 auto 12px; font-size: 28px; box-shadow: 0 8px 24px rgba(76,175,80,0.25);
+  /* Green header banner (Creative Hack style) */
+  .header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 12px 14px; gap: 8px;
+    background: linear-gradient(135deg, #16a34a, #22c55e, #4ADE80);
+    box-shadow: 0 4px 18px rgba(22,163,74,0.25); position: sticky; top: 0; z-index: 5;
   }
-  .logo-title {
-    font-size: 21px; font-weight: 800; letter-spacing: -0.5px;
-    background: linear-gradient(135deg, #2e7d32, #4caf50);
-    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+  .header-logo { display: flex; align-items: center; gap: 6px; font-size: 15px; font-weight: 800; color: #fff; }
+  .header-actions { display: flex; align-items: center; gap: 6px; }
+  .header-email { font-size: 9px; color: rgba(255,255,255,0.85); max-width: 110px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .status-badge {
+    font-size: 8px; font-weight: 800; text-transform: uppercase; letter-spacing: .4px;
+    color: #fff; background: rgba(255,255,255,0.22); border: 1px solid rgba(255,255,255,0.35);
+    padding: 3px 9px; border-radius: 999px;
   }
-  .logo-sub { font-size: 11px; color: #81c784; margin-top: 4px; font-weight: 600; }
-  .user-pill {
-    display: inline-block; margin-top: 8px; font-size: 10px; font-weight: 700;
-    color: #2e7d32; background: rgba(76,175,80,0.12); border: 1px solid rgba(76,175,80,0.25);
-    border-radius: 999px; padding: 3px 12px; text-transform: uppercase; letter-spacing: 0.5px;
+  .status-badge.live { background: #ef4444; border-color: #ef4444; }
+
+  .main { padding: 12px; display: flex; flex-direction: column; gap: 12px; max-width: 680px; margin: 0 auto; }
+
+  /* White cards */
+  .card {
+    background: #ffffff; border: 1px solid #d8e8d0; border-radius: var(--radius-lg);
+    padding: 14px; box-shadow: 0 2px 8px rgba(0,0,0,0.04);
   }
-  .panel { padding: 0 20px 20px; }
+  .card.tinted { background: linear-gradient(135deg, #e8f5e9, #f1f8e9); border-color: #c8e6c9; }
+  .card-header { display: flex; align-items: center; gap: 7px; font-size: 12px; font-weight: 800; text-transform: uppercase; letter-spacing: .4px; color: #1a3a1a; margin-bottom: 12px; }
+  .card-header .icon { font-size: 16px; }
 
   input {
-    width: 100%; padding: 12px 14px; margin-bottom: 9px;
-    background: #fff; border: 1.5px solid #c8e6c9; border-radius: 12px;
-    font-size: 13px; color: #1b5e20; outline: none; transition: border 0.15s;
+    width: 100%; padding: 11px 13px; background: #fff; border: 1.5px solid #c8e6c9;
+    border-radius: var(--radius-md); font-size: 13px; color: #1a3a1a; outline: none;
   }
-  input:focus { border-color: #66bb6a; }
+  input:focus { border-color: var(--green-500); }
   input::placeholder { color: #a5d6a7; }
+  .mb { margin-bottom: 9px; }
 
   .btn {
-    width: 100%; padding: 14px; border: none; border-radius: 14px;
-    font-size: 15px; font-weight: 700; cursor: pointer; transition: all 0.2s;
-    letter-spacing: 0.3px; color: #fff;
-    background: linear-gradient(135deg, #4caf50, #66bb6a);
-    box-shadow: 0 4px 16px rgba(76,175,80,0.3);
+    width: 100%; padding: 13px; border: none; border-radius: var(--radius-md);
+    font-size: 14px; font-weight: 800; cursor: pointer; transition: all .18s; color: #fff;
+    background: linear-gradient(135deg, #16a34a, #22c55e); box-shadow: 0 4px 14px rgba(34,197,94,0.3);
   }
-  .btn:hover { transform: translateY(-1px); box-shadow: 0 6px 24px rgba(76,175,80,0.4); }
-  .btn:active { transform: translateY(0); }
-  .btn.start { background: linear-gradient(135deg, #43a047, #66bb6a); }
-  .btn.stop { background: linear-gradient(135deg, #e53935, #ef5350); box-shadow: 0 4px 16px rgba(229,57,53,0.3); }
+  .btn:hover { transform: translateY(-1px); box-shadow: 0 6px 20px rgba(34,197,94,0.4); }
+  .btn.stop { background: linear-gradient(135deg, #e53935, #ef5350); box-shadow: 0 4px 14px rgba(229,57,53,0.3); }
 
-  /* stats: auto-fit so a wider panel shows more columns */
-  .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(70px, 1fr)); gap: 8px; margin-top: 14px; }
-  .stat {
-    background: #fff; border: 1px solid rgba(76,175,80,0.15); border-radius: 12px;
-    padding: 11px 4px; text-align: center; box-shadow: 0 2px 8px rgba(0,0,0,0.03);
-  }
-  .stat-value { font-size: 18px; font-weight: 800; color: #2e7d32; }
-  .stat-label { font-size: 8px; color: #81c784; text-transform: uppercase; letter-spacing: 0.4px; font-weight: 700; margin-top: 2px; }
+  .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(64px, 1fr)); gap: 8px; }
+  .stat { background: #f4faf4; border: 1px solid #e0efe0; border-radius: var(--radius-md); padding: 10px 4px; text-align: center; }
+  .stat-value { font-size: 18px; font-weight: 800; color: var(--green-700); }
+  .stat-label { font-size: 8px; color: #79a979; text-transform: uppercase; letter-spacing: .4px; font-weight: 700; margin-top: 2px; }
 
-  .sim { display: flex; gap: 8px; margin-top: 12px; }
-  .sim input { margin: 0; flex: 1; }
-  .sim button {
-    width: 90px; border: none; border-radius: 12px; font-size: 12px; font-weight: 700;
-    cursor: pointer; color: #fff; background: linear-gradient(135deg, #fb8c00, #ffa726);
-    box-shadow: 0 2px 10px rgba(251,140,0,0.25);
-  }
-  .sfx { display: flex; gap: 8px; margin-top: 10px; }
-  .sfx button { flex: 1; padding: 12px; border: none; border-radius: 12px; font-size: 13px; font-weight: 700; cursor: pointer; color: #fff; }
-  .sfx .bell { background: linear-gradient(135deg, #fb8c00, #ffa726); box-shadow: 0 2px 10px rgba(251,140,0,0.25); }
-  .sfx .clap { background: linear-gradient(135deg, #43a047, #66bb6a); box-shadow: 0 2px 10px rgba(76,175,80,0.25); }
-
-  .note {
-    background: rgba(76,175,80,0.06); border: 1px solid rgba(76,175,80,0.12);
-    border-radius: 10px; padding: 10px 12px; margin-top: 14px; font-size: 11px; color: #66a06a; line-height: 1.6;
-  }
-  .msg { text-align: center; font-size: 12px; color: #e53935; margin-top: 10px; min-height: 14px; font-weight: 600; }
-  .msg.ok { color: #2e7d32; }
-  .footer { text-align: center; padding: 12px; font-size: 9px; color: #a5d6a7; font-weight: 600; }
+  .row { display: flex; gap: 8px; }
+  .row input { flex: 1; }
+  .send-btn { width: 88px; border: none; border-radius: var(--radius-md); font-size: 12px; font-weight: 800; cursor: pointer; color: #fff; background: linear-gradient(135deg, #fb8c00, #ffa726); }
+  .sfx button { flex: 1; padding: 12px; border: none; border-radius: var(--radius-md); font-size: 13px; font-weight: 800; cursor: pointer; color: #fff; }
+  .sfx .bell { background: linear-gradient(135deg, #fb8c00, #ffa726); }
+  .sfx .clap { background: linear-gradient(135deg, #16a34a, #22c55e); }
+  .note { font-size: 11px; color: #6a8a6a; line-height: 1.6; margin-top: 10px; }
+  .status-text { font-size: 12px; font-weight: 700; margin-top: 10px; text-align: center; min-height: 15px; color: #e53935; }
+  .status-text.ok { color: var(--green-700); }
   .hidden { display: none; }
 </style>
 </head>
 <body>
-  <div class="wrap">
-    <div class="logo-section">
-      <div class="logo-icon">🎙️</div>
-      <div class="logo-title">PeningLab Livehost</div>
-      <div class="logo-sub">AI Avatar Host for TikTok LIVE</div>
-      <div class="user-pill hidden" id="user"></div>
+  <div class="header">
+    <div class="header-logo"><span style="font-size:18px;">🎙️</span><span>PENINGLAB LIVEHOST</span></div>
+    <div class="header-actions">
+      <span class="header-email" id="user"></span>
+      <span class="status-badge" id="statusBadge">OFF</span>
+    </div>
+  </div>
+
+  <div class="main">
+    <!-- LOGIN -->
+    <div class="card tinted" id="loginView">
+      <div class="card-header"><span class="icon">🔑</span> Login</div>
+      <input class="mb" id="email" type="email" placeholder="Email PeningLab">
+      <input class="mb" id="password" type="password" placeholder="Password">
+      <button class="btn" id="loginBtn">Login</button>
     </div>
 
-    <div class="panel">
-      <div id="loginView">
-        <input id="email" type="email" placeholder="Email PeningLab">
-        <input id="password" type="password" placeholder="Password">
-        <button class="btn" id="loginBtn">Login</button>
+    <!-- MAIN -->
+    <div id="mainView" class="hidden" style="display:flex;flex-direction:column;gap:12px;">
+      <div class="card tinted">
+        <div class="card-header"><span class="icon">🎬</span> Live Control</div>
+        <button class="btn" id="startBtn">▶ START</button>
+        <button class="btn stop hidden" id="stopBtn">■ STOP</button>
       </div>
 
-      <div id="mainView" class="hidden">
-        <button class="btn start" id="startBtn">▶ START</button>
-        <button class="btn stop hidden" id="stopBtn">■ STOP</button>
-
+      <div class="card">
+        <div class="card-header"><span class="icon">📊</span> Interactions</div>
         <div class="stats">
           <div class="stat"><div class="stat-value" id="s_seen">0</div><div class="stat-label">Seen</div></div>
           <div class="stat"><div class="stat-value" id="s_replied">0</div><div class="stat-label">Replied</div></div>
@@ -114,26 +113,32 @@
           <div class="stat"><div class="stat-value" id="s_likes">0</div><div class="stat-label">Likes</div></div>
           <div class="stat"><div class="stat-value" id="s_purchases">0</div><div class="stat-label">Beli 🔔</div></div>
         </div>
+      </div>
 
-        <div class="sim">
+      <div class="card">
+        <div class="card-header"><span class="icon">🎮</span> Simulation</div>
+        <div class="row">
           <input id="simText" placeholder='komen | "NAMA JOIN/FOLLOW/LIKE"'>
-          <button id="simBtn">Send</button>
+          <button class="send-btn" id="simBtn">Send</button>
         </div>
+        <div class="note">Test: komen biasa, atau "Ali JOIN", "Siti FOLLOW", "Abu LIKE".</div>
+      </div>
 
-        <div class="sfx">
+      <div class="card">
+        <div class="card-header"><span class="icon">🔊</span> Sound Effects</div>
+        <div class="row sfx">
           <button class="bell" id="bellBtn">🔔 Bell</button>
           <button class="clap" id="clapBtn">👏 Clap</button>
         </div>
-
-        <div class="note">
-          Auto: Purchase → 🔔 bell + suara · Feedback → suara + 👏 clap · Follow → 👏 clap.<br>
-          Buka tab <b>TikTok Shop LIVE</b>, tekan START. Config greeting di <b>PeningLab → Greetings</b>.
-        </div>
+        <div class="note">Auto: Purchase → 🔔 bell + suara · Feedback → suara + 👏 clap · Follow → 👏 clap.</div>
       </div>
 
-      <div class="msg" id="msg"></div>
+      <div class="card tinted">
+        <div class="note" style="margin:0;">Buka tab <b>TikTok Shop LIVE</b>, kemudian tekan START. Tetapan greeting di <b>PeningLab → Greetings</b>. Seret tepi panel untuk besar/kecil.</div>
+      </div>
     </div>
-    <div class="footer">Powered by PeningLab · seret tepi panel untuk besar/kecil</div>
+
+    <div class="status-text" id="msg"></div>
   </div>
   <script src="popup.js"></script>
 </body>
