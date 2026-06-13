@@ -86,7 +86,6 @@ export default function LivehostDashboard({
           {navItem("products", "Products", Package)}
           {navItem("attachment", "Attachment", Paperclip)}
           {navItem("greetings", "Greetings", HeartHandshake)}
-          {navItem("interactions", "Interactions", Activity)}
           {navItem("usage", "Usage", BarChart3)}
           {navItem("billing", "Billing", CreditCard)}
           <a
@@ -134,36 +133,16 @@ export default function LivehostDashboard({
           </div>
         ) : view === "greetings" ? (
           <div className="lh-studio max-w-4xl"><LivehostGreetings /></div>
-        ) : view === "interactions" ? (
-          <div className="lh-studio max-w-5xl"><LivehostInteractions /></div>
         ) : STUDIO_VIEWS.includes(view) ? null : (
-          <div className="flex flex-col items-center justify-center text-center min-h-[60vh]">
-            <div
-              className="w-16 h-16 rounded-2xl flex items-center justify-center mb-5"
-              style={{ background: "linear-gradient(135deg, #3b82f6, #2563eb)" }}
-            >
-              <Radio className="w-8 h-8 text-white" />
+          /* DASHBOARD (home) = live interaction analytics */
+          <div className="lh-studio max-w-6xl">
+            <div className="mb-5">
+              <h1 className="font-display font-extrabold text-2xl tracking-tight">Dashboard</h1>
+              <p className="text-sm" style={{ color: "var(--color-text-secondary)" }}>
+                Selamat datang, {name} — interaksi penonton TikTok LIVE anda secara real-time.
+              </p>
             </div>
-            <h1 className="font-display font-extrabold text-3xl tracking-tight mb-2">
-              Livehost Dashboard
-            </h1>
-            <p className="text-[var(--color-text-secondary)] max-w-md">
-              Dashboard Livehost sedang dalam pembinaan — tools akan keluar tak lama
-              lagi. Sementara tu, anda boleh urus langganan di{" "}
-              <button
-                onClick={() => setView("billing")}
-                className="font-bold underline"
-                style={{ color: "#60a5fa" }}
-              >
-                Billing
-              </button>
-              .
-            </p>
-            {/* Mobile nav (sidebar hidden on small screens) */}
-            <div className="flex gap-2 mt-6 lg:hidden">
-              {navItem("billing", "Billing", CreditCard)}
-              <LogoutButton compact />
-            </div>
+            <LivehostInteractions />
           </div>
         )}
       </main>

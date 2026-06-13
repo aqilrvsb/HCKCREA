@@ -85,9 +85,11 @@ function playSfx(name) {
 }
 
 // ---- stats + interaction recording ----------------------------------------
+// Every event (real OR simulated) is recorded so the Interactions dashboard
+// updates live — simulation is a true end-to-end rehearsal.
 function record(type, username = "", text = "") {
   pendingEvents.push({ type, username, text });
-  if (pendingEvents.length >= 25) flushEvents();
+  if (pendingEvents.length >= 8) flushEvents();
 }
 async function flushEvents() {
   if (!pendingEvents.length || !token) return;
@@ -207,7 +209,7 @@ async function handleStart() {
   greetQueue = []; commentQueue = []; greetIdx = 0;
   running = true;
   await ensureOffscreen();
-  if (!flushTimer) flushTimer = setInterval(flushEvents, 20000);
+  if (!flushTimer) flushTimer = setInterval(flushEvents, 5000);
   broadcast();
   return { ok: true };
 }

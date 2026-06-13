@@ -26,8 +26,8 @@ export default function LivehostInteractions() {
   const [recent, setRecent] = useState<Row[]>([]);
   const [loading, setLoading] = useState(true);
 
+  const [live, setLive] = useState(true);
   const load = useCallback(async () => {
-    setLoading(true);
     try {
       const r = await fetch(`/api/livehost/interactions?start=${start}&end=${end}`);
       const d = await r.json();
@@ -37,30 +37,44 @@ export default function LivehostInteractions() {
       setLoading(false);
     }
   }, [start, end]);
-  useEffect(() => { load(); }, [load]);
+  // real-time: refresh every 5s while "live" auto-refresh is on
+  useEffect(() => {
+    load();
+    if (!live) return;
+    const t = setInterval(load, 5000);
+    return () => clearInterval(t);
+  }, [load, live]);
 
+  const total = STATS.reduce((a, s) => a + (counts[s.key] || 0), 0);
   return (
     <div className="panel single">
-      <div className="label">📈 Interaksi penonton (dari extension TikTok LIVE)</div>
-      <div className="row" style={{ alignItems: "flex-end" }}>
+      <div className="row" style={{ alignItems: "flex-end", flexWrap: "wrap" }}>
         <div><div className="label">Dari</div>
           <input type="date" value={start} max={localDateStr()} onChange={(e) => setStart(e.target.value)} /></div>
         <div><div className="label">Hingga</div>
           <input type="date" value={end} max={localDateStr()} onChange={(e) => setEnd(e.target.value)} /></div>
         <button className="restart-btn" onClick={() => { setStart(startOfMonthLocal()); setEnd(localDateStr()); }}>Bulan ini</button>
         <button className="restart-btn" onClick={() => { const t = localDateStr(); setStart(t); setEnd(t); }}>Hari ini</button>
+        <button className="restart-btn" onClick={() => setLive((v) => !v)}
+          style={live ? { borderColor: "var(--accent-2)", color: "var(--accent-2)" } : {}}>
+          {live ? "● Live" : "Auto-refresh off"}
+        </button>
+        <div style={{ marginLeft: "auto", textAlign: "right" }}>
+          <div className="usage-big" style={{ fontSize: 26 }}>{total.toLocaleString()}</div>
+          <div className="hint" style={{ marginTop: 0 }}>jumlah interaksi</div>
+        </div>
       </div>
 
-      <div className="stats-grid">
+      <div className="stats-grid" style={{ marginTop: 14 }}>
         {STATS.map((s) => (
-          <div key={s.key} className="usage-card" style={{ textAlign: "center" }}>
-            <div className="usage-big" style={{ color: s.color }}>{counts[s.key] || 0}</div>
+          <div key={s.key} className="usage-card stat-tile" style={{ textAlign: "center" }}>
+            <div className="usage-big" style={{ color: s.color }}>{(counts[s.key] || 0).toLocaleString()}</div>
             <div className="hint" style={{ marginTop: 2 }}>{s.label}</div>
           </div>
         ))}
       </div>
 
-      <div className="label">Terkini (100)</div>
+      <div className="label" style={{ marginTop: 16 }}>Aliran langsung (100 terkini)</div>
       <div className="usage-card" style={{ padding: 0, overflow: "hidden", maxHeight: 360, overflowY: "auto" }}>
         <table className="sessions-table">
           <thead><tr><th>Masa</th><th>Jenis</th><th>Username</th><th>Teks</th></tr></thead>
