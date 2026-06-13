@@ -147,6 +147,8 @@ tar the talking-head-live `backend/avtr-mods` files → base64 → paste into
 Manual fallback/debug path stays documented in talking-head-live/CLIENT-SETUP.md.
 Future optimisation (optional): destroy-on-sleep + custom avatar persistence to B2.
 
+> Extension install + usage + architecture: see `extension-livehost/README.md`.
+
 ## 6b. TikTok interaction loop (Greetings + extension) — BUILT 2026-06-13 (extension-livehost/ in this repo; install unpacked via chrome://extensions)
 
 Goal: when a client streams via OBS to TikTok LIVE, viewer events drive the

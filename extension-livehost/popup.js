@@ -21,7 +21,7 @@ async function refresh() {
   if (st.loggedIn) {
     $("loginView").classList.add("hidden");
     $("mainView").classList.remove("hidden");
-    $("user").textContent = st.name || "";
+    if (st.name) { $("user").textContent = st.name; $("user").classList.remove("hidden"); }
   }
   showStats(st.stats);
   setRunning(!!st.running);
@@ -34,6 +34,7 @@ $("loginBtn").addEventListener("click", async () => {
   if (r?.ok) {
     $("msg").textContent = "✓ Login berjaya";
     $("msg").className = "msg ok";
+    if (r.name) { $("user").textContent = r.name; $("user").classList.remove("hidden"); }
     refresh();
   } else {
     $("msg").textContent = r?.error || "Login gagal";
