@@ -74,7 +74,7 @@ export default function LivehostInteractions() {
       <div className="stats-grid" style={{ marginTop: 14, gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))" }}>
         <div className="usage-card" style={{ textAlign: "center", borderColor: "rgba(91,108,255,.4)" }}>
           <div className="usage-big" style={{ color: "#5b6cff" }}>
-            {usage ? `${Math.floor(usage.streamSec / 3600)}j ${Math.floor((usage.streamSec % 3600) / 60)}m` : "—"}
+            {usage ? `${Math.floor(usage.streamSec / 3600)}h ${Math.floor((usage.streamSec % 3600) / 60)}m` : "—"}
           </div>
           <div className="hint" style={{ marginTop: 2 }}>JUMLAH MASA LIVE</div>
         </div>

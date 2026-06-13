@@ -1135,7 +1135,7 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
               <>
                 <div className="usage-big" style={{ color: "var(--accent-2)" }}>RM {usageData.month.totalCost.toFixed(2)}</div>
                 <div className="hint">
-                  Jumlah masa live: {Math.floor(usageData.month.streamSec / 3600)}j {Math.floor((usageData.month.streamSec % 3600) / 60)}m
+                  Jumlah masa live: {Math.floor(usageData.month.streamSec / 3600)}h {Math.floor((usageData.month.streamSec % 3600) / 60)}m
                 </div>
               </>
             ) : (
