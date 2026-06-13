@@ -1037,7 +1037,14 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
                   🔁
                 </label>
               </div>
-              {scriptWaiting && <div className="status-line">⏸ Finished — waiting for more scripts…</div>}
+              {/* Status / error line — GPU wake + connection feedback on Start */}
+              <div className="rundown-status">
+                {wakeMsg && <div className="status-line">{wakeMsg}</div>}
+                {error && <div className="error">{error}</div>}
+                {!wakeMsg && !error && active && <div className="status-line">● Live · GPU {serverState}</div>}
+                {!wakeMsg && !error && !active && <div className="hint">GPU: {serverState} · tekan ▶ Start</div>}
+                {scriptWaiting && <div className="status-line">⏸ Selesai — tunggu skrip lagi…</div>}
+              </div>
             </div>
 
             <div className="prompter-col">
@@ -1149,9 +1156,6 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
               </tbody>
             </table>
 
-            {wakeMsg && <div className="status-line">{wakeMsg}</div>}
-            {error && <div className="error">{error}</div>}
-            {active && <div className="status-line">● Live</div>}
           </div>
         </div>
       </div>
@@ -1339,6 +1343,8 @@ const STUDIO_CSS = `
 .lh-studio .usage-card{background:var(--panel-2);border:1px solid var(--border);border-radius:10px;padding:12px;margin-top:6px;}
 .lh-studio .usage-big{font-size:22px;font-weight:700;}
 .lh-studio .usage-cost{margin-top:6px;font-size:15px;font-weight:600;color:var(--accent-2);}
+.lh-studio .rundown-status{margin-top:8px;padding-top:8px;border-top:1px solid var(--border);max-height:90px;overflow-y:auto;}
+.lh-studio .rundown-status .error{font-size:12px;}
 .lh-studio .sim-row{display:flex;gap:8px;margin-top:6px;}
 .lh-studio .sim-row input{flex:1;}
 .lh-studio .sim-send{width:84px;border:none;border-radius:8px;font-size:13px;font-weight:700;color:#fff;cursor:pointer;background:linear-gradient(135deg,#fb8c00,#ffa726);}
