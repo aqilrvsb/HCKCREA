@@ -259,6 +259,7 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
           if (ping.ok) {
             setWakeMsg("✓ GPU ON — tekan ▶ Start untuk mula streaming");
             setServerState("running");
+            setError(""); // clear any stale "Server offline"
             loadAvatarsRef.current?.();
             return;
           }
@@ -518,7 +519,7 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
       setBackgrounds(data.backgrounds || []);
       return av;
     } catch (e: any) {
-      setError("Server offline — tekan ⏻ On GPU (sedia dalam ~1 minit).");
+      // GPU asleep is normal — ▶ Start will wake it. Don't show a scary error.
       return [];
     }
   }, []);
@@ -618,14 +619,33 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
     if (!avatarId) { setError("Pick or upload a face first."); return; }
     setConnecting(true);
     try {
-      // Start = stream process only. GPU power is the On GPU / Off GPU buttons.
+      // AUTO-WAKE: check if the GPU is alive; if yes proceed, if not start it
+      // first and wait until the backend answers, then continue streaming.
       let backendUp = false;
       try {
         const ping = await fetch(`${backendRef.current}/avatars`, { signal: AbortSignal.timeout(6000) });
         backendUp = ping.ok;
       } catch {}
       if (!backendUp) {
-        throw new Error("GPU belum hidup — tekan '⏻ On GPU' dahulu (sedia dalam ~1 minit).");
+        setWakeMsg("GPU sedang dihidupkan… ⏳");
+        await fetch("/api/livehost/gpu", {
+          method: "POST", headers: { "content-type": "application/json" },
+          body: JSON.stringify({ action: "start" }),
+        }).catch(() => {});
+        for (let i = 0; i < 24 && !backendUp; i++) {
+          await new Promise((r) => setTimeout(r, 10000));
+          try {
+            const ping = await fetch(`${backendRef.current}/avatars`, { signal: AbortSignal.timeout(5000) });
+            if (ping.ok) backendUp = true;
+          } catch {}
+          if (!backendUp) setWakeMsg(`GPU sedang dihidupkan… ${(i + 1) * 10}s ⏳`);
+        }
+        if (!backendUp) { setWakeMsg(""); throw new Error("GPU tak respons selepas 4 minit — cuba lagi."); }
+        setServerState("running");
+        loadAvatarsRef.current?.();
+        setWakeMsg("GPU sedia — menyambung… ⏳");
+        await new Promise((r) => setTimeout(r, 10000)); // renderer warm-up
+        setWakeMsg("");
       }
       const iceRes = await fetch(`${backendRef.current}/ice-servers`);
       if (!iceRes.ok) throw new Error(`ice-servers ${iceRes.status}`);
@@ -1055,16 +1075,7 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
               </select>
             </div>
 
-            <div className="label">GPU power</div>
-            <div className="row" style={{ marginTop: 4 }}>
-              <button className="btn-primary" onClick={gpuOn} disabled={serverBusy || serverState === "running"}>
-                ⏻ On GPU
-              </button>
-              <button className="btn-stop" onClick={gpuOff} disabled={serverBusy || serverState === "stopped"}>
-                ⏹ Off GPU
-              </button>
-            </div>
-            <div className="hint">Status: <b>{serverState}</b> — auto-off selepas 8 minit tiada aktiviti.</div>
+            <div className="hint">▶ Start akan hidupkan GPU automatik kalau tidur — dan auto-off selepas 8 minit tiada aktiviti (jimat kos).</div>
             <div className="hint">📋 Bila Go LIVE di TikTok, AKTIFKAN toggle &quot;AI-generated content&quot; (polisi wajib TikTok Shop).</div>
             <label className="checkbox">
               <input type="checkbox" checked={captions} onChange={(e) => setCaptions(e.target.checked)} style={{ width: "auto" }} />
