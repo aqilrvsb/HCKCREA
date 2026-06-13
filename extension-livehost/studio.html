@@ -61,9 +61,10 @@
   .btn.stop { background: linear-gradient(135deg, #e53935, #ef5350); box-shadow: 0 4px 14px rgba(229,57,53,0.3); }
 
   .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(64px, 1fr)); gap: 8px; }
-  .stat { background: #f4faf4; border: 1px solid #e0efe0; border-radius: var(--radius-md); padding: 10px 4px; text-align: center; }
-  .stat-value { font-size: 18px; font-weight: 800; color: var(--green-700); }
-  .stat-label { font-size: 8px; color: #79a979; text-transform: uppercase; letter-spacing: .4px; font-weight: 700; margin-top: 2px; }
+  .stat { background: #f4faf4; border: 1px solid #e0efe0; border-radius: var(--radius-md); padding: 12px 4px; text-align: center; box-shadow: 0 1px 3px rgba(0,0,0,.04); transition: transform .15s; }
+  .stat:hover { transform: translateY(-2px); }
+  .stat-value { font-size: 22px; font-weight: 800; line-height: 1; color: var(--green-700); }
+  .stat-label { font-size: 8px; color: #6b8a6b; text-transform: uppercase; letter-spacing: .5px; font-weight: 800; margin-top: 5px; }
 
   .row { display: flex; gap: 8px; }
   .row input { flex: 1; }
@@ -115,14 +116,14 @@
       <div class="card">
         <div class="card-header"><span class="icon">📊</span> Interactions</div>
         <div class="stats">
-          <div class="stat"><div class="stat-value" id="s_seen">0</div><div class="stat-label">Seen</div></div>
-          <div class="stat"><div class="stat-value" id="s_replied">0</div><div class="stat-label">Replied</div></div>
-          <div class="stat"><div class="stat-value" id="s_skipped">0</div><div class="stat-label">Skipped</div></div>
-          <div class="stat"><div class="stat-value" id="s_joins">0</div><div class="stat-label">Joins</div></div>
-          <div class="stat"><div class="stat-value" id="s_greeted">0</div><div class="stat-label">Greeted</div></div>
-          <div class="stat"><div class="stat-value" id="s_follows">0</div><div class="stat-label">Follows</div></div>
-          <div class="stat"><div class="stat-value" id="s_likes">0</div><div class="stat-label">Likes</div></div>
-          <div class="stat"><div class="stat-value" id="s_purchases">0</div><div class="stat-label">Beli 🔔</div></div>
+          <div class="stat" style="background:#eff6ff;border-color:#bfdbfe;"><div class="stat-value" style="color:#2563eb" id="s_seen">0</div><div class="stat-label">Seen</div></div>
+          <div class="stat" style="background:#f0fdf4;border-color:#bbf7d0;"><div class="stat-value" style="color:#16a34a" id="s_replied">0</div><div class="stat-label">Replied</div></div>
+          <div class="stat" style="background:#fffbeb;border-color:#fde68a;"><div class="stat-value" style="color:#d97706" id="s_skipped">0</div><div class="stat-label">Skipped</div></div>
+          <div class="stat" style="background:#f0f9ff;border-color:#bae6fd;"><div class="stat-value" style="color:#0ea5e9" id="s_joins">0</div><div class="stat-label">Joins</div></div>
+          <div class="stat" style="background:#faf5ff;border-color:#e9d5ff;"><div class="stat-value" style="color:#7c3aed" id="s_greeted">0</div><div class="stat-label">Greeted</div></div>
+          <div class="stat" style="background:#fdf2f8;border-color:#fbcfe8;"><div class="stat-value" style="color:#db2777" id="s_follows">0</div><div class="stat-label">Follows</div></div>
+          <div class="stat" style="background:#f0fdfa;border-color:#99f6e4;"><div class="stat-value" style="color:#0d9488" id="s_likes">0</div><div class="stat-label">Likes</div></div>
+          <div class="stat" style="background:#fff7ed;border-color:#fed7aa;"><div class="stat-value" style="color:#ea580c" id="s_purchases">0</div><div class="stat-label">Beli 🔔</div></div>
         </div>
       </div>
 
