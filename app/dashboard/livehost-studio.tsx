@@ -328,7 +328,8 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
       "COMPLIANCE (TikTok policy): never claim to be a doctor, pharmacist, or any " +
       "professional; never promise medical cures, miracle or instant results; never " +
       "exaggerate product efficacy beyond the provided knowledge; quote only the " +
-      "prices given. If asked for medical advice, suggest consulting a professional.";
+      "prices given. If asked for medical advice, suggest consulting a professional. " +
+      "If the message starts with [FOKUS PRODUK: X], prioritise product X in your answer.";
     return kb.trim()
       ? `${base}\n\nAnswer using ONLY this product knowledge. If the answer is not in it, ` +
         `politely say you will check and remind them about the voucher.\n\nPRODUCT KNOWLEDGE:\n${kb.trim()}`
@@ -1183,6 +1184,7 @@ const STUDIO_CSS = `
 .lh-studio .script-card .script-head button{padding:6px 10px;background:rgba(255,255,255,.08);color:var(--text);border-radius:6px;font-size:13px;border:none;}
 .lh-studio .script-card .script-head button:hover{background:rgba(255,255,255,.2);}
 .lh-studio .script-card textarea{font-size:13px;}
+.lh-studio .stats-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:12px;}
 .lh-studio .usage-card{background:var(--panel-2);border:1px solid var(--border);border-radius:10px;padding:12px;margin-top:6px;}
 .lh-studio .usage-big{font-size:22px;font-weight:700;}
 .lh-studio .usage-cost{margin-top:6px;font-size:15px;font-weight:600;color:var(--accent-2);}

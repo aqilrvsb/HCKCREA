@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  body { width: 340px; margin: 0; font-family: system-ui, sans-serif; background: #0b0f1a; color: #e6e9f2; }
+  .head { display: flex; align-items: center; gap: 8px; padding: 12px 14px; border-bottom: 1px solid #1f2740; }
+  .head b { font-size: 15px; }
+  .tag { font-size: 10px; color: #8b93a7; text-transform: uppercase; letter-spacing: .06em; }
+  .body { padding: 12px 14px; }
+  input { width: 100%; box-sizing: border-box; background: #0e1320; border: 1px solid #1f2740; color: #e6e9f2;
+          border-radius: 8px; padding: 9px 10px; font-size: 13px; margin-bottom: 8px; }
+  button { width: 100%; border: none; border-radius: 8px; padding: 11px; font-size: 14px; font-weight: 700; cursor: pointer; }
+  .primary { background: #5b6cff; color: #fff; }
+  .start { background: #e74c5e; color: #fff; }
+  .stop { background: transparent; border: 1px solid #ff5470; color: #ff5470; }
+  .row { display: flex; gap: 8px; margin-top: 8px; }
+  .row button { flex: 1; }
+  .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-top: 12px; }
+  .stat { background: #0e1320; border: 1px solid #1f2740; border-radius: 8px; padding: 7px 4px; text-align: center; }
+  .stat b { display: block; font-size: 16px; }
+  .stat span { font-size: 9px; color: #8b93a7; }
+  .msg { font-size: 12px; color: #ff5470; margin-top: 8px; min-height: 14px; }
+  .ok { color: #3ddc97; }
+  .hint { font-size: 11px; color: #8b93a7; margin-top: 8px; }
+  .sfxrow { display: flex; gap: 8px; margin-top: 10px; }
+  .sfxrow button { flex: 1; font-size: 12px; padding: 8px; }
+  .bell { background: #f59e0b; color: #fff; }
+  .clap { background: #22c55e; color: #fff; }
+  .sim { display: flex; gap: 6px; margin-top: 10px; }
+  .sim input { margin: 0; flex: 1; }
+  .sim button { width: 70px; background: #f59e0b; color: #fff; font-size: 12px; }
+  #user { font-size: 12px; color: #3ddc97; }
+  .hidden { display: none; }
+</style>
+</head>
+<body>
+  <div class="head">
+    <b>🎙 PeningLab Livehost</b>
+    <span class="tag" id="user"></span>
+  </div>
+  <div class="body">
+    <div id="loginView">
+      <input id="email" type="email" placeholder="Email PeningLab">
+      <input id="password" type="password" placeholder="Password">
+      <button class="primary" id="loginBtn">Login</button>
+    </div>
+
+    <div id="mainView" class="hidden">
+      <button class="start" id="startBtn">▶ START</button>
+      <button class="stop hidden" id="stopBtn">■ STOP</button>
+
+      <div class="stats">
+        <div class="stat"><b id="s_seen">0</b><span>SEEN</span></div>
+        <div class="stat"><b id="s_replied">0</b><span>REPLIED</span></div>
+        <div class="stat"><b id="s_skipped">0</b><span>SKIPPED</span></div>
+        <div class="stat"><b id="s_joins">0</b><span>JOINS</span></div>
+        <div class="stat"><b id="s_greeted">0</b><span>GREETED</span></div>
+        <div class="stat"><b id="s_follows">0</b><span>FOLLOWS</span></div>
+        <div class="stat"><b id="s_likes">0</b><span>LIKES</span></div>
+        <div class="stat"><b id="s_purchases">0</b><span>BELI 🔔</span></div>
+      </div>
+
+      <div class="sim">
+        <input id="simText" placeholder='komen | "NAMA JOIN/FOLLOW/LIKE"'>
+        <button id="simBtn">Send</button>
+      </div>
+
+      <div class="sfxrow">
+        <button class="bell" id="bellBtn">🔔 Bell</button>
+        <button class="clap" id="clapBtn">👏 Clap</button>
+      </div>
+      <div class="hint">Auto: Purchase → bell + suara · Feedback → suara + clap · Follow → clap</div>
+      <div class="hint">Buka tab TikTok Shop LIVE console, kemudian tekan START. Config di PeningLab → Greetings.</div>
+    </div>
+    <div class="msg" id="msg"></div>
+  </div>
+  <script src="popup.js"></script>
+</body>
+</html>

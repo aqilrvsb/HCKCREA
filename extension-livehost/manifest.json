@@ -1,0 +1,25 @@
+{
+  "manifest_version": 3,
+  "name": "PeningLab Livehost",
+  "version": "1.0.0",
+  "description": "Sambung TikTok LIVE anda kepada AI avatar Livehost — auto greeting, auto reply, auto sound effects",
+  "permissions": ["storage", "tabs", "offscreen"],
+  "host_permissions": [
+    "https://shop.tiktok.com/*",
+    "https://peninglab.com/*"
+  ],
+  "background": { "service_worker": "background.js" },
+  "content_scripts": [{
+    "matches": ["https://shop.tiktok.com/*"],
+    "js": ["content.js"],
+    "run_at": "document_idle"
+  }],
+  "action": {
+    "default_popup": "popup.html",
+    "default_icon": { "16": "icons/icon16.png", "48": "icons/icon48.png", "128": "icons/icon128.png" }
+  },
+  "web_accessible_resources": [{
+    "resources": ["sfx/*.mp3"],
+    "matches": ["<all_urls>"]
+  }]
+}
