@@ -54,7 +54,7 @@ export async function GET(req: Request) {
 set -x
 export DEBIAN_FRONTEND=noninteractive
 apt-get update && apt-get install -y --no-install-recommends \\
-  openssh-server git curl tmux ca-certificates xz-utils
+  openssh-server git curl tmux ca-certificates xz-utils python3
 mkdir -p /run/sshd /root/.ssh /workspace
 chmod 700 /root/.ssh
 grep -qF '${sshPub}' /root/.ssh/authorized_keys 2>/dev/null || echo '${sshPub}' >> /root/.ssh/authorized_keys
@@ -117,6 +117,47 @@ cp /tmp/lhbox/mods/renderer/app.py /workspace/avtr-1/src/avtr1_renderer/api/app.
 cp /tmp/lhbox/mods/renderer/pipeline.py /workspace/avtr-1/src/avtr1_renderer/pipeline.py
 # slow-ICE tolerance (sessions crash at 5s otherwise)
 sed -i "s/ready_timeout: float = 5.0/ready_timeout: float = 30.0/" $B/event_bus.py || true
+
+# ---- enable NVENC (GPU hardware H264) in the streamer env ----
+# The streamer env uses PyPI PyAV (bundled ffmpeg, no NVENC). Swap it for
+# conda-forge av+ffmpeg, which expose h264_nvenc via the GPU driver. SAFE:
+# pixi only solves an av that satisfies aiortc's pin, and if anything fails we
+# restore the original pixi.toml + reinstall, so the box always keeps working.
+export PATH="$HOME/.pixi/bin:$PATH"
+cd /workspace/avtr-1
+if [ ! -f /workspace/.nvenc_done ]; then
+  cp pixi.toml /workspace/pixi.toml.bak
+  python3 - <<'PYEOF' || cp /workspace/pixi.toml.bak pixi.toml
+# Line-based edit (no embedded newline literals -> safe inside the heredoc):
+#  - drop the PyPI 'av = ">=12.0.0"' from the streamer feature
+#  - add conda 'ffmpeg' + 'av' right after the streamer python pin
+src = open("pixi.toml").read().splitlines()
+out = []
+i = 0
+while i < len(src):
+    ln = src[i]
+    if ln.strip() == 'av = ">=12.0.0"':
+        i += 1
+        continue
+    out.append(ln)
+    if ln.strip() == "[feature.streamer.dependencies]" and i + 1 < len(src):
+        out.append(src[i + 1])          # python = "==3.12"
+        out.append('ffmpeg = "*"')
+        out.append('av = "*"')
+        i += 1
+    i += 1
+open("pixi.toml", "w").write("\\n".join(out) + "\\n")
+PYEOF
+  if pixi install -e streamer > /workspace/nvenc_install.log 2>&1 && \
+     pixi run -e streamer python -c "import av; import sys; sys.exit(0 if 'h264_nvenc' in av.codec.codecs_available else 1)"; then
+    echo OK > /workspace/.nvenc_ok
+  else
+    echo "NVENC enable failed — reverting to PyPI PyAV"
+    cp /workspace/pixi.toml.bak pixi.toml
+    pixi install -e streamer > /workspace/nvenc_revert.log 2>&1 || true
+  fi
+  touch /workspace/.nvenc_done
+fi
 
 # ---- box scripts ----
 cat > /workspace/start_streamer.sh <<'SSEOF'

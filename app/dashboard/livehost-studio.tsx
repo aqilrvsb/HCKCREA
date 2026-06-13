@@ -724,8 +724,8 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
         try {
           const r: any = ev.receiver;
           if (r) {
-            if ("playoutDelayHint" in r) r.playoutDelayHint = 0.15;
-            if ("jitterBufferTarget" in r) r.jitterBufferTarget = 150;
+            if ("playoutDelayHint" in r) r.playoutDelayHint = 0.3;
+            if ("jitterBufferTarget" in r) r.jitterBufferTarget = 300;
           }
         } catch {}
         const v = videoRef.current;
