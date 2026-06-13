@@ -770,12 +770,21 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
           if (!m || m.kind !== "say_done") return;
           const durMs = (Number(m.duration) || 0) * 1000;
           const now = performance.now();
-          const startAt = Math.max(now, audioEndRef.current);
-          audioEndRef.current = startAt + durMs;
           const ent = m.id ? pendingSayRef.current.get(m.id) : undefined;
           if (m.id) pendingSayRef.current.delete(m.id);
+          // `barge` is set by the box for any comment/chat reply (studio OR
+          // extension OR real TikTok DOM); `ent.chat` covers studio-originated
+          // ones whose id we still hold. Either means a barge-in happened.
+          const isChat = (!!ent && "chat" in ent) || m.barge === true;
+          // A chat/comment answer barges in and DISCARDS all buffered script
+          // audio. The old projected timeline is now void, so rebase to "now" —
+          // otherwise the script resumes only after the discarded audio's
+          // duration elapses (several seconds of dead air). With the rebase the
+          // next line is requested immediately / prefetched so it flows on.
+          const startAt = isChat ? now : Math.max(now, audioEndRef.current);
+          audioEndRef.current = startAt + durMs;
           addVoiceChars(Number(m.chars) || 0);
-          if (ent && !("chat" in ent) && durMs > 0) {
+          if (ent && !isChat && durMs > 0) {
             const ht = setTimeout(() => {
               if (!playingRef.current) return;
               setPlayPos({ s: ent.s, l: ent.l });
