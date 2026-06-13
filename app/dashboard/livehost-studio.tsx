@@ -800,7 +800,18 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
       };
 
       pc.addTransceiver("audio", { direction: "recvonly" });
-      pc.addTransceiver("video", { direction: "recvonly" });
+      const vTr = pc.addTransceiver("video", { direction: "recvonly" });
+      // Prefer H.264 over VP8: VP8 software-encoding a full-screen 1080p face
+      // collapses to a few fps and bursts huge frames (packet loss → freezes).
+      // H.264 (libx264 ultrafast / NVENC on the box) holds a smooth 25fps.
+      try {
+        const caps = (RTCRtpReceiver as any).getCapabilities?.("video");
+        if (caps?.codecs && vTr.setCodecPreferences) {
+          const h264 = caps.codecs.filter((c: any) => /h264/i.test(c.mimeType));
+          const rest = caps.codecs.filter((c: any) => !/h264/i.test(c.mimeType));
+          if (h264.length) vTr.setCodecPreferences([...h264, ...rest]);
+        }
+      } catch {}
 
       const offer = await pc.createOffer();
       if (offer.sdp) offer.sdp = boostOfferBitrate(offer.sdp);
