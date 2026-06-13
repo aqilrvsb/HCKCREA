@@ -89,13 +89,21 @@ const RETRYABLE_ERROR_PATTERNS: RegExp[] = [
   //    Added per user direction 2026-06-11.
   /job failed[^\n]{0,30}please try again/i,
   /server exception[^\n]{0,30}please try again/i,
-  // 7. Provider-slot "Insufficient Credits" — the slot's UPSTREAM account
+  // 7. PROVIDER-slot "Insufficient Credits" — the slot's UPSTREAM account
   //    (APIPod/Crun key) ran out of credits, so it rejects pre-queue (no
-  //    task created). Each slot/key has its OWN credit balance, so
-  //    rotating to a different slot CAN recover — same rotation logic as
-  //    rate-limit (#3) and the safety-filter class (#5). Real phrasing:
-  //    "attempt1: Insufficient Credits". Added per user direction 2026-06-13.
-  /insufficient credits/i,
+  //    task created). Each slot/key has its OWN balance, so rotating to a
+  //    different slot CAN recover — same rotation logic as rate-limit (#3)
+  //    and the safety-filter class (#5).
+  //
+  //    🚨 MUST be provider-side, NOT the client's PeningLab balance. The
+  //    cascade prefixes every provider attempt with "attempt<n>:" (see
+  //    lib/video-cascade.ts), so we REQUIRE that prefix. The client-balance
+  //    error is a bare "Insufficient credits" returned pre-flight (HTTP 402,
+  //    no history row) by the MCP routes — it never carries "attempt<n>:"
+  //    and never reaches a history error_message, so it can never match
+  //    here. Real provider phrasing: "attempt1: Insufficient Credits".
+  //    Added per user direction 2026-06-13.
+  /attempt\s*\d+\s*:[^\n]*insufficient credits/i,
 ];
 
 export function isInternalError(err: string | null | undefined): boolean {
