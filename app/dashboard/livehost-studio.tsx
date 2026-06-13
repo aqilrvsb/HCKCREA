@@ -56,6 +56,24 @@ function splitSentences(text: string): string[] {
   return merged;
 }
 
+// Advertise a high video bitrate ceiling on the offer so the sender (aiortc on
+// the GPU box) is allowed to ramp the HD avatar up to ~6 Mbps when the network
+// supports it. b=AS is inserted right after the m=video c= line.
+function boostOfferBitrate(sdp: string, kbps = 6000): string {
+  const lines = sdp.split(/\r\n|\n/);
+  const out: string[] = [];
+  let inVideo = false;
+  for (const line of lines) {
+    if (line.startsWith("m=")) inVideo = line.startsWith("m=video");
+    out.push(line);
+    if (inVideo && line.startsWith("c=")) {
+      out.push(`b=AS:${kbps}`);
+      out.push(`b=TIAS:${kbps * 1000}`);
+    }
+  }
+  return out.join("\r\n");
+}
+
 function waitForIceGatheringComplete(pc: RTCPeerConnection, timeoutMs = 4000): Promise<void> {
   if (pc.iceGatheringState === "complete") return Promise.resolve();
   return new Promise((resolve) => {
@@ -700,6 +718,16 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
       remoteStreamRef.current = remote;
       pc.ontrack = (ev) => {
         remote.addTrack(ev.track);
+        // Give the browser a small jitter buffer so playback is smooth even if
+        // frames arrive slightly unevenly over the TURN relay (~150ms added
+        // latency — fine for a one-way live broadcast, kills micro-stutter).
+        try {
+          const r: any = ev.receiver;
+          if (r) {
+            if ("playoutDelayHint" in r) r.playoutDelayHint = 0.15;
+            if ("jitterBufferTarget" in r) r.jitterBufferTarget = 150;
+          }
+        } catch {}
         const v = videoRef.current;
         if (!v) return;
         v.srcObject = remote;
@@ -766,6 +794,7 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
       pc.addTransceiver("video", { direction: "recvonly" });
 
       const offer = await pc.createOffer();
+      if (offer.sdp) offer.sdp = boostOfferBitrate(offer.sdp);
       await pc.setLocalDescription(offer);
       await waitForIceGatheringComplete(pc);
 
