@@ -15,6 +15,18 @@ import LivehostTiktok from "./livehost-tiktok";
 // WHATSAPP_GROUP_LIVEHOST; keep them in sync.
 const WHATSAPP_GROUP_LIVEHOST = "https://chat.whatsapp.com/JIj9Ppto73mIIfitWikCgO";
 
+// Shared nav data — rendered in the desktop sidebar AND the mobile top bar.
+const NAV: { key: View; label: string; Icon: any }[] = [
+  { key: "home", label: "Dashboard", Icon: LayoutDashboard },
+  { key: "livehost", label: "Livehost", Icon: Radio },
+  { key: "scripts", label: "Scripts", Icon: ScrollText },
+  { key: "products", label: "Products", Icon: Package },
+  { key: "attachment", label: "Attachment", Icon: Paperclip },
+  { key: "greetings", label: "Greetings", Icon: HeartHandshake },
+  { key: "usage", label: "Usage", Icon: BarChart3 },
+  { key: "billing", label: "Billing", Icon: CreditCard },
+];
+
 // Livehost gets a SEPARATE, minimal dashboard — intentionally blank for
 // now ("designed later"). It only exposes a placeholder home + Billing
 // (which itself shows ONLY the Livehost package for these users) + sign
@@ -81,14 +93,7 @@ export default function LivehostDashboard({
         </div>
 
         <div className="space-y-1">
-          {navItem("home", "Dashboard", LayoutDashboard)}
-          {navItem("livehost", "Livehost", Radio)}
-          {navItem("scripts", "Scripts", ScrollText)}
-          {navItem("products", "Products", Package)}
-          {navItem("attachment", "Attachment", Paperclip)}
-          {navItem("greetings", "Greetings", HeartHandshake)}
-          {navItem("usage", "Usage", BarChart3)}
-          {navItem("billing", "Billing", CreditCard)}
+          {NAV.map((n) => navItem(n.key, n.label, n.Icon))}
           {/* Colourful highlighted CTA — install/connect the extension */}
           <button
             onClick={() => setView("tiktok")}
@@ -130,37 +135,75 @@ export default function LivehostDashboard({
         </div>
       </aside>
 
-      {/* Main — studio views go edge-to-edge (no blank padding) */}
-      <main className={`flex-1 min-w-0 ${STUDIO_VIEWS.includes(view) ? "p-2" : "p-6 md:p-10"}`}>
-        {/* Studio is ALWAYS mounted (hidden when not active) so the WebRTC
-            stream + script playback survive navigation between views. */}
-        <div style={{ display: STUDIO_VIEWS.includes(view) ? undefined : "none" }} className="h-full">
-          <LivehostStudio view={(view === "livehost" ? "live" : view) as LiveView} />
+      {/* Main */}
+      <main className="flex-1 min-w-0 flex flex-col">
+        {/* Mobile top nav — the sidebar is desktop-only (lg+). */}
+        <div
+          className="lg:hidden flex items-center gap-2 px-3 py-2.5 border-b overflow-x-auto"
+          style={{ borderColor: "var(--color-border)" }}
+        >
+          <div
+            className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0"
+            style={{ background: "linear-gradient(135deg, #3b82f6, #2563eb)" }}
+          >
+            <Radio className="w-4 h-4 text-white" />
+          </div>
+          {NAV.map((n) => {
+            const active = view === n.key;
+            return (
+              <button
+                key={n.key}
+                onClick={() => setView(n.key)}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap flex-shrink-0"
+                style={{
+                  background: active ? "rgba(96,165,250,0.16)" : "transparent",
+                  color: active ? "#93c5fd" : "var(--color-text-secondary)",
+                  border: `1px solid ${active ? "rgba(96,165,250,0.35)" : "var(--color-border)"}`,
+                }}
+              >
+                <n.Icon className="w-3.5 h-3.5" />
+                {n.label}
+              </button>
+            );
+          })}
+          <button
+            onClick={() => setView("tiktok")}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-extrabold text-white whitespace-nowrap flex-shrink-0"
+            style={{ background: "linear-gradient(135deg, #16a34a, #22c55e)" }}
+          >
+            <Send className="w-3.5 h-3.5" />
+            TikTok Live
+          </button>
         </div>
-        {view === "billing" ? (
-          <div className="max-w-5xl">
+
+        {/* Content — full width. Studio views go edge-to-edge. */}
+        <div className={`flex-1 min-w-0 ${STUDIO_VIEWS.includes(view) ? "p-2" : "p-4 sm:p-6 md:p-8"}`}>
+          {/* Studio is ALWAYS mounted (hidden when not active) so the WebRTC
+              stream + script playback survive navigation between views. */}
+          <div style={{ display: STUDIO_VIEWS.includes(view) ? undefined : "none" }} className="h-full">
+            <LivehostStudio view={(view === "livehost" ? "live" : view) as LiveView} />
+          </div>
+          {view === "billing" ? (
             <BillingSection />
-          </div>
-        ) : view === "attachment" ? (
-          <div className="max-w-6xl">
+          ) : view === "attachment" ? (
             <AttachmentsSection />
-          </div>
-        ) : view === "greetings" ? (
-          <div className="lh-studio max-w-4xl"><LivehostGreetings /></div>
-        ) : view === "tiktok" ? (
-          <LivehostTiktok email={email} />
-        ) : STUDIO_VIEWS.includes(view) ? null : (
-          /* DASHBOARD (home) = live interaction analytics */
-          <div className="lh-studio max-w-6xl">
-            <div className="mb-5">
-              <h1 className="font-display font-extrabold text-2xl tracking-tight">Dashboard</h1>
-              <p className="text-sm" style={{ color: "var(--color-text-secondary)" }}>
-                Selamat datang, {name} — interaksi penonton TikTok LIVE anda secara real-time.
-              </p>
+          ) : view === "greetings" ? (
+            <div className="lh-studio"><LivehostGreetings /></div>
+          ) : view === "tiktok" ? (
+            <LivehostTiktok email={email} />
+          ) : STUDIO_VIEWS.includes(view) ? null : (
+            /* DASHBOARD (home) = live interaction analytics */
+            <div className="lh-studio">
+              <div className="mb-5">
+                <h1 className="font-display font-extrabold text-2xl tracking-tight">Dashboard</h1>
+                <p className="text-sm" style={{ color: "var(--color-text-secondary)" }}>
+                  Selamat datang, {name} — interaksi penonton TikTok LIVE anda secara real-time.
+                </p>
+              </div>
+              <LivehostInteractions />
             </div>
-            <LivehostInteractions />
-          </div>
-        )}
+          )}
+        </div>
       </main>
     </div>
   );
