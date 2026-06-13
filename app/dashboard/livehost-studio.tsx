@@ -1124,8 +1124,6 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
               </select>
             </div>
 
-            <div className="hint">▶ Start akan hidupkan GPU automatik kalau tidur — dan auto-off selepas 8 minit tiada aktiviti (jimat kos).</div>
-            <div className="hint">📋 Bila Go LIVE di TikTok, AKTIFKAN toggle &quot;AI-generated content&quot; (polisi wajib TikTok Shop).</div>
             <label className="checkbox">
               <input type="checkbox" checked={captions} onChange={(e) => setCaptions(e.target.checked)} style={{ width: "auto" }} />
               Captions
