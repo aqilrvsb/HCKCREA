@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getSettings } from "@/lib/settings";
+import { malaysiaDayToUtcRange } from "@/lib/date-util";
 
 // Server-side streaming session metering — the source of truth for billing.
 // start     → closes any stale session, opens a new row (exact start second)
@@ -10,7 +11,7 @@ import { getSettings } from "@/lib/settings";
 // Crash safety: any 'active' session whose last_seen is older than STALE_MS is
 // closed at last_seen with status 'crashed' (checked lazily on start/usage).
 
-const STALE_MS = 2 * 60 * 1000;
+const STALE_MS = 60 * 1000; // no heartbeat for 60s (laptop off / crash) → close session at last_seen
 
 async function closeStale(admin: ReturnType<typeof createAdminClient>, userId: string) {
   const cutoff = new Date(Date.now() - STALE_MS).toISOString();
@@ -73,13 +74,18 @@ export async function POST(req: Request) {
   return NextResponse.json({ error: "unknown action" }, { status: 400 });
 }
 
-// GET → rates + session history + totals for the client Usage tab.
-export async function GET() {
+// GET → rates + session history + totals. Optional ?start=YYYY-MM-DD&end=...
+// (MYT) filters the period totals; defaults to this calendar month.
+export async function GET(req: Request) {
   const sb = await createClient();
   const { data: { user } } = await sb.auth.getUser();
   if (!user) return NextResponse.json({ error: "unauthenticated" }, { status: 401 });
   const admin = createAdminClient();
   await closeStale(admin, user.id);
+
+  const url = new URL(req.url);
+  const startParam = url.searchParams.get("start");
+  const endParam = url.searchParams.get("end");
 
   const rates = await getSettings(["livehost_gpu_rate_hour", "livehost_voice_rate_1k"]);
   const gpuRate = parseFloat(rates["livehost_gpu_rate_hour"] || "6") || 6;
@@ -90,12 +96,13 @@ export async function GET() {
     .select("id, started_at, ended_at, last_seen, voice_chars, status")
     .eq("user_id", user.id)
     .order("started_at", { ascending: false })
-    .limit(50);
+    .limit(200);
 
   const now = Date.now();
-  const monthStart = new Date();
-  monthStart.setDate(1);
-  monthStart.setHours(0, 0, 0, 0);
+  const periodStart = startParam
+    ? new Date(malaysiaDayToUtcRange(startParam, "start")).getTime()
+    : (() => { const m = new Date(); m.setDate(1); m.setHours(0,0,0,0); return m.getTime(); })();
+  const periodEnd = endParam ? new Date(malaysiaDayToUtcRange(endParam, "end")).getTime() : now;
 
   let monthSec = 0, monthChars = 0;
   const rows = (sessions || []).map((s) => {
@@ -103,7 +110,8 @@ export async function GET() {
     const durSec = Math.max(0, Math.round((end - new Date(s.started_at).getTime()) / 1000));
     const gpuCost = (durSec / 3600) * gpuRate;
     const voiceCost = (Number(s.voice_chars) / 1000) * voiceRate;
-    if (new Date(s.started_at) >= monthStart) {
+    const st = new Date(s.started_at).getTime();
+    if (st >= periodStart && st <= periodEnd) {
       monthSec += durSec;
       monthChars += Number(s.voice_chars);
     }

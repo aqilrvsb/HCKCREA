@@ -189,7 +189,7 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
         if (sessionIdRef.current) {
           sessionPost({ action: "heartbeat", sessionId: sessionIdRef.current, voiceChars: sessionCharsRef.current });
         }
-      }, 30000);
+      }, 15000); // 15s heartbeat → crash/shutdown loses ≤15s of billing
     }
   }, [sessionPost]);
 

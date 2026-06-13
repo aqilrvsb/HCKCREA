@@ -27,12 +27,17 @@ export default function LivehostInteractions() {
   const [loading, setLoading] = useState(true);
 
   const [live, setLive] = useState(true);
+  const [usage, setUsage] = useState<{ streamSec: number; gpuCost: number; voiceCost: number; totalCost: number } | null>(null);
+  const [rates, setRates] = useState<{ gpuRateHour: number; voiceRate1k: number } | null>(null);
   const load = useCallback(async () => {
     try {
-      const r = await fetch(`/api/livehost/interactions?start=${start}&end=${end}`);
-      const d = await r.json();
-      setCounts(d.counts || {});
-      setRecent(d.recent || []);
+      const [ri, rs] = await Promise.all([
+        fetch(`/api/livehost/interactions?start=${start}&end=${end}`).then((r) => r.json()),
+        fetch(`/api/livehost/session?start=${start}&end=${end}`).then((r) => r.json()).catch(() => null),
+      ]);
+      setCounts(ri.counts || {});
+      setRecent(ri.recent || []);
+      if (rs?.month) { setUsage(rs.month); setRates(rs.rates); }
     } finally {
       setLoading(false);
     }
@@ -62,6 +67,28 @@ export default function LivehostInteractions() {
         <div style={{ marginLeft: "auto", textAlign: "right" }}>
           <div className="usage-big" style={{ fontSize: 26 }}>{total.toLocaleString()}</div>
           <div className="hint" style={{ marginTop: 0 }}>jumlah interaksi</div>
+        </div>
+      </div>
+
+      {/* Live time + cost (billed per-second, shown in minutes; admin rates) */}
+      <div className="stats-grid" style={{ marginTop: 14, gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))" }}>
+        <div className="usage-card" style={{ textAlign: "center", borderColor: "rgba(91,108,255,.4)" }}>
+          <div className="usage-big" style={{ color: "#5b6cff" }}>
+            {usage ? `${Math.floor(usage.streamSec / 3600)}j ${Math.floor((usage.streamSec % 3600) / 60)}m` : "—"}
+          </div>
+          <div className="hint" style={{ marginTop: 2 }}>JUMLAH MASA LIVE</div>
+        </div>
+        <div className="usage-card" style={{ textAlign: "center" }}>
+          <div className="usage-big">RM {usage ? usage.gpuCost.toFixed(2) : "0.00"}</div>
+          <div className="hint" style={{ marginTop: 2 }}>KOS GPU{rates ? ` · RM${rates.gpuRateHour}/j` : ""}</div>
+        </div>
+        <div className="usage-card" style={{ textAlign: "center" }}>
+          <div className="usage-big">RM {usage ? usage.voiceCost.toFixed(2) : "0.00"}</div>
+          <div className="hint" style={{ marginTop: 2 }}>KOS SUARA</div>
+        </div>
+        <div className="usage-card" style={{ textAlign: "center", borderColor: "rgba(61,220,151,.4)" }}>
+          <div className="usage-big" style={{ color: "var(--accent-2)" }}>RM {usage ? usage.totalCost.toFixed(2) : "0.00"}</div>
+          <div className="hint" style={{ marginTop: 2 }}>JUMLAH KOS</div>
         </div>
       </div>
 
