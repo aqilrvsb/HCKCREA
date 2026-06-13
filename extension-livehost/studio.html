@@ -72,6 +72,10 @@
   .sfx .bell { background: linear-gradient(135deg, #fb8c00, #ffa726); }
   .sfx .clap { background: linear-gradient(135deg, #16a34a, #22c55e); }
   .note { font-size: 11px; color: #6a8a6a; line-height: 1.6; margin-top: 10px; }
+  .sim-guide { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 11px; }
+  .sim-guide th { text-align: left; color: #79a979; text-transform: uppercase; font-size: 9px; letter-spacing: .4px; padding: 4px 8px; background: #f4faf4; }
+  .sim-guide td { padding: 6px 8px; border-top: 1px solid #e0efe0; color: #3a5a3a; vertical-align: top; }
+  .sim-guide td:first-child { white-space: nowrap; color: #1a3a1a; }
   .status-text { font-size: 12px; font-weight: 700; margin-top: 10px; text-align: center; min-height: 15px; color: #e53935; }
   .status-text.ok { color: var(--green-700); }
   .hidden { display: none; }
@@ -123,7 +127,18 @@
           <input id="simText" placeholder='komen | "NAMA JOIN/FOLLOW/LIKE"'>
           <button class="send-btn" id="simBtn">Send</button>
         </div>
-        <div class="note">Sama macam komen TikTok sebenar. Contoh:<br>• <b>Ali JOIN</b> / <b>Siti FOLLOW</b> / <b>Abu LIKE</b><br>• <b>Mira: berapa harga?</b> (komen bernama)<br>• <b>dah beli powder</b> → 🔔 · <b>best sangat!</b> → 👏</div>
+        <div class="note" style="margin-top:6px;">Sama macam komen TikTok sebenar:</div>
+        <table class="sim-guide">
+          <thead><tr><th>Taip</th><th>Apa jadi</th></tr></thead>
+          <tbody>
+            <tr><td><b>Ali JOIN</b></td><td>Avatar greeting ("Selamat datang Ali!") → GREETED +1</td></tr>
+            <tr><td><b>Siti FOLLOW</b></td><td>👏 clap + greeting follow → FOLLOWS +1</td></tr>
+            <tr><td><b>Abu LIKE</b></td><td>Avatar greeting like → LIKES +1</td></tr>
+            <tr><td><b>Mira: berapa harga?</b></td><td>Avatar reply guna Product Knowledge → SEEN/REPLIED +1</td></tr>
+            <tr><td><b>dah beli powder</b></td><td>🔔 bell + avatar ucap terima kasih → BELI +1</td></tr>
+            <tr><td><b>best sangat!</b></td><td>Avatar reply, kemudian 👏 clap (feedback)</td></tr>
+          </tbody>
+        </table>
       </div>
 
       <div class="card">
