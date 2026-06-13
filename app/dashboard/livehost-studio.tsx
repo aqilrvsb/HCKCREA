@@ -866,15 +866,64 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
     });
   }, [scriptPlaying, playPos.s]);
 
-  const sendChat = useCallback(() => {
-    const text = chatText.trim(); if (!text) return;
+  // SFX (bell/clap) — played in the page so OBS tab/window capture picks it up.
+  const simRotateRef = useRef(0);
+  const playSfx = useCallback((name: "bell" | "clap") => {
+    try {
+      const a = new Audio(`/sfx/${name}.mp3`);
+      a.volume = 1;
+      a.play().catch(() => {});
+    } catch {}
+  }, []);
+
+  // Make the avatar speak an immediate line (greeting/reply) — interrupts the
+  // script momentarily, same as a customer interaction.
+  const speakNow = useCallback((kind: "say" | "ask", text: string) => {
+    if (!text.trim()) return false;
     if (sayTimerRef.current) { clearTimeout(sayTimerRef.current); sayTimerRef.current = null; }
     audioEndRef.current = performance.now();
     sendControl({ kind: "interrupt" });
     const id = "C" + ++sayCounterRef.current;
     pendingSayRef.current.set(id, { chat: true });
-    if (sendControl({ kind: "ask", text, id })) { setCaptionText(`💬 ${text}`); setChatText(""); }
-  }, [chatText, sendControl]);
+    return sendControl({ kind, text, id });
+  }, [sendControl]);
+
+  // Simulation — IDENTICAL logic to the extension:
+  //   "Ali JOIN" / "Siti FOLLOW" / "Abu LIKE"  → greeting (rotate active profile)
+  //   "Mira: berapa harga?" / plain text       → avatar reply (focus product)
+  //   purchase keyword → 🔔 bell ; feedback keyword → 👏 clap after reply
+  const PURCHASE_RE = /\b(done|dah\s*beli|sudah\s*beli|checkout|dah\s*order|ordered?|dah\s*bayar)\b/i;
+  const FEEDBACK_RE = /\b(best|sedap|berkesan|terbaik|memang\s*bagus|puas\s*hati|recommended)\b/i;
+  const sendChat = useCallback(() => {
+    const t = chatText.trim(); if (!t) return;
+    const g = greetProfiles.find((x) => x.id === activeGreetId);
+    const clean = (u: string) => u.replace(/[*_~`]/g, "").trim().slice(0, 40);
+    const ev = t.match(/^(.+?)\s+(JOIN|FOLLOW|LIKE)$/i);
+    if (ev && g) {
+      const u = clean(ev[1]), k = ev[2].toUpperCase();
+      let line = "";
+      if (k === "FOLLOW") { line = g.followGreeting; playSfx("clap"); }
+      else if (k === "LIKE") line = g.likeGreeting;
+      else {
+        const lines = (g.greetings || "").split(/\n+/).map((l) => l.trim()).filter(Boolean);
+        if (lines.length) { line = lines[simRotateRef.current % lines.length]; simRotateRef.current++; }
+      }
+      if (line) speakNow("say", line.replaceAll("[username]", u));
+      setCaptionText(`👋 ${u} ${k}`);
+    } else {
+      const cm = t.match(/^([^:]{1,30}):\s*(.+)$/);
+      const username = cm ? clean(cm[1]) : "Penonton";
+      const text = cm ? cm[2].trim() : t;
+      const isPurchase = PURCHASE_RE.test(text);
+      const isFeedback = !isPurchase && FEEDBACK_RE.test(text);
+      if (isPurchase) playSfx("bell");
+      const focus = g?.selectedProduct ? `[FOKUS PRODUK: ${g.selectedProduct}] ` : "";
+      speakNow("ask", `${focus}${username}: ${text}`);
+      if (isFeedback) setTimeout(() => playSfx("clap"), 4000);
+      setCaptionText(`💬 ${username}: ${text}`);
+    }
+    setChatText("");
+  }, [chatText, greetProfiles, activeGreetId, speakNow, playSfx]);
 
   const enableSound = useCallback(() => {
     audioCtxRef.current?.resume().then(() => setSoundBlocked(false)).catch(() => {});
@@ -1082,9 +1131,25 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
               Captions
             </label>
 
-            <div className="label">Customer chat — avatar pauses &amp; answers</div>
-            <textarea placeholder="Act as a viewer: ask a question…" value={chatText} onChange={(e) => setChatText(e.target.value)} />
-            <button className="btn-primary" onClick={sendChat} disabled={!active}>Send chat</button>
+            <div className="label">🎮 Simulation — avatar pauses &amp; answers</div>
+            <div className="sim-row">
+              <input placeholder='komen | "NAMA JOIN/FOLLOW/LIKE"' value={chatText}
+                onChange={(e) => setChatText(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter") sendChat(); }} disabled={!active} />
+              <button className="sim-send" onClick={sendChat} disabled={!active}>Send</button>
+            </div>
+            <div className="hint">Sama macam komen TikTok sebenar:</div>
+            <table className="sim-guide">
+              <thead><tr><th>Taip</th><th>Apa jadi</th></tr></thead>
+              <tbody>
+                <tr><td>Ali JOIN</td><td>Avatar greeting ("Selamat datang Ali!") → GREETED</td></tr>
+                <tr><td>Siti FOLLOW</td><td>👏 clap + greeting follow → FOLLOWS</td></tr>
+                <tr><td>Abu LIKE</td><td>Avatar greeting like → LIKES</td></tr>
+                <tr><td>Mira: berapa harga?</td><td>Avatar reply guna Product Knowledge → SEEN/REPLIED</td></tr>
+                <tr><td>dah beli powder</td><td>🔔 bell + avatar ucap terima kasih → BELI</td></tr>
+                <tr><td>best sangat!</td><td>Avatar reply, kemudian 👏 clap (feedback)</td></tr>
+              </tbody>
+            </table>
 
             {wakeMsg && <div className="status-line">{wakeMsg}</div>}
             {error && <div className="error">{error}</div>}
@@ -1276,6 +1341,14 @@ const STUDIO_CSS = `
 .lh-studio .usage-card{background:var(--panel-2);border:1px solid var(--border);border-radius:10px;padding:12px;margin-top:6px;}
 .lh-studio .usage-big{font-size:22px;font-weight:700;}
 .lh-studio .usage-cost{margin-top:6px;font-size:15px;font-weight:600;color:var(--accent-2);}
+.lh-studio .sim-row{display:flex;gap:8px;margin-top:6px;}
+.lh-studio .sim-row input{flex:1;}
+.lh-studio .sim-send{width:84px;border:none;border-radius:8px;font-size:13px;font-weight:700;color:#fff;cursor:pointer;background:linear-gradient(135deg,#fb8c00,#ffa726);}
+.lh-studio .sim-send:disabled{opacity:.5;cursor:not-allowed;}
+.lh-studio .sim-guide{width:100%;border-collapse:collapse;margin-top:8px;font-size:11px;}
+.lh-studio .sim-guide th{text-align:left;color:var(--muted);text-transform:uppercase;font-size:9px;letter-spacing:.4px;padding:4px 8px;background:var(--panel-2);}
+.lh-studio .sim-guide td{padding:6px 8px;border-top:1px solid var(--border);vertical-align:top;}
+.lh-studio .sim-guide td:first-child{white-space:nowrap;color:var(--text);font-weight:600;}
 .lh-studio .sessions-table{width:100%;border-collapse:collapse;font-size:12px;}
 .lh-studio .sessions-table th{background:rgba(255,255,255,.04);color:var(--muted);text-transform:uppercase;font-size:10px;letter-spacing:.05em;padding:8px 10px;text-align:left;}
 .lh-studio .sessions-table td{padding:8px 10px;border-top:1px solid var(--border);}
