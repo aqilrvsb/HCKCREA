@@ -244,14 +244,24 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       case "LIVE_ENDED": handleStop(); break;
       case "PLAY_MANUAL_SFX": await ensureOffscreen(); chrome.runtime.sendMessage({ type: "PLAY_SFX", sfx: msg.sfx }).catch(() => {}); break;
       case "SIM": {
-        // simulation: "comment text" | "NAME JOIN" | "NAME FOLLOW" | "NAME LIKE"
+        // Simulation = IDENTICAL pipeline to a real TikTok event. Formats:
+        //   "Ali JOIN" / "Siti FOLLOW" / "Abu LIKE"   -> join/follow/like
+        //   "Mira: berapa harga?"                      -> comment from "Mira"
+        //   "dah beli powder"                          -> comment (purchase SFX)
+        //   "best sangat!"                             -> comment (feedback SFX)
         const t = String(msg.text || "").trim();
-        const m = t.match(/^(\S+)\s+(JOIN|FOLLOW|LIKE)$/i);
-        if (m && running) {
-          const u = m[1], k = m[2].toUpperCase();
+        if (!running) { sendResponse({ ok: false, error: "Tekan START dulu" }); break; }
+        const ev = t.match(/^(.+?)\s+(JOIN|FOLLOW|LIKE)$/i);
+        if (ev) {
+          const u = ev[1].trim(), k = ev[2].toUpperCase();
           if (k === "JOIN") onJoin(u); else if (k === "FOLLOW") onFollow(u); else onLike(u);
-        } else if (running) onComment("Simulasi", t);
-        sendResponse({ ok: running });
+        } else {
+          // "Name: text" -> named commenter (like the real TikTok chat row)
+          const cm = t.match(/^([^:]{1,30}):\s*(.+)$/);
+          if (cm) onComment(cm[1].trim(), cm[2].trim());
+          else onComment("Penonton", t);
+        }
+        sendResponse({ ok: true });
         break;
       }
     }
