@@ -36,6 +36,7 @@ export default function AttachmentPicker({
   defaultCategory = "product",
   presets = [],
   productLabel = "Product",
+  categories = ["product", "avatar", "all"],
 }: {
   open: boolean;
   onClose: () => void;
@@ -54,6 +55,10 @@ export default function AttachmentPicker({
   // Override the "Product" filter pill label per-instance (e.g. the Livehost
   // template picker calls products "Template"). Cosmetic only.
   productLabel?: string;
+  // Which filter pills to show. Single-purpose pickers (e.g. Livehost avatar
+  // or template) pass one category so the irrelevant, always-empty tabs are
+  // hidden. The whole filter bar is hidden when only one category remains.
+  categories?: (AttachmentCategory | "all")[];
 }) {
   const multi = !!onPickMulti;
   const [items, setItems] = useState<Attachment[]>([]);
@@ -263,33 +268,41 @@ export default function AttachmentPicker({
           </div>
         </div>
 
-        {/* Category radio */}
-        <div
-          className="px-5 py-3 flex items-center gap-2 border-b"
-          style={{ borderColor: "var(--color-border)" }}
-        >
-          <FilterPill
-            active={filter === "product"}
-            onClick={() => setFilter("product")}
-            icon={<Package className="w-3.5 h-3.5" />}
-            label={productLabel}
-            color="#f59e0b"
-          />
-          <FilterPill
-            active={filter === "avatar"}
-            onClick={() => setFilter("avatar")}
-            icon={<UserCircle2 className="w-3.5 h-3.5" />}
-            label="Avatar"
-            color="#22c55e"
-          />
-          <FilterPill
-            active={filter === "all"}
-            onClick={() => setFilter("all")}
-            icon={null}
-            label="All"
-            color="#888"
-          />
-        </div>
+        {/* Category radio — hidden entirely for single-purpose pickers */}
+        {categories.length > 1 && (
+          <div
+            className="px-5 py-3 flex items-center gap-2 border-b"
+            style={{ borderColor: "var(--color-border)" }}
+          >
+            {categories.includes("product") && (
+              <FilterPill
+                active={filter === "product"}
+                onClick={() => setFilter("product")}
+                icon={<Package className="w-3.5 h-3.5" />}
+                label={productLabel}
+                color="#f59e0b"
+              />
+            )}
+            {categories.includes("avatar") && (
+              <FilterPill
+                active={filter === "avatar"}
+                onClick={() => setFilter("avatar")}
+                icon={<UserCircle2 className="w-3.5 h-3.5" />}
+                label="Avatar"
+                color="#22c55e"
+              />
+            )}
+            {categories.includes("all") && (
+              <FilterPill
+                active={filter === "all"}
+                onClick={() => setFilter("all")}
+                icon={null}
+                label="All"
+                color="#888"
+              />
+            )}
+          </div>
+        )}
 
         {/* Body */}
         <div className="flex-1 overflow-y-auto p-5">

@@ -1503,6 +1503,7 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
         onClose={() => setAvatarPickerOpen(false)}
         title="Pick avatar from Attachments"
         defaultCategory="avatar"
+        categories={["avatar"]}
         presets={stock.map((s) => ({ id: `stock:${s.id}`, name: s.label, public_url: `/avatars/${s.file}`, category: "avatar" as const }))}
         onPick={(a) => {
           // Default hosts are PRE-REGISTERED on the GPU (avatar_id = stock id),
@@ -1515,7 +1516,8 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
         open={overlayPickerOpen}
         onClose={() => setOverlayPickerOpen(false)}
         title="Pick template / background from Attachments"
-        defaultCategory="all"
+        defaultCategory="product"
+        categories={["product"]}
         productLabel="Template"
         presets={overlays.map((o) => ({ id: `ovl:${o.file}`, name: o.label, public_url: `/overlays/${o.file}`, category: "product" as const }))}
         onPick={(a) => {
