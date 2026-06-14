@@ -35,6 +35,7 @@ export default function AttachmentPicker({
   title = "Pick from Attachments",
   defaultCategory = "product",
   presets = [],
+  productLabel = "Product",
 }: {
   open: boolean;
   onClose: () => void;
@@ -50,6 +51,9 @@ export default function AttachmentPicker({
   // own uploads. Non-deletable, always present (e.g. the stock Livehost
   // hosts + templates served from /avatars + /overlays). Single-pick only.
   presets?: { id: string; name: string; public_url: string; category: AttachmentCategory }[];
+  // Override the "Product" filter pill label per-instance (e.g. the Livehost
+  // template picker calls products "Template"). Cosmetic only.
+  productLabel?: string;
 }) {
   const multi = !!onPickMulti;
   const [items, setItems] = useState<Attachment[]>([]);
@@ -268,7 +272,7 @@ export default function AttachmentPicker({
             active={filter === "product"}
             onClick={() => setFilter("product")}
             icon={<Package className="w-3.5 h-3.5" />}
-            label="Product"
+            label={productLabel}
             color="#f59e0b"
           />
           <FilterPill

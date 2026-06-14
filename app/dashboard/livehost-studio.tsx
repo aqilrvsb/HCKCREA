@@ -1516,6 +1516,7 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
         onClose={() => setOverlayPickerOpen(false)}
         title="Pick template / background from Attachments"
         defaultCategory="all"
+        productLabel="Template"
         presets={overlays.map((o) => ({ id: `ovl:${o.file}`, name: o.label, public_url: `/overlays/${o.file}`, category: "product" as const }))}
         onPick={(a) => {
           if (a.id.startsWith("ovl:")) { setOverlaySel(a.id.slice("ovl:".length)); setCustomOverlay(""); }
