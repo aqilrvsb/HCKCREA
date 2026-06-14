@@ -103,12 +103,14 @@ export function LhButton({
   disabled,
   variant = "primary",
   style,
+  title,
 }: {
   children: React.ReactNode;
   onClick?: () => void;
   disabled?: boolean;
   variant?: "primary" | "ghost";
   style?: React.CSSProperties;
+  title?: string;
 }) {
   const base: React.CSSProperties = {
     borderRadius: 10,
@@ -124,9 +126,45 @@ export function LhButton({
       ? { background: "linear-gradient(90deg,#f59e0b 0%,#facc15 100%)", color: "#1a1a1a", border: "none", boxShadow: "0 4px 14px rgba(245,158,11,.3)" }
       : { background: "#fafaf7", color: "#1a1a1a", border: "1px solid #e8e0d8" };
   return (
-    <button type="button" onClick={onClick} disabled={disabled} style={{ ...base, ...skin, ...style }}>
+    <button type="button" onClick={onClick} disabled={disabled} title={title} style={{ ...base, ...skin, ...style }}>
       {children}
     </button>
+  );
+}
+
+// Light modal popup (Image-tab themed). Renders nothing when closed.
+export function LhModal({
+  open,
+  onClose,
+  title,
+  children,
+  maxWidth = 640,
+}: {
+  open: boolean;
+  onClose: () => void;
+  title: string;
+  children: React.ReactNode;
+  maxWidth?: number;
+}) {
+  if (!open) return null;
+  return (
+    <div
+      onClick={onClose}
+      style={{ position: "fixed", inset: 0, zIndex: 130, background: "rgba(0,0,0,0.6)", backdropFilter: "blur(2px)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        className="rounded-2xl"
+        style={{ width: "100%", maxWidth, maxHeight: "90vh", display: "flex", flexDirection: "column", background: "#ffffff", border: "1px solid #e8e0d8", boxShadow: "0 24px 70px rgba(0,0,0,0.35)", color: "#1a1a1a" }}
+      >
+        <div className="flex items-center justify-between" style={{ padding: "14px 18px", borderBottom: "1px solid #eee" }}>
+          <span className="text-[13px] font-extrabold uppercase tracking-[0.06em]" style={{ color: "#1a1a1a" }}>{title}</span>
+          <button type="button" onClick={onClose} aria-label="Tutup"
+            style={{ width: 30, height: 30, borderRadius: 8, border: "1px solid #e8e0d8", background: "#fafaf7", color: "#555", cursor: "pointer", fontSize: 14, lineHeight: 1 }}>✕</button>
+        </div>
+        <div style={{ padding: 18, overflowY: "auto" }}>{children}</div>
+      </div>
+    </div>
   );
 }
 

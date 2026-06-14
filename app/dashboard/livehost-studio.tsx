@@ -10,7 +10,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import AttachmentPicker from "./sections/attachment-picker";
 import { hydrateLivehostState, saveLivehostState, installLivehostStateFlush } from "@/lib/livehost-state";
-import { LhSection, LhCard, LhCardHeader, LhLabel, LhButton, LhGrid, LH_FIELD_STYLE, ORANGE } from "./livehost-ui";
+import { LhSection, LhCard, LhCardHeader, LhLabel, LhButton, LhGrid, LhModal, LH_FIELD_STYLE, ORANGE } from "./livehost-ui";
 
 export type LiveView = "live" | "scripts" | "products" | "usage" | "template";
 
@@ -457,6 +457,9 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
   };
   const [savedTemplates, setSavedTemplates] = useState<SavedTpl[]>([]);
   const [savedPickerOpen, setSavedPickerOpen] = useState(false);
+  // Which item is open in the editor modal (Knowledge / Scripts). null = closed.
+  const [kbEditId, setKbEditId] = useState<string | null>(null);
+  const [scriptEditId, setScriptEditId] = useState<string | null>(null);
   // Flips true once the DB→localStorage hydrate + initial read finishes, so the
   // save effects never PUT (or clobber the cache) with pre-load empty state.
   const hydratedRef = useRef(false);
@@ -1059,6 +1062,7 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
     const id = "p" + Date.now().toString(36);
     setProducts((prev) => [...prev, { id, title: `Produk ${prev.length + 1}`, text: "" }]);
     setActiveProductId(id);
+    return id;
   }, []);
   const updateProduct = useCallback((id: string, patch: Partial<{ title: string; text: string }>) => {
     setProducts((prev) => prev.map((x) => (x.id === id ? { ...x, ...patch } : x)));
@@ -1073,6 +1077,7 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
       { id, title: `Script ${prev.length + 1}`, text: "", voiceId: VOICES[0].id, volume: 3.0, speed: 1.0, emotion: "fluent", saved: false },
       ...prev,
     ]);
+    return id;
   }, []);
   const updateScript = useCallback((id: string, patch: Partial<Script>) => {
     // Changing content/voice invalidates the saved/generated audio.
@@ -1510,29 +1515,53 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
           <div className="flex items-center justify-between gap-3 flex-wrap">
             <div>
               <h2 className="font-extrabold text-xl tracking-tight" style={{ color: "#1a1a1a" }}>Scripts</h2>
-              <p className="text-xs mt-0.5" style={{ color: "#888" }}>Tulis skrip → pilih suara → Generate → Save → tambah ke Rundown.</p>
+              <p className="text-xs mt-0.5" style={{ color: "#888" }}>Tulis skrip → Generate → Save → tambah ke Rundown.</p>
             </div>
-            <LhButton onClick={addScript}>➕ New script</LhButton>
+            <LhButton onClick={() => setScriptEditId(addScript())}>➕ New script</LhButton>
           </div>
 
-          {scripts.length === 0 && (
-            <LhCard><p className="text-sm" style={{ color: "#888" }}>Tulis skrip → pilih suara/volume/speed/emosi → <b>Generate</b> (dengar dulu) → <b>Save</b>. Skrip tersimpan boleh ditambah ke Rundown di tab Livehost.</p></LhCard>
-          )}
+          <LhCard>
+            <LhCardHeader icon="📁" title={`Semua Scripts (${scripts.length})`} />
+            {scripts.length === 0 ? (
+              <p className="text-sm" style={{ color: "#888" }}>Tiada skrip lagi. Tekan ➕ New script untuk mula.</p>
+            ) : (
+              <LhGrid>
+                {scripts.map((s) => {
+                  const inRundown = rundown.includes(s.id);
+                  const hasAudio = !!(s.audioUrl || s.audioB64);
+                  return (
+                    <div key={s.id} onClick={() => setScriptEditId(s.id)} title="Klik untuk edit"
+                      style={{ position: "relative", cursor: "pointer", borderRadius: 14, padding: "12px 14px", minHeight: 92,
+                        background: "#fafaf7", border: `1px solid ${s.saved ? "#86efac" : "#e8e0d8"}` }}>
+                      <button type="button" title="Padam" onClick={(e) => { e.stopPropagation(); deleteScript(s.id); }}
+                        style={{ position: "absolute", top: 8, right: 8, border: "1px solid #f3c0c0", background: "#fff0f0", color: "#e23", borderRadius: 8, padding: "3px 7px", fontSize: 11, cursor: "pointer" }}>🗑</button>
+                      <div style={{ fontWeight: 800, fontSize: 13, paddingRight: 30, color: "#1a1a1a" }}>{s.title || "Tanpa tajuk"}</div>
+                      <div style={{ fontSize: 10, fontWeight: 800, textTransform: "uppercase", marginTop: 2, color: s.saved ? "#16a34a" : "#b45309" }}>
+                        {s.saved ? "● saved" : "draf"}{inRundown ? " · rundown" : ""}{hasAudio ? " · 🔊" : ""}
+                      </div>
+                      <div style={{ fontSize: 11, color: "#888", marginTop: 4, lineHeight: 1.4, display: "-webkit-box", WebkitLineClamp: 3, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{s.text || "Kosong…"}</div>
+                    </div>
+                  );
+                })}
+              </LhGrid>
+            )}
+          </LhCard>
+        </LhSection>
 
-          {scripts.map((s) => {
+        <LhModal open={!!scriptEditId} onClose={() => setScriptEditId(null)} title="Script" maxWidth={680}>
+          {(() => {
+            const s = scripts.find((x) => x.id === scriptEditId);
+            if (!s) return null;
             const inRundown = rundown.includes(s.id);
             const words = s.text.split(/\s+/).filter(Boolean);
             const onCount = previewPlayId === s.id ? Math.round(previewFrac * words.length) : -1;
             const hasAudio = !!(s.audioUrl || s.audioB64);
             return (
-              <LhCard key={s.id} borderColor={s.saved ? "#16a34a" : ORANGE}>
-                <div className="flex items-center gap-2 mb-3">
-                  <input style={{ ...LH_FIELD_STYLE, fontWeight: 800 }} value={s.title} onChange={(e) => updateScript(s.id, { title: e.target.value })} />
-                  {s.saved && <span className="text-[11px] font-extrabold whitespace-nowrap" style={{ color: "#16a34a" }}>● saved</span>}
-                  <LhButton variant="ghost" onClick={() => addToRundown(s.id)} disabled={!s.saved} style={{ padding: "9px 12px" }}>➕</LhButton>
-                  <LhButton variant="ghost" onClick={() => deleteScript(s.id)} style={{ padding: "9px 12px", color: "#e23", background: "#fff0f0", border: "1px solid #f3c0c0" }}>🗑</LhButton>
-                </div>
-                <textarea style={{ ...LH_FIELD_STYLE, minHeight: 110, resize: "vertical" }} rows={5} placeholder="Tulis dialog skrip di sini…"
+              <>
+                <LhLabel>Tajuk skrip</LhLabel>
+                <input style={{ ...LH_FIELD_STYLE, fontWeight: 800 }} value={s.title} onChange={(e) => updateScript(s.id, { title: e.target.value })} />
+                <div style={{ marginTop: 14 }}><LhLabel>Dialog</LhLabel></div>
+                <textarea style={{ ...LH_FIELD_STYLE, minHeight: 130, resize: "vertical" }} rows={5} placeholder="Tulis dialog skrip di sini…"
                   value={s.text} onChange={(e) => updateScript(s.id, { text: e.target.value })} />
 
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginTop: 14 }}>
@@ -1564,6 +1593,7 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
                   <LhButton onClick={() => generateScript(s.id)} disabled={s.generating || !s.text.trim()}>{s.generating ? "⏳ Generating…" : "🎙 Generate"}</LhButton>
                   <LhButton variant="ghost" onClick={() => playSaved(s.id)} disabled={!hasAudio}>{previewPlayId === s.id ? "■ Stop" : "▶ Play"}</LhButton>
                   <LhButton variant="ghost" onClick={() => saveScript(s.id)} disabled={!s.audioB64 || s.saved}>💾 {s.saved ? "Saved" : "Save"}</LhButton>
+                  <LhButton variant="ghost" onClick={() => addToRundown(s.id)} disabled={!s.saved} title={s.saved ? "Add to rundown" : "Save dulu"}>➕ Rundown</LhButton>
                 </div>
 
                 {previewPlayId === s.id && (
@@ -1571,15 +1601,18 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
                     {words.map((w, wi) => (<span key={wi} style={{ color: wi < onCount ? "#f59e0b" : "#1a1a1a", fontWeight: wi < onCount ? 800 : 500 }}>{w} </span>))}
                   </div>
                 )}
-                <p className="text-[11px] mt-2" style={{ color: "#888" }}>
-                  {(s.chars ?? s.text.length)} aksara{inRundown ? " • dalam rundown" : ""}
-                  {hasAudio ? " • 🔊 audio siap" : " • belum generate"}
-                  {!s.saved && hasAudio ? " — tekan Save" : ""}
-                </p>
-              </LhCard>
+                <div className="flex items-center gap-2 mt-3">
+                  <p className="text-[11px]" style={{ color: "#888" }}>
+                    {(s.chars ?? s.text.length)} aksara{inRundown ? " • dalam rundown" : ""}
+                    {hasAudio ? " • 🔊 audio siap" : " • belum generate"}
+                    {!s.saved && hasAudio ? " — tekan Save" : ""}
+                  </p>
+                  <LhButton variant="ghost" onClick={() => { deleteScript(s.id); setScriptEditId(null); }} style={{ marginLeft: "auto", color: "#e23", background: "#fff0f0", border: "1px solid #f3c0c0" }}>🗑 Padam</LhButton>
+                </div>
+              </>
             );
-          })}
-        </LhSection>
+          })()}
+        </LhModal>
       </div>
 
       {/* ============ PRODUCTS VIEW (library) ============ */}
@@ -1588,47 +1621,61 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
           <div className="flex items-center justify-between gap-3 flex-wrap">
             <div>
               <h2 className="font-extrabold text-xl tracking-tight" style={{ color: "#1a1a1a" }}>Knowledge</h2>
-              <p className="text-xs mt-0.5" style={{ color: "#888" }}>AI jawab chat guna HANYA knowledge yang aktif. Edit apply live.</p>
+              <p className="text-xs mt-0.5" style={{ color: "#888" }}>AI jawab chat guna HANYA knowledge yang aktif.</p>
             </div>
-            <LhButton onClick={addProduct}>➕ Knowledge baru</LhButton>
+            <LhButton onClick={() => setKbEditId(addProduct())}>➕ Knowledge baru</LhButton>
           </div>
-
-          {activeProduct ? (
-            <LhCard borderColor={ORANGE}>
-              <LhCardHeader icon="📦" title="Knowledge" right={<span className="text-[11px] font-extrabold" style={{ color: "#16a34a" }}>● AKTIF</span>} />
-              <LhLabel>Tajuk</LhLabel>
-              <input style={LH_FIELD_STYLE} value={activeProduct.title} onChange={(e) => updateProduct(activeProduct.id, { title: e.target.value })} />
-              <div style={{ marginTop: 14 }}><LhLabel>Knowledge — avatar guna untuk jawab</LhLabel></div>
-              <textarea style={{ ...LH_FIELD_STYLE, minHeight: 230, resize: "vertical" }} rows={12}
-                placeholder={"Compact Powder — RM19.90...\nFoundation — RM49.90...\nVoucher: RM25 checkout masa live."}
-                value={activeProduct.text} onChange={(e) => updateProduct(activeProduct.id, { text: e.target.value })} />
-              <p className="text-[11px] mt-2" style={{ color: "#888" }}>Knowledge ini sedang <b>aktif</b> — digunakan oleh avatar masa live. Disimpan automatik.</p>
-            </LhCard>
-          ) : (
-            <LhCard><p className="text-sm" style={{ color: "#888" }}>Tiada knowledge lagi. Tekan ➕ Knowledge baru untuk mula.</p></LhCard>
-          )}
 
           <LhCard>
             <LhCardHeader icon="📁" title={`Semua Knowledge (${products.length})`} />
-            <LhGrid>
-              {products.map((pp) => {
-                const isActive = pp.id === activeProductId;
-                return (
-                  <div key={pp.id} onClick={() => setActiveProductId(pp.id)} title="Klik untuk edit / jadikan aktif"
-                    style={{ position: "relative", cursor: "pointer", borderRadius: 14, padding: "12px 14px", minHeight: 92,
-                      background: isActive ? "#fff7ed" : "#fafaf7", border: `1px solid ${isActive ? ORANGE : "#e8e0d8"}`,
-                      ...(isActive ? { boxShadow: `0 0 0 1px ${ORANGE}` } : {}) }}>
-                    <button type="button" title="Padam" onClick={(e) => { e.stopPropagation(); deleteProduct(pp.id); }}
-                      style={{ position: "absolute", top: 8, right: 8, border: "1px solid #f3c0c0", background: "#fff0f0", color: "#e23", borderRadius: 8, padding: "3px 7px", fontSize: 11, cursor: "pointer" }}>🗑</button>
-                    <div style={{ fontWeight: 800, fontSize: 13, paddingRight: 30, color: "#1a1a1a" }}>{pp.title || "Tanpa tajuk"}</div>
-                    {isActive && <div style={{ fontSize: 10, fontWeight: 800, textTransform: "uppercase", color: "#16a34a", marginTop: 2 }}>● aktif</div>}
-                    <div style={{ fontSize: 11, color: "#888", marginTop: 4, lineHeight: 1.4, whiteSpace: "pre-wrap", display: "-webkit-box", WebkitLineClamp: 4, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{pp.text || "Kosong…"}</div>
-                  </div>
-                );
-              })}
-            </LhGrid>
+            {products.length === 0 ? (
+              <p className="text-sm" style={{ color: "#888" }}>Tiada knowledge lagi. Tekan ➕ Knowledge baru untuk mula.</p>
+            ) : (
+              <LhGrid>
+                {products.map((pp) => {
+                  const isActive = pp.id === activeProductId;
+                  return (
+                    <div key={pp.id} onClick={() => setKbEditId(pp.id)} title="Klik untuk edit"
+                      style={{ position: "relative", cursor: "pointer", borderRadius: 14, padding: "12px 14px", minHeight: 92,
+                        background: isActive ? "#fff7ed" : "#fafaf7", border: `1px solid ${isActive ? ORANGE : "#e8e0d8"}`,
+                        ...(isActive ? { boxShadow: `0 0 0 1px ${ORANGE}` } : {}) }}>
+                      <button type="button" title="Padam" onClick={(e) => { e.stopPropagation(); deleteProduct(pp.id); }}
+                        style={{ position: "absolute", top: 8, right: 8, border: "1px solid #f3c0c0", background: "#fff0f0", color: "#e23", borderRadius: 8, padding: "3px 7px", fontSize: 11, cursor: "pointer" }}>🗑</button>
+                      <div style={{ fontWeight: 800, fontSize: 13, paddingRight: 30, color: "#1a1a1a" }}>{pp.title || "Tanpa tajuk"}</div>
+                      {isActive && <div style={{ fontSize: 10, fontWeight: 800, textTransform: "uppercase", color: "#16a34a", marginTop: 2 }}>● aktif</div>}
+                      <div style={{ fontSize: 11, color: "#888", marginTop: 4, lineHeight: 1.4, whiteSpace: "pre-wrap", display: "-webkit-box", WebkitLineClamp: 4, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{pp.text || "Kosong…"}</div>
+                    </div>
+                  );
+                })}
+              </LhGrid>
+            )}
           </LhCard>
         </LhSection>
+
+        <LhModal open={!!kbEditId} onClose={() => setKbEditId(null)} title="Knowledge">
+          {(() => {
+            const kb = products.find((p) => p.id === kbEditId);
+            if (!kb) return null;
+            const isActive = kb.id === activeProductId;
+            return (
+              <>
+                <LhLabel>Tajuk</LhLabel>
+                <input style={LH_FIELD_STYLE} value={kb.title} onChange={(e) => updateProduct(kb.id, { title: e.target.value })} />
+                <div style={{ marginTop: 14 }}><LhLabel>Knowledge — avatar guna untuk jawab</LhLabel></div>
+                <textarea style={{ ...LH_FIELD_STYLE, minHeight: 240, resize: "vertical" }} rows={12}
+                  placeholder={"Compact Powder — RM19.90...\nFoundation — RM49.90...\nVoucher: RM25 checkout masa live."}
+                  value={kb.text} onChange={(e) => updateProduct(kb.id, { text: e.target.value })} />
+                <div className="flex items-center gap-2 mt-4">
+                  <LhButton onClick={() => { setActiveProductId(kb.id); setKbEditId(null); }} style={isActive ? { background: "#dcfce7", color: "#166534", border: "1px solid #86efac", boxShadow: "none" } : undefined}>
+                    {isActive ? "✓ Aktif untuk live" : "Jadikan aktif untuk live"}
+                  </LhButton>
+                  <LhButton variant="ghost" onClick={() => { deleteProduct(kb.id); setKbEditId(null); }} style={{ color: "#e23", background: "#fff0f0", border: "1px solid #f3c0c0" }}>🗑 Padam</LhButton>
+                  <LhButton variant="ghost" onClick={() => setKbEditId(null)} style={{ marginLeft: "auto" }}>Selesai</LhButton>
+                </div>
+              </>
+            );
+          })()}
+        </LhModal>
       </div>
 
       {/* ============ USAGE VIEW ============ */}
