@@ -359,22 +359,16 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
 
   const overlayUrl = customOverlay || (overlaySel ? `/overlays/${overlaySel}` : "");
 
-  // Mirror the live stream onto the Template-view video so the screen there
-  // matches the live host while streaming.
+  // The Template tab is a STATIC design surface (arrange avatar + background +
+  // label) — it must NEVER mirror the live stream. Mirroring caused two bugs:
+  // (1) the avatar lip-synced on the Template tab while live (it should be a
+  // still), and (2) it played the audio a SECOND time (offset by the jitter
+  // buffer) → echo, since the real audio already plays via the Web Audio graph.
+  // Keep the template video element permanently empty; the static avatar image
+  // below is what's shown there.
   useEffect(() => {
     const v = templateVideoRef.current;
-    if (!v) return;
-    if (active && remoteStreamRef.current) {
-      // MUST be muted: the live audio is played once via the Web Audio graph on
-      // the main video's track (with volume gain). This template view mirrors the
-      // SAME stream for the Template tab — if it isn't muted it plays the audio a
-      // second time, offset by the jitter buffer → audible ECHO. Video only here.
-      v.muted = true;
-      v.srcObject = remoteStreamRef.current;
-      v.play().catch(() => {});
-    } else {
-      v.srcObject = null;
-    }
+    if (v) v.srcObject = null;
   }, [active]);
 
   useEffect(() => { scriptsRef.current = scripts; }, [scripts]);
@@ -1449,8 +1443,10 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
               <div className="stage" ref={templateStageRef}
                 onPointerDown={onStagePointerDown} onPointerMove={onStagePointerMove}
                 onPointerUp={onStagePointerUp} onPointerCancel={onStagePointerUp}>
-                <video ref={templateVideoRef} autoPlay playsInline style={{ transform: `translate(${offsetX}%, ${offsetY}%) scale(${zoom})` }} />
-                {!active && previewUrl && (
+                {/* Template tab = static design surface. Show the avatar STILL
+                    image always (even while live) — never the live video. */}
+                <video ref={templateVideoRef} autoPlay playsInline muted style={{ display: "none" }} />
+                {previewUrl && (
                   <img className="avatar-preview" src={previewUrl} alt="" draggable={false}
                     style={{ transform: `translate(${offsetX}%, ${offsetY}%) scale(${zoom})` }} />
                 )}
