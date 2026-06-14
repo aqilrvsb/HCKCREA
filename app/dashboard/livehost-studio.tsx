@@ -604,11 +604,19 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
   useEffect(() => {
     if (!active) return; // not streaming → no keepalive → worker idles → $0
     const ping = () => {
+      // Keep the worker awake ONLY while the tab is VISIBLE. Switching to another
+      // tab / minimizing / locking the screen stops the pings → the worker idles
+      // to $0 after ~90s (Novita freeTimeout). A quick return (< ~90s) keeps it
+      // warm so a brief glance away doesn't kill the live stream. Closing the tab
+      // or shutting the laptop also stops the pings → same auto-idle.
+      if (typeof document !== "undefined" && document.visibilityState !== "visible") return;
       if (backendRef.current) fetch(`${backendRef.current}/keepalive`, { method: "POST" }).catch(() => {});
     };
     ping();
+    const onVis = () => { if (document.visibilityState === "visible") ping(); };
+    document.addEventListener("visibilitychange", onVis);
     const t = setInterval(ping, 30000); // < Novita freeTimeout, so it stays up while live
-    return () => clearInterval(t);
+    return () => { clearInterval(t); document.removeEventListener("visibilitychange", onVis); };
   }, [active]);
 
   // Sync the active greeting profile to the DB so the extension uses it.
