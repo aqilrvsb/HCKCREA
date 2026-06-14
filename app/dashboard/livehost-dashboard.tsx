@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Radio, CreditCard, LayoutDashboard, MessageCircle, ArrowUpRight, ScrollText, Package, BarChart3, Paperclip, HeartHandshake, Send, LayoutTemplate } from "lucide-react";
 import LogoutButton from "./logout-button";
 import BillingSection from "./sections/billing";
@@ -47,6 +47,26 @@ export default function LivehostDashboard({
   planExpiresAt: string | null;
 }) {
   const [view, setView] = useState<View>("home");
+
+  // Default Livehost attachments (stock hosts + templates) — shown read-only
+  // in the Attachment tab so it tallies with the Template-tab pickers.
+  const [attachPresets, setAttachPresets] = useState<
+    { id: string; name: string; public_url: string; category: "product" | "avatar" }[]
+  >([]);
+  useEffect(() => {
+    Promise.all([
+      fetch("/avatars/manifest.json").then((r) => r.json()).catch(() => []),
+      fetch("/overlays/manifest.json").then((r) => r.json()).catch(() => []),
+    ]).then(([avatars, overlays]) => {
+      const a = (avatars as { id: string; file: string; label: string }[]).map((s) => ({
+        id: `stock:${s.id}`, name: s.label, public_url: `/avatars/${s.file}`, category: "avatar" as const,
+      }));
+      const o = (overlays as { file: string; label: string }[]).map((t) => ({
+        id: `ovl:${t.file}`, name: t.label, public_url: `/overlays/${t.file}`, category: "product" as const,
+      }));
+      setAttachPresets([...a, ...o]);
+    }).catch(() => {});
+  }, []);
 
   const expiry = planExpiresAt
     ? new Date(planExpiresAt).toLocaleDateString("ms-MY", {
@@ -187,7 +207,7 @@ export default function LivehostDashboard({
           {view === "billing" ? (
             <BillingSection />
           ) : view === "attachment" ? (
-            <AttachmentsSection />
+            <AttachmentsSection presets={attachPresets} productLabel="Template" />
           ) : view === "greetings" ? (
             <div className="lh-studio"><LivehostGreetings /></div>
           ) : view === "tiktok" ? (
