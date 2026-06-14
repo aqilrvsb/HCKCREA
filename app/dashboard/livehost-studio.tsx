@@ -1318,26 +1318,7 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
             </button>
             <div className="hint">Susun avatar + template di tab <b>Template</b>, simpan, kemudian pilih di sini untuk live.</div>
 
-            <div className="label">Voice</div>
-            <select value={voiceId} onChange={(e) => setVoiceId(e.target.value)}>
-              {VOICES.map((v) => (<option key={v.id} value={v.id}>{v.label}</option>))}
-            </select>
-            <div className="range-row"><span>Volume {Math.round(volume * 100)}%</span>
-              <input type="range" min="0" max="3" step="0.05" value={volume} onChange={(e) => setVolume(parseFloat(e.target.value))} />
-            </div>
-            <div className="range-row"><span>Speed {speed.toFixed(2)}×</span>
-              <input type="range" min="0.7" max="1.5" step="0.05" value={speed} onChange={(e) => setSpeed(parseFloat(e.target.value))} />
-            </div>
-            <div className="range-row"><span>Emosi suara</span>
-              <select value={emotion} onChange={(e) => setEmotion(e.target.value)} style={{ flex: 1 }}>
-                <option value="fluent">Fluent (natural)</option>
-                <option value="happy">Ceria (happy)</option>
-                <option value="neutral">Neutral</option>
-                <option value="surprised">Teruja (surprised)</option>
-                <option value="sad">Lembut (sad)</option>
-              </select>
-            </div>
-
+            <div className="hint" style={{ marginTop: 6 }}>🎙 Suara, volume, speed &amp; emosi kini <b>per-skrip</b> — set semasa cipta skrip di tab <b>Scripts</b>. Setiap skrip main dengan audio &amp; suaranya sendiri.</div>
 
             <div className="label">🎮 Simulation — avatar pauses &amp; answers</div>
             <div className="sim-row">
@@ -1458,23 +1439,75 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
         </div>
       </div>
 
-      {/* ============ SCRIPTS VIEW ============ */}
+      {/* ============ SCRIPTS VIEW — author + voice + generate + save + history ============ */}
       <div style={{ display: view === "scripts" ? undefined : "none" }}>
         <div className="panel single">
           <button className="filebtn" onClick={addScript}>➕ New script</button>
-          {scripts.length === 0 && <div className="hint">Create scripts here (opening, product 1, closing…), then add them to the Rundown in the Livehost tab.</div>}
+          {scripts.length === 0 && <div className="hint">Tulis skrip → pilih suara/volume/speed/emosi → <b>Generate</b> (dengar dulu) → <b>Save</b>. Skrip tersimpan boleh ditambah ke Rundown di tab Livehost dengan suara &amp; audio sendiri.</div>}
           {scripts.map((s) => {
             const inRundown = rundown.includes(s.id);
+            const words = s.text.split(/\s+/).filter(Boolean);
+            const onCount = previewPlayId === s.id ? Math.round(previewFrac * words.length) : -1;
+            const hasAudio = !!(s.audioUrl || s.audioB64);
             return (
               <div key={s.id} className="script-card">
                 <div className="script-head">
                   <input value={s.title} onChange={(e) => updateScript(s.id, { title: e.target.value })} />
-                  <button onClick={() => addToRundown(s.id)} title="Add to rundown">➕</button>
+                  {s.saved && <span className="status-line" style={{ margin: 0, alignSelf: "center" }}>● saved</span>}
+                  <button onClick={() => addToRundown(s.id)} title={s.saved ? "Add to rundown" : "Save dulu sebelum add"} disabled={!s.saved}>➕</button>
                   <button onClick={() => deleteScript(s.id)} title="Delete script">🗑</button>
                 </div>
-                <textarea rows={6} placeholder="Paste the dialog for this script…"
+                <textarea rows={5} placeholder="Tulis dialog skrip di sini…"
                   value={s.text} onChange={(e) => updateScript(s.id, { text: e.target.value })} />
-                <div className="hint">{splitSentences(s.text).length} chunks{inRundown ? " • in rundown" : ""} — edits apply live to parts not yet spoken</div>
+
+                {/* Per-script voice */}
+                <div className="range-row"><span>Suara</span>
+                  <select value={s.voiceId} onChange={(e) => updateScript(s.id, { voiceId: e.target.value })} style={{ flex: 1 }}>
+                    {VOICES.map((v) => (<option key={v.id} value={v.id}>{v.label}</option>))}
+                  </select>
+                </div>
+                <div className="range-row"><span>Volume {Math.round(s.volume * 100)}%</span>
+                  <input type="range" min="0" max="3" step="0.05" value={s.volume} onChange={(e) => updateScript(s.id, { volume: parseFloat(e.target.value) })} />
+                </div>
+                <div className="range-row"><span>Speed {s.speed.toFixed(2)}×</span>
+                  <input type="range" min="0.7" max="1.5" step="0.05" value={s.speed} onChange={(e) => updateScript(s.id, { speed: parseFloat(e.target.value) })} />
+                </div>
+                <div className="range-row"><span>Emosi suara</span>
+                  <select value={s.emotion} onChange={(e) => updateScript(s.id, { emotion: e.target.value })} style={{ flex: 1 }}>
+                    <option value="fluent">Fluent (natural)</option>
+                    <option value="happy">Ceria (happy)</option>
+                    <option value="neutral">Neutral</option>
+                    <option value="surprised">Teruja (surprised)</option>
+                    <option value="sad">Lembut (sad)</option>
+                  </select>
+                </div>
+
+                {/* Generate (billable) / Play+teleprompter / Save */}
+                <div className="loop-row" style={{ marginTop: 8 }}>
+                  <button className="restart-btn go" onClick={() => generateScript(s.id)} disabled={s.generating || !s.text.trim()} title="Generate audio (1 caj Audio)">
+                    {s.generating ? "⏳ Generating…" : "🎙 Generate"}
+                  </button>
+                  <button className="restart-btn" onClick={() => playSaved(s.id)} disabled={!hasAudio} title="Play / Stop (teleprompter)">
+                    {previewPlayId === s.id ? "■ Stop" : "▶ Play"}
+                  </button>
+                  <button className="restart-btn" onClick={() => saveScript(s.id)} disabled={!s.audioB64 || s.saved} title="Save to history">
+                    💾 {s.saved ? "Saved" : "Save"}
+                  </button>
+                </div>
+
+                {/* Teleprompter — sweeps with the audio while playing */}
+                {previewPlayId === s.id && (
+                  <div className="prompter" style={{ marginTop: 8, maxHeight: 140 }}>
+                    <div className="prompter-line now">
+                      {words.map((w, wi) => (<span key={wi} className={wi < onCount ? "w on" : "w"}>{w} </span>))}
+                    </div>
+                  </div>
+                )}
+                <div className="hint">
+                  {(s.chars ?? s.text.length)} aksara{inRundown ? " • dalam rundown" : ""}
+                  {hasAudio ? " • 🔊 audio siap" : " • belum generate"}
+                  {!s.saved && hasAudio ? " — tekan Save" : ""}
+                </div>
               </div>
             );
           })}
@@ -1521,18 +1554,37 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
       {/* ============ USAGE VIEW ============ */}
       <div style={{ display: view === "usage" ? undefined : "none" }}>
         <div className="panel single">
-          <div className="label">💰 Bulan ini — kos streaming anda</div>
+          <div className="label">💰 Bulan ini — jumlah kos</div>
           <div className="usage-card">
             {usageData ? (
-              <>
-                <div className="usage-big" style={{ color: "var(--accent-2)" }}>RM {usageData.month.totalCost.toFixed(2)}</div>
-                <div className="hint">
-                  Jumlah masa live: {Math.floor(usageData.month.streamSec / 3600)}h {Math.floor((usageData.month.streamSec % 3600) / 60)}m
-                </div>
-              </>
+              <div className="usage-big" style={{ color: "var(--accent-2)" }}>RM {usageData.month.totalCost.toFixed(2)}</div>
             ) : (
               <div className="hint">Loading usage…</div>
             )}
+          </div>
+
+          {/* Two meters: Audio (per generation) + GPU (per stream duration) */}
+          <div className="grid" style={{ gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 4 }}>
+            <div className="usage-card">
+              <div className="label" style={{ marginTop: 0 }}>🎙 Audio</div>
+              {usageData ? (
+                <>
+                  <div className="usage-big">{usageData.audio.generations}<span style={{ fontSize: 13, fontWeight: 600 }}> generate</span></div>
+                  <div className="usage-cost">RM {usageData.audio.cost.toFixed(2)}</div>
+                  <div className="hint">{usageData.audio.chars.toLocaleString()} aksara dijana · RM {usageData.rates.audioRateGen.toFixed(2)}/generate</div>
+                </>
+              ) : <div className="hint">…</div>}
+            </div>
+            <div className="usage-card">
+              <div className="label" style={{ marginTop: 0 }}>🖥 GPU</div>
+              {usageData ? (
+                <>
+                  <div className="usage-big">{Math.floor(usageData.gpu.streamSec / 3600)}h {Math.floor((usageData.gpu.streamSec % 3600) / 60)}m</div>
+                  <div className="usage-cost">RM {usageData.gpu.cost.toFixed(2)}</div>
+                  <div className="hint">masa live · RM {usageData.rates.gpuRateHour.toFixed(2)}/jam</div>
+                </>
+              ) : <div className="hint">…</div>}
+            </div>
           </div>
 
           <div className="label">📜 Sesi streaming (50 terkini — direkod tepat ke saat)</div>

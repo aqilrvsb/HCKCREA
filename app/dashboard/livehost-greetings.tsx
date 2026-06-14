@@ -144,11 +144,6 @@ export default function LivehostGreetings() {
         <input type="checkbox" checked={cur.sfxAuto} onChange={(e) => up({ sfxAuto: e.target.checked })} style={{ width: "auto" }} />
         🔊 Auto: Purchase → 🔔 bell + suara · Feedback → suara + 👏 clap · Follow → 👏 clap
       </label>
-
-      {msg && <div className="status-line" style={{ marginTop: 10 }}>{msg}</div>}
-      <div className="hint" style={{ marginTop: 8 }}>
-        Profil aktif digunakan oleh <b>PeningLab Livehost Extension</b>. Disimpan automatik.
-      </div>
       </div>
 
       <div className="label" style={{ marginTop: 6 }}>📁 Semua profil ({profiles.length})</div>
