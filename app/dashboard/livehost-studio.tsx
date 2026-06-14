@@ -596,11 +596,11 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
     } catch {}
   }, [view]);
 
-  // GPU LIFECYCLE (serverless scale-to-zero): keep the worker awake while
-  // streaming. (The Live tab ALSO pre-warms it — see the next effect — but that
-  // is bounded + auto-idles.) The moment you press Stop (active=false) this
-  // keepalive stops → Novita's idle timeout drops the worker to $0. Cost
-  // watchdog: not on the Live tab AND not streaming = no pings = $0.
+  // GPU LIFECYCLE (serverless scale-to-zero): keep the worker awake ONLY while
+  // actually streaming. Opening/sitting on the Livehost tab does NOT wake or
+  // charge the GPU — the GPU is woken solely by pressing ▶ Start (see start()).
+  // The moment you press Stop (active=false) this keepalive stops → Novita's idle
+  // timeout drops the worker to $0. Cost watchdog: not streaming = no pings = $0.
   useEffect(() => {
     if (!active) return; // not streaming → no keepalive → worker idles → $0
     const ping = () => {
@@ -618,33 +618,6 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
     const t = setInterval(ping, 30000); // < Novita freeTimeout, so it stays up while live
     return () => { clearInterval(t); document.removeEventListener("visibilitychange", onVis); };
   }, [active]);
-
-  // PRE-WARM (fast Start, still $0-safe): when the Live tab is open and you're
-  // not yet streaming, quietly warm the GPU in the background so it's already up
-  // by the time you press ▶ Start (cold start happens during avatar/script setup
-  // instead of after the click). BOUNDED so it can't burn money: it only pings
-  // while the Live tab is the active view AND the browser tab is visible, and it
-  // gives up after ~12 min — so an abandoned-open studio still idles to $0. The
-  // instant you press Start (connecting/active) the streaming keepalive takes
-  // over; the instant you leave the Live tab / hide the browser, warming stops.
-  useEffect(() => {
-    if (view !== "live") return;        // warm ONLY on the Live tab
-    if (active || connecting) return;   // streaming path manages its own keepalive
-    if (!backendRef.current) return;    // backend URL not loaded yet
-    let pings = 0;
-    const MAX_PINGS = 24;               // ~12 min cap, then let it idle to $0
-    const ping = () => {
-      if (typeof document !== "undefined" && document.visibilityState !== "visible") return;
-      if (pings >= MAX_PINGS) return;   // abandoned-open studio → stop warming → idles
-      pings += 1;
-      if (backendRef.current) fetch(`${backendRef.current}/keepalive`, { method: "POST" }).catch(() => {});
-    };
-    ping();                             // kick the cold start the moment the Live tab opens
-    const onVis = () => { if (document.visibilityState === "visible") ping(); };
-    document.addEventListener("visibilitychange", onVis);
-    const t = setInterval(ping, 30000); // < Novita freeTimeout so it stays warm during setup
-    return () => { clearInterval(t); document.removeEventListener("visibilitychange", onVis); };
-  }, [view, active, connecting]);
 
   // Sync the active greeting profile to the DB so the extension uses it.
   useEffect(() => {
@@ -816,22 +789,26 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
     if (!avatarId) { setError("Pick or upload a face first."); return; }
     setConnecting(true);
     try {
-      // Start ONLY connects the stream — it does NOT manage GPU power. The GPU is
-      // pre-warmed while the Livehost tab is open (bounded ~12 min, $0-safe), so
-      // it's usually already up. We just wait for the backend to answer (in case
-      // the warm hasn't finished the cold pull yet), then connect.
+      // Pressing Start is what WAKES the GPU (Novita scale-from-zero). We do NOT
+      // pre-warm on tab open — the studio stays $0 until this exact moment. The
+      // first request below triggers a worker to spin up; on a cold node the 22GB
+      // image pull can take ~2–4 min. We poll PATIENTLY (no premature timeout),
+      // and every poll keeps the worker alive (resets Novita's idle timeout) so
+      // the cold start can finish without the worker idling out underneath us.
       let backendUp = false;
-      for (let i = 0; i < 42 && !backendUp; i++) {
+      const wakeDeadline = Date.now() + 7 * 60 * 1000; // generous; covers worst-case cold pull
+      for (let i = 0; !backendUp && Date.now() < wakeDeadline; i++) {
         try {
           const ping = await fetch(`${backendRef.current}/avatars`, { signal: AbortSignal.timeout(5000) });
           if (ping.ok) backendUp = true;
         } catch {}
         if (!backendUp) {
-          setWakeMsg(`Menyambung ke avatar… ${i * 5}s ⏳`);
+          const s = i * 5;
+          setWakeMsg(s < 30 ? "Menghidupkan GPU… ⏳" : `Menghidupkan GPU… ${s}s (kali pertama ~2–3 minit) ⏳`);
           await new Promise((r) => setTimeout(r, 5000));
         }
       }
-      if (!backendUp) { setWakeMsg(""); throw new Error("Avatar tak sedia — cuba ▶ Start sekali lagi."); }
+      if (!backendUp) { setWakeMsg(""); throw new Error("GPU lambat respons — tekan ▶ Start sekali lagi."); }
       loadAvatarsRef.current?.();
       setWakeMsg("");
       const iceRes = await fetch(`${backendRef.current}/ice-servers`);
