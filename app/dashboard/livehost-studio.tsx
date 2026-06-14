@@ -139,6 +139,15 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
   // null = closed; mode "add" pushes a new object, "replace" swaps tplSel's src.
   const [objectPicker, setObjectPicker] = useState<null | { mode: "add" | "replace" }>(null);
   const objDragRef = useRef<{ id: string; startX: number; startY: number; baseX: number; baseY: number; active: boolean }>({ id: "", startX: 0, startY: 0, baseX: 0, baseY: 0, active: false });
+  // Saved template library — a snapshot of the whole composition (background
+  // overlay + objects + avatar fit) shown as a history grid in the Template
+  // tab. Persisted to localStorage. Click a card → load it back onto the stage.
+  type SavedTemplate = {
+    id: string; name: string; createdAt: number;
+    overlaySel: string; customOverlay: string; objects: TplObject[];
+    zoom: number; offsetX: number; offsetY: number; badgePos: { x: number; y: number };
+  };
+  const [savedTemplates, setSavedTemplates] = useState<SavedTemplate[]>([]);
   const [zoom, setZoom] = useState(1);
   const [offsetY, setOffsetY] = useState(0);
   const [offsetX, setOffsetX] = useState(0);
@@ -434,13 +443,6 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
     else document.exitFullscreen?.();
   }, []);
 
-  const toggleFullscreenTemplate = useCallback(() => {
-    const el = templateStageRef.current;
-    if (!el) return;
-    if (!document.fullscreenElement) el.requestFullscreen?.();
-    else document.exitFullscreen?.();
-  }, []);
-
   // ── Template object editing ─────────────────────────────────────────────
   const onObjPointerDown = useCallback((e: React.PointerEvent<HTMLImageElement>, id: string) => {
     e.stopPropagation(); // don't also start the avatar drag
@@ -483,6 +485,34 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
   const deleteObject = useCallback((id: string) => {
     setTplObjects((prev) => prev.filter((o) => o.id !== id));
     setTplSel((s) => (s === id ? "" : s));
+  }, []);
+
+  // Save the current composition (overlay + objects + avatar fit) as a named
+  // template into the history grid.
+  const saveCurrentTemplate = useCallback(() => {
+    const def = `Template ${savedTemplates.length + 1}`;
+    const name = (window.prompt("Nama template?", def) || "").trim() || def;
+    const id = "t" + Date.now().toString(36);
+    setSavedTemplates((prev) => [
+      { id, name, createdAt: Date.now(), overlaySel, customOverlay, objects: tplObjects, zoom, offsetX, offsetY, badgePos },
+      ...prev,
+    ]);
+  }, [savedTemplates.length, overlaySel, customOverlay, tplObjects, zoom, offsetX, offsetY, badgePos]);
+
+  const loadTemplate = useCallback((t: SavedTemplate) => {
+    setOverlaySel(t.overlaySel || "");
+    setCustomOverlay(t.customOverlay || "");
+    setTplObjects(Array.isArray(t.objects) ? t.objects : []);
+    setTplSel("");
+    if (typeof t.zoom === "number") setZoom(t.zoom);
+    if (typeof t.offsetX === "number") setOffsetX(t.offsetX);
+    if (typeof t.offsetY === "number") setOffsetY(t.offsetY);
+    if (t.badgePos && typeof t.badgePos.x === "number") setBadgePos(t.badgePos);
+  }, []);
+
+  const deleteTemplate = useCallback((id: string) => {
+    if (!window.confirm("Padam template ni?")) return;
+    setSavedTemplates((prev) => prev.filter((t) => t.id !== id));
   }, []);
 
   // Object layer rendered on a stage. editable=true wires drag + selection
@@ -555,6 +585,8 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
       }
       const tobj = JSON.parse(localStorage.getItem("livehost_tpl_objects") || "[]");
       if (Array.isArray(tobj)) setTplObjects(tobj);
+      const stpl = JSON.parse(localStorage.getItem("livehost_saved_templates") || "[]");
+      if (Array.isArray(stpl)) setSavedTemplates(stpl);
     } catch {}
     fetch("/overlays/manifest.json").then((r) => r.json()).then(setOverlays).catch(() => {});
     fetch("/avatars/manifest.json").then((r) => r.json()).then((list) => {
@@ -577,6 +609,9 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
   useEffect(() => {
     try { localStorage.setItem("livehost_tpl_objects", JSON.stringify(tplObjects)); } catch {}
   }, [tplObjects]);
+  useEffect(() => {
+    try { localStorage.setItem("livehost_saved_templates", JSON.stringify(savedTemplates)); } catch {}
+  }, [savedTemplates]);
   useEffect(() => {
     try {
       localStorage.setItem("livehost_products_lib", JSON.stringify(products));
@@ -1374,8 +1409,8 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
       {/* 100% copy of the live-host SCREEN + avatar / template / fit controls.
           Shares state with the live view, so composing here is exactly what
           streams in the Livehost tab. */}
-      <div style={{ display: view === "template" ? undefined : "none", height: "100%" }}>
-        <div className="grid">
+      <div style={{ display: view === "template" ? "flex" : "none", flexDirection: "column", height: "100%", overflowY: "auto" }}>
+        <div className="grid" style={{ height: "76vh", minHeight: 480, flexShrink: 0 }}>
           <div className="panel video-panel">
             <div className="video-wrap">
               <div className="stage" ref={templateStageRef}
@@ -1395,7 +1430,6 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
                   title="Seret untuk ubah kedudukan label">
                   Saya AI Avatar
                 </div>
-                <button className="fs-btn" onClick={toggleFullscreenTemplate} title="Fullscreen">⛶</button>
               </div>
             </div>
           </div>
@@ -1477,7 +1511,47 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
               <div className="range-row"><span>Up / Down</span>
                 <input type="range" min="-40" max="40" step="1" value={offsetY} onChange={(e) => setOffsetY(parseFloat(e.target.value))} />
               </div>
+
+              <button type="button" className="filebtn" style={{ marginTop: 14 }} onClick={saveCurrentTemplate}>
+                💾 Save current as template
+              </button>
           </div>
+        </div>
+
+        {/* Saved templates — history grid of everything you've composed */}
+        <div style={{ padding: "16px 4px 8px" }}>
+          <div className="label">💾 Saved templates ({savedTemplates.length})</div>
+          {savedTemplates.length === 0 ? (
+            <div className="hint">Belum ada template disimpan. Susun objects + overlay atas, lepas tu tekan &quot;Save current as template&quot;.</div>
+          ) : (
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(150px, 1fr))", gap: 12, marginTop: 8 }}>
+              {savedTemplates.map((t) => (
+                <div key={t.id} className="tpl-saved-card">
+                  <div className="tpl-preview">
+                    {(t.customOverlay || t.overlaySel) && (
+                      <img src={t.customOverlay || `/overlays/${t.overlaySel}`} alt="" style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "fill" }} />
+                    )}
+                    {(t.objects || []).map((o) => (
+                      <img key={o.id} src={o.src} alt="" style={{ position: "absolute", left: `${o.x}%`, top: `${o.y}%`, width: `${o.w}%`, transform: "translate(-50%, -50%)" }} />
+                    ))}
+                    {(t.objects || []).length === 0 && !t.customOverlay && !t.overlaySel && (
+                      <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, color: "var(--muted)" }}>Kosong</div>
+                    )}
+                  </div>
+                  <div className="tpl-saved-meta">
+                    <div style={{ minWidth: 0 }}>
+                      <div className="tpl-saved-name" title={t.name}>{t.name}</div>
+                      <div className="hint" style={{ marginTop: 0 }}>{(t.objects || []).length} object</div>
+                    </div>
+                    <div className="tpl-saved-actions">
+                      <button onClick={() => loadTemplate(t)}>Load</button>
+                      <button onClick={() => deleteTemplate(t.id)} title="Padam">🗑</button>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       </div>
 
@@ -1702,4 +1776,12 @@ const STUDIO_CSS = `
 .lh-studio .sess-badge.ended{background:rgba(255,255,255,.08);color:var(--muted);}
 .lh-studio .sess-badge.crashed{background:rgba(251,93,118,.18);color:#ff8298;}
 .lh-studio .panel > button{width:100%;margin-top:10px;border:none;}
+.lh-studio .tpl-saved-card{background:rgba(255,255,255,.028);border:1px solid var(--border-s);border-radius:14px;overflow:hidden;transition:transform .15s,border-color .15s,box-shadow .15s;}
+.lh-studio .tpl-saved-card:hover{transform:translateY(-2px);border-color:rgba(99,102,241,.5);box-shadow:0 16px 34px -18px rgba(0,0,0,.85);}
+.lh-studio .tpl-preview{position:relative;width:100%;aspect-ratio:9/16;background:#000;overflow:hidden;}
+.lh-studio .tpl-saved-meta{padding:9px 10px;display:flex;align-items:center;justify-content:space-between;gap:8px;}
+.lh-studio .tpl-saved-name{font-size:12px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.lh-studio .tpl-saved-actions{display:flex;gap:6px;flex-shrink:0;}
+.lh-studio .tpl-saved-actions button{padding:5px 9px;font-size:11px;font-weight:600;border-radius:8px;border:1px solid var(--border-s);background:rgba(255,255,255,.05);color:var(--text);cursor:pointer;}
+.lh-studio .tpl-saved-actions button:first-child{background:var(--grad);border-color:transparent;font-weight:800;}
 `;
