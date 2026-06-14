@@ -365,6 +365,11 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
     const v = templateVideoRef.current;
     if (!v) return;
     if (active && remoteStreamRef.current) {
+      // MUST be muted: the live audio is played once via the Web Audio graph on
+      // the main video's track (with volume gain). This template view mirrors the
+      // SAME stream for the Template tab — if it isn't muted it plays the audio a
+      // second time, offset by the jitter buffer → audible ECHO. Video only here.
+      v.muted = true;
       v.srcObject = remoteStreamRef.current;
       v.play().catch(() => {});
     } else {
@@ -1307,20 +1312,28 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
                 {scripts.filter((s) => s.saved && s.audioUrl).map((s) => (<option key={s.id} value={s.id}>{s.title}</option>))}
               </select>
               <div className="loop-row">
-                <button className="restart-btn go" onClick={start} disabled={active || connecting}
-                  title="Start streaming (GPU mesti ON dulu)">
-                  {connecting ? "…" : "▶ Start"}
-                </button>
-                <button className="restart-btn" onClick={stop} disabled={!active && !connecting} title="Stop streaming">■ Stop</button>
-                <button className="restart-btn" onClick={scriptPaused ? resumeRundown : pauseRundown}
-                  disabled={!active || (!scriptPlaying && !scriptPaused)} title="Pause / Resume">
-                  {scriptPaused ? "▶" : "⏸"}
-                </button>
-                <button className="restart-btn" onClick={restartRundown} disabled={!active} title="Restart script">⟳</button>
-                <label className="checkbox" style={{ marginTop: 0 }} title="Loop rundown">
-                  <input type="checkbox" checked={scriptLoop} onChange={(e) => setScriptLoop(e.target.checked)} style={{ width: "auto" }} />
-                  🔁
-                </label>
+                {/* IDLE state: ONLY ▶ Start is rendered. A visible Start icon = guaranteed not-streaming
+                    = keepalive effect bailed (if(!active)return) = no pings = worker idles to $0. Bulletproof. */}
+                {!active ? (
+                  <button className="restart-btn go" onClick={start} disabled={connecting}
+                    title="Start streaming (GPU akan auto-wake)">
+                    {connecting ? "… Connecting" : "▶ Start"}
+                  </button>
+                ) : (
+                  /* STREAMING state: Start is HIDDEN; only Stop + Pause/Restart/Loop are rendered. */
+                  <>
+                    <button className="restart-btn stop-live" onClick={stop} title="Stop streaming (GPU → idle $0)">■ Stop</button>
+                    <button className="restart-btn" onClick={scriptPaused ? resumeRundown : pauseRundown}
+                      disabled={!scriptPlaying && !scriptPaused} title="Pause / Resume">
+                      {scriptPaused ? "▶" : "⏸"}
+                    </button>
+                    <button className="restart-btn" onClick={restartRundown} title="Restart script">⟳</button>
+                    <label className="checkbox" style={{ marginTop: 0 }} title="Loop rundown">
+                      <input type="checkbox" checked={scriptLoop} onChange={(e) => setScriptLoop(e.target.checked)} style={{ width: "auto" }} />
+                      🔁
+                    </label>
+                  </>
+                )}
               </div>
               {/* Status / error line — GPU wake + connection feedback on Start */}
               <div className="rundown-status">
@@ -1832,7 +1845,9 @@ const STUDIO_CSS = `
 .lh-studio .restart-btn{background:rgba(255,255,255,.05);border:1px solid var(--border-s);color:var(--text);border-radius:9px;padding:7px 9px;font-size:12px;cursor:pointer;transition:all .15s;}
 .lh-studio .restart-btn:hover{border-color:var(--accent);background:rgba(99,102,241,.14);transform:translateY(-1px);}
 .lh-studio .restart-btn:disabled{opacity:.45;cursor:not-allowed;transform:none;}
-.lh-studio .restart-btn.go{background:linear-gradient(135deg,#22c55e,#16a34a);color:#fff;border-color:transparent;font-weight:800;box-shadow:0 8px 18px -8px rgba(34,197,94,.7);}
+.lh-studio .restart-btn.go{background:linear-gradient(135deg,#22c55e,#16a34a);color:#fff;border-color:transparent;font-weight:800;box-shadow:0 8px 18px -8px rgba(34,197,94,.7);flex:1;}
+.lh-studio .restart-btn.stop-live{background:linear-gradient(135deg,#ef4444,#dc2626);color:#fff;border-color:transparent;font-weight:800;box-shadow:0 8px 18px -8px rgba(239,68,68,.7);}
+.lh-studio .restart-btn.stop-live:hover{transform:translateY(-1px);background:linear-gradient(135deg,#f05252,#e02424);}
 .lh-studio .prompter{flex:1;min-height:0;overflow-y:auto;background:rgba(0,0,0,.32);border:1px solid var(--border-s);border-radius:12px;padding:10px 12px;margin-top:6px;}
 .lh-studio .prompter-line{font-size:15px;line-height:1.5;padding:5px 9px;border-radius:8px;color:var(--muted);transition:background .2s,color .2s;}
 .lh-studio .prompter-line.done{color:#5b6480;}
