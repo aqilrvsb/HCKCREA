@@ -1250,10 +1250,6 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
               </select>
             </div>
 
-            <label className="checkbox">
-              <input type="checkbox" checked={captions} onChange={(e) => setCaptions(e.target.checked)} style={{ width: "auto" }} />
-              Captions
-            </label>
 
             <div className="label">🎮 Simulation — avatar pauses &amp; answers</div>
             <div className="sim-row">
