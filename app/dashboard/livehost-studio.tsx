@@ -920,6 +920,27 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
       await pc.setLocalDescription(offer);
       await waitForIceGatheringComplete(pc);
 
+      // Serverless workers are EPHEMERAL: after a cold start the renderer only
+      // has the baked default avatars. Register the selected avatar on the worker
+      // BEFORE /offer, otherwise process-audio-v3 returns 404 (unknown avatar_id)
+      // and the avatar renders but can't speak. Retries while the renderer warms.
+      if (avatarId && previewUrl) {
+        setWakeMsg("Menyediakan avatar… ⏳");
+        for (let a = 0; a < 8; a++) {
+          try {
+            const avs = await fetch(`${backendRef.current}/avatars`, { signal: AbortSignal.timeout(8000) }).then((r) => r.json());
+            if (Array.isArray(avs?.avatars) && avs.avatars.includes(avatarId)) break;
+            const img = await fetch(previewUrl).then((r) => r.blob());
+            const rr = await fetch(`${backendRef.current}/register-avatar?avatar_id=${encodeURIComponent(avatarId)}`, {
+              method: "POST", body: img, headers: { "content-type": img.type || "image/png" },
+            });
+            if (rr.ok) break;
+          } catch { /* renderer still warming — retry */ }
+          await new Promise((r) => setTimeout(r, 8000));
+        }
+        setWakeMsg("");
+      }
+
       const offerBody = JSON.stringify({
         engine: { type: "minimax", voice_id: voiceId, system_prompt: buildKbPrompt(activeKb), speed, emotion },
         sdp: pc.localDescription!.sdp,
