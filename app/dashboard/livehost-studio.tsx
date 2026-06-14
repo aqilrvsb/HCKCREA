@@ -378,7 +378,13 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
     const id = rundown[playPos.s >= 0 ? playPos.s : 0];
     return scripts.find((s) => s.id === id) || null;
   }, [scripts, rundown, playPos.s]);
-  const curLines = useMemo(() => (curScript ? splitSentences(curScript.text) : []), [curScript]);
+  const curLines = useMemo(() => {
+    if (!curScript) return [];
+    // A pre-generated clip plays as ONE unit → show the whole script as a single
+    // teleprompter block so the word-sweep tallies across the entire text + audio.
+    if (curScript.audioUrl) return [curScript.text];
+    return splitSentences(curScript.text);
+  }, [curScript]);
 
   const buildKbPrompt = useCallback((kb: string) => {
     const base =
@@ -708,6 +714,18 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
         return;
       }
       const sc = lib.find((x) => x.id === rd[s]);
+      // Saved script with pre-generated audio → play the whole clip as ONE unit
+      // (avatar lip-syncs to the exact audio you approved; no live TTS / billing).
+      if (sc && sc.audioUrl && l === 0) {
+        setScriptWaiting(false);
+        posRef.current = { s: s + 1, l: 0 }; // next hop → next script
+        const id = "L" + ++sayCounterRef.current;
+        pendingSayRef.current.set(id, { s, l: 0 });
+        const dc = dcRef.current;
+        if (dc && dc.readyState === "open") dc.send(JSON.stringify({ kind: "sayaudio", url: sc.audioUrl, id }));
+        return;
+      }
+      // Fallback: any script without saved audio → live TTS, line by line.
       const lines = sc ? splitSentences(sc.text) : [];
       if (l >= lines.length) { s++; l = 0; hops++; continue; }
       setScriptWaiting(false);
@@ -1257,7 +1275,8 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
               </div>
               <select value={rundownAdd} onChange={(e) => addToRundown(e.target.value)}>
                 <option value="">➕ Add script to rundown…</option>
-                {scripts.map((s) => (<option key={s.id} value={s.id}>{s.title}</option>))}
+                {/* Only SAVED scripts (with bundled audio) can go in the rundown. */}
+                {scripts.filter((s) => s.saved && s.audioUrl).map((s) => (<option key={s.id} value={s.id}>{s.title}</option>))}
               </select>
               <div className="loop-row">
                 <button className="restart-btn go" onClick={start} disabled={active || connecting}
