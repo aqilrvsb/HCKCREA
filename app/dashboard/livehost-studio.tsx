@@ -436,6 +436,7 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
     badgePos: { x: number; y: number };
   };
   const [savedTemplates, setSavedTemplates] = useState<SavedTpl[]>([]);
+  const [savedPickerOpen, setSavedPickerOpen] = useState(false);
   useEffect(() => {
     try {
       const raw = localStorage.getItem("livehost_saved_templates");
@@ -1222,44 +1223,16 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
           </div>
 
           <div className="panel">
-            <div className="label">Avatar — pick a host or upload your own</div>
+            <div className="label">Model LiveHost</div>
             <select value={stockSel} onChange={(e) => pickStock(e.target.value)}>
               <option value="">— Choose a Malaysian host —</option>
               {stock.map((s) => (<option key={s.id} value={s.id}>{s.label}</option>))}
             </select>
-            <button type="button" className="filebtn secondary" disabled={uploading}
-              onClick={() => setAvatarPickerOpen(true)}>
-              {uploading ? "Processing…" : "🖼 Pick avatar from Attachments"}
+            <button type="button" className="filebtn secondary"
+              onClick={() => setSavedPickerOpen(true)}>
+              📁 Pick from saved templates ({savedTemplates.length})
             </button>
-            <div className="hint">⚠ Guna wajah AI atau wajah anda sendiri sahaja — jangan guna wajah orang lain / selebriti tanpa kebenaran (polisi TikTok).</div>
-            {uploading && <div className="status-line">Processing image… detecting face…</div>}
-            {!uploading && avatarId && <div className="status-line">✓ Avatar ready — press Start</div>}
-
-            <div className="label">Live template (overlay)</div>
-            <select value={customOverlay ? "__custom" : overlaySel} onChange={(e) => { setCustomOverlay(""); setOverlaySel(e.target.value === "__custom" ? "" : e.target.value); }}>
-              <option value="">None</option>
-              {overlays.map((o) => (<option key={o.file} value={o.file}>{o.label}</option>))}
-              {customOverlay && <option value="__custom">Custom (uploaded)</option>}
-            </select>
-            <div style={{ display: "flex", gap: 8, marginTop: 6 }}>
-              <button type="button" className="filebtn secondary" style={{ flex: 1, marginTop: 0 }}
-                onClick={() => setOverlayPickerOpen(true)}>
-                🖼 Attachment
-              </button>
-              <a href="https://canva.link/bharu9s46qqbzvv" target="_blank" rel="noreferrer"
-                className="filebtn secondary" style={{ flex: 1, marginTop: 0, textAlign: "center" }}>
-                📐 Canva
-              </a>
-            </div>
-            <div className="hint">Edit di Canva → Download <b>PNG</b> (✅ Transparent) → upload <b>Attachment</b> → tekan <b>🖼 Attachment</b>.</div>
-
-            <div className="label">Avatar fit — drag the avatar on screen to move it</div>
-            <button type="button" className="filebtn secondary" onClick={() => { setOffsetX(0); setOffsetY(0); setZoom(1); }}>
-              ↺ Reset position
-            </button>
-            <div className="range-row"><span>Zoom</span>
-              <input type="range" min="0.5" max="2" step="0.02" value={zoom} onChange={(e) => setZoom(parseFloat(e.target.value))} />
-            </div>
+            <div className="hint">Susun avatar + template di tab <b>Template</b>, simpan, kemudian pilih di sini untuk live.</div>
 
             <div className="label">Voice</div>
             <select value={voiceId} onChange={(e) => setVoiceId(e.target.value)}>
@@ -1389,9 +1362,10 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
               {savedTemplates.map((t) => (
                 <div key={t.id} className="tpl-saved-card">
                   <button type="button" className="tpl-preview" onClick={() => loadTemplate(t)} title="Klik untuk muat semula template ini">
-                    {t.overlayUrl ? <img src={t.overlayUrl} alt="" />
-                      : t.previewUrl ? <img src={t.previewUrl} alt="" />
-                      : <span className="hint">—</span>}
+                    {t.previewUrl && <img className="tpl-prev-avatar" src={t.previewUrl} alt=""
+                      style={{ transform: `translate(${t.offsetX}%, ${t.offsetY}%) scale(${t.zoom})` }} />}
+                    {t.overlayUrl && <img className="tpl-prev-overlay" src={t.overlayUrl} alt="" />}
+                    {!t.previewUrl && !t.overlayUrl && <span className="hint">—</span>}
                   </button>
                   <div className="tpl-saved-meta">
                     <span title={t.name}>{t.name}</span>
@@ -1525,6 +1499,39 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
           else { setCustomOverlay(a.public_url); setOverlaySel(""); }
         }}
       />
+
+      {/* Saved-templates picker (Livehost tab) — pick a full composition
+          (avatar + template + position + zoom) saved from the Template tab. */}
+      {savedPickerOpen && (
+        <div onClick={() => setSavedPickerOpen(false)}
+          style={{ position: "fixed", inset: 0, zIndex: 120, background: "rgba(0,0,0,.75)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
+          <div onClick={(e) => e.stopPropagation()}
+            style={{ width: "100%", maxWidth: 780, maxHeight: "85vh", overflowY: "auto", background: "#0a0a0c", border: "1px solid rgba(255,255,255,.1)", borderRadius: 16, padding: 18 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <div className="label" style={{ margin: 0 }}>📁 Pick from saved templates</div>
+              <button className="restart-btn" onClick={() => setSavedPickerOpen(false)}>✕</button>
+            </div>
+            {savedTemplates.length === 0 ? (
+              <div className="hint" style={{ marginTop: 12 }}>Belum ada template disimpan. Pergi tab <b>Template</b> untuk susun avatar + template, kemudian <b>💾 Save</b>.</div>
+            ) : (
+              <div className="tpl-grid">
+                {savedTemplates.map((t) => (
+                  <div key={t.id} className="tpl-saved-card">
+                    <button type="button" className="tpl-preview" title="Pilih template ini"
+                      onClick={() => { loadTemplate(t); setSavedPickerOpen(false); }}>
+                      {t.previewUrl && <img className="tpl-prev-avatar" src={t.previewUrl} alt=""
+                        style={{ transform: `translate(${t.offsetX}%, ${t.offsetY}%) scale(${t.zoom})` }} />}
+                      {t.overlayUrl && <img className="tpl-prev-overlay" src={t.overlayUrl} alt="" />}
+                      {!t.previewUrl && !t.overlayUrl && <span className="hint">—</span>}
+                    </button>
+                    <div className="tpl-saved-meta"><span title={t.name}>{t.name}</span></div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -1579,8 +1586,9 @@ const STUDIO_CSS = `
 .lh-studio .fs-btn:hover{background:rgba(0,0,0,.85);}
 .lh-studio .tpl-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px;margin-top:12px;}
 .lh-studio .tpl-saved-card{background:rgba(255,255,255,.03);border:1px solid var(--border-s);border-radius:14px;overflow:hidden;display:flex;flex-direction:column;}
-.lh-studio .tpl-preview{aspect-ratio:9/16;width:100%;padding:0;border:0;background:#0d0d10;display:flex;align-items:center;justify-content:center;cursor:pointer;overflow:hidden;}
-.lh-studio .tpl-preview img{width:100%;height:100%;object-fit:contain;display:block;}
+.lh-studio .tpl-preview{position:relative;aspect-ratio:9/16;width:100%;padding:0;border:0;background:#ffffff;display:flex;align-items:center;justify-content:center;cursor:pointer;overflow:hidden;}
+.lh-studio .tpl-prev-avatar{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;transform-origin:center center;}
+.lh-studio .tpl-prev-overlay{position:absolute;inset:0;width:100%;height:100%;object-fit:fill;pointer-events:none;}
 .lh-studio .tpl-preview:hover{outline:2px solid var(--accent-2);outline-offset:-2px;}
 .lh-studio .tpl-saved-meta{display:flex;align-items:center;justify-content:space-between;gap:6px;padding:8px 10px;font-size:12px;font-weight:700;}
 .lh-studio .tpl-saved-meta>span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
