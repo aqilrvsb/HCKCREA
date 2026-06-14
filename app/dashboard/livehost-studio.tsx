@@ -1583,7 +1583,6 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
                   <LhButton onClick={() => generateScript(s.id)} disabled={s.generating || !s.text.trim()}>{s.generating ? "⏳ Generating…" : "🎙 Generate"}</LhButton>
                   <LhButton variant="ghost" onClick={() => playSaved(s.id)} disabled={!hasAudio}>{previewPlayId === s.id ? "■ Stop" : "▶ Play"}</LhButton>
                   <LhButton variant="ghost" onClick={() => saveScript(s.id)} disabled={!s.audioB64 || s.saved}>💾 {s.saved ? "Saved" : "Save"}</LhButton>
-                  <LhButton variant="ghost" onClick={() => addToRundown(s.id)} disabled={!s.saved} title={s.saved ? "Add to rundown" : "Save dulu"}>➕ Rundown</LhButton>
                 </div>
 
                 {previewPlayId === s.id && (
