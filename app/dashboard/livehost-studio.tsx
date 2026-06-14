@@ -1047,7 +1047,7 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
   const addScript = useCallback(() => {
     const id = "s" + Date.now().toString(36);
     setScripts((prev) => [
-      { id, title: `Script ${prev.length + 1}`, text: "", voiceId: VOICES[0].id, volume: 1.5, speed: 1.0, emotion: "fluent", saved: false },
+      { id, title: `Script ${prev.length + 1}`, text: "", voiceId: VOICES[0].id, volume: 3.0, speed: 1.0, emotion: "fluent", saved: false },
       ...prev,
     ]);
   }, []);
