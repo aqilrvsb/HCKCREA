@@ -1241,19 +1241,17 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
               {overlays.map((o) => (<option key={o.file} value={o.file}>{o.label}</option>))}
               {customOverlay && <option value="__custom">Custom (uploaded)</option>}
             </select>
-            <button type="button" className="filebtn secondary"
-              onClick={() => setOverlayPickerOpen(true)}>
-              🖼 Pick template from Attachments
-            </button>
-            <a href="https://canva.link/bharu9s46qqbzvv" target="_blank" rel="noreferrer"
-              className="filebtn secondary" style={{ textAlign: "center", marginTop: 8 }}>
-              📐 Buka Template Canva →
-            </a>
-            <div className="hint">
-              Cara guna: <b>Copy link</b> → <b>Edit</b> template di Canva ikut produk anda →
-              <b> Download → PNG</b> → ✅ tick <b>Transparent background</b> → upload ke tab
-              <b> Attachment</b> → tekan <b>Pick template from Attachments</b>.
+            <div style={{ display: "flex", gap: 8, marginTop: 6 }}>
+              <button type="button" className="filebtn secondary" style={{ flex: 1, marginTop: 0 }}
+                onClick={() => setOverlayPickerOpen(true)}>
+                🖼 Attachment
+              </button>
+              <a href="https://canva.link/bharu9s46qqbzvv" target="_blank" rel="noreferrer"
+                className="filebtn secondary" style={{ flex: 1, marginTop: 0, textAlign: "center" }}>
+                📐 Canva
+              </a>
             </div>
+            <div className="hint">Edit di Canva → Download <b>PNG</b> (✅ Transparent) → upload <b>Attachment</b> → tekan <b>🖼 Attachment</b>.</div>
 
             <div className="label">Avatar fit — drag the avatar on screen to move it</div>
             <button type="button" className="filebtn secondary" onClick={() => { setOffsetX(0); setOffsetY(0); setZoom(1); }}>
@@ -1354,7 +1352,7 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
                 onClick={() => setAvatarPickerOpen(true)}>
                 {uploading ? "Processing…" : "🖼 Pick avatar from Attachments"}
               </button>
-              <div className="hint">⚠ Guna wajah AI atau wajah anda sendiri sahaja — jangan guna wajah orang lain / selebriti tanpa kebenaran (polisi TikTok).</div>
+              <div className="hint">⚠ Guna wajah AI / wajah sendiri sahaja (polisi TikTok).</div>
               {uploading && <div className="status-line">Processing image… detecting face…</div>}
               {!uploading && avatarId && <div className="status-line">✓ Avatar ready — press Start</div>}
 
@@ -1364,19 +1362,17 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
                 {overlays.map((o) => (<option key={o.file} value={o.file}>{o.label}</option>))}
                 {customOverlay && <option value="__custom">Custom (uploaded)</option>}
               </select>
-              <button type="button" className="filebtn secondary"
-                onClick={() => setOverlayPickerOpen(true)}>
-                🖼 Pick template from Attachments
-              </button>
-              <a href="https://canva.link/bharu9s46qqbzvv" target="_blank" rel="noreferrer"
-                className="filebtn secondary" style={{ textAlign: "center", marginTop: 8 }}>
-                📐 Buka Template Canva →
-              </a>
-              <div className="hint">
-                Cara guna: <b>Copy link</b> → <b>Edit</b> template di Canva ikut produk anda →
-                <b> Download → PNG</b> → ✅ tick <b>Transparent background</b> → upload ke tab
-                <b> Attachment</b> → tekan <b>Pick template from Attachments</b>.
+              <div style={{ display: "flex", gap: 8, marginTop: 6 }}>
+                <button type="button" className="filebtn secondary" style={{ flex: 1, marginTop: 0 }}
+                  onClick={() => setOverlayPickerOpen(true)}>
+                  🖼 Attachment
+                </button>
+                <a href="https://canva.link/bharu9s46qqbzvv" target="_blank" rel="noreferrer"
+                  className="filebtn secondary" style={{ flex: 1, marginTop: 0, textAlign: "center" }}>
+                  📐 Canva
+                </a>
               </div>
+              <div className="hint">Edit di Canva → Download <b>PNG</b> (✅ Transparent) → upload <b>Attachment</b> → tekan <b>🖼 Attachment</b>.</div>
 
               <div className="label">Avatar fit — drag the avatar on screen to move it</div>
               <button type="button" className="filebtn secondary" onClick={() => { setOffsetX(0); setOffsetY(0); setZoom(1); }}>
@@ -1584,9 +1580,9 @@ const STUDIO_CSS = `
 .lh-studio .tpl-preview:hover{outline:2px solid var(--accent-2);outline-offset:-2px;}
 .lh-studio .tpl-saved-meta{display:flex;align-items:center;justify-content:space-between;gap:6px;padding:8px 10px;font-size:12px;font-weight:700;}
 .lh-studio .tpl-saved-meta>span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
-.lh-studio .label{font-size:11px;letter-spacing:.07em;text-transform:uppercase;font-weight:800;color:#a9b4d6;margin:16px 0 7px;display:flex;align-items:center;gap:7px;}
+.lh-studio .label{font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;font-weight:800;color:#a9b4d6;margin:10px 0 5px;display:flex;align-items:center;gap:6px;}
 .lh-studio .label::before{content:"";width:7px;height:7px;border-radius:50%;background:var(--grad);box-shadow:0 0 8px rgba(99,102,241,.8);flex:none;}
-.lh-studio select,.lh-studio input,.lh-studio textarea{width:100%;background:rgba(0,0,0,.4);border:1px solid var(--border-s);color:var(--text);border-radius:10px;padding:10px 12px;font-size:14px;font-family:inherit;transition:border-color .15s,box-shadow .15s;}
+.lh-studio select,.lh-studio input,.lh-studio textarea{width:100%;background:rgba(0,0,0,.4);border:1px solid var(--border-s);color:var(--text);border-radius:10px;padding:8px 11px;font-size:13px;font-family:inherit;transition:border-color .15s,box-shadow .15s;}
 .lh-studio select:focus,.lh-studio input:focus,.lh-studio textarea:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px rgba(99,102,241,.25);}
 .lh-studio textarea{resize:vertical;min-height:60px;}
 .lh-studio button{cursor:pointer;font-family:inherit;}
@@ -1595,17 +1591,17 @@ const STUDIO_CSS = `
 .lh-studio .btn-stop{background:rgba(251,93,118,.1);border:1px solid var(--danger);color:#ff8298;flex:1;border-radius:10px;padding:11px 16px;font-size:14px;font-weight:700;}
 .lh-studio .btn-ghost{background:rgba(255,255,255,.05);border:1px solid var(--border-s);color:var(--text);border-radius:10px;padding:11px 16px;}
 .lh-studio .btn-primary:disabled,.lh-studio .btn-stop:disabled{opacity:.5;cursor:not-allowed;transform:none;}
-.lh-studio .filebtn{display:block;width:100%;background:var(--grad);color:#fff;border-radius:10px;padding:11px 16px;font-size:14px;font-weight:700;cursor:pointer;text-align:center;border:none;box-shadow:0 10px 24px -10px rgba(99,102,241,.7);}
-.lh-studio .filebtn.secondary{background:rgba(255,255,255,.05);border:1px solid var(--border-s);color:#c7d0ec;font-weight:600;font-size:12px;margin-top:8px;box-shadow:none;}
+.lh-studio .filebtn{display:block;width:100%;background:var(--grad);color:#fff;border-radius:10px;padding:9px 14px;font-size:13px;font-weight:700;cursor:pointer;text-align:center;border:none;box-shadow:0 10px 24px -10px rgba(99,102,241,.7);}
+.lh-studio .filebtn.secondary{background:rgba(255,255,255,.05);border:1px solid var(--border-s);color:#c7d0ec;font-weight:600;font-size:11.5px;margin-top:6px;box-shadow:none;}
 .lh-studio .filebtn.secondary:hover{border-color:var(--accent);background:rgba(99,102,241,.12);}
-.lh-studio .row{display:flex;gap:10px;margin-top:12px;}
+.lh-studio .row{display:flex;gap:10px;margin-top:8px;}
 .lh-studio .range-row{display:flex;align-items:center;gap:10px;margin-top:8px;}
 .lh-studio .range-row span{font-size:11px;color:var(--muted);width:80px;flex-shrink:0;}
 .lh-studio .range-row input[type="range"]{flex:1;width:auto;padding:0;accent-color:var(--accent);}
 .lh-studio .range-row input[type="number"]{padding:6px 10px;font-size:13px;}
 .lh-studio .checkbox{display:flex;align-items:center;gap:8px;margin-top:10px;font-size:13px;color:var(--muted);}
 .lh-studio .checkbox input{accent-color:var(--accent);}
-.lh-studio .hint{font-size:12px;color:var(--muted);margin-top:6px;}
+.lh-studio .hint{font-size:11px;color:var(--muted);margin-top:4px;line-height:1.45;}
 .lh-studio .error{color:#ff8298;font-size:13px;margin-top:8px;word-break:break-word;background:rgba(251,93,118,.1);border:1px solid rgba(251,93,118,.3);border-radius:8px;padding:8px 10px;}
 .lh-studio .status-line{font-size:13px;color:var(--accent-2);margin-top:8px;font-weight:600;}
 .lh-studio .script-card{background:rgba(0,0,0,.3);border:1px solid var(--border-s);border-radius:12px;padding:11px;margin-top:10px;transition:border-color .15s;}
