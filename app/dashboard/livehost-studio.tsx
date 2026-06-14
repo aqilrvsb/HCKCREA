@@ -127,6 +127,18 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
   // PeningLab Attachments library instead of a local file upload.
   const [avatarPickerOpen, setAvatarPickerOpen] = useState(false);
   const [overlayPickerOpen, setOverlayPickerOpen] = useState(false);
+  // ── Editable live-template objects (Template tab) ──────────────────────
+  // Each object is an independent image layer composited over the avatar:
+  // movable (drag), replaceable (swap image), deletable, resizable. x/y are
+  // the object CENTRE as a % of the stage, w is its width as a % of stage
+  // width (height auto). Rendered on the Template stage (editable) AND the
+  // live stage (static, so it streams). Persisted to localStorage.
+  type TplObject = { id: string; src: string; x: number; y: number; w: number };
+  const [tplObjects, setTplObjects] = useState<TplObject[]>([]);
+  const [tplSel, setTplSel] = useState<string>("");
+  // null = closed; mode "add" pushes a new object, "replace" swaps tplSel's src.
+  const [objectPicker, setObjectPicker] = useState<null | { mode: "add" | "replace" }>(null);
+  const objDragRef = useRef<{ id: string; startX: number; startY: number; baseX: number; baseY: number; active: boolean }>({ id: "", startX: 0, startY: 0, baseX: 0, baseY: 0, active: false });
   const [zoom, setZoom] = useState(1);
   const [offsetY, setOffsetY] = useState(0);
   const [offsetX, setOffsetX] = useState(0);
@@ -429,6 +441,83 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
     else document.exitFullscreen?.();
   }, []);
 
+  // ── Template object editing ─────────────────────────────────────────────
+  const onObjPointerDown = useCallback((e: React.PointerEvent<HTMLImageElement>, id: string) => {
+    e.stopPropagation(); // don't also start the avatar drag
+    setTplSel(id);
+    const o = tplObjects.find((x) => x.id === id);
+    if (!o) return;
+    try { e.currentTarget.setPointerCapture(e.pointerId); } catch {}
+    objDragRef.current = { id, startX: e.clientX, startY: e.clientY, baseX: o.x, baseY: o.y, active: true };
+  }, [tplObjects]);
+
+  const onObjPointerMove = useCallback((e: React.PointerEvent<HTMLImageElement>) => {
+    const d = objDragRef.current;
+    if (!d.active) return;
+    const stage = e.currentTarget.closest(".stage") as HTMLElement | null;
+    if (!stage) return;
+    const r = stage.getBoundingClientRect();
+    const nx = Math.max(0, Math.min(100, d.baseX + ((e.clientX - d.startX) / r.width) * 100));
+    const ny = Math.max(0, Math.min(100, d.baseY + ((e.clientY - d.startY) / r.height) * 100));
+    setTplObjects((prev) => prev.map((o) => (o.id === d.id ? { ...o, x: nx, y: ny } : o)));
+  }, []);
+
+  const onObjPointerUp = useCallback((e: React.PointerEvent<HTMLImageElement>) => {
+    objDragRef.current.active = false;
+    try { e.currentTarget.releasePointerCapture(e.pointerId); } catch {}
+  }, []);
+
+  // Called by the object AttachmentPicker — adds a new object or replaces
+  // the selected one's image depending on the picker mode.
+  const addOrReplaceObject = useCallback((url: string) => {
+    if (objectPicker?.mode === "replace" && tplSel) {
+      setTplObjects((prev) => prev.map((o) => (o.id === tplSel ? { ...o, src: url } : o)));
+    } else {
+      const id = "o" + Date.now().toString(36);
+      setTplObjects((prev) => [...prev, { id, src: url, x: 50, y: 50, w: 22 }]);
+      setTplSel(id);
+    }
+    setObjectPicker(null);
+  }, [objectPicker, tplSel]);
+
+  const deleteObject = useCallback((id: string) => {
+    setTplObjects((prev) => prev.filter((o) => o.id !== id));
+    setTplSel((s) => (s === id ? "" : s));
+  }, []);
+
+  // Object layer rendered on a stage. editable=true wires drag + selection
+  // (Template tab); editable=false is a static composite (live stream).
+  const renderTplObjects = useCallback((editable: boolean) => (
+    tplObjects.map((o) => (
+      // eslint-disable-next-line @next/next/no-img-element
+      <img
+        key={o.id}
+        src={o.src}
+        alt=""
+        draggable={false}
+        onPointerDown={editable ? (e) => onObjPointerDown(e, o.id) : undefined}
+        onPointerMove={editable ? onObjPointerMove : undefined}
+        onPointerUp={editable ? onObjPointerUp : undefined}
+        onPointerCancel={editable ? onObjPointerUp : undefined}
+        style={{
+          position: "absolute",
+          left: `${o.x}%`,
+          top: `${o.y}%`,
+          width: `${o.w}%`,
+          transform: "translate(-50%, -50%)",
+          zIndex: 3,
+          cursor: editable ? "move" : "default",
+          touchAction: "none",
+          userSelect: "none",
+          pointerEvents: editable ? "auto" : "none",
+          outline: editable && tplSel === o.id ? "2px solid #6366f1" : "none",
+          outlineOffset: 2,
+          borderRadius: 4,
+        }}
+      />
+    ))
+  ), [tplObjects, tplSel, onObjPointerDown, onObjPointerMove, onObjPointerUp]);
+
   // Restore persisted settings.
   useEffect(() => {
     let saved: any = {};
@@ -464,6 +553,8 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
         setGreetProfiles(glib);
         setActiveGreetId(localStorage.getItem("livehost_active_greet") || glib[0].id);
       }
+      const tobj = JSON.parse(localStorage.getItem("livehost_tpl_objects") || "[]");
+      if (Array.isArray(tobj)) setTplObjects(tobj);
     } catch {}
     fetch("/overlays/manifest.json").then((r) => r.json()).then(setOverlays).catch(() => {});
     fetch("/avatars/manifest.json").then((r) => r.json()).then((list) => {
@@ -483,6 +574,9 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
   useEffect(() => {
     try { localStorage.setItem("livehost_scripts", JSON.stringify(scripts)); } catch {}
   }, [scripts]);
+  useEffect(() => {
+    try { localStorage.setItem("livehost_tpl_objects", JSON.stringify(tplObjects)); } catch {}
+  }, [tplObjects]);
   useEffect(() => {
     try {
       localStorage.setItem("livehost_products_lib", JSON.stringify(products));
@@ -1078,6 +1172,7 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
                     style={{ transform: `translate(${offsetX}%, ${offsetY}%) scale(${zoom})` }} />
                 )}
                 {overlayUrl && <img className="overlay" src={overlayUrl} alt="" />}
+                {renderTplObjects(false)}
                 {!active && !previewUrl && <div className="placeholder">Pick a host — it will preview here.</div>}
                 {active && captions && captionLine && <div className="captions">{captionLine}</div>}
                 {/* TikTok AI-content policy: AI-generated content must be
@@ -1292,6 +1387,7 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
                     style={{ transform: `translate(${offsetX}%, ${offsetY}%) scale(${zoom})` }} />
                 )}
                 {overlayUrl && <img className="overlay" src={overlayUrl} alt="" />}
+                {renderTplObjects(true)}
                 {!active && !previewUrl && <div className="placeholder">Pick a host — it will preview here.</div>}
                 <div className="ai-badge" style={{ left: `${badgePos.x}%`, top: `${badgePos.y}%` }}
                   onPointerDown={onBadgePointerDown} onPointerMove={onBadgePointerMove}
@@ -1328,6 +1424,45 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
                 onClick={() => setOverlayPickerOpen(true)}>
                 🖼 Pick template from Attachments
               </button>
+
+              <div className="label">Template objects — move / replace / delete each</div>
+              <button type="button" className="filebtn secondary"
+                onClick={() => { setTplSel(""); setObjectPicker({ mode: "add" }); }}>
+                ➕ Add object from Attachments
+              </button>
+              {tplObjects.length === 0 ? (
+                <div className="hint">Tiada object lagi. Export setiap icon / badge / produk dari Canva sebagai PNG transparent, upload ke Attachments, lepas tu tekan Add object. Drag untuk gerak, pilih untuk replace / delete.</div>
+              ) : (
+                <>
+                  <div className="hint">Klik object pada screen (atau thumbnail bawah) untuk pilih · drag untuk gerak.</div>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 8 }}>
+                    {tplObjects.map((o) => (
+                      <button key={o.id} type="button" onClick={() => setTplSel(o.id)}
+                        title="Pilih object"
+                        style={{
+                          width: 44, height: 44, borderRadius: 8, padding: 2, overflow: "hidden",
+                          border: tplSel === o.id ? "2px solid #6366f1" : "1px solid var(--border-s)",
+                          background: "rgba(0,0,0,.4)", cursor: "pointer",
+                        }}>
+                        <img src={o.src} alt="" style={{ width: "100%", height: "100%", objectFit: "contain" }} />
+                      </button>
+                    ))}
+                  </div>
+                  {tplSel && (
+                    <>
+                      <div className="range-row"><span>Size</span>
+                        <input type="range" min="4" max="80" step="1"
+                          value={tplObjects.find((o) => o.id === tplSel)?.w ?? 22}
+                          onChange={(e) => { const w = parseFloat(e.target.value); setTplObjects((prev) => prev.map((o) => (o.id === tplSel ? { ...o, w } : o))); }} />
+                      </div>
+                      <div className="row">
+                        <button className="restart-btn" style={{ flex: 1 }} onClick={() => setObjectPicker({ mode: "replace" })}>🔄 Replace</button>
+                        <button className="restart-btn" style={{ flex: 1 }} onClick={() => deleteObject(tplSel)}>🗑 Delete</button>
+                      </div>
+                    </>
+                  )}
+                </>
+              )}
 
               <div className="label">Avatar fit — drag the avatar on screen to move it</div>
               <button type="button" className="filebtn secondary" onClick={() => { setOffsetX(0); setOffsetY(0); setZoom(1); }}>
@@ -1450,6 +1585,13 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
         title="Pick template / background from Attachments"
         defaultCategory="all"
         onPick={(a) => { setCustomOverlay(a.public_url); setOverlaySel(""); }}
+      />
+      <AttachmentPicker
+        open={!!objectPicker}
+        onClose={() => setObjectPicker(null)}
+        title={objectPicker?.mode === "replace" ? "Replace object image" : "Add template object"}
+        defaultCategory="all"
+        onPick={(a) => addOrReplaceObject(a.public_url)}
       />
     </div>
   );
