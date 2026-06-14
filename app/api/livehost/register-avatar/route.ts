@@ -51,7 +51,9 @@ export async function POST(req: Request) {
 
   const avatarId = "u" + Date.now().toString(36);
   try {
-    const r = await fetch(`${backend}/register-avatar?avatar_id=${avatarId}`, {
+    // avatar_id in the PATH — the serverless ingress strips POST query params,
+    // which made every avatar register as "custom".
+    const r = await fetch(`${backend}/register-avatar/${avatarId}`, {
       method: "POST",
       headers: { "Content-Type": contentType },
       body: new Uint8Array(imgBuf),

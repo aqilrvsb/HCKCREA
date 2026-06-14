@@ -931,7 +931,9 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
             const avs = await fetch(`${backendRef.current}/avatars`, { signal: AbortSignal.timeout(8000) }).then((r) => r.json());
             if (Array.isArray(avs?.avatars) && avs.avatars.includes(avatarId)) break;
             const img = await fetch(previewUrl).then((r) => r.blob());
-            const rr = await fetch(`${backendRef.current}/register-avatar?avatar_id=${encodeURIComponent(avatarId)}`, {
+            // avatar_id in the PATH (not query) — the serverless ingress strips
+            // query params on POST, which made every avatar register as "custom".
+            const rr = await fetch(`${backendRef.current}/register-avatar/${encodeURIComponent(avatarId)}`, {
               method: "POST", body: img, headers: { "content-type": img.type || "image/png" },
             });
             if (rr.ok) break;
