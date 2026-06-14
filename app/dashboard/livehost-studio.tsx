@@ -9,6 +9,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import AttachmentPicker from "./sections/attachment-picker";
+import { hydrateLivehostState, saveLivehostState, installLivehostStateFlush } from "@/lib/livehost-state";
 
 export type LiveView = "live" | "scripts" | "products" | "usage" | "template";
 
@@ -455,15 +456,15 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
   };
   const [savedTemplates, setSavedTemplates] = useState<SavedTpl[]>([]);
   const [savedPickerOpen, setSavedPickerOpen] = useState(false);
-  useEffect(() => {
-    try {
-      const raw = localStorage.getItem("livehost_saved_templates");
-      if (raw) setSavedTemplates(JSON.parse(raw));
-    } catch {}
-  }, []);
+  // Flips true once the DB→localStorage hydrate + initial read finishes, so the
+  // save effects never PUT (or clobber the cache) with pre-load empty state.
+  const hydratedRef = useRef(false);
+  // (savedTemplates load from localStorage inside the main hydrate effect below,
+  // AFTER the DB pull — so they come from the DB on a fresh device.)
   const persistTemplates = useCallback((list: SavedTpl[]) => {
     setSavedTemplates(list);
     try { localStorage.setItem("livehost_saved_templates", JSON.stringify(list)); } catch {}
+    saveLivehostState();
   }, []);
   const saveCurrentTemplate = useCallback(() => {
     const name = window.prompt("Nama template:", `Template ${savedTemplates.length + 1}`);
@@ -488,10 +489,22 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
     persistTemplates(savedTemplates.filter((t) => t.id !== id));
   }, [savedTemplates, persistTemplates]);
 
-  // Restore persisted settings.
+  // Flush pending DB saves when the tab is hidden / unloaded.
+  useEffect(() => installLivehostStateFlush(), []);
+
+  // Restore persisted state — DB FIRST (source of truth), then read the
+  // now-synced localStorage cache.
   useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      await hydrateLivehostState();
+      if (cancelled) return;
     let saved: any = {};
     try { saved = JSON.parse(localStorage.getItem("livehost_settings") || "{}"); } catch {}
+    try {
+      const rawT = localStorage.getItem("livehost_saved_templates");
+      if (rawT) setSavedTemplates(JSON.parse(rawT));
+    } catch {}
     if (saved.overlaySel) setOverlaySel(saved.overlaySel);
     if (saved.voiceId) setVoiceId(saved.voiceId);
     if (typeof saved.zoom === "number") setZoom(saved.zoom);
@@ -539,22 +552,31 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
         if (item) { setStockSel(item.id); setAvatarId(item.id); setPreviewUrl(`/avatars/${item.file}`); }
       }
     }).catch(() => {});
+      hydratedRef.current = true;
+    })();
+    return () => { cancelled = true; };
   }, []);
 
   useEffect(() => {
+    if (!hydratedRef.current) return;
     try {
       localStorage.setItem("livehost_settings", JSON.stringify({ stockSel, overlaySel, voiceId, zoom, offsetX, offsetY, scriptLoop, rundown, volume, speed, badgePos, emotion }));
     } catch {}
+    saveLivehostState();
   }, [stockSel, overlaySel, voiceId, zoom, offsetX, offsetY, scriptLoop, rundown, volume, speed, badgePos, emotion]);
   // (Scripts persist to Supabase via /api/livehost/scripts — no localStorage copy.)
   useEffect(() => {
+    if (!hydratedRef.current) return;
     try {
       localStorage.setItem("livehost_products_lib", JSON.stringify(products));
       localStorage.setItem("livehost_active_product", activeProductId);
     } catch {}
+    saveLivehostState();
   }, [products, activeProductId]);
   useEffect(() => {
+    if (!hydratedRef.current) return;
     try { localStorage.setItem("livehost_active_greet", activeGreetId); } catch {}
+    saveLivehostState();
   }, [activeGreetId]);
   // Re-read the greeting library (edited in the Greetings tab) when returning
   // to the Live view, so the dropdown reflects the latest profiles.

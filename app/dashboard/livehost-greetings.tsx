@@ -8,6 +8,7 @@
 // purchase→bell, comments→avatar reply focused on the selected product.
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { hydrateLivehostState, saveLivehostState } from "@/lib/livehost-state";
 
 type Profile = {
   id: string;
@@ -50,14 +51,23 @@ export default function LivehostGreetings() {
   const [msg, setMsg] = useState("");
   const products = useRef<string[]>([]);
 
+  const hydratedRef = useRef(false);
   useEffect(() => {
-    const lib = loadLib();
-    setProfiles(lib);
-    setActiveId(localStorage.getItem("livehost_active_greet") || lib[0].id);
-    try {
-      const plib = JSON.parse(localStorage.getItem("livehost_products_lib") || "[]");
-      products.current = (plib as { title: string }[]).map((p) => p.title);
-    } catch {}
+    let cancelled = false;
+    (async () => {
+      // DB FIRST (source of truth) → then read the synced localStorage cache.
+      await hydrateLivehostState();
+      if (cancelled) return;
+      const lib = loadLib();
+      setProfiles(lib);
+      setActiveId(localStorage.getItem("livehost_active_greet") || lib[0].id);
+      try {
+        const plib = JSON.parse(localStorage.getItem("livehost_products_lib") || "[]");
+        products.current = (plib as { title: string }[]).map((p) => p.title);
+      } catch {}
+      hydratedRef.current = true;
+    })();
+    return () => { cancelled = true; };
   }, []);
 
   // persist + sync active profile to the DB (for the extension)
@@ -67,6 +77,7 @@ export default function LivehostGreetings() {
       localStorage.setItem("livehost_greet_lib", JSON.stringify(profiles));
       localStorage.setItem("livehost_active_greet", activeId);
     } catch {}
+    if (hydratedRef.current) saveLivehostState();
     const g = profiles.find((p) => p.id === activeId);
     if (!g) return;
     const t = setTimeout(() => {
