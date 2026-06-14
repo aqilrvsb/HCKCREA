@@ -78,9 +78,13 @@ export default function LivehostInteractions() {
           </div>
           <div className="hint" style={{ marginTop: 2 }}>JUMLAH MASA LIVE</div>
         </div>
-        <div className="usage-card" style={{ textAlign: "center", borderColor: "rgba(61,220,151,.4)" }}>
-          <div className="usage-big" style={{ color: "var(--accent-2)" }}>RM {usage ? usage.totalCost.toFixed(2) : "0.00"}</div>
-          <div className="hint" style={{ marginTop: 2 }}>JUMLAH KOS LIVE</div>
+        <div className="usage-card" style={{ textAlign: "center", borderColor: "rgba(236,72,153,.4)" }}>
+          <div className="usage-big" style={{ color: "#f472b6" }}>RM {usage ? usage.gpuCost.toFixed(2) : "0.00"}</div>
+          <div className="hint" style={{ marginTop: 2 }}>COST GPU</div>
+        </div>
+        <div className="usage-card" style={{ textAlign: "center", borderColor: "rgba(96,165,250,.4)" }}>
+          <div className="usage-big" style={{ color: "#60a5fa" }}>RM {usage ? usage.voiceCost.toFixed(2) : "0.00"}</div>
+          <div className="hint" style={{ marginTop: 2 }}>COST AUDIO</div>
         </div>
       </div>
 
