@@ -21,7 +21,7 @@ const NAV: { key: View; label: string; Icon: any }[] = [
   { key: "livehost", label: "Livehost", Icon: Radio },
   { key: "template", label: "Template", Icon: LayoutTemplate },
   { key: "scripts", label: "Scripts", Icon: ScrollText },
-  { key: "products", label: "Products", Icon: Package },
+  { key: "products", label: "Knowledge", Icon: Package },
   { key: "attachment", label: "Attachment", Icon: Paperclip },
   { key: "greetings", label: "Greetings", Icon: HeartHandshake },
   { key: "usage", label: "Usage", Icon: BarChart3 },

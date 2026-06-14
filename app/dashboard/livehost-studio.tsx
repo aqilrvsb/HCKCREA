@@ -13,7 +13,16 @@ import AttachmentPicker from "./sections/attachment-picker";
 export type LiveView = "live" | "scripts" | "products" | "usage" | "template";
 
 type IceConfig = { iceServers: RTCIceServer[]; iceTransportPolicy?: RTCIceTransportPolicy };
-type Script = { id: string; title: string; text: string };
+type Script = {
+  id: string; title: string; text: string;
+  // Per-script voice (set when authoring; travels into the rundown).
+  voiceId: string; volume: number; speed: number; emotion: string;
+  chars?: number;
+  audioUrl?: string | null;   // signed URL of the saved (pre-generated) audio
+  audioB64?: string | null;   // freshly generated audio held in memory until Save
+  saved?: boolean;            // persisted to Supabase (livehost_scripts)
+  generating?: boolean;       // Generate request in flight
+};
 
 const VOICES = [
   { label: "Mira", id: "moss_audio_cf82d8cb-4799-11f1-aea0-d66da573c477" },
@@ -168,7 +177,8 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
   type GreetProfile = { id: string; title: string; greetings: string; greetDelayMin: number; greetDelayMax: number; followGreeting: string; likeGreeting: string; commentDelayMin: number; commentDelayMax: number; selectedProduct: string; sfxAuto: boolean };
   const [greetProfiles, setGreetProfiles] = useState<GreetProfile[]>([]);
   const [activeGreetId, setActiveGreetId] = useState("");
-  const activeKb = (products.find((x) => x.id === activeProductId)?.text) || "";
+  const activeProduct = products.find((x) => x.id === activeProductId);
+  const activeKb = activeProduct?.text || "";
   const [volume, setVolume] = useState(1.5);
   const [speed, setSpeed] = useState(1.0);
   const [emotion, setEmotion] = useState("fluent"); // MiniMax: fluent (natural flow) | happy | neutral | surprised | sad
@@ -183,9 +193,11 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
   const sessionCharsRef = useRef(0);
   const heartbeatRef = useRef<ReturnType<typeof setInterval> | null>(null);
   type UsageData = {
-    rates: { gpuRateHour: number; voiceRate1k: number; currency: string };
+    rates: { gpuRateHour: number; voiceRate1k: number; audioRateGen: number; currency: string };
     sessions: { id: string; startedAt: string; status: string; durationSec: number; voiceChars: number; gpuCost: number; voiceCost: number; totalCost: number }[];
     month: { streamSec: number; voiceChars: number; gpuCost: number; voiceCost: number; totalCost: number };
+    audio: { generations: number; chars: number; cost: number };
+    gpu: { streamSec: number; cost: number };
   };
   const [usageData, setUsageData] = useState<UsageData | null>(null);
   const addVoiceChars = useCallback((n: number) => {
@@ -485,10 +497,17 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
     if (saved.badgePos && typeof saved.badgePos.x === "number") setBadgePos(saved.badgePos);
     if (typeof saved.emotion === "string") setEmotion(saved.emotion);
     if (Array.isArray(saved.rundown)) { setRundown(saved.rundown); rundownRef.current = saved.rundown; }
-    try {
-      const lib = JSON.parse(localStorage.getItem("livehost_scripts") || "[]");
-      if (Array.isArray(lib)) { setScripts(lib); scriptsRef.current = lib; }
-    } catch {}
+    // Saved scripts (per-script voice + pre-generated audio) live in Supabase now.
+    fetch("/api/livehost/scripts").then((r) => r.json()).then((d) => {
+      if (Array.isArray(d?.scripts)) {
+        const list: Script[] = d.scripts.map((s: any) => ({
+          id: s.id, title: s.title, text: s.text,
+          voiceId: s.voiceId || VOICES[0].id, volume: s.volume ?? 1.5, speed: s.speed ?? 1.0, emotion: s.emotion || "fluent",
+          chars: s.chars, audioUrl: s.audioUrl || null, saved: true,
+        }));
+        setScripts(list); scriptsRef.current = list;
+      }
+    }).catch(() => {});
     try {
       const lib = JSON.parse(localStorage.getItem("livehost_products_lib") || "[]");
       if (Array.isArray(lib) && lib.length) {
@@ -521,9 +540,7 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
       localStorage.setItem("livehost_settings", JSON.stringify({ stockSel, overlaySel, voiceId, zoom, offsetX, offsetY, scriptLoop, rundown, volume, speed, badgePos, emotion }));
     } catch {}
   }, [stockSel, overlaySel, voiceId, zoom, offsetX, offsetY, scriptLoop, rundown, volume, speed, badgePos, emotion]);
-  useEffect(() => {
-    try { localStorage.setItem("livehost_scripts", JSON.stringify(scripts)); } catch {}
-  }, [scripts]);
+  // (Scripts persist to Supabase via /api/livehost/scripts — no localStorage copy.)
   useEffect(() => {
     try {
       localStorage.setItem("livehost_products_lib", JSON.stringify(products));
@@ -988,15 +1005,86 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
 
   const addScript = useCallback(() => {
     const id = "s" + Date.now().toString(36);
-    setScripts((prev) => [...prev, { id, title: `Script ${prev.length + 1}`, text: "" }]);
+    setScripts((prev) => [
+      { id, title: `Script ${prev.length + 1}`, text: "", voiceId: VOICES[0].id, volume: 1.5, speed: 1.0, emotion: "fluent", saved: false },
+      ...prev,
+    ]);
   }, []);
   const updateScript = useCallback((id: string, patch: Partial<Script>) => {
-    setScripts((prev) => prev.map((s) => (s.id === id ? { ...s, ...patch } : s)));
+    // Changing content/voice invalidates the saved/generated audio.
+    const dirties = ["text", "voiceId", "volume", "speed", "emotion"].some((k) => k in patch);
+    setScripts((prev) => prev.map((s) => (s.id === id ? { ...s, ...patch, ...(dirties ? { saved: false, audioB64: null, audioUrl: null } : {}) } : s)));
   }, []);
   const deleteScript = useCallback((id: string) => {
+    const sc = scriptsRef.current.find((s) => s.id === id);
+    if (sc?.saved) fetch(`/api/livehost/scripts?id=${encodeURIComponent(id)}`, { method: "DELETE" }).catch(() => {});
     setScripts((prev) => prev.filter((s) => s.id !== id));
     setRundown((prev) => prev.filter((x) => x !== id));
   }, []);
+
+  // ---- Per-script audio: Generate (preview, billable) + Save (persist) + Play ----
+  const previewAudioRef = useRef<HTMLAudioElement | null>(null);
+  const [previewPlayId, setPreviewPlayId] = useState<string | null>(null);
+  const [previewFrac, setPreviewFrac] = useState(0); // 0–1 progress → teleprompter sweep
+
+  const stopPreview = useCallback(() => {
+    if (previewAudioRef.current) { previewAudioRef.current.pause(); previewAudioRef.current = null; }
+    setPreviewPlayId(null); setPreviewFrac(0);
+  }, []);
+  const playPreview = useCallback((id: string, src: string) => {
+    if (previewAudioRef.current) { previewAudioRef.current.pause(); previewAudioRef.current = null; }
+    const a = new Audio(src);
+    previewAudioRef.current = a;
+    setPreviewPlayId(id); setPreviewFrac(0);
+    a.ontimeupdate = () => { if (a.duration) setPreviewFrac(Math.min(1, a.currentTime / a.duration)); };
+    a.onended = () => { setPreviewPlayId(null); setPreviewFrac(1); previewAudioRef.current = null; };
+    a.play().catch(() => setPreviewPlayId(null));
+  }, []);
+
+  const generateScript = useCallback(async (id: string) => {
+    const sc = scriptsRef.current.find((s) => s.id === id);
+    if (!sc || !sc.text.trim()) { alert("Tulis skrip dulu."); return; }
+    setScripts((prev) => prev.map((s) => (s.id === id ? { ...s, generating: true } : s)));
+    try {
+      const r = await fetch("/api/livehost/script-generate", {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ text: sc.text, voice_id: sc.voiceId, volume: sc.volume, speed: sc.speed, emotion: sc.emotion, script_id: sc.saved ? sc.id : null }),
+      });
+      const d = await r.json();
+      if (!r.ok || !d?.audio_b64) throw new Error(d?.error || "Generate gagal");
+      setScripts((prev) => prev.map((s) => (s.id === id ? { ...s, generating: false, audioB64: d.audio_b64, chars: d.chars, saved: false, audioUrl: null } : s)));
+      playPreview(id, `data:audio/mpeg;base64,${d.audio_b64}`);
+    } catch (e: any) {
+      setScripts((prev) => prev.map((s) => (s.id === id ? { ...s, generating: false } : s)));
+      alert("Generate gagal: " + (e?.message || e));
+    }
+  }, [playPreview]);
+
+  const saveScript = useCallback(async (id: string) => {
+    const sc = scriptsRef.current.find((s) => s.id === id);
+    if (!sc) return;
+    if (!sc.audioB64) { alert("Generate audio dulu sebelum simpan."); return; }
+    try {
+      const r = await fetch("/api/livehost/scripts", {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ title: sc.title, text: sc.text, voice_id: sc.voiceId, volume: sc.volume, speed: sc.speed, emotion: sc.emotion, chars: sc.chars || sc.text.length, audio_b64: sc.audioB64 }),
+      });
+      const d = await r.json();
+      if (!r.ok || !d?.id) throw new Error(d?.error || "Simpan gagal");
+      // Swap the draft id for the persisted Supabase id; keep rundown refs in sync.
+      setScripts((prev) => prev.map((s) => (s.id === id ? { ...s, id: d.id, saved: true, audioUrl: d.audioUrl, audioB64: null } : s)));
+      setRundown((prev) => prev.map((x) => (x === id ? d.id : x)));
+    } catch (e: any) {
+      alert("Simpan gagal: " + (e?.message || e));
+    }
+  }, []);
+
+  const playSaved = useCallback((id: string) => {
+    if (previewPlayId === id) { stopPreview(); return; }
+    const sc = scriptsRef.current.find((s) => s.id === id);
+    const src = sc?.audioUrl || (sc?.audioB64 ? `data:audio/mpeg;base64,${sc.audioB64}` : null);
+    if (src) playPreview(id, src);
+  }, [previewPlayId, stopPreview, playPreview]);
 
   const addToRundown = useCallback((id: string) => {
     if (!id) return;
@@ -1395,22 +1483,38 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
 
       {/* ============ PRODUCTS VIEW (library) ============ */}
       <div style={{ display: view === "products" ? undefined : "none" }}>
-        <div className="panel single">
-          <button className="filebtn" onClick={addProduct}>➕ Produk baru</button>
-          {products.length === 0 && <div className="hint">Cipta set product knowledge. Pilih satu yang aktif di Rundown (Livehost tab).</div>}
+        <div className="lib-head">
+          <div>
+            <h2 className="lib-title">Knowledge</h2>
+            <p className="lib-sub">AI jawab chat guna HANYA knowledge yang aktif. Edit apply live.</p>
+          </div>
+          <button className="filebtn" onClick={addProduct}>➕ Knowledge baru</button>
+        </div>
+
+        {activeProduct ? (
+          <div className="panel single">
+            <div className="label">Tajuk</div>
+            <input value={activeProduct.title} onChange={(e) => updateProduct(activeProduct.id, { title: e.target.value })} />
+            <div className="label" style={{ marginTop: 12 }}>Knowledge — avatar guna untuk jawab</div>
+            <textarea rows={12} placeholder={"Compact Powder — RM19.90...\nFoundation — RM49.90...\nVoucher: RM25 checkout masa live."}
+              value={activeProduct.text} onChange={(e) => updateProduct(activeProduct.id, { text: e.target.value })} />
+            <div className="hint">Knowledge ini sedang <b>aktif</b> — digunakan oleh avatar masa live. Disimpan automatik.</div>
+          </div>
+        ) : (
+          <div className="panel single"><div className="hint">Tiada knowledge lagi. Tekan ➕ Knowledge baru untuk mula.</div></div>
+        )}
+
+        <div className="label" style={{ marginTop: 6 }}>📁 Semua knowledge ({products.length})</div>
+        <div className="lib-grid">
           {products.map((pp) => (
-            <div key={pp.id} className="script-card">
-              <div className="script-head">
-                <input value={pp.title} onChange={(e) => updateProduct(pp.id, { title: e.target.value })} />
-                {pp.id === activeProductId && <span className="status-line" style={{ margin: 0, alignSelf: "center" }}>● aktif</span>}
-                <button onClick={() => setActiveProductId(pp.id)} title="Jadikan aktif">✓</button>
-                <button onClick={() => deleteProduct(pp.id)} title="Padam">🗑</button>
-              </div>
-              <textarea rows={10} placeholder={"Compact Powder — RM19.90...\nFoundation — RM49.90...\nVoucher: RM25 checkout masa live."}
-                value={pp.text} onChange={(e) => updateProduct(pp.id, { text: e.target.value })} />
+            <div key={pp.id} className={`lib-card${pp.id === activeProductId ? " active" : ""}`}
+              onClick={() => setActiveProductId(pp.id)} title="Klik untuk edit / jadikan aktif">
+              <button type="button" className="tpl-del-btn" title="Padam" onClick={(e) => { e.stopPropagation(); deleteProduct(pp.id); }}>🗑</button>
+              <div className="lib-card-title">{pp.title || "Tanpa tajuk"}</div>
+              {pp.id === activeProductId && <span className="lib-badge">● aktif</span>}
+              <div className="lib-card-preview">{pp.text || "Kosong…"}</div>
             </div>
           ))}
-          <div className="hint">AI jawab chat guna HANYA knowledge yang aktif. Edit apply live.</div>
         </div>
       </div>
 
@@ -1583,6 +1687,19 @@ const STUDIO_CSS = `
 .lh-studio .tpl-saved-meta>span{flex:1;min-width:0;white-space:normal;word-break:break-word;line-height:1.3;}
 .lh-studio .tpl-del-btn{flex-shrink:0;background:rgba(251,93,118,.14);border:1px solid var(--danger);color:#ff8298;border-radius:9px;padding:6px 9px;font-size:12px;cursor:pointer;transition:all .15s;}
 .lh-studio .tpl-del-btn:hover{background:var(--danger);color:#fff;}
+/* Library tabs (Knowledge / Greetings) — image-tab-style header + history grid */
+.lh-studio .lib-head{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:14px;}
+.lh-studio .lib-title{font-size:20px;font-weight:800;letter-spacing:-.01em;margin:0;}
+.lh-studio .lib-sub{font-size:12px;color:var(--muted);margin:2px 0 0;}
+.lh-studio .lib-head .filebtn{width:auto;}
+.lh-studio .lib-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px;margin-top:12px;}
+.lh-studio .lib-card{position:relative;background:rgba(255,255,255,.03);border:1px solid var(--border-s);border-radius:14px;padding:13px 14px;cursor:pointer;transition:all .15s;min-height:96px;display:flex;flex-direction:column;gap:6px;}
+.lh-studio .lib-card:hover{border-color:rgba(99,102,241,.5);transform:translateY(-1px);}
+.lh-studio .lib-card.active{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent),0 12px 30px -16px rgba(99,102,241,.85);background:rgba(99,102,241,.08);}
+.lh-studio .lib-card-title{font-weight:800;font-size:14px;padding-right:34px;word-break:break-word;}
+.lh-studio .lib-card-preview{font-size:11.5px;color:var(--muted);line-height:1.4;white-space:pre-wrap;overflow:hidden;display:-webkit-box;-webkit-line-clamp:4;-webkit-box-orient:vertical;}
+.lh-studio .lib-badge{display:inline-flex;align-items:center;gap:5px;font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.05em;color:var(--accent-2);}
+.lh-studio .lib-card .tpl-del-btn{position:absolute;top:10px;right:10px;padding:4px 7px;font-size:11px;}
 .lh-studio .label{font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;font-weight:800;color:#a9b4d6;margin:10px 0 5px;display:flex;align-items:center;gap:6px;}
 .lh-studio .label::before{content:"";width:7px;height:7px;border-radius:50%;background:var(--grad);box-shadow:0 0 8px rgba(99,102,241,.8);flex:none;}
 .lh-studio select,.lh-studio input,.lh-studio textarea{width:100%;background:rgba(0,0,0,.4);border:1px solid var(--border-s);color:var(--text);border-radius:10px;padding:8px 11px;font-size:13px;font-family:inherit;transition:border-color .15s,box-shadow .15s;}

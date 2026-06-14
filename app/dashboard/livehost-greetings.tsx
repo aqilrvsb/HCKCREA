@@ -100,17 +100,17 @@ export default function LivehostGreetings() {
   const greetCount = cur.greetings.split(/\n+/).filter((l) => l.trim()).length;
 
   return (
-    <div className="panel single">
-      <div className="label">👋 Greeting profiles — pilih yang aktif di Rundown</div>
-      <div className="row" style={{ alignItems: "center" }}>
-        <select value={activeId} onChange={(e) => setActiveId(e.target.value)} style={{ flex: 1 }}>
-          {profiles.map((p) => (<option key={p.id} value={p.id}>{p.title}</option>))}
-        </select>
-        <button className="restart-btn" onClick={addProfile}>➕ Baru</button>
-        <button className="restart-btn" onClick={() => delProfile(activeId)}>🗑</button>
+    <>
+      <div className="lib-head">
+        <div>
+          <h2 className="lib-title">Greetings</h2>
+          <p className="lib-sub">Profil greeting avatar — pilih satu yang aktif untuk live.</p>
+        </div>
+        <button className="filebtn" onClick={addProfile}>➕ Profil baru</button>
       </div>
 
-      <div className="label" style={{ marginTop: 12 }}>Nama profil</div>
+      <div className="panel single">
+      <div className="label">Nama profil</div>
       <input value={cur.title} onChange={(e) => up({ title: e.target.value })} />
 
       <div className="label" style={{ marginTop: 12 }}>Greeting (JOIN) — {greetCount} ayat, berputar ikut giliran</div>
@@ -149,6 +149,20 @@ export default function LivehostGreetings() {
       <div className="hint" style={{ marginTop: 8 }}>
         Profil aktif digunakan oleh <b>PeningLab Livehost Extension</b>. Disimpan automatik.
       </div>
-    </div>
+      </div>
+
+      <div className="label" style={{ marginTop: 6 }}>📁 Semua profil ({profiles.length})</div>
+      <div className="lib-grid">
+        {profiles.map((p) => (
+          <div key={p.id} className={`lib-card${p.id === activeId ? " active" : ""}`}
+            onClick={() => setActiveId(p.id)} title="Klik untuk edit / jadikan aktif">
+            <button type="button" className="tpl-del-btn" title="Padam" onClick={(e) => { e.stopPropagation(); delProfile(p.id); }}>🗑</button>
+            <div className="lib-card-title">{p.title || "Tanpa nama"}</div>
+            {p.id === activeId && <span className="lib-badge">● aktif</span>}
+            <div className="lib-card-preview">{p.greetings}</div>
+          </div>
+        ))}
+      </div>
+    </>
   );
 }

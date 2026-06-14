@@ -87,9 +87,10 @@ export async function GET(req: Request) {
   const startParam = url.searchParams.get("start");
   const endParam = url.searchParams.get("end");
 
-  const rates = await getSettings(["livehost_gpu_rate_hour", "livehost_voice_rate_1k"]);
+  const rates = await getSettings(["livehost_gpu_rate_hour", "livehost_voice_rate_1k", "livehost_audio_rate_gen"]);
   const gpuRate = parseFloat(rates["livehost_gpu_rate_hour"] || "6") || 6;
   const voiceRate = parseFloat(rates["livehost_voice_rate_1k"] || "0.3") || 0.3;
+  const audioRateGen = parseFloat(rates["livehost_audio_rate_gen"] || "0.1") || 0.1;
 
   const { data: sessions } = await admin
     .from("live_sessions")
@@ -127,15 +128,37 @@ export async function GET(req: Request) {
     };
   });
 
+  // ---- Audio usage: each row in livehost_audio_gen = one billable generation ----
+  const { data: gens } = await admin
+    .from("livehost_audio_gen")
+    .select("chars, created_at")
+    .eq("user_id", user.id)
+    .gte("created_at", new Date(periodStart).toISOString())
+    .lte("created_at", new Date(periodEnd).toISOString());
+  const audioGenerations = (gens || []).length;
+  const audioChars = (gens || []).reduce((a, g) => a + Number(g.chars || 0), 0);
+  const audioCost = audioGenerations * audioRateGen;
+
+  const gpuMonthCost = (monthSec / 3600) * gpuRate;
+
   return NextResponse.json({
-    rates: { gpuRateHour: gpuRate, voiceRate1k: voiceRate, currency: "RM" },
+    rates: { gpuRateHour: gpuRate, voiceRate1k: voiceRate, audioRateGen, currency: "RM" },
     sessions: rows,
     month: {
       streamSec: monthSec,
       voiceChars: monthChars,
-      gpuCost: +((monthSec / 3600) * gpuRate).toFixed(2),
+      gpuCost: +gpuMonthCost.toFixed(2),
       voiceCost: +((monthChars / 1000) * voiceRate).toFixed(2),
-      totalCost: +(((monthSec / 3600) * gpuRate) + ((monthChars / 1000) * voiceRate)).toFixed(2),
+      totalCost: +(gpuMonthCost + audioCost).toFixed(2),
+    },
+    audio: {
+      generations: audioGenerations,
+      chars: audioChars,
+      cost: +audioCost.toFixed(2),
+    },
+    gpu: {
+      streamSec: monthSec,
+      cost: +gpuMonthCost.toFixed(2),
     },
   });
 }
