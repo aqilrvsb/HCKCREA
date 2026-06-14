@@ -1118,7 +1118,6 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
                     style={{ transform: `translate(${offsetX}%, ${offsetY}%) scale(${zoom})` }} />
                 )}
                 {overlayUrl && <img className="overlay" src={overlayUrl} alt="" />}
-                {!active && !previewUrl && <div className="placeholder">Pick a host — it will preview here.</div>}
                 {active && captions && captionLine && <div className="captions">{captionLine}</div>}
                 {/* TikTok AI-content policy: AI-generated content must be
                     labeled on screen — part of the captured frame. Draggable. */}
@@ -1263,12 +1262,6 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
             <div className="range-row"><span>Zoom</span>
               <input type="range" min="0.5" max="2" step="0.02" value={zoom} onChange={(e) => setZoom(parseFloat(e.target.value))} />
             </div>
-            <div className="range-row"><span>Left / Right</span>
-              <input type="range" min="-40" max="40" step="1" value={offsetX} onChange={(e) => setOffsetX(parseFloat(e.target.value))} />
-            </div>
-            <div className="range-row"><span>Up / Down</span>
-              <input type="range" min="-40" max="40" step="1" value={offsetY} onChange={(e) => setOffsetY(parseFloat(e.target.value))} />
-            </div>
 
             <div className="label">Voice</div>
             <select value={voiceId} onChange={(e) => setVoiceId(e.target.value)}>
@@ -1341,7 +1334,6 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
                     style={{ transform: `translate(${offsetX}%, ${offsetY}%) scale(${zoom})` }} />
                 )}
                 {overlayUrl && <img className="overlay" src={overlayUrl} alt="" />}
-                {!active && !previewUrl && <div className="placeholder">Pick a host — it will preview here.</div>}
                 <div className="ai-badge" style={{ left: `${badgePos.x}%`, top: `${badgePos.y}%` }}
                   onPointerDown={onBadgePointerDown} onPointerMove={onBadgePointerMove}
                   onPointerUp={onBadgePointerUp} onPointerCancel={onBadgePointerUp}
@@ -1392,12 +1384,6 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
               </button>
               <div className="range-row"><span>Zoom</span>
                 <input type="range" min="0.5" max="2" step="0.02" value={zoom} onChange={(e) => setZoom(parseFloat(e.target.value))} />
-              </div>
-              <div className="range-row"><span>Left / Right</span>
-                <input type="range" min="-40" max="40" step="1" value={offsetX} onChange={(e) => setOffsetX(parseFloat(e.target.value))} />
-              </div>
-              <div className="range-row"><span>Up / Down</span>
-                <input type="range" min="-40" max="40" step="1" value={offsetY} onChange={(e) => setOffsetY(parseFloat(e.target.value))} />
               </div>
 
               <button type="button" className="filebtn" style={{ marginTop: 14 }} onClick={saveCurrentTemplate}>
