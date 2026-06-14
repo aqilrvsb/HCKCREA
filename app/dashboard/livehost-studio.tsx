@@ -457,8 +457,9 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
   };
   const [savedTemplates, setSavedTemplates] = useState<SavedTpl[]>([]);
   const [savedPickerOpen, setSavedPickerOpen] = useState(false);
-  // Which item is open in the editor modal (Knowledge / Scripts). null = closed.
-  const [kbEditId, setKbEditId] = useState<string | null>(null);
+  // Editor modals. Knowledge uses a DRAFT (id=null → new) so a cancelled
+  // "new" never leaves a junk row — it only commits to the list on Save.
+  const [kbDraft, setKbDraft] = useState<{ id: string | null; title: string; text: string } | null>(null);
   const [scriptEditId, setScriptEditId] = useState<string | null>(null);
   // Flips true once the DB→localStorage hydrate + initial read finishes, so the
   // save effects never PUT (or clobber the cache) with pre-load empty state.
@@ -1032,12 +1033,6 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
     speakNext();
   }, [active, sendControl, speakNext]);
 
-  const addProduct = useCallback(() => {
-    const id = "p" + Date.now().toString(36);
-    setProducts((prev) => [...prev, { id, title: `Produk ${prev.length + 1}`, text: "" }]);
-    setActiveProductId(id);
-    return id;
-  }, []);
   const updateProduct = useCallback((id: string, patch: Partial<{ title: string; text: string }>) => {
     setProducts((prev) => prev.map((x) => (x.id === id ? { ...x, ...patch } : x)));
   }, []);
@@ -1575,14 +1570,11 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
                     {words.map((w, wi) => (<span key={wi} style={{ color: wi < onCount ? "#f59e0b" : "#1a1a1a", fontWeight: wi < onCount ? 800 : 500 }}>{w} </span>))}
                   </div>
                 )}
-                <div className="flex items-center gap-2 mt-3">
-                  <p className="text-[11px]" style={{ color: "#888" }}>
-                    {(s.chars ?? s.text.length)} aksara{inRundown ? " • dalam rundown" : ""}
-                    {hasAudio ? " • 🔊 audio siap" : " • belum generate"}
-                    {!s.saved && hasAudio ? " — tekan Save" : ""}
-                  </p>
-                  <LhButton variant="ghost" onClick={() => { deleteScript(s.id); setScriptEditId(null); }} style={{ marginLeft: "auto", color: "#e23", background: "#fff0f0", border: "1px solid #f3c0c0" }}>🗑 Padam</LhButton>
-                </div>
+                <p className="text-[11px] mt-3" style={{ color: "#888" }}>
+                  {(s.chars ?? s.text.length)} aksara{inRundown ? " • dalam rundown" : ""}
+                  {hasAudio ? " • 🔊 audio siap" : " • belum generate"}
+                  {!s.saved && hasAudio ? " — tekan Save" : ""}
+                </p>
               </>
             );
           })()}
@@ -1597,7 +1589,7 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
               <h2 className="font-extrabold text-xl tracking-tight" style={{ color: "#1a1a1a" }}>Knowledge</h2>
               <p className="text-xs mt-0.5" style={{ color: "#888" }}>AI jawab chat guna HANYA knowledge yang aktif.</p>
             </div>
-            <LhButton onClick={() => setKbEditId(addProduct())}>➕ Knowledge baru</LhButton>
+            <LhButton onClick={() => setKbDraft({ id: null, title: `Produk ${products.length + 1}`, text: "" })}>➕ Knowledge baru</LhButton>
           </div>
 
           <LhCard>
@@ -1609,7 +1601,7 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
                 {products.map((pp) => {
                   const isActive = pp.id === activeProductId;
                   return (
-                    <div key={pp.id} onClick={() => setKbEditId(pp.id)} title="Klik untuk edit"
+                    <div key={pp.id} onClick={() => setKbDraft({ id: pp.id, title: pp.title, text: pp.text })} title="Klik untuk edit"
                       style={{ position: "relative", cursor: "pointer", borderRadius: 14, padding: "12px 14px", minHeight: 92,
                         background: isActive ? "#fff7ed" : "#fafaf7", border: `1px solid ${isActive ? ORANGE : "#e8e0d8"}`,
                         ...(isActive ? { boxShadow: `0 0 0 1px ${ORANGE}` } : {}) }}>
@@ -1626,25 +1618,31 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
           </LhCard>
         </LhSection>
 
-        <LhModal open={!!kbEditId} onClose={() => setKbEditId(null)} title="Knowledge">
-          {(() => {
-            const kb = products.find((p) => p.id === kbEditId);
-            if (!kb) return null;
-            return (
-              <>
-                <LhLabel>Tajuk</LhLabel>
-                <input style={LH_FIELD_STYLE} value={kb.title} onChange={(e) => updateProduct(kb.id, { title: e.target.value })} />
-                <div style={{ marginTop: 14 }}><LhLabel>Knowledge — avatar guna untuk jawab</LhLabel></div>
-                <textarea style={{ ...LH_FIELD_STYLE, minHeight: 240, resize: "vertical" }} rows={12}
-                  placeholder={"Compact Powder — RM19.90...\nFoundation — RM49.90...\nVoucher: RM25 checkout masa live."}
-                  value={kb.text} onChange={(e) => updateProduct(kb.id, { text: e.target.value })} />
-                <div className="flex items-center gap-2 mt-4">
-                  <LhButton variant="ghost" onClick={() => { deleteProduct(kb.id); setKbEditId(null); }} style={{ color: "#e23", background: "#fff0f0", border: "1px solid #f3c0c0" }}>🗑 Padam</LhButton>
-                  <LhButton onClick={() => { setActiveProductId(kb.id); setKbEditId(null); }} style={{ marginLeft: "auto", background: "#16a34a", color: "#fff", border: "none", boxShadow: "0 4px 14px rgba(22,163,74,.3)" }}>💾 Save</LhButton>
-                </div>
-              </>
-            );
-          })()}
+        <LhModal open={!!kbDraft} onClose={() => setKbDraft(null)} title="Knowledge">
+          {kbDraft && (
+            <>
+              <LhLabel>Tajuk</LhLabel>
+              <input style={LH_FIELD_STYLE} value={kbDraft.title} onChange={(e) => setKbDraft({ ...kbDraft, title: e.target.value })} />
+              <div style={{ marginTop: 14 }}><LhLabel>Knowledge — avatar guna untuk jawab</LhLabel></div>
+              <textarea style={{ ...LH_FIELD_STYLE, minHeight: 240, resize: "vertical" }} rows={12}
+                placeholder={"Compact Powder — RM19.90...\nFoundation — RM49.90...\nVoucher: RM25 checkout masa live."}
+                value={kbDraft.text} onChange={(e) => setKbDraft({ ...kbDraft, text: e.target.value })} />
+              <div className="flex items-center justify-end mt-4">
+                <LhButton onClick={() => {
+                  const d = kbDraft;
+                  if (d.id) {
+                    updateProduct(d.id, { title: d.title, text: d.text });
+                    setActiveProductId(d.id);
+                  } else {
+                    const id = "p" + Date.now().toString(36);
+                    setProducts((prev) => [...prev, { id, title: d.title || `Produk ${prev.length + 1}`, text: d.text }]);
+                    setActiveProductId(id);
+                  }
+                  setKbDraft(null);
+                }} style={{ background: "#16a34a", color: "#fff", border: "none", boxShadow: "0 4px 14px rgba(22,163,74,.3)" }}>💾 Save</LhButton>
+              </div>
+            </>
+          )}
         </LhModal>
       </div>
 

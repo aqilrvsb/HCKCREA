@@ -49,7 +49,7 @@ function loadLib(): Profile[] {
 export default function LivehostGreetings() {
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [activeId, setActiveId] = useState(""); // the live-active profile
-  const [editId, setEditId] = useState<string | null>(null); // open in the modal
+  const [gDraft, setGDraft] = useState<Profile | null>(null); // open in the modal (draft)
   const [msg, setMsg] = useState("");
   const products = useRef<string[]>([]);
 
@@ -92,16 +92,18 @@ export default function LivehostGreetings() {
     return () => clearTimeout(t);
   }, [profiles, activeId]);
 
-  // `cur` / `up` target the profile open in the MODAL (editId).
-  const cur = editId ? profiles.find((p) => p.id === editId) : undefined;
+  // `cur` / `up` edit a DRAFT — only committed to the list on Save, so a
+  // cancelled "new" never leaves a junk profile.
+  const cur = gDraft;
   const up = useCallback((patch: Partial<Profile>) => {
-    setProfiles((prev) => prev.map((p) => (p.id === editId ? { ...p, ...patch } : p)));
-  }, [editId]);
-  const addProfile = () => {
-    const id = "g" + Date.now().toString(36);
-    setProfiles((prev) => [...prev, { id, title: `Greeting ${prev.length + 1}`, ...DEFAULT_FIELDS }]);
-    setActiveId((a) => a || id); // first-ever profile becomes the live one
-    return id;
+    setGDraft((d) => (d ? { ...d, ...patch } : d));
+  }, []);
+  const saveDraft = () => {
+    const d = gDraft;
+    if (!d) return;
+    setProfiles((prev) => (prev.some((p) => p.id === d.id) ? prev.map((p) => (p.id === d.id ? d : p)) : [...prev, d]));
+    setActiveId(d.id);
+    setGDraft(null);
   };
   const delProfile = (id: string) => {
     setProfiles((prev) => {
@@ -122,7 +124,7 @@ export default function LivehostGreetings() {
           <h2 className="font-extrabold text-xl tracking-tight" style={{ color: "#1a1a1a" }}>Greetings</h2>
           <p className="text-xs mt-0.5" style={{ color: "#888" }}>Profil greeting avatar — pilih satu yang aktif untuk live.</p>
         </div>
-        <LhButton onClick={() => setEditId(addProfile())}>➕ Profil baru</LhButton>
+        <LhButton onClick={() => setGDraft({ id: "g" + Date.now().toString(36), title: `Greeting ${profiles.length + 1}`, ...DEFAULT_FIELDS })}>➕ Profil baru</LhButton>
       </div>
 
       {/* History */}
@@ -135,7 +137,7 @@ export default function LivehostGreetings() {
             {profiles.map((p) => {
               const isActive = p.id === activeId;
               return (
-                <div key={p.id} onClick={() => setEditId(p.id)} title="Klik untuk edit"
+                <div key={p.id} onClick={() => setGDraft({ ...p })} title="Klik untuk edit"
                   style={{ position: "relative", cursor: "pointer", borderRadius: 14, padding: "12px 14px", minHeight: 92,
                     background: isActive ? "#fff7ed" : "#fafaf7", border: `1px solid ${isActive ? ORANGE : "#e8e0d8"}`,
                     ...(isActive ? { boxShadow: `0 0 0 1px ${ORANGE}` } : {}) }}>
@@ -152,7 +154,7 @@ export default function LivehostGreetings() {
       </LhCard>
 
       {/* Editor modal */}
-      <LhModal open={!!cur} onClose={() => setEditId(null)} title="Greeting Profile" maxWidth={680}>
+      <LhModal open={!!cur} onClose={() => setGDraft(null)} title="Greeting Profile" maxWidth={680}>
         {cur && (
           <>
             <LhLabel>Nama profil</LhLabel>
@@ -186,9 +188,8 @@ export default function LivehostGreetings() {
               🔊 Auto: Purchase → 🔔 bell + suara · Feedback → suara + 👏 clap · Follow → 👏 clap
             </label>
 
-            <div className="flex items-center gap-2 mt-5">
-              <LhButton variant="ghost" onClick={() => { delProfile(cur.id); setEditId(null); }} style={{ color: "#e23", background: "#fff0f0", border: "1px solid #f3c0c0" }}>🗑 Padam</LhButton>
-              <LhButton onClick={() => { setActiveId(cur.id); setEditId(null); }} style={{ marginLeft: "auto", background: "#16a34a", color: "#fff", border: "none", boxShadow: "0 4px 14px rgba(22,163,74,.3)" }}>💾 Save</LhButton>
+            <div className="flex items-center justify-end mt-5">
+              <LhButton onClick={saveDraft} style={{ background: "#16a34a", color: "#fff", border: "none", boxShadow: "0 4px 14px rgba(22,163,74,.3)" }}>💾 Save</LhButton>
             </div>
             {msg && <p className="text-[11px] mt-2" style={{ color: "#16a34a" }}>{msg}</p>}
           </>
