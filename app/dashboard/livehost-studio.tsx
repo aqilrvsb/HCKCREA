@@ -1573,8 +1573,11 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
       {/* ============ USAGE VIEW ============ */}
       <div style={{ display: view === "usage" ? undefined : "none" }}>
         <div className="space-y-6 max-w-[1400px] mx-auto px-1 sm:px-2 py-2">
-          {/* Stats summary — radial-glow cards (match the main Usage tab) */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          {/* Stats summary — radial-glow cards (match the main Usage tab).
+              NOTE: inline-style grid (NOT className="grid") — the studio's
+              own `.lh-studio .grid` rule would otherwise force 100vh height
+              + 1.9fr/0.7fr columns and stretch these cards. */}
+          <div style={{ display: "grid", gap: 16, gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))" }}>
             {[
               { label: "Jumlah kos", value: usageData ? `RM ${usageData.month.totalCost.toFixed(2)}` : "—", suffix: "bulan ini", glow: "rgba(139,92,246,0.12)", cls: "text-violet-500" },
               { label: "Audio", value: usageData ? String(usageData.audio.generations) : "—", suffix: "generate suara", glow: "rgba(59,130,246,0.12)", cls: "text-blue-500" },
