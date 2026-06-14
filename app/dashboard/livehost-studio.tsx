@@ -1224,11 +1224,7 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
 
           <div className="panel">
             <div className="label">Model LiveHost</div>
-            <select value={stockSel} onChange={(e) => pickStock(e.target.value)}>
-              <option value="">— Choose a Malaysian host —</option>
-              {stock.map((s) => (<option key={s.id} value={s.id}>{s.label}</option>))}
-            </select>
-            <button type="button" className="filebtn secondary"
+            <button type="button" className="filebtn secondary" style={{ marginTop: 0 }}
               onClick={() => setSavedPickerOpen(true)}>
               📁 Pick from saved templates ({savedTemplates.length})
             </button>
@@ -1369,10 +1365,7 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
                   </button>
                   <div className="tpl-saved-meta">
                     <span title={t.name}>{t.name}</span>
-                    <div style={{ display: "flex", gap: 6 }}>
-                      <button type="button" className="restart-btn" onClick={() => loadTemplate(t)}>Load</button>
-                      <button type="button" className="restart-btn" onClick={() => deleteTemplate(t.id)}>🗑</button>
-                    </div>
+                    <button type="button" className="tpl-del-btn" title="Padam" onClick={() => deleteTemplate(t.id)}>🗑</button>
                   </div>
                 </div>
               ))}
@@ -1590,8 +1583,10 @@ const STUDIO_CSS = `
 .lh-studio .tpl-prev-avatar{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;transform-origin:center center;}
 .lh-studio .tpl-prev-overlay{position:absolute;inset:0;width:100%;height:100%;object-fit:fill;pointer-events:none;}
 .lh-studio .tpl-preview:hover{outline:2px solid var(--accent-2);outline-offset:-2px;}
-.lh-studio .tpl-saved-meta{display:flex;align-items:center;justify-content:space-between;gap:6px;padding:8px 10px;font-size:12px;font-weight:700;}
-.lh-studio .tpl-saved-meta>span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.lh-studio .tpl-saved-meta{display:flex;align-items:flex-start;justify-content:space-between;gap:8px;padding:8px 10px;font-size:12px;font-weight:700;}
+.lh-studio .tpl-saved-meta>span{flex:1;min-width:0;white-space:normal;word-break:break-word;line-height:1.3;}
+.lh-studio .tpl-del-btn{flex-shrink:0;background:rgba(251,93,118,.14);border:1px solid var(--danger);color:#ff8298;border-radius:9px;padding:6px 9px;font-size:12px;cursor:pointer;transition:all .15s;}
+.lh-studio .tpl-del-btn:hover{background:var(--danger);color:#fff;}
 .lh-studio .label{font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;font-weight:800;color:#a9b4d6;margin:10px 0 5px;display:flex;align-items:center;gap:6px;}
 .lh-studio .label::before{content:"";width:7px;height:7px;border-radius:50%;background:var(--grad);box-shadow:0 0 8px rgba(99,102,241,.8);flex:none;}
 .lh-studio select,.lh-studio input,.lh-studio textarea{width:100%;background:rgba(0,0,0,.4);border:1px solid var(--border-s);color:var(--text);border-radius:10px;padding:8px 11px;font-size:13px;font-family:inherit;transition:border-color .15s,box-shadow .15s;}
