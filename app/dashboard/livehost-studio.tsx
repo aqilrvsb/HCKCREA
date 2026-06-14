@@ -145,8 +145,10 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
     const d = badgeDragRef.current;
     if (!d.active) return;
     e.stopPropagation();
-    const stage = stageRef.current?.getBoundingClientRect();
-    if (!stage) return;
+    // Use the badge's OWN stage (live or template view) — not the fixed
+    // live stageRef, which is zero-size when the Template view is showing.
+    const stage = (e.currentTarget.closest(".stage") as HTMLElement | null)?.getBoundingClientRect();
+    if (!stage || !stage.width) return;
     setBadgePos({
       x: Math.max(0, Math.min(80, d.baseX + ((e.clientX - d.startX) / stage.width) * 100)),
       y: Math.max(0, Math.min(94, d.baseY + ((e.clientY - d.startY) / stage.height) * 100)),
@@ -422,12 +424,50 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
     else document.exitFullscreen?.();
   }, []);
 
-  const toggleFullscreenTemplate = useCallback(() => {
-    const el = templateStageRef.current;
-    if (!el) return;
-    if (!document.fullscreenElement) el.requestFullscreen?.();
-    else document.exitFullscreen?.();
+  // ---- Saved templates (composition history) ----
+  // A saved template snapshots the WHOLE composition: which overlay (Canva
+  // PNG), which avatar, and the avatar-fit + badge position. No per-object
+  // editing — the design itself is made in Canva and imported as the overlay.
+  type SavedTpl = {
+    id: string; name: string; createdAt: number;
+    overlaySel: string; customOverlay: string; overlayUrl: string;
+    previewUrl: string; stockSel: string; avatarId: string;
+    zoom: number; offsetX: number; offsetY: number;
+    badgePos: { x: number; y: number };
+  };
+  const [savedTemplates, setSavedTemplates] = useState<SavedTpl[]>([]);
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem("livehost_saved_templates");
+      if (raw) setSavedTemplates(JSON.parse(raw));
+    } catch {}
   }, []);
+  const persistTemplates = useCallback((list: SavedTpl[]) => {
+    setSavedTemplates(list);
+    try { localStorage.setItem("livehost_saved_templates", JSON.stringify(list)); } catch {}
+  }, []);
+  const saveCurrentTemplate = useCallback(() => {
+    const name = window.prompt("Nama template:", `Template ${savedTemplates.length + 1}`);
+    if (!name) return;
+    persistTemplates([
+      ...savedTemplates,
+      {
+        id: "tpl" + Date.now().toString(36), name, createdAt: Date.now(),
+        overlaySel, customOverlay, overlayUrl, previewUrl, stockSel, avatarId,
+        zoom, offsetX, offsetY, badgePos,
+      },
+    ]);
+  }, [savedTemplates, persistTemplates, overlaySel, customOverlay, overlayUrl, previewUrl, stockSel, avatarId, zoom, offsetX, offsetY, badgePos]);
+  const loadTemplate = useCallback((t: SavedTpl) => {
+    setOverlaySel(t.overlaySel); setCustomOverlay(t.customOverlay);
+    setStockSel(t.stockSel); setAvatarId(t.avatarId); setPreviewUrl(t.previewUrl);
+    setZoom(t.zoom); setOffsetX(t.offsetX); setOffsetY(t.offsetY);
+    setBadgePos(t.badgePos || { x: 4, y: 10 });
+  }, []);
+  const deleteTemplate = useCallback((id: string) => {
+    if (!window.confirm("Padam template ini?")) return;
+    persistTemplates(savedTemplates.filter((t) => t.id !== id));
+  }, [savedTemplates, persistTemplates]);
 
   // Restore persisted settings.
   useEffect(() => {
@@ -1206,6 +1246,15 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
               onClick={() => setOverlayPickerOpen(true)}>
               🖼 Pick template from Attachments
             </button>
+            <a href="https://canva.link/bharu9s46qqbzvv" target="_blank" rel="noreferrer"
+              className="filebtn secondary" style={{ textAlign: "center", marginTop: 8 }}>
+              📐 Buka Template Canva →
+            </a>
+            <div className="hint">
+              Cara guna: <b>Copy link</b> → <b>Edit</b> template di Canva ikut produk anda →
+              <b> Download → PNG</b> → ✅ tick <b>Transparent background</b> → upload ke tab
+              <b> Attachment</b> → tekan <b>Pick template from Attachments</b>.
+            </div>
 
             <div className="label">Avatar fit — drag the avatar on screen to move it</div>
             <button type="button" className="filebtn secondary" onClick={() => { setOffsetX(0); setOffsetY(0); setZoom(1); }}>
@@ -1279,9 +1328,9 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
       {/* 100% copy of the live-host SCREEN + avatar / template / fit controls.
           Shares state with the live view, so composing here is exactly what
           streams in the Livehost tab. */}
-      <div style={{ display: view === "template" ? undefined : "none", height: "100%" }}>
-        <div className="grid">
-          <div className="panel video-panel">
+      <div style={{ display: view === "template" ? undefined : "none", height: "100%", overflowY: "auto" }}>
+        <div className="grid" style={{ gridTemplateColumns: "2.3fr 0.7fr" }}>
+          <div className="panel video-panel" style={{ justifyContent: "center" }}>
             <div className="video-wrap">
               <div className="stage" ref={templateStageRef}
                 onPointerDown={onStagePointerDown} onPointerMove={onStagePointerMove}
@@ -1299,7 +1348,6 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
                   title="Seret untuk ubah kedudukan label">
                   Saya AI Avatar
                 </div>
-                <button className="fs-btn" onClick={toggleFullscreenTemplate} title="Fullscreen">⛶</button>
               </div>
             </div>
           </div>
@@ -1328,6 +1376,15 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
                 onClick={() => setOverlayPickerOpen(true)}>
                 🖼 Pick template from Attachments
               </button>
+              <a href="https://canva.link/bharu9s46qqbzvv" target="_blank" rel="noreferrer"
+                className="filebtn secondary" style={{ textAlign: "center", marginTop: 8 }}>
+                📐 Buka Template Canva →
+              </a>
+              <div className="hint">
+                Cara guna: <b>Copy link</b> → <b>Edit</b> template di Canva ikut produk anda →
+                <b> Download → PNG</b> → ✅ tick <b>Transparent background</b> → upload ke tab
+                <b> Attachment</b> → tekan <b>Pick template from Attachments</b>.
+              </div>
 
               <div className="label">Avatar fit — drag the avatar on screen to move it</div>
               <button type="button" className="filebtn secondary" onClick={() => { setOffsetX(0); setOffsetY(0); setZoom(1); }}>
@@ -1342,7 +1399,38 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
               <div className="range-row"><span>Up / Down</span>
                 <input type="range" min="-40" max="40" step="1" value={offsetY} onChange={(e) => setOffsetY(parseFloat(e.target.value))} />
               </div>
+
+              <button type="button" className="filebtn" style={{ marginTop: 14 }} onClick={saveCurrentTemplate}>
+                💾 Save current as template
+              </button>
           </div>
+        </div>
+
+        {/* Saved templates — composition history grid */}
+        <div className="panel single" style={{ margin: "14px 4px 4px" }}>
+          <div className="label">📁 Saved templates ({savedTemplates.length})</div>
+          {savedTemplates.length === 0 ? (
+            <div className="hint">Belum ada template disimpan. Susun avatar + overlay (template Canva) + kedudukan, kemudian tekan 💾 <b>Save current as template</b>.</div>
+          ) : (
+            <div className="tpl-grid">
+              {savedTemplates.map((t) => (
+                <div key={t.id} className="tpl-saved-card">
+                  <button type="button" className="tpl-preview" onClick={() => loadTemplate(t)} title="Klik untuk muat semula template ini">
+                    {t.overlayUrl ? <img src={t.overlayUrl} alt="" />
+                      : t.previewUrl ? <img src={t.previewUrl} alt="" />
+                      : <span className="hint">—</span>}
+                  </button>
+                  <div className="tpl-saved-meta">
+                    <span title={t.name}>{t.name}</span>
+                    <div style={{ display: "flex", gap: 6 }}>
+                      <button type="button" className="restart-btn" onClick={() => loadTemplate(t)}>Load</button>
+                      <button type="button" className="restart-btn" onClick={() => deleteTemplate(t.id)}>🗑</button>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       </div>
 
@@ -1503,6 +1591,13 @@ const STUDIO_CSS = `
 .lh-studio .unmute-btn{position:absolute;top:12px;left:50%;transform:translateX(-50%);background:var(--grad);color:#fff;border-radius:999px;padding:8px 16px;font-size:14px;font-weight:700;box-shadow:0 8px 22px -6px rgba(99,102,241,.8);z-index:5;border:none;cursor:pointer;}
 .lh-studio .fs-btn{position:absolute;bottom:12px;right:12px;width:40px;height:40px;padding:0;border-radius:10px;background:rgba(0,0,0,.55);color:#fff;border:1px solid rgba(255,255,255,.25);display:flex;align-items:center;justify-content:center;font-size:20px;line-height:1;cursor:pointer;backdrop-filter:blur(4px);}
 .lh-studio .fs-btn:hover{background:rgba(0,0,0,.85);}
+.lh-studio .tpl-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px;margin-top:12px;}
+.lh-studio .tpl-saved-card{background:rgba(255,255,255,.03);border:1px solid var(--border-s);border-radius:14px;overflow:hidden;display:flex;flex-direction:column;}
+.lh-studio .tpl-preview{aspect-ratio:9/16;width:100%;padding:0;border:0;background:#0d0d10;display:flex;align-items:center;justify-content:center;cursor:pointer;overflow:hidden;}
+.lh-studio .tpl-preview img{width:100%;height:100%;object-fit:contain;display:block;}
+.lh-studio .tpl-preview:hover{outline:2px solid var(--accent-2);outline-offset:-2px;}
+.lh-studio .tpl-saved-meta{display:flex;align-items:center;justify-content:space-between;gap:6px;padding:8px 10px;font-size:12px;font-weight:700;}
+.lh-studio .tpl-saved-meta>span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 .lh-studio .label{font-size:11px;letter-spacing:.07em;text-transform:uppercase;font-weight:800;color:#a9b4d6;margin:16px 0 7px;display:flex;align-items:center;gap:7px;}
 .lh-studio .label::before{content:"";width:7px;height:7px;border-radius:50%;background:var(--grad);box-shadow:0 0 8px rgba(99,102,241,.8);flex:none;}
 .lh-studio select,.lh-studio input,.lh-studio textarea{width:100%;background:rgba(0,0,0,.4);border:1px solid var(--border-s);color:var(--text);border-radius:10px;padding:10px 12px;font-size:14px;font-family:inherit;transition:border-color .15s,box-shadow .15s;}
