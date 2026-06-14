@@ -10,6 +10,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import AttachmentPicker from "./sections/attachment-picker";
 import { hydrateLivehostState, saveLivehostState, installLivehostStateFlush } from "@/lib/livehost-state";
+import { LhSection, LhCard, LhCardHeader, LhLabel, LhButton, LhGrid, LH_FIELD_STYLE, ORANGE } from "./livehost-ui";
 
 export type LiveView = "live" | "scripts" | "products" | "usage" | "template";
 
@@ -1505,114 +1506,129 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
 
       {/* ============ SCRIPTS VIEW — author + voice + generate + save + history ============ */}
       <div style={{ display: view === "scripts" ? undefined : "none" }}>
-        <div className="panel single">
-          <button className="filebtn" onClick={addScript}>➕ New script</button>
-          {scripts.length === 0 && <div className="hint">Tulis skrip → pilih suara/volume/speed/emosi → <b>Generate</b> (dengar dulu) → <b>Save</b>. Skrip tersimpan boleh ditambah ke Rundown di tab Livehost dengan suara &amp; audio sendiri.</div>}
+        <LhSection>
+          <div className="flex items-center justify-between gap-3 flex-wrap">
+            <div>
+              <h2 className="font-extrabold text-xl tracking-tight" style={{ color: "#1a1a1a" }}>Scripts</h2>
+              <p className="text-xs mt-0.5" style={{ color: "#888" }}>Tulis skrip → pilih suara → Generate → Save → tambah ke Rundown.</p>
+            </div>
+            <LhButton onClick={addScript}>➕ New script</LhButton>
+          </div>
+
+          {scripts.length === 0 && (
+            <LhCard><p className="text-sm" style={{ color: "#888" }}>Tulis skrip → pilih suara/volume/speed/emosi → <b>Generate</b> (dengar dulu) → <b>Save</b>. Skrip tersimpan boleh ditambah ke Rundown di tab Livehost.</p></LhCard>
+          )}
+
           {scripts.map((s) => {
             const inRundown = rundown.includes(s.id);
             const words = s.text.split(/\s+/).filter(Boolean);
             const onCount = previewPlayId === s.id ? Math.round(previewFrac * words.length) : -1;
             const hasAudio = !!(s.audioUrl || s.audioB64);
             return (
-              <div key={s.id} className="script-card">
-                <div className="script-head">
-                  <input value={s.title} onChange={(e) => updateScript(s.id, { title: e.target.value })} />
-                  {s.saved && <span className="status-line" style={{ margin: 0, alignSelf: "center" }}>● saved</span>}
-                  <button onClick={() => addToRundown(s.id)} title={s.saved ? "Add to rundown" : "Save dulu sebelum add"} disabled={!s.saved}>➕</button>
-                  <button onClick={() => deleteScript(s.id)} title="Delete script">🗑</button>
+              <LhCard key={s.id} borderColor={s.saved ? "#16a34a" : ORANGE}>
+                <div className="flex items-center gap-2 mb-3">
+                  <input style={{ ...LH_FIELD_STYLE, fontWeight: 800 }} value={s.title} onChange={(e) => updateScript(s.id, { title: e.target.value })} />
+                  {s.saved && <span className="text-[11px] font-extrabold whitespace-nowrap" style={{ color: "#16a34a" }}>● saved</span>}
+                  <LhButton variant="ghost" onClick={() => addToRundown(s.id)} disabled={!s.saved} style={{ padding: "9px 12px" }}>➕</LhButton>
+                  <LhButton variant="ghost" onClick={() => deleteScript(s.id)} style={{ padding: "9px 12px", color: "#e23", background: "#fff0f0", border: "1px solid #f3c0c0" }}>🗑</LhButton>
                 </div>
-                <textarea rows={5} placeholder="Tulis dialog skrip di sini…"
+                <textarea style={{ ...LH_FIELD_STYLE, minHeight: 110, resize: "vertical" }} rows={5} placeholder="Tulis dialog skrip di sini…"
                   value={s.text} onChange={(e) => updateScript(s.id, { text: e.target.value })} />
 
-                {/* Per-script voice */}
-                <div className="range-row"><span>Suara</span>
-                  <select value={s.voiceId} onChange={(e) => updateScript(s.id, { voiceId: e.target.value })} style={{ flex: 1 }}>
-                    {VOICES.map((v) => (<option key={v.id} value={v.id}>{v.label}</option>))}
-                  </select>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginTop: 14 }}>
+                  <div><LhLabel>Suara</LhLabel>
+                    <select style={LH_FIELD_STYLE} value={s.voiceId} onChange={(e) => updateScript(s.id, { voiceId: e.target.value })}>
+                      {VOICES.map((v) => (<option key={v.id} value={v.id}>{v.label}</option>))}
+                    </select>
+                  </div>
+                  <div><LhLabel>Emosi suara</LhLabel>
+                    <select style={LH_FIELD_STYLE} value={s.emotion} onChange={(e) => updateScript(s.id, { emotion: e.target.value })}>
+                      <option value="fluent">Fluent (natural)</option>
+                      <option value="happy">Ceria (happy)</option>
+                      <option value="neutral">Neutral</option>
+                      <option value="surprised">Teruja (surprised)</option>
+                      <option value="sad">Lembut (sad)</option>
+                    </select>
+                  </div>
                 </div>
-                <div className="range-row"><span>Volume {Math.round(s.volume * 100)}%</span>
-                  <input type="range" min="0" max="3" step="0.05" value={s.volume} onChange={(e) => updateScript(s.id, { volume: parseFloat(e.target.value) })} />
+                <div className="flex items-center gap-2 mt-3" style={{ color: "#555", fontSize: 12 }}>
+                  <span style={{ width: 120 }}>Volume {Math.round(s.volume * 100)}%</span>
+                  <input type="range" min="0" max="3" step="0.05" value={s.volume} onChange={(e) => updateScript(s.id, { volume: parseFloat(e.target.value) })} style={{ flex: 1, accentColor: "#f59e0b" }} />
                 </div>
-                <div className="range-row"><span>Speed {s.speed.toFixed(2)}×</span>
-                  <input type="range" min="0.7" max="1.5" step="0.05" value={s.speed} onChange={(e) => updateScript(s.id, { speed: parseFloat(e.target.value) })} />
-                </div>
-                <div className="range-row"><span>Emosi suara</span>
-                  <select value={s.emotion} onChange={(e) => updateScript(s.id, { emotion: e.target.value })} style={{ flex: 1 }}>
-                    <option value="fluent">Fluent (natural)</option>
-                    <option value="happy">Ceria (happy)</option>
-                    <option value="neutral">Neutral</option>
-                    <option value="surprised">Teruja (surprised)</option>
-                    <option value="sad">Lembut (sad)</option>
-                  </select>
-                </div>
-
-                {/* Generate (billable) / Play+teleprompter / Save */}
-                <div className="loop-row" style={{ marginTop: 8 }}>
-                  <button className="restart-btn go" onClick={() => generateScript(s.id)} disabled={s.generating || !s.text.trim()} title="Generate audio (1 caj Audio)">
-                    {s.generating ? "⏳ Generating…" : "🎙 Generate"}
-                  </button>
-                  <button className="restart-btn" onClick={() => playSaved(s.id)} disabled={!hasAudio} title="Play / Stop (teleprompter)">
-                    {previewPlayId === s.id ? "■ Stop" : "▶ Play"}
-                  </button>
-                  <button className="restart-btn" onClick={() => saveScript(s.id)} disabled={!s.audioB64 || s.saved} title="Save to history">
-                    💾 {s.saved ? "Saved" : "Save"}
-                  </button>
+                <div className="flex items-center gap-2 mt-2" style={{ color: "#555", fontSize: 12 }}>
+                  <span style={{ width: 120 }}>Speed {s.speed.toFixed(2)}×</span>
+                  <input type="range" min="0.7" max="1.5" step="0.05" value={s.speed} onChange={(e) => updateScript(s.id, { speed: parseFloat(e.target.value) })} style={{ flex: 1, accentColor: "#f59e0b" }} />
                 </div>
 
-                {/* Teleprompter — sweeps with the audio while playing */}
+                <div className="flex flex-wrap gap-2 mt-4">
+                  <LhButton onClick={() => generateScript(s.id)} disabled={s.generating || !s.text.trim()}>{s.generating ? "⏳ Generating…" : "🎙 Generate"}</LhButton>
+                  <LhButton variant="ghost" onClick={() => playSaved(s.id)} disabled={!hasAudio}>{previewPlayId === s.id ? "■ Stop" : "▶ Play"}</LhButton>
+                  <LhButton variant="ghost" onClick={() => saveScript(s.id)} disabled={!s.audioB64 || s.saved}>💾 {s.saved ? "Saved" : "Save"}</LhButton>
+                </div>
+
                 {previewPlayId === s.id && (
-                  <div className="prompter" style={{ marginTop: 8, maxHeight: 140 }}>
-                    <div className="prompter-line now">
-                      {words.map((w, wi) => (<span key={wi} className={wi < onCount ? "w on" : "w"}>{w} </span>))}
-                    </div>
+                  <div style={{ marginTop: 12, maxHeight: 140, overflowY: "auto", background: "#fafaf7", border: "1px solid #e8e0d8", borderRadius: 10, padding: 12, fontSize: 15, lineHeight: 1.6 }}>
+                    {words.map((w, wi) => (<span key={wi} style={{ color: wi < onCount ? "#f59e0b" : "#1a1a1a", fontWeight: wi < onCount ? 800 : 500 }}>{w} </span>))}
                   </div>
                 )}
-                <div className="hint">
+                <p className="text-[11px] mt-2" style={{ color: "#888" }}>
                   {(s.chars ?? s.text.length)} aksara{inRundown ? " • dalam rundown" : ""}
                   {hasAudio ? " • 🔊 audio siap" : " • belum generate"}
                   {!s.saved && hasAudio ? " — tekan Save" : ""}
-                </div>
-              </div>
+                </p>
+              </LhCard>
             );
           })}
-        </div>
+        </LhSection>
       </div>
 
       {/* ============ PRODUCTS VIEW (library) ============ */}
       <div style={{ display: view === "products" ? undefined : "none" }}>
-        <div className="lib-head">
-          <div>
-            <h2 className="lib-title">Knowledge</h2>
-            <p className="lib-sub">AI jawab chat guna HANYA knowledge yang aktif. Edit apply live.</p>
-          </div>
-          <button className="filebtn" onClick={addProduct}>➕ Knowledge baru</button>
-        </div>
-
-        {activeProduct ? (
-          <div className="panel single">
-            <div className="label">Tajuk</div>
-            <input value={activeProduct.title} onChange={(e) => updateProduct(activeProduct.id, { title: e.target.value })} />
-            <div className="label" style={{ marginTop: 12 }}>Knowledge — avatar guna untuk jawab</div>
-            <textarea rows={12} placeholder={"Compact Powder — RM19.90...\nFoundation — RM49.90...\nVoucher: RM25 checkout masa live."}
-              value={activeProduct.text} onChange={(e) => updateProduct(activeProduct.id, { text: e.target.value })} />
-            <div className="hint">Knowledge ini sedang <b>aktif</b> — digunakan oleh avatar masa live. Disimpan automatik.</div>
-          </div>
-        ) : (
-          <div className="panel single"><div className="hint">Tiada knowledge lagi. Tekan ➕ Knowledge baru untuk mula.</div></div>
-        )}
-
-        <div className="label" style={{ marginTop: 6 }}>📁 Semua knowledge ({products.length})</div>
-        <div className="lib-grid">
-          {products.map((pp) => (
-            <div key={pp.id} className={`lib-card${pp.id === activeProductId ? " active" : ""}`}
-              onClick={() => setActiveProductId(pp.id)} title="Klik untuk edit / jadikan aktif">
-              <button type="button" className="tpl-del-btn" title="Padam" onClick={(e) => { e.stopPropagation(); deleteProduct(pp.id); }}>🗑</button>
-              <div className="lib-card-title">{pp.title || "Tanpa tajuk"}</div>
-              {pp.id === activeProductId && <span className="lib-badge">● aktif</span>}
-              <div className="lib-card-preview">{pp.text || "Kosong…"}</div>
+        <LhSection>
+          <div className="flex items-center justify-between gap-3 flex-wrap">
+            <div>
+              <h2 className="font-extrabold text-xl tracking-tight" style={{ color: "#1a1a1a" }}>Knowledge</h2>
+              <p className="text-xs mt-0.5" style={{ color: "#888" }}>AI jawab chat guna HANYA knowledge yang aktif. Edit apply live.</p>
             </div>
-          ))}
-        </div>
+            <LhButton onClick={addProduct}>➕ Knowledge baru</LhButton>
+          </div>
+
+          {activeProduct ? (
+            <LhCard borderColor={ORANGE}>
+              <LhCardHeader icon="📦" title="Knowledge" right={<span className="text-[11px] font-extrabold" style={{ color: "#16a34a" }}>● AKTIF</span>} />
+              <LhLabel>Tajuk</LhLabel>
+              <input style={LH_FIELD_STYLE} value={activeProduct.title} onChange={(e) => updateProduct(activeProduct.id, { title: e.target.value })} />
+              <div style={{ marginTop: 14 }}><LhLabel>Knowledge — avatar guna untuk jawab</LhLabel></div>
+              <textarea style={{ ...LH_FIELD_STYLE, minHeight: 230, resize: "vertical" }} rows={12}
+                placeholder={"Compact Powder — RM19.90...\nFoundation — RM49.90...\nVoucher: RM25 checkout masa live."}
+                value={activeProduct.text} onChange={(e) => updateProduct(activeProduct.id, { text: e.target.value })} />
+              <p className="text-[11px] mt-2" style={{ color: "#888" }}>Knowledge ini sedang <b>aktif</b> — digunakan oleh avatar masa live. Disimpan automatik.</p>
+            </LhCard>
+          ) : (
+            <LhCard><p className="text-sm" style={{ color: "#888" }}>Tiada knowledge lagi. Tekan ➕ Knowledge baru untuk mula.</p></LhCard>
+          )}
+
+          <LhCard>
+            <LhCardHeader icon="📁" title={`Semua Knowledge (${products.length})`} />
+            <LhGrid>
+              {products.map((pp) => {
+                const isActive = pp.id === activeProductId;
+                return (
+                  <div key={pp.id} onClick={() => setActiveProductId(pp.id)} title="Klik untuk edit / jadikan aktif"
+                    style={{ position: "relative", cursor: "pointer", borderRadius: 14, padding: "12px 14px", minHeight: 92,
+                      background: isActive ? "#fff7ed" : "#fafaf7", border: `1px solid ${isActive ? ORANGE : "#e8e0d8"}`,
+                      ...(isActive ? { boxShadow: `0 0 0 1px ${ORANGE}` } : {}) }}>
+                    <button type="button" title="Padam" onClick={(e) => { e.stopPropagation(); deleteProduct(pp.id); }}
+                      style={{ position: "absolute", top: 8, right: 8, border: "1px solid #f3c0c0", background: "#fff0f0", color: "#e23", borderRadius: 8, padding: "3px 7px", fontSize: 11, cursor: "pointer" }}>🗑</button>
+                    <div style={{ fontWeight: 800, fontSize: 13, paddingRight: 30, color: "#1a1a1a" }}>{pp.title || "Tanpa tajuk"}</div>
+                    {isActive && <div style={{ fontSize: 10, fontWeight: 800, textTransform: "uppercase", color: "#16a34a", marginTop: 2 }}>● aktif</div>}
+                    <div style={{ fontSize: 11, color: "#888", marginTop: 4, lineHeight: 1.4, whiteSpace: "pre-wrap", display: "-webkit-box", WebkitLineClamp: 4, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{pp.text || "Kosong…"}</div>
+                  </div>
+                );
+              })}
+            </LhGrid>
+          </LhCard>
+        </LhSection>
       </div>
 
       {/* ============ USAGE VIEW ============ */}

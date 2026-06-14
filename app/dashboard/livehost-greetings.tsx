@@ -9,6 +9,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { hydrateLivehostState, saveLivehostState } from "@/lib/livehost-state";
+import { LhSection, LhCard, LhCardHeader, LhLabel, LhButton, LhGrid, LH_FIELD_STYLE, ORANGE } from "./livehost-ui";
 
 type Profile = {
   id: string;
@@ -107,68 +108,82 @@ export default function LivehostGreetings() {
     });
   };
 
-  if (!cur) return <div className="panel single"><div className="hint">Loading…</div></div>;
+  if (!cur) return <LhSection><LhCard><div style={{ color: "#888", fontSize: 13 }}>Loading…</div></LhCard></LhSection>;
   const greetCount = cur.greetings.split(/\n+/).filter((l) => l.trim()).length;
+  const F = LH_FIELD_STYLE;
+  const num = { ...F };
+  const twoCol: React.CSSProperties = { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginTop: 14 };
 
   return (
-    <>
-      <div className="lib-head">
+    <LhSection>
+      <div className="flex items-center justify-between gap-3 flex-wrap">
         <div>
-          <h2 className="lib-title">Greetings</h2>
-          <p className="lib-sub">Profil greeting avatar — pilih satu yang aktif untuk live.</p>
+          <h2 className="font-extrabold text-xl tracking-tight" style={{ color: "#1a1a1a" }}>Greetings</h2>
+          <p className="text-xs mt-0.5" style={{ color: "#888" }}>Profil greeting avatar — pilih satu yang aktif untuk live.</p>
         </div>
-        <button className="filebtn" onClick={addProfile}>➕ Profil baru</button>
+        <LhButton onClick={addProfile}>➕ Profil baru</LhButton>
       </div>
 
-      <div className="panel single">
-      <div className="label">Nama profil</div>
-      <input value={cur.title} onChange={(e) => up({ title: e.target.value })} />
+      {/* Editor */}
+      <LhCard borderColor={ORANGE}>
+        <LhCardHeader icon="👋" title="Greeting Profile" right={<span className="text-[11px] font-extrabold" style={{ color: "#16a34a" }}>● AKTIF</span>} />
+        <LhLabel>Nama profil</LhLabel>
+        <input style={F} value={cur.title} onChange={(e) => up({ title: e.target.value })} />
 
-      <div className="label" style={{ marginTop: 12 }}>Greeting (JOIN) — {greetCount} ayat, berputar ikut giliran</div>
-      <textarea rows={7} value={cur.greetings} onChange={(e) => up({ greetings: e.target.value })}
-        placeholder={"Satu ayat satu baris. Guna [username]."} />
-      <div className="row">
-        <div style={{ flex: 1 }}><div className="label">Delay Min (saat)</div>
-          <input type="number" min={3} value={cur.greetDelayMin} onChange={(e) => up({ greetDelayMin: parseInt(e.target.value) || 20 })} /></div>
-        <div style={{ flex: 1 }}><div className="label">Delay Max (saat)</div>
-          <input type="number" min={3} value={cur.greetDelayMax} onChange={(e) => up({ greetDelayMax: parseInt(e.target.value) || 45 })} /></div>
-      </div>
+        <div style={{ marginTop: 14 }}><LhLabel>Greeting (JOIN) — {greetCount} ayat, berputar ikut giliran</LhLabel></div>
+        <textarea style={{ ...F, minHeight: 130, resize: "vertical" }} rows={7} value={cur.greetings}
+          onChange={(e) => up({ greetings: e.target.value })} placeholder={"Satu ayat satu baris. Guna [username]."} />
+        <div style={twoCol}>
+          <div><LhLabel>Delay Min (saat)</LhLabel><input style={num} type="number" min={3} value={cur.greetDelayMin} onChange={(e) => up({ greetDelayMin: parseInt(e.target.value) || 20 })} /></div>
+          <div><LhLabel>Delay Max (saat)</LhLabel><input style={num} type="number" min={3} value={cur.greetDelayMax} onChange={(e) => up({ greetDelayMax: parseInt(e.target.value) || 45 })} /></div>
+        </div>
+      </LhCard>
 
-      <div className="label" style={{ marginTop: 12 }}>💚 Greeting FOLLOW (👏 clap)</div>
-      <input value={cur.followGreeting} onChange={(e) => up({ followGreeting: e.target.value })} />
-      <div className="label">👍 Greeting LIKE</div>
-      <input value={cur.likeGreeting} onChange={(e) => up({ likeGreeting: e.target.value })} />
+      {/* Reactions */}
+      <LhCard>
+        <LhCardHeader icon="💬" title="Reactions & Replies" />
+        <LhLabel>💚 Greeting FOLLOW (👏 clap)</LhLabel>
+        <input style={F} value={cur.followGreeting} onChange={(e) => up({ followGreeting: e.target.value })} />
+        <div style={{ marginTop: 14 }}><LhLabel>👍 Greeting LIKE</LhLabel></div>
+        <input style={F} value={cur.likeGreeting} onChange={(e) => up({ likeGreeting: e.target.value })} />
 
-      <div className="label" style={{ marginTop: 12 }}>💬 Komen — avatar jawab fokus produk</div>
-      <select value={cur.selectedProduct} onChange={(e) => up({ selectedProduct: e.target.value })}>
-        <option value="">— Semua produk —</option>
-        {products.current.map((p) => (<option key={p} value={p}>{p}</option>))}
-      </select>
-      <div className="row">
-        <div style={{ flex: 1 }}><div className="label">Reply Delay Min (saat)</div>
-          <input type="number" min={1} value={cur.commentDelayMin} onChange={(e) => up({ commentDelayMin: parseInt(e.target.value) || 5 })} /></div>
-        <div style={{ flex: 1 }}><div className="label">Reply Delay Max (saat)</div>
-          <input type="number" min={1} value={cur.commentDelayMax} onChange={(e) => up({ commentDelayMax: parseInt(e.target.value) || 15 })} /></div>
-      </div>
+        <div style={{ marginTop: 14 }}><LhLabel>Komen — avatar jawab fokus produk</LhLabel></div>
+        <select style={F} value={cur.selectedProduct} onChange={(e) => up({ selectedProduct: e.target.value })}>
+          <option value="">— Semua produk —</option>
+          {products.current.map((p) => (<option key={p} value={p}>{p}</option>))}
+        </select>
+        <div style={twoCol}>
+          <div><LhLabel>Reply Delay Min (saat)</LhLabel><input style={num} type="number" min={1} value={cur.commentDelayMin} onChange={(e) => up({ commentDelayMin: parseInt(e.target.value) || 5 })} /></div>
+          <div><LhLabel>Reply Delay Max (saat)</LhLabel><input style={num} type="number" min={1} value={cur.commentDelayMax} onChange={(e) => up({ commentDelayMax: parseInt(e.target.value) || 15 })} /></div>
+        </div>
 
-      <label className="checkbox">
-        <input type="checkbox" checked={cur.sfxAuto} onChange={(e) => up({ sfxAuto: e.target.checked })} style={{ width: "auto" }} />
-        🔊 Auto: Purchase → 🔔 bell + suara · Feedback → suara + 👏 clap · Follow → 👏 clap
-      </label>
-      </div>
+        <label className="flex items-center gap-2 mt-4 text-xs" style={{ color: "#555" }}>
+          <input type="checkbox" checked={cur.sfxAuto} onChange={(e) => up({ sfxAuto: e.target.checked })} style={{ width: "auto", accentColor: "#f59e0b" }} />
+          🔊 Auto: Purchase → 🔔 bell + suara · Feedback → suara + 👏 clap · Follow → 👏 clap
+        </label>
+      </LhCard>
 
-      <div className="label" style={{ marginTop: 6 }}>📁 Semua profil ({profiles.length})</div>
-      <div className="lib-grid">
-        {profiles.map((p) => (
-          <div key={p.id} className={`lib-card${p.id === activeId ? " active" : ""}`}
-            onClick={() => setActiveId(p.id)} title="Klik untuk edit / jadikan aktif">
-            <button type="button" className="tpl-del-btn" title="Padam" onClick={(e) => { e.stopPropagation(); delProfile(p.id); }}>🗑</button>
-            <div className="lib-card-title">{p.title || "Tanpa nama"}</div>
-            {p.id === activeId && <span className="lib-badge">● aktif</span>}
-            <div className="lib-card-preview">{p.greetings}</div>
-          </div>
-        ))}
-      </div>
-    </>
+      {/* History */}
+      <LhCard>
+        <LhCardHeader icon="📁" title={`Semua Profil (${profiles.length})`} />
+        <LhGrid min={200}>
+          {profiles.map((p) => {
+            const isActive = p.id === activeId;
+            return (
+              <div key={p.id} onClick={() => setActiveId(p.id)} title="Klik untuk edit / jadikan aktif"
+                style={{ position: "relative", cursor: "pointer", borderRadius: 14, padding: "12px 14px", minHeight: 92,
+                  background: isActive ? "#fff7ed" : "#fafaf7", border: `1px solid ${isActive ? ORANGE : "#e8e0d8"}`,
+                  ...(isActive ? { boxShadow: `0 0 0 1px ${ORANGE}` } : {}) }}>
+                <button type="button" title="Padam" onClick={(e) => { e.stopPropagation(); delProfile(p.id); }}
+                  style={{ position: "absolute", top: 8, right: 8, border: "1px solid #f3c0c0", background: "#fff0f0", color: "#e23", borderRadius: 8, padding: "3px 7px", fontSize: 11, cursor: "pointer" }}>🗑</button>
+                <div style={{ fontWeight: 800, fontSize: 13, paddingRight: 30, color: "#1a1a1a" }}>{p.title || "Tanpa nama"}</div>
+                {isActive && <div style={{ fontSize: 10, fontWeight: 800, textTransform: "uppercase", color: "#16a34a", marginTop: 2 }}>● aktif</div>}
+                <div style={{ fontSize: 11, color: "#888", marginTop: 4, lineHeight: 1.4, display: "-webkit-box", WebkitLineClamp: 3, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{p.greetings}</div>
+              </div>
+            );
+          })}
+        </LhGrid>
+      </LhCard>
+    </LhSection>
   );
 }
