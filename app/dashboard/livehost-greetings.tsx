@@ -187,11 +187,8 @@ export default function LivehostGreetings() {
             </label>
 
             <div className="flex items-center gap-2 mt-5">
-              <LhButton onClick={() => { setActiveId(cur.id); setEditId(null); }} style={cur.id === activeId ? { background: "#dcfce7", color: "#166534", border: "1px solid #86efac", boxShadow: "none" } : undefined}>
-                {cur.id === activeId ? "✓ Aktif untuk live" : "Jadikan aktif untuk live"}
-              </LhButton>
               <LhButton variant="ghost" onClick={() => { delProfile(cur.id); setEditId(null); }} style={{ color: "#e23", background: "#fff0f0", border: "1px solid #f3c0c0" }}>🗑 Padam</LhButton>
-              <LhButton variant="ghost" onClick={() => setEditId(null)} style={{ marginLeft: "auto" }}>Selesai</LhButton>
+              <LhButton onClick={() => { setActiveId(cur.id); setEditId(null); }} style={{ marginLeft: "auto", background: "#16a34a", color: "#fff", border: "none", boxShadow: "0 4px 14px rgba(22,163,74,.3)" }}>💾 Save</LhButton>
             </div>
             {msg && <p className="text-[11px] mt-2" style={{ color: "#16a34a" }}>{msg}</p>}
           </>

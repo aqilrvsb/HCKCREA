@@ -596,40 +596,19 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
     } catch {}
   }, [view]);
 
-  // GPU LIFECYCLE: pre-warm on entering the Live view + keep alive (ping the
-  // box /keepalive) while the Live view is open OR streaming, so the watchdog
-  // never stops it under the host. Leaving the tab (and not streaming) lets the
-  // 8-min watchdog stop it normally.
+  // GPU LIFECYCLE (serverless scale-to-zero): keep the worker awake ONLY while
+  // actually streaming. Opening the Live tab does NOT wake/charge it, and the
+  // moment you press Stop (active=false) the keepalive stops → Novita's idle
+  // timeout drops the worker to $0. This is the cost watchdog: no stream = $0.
   useEffect(() => {
-    const keep = view === "live" || active;
-    if (!keep) return;
-    // pre-warm: if backend isn't up, start the GPU in the background
-    (async () => {
-      try {
-        const ping = await fetch(`${backendRef.current}/avatars`, { signal: AbortSignal.timeout(5000) });
-        if (!ping.ok) throw new Error();
-      } catch {
-        fetch("/api/livehost/gpu", {
-          method: "POST", headers: { "content-type": "application/json" },
-          body: JSON.stringify({ action: "start" }),
-        }).catch(() => {});
-        setServerState("starting");
-      }
-    })();
-    // Stream → keep alive forever. Tab open but NOT streaming → keep warm max
-    // 15 min, then stop so the box watchdog sleeps it (protects margin).
-    let warmPings = 0;
-    const MAX_WARM = 15;
+    if (!active) return; // not streaming → no keepalive → worker idles → $0
     const ping = () => {
-      if (!activeRef.current) {
-        if (++warmPings > MAX_WARM) return; // stop warming → box sleeps ~8 min later
-      } else warmPings = 0;
       if (backendRef.current) fetch(`${backendRef.current}/keepalive`, { method: "POST" }).catch(() => {});
     };
     ping();
-    const t = setInterval(ping, 60000);
+    const t = setInterval(ping, 30000); // < Novita freeTimeout, so it stays up while live
     return () => clearInterval(t);
-  }, [view, active]);
+  }, [active]);
 
   // Sync the active greeting profile to the DB so the extension uses it.
   useEffect(() => {
@@ -657,22 +636,17 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
     if (view !== "usage") return;
     let stop = false;
     const load = () => {
+      // Usage cost comes from the server (sessions + audio meter) — do NOT ping
+      // the worker here, or just opening the Usage tab would wake it ($$$).
       fetch("/api/livehost/session")
         .then((r) => r.json())
         .then((d) => { if (!stop && d.rates) setUsageData(d); })
         .catch(() => {});
-      if (backendRef.current) {
-        fetch(`${backendRef.current}/gpu-usage`)
-          .then((r) => r.json())
-          .then((d) => { if (!stop) { d.error ? setGpuUsageErr(d.error) : (setGpuUsage(d), setGpuUsageErr("")); } })
-          .catch((e) => { if (!stop) setGpuUsageErr(String(e?.message || e)); });
-      }
     };
     load();
-    gpuAction("status");
-    const t = setInterval(() => { load(); gpuAction("status"); }, 30000);
+    const t = setInterval(load, 30000);
     return () => { stop = true; clearInterval(t); };
-  }, [view, backend, gpuAction]);
+  }, [view]);
 
   const pickStock = useCallback((id: string) => {
     setStockSel(id);
@@ -1656,7 +1630,6 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
           {(() => {
             const kb = products.find((p) => p.id === kbEditId);
             if (!kb) return null;
-            const isActive = kb.id === activeProductId;
             return (
               <>
                 <LhLabel>Tajuk</LhLabel>
@@ -1666,11 +1639,8 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
                   placeholder={"Compact Powder — RM19.90...\nFoundation — RM49.90...\nVoucher: RM25 checkout masa live."}
                   value={kb.text} onChange={(e) => updateProduct(kb.id, { text: e.target.value })} />
                 <div className="flex items-center gap-2 mt-4">
-                  <LhButton onClick={() => { setActiveProductId(kb.id); setKbEditId(null); }} style={isActive ? { background: "#dcfce7", color: "#166534", border: "1px solid #86efac", boxShadow: "none" } : undefined}>
-                    {isActive ? "✓ Aktif untuk live" : "Jadikan aktif untuk live"}
-                  </LhButton>
                   <LhButton variant="ghost" onClick={() => { deleteProduct(kb.id); setKbEditId(null); }} style={{ color: "#e23", background: "#fff0f0", border: "1px solid #f3c0c0" }}>🗑 Padam</LhButton>
-                  <LhButton variant="ghost" onClick={() => setKbEditId(null)} style={{ marginLeft: "auto" }}>Selesai</LhButton>
+                  <LhButton onClick={() => { setActiveProductId(kb.id); setKbEditId(null); }} style={{ marginLeft: "auto", background: "#16a34a", color: "#fff", border: "none", boxShadow: "0 4px 14px rgba(22,163,74,.3)" }}>💾 Save</LhButton>
                 </div>
               </>
             );
