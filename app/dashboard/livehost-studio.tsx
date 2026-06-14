@@ -10,7 +10,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import AttachmentPicker from "./sections/attachment-picker";
 
-export type LiveView = "live" | "scripts" | "products" | "usage";
+export type LiveView = "live" | "scripts" | "products" | "usage" | "template";
 
 type IceConfig = { iceServers: RTCIceServer[]; iceTransportPolicy?: RTCIceTransportPolicy };
 type Script = { id: string; title: string; text: string };
@@ -334,8 +334,27 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const stageRef = useRef<HTMLDivElement | null>(null);
   const remoteStreamRef = useRef<MediaStream | null>(null);
+  // Template view = a second copy of the live-host SCREEN + avatar/template/
+  // fit controls. Shares ALL state with the live view (so composing here =
+  // what streams), but needs its own stage/video refs to avoid ref clashes
+  // since both views are always mounted.
+  const templateStageRef = useRef<HTMLDivElement | null>(null);
+  const templateVideoRef = useRef<HTMLVideoElement | null>(null);
 
   const overlayUrl = customOverlay || (overlaySel ? `/overlays/${overlaySel}` : "");
+
+  // Mirror the live stream onto the Template-view video so the screen there
+  // matches the live host while streaming.
+  useEffect(() => {
+    const v = templateVideoRef.current;
+    if (!v) return;
+    if (active && remoteStreamRef.current) {
+      v.srcObject = remoteStreamRef.current;
+      v.play().catch(() => {});
+    } else {
+      v.srcObject = null;
+    }
+  }, [active]);
 
   useEffect(() => { scriptsRef.current = scripts; }, [scripts]);
   useEffect(() => { rundownRef.current = rundown; }, [rundown]);
@@ -398,6 +417,13 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
 
   const toggleFullscreen = useCallback(() => {
     const el = stageRef.current;
+    if (!el) return;
+    if (!document.fullscreenElement) el.requestFullscreen?.();
+    else document.exitFullscreen?.();
+  }, []);
+
+  const toggleFullscreenTemplate = useCallback(() => {
+    const el = templateStageRef.current;
     if (!el) return;
     if (!document.fullscreenElement) el.requestFullscreen?.();
     else document.exitFullscreen?.();
@@ -1245,6 +1271,77 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
               </tbody>
             </table>
 
+          </div>
+        </div>
+      </div>
+
+      {/* ============ TEMPLATE VIEW ============ */}
+      {/* 100% copy of the live-host SCREEN + avatar / template / fit controls.
+          Shares state with the live view, so composing here is exactly what
+          streams in the Livehost tab. */}
+      <div style={{ display: view === "template" ? undefined : "none", height: "100%" }}>
+        <div className="grid">
+          <div className="panel video-panel">
+            <div className="video-wrap">
+              <div className="stage" ref={templateStageRef}
+                onPointerDown={onStagePointerDown} onPointerMove={onStagePointerMove}
+                onPointerUp={onStagePointerUp} onPointerCancel={onStagePointerUp}>
+                <video ref={templateVideoRef} autoPlay playsInline style={{ transform: `translate(${offsetX}%, ${offsetY}%) scale(${zoom})` }} />
+                {!active && previewUrl && (
+                  <img className="avatar-preview" src={previewUrl} alt="" draggable={false}
+                    style={{ transform: `translate(${offsetX}%, ${offsetY}%) scale(${zoom})` }} />
+                )}
+                {overlayUrl && <img className="overlay" src={overlayUrl} alt="" />}
+                {!active && !previewUrl && <div className="placeholder">Pick a host — it will preview here.</div>}
+                <div className="ai-badge" style={{ left: `${badgePos.x}%`, top: `${badgePos.y}%` }}
+                  onPointerDown={onBadgePointerDown} onPointerMove={onBadgePointerMove}
+                  onPointerUp={onBadgePointerUp} onPointerCancel={onBadgePointerUp}
+                  title="Seret untuk ubah kedudukan label">
+                  Saya AI Avatar
+                </div>
+                <button className="fs-btn" onClick={toggleFullscreenTemplate} title="Fullscreen">⛶</button>
+              </div>
+            </div>
+          </div>
+
+          <div className="panel">
+              <div className="label">Avatar — pick a host or upload your own</div>
+              <select value={stockSel} onChange={(e) => pickStock(e.target.value)}>
+                <option value="">— Choose a Malaysian host —</option>
+                {stock.map((s) => (<option key={s.id} value={s.id}>{s.label}</option>))}
+              </select>
+              <button type="button" className="filebtn secondary" disabled={uploading}
+                onClick={() => setAvatarPickerOpen(true)}>
+                {uploading ? "Processing…" : "🖼 Pick avatar from Attachments"}
+              </button>
+              <div className="hint">⚠ Guna wajah AI atau wajah anda sendiri sahaja — jangan guna wajah orang lain / selebriti tanpa kebenaran (polisi TikTok).</div>
+              {uploading && <div className="status-line">Processing image… detecting face…</div>}
+              {!uploading && avatarId && <div className="status-line">✓ Avatar ready — press Start</div>}
+
+              <div className="label">Live template (overlay)</div>
+              <select value={customOverlay ? "__custom" : overlaySel} onChange={(e) => { setCustomOverlay(""); setOverlaySel(e.target.value === "__custom" ? "" : e.target.value); }}>
+                <option value="">None</option>
+                {overlays.map((o) => (<option key={o.file} value={o.file}>{o.label}</option>))}
+                {customOverlay && <option value="__custom">Custom (uploaded)</option>}
+              </select>
+              <button type="button" className="filebtn secondary"
+                onClick={() => setOverlayPickerOpen(true)}>
+                🖼 Pick template from Attachments
+              </button>
+
+              <div className="label">Avatar fit — drag the avatar on screen to move it</div>
+              <button type="button" className="filebtn secondary" onClick={() => { setOffsetX(0); setOffsetY(0); setZoom(1); }}>
+                ↺ Reset position
+              </button>
+              <div className="range-row"><span>Zoom</span>
+                <input type="range" min="0.5" max="2" step="0.02" value={zoom} onChange={(e) => setZoom(parseFloat(e.target.value))} />
+              </div>
+              <div className="range-row"><span>Left / Right</span>
+                <input type="range" min="-40" max="40" step="1" value={offsetX} onChange={(e) => setOffsetX(parseFloat(e.target.value))} />
+              </div>
+              <div className="range-row"><span>Up / Down</span>
+                <input type="range" min="-40" max="40" step="1" value={offsetY} onChange={(e) => setOffsetY(parseFloat(e.target.value))} />
+              </div>
           </div>
         </div>
       </div>

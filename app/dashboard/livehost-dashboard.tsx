@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Radio, CreditCard, LayoutDashboard, MessageCircle, ArrowUpRight, ScrollText, Package, BarChart3, Paperclip, HeartHandshake, Send } from "lucide-react";
+import { Radio, CreditCard, LayoutDashboard, MessageCircle, ArrowUpRight, ScrollText, Package, BarChart3, Paperclip, HeartHandshake, Send, LayoutTemplate } from "lucide-react";
 import LogoutButton from "./logout-button";
 import BillingSection from "./sections/billing";
 import AttachmentsSection from "./sections/attachments";
@@ -19,6 +19,7 @@ const WHATSAPP_GROUP_LIVEHOST = "https://chat.whatsapp.com/JIj9Ppto73mIIfitWikCg
 const NAV: { key: View; label: string; Icon: any }[] = [
   { key: "home", label: "Dashboard", Icon: LayoutDashboard },
   { key: "livehost", label: "Livehost", Icon: Radio },
+  { key: "template", label: "Template", Icon: LayoutTemplate },
   { key: "scripts", label: "Scripts", Icon: ScrollText },
   { key: "products", label: "Products", Icon: Package },
   { key: "attachment", label: "Attachment", Icon: Paperclip },
@@ -32,9 +33,9 @@ const NAV: { key: View; label: string; Icon: any }[] = [
 // (which itself shows ONLY the Livehost package for these users) + sign
 // out. None of the generation tabs / sidebar perks appear here.
 
-type View = "home" | "billing" | "livehost" | "scripts" | "products" | "usage" | "attachment" | "greetings" | "tiktok";
+type View = "home" | "billing" | "livehost" | "template" | "scripts" | "products" | "usage" | "attachment" | "greetings" | "tiktok";
 
-const STUDIO_VIEWS: View[] = ["livehost", "scripts", "products", "usage"];
+const STUDIO_VIEWS: View[] = ["livehost", "template", "scripts", "products", "usage"];
 
 export default function LivehostDashboard({
   name,
