@@ -1572,64 +1572,72 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
 
       {/* ============ USAGE VIEW ============ */}
       <div style={{ display: view === "usage" ? undefined : "none" }}>
-        <div className="panel single">
-          <div className="label">💰 Bulan ini — jumlah kos</div>
-          <div className="usage-card">
-            {usageData ? (
-              <div className="usage-big" style={{ color: "var(--accent-2)" }}>RM {usageData.month.totalCost.toFixed(2)}</div>
+        <div className="space-y-6 max-w-[1400px] mx-auto px-1 sm:px-2 py-2">
+          {/* Stats summary — radial-glow cards (match the main Usage tab) */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            {[
+              { label: "Jumlah kos", value: usageData ? `RM ${usageData.month.totalCost.toFixed(2)}` : "—", suffix: "bulan ini", glow: "rgba(139,92,246,0.12)", cls: "text-violet-500" },
+              { label: "Audio", value: usageData ? String(usageData.audio.generations) : "—", suffix: "generate suara", glow: "rgba(59,130,246,0.12)", cls: "text-blue-500" },
+              { label: "GPU live", value: usageData ? `${Math.floor(usageData.gpu.streamSec / 3600)}h ${Math.floor((usageData.gpu.streamSec % 3600) / 60)}m` : "—", suffix: "masa live", glow: "rgba(236,72,153,0.12)", cls: "text-pink-500" },
+              { label: "Sesi", value: usageData ? String(usageData.sessions.length) : "—", suffix: "streaming", glow: "rgba(245,158,11,0.12)", cls: "text-amber-500" },
+            ].map((s, i) => (
+              <div key={i} className="card relative overflow-hidden">
+                <div className="absolute" style={{ top: -30, right: -30, width: 100, height: 100, borderRadius: "50%", background: `radial-gradient(circle, ${s.glow}, transparent 70%)` }} />
+                <div className="relative">
+                  <div className="text-xs font-mono uppercase tracking-wider text-[var(--color-text-muted)] font-bold mb-2">{s.label}</div>
+                  <div className={`font-display font-extrabold text-3xl tracking-tight ${s.cls}`}>{s.value}</div>
+                  <div className="text-xs text-[var(--color-text-muted)] mt-1">{s.suffix}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Rate breakdown — small print under the cards */}
+          {usageData && (
+            <div className="flex flex-wrap gap-x-6 gap-y-1 text-xs text-[var(--color-text-muted)] px-1">
+              <span>🎙 Audio: RM {usageData.audio.cost.toFixed(2)} · {usageData.audio.chars.toLocaleString()} aksara · RM {usageData.rates.audioRateGen.toFixed(2)}/generate</span>
+              <span>🖥 GPU: RM {usageData.gpu.cost.toFixed(2)} · RM {usageData.rates.gpuRateHour.toFixed(2)}/jam</span>
+            </div>
+          )}
+
+          {/* Sessions table card */}
+          <div className="card p-0 overflow-hidden">
+            <div className="px-6 py-4 border-b border-[var(--color-border)] flex flex-wrap items-center gap-2">
+              <span className="font-mono text-[10px] uppercase tracking-widest text-[var(--color-text-muted)] font-bold">Sesi streaming</span>
+              <span className="ml-auto text-xs text-[var(--color-text-muted)]">50 terkini · direkod tepat ke saat</span>
+            </div>
+            <div className="hidden md:flex px-6 py-3 border-b border-[var(--color-border)] text-xs font-mono uppercase tracking-wider text-[var(--color-text-muted)] font-bold" style={{ background: "rgba(200,245,62,0.04)" }}>
+              <span className="flex-1">Tarikh / Masa</span>
+              <span className="w-28">Durasi</span>
+              <span className="w-28 text-right">Jumlah Kos</span>
+              <span className="w-24 text-right">Status</span>
+            </div>
+            {(!usageData || usageData.sessions.length === 0) ? (
+              <div className="px-6 py-16 text-center">
+                <p className="text-[var(--color-text-secondary)] font-medium mb-1">{usageData ? "Belum ada sesi streaming." : "Loading…"}</p>
+                <p className="text-sm text-[var(--color-text-muted)]">Setiap sesi live anda akan direkod di sini.</p>
+              </div>
             ) : (
-              <div className="hint">Loading usage…</div>
-            )}
-          </div>
-
-          {/* Two meters: Audio (per generation) + GPU (per stream duration) */}
-          <div className="grid" style={{ gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 4 }}>
-            <div className="usage-card">
-              <div className="label" style={{ marginTop: 0 }}>🎙 Audio</div>
-              {usageData ? (
-                <>
-                  <div className="usage-big">{usageData.audio.generations}<span style={{ fontSize: 13, fontWeight: 600 }}> generate</span></div>
-                  <div className="usage-cost">RM {usageData.audio.cost.toFixed(2)}</div>
-                  <div className="hint">{usageData.audio.chars.toLocaleString()} aksara dijana · RM {usageData.rates.audioRateGen.toFixed(2)}/generate</div>
-                </>
-              ) : <div className="hint">…</div>}
-            </div>
-            <div className="usage-card">
-              <div className="label" style={{ marginTop: 0 }}>🖥 GPU</div>
-              {usageData ? (
-                <>
-                  <div className="usage-big">{Math.floor(usageData.gpu.streamSec / 3600)}h {Math.floor((usageData.gpu.streamSec % 3600) / 60)}m</div>
-                  <div className="usage-cost">RM {usageData.gpu.cost.toFixed(2)}</div>
-                  <div className="hint">masa live · RM {usageData.rates.gpuRateHour.toFixed(2)}/jam</div>
-                </>
-              ) : <div className="hint">…</div>}
-            </div>
-          </div>
-
-          <div className="label">📜 Sesi streaming (50 terkini — direkod tepat ke saat)</div>
-          <div className="usage-card" style={{ padding: 0, overflow: "hidden" }}>
-            <table className="sessions-table">
-              <thead>
-                <tr><th>Tarikh / Masa</th><th>Durasi</th><th>Jumlah Kos</th><th>Status</th></tr>
-              </thead>
-              <tbody>
-                {(usageData?.sessions || []).map((s) => (
-                  <tr key={s.id}>
-                    <td>{new Date(s.startedAt).toLocaleString("ms-MY", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit", second: "2-digit" })}</td>
-                    <td>{Math.floor(s.durationSec / 3600)}:{String(Math.floor((s.durationSec % 3600) / 60)).padStart(2, "0")}:{String(s.durationSec % 60).padStart(2, "0")}</td>
-                    <td><b>RM {s.totalCost.toFixed(2)}</b></td>
-                    <td>
-                      <span className={`sess-badge ${s.status}`}>
+              <ul className="divide-y divide-[var(--color-border)]">
+                {usageData.sessions.map((s) => (
+                  <li key={s.id} className="px-6 py-4 flex flex-col md:flex-row md:items-center gap-1.5 md:gap-3 text-sm">
+                    <span className="flex-1 font-mono text-xs text-[var(--color-text-secondary)]">{new Date(s.startedAt).toLocaleString("ms-MY", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit", second: "2-digit" })}</span>
+                    <span className="w-28 font-mono text-xs text-[var(--color-text-primary)]">{Math.floor(s.durationSec / 3600)}:{String(Math.floor((s.durationSec % 3600) / 60)).padStart(2, "0")}:{String(s.durationSec % 60).padStart(2, "0")}</span>
+                    <span className="w-28 md:text-right text-xs font-bold text-emerald-500">RM {s.totalCost.toFixed(2)}</span>
+                    <span className="w-24 md:text-right">
+                      <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider"
+                        style={s.status === "active"
+                          ? { background: "rgba(34,197,94,0.12)", color: "#22c55e", border: "1px solid rgba(34,197,94,0.3)" }
+                          : s.status === "crashed"
+                            ? { background: "rgba(239,68,68,0.12)", color: "#ef4444", border: "1px solid rgba(239,68,68,0.3)" }
+                            : { background: "var(--color-bg-card)", color: "var(--color-text-muted)", border: "1px solid var(--color-border)" }}>
                         {s.status === "active" ? "● LIVE" : s.status === "crashed" ? "crashed" : "ended"}
                       </span>
-                    </td>
-                  </tr>
+                    </span>
+                  </li>
                 ))}
-                {(!usageData || usageData.sessions.length === 0) && (
-                  <tr><td colSpan={4} style={{ textAlign: "center", color: "var(--muted)" }}>Belum ada sesi streaming.</td></tr>
-                )}
-              </tbody>
-            </table>
+              </ul>
+            )}
           </div>
         </div>
       </div>
