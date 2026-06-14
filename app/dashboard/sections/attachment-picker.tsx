@@ -34,6 +34,7 @@ export default function AttachmentPicker({
   maxPick = 1,
   title = "Pick from Attachments",
   defaultCategory = "product",
+  presets = [],
 }: {
   open: boolean;
   onClose: () => void;
@@ -45,6 +46,10 @@ export default function AttachmentPicker({
   maxPick?: number;
   title?: string;
   defaultCategory?: AttachmentCategory | "all";
+  // Built-in DEFAULT items shown at the top of the grid, before the user's
+  // own uploads. Non-deletable, always present (e.g. the stock Livehost
+  // hosts + templates served from /avatars + /overlays). Single-pick only.
+  presets?: { id: string; name: string; public_url: string; category: AttachmentCategory }[];
 }) {
   const multi = !!onPickMulti;
   const [items, setItems] = useState<Attachment[]>([]);
@@ -205,6 +210,7 @@ export default function AttachmentPicker({
   if (!open) return null;
 
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  const shownPresets = presets.filter((p) => filter === "all" || p.category === filter);
 
   return (
     <Portal>
@@ -292,7 +298,7 @@ export default function AttachmentPicker({
             <div className="flex justify-center py-12">
               <Loader2 className="w-6 h-6 animate-spin" style={{ color: "var(--color-orange)" }} />
             </div>
-          ) : items.length === 0 ? (
+          ) : shownPresets.length === 0 && items.length === 0 ? (
             <div className="text-center py-12" style={{ color: "var(--color-text-muted)" }}>
               <ImageIcon className="w-10 h-10 mx-auto mb-2 opacity-40" />
               <p className="text-sm">
@@ -302,6 +308,42 @@ export default function AttachmentPicker({
             </div>
           ) : (
             <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-3">
+              {/* Built-in defaults (Livehost hosts / templates) — non-deletable */}
+              {shownPresets.map((p) => {
+                const pickPreset = () => { if (onPick) { onPick(p as unknown as Attachment); onClose(); } };
+                return (
+                  <div
+                    key={p.id}
+                    className="group rounded-lg overflow-hidden border relative"
+                    style={{ borderColor: "var(--color-border)" }}
+                    title={p.name}
+                  >
+                    <button type="button" onClick={pickPreset} className="block w-full">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={p.public_url}
+                        alt={p.name}
+                        className="w-full aspect-square object-cover bg-black/40"
+                        loading="lazy"
+                      />
+                    </button>
+                    <span
+                      className="absolute top-1 left-1 inline-flex items-center gap-1 px-1 py-0.5 rounded text-[9px] font-bold uppercase pointer-events-none"
+                      style={{ background: "rgba(99,102,241,0.85)", color: "white" }}
+                    >
+                      Default
+                    </span>
+                    <button
+                      type="button"
+                      onClick={pickPreset}
+                      className="block w-full px-2 py-1.5 text-[11px] font-semibold truncate text-left"
+                      style={{ color: "var(--color-text-secondary)" }}
+                    >
+                      {p.name}
+                    </button>
+                  </div>
+                );
+              })}
               {items.map((a) => {
                 const selectionIdx = selectedIds.indexOf(a.id);
                 const isSelected = selectionIdx >= 0;

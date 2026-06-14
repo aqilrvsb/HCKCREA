@@ -1343,12 +1343,8 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
           </div>
 
           <div className="panel">
-              <div className="label">Avatar — pick a host or upload your own</div>
-              <select value={stockSel} onChange={(e) => pickStock(e.target.value)}>
-                <option value="">— Choose a Malaysian host —</option>
-                {stock.map((s) => (<option key={s.id} value={s.id}>{s.label}</option>))}
-              </select>
-              <button type="button" className="filebtn secondary" disabled={uploading}
+              <div className="label">Avatar — pick from Attachments (host default tersedia)</div>
+              <button type="button" className="filebtn secondary" style={{ marginTop: 0 }} disabled={uploading}
                 onClick={() => setAvatarPickerOpen(true)}>
                 {uploading ? "Processing…" : "🖼 Pick avatar from Attachments"}
               </button>
@@ -1356,13 +1352,8 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
               {uploading && <div className="status-line">Processing image… detecting face…</div>}
               {!uploading && avatarId && <div className="status-line">✓ Avatar ready — press Start</div>}
 
-              <div className="label">Live template (overlay)</div>
-              <select value={customOverlay ? "__custom" : overlaySel} onChange={(e) => { setCustomOverlay(""); setOverlaySel(e.target.value === "__custom" ? "" : e.target.value); }}>
-                <option value="">None</option>
-                {overlays.map((o) => (<option key={o.file} value={o.file}>{o.label}</option>))}
-                {customOverlay && <option value="__custom">Custom (uploaded)</option>}
-              </select>
-              <div style={{ display: "flex", gap: 8, marginTop: 6 }}>
+              <div className="label">Live template (overlay) — pick from Attachments</div>
+              <div style={{ display: "flex", gap: 8, marginTop: 0 }}>
                 <button type="button" className="filebtn secondary" style={{ flex: 1, marginTop: 0 }}
                   onClick={() => setOverlayPickerOpen(true)}>
                   🖼 Attachment
@@ -1512,14 +1503,24 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
         onClose={() => setAvatarPickerOpen(false)}
         title="Pick avatar from Attachments"
         defaultCategory="avatar"
-        onPick={(a) => registerAvatarFromAttachment(a.public_url)}
+        presets={stock.map((s) => ({ id: `stock:${s.id}`, name: s.label, public_url: `/avatars/${s.file}`, category: "avatar" as const }))}
+        onPick={(a) => {
+          // Default hosts are PRE-REGISTERED on the GPU (avatar_id = stock id),
+          // so use pickStock directly; user uploads go through registration.
+          if (a.id.startsWith("stock:")) pickStock(a.id.slice("stock:".length));
+          else registerAvatarFromAttachment(a.public_url);
+        }}
       />
       <AttachmentPicker
         open={overlayPickerOpen}
         onClose={() => setOverlayPickerOpen(false)}
         title="Pick template / background from Attachments"
         defaultCategory="all"
-        onPick={(a) => { setCustomOverlay(a.public_url); setOverlaySel(""); }}
+        presets={overlays.map((o) => ({ id: `ovl:${o.file}`, name: o.label, public_url: `/overlays/${o.file}`, category: "product" as const }))}
+        onPick={(a) => {
+          if (a.id.startsWith("ovl:")) { setOverlaySel(a.id.slice("ovl:".length)); setCustomOverlay(""); }
+          else { setCustomOverlay(a.public_url); setOverlaySel(""); }
+        }}
       />
     </div>
   );
