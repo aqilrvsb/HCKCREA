@@ -14,6 +14,27 @@ export const dynamic = "force-dynamic";
 
 const EMOTIONS = ["fluent", "happy", "neutral", "surprised", "sad", "angry", "fearful", "disgusted", "calm"];
 
+// Wrap raw 16-bit PCM in a minimal 44-byte WAV header (mono assumed).
+function pcmToWav(pcm: Buffer, sampleRate: number, channels: number): Buffer {
+  const byteRate = sampleRate * channels * 2;
+  const blockAlign = channels * 2;
+  const h = Buffer.alloc(44);
+  h.write("RIFF", 0);
+  h.writeUInt32LE(36 + pcm.length, 4);
+  h.write("WAVE", 8);
+  h.write("fmt ", 12);
+  h.writeUInt32LE(16, 16);          // PCM fmt chunk size
+  h.writeUInt16LE(1, 20);           // audio format = PCM
+  h.writeUInt16LE(channels, 22);
+  h.writeUInt32LE(sampleRate, 24);
+  h.writeUInt32LE(byteRate, 28);
+  h.writeUInt16LE(blockAlign, 32);
+  h.writeUInt16LE(16, 34);          // bits per sample
+  h.write("data", 36);
+  h.writeUInt32LE(pcm.length, 40);
+  return Buffer.concat([h, pcm]);
+}
+
 export async function POST(req: Request) {
   const sb = await createClient();
   const { data: { user } } = await sb.auth.getUser();
@@ -44,7 +65,8 @@ export async function POST(req: Request) {
         language_boost: "Malay",
         output_format: "hex",
         voice_setting: { voice_id: voiceId, speed, vol, pitch: 0, emotion },
-        audio_setting: { format: "mp3", sample_rate: 32000, channel: 1 },
+        // RAW PCM at the avatar's native 24 kHz mono — no lossy mp3, no resample.
+        audio_setting: { format: "pcm", sample_rate: 24000, channel: 1 },
       }),
     });
     if (!r.ok) {
@@ -57,13 +79,15 @@ export async function POST(req: Request) {
     }
     const hex: string = data?.audio_data || data?.data?.audio || "";
     if (!hex) return NextResponse.json({ error: "MiniMax returned no audio" }, { status: 502 });
-    const audioB64 = Buffer.from(hex, "hex").toString("base64");
+    // Wrap the raw PCM in a WAV header → losslessly playable in the browser AND
+    // trivially read back to raw PCM on the worker (no decode, no resample).
+    const audioB64 = pcmToWav(Buffer.from(hex, "hex"), 24000, 1).toString("base64");
 
     // Billable: one generation event (the Audio meter counts these).
     const admin = createAdminClient();
     await admin.from("livehost_audio_gen").insert({ user_id: user.id, script_id: scriptId, chars: text.length });
 
-    return NextResponse.json({ ok: true, audio_b64: audioB64, mime: "audio/mpeg", chars: text.length });
+    return NextResponse.json({ ok: true, audio_b64: audioB64, mime: "audio/wav", chars: text.length });
   } catch (e: any) {
     return NextResponse.json({ error: e?.message || "TTS network error" }, { status: 500 });
   }

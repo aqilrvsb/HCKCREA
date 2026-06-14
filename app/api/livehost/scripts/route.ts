@@ -68,10 +68,10 @@ export async function POST(req: Request) {
     .single();
   if (insErr) return NextResponse.json({ error: insErr.message }, { status: 500 });
 
-  const path = `${user.id}/${row.id}.mp3`;
+  const path = `${user.id}/${row.id}.wav`;
   const bytes = Buffer.from(audioB64, "base64");
   const { error: upErr } = await admin.storage.from(BUCKET).upload(path, bytes, {
-    contentType: "audio/mpeg",
+    contentType: "audio/wav",
     upsert: true,
   });
   if (upErr) {
