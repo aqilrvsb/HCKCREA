@@ -599,41 +599,32 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
     } catch {}
   }, [view]);
 
-  // Keep `active` readable inside the persistent watchdog interval below.
-  // (activeRef + its sync effect are declared up top with the other refs.)
-  const warmUntilRef = useRef(0);
-
-  // 10-MINUTE IDLE WATCHDOG (serverless scale-to-zero). Pressing ■ Stop or
-  // finishing the teleprompter does NOT kill the GPU — it stays WARM so the next
-  // ▶ Start is INSTANT (no cold-start wait). While streaming, every ping re-arms a
-  // 10-minute timer; once streaming stops, pings keep the worker warm for up to
-  // 10 more minutes, then stop → Novita's freeTimeout drops the worker to $0.
-  // So: streaming OR < 10 min since streaming = warm; 10 min of true inactivity
-  // (or closing the tab) = $0. We deliberately do NOT gate on tab-visibility here
-  // so briefly switching tabs/minimizing during the live keeps the stream alive.
-  const WARM_MS = 10 * 60 * 1000;
+  // GPU LIFECYCLE — Novita's freeTimeout (15 min) is the ONE watchdog. A serverless
+  // worker auto-shuts after 15 min with no request; the browser just sends a
+  // /keepalive heartbeat to say "keep it on":
+  //   • while streaming   → heartbeat every 30s → worker stays up (resets the 15-min timer)
+  //   • streaming stops   → heartbeat stops → Novita's 15-min freeTimeout drops it to $0
+  //   • open tab / refresh → one warm-on-open kick wakes it; it then stays up ~15 min
+  // Quick-restart stays instant for ~15 min after Stop (worker still up). ONE timer,
+  // not two — no separate browser timer stacked on top of Novita's.
   useEffect(() => {
     const ping = () => {
-      if (activeRef.current) warmUntilRef.current = Date.now() + WARM_MS; // re-arm while live
-      const warm = activeRef.current || Date.now() < warmUntilRef.current;
-      if (!warm) return; // 10 min idle → no pings → Novita scales worker to $0
+      if (!activeRef.current) return; // only heartbeat WHILE streaming; idle = Novita's job
       if (backendRef.current) fetch(`${backendRef.current}/keepalive`, { method: "POST" }).catch(() => {});
     };
     ping();
-    const t = setInterval(ping, 30000); // < Novita freeTimeout, so the worker stays up
+    const t = setInterval(ping, 30000); // < Novita freeTimeout (15 min) so a live never drops
     return () => clearInterval(t);
   }, []);
 
-  // WARM-ON-OPEN: start waking the GPU the moment the studio loads (before the
-  // user presses ▶ Start). While they pick product/script/greeting (~30-60s) the
-  // serverless worker is already cold-booting, so Start connects fast instead of
-  // waiting the full ~2-3 min. Arms the 10-min watchdog above so it keeps pinging;
-  // if they never actually stream, it auto-drops to $0 after 10 min (no runaway cost).
+  // WARM-ON-OPEN: wake the GPU the moment the studio loads (before ▶ Start) with a
+  // single /keepalive. The worker cold-boots in the background and stays up ~15 min
+  // (Novita's freeTimeout), so pressing Start connects fast instead of the full cold
+  // wait. If they never stream, Novita drops it to $0 after 15 min — no runaway cost.
   const warmedRef = useRef(false);
   useEffect(() => {
     if (!backend || warmedRef.current) return;
     warmedRef.current = true;
-    warmUntilRef.current = Date.now() + WARM_MS;
     fetch(`${backend}/keepalive`, { method: "POST" }).catch(() => {});
   }, [backend]);
 
