@@ -277,6 +277,9 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
   // GPU power buttons: On = start + wait until the backend answers; Off = stop.
   const loadAvatarsRef = useRef<(() => void) | null>(null);
   const stopRef = useRef<(() => void) | null>(null);
+  // Grace timer for transient WebRTC "disconnected" (network blip) so we don't
+  // kill a live stream on a momentary hiccup that ICE would recover on its own.
+  const disconnectGraceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const gpuOn = useCallback(async () => {
     setServerBusy(true);
@@ -621,6 +624,19 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
     return () => clearInterval(t);
   }, []);
 
+  // WARM-ON-OPEN: start waking the GPU the moment the studio loads (before the
+  // user presses ▶ Start). While they pick product/script/greeting (~30-60s) the
+  // serverless worker is already cold-booting, so Start connects fast instead of
+  // waiting the full ~2-3 min. Arms the 10-min watchdog above so it keeps pinging;
+  // if they never actually stream, it auto-drops to $0 after 10 min (no runaway cost).
+  const warmedRef = useRef(false);
+  useEffect(() => {
+    if (!backend || warmedRef.current) return;
+    warmedRef.current = true;
+    warmUntilRef.current = Date.now() + WARM_MS;
+    fetch(`${backend}/keepalive`, { method: "POST" }).catch(() => {});
+  }, [backend]);
+
   // Sync the active greeting profile to the DB so the extension uses it.
   useEffect(() => {
     const g = greetProfiles.find((x) => x.id === activeGreetId);
@@ -821,14 +837,33 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
       pcRef.current = pc;
       pc.onconnectionstatechange = () => {
         if (pcRef.current !== pc) return;
-        if (pc.connectionState === "connected") {
+        const st = pc.connectionState;
+        if (st === "connected") {
+          // recovered (or first connect) — cancel any pending disconnect grace
+          if (disconnectGraceRef.current) { clearTimeout(disconnectGraceRef.current); disconnectGraceRef.current = null; }
           setActive(true); setConnecting(false);
           beginSession();
-        } else if (["failed", "closed", "disconnected"].includes(pc.connectionState)) {
+        } else if (st === "failed" || st === "closed") {
+          // TERMINAL — really gone.
+          if (disconnectGraceRef.current) { clearTimeout(disconnectGraceRef.current); disconnectGraceRef.current = null; }
           if (activeRef.current || connectingRef.current) {
             setError("Sambungan terputus — tekan ▶ Start semula.");
             stopRef.current?.();
           }
+        } else if (st === "disconnected") {
+          // TRANSIENT per WebRTC spec — a brief 4G/TURN blip that usually recovers
+          // to "connected" on its own. Do NOT kill the stream immediately; give ICE
+          // ~10s to recover. Only if it's still not connected after the grace do we
+          // treat it as a real drop. (This was the "always disconnects" bug.)
+          if (disconnectGraceRef.current) clearTimeout(disconnectGraceRef.current);
+          disconnectGraceRef.current = setTimeout(() => {
+            disconnectGraceRef.current = null;
+            if (pcRef.current === pc && pc.connectionState !== "connected"
+                && (activeRef.current || connectingRef.current)) {
+              setError("Sambungan terputus — tekan ▶ Start semula.");
+              stopRef.current?.();
+            }
+          }, 10000);
         }
       };
 
