@@ -36,11 +36,14 @@ const PAGE_SIZE = 25;
 export default function AttachmentsSection({
   presets = [],
   productLabel = "Product",
+  pngOnly = false,
 }: {
   // Built-in DEFAULT items shown read-only at the top (e.g. Livehost stock
   // hosts + templates). Empty for the main dashboard, so it is unaffected.
   presets?: { id: string; name: string; public_url: string; category: AttachmentCategory }[];
   productLabel?: string;
+  // Livehost avatars/templates need transparency → restrict uploads to PNG.
+  pngOnly?: boolean;
 } = {}) {
   const [items, setItems] = useState<Attachment[]>([]);
   const [page, setPage] = useState(1);
@@ -110,10 +113,13 @@ export default function AttachmentsSection({
   }, [filter]);
 
   const stageFiles = useCallback((files: FileList | File[]) => {
-    const arr = Array.from(files).filter((f) => f.type.startsWith("image/"));
-    if (!arr.length) return;
+    const all = Array.from(files);
+    const arr = all.filter((f) =>
+      pngOnly ? (f.type === "image/png" || f.name.toLowerCase().endsWith(".png")) : f.type.startsWith("image/")
+    );
+    if (!arr.length) { if (pngOnly && all.length) alert("Hanya imej PNG dibenarkan."); return; }
     setPendingFiles(arr);
-  }, []);
+  }, [pngOnly]);
 
   // Cmd/Ctrl-V to paste image(s) from clipboard. Listens on document so
   // it fires anywhere on the page (e.g. screenshot tool → switch to
@@ -316,7 +322,7 @@ export default function AttachmentsSection({
         <input
           ref={fileInputRef}
           type="file"
-          accept="image/*"
+          accept={pngOnly ? ".png,image/png" : "image/*"}
           multiple
           className="hidden"
           onChange={onFilePick}

@@ -207,7 +207,7 @@ export default function LivehostDashboard({
           {view === "billing" ? (
             <BillingSection />
           ) : view === "attachment" ? (
-            <AttachmentsSection presets={attachPresets} productLabel="Template" />
+            <AttachmentsSection presets={attachPresets} productLabel="Template" pngOnly />
           ) : view === "greetings" ? (
             <div className="lh-studio"><LivehostGreetings /></div>
           ) : view === "tiktok" ? (

@@ -37,6 +37,7 @@ export default function AttachmentPicker({
   presets = [],
   productLabel = "Product",
   categories = ["product", "avatar", "all"],
+  pngOnly = false,
 }: {
   open: boolean;
   onClose: () => void;
@@ -59,8 +60,16 @@ export default function AttachmentPicker({
   // or template) pass one category so the irrelevant, always-empty tabs are
   // hidden. The whole filter bar is hidden when only one category remains.
   categories?: (AttachmentCategory | "all")[];
+  // Restrict uploads to PNG (Livehost avatars/templates need transparency).
+  pngOnly?: boolean;
 }) {
   const multi = !!onPickMulti;
+  // Single-purpose pickers (e.g. Livehost avatar / template) upload straight
+  // into their one category — no Product/Avatar chooser, so "Add new" is a
+  // single click → upload → appears in the same locked view.
+  const lockedCategory = categories.length === 1 && categories[0] !== "all"
+    ? (categories[0] as AttachmentCategory)
+    : null;
   const [items, setItems] = useState<Attachment[]>([]);
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
@@ -157,8 +166,8 @@ export default function AttachmentPicker({
   }, []);
 
   const confirmUpload = useCallback(
-    async (category: AttachmentCategory) => {
-      const files = pendingFiles || [];
+    async (category: AttachmentCategory, filesArg?: File[]) => {
+      const files = filesArg || pendingFiles || [];
       setPendingFiles(null);
       if (!files.length) return;
       setUploading(files.length);
@@ -250,15 +259,19 @@ export default function AttachmentPicker({
               Add new
               <input
                 type="file"
-                accept="image/*"
+                accept={pngOnly ? ".png,image/png" : "image/*"}
                 multiple
                 className="hidden"
                 onChange={(e) => {
-                  const arr = e.target.files
-                    ? Array.from(e.target.files).filter((f) => f.type.startsWith("image/"))
-                    : [];
-                  if (arr.length) setPendingFiles(arr);
+                  const all = e.target.files ? Array.from(e.target.files) : [];
+                  const arr = all.filter((f) =>
+                    pngOnly ? (f.type === "image/png" || f.name.toLowerCase().endsWith(".png")) : f.type.startsWith("image/")
+                  );
                   e.target.value = "";
+                  if (!arr.length) { if (all.length) alert(pngOnly ? "Hanya imej PNG dibenarkan." : "Pilih fail imej."); return; }
+                  // Locked-category picker → upload directly; otherwise ask.
+                  if (lockedCategory) void confirmUpload(lockedCategory, arr);
+                  else setPendingFiles(arr);
                 }}
               />
             </label>
