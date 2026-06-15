@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   X,
   Loader2,
@@ -11,6 +11,7 @@ import {
   ChevronRight,
   Upload,
   Trash2,
+  Sparkles,
 } from "lucide-react";
 import type { Attachment, AttachmentCategory } from "./attachments";
 import { CategoryPickModal } from "./attachments";
@@ -70,6 +71,12 @@ export default function AttachmentPicker({
   const lockedCategory = categories.length === 1 && categories[0] !== "all"
     ? (categories[0] as AttachmentCategory)
     : null;
+  // Two sources when defaults exist: "demo" = shared library (across all
+  // clients, read-only), "own" = the user's own saved uploads.
+  const hasPresets = presets.length > 0;
+  const [source, setSource] = useState<"demo" | "own">("demo");
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  useEffect(() => { if (open) setSource("demo"); }, [open]);
   const [items, setItems] = useState<Attachment[]>([]);
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
@@ -229,6 +236,7 @@ export default function AttachmentPicker({
 
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const shownPresets = presets.filter((p) => filter === "all" || p.category === filter);
+  const effectiveSource: "demo" | "own" = hasPresets ? source : "own";
 
   return (
     <Portal>
@@ -251,38 +259,59 @@ export default function AttachmentPicker({
             {title}
           </h3>
           <div className="flex items-center gap-2">
-            <label
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
               className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-semibold cursor-pointer"
               style={{ background: "var(--color-surface-hover)", color: "var(--color-text-secondary)" }}
             >
               <Upload className="w-3.5 h-3.5" />
               Add new
-              <input
-                type="file"
-                accept={pngOnly ? ".png,image/png" : "image/*"}
-                multiple
-                className="hidden"
-                onChange={(e) => {
-                  const all = e.target.files ? Array.from(e.target.files) : [];
-                  const arr = all.filter((f) =>
-                    pngOnly ? (f.type === "image/png" || f.name.toLowerCase().endsWith(".png")) : f.type.startsWith("image/")
-                  );
-                  e.target.value = "";
-                  if (!arr.length) { if (all.length) alert(pngOnly ? "Hanya imej PNG dibenarkan." : "Pilih fail imej."); return; }
-                  // Locked-category picker → upload directly; otherwise ask.
-                  if (lockedCategory) void confirmUpload(lockedCategory, arr);
-                  else setPendingFiles(arr);
-                }}
-              />
-            </label>
+            </button>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept={pngOnly ? ".png,image/png" : "image/*"}
+              multiple
+              className="hidden"
+              onChange={(e) => {
+                const all = e.target.files ? Array.from(e.target.files) : [];
+                const arr = all.filter((f) =>
+                  pngOnly ? (f.type === "image/png" || f.name.toLowerCase().endsWith(".png")) : f.type.startsWith("image/")
+                );
+                e.target.value = "";
+                if (!arr.length) { if (all.length) alert(pngOnly ? "Hanya imej PNG dibenarkan." : "Pilih fail imej."); return; }
+                // Uploads land in the user's OWN library — show it.
+                if (hasPresets) setSource("own");
+                if (lockedCategory) void confirmUpload(lockedCategory, arr);
+                else setPendingFiles(arr);
+              }}
+            />
             <button onClick={onClose} className="p-1.5 rounded hover:bg-white/10">
               <X className="w-4 h-4" />
             </button>
           </div>
         </div>
 
-        {/* Category radio — hidden entirely for single-purpose pickers */}
-        {categories.length > 1 && (
+        {/* Source toggle (Demo = shared defaults · Default = your own saved) */}
+        {hasPresets ? (
+          <div className="px-5 py-3 flex items-center gap-2 border-b" style={{ borderColor: "var(--color-border)" }}>
+            <FilterPill
+              active={source === "demo"}
+              onClick={() => setSource("demo")}
+              icon={<Sparkles className="w-3.5 h-3.5" />}
+              label={`Demo (${presets.length})`}
+              color="#6366f1"
+            />
+            <FilterPill
+              active={source === "own"}
+              onClick={() => setSource("own")}
+              icon={<UserCircle2 className="w-3.5 h-3.5" />}
+              label={`Default (${total})`}
+              color="#22c55e"
+            />
+          </div>
+        ) : categories.length > 1 && (
           <div
             className="px-5 py-3 flex items-center gap-2 border-b"
             style={{ borderColor: "var(--color-border)" }}
@@ -324,21 +353,15 @@ export default function AttachmentPicker({
               Adding {uploading} image{uploading > 1 ? "s" : ""}…
             </div>
           )}
-          {loading ? (
-            <div className="flex justify-center py-12">
-              <Loader2 className="w-6 h-6 animate-spin" style={{ color: "var(--color-orange)" }} />
-            </div>
-          ) : shownPresets.length === 0 && items.length === 0 ? (
-            <div className="text-center py-12" style={{ color: "var(--color-text-muted)" }}>
-              <ImageIcon className="w-10 h-10 mx-auto mb-2 opacity-40" />
-              <p className="text-sm">
-                No {filter === "all" ? "attachments" : `${filter}s`} here yet. Click{" "}
-                <span className="font-semibold">Add new</span> above to upload one.
-              </p>
-            </div>
-          ) : (
+          {effectiveSource === "demo" ? (
+            shownPresets.length === 0 ? (
+              <div className="text-center py-12" style={{ color: "var(--color-text-muted)" }}>
+                <ImageIcon className="w-10 h-10 mx-auto mb-2 opacity-40" />
+                <p className="text-sm">Tiada demo.</p>
+              </div>
+            ) : (
             <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-3">
-              {/* Built-in defaults (Livehost hosts / templates) — non-deletable */}
+              {/* Demo = shared defaults (across all clients) — non-deletable */}
               {shownPresets.map((p) => {
                 const pickPreset = () => { if (onPick) { onPick(p as unknown as Attachment); onClose(); } };
                 return (
@@ -361,7 +384,7 @@ export default function AttachmentPicker({
                       className="absolute top-1 left-1 inline-flex items-center gap-1 px-1 py-0.5 rounded text-[9px] font-bold uppercase pointer-events-none"
                       style={{ background: "rgba(99,102,241,0.85)", color: "white" }}
                     >
-                      Default
+                      DEMO
                     </span>
                     <button
                       type="button"
@@ -374,6 +397,21 @@ export default function AttachmentPicker({
                   </div>
                 );
               })}
+            </div>
+            )
+          ) : loading ? (
+            <div className="flex justify-center py-12">
+              <Loader2 className="w-6 h-6 animate-spin" style={{ color: "var(--color-orange)" }} />
+            </div>
+          ) : items.length === 0 ? (
+            <div className="text-center py-12" style={{ color: "var(--color-text-muted)" }}>
+              <ImageIcon className="w-10 h-10 mx-auto mb-2 opacity-40" />
+              <p className="text-sm">
+                Tiada simpanan lagi. Klik <span className="font-semibold">Add new</span> untuk muat naik.
+              </p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-3">
               {items.map((a) => {
                 const selectionIdx = selectedIds.indexOf(a.id);
                 const isSelected = selectionIdx >= 0;
@@ -460,7 +498,7 @@ export default function AttachmentPicker({
         </div>
 
         {/* Pagination */}
-        {totalPages > 1 && (
+        {effectiveSource === "own" && totalPages > 1 && (
           <div
             className="px-5 py-3 flex items-center justify-center gap-3 border-t"
             style={{ borderColor: "var(--color-border)" }}
