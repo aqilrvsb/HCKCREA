@@ -597,9 +597,8 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
   }, [view]);
 
   // Keep `active` readable inside the persistent watchdog interval below.
-  const activeRef = useRef(false);
+  // (activeRef + its sync effect are declared up top with the other refs.)
   const warmUntilRef = useRef(0);
-  useEffect(() => { activeRef.current = active; }, [active]);
 
   // 10-MINUTE IDLE WATCHDOG (serverless scale-to-zero). Pressing ■ Stop or
   // finishing the teleprompter does NOT kill the GPU — it stays WARM so the next
