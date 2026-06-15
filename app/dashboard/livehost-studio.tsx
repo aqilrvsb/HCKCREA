@@ -596,28 +596,31 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
     } catch {}
   }, [view]);
 
-  // GPU LIFECYCLE (serverless scale-to-zero): keep the worker awake ONLY while
-  // actually streaming. Opening/sitting on the Livehost tab does NOT wake or
-  // charge the GPU — the GPU is woken solely by pressing ▶ Start (see start()).
-  // The moment you press Stop (active=false) this keepalive stops → Novita's idle
-  // timeout drops the worker to $0. Cost watchdog: not streaming = no pings = $0.
+  // Keep `active` readable inside the persistent watchdog interval below.
+  const activeRef = useRef(false);
+  const warmUntilRef = useRef(0);
+  useEffect(() => { activeRef.current = active; }, [active]);
+
+  // 10-MINUTE IDLE WATCHDOG (serverless scale-to-zero). Pressing ■ Stop or
+  // finishing the teleprompter does NOT kill the GPU — it stays WARM so the next
+  // ▶ Start is INSTANT (no cold-start wait). While streaming, every ping re-arms a
+  // 10-minute timer; once streaming stops, pings keep the worker warm for up to
+  // 10 more minutes, then stop → Novita's freeTimeout drops the worker to $0.
+  // So: streaming OR < 10 min since streaming = warm; 10 min of true inactivity
+  // (or closing the tab) = $0. We deliberately do NOT gate on tab-visibility here
+  // so briefly switching tabs/minimizing during the live keeps the stream alive.
+  const WARM_MS = 10 * 60 * 1000;
   useEffect(() => {
-    if (!active) return; // not streaming → no keepalive → worker idles → $0
     const ping = () => {
-      // Keep the worker awake ONLY while the tab is VISIBLE. Switching to another
-      // tab / minimizing / locking the screen stops the pings → the worker idles
-      // to $0 after ~90s (Novita freeTimeout). A quick return (< ~90s) keeps it
-      // warm so a brief glance away doesn't kill the live stream. Closing the tab
-      // or shutting the laptop also stops the pings → same auto-idle.
-      if (typeof document !== "undefined" && document.visibilityState !== "visible") return;
+      if (activeRef.current) warmUntilRef.current = Date.now() + WARM_MS; // re-arm while live
+      const warm = activeRef.current || Date.now() < warmUntilRef.current;
+      if (!warm) return; // 10 min idle → no pings → Novita scales worker to $0
       if (backendRef.current) fetch(`${backendRef.current}/keepalive`, { method: "POST" }).catch(() => {});
     };
     ping();
-    const onVis = () => { if (document.visibilityState === "visible") ping(); };
-    document.addEventListener("visibilitychange", onVis);
-    const t = setInterval(ping, 30000); // < Novita freeTimeout, so it stays up while live
-    return () => { clearInterval(t); document.removeEventListener("visibilitychange", onVis); };
-  }, [active]);
+    const t = setInterval(ping, 30000); // < Novita freeTimeout, so the worker stays up
+    return () => clearInterval(t);
+  }, []);
 
   // Sync the active greeting profile to the DB so the extension uses it.
   useEffect(() => {
@@ -1312,8 +1315,9 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
                 {scripts.filter((s) => s.saved && s.audioUrl).map((s) => (<option key={s.id} value={s.id}>{s.title}</option>))}
               </select>
               <div className="loop-row">
-                {/* IDLE state: ONLY ▶ Start is rendered. A visible Start icon = guaranteed not-streaming
-                    = keepalive effect bailed (if(!active)return) = no pings = worker idles to $0. Bulletproof. */}
+                {/* IDLE state: ONLY ▶ Start is rendered. Stop/teleprompter-finish do NOT kill the GPU —
+                    the 10-min idle watchdog keeps it warm so this ▶ Start restarts INSTANTLY; only after
+                    10 min of no streaming do pings stop → Novita scales the worker to $0. */}
                 {!active ? (
                   <button className="restart-btn go" onClick={start} disabled={connecting}
                     title="Start streaming (GPU akan auto-wake)">
