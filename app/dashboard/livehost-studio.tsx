@@ -114,12 +114,13 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
   // Pool mode: this client has no dedicated endpoint — a free 5090 serverless
   // endpoint is assigned from the shared pool at Play and released at Stop.
   const poolModeRef = useRef(false);
+  const [poolMode, setPoolMode] = useState(false);
   useEffect(() => {
     fetch("/api/livehost/config")
       .then((r) => r.json())
       .then((d) => {
         if (d.mode === "pool") {
-          poolModeRef.current = true; // backendRef stays empty until Play assigns one
+          poolModeRef.current = true; setPoolMode(true); // backendRef stays empty until Play assigns one
           return;
         }
         if (d.backendUrl) {
@@ -722,11 +723,13 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
   }, [greetProfiles, activeGreetId]);
 
   // Light GPU state poll (all views) so the On/Off buttons reflect reality.
+  // Pool clients have no dedicated instance to poll — it's serverless + auto.
   useEffect(() => {
+    if (poolMode) { setServerState("serverless · auto"); return; }
     gpuAction("status");
     const t = setInterval(() => gpuAction("status"), 60000);
     return () => clearInterval(t);
-  }, [gpuAction]);
+  }, [gpuAction, poolMode]);
 
   // Refresh usage (server sessions + rates) + GPU state when the Usage view is open.
   useEffect(() => {
