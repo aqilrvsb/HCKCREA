@@ -90,10 +90,6 @@ export default function LivehostInteractions() {
           <div className="usage-big" style={{ color: "#22c55e" }}>RM {costs ? costs.comment.cost.toFixed(2) : "0.00"}</div>
           <div className="hint" style={{ marginTop: 2 }}>COST COMMENT</div>
         </div>
-        <div className="usage-card" style={{ textAlign: "center", borderColor: balance?.low ? "rgba(239,68,68,.5)" : "rgba(34,197,94,.4)" }}>
-          <div className="usage-big" style={{ color: balance?.low ? "#ef4444" : "#22c55e" }}>RM {balance ? balance.available.toFixed(2) : "—"}</div>
-          <div className="hint" style={{ marginTop: 2 }}>BAKI KREDIT{balance?.low ? " ⚠" : ""}</div>
-        </div>
       </div>
 
       <div className="stats-grid" style={{ marginTop: 14 }}>

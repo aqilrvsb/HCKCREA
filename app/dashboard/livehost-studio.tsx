@@ -25,6 +25,7 @@ type Script = {
   audioB64?: string | null;   // legacy inline audio (no longer produced; kept for back-compat)
   saved?: boolean;            // persisted to Supabase (livehost_scripts)
   generating?: boolean;       // Generate request in flight
+  saving?: boolean;           // Save request in flight
 };
 
 const VOICES = [
@@ -1296,6 +1297,7 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
     const sc = scriptsRef.current.find((s) => s.id === id);
     if (!sc) return;
     if (!sc.audioPath && !sc.audioB64) { alert("Generate audio dulu sebelum simpan."); return; }
+    setScripts((prev) => prev.map((s) => (s.id === id ? { ...s, saving: true } : s)));
     try {
       const r = await fetch("/api/livehost/scripts", {
         method: "POST", headers: { "content-type": "application/json" },
@@ -1305,10 +1307,11 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
       if (!r.ok || !d?.id) throw new Error(d?.error || "Simpan gagal");
       // Swap the draft id for the persisted Supabase id; keep rundown refs +
       // the open editor modal pointing at the same row (else it goes blank).
-      setScripts((prev) => prev.map((s) => (s.id === id ? { ...s, id: d.id, saved: true, audioUrl: d.audioUrl, audioPath: null, audioB64: null } : s)));
+      setScripts((prev) => prev.map((s) => (s.id === id ? { ...s, id: d.id, saved: true, saving: false, audioUrl: d.audioUrl, audioPath: null, audioB64: null } : s)));
       setRundown((prev) => prev.map((x) => (x === id ? d.id : x)));
       setScriptEditId((cur) => (cur === id ? d.id : cur));
     } catch (e: any) {
+      setScripts((prev) => prev.map((s) => (s.id === id ? { ...s, saving: false } : s)));
       alert("Simpan gagal: " + (e?.message || e));
     }
   }, []);
@@ -1799,7 +1802,7 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
                 <div className="flex flex-wrap gap-2 mt-4">
                   <LhButton onClick={() => generateScript(s.id)} disabled={s.generating || !s.text.trim()}>{s.generating ? "⏳ Generating…" : "🎙 Generate"}</LhButton>
                   <LhButton variant="ghost" onClick={() => playSaved(s.id)} disabled={!hasAudio}>{previewPlayId === s.id ? "■ Stop" : "▶ Play"}</LhButton>
-                  <LhButton variant="ghost" onClick={() => saveScript(s.id)} disabled={(!s.audioPath && !s.audioB64) || s.saved}>💾 {s.saved ? "Saved" : "Save"}</LhButton>
+                  <LhButton variant="ghost" onClick={() => saveScript(s.id)} disabled={(!s.audioPath && !s.audioB64) || s.saved || s.saving}>{s.saving ? "⏳ Saving…" : s.saved ? "💾 Saved" : "💾 Save"}</LhButton>
                 </div>
 
                 {previewPlayId === s.id && (
