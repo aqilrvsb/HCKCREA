@@ -98,13 +98,16 @@ export async function GET(req: Request) {
   const { data: { user } } = await sb.auth.getUser();
   if (!user) return NextResponse.json({ error: "unauthenticated" }, { status: 401 });
   const admin = createAdminClient();
-  await closeStale(admin, user.id);
-
   const url = new URL(req.url);
   const startParam = url.searchParams.get("start");
   const endParam = url.searchParams.get("end");
 
-  const rates = await getSettings(["livehost_gpu_rate_hour", "livehost_voice_rate_1k", "livehost_audio_rate_gen", "livehost_warm_window_sec", "livehost_min_balance"]);
+  // Run the independent prep (close stale sessions + load admin rates) in
+  // parallel instead of one-after-another.
+  const [rates] = await Promise.all([
+    getSettings(["livehost_gpu_rate_hour", "livehost_voice_rate_1k", "livehost_audio_rate_gen", "livehost_warm_window_sec", "livehost_min_balance"]),
+    closeStale(admin, user.id),
+  ]);
   const gpuRate = parseFloat(rates["livehost_gpu_rate_hour"] || "6") || 6;
   // NOTE: allow a rate of exactly 0 (e.g. "live speech is free") — a plain
   // `|| 0.3` fallback would wrongly snap 0 back to 0.3.
@@ -127,22 +130,18 @@ export async function GET(req: Request) {
   const periodEnd = endParam ? new Date(malaysiaDayToUtcRange(endParam, "end")).getTime() : now;
   const inPeriod = (t: number) => t >= periodStart && t <= periodEnd;
 
-  // Fetch ALL sessions + ALL audio gens (all-time) — the balance is a wallet, not
-  // period-scoped, and the ledger needs a true running balance from the start.
-  const { data: sessions } = await admin
-    .from("live_sessions")
-    .select("id, started_at, ended_at, voice_chars, comment_chars, session_type")
-    .eq("user_id", user.id)
-    .order("started_at", { ascending: true })
-    .limit(5000);
-  const { data: gens } = await admin
-    .from("livehost_audio_gen")
-    .select("id, chars, created_at")
-    .eq("user_id", user.id)
-    .order("created_at", { ascending: true })
-    .limit(5000);
-
-  const { data: prof } = await admin.from("profiles").select("credits").eq("id", user.id).maybeSingle();
+  // Fetch ALL sessions + ALL audio gens (all-time) + credits IN PARALLEL — the
+  // balance is a wallet (not period-scoped) and the ledger needs a true running
+  // balance from the start.
+  const [{ data: sessions }, { data: gens }, { data: prof }] = await Promise.all([
+    admin.from("live_sessions")
+      .select("id, started_at, ended_at, voice_chars, comment_chars, session_type")
+      .eq("user_id", user.id).order("started_at", { ascending: true }).limit(5000),
+    admin.from("livehost_audio_gen")
+      .select("id, chars, created_at")
+      .eq("user_id", user.id).order("created_at", { ascending: true }).limit(5000),
+    admin.from("profiles").select("credits").eq("id", user.id).maybeSingle(),
+  ]);
   const credits = Number(prof?.credits || 0);
 
   const asc = sessions || [];

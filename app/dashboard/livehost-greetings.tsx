@@ -57,10 +57,7 @@ export default function LivehostGreetings() {
   const hydratedRef = useRef(false);
   useEffect(() => {
     let cancelled = false;
-    (async () => {
-      // DB FIRST (source of truth) → then read the synced localStorage cache.
-      await hydrateLivehostState();
-      if (cancelled) return;
+    const applyLocal = () => {
       const lib = loadLib();
       setProfiles(lib);
       setActiveId(localStorage.getItem("livehost_active_greet") || lib[0].id);
@@ -68,8 +65,14 @@ export default function LivehostGreetings() {
         const plib = JSON.parse(localStorage.getItem("livehost_products_lib") || "[]");
         products.current = (plib as { title: string }[]).map((p) => p.title);
       } catch {}
+    };
+    // Instant render from the cache; reconcile with the DB in the background.
+    applyLocal();
+    hydrateLivehostState().then(() => {
+      if (cancelled) return;
+      applyLocal();
       hydratedRef.current = true;
-    })();
+    });
     return () => { cancelled = true; };
   }, []);
 

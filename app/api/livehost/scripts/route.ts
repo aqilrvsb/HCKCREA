@@ -28,24 +28,20 @@ export async function GET() {
     .order("created_at", { ascending: false });
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-  const scripts = [];
-  for (const s of data || []) {
-    // Ordered playback pieces. New scripts store audio_paths[]; older single-file
-    // scripts fall back to the lone audio_path so they still play.
+  // Sign every piece of every script IN PARALLEL (sequential signing made the
+  // Scripts tab take seconds to load once a user had several saved scripts).
+  const scripts = await Promise.all((data || []).map(async (s) => {
     const paths: string[] = Array.isArray(s.audio_paths) && s.audio_paths.length
       ? (s.audio_paths as string[])
       : (s.audio_path ? [s.audio_path] : []);
-    const audioUrls: string[] = [];
-    for (const p of paths) {
-      const { data: signed } = await admin.storage.from(BUCKET).createSignedUrl(p, SIGN_TTL);
-      if (signed?.signedUrl) audioUrls.push(signed.signedUrl);
-    }
-    scripts.push({
+    const signed = await Promise.all(paths.map((p) => admin.storage.from(BUCKET).createSignedUrl(p, SIGN_TTL)));
+    const audioUrls = signed.map((r) => r.data?.signedUrl).filter(Boolean) as string[];
+    return {
       id: s.id, title: s.title, text: s.text,
       voiceId: s.voice_id, volume: s.volume, speed: s.speed, emotion: s.emotion,
       chars: s.chars, audioUrls, audioUrl: audioUrls[0] || null, createdAt: s.created_at,
-    });
-  }
+    };
+  }));
   return NextResponse.json({ scripts });
 }
 

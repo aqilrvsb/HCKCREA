@@ -576,70 +576,79 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
   // Flush pending DB saves when the tab is hidden / unloaded.
   useEffect(() => installLivehostStateFlush(), []);
 
-  // Restore persisted state — DB FIRST (source of truth), then read the
-  // now-synced localStorage cache.
+  // Restore persisted state. Render from the LOCAL CACHE instantly (no waiting
+  // on the network), fire the DB/manifest fetches in PARALLEL, then reconcile
+  // with the DB hydrate in the background. Previously everything waited on a
+  // single `await hydrateLivehostState()`, so one slow request blanked the tab.
   useEffect(() => {
     let cancelled = false;
-    (async () => {
-      await hydrateLivehostState();
-      if (cancelled) return;
-    let saved: any = {};
-    try { saved = JSON.parse(localStorage.getItem("livehost_settings") || "{}"); } catch {}
-    try {
-      const rawT = localStorage.getItem("livehost_saved_templates");
-      if (rawT) setSavedTemplates(JSON.parse(rawT));
-    } catch {}
-    if (saved.overlaySel) setOverlaySel(saved.overlaySel);
-    if (saved.voiceId) setVoiceId(saved.voiceId);
-    if (typeof saved.zoom === "number") setZoom(saved.zoom);
-    if (typeof saved.offsetX === "number") setOffsetX(saved.offsetX);
-    if (typeof saved.offsetY === "number") setOffsetY(saved.offsetY);
-    if (typeof saved.scriptLoop === "boolean") { setScriptLoop(saved.scriptLoop); loopRef.current = saved.scriptLoop; }
-    if (typeof saved.liveDurH === "number") setLiveDurH(saved.liveDurH);
-    if (typeof saved.liveDurM === "number") setLiveDurM(saved.liveDurM);
-    if (typeof saved.volume === "number") setVolume(saved.volume);
-    if (typeof saved.speed === "number") setSpeed(saved.speed);
-    if (saved.badgePos && typeof saved.badgePos.x === "number") setBadgePos(saved.badgePos);
-    if (typeof saved.emotion === "string") setEmotion(saved.emotion);
-    if (Array.isArray(saved.rundown)) { setRundown(saved.rundown); rundownRef.current = saved.rundown; }
-    // Saved scripts (per-script voice + pre-generated audio) live in Supabase now.
+
+    // Read the localStorage cache → state. Idempotent; re-run after hydrate.
+    const applyLocalCache = () => {
+      let saved: any = {};
+      try { saved = JSON.parse(localStorage.getItem("livehost_settings") || "{}"); } catch {}
+      try { const rawT = localStorage.getItem("livehost_saved_templates"); if (rawT) setSavedTemplates(JSON.parse(rawT)); } catch {}
+      if (saved.overlaySel) setOverlaySel(saved.overlaySel);
+      if (saved.voiceId) setVoiceId(saved.voiceId);
+      if (typeof saved.zoom === "number") setZoom(saved.zoom);
+      if (typeof saved.offsetX === "number") setOffsetX(saved.offsetX);
+      if (typeof saved.offsetY === "number") setOffsetY(saved.offsetY);
+      if (typeof saved.scriptLoop === "boolean") { setScriptLoop(saved.scriptLoop); loopRef.current = saved.scriptLoop; }
+      if (typeof saved.liveDurH === "number") setLiveDurH(saved.liveDurH);
+      if (typeof saved.liveDurM === "number") setLiveDurM(saved.liveDurM);
+      if (typeof saved.volume === "number") setVolume(saved.volume);
+      if (typeof saved.speed === "number") setSpeed(saved.speed);
+      if (saved.badgePos && typeof saved.badgePos.x === "number") setBadgePos(saved.badgePos);
+      if (typeof saved.emotion === "string") setEmotion(saved.emotion);
+      if (Array.isArray(saved.rundown)) { setRundown(saved.rundown); rundownRef.current = saved.rundown; }
+      try {
+        const lib = JSON.parse(localStorage.getItem("livehost_products_lib") || "[]");
+        if (Array.isArray(lib) && lib.length) {
+          setProducts(lib);
+          setActiveProductId(localStorage.getItem("livehost_active_product") || lib[0].id);
+        } else {
+          const oldKb = localStorage.getItem("livehost_products");
+          setProducts([{ id: "p1", title: "Produk 1", text: oldKb || "" }]); setActiveProductId("p1");
+        }
+        const glib = JSON.parse(localStorage.getItem("livehost_greet_lib") || "[]");
+        if (Array.isArray(glib) && glib.length) {
+          setGreetProfiles(glib);
+          setActiveGreetId(localStorage.getItem("livehost_active_greet") || glib[0].id);
+        }
+      } catch {}
+    };
+
+    // 1) Instant render from the cache.
+    applyLocalCache();
+
+    // 2) Independent fetches — fire NOW, in parallel (not gated by hydrate).
     fetch("/api/livehost/scripts").then((r) => r.json()).then((d) => {
-      if (Array.isArray(d?.scripts)) {
-        const list: Script[] = d.scripts.map((s: any) => ({
-          id: s.id, title: s.title, text: s.text,
-          voiceId: s.voiceId || VOICES[0].id, volume: s.volume ?? 1.5, speed: s.speed ?? 1.0, emotion: s.emotion || "fluent",
-          chars: s.chars, audioUrls: s.audioUrls || [], saved: true,
-        }));
-        setScripts(list); scriptsRef.current = list;
-      }
+      if (cancelled || !Array.isArray(d?.scripts)) return;
+      const list: Script[] = d.scripts.map((s: any) => ({
+        id: s.id, title: s.title, text: s.text,
+        voiceId: s.voiceId || VOICES[0].id, volume: s.volume ?? 1.5, speed: s.speed ?? 1.0, emotion: s.emotion || "fluent",
+        chars: s.chars, audioUrls: s.audioUrls || [], saved: true,
+      }));
+      setScripts(list); scriptsRef.current = list;
     }).catch(() => {});
-    try {
-      const lib = JSON.parse(localStorage.getItem("livehost_products_lib") || "[]");
-      if (Array.isArray(lib) && lib.length) {
-        setProducts(lib);
-        setActiveProductId(localStorage.getItem("livehost_active_product") || lib[0].id);
-      } else {
-        // migrate the old single KB, if any
-        const oldKb = localStorage.getItem("livehost_products");
-        const seed = [{ id: "p1", title: "Produk 1", text: oldKb || "" }];
-        setProducts(seed); setActiveProductId("p1");
-      }
-      const glib = JSON.parse(localStorage.getItem("livehost_greet_lib") || "[]");
-      if (Array.isArray(glib) && glib.length) {
-        setGreetProfiles(glib);
-        setActiveGreetId(localStorage.getItem("livehost_active_greet") || glib[0].id);
-      }
-    } catch {}
-    fetch("/overlays/manifest.json").then((r) => r.json()).then(setOverlays).catch(() => {});
+    fetch("/overlays/manifest.json").then((r) => r.json()).then((l) => { if (!cancelled) setOverlays(l); }).catch(() => {});
     fetch("/avatars/manifest.json").then((r) => r.json()).then((list) => {
+      if (cancelled) return;
       setStock(list);
-      if (saved.stockSel) {
-        const item = (list as { id: string; file: string }[]).find((s) => s.id === saved.stockSel);
+      let ss = ""; try { ss = JSON.parse(localStorage.getItem("livehost_settings") || "{}").stockSel || ""; } catch {}
+      if (ss) {
+        const item = (list as { id: string; file: string }[]).find((s) => s.id === ss);
         if (item) { setStockSel(item.id); setAvatarId(item.id); setPreviewUrl(`/avatars/${item.file}`); }
       }
     }).catch(() => {});
+
+    // 3) Background: pull DB → cache, then re-apply (DB wins on a fresh device).
+    hydrateLivehostState().then(() => {
+      if (cancelled) return;
+      applyLocalCache();
       hydratedRef.current = true;
-    })();
+    });
+
     return () => { cancelled = true; };
   }, []);
 
