@@ -29,6 +29,8 @@ export default function LivehostInteractions() {
   const [live, setLive] = useState(true);
   const [usage, setUsage] = useState<{ streamSec: number; gpuCost: number; voiceCost: number; totalCost: number } | null>(null);
   const [rates, setRates] = useState<{ gpuRateHour: number; voiceRate1k: number } | null>(null);
+  const [costs, setCosts] = useState<any>(null);
+  const [balance, setBalance] = useState<{ available: number; minBalance: number; low: boolean } | null>(null);
   const load = useCallback(async () => {
     try {
       const [ri, rs] = await Promise.all([
@@ -37,7 +39,7 @@ export default function LivehostInteractions() {
       ]);
       setCounts(ri.counts || {});
       setRecent(ri.recent || []);
-      if (rs?.month) { setUsage(rs.month); setRates(rs.rates); }
+      if (rs?.month) { setUsage(rs.month); setRates(rs.rates); setCosts(rs.costs || null); setBalance(rs.balance || null); }
     } finally {
       setLoading(false);
     }
@@ -72,19 +74,21 @@ export default function LivehostInteractions() {
 
       {/* Live time + total cost (per-second billing, shown in minutes; admin rates) */}
       <div className="stats-grid" style={{ marginTop: 14, gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))" }}>
-        <div className="usage-card" style={{ textAlign: "center", borderColor: "rgba(91,108,255,.4)" }}>
-          <div className="usage-big" style={{ color: "#5b6cff" }}>
-            {usage ? `${Math.floor(usage.streamSec / 3600)}h ${Math.floor((usage.streamSec % 3600) / 60)}m` : "—"}
-          </div>
-          <div className="hint" style={{ marginTop: 2 }}>JUMLAH MASA LIVE</div>
+        <div className="usage-card" style={{ textAlign: "center", borderColor: "rgba(96,165,250,.4)" }}>
+          <div className="usage-big" style={{ color: "#60a5fa" }}>RM {costs ? costs.audioScript.cost.toFixed(2) : "0.00"}</div>
+          <div className="hint" style={{ marginTop: 2 }}>COST AUDIO SCRIPT</div>
         </div>
         <div className="usage-card" style={{ textAlign: "center", borderColor: "rgba(236,72,153,.4)" }}>
-          <div className="usage-big" style={{ color: "#f472b6" }}>RM {usage ? usage.gpuCost.toFixed(2) : "0.00"}</div>
-          <div className="hint" style={{ marginTop: 2 }}>COST GPU</div>
+          <div className="usage-big" style={{ color: "#f472b6" }}>RM {costs ? costs.live.cost.toFixed(2) : "0.00"}</div>
+          <div className="hint" style={{ marginTop: 2 }}>COST LIVE</div>
         </div>
-        <div className="usage-card" style={{ textAlign: "center", borderColor: "rgba(96,165,250,.4)" }}>
-          <div className="usage-big" style={{ color: "#60a5fa" }}>RM {usage ? usage.voiceCost.toFixed(2) : "0.00"}</div>
-          <div className="hint" style={{ marginTop: 2 }}>COST AUDIO</div>
+        <div className="usage-card" style={{ textAlign: "center", borderColor: "rgba(245,158,11,.4)" }}>
+          <div className="usage-big" style={{ color: "#f59e0b" }}>RM {costs ? costs.testing.cost.toFixed(2) : "0.00"}</div>
+          <div className="hint" style={{ marginTop: 2 }}>COST TESTING</div>
+        </div>
+        <div className="usage-card" style={{ textAlign: "center", borderColor: balance?.low ? "rgba(239,68,68,.5)" : "rgba(34,197,94,.4)" }}>
+          <div className="usage-big" style={{ color: balance?.low ? "#ef4444" : "#22c55e" }}>RM {balance ? balance.available.toFixed(2) : "—"}</div>
+          <div className="hint" style={{ marginTop: 2 }}>BAKI KREDIT{balance?.low ? " ⚠" : ""}</div>
         </div>
       </div>
 

@@ -80,7 +80,7 @@ export async function GET(req: Request) {
     );
   }
 
-  const rates = await getSettings(["livehost_gpu_rate_hour", "livehost_voice_rate_1k", "livehost_llm", "livehost_ext_version", "livehost_ext_download_url"]);
+  const rates = await getSettings(["livehost_gpu_rate_hour", "livehost_voice_rate_1k", "livehost_audio_rate_gen", "livehost_min_balance", "livehost_warm_window_sec", "livehost_llm", "livehost_ext_version", "livehost_ext_download_url"]);
   const llmRaw = rates["livehost_llm"] || {};
   return NextResponse.json({
     llm: {
@@ -90,6 +90,9 @@ export async function GET(req: Request) {
     rates: {
       gpuRateHour: rates["livehost_gpu_rate_hour"] || "6.00",
       voiceRate1k: rates["livehost_voice_rate_1k"] || "0.30",
+      audioRateGen: rates["livehost_audio_rate_gen"] || "0.10",
+      minBalance: rates["livehost_min_balance"] || "5.00",
+      warmWindowSec: rates["livehost_warm_window_sec"] || "900",
     },
     ext: {
       version: rates["livehost_ext_version"] || "1.0.0",
@@ -182,6 +185,9 @@ export async function POST(req: Request) {
     const updates: [string, string][] = [];
     if (rates.gpuRateHour != null) updates.push(["livehost_gpu_rate_hour", String(rates.gpuRateHour)]);
     if (rates.voiceRate1k != null) updates.push(["livehost_voice_rate_1k", String(rates.voiceRate1k)]);
+    if (rates.audioRateGen != null) updates.push(["livehost_audio_rate_gen", String(rates.audioRateGen)]);
+    if (rates.minBalance != null) updates.push(["livehost_min_balance", String(rates.minBalance)]);
+    if (rates.warmWindowSec != null) updates.push(["livehost_warm_window_sec", String(rates.warmWindowSec)]);
     for (const [key, value] of updates) {
       await admin.from("app_settings").upsert({
         key,

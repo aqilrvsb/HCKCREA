@@ -43,10 +43,12 @@ export default function LivehostDashboard({
   name,
   email,
   planExpiresAt,
+  credits,
 }: {
   name: string;
   email: string;
   planExpiresAt: string | null;
+  credits: number;
 }) {
   const [view, setView] = useState<View>("home");
 
@@ -152,6 +154,23 @@ export default function LivehostDashboard({
         </div>
 
         <div className="mt-auto space-y-2">
+          {/* Credit balance — Livehost is pay-as-you-go from credits (GPU + audio).
+              Subscribe/top-up routes to the Billing view. */}
+          <div
+            className="rounded-xl p-3"
+            style={{ background: "linear-gradient(135deg, rgba(245,158,11,0.14), rgba(245,158,11,0.04))", border: "1px solid rgba(245,158,11,0.35)" }}
+          >
+            <div className="text-[10px] font-bold uppercase tracking-wider" style={{ color: "#fbbf24" }}>💳 Credit Balance</div>
+            <div className="font-display font-extrabold text-2xl tracking-tight" style={{ color: "#fcd34d" }}>{Number(credits).toFixed(2)}</div>
+            <button
+              onClick={() => setView("billing")}
+              className="mt-2 w-full rounded-lg py-2 text-xs font-extrabold text-black"
+              style={{ background: "#fbbf24" }}
+            >Subscribe / Top up</button>
+            {expiry && (
+              <div className="mt-2 text-[11px] font-bold" style={{ color: "#4ade80" }}>● Sah hingga {expiry}</div>
+            )}
+          </div>
           <div
             className="rounded-xl p-3 text-xs"
             style={{ background: "var(--color-bg-elev)", border: "1px solid var(--color-border)" }}

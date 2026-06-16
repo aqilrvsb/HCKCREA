@@ -1828,10 +1828,10 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
               + 1.9fr/0.7fr columns and stretch these cards. */}
           <div style={{ display: "grid", gap: 16, gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))" }}>
             {[
-              { label: "Jumlah kos", value: usageData ? `RM ${usageData.month.totalCost.toFixed(2)}` : "—", suffix: "bulan ini", glow: "rgba(139,92,246,0.12)", cls: "text-violet-500" },
-              { label: "Audio", value: usageData ? String(usageData.audio.generations) : "—", suffix: "generate suara", glow: "rgba(59,130,246,0.12)", cls: "text-blue-500" },
-              { label: "GPU live", value: usageData ? `${Math.floor(usageData.gpu.streamSec / 3600)}h ${Math.floor((usageData.gpu.streamSec % 3600) / 60)}m` : "—", suffix: "masa live", glow: "rgba(236,72,153,0.12)", cls: "text-pink-500" },
-              { label: "Sesi", value: usageData ? String(usageData.sessions.length) : "—", suffix: "streaming", glow: "rgba(245,158,11,0.12)", cls: "text-amber-500" },
+              { label: "Cost Audio Script", value: usageData?.costs ? `RM ${usageData.costs.audioScript.cost.toFixed(2)}` : "—", suffix: `${usageData?.costs?.audioScript.generations ?? 0} generate suara`, glow: "rgba(59,130,246,0.12)", cls: "text-blue-500" },
+              { label: "Cost Live", value: usageData?.costs ? `RM ${usageData.costs.live.cost.toFixed(2)}` : "—", suffix: `${Math.floor((usageData?.costs?.live.streamSec || 0) / 3600)}h ${Math.floor(((usageData?.costs?.live.streamSec || 0) % 3600) / 60)}m · ${usageData?.costs?.live.sessions ?? 0} live`, glow: "rgba(236,72,153,0.12)", cls: "text-pink-500" },
+              { label: "Cost Testing", value: usageData?.costs ? `RM ${usageData.costs.testing.cost.toFixed(2)}` : "—", suffix: `${usageData?.costs?.testing.sessions ?? 0} test + idle ${Math.floor((usageData?.costs?.testing.idleSec || 0) / 60)}m`, glow: "rgba(245,158,11,0.12)", cls: "text-amber-500" },
+              { label: "Baki kredit", value: usageData?.balance ? `RM ${usageData.balance.available.toFixed(2)}` : "—", suffix: `min RM${usageData?.balance?.minBalance ?? 5}`, glow: usageData?.balance?.low ? "rgba(239,68,68,0.18)" : "rgba(34,197,94,0.12)", cls: usageData?.balance?.low ? "text-red-500" : "text-emerald-500" },
             ].map((s, i) => (
               <div key={i} className="card relative overflow-hidden">
                 <div className="absolute" style={{ top: -30, right: -30, width: 100, height: 100, borderRadius: "50%", background: `radial-gradient(circle, ${s.glow}, transparent 70%)` }} />
@@ -1847,8 +1847,10 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
           {/* Rate breakdown — small print under the cards */}
           {usageData && (
             <div className="flex flex-wrap gap-x-6 gap-y-1 text-xs text-[var(--color-text-muted)] px-1">
-              <span>🎙 Audio: RM {usageData.audio.cost.toFixed(2)} · {usageData.audio.chars.toLocaleString()} aksara · RM {usageData.rates.audioRateGen.toFixed(2)}/generate</span>
-              <span>🖥 GPU: RM {usageData.gpu.cost.toFixed(2)} · RM {usageData.rates.gpuRateHour.toFixed(2)}/jam</span>
+              <span>🎙 Audio Script: RM {(usageData.costs?.audioScript.cost ?? 0).toFixed(2)} · {(usageData.costs?.audioScript.chars ?? 0).toLocaleString()} aksara · RM {usageData.rates.audioRateGen.toFixed(2)}/generate</span>
+              <span>🔴 Live: RM {(usageData.costs?.live.cost ?? 0).toFixed(2)} · GPU RM {usageData.rates.gpuRateHour.toFixed(2)}/jam</span>
+              <span>🧪 Testing: RM {(usageData.costs?.testing.cost ?? 0).toFixed(2)} (incl. idle RM {(usageData.costs?.testing.idleCost ?? 0).toFixed(2)})</span>
+              <span>💰 Jumlah: RM {(usageData.costs?.total ?? usageData.month.totalCost).toFixed(2)}</span>
             </div>
           )}
 

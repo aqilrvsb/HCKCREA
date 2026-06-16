@@ -9,6 +9,8 @@ import { Radio, Save } from "lucide-react";
 export default function LivehostSettings() {
   const [gpuRate, setGpuRate] = useState("6.00");
   const [voiceRate, setVoiceRate] = useState("0.30");
+  const [audioRate, setAudioRate] = useState("0.10");
+  const [minBalance, setMinBalance] = useState("5.00");
   const [savingRates, setSavingRates] = useState(false);
   const [llmMainProvider, setLlmMainProvider] = useState("grsai");
   const [llmMainModel, setLlmMainModel] = useState("gemini-3.1-flash-lite");
@@ -27,6 +29,8 @@ export default function LivehostSettings() {
       if (d.rates) {
         setGpuRate(String(d.rates.gpuRateHour));
         setVoiceRate(String(d.rates.voiceRate1k));
+        if (d.rates.audioRateGen != null) setAudioRate(String(d.rates.audioRateGen));
+        if (d.rates.minBalance != null) setMinBalance(String(d.rates.minBalance));
       }
       if (d.llm) {
         setLlmMainProvider(d.llm.main?.provider || "grsai");
@@ -45,7 +49,7 @@ export default function LivehostSettings() {
       const r = await fetch("/api/admin/livehost", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ rates: { gpuRateHour: gpuRate, voiceRate1k: voiceRate } }),
+        body: JSON.stringify({ rates: { gpuRateHour: gpuRate, voiceRate1k: voiceRate, audioRateGen: audioRate, minBalance } }),
       });
       const d = await r.json();
       setMsg(d.ok ? "Rates saved" : d.error || "Save failed");
@@ -117,6 +121,16 @@ export default function LivehostSettings() {
         <label className="text-xs font-bold text-[var(--color-text-secondary)]">
           Voice — RM per 1,000 characters
           <input value={voiceRate} onChange={(e) => setVoiceRate(e.target.value)} type="number" step="0.01" min="0"
+            className="mt-1 w-full px-3 py-2.5 rounded-lg text-sm font-normal" style={inputStyle} />
+        </label>
+        <label className="text-xs font-bold text-[var(--color-text-secondary)]">
+          Audio Script — RM per generate
+          <input value={audioRate} onChange={(e) => setAudioRate(e.target.value)} type="number" step="0.01" min="0"
+            className="mt-1 w-full px-3 py-2.5 rounded-lg text-sm font-normal" style={inputStyle} />
+        </label>
+        <label className="text-xs font-bold text-[var(--color-text-secondary)]">
+          Min balance threshold — RM (auto-stop)
+          <input value={minBalance} onChange={(e) => setMinBalance(e.target.value)} type="number" step="0.50" min="0"
             className="mt-1 w-full px-3 py-2.5 rounded-lg text-sm font-normal" style={inputStyle} />
         </label>
         <button onClick={saveRates} disabled={savingRates}

@@ -59,6 +59,7 @@ export default async function DashboardPage() {
         name={name}
         email={user.email || ""}
         planExpiresAt={planExpiresAt}
+        credits={credits}
       />
     );
   }
