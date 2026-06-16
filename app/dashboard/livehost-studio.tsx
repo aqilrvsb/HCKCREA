@@ -215,7 +215,7 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
   type UsageData = {
     rates: { gpuRateHour: number; voiceRate1k: number; audioRateGen: number; warmWindowSec?: number; currency: string };
     balance?: { credits: number; spent: number; available: number; minBalance: number; low: boolean };
-    sessions: { id: string; startedAt: string; status: string; type?: string; durationSec: number; voiceChars: number; gpuCost: number; voiceCost: number; totalCost: number }[];
+    ledger: { at: string; type: string; typeLabel: string; durationSec: number; chars: number; cost: number; balanceAfter: number }[];
     costs?: {
       audioScript: { generations: number; chars: number; cost: number };
       live: { sessions: number; streamSec: number; voiceChars: number; gpuCost: number; voiceCost: number; cost: number };
@@ -1970,39 +1970,39 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
           {/* Sessions table card */}
           <div className="card p-0 overflow-hidden">
             <div className="px-6 py-4 border-b border-[var(--color-border)] flex flex-wrap items-center gap-2">
-              <span className="font-mono text-[10px] uppercase tracking-widest text-[var(--color-text-muted)] font-bold">Sesi streaming</span>
-              <span className="ml-auto text-xs text-[var(--color-text-muted)]">50 terkini · direkod tepat ke saat</span>
+              <span className="font-mono text-[10px] uppercase tracking-widest text-[var(--color-text-muted)] font-bold">Ledger caj</span>
+              <span className="ml-auto text-xs text-[var(--color-text-muted)]">setiap caj · baki berjalan</span>
             </div>
             <div className="hidden md:flex px-6 py-3 border-b border-[var(--color-border)] text-xs font-mono uppercase tracking-wider text-[var(--color-text-muted)] font-bold" style={{ background: "rgba(200,245,62,0.04)" }}>
               <span className="flex-1">Tarikh / Masa</span>
-              <span className="w-28">Durasi</span>
-              <span className="w-28 text-right">Jumlah Kos</span>
-              <span className="w-24 text-right">Status</span>
+              <span className="w-28">Jenis</span>
+              <span className="w-24">Durasi</span>
+              <span className="w-24 text-right">Kos</span>
+              <span className="w-28 text-right">Baki Kredit</span>
             </div>
-            {(!usageData || usageData.sessions.length === 0) ? (
+            {(!usageData || usageData.ledger.length === 0) ? (
               <div className="px-6 py-16 text-center">
-                <p className="text-[var(--color-text-secondary)] font-medium mb-1">{usageData ? "Belum ada sesi streaming." : "Loading…"}</p>
-                <p className="text-sm text-[var(--color-text-muted)]">Setiap sesi live anda akan direkod di sini.</p>
+                <p className="text-[var(--color-text-secondary)] font-medium mb-1">{usageData ? "Belum ada caj." : "Loading…"}</p>
+                <p className="text-sm text-[var(--color-text-muted)]">Setiap live, audio & komen akan direkod di sini.</p>
               </div>
             ) : (
               <ul className="divide-y divide-[var(--color-border)]">
-                {usageData.sessions.map((s) => (
-                  <li key={s.id} className="px-6 py-4 flex flex-col md:flex-row md:items-center gap-1.5 md:gap-3 text-sm">
-                    <span className="flex-1 font-mono text-xs text-[var(--color-text-secondary)]">{new Date(s.startedAt).toLocaleString("ms-MY", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit", second: "2-digit" })}</span>
-                    <span className="w-28 font-mono text-xs text-[var(--color-text-primary)]">{Math.floor(s.durationSec / 3600)}:{String(Math.floor((s.durationSec % 3600) / 60)).padStart(2, "0")}:{String(s.durationSec % 60).padStart(2, "0")}</span>
-                    <span className="w-28 md:text-right text-xs font-bold text-emerald-500">RM {s.totalCost.toFixed(2)}</span>
-                    <span className="w-24 md:text-right">
-                      <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider"
-                        style={s.status === "active"
-                          ? { background: "rgba(34,197,94,0.12)", color: "#22c55e", border: "1px solid rgba(34,197,94,0.3)" }
-                          : s.status === "crashed"
-                            ? { background: "rgba(239,68,68,0.12)", color: "#ef4444", border: "1px solid rgba(239,68,68,0.3)" }
-                            : { background: "var(--color-bg-card)", color: "var(--color-text-muted)", border: "1px solid var(--color-border)" }}>
-                        {s.status === "active" ? "● LIVE" : s.status === "crashed" ? "crashed" : "ended"}
+                {usageData.ledger.map((r, i) => {
+                  const tc = r.type === "live" ? { bg: "rgba(236,72,153,0.14)", c: "#ec4899" }
+                    : r.type === "audioScript" ? { bg: "rgba(59,130,246,0.14)", c: "#3b82f6" }
+                    : { bg: "rgba(245,158,11,0.14)", c: "#f59e0b" }; // nonLive
+                  return (
+                    <li key={i} className="px-6 py-4 flex flex-col md:flex-row md:items-center gap-1.5 md:gap-3 text-sm">
+                      <span className="flex-1 font-mono text-xs text-[var(--color-text-secondary)]">{new Date(r.at).toLocaleString("ms-MY", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit", second: "2-digit" })}</span>
+                      <span className="w-28">
+                        <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider" style={{ background: tc.bg, color: tc.c }}>{r.typeLabel}</span>
                       </span>
-                    </span>
-                  </li>
-                ))}
+                      <span className="w-24 font-mono text-xs text-[var(--color-text-primary)]">{r.durationSec > 0 ? `${Math.floor(r.durationSec / 3600)}:${String(Math.floor((r.durationSec % 3600) / 60)).padStart(2, "0")}:${String(r.durationSec % 60).padStart(2, "0")}` : "—"}</span>
+                      <span className="w-24 md:text-right text-xs font-bold text-emerald-500">RM {r.cost.toFixed(2)}</span>
+                      <span className="w-28 md:text-right text-xs font-bold text-[var(--color-text-primary)]">RM {r.balanceAfter.toFixed(2)}</span>
+                    </li>
+                  );
+                })}
               </ul>
             )}
           </div>

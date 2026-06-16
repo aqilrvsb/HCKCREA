@@ -52,6 +52,21 @@ export default function LivehostDashboard({
   credits: number;
 }) {
   const [view, setView] = useState<View>("home");
+  // Live wallet balance (credits − all-time livehost spend) so the sidebar
+  // "Credit Balance" tallies with the Usage "Baki kredit". Falls back to the
+  // raw credits prop until the billing API responds.
+  const [balance, setBalance] = useState<number | null>(null);
+  const [balanceLow, setBalanceLow] = useState(false);
+  useEffect(() => {
+    let stop = false;
+    const load = () => fetch("/api/livehost/session")
+      .then((r) => r.json())
+      .then((d) => { if (!stop && d?.balance) { setBalance(d.balance.available); setBalanceLow(!!d.balance.low); } })
+      .catch(() => {});
+    load();
+    const t = setInterval(load, 30000); // refresh so it reflects usage as it accrues
+    return () => { stop = true; clearInterval(t); };
+  }, []);
 
   // Default Livehost attachments (stock hosts + templates) — shown read-only
   // in the Attachment tab so it tallies with the Template-tab pickers.
@@ -166,7 +181,7 @@ export default function LivehostDashboard({
             <div className="text-[11px] truncate mb-2" style={{ color: "rgba(253,230,138,0.7)" }}>{email}</div>
 
             <div className="text-[10px] font-bold uppercase tracking-wider" style={{ color: "#fbbf24" }}>💳 Credit Balance</div>
-            <div className="font-display font-extrabold text-2xl tracking-tight" style={{ color: "#fcd34d" }}>{Number(credits).toFixed(2)}</div>
+            <div className="font-display font-extrabold text-2xl tracking-tight" style={{ color: balanceLow ? "#f87171" : "#fcd34d" }}>{Number(balance ?? credits).toFixed(2)}</div>
             <button
               onClick={() => setView("billing")}
               className="mt-2 w-full rounded-lg py-2 text-xs font-extrabold text-black"

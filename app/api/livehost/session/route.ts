@@ -228,9 +228,12 @@ export async function GET(req: Request) {
 
   return NextResponse.json({
     rates: { gpuRateHour: gpuRate, voiceRate1k: voiceRate, audioRateGen, warmWindowSec, currency: "RM" },
-    // credit balance guard (Start blocked + worker auto-stopped at/below minBalance)
-    balance: { credits: +credits.toFixed(2), spent: +grandTotal.toFixed(2), available, minBalance, low: available <= minBalance },
-    sessions: rows,
+    // credit balance guard — wallet view (ALL-TIME): available = credits − all
+    // livehost spending ever. This is the number shown as "Baki kredit" AND the
+    // sidebar "Credit Balance" so they tally. spent here is all-time too.
+    balance: { credits: +credits.toFixed(2), spent: +allTimeSpent.toFixed(2), available, minBalance, low: available <= minBalance },
+    // chronological ledger (period-filtered, newest first) with running balance
+    ledger,
     // 4-category breakdown (the source of truth for Usage + Dashboard):
     // Live = timed live, NON Live = ad-hoc play + warm idle, Audio Script =
     // pre-gen, Comment = AI replies to viewer comments (voice).
