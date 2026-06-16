@@ -198,6 +198,21 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
   type GreetProfile = { id: string; title: string; greetings: string; greetDelayMin: number; greetDelayMax: number; followGreeting: string; likeGreeting: string; commentDelayMin: number; commentDelayMax: number; selectedProduct: string; sfxAuto: boolean };
   const [greetProfiles, setGreetProfiles] = useState<GreetProfile[]>([]);
   const [activeGreetId, setActiveGreetId] = useState("");
+  // Live-event brain (greeting/comment driving) reads config from refs so the
+  // window-message listener always sees the latest profile.
+  const greetProfilesRef = useRef<GreetProfile[]>([]);
+  const activeGreetIdRef = useRef("");
+  useEffect(() => { greetProfilesRef.current = greetProfiles; }, [greetProfiles]);
+  useEffect(() => { activeGreetIdRef.current = activeGreetId; }, [activeGreetId]);
+  // Greeting/comment queues + timers + JOIN dedup (ported from the extension; the
+  // studio is now the brain). greetedJoins = usernames already greeted on JOIN.
+  const greetQueueRef = useRef<{ username: string; kind: "join" | "follow" | "like" }[]>([]);
+  const commentQueueRef = useRef<{ username: string; text: string }[]>([]);
+  const greetIdxRef = useRef(0);
+  const greetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const commentTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const greetedJoinsRef = useRef<Set<string>>(new Set());
+  const chatActiveRef = useRef(false); // a greeting/comment is speaking → pause teleprompter
   const activeProduct = products.find((x) => x.id === activeProductId);
   const activeKb = activeProduct?.text || "";
   const [volume, setVolume] = useState(1.5);
@@ -814,26 +829,21 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
         return;
       }
       const sc = lib.find((x) => x.id === rd[s]);
-      // Saved script with pre-generated audio → send the ORDERED LIST of pieces as
-      // ONE sayaudio; the worker plays them gaplessly (downloads piece N+1 while N
-      // plays). Avatar lip-syncs to the exact approved audio; no live TTS/billing.
-      if (sc && sc.audioUrls?.length && l === 0) {
-        setScriptWaiting(false);
-        posRef.current = { s: s + 1, l: 0 }; // next hop → next script
-        const id = "L" + ++sayCounterRef.current;
-        pendingSayRef.current.set(id, { s, l: 0 });
-        const dc = dcRef.current;
-        if (dc && dc.readyState === "open") dc.send(JSON.stringify({ kind: "sayaudio", urls: sc.audioUrls, id }));
-        return;
-      }
-      // Live TTS, line by line (scripts without pre-generated audio).
+      // LIVE TTS, line by line, in EACH SCRIPT'S OWN VOICE. This is the interactive
+      // path: short lines let greetings/comments barge in within ~1 line (smooth,
+      // no silence — the engine prefetches the next line while the current plays).
       const lines = sc ? splitSentences(sc.text) : [];
       if (l >= lines.length) { s++; l = 0; hops++; continue; }
       setScriptWaiting(false);
+      const dc = dcRef.current;
+      // Push the script's voice settings before its FIRST line so it speaks in the
+      // exact voice/volume/speed/emotion it was authored with.
+      if (l === 0 && sc && dc && dc.readyState === "open") {
+        dc.send(JSON.stringify({ kind: "cfg", text: JSON.stringify({ voice_id: sc.voiceId, vol: sc.volume, speed: sc.speed, emotion: sc.emotion }) }));
+      }
       posRef.current = { s, l: l + 1 };
       const id = "L" + ++sayCounterRef.current;
       pendingSayRef.current.set(id, { s, l });
-      const dc = dcRef.current;
       if (dc && dc.readyState === "open") dc.send(JSON.stringify({ kind: "say", text: lines[l], id }));
       return;
     }
@@ -894,6 +904,11 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
     }
     if (liveTimerRef.current) { clearInterval(liveTimerRef.current); liveTimerRef.current = null; }
     liveEndAtRef.current = 0; setLiveTimer("");
+    // Reset the live-event brain (greeting/comment queues + timers + dedup).
+    if (greetTimerRef.current) { clearTimeout(greetTimerRef.current); greetTimerRef.current = null; }
+    if (commentTimerRef.current) { clearTimeout(commentTimerRef.current); commentTimerRef.current = null; }
+    greetQueueRef.current = []; commentQueueRef.current = []; greetedJoinsRef.current.clear();
+    greetIdxRef.current = 0; chatActiveRef.current = false;
     playingRef.current = false;
     setScriptPlaying(false);
     setScriptPaused(false);
@@ -1094,6 +1109,8 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
           // next line is requested immediately / prefetched so it flows on.
           const startAt = isChat ? now : Math.max(now, audioEndRef.current);
           audioEndRef.current = startAt + durMs;
+          // Greeting/comment finished → resume the script teleprompter.
+          if (isChat) chatActiveRef.current = false;
           addVoiceChars(Number(m.chars) || 0, isChat);
           if (ent && !isChat && durMs > 0) {
             const ht = setTimeout(() => {
@@ -1404,49 +1421,114 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
   // Make the avatar speak a greeting/reply. NO upfront interrupt — the GPU
   // engine keeps the script talking and barges in only when the reply audio is
   // ready (prepare-then-swap), so there is no silent gap.
+  const cleanU = (u: string) => String(u || "").replace(/[*_~`]/g, "").trim().slice(0, 40);
   const speakNow = useCallback((kind: "say" | "ask", text: string) => {
     if (!text.trim()) return false;
     const id = "C" + ++sayCounterRef.current;
     pendingSayRef.current.set(id, { chat: true });
+    // Pause the script teleprompter while the avatar handles this greeting/comment
+    // (resumed when the chat's say_done arrives).
+    chatActiveRef.current = true;
+    if (wordTimerRef.current) { clearInterval(wordTimerRef.current); wordTimerRef.current = null; }
     return sendControl({ kind, text, id });
   }, [sendControl]);
 
-  // Simulation — IDENTICAL logic to the extension:
-  //   "Ali JOIN" / "Siti FOLLOW" / "Abu LIKE"  → greeting (rotate active profile)
-  //   "Mira: berapa harga?" / plain text       → avatar reply (focus product)
-  //   purchase keyword → 🔔 bell ; feedback keyword → 👏 clap after reply
   const PURCHASE_RE = /\b(done|dah\s*beli|sudah\s*beli|checkout|dah\s*order|ordered?|dah\s*bayar)\b/i;
   const FEEDBACK_RE = /\b(best|sedap|berkesan|terbaik|memang\s*bagus|puas\s*hati|recommended)\b/i;
+  const randMs = (min: number, max: number) => {
+    const a = Math.min(min, max), b = Math.max(min, max);
+    return (a + Math.random() * (b - a)) * 1000;
+  };
+  const activeGreet = useCallback(() =>
+    greetProfilesRef.current.find((x) => x.id === activeGreetIdRef.current) || greetProfilesRef.current[0],
+  []);
+
+  // Greeting loop: sequential rotation + random [greetDelayMin, greetDelayMax].
+  const scheduleGreet = useCallback(() => {
+    if (greetTimerRef.current) return;
+    const g = activeGreet(); if (!g) return;
+    greetTimerRef.current = setTimeout(() => {
+      greetTimerRef.current = null;
+      const item = greetQueueRef.current.shift();
+      if (item) {
+        let line = "";
+        if (item.kind === "follow") { line = g.followGreeting; playSfx("clap"); }
+        else if (item.kind === "like") line = g.likeGreeting;
+        else {
+          const ls = (g.greetings || "").split(/\n+/).map((l) => l.trim()).filter(Boolean);
+          if (ls.length) { line = ls[greetIdxRef.current % ls.length]; greetIdxRef.current++; }
+        }
+        if (line) { speakNow("say", line.replaceAll("[username]", cleanU(item.username))); setCaptionText(`👋 ${cleanU(item.username)}`); }
+      }
+      if (greetQueueRef.current.length) scheduleGreet();
+    }, randMs(g.greetDelayMin, g.greetDelayMax));
+  }, [activeGreet, speakNow, playSfx]);
+
+  // Comment loop: random [commentDelayMin, commentDelayMax] between replies.
+  const scheduleComment = useCallback(() => {
+    if (commentTimerRef.current) return;
+    const g = activeGreet(); if (!g) return;
+    commentTimerRef.current = setTimeout(() => {
+      commentTimerRef.current = null;
+      const c = commentQueueRef.current.shift();
+      if (c) {
+        const isPurchase = PURCHASE_RE.test(c.text);
+        const isFeedback = !isPurchase && FEEDBACK_RE.test(c.text);
+        if (isPurchase) playSfx("bell");
+        speakNow("ask", `Penonton bernama "${cleanU(c.username)}" komen: "${c.text}". Sebut nama dia dulu, kemudian jawab.`);
+        setCaptionText(`💬 ${cleanU(c.username)}: ${c.text}`);
+        if (isFeedback) setTimeout(() => playSfx("clap"), 4000);
+      }
+      if (commentQueueRef.current.length) scheduleComment();
+    }, randMs(g.commentDelayMin, g.commentDelayMax));
+  }, [activeGreet, speakNow, playSfx]);
+
+  // THE BRAIN — a viewer event (extension OR manual sim) → greet/reply. JOIN is
+  // deduped by username (greet once); follow/like/comment are NOT deduped.
+  const QUEUE_CAP = 50; // drop excess when a like/comment storm outpaces the random-delay pacing
+  const handleLiveEvent = useCallback((type: string, username: string, text = "") => {
+    if (!activeRef.current) return; // only while streaming
+    const u = cleanU(username) || "Penonton";
+    if (type === "join") {
+      const key = u.toLowerCase();
+      if (greetedJoinsRef.current.has(key)) return;       // JOIN deduped by username
+      greetedJoinsRef.current.add(key);
+      if (greetQueueRef.current.length < QUEUE_CAP) { greetQueueRef.current.push({ username: u, kind: "join" }); scheduleGreet(); }
+    } else if (type === "follow") {
+      if (greetQueueRef.current.length < QUEUE_CAP) { greetQueueRef.current.push({ username: u, kind: "follow" }); scheduleGreet(); }
+    } else if (type === "like") {
+      if (greetQueueRef.current.length < QUEUE_CAP) { greetQueueRef.current.push({ username: u, kind: "like" }); scheduleGreet(); }
+    } else if (type === "comment" && text.trim()) {
+      if (commentQueueRef.current.length < QUEUE_CAP) { commentQueueRef.current.push({ username: u, text: text.trim() }); scheduleComment(); }
+    }
+  }, [scheduleGreet, scheduleComment]);
+
+  // Manual sim → the SAME brain (true rehearsal). "Name JOIN/FOLLOW/LIKE" |
+  // "Name: comment" | plain comment.
   const sendChat = useCallback(() => {
     const t = chatText.trim(); if (!t) return;
-    const g = greetProfiles.find((x) => x.id === activeGreetId);
-    const clean = (u: string) => u.replace(/[*_~`]/g, "").trim().slice(0, 40);
-    const name = clean(nameInput) || "Penonton";
-    // komen field can be a plain comment OR a JOIN/FOLLOW/LIKE keyword
+    const name = cleanU(nameInput) || "Penonton";
     const kw = t.match(/^(JOIN|FOLLOW|LIKE)$/i);
-    if (kw && g) {
-      const k = kw[1].toUpperCase();
-      let line = "";
-      if (k === "FOLLOW") { line = g.followGreeting; playSfx("clap"); }
-      else if (k === "LIKE") line = g.likeGreeting;
-      else {
-        const lines = (g.greetings || "").split(/\n+/).map((l) => l.trim()).filter(Boolean);
-        if (lines.length) { line = lines[simRotateRef.current % lines.length]; simRotateRef.current++; }
-      }
-      if (line) speakNow("say", line.replaceAll("[username]", name));
-      setCaptionText(`👋 ${name} ${k}`);
-    } else {
-      const isPurchase = PURCHASE_RE.test(t);
-      const isFeedback = !isPurchase && FEEDBACK_RE.test(t);
-      if (isPurchase) playSfx("bell");
-      const focus = g?.selectedProduct ? `[FOKUS PRODUK: ${g.selectedProduct}] ` : "";
-      // Recap who commented: the avatar names the viewer, then answers.
-      speakNow("ask", `${focus}Penonton bernama "${name}" komen: "${t}". Sebut nama dia dulu, kemudian jawab.`);
-      if (isFeedback) setTimeout(() => playSfx("clap"), 4000);
-      setCaptionText(`💬 ${name}: ${t}`);
+    if (kw) handleLiveEvent(kw[1].toLowerCase(), name);
+    else {
+      const cm = t.match(/^([^:]{1,30}):\s*(.+)$/);
+      if (cm) handleLiveEvent("comment", cm[1].trim(), cm[2].trim());
+      else handleLiveEvent("comment", name, t);
     }
     setChatText("");
-  }, [chatText, nameInput, greetProfiles, activeGreetId, speakNow, playSfx]);
+  }, [chatText, nameInput, handleLiveEvent]);
+
+  // Receive scraped events from the extension (direct in-browser message — no
+  // server round-trip). The extension posts {__lh_event, type, username, text}.
+  useEffect(() => {
+    const h = (e: MessageEvent) => {
+      if (e.source !== window) return;
+      const d = e.data;
+      if (d && d.__lh_event && typeof d.type === "string") handleLiveEvent(d.type, d.username || "", d.text || "");
+    };
+    window.addEventListener("message", h);
+    return () => window.removeEventListener("message", h);
+  }, [handleLiveEvent]);
 
   const enableSound = useCallback(() => {
     audioCtxRef.current?.resume().then(() => setSoundBlocked(false)).catch(() => {});

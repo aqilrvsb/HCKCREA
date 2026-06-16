@@ -9,11 +9,18 @@
     "https://peninglab.com/*"
   ],
   "background": { "service_worker": "background.js" },
-  "content_scripts": [{
-    "matches": ["https://shop.tiktok.com/*"],
-    "js": ["content.js"],
-    "run_at": "document_idle"
-  }],
+  "content_scripts": [
+    {
+      "matches": ["https://shop.tiktok.com/*"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://peninglab.com/*"],
+      "js": ["bridge.js"],
+      "run_at": "document_idle"
+    }
+  ],
   "side_panel": { "default_path": "studio.html" },
   "action": {
     "default_icon": { "16": "icons/icon16.png", "48": "icons/icon48.png", "128": "icons/icon128.png" }

@@ -1,92 +1,46 @@
-// PeningLab Livehost Extension — service worker.
-// Watches TikTok Shop LIVE (content.js) and drives the client's AI avatar:
-// every spoken line goes through PeningLab -> the client's GPU -> lip-synced
-// avatar voice. Logic mirrors the proven extension-aihost:
-//   - greetings rotate SEQUENTIALLY through N lines, [username] replaced,
-//     each fired after a random delay in [greetDelayMin, greetDelayMax]s
-//   - follow -> 👏 clap + followGreeting ; like -> likeGreeting
-//   - comments -> avatar replies (box LLM + Product Knowledge, focused on
-//     selectedProduct), spaced by random [commentDelayMin, commentDelayMax]s
-//   - purchase comment (DONE/dah beli/checkout) -> 🔔 bell then voice
-//   - feedback comment (best/sedap/berkesan...) -> voice then 👏 clap
-// Stats (seen/replied/skipped/joins/greeted/follows/likes/purchases) are
-// batched to PeningLab for the client's Interactions dashboard.
+// PeningLab Livehost Extension — service worker (SCRAPE-ONLY).
+// The extension is now just "eyes": it watches TikTok Shop LIVE (content.js),
+// records raw viewer events for the dashboard, and FORWARDS each event to the
+// PeningLab studio page (the brain) via the on-page bridge. ALL logic —
+// greeting/comment selection, random delays, JOIN dedup, driving the avatar,
+// SFX — now lives in the PeningLab studio (livehost-studio.tsx), which holds
+// the pooled GPU/WebRTC connection. No avatar calls from here anymore.
 
 const BASE = "https://peninglab.com";
-const QUEUE_CAP = 50;
 
-// Clicking the toolbar icon opens the resizable native side panel (studio.html),
-// docked beside the page — drag Chrome's divider to resize width.
 try { chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }); } catch (e) {}
-
-const PURCHASE_RE = /\b(done|dah\s*beli|sudah\s*beli|checkout|dah\s*order|ordered?|dah\s*bayar)\b/i;
-const FEEDBACK_RE = /\b(best|sedap|berkesan|terbaik|memang\s*bagus|puas\s*hati|recommended)\b/i;
 
 let running = false;
 let token = "";
-let config = null;
 let stats = null;
-let greetQueue = [];   // {username, kind: join|follow|like}
-let commentQueue = []; // {username, text}
-let greetIdx = 0;      // sequential rotation pointer
-let greetTimer = null;
-let commentTimer = null;
-let pendingEvents = []; // batched -> /api/livehost/interactions
+let pendingEvents = [];
 let flushTimer = null;
 
 function freshStats() {
   return { seen: 0, replied: 0, skipped: 0, joins: 0, greeted: 0, follows: 0, likes: 0, purchases: 0 };
 }
-
-function rand(min, max) {
-  const a = Math.min(min, max), b = Math.max(min, max);
-  return (a + Math.random() * (b - a)) * 1000;
-}
-
-function cleanUsername(u) {
-  return String(u || "").replace(/[*_~`]/g, "").trim().slice(0, 40);
-}
+function cleanUsername(u) { return String(u || "").replace(/[*_~`]/g, "").trim().slice(0, 40); }
 
 async function api(path, body) {
   try {
-    const r = await fetch(`${BASE}${path}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
+    const r = await fetch(`${BASE}${path}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
     return await r.json();
-  } catch (e) {
-    return { ok: false, error: String(e) };
-  }
+  } catch (e) { return { ok: false, error: String(e) }; }
 }
 
-// ---- speech: everything the avatar says goes through here -----------------
-async function speak(kind, text) {
-  const d = await api("/api/livehost/speak", { token, kind, text });
-  if (!d.ok) console.warn("[Livehost] speak failed:", d);
-  return !!d.ok;
-}
-
-// ---- SFX via offscreen document (OBS captures desktop/tab audio) ----------
-async function ensureOffscreen() {
+// ---- forward a scraped event to the PeningLab studio (the brain) ------------
+// Direct in-browser relay to every open peninglab.com tab's bridge — no server
+// round-trip, near-zero cost even under like-spam.
+async function forwardEvent(evType, username, text) {
   try {
-    if (!(await chrome.offscreen.hasDocument())) {
-      await chrome.offscreen.createDocument({
-        url: "offscreen.html",
-        reasons: ["AUDIO_PLAYBACK"],
-        justification: "Play bell/clap sound effects for TikTok Live",
-      });
+    const tabs = await chrome.tabs.query({ url: "https://peninglab.com/*" });
+    for (const t of tabs) {
+      chrome.tabs.sendMessage(t.id, { type: "LH_EVENT", evType, username: cleanUsername(username), text: text || "" }).catch(() => {});
     }
   } catch (e) {}
 }
-function playSfx(name) {
-  if (config && config.sfxAuto === false) return;
-  chrome.runtime.sendMessage({ type: "PLAY_SFX", sfx: name }).catch(() => {});
-}
 
-// ---- stats + interaction recording ----------------------------------------
-// Every event (real OR simulated) is recorded so the Interactions dashboard
-// updates live — simulation is a true end-to-end rehearsal.
+// ---- stats (the dashboard's live activity counters) ------------------------
 function record(type, username = "", text = "") {
   pendingEvents.push({ type, username, text });
   if (pendingEvents.length >= 8) flushEvents();
@@ -101,123 +55,25 @@ function broadcast() {
   chrome.storage.local.set({ lhStats: stats, lhRunning: running });
 }
 
-// ---- greeting loop: sequential rotation + random min/max delay ------------
-function scheduleGreet() {
-  if (!running || greetTimer) return;
-  greetTimer = setTimeout(async () => {
-    greetTimer = null;
-    if (!running) return;
-    const item = greetQueue.shift();
-    if (item) {
-      let line = "";
-      if (item.kind === "follow") line = config.followGreeting;
-      else if (item.kind === "like") line = config.likeGreeting;
-      else {
-        const lines = (config.greetings || "").split(/\n+/).map((l) => l.trim()).filter(Boolean);
-        if (lines.length) {
-          line = lines[greetIdx % lines.length]; // SEQUENTIAL rotation
-          greetIdx++;
-        }
-      }
-      if (line) {
-        const text = line.replaceAll("[username]", cleanUsername(item.username));
-        if (await speak("say", text)) {
-          stats.greeted++;
-          record("greet", item.username, text);
-          broadcast();
-        }
-      }
-    }
-    if (greetQueue.length) scheduleGreet();
-  }, rand(config.greetDelayMin, config.greetDelayMax));
-}
-
-// ---- comment loop: random min/max delay between replies -------------------
-function scheduleComment() {
-  if (!running || commentTimer) return;
-  commentTimer = setTimeout(async () => {
-    commentTimer = null;
-    if (!running) return;
-    const c = commentQueue.shift();
-    if (c) {
-      const isPurchase = PURCHASE_RE.test(c.text);
-      const isFeedback = !isPurchase && FEEDBACK_RE.test(c.text);
-      if (isPurchase) playSfx("bell"); // 🔔 bell FIRST, then voice
-      const focus = config.selectedProduct ? `[FOKUS PRODUK: ${config.selectedProduct}] ` : "";
-      // Recap format: avatar names the viewer first, then answers (system prompt drives recap).
-      const ask = `${focus}Penonton bernama "${cleanUsername(c.username)}" komen: "${c.text}". Sebut nama dia dulu, kemudian jawab.`;
-      const ok = await speak("ask", ask);
-      if (ok) {
-        stats.replied++;
-        record("reply", c.username, c.text);
-        if (isPurchase) { stats.purchases++; record("purchase", c.username, c.text); }
-        if (isFeedback) {
-          record("feedback", c.username, c.text);
-          setTimeout(() => playSfx("clap"), 4000); // voice, THEN 👏 clap
-        }
-      } else {
-        stats.skipped++;
-        record("skip", c.username, c.text);
-      }
-      broadcast();
-    }
-    if (commentQueue.length) scheduleComment();
-  }, rand(config.commentDelayMin, config.commentDelayMax));
-}
-
-// ---- event handlers --------------------------------------------------------
-function onJoin(username) {
-  stats.joins++;
-  record("join", username);
-  if (greetQueue.length < QUEUE_CAP) greetQueue.push({ username, kind: "join" });
-  broadcast();
-  scheduleGreet();
-}
-function onFollow(username) {
-  stats.follows++;
-  record("follow", username);
-  playSfx("clap"); // 👏 immediately on follow
-  if (greetQueue.length < QUEUE_CAP) greetQueue.push({ username, kind: "follow" });
-  broadcast();
-  scheduleGreet();
-}
-function onLike(username) {
-  stats.likes++;
-  record("like", username);
-  if (greetQueue.length < QUEUE_CAP) greetQueue.push({ username, kind: "like" });
-  broadcast();
-  scheduleGreet();
-}
-function onComment(username, text) {
-  stats.seen++;
-  record("comment", username, text);
-  if (commentQueue.length < QUEUE_CAP) commentQueue.push({ username, text });
-  else { stats.skipped++; record("skip", username, text); }
-  broadcast();
-  scheduleComment();
-}
+// ---- event handlers: record stat + forward to the studio brain -------------
+function onJoin(username) { stats.joins++; record("join", username); forwardEvent("join", username); broadcast(); }
+function onFollow(username) { stats.follows++; record("follow", username); forwardEvent("follow", username); broadcast(); }
+function onLike(username) { stats.likes++; record("like", username); forwardEvent("like", username); broadcast(); }
+function onComment(username, text) { stats.seen++; record("comment", username, text); forwardEvent("comment", username, text); broadcast(); }
 
 // ---- lifecycle --------------------------------------------------------------
 async function handleStart() {
   const stored = await chrome.storage.local.get(["lhToken"]);
   token = stored.lhToken || "";
   if (!token) return { ok: false, error: "Sila login dulu (email PeningLab)" };
-  const r = await fetch(`${BASE}/api/livehost/greet-config?token=${encodeURIComponent(token)}`);
-  const d = await r.json().catch(() => ({}));
-  if (!d.config) return { ok: false, error: d.error || "Gagal ambil config — login semula?" };
-  config = d.config;
   stats = freshStats();
-  greetQueue = []; commentQueue = []; greetIdx = 0;
   running = true;
-  await ensureOffscreen();
   if (!flushTimer) flushTimer = setInterval(flushEvents, 5000);
   broadcast();
   return { ok: true };
 }
 function handleStop() {
   running = false;
-  if (greetTimer) { clearTimeout(greetTimer); greetTimer = null; }
-  if (commentTimer) { clearTimeout(commentTimer); commentTimer = null; }
   flushEvents();
   broadcast();
 }
@@ -234,10 +90,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         } else sendResponse({ ok: false, error: d.error || "Login gagal" });
         break;
       }
-      case "GET_VERSION": {
-        sendResponse({ version: chrome.runtime?.getManifest?.()?.version || "1.0.0" });
-        break;
-      }
+      case "GET_VERSION": sendResponse({ version: chrome.runtime?.getManifest?.()?.version || "1.0.0" }); break;
       case "START": sendResponse(await handleStart()); break;
       case "STOP": handleStop(); sendResponse({ ok: true }); break;
       case "GET_STATE": {
@@ -250,13 +103,9 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       case "USER_FOLLOWED": if (running) onFollow(msg.username); break;
       case "USER_LIKED": if (running) onLike(msg.username); break;
       case "LIVE_ENDED": handleStop(); break;
-      case "PLAY_MANUAL_SFX": await ensureOffscreen(); chrome.runtime.sendMessage({ type: "PLAY_SFX", sfx: msg.sfx }).catch(() => {}); break;
       case "SIM": {
-        // Simulation = IDENTICAL pipeline to a real TikTok event. Formats:
-        //   "Ali JOIN" / "Siti FOLLOW" / "Abu LIKE"   -> join/follow/like
-        //   "Mira: berapa harga?"                      -> comment from "Mira"
-        //   "dah beli powder"                          -> comment (purchase SFX)
-        //   "best sangat!"                             -> comment (feedback SFX)
+        // Manual sim from the side panel → forward to the studio brain, same as
+        // a real event. "Name JOIN/FOLLOW/LIKE" | "Name: comment" | plain text.
         const t = String(msg.text || "").trim();
         if (!running) { sendResponse({ ok: false, error: "Tekan START dulu" }); break; }
         const ev = t.match(/^(.+?)\s+(JOIN|FOLLOW|LIKE)$/i);
@@ -264,15 +113,13 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
           const u = ev[1].trim(), k = ev[2].toUpperCase();
           if (k === "JOIN") onJoin(u); else if (k === "FOLLOW") onFollow(u); else onLike(u);
         } else {
-          // "Name: text" -> named commenter (like the real TikTok chat row)
           const cm = t.match(/^([^:]{1,30}):\s*(.+)$/);
-          if (cm) onComment(cm[1].trim(), cm[2].trim());
-          else onComment("Penonton", t);
+          if (cm) onComment(cm[1].trim(), cm[2].trim()); else onComment("Penonton", t);
         }
         sendResponse({ ok: true });
         break;
       }
     }
   })();
-  return true; // async sendResponse
+  return true;
 });
