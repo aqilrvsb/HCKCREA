@@ -48,6 +48,34 @@ const VOICES = [
 
 // Mirror of the GPU backend's _split_sentences: sentences merged into
 // ~12–15 word chunks (cap 20 words / 400 chars) for natural TTS pacing.
+// Mirror of the server's /script-generate chunkText (CHUNK_CHARS=250): split into
+// the SAME ≤250-char pieces the saved audio was generated as, so the teleprompter
+// line index lines up 1:1 with the audio piece index (karaoke follows correctly).
+function chunkPieces(text: string): string[] {
+  const MAX = 250;
+  const sentences = text.match(/[^.!?…]+[.!?…]+(\s|$)|[^.!?…]+$/g) || [text];
+  const out: string[] = [];
+  let cur = "";
+  for (const s of sentences) {
+    if (s.length > MAX) {
+      if (cur) { out.push(cur); cur = ""; }
+      let w = "";
+      for (const word of s.split(/\s+/)) {
+        if ((w + " " + word).trim().length > MAX) { if (w) out.push(w); w = word; }
+        else w = (w ? w + " " : "") + word;
+      }
+      if (w) cur = w;
+    } else if ((cur + s).length > MAX) {
+      if (cur) out.push(cur);
+      cur = s;
+    } else {
+      cur += s;
+    }
+  }
+  if (cur.trim()) out.push(cur);
+  return (out.length ? out : [text]).map((p) => p.trim());
+}
+
 function splitSentences(text: string): string[] {
   const MAX = 400;
   const lines: string[] = [];
@@ -466,9 +494,10 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
   }, [scripts, rundown, playPos.s]);
   const curLines = useMemo(() => {
     if (!curScript) return [];
-    // A pre-generated clip plays as ONE unit → show the whole script as a single
-    // teleprompter block so the word-sweep tallies across the entire text + audio.
-    if (curScript.audioUrls?.length) return [curScript.text];
+    // Saved audio plays PIECE BY PIECE (one ≤250-char piece per say). Show the
+    // teleprompter as those SAME pieces so each highlights as its audio plays
+    // (playPos.l = piece index). Live-TTS fallback uses per-sentence lines.
+    if (curScript.audioUrls?.length) return chunkPieces(curScript.text);
     return splitSentences(curScript.text);
   }, [curScript]);
 
@@ -828,6 +857,9 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
     }
   }, [loadAvatars]);
 
+  // Last voice_id pushed to the live-TTS engine via cfg (so we only resend on
+  // change). Reset on stop so a new stream re-syncs from the first script.
+  const lastCfgVoiceRef = useRef("");
   // --- Rundown playback driver (pipelined, gapless) -------------------------
   const speakNext = useCallback(() => {
     if (!playingRef.current) return;
@@ -854,6 +886,15 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
       if (pieces.length) {
         if (l >= pieces.length) { s++; l = 0; hops++; continue; }
         setScriptWaiting(false);
+        // VOICE SYNC: keep the live-TTS engine (greeting/comment replies) on the
+        // SAME voice as the script that's playing now — otherwise a comment reply
+        // comes out in a different voice than the host's script. Sent once per
+        // script-voice change (cheap), before this piece plays.
+        if (sc && sc.voiceId && sc.voiceId !== lastCfgVoiceRef.current) {
+          lastCfgVoiceRef.current = sc.voiceId;
+          const dcv = dcRef.current;
+          if (dcv && dcv.readyState === "open") dcv.send(JSON.stringify({ kind: "cfg", text: JSON.stringify({ voice_id: sc.voiceId, vol: sc.volume, speed: sc.speed, emotion: sc.emotion }) }));
+        }
         posRef.current = { s, l: l + 1 };
         const id = "L" + ++sayCounterRef.current;
         pendingSayRef.current.set(id, { s, l });
@@ -930,6 +971,7 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
     if (commentTimerRef.current) { clearTimeout(commentTimerRef.current); commentTimerRef.current = null; }
     greetQueueRef.current = []; commentQueueRef.current = []; greetedJoinsRef.current.clear();
     greetIdxRef.current = 0; chatActiveRef.current = false;
+    lastCfgVoiceRef.current = ""; // re-sync engine voice on next stream
     playingRef.current = false;
     setScriptPlaying(false);
     setScriptPaused(false);

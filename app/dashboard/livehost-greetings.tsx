@@ -29,8 +29,8 @@ type Profile = {
 const DEFAULT_FIELDS = {
   greetings:
     "Selamat datang [username]! Boleh komen kalau ada soalan tau\nHai [username]! Welcome, boleh tanya apa-apa je\nWelcome [username]! Jangan lupa tekan beg kuning tau\nHai [username], selamat datang! Boleh komen2 ye\nWelcome [username]! Kalau nak tahu harga, boleh tanya je\nHai [username]! Terima kasih sebab join, stay tau",
-  greetDelayMin: 20,
-  greetDelayMax: 45,
+  greetDelayMin: 4,
+  greetDelayMax: 12,
   followGreeting: "Terima kasih [username] sebab follow TikTok kami!",
   likeGreeting: "Terima kasih [username] sebab like!",
   commentDelayMin: 5,
