@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Wand2,
   ImageIcon,
@@ -12,6 +12,7 @@ import {
   XCircle,
   RefreshCw,
   Plus,
+  Trash2,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import AutoContentTab from "../tabs/auto-content";
@@ -96,6 +97,30 @@ export default function StudioSection({ only }: { only?: TabKey } = {}) {
     }, 5000);
     return () => clearTimeout(t);
   }, [items]);
+
+  // Avatar variant: when a generated image FINISHES, auto-save it into the
+  // user's Attachments (Avatar category) so it lands under Default → Avatar.
+  // Fires once per generation (on the pending→done transition).
+  const attachedRef = useRef<Set<string>>(new Set());
+  const prevStatusRef = useRef<Record<string, string>>({});
+  useEffect(() => {
+    if (only === "image") {
+      for (const it of items) {
+        const was = prevStatusRef.current[it.id];
+        if (it.type === "image" && it.status === "done" && it.output_url && was && was !== "done" && !attachedRef.current.has(it.id)) {
+          attachedRef.current.add(it.id);
+          fetch("/api/attachments/import-from-urls", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ urls: [it.output_url], category: "avatar", name: (it.prompt || "Avatar").slice(0, 40) }),
+          })
+            .then(() => window.dispatchEvent(new CustomEvent("attachments:changed")))
+            .catch(() => {});
+        }
+      }
+    }
+    for (const it of items) prevStatusRef.current[it.id] = it.status;
+  }, [items, only]);
 
   const counts = useMemo(() => {
     return {
@@ -197,6 +222,7 @@ export default function StudioSection({ only }: { only?: TabKey } = {}) {
 function HistoryCard({ item }: { item: HistoryItem }) {
   const [extending, setExtending] = useState(false);
   const [checking, setChecking] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const isVideo = item.type === "video" || item.type === "auto-content" || item.type === "clone";
   const isImage = item.type === "image";
   const canExtend = isVideo && item.status === "done" && item.output_url;
@@ -227,6 +253,17 @@ function HistoryCard({ item }: { item: HistoryItem }) {
       window.dispatchEvent(new CustomEvent("history:refresh"));
     } finally {
       setChecking(false);
+    }
+  }
+
+  async function del() {
+    if (!confirm("Padam item ini?")) return;
+    setDeleting(true);
+    try {
+      await fetch(`/api/history/delete?id=${item.id}`, { method: "DELETE" });
+      window.dispatchEvent(new CustomEvent("history:refresh"));
+    } finally {
+      setDeleting(false);
     }
   }
 
@@ -313,21 +350,27 @@ function HistoryCard({ item }: { item: HistoryItem }) {
               Open
             </a>
           )}
-          {canExtend && (
+          <div className="ml-auto flex items-center gap-2">
+            {canExtend && (
+              <button
+                disabled={extending}
+                onClick={extend}
+                title="Generate another 8s continuation"
+                className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-orange-50 border border-orange-100 text-[10px] font-bold text-orange hover:bg-orange-100 disabled:opacity-60"
+              >
+                {extending ? <Loader2 className="w-3 h-3 animate-spin" /> : <Plus className="w-3 h-3" />}
+                Extend
+              </button>
+            )}
             <button
-              disabled={extending}
-              onClick={extend}
-              title="Generate another 8s continuation"
-              className="ml-auto inline-flex items-center gap-1 px-2 py-0.5 rounded bg-orange-50 border border-orange-100 text-[10px] font-bold text-orange hover:bg-orange-100 disabled:opacity-60"
+              disabled={deleting}
+              onClick={del}
+              title="Padam"
+              className="inline-flex items-center justify-center w-6 h-6 rounded text-red-500 hover:bg-red-50 disabled:opacity-50"
             >
-              {extending ? (
-                <Loader2 className="w-3 h-3 animate-spin" />
-              ) : (
-                <Plus className="w-3 h-3" />
-              )}
-              Extend
+              {deleting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
             </button>
-          )}
+          </div>
         </div>
       </div>
     </div>
