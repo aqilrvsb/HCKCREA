@@ -120,13 +120,6 @@ export async function GET(req: Request) {
   // balance (credits − livehost cost) drops to this. Admin-settable, default RM5.
   const minBalance = parseFloat(rates["livehost_min_balance"] || "5") || 5;
 
-  const { data: sessions } = await admin
-    .from("live_sessions")
-    .select("id, started_at, ended_at, last_seen, voice_chars, comment_chars, status, session_type")
-    .eq("user_id", user.id)
-    .order("started_at", { ascending: false })
-    .limit(200);
-
   const now = Date.now();
   const periodStart = startParam
     ? new Date(malaysiaDayToUtcRange(startParam, "start")).getTime()
@@ -134,34 +127,77 @@ export async function GET(req: Request) {
   const periodEnd = endParam ? new Date(malaysiaDayToUtcRange(endParam, "end")).getTime() : now;
   const inPeriod = (t: number) => t >= periodStart && t <= periodEnd;
 
-  // Per-session display rows (newest first) — tagged with type + its own cost.
-  const rows = (sessions || []).map((s) => {
-    const end = s.ended_at ? new Date(s.ended_at).getTime() : now;
-    const durSec = Math.max(0, Math.round((end - new Date(s.started_at).getTime()) / 1000));
-    const gpuCost = (durSec / 3600) * gpuRate;
-    const voiceCost = (Number(s.voice_chars) / 1000) * voiceRate;
-    return {
-      id: s.id,
-      startedAt: s.started_at,
-      status: s.status,
-      type: s.session_type === "testing" ? "testing" : "live",
-      durationSec: durSec,
-      voiceChars: Number(s.voice_chars),
-      gpuCost: +gpuCost.toFixed(2),
-      voiceCost: +voiceCost.toFixed(2),
-      totalCost: +(gpuCost + voiceCost).toFixed(2),
-    };
-  });
+  // Fetch ALL sessions + ALL audio gens (all-time) — the balance is a wallet, not
+  // period-scoped, and the ledger needs a true running balance from the start.
+  const { data: sessions } = await admin
+    .from("live_sessions")
+    .select("id, started_at, ended_at, voice_chars, comment_chars, session_type")
+    .eq("user_id", user.id)
+    .order("started_at", { ascending: true })
+    .limit(5000);
+  const { data: gens } = await admin
+    .from("livehost_audio_gen")
+    .select("id, chars, created_at")
+    .eq("user_id", user.id)
+    .order("created_at", { ascending: true })
+    .limit(5000);
 
-  // Aggregate by category for the selected period. Idle = warm-but-not-streaming
-  // GPU between consecutive sessions (capped at the warm window) + trailing warm.
-  const asc = [...(sessions || [])].sort(
-    (a, b) => new Date(a.started_at).getTime() - new Date(b.started_at).getTime(),
-  );
+  const { data: prof } = await admin.from("profiles").select("credits").eq("id", user.id).maybeSingle();
+  const credits = Number(prof?.credits || 0);
+
+  const asc = sessions || [];
+  // Build ONE chronological ledger of every billable charge:
+  //   • each session  → GPU(active) + warm-idle-after-it + its voice + comment
+  //   • each audio gen → chars/1k × audio rate
+  // Folding the warm-idle into the session that caused it keeps the running
+  // balance exact (Σ ledger costs == total spent == credits − available).
+  type Charge = { t: number; type: "live" | "nonLive" | "audioScript"; durationSec: number; chars: number; cost: number };
+  const charges: Charge[] = [];
+  for (let i = 0; i < asc.length; i++) {
+    const s = asc[i];
+    const start = new Date(s.started_at).getTime();
+    const end = s.ended_at ? new Date(s.ended_at).getTime() : now;
+    const durSec = Math.max(0, Math.round((end - start) / 1000));
+    const nextStart = i + 1 < asc.length ? new Date(asc[i + 1].started_at).getTime() : now;
+    const idleAfter = Math.min(warmWindowSec, Math.max(0, (nextStart - end) / 1000));
+    const vChars = Number(s.voice_chars) || 0;
+    const cChars = Number(s.comment_chars) || 0;
+    const gpuCost = ((durSec + idleAfter) / 3600) * gpuRate;
+    const cost = gpuCost + (vChars / 1000) * voiceRate + (cChars / 1000) * voiceRate;
+    charges.push({
+      t: start,
+      type: s.session_type === "testing" ? "nonLive" : "live",
+      durationSec: durSec,
+      chars: vChars + cChars,
+      cost,
+    });
+  }
+  for (const g of gens || []) {
+    charges.push({
+      t: new Date(g.created_at).getTime(),
+      type: "audioScript",
+      durationSec: 0,
+      chars: Number(g.chars) || 0,
+      cost: ((Number(g.chars) || 0) / 1000) * audioRateGen,
+    });
+  }
+  charges.sort((a, b) => a.t - b.t);
+
+  // Running balance (all-time) → ledger rows for the selected period (newest first).
+  let runSpent = 0;
+  const TYPE_LABEL: Record<string, string> = { live: "Live", nonLive: "NON Live", audioScript: "Audio Script" };
+  const ledgerAll = charges.map((c) => {
+    runSpent += c.cost;
+    return { at: new Date(c.t).toISOString(), type: c.type, typeLabel: TYPE_LABEL[c.type], durationSec: c.durationSec, chars: c.chars, cost: +c.cost.toFixed(2), balanceAfter: +(credits - runSpent).toFixed(2) };
+  });
+  const ledger = ledgerAll.filter((r) => inPeriod(new Date(r.at).getTime())).reverse();
+  const allTimeSpent = runSpent;
+  const available = +(credits - allTimeSpent).toFixed(2);
+
+  // ---- Period category breakdown (the 4 cost cards) ----
   let liveSec = 0, liveChars = 0, liveCount = 0;
   let testSec = 0, testChars = 0, testCount = 0;
-  let idleSec = 0;
-  let commentChars = 0; // AI comment/chat-reply voice across all sessions → Cost Comment
+  let idleSec = 0, commentChars = 0;
   for (let i = 0; i < asc.length; i++) {
     const s = asc[i];
     const start = new Date(s.started_at).getTime();
@@ -171,22 +207,13 @@ export async function GET(req: Request) {
       commentChars += Number(s.comment_chars) || 0;
       if (s.session_type === "testing") { testSec += durSec; testChars += Number(s.voice_chars); testCount++; }
       else { liveSec += durSec; liveChars += Number(s.voice_chars); liveCount++; }
+      const nextStart = i + 1 < asc.length ? new Date(asc[i + 1].started_at).getTime() : now;
+      idleSec += Math.min(warmWindowSec, Math.max(0, (nextStart - end) / 1000));
     }
-    // warm-idle after this session (worker up, not streaming) → counts as NON-Live overhead
-    const nextStart = i + 1 < asc.length ? new Date(asc[i + 1].started_at).getTime() : now;
-    const gapSec = Math.max(0, (nextStart - end) / 1000);
-    if (inPeriod(end)) idleSec += Math.min(warmWindowSec, gapSec);
   }
-
-  // ---- Cost Audio Script: TTS generations, billed per 1,000 characters ----
-  const { data: gens } = await admin
-    .from("livehost_audio_gen")
-    .select("chars, created_at")
-    .eq("user_id", user.id)
-    .gte("created_at", new Date(periodStart).toISOString())
-    .lte("created_at", new Date(periodEnd).toISOString());
-  const audioGenerations = (gens || []).length;
-  const audioChars = (gens || []).reduce((a, g) => a + Number(g.chars || 0), 0);
+  const gensP = (gens || []).filter((g) => inPeriod(new Date(g.created_at).getTime()));
+  const audioGenerations = gensP.length;
+  const audioChars = gensP.reduce((a, g) => a + Number(g.chars || 0), 0);
   const audioCost = (audioChars / 1000) * audioRateGen;
 
   const liveGpu = (liveSec / 3600) * gpuRate;
@@ -198,11 +225,6 @@ export async function GET(req: Request) {
   const liveCost = liveGpu + liveVoice;
   const nonLiveCost = testGpu + testVoice + idleCost;
   const grandTotal = liveCost + nonLiveCost + audioCost + commentCost;
-
-  // Credit balance guard: available = credits − livehost cost (this period).
-  const { data: prof } = await admin.from("profiles").select("credits").eq("id", user.id).maybeSingle();
-  const credits = Number(prof?.credits || 0);
-  const available = +(credits - grandTotal).toFixed(2);
 
   return NextResponse.json({
     rates: { gpuRateHour: gpuRate, voiceRate1k: voiceRate, audioRateGen, warmWindowSec, currency: "RM" },

@@ -1240,6 +1240,7 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
     setProducts((prev) => prev.map((x) => (x.id === id ? { ...x, ...patch } : x)));
   }, []);
   const deleteProduct = useCallback((id: string) => {
+    if (!window.confirm("Padam knowledge ini?")) return;
     setProducts((prev) => prev.filter((x) => x.id !== id));
   }, []);
 
@@ -1257,6 +1258,7 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
     setScripts((prev) => prev.map((s) => (s.id === id ? { ...s, ...patch, ...(dirties ? { saved: false, audioB64: null, audioUrl: null, audioPath: null } : {}) } : s)));
   }, []);
   const deleteScript = useCallback((id: string) => {
+    if (!window.confirm("Padam skrip ini?")) return;
     const sc = scriptsRef.current.find((s) => s.id === id);
     if (sc?.saved) fetch(`/api/livehost/scripts?id=${encodeURIComponent(id)}`, { method: "DELETE" }).catch(() => {});
     setScripts((prev) => prev.filter((s) => s.id !== id));

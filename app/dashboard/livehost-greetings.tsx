@@ -106,6 +106,7 @@ export default function LivehostGreetings() {
     setGDraft(null);
   };
   const delProfile = (id: string) => {
+    if (!window.confirm("Padam profil greeting ini?")) return;
     setProfiles((prev) => {
       const next = prev.filter((p) => p.id !== id);
       if (next.length && id === activeId) setActiveId(next[0].id);
