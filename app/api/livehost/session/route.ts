@@ -70,6 +70,20 @@ export async function POST(req: Request) {
       .eq("id", sessionId)
       .eq("user_id", user.id);
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    // Pool: keep this user's serverless slot alive on heartbeat; free it on stop.
+    if (action === "stop") {
+      await admin
+        .from("livehost_pool")
+        .update({ status: "free", assigned_user_id: null, assigned_session_id: null, assigned_at: null, last_seen: null, updated_at: new Date().toISOString() })
+        .eq("assigned_user_id", user.id)
+        .eq("status", "busy");
+    } else {
+      await admin
+        .from("livehost_pool")
+        .update({ last_seen: new Date().toISOString() })
+        .eq("assigned_user_id", user.id)
+        .eq("status", "busy");
+    }
     return NextResponse.json({ ok: true });
   }
 

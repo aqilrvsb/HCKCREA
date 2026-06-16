@@ -100,13 +100,20 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
   const [backend, setBackend] = useState("");
   const [configErr, setConfigErr] = useState("");
   const backendRef = useRef("");
+  // Pool mode: this client has no dedicated endpoint — a free 5090 serverless
+  // endpoint is assigned from the shared pool at Play and released at Stop.
+  const poolModeRef = useRef(false);
   useEffect(() => {
     fetch("/api/livehost/config")
       .then((r) => r.json())
       .then((d) => {
+        if (d.mode === "pool") {
+          poolModeRef.current = true; // backendRef stays empty until Play assigns one
+          return;
+        }
         if (d.backendUrl) {
           setBackend(d.backendUrl); backendRef.current = d.backendUrl;
-          if (d.provisionStatus && d.provisionStatus !== "ready") {
+          if (d.provisionStatus && d.provisionStatus !== "ready" && d.provisionStatus !== "pool") {
             setConfigErr(`⚙ GPU anda sedang disediakan secara automatik (~30 minit): ${d.provisionStatus}. Refresh sebentar lagi.`);
           }
         }
@@ -842,7 +849,18 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
   }, []);
 
   const stop = useCallback(() => {
-    endSession(); // server records the exact end second
+    endSession(); // server records the exact end second (also frees the pool slot)
+    // POOL: release our serverless endpoint back to the pool + clear the URL so
+    // the next Play re-assigns a fresh free slot.
+    if (poolModeRef.current) {
+      backendRef.current = "";
+      fetch("/api/livehost/pool", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ action: "release" }),
+        keepalive: true,
+      }).catch(() => {});
+    }
     if (liveTimerRef.current) { clearInterval(liveTimerRef.current); liveTimerRef.current = null; }
     liveEndAtRef.current = 0; setLiveTimer("");
     playingRef.current = false;
@@ -868,7 +886,7 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
 
   const start = useCallback(async () => {
     setError("");
-    if (!backendRef.current) { setError(configErr || "Config belum dimuatkan."); return; }
+    if (!backendRef.current && !poolModeRef.current) { setError(configErr || "Config belum dimuatkan."); return; }
     if (!avatarId) { setError("Pick or upload a face first."); return; }
     // BALANCE GUARD: don't even wake the GPU if the credit balance is already at/below
     // the minimum threshold (RM5) — saves the user from a live that'd instantly stop.
@@ -879,6 +897,30 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
     }
     setConnecting(true);
     try {
+      // POOL MODE: grab a free 5090 serverless endpoint for this session. The
+      // slot stays ours (kept alive by the session heartbeat) until Stop.
+      if (poolModeRef.current) {
+        try {
+          const pr = await fetch("/api/livehost/pool", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ action: "assign" }),
+          });
+          const pd = await pr.json().catch(() => ({}));
+          if (!pr.ok || !pd.url) {
+            setConnecting(false);
+            setError(pd.error === "all_busy"
+              ? "Semua host sibuk sekarang — cuba sebentar lagi."
+              : (pd.error || "Tiada GPU tersedia buat masa ini."));
+            return;
+          }
+          backendRef.current = pd.url; setBackend(pd.url);
+        } catch {
+          setConnecting(false);
+          setError("Tiada GPU tersedia — cuba sekali lagi.");
+          return;
+        }
+      }
       // Pressing Start is what WAKES the GPU (Novita scale-from-zero). We do NOT
       // pre-warm on tab open — the studio stays $0 until this exact moment. The
       // first request below triggers a worker to spin up; on a cold node the 22GB

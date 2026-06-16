@@ -273,17 +273,10 @@ async function applyCheckoutSignup(admin: any, payment: any) {
     { onConflict: "id" }
   );
 
-  // LIVEHOST: auto-provision the client's GPU stack (tunnel + self-building
-  // instance). Fast API calls only (~10s); the build runs on the GPU itself.
-  if (plan === "livehost") {
-    try {
-      const { provisionLivehost } = await import("@/lib/livehost-provision");
-      const res = await provisionLivehost(userId);
-      console.log("[livehost] provision:", JSON.stringify(res));
-    } catch (e) {
-      console.error("[livehost] provision failed:", e);
-    }
-  }
+  // LIVEHOST: no per-client GPU provisioning. Clients stream from the SHARED
+  // POOL of 5090 serverless endpoints (assigned at Play, released at Stop —
+  // see lib/livehost-pool.ts + /api/livehost/pool). The pool is admin-managed
+  // and $0-idle, so buying the plan only needs the plan + credits grant above.
 
   // Add free credits if the plan grants any (currently 0 for both plans)
   if (freeCredits > 0) {

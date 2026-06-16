@@ -8,6 +8,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Radio, Save, RefreshCw, Clock, Wallet } from "lucide-react";
 import { localDateStr, startOfMonthLocal } from "@/lib/date-util";
+import PoolManager from "./pool-manager";
 
 type Client = {
   id: string;
@@ -129,6 +130,9 @@ export default function AdminLivehostPage() {
           <RefreshCw className="w-4 h-4" /> Refresh
         </button>
       </div>
+
+      {/* Shared 5090 serverless POOL — clients round-robin a free slot on Play. */}
+      <PoolManager />
 
       {/* date filter (MYT) — like the Errors tab */}
       <div className="flex flex-wrap items-end gap-3 mb-5">
