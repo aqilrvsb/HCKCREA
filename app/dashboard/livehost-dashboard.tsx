@@ -54,6 +54,22 @@ export default function LivehostDashboard({
   credits: number;
 }) {
   const [view, setView] = useState<View>("home");
+
+  // Deep-link support so right-click → "Open in new tab" works: each view has a
+  // ?tab=<key> URL. On load we read it; switching views keeps the URL in sync.
+  const ALL_VIEWS: View[] = ["home", "livehost", "template", "scripts", "products", "greetings", "avatar", "attachment", "usage", "billing", "tiktok"];
+  useEffect(() => {
+    try {
+      const t = new URLSearchParams(window.location.search).get("tab");
+      if (t && (ALL_VIEWS as string[]).includes(t)) setView(t as View);
+    } catch {}
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  const hrefFor = (key: View) => (key === "home" ? "/dashboard" : `/dashboard?tab=${key}`);
+  const go = (key: View) => {
+    setView(key);
+    try { window.history.replaceState(null, "", hrefFor(key)); } catch {}
+  };
   // Live wallet balance (credits − all-time livehost spend) so the sidebar
   // "Credit Balance" tallies with the Usage "Baki kredit". Falls back to the
   // raw credits prop until the billing API responds.
@@ -118,9 +134,15 @@ export default function LivehostDashboard({
   const planActive = !!planExpiresAt;
 
   const navItem = (key: View, label: string, Icon: any, step?: number, stepColor?: string) => (
-    <button
-      onClick={() => setView(key)}
-      className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-bold transition-colors"
+    <a
+      href={hrefFor(key)}
+      onClick={(e) => {
+        // let the browser handle modifier/middle clicks → opens in a new tab
+        if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button === 1) return;
+        e.preventDefault();
+        go(key);
+      }}
+      className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-bold transition-colors no-underline"
       style={{
         background: view === key ? "rgba(96,165,250,0.14)" : "transparent",
         color: view === key ? "#93c5fd" : "var(--color-text-secondary)",
@@ -137,7 +159,7 @@ export default function LivehostDashboard({
           {step}
         </span>
       )}
-    </button>
+    </a>
   );
 
   return (
@@ -165,9 +187,10 @@ export default function LivehostDashboard({
         <div className="space-y-0.5 flex-1 overflow-y-auto min-h-0 -mr-1 pr-1">
           {NAV.map((n) => <div key={n.key}>{navItem(n.key, n.label, n.Icon, n.step, n.stepColor)}</div>)}
           {/* Install/connect the extension — plain nav item, yellow icon only */}
-          <button
-            onClick={() => setView("tiktok")}
-            className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-bold transition-colors"
+          <a
+            href={hrefFor("tiktok")}
+            onClick={(e) => { if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button === 1) return; e.preventDefault(); go("tiktok"); }}
+            className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-bold transition-colors no-underline"
             style={{
               background: view === "tiktok" ? "rgba(96,165,250,0.14)" : "transparent",
               color: view === "tiktok" ? "#93c5fd" : "var(--color-text-secondary)",
@@ -176,7 +199,7 @@ export default function LivehostDashboard({
           >
             <Send className="w-4 h-4 flex-shrink-0" style={{ color: "#facc15" }} />
             TikTok Live
-          </button>
+          </a>
           <a
             href={WHATSAPP_GROUP_LIVEHOST}
             target="_blank"
@@ -259,10 +282,11 @@ export default function LivehostDashboard({
           {NAV.map((n) => {
             const active = view === n.key;
             return (
-              <button
+              <a
                 key={n.key}
-                onClick={() => setView(n.key)}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap flex-shrink-0"
+                href={hrefFor(n.key)}
+                onClick={(e) => { if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button === 1) return; e.preventDefault(); go(n.key); }}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap flex-shrink-0 no-underline"
                 style={{
                   background: active ? "rgba(96,165,250,0.16)" : "transparent",
                   color: active ? "#93c5fd" : "var(--color-text-secondary)",
@@ -275,12 +299,13 @@ export default function LivehostDashboard({
                   <span className="w-4 h-4 rounded-full flex items-center justify-center text-[9px] font-extrabold text-white"
                     style={{ background: n.stepColor }}>{n.step}</span>
                 )}
-              </button>
+              </a>
             );
           })}
-          <button
-            onClick={() => setView("tiktok")}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap flex-shrink-0"
+          <a
+            href={hrefFor("tiktok")}
+            onClick={(e) => { if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button === 1) return; e.preventDefault(); go("tiktok"); }}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap flex-shrink-0 no-underline"
             style={{
               background: view === "tiktok" ? "rgba(96,165,250,0.16)" : "transparent",
               color: view === "tiktok" ? "#93c5fd" : "var(--color-text-secondary)",
@@ -289,7 +314,7 @@ export default function LivehostDashboard({
           >
             <Send className="w-3.5 h-3.5" style={{ color: "#facc15" }} />
             TikTok Live
-          </button>
+          </a>
         </div>
 
         {/* Content — full width. Studio views go edge-to-edge. */}
