@@ -1303,9 +1303,11 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
       });
       const d = await r.json();
       if (!r.ok || !d?.id) throw new Error(d?.error || "Simpan gagal");
-      // Swap the draft id for the persisted Supabase id; keep rundown refs in sync.
+      // Swap the draft id for the persisted Supabase id; keep rundown refs +
+      // the open editor modal pointing at the same row (else it goes blank).
       setScripts((prev) => prev.map((s) => (s.id === id ? { ...s, id: d.id, saved: true, audioUrl: d.audioUrl, audioPath: null, audioB64: null } : s)));
       setRundown((prev) => prev.map((x) => (x === id ? d.id : x)));
+      setScriptEditId((cur) => (cur === id ? d.id : cur));
     } catch (e: any) {
       alert("Simpan gagal: " + (e?.message || e));
     }
@@ -1757,7 +1759,7 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
           </LhCard>
         </LhSection>
 
-        <LhModal open={!!scriptEditId} onClose={() => setScriptEditId(null)} title="Script" maxWidth={680}>
+        <LhModal open={!!scriptEditId} onClose={() => { stopPreview(); setScriptEditId(null); }} title="Script" maxWidth={680}>
           {(() => {
             const s = scripts.find((x) => x.id === scriptEditId);
             if (!s) return null;
