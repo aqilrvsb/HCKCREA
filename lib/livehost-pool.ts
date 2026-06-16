@@ -104,8 +104,11 @@ export async function createPoolEndpoint(label?: string): Promise<CreateResult> 
 // gentle on rate limits and surface the first failure clearly).
 export async function createPoolEndpoints(count: number): Promise<CreateResult[]> {
   const out: CreateResult[] = [];
-  for (let i = 0; i < Math.max(1, Math.min(50, count)); i++) {
+  const n = Math.max(1, Math.min(50, count));
+  for (let i = 0; i < n; i++) {
     out.push(await createPoolEndpoint());
+    // Novita rate-limits rapid creates (429) — pace them out.
+    if (i < n - 1) await new Promise((r) => setTimeout(r, 1500));
   }
   return out;
 }
