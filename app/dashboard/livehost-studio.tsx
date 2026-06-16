@@ -199,7 +199,8 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
   // voice chars; stop → exact end second. Crashes are closed server-side
   // from the stale heartbeat, so no second is ever lost.
   const sessionIdRef = useRef<string | null>(null);
-  const sessionCharsRef = useRef(0);
+  const sessionCharsRef = useRef(0);        // script voice chars (Cost Live / NON Live)
+  const sessionCommentCharsRef = useRef(0); // AI comment/chat-reply voice chars (Cost Comment)
   const heartbeatRef = useRef<ReturnType<typeof setInterval> | null>(null);
   type UsageData = {
     rates: { gpuRateHour: number; voiceRate1k: number; audioRateGen: number; warmWindowSec?: number; currency: string };
@@ -208,7 +209,8 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
     costs?: {
       audioScript: { generations: number; chars: number; cost: number };
       live: { sessions: number; streamSec: number; voiceChars: number; gpuCost: number; voiceCost: number; cost: number };
-      testing: { sessions: number; streamSec: number; voiceChars: number; gpuCost: number; voiceCost: number; idleSec: number; idleCost: number; cost: number };
+      nonLive: { sessions: number; streamSec: number; voiceChars: number; gpuCost: number; voiceCost: number; idleSec: number; idleCost: number; cost: number };
+      comment: { chars: number; cost: number };
       total: number;
     };
     month: { streamSec: number; voiceChars: number; gpuCost: number; voiceCost: number; totalCost: number };
@@ -216,8 +218,8 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
     gpu: { streamSec: number; cost: number };
   };
   const [usageData, setUsageData] = useState<UsageData | null>(null);
-  const addVoiceChars = useCallback((n: number) => {
-    if (n > 0) sessionCharsRef.current += n;
+  const addVoiceChars = useCallback((n: number, isComment = false) => {
+    if (n > 0) { if (isComment) sessionCommentCharsRef.current += n; else sessionCharsRef.current += n; }
   }, []);
 
   const sessionPost = useCallback((payload: object) => {
@@ -240,6 +242,7 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
 
   const beginSession = useCallback(async () => {
     sessionCharsRef.current = 0;
+    sessionCommentCharsRef.current = 0;
     // tag the session: "live" = a timed live (duration set); "testing" = ad-hoc play
     const d = await sessionPost({ action: "start", sessionType: liveDurMsRef.current > 0 ? "live" : "testing" });
     if (d?.sessionId) {
@@ -247,7 +250,7 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
       if (heartbeatRef.current) clearInterval(heartbeatRef.current);
       heartbeatRef.current = setInterval(() => {
         if (sessionIdRef.current) {
-          sessionPost({ action: "heartbeat", sessionId: sessionIdRef.current, voiceChars: sessionCharsRef.current });
+          sessionPost({ action: "heartbeat", sessionId: sessionIdRef.current, voiceChars: sessionCharsRef.current, commentChars: sessionCommentCharsRef.current });
         }
       }, 15000); // 15s heartbeat → crash/shutdown loses ≤15s of billing
     }
@@ -271,7 +274,7 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
     const id = sessionIdRef.current;
     sessionIdRef.current = null;
     if (!id) return;
-    const payload = JSON.stringify({ action: "stop", sessionId: id, voiceChars: sessionCharsRef.current });
+    const payload = JSON.stringify({ action: "stop", sessionId: id, voiceChars: sessionCharsRef.current, commentChars: sessionCommentCharsRef.current });
     // sendBeacon survives tab close; fall back to fetch
     try {
       if (!navigator.sendBeacon("/api/livehost/session", new Blob([payload], { type: "application/json" }))) {
@@ -1076,7 +1079,7 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
           // next line is requested immediately / prefetched so it flows on.
           const startAt = isChat ? now : Math.max(now, audioEndRef.current);
           audioEndRef.current = startAt + durMs;
-          addVoiceChars(Number(m.chars) || 0);
+          addVoiceChars(Number(m.chars) || 0, isChat);
           if (ent && !isChat && durMs > 0) {
             const ht = setTimeout(() => {
               if (!playingRef.current) return;
@@ -1885,7 +1888,8 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
             {[
               { label: "Cost Audio Script", value: usageData?.costs ? `RM ${usageData.costs.audioScript.cost.toFixed(2)}` : "—", suffix: `${(usageData?.costs?.audioScript.chars ?? 0).toLocaleString()} aksara · ${usageData?.costs?.audioScript.generations ?? 0} generate`, glow: "rgba(59,130,246,0.12)", cls: "text-blue-500" },
               { label: "Cost Live", value: usageData?.costs ? `RM ${usageData.costs.live.cost.toFixed(2)}` : "—", suffix: `${Math.floor((usageData?.costs?.live.streamSec || 0) / 3600)}h ${Math.floor(((usageData?.costs?.live.streamSec || 0) % 3600) / 60)}m · ${usageData?.costs?.live.sessions ?? 0} live`, glow: "rgba(236,72,153,0.12)", cls: "text-pink-500" },
-              { label: "Cost Testing", value: usageData?.costs ? `RM ${usageData.costs.testing.cost.toFixed(2)}` : "—", suffix: `${usageData?.costs?.testing.sessions ?? 0} test + idle ${Math.floor((usageData?.costs?.testing.idleSec || 0) / 60)}m`, glow: "rgba(245,158,11,0.12)", cls: "text-amber-500" },
+              { label: "Cost NON Live", value: usageData?.costs ? `RM ${usageData.costs.nonLive.cost.toFixed(2)}` : "—", suffix: `${usageData?.costs?.nonLive.sessions ?? 0} sesi + idle ${Math.floor((usageData?.costs?.nonLive.idleSec || 0) / 60)}m`, glow: "rgba(245,158,11,0.12)", cls: "text-amber-500" },
+              { label: "Cost Comment", value: usageData?.costs ? `RM ${usageData.costs.comment.cost.toFixed(2)}` : "—", suffix: `${(usageData?.costs?.comment.chars ?? 0).toLocaleString()} aksara balas komen`, glow: "rgba(34,197,94,0.12)", cls: "text-emerald-500" },
               { label: "Baki kredit", value: usageData?.balance ? `RM ${usageData.balance.available.toFixed(2)}` : "—", suffix: `min RM${usageData?.balance?.minBalance ?? 5}`, glow: usageData?.balance?.low ? "rgba(239,68,68,0.18)" : "rgba(34,197,94,0.12)", cls: usageData?.balance?.low ? "text-red-500" : "text-emerald-500" },
             ].map((s, i) => (
               <div key={i} className="card relative overflow-hidden">
@@ -1904,7 +1908,8 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
             <div className="flex flex-wrap gap-x-6 gap-y-1 text-xs text-[var(--color-text-muted)] px-1">
               <span>🎙 Audio Script: RM {(usageData.costs?.audioScript.cost ?? 0).toFixed(2)} · {(usageData.costs?.audioScript.chars ?? 0).toLocaleString()} aksara · RM {usageData.rates.audioRateGen.toFixed(2)}/1k aksara</span>
               <span>🔴 Live: RM {(usageData.costs?.live.cost ?? 0).toFixed(2)} · GPU RM {usageData.rates.gpuRateHour.toFixed(2)}/jam</span>
-              <span>🧪 Testing: RM {(usageData.costs?.testing.cost ?? 0).toFixed(2)} (incl. idle RM {(usageData.costs?.testing.idleCost ?? 0).toFixed(2)})</span>
+              <span>🧪 NON Live: RM {(usageData.costs?.nonLive.cost ?? 0).toFixed(2)} (incl. idle RM {(usageData.costs?.nonLive.idleCost ?? 0).toFixed(2)})</span>
+              <span>💬 Comment: RM {(usageData.costs?.comment.cost ?? 0).toFixed(2)} · RM {usageData.rates.voiceRate1k.toFixed(2)}/1k</span>
               <span>💰 Jumlah: RM {(usageData.costs?.total ?? usageData.month.totalCost).toFixed(2)}</span>
             </div>
           )}

@@ -83,8 +83,12 @@ export default function LivehostInteractions() {
           <div className="hint" style={{ marginTop: 2 }}>COST LIVE</div>
         </div>
         <div className="usage-card" style={{ textAlign: "center", borderColor: "rgba(245,158,11,.4)" }}>
-          <div className="usage-big" style={{ color: "#f59e0b" }}>RM {costs ? costs.testing.cost.toFixed(2) : "0.00"}</div>
-          <div className="hint" style={{ marginTop: 2 }}>COST TESTING</div>
+          <div className="usage-big" style={{ color: "#f59e0b" }}>RM {costs ? costs.nonLive.cost.toFixed(2) : "0.00"}</div>
+          <div className="hint" style={{ marginTop: 2 }}>COST NON LIVE</div>
+        </div>
+        <div className="usage-card" style={{ textAlign: "center", borderColor: "rgba(34,197,94,.4)" }}>
+          <div className="usage-big" style={{ color: "#22c55e" }}>RM {costs ? costs.comment.cost.toFixed(2) : "0.00"}</div>
+          <div className="hint" style={{ marginTop: 2 }}>COST COMMENT</div>
         </div>
         <div className="usage-card" style={{ textAlign: "center", borderColor: balance?.low ? "rgba(239,68,68,.5)" : "rgba(34,197,94,.4)" }}>
           <div className="usage-big" style={{ color: balance?.low ? "#ef4444" : "#22c55e" }}>RM {balance ? balance.available.toFixed(2) : "—"}</div>

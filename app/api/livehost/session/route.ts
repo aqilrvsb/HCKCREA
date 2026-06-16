@@ -35,7 +35,7 @@ export async function POST(req: Request) {
   if (!user) return NextResponse.json({ error: "unauthenticated" }, { status: 401 });
   const admin = createAdminClient();
   const body = await req.json().catch(() => ({}));
-  const { action, sessionId, voiceChars, sessionType } = body || {};
+  const { action, sessionId, voiceChars, commentChars, sessionType } = body || {};
 
   if (action === "start") {
     await closeStale(admin, user.id);
@@ -60,6 +60,7 @@ export async function POST(req: Request) {
     if (!sessionId) return NextResponse.json({ error: "sessionId required" }, { status: 400 });
     const patch: Record<string, unknown> = { last_seen: new Date().toISOString() };
     if (typeof voiceChars === "number" && voiceChars >= 0) patch.voice_chars = Math.round(voiceChars);
+    if (typeof commentChars === "number" && commentChars >= 0) patch.comment_chars = Math.round(commentChars);
     if (action === "stop") {
       patch.ended_at = new Date().toISOString();
       patch.status = "ended";
@@ -121,7 +122,7 @@ export async function GET(req: Request) {
 
   const { data: sessions } = await admin
     .from("live_sessions")
-    .select("id, started_at, ended_at, last_seen, voice_chars, status, session_type")
+    .select("id, started_at, ended_at, last_seen, voice_chars, comment_chars, status, session_type")
     .eq("user_id", user.id)
     .order("started_at", { ascending: false })
     .limit(200);
@@ -160,16 +161,18 @@ export async function GET(req: Request) {
   let liveSec = 0, liveChars = 0, liveCount = 0;
   let testSec = 0, testChars = 0, testCount = 0;
   let idleSec = 0;
+  let commentChars = 0; // AI comment/chat-reply voice across all sessions → Cost Comment
   for (let i = 0; i < asc.length; i++) {
     const s = asc[i];
     const start = new Date(s.started_at).getTime();
     const end = s.ended_at ? new Date(s.ended_at).getTime() : now;
     const durSec = Math.max(0, Math.round((end - start) / 1000));
     if (inPeriod(start)) {
+      commentChars += Number(s.comment_chars) || 0;
       if (s.session_type === "testing") { testSec += durSec; testChars += Number(s.voice_chars); testCount++; }
       else { liveSec += durSec; liveChars += Number(s.voice_chars); liveCount++; }
     }
-    // warm-idle after this session (worker up, not streaming) → counts as testing overhead
+    // warm-idle after this session (worker up, not streaming) → counts as NON-Live overhead
     const nextStart = i + 1 < asc.length ? new Date(asc[i + 1].started_at).getTime() : now;
     const gapSec = Math.max(0, (nextStart - end) / 1000);
     if (inPeriod(end)) idleSec += Math.min(warmWindowSec, gapSec);
@@ -191,9 +194,10 @@ export async function GET(req: Request) {
   const testGpu = (testSec / 3600) * gpuRate;
   const testVoice = (testChars / 1000) * voiceRate;
   const idleCost = (idleSec / 3600) * gpuRate;
+  const commentCost = (commentChars / 1000) * voiceRate;
   const liveCost = liveGpu + liveVoice;
-  const testingCost = testGpu + testVoice + idleCost;
-  const grandTotal = liveCost + testingCost + audioCost;
+  const nonLiveCost = testGpu + testVoice + idleCost;
+  const grandTotal = liveCost + nonLiveCost + audioCost + commentCost;
 
   // Credit balance guard: available = credits − livehost cost (this period).
   const { data: prof } = await admin.from("profiles").select("credits").eq("id", user.id).maybeSingle();
@@ -205,11 +209,14 @@ export async function GET(req: Request) {
     // credit balance guard (Start blocked + worker auto-stopped at/below minBalance)
     balance: { credits: +credits.toFixed(2), spent: +grandTotal.toFixed(2), available, minBalance, low: available <= minBalance },
     sessions: rows,
-    // 3-category breakdown (the source of truth for Usage + Dashboard)
+    // 4-category breakdown (the source of truth for Usage + Dashboard):
+    // Live = timed live, NON Live = ad-hoc play + warm idle, Audio Script =
+    // pre-gen, Comment = AI replies to viewer comments (voice).
     costs: {
       audioScript: { generations: audioGenerations, chars: audioChars, cost: +audioCost.toFixed(2) },
       live: { sessions: liveCount, streamSec: liveSec, voiceChars: liveChars, gpuCost: +liveGpu.toFixed(2), voiceCost: +liveVoice.toFixed(2), cost: +liveCost.toFixed(2) },
-      testing: { sessions: testCount, streamSec: testSec, voiceChars: testChars, gpuCost: +testGpu.toFixed(2), voiceCost: +testVoice.toFixed(2), idleSec, idleCost: +idleCost.toFixed(2), cost: +testingCost.toFixed(2) },
+      nonLive: { sessions: testCount, streamSec: testSec, voiceChars: testChars, gpuCost: +testGpu.toFixed(2), voiceCost: +testVoice.toFixed(2), idleSec, idleCost: +idleCost.toFixed(2), cost: +nonLiveCost.toFixed(2) },
+      comment: { chars: commentChars, cost: +commentCost.toFixed(2) },
       total: +grandTotal.toFixed(2),
     },
     // backward-compatible fields (legacy consumers)

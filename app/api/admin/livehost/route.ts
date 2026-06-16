@@ -39,7 +39,7 @@ export async function GET(req: Request) {
   const toUtc = end ? malaysiaDayToUtcRange(end, "end") : "";
   let sessQ = admin
     .from("live_sessions")
-    .select("user_id, started_at, ended_at, last_seen, voice_chars, status")
+    .select("user_id, started_at, ended_at, last_seen, voice_chars, comment_chars, status")
     .in("user_id", ids.length ? ids : ["00000000-0000-0000-0000-000000000000"]);
   if (fromUtc) sessQ = sessQ.gte("started_at", fromUtc);
   if (toUtc) sessQ = sessQ.lte("started_at", toUtc);
@@ -51,7 +51,8 @@ export async function GET(req: Request) {
     const durSec = Math.max(0, Math.round((endMs - new Date(sx.started_at).getTime()) / 1000));
     const a = agg.get(sx.user_id) || { sec: 0, chars: 0, count: 0, live: false };
     a.sec += durSec;
-    a.chars += Number(sx.voice_chars) || 0;
+    // include both script voice + comment-reply voice in the per-client total
+    a.chars += (Number(sx.voice_chars) || 0) + (Number(sx.comment_chars) || 0);
     a.count += 1;
     if (sx.status === "active") a.live = true;
     agg.set(sx.user_id, a);
