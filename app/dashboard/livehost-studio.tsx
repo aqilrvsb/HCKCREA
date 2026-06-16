@@ -333,6 +333,14 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
   const [scriptPaused, setScriptPaused] = useState(false);
   const [scriptWaiting, setScriptWaiting] = useState(false);
   const [scriptLoop, setScriptLoop] = useState(false);
+  // LIVE DURATION: hours+minutes the live should run. >0 → loop the rundown and
+  // auto-stop exactly when the time is up; 0:00 → run as usual (manual/loop checkbox).
+  const [liveDurH, setLiveDurH] = useState(0);
+  const [liveDurM, setLiveDurM] = useState(0);
+  const [liveTimer, setLiveTimer] = useState(""); // formatted H:MM:SS shown above teleprompter
+  const liveEndAtRef = useRef(0);     // perf.now() deadline (0 = no fixed duration → count up)
+  const liveStartAtRef = useRef(0);   // perf.now() when the live started (for count-up)
+  const liveTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const scriptsRef = useRef<Script[]>([]);
   const rundownRef = useRef<string[]>([]);
   const posRef = useRef<{ s: number; l: number }>({ s: 0, l: 0 });
@@ -377,6 +385,8 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
   useEffect(() => { scriptsRef.current = scripts; }, [scripts]);
   useEffect(() => { rundownRef.current = rundown; }, [rundown]);
   useEffect(() => { loopRef.current = scriptLoop; }, [scriptLoop]);
+  const liveDurMsRef = useRef(0);
+  useEffect(() => { liveDurMsRef.current = (liveDurH * 3600 + liveDurM * 60) * 1000; }, [liveDurH, liveDurM]);
 
   const curScript = useMemo(() => {
     const id = rundown[playPos.s >= 0 ? playPos.s : 0];
@@ -518,6 +528,8 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
     if (typeof saved.offsetX === "number") setOffsetX(saved.offsetX);
     if (typeof saved.offsetY === "number") setOffsetY(saved.offsetY);
     if (typeof saved.scriptLoop === "boolean") { setScriptLoop(saved.scriptLoop); loopRef.current = saved.scriptLoop; }
+    if (typeof saved.liveDurH === "number") setLiveDurH(saved.liveDurH);
+    if (typeof saved.liveDurM === "number") setLiveDurM(saved.liveDurM);
     if (typeof saved.volume === "number") setVolume(saved.volume);
     if (typeof saved.speed === "number") setSpeed(saved.speed);
     if (saved.badgePos && typeof saved.badgePos.x === "number") setBadgePos(saved.badgePos);
@@ -567,10 +579,10 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
   useEffect(() => {
     if (!hydratedRef.current) return;
     try {
-      localStorage.setItem("livehost_settings", JSON.stringify({ stockSel, overlaySel, voiceId, zoom, offsetX, offsetY, scriptLoop, rundown, volume, speed, badgePos, emotion }));
+      localStorage.setItem("livehost_settings", JSON.stringify({ stockSel, overlaySel, voiceId, zoom, offsetX, offsetY, scriptLoop, rundown, volume, speed, badgePos, emotion, liveDurH, liveDurM }));
     } catch {}
     saveLivehostState();
-  }, [stockSel, overlaySel, voiceId, zoom, offsetX, offsetY, scriptLoop, rundown, volume, speed, badgePos, emotion]);
+  }, [stockSel, overlaySel, voiceId, zoom, offsetX, offsetY, scriptLoop, rundown, volume, speed, badgePos, emotion, liveDurH, liveDurM]);
   // (Scripts persist to Supabase via /api/livehost/scripts — no localStorage copy.)
   useEffect(() => {
     if (!hydratedRef.current) return;
@@ -769,8 +781,37 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
     }, 100);
   }, []);
 
+  // LIVE TIMER: ticks the H:MM:SS shown above the teleprompter. If a fixed
+  // duration was set (liveEndAtRef>0) it COUNTS DOWN and auto-stops the stream at
+  // zero; otherwise it COUNTS UP (elapsed) and never auto-stops.
+  const startLiveTimer = useCallback(() => {
+    if (liveTimerRef.current) clearInterval(liveTimerRef.current);
+    const fmt = (ms: number) => {
+      const t = Math.max(0, Math.round(ms / 1000));
+      const h = Math.floor(t / 3600), m = Math.floor((t % 3600) / 60), s = t % 60;
+      return `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+    };
+    const tick = () => {
+      if (liveEndAtRef.current > 0) {
+        const rem = liveEndAtRef.current - performance.now();
+        setLiveTimer(fmt(rem));
+        if (rem <= 0) {
+          setLiveTimer("0:00:00");
+          if (liveTimerRef.current) { clearInterval(liveTimerRef.current); liveTimerRef.current = null; }
+          stopRef.current?.(); // duration reached → end the live cleanly
+        }
+      } else {
+        setLiveTimer(fmt(performance.now() - liveStartAtRef.current));
+      }
+    };
+    tick();
+    liveTimerRef.current = setInterval(tick, 1000);
+  }, []);
+
   const stop = useCallback(() => {
     endSession(); // server records the exact end second
+    if (liveTimerRef.current) { clearInterval(liveTimerRef.current); liveTimerRef.current = null; }
+    liveEndAtRef.current = 0; setLiveTimer("");
     playingRef.current = false;
     setScriptPlaying(false);
     setScriptPaused(false);
@@ -904,6 +945,17 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
           posRef.current = { s: 0, l: 0 };
           audioEndRef.current = 0;
           pendingSayRef.current.clear();
+          // LIVE DURATION: if set (>0), loop the rundown and auto-stop when time's
+          // up (count DOWN); if 0:00, run as usual (count UP, no auto-stop).
+          const durMs = liveDurMsRef.current;
+          liveStartAtRef.current = performance.now();
+          if (durMs > 0) {
+            liveEndAtRef.current = performance.now() + durMs;
+            loopRef.current = true; setScriptLoop(true); // rotate scripts until time's up
+          } else {
+            liveEndAtRef.current = 0; // count-up, honor the manual loop checkbox
+          }
+          startLiveTimer();
           speakNext();
           speakNext();
         }
@@ -1339,6 +1391,18 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
                 {/* Only SAVED scripts (with bundled audio) can go in the rundown. */}
                 {scripts.filter((s) => s.saved && s.audioUrl).map((s) => (<option key={s.id} value={s.id}>{s.title}</option>))}
               </select>
+              {!active && (
+                <div className="dur-row" title="Berapa lama live ini? Skrip akan loop ikut masa. 0:00 = main biasa (ikut checkbox loop).">
+                  <span className="dur-label">⏱ Durasi live</span>
+                  <input type="number" min={0} max={24} value={liveDurH}
+                    onChange={(e) => setLiveDurH(Math.max(0, Math.min(24, Math.floor(Number(e.target.value) || 0))))} />
+                  <span>jam</span>
+                  <input type="number" min={0} max={59} value={liveDurM}
+                    onChange={(e) => setLiveDurM(Math.max(0, Math.min(59, Math.floor(Number(e.target.value) || 0))))} />
+                  <span>minit</span>
+                  <span className="hint">{(liveDurH || liveDurM) ? "→ skrip loop sampai habis masa" : "0:00 = main biasa"}</span>
+                </div>
+              )}
               <div className="loop-row">
                 {/* IDLE state: ONLY ▶ Start is rendered. Stop/teleprompter-finish do NOT kill the GPU —
                     the 10-min idle watchdog keeps it warm so this ▶ Start restarts INSTANTLY; only after
@@ -1377,6 +1441,11 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
             <div className="prompter-col">
               <div className="label">
                 Teleprompter{curScript ? ` — ${curScript.title}` : ""}{playPos.l >= 0 ? ` (${playPos.l + 1}/${curLines.length})` : ""}
+                {active && liveTimer && (
+                  <span className="live-timer" title={liveEndAtRef.current > 0 ? "Masa baki (auto-stop bila 0)" : "Masa berjalan"}>
+                    {liveEndAtRef.current > 0 ? "⏳" : "⏱"} {liveTimer}
+                  </span>
+                )}
               </div>
               <div className="prompter">
                 {curLines.map((ln, i) => {
@@ -1875,6 +1944,11 @@ const STUDIO_CSS = `
 .lh-studio .queue-btns button{padding:2px 5px;font-size:11px;background:rgba(255,255,255,.1);color:inherit;border-radius:5px;border:none;cursor:pointer;}
 .lh-studio .queue-btns button:hover{background:rgba(255,255,255,.24);}
 .lh-studio .loop-row{display:flex;align-items:center;justify-content:space-between;gap:6px;margin-top:10px;}
+.lh-studio .dur-row{display:flex;align-items:center;flex-wrap:wrap;gap:6px;margin-top:10px;font-size:12px;color:#a9b4d6;}
+.lh-studio .dur-row .dur-label{font-weight:800;letter-spacing:.04em;}
+.lh-studio .dur-row input{width:52px;text-align:center;padding:4px 6px;border-radius:8px;border:1px solid var(--border-s);background:rgba(0,0,0,.32);color:inherit;font-variant-numeric:tabular-nums;}
+.lh-studio .dur-row .hint{flex-basis:100%;font-size:11px;opacity:.7;}
+.lh-studio .live-timer{margin-left:auto;font-weight:800;font-variant-numeric:tabular-nums;color:#7ee08a;letter-spacing:.02em;text-transform:none;font-size:12px;}
 .lh-studio .restart-btn{background:rgba(255,255,255,.05);border:1px solid var(--border-s);color:var(--text);border-radius:9px;padding:7px 9px;font-size:12px;cursor:pointer;transition:all .15s;}
 .lh-studio .restart-btn:hover{border-color:var(--accent);background:rgba(99,102,241,.14);transform:translateY(-1px);}
 .lh-studio .restart-btn:disabled{opacity:.45;cursor:not-allowed;transform:none;}
