@@ -105,7 +105,10 @@ export async function GET(req: Request) {
 
   const rates = await getSettings(["livehost_gpu_rate_hour", "livehost_voice_rate_1k", "livehost_audio_rate_gen", "livehost_warm_window_sec", "livehost_min_balance"]);
   const gpuRate = parseFloat(rates["livehost_gpu_rate_hour"] || "6") || 6;
-  const voiceRate = parseFloat(rates["livehost_voice_rate_1k"] || "0.3") || 0.3;
+  // NOTE: allow a rate of exactly 0 (e.g. "live speech is free") — a plain
+  // `|| 0.3` fallback would wrongly snap 0 back to 0.3.
+  const _vr = parseFloat(rates["livehost_voice_rate_1k"] ?? "");
+  const voiceRate = Number.isFinite(_vr) ? _vr : 0.3;
   // Audio-script TTS is billed PER 1,000 CHARACTERS (matches how MiniMax charges
   // us) — not flat per generate — so long scripts can never under-charge.
   const audioRateGen = parseFloat(rates["livehost_audio_rate_gen"] || "0.3") || 0.3;

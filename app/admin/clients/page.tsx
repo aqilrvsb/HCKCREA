@@ -13,6 +13,7 @@ import {
   Trash2,
   X,
 } from "lucide-react";
+import { PLAN_KEYS, PLAN_DEFAULTS } from "@/lib/plans";
 
 type Client = {
   id: string;
@@ -645,7 +646,9 @@ function EditClientModal({
                 <FieldLabel>Plan</FieldLabel>
                 <DarkSelect value={plan} onChange={setPlan}>
                   <option value="free">Free</option>
-                  <option value="pro">Pro</option>
+                  {PLAN_KEYS.map((k) => (
+                    <option key={k} value={k}>{PLAN_DEFAULTS[k].label}</option>
+                  ))}
                 </DarkSelect>
               </div>
               <div>
