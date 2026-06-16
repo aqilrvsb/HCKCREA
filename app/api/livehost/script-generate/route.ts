@@ -18,7 +18,7 @@ const EMOTIONS = ["fluent", "happy", "neutral", "surprised", "sad", "angry", "fe
 // MiniMax t2a_v2 caps a request ~5k chars. We accept ANY length, split into
 // ≤CHUNK_CHARS pieces at sentence boundaries, synthesize each, then merge the
 // raw PCM back into one clip (same 24kHz mono format → seamless concat).
-const CHUNK_CHARS = 4000;
+const CHUNK_CHARS = 2500; // per playback piece (~2.5 min, ~7MB) — fast piece downloads
 const HARD_MAX = 40000; // safety bound (~8 chunks, ~5.7k words) to avoid timeouts/abuse
 const SR = 24000;
 const BUCKET = "livehost-audio";
@@ -135,32 +135,31 @@ export async function POST(req: Request) {
 
   try {
     const chunks = chunkText(text, CHUNK_CHARS);
-    // 120ms of silence (24kHz mono 16-bit) inserted between chunks for natural
-    // sentence separation, replacing MiniMax's variable per-clip padding.
-    const gap = Buffer.alloc(Math.floor((SR * 120) / 1000) * 2);
-    const parts: Buffer[] = [];
+    const admin = createAdminClient();
+    // CHUNKED PLAYBACK: synthesize each piece and upload it as its OWN small WAV.
+    // The studio sends the ordered list of piece URLs; the worker plays them
+    // gaplessly (downloads piece N+1 while N plays). No merge → no giant file →
+    // no download-timeout, instant start, unlimited length.
+    const audioPaths: string[] = [];
+    const audioUrls: string[] = [];
+    const batch = randomUUID();
     for (let i = 0; i < chunks.length; i++) {
       const pcm = trimSilence(await synth(chunks[i]));
-      if (i > 0) parts.push(gap);
-      parts.push(pcm);
+      if (!pcm.length) continue;
+      const wav = pcmToWav(pcm, SR, 1);
+      const path = `${user.id}/draft-${batch}-${String(i).padStart(3, "0")}.wav`;
+      const { error: upErr } = await admin.storage.from(BUCKET).upload(path, wav, { contentType: "audio/wav", upsert: true });
+      if (upErr) return NextResponse.json({ error: `upload failed: ${upErr.message}` }, { status: 500 });
+      const { data: signed } = await admin.storage.from(BUCKET).createSignedUrl(path, SIGN_TTL);
+      audioPaths.push(path);
+      audioUrls.push(signed?.signedUrl || "");
     }
-    const merged = Buffer.concat(parts);
-    if (!merged.length) return NextResponse.json({ error: "MiniMax returned no audio" }, { status: 502 });
-    const wav = pcmToWav(merged, SR, 1);
+    if (!audioPaths.length) return NextResponse.json({ error: "MiniMax returned no audio" }, { status: 502 });
 
-    // Upload the merged WAV straight to storage + return a signed URL — NOT
-    // base64. This removes the ~4.5MB request/response body cap, so a script of
-    // ANY length works (the audio never round-trips through the browser as text).
-    const admin = createAdminClient();
-    const draftPath = `${user.id}/draft-${randomUUID()}.wav`;
-    const { error: upErr } = await admin.storage.from(BUCKET).upload(draftPath, wav, { contentType: "audio/wav", upsert: true });
-    if (upErr) return NextResponse.json({ error: `upload failed: ${upErr.message}` }, { status: 500 });
-    const { data: signed } = await admin.storage.from(BUCKET).createSignedUrl(draftPath, SIGN_TTL);
-
-    // Billable: one generation event; chars = the FULL merged text length.
+    // Billable: one generation event; chars = the FULL text length.
     await admin.from("livehost_audio_gen").insert({ user_id: user.id, script_id: scriptId, chars: text.length });
 
-    return NextResponse.json({ ok: true, audio_url: signed?.signedUrl || null, audio_path: draftPath, mime: "audio/wav", chars: text.length, parts: chunks.length });
+    return NextResponse.json({ ok: true, audio_urls: audioUrls, audio_paths: audioPaths, mime: "audio/wav", chars: text.length, parts: audioPaths.length });
   } catch (e: any) {
     return NextResponse.json({ error: e?.message || "TTS network error" }, { status: 502 });
   }

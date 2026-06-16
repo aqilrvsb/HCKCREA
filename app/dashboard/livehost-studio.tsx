@@ -29,9 +29,9 @@ type Script = {
   // Per-script voice (set when authoring; travels into the rundown).
   voiceId: string; volume: number; speed: number; emotion: string;
   chars?: number;
-  audioUrl?: string | null;   // signed URL of the (saved OR freshly generated) audio
-  audioPath?: string | null;  // storage path of freshly generated audio, until Save persists it
-  audioB64?: string | null;   // legacy inline audio (no longer produced; kept for back-compat)
+  // Chunked playback: an ordered list of small audio pieces, played gaplessly.
+  audioUrls?: string[];       // signed URLs of the pieces (saved OR freshly generated)
+  audioPaths?: string[];      // storage paths of freshly generated draft pieces, until Save
   saved?: boolean;            // persisted to Supabase (livehost_scripts)
   generating?: boolean;       // Generate request in flight
   saving?: boolean;           // Save request in flight
@@ -449,7 +449,7 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
     if (!curScript) return [];
     // A pre-generated clip plays as ONE unit → show the whole script as a single
     // teleprompter block so the word-sweep tallies across the entire text + audio.
-    if (curScript.audioUrl) return [curScript.text];
+    if (curScript.audioUrls?.length) return [curScript.text];
     return splitSentences(curScript.text);
   }, [curScript]);
 
@@ -593,7 +593,7 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
         const list: Script[] = d.scripts.map((s: any) => ({
           id: s.id, title: s.title, text: s.text,
           voiceId: s.voiceId || VOICES[0].id, volume: s.volume ?? 1.5, speed: s.speed ?? 1.0, emotion: s.emotion || "fluent",
-          chars: s.chars, audioUrl: s.audioUrl || null, saved: true,
+          chars: s.chars, audioUrls: s.audioUrls || [], saved: true,
         }));
         setScripts(list); scriptsRef.current = list;
       }
@@ -814,18 +814,19 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
         return;
       }
       const sc = lib.find((x) => x.id === rd[s]);
-      // Saved script with pre-generated audio → play the whole clip as ONE unit
-      // (avatar lip-syncs to the exact audio you approved; no live TTS / billing).
-      if (sc && sc.audioUrl && l === 0) {
+      // Saved script with pre-generated audio → send the ORDERED LIST of pieces as
+      // ONE sayaudio; the worker plays them gaplessly (downloads piece N+1 while N
+      // plays). Avatar lip-syncs to the exact approved audio; no live TTS/billing.
+      if (sc && sc.audioUrls?.length && l === 0) {
         setScriptWaiting(false);
         posRef.current = { s: s + 1, l: 0 }; // next hop → next script
         const id = "L" + ++sayCounterRef.current;
         pendingSayRef.current.set(id, { s, l: 0 });
         const dc = dcRef.current;
-        if (dc && dc.readyState === "open") dc.send(JSON.stringify({ kind: "sayaudio", url: sc.audioUrl, id }));
+        if (dc && dc.readyState === "open") dc.send(JSON.stringify({ kind: "sayaudio", urls: sc.audioUrls, id }));
         return;
       }
-      // Fallback: any script without saved audio → live TTS, line by line.
+      // Live TTS, line by line (scripts without pre-generated audio).
       const lines = sc ? splitSentences(sc.text) : [];
       if (l >= lines.length) { s++; l = 0; hops++; continue; }
       setScriptWaiting(false);
@@ -1259,7 +1260,7 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
   const updateScript = useCallback((id: string, patch: Partial<Script>) => {
     // Changing content/voice invalidates the saved/generated audio.
     const dirties = ["text", "voiceId", "volume", "speed", "emotion"].some((k) => k in patch);
-    setScripts((prev) => prev.map((s) => (s.id === id ? { ...s, ...patch, ...(dirties ? { saved: false, audioB64: null, audioUrl: null, audioPath: null } : {}) } : s)));
+    setScripts((prev) => prev.map((s) => (s.id === id ? { ...s, ...patch, ...(dirties ? { saved: false, audioUrls: [], audioPaths: [] } : {}) } : s)));
   }, []);
   const deleteScript = useCallback(async (id: string) => {
     if (!(await confirmDelete("Padam skrip ini?"))) return;
@@ -1279,15 +1280,26 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
     if (previewAudioRef.current) { previewAudioRef.current.pause(); previewAudioRef.current = null; }
     setPreviewPlayId(null); setPreviewFrac(0); setPreviewDur(0);
   }, []);
-  const playPreview = useCallback((id: string, src: string) => {
+  // Preview a script by playing its pieces back-to-back (chunked playback).
+  const playPreview = useCallback((id: string, srcs: string[]) => {
     if (previewAudioRef.current) { previewAudioRef.current.pause(); previewAudioRef.current = null; }
-    const a = new Audio(src);
-    previewAudioRef.current = a;
+    const list = (srcs || []).filter(Boolean);
+    if (!list.length) return;
     setPreviewPlayId(id); setPreviewFrac(0); setPreviewDur(0);
-    a.onloadedmetadata = () => setPreviewDur(Number.isFinite(a.duration) ? a.duration : 0);
-    a.ontimeupdate = () => { if (a.duration) setPreviewFrac(Math.min(1, a.currentTime / a.duration)); };
-    a.onended = () => { setPreviewPlayId(null); setPreviewFrac(1); previewAudioRef.current = null; };
-    a.play().catch(() => setPreviewPlayId(null));
+    let idx = 0;
+    const playOne = () => {
+      const a = new Audio(list[idx]);
+      previewAudioRef.current = a;
+      a.ontimeupdate = () => { if (a.duration) setPreviewFrac(Math.min(1, (idx + a.currentTime / a.duration) / list.length)); };
+      a.onended = () => {
+        if (previewAudioRef.current !== a) return; // superseded
+        idx++;
+        if (idx < list.length) playOne();
+        else { setPreviewPlayId(null); setPreviewFrac(1); previewAudioRef.current = null; }
+      };
+      a.play().catch(() => setPreviewPlayId(null));
+    };
+    playOne();
   }, []);
   // Scrub the preview audio (drag the seek bar) to skip forward/back.
   const seekPreview = useCallback((frac: number) => {
@@ -1305,9 +1317,9 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
         body: JSON.stringify({ text: sc.text, voice_id: sc.voiceId, volume: sc.volume, speed: sc.speed, emotion: sc.emotion, script_id: sc.saved ? sc.id : null }),
       });
       const d = await r.json();
-      if (!r.ok || !d?.audio_url) throw new Error(d?.error || "Generate gagal");
-      setScripts((prev) => prev.map((s) => (s.id === id ? { ...s, generating: false, audioUrl: d.audio_url, audioPath: d.audio_path, audioB64: null, chars: d.chars, saved: false } : s)));
-      playPreview(id, d.audio_url);
+      if (!r.ok || !Array.isArray(d?.audio_urls) || !d.audio_urls.length) throw new Error(d?.error || "Generate gagal");
+      setScripts((prev) => prev.map((s) => (s.id === id ? { ...s, generating: false, audioUrls: d.audio_urls, audioPaths: d.audio_paths, chars: d.chars, saved: false } : s)));
+      playPreview(id, d.audio_urls);
     } catch (e: any) {
       setScripts((prev) => prev.map((s) => (s.id === id ? { ...s, generating: false } : s)));
       alert("Generate gagal: " + (e?.message || e));
@@ -1317,18 +1329,18 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
   const saveScript = useCallback(async (id: string) => {
     const sc = scriptsRef.current.find((s) => s.id === id);
     if (!sc) return;
-    if (!sc.audioPath && !sc.audioB64) { alert("Generate audio dulu sebelum simpan."); return; }
+    if (!sc.audioPaths?.length) { alert("Generate audio dulu sebelum simpan."); return; }
     setScripts((prev) => prev.map((s) => (s.id === id ? { ...s, saving: true } : s)));
     try {
       const r = await fetch("/api/livehost/scripts", {
         method: "POST", headers: { "content-type": "application/json" },
-        body: JSON.stringify({ title: sc.title, text: sc.text, voice_id: sc.voiceId, volume: sc.volume, speed: sc.speed, emotion: sc.emotion, chars: sc.chars || sc.text.length, audio_path: sc.audioPath || undefined, audio_b64: sc.audioB64 || undefined }),
+        body: JSON.stringify({ title: sc.title, text: sc.text, voice_id: sc.voiceId, volume: sc.volume, speed: sc.speed, emotion: sc.emotion, chars: sc.chars || sc.text.length, audio_paths: sc.audioPaths }),
       });
       const d = await r.json();
       if (!r.ok || !d?.id) throw new Error(d?.error || "Simpan gagal");
       // Swap the draft id for the persisted Supabase id; keep rundown refs +
       // the open editor modal pointing at the same row (else it goes blank).
-      setScripts((prev) => prev.map((s) => (s.id === id ? { ...s, id: d.id, saved: true, saving: false, audioUrl: d.audioUrl, audioPath: null, audioB64: null } : s)));
+      setScripts((prev) => prev.map((s) => (s.id === id ? { ...s, id: d.id, saved: true, saving: false, audioUrls: d.audioUrls, audioPaths: [] } : s)));
       setRundown((prev) => prev.map((x) => (x === id ? d.id : x)));
       setScriptEditId((cur) => (cur === id ? d.id : cur));
     } catch (e: any) {
@@ -1355,8 +1367,7 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
   const playSaved = useCallback((id: string) => {
     if (previewPlayId === id) { stopPreview(); return; }
     const sc = scriptsRef.current.find((s) => s.id === id);
-    const src = sc?.audioUrl || (sc?.audioB64 ? `data:audio/mpeg;base64,${sc.audioB64}` : null);
-    if (src) playPreview(id, src);
+    if (sc?.audioUrls?.length) playPreview(id, sc.audioUrls);
   }, [previewPlayId, stopPreview, playPreview]);
 
   const addToRundown = useCallback((id: string) => {
@@ -1530,7 +1541,7 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
               <select value={rundownAdd} onChange={(e) => addToRundown(e.target.value)}>
                 <option value="">➕ Add script to rundown…</option>
                 {/* Only SAVED scripts (with bundled audio) can go in the rundown. */}
-                {scripts.filter((s) => s.saved && s.audioUrl).map((s) => (<option key={s.id} value={s.id}>{s.title}</option>))}
+                {scripts.filter((s) => s.saved && s.audioUrls?.length).map((s) => (<option key={s.id} value={s.id}>{s.title}</option>))}
               </select>
               {!active && (
                 <div className="dur-row" title="Berapa lama live ini? Skrip akan loop ikut masa. 0:00 = main biasa (ikut checkbox loop).">
@@ -1778,7 +1789,7 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
               <LhGrid>
                 {scripts.map((s) => {
                   const inRundown = rundown.includes(s.id);
-                  const hasAudio = !!(s.audioUrl || s.audioB64);
+                  const hasAudio = !!s.audioUrls?.length;
                   return (
                     <div key={s.id} onClick={() => setScriptEditId(s.id)} title="Klik untuk edit"
                       style={{ position: "relative", cursor: "pointer", borderRadius: 14, padding: "12px 14px", minHeight: 92,
@@ -1805,7 +1816,7 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
             const inRundown = rundown.includes(s.id);
             const words = s.text.split(/\s+/).filter(Boolean);
             const onCount = previewPlayId === s.id ? Math.round(previewFrac * words.length) : -1;
-            const hasAudio = !!(s.audioUrl || s.audioB64);
+            const hasAudio = !!s.audioUrls?.length;
             return (
               <>
                 <LhLabel>Tajuk skrip</LhLabel>
@@ -1839,7 +1850,7 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
                 <div className="flex flex-wrap gap-2 mt-4">
                   <LhButton onClick={() => generateScript(s.id)} disabled={s.generating || !s.text.trim()}>{s.generating ? "⏳ Generating…" : "🎙 Generate"}</LhButton>
                   <LhButton variant="ghost" onClick={() => playSaved(s.id)} disabled={!hasAudio}>{previewPlayId === s.id ? "■ Stop" : "▶ Play"}</LhButton>
-                  <LhButton variant="ghost" onClick={() => saveScript(s.id)} disabled={(!s.audioPath && !s.audioB64) || s.saved || s.saving}>{s.saving ? "⏳ Saving…" : s.saved ? "💾 Saved" : "💾 Save"}</LhButton>
+                  <LhButton variant="ghost" onClick={() => saveScript(s.id)} disabled={!s.audioPaths?.length || s.saved || s.saving}>{s.saving ? "⏳ Saving…" : s.saved ? "💾 Saved" : "💾 Save"}</LhButton>
                 </div>
 
                 {previewPlayId === s.id && (
