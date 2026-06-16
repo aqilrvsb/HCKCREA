@@ -17,6 +17,7 @@ import type { Attachment, AttachmentCategory } from "./attachments";
 import { CategoryPickModal } from "./attachments";
 import Portal from "./portal";
 import { compressImageIfNeeded } from "@/lib/compress-image";
+import { keyBlackToTransparent } from "@/lib/key-transparent";
 
 const PAGE_SIZE = 25;
 
@@ -39,6 +40,7 @@ export default function AttachmentPicker({
   productLabel = "Product",
   categories = ["product", "avatar", "all"],
   pngOnly = false,
+  autoTransparent = false,
 }: {
   open: boolean;
   onClose: () => void;
@@ -63,6 +65,9 @@ export default function AttachmentPicker({
   categories?: (AttachmentCategory | "all")[];
   // Restrict uploads to PNG (Livehost avatars/templates need transparency).
   pngOnly?: boolean;
+  // Auto-key the solid black background of uploads → transparent PNG (Livehost
+  // templates exported from Canva free, which can't export transparency).
+  autoTransparent?: boolean;
 }) {
   const multi = !!onPickMulti;
   // Single-purpose pickers (e.g. Livehost avatar / template) upload straight
@@ -182,11 +187,14 @@ export default function AttachmentPicker({
       const failures: { name: string; reason: string }[] = [];
       for (const file of files) {
         try {
-          // Browser-side compression — see Attachments section for why
-          // (Vercel rejects >4.5MB bodies as HTML, crashing the client).
-          const compressed = await compressImageIfNeeded(file);
+          // Template uploads: key out the solid black background → transparent
+          // PNG (so users don't need Canva Pro). Skips JPEG compression to keep
+          // the alpha channel. Other uploads use the normal compressor.
+          const outFile = autoTransparent
+            ? await keyBlackToTransparent(file)
+            : (await compressImageIfNeeded(file)).file;
           const fd = new FormData();
-          fd.append("file", compressed.file);
+          fd.append("file", outFile);
           fd.append("name", file.name.replace(/\.[^.]+$/, ""));
           fd.append("category", category);
           const r = await fetch("/api/attachments/upload", {
@@ -229,7 +237,7 @@ export default function AttachmentPicker({
         window.dispatchEvent(new CustomEvent("attachments:changed"));
       }
     },
-    [pendingFiles, filter]
+    [pendingFiles, filter, autoTransparent]
   );
 
   if (!open) return null;

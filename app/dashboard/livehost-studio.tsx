@@ -1797,6 +1797,7 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
         categories={["product"]}
         productLabel="Template"
         pngOnly
+        autoTransparent
         presets={overlays.map((o) => ({ id: `ovl:${o.file}`, name: o.label, public_url: `/overlays/${o.file}`, category: "product" as const }))}
         onPick={(a) => {
           if (a.id.startsWith("ovl:")) { setOverlaySel(a.id.slice("ovl:".length)); setCustomOverlay(""); }
