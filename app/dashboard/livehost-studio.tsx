@@ -255,6 +255,19 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
 
   const endSession = useCallback(() => {
     if (heartbeatRef.current) { clearInterval(heartbeatRef.current); heartbeatRef.current = null; }
+    // POOL: always release our slot on teardown — even if we never reached a
+    // session (e.g. tab closed mid cold-start) — so it never lingers busy.
+    // sendBeacon survives tab close; carries cookies for auth.
+    if (poolModeRef.current) {
+      const rel = JSON.stringify({ action: "release" });
+      try {
+        if (!navigator.sendBeacon("/api/livehost/pool", new Blob([rel], { type: "application/json" }))) {
+          fetch("/api/livehost/pool", { method: "POST", headers: { "content-type": "application/json" }, body: rel, keepalive: true }).catch(() => {});
+        }
+      } catch {
+        fetch("/api/livehost/pool", { method: "POST", headers: { "content-type": "application/json" }, body: rel, keepalive: true }).catch(() => {});
+      }
+    }
     const id = sessionIdRef.current;
     sessionIdRef.current = null;
     if (!id) return;
