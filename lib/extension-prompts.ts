@@ -115,6 +115,42 @@ Lighting is warm golden afternoon light, creating a nostalgic kampung atmosphere
 Style: photorealistic, emotional portrait, documentary style, 85mm lens, f/1.8, warm golden tones, sentimental mood.`,
 ];
 
+// Livehost Avatar tab — hardcoded host-pose prompts (STANDING / SIT) for the
+// live-commerce talking-head avatar. Female + male, waist-up, clean studio look.
+export const AVATAR_POSE_PROMPTS = {
+  femaleStand: `A beautiful Malay woman in her mid-20s with smooth glowing skin, natural soft makeup, glossy lips, defined brows, and a warm confident smile, wearing an elegant modern baju kurung in a soft pastel tone with a neatly draped matching hijab.
+
+She is standing upright facing the camera in a clean, softly-lit modern studio with a warm neutral background. Waist-up framing, shoulders square to the camera, hands relaxed naturally in front, poised and approachable pose.
+
+Soft diffused studio lighting with a gentle glow highlighting her face and outfit details. Cinematic, high detail, ultra-realistic skin texture, sharp focus, shallow depth of field with a softly blurred background.
+
+Style: photorealistic, premium live-host portrait, high-end editorial, 85mm lens, f/1.8, warm clean tones, 9:16 vertical.`,
+
+  femaleSit: `A beautiful Malay woman in her mid-20s with fresh dewy skin, natural makeup, soft brown eyes, and a friendly genuine smile, wearing a smart-casual modern outfit with a softly draped hijab.
+
+She is sitting comfortably and upright on a stylish chair facing the camera in a cozy, softly-lit modern interior with a clean warm background and subtle décor. Waist-up framing, relaxed approachable posture, hands resting gently on her lap, leaning very slightly forward.
+
+Soft natural lighting with a warm glow creating gentle shadows. Cinematic, high detail, ultra-realistic skin texture, sharp focus, shallow depth of field with a softly blurred interior.
+
+Style: photorealistic, premium live-host portrait, lifestyle aesthetic, 50mm lens, f/2.0, warm clean tones, 9:16 vertical.`,
+
+  maleStand: `A handsome Malay man in his mid-20s with clean grooming, a sharp jawline, warm brown skin, defined brows, and a confident charming smile, wearing a smart-casual modern shirt with a neat fit.
+
+He is standing tall facing the camera in a clean, softly-lit modern studio with a warm neutral background. Waist-up framing, shoulders square to the camera, relaxed confident posture with arms resting naturally by his sides.
+
+Soft diffused studio lighting with crisp highlights on his face and clothing. Cinematic, high detail, ultra-realistic skin texture, sharp focus, shallow depth of field with a softly blurred background.
+
+Style: photorealistic, premium live-host portrait, high-end editorial, 85mm lens, f/1.8, warm clean tones, 9:16 vertical.`,
+
+  maleSit: `A friendly Malay man in his mid-20s with neat short hair, light stubble, warm skin, bright expressive eyes, and a genuine welcoming smile, wearing a smart-casual modern shirt.
+
+He is sitting upright and relaxed on a stylish chair facing the camera in a cozy, softly-lit modern interior with a clean warm background. Waist-up framing, approachable posture, one hand resting casually, leaning slightly forward as if talking to the viewer.
+
+Soft natural lighting with a warm glow and gentle shadows. Cinematic, high detail, ultra-realistic skin texture, sharp focus, shallow depth of field with a softly blurred interior.
+
+Style: photorealistic, premium live-host portrait, lifestyle aesthetic, 50mm lens, f/2.0, warm clean tones, 9:16 vertical.`,
+};
+
 // Product prompts (7 backdrops)
 export const PRODUCT_PROMPTS = [
   // 0: Smoke Rock

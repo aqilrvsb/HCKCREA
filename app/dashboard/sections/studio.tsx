@@ -127,16 +127,18 @@ export default function StudioSection({ only }: { only?: TabKey } = {}) {
         })}
       </div>
 
-      <div className="grid lg:grid-cols-2 gap-5 min-h-[600px]">
-        {/* LEFT — Workspace */}
-        <section className="card flex flex-col">
+      {/* Livehost "Avatar" (only="image") stacks vertically — generator on top
+          (centered), history full-width below. Full studio uses 2 columns. */}
+      <div className={only ? "flex flex-col gap-5 min-h-[600px]" : "grid lg:grid-cols-2 gap-5 min-h-[600px]"}>
+        {/* Workspace */}
+        <section className={`card flex flex-col ${only ? "w-full max-w-3xl mx-auto" : ""}`}>
           {tab === "auto" && <AutoContentTab />}
-          {tab === "image" && <ImageTab />}
+          {tab === "image" && <ImageTab avatar={only === "image"} />}
           {tab === "video" && <VideoTab />}
           {tab === "clone" && <CloneTab />}
         </section>
 
-        {/* RIGHT — History */}
+        {/* History */}
         <section className="card flex flex-col">
           <div className="flex items-center justify-between mb-5 pb-4 border-b border-[var(--color-border)]">
             <div className="flex items-center gap-2">
@@ -179,7 +181,7 @@ export default function StudioSection({ only }: { only?: TabKey } = {}) {
             </div>
           ) : (
             <div className="flex-1 overflow-y-auto -mx-4 px-4 max-h-[700px]">
-              <div className="grid grid-cols-2 gap-3">
+              <div className={only ? "grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3" : "grid grid-cols-2 gap-3"}>
                 {items.map((it) => (
                   <HistoryCard key={it.id} item={it} />
                 ))}

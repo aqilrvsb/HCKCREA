@@ -10,6 +10,7 @@ import AttachmentPicker from "../sections/attachment-picker";
 import {
   AVATAR_PROMPTS,
   AVATAR_LABELS,
+  AVATAR_POSE_PROMPTS,
   PRODUCT_PROMPTS as EXT_PRODUCT_PROMPTS,
   PRODUCT_LABELS,
   SOFT_SELL_PROMPT,
@@ -55,9 +56,22 @@ const SALES_PROMPTS = [
   { label: "Hard Sell", color: "#f44336", val: HARD_SELL_PROMPT },
 ];
 
+// Livehost Avatar variant — only STANDING / SIT pose presets (no personas,
+// no Product/Sales categories, no Mode dropdown).
+const AVATAR_POSE_FEMALE = [
+  { label: "🧍‍♀️ Standing", color: "#e91e63", val: AVATAR_POSE_PROMPTS.femaleStand },
+  { label: "🪑 Sit", color: "#e91e63", val: AVATAR_POSE_PROMPTS.femaleSit },
+];
+const AVATAR_POSE_MALE = [
+  { label: "🧍‍♂️ Standing", color: "#2196f3", val: AVATAR_POSE_PROMPTS.maleStand },
+  { label: "🪑 Sit", color: "#2196f3", val: AVATAR_POSE_PROMPTS.maleSit },
+];
+
 type RefSlot = "char" | "product" | "poster" | "virtProduct";
 
-export default function ImageTab({ projectId }: { projectId?: string } = {}) {
+export default function ImageTab({ projectId, avatar }: { projectId?: string; avatar?: boolean } = {}) {
+  // `avatar` = Livehost "Avatar" tab variant: only STANDING / SIT host poses,
+  // no Mode dropdown, no Product/Sales prompt categories.
   const [model, setModel] = useState<ImageModel>("nano-banana-pro");
   const [mode, setMode] = useState<Mode>("create");
   const [prompt, setPrompt] = useState("");
@@ -177,10 +191,10 @@ export default function ImageTab({ projectId }: { projectId?: string } = {}) {
 
   return (
     <div className="rounded-3xl p-6 md:p-8 space-y-5" style={sectionBg}>
-      {/* IMAGE GENERATOR — Model + Mode selectors */}
+      {/* IMAGE GENERATOR — Model (+ Mode, hidden in avatar variant) */}
       <Card borderColor={ORANGE}>
         <CardHeader icon="🖼️" title="Image Generator" />
-        <div className="grid grid-cols-2 gap-3">
+        <div className={avatar ? "" : "grid grid-cols-2 gap-3"}>
           <div>
             <Label>Model</Label>
             <Select value={model} onChange={(v) => setModel(v as ImageModel)}>
@@ -189,13 +203,15 @@ export default function ImageTab({ projectId }: { projectId?: string } = {}) {
               ))}
             </Select>
           </div>
-          <div>
-            <Label>Mode</Label>
-            <Select value={mode} onChange={(v) => setMode(v as Mode)}>
-              <option value="create">Create Image</option>
-              <option value="virtualize">Virtualize (Poster/Ad)</option>
-            </Select>
-          </div>
+          {!avatar && (
+            <div>
+              <Label>Mode</Label>
+              <Select value={mode} onChange={(v) => setMode(v as Mode)}>
+                <option value="create">Create Image</option>
+                <option value="virtualize">Virtualize (Poster/Ad)</option>
+              </Select>
+            </div>
+          )}
         </div>
       </Card>
 
@@ -307,7 +323,8 @@ export default function ImageTab({ projectId }: { projectId?: string } = {}) {
         <CardHeader icon="✏️" title="Prompt & Settings" />
         <Label>Prompt</Label>
 
-        {/* Prompt category tabs (Avatar/Product/Sales) */}
+        {/* Prompt category tabs (Avatar/Product/Sales) — hidden in avatar variant */}
+        {!avatar && (
         <div
           className="flex rounded-xl overflow-hidden mb-4"
           style={{ border: "1px solid #e8e0d8", padding: 4, gap: 4, background: "#fafaf7" }}
@@ -340,9 +357,36 @@ export default function ImageTab({ projectId }: { projectId?: string } = {}) {
             );
           })}
         </div>
+        )}
 
-        {/* Avatar presets */}
-        {promptCat === "avatar" && (
+        {/* Avatar variant — only STANDING / SIT host poses (female + male) */}
+        {avatar && (
+          <div className="space-y-3 mb-4">
+            <div>
+              <div className="text-[10px] font-bold uppercase tracking-wider text-gray-500 mb-1.5">
+                👩 Female
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {AVATAR_POSE_FEMALE.map((p) => (
+                  <PresetChip key={p.label} {...p} onClick={() => setPrompt(p.val)} />
+                ))}
+              </div>
+            </div>
+            <div>
+              <div className="text-[10px] font-bold uppercase tracking-wider text-gray-500 mb-1.5">
+                👨 Male
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {AVATAR_POSE_MALE.map((p) => (
+                  <PresetChip key={p.label} {...p} onClick={() => setPrompt(p.val)} />
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Avatar presets (full studio) */}
+        {!avatar && promptCat === "avatar" && (
           <div className="space-y-3 mb-4">
             <div>
               <div className="text-[10px] font-bold uppercase tracking-wider text-gray-500 mb-1.5">
@@ -368,7 +412,7 @@ export default function ImageTab({ projectId }: { projectId?: string } = {}) {
         )}
 
         {/* Product presets */}
-        {promptCat === "product" && (
+        {!avatar && promptCat === "product" && (
           <div className="flex flex-wrap gap-1.5 mb-4">
             {PRODUCT_PROMPTS.map((p) => (
               <PresetChip key={p.label} {...p} onClick={() => setPrompt(p.val)} />
@@ -377,7 +421,7 @@ export default function ImageTab({ projectId }: { projectId?: string } = {}) {
         )}
 
         {/* Sales presets */}
-        {promptCat === "sales" && (
+        {!avatar && promptCat === "sales" && (
           <div className="grid grid-cols-2 gap-2 mb-4">
             {SALES_PROMPTS.map((p) => (
               <button
