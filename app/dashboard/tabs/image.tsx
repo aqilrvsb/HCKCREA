@@ -236,25 +236,28 @@ export default function ImageTab({ projectId, avatar }: { projectId?: string; av
             />
           </Card>
 
-          <Card>
-            <CardHeader
-              icon="📦"
-              title="Product Reference (Optional)"
-              right={null}
-            />
-            <RefZone
-              url={productUrl}
-              icon="📦"
-              title="Click or drop product photo"
-              subtitle="Keeps packaging, labels, colors accurate"
-              onPick={() => setAttachmentSlot("product")}
-              onClear={() => setProductUrl("")}
-            />
-          </Card>
+          {!avatar && (
+            <Card>
+              <CardHeader
+                icon="📦"
+                title="Product Reference (Optional)"
+                right={null}
+              />
+              <RefZone
+                url={productUrl}
+                icon="📦"
+                title="Click or drop product photo"
+                subtitle="Keeps packaging, labels, colors accurate"
+                onPick={() => setAttachmentSlot("product")}
+                onClear={() => setProductUrl("")}
+              />
+            </Card>
+          )}
 
           <p className="text-[11px] text-gray-500 text-center -mt-2">
-            Both optional. Upload nothing → text-to-image. Upload one → reference.
-            Upload both → both used as references.
+            {avatar
+              ? "Optional. Upload a face → it's used as the avatar reference; leave empty → text-to-image."
+              : "Both optional. Upload nothing → text-to-image. Upload one → reference. Upload both → both used as references."}
           </p>
         </>
       )}

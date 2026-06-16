@@ -24,21 +24,30 @@ export async function GET() {
     .select("id, endpoint_id, runsync_url, label, status, assigned_user_id, assigned_at, last_seen, created_at")
     .order("created_at", { ascending: true });
 
-  // Resolve the holder's email for any busy slot.
+  // Resolve the holder's email + whether they're actively streaming (vs warmed-idle).
   const busyIds = [...new Set((pool || []).filter((p) => p.assigned_user_id).map((p) => p.assigned_user_id as string))];
   const emailById = new Map<string, string>();
+  const streamingUsers = new Set<string>();
   if (busyIds.length) {
-    const { data: usersPage } = await admin.auth.admin.listUsers({ page: 1, perPage: 1000 });
+    const [{ data: usersPage }, { data: actSessions }] = await Promise.all([
+      admin.auth.admin.listUsers({ page: 1, perPage: 1000 }),
+      admin.from("live_sessions").select("user_id").in("user_id", busyIds).eq("status", "active"),
+    ]);
     for (const u of usersPage?.users || []) emailById.set(u.id, u.email || "");
+    for (const s of actSessions || []) streamingUsers.add(s.user_id as string);
   }
 
   const rows = (pool || []).map((p) => ({
     ...p,
     holder_email: p.assigned_user_id ? emailById.get(p.assigned_user_id) || "" : "",
+    streaming: p.assigned_user_id ? streamingUsers.has(p.assigned_user_id) : false,
   }));
   const free = rows.filter((r) => r.status === "free").length;
   const busy = rows.filter((r) => r.status === "busy").length;
-  return NextResponse.json({ pool: rows, total: rows.length, free, busy });
+  // LEASE_SEC mirrors the 20-min hold (livehost_pool_assign stale + idle cron):
+  // a busy slot times out at last_seen + LEASE_SEC. now = server time so the UI
+  // can render an accurate live countdown without clock-skew.
+  return NextResponse.json({ pool: rows, total: rows.length, free, busy, leaseSec: 1200, now: new Date().toISOString() });
 }
 
 export async function POST(req: Request) {

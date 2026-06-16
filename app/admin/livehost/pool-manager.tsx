@@ -10,10 +10,27 @@ type Slot = {
   label: string | null;
   status: string;
   holder_email: string;
+  streaming: boolean;
   assigned_at: string | null;
   last_seen: string | null;
   created_at: string;
 };
+
+// mm:ss (or "—") for a millisecond remaining value.
+function fmtCountdown(ms: number): string {
+  if (!isFinite(ms)) return "—";
+  if (ms <= 0) return "0:00";
+  const s = Math.floor(ms / 1000);
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+}
+// "5m ago" / "1h 4m ago" for a past timestamp.
+function fmtAgo(ms: number): string {
+  const s = Math.max(0, Math.floor(ms / 1000));
+  if (s < 60) return `${s}s ago`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m ago`;
+  return `${Math.floor(m / 60)}h ${m % 60}m ago`;
+}
 
 // Admin: the shared 5090 serverless endpoint POOL. Create N endpoints (each a
 // single-worker $0-idle 5090), see free/busy live, delete spares. Clients are
@@ -25,15 +42,20 @@ export default function PoolManager() {
   const [count, setCount] = useState("5");
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState("");
+  const [leaseSec, setLeaseSec] = useState(1200);
+  const [clockOffset, setClockOffset] = useState(0); // serverNow − clientNow (ms)
+  const [, setTick] = useState(0); // 1s heartbeat to re-render live countdowns
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const r = await fetch("/api/admin/livehost/pool");
+      const r = await fetch("/api/admin/livehost/pool", { cache: "no-store" });
       const d = await r.json();
       if (r.ok) {
         setPool(d.pool || []);
         setStats({ total: d.total || 0, free: d.free || 0, busy: d.busy || 0 });
+        if (d.leaseSec) setLeaseSec(d.leaseSec);
+        if (d.now) setClockOffset(Date.parse(d.now) - Date.now());
       } else setMsg(d.error || "Load failed");
     } catch (e: any) {
       setMsg(String(e?.message || e));
@@ -43,6 +65,15 @@ export default function PoolManager() {
   }, []);
 
   useEffect(() => { load(); }, [load]);
+  // Auto-refresh the map every 10s, and tick the countdowns every 1s.
+  useEffect(() => {
+    const r = setInterval(load, 10000);
+    const t = setInterval(() => setTick((x) => x + 1), 1000);
+    return () => { clearInterval(r); clearInterval(t); };
+  }, [load]);
+
+  // serverNow estimate for live math (client clock + measured offset).
+  const serverNow = Date.now() + clockOffset;
 
   async function createEndpoints() {
     const n = Math.max(1, Math.min(50, Number(count) || 1));
@@ -89,7 +120,7 @@ export default function PoolManager() {
         <div>
           <h2 className="font-display font-extrabold text-lg">GPU Pool (5090 serverless)</h2>
           <p className="text-xs text-[var(--color-text-secondary)]">
-            Shared endpoints — clients round-robin a free slot on Play. $0 when idle.
+            Shared endpoints — round-robin a free slot per client; held 20 min then freed. $0 when idle. Live map auto-refreshes.
           </p>
         </div>
         <button onClick={load} className="ml-auto flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold"
@@ -128,7 +159,15 @@ export default function PoolManager() {
         <p className="text-sm text-[var(--color-text-secondary)]">No pool endpoints yet — create some above.</p>
       ) : (
         <div className="space-y-2">
-          {pool.map((s) => (
+          {pool.map((s) => {
+            // Live timeout: a busy slot frees at last_seen + leaseSec. While
+            // STREAMING the heartbeat keeps pushing last_seen, so it never
+            // expires mid-live (we show "live" instead of a countdown).
+            const lastSeenMs = s.last_seen ? Date.parse(s.last_seen) : NaN;
+            const remainMs = isFinite(lastSeenMs) ? lastSeenMs + leaseSec * 1000 - serverNow : NaN;
+            const sinceMs = s.assigned_at ? serverNow - Date.parse(s.assigned_at) : NaN;
+            const expiringSoon = isFinite(remainMs) && remainMs < 5 * 60 * 1000;
+            return (
             <div key={s.id} className="flex flex-wrap items-center gap-2 px-3 py-2 rounded-lg text-xs"
               style={{ background: "var(--color-bg-card)", border: "1px solid var(--color-border)" }}>
               <span className="px-2 py-0.5 rounded-md font-bold uppercase tracking-wider"
@@ -139,14 +178,32 @@ export default function PoolManager() {
                 {s.status}
               </span>
               <span className="font-mono text-[var(--color-text-secondary)]">{s.endpoint_id}</span>
-              {s.holder_email && <span className="text-[var(--color-text-muted)]">→ {s.holder_email}</span>}
-              <a href={s.runsync_url} target="_blank" rel="noreferrer" className="text-blue-400 hover:underline truncate max-w-[260px]">{s.runsync_url}</a>
+              {s.holder_email
+                ? <span className="font-semibold text-[var(--color-text-primary)]">→ {s.holder_email}</span>
+                : <span className="text-[var(--color-text-muted)]">— idle</span>}
+              {s.status === "busy" && (
+                s.streaming
+                  ? <span className="px-2 py-0.5 rounded-md font-bold" style={{ background: "rgba(239,68,68,0.15)", color: "#f87171" }}>● LIVE</span>
+                  : <span className="px-2 py-0.5 rounded-md font-bold" style={{ background: "rgba(96,165,250,0.15)", color: "#60a5fa" }}>warm-idle</span>
+              )}
+              {s.status === "busy" && isFinite(sinceMs) && (
+                <span className="text-[var(--color-text-muted)]">since {fmtAgo(sinceMs)}</span>
+              )}
+              {s.status === "busy" && (
+                s.streaming
+                  ? <span className="font-mono text-[var(--color-text-muted)]">timeout: live (no idle)</span>
+                  : <span className="font-mono font-bold" style={{ color: expiringSoon ? "#f87171" : "#fbbf24" }}>
+                      timeout in {fmtCountdown(remainMs)}
+                    </span>
+              )}
+              <a href={s.runsync_url} target="_blank" rel="noreferrer" className="text-blue-400 hover:underline truncate max-w-[220px]">{s.runsync_url}</a>
               <button onClick={() => removeEndpoint(s.endpoint_id)} disabled={busy}
                 className="ml-auto p-1.5 rounded-lg text-red-400 hover:bg-red-500/10 disabled:opacity-50" title="Delete endpoint">
                 <Trash2 className="w-3.5 h-3.5" />
               </button>
             </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>
