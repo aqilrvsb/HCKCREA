@@ -1,9 +1,10 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Radio, CreditCard, LayoutDashboard, MessageCircle, ArrowUpRight, ScrollText, Package, BarChart3, Paperclip, HeartHandshake, Send, LayoutTemplate } from "lucide-react";
+import { Radio, CreditCard, LayoutDashboard, MessageCircle, ArrowUpRight, ScrollText, Package, BarChart3, Paperclip, HeartHandshake, Send, LayoutTemplate, Image as ImageIcon } from "lucide-react";
 import LogoutButton from "./logout-button";
 import BillingSection from "./sections/billing";
+import StudioSection from "./sections/studio";
 import LivehostTopup from "./sections/livehost-topup";
 import AttachmentsSection from "./sections/attachments";
 import LivehostStudio, { type LiveView } from "./livehost-studio";
@@ -26,6 +27,7 @@ const NAV: { key: View; label: string; Icon: any; step?: number; stepColor?: str
   { key: "scripts", label: "Scripts", Icon: ScrollText, step: 2, stepColor: "#3b82f6" },
   { key: "products", label: "Knowledge", Icon: Package, step: 3, stepColor: "#f59e0b" },
   { key: "greetings", label: "Greetings", Icon: HeartHandshake, step: 4, stepColor: "#ec4899" },
+  { key: "avatar", label: "Avatar", Icon: ImageIcon },
   { key: "attachment", label: "Attachment", Icon: Paperclip },
   { key: "usage", label: "Usage", Icon: BarChart3 },
   { key: "billing", label: "Billing", Icon: CreditCard },
@@ -36,7 +38,7 @@ const NAV: { key: View; label: string; Icon: any; step?: number; stepColor?: str
 // (which itself shows ONLY the Livehost package for these users) + sign
 // out. None of the generation tabs / sidebar perks appear here.
 
-type View = "home" | "billing" | "livehost" | "template" | "scripts" | "products" | "usage" | "attachment" | "greetings" | "tiktok";
+type View = "home" | "billing" | "livehost" | "template" | "scripts" | "products" | "usage" | "attachment" | "greetings" | "avatar" | "tiktok";
 
 const STUDIO_VIEWS: View[] = ["livehost", "template", "scripts", "products", "usage"];
 
@@ -271,6 +273,8 @@ export default function LivehostDashboard({
               <BillingSection initialPlan="livehost" />
               <LivehostTopup credits={credits} />
             </div>
+          ) : view === "avatar" ? (
+            <StudioSection only="image" />
           ) : view === "attachment" ? (
             <AttachmentsSection presets={attachPresets} productLabel="Template" pngOnly />
           ) : view === "greetings" ? (

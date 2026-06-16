@@ -148,6 +148,12 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
   const connectingRef = useRef(false);
   useEffect(() => { activeRef.current = active; }, [active]);
   useEffect(() => { connectingRef.current = connecting; }, [connecting]);
+  // GPU warm state (pool): warm-on-open assigns a slot + boots the worker so ▶ Start
+  // is instant. "idle" → "warming" (spinner, Start disabled) → "ready" (Start enabled).
+  const [gpuWarm, setGpuWarm] = useState<"idle" | "warming" | "ready">("idle");
+  const gpuWarmRef = useRef<"idle" | "warming" | "ready">("idle");
+  useEffect(() => { gpuWarmRef.current = gpuWarm; }, [gpuWarm]);
+  const warmTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState("");
   const [overlays, setOverlays] = useState<{ file: string; label: string }[]>([]);
@@ -951,12 +957,46 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
   }, [endSession]);
   useEffect(() => { stopRef.current = stop; }, [stop]);
 
+  // Warm the GPU: assign a pool slot (if none) + boot the worker until /avatars
+  // answers. Used by WARM-ON-OPEN and by ▶ Start. Sets gpuWarm; true when ready.
+  const warmGpu = useCallback(async (): Promise<boolean> => {
+    if (gpuWarmRef.current === "ready" && backendRef.current) return true;
+    if (gpuWarmRef.current === "warming") return false;
+    setGpuWarm("warming");
+    if (poolModeRef.current && !backendRef.current) {
+      try {
+        const pr = await fetch("/api/livehost/pool", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "assign" }) });
+        const pd = await pr.json().catch(() => ({}));
+        if (!pr.ok || !pd.url) {
+          setGpuWarm("idle");
+          setError(pd.error === "all_busy" ? "Semua host sibuk sekarang — cuba sebentar lagi." : (pd.error || "Tiada GPU tersedia."));
+          return false;
+        }
+        backendRef.current = pd.url; setBackend(pd.url);
+      } catch { setGpuWarm("idle"); setError("Tiada GPU tersedia — cuba sekali lagi."); return false; }
+    }
+    if (!backendRef.current) { setGpuWarm("idle"); setError(configErr || "GPU belum dikonfigurasi."); return false; }
+    // Boot: poll /avatars until the worker answers (cold pull can take ~2–4 min);
+    // each poll keeps the worker alive so the cold start finishes.
+    const deadline = Date.now() + 7 * 60 * 1000;
+    for (let i = 0; Date.now() < deadline; i++) {
+      try {
+        const ping = await fetch(`${backendRef.current}/avatars`, { signal: AbortSignal.timeout(5000) });
+        if (ping.ok) { setGpuWarm("ready"); setWakeMsg(""); loadAvatarsRef.current?.(); return true; }
+      } catch {}
+      const s = i * 5;
+      setWakeMsg(s < 30 ? "GPU sedang dihidupkan… ⏳" : `GPU sedang dihidupkan… ${s}s (kali pertama ~2–3 minit) ⏳`);
+      await new Promise((r) => setTimeout(r, 5000));
+    }
+    setGpuWarm("idle"); setWakeMsg("");
+    setError("GPU lambat respons — buka semula tab Livehost.");
+    return false;
+  }, [configErr]);
+
   const start = useCallback(async () => {
     setError("");
-    if (!backendRef.current && !poolModeRef.current) { setError(configErr || "Config belum dimuatkan."); return; }
     if (!avatarId) { setError("Pick or upload a face first."); return; }
-    // BALANCE GUARD: don't even wake the GPU if the credit balance is already at/below
-    // the minimum threshold (RM5) — saves the user from a live that'd instantly stop.
+    // BALANCE GUARD: don't stream if the credit balance is already at/below the min.
     const bal = await fetchBalance();
     if (bal && bal.low) {
       setError(`Baki kredit tidak cukup (baki RM${bal.available.toFixed(2)}, minimum RM${bal.minBalance}). Sila top up dulu.`);
@@ -964,51 +1004,9 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
     }
     setConnecting(true);
     try {
-      // POOL MODE: grab a free 5090 serverless endpoint for this session. The
-      // slot stays ours (kept alive by the session heartbeat) until Stop.
-      if (poolModeRef.current) {
-        try {
-          const pr = await fetch("/api/livehost/pool", {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify({ action: "assign" }),
-          });
-          const pd = await pr.json().catch(() => ({}));
-          if (!pr.ok || !pd.url) {
-            setConnecting(false);
-            setError(pd.error === "all_busy"
-              ? "Semua host sibuk sekarang — cuba sebentar lagi."
-              : (pd.error || "Tiada GPU tersedia buat masa ini."));
-            return;
-          }
-          backendRef.current = pd.url; setBackend(pd.url);
-        } catch {
-          setConnecting(false);
-          setError("Tiada GPU tersedia — cuba sekali lagi.");
-          return;
-        }
-      }
-      // Pressing Start is what WAKES the GPU (Novita scale-from-zero). We do NOT
-      // pre-warm on tab open — the studio stays $0 until this exact moment. The
-      // first request below triggers a worker to spin up; on a cold node the 22GB
-      // image pull can take ~2–4 min. We poll PATIENTLY (no premature timeout),
-      // and every poll keeps the worker alive (resets Novita's idle timeout) so
-      // the cold start can finish without the worker idling out underneath us.
-      let backendUp = false;
-      const wakeDeadline = Date.now() + 7 * 60 * 1000; // generous; covers worst-case cold pull
-      for (let i = 0; !backendUp && Date.now() < wakeDeadline; i++) {
-        try {
-          const ping = await fetch(`${backendRef.current}/avatars`, { signal: AbortSignal.timeout(5000) });
-          if (ping.ok) backendUp = true;
-        } catch {}
-        if (!backendUp) {
-          const s = i * 5;
-          setWakeMsg(s < 30 ? "Menghidupkan GPU… ⏳" : `Menghidupkan GPU… ${s}s (kali pertama ~2–3 minit) ⏳`);
-          await new Promise((r) => setTimeout(r, 5000));
-        }
-      }
-      if (!backendUp) { setWakeMsg(""); throw new Error("GPU lambat respons — tekan ▶ Start sekali lagi."); }
-      loadAvatarsRef.current?.();
+      // Ensure the GPU is warm (instant if warm-on-open already booted it).
+      const ready = await warmGpu();
+      if (!ready) { setConnecting(false); return; }
       setWakeMsg("");
       const iceRes = await fetch(`${backendRef.current}/ice-servers`);
       if (!iceRes.ok) throw new Error(`ice-servers ${iceRes.status}`);

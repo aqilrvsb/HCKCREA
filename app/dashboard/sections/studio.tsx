@@ -46,8 +46,10 @@ type HistoryItem = {
   created_at: string;
 };
 
-export default function StudioSection() {
-  const [tab, setTab] = useState<TabKey>("auto");
+export default function StudioSection({ only }: { only?: TabKey } = {}) {
+  // `only` locks the studio to a single tab (e.g. Livehost "Avatar" = image
+  // only) and hides the tab switcher. Default = all tabs.
+  const [tab, setTab] = useState<TabKey>(only || "auto");
   const [items, setItems] = useState<HistoryItem[]>([]);
   const [loading, setLoading] = useState(false);
 
@@ -104,7 +106,7 @@ export default function StudioSection() {
 
   return (
     <div>
-      <div className="flex flex-wrap gap-2 p-1.5 bg-white border border-[var(--color-border)] rounded-2xl shadow-sm w-fit mb-5">
+      <div className="flex flex-wrap gap-2 p-1.5 bg-white border border-[var(--color-border)] rounded-2xl shadow-sm w-fit mb-5" style={only ? { display: "none" } : undefined}>
         {TABS.map((t) => {
           const Icon = t.icon;
           const isActive = tab === t.key;
