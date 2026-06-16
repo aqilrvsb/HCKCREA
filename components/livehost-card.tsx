@@ -56,7 +56,14 @@ export default function LivehostCard({
   const cfg = PLAN_DEFAULTS[LIVEHOST];
   const now = Date.now();
   const expiryMs = currentExpiry ? new Date(currentExpiry).getTime() : 0;
-  const isCurrent = currentPlan === LIVEHOST && expiryMs > now;
+  const isLivehostPlan = currentPlan === LIVEHOST;
+  const isActive = expiryMs > now;                 // still within the paid cycle
+  // Renew only AFTER expiry — renewing early resets the 30-day cycle and
+  // forfeits the remaining days, so we block it while still active.
+  const renewDisabled = isActive;
+  const expiryStr = expiryMs
+    ? new Date(expiryMs).toLocaleDateString("ms-MY", { day: "numeric", month: "short", year: "numeric" })
+    : "";
 
   return (
     <div
@@ -114,23 +121,32 @@ export default function LivehostCard({
             ))}
           </div>
 
-          {isCurrent ? (
+          {isLivehostPlan ? (
             <div className="flex flex-col gap-2">
               <div
                 className="text-center py-2 rounded-xl text-xs font-bold uppercase tracking-wider"
-                style={{ background: "rgba(96,165,250,0.15)", color: "#93c5fd", border: "1px solid rgba(96,165,250,0.3)" }}
+                style={isActive
+                  ? { background: "rgba(96,165,250,0.15)", color: "#93c5fd", border: "1px solid rgba(96,165,250,0.3)" }
+                  : { background: "rgba(239,68,68,0.15)", color: "#fca5a5", border: "1px solid rgba(239,68,68,0.3)" }}
               >
-                Current Package
+                {isActive ? "Current Package" : "Tamat — renew untuk sambung"}
               </div>
               {mode === "dashboard" && onSelect && (
-                <button
-                  onClick={onSelect}
-                  disabled={!!loading}
-                  className="w-full py-2.5 rounded-xl text-xs font-extrabold transition-transform hover:-translate-y-0.5 disabled:opacity-60 inline-flex items-center justify-center gap-1.5 text-white"
-                  style={{ background: "linear-gradient(90deg, #3b82f6, #2563eb)" }}
-                >
-                  {loading ? (<><Loader2 className="w-3.5 h-3.5 animate-spin" /> Redirecting…</>) : (<>Renew now</>)}
-                </button>
+                <>
+                  <button
+                    onClick={onSelect}
+                    disabled={!!loading || renewDisabled}
+                    className="w-full py-2.5 rounded-xl text-xs font-extrabold transition-transform hover:-translate-y-0.5 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:translate-y-0 inline-flex items-center justify-center gap-1.5 text-white"
+                    style={{ background: "linear-gradient(90deg, #3b82f6, #2563eb)" }}
+                  >
+                    {loading ? (<><Loader2 className="w-3.5 h-3.5 animate-spin" /> Redirecting…</>) : (<>Renew now</>)}
+                  </button>
+                  {renewDisabled && (
+                    <div className="text-center text-[11px] text-white/55">
+                      Renew tersedia selepas tamat{expiryStr ? ` (${expiryStr})` : ""}
+                    </div>
+                  )}
+                </>
               )}
             </div>
           ) : (
