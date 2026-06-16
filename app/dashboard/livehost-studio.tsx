@@ -1418,7 +1418,9 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
                     {connecting ? "… Connecting" : "▶ Start"}
                   </button>
                 ) : (
-                  /* STREAMING state: Start is HIDDEN; only Stop + Pause/Restart/Loop are rendered. */
+                  /* STREAMING state: Start is HIDDEN; only Stop + Pause/Restart are rendered.
+                     Looping is driven by the live-duration timer (rotates the rundown until
+                     the set time elapses), so the manual loop toggle was removed. */
                   <>
                     <button className="restart-btn stop-live" onClick={stop} title="Stop streaming (GPU → idle $0)">■ Stop</button>
                     <button className="restart-btn" onClick={scriptPaused ? resumeRundown : pauseRundown}
@@ -1426,10 +1428,6 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
                       {scriptPaused ? "▶" : "⏸"}
                     </button>
                     <button className="restart-btn" onClick={restartRundown} title="Restart script">⟳</button>
-                    <label className="checkbox" style={{ marginTop: 0 }} title="Loop rundown">
-                      <input type="checkbox" checked={scriptLoop} onChange={(e) => setScriptLoop(e.target.checked)} style={{ width: "auto" }} />
-                      🔁
-                    </label>
                   </>
                 )}
               </div>

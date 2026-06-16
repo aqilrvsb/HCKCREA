@@ -16,14 +16,16 @@ import LivehostTiktok from "./livehost-tiktok";
 const WHATSAPP_GROUP_LIVEHOST = "https://chat.whatsapp.com/JIj9Ppto73mIIfitWikCgO";
 
 // Shared nav data — rendered in the desktop sidebar AND the mobile top bar.
-const NAV: { key: View; label: string; Icon: any }[] = [
+// `step` (+ its colour) marks the recommended setup order shown as a numbered
+// badge to guide new clients: 1 Template → 2 Scripts → 3 Knowledge → 4 Greetings.
+const NAV: { key: View; label: string; Icon: any; step?: number; stepColor?: string }[] = [
   { key: "home", label: "Dashboard", Icon: LayoutDashboard },
   { key: "livehost", label: "Livehost", Icon: Radio },
-  { key: "template", label: "Template", Icon: LayoutTemplate },
-  { key: "scripts", label: "Scripts", Icon: ScrollText },
-  { key: "products", label: "Knowledge", Icon: Package },
+  { key: "template", label: "Template", Icon: LayoutTemplate, step: 1, stepColor: "#8b5cf6" },
+  { key: "scripts", label: "Scripts", Icon: ScrollText, step: 2, stepColor: "#3b82f6" },
+  { key: "products", label: "Knowledge", Icon: Package, step: 3, stepColor: "#f59e0b" },
+  { key: "greetings", label: "Greetings", Icon: HeartHandshake, step: 4, stepColor: "#ec4899" },
   { key: "attachment", label: "Attachment", Icon: Paperclip },
-  { key: "greetings", label: "Greetings", Icon: HeartHandshake },
   { key: "usage", label: "Usage", Icon: BarChart3 },
   { key: "billing", label: "Billing", Icon: CreditCard },
 ];
@@ -76,7 +78,7 @@ export default function LivehostDashboard({
       })
     : null;
 
-  const navItem = (key: View, label: string, Icon: any) => (
+  const navItem = (key: View, label: string, Icon: any, step?: number, stepColor?: string) => (
     <button
       onClick={() => setView(key)}
       className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-bold transition-colors"
@@ -87,7 +89,15 @@ export default function LivehostDashboard({
       }}
     >
       <Icon className="w-4 h-4 flex-shrink-0" />
-      {label}
+      <span>{label}</span>
+      {step && (
+        <span
+          className="ml-auto flex-shrink-0 w-5 h-5 rounded-full flex items-center justify-center text-[11px] font-extrabold text-white"
+          style={{ background: stepColor, boxShadow: `0 2px 8px ${stepColor}66` }}
+        >
+          {step}
+        </span>
+      )}
     </button>
   );
 
@@ -114,7 +124,7 @@ export default function LivehostDashboard({
         </div>
 
         <div className="space-y-1">
-          {NAV.map((n) => navItem(n.key, n.label, n.Icon))}
+          {NAV.map((n) => <div key={n.key}>{navItem(n.key, n.label, n.Icon, n.step, n.stepColor)}</div>)}
           {/* Colourful highlighted CTA — install/connect the extension */}
           <button
             onClick={() => setView("tiktok")}
@@ -184,6 +194,10 @@ export default function LivehostDashboard({
               >
                 <n.Icon className="w-3.5 h-3.5" />
                 {n.label}
+                {n.step && (
+                  <span className="w-4 h-4 rounded-full flex items-center justify-center text-[9px] font-extrabold text-white"
+                    style={{ background: n.stepColor }}>{n.step}</span>
+                )}
               </button>
             );
           })}
