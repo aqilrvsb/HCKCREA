@@ -1537,7 +1537,7 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
       const item = greetQueueRef.current.shift();
       if (item) {
         let line = "";
-        if (item.kind === "follow") { line = g.followGreeting; playSfx("clap"); }
+        if (item.kind === "follow") { line = g.followGreeting; if (g.sfxAuto) playSfx("clap"); }
         else if (item.kind === "like") line = g.likeGreeting;
         else {
           const ls = (g.greetings || "").split(/\n+/).map((l) => l.trim()).filter(Boolean);
@@ -1559,10 +1559,10 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
       if (c) {
         const isPurchase = PURCHASE_RE.test(c.text);
         const isFeedback = !isPurchase && FEEDBACK_RE.test(c.text);
-        if (isPurchase) playSfx("bell");
+        if (isPurchase && g.sfxAuto) playSfx("bell");
         speakNow("ask", `Penonton bernama "${cleanU(c.username)}" komen: "${c.text}". Sebut nama dia dulu, kemudian jawab.`);
         setCaptionText(`💬 ${cleanU(c.username)}: ${c.text}`);
-        if (isFeedback) setTimeout(() => playSfx("clap"), 4000);
+        if (isFeedback && g.sfxAuto) setTimeout(() => playSfx("clap"), 4000);
       }
       if (commentQueueRef.current.length) scheduleComment();
     }, randMs(g.commentDelayMin, g.commentDelayMax));

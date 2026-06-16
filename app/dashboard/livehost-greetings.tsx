@@ -36,7 +36,7 @@ const DEFAULT_FIELDS = {
   commentDelayMin: 5,
   commentDelayMax: 15,
   selectedProduct: "",
-  sfxAuto: true,
+  sfxAuto: false, // clap/bell OFF by default (avoids SFX-before-reply timing)
 };
 
 function loadLib(): Profile[] {
