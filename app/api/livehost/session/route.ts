@@ -92,7 +92,9 @@ export async function GET(req: Request) {
   const rates = await getSettings(["livehost_gpu_rate_hour", "livehost_voice_rate_1k", "livehost_audio_rate_gen", "livehost_warm_window_sec", "livehost_min_balance"]);
   const gpuRate = parseFloat(rates["livehost_gpu_rate_hour"] || "6") || 6;
   const voiceRate = parseFloat(rates["livehost_voice_rate_1k"] || "0.3") || 0.3;
-  const audioRateGen = parseFloat(rates["livehost_audio_rate_gen"] || "0.1") || 0.1;
+  // Audio-script TTS is billed PER 1,000 CHARACTERS (matches how MiniMax charges
+  // us) — not flat per generate — so long scripts can never under-charge.
+  const audioRateGen = parseFloat(rates["livehost_audio_rate_gen"] || "0.3") || 0.3;
   // GPU stays WARM (billed) after a stream stops until the watchdog/freeTimeout
   // scales it to $0 — this warm-but-not-streaming time is "testing/idle" overhead.
   const warmWindowSec = parseFloat(rates["livehost_warm_window_sec"] || "900") || 900;
@@ -156,7 +158,7 @@ export async function GET(req: Request) {
     if (inPeriod(end)) idleSec += Math.min(warmWindowSec, gapSec);
   }
 
-  // ---- Cost Audio Script: each row in livehost_audio_gen = one billable generation ----
+  // ---- Cost Audio Script: TTS generations, billed per 1,000 characters ----
   const { data: gens } = await admin
     .from("livehost_audio_gen")
     .select("chars, created_at")
@@ -165,7 +167,7 @@ export async function GET(req: Request) {
     .lte("created_at", new Date(periodEnd).toISOString());
   const audioGenerations = (gens || []).length;
   const audioChars = (gens || []).reduce((a, g) => a + Number(g.chars || 0), 0);
-  const audioCost = audioGenerations * audioRateGen;
+  const audioCost = (audioChars / 1000) * audioRateGen;
 
   const liveGpu = (liveSec / 3600) * gpuRate;
   const liveVoice = (liveChars / 1000) * voiceRate;

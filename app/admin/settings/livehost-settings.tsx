@@ -9,7 +9,7 @@ import { Radio, Save } from "lucide-react";
 export default function LivehostSettings() {
   const [gpuRate, setGpuRate] = useState("6.00");
   const [voiceRate, setVoiceRate] = useState("0.30");
-  const [audioRate, setAudioRate] = useState("0.10");
+  const [audioRate, setAudioRate] = useState("0.30");
   const [minBalance, setMinBalance] = useState("5.00");
   const [savingRates, setSavingRates] = useState(false);
   const [llmMainProvider, setLlmMainProvider] = useState("grsai");
@@ -124,7 +124,7 @@ export default function LivehostSettings() {
             className="mt-1 w-full px-3 py-2.5 rounded-lg text-sm font-normal" style={inputStyle} />
         </label>
         <label className="text-xs font-bold text-[var(--color-text-secondary)]">
-          Audio Script — RM per generate
+          Audio Script — RM per 1,000 characters
           <input value={audioRate} onChange={(e) => setAudioRate(e.target.value)} type="number" step="0.01" min="0"
             className="mt-1 w-full px-3 py-2.5 rounded-lg text-sm font-normal" style={inputStyle} />
         </label>

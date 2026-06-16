@@ -90,7 +90,7 @@ export async function GET(req: Request) {
     rates: {
       gpuRateHour: rates["livehost_gpu_rate_hour"] || "6.00",
       voiceRate1k: rates["livehost_voice_rate_1k"] || "0.30",
-      audioRateGen: rates["livehost_audio_rate_gen"] || "0.10",
+      audioRateGen: rates["livehost_audio_rate_gen"] || "0.30",
       minBalance: rates["livehost_min_balance"] || "5.00",
       warmWindowSec: rates["livehost_warm_window_sec"] || "900",
     },
