@@ -12,7 +12,7 @@ import { getSettings } from "@/lib/settings";
 // stay in one place and never get hardcoded here.
 
 const BASE = "https://api.novita.ai/gpu-instance/openapi/v1";
-const IMAGE = "docker.io/aqilrvsb/lh-avtr1:s9-nvenc2-chunk3"; // NVENC + chunked + no mid-stream kill + per-script voice (cfg voice_id)
+const IMAGE = "docker.io/aqilrvsb/lh-avtr1:s9-nvenc2-chunk4"; // + greeting prepare-then-swap barge-in (saynow)
 const AUTH_ID = "73068571-9b1d-44c6-a4d7-fb942614b1a4"; // dockerhub cred
 const PRODUCT = "SL-serverless-3"; // RTX 5090 serverless
 const CLUSTER = "as-sgp-2";
