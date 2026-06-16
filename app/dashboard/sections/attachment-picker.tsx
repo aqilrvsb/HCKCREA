@@ -582,13 +582,20 @@ function FilterPill({
   label: string;
   color: string;
 }) {
+  // Pick black text on light (yellow/amber) backgrounds, white on dark ones.
+  const hex = color.replace("#", "");
+  const r = parseInt(hex.slice(0, 2) || "88", 16);
+  const g = parseInt(hex.slice(2, 4) || "88", 16);
+  const b = parseInt(hex.slice(4, 6) || "88", 16);
+  const lum = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+  const activeText = lum > 0.6 ? "#1a1a1a" : "white";
   return (
     <button
       onClick={onClick}
       className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold transition"
       style={
         active
-          ? { background: color, color: "white" }
+          ? { background: color, color: activeText }
           : {
               background: "var(--color-surface)",
               color: "var(--color-text-secondary)",

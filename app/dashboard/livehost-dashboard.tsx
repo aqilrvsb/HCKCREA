@@ -125,17 +125,17 @@ export default function LivehostDashboard({
 
         <div className="space-y-1">
           {NAV.map((n) => <div key={n.key}>{navItem(n.key, n.label, n.Icon, n.step, n.stepColor)}</div>)}
-          {/* Colourful highlighted CTA — install/connect the extension */}
+          {/* Install/connect the extension — plain nav item, yellow icon only */}
           <button
             onClick={() => setView("tiktok")}
-            className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-extrabold text-white transition-transform hover:-translate-y-0.5"
+            className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-bold transition-colors"
             style={{
-              background: "linear-gradient(135deg, #16a34a, #22c55e, #4ade80)",
-              boxShadow: view === "tiktok" ? "0 4px 18px rgba(34,197,94,0.5)" : "0 4px 14px rgba(34,197,94,0.3)",
-              border: view === "tiktok" ? "1px solid #bbf7d0" : "1px solid transparent",
+              background: view === "tiktok" ? "rgba(96,165,250,0.14)" : "transparent",
+              color: view === "tiktok" ? "#93c5fd" : "var(--color-text-secondary)",
+              border: `1px solid ${view === "tiktok" ? "rgba(96,165,250,0.3)" : "transparent"}`,
             }}
           >
-            <Send className="w-4 h-4 flex-shrink-0" />
+            <Send className="w-4 h-4 flex-shrink-0" style={{ color: "#facc15" }} />
             TikTok Live
           </button>
           <a
@@ -203,10 +203,14 @@ export default function LivehostDashboard({
           })}
           <button
             onClick={() => setView("tiktok")}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-extrabold text-white whitespace-nowrap flex-shrink-0"
-            style={{ background: "linear-gradient(135deg, #16a34a, #22c55e)" }}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap flex-shrink-0"
+            style={{
+              background: view === "tiktok" ? "rgba(96,165,250,0.16)" : "transparent",
+              color: view === "tiktok" ? "#93c5fd" : "var(--color-text-secondary)",
+              border: `1px solid ${view === "tiktok" ? "rgba(96,165,250,0.35)" : "var(--color-border)"}`,
+            }}
           >
-            <Send className="w-3.5 h-3.5" />
+            <Send className="w-3.5 h-3.5" style={{ color: "#facc15" }} />
             TikTok Live
           </button>
         </div>

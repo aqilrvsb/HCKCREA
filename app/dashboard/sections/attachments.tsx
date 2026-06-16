@@ -321,7 +321,7 @@ export default function AttachmentsSection({
         <button
           onClick={() => fileInputRef.current?.click()}
           className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold"
-          style={{ background: "var(--color-orange)", color: "white" }}
+          style={{ background: "var(--color-orange)", color: "#1a1a1a" }}
         >
           <Upload className="w-4 h-4" /> Add Image
         </button>
@@ -622,7 +622,7 @@ function CategoryChip({
       className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold transition"
       style={
         active
-          ? { background: "var(--color-orange)", color: "white" }
+          ? { background: "var(--color-orange)", color: "#1a1a1a" }
           : {
               background: "var(--color-surface)",
               color: "var(--color-text-secondary)",
