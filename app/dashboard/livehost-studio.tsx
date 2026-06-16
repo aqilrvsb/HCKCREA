@@ -195,8 +195,15 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
   const sessionCharsRef = useRef(0);
   const heartbeatRef = useRef<ReturnType<typeof setInterval> | null>(null);
   type UsageData = {
-    rates: { gpuRateHour: number; voiceRate1k: number; audioRateGen: number; currency: string };
-    sessions: { id: string; startedAt: string; status: string; durationSec: number; voiceChars: number; gpuCost: number; voiceCost: number; totalCost: number }[];
+    rates: { gpuRateHour: number; voiceRate1k: number; audioRateGen: number; warmWindowSec?: number; currency: string };
+    balance?: { credits: number; spent: number; available: number; minBalance: number; low: boolean };
+    sessions: { id: string; startedAt: string; status: string; type?: string; durationSec: number; voiceChars: number; gpuCost: number; voiceCost: number; totalCost: number }[];
+    costs?: {
+      audioScript: { generations: number; chars: number; cost: number };
+      live: { sessions: number; streamSec: number; voiceChars: number; gpuCost: number; voiceCost: number; cost: number };
+      testing: { sessions: number; streamSec: number; voiceChars: number; gpuCost: number; voiceCost: number; idleSec: number; idleCost: number; cost: number };
+      total: number;
+    };
     month: { streamSec: number; voiceChars: number; gpuCost: number; voiceCost: number; totalCost: number };
     audio: { generations: number; chars: number; cost: number };
     gpu: { streamSec: number; cost: number };
@@ -214,9 +221,20 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
     }).then((r) => r.json()).catch(() => null);
   }, []);
 
+  // Credit-balance guard: available = credits − livehost cost. `low` = at/below the
+  // admin RM5 threshold. Used to block ▶ Start and to auto-stop the worker mid-live.
+  const fetchBalance = useCallback(async (): Promise<{ credits: number; available: number; minBalance: number; low: boolean } | null> => {
+    try {
+      const r = await fetch("/api/livehost/session");
+      const d = await r.json();
+      return d?.balance || null;
+    } catch { return null; }
+  }, []);
+
   const beginSession = useCallback(async () => {
     sessionCharsRef.current = 0;
-    const d = await sessionPost({ action: "start" });
+    // tag the session: "live" = a timed live (duration set); "testing" = ad-hoc play
+    const d = await sessionPost({ action: "start", sessionType: liveDurMsRef.current > 0 ? "live" : "testing" });
     if (d?.sessionId) {
       sessionIdRef.current = d.sessionId;
       if (heartbeatRef.current) clearInterval(heartbeatRef.current);
@@ -449,12 +467,6 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
     try { e.currentTarget.releasePointerCapture(e.pointerId); } catch {}
   }, []);
 
-  const toggleFullscreen = useCallback(() => {
-    const el = stageRef.current;
-    if (!el) return;
-    if (!document.fullscreenElement) el.requestFullscreen?.();
-    else document.exitFullscreen?.();
-  }, []);
 
   // ---- Saved templates (composition history) ----
   // A saved template snapshots the WHOLE composition: which overlay (Canva
@@ -644,6 +656,22 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
     warmedRef.current = true;
     fetch(`${backend}/keepalive`, { method: "POST" }).catch(() => {});
   }, [backend]);
+
+  // BALANCE WATCHDOG: while live, poll the credit balance every 60s; if it hits the
+  // minimum threshold (RM5), auto-stop the worker so the user can never overspend.
+  useEffect(() => {
+    if (!active) return;
+    let cancelled = false;
+    const check = async () => {
+      const bal = await fetchBalance();
+      if (!cancelled && bal && bal.low) {
+        setError(`Baki kredit dah sampai had minimum (RM${bal.minBalance}) — live dihentikan automatik. Top up untuk sambung.`);
+        stopRef.current?.();
+      }
+    };
+    const t = setInterval(check, 60000);
+    return () => { cancelled = true; clearInterval(t); };
+  }, [active, fetchBalance]);
 
   // Sync the active greeting profile to the DB so the extension uses it.
   useEffect(() => {
@@ -842,6 +870,13 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
     setError("");
     if (!backendRef.current) { setError(configErr || "Config belum dimuatkan."); return; }
     if (!avatarId) { setError("Pick or upload a face first."); return; }
+    // BALANCE GUARD: don't even wake the GPU if the credit balance is already at/below
+    // the minimum threshold (RM5) — saves the user from a live that'd instantly stop.
+    const bal = await fetchBalance();
+    if (bal && bal.low) {
+      setError(`Baki kredit tidak cukup (baki RM${bal.available.toFixed(2)}, minimum RM${bal.minBalance}). Sila top up dulu.`);
+      return;
+    }
     setConnecting(true);
     try {
       // Pressing Start is what WAKES the GPU (Novita scale-from-zero). We do NOT
@@ -1357,7 +1392,6 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
                 {active && soundBlocked && (
                   <button className="unmute-btn" onClick={enableSound}>🔇 Tap to enable sound</button>
                 )}
-                <button className="fs-btn" onClick={toggleFullscreen} title="Fullscreen">⛶</button>
               </div>
             </div>
 
