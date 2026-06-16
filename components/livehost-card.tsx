@@ -106,7 +106,7 @@ export default function LivehostCard({
         {/* Right — features + CTA */}
         <div className="space-y-3">
           <div className="space-y-2">
-            {FEATURES.map((f) => (
+            {[`RM${cfg.credits} kredit usage disertakan (GPU + suara)`, ...FEATURES].map((f) => (
               <div key={f} className="flex items-start gap-2 text-[13px] text-white/85">
                 <CheckCircle2 className="w-4 h-4 flex-shrink-0 mt-0.5" style={{ color: "#60a5fa" }} />
                 <span>{f}</span>

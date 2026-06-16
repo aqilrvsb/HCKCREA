@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import { Radio, CreditCard, LayoutDashboard, MessageCircle, ArrowUpRight, ScrollText, Package, BarChart3, Paperclip, HeartHandshake, Send, LayoutTemplate } from "lucide-react";
 import LogoutButton from "./logout-button";
 import BillingSection from "./sections/billing";
+import LivehostTopup from "./sections/livehost-topup";
 import AttachmentsSection from "./sections/attachments";
 import LivehostStudio, { type LiveView } from "./livehost-studio";
 import LivehostGreetings from "./livehost-greetings";
@@ -242,7 +243,10 @@ export default function LivehostDashboard({
             <LivehostStudio view={(view === "livehost" ? "live" : view) as LiveView} />
           </div>
           {view === "billing" ? (
-            <BillingSection />
+            <div className="space-y-8">
+              <BillingSection />
+              <LivehostTopup credits={credits} />
+            </div>
           ) : view === "attachment" ? (
             <AttachmentsSection presets={attachPresets} productLabel="Template" pngOnly />
           ) : view === "greetings" ? (

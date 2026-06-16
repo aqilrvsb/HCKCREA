@@ -36,8 +36,9 @@ export const PLAN_DEFAULTS: Record<PlanKey, PlanConfig> = {
   standard: { price: 50,  days: 30, credits: 25,  label: "Standard" },
   pro:      { price: 120, days: 30, credits: 50,  label: "Pro" },
   premium:  { price: 200, days: 30, credits: 100, label: "Premium" },
-  // Livehost — separate package, no generation credits (own dashboard).
-  livehost: { price: 500, days: 30, credits: 0,   label: "Livehost" },
+  // Livehost — separate package; RM500/cycle includes RM200 usage credit
+  // (spent on GPU live time + MiniMax voice). Top-up adds more anytime.
+  livehost: { price: 500, days: 30, credits: 200, label: "Livehost" },
 };
 
 export const BEST_SELLER: MarketingTier = "pro";
@@ -48,7 +49,7 @@ export function isLivehost(plan: string | null | undefined): boolean {
 
 // Per-perk tier gates. Keep the source of truth here so pricing grid,
 // sidebar, page-level guards, and the MCP auth check all agree.
-export const TOPUP_TIERS: readonly PlanKey[] = ["pro", "premium"];
+export const TOPUP_TIERS: readonly PlanKey[] = ["pro", "premium", "livehost"];
 export const MCP_TIERS: readonly PlanKey[] = ["pro", "premium"];
 export const AFFILIATE_TIERS: readonly PlanKey[] = ["pro", "premium"];
 export const AUTO_POST_TIERS: readonly PlanKey[] = ["standard", "pro", "premium"];
