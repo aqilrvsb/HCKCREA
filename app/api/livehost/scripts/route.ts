@@ -78,24 +78,20 @@ export async function POST(req: Request) {
     .single();
   if (insErr) return NextResponse.json({ error: insErr.message }, { status: 500 });
 
-  const finalPaths: string[] = [];
-  for (let i = 0; i < draftPaths.length; i++) {
-    const dst = `${user.id}/${row.id}-${String(i).padStart(3, "0")}.wav`;
-    const { error: mvErr } = await admin.storage.from(BUCKET).move(draftPaths[i], dst);
-    if (mvErr) {
-      if (finalPaths.length) await admin.storage.from(BUCKET).remove(finalPaths);
-      await admin.from("livehost_scripts").delete().eq("id", row.id);
-      return NextResponse.json({ error: mvErr.message }, { status: 500 });
-    }
-    finalPaths.push(dst);
+  // Move all draft pieces into their stable paths IN PARALLEL (fast even with
+  // many sentence-pieces).
+  const finalPaths = draftPaths.map((_, i) => `${user.id}/${row.id}-${String(i).padStart(3, "0")}.wav`);
+  const moves = await Promise.all(draftPaths.map((src, i) => admin.storage.from(BUCKET).move(src, finalPaths[i])));
+  const mvErr = moves.find((m) => m.error)?.error;
+  if (mvErr) {
+    await admin.storage.from(BUCKET).remove(finalPaths).catch(() => {});
+    await admin.from("livehost_scripts").delete().eq("id", row.id);
+    return NextResponse.json({ error: mvErr.message }, { status: 500 });
   }
   await admin.from("livehost_scripts").update({ audio_paths: finalPaths, audio_path: finalPaths[0] }).eq("id", row.id);
 
-  const audioUrls: string[] = [];
-  for (const p of finalPaths) {
-    const { data: signed } = await admin.storage.from(BUCKET).createSignedUrl(p, SIGN_TTL);
-    if (signed?.signedUrl) audioUrls.push(signed.signedUrl);
-  }
+  const signedAll = await Promise.all(finalPaths.map((p) => admin.storage.from(BUCKET).createSignedUrl(p, SIGN_TTL)));
+  const audioUrls = signedAll.map((s) => s.data?.signedUrl).filter(Boolean) as string[];
   return NextResponse.json({ ok: true, id: row.id, audioUrls, audioUrl: audioUrls[0] || null });
 }
 

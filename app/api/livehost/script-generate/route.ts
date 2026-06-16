@@ -141,20 +141,27 @@ export async function POST(req: Request) {
     // The studio sends the ordered list of piece URLs; the worker plays them
     // gaplessly (downloads piece N+1 while N plays). No merge → no giant file →
     // no download-timeout, instant start, unlimited length.
-    const audioPaths: string[] = [];
-    const audioUrls: string[] = [];
     const batch = randomUUID();
-    for (let i = 0; i < chunks.length; i++) {
-      const pcm = trimSilence(await synth(chunks[i]));
-      if (!pcm.length) continue;
-      const wav = pcmToWav(pcm, SR, 1);
-      const path = `${user.id}/draft-${batch}-${String(i).padStart(3, "0")}.wav`;
-      const { error: upErr } = await admin.storage.from(BUCKET).upload(path, wav, { contentType: "audio/wav", upsert: true });
-      if (upErr) return NextResponse.json({ error: `upload failed: ${upErr.message}` }, { status: 500 });
-      const { data: signed } = await admin.storage.from(BUCKET).createSignedUrl(path, SIGN_TTL);
-      audioPaths.push(path);
-      audioUrls.push(signed?.signedUrl || "");
+    // Synthesize + upload pieces in PARALLEL batches (CONC at a time) so a script
+    // with many sentence-pieces generates fast instead of dozens of serial calls.
+    const CONC = 6;
+    const slots: ({ path: string; url: string } | null)[] = new Array(chunks.length).fill(null);
+    for (let i = 0; i < chunks.length; i += CONC) {
+      await Promise.all(chunks.slice(i, i + CONC).map(async (chunk, j) => {
+        const idx = i + j;
+        const pcm = trimSilence(await synth(chunk));
+        if (!pcm.length) return;
+        const wav = pcmToWav(pcm, SR, 1);
+        const path = `${user.id}/draft-${batch}-${String(idx).padStart(3, "0")}.wav`;
+        const { error: upErr } = await admin.storage.from(BUCKET).upload(path, wav, { contentType: "audio/wav", upsert: true });
+        if (upErr) throw new Error(`upload failed: ${upErr.message}`);
+        const { data: signed } = await admin.storage.from(BUCKET).createSignedUrl(path, SIGN_TTL);
+        slots[idx] = { path, url: signed?.signedUrl || "" };
+      }));
     }
+    const ordered = slots.filter(Boolean) as { path: string; url: string }[];
+    const audioPaths = ordered.map((o) => o.path);
+    const audioUrls = ordered.map((o) => o.url);
     if (!audioPaths.length) return NextResponse.json({ error: "MiniMax returned no audio" }, { status: 502 });
 
     // Billable: one generation event; chars = the FULL text length.
