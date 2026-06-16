@@ -115,41 +115,39 @@ Lighting is warm golden afternoon light, creating a nostalgic kampung atmosphere
 Style: photorealistic, emotional portrait, documentary style, 85mm lens, f/1.8, warm golden tones, sentimental mood.`,
 ];
 
-// Livehost Avatar tab — hardcoded host-pose prompts (STANDING / SIT) for the
-// live-commerce talking-head avatar. Female + male, waist-up, clean studio look.
-export const AVATAR_POSE_PROMPTS = {
-  femaleStand: `A beautiful Malay woman in her mid-20s with smooth glowing skin, natural soft makeup, glossy lips, defined brows, and a warm confident smile, wearing an elegant modern baju kurung in a soft pastel tone with a neatly draped matching hijab.
+// Livehost Avatar tab — hardcoded host-pose prompts for the live-commerce
+// talking-head avatar, grouped by gender + pose (sit / stand). Each entry is a
+// picker chip that fills the prompt box.
+export type AvatarPosePreset = { label: string; pose: "sit" | "stand"; val: string };
 
-She is standing upright facing the camera in a clean, softly-lit modern studio with a warm neutral background. Waist-up framing, shoulders square to the camera, hands relaxed naturally in front, poised and approachable pose.
+export const LIVEHOST_AVATAR_MALE: AvatarPosePreset[] = [
+  { label: "20s · polo", pose: "sit", val: `Photorealistic studio portrait of a Malaysian Malay man in his mid 20s, modern short hairstyle, sitting on a chair behind a clean white desk like a live-stream product review host, hands resting on the desk, perfectly frontal symmetrical pose like a TV news anchor, both shoulders squared to the camera, face looking dead-center into the lens, friendly energetic smile, casual smart polo shirt, plain solid light grey studio background, soft even lighting, ultra realistic, high detail` },
+  { label: "40s · biz casual", pose: "sit", val: `Photorealistic studio portrait of a Malaysian Malay man in his mid 40s, neat short hair, sitting on a chair behind a clean white desk like a live-stream product review host, hands resting on the desk, perfectly frontal symmetrical pose, both shoulders squared to the camera, face looking dead-center into the lens, trustworthy warm smile, business casual shirt, plain solid light grey studio background, soft even lighting, ultra realistic, high detail` },
+  { label: "55 · songkok", pose: "stand", val: `Photorealistic studio portrait of a Malaysian Malay man around 55 years old, grey-streaked hair, wearing a songkok and baju melayu, standing in a perfectly frontal symmetrical pose like a TV news anchor, both shoulders squared and equally visible to the camera, no body turn, face looking dead-center into the lens, warm wise smile, half-body, plain solid light grey studio background, soft even lighting, ultra realistic, high detail` },
+  { label: "30s · beard", pose: "stand", val: `Photorealistic studio portrait of a Malaysian Malay man in his mid 30s, short black hair with neat beard, standing in a perfectly frontal symmetrical pose like a TV news anchor, both shoulders squared and equally visible to the camera, no body turn, face looking dead-center into the lens, warm professional smile, business shirt, half-body, plain solid light grey studio background, soft even lighting, ultra realistic, high detail` },
+  { label: "20s · casual", pose: "stand", val: `Photorealistic studio portrait of a Malaysian Malay man in his early 20s, short neat black hair, standing in a perfectly frontal symmetrical pose like a TV news anchor, both shoulders squared and equally visible to the camera, no body turn, face looking dead-center into the lens, friendly confident smile, smart casual shirt, half-body, plain solid light grey studio background, soft even lighting, ultra realistic, high detail` },
+];
 
-Soft diffused studio lighting with a gentle glow highlighting her face and outfit details. Cinematic, high detail, ultra-realistic skin texture, sharp focus, shallow depth of field with a softly blurred background.
+export const LIVEHOST_AVATAR_FEMALE: AvatarPosePreset[] = [
+  { label: "20s · cardigan", pose: "sit", val: `A beautiful Malay woman in her early 20s wearing a casual oversized cream cardigan over a simple white top, paired with a soft baby blue chiffon hijab draped loosely. She has fresh dewy skin, minimal natural makeup, soft brown eyes, and a warm genuine smile.
 
-Style: photorealistic, premium live-host portrait, high-end editorial, 85mm lens, f/1.8, warm clean tones, 9:16 vertical.`,
+She is sitting casually on a cozy sofa in a modern minimalist living room with soft neutral tones, indoor plants, and warm afternoon sunlight streaming through sheer curtains.
 
-  femaleSit: `A beautiful Malay woman in her mid-20s with fresh dewy skin, natural makeup, soft brown eyes, and a friendly genuine smile, wearing a smart-casual modern outfit with a softly draped hijab.
+Medium shot, waist-up framing, slightly leaning forward with one hand resting on her knee, relaxed and approachable pose.
 
-She is sitting comfortably and upright on a stylish chair facing the camera in a cozy, softly-lit modern interior with a clean warm background and subtle décor. Waist-up framing, relaxed approachable posture, hands resting gently on her lap, leaning very slightly forward.
+Lighting is natural window light, warm and soft, creating gentle shadows. Cinematic, high detail, ultra-realistic skin texture, sharp focus, depth of field with softly blurred cozy interior.
 
-Soft natural lighting with a warm glow creating gentle shadows. Cinematic, high detail, ultra-realistic skin texture, sharp focus, shallow depth of field with a softly blurred interior.
-
-Style: photorealistic, premium live-host portrait, lifestyle aesthetic, 50mm lens, f/2.0, warm clean tones, 9:16 vertical.`,
-
-  maleStand: `A handsome Malay man in his mid-20s with clean grooming, a sharp jawline, warm brown skin, defined brows, and a confident charming smile, wearing a smart-casual modern shirt with a neat fit.
-
-He is standing tall facing the camera in a clean, softly-lit modern studio with a warm neutral background. Waist-up framing, shoulders square to the camera, relaxed confident posture with arms resting naturally by his sides.
-
-Soft diffused studio lighting with crisp highlights on his face and clothing. Cinematic, high detail, ultra-realistic skin texture, sharp focus, shallow depth of field with a softly blurred background.
-
-Style: photorealistic, premium live-host portrait, high-end editorial, 85mm lens, f/1.8, warm clean tones, 9:16 vertical.`,
-
-  maleSit: `A friendly Malay man in his mid-20s with neat short hair, light stubble, warm skin, bright expressive eyes, and a genuine welcoming smile, wearing a smart-casual modern shirt.
-
-He is sitting upright and relaxed on a stylish chair facing the camera in a cozy, softly-lit modern interior with a clean warm background. Waist-up framing, approachable posture, one hand resting casually, leaning slightly forward as if talking to the viewer.
-
-Soft natural lighting with a warm glow and gentle shadows. Cinematic, high detail, ultra-realistic skin texture, sharp focus, shallow depth of field with a softly blurred interior.
-
-Style: photorealistic, premium live-host portrait, lifestyle aesthetic, 50mm lens, f/2.0, warm clean tones, 9:16 vertical.`,
-};
+Style: photorealistic, lifestyle portrait, Instagram aesthetic, 50mm lens, f/2.0, warm tones, natural mood.` },
+  { label: "50s · no hijab", pose: "sit", val: `Photorealistic studio portrait of a Malaysian Malay woman around 50 years old without hijab, neat short hair, sitting on a chair behind a clean white desk like a live-stream product review host, hands resting on the desk, perfectly frontal symmetrical pose like a TV news anchor, both shoulders squared to the camera, face looking dead-center into the lens, kind motherly smile, plain solid light grey studio background, soft even lighting, ultra realistic, high detail` },
+  { label: "30s · no hijab", pose: "sit", val: `Photorealistic studio portrait of a Malaysian Malay woman in her late 30s without hijab, shoulder-length hair, sitting on a chair behind a clean white desk like a live-stream product review host, hands resting on the desk, perfectly frontal symmetrical pose like a TV news anchor, both shoulders squared to the camera, face looking dead-center into the lens, professional warm smile, plain solid light grey studio background, soft even lighting, ultra realistic, high detail` },
+  { label: "20s · no hijab", pose: "sit", val: `Photorealistic studio portrait of a Malaysian Malay woman in her mid 20s without hijab, long dark hair, sitting on a chair behind a clean white desk like a live-stream product review host, hands resting on the desk, perfectly frontal symmetrical pose like a TV news anchor, both shoulders squared to the camera, face looking dead-center into the lens, warm smile, plain solid light grey studio background, soft even lighting, ultra realistic, high detail` },
+  { label: "40s · hijab", pose: "sit", val: `Photorealistic studio portrait of a Malaysian Malay woman in her late 40s wearing a charcoal grey hijab, sitting on a chair behind a clean white desk like a live-stream product review host, hands resting on the desk, body and face facing directly straight toward the camera, kind warm smile, plain solid light grey studio background, soft even lighting, ultra realistic, high detail` },
+  { label: "30s · hijab", pose: "sit", val: `Photorealistic studio portrait of a Malaysian Malay woman in her mid 30s wearing a teal hijab, sitting on a chair behind a clean white desk like a live-stream product review host, hands resting on the desk, body and face facing directly straight toward the camera, confident professional smile, plain solid light grey studio background, soft even lighting, ultra realistic, high detail` },
+  { label: "20s · hijab", pose: "sit", val: `Photorealistic studio portrait of a Malaysian Malay woman in her mid 20s wearing a soft peach hijab, sitting on a chair behind a clean white desk like a live-stream product review host, hands resting on the desk, body and face facing directly straight toward the camera, warm friendly smile, plain solid light grey studio background, soft even lighting, ultra realistic, high detail` },
+  { label: "20s · long hair", pose: "stand", val: `Photorealistic studio portrait of a Malaysian Malay woman in her early 20s without hijab, long black hair, standing in a perfectly frontal symmetrical pose like a TV news anchor, both shoulders squared and equally visible to the camera, no body turn, face looking dead-center into the lens, bright cheerful smile, smart casual outfit, half-body, plain solid light grey studio background, soft even lighting, ultra realistic, high detail` },
+  { label: "30s · blouse", pose: "stand", val: `Photorealistic studio portrait of a Malaysian Malay woman in her mid 30s without hijab, shoulder-length dark hair, standing upright half-body, body and face facing directly straight toward the camera, elegant professional smile, business blouse, plain solid light grey studio background, soft even lighting, ultra realistic, high detail` },
+  { label: "20s · upright", pose: "stand", val: `Photorealistic studio portrait of a Malaysian Malay woman in her early 20s without hijab, long black hair, standing upright half-body, body and face facing directly straight toward the camera, bright cheerful smile, smart casual outfit, plain solid light grey studio background, soft even lighting, ultra realistic, high detail` },
+];
 
 // Product prompts (7 backdrops)
 export const PRODUCT_PROMPTS = [

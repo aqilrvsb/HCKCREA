@@ -10,7 +10,8 @@ import AttachmentPicker from "../sections/attachment-picker";
 import {
   AVATAR_PROMPTS,
   AVATAR_LABELS,
-  AVATAR_POSE_PROMPTS,
+  LIVEHOST_AVATAR_MALE,
+  LIVEHOST_AVATAR_FEMALE,
   PRODUCT_PROMPTS as EXT_PRODUCT_PROMPTS,
   PRODUCT_LABELS,
   SOFT_SELL_PROMPT,
@@ -56,16 +57,14 @@ const SALES_PROMPTS = [
   { label: "Hard Sell", color: "#f44336", val: HARD_SELL_PROMPT },
 ];
 
-// Livehost Avatar variant — only STANDING / SIT pose presets (no personas,
-// no Product/Sales categories, no Mode dropdown).
-const AVATAR_POSE_FEMALE = [
-  { label: "🧍‍♀️ Standing", color: "#e91e63", val: AVATAR_POSE_PROMPTS.femaleStand },
-  { label: "🪑 Sit", color: "#e91e63", val: AVATAR_POSE_PROMPTS.femaleSit },
-];
-const AVATAR_POSE_MALE = [
-  { label: "🧍‍♂️ Standing", color: "#2196f3", val: AVATAR_POSE_PROMPTS.maleStand },
-  { label: "🪑 Sit", color: "#2196f3", val: AVATAR_POSE_PROMPTS.maleSit },
-];
+// Livehost Avatar variant — hardcoded host presets (sit / stand), no personas,
+// no Product/Sales categories, no Mode dropdown. Chip label shows the pose.
+const AVATAR_POSE_FEMALE = LIVEHOST_AVATAR_FEMALE.map((p) => ({
+  label: `${p.pose === "sit" ? "🪑" : "🧍‍♀️"} ${p.label}`, color: "#e91e63", val: p.val,
+}));
+const AVATAR_POSE_MALE = LIVEHOST_AVATAR_MALE.map((p) => ({
+  label: `${p.pose === "sit" ? "🪑" : "🧍‍♂️"} ${p.label}`, color: "#2196f3", val: p.val,
+}));
 
 type RefSlot = "char" | "product" | "poster" | "virtProduct";
 
