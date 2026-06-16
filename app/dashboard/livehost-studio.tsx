@@ -1430,18 +1430,21 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
     } catch {}
   }, []);
 
-  // Make the avatar speak a greeting/reply. NO upfront interrupt — the GPU
-  // engine keeps the script talking and barges in only when the reply audio is
-  // ready (prepare-then-swap), so there is no silent gap.
+  // Make the avatar speak a greeting/reply with an INSTANT barge-in: the moment
+  // this fires we tell the worker to DISCARD the current script audio (kind:
+  // "interrupt" → DiscardAvatarSpeechBuffer) and then speak this — no waiting for
+  // a sentence. The script resumes when this finishes (chat say_done → speakNext).
   const cleanU = (u: string) => String(u || "").replace(/[*_~`]/g, "").trim().slice(0, 40);
   const speakNow = useCallback((kind: "say" | "ask", text: string) => {
     if (!text.trim()) return false;
+    // Hold the script + pause the teleprompter, and stop the current script audio NOW.
+    chatActiveRef.current = true;
+    if (sayTimerRef.current) { clearTimeout(sayTimerRef.current); sayTimerRef.current = null; }
+    if (wordTimerRef.current) { clearInterval(wordTimerRef.current); wordTimerRef.current = null; }
+    const dc = dcRef.current;
+    if (dc && dc.readyState === "open") dc.send(JSON.stringify({ kind: "interrupt" }));
     const id = "C" + ++sayCounterRef.current;
     pendingSayRef.current.set(id, { chat: true });
-    // Pause the script teleprompter while the avatar handles this greeting/comment
-    // (resumed when the chat's say_done arrives).
-    chatActiveRef.current = true;
-    if (wordTimerRef.current) { clearInterval(wordTimerRef.current); wordTimerRef.current = null; }
     return sendControl({ kind, text, id });
   }, [sendControl]);
 
