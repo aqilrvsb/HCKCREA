@@ -32,6 +32,13 @@ export async function POST(req: Request) {
   }
 
   if (action === "release") {
+    // Multi-tab / multi-window safe: never free the slot while the user is still
+    // streaming on ANY tab. Only the 20-min idle watchdog calls release, and a
+    // background tab's watchdog must not yank a slot another tab is using.
+    const { data: act } = await admin
+      .from("live_sessions")
+      .select("id").eq("user_id", user.id).eq("status", "active").limit(1);
+    if (act && act.length) return NextResponse.json({ ok: true, kept: "streaming" });
     const { error } = await admin
       .from("livehost_pool")
       .update({

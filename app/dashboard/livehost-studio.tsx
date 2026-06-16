@@ -154,6 +154,11 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
   const gpuWarmRef = useRef<"idle" | "warming" | "ready">("idle");
   useEffect(() => { gpuWarmRef.current = gpuWarm; }, [gpuWarm]);
   const warmTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // EDGE-TRIGGER guard for warm-on-open: warm the GPU ONCE per Livehost-tab
+  // entry. After the 20-min cutoff turns the GPU off, it must NOT auto-re-warm
+  // while the user is still on the page — only a fresh tab entry (leaving and
+  // clicking Livehost again) re-triggers it. Reset when the view leaves "live".
+  const warmEntryRef = useRef(false);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState("");
   const [overlays, setOverlays] = useState<{ file: string; label: string }[]>([]);
@@ -292,19 +297,11 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
 
   const endSession = useCallback(() => {
     if (heartbeatRef.current) { clearInterval(heartbeatRef.current); heartbeatRef.current = null; }
-    // POOL: always release our slot on teardown — even if we never reached a
-    // session (e.g. tab closed mid cold-start) — so it never lingers busy.
-    // sendBeacon survives tab close; carries cookies for auth.
-    if (poolModeRef.current) {
-      const rel = JSON.stringify({ action: "release" });
-      try {
-        if (!navigator.sendBeacon("/api/livehost/pool", new Blob([rel], { type: "application/json" }))) {
-          fetch("/api/livehost/pool", { method: "POST", headers: { "content-type": "application/json" }, body: rel, keepalive: true }).catch(() => {});
-        }
-      } catch {
-        fetch("/api/livehost/pool", { method: "POST", headers: { "content-type": "application/json" }, body: rel, keepalive: true }).catch(() => {});
-      }
-    }
+    // NOTE: we deliberately do NOT release the pool slot here. Ending a stream
+    // (Stop) or closing the tab/browser must NOT free the GPU — the slot stays
+    // leased + warm for the 20-min idle window so the host can come back and
+    // stream again. The slot is freed only by the 20-min watchdog (tab open) or
+    // by server-side staleness (last_seen > 20 min, via the idle cron / assign).
     const id = sessionIdRef.current;
     sessionIdRef.current = null;
     if (!id) return;
@@ -921,16 +918,11 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
     endSession(); // server records the exact end second (also frees the pool slot)
     // POOL: release our serverless endpoint back to the pool + clear the URL so
     // the next Play re-assigns a fresh free slot.
-    if (poolModeRef.current) {
-      backendRef.current = "";
-      setGpuWarm("idle"); // slot released → next tab-idle re-warms a fresh slot
-      fetch("/api/livehost/pool", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ action: "release" }),
-        keepalive: true,
-      }).catch(() => {});
-    }
+    // STOP ends the live stream but does NOT kill the GPU. The slot stays
+    // assigned + warm (gpuWarm "ready") so the host can Play again instantly.
+    // The GPU is freed ONLY by the 20-min idle watchdog (or server-side staleness
+    // if the tab/browser closes) — never by Stop, tab-switch, or close.
+    // (We keep backendRef + gpuWarm="ready" untouched here on purpose.)
     if (liveTimerRef.current) { clearInterval(liveTimerRef.current); liveTimerRef.current = null; }
     liveEndAtRef.current = 0; setLiveTimer("");
     // Reset the live-event brain (greeting/comment queues + timers + dedup).
@@ -1230,15 +1222,18 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
     }
   }, [avatarId, backgrounds, voiceId, stop, speakNext, startWordSweep, buildKbPrompt, activeKb, speed, emotion, volume, configErr, addVoiceChars, beginSession, warmGpu]);
 
-  // WARM-ON-OPEN: the moment the host opens the Livehost (live) view, boot the GPU
-  // so ▶ Start is instant. Only when idle + not already streaming.
+  // WARM-ON-OPEN (EDGE-TRIGGERED): warm the GPU + start the 20-min timer ONCE
+  // when the host ENTERS the Livehost (live) tab. Leaving the tab re-arms it; so
+  // after the 20-min cutoff turns the GPU off, it stays off until the user clicks
+  // Livehost again — it never re-warms on its own while sitting on the page.
   useEffect(() => {
-    if (view !== "live") return;
+    if (view !== "live") { warmEntryRef.current = false; return; } // left tab → arm next entry
+    if (warmEntryRef.current) return;                              // already warmed this entry
     if (active || connecting) return;
-    if (gpuWarm !== "idle") return;
     if (!poolMode && !backendRef.current) return; // nothing to warm yet (config still loading)
+    warmEntryRef.current = true;
     warmGpu();
-  }, [view, poolMode, active, connecting, gpuWarm, warmGpu]);
+  }, [view, poolMode, active, connecting, warmGpu]);
 
   // 20-MIN IDLE WATCHDOG: if the GPU is warmed but the host never presses ▶ Start
   // within 20 min, release the slot + go back to the Dashboard (no runaway warm cost).
