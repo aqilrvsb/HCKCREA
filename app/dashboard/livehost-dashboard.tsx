@@ -161,6 +161,10 @@ export default function LivehostDashboard({
             className="rounded-xl p-3"
             style={{ background: "linear-gradient(135deg, rgba(245,158,11,0.14), rgba(245,158,11,0.04))", border: "1px solid rgba(245,158,11,0.35)" }}
           >
+            {/* User identity */}
+            <div className="font-bold truncate" style={{ color: "#fde68a" }}>{name}</div>
+            <div className="text-[11px] truncate mb-2" style={{ color: "rgba(253,230,138,0.7)" }}>{email}</div>
+
             <div className="text-[10px] font-bold uppercase tracking-wider" style={{ color: "#fbbf24" }}>💳 Credit Balance</div>
             <div className="font-display font-extrabold text-2xl tracking-tight" style={{ color: "#fcd34d" }}>{Number(credits).toFixed(2)}</div>
             <button
@@ -170,16 +174,6 @@ export default function LivehostDashboard({
             >Subscribe / Top up</button>
             {expiry && (
               <div className="mt-2 text-[11px] font-bold" style={{ color: "#4ade80" }}>● Sah hingga {expiry}</div>
-            )}
-          </div>
-          <div
-            className="rounded-xl p-3 text-xs"
-            style={{ background: "var(--color-bg-elev)", border: "1px solid var(--color-border)" }}
-          >
-            <div className="font-bold text-[var(--color-text-primary)] truncate">{name}</div>
-            <div className="text-[var(--color-text-muted)] truncate">{email}</div>
-            {expiry && (
-              <div className="mt-1 text-[var(--color-text-muted)]">Sah hingga {expiry}</div>
             )}
           </div>
           <LogoutButton compact />
