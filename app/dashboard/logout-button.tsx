@@ -18,14 +18,14 @@ export default function LogoutButton({ compact = false }: { compact?: boolean })
     return (
       <button
         onClick={handleLogout}
-        className="flex items-center justify-center gap-1.5 py-2.5 rounded-lg text-xs font-bold transition-colors hover:opacity-80"
+        className="w-full flex items-center justify-center gap-2 py-2.5 rounded-lg text-xs font-bold transition-colors hover:opacity-90"
         style={{
-          background: "rgba(239,68,68,0.08)",
-          border: "1px solid rgba(239,68,68,0.3)",
+          background: "rgba(239,68,68,0.1)",
+          border: "1px solid rgba(239,68,68,0.35)",
           color: "#fca5a5",
         }}
       >
-        <LogOut className="w-3.5 h-3.5" />
+        <LogOut className="w-4 h-4" />
         Sign out
       </button>
     );

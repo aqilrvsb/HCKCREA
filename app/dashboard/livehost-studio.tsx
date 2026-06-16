@@ -1655,7 +1655,7 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
           Shares state with the live view, so composing here is exactly what
           streams in the Livehost tab. */}
       <div style={{ display: view === "template" ? undefined : "none", height: "100%", overflowY: "auto" }}>
-        <div className="grid" style={{ gridTemplateColumns: "2.3fr 0.7fr" }}>
+        <div className="grid lh-tpl-grid">
           <div className="panel video-panel" style={{ justifyContent: "center" }}>
             <div className="video-wrap">
               <div className="stage" ref={templateStageRef}
@@ -2084,7 +2084,8 @@ const STUDIO_CSS = `
 .lh-studio{--bg:#0a0a0c;--panel:rgba(255,255,255,.028);--panel-2:rgba(255,255,255,.02);--border-s:rgba(255,255,255,.09);--text:#f3f4f8;--muted:#9aa0b0;--accent:#6366f1;--accent-2:#34d399;--cyan:#22d3ee;--amber:#fbbf24;--pink:#f472b6;--violet:#a78bfa;--danger:#fb5d76;--grad:linear-gradient(135deg,#6366f1 0%,#8b5cf6 100%);color:var(--text);height:100%;background:var(--bg);border-radius:18px;}
 .lh-studio *{box-sizing:border-box;}
 .lh-studio .grid{display:grid;grid-template-columns:1.9fr 0.7fr;gap:12px;height:calc(100vh - 16px);min-height:540px;padding:4px;}
-@media (max-width:1100px){.lh-studio .grid{grid-template-columns:1fr;height:auto;min-height:0;}}
+.lh-studio .grid.lh-tpl-grid{grid-template-columns:2.3fr 0.7fr;}
+@media (max-width:1100px){.lh-studio .grid{grid-template-columns:1fr;height:auto;min-height:0;}.lh-studio .grid.lh-tpl-grid{grid-template-columns:1fr;}}
 .lh-studio .panel{background:var(--panel);border:1px solid var(--border-s);border-radius:18px;padding:16px;min-height:0;min-width:0;overflow-y:auto;display:flex;flex-direction:column;box-shadow:0 18px 44px -22px rgba(0,0,0,.9),inset 0 1px 0 rgba(255,255,255,.04);}
 .lh-studio .panel.single{max-width:none;width:100%;}
 .lh-studio .video-panel{padding:8px;flex-direction:row;gap:10px;overflow:hidden;background:rgba(255,255,255,.02);}

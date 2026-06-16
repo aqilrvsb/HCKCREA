@@ -123,7 +123,7 @@ export default function LivehostDashboard({
     <div className="min-h-screen flex" style={{ background: "var(--color-bg)" }}>
       {/* Sidebar */}
       <aside
-        className="w-[260px] flex-shrink-0 hidden lg:flex flex-col gap-4 p-4 border-r sticky top-0 h-screen overflow-y-auto self-start"
+        className="w-[260px] flex-shrink-0 hidden lg:flex flex-col gap-4 p-4 border-r sticky top-0 h-screen overflow-hidden self-start"
         style={{ borderColor: "var(--color-border)" }}
       >
         <div className="flex items-center gap-2.5 px-2 py-2">
@@ -141,7 +141,7 @@ export default function LivehostDashboard({
           </div>
         </div>
 
-        <div className="space-y-1">
+        <div className="space-y-1 flex-1 overflow-y-auto min-h-0 -mr-1 pr-1">
           {NAV.map((n) => <div key={n.key}>{navItem(n.key, n.label, n.Icon, n.step, n.stepColor)}</div>)}
           {/* Install/connect the extension — plain nav item, yellow icon only */}
           <button
@@ -169,7 +169,7 @@ export default function LivehostDashboard({
           </a>
         </div>
 
-        <div className="mt-auto space-y-2">
+        <div className="flex-shrink-0 space-y-2">
           {/* Credit balance — Livehost is pay-as-you-go from credits (GPU + audio).
               Subscribe/top-up routes to the Billing view. */}
           <div
