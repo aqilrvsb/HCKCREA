@@ -123,7 +123,7 @@ export default function LivehostDashboard({
     <div className="min-h-screen flex" style={{ background: "var(--color-bg)" }}>
       {/* Sidebar */}
       <aside
-        className="w-[260px] flex-shrink-0 hidden lg:flex flex-col gap-4 p-4 border-r"
+        className="w-[260px] flex-shrink-0 hidden lg:flex flex-col gap-4 p-4 border-r sticky top-0 h-screen overflow-y-auto self-start"
         style={{ borderColor: "var(--color-border)" }}
       >
         <div className="flex items-center gap-2.5 px-2 py-2">
