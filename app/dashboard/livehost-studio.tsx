@@ -1399,8 +1399,8 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
               {!active && (
                 <div className="dur-row" title="Berapa lama live ini? Skrip akan loop ikut masa. 0:00 = main biasa (ikut checkbox loop).">
                   <span className="dur-label">⏱ Durasi live</span>
-                  <input type="number" min={0} max={24} value={liveDurH}
-                    onChange={(e) => setLiveDurH(Math.max(0, Math.min(24, Math.floor(Number(e.target.value) || 0))))} />
+                  <input type="number" min={0} max={23} value={liveDurH}
+                    onChange={(e) => setLiveDurH(Math.max(0, Math.min(23, Math.floor(Number(e.target.value) || 0))))} />
                   <span>jam</span>
                   <input type="number" min={0} max={59} value={liveDurM}
                     onChange={(e) => setLiveDurM(Math.max(0, Math.min(59, Math.floor(Number(e.target.value) || 0))))} />
