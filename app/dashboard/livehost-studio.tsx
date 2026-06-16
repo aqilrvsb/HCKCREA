@@ -1543,10 +1543,16 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
 
           <div className="panel">
               <div className="label">Avatar — pick from Attachments (host default tersedia)</div>
-              <button type="button" className="filebtn secondary" style={{ marginTop: 0 }} disabled={uploading}
-                onClick={() => setAvatarPickerOpen(true)}>
-                {uploading ? "Processing…" : "🖼 Pick avatar from Attachments"}
-              </button>
+              <div style={{ display: "flex", gap: 8, marginTop: 0 }}>
+                <button type="button" className="filebtn secondary" style={{ flex: 1, marginTop: 0 }} disabled={uploading}
+                  onClick={() => setAvatarPickerOpen(true)}>
+                  {uploading ? "Processing…" : "🖼 Pick avatar from Attachments"}
+                </button>
+                {avatarId && (
+                  <button type="button" className="filebtn secondary" style={{ flex: "0 0 auto", marginTop: 0 }} title="Buang avatar"
+                    onClick={() => { setAvatarId(""); setPreviewUrl(""); setStockSel(""); }}>✕ Clear</button>
+                )}
+              </div>
               <div className="hint">⚠ Guna wajah AI / wajah sendiri sahaja (polisi TikTok).</div>
               {uploading && <div className="status-line">Processing image… detecting face…</div>}
               {!uploading && avatarId && <div className="status-line">✓ Avatar ready — press Start</div>}
@@ -1561,6 +1567,10 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
                   className="filebtn secondary" style={{ flex: 1, marginTop: 0, textAlign: "center" }}>
                   📐 Canva
                 </a>
+                {overlayUrl && (
+                  <button type="button" className="filebtn secondary" style={{ flex: "0 0 auto", marginTop: 0 }} title="Buang template"
+                    onClick={() => { setOverlaySel(""); setCustomOverlay(""); }}>✕ Clear</button>
+                )}
               </div>
               <div className="hint">Edit di Canva → Download <b>PNG</b> (✅ Transparent) → upload <b>Attachment</b> → tekan <b>🖼 Attachment</b>.</div>
 
