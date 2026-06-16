@@ -58,8 +58,11 @@ export async function POST(req: Request) {
   const speed = Number(b?.speed) || 1.0;
   const emotion = String(b?.emotion || "fluent");
   const chars = Number(b?.chars) || text.length;
+  // Preferred: audio_path = a draft already uploaded by /script-generate (no
+  // base64 round-trip → any length works). Legacy: audio_b64 inline upload.
+  const audioPath = String(b?.audio_path || "");
   const audioB64 = String(b?.audio_b64 || "");
-  if (!text || !audioB64) return NextResponse.json({ error: "text and audio_b64 required" }, { status: 400 });
+  if (!text || (!audioPath && !audioB64)) return NextResponse.json({ error: "text and audio required" }, { status: 400 });
 
   const { data: row, error: insErr } = await admin
     .from("livehost_scripts")
@@ -69,14 +72,27 @@ export async function POST(req: Request) {
   if (insErr) return NextResponse.json({ error: insErr.message }, { status: 500 });
 
   const path = `${user.id}/${row.id}.wav`;
-  const bytes = Buffer.from(audioB64, "base64");
-  const { error: upErr } = await admin.storage.from(BUCKET).upload(path, bytes, {
-    contentType: "audio/wav",
-    upsert: true,
-  });
-  if (upErr) {
-    await admin.from("livehost_scripts").delete().eq("id", row.id);
-    return NextResponse.json({ error: upErr.message }, { status: 500 });
+  if (audioPath) {
+    // move the draft into the script's stable path (guard: must be the caller's own draft)
+    if (!audioPath.startsWith(`${user.id}/`)) {
+      await admin.from("livehost_scripts").delete().eq("id", row.id);
+      return NextResponse.json({ error: "invalid audio_path" }, { status: 400 });
+    }
+    const { error: mvErr } = await admin.storage.from(BUCKET).move(audioPath, path);
+    if (mvErr) {
+      await admin.from("livehost_scripts").delete().eq("id", row.id);
+      return NextResponse.json({ error: mvErr.message }, { status: 500 });
+    }
+  } else {
+    const bytes = Buffer.from(audioB64, "base64");
+    const { error: upErr } = await admin.storage.from(BUCKET).upload(path, bytes, {
+      contentType: "audio/wav",
+      upsert: true,
+    });
+    if (upErr) {
+      await admin.from("livehost_scripts").delete().eq("id", row.id);
+      return NextResponse.json({ error: upErr.message }, { status: 500 });
+    }
   }
   await admin.from("livehost_scripts").update({ audio_path: path }).eq("id", row.id);
   const { data: signed } = await admin.storage.from(BUCKET).createSignedUrl(path, SIGN_TTL);

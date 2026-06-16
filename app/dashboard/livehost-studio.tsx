@@ -20,8 +20,9 @@ type Script = {
   // Per-script voice (set when authoring; travels into the rundown).
   voiceId: string; volume: number; speed: number; emotion: string;
   chars?: number;
-  audioUrl?: string | null;   // signed URL of the saved (pre-generated) audio
-  audioB64?: string | null;   // freshly generated audio held in memory until Save
+  audioUrl?: string | null;   // signed URL of the (saved OR freshly generated) audio
+  audioPath?: string | null;  // storage path of freshly generated audio, until Save persists it
+  audioB64?: string | null;   // legacy inline audio (no longer produced; kept for back-compat)
   saved?: boolean;            // persisted to Supabase (livehost_scripts)
   generating?: boolean;       // Generate request in flight
 };
@@ -1244,7 +1245,7 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
   const updateScript = useCallback((id: string, patch: Partial<Script>) => {
     // Changing content/voice invalidates the saved/generated audio.
     const dirties = ["text", "voiceId", "volume", "speed", "emotion"].some((k) => k in patch);
-    setScripts((prev) => prev.map((s) => (s.id === id ? { ...s, ...patch, ...(dirties ? { saved: false, audioB64: null, audioUrl: null } : {}) } : s)));
+    setScripts((prev) => prev.map((s) => (s.id === id ? { ...s, ...patch, ...(dirties ? { saved: false, audioB64: null, audioUrl: null, audioPath: null } : {}) } : s)));
   }, []);
   const deleteScript = useCallback((id: string) => {
     const sc = scriptsRef.current.find((s) => s.id === id);
@@ -1282,9 +1283,9 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
         body: JSON.stringify({ text: sc.text, voice_id: sc.voiceId, volume: sc.volume, speed: sc.speed, emotion: sc.emotion, script_id: sc.saved ? sc.id : null }),
       });
       const d = await r.json();
-      if (!r.ok || !d?.audio_b64) throw new Error(d?.error || "Generate gagal");
-      setScripts((prev) => prev.map((s) => (s.id === id ? { ...s, generating: false, audioB64: d.audio_b64, chars: d.chars, saved: false, audioUrl: null } : s)));
-      playPreview(id, `data:audio/mpeg;base64,${d.audio_b64}`);
+      if (!r.ok || !d?.audio_url) throw new Error(d?.error || "Generate gagal");
+      setScripts((prev) => prev.map((s) => (s.id === id ? { ...s, generating: false, audioUrl: d.audio_url, audioPath: d.audio_path, audioB64: null, chars: d.chars, saved: false } : s)));
+      playPreview(id, d.audio_url);
     } catch (e: any) {
       setScripts((prev) => prev.map((s) => (s.id === id ? { ...s, generating: false } : s)));
       alert("Generate gagal: " + (e?.message || e));
@@ -1294,16 +1295,16 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
   const saveScript = useCallback(async (id: string) => {
     const sc = scriptsRef.current.find((s) => s.id === id);
     if (!sc) return;
-    if (!sc.audioB64) { alert("Generate audio dulu sebelum simpan."); return; }
+    if (!sc.audioPath && !sc.audioB64) { alert("Generate audio dulu sebelum simpan."); return; }
     try {
       const r = await fetch("/api/livehost/scripts", {
         method: "POST", headers: { "content-type": "application/json" },
-        body: JSON.stringify({ title: sc.title, text: sc.text, voice_id: sc.voiceId, volume: sc.volume, speed: sc.speed, emotion: sc.emotion, chars: sc.chars || sc.text.length, audio_b64: sc.audioB64 }),
+        body: JSON.stringify({ title: sc.title, text: sc.text, voice_id: sc.voiceId, volume: sc.volume, speed: sc.speed, emotion: sc.emotion, chars: sc.chars || sc.text.length, audio_path: sc.audioPath || undefined, audio_b64: sc.audioB64 || undefined }),
       });
       const d = await r.json();
       if (!r.ok || !d?.id) throw new Error(d?.error || "Simpan gagal");
       // Swap the draft id for the persisted Supabase id; keep rundown refs in sync.
-      setScripts((prev) => prev.map((s) => (s.id === id ? { ...s, id: d.id, saved: true, audioUrl: d.audioUrl, audioB64: null } : s)));
+      setScripts((prev) => prev.map((s) => (s.id === id ? { ...s, id: d.id, saved: true, audioUrl: d.audioUrl, audioPath: null, audioB64: null } : s)));
       setRundown((prev) => prev.map((x) => (x === id ? d.id : x)));
     } catch (e: any) {
       alert("Simpan gagal: " + (e?.message || e));
@@ -1800,7 +1801,7 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
                 <div className="flex flex-wrap gap-2 mt-4">
                   <LhButton onClick={() => generateScript(s.id)} disabled={s.generating || !s.text.trim()}>{s.generating ? "⏳ Generating…" : "🎙 Generate"}</LhButton>
                   <LhButton variant="ghost" onClick={() => playSaved(s.id)} disabled={!hasAudio}>{previewPlayId === s.id ? "■ Stop" : "▶ Play"}</LhButton>
-                  <LhButton variant="ghost" onClick={() => saveScript(s.id)} disabled={!s.audioB64 || s.saved}>💾 {s.saved ? "Saved" : "Save"}</LhButton>
+                  <LhButton variant="ghost" onClick={() => saveScript(s.id)} disabled={(!s.audioPath && !s.audioB64) || s.saved}>💾 {s.saved ? "Saved" : "Save"}</LhButton>
                 </div>
 
                 {previewPlayId === s.id && (
