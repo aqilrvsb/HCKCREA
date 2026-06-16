@@ -19,7 +19,7 @@ const nkey = clean(settings.find((s) => s.key === "novita_api_key").value);
 const ref = clean(settings.find((s) => s.key === "livehost_pool_ref_endpoint").value);
 const envs = (await novita(`/endpoint?id=${ref}`, nkey))?.endpoint?.envs || [];
 
-const values = [901, 1000, 1100, 1800];
+const values = [1020, 1050, 1080, 1099];
 for (const ft of values) {
   const name = "probe-" + Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
   const body = { endpoint: { name, workerConfig: { minNum: 0, maxNum: 1, freeTimeout: ft, maxConcurrent: 1, gpuNum: 1, requestTimeout: 120 }, policy: { type: "queue", value: 4 }, image: { image: "docker.io/aqilrvsb/lh-avtr1:s9-nvenc2-chunk4", authId: "73068571-9b1d-44c6-a4d7-fb942614b1a4", command: "" }, rootfsSize: 90, products: [{ id: "SL-serverless-3" }], ports: [{ port: 8000 }], healthy: { path: "/ping" }, clusterIDs: ["as-sgp-2"], type: "sync", envs } };

@@ -50,14 +50,14 @@ console.log("old endpoints:", oldIds);
 const created = [];
 for (let i = 0; i < 4; i++) {
   const name = "lh-pool-" + Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
-  const body = { endpoint: { name, workerConfig: { minNum: 0, maxNum: 1, freeTimeout: 1200, maxConcurrent: 1, gpuNum: 1, requestTimeout: 120 }, policy: { type: "queue", value: 4 }, image: { image: IMAGE, authId: AUTH_ID, command: "" }, rootfsSize: 90, products: [{ id: PRODUCT }], ports: [{ port: 8000 }], healthy: { path: "/ping" }, clusterIDs: [CLUSTER], type: "sync", envs } };
+  const body = { endpoint: { name, workerConfig: { minNum: 0, maxNum: 1, freeTimeout: 1000, maxConcurrent: 1, gpuNum: 1, requestTimeout: 120 }, policy: { type: "queue", value: 4 }, image: { image: IMAGE, authId: AUTH_ID, command: "" }, rootfsSize: 90, products: [{ id: PRODUCT }], ports: [{ port: 8000 }], healthy: { path: "/ping" }, clusterIDs: [CLUSTER], type: "sync", envs } };
   const d = await novita("/endpoint/create", nkey, { method: "POST", body: JSON.stringify(body) });
   const id = d?.id || d?.endpoint?.id;
   if (!id) { console.error("create FAILED:", JSON.stringify(d).slice(0, 300)); continue; }
-  await sb.from("livehost_pool").insert({ endpoint_id: id, runsync_url: runsyncUrl(id), label: "lh-pool 20min", status: "free" });
+  await sb.from("livehost_pool").insert({ endpoint_id: id, runsync_url: runsyncUrl(id), label: "lh-pool max", status: "free" });
   created.push(id);
   console.log("created", id);
-  if (i < 3) await new Promise((r) => setTimeout(r, 1500));
+  if (i < 3) await new Promise((r) => setTimeout(r, 8000));
 }
 if (!created.length) { console.error("no endpoints created — aborting before delete"); process.exit(1); }
 

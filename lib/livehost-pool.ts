@@ -68,7 +68,7 @@ export async function createPoolEndpoint(label?: string): Promise<CreateResult> 
     const body = {
       endpoint: {
         name,
-        workerConfig: { minNum: 0, maxNum: 1, freeTimeout: 1200, maxConcurrent: 1, gpuNum: 1, requestTimeout: 120 },
+        workerConfig: { minNum: 0, maxNum: 1, freeTimeout: 1000, maxConcurrent: 1, gpuNum: 1, requestTimeout: 120 },
         policy: { type: "queue", value: 4 },
         image: { image: IMAGE, authId: AUTH_ID, command: "" },
         rootfsSize: 90,
