@@ -1549,8 +1549,8 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
                   {uploading ? "Processing…" : "🖼 Pick avatar from Attachments"}
                 </button>
                 {avatarId && (
-                  <button type="button" className="filebtn secondary" style={{ flex: "0 0 auto", marginTop: 0, width: "auto", padding: "9px 12px" }} title="Buang avatar"
-                    onClick={() => { setAvatarId(""); setPreviewUrl(""); setStockSel(""); }}>✕ Clear</button>
+                  <button type="button" className="filebtn secondary" style={{ flex: "0 0 auto", marginTop: 0, width: 44, padding: 0, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 15, color: "#ff9aa8" }} title="Buang avatar"
+                    onClick={() => { setAvatarId(""); setPreviewUrl(""); setStockSel(""); }}>✕</button>
                 )}
               </div>
               <div className="hint">⚠ Guna wajah AI / wajah sendiri sahaja (polisi TikTok).</div>
@@ -1568,8 +1568,8 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
                   📐 Canva
                 </a>
                 {overlayUrl && (
-                  <button type="button" className="filebtn secondary" style={{ flex: "0 0 auto", marginTop: 0, width: "auto", padding: "9px 12px" }} title="Buang template"
-                    onClick={() => { setOverlaySel(""); setCustomOverlay(""); }}>✕ Clear</button>
+                  <button type="button" className="filebtn secondary" style={{ flex: "0 0 auto", marginTop: 0, width: 44, padding: 0, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 15, color: "#ff9aa8" }} title="Buang template"
+                    onClick={() => { setOverlaySel(""); setCustomOverlay(""); }}>✕</button>
                 )}
               </div>
               <div className="hint">Edit di Canva → Download <b>PNG</b> (✅ Transparent) → upload <b>Attachment</b> → tekan <b>🖼 Attachment</b>.</div>
