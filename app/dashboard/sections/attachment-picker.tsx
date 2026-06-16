@@ -297,18 +297,18 @@ export default function AttachmentPicker({
         {hasPresets ? (
           <div className="px-5 py-3 flex items-center gap-2 border-b" style={{ borderColor: "var(--color-border)" }}>
             <FilterPill
-              active={source === "demo"}
-              onClick={() => setSource("demo")}
-              icon={<Sparkles className="w-3.5 h-3.5" />}
-              label={`Demo (${presets.length})`}
-              color="#6366f1"
-            />
-            <FilterPill
               active={source === "own"}
               onClick={() => setSource("own")}
               icon={<UserCircle2 className="w-3.5 h-3.5" />}
               label={`Default (${total})`}
               color="#22c55e"
+            />
+            <FilterPill
+              active={source === "demo"}
+              onClick={() => setSource("demo")}
+              icon={<Sparkles className="w-3.5 h-3.5" />}
+              label={`Demo (${presets.length})`}
+              color="#6366f1"
             />
           </div>
         ) : categories.length > 1 && (
