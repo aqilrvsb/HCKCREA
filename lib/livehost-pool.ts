@@ -16,7 +16,7 @@ const IMAGE = "docker.io/aqilrvsb/lh-avtr1:NVENC-GOLD-5090";
 const AUTH_ID = "73068571-9b1d-44c6-a4d7-fb942614b1a4"; // dockerhub cred
 const PRODUCT = "SL-serverless-3"; // RTX 5090 serverless
 const CLUSTER = "as-sgp-2";
-const DEFAULT_REF = "858ca6049ae91b38";
+const DEFAULT_REF = "bc1a5ea6ae5677df"; // a live pool endpoint to copy envs from (app_settings.livehost_pool_ref_endpoint overrides)
 
 export function runsyncUrl(endpointId: string): string {
   return `https://${endpointId}-${endpointId}.runsync.novita.dev`;
