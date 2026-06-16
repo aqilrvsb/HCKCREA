@@ -133,7 +133,7 @@ export async function GET(req: Request) {
   // Fetch ALL sessions + ALL audio gens (all-time) + credits IN PARALLEL — the
   // balance is a wallet (not period-scoped) and the ledger needs a true running
   // balance from the start.
-  const [{ data: sessions }, { data: gens }, { data: prof }] = await Promise.all([
+  const [{ data: sessions }, { data: gens }, { data: prof }, { data: imgTx }] = await Promise.all([
     admin.from("live_sessions")
       .select("id, started_at, ended_at, voice_chars, comment_chars, session_type")
       .eq("user_id", user.id).order("started_at", { ascending: true }).limit(5000),
@@ -141,8 +141,22 @@ export async function GET(req: Request) {
       .select("id, chars, created_at")
       .eq("user_id", user.id).order("created_at", { ascending: true }).limit(5000),
     admin.from("profiles").select("credits").eq("id", user.id).maybeSingle(),
+    // AVATAR image generations: real credit deductions from the Avatar tab
+    // (reason 'image_generate'). These already left profiles.credits — we add
+    // them back into grantedCredits below and show them as their own ledger
+    // category so the wallet still tallies exactly (Σ ledger == granted − available).
+    admin.from("credit_transactions")
+      .select("amount, created_at, reason")
+      .eq("user_id", user.id).eq("reason", "image_generate")
+      .order("created_at", { ascending: true }).limit(5000),
   ]);
+  // profiles.credits is the LIVE wallet = granted − all hard deductions (avatar gen).
+  // Reconstruct grantedCredits so the avatar deductions can appear in the ledger
+  // without double-counting: granted = credits + Σ(avatar deductions all-time).
   const credits = Number(prof?.credits || 0);
+  const avatarTx = (imgTx || []).map((t) => ({ t: new Date(t.created_at).getTime(), cost: Math.abs(Number(t.amount) || 0) }));
+  const avatarSpentAll = avatarTx.reduce((a, x) => a + x.cost, 0);
+  const grantedCredits = credits + avatarSpentAll;
 
   const asc = sessions || [];
   // Build ONE chronological ledger of every billable charge:
@@ -150,7 +164,7 @@ export async function GET(req: Request) {
   //   • each audio gen → chars/1k × audio rate
   // Folding the warm-idle into the session that caused it keeps the running
   // balance exact (Σ ledger costs == total spent == credits − available).
-  type Charge = { t: number; type: "live" | "nonLive" | "audioScript"; durationSec: number; chars: number; cost: number };
+  type Charge = { t: number; type: "live" | "nonLive" | "audioScript" | "avatar"; durationSec: number; chars: number; cost: number };
   const charges: Charge[] = [];
   for (let i = 0; i < asc.length; i++) {
     const s = asc[i];
@@ -180,18 +194,23 @@ export async function GET(req: Request) {
       cost: ((Number(g.chars) || 0) / 1000) * audioRateGen,
     });
   }
+  for (const a of avatarTx) {
+    charges.push({ t: a.t, type: "avatar", durationSec: 0, chars: 0, cost: a.cost });
+  }
   charges.sort((a, b) => a.t - b.t);
 
   // Running balance (all-time) → ledger rows for the selected period (newest first).
+  // Base is grantedCredits (credits + avatar deductions added back) so the avatar
+  // charges show in the ledger while the FINAL balance still equals `available`.
   let runSpent = 0;
-  const TYPE_LABEL: Record<string, string> = { live: "Live", nonLive: "NON Live", audioScript: "Audio Script" };
+  const TYPE_LABEL: Record<string, string> = { live: "Live", nonLive: "NON Live", audioScript: "Audio Script", avatar: "Avatar" };
   const ledgerAll = charges.map((c) => {
     runSpent += c.cost;
-    return { at: new Date(c.t).toISOString(), type: c.type, typeLabel: TYPE_LABEL[c.type], durationSec: c.durationSec, chars: c.chars, cost: +c.cost.toFixed(2), balanceAfter: +(credits - runSpent).toFixed(2) };
+    return { at: new Date(c.t).toISOString(), type: c.type, typeLabel: TYPE_LABEL[c.type], durationSec: c.durationSec, chars: c.chars, cost: +c.cost.toFixed(2), balanceAfter: +(grantedCredits - runSpent).toFixed(2) };
   });
   const ledger = ledgerAll.filter((r) => inPeriod(new Date(r.at).getTime())).reverse();
   const allTimeSpent = runSpent;
-  const available = +(credits - allTimeSpent).toFixed(2);
+  const available = +(grantedCredits - allTimeSpent).toFixed(2);
 
   // ---- Period category breakdown (the 4 cost cards) ----
   let liveSec = 0, liveChars = 0, liveCount = 0;
@@ -215,6 +234,11 @@ export async function GET(req: Request) {
   const audioChars = gensP.reduce((a, g) => a + Number(g.chars || 0), 0);
   const audioCost = (audioChars / 1000) * audioRateGen;
 
+  // Avatar image generations in this period.
+  const avatarP = avatarTx.filter((a) => inPeriod(a.t));
+  const avatarGenerations = avatarP.length;
+  const avatarCost = avatarP.reduce((a, x) => a + x.cost, 0);
+
   const liveGpu = (liveSec / 3600) * gpuRate;
   const liveVoice = (liveChars / 1000) * voiceRate;
   const testGpu = (testSec / 3600) * gpuRate;
@@ -223,14 +247,14 @@ export async function GET(req: Request) {
   const commentCost = (commentChars / 1000) * voiceRate;
   const liveCost = liveGpu + liveVoice;
   const nonLiveCost = testGpu + testVoice + idleCost;
-  const grandTotal = liveCost + nonLiveCost + audioCost + commentCost;
+  const grandTotal = liveCost + nonLiveCost + audioCost + commentCost + avatarCost;
 
   return NextResponse.json({
     rates: { gpuRateHour: gpuRate, voiceRate1k: voiceRate, audioRateGen, warmWindowSec, currency: "RM" },
     // credit balance guard — wallet view (ALL-TIME): available = credits − all
     // livehost spending ever. This is the number shown as "Baki kredit" AND the
     // sidebar "Credit Balance" so they tally. spent here is all-time too.
-    balance: { credits: +credits.toFixed(2), spent: +allTimeSpent.toFixed(2), available, minBalance, low: available <= minBalance },
+    balance: { credits: +grantedCredits.toFixed(2), spent: +allTimeSpent.toFixed(2), available, minBalance, low: available <= minBalance },
     // chronological ledger (period-filtered, newest first) with running balance
     ledger,
     // 4-category breakdown (the source of truth for Usage + Dashboard):
@@ -241,6 +265,7 @@ export async function GET(req: Request) {
       live: { sessions: liveCount, streamSec: liveSec, voiceChars: liveChars, gpuCost: +liveGpu.toFixed(2), voiceCost: +liveVoice.toFixed(2), cost: +liveCost.toFixed(2) },
       nonLive: { sessions: testCount, streamSec: testSec, voiceChars: testChars, gpuCost: +testGpu.toFixed(2), voiceCost: +testVoice.toFixed(2), idleSec, idleCost: +idleCost.toFixed(2), cost: +nonLiveCost.toFixed(2) },
       comment: { chars: commentChars, cost: +commentCost.toFixed(2) },
+      avatar: { generations: avatarGenerations, cost: +avatarCost.toFixed(2) },
       total: +grandTotal.toFixed(2),
     },
     // backward-compatible fields (legacy consumers)

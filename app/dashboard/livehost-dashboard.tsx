@@ -120,7 +120,7 @@ export default function LivehostDashboard({
   const navItem = (key: View, label: string, Icon: any, step?: number, stepColor?: string) => (
     <button
       onClick={() => setView(key)}
-      className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-bold transition-colors"
+      className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-bold transition-colors"
       style={{
         background: view === key ? "rgba(96,165,250,0.14)" : "transparent",
         color: view === key ? "#93c5fd" : "var(--color-text-secondary)",
@@ -144,10 +144,10 @@ export default function LivehostDashboard({
     <div className="min-h-screen flex" style={{ background: "var(--color-bg)" }}>
       {/* Sidebar */}
       <aside
-        className="w-[260px] flex-shrink-0 hidden lg:flex flex-col gap-3 p-4 border-r sticky top-0 h-screen overflow-hidden self-start"
+        className="w-[260px] flex-shrink-0 hidden lg:flex flex-col gap-2 px-3 py-3 border-r sticky top-0 h-screen overflow-hidden self-start"
         style={{ borderColor: "var(--color-border)" }}
       >
-        <div className="flex items-center gap-2.5 px-2 py-2">
+        <div className="flex items-center gap-2.5 px-2 py-1">
           <div
             className="w-9 h-9 rounded-xl flex items-center justify-center"
             style={{ background: "linear-gradient(135deg, #3b82f6, #2563eb)" }}
@@ -162,12 +162,12 @@ export default function LivehostDashboard({
           </div>
         </div>
 
-        <div className="space-y-1 flex-1 overflow-y-auto min-h-0 -mr-1 pr-1">
+        <div className="space-y-0.5 flex-1 overflow-y-auto min-h-0 -mr-1 pr-1">
           {NAV.map((n) => <div key={n.key}>{navItem(n.key, n.label, n.Icon, n.step, n.stepColor)}</div>)}
           {/* Install/connect the extension — plain nav item, yellow icon only */}
           <button
             onClick={() => setView("tiktok")}
-            className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-bold transition-colors"
+            className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-bold transition-colors"
             style={{
               background: view === "tiktok" ? "rgba(96,165,250,0.14)" : "transparent",
               color: view === "tiktok" ? "#93c5fd" : "var(--color-text-secondary)",
@@ -181,7 +181,7 @@ export default function LivehostDashboard({
             href={WHATSAPP_GROUP_LIVEHOST}
             target="_blank"
             rel="noopener noreferrer"
-            className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-bold transition-colors"
+            className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-bold transition-colors"
             style={{ color: "var(--color-text-secondary)" }}
           >
             <MessageCircle className="w-4 h-4 flex-shrink-0" style={{ color: "#22c55e" }} />
@@ -193,17 +193,17 @@ export default function LivehostDashboard({
         <div className="flex-shrink-0 space-y-2">
           {/* Credit balance card */}
           <div
-            className="relative overflow-hidden rounded-2xl p-3 border"
+            className="relative overflow-hidden rounded-2xl p-2.5 border"
             style={{ background: "linear-gradient(135deg, rgba(245,158,11,0.1), rgba(245,158,11,0.03))", borderColor: "rgba(245,158,11,0.3)" }}
           >
             <div className="flex items-center gap-2 mb-1">
               <Wallet className="w-3.5 h-3.5" style={{ color: "#fbbf24" }} />
               <span className="font-mono text-[10px] uppercase tracking-widest font-bold" style={{ color: "#fbbf24" }}>Credit Balance</span>
             </div>
-            <div className="font-display font-extrabold text-2xl tracking-tight" style={{ color: balanceLow ? "#f87171" : "#fcd34d" }}>{Number(balance ?? credits).toFixed(2)}</div>
+            <div className="font-display font-extrabold text-xl tracking-tight" style={{ color: balanceLow ? "#f87171" : "#fcd34d" }}>{Number(balance ?? credits).toFixed(2)}</div>
             <button
               onClick={() => setView("billing")}
-              className="mt-2 w-full py-2 rounded-lg text-xs font-extrabold transition-transform hover:scale-[1.02]"
+              className="mt-1.5 w-full py-1.5 rounded-lg text-xs font-extrabold transition-transform hover:scale-[1.02]"
               style={{ background: "linear-gradient(90deg,#f59e0b,#facc15)", color: "#000", boxShadow: "0 4px 14px rgba(250,204,21,0.3)" }}
             >Subscribe / Top up</button>
           </div>
@@ -211,7 +211,7 @@ export default function LivehostDashboard({
           {/* Plan status pill */}
           <button
             onClick={() => setView("billing")}
-            className="w-full text-left rounded-xl p-3 border transition-colors hover:opacity-90"
+            className="w-full text-left rounded-xl p-2 border transition-colors hover:opacity-90"
             style={{ background: "var(--color-bg-card)", borderColor: "var(--color-border)" }}
           >
             <div className="flex items-center gap-2 mb-0.5">
@@ -226,10 +226,10 @@ export default function LivehostDashboard({
           </button>
 
           {/* User card + sign out */}
-          <div className="pt-2 border-t" style={{ borderColor: "var(--color-border)" }}>
-            <div className="flex items-center gap-3 px-1 py-2 mb-2">
+          <div className="pt-1.5 border-t" style={{ borderColor: "var(--color-border)" }}>
+            <div className="flex items-center gap-2.5 px-1 py-1 mb-1.5">
               <div
-                className="w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0 font-display font-extrabold text-sm text-white"
+                className="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 font-display font-extrabold text-xs text-white"
                 style={{ background: "linear-gradient(135deg,#facc15,#eab308)", boxShadow: "0 0 0 2px var(--color-bg-card), 0 4px 12px rgba(245,158,11,0.3)" }}
               >
                 {(name || email || "U").trim().charAt(0).toUpperCase()}

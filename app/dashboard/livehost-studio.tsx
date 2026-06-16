@@ -244,6 +244,7 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
       live: { sessions: number; streamSec: number; voiceChars: number; gpuCost: number; voiceCost: number; cost: number };
       nonLive: { sessions: number; streamSec: number; voiceChars: number; gpuCost: number; voiceCost: number; idleSec: number; idleCost: number; cost: number };
       comment: { chars: number; cost: number };
+      avatar: { generations: number; cost: number };
       total: number;
     };
     month: { streamSec: number; voiceChars: number; gpuCost: number; voiceCost: number; totalCost: number };
@@ -2089,6 +2090,7 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
               { label: "Cost Live", value: usageData?.costs ? `RM ${usageData.costs.live.cost.toFixed(2)}` : "—", suffix: `${Math.floor((usageData?.costs?.live.streamSec || 0) / 3600)}h ${Math.floor(((usageData?.costs?.live.streamSec || 0) % 3600) / 60)}m · ${usageData?.costs?.live.sessions ?? 0} live`, glow: "rgba(236,72,153,0.12)", cls: "text-pink-500" },
               { label: "Cost NON Live", value: usageData?.costs ? `RM ${usageData.costs.nonLive.cost.toFixed(2)}` : "—", suffix: `${usageData?.costs?.nonLive.sessions ?? 0} sesi + idle ${Math.floor((usageData?.costs?.nonLive.idleSec || 0) / 60)}m`, glow: "rgba(245,158,11,0.12)", cls: "text-amber-500" },
               { label: "Cost Comment", value: usageData?.costs ? `RM ${usageData.costs.comment.cost.toFixed(2)}` : "—", suffix: `${(usageData?.costs?.comment.chars ?? 0).toLocaleString()} aksara balas komen`, glow: "rgba(34,197,94,0.12)", cls: "text-emerald-500" },
+              { label: "Cost Avatar", value: usageData?.costs ? `RM ${(usageData.costs.avatar?.cost ?? 0).toFixed(2)}` : "—", suffix: `${usageData?.costs?.avatar?.generations ?? 0} imej dijana`, glow: "rgba(168,85,247,0.12)", cls: "text-purple-500" },
               { label: "Baki kredit", value: usageData?.balance ? `RM ${usageData.balance.available.toFixed(2)}` : "—", suffix: `min RM${usageData?.balance?.minBalance ?? 5}`, glow: usageData?.balance?.low ? "rgba(239,68,68,0.18)" : "rgba(34,197,94,0.12)", cls: usageData?.balance?.low ? "text-red-500" : "text-emerald-500" },
             ].map((s, i) => (
               <div key={i} className="card relative overflow-hidden">
@@ -2109,6 +2111,7 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
               <span>🔴 Live: RM {(usageData.costs?.live.cost ?? 0).toFixed(2)} · GPU RM {usageData.rates.gpuRateHour.toFixed(2)}/jam</span>
               <span>🧪 NON Live: RM {(usageData.costs?.nonLive.cost ?? 0).toFixed(2)} (incl. idle RM {(usageData.costs?.nonLive.idleCost ?? 0).toFixed(2)})</span>
               <span>💬 Comment: RM {(usageData.costs?.comment.cost ?? 0).toFixed(2)} · RM {usageData.rates.voiceRate1k.toFixed(2)}/1k</span>
+              <span>🖼 Avatar: RM {(usageData.costs?.avatar?.cost ?? 0).toFixed(2)} · {usageData.costs?.avatar?.generations ?? 0} imej</span>
               <span>💰 Jumlah: RM {(usageData.costs?.total ?? usageData.month.totalCost).toFixed(2)}</span>
             </div>
           )}
@@ -2136,6 +2139,7 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
                 {usageData.ledger.map((r, i) => {
                   const tc = r.type === "live" ? { bg: "rgba(236,72,153,0.14)", c: "#ec4899" }
                     : r.type === "audioScript" ? { bg: "rgba(59,130,246,0.14)", c: "#3b82f6" }
+                    : r.type === "avatar" ? { bg: "rgba(168,85,247,0.14)", c: "#a855f7" }
                     : { bg: "rgba(245,158,11,0.14)", c: "#f59e0b" }; // nonLive
                   return (
                     <li key={i} className="px-6 py-4 flex flex-col md:flex-row md:items-center gap-1.5 md:gap-3 text-sm">
