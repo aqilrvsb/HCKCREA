@@ -1549,7 +1549,7 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
                   {uploading ? "Processing…" : "🖼 Pick avatar from Attachments"}
                 </button>
                 {avatarId && (
-                  <button type="button" className="filebtn secondary" style={{ flex: "0 0 auto", marginTop: 0 }} title="Buang avatar"
+                  <button type="button" className="filebtn secondary" style={{ flex: "0 0 auto", marginTop: 0, width: "auto", padding: "9px 12px" }} title="Buang avatar"
                     onClick={() => { setAvatarId(""); setPreviewUrl(""); setStockSel(""); }}>✕ Clear</button>
                 )}
               </div>
@@ -1568,7 +1568,7 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
                   📐 Canva
                 </a>
                 {overlayUrl && (
-                  <button type="button" className="filebtn secondary" style={{ flex: "0 0 auto", marginTop: 0 }} title="Buang template"
+                  <button type="button" className="filebtn secondary" style={{ flex: "0 0 auto", marginTop: 0, width: "auto", padding: "9px 12px" }} title="Buang template"
                     onClick={() => { setOverlaySel(""); setCustomOverlay(""); }}>✕ Clear</button>
                 )}
               </div>
