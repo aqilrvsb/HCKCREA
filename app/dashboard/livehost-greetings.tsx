@@ -175,11 +175,9 @@ export default function LivehostGreetings() {
             <div style={{ marginTop: 14 }}><LhLabel>👍 Greeting LIKE</LhLabel></div>
             <input style={F} value={cur.likeGreeting} onChange={(e) => up({ likeGreeting: e.target.value })} />
 
-            <div style={{ marginTop: 14 }}><LhLabel>💬 Komen — avatar jawab fokus produk</LhLabel></div>
-            <select style={F} value={cur.selectedProduct} onChange={(e) => up({ selectedProduct: e.target.value })}>
-              <option value="">— Semua produk —</option>
-              {products.current.map((p) => (<option key={p} value={p}>{p}</option>))}
-            </select>
+            {/* Komen reply applies to ALL products (avatar answers using the full
+                Knowledge base) — product picker hidden intentionally. */}
+            <div style={{ marginTop: 18 }}><LhLabel>💬 Komen — reply delay</LhLabel></div>
             <div style={twoCol}>
               <div><LhLabel>Reply Delay Min (saat)</LhLabel><input style={F} type="number" min={1} value={cur.commentDelayMin} onChange={(e) => up({ commentDelayMin: parseInt(e.target.value) || 5 })} /></div>
               <div><LhLabel>Reply Delay Max (saat)</LhLabel><input style={F} type="number" min={1} value={cur.commentDelayMax} onChange={(e) => up({ commentDelayMax: parseInt(e.target.value) || 15 })} /></div>
