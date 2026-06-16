@@ -140,7 +140,7 @@ export default function LivehostDashboard({
     <div className="min-h-screen flex" style={{ background: "var(--color-bg)" }}>
       {/* Sidebar */}
       <aside
-        className="w-[260px] flex-shrink-0 hidden lg:flex flex-col gap-4 p-4 border-r sticky top-0 h-screen overflow-hidden self-start"
+        className="w-[260px] flex-shrink-0 hidden lg:flex flex-col gap-3 p-4 border-r sticky top-0 h-screen overflow-hidden self-start"
         style={{ borderColor: "var(--color-border)" }}
       >
         <div className="flex items-center gap-2.5 px-2 py-2">
@@ -190,23 +190,25 @@ export default function LivehostDashboard({
           {/* Credit balance — Livehost is pay-as-you-go from credits (GPU + audio).
               Subscribe/top-up routes to the Billing view. */}
           <div
-            className="rounded-xl p-3"
+            className="rounded-xl p-2.5"
             style={{ background: "linear-gradient(135deg, rgba(245,158,11,0.14), rgba(245,158,11,0.04))", border: "1px solid rgba(245,158,11,0.35)" }}
           >
-            {/* User identity */}
-            <div className="font-bold truncate" style={{ color: "#fde68a" }}>{name}</div>
-            <div className="text-[11px] truncate mb-2" style={{ color: "rgba(253,230,138,0.7)" }}>{email}</div>
-
-            <div className="text-[10px] font-bold uppercase tracking-wider" style={{ color: "#fbbf24" }}>💳 Credit Balance</div>
-            <div className="font-display font-extrabold text-2xl tracking-tight" style={{ color: balanceLow ? "#f87171" : "#fcd34d" }}>{Number(balance ?? credits).toFixed(2)}</div>
+            <div className="font-bold text-[13px] leading-tight truncate" style={{ color: "#fde68a" }}>{name}</div>
+            <div className="text-[10px] truncate mb-1.5" style={{ color: "rgba(253,230,138,0.7)" }}>{email}</div>
+            <div className="flex items-end justify-between gap-2">
+              <div className="min-w-0">
+                <div className="text-[9px] font-bold uppercase tracking-wider" style={{ color: "#fbbf24" }}>💳 Credit Balance</div>
+                <div className="font-display font-extrabold text-xl leading-none tracking-tight" style={{ color: balanceLow ? "#f87171" : "#fcd34d" }}>{Number(balance ?? credits).toFixed(2)}</div>
+              </div>
+              {expiry && (
+                <div className="text-[9px] font-bold text-right whitespace-nowrap" style={{ color: "#4ade80" }}>● {expiry}</div>
+              )}
+            </div>
             <button
               onClick={() => setView("billing")}
-              className="mt-2 w-full rounded-lg py-2 text-xs font-extrabold text-black"
+              className="mt-2 w-full rounded-lg py-1.5 text-[11px] font-extrabold text-black"
               style={{ background: "#fbbf24" }}
             >Subscribe / Top up</button>
-            {expiry && (
-              <div className="mt-2 text-[11px] font-bold" style={{ color: "#4ade80" }}>● Sah hingga {expiry}</div>
-            )}
           </div>
           <LogoutButton compact />
         </div>
