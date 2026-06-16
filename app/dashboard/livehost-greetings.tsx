@@ -9,6 +9,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { hydrateLivehostState, saveLivehostState } from "@/lib/livehost-state";
+import { confirmDelete } from "@/lib/confirm";
 import { LhSection, LhCard, LhCardHeader, LhLabel, LhButton, LhGrid, LhModal, LH_FIELD_STYLE, ORANGE } from "./livehost-ui";
 
 type Profile = {
@@ -105,8 +106,8 @@ export default function LivehostGreetings() {
     setActiveId(d.id);
     setGDraft(null);
   };
-  const delProfile = (id: string) => {
-    if (!window.confirm("Padam profil greeting ini?")) return;
+  const delProfile = async (id: string) => {
+    if (!(await confirmDelete("Padam profil greeting ini?"))) return;
     setProfiles((prev) => {
       const next = prev.filter((p) => p.id !== id);
       if (next.length && id === activeId) setActiveId(next[0].id);
