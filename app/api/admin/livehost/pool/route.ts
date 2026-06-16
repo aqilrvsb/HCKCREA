@@ -44,10 +44,10 @@ export async function GET() {
   }));
   const free = rows.filter((r) => r.status === "free").length;
   const busy = rows.filter((r) => r.status === "busy").length;
-  // LEASE_SEC mirrors the 20-min hold (livehost_pool_assign stale + idle cron):
+  // LEASE_SEC mirrors the 15-min hold (livehost_pool_assign stale + idle cron):
   // a busy slot times out at last_seen + LEASE_SEC. now = server time so the UI
   // can render an accurate live countdown without clock-skew.
-  return NextResponse.json({ pool: rows, total: rows.length, free, busy, leaseSec: 1200, now: new Date().toISOString() });
+  return NextResponse.json({ pool: rows, total: rows.length, free, busy, leaseSec: 900, now: new Date().toISOString() });
 }
 
 export async function POST(req: Request) {

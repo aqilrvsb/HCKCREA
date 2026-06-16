@@ -155,7 +155,7 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
   useEffect(() => { gpuWarmRef.current = gpuWarm; }, [gpuWarm]);
   const warmTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // EDGE-TRIGGER guard for warm-on-open: warm the GPU ONCE per Livehost-tab
-  // entry. After the 20-min cutoff turns the GPU off, it must NOT auto-re-warm
+  // entry. After the 15-min cutoff turns the GPU off, it must NOT auto-re-warm
   // while the user is still on the page — only a fresh tab entry (leaving and
   // clicking Livehost again) re-triggers it. Reset when the view leaves "live".
   const warmEntryRef = useRef(false);
@@ -299,9 +299,9 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
     if (heartbeatRef.current) { clearInterval(heartbeatRef.current); heartbeatRef.current = null; }
     // NOTE: we deliberately do NOT release the pool slot here. Ending a stream
     // (Stop) or closing the tab/browser must NOT free the GPU — the slot stays
-    // leased + warm for the 20-min idle window so the host can come back and
-    // stream again. The slot is freed only by the 20-min watchdog (tab open) or
-    // by server-side staleness (last_seen > 20 min, via the idle cron / assign).
+    // leased + warm for the 15-min idle window so the host can come back and
+    // stream again. The slot is freed only by the 15-min watchdog (tab open) or
+    // by server-side staleness (last_seen > 15 min, via the idle cron / assign).
     const id = sessionIdRef.current;
     sessionIdRef.current = null;
     if (!id) return;
@@ -920,7 +920,7 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
     // the next Play re-assigns a fresh free slot.
     // STOP ends the live stream but does NOT kill the GPU. The slot stays
     // assigned + warm (gpuWarm "ready") so the host can Play again instantly.
-    // The GPU is freed ONLY by the 20-min idle watchdog (or server-side staleness
+    // The GPU is freed ONLY by the 15-min idle watchdog (or server-side staleness
     // if the tab/browser closes) — never by Stop, tab-switch, or close.
     // (We keep backendRef + gpuWarm="ready" untouched here on purpose.)
     if (liveTimerRef.current) { clearInterval(liveTimerRef.current); liveTimerRef.current = null; }
@@ -1222,9 +1222,9 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
     }
   }, [avatarId, backgrounds, voiceId, stop, speakNext, startWordSweep, buildKbPrompt, activeKb, speed, emotion, volume, configErr, addVoiceChars, beginSession, warmGpu]);
 
-  // WARM-ON-OPEN (EDGE-TRIGGERED): warm the GPU + start the 20-min timer ONCE
+  // WARM-ON-OPEN (EDGE-TRIGGERED): warm the GPU + start the 15-min timer ONCE
   // when the host ENTERS the Livehost (live) tab. Leaving the tab re-arms it; so
-  // after the 20-min cutoff turns the GPU off, it stays off until the user clicks
+  // after the 15-min cutoff turns the GPU off, it stays off until the user clicks
   // Livehost again — it never re-warms on its own while sitting on the page.
   useEffect(() => {
     if (view !== "live") { warmEntryRef.current = false; return; } // left tab → arm next entry
@@ -1235,8 +1235,8 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
     warmGpu();
   }, [view, poolMode, active, connecting, warmGpu]);
 
-  // 20-MIN IDLE WATCHDOG: if the GPU is warmed but the host never presses ▶ Start
-  // within 20 min, release the slot + go back to the Dashboard (no runaway warm cost).
+  // 15-MIN IDLE WATCHDOG: if the GPU is warmed but the host never presses ▶ Start
+  // within 15 min, release the slot + go back to the Dashboard (no runaway warm cost).
   useEffect(() => {
     if (gpuWarm !== "ready" || active) return;
     if (warmTimerRef.current) clearTimeout(warmTimerRef.current);
@@ -1245,7 +1245,7 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
       fetch("/api/livehost/pool", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "release" }), keepalive: true }).catch(() => {});
       backendRef.current = "";
       window.location.href = "/dashboard";
-    }, 20 * 60 * 1000);
+    }, 15 * 60 * 1000);
     return () => { if (warmTimerRef.current) { clearTimeout(warmTimerRef.current); warmTimerRef.current = null; } };
   }, [gpuWarm, active]);
 

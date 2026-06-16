@@ -42,7 +42,7 @@ export default function PoolManager() {
   const [count, setCount] = useState("5");
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState("");
-  const [leaseSec, setLeaseSec] = useState(1200);
+  const [leaseSec, setLeaseSec] = useState(900);
   const [clockOffset, setClockOffset] = useState(0); // serverNow − clientNow (ms)
   const [, setTick] = useState(0); // 1s heartbeat to re-render live countdowns
 
@@ -120,7 +120,7 @@ export default function PoolManager() {
         <div>
           <h2 className="font-display font-extrabold text-lg">GPU Pool (5090 serverless)</h2>
           <p className="text-xs text-[var(--color-text-secondary)]">
-            Shared endpoints — round-robin a free slot per client; held 20 min then freed. $0 when idle. Live map auto-refreshes.
+            Shared endpoints — round-robin a free slot per client; held 15 min then freed. $0 when idle. Live map auto-refreshes.
           </p>
         </div>
         <button onClick={load} className="ml-auto flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold"
