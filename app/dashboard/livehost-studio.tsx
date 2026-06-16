@@ -922,6 +922,7 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
     // the next Play re-assigns a fresh free slot.
     if (poolModeRef.current) {
       backendRef.current = "";
+      setGpuWarm("idle"); // slot released → next tab-idle re-warms a fresh slot
       fetch("/api/livehost/pool", {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -1226,7 +1227,31 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
       setError(e?.message || String(e));
       stop();
     }
-  }, [avatarId, backgrounds, voiceId, stop, speakNext, startWordSweep, buildKbPrompt, activeKb, speed, emotion, volume, configErr, addVoiceChars, beginSession]);
+  }, [avatarId, backgrounds, voiceId, stop, speakNext, startWordSweep, buildKbPrompt, activeKb, speed, emotion, volume, configErr, addVoiceChars, beginSession, warmGpu]);
+
+  // WARM-ON-OPEN: the moment the host opens the Livehost (live) view, boot the GPU
+  // so ▶ Start is instant. Only when idle + not already streaming.
+  useEffect(() => {
+    if (view !== "live") return;
+    if (active || connecting) return;
+    if (gpuWarm !== "idle") return;
+    if (!poolMode && !backendRef.current) return; // nothing to warm yet (config still loading)
+    warmGpu();
+  }, [view, poolMode, active, connecting, gpuWarm, warmGpu]);
+
+  // 20-MIN IDLE WATCHDOG: if the GPU is warmed but the host never presses ▶ Start
+  // within 20 min, release the slot + go back to the Dashboard (no runaway warm cost).
+  useEffect(() => {
+    if (gpuWarm !== "ready" || active) return;
+    if (warmTimerRef.current) clearTimeout(warmTimerRef.current);
+    warmTimerRef.current = setTimeout(() => {
+      if (activeRef.current) return; // streaming → keep it
+      fetch("/api/livehost/pool", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "release" }), keepalive: true }).catch(() => {});
+      backendRef.current = "";
+      window.location.href = "/dashboard";
+    }, 20 * 60 * 1000);
+    return () => { if (warmTimerRef.current) { clearTimeout(warmTimerRef.current); warmTimerRef.current = null; } };
+  }, [gpuWarm, active]);
 
   const sendControl = useCallback((payload: object): boolean => {
     const dc = dcRef.current;
@@ -1664,9 +1689,9 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
                     the 10-min idle watchdog keeps it warm so this ▶ Start restarts INSTANTLY; only after
                     10 min of no streaming do pings stop → Novita scales the worker to $0. */}
                 {!active ? (
-                  <button className="restart-btn go" onClick={start} disabled={connecting}
-                    title="Start streaming (GPU akan auto-wake)">
-                    {connecting ? "… Connecting" : "▶ Start"}
+                  <button className="restart-btn go" onClick={start} disabled={connecting || gpuWarm !== "ready"}
+                    title={gpuWarm === "ready" ? "Start streaming" : "Tunggu GPU siap dihidupkan…"}>
+                    {connecting ? "… Connecting" : gpuWarm === "warming" ? "⏳ GPU dihidupkan…" : "▶ Start"}
                   </button>
                 ) : (
                   /* STREAMING state: Start is HIDDEN; only Stop + Pause/Restart are rendered.
@@ -1687,7 +1712,9 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
                 {wakeMsg && <div className="status-line">{wakeMsg}</div>}
                 {error && <div className="error">{error}</div>}
                 {!wakeMsg && !error && active && <div className="status-line">● Live · GPU {serverState}</div>}
-                {!wakeMsg && !error && !active && <div className="hint">GPU: {serverState} · tekan ▶ Start</div>}
+                {!wakeMsg && !error && !active && gpuWarm === "warming" && <div className="status-line">⏳ GPU sedang dihidupkan…</div>}
+                {!wakeMsg && !error && !active && gpuWarm === "ready" && <div className="status-line" style={{ color: "#16a34a" }}>✓ GPU Ready — tekan ▶ Start</div>}
+                {!wakeMsg && !error && !active && gpuWarm === "idle" && <div className="hint">GPU: {serverState}</div>}
                 {scriptWaiting && <div className="status-line">⏸ Selesai — tunggu skrip lagi…</div>}
               </div>
             </div>
