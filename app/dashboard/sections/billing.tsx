@@ -20,8 +20,10 @@ type Payment = {
   created_at: string;
 };
 
-export default function BillingSection() {
-  const [currentPlan, setCurrentPlan] = useState<string>("free");
+export default function BillingSection({ initialPlan }: { initialPlan?: string } = {}) {
+  // Seed the plan so the correct layout (e.g. Livehost) renders on first paint
+  // instead of flashing the generation "Choose your plan" view until the fetch.
+  const [currentPlan, setCurrentPlan] = useState<string>(initialPlan || "free");
   const [renewalRaw, setRenewalRaw] = useState<string | null>(null);
   const [renewalDate, setRenewalDate] = useState<string>("—");
   const [payments, setPayments] = useState<Payment[]>([]);

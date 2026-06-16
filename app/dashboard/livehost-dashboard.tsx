@@ -268,7 +268,7 @@ export default function LivehostDashboard({
           </div>
           {view === "billing" ? (
             <div className="space-y-8">
-              <BillingSection />
+              <BillingSection initialPlan="livehost" />
               <LivehostTopup credits={credits} />
             </div>
           ) : view === "attachment" ? (
