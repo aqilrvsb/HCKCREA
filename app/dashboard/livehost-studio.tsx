@@ -1671,7 +1671,7 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
                     onClick={() => { setOverlaySel(""); setCustomOverlay(""); }}>✕</button>
                 )}
               </div>
-              <div className="hint">Edit di Canva → Download <b>PNG</b> (✅ Transparent) → upload <b>Attachment</b> → tekan <b>🖼 Attachment</b>.</div>
+              <div className="hint">Edit di Canva → <b>Share</b> → <b>Download</b> → File Type <b>PNG</b> → <b>Select Pages</b> Edit → <b>Download</b> → Upload <b>Attachment</b> balik.</div>
 
               <div className="label">Avatar fit — drag the avatar on screen to move it</div>
               <button type="button" className="filebtn secondary" onClick={() => { setOffsetX(0); setOffsetY(0); setZoom(1); }}>
