@@ -34,8 +34,14 @@ export async function POST(req: Request) {
     .maybeSingle();
   const id = cfg?.vast_instance_id; // column name is legacy; holds the Novita instance id
   const key = await getSetting<string>("novita_api_key");
-  if (!key || !id) {
-    return NextResponse.json({ error: "GPU belum dikonfigurasi oleh admin" }, { status: 503 });
+  // Pool/serverless clients have no dedicated instance to start/stop — Novita
+  // auto-scales. Return a clean 200 (not 503) so the studio shows "serverless"
+  // and the browser console stays error-free.
+  if (!id) {
+    return NextResponse.json({ state: "serverless", note: "auto" });
+  }
+  if (!key) {
+    return NextResponse.json({ state: "serverless", note: "auto" });
   }
 
   const { action } = await req.json().catch(() => ({ action: "status" }));
