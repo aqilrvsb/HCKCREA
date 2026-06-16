@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Radio, CreditCard, LayoutDashboard, MessageCircle, ArrowUpRight, ScrollText, Package, BarChart3, Paperclip, HeartHandshake, Send, LayoutTemplate, Image as ImageIcon } from "lucide-react";
+import { Radio, CreditCard, LayoutDashboard, MessageCircle, ArrowUpRight, ScrollText, Package, BarChart3, Paperclip, HeartHandshake, Send, LayoutTemplate, Image as ImageIcon, Wallet } from "lucide-react";
 import LogoutButton from "./logout-button";
 import BillingSection from "./sections/billing";
 import StudioSection from "./sections/studio";
@@ -105,13 +105,17 @@ export default function LivehostDashboard({
     }).catch(() => {});
   }, []);
 
-  const expiry = planExpiresAt
-    ? new Date(planExpiresAt).toLocaleDateString("ms-MY", {
-        day: "numeric",
-        month: "short",
-        year: "numeric",
-      })
-    : null;
+  // Plan days-left + expiry — deferred to post-mount (Date.now()/locale differ
+  // between server & client → hydration mismatch otherwise).
+  const [daysLeft, setDaysLeft] = useState<number | null>(null);
+  const [expDateStr, setExpDateStr] = useState<string | null>(null);
+  useEffect(() => {
+    if (!planExpiresAt) { setDaysLeft(null); setExpDateStr(null); return; }
+    const exp = new Date(planExpiresAt);
+    setDaysLeft(Math.max(0, Math.ceil((exp.getTime() - Date.now()) / 86400000)));
+    setExpDateStr(exp.toLocaleDateString("ms-MY", { day: "numeric", month: "short", year: "numeric" }));
+  }, [planExpiresAt]);
+  const planActive = !!planExpiresAt;
 
   const navItem = (key: View, label: string, Icon: any, step?: number, stepColor?: string) => (
     <button
@@ -187,30 +191,56 @@ export default function LivehostDashboard({
         </div>
 
         <div className="flex-shrink-0 space-y-2">
-          {/* Credit balance — Livehost is pay-as-you-go from credits (GPU + audio).
-              Subscribe/top-up routes to the Billing view. */}
+          {/* Credit balance card */}
           <div
-            className="rounded-xl p-2.5"
-            style={{ background: "linear-gradient(135deg, rgba(245,158,11,0.14), rgba(245,158,11,0.04))", border: "1px solid rgba(245,158,11,0.35)" }}
+            className="relative overflow-hidden rounded-2xl p-3 border"
+            style={{ background: "linear-gradient(135deg, rgba(245,158,11,0.1), rgba(245,158,11,0.03))", borderColor: "rgba(245,158,11,0.3)" }}
           >
-            <div className="font-bold text-[13px] leading-tight truncate" style={{ color: "#fde68a" }}>{name}</div>
-            <div className="text-[10px] truncate mb-1.5" style={{ color: "rgba(253,230,138,0.7)" }}>{email}</div>
-            <div className="flex items-end justify-between gap-2">
-              <div className="min-w-0">
-                <div className="text-[9px] font-bold uppercase tracking-wider" style={{ color: "#fbbf24" }}>💳 Credit Balance</div>
-                <div className="font-display font-extrabold text-xl leading-none tracking-tight" style={{ color: balanceLow ? "#f87171" : "#fcd34d" }}>{Number(balance ?? credits).toFixed(2)}</div>
-              </div>
-              {expiry && (
-                <div className="text-[9px] font-bold text-right whitespace-nowrap" style={{ color: "#4ade80" }}>● {expiry}</div>
-              )}
+            <div className="flex items-center gap-2 mb-1">
+              <Wallet className="w-3.5 h-3.5" style={{ color: "#fbbf24" }} />
+              <span className="font-mono text-[10px] uppercase tracking-widest font-bold" style={{ color: "#fbbf24" }}>Credit Balance</span>
             </div>
+            <div className="font-display font-extrabold text-2xl tracking-tight" style={{ color: balanceLow ? "#f87171" : "#fcd34d" }}>{Number(balance ?? credits).toFixed(2)}</div>
             <button
               onClick={() => setView("billing")}
-              className="mt-2 w-full rounded-lg py-1.5 text-[11px] font-extrabold text-black"
-              style={{ background: "#fbbf24" }}
+              className="mt-2 w-full py-2 rounded-lg text-xs font-extrabold transition-transform hover:scale-[1.02]"
+              style={{ background: "linear-gradient(90deg,#f59e0b,#facc15)", color: "#000", boxShadow: "0 4px 14px rgba(250,204,21,0.3)" }}
             >Subscribe / Top up</button>
           </div>
-          <LogoutButton compact />
+
+          {/* Plan status pill */}
+          <button
+            onClick={() => setView("billing")}
+            className="w-full text-left rounded-xl p-3 border transition-colors hover:opacity-90"
+            style={{ background: "var(--color-bg-card)", borderColor: "var(--color-border)" }}
+          >
+            <div className="flex items-center gap-2 mb-0.5">
+              <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ background: planActive ? "#22c55e" : "#888", boxShadow: planActive ? "0 0 0 3px #22c55e33" : "none" }} />
+              <span className="font-mono text-[10px] uppercase tracking-widest font-bold" style={{ color: planActive ? "#22c55e" : "var(--color-text-secondary)" }}>
+                {planActive ? `LIVEHOST${daysLeft != null ? ` · ${daysLeft} day${daysLeft === 1 ? "" : "s"} left` : ""}` : "No active plan"}
+              </span>
+            </div>
+            <div className="text-[10px]" style={{ color: "var(--color-text-muted)" }}>
+              {expDateStr ? `Expires ${expDateStr}` : "Livehost · RM500/bln"}
+            </div>
+          </button>
+
+          {/* User card + sign out */}
+          <div className="pt-2 border-t" style={{ borderColor: "var(--color-border)" }}>
+            <div className="flex items-center gap-3 px-1 py-2 mb-2">
+              <div
+                className="w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0 font-display font-extrabold text-sm text-white"
+                style={{ background: "linear-gradient(135deg,#facc15,#eab308)", boxShadow: "0 0 0 2px var(--color-bg-card), 0 4px 12px rgba(245,158,11,0.3)" }}
+              >
+                {(name || email || "U").trim().charAt(0).toUpperCase()}
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="text-xs font-bold truncate text-[var(--color-text-primary)]">{name || "User"}</div>
+                <div className="text-[10px] text-[var(--color-text-muted)] truncate">{email}</div>
+              </div>
+            </div>
+            <LogoutButton compact />
+          </div>
         </div>
       </aside>
 
