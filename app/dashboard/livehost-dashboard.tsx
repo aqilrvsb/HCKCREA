@@ -191,39 +191,38 @@ export default function LivehostDashboard({
         </div>
 
         <div className="flex-shrink-0 space-y-2">
-          {/* Credit balance card */}
+          {/* Credit balance + plan — ONE compact card (balance left, Subscribe
+              right, thin plan line below) to keep the footer minimal. */}
           <div
-            className="relative overflow-hidden rounded-2xl p-2.5 border"
+            className="relative overflow-hidden rounded-xl p-2.5 border"
             style={{ background: "linear-gradient(135deg, rgba(245,158,11,0.1), rgba(245,158,11,0.03))", borderColor: "rgba(245,158,11,0.3)" }}
           >
-            <div className="flex items-center gap-2 mb-1">
-              <Wallet className="w-3.5 h-3.5" style={{ color: "#fbbf24" }} />
-              <span className="font-mono text-[10px] uppercase tracking-widest font-bold" style={{ color: "#fbbf24" }}>Credit Balance</span>
+            <div className="flex items-center justify-between gap-2">
+              <div className="min-w-0">
+                <div className="flex items-center gap-1.5">
+                  <Wallet className="w-3 h-3" style={{ color: "#fbbf24" }} />
+                  <span className="font-mono text-[9px] uppercase tracking-widest font-bold" style={{ color: "#fbbf24" }}>Credit Balance</span>
+                </div>
+                <div className="font-display font-extrabold text-xl leading-none mt-0.5 tracking-tight" style={{ color: balanceLow ? "#f87171" : "#fcd34d" }}>{Number(balance ?? credits).toFixed(2)}</div>
+              </div>
+              <button
+                onClick={() => setView("billing")}
+                className="px-3 py-1.5 rounded-lg text-[11px] font-extrabold whitespace-nowrap transition-transform hover:scale-[1.03]"
+                style={{ background: "linear-gradient(90deg,#f59e0b,#facc15)", color: "#000", boxShadow: "0 4px 14px rgba(250,204,21,0.3)" }}
+              >Subscribe</button>
             </div>
-            <div className="font-display font-extrabold text-xl tracking-tight" style={{ color: balanceLow ? "#f87171" : "#fcd34d" }}>{Number(balance ?? credits).toFixed(2)}</div>
             <button
               onClick={() => setView("billing")}
-              className="mt-1.5 w-full py-1.5 rounded-lg text-xs font-extrabold transition-transform hover:scale-[1.02]"
-              style={{ background: "linear-gradient(90deg,#f59e0b,#facc15)", color: "#000", boxShadow: "0 4px 14px rgba(250,204,21,0.3)" }}
-            >Subscribe / Top up</button>
-          </div>
-
-          {/* Plan status pill */}
-          <button
-            onClick={() => setView("billing")}
-            className="w-full text-left rounded-xl p-2 border transition-colors hover:opacity-90"
-            style={{ background: "var(--color-bg-card)", borderColor: "var(--color-border)" }}
-          >
-            <div className="flex items-center gap-2 mb-0.5">
-              <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ background: planActive ? "#22c55e" : "#888", boxShadow: planActive ? "0 0 0 3px #22c55e33" : "none" }} />
-              <span className="font-mono text-[10px] uppercase tracking-widest font-bold" style={{ color: planActive ? "#22c55e" : "var(--color-text-secondary)" }}>
-                {planActive ? `LIVEHOST${daysLeft != null ? ` · ${daysLeft} day${daysLeft === 1 ? "" : "s"} left` : ""}` : "No active plan"}
+              className="w-full flex items-center gap-1.5 mt-2 pt-2 border-t"
+              style={{ borderColor: "rgba(245,158,11,0.2)" }}
+            >
+              <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ background: planActive ? "#22c55e" : "#888" }} />
+              <span className="font-mono text-[9px] uppercase tracking-widest font-bold" style={{ color: planActive ? "#22c55e" : "var(--color-text-secondary)" }}>
+                {planActive ? `LIVEHOST${daysLeft != null ? ` · ${daysLeft}d left` : ""}` : "No active plan"}
               </span>
-            </div>
-            <div className="text-[10px]" style={{ color: "var(--color-text-muted)" }}>
-              {expDateStr ? `Expires ${expDateStr}` : "Livehost · RM500/bln"}
-            </div>
-          </button>
+              {expDateStr && <span className="text-[9px] ml-auto" style={{ color: "var(--color-text-muted)" }}>Exp {expDateStr}</span>}
+            </button>
+          </div>
 
           {/* User card + sign out */}
           <div className="pt-1.5 border-t" style={{ borderColor: "var(--color-border)" }}>
