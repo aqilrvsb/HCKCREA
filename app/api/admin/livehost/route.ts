@@ -112,7 +112,8 @@ export async function GET(req: Request) {
       usage: (() => {
         const a = agg.get(p.id) || { sec: 0, chars: 0, count: 0, live: false };
         const gpuRateN = parseFloat(rates["livehost_gpu_rate_hour"] || "6") || 6;
-        const voiceRateN = parseFloat(rates["livehost_voice_rate_1k"] || "0.3") || 0.3;
+        const _vrN = parseFloat(rates["livehost_voice_rate_1k"] ?? "");
+        const voiceRateN = Number.isFinite(_vrN) ? _vrN : 0.3;
         const gpuCost = (a.sec / 3600) * gpuRateN;
         const voiceCost = (a.chars / 1000) * voiceRateN;
         return {
