@@ -484,6 +484,11 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
     saveLivehostState();
   }, []);
   const saveCurrentTemplate = useCallback(() => {
+    // Must have BOTH an avatar and a template overlay — not just one.
+    if (!avatarId || !overlayUrl) {
+      alert("Pilih AVATAR dan TEMPLATE dahulu sebelum simpan.");
+      return;
+    }
     const name = window.prompt("Nama template:", `Template ${savedTemplates.length + 1}`);
     if (!name) return;
     persistTemplates([
@@ -1567,9 +1572,13 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
                 <input type="range" min="0.5" max="2" step="0.02" value={zoom} onChange={(e) => setZoom(parseFloat(e.target.value))} />
               </div>
 
-              <button type="button" className="filebtn" style={{ marginTop: 14 }} onClick={saveCurrentTemplate}>
+              <button type="button" className="filebtn" style={{ marginTop: 14, opacity: avatarId && overlayUrl ? 1 : 0.5, cursor: avatarId && overlayUrl ? "pointer" : "not-allowed" }}
+                disabled={!avatarId || !overlayUrl} onClick={saveCurrentTemplate}>
                 💾 Save current as template
               </button>
+              {(!avatarId || !overlayUrl) && (
+                <div className="hint" style={{ marginTop: 6 }}>Perlu pilih <b>Avatar</b> {!avatarId ? "❌" : "✓"} dan <b>Template</b> {!overlayUrl ? "❌" : "✓"} dahulu.</div>
+              )}
           </div>
         </div>
 
