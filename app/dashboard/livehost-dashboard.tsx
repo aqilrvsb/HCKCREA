@@ -59,9 +59,24 @@ export default function LivehostDashboard({
   const [balanceLow, setBalanceLow] = useState(false);
   useEffect(() => {
     let stop = false;
+    // Show the last-known balance instantly (cache) so refresh doesn't flash the
+    // raw credits, then refresh from the API.
+    try {
+      const c = localStorage.getItem("livehost_balance_cache");
+      if (c != null && c !== "") setBalance(Number(c));
+      if (localStorage.getItem("livehost_balance_low") === "1") setBalanceLow(true);
+    } catch {}
     const load = () => fetch("/api/livehost/session")
       .then((r) => r.json())
-      .then((d) => { if (!stop && d?.balance) { setBalance(d.balance.available); setBalanceLow(!!d.balance.low); } })
+      .then((d) => {
+        if (stop || !d?.balance) return;
+        setBalance(d.balance.available);
+        setBalanceLow(!!d.balance.low);
+        try {
+          localStorage.setItem("livehost_balance_cache", String(d.balance.available));
+          localStorage.setItem("livehost_balance_low", d.balance.low ? "1" : "0");
+        } catch {}
+      })
       .catch(() => {});
     load();
     const t = setInterval(load, 30000); // refresh so it reflects usage as it accrues
