@@ -1790,10 +1790,6 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
                   </div>
                 </div>
                 <div className="flex items-center gap-2 mt-3" style={{ color: "#555", fontSize: 12 }}>
-                  <span style={{ width: 120 }}>Volume {Math.round(s.volume * 100)}%</span>
-                  <input type="range" min="0" max="3" step="0.05" value={s.volume} onChange={(e) => updateScript(s.id, { volume: parseFloat(e.target.value) })} style={{ flex: 1, accentColor: "#f59e0b" }} />
-                </div>
-                <div className="flex items-center gap-2 mt-2" style={{ color: "#555", fontSize: 12 }}>
                   <span style={{ width: 120 }}>Speed {s.speed.toFixed(2)}×</span>
                   <input type="range" min="0.7" max="1.5" step="0.05" value={s.speed} onChange={(e) => updateScript(s.id, { speed: parseFloat(e.target.value) })} style={{ flex: 1, accentColor: "#f59e0b" }} />
                 </div>
