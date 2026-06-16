@@ -950,15 +950,17 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
           posRef.current = { s: 0, l: 0 };
           audioEndRef.current = 0;
           pendingSayRef.current.clear();
-          // LIVE DURATION: if set (>0), loop the rundown and auto-stop when time's
-          // up (count DOWN); if 0:00, run as usual (count UP, no auto-stop).
+          // LIVE DURATION drives looping (the manual loop toggle was removed):
+          //  • duration > 0 → LOOP/rotate the rundown + auto-stop when time's up (count DOWN)
+          //  • 0:00         → play the rundown through ONCE, no loop, count UP elapsed
           const durMs = liveDurMsRef.current;
           liveStartAtRef.current = performance.now();
           if (durMs > 0) {
             liveEndAtRef.current = performance.now() + durMs;
-            loopRef.current = true; setScriptLoop(true); // rotate scripts until time's up
+            loopRef.current = true; setScriptLoop(true);   // rotate scripts until time's up
           } else {
-            liveEndAtRef.current = 0; // count-up, honor the manual loop checkbox
+            liveEndAtRef.current = 0;
+            loopRef.current = false; setScriptLoop(false);  // 0:00 → play once (no loop)
           }
           startLiveTimer();
           speakNext();
