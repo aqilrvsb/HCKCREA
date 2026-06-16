@@ -99,6 +99,34 @@ export async function POST(req: Request) {
   return NextResponse.json({ ok: true, id: row.id, audioUrl: signed?.signedUrl || null });
 }
 
+// PATCH → update fields of an existing saved script (e.g. auto-save the title
+// as the user types) WITHOUT touching the audio. Body: { id, title?, text?,
+// voice_id?, volume?, speed?, emotion? }.
+export async function PATCH(req: Request) {
+  const sb = await createClient();
+  const { data: { user } } = await sb.auth.getUser();
+  if (!user) return NextResponse.json({ error: "unauthenticated" }, { status: 401 });
+  const admin = createAdminClient();
+  const b = await req.json().catch(() => ({}));
+  const id = String(b?.id || "");
+  if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });
+  const patch: Record<string, unknown> = {};
+  if (typeof b.title === "string") patch.title = b.title.slice(0, 200);
+  if (typeof b.text === "string") { patch.text = b.text; patch.chars = b.text.length; }
+  if (typeof b.voice_id === "string") patch.voice_id = b.voice_id;
+  if (b.volume != null) patch.volume = Number(b.volume);
+  if (b.speed != null) patch.speed = Number(b.speed);
+  if (typeof b.emotion === "string") patch.emotion = b.emotion;
+  if (!Object.keys(patch).length) return NextResponse.json({ ok: true });
+  const { error } = await admin
+    .from("livehost_scripts")
+    .update(patch)
+    .eq("id", id)
+    .eq("user_id", user.id);
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  return NextResponse.json({ ok: true });
+}
+
 export async function DELETE(req: Request) {
   const sb = await createClient();
   const { data: { user } } = await sb.auth.getUser();

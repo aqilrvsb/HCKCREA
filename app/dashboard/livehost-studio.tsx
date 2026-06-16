@@ -1316,6 +1316,21 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
     }
   }, []);
 
+  // Debounced auto-save of edited fields (e.g. title) for ALREADY-SAVED scripts.
+  // Drafts have a local id (no DB row) so they're skipped until first Save.
+  const scriptPatchTimer = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+  const autosaveScript = useCallback((id: string, patch: Record<string, unknown>) => {
+    const sc = scriptsRef.current.find((s) => s.id === id);
+    if (!sc?.saved) return;
+    clearTimeout(scriptPatchTimer.current[id]);
+    scriptPatchTimer.current[id] = setTimeout(() => {
+      fetch("/api/livehost/scripts", {
+        method: "PATCH", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ id, ...patch }),
+      }).catch(() => {});
+    }, 600);
+  }, []);
+
   const playSaved = useCallback((id: string) => {
     if (previewPlayId === id) { stopPreview(); return; }
     const sc = scriptsRef.current.find((s) => s.id === id);
@@ -1773,7 +1788,8 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
             return (
               <>
                 <LhLabel>Tajuk skrip</LhLabel>
-                <input style={{ ...LH_FIELD_STYLE, fontWeight: 800 }} value={s.title} onChange={(e) => updateScript(s.id, { title: e.target.value })} />
+                <input style={{ ...LH_FIELD_STYLE, fontWeight: 800 }} value={s.title}
+                  onChange={(e) => { updateScript(s.id, { title: e.target.value }); autosaveScript(s.id, { title: e.target.value }); }} />
                 <div style={{ marginTop: 14 }}><LhLabel>Dialog</LhLabel></div>
                 <textarea style={{ ...LH_FIELD_STYLE, minHeight: 130, resize: "vertical" }} rows={5} placeholder="Tulis dialog skrip di sini…"
                   value={s.text} onChange={(e) => updateScript(s.id, { text: e.target.value })} />
