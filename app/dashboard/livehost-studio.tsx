@@ -818,6 +818,10 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
   // --- Rundown playback driver (pipelined, gapless) -------------------------
   const speakNext = useCallback(() => {
     if (!playingRef.current) return;
+    // A greeting/comment (live TTS) is barging in — hold the script here; the
+    // chat's say_done will resume from the NEXT piece (avatar finishes the
+    // current sentence, handles the greeting/comment, then continues the script).
+    if (chatActiveRef.current) return;
     const lib = scriptsRef.current;
     const rd = rundownRef.current;
     let { s, l } = posRef.current;
@@ -829,21 +833,29 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
         return;
       }
       const sc = lib.find((x) => x.id === rd[s]);
-      // LIVE TTS, line by line, in EACH SCRIPT'S OWN VOICE. This is the interactive
-      // path: short lines let greetings/comments barge in within ~1 line (smooth,
-      // no silence — the engine prefetches the next line while the current plays).
+      // SCRIPT = pre-generated SAVED AUDIO, played PIECE BY PIECE (one piece per
+      // hop). Sending one piece at a time (instead of the whole list) leaves a
+      // clean boundary AFTER EACH SENTENCE where a live-TTS greeting/comment can
+      // slot in — avatar finishes the sentence, handles it, resumes the script.
+      const pieces = sc?.audioUrls || [];
+      if (pieces.length) {
+        if (l >= pieces.length) { s++; l = 0; hops++; continue; }
+        setScriptWaiting(false);
+        posRef.current = { s, l: l + 1 };
+        const id = "L" + ++sayCounterRef.current;
+        pendingSayRef.current.set(id, { s, l });
+        const dc = dcRef.current;
+        if (dc && dc.readyState === "open") dc.send(JSON.stringify({ kind: "sayaudio", urls: [pieces[l]], id }));
+        return;
+      }
+      // Fallback: scripts without saved audio → live TTS, line by line.
       const lines = sc ? splitSentences(sc.text) : [];
       if (l >= lines.length) { s++; l = 0; hops++; continue; }
       setScriptWaiting(false);
-      const dc = dcRef.current;
-      // Push the script's voice settings before its FIRST line so it speaks in the
-      // exact voice/volume/speed/emotion it was authored with.
-      if (l === 0 && sc && dc && dc.readyState === "open") {
-        dc.send(JSON.stringify({ kind: "cfg", text: JSON.stringify({ voice_id: sc.voiceId, vol: sc.volume, speed: sc.speed, emotion: sc.emotion }) }));
-      }
       posRef.current = { s, l: l + 1 };
       const id = "L" + ++sayCounterRef.current;
       pendingSayRef.current.set(id, { s, l });
+      const dc = dcRef.current;
       if (dc && dc.readyState === "open") dc.send(JSON.stringify({ kind: "say", text: lines[l], id }));
       return;
     }

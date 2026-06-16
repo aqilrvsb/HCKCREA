@@ -18,7 +18,8 @@ const EMOTIONS = ["fluent", "happy", "neutral", "surprised", "sad", "angry", "fe
 // MiniMax t2a_v2 caps a request ~5k chars. We accept ANY length, split into
 // ≤CHUNK_CHARS pieces at sentence boundaries, synthesize each, then merge the
 // raw PCM back into one clip (same 24kHz mono format → seamless concat).
-const CHUNK_CHARS = 2500; // per playback piece (~2.5 min, ~7MB) — fast piece downloads
+const CHUNK_CHARS = 250; // per playback PIECE ≈ one sentence — so a greeting/comment
+                         // can barge in right after a sentence (not a long chunk).
 const HARD_MAX = 40000; // safety bound (~8 chunks, ~5.7k words) to avoid timeouts/abuse
 const SR = 24000;
 const BUCKET = "livehost-audio";
