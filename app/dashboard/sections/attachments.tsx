@@ -13,6 +13,7 @@ import {
   UserCircle2,
   ChevronLeft,
   ChevronRight,
+  Sparkles,
 } from "lucide-react";
 import { compressImageIfNeeded } from "@/lib/compress-image";
 
@@ -46,6 +47,8 @@ export default function AttachmentsSection({
   pngOnly?: boolean;
 } = {}) {
   const [items, setItems] = useState<Attachment[]>([]);
+  // "own" = the user's saved uploads · "demo" = the shared defaults.
+  const [source, setSource] = useState<"own" | "demo">("own");
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -300,6 +303,9 @@ export default function AttachmentsSection({
     avatar: presets.filter((p) => p.category === "avatar").length,
   };
   const shownPresets = presets.filter((p) => filter === "all" || p.category === filter);
+  const hasPresets = presets.length > 0;
+  const effectiveSource: "own" | "demo" = hasPresets ? source : "own";
+  const chipCounts = effectiveSource === "demo" ? presetCounts : counts;
 
   return (
     <div className="px-4 sm:px-6 lg:px-8 py-6 max-w-[1400px] mx-auto">
@@ -329,29 +335,48 @@ export default function AttachmentsSection({
         />
       </div>
 
+      {/* Source toggle — Default (own saved) vs Demo (shared defaults) */}
+      {hasPresets && (
+        <div className="flex items-center gap-2 mb-3">
+          <CategoryChip
+            active={source === "own"}
+            onClick={() => setSource("own")}
+            icon={<UserCircle2 className="w-3.5 h-3.5" />}
+            label={`Default (${counts.all})`}
+          />
+          <CategoryChip
+            active={source === "demo"}
+            onClick={() => setSource("demo")}
+            icon={<Sparkles className="w-3.5 h-3.5" />}
+            label={`Demo (${presetCounts.all})`}
+          />
+        </div>
+      )}
+
       {/* Category filter chips */}
       <div className="flex items-center gap-2 mb-4">
         <CategoryChip
           active={filter === "all"}
           onClick={() => setFilter("all")}
           icon={null}
-          label={`All (${counts.all + presetCounts.all})`}
+          label={`All (${chipCounts.all})`}
         />
         <CategoryChip
           active={filter === "product"}
           onClick={() => setFilter("product")}
           icon={<Package className="w-3.5 h-3.5" />}
-          label={`${productLabel} (${counts.product + presetCounts.product})`}
+          label={`${productLabel} (${chipCounts.product})`}
         />
         <CategoryChip
           active={filter === "avatar"}
           onClick={() => setFilter("avatar")}
           icon={<UserCircle2 className="w-3.5 h-3.5" />}
-          label={`Avatar (${counts.avatar + presetCounts.avatar})`}
+          label={`Avatar (${chipCounts.avatar})`}
         />
       </div>
 
-      {/* Drop zone */}
+      {/* Drop zone — Default tab only */}
+      {effectiveSource === "own" && (
       <div
         onDragOver={(e) => {
           e.preventDefault();
@@ -372,15 +397,16 @@ export default function AttachmentsSection({
             : "Drag & drop, paste (⌘/Ctrl + V), or click Add Image above"}
         </p>
       </div>
+      )}
 
-      {/* Default presets (read-only) — Livehost stock hosts + templates,
-          available to every client, can't be deleted. */}
-      {shownPresets.length > 0 && (
-        <div className="mb-6">
-          <div className="text-[11px] font-bold uppercase tracking-wider mb-2" style={{ color: "var(--color-text-muted)" }}>
-            Demo — tersedia untuk semua (tidak boleh padam)
-          </div>
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
+      {/* Demo (shared defaults) — shown only in the Demo tab. */}
+      {effectiveSource === "demo" && (shownPresets.length === 0 ? (
+        <div className="text-center py-16" style={{ color: "var(--color-text-muted)" }}>
+          <ImageIcon className="w-12 h-12 mx-auto mb-3 opacity-40" />
+          <p className="text-sm">Tiada demo.</p>
+        </div>
+      ) : (
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
             {shownPresets.map((p) => (
               <div key={p.id} className="relative rounded-lg overflow-hidden border" style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}>
                 <div className="block w-full aspect-square bg-black/40 relative">
@@ -395,22 +421,19 @@ export default function AttachmentsSection({
                 <div className="px-2 py-2 text-[11px] font-semibold truncate" style={{ color: "var(--color-text-secondary)" }} title={p.name}>{p.name}</div>
               </div>
             ))}
-          </div>
         </div>
-      )}
+      ))}
 
-      {/* Grid */}
-      {loading ? (
+      {/* Default (own uploads) — shown only in the Default tab. */}
+      {effectiveSource === "own" && (loading ? (
         <div className="flex justify-center py-12">
           <Loader2 className="w-6 h-6 animate-spin" style={{ color: "var(--color-orange)" }} />
         </div>
       ) : items.length === 0 ? (
-        shownPresets.length === 0 ? (
-          <div className="text-center py-16" style={{ color: "var(--color-text-muted)" }}>
-            <ImageIcon className="w-12 h-12 mx-auto mb-3 opacity-40" />
-            <p className="text-sm">No attachments here yet.</p>
-          </div>
-        ) : null
+        <div className="text-center py-16" style={{ color: "var(--color-text-muted)" }}>
+          <ImageIcon className="w-12 h-12 mx-auto mb-3 opacity-40" />
+          <p className="text-sm">Tiada simpanan lagi. Klik <span className="font-semibold">Add Image</span> untuk muat naik.</p>
+        </div>
       ) : (
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
           {items.map((a) => (
@@ -516,10 +539,10 @@ export default function AttachmentsSection({
             </div>
           ))}
         </div>
-      )}
+      ))}
 
       {/* Pagination */}
-      {totalPages > 1 && (
+      {effectiveSource === "own" && totalPages > 1 && (
         <div className="flex items-center justify-center gap-3 mt-6">
           <button
             onClick={() => load(page - 1)}
