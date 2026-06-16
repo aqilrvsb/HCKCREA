@@ -14,6 +14,14 @@ import { LhSection, LhCard, LhCardHeader, LhLabel, LhButton, LhGrid, LhModal, LH
 
 export type LiveView = "live" | "scripts" | "products" | "usage" | "template";
 
+// mm:ss for the audio seek bar.
+function fmtAudioTime(sec: number): string {
+  if (!Number.isFinite(sec) || sec < 0) sec = 0;
+  const m = Math.floor(sec / 60);
+  const s = Math.floor(sec % 60);
+  return `${m}:${String(s).padStart(2, "0")}`;
+}
+
 type IceConfig = { iceServers: RTCIceServer[]; iceTransportPolicy?: RTCIceTransportPolicy };
 type Script = {
   id: string; title: string; text: string;
@@ -1259,19 +1267,26 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
   const previewAudioRef = useRef<HTMLAudioElement | null>(null);
   const [previewPlayId, setPreviewPlayId] = useState<string | null>(null);
   const [previewFrac, setPreviewFrac] = useState(0); // 0–1 progress → teleprompter sweep
+  const [previewDur, setPreviewDur] = useState(0);    // total seconds (for the seek bar)
 
   const stopPreview = useCallback(() => {
     if (previewAudioRef.current) { previewAudioRef.current.pause(); previewAudioRef.current = null; }
-    setPreviewPlayId(null); setPreviewFrac(0);
+    setPreviewPlayId(null); setPreviewFrac(0); setPreviewDur(0);
   }, []);
   const playPreview = useCallback((id: string, src: string) => {
     if (previewAudioRef.current) { previewAudioRef.current.pause(); previewAudioRef.current = null; }
     const a = new Audio(src);
     previewAudioRef.current = a;
-    setPreviewPlayId(id); setPreviewFrac(0);
+    setPreviewPlayId(id); setPreviewFrac(0); setPreviewDur(0);
+    a.onloadedmetadata = () => setPreviewDur(Number.isFinite(a.duration) ? a.duration : 0);
     a.ontimeupdate = () => { if (a.duration) setPreviewFrac(Math.min(1, a.currentTime / a.duration)); };
     a.onended = () => { setPreviewPlayId(null); setPreviewFrac(1); previewAudioRef.current = null; };
     a.play().catch(() => setPreviewPlayId(null));
+  }, []);
+  // Scrub the preview audio (drag the seek bar) to skip forward/back.
+  const seekPreview = useCallback((frac: number) => {
+    const a = previewAudioRef.current;
+    if (a && a.duration) { a.currentTime = frac * a.duration; setPreviewFrac(frac); }
   }, []);
 
   const generateScript = useCallback(async (id: string) => {
@@ -1822,7 +1837,18 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
                 </div>
 
                 {previewPlayId === s.id && (
-                  <div style={{ marginTop: 12, maxHeight: 140, overflowY: "auto", background: "#fafaf7", border: "1px solid #e8e0d8", borderRadius: 10, padding: 12, fontSize: 15, lineHeight: 1.6 }}>
+                  <div style={{ marginTop: 12 }}>
+                    <input type="range" min={0} max={1} step={0.001} value={previewFrac}
+                      onChange={(e) => seekPreview(parseFloat(e.target.value))}
+                      style={{ width: "100%", accentColor: "#f59e0b" }} />
+                    <div className="flex items-center justify-between" style={{ fontSize: 11, color: "#888", marginTop: 2 }}>
+                      <span>{fmtAudioTime(previewFrac * previewDur)}</span>
+                      <span>{fmtAudioTime(previewDur)}</span>
+                    </div>
+                  </div>
+                )}
+                {previewPlayId === s.id && (
+                  <div style={{ marginTop: 10, maxHeight: 140, overflowY: "auto", background: "#fafaf7", border: "1px solid #e8e0d8", borderRadius: 10, padding: 12, fontSize: 15, lineHeight: 1.6 }}>
                     {words.map((w, wi) => (<span key={wi} style={{ color: wi < onCount ? "#f59e0b" : "#1a1a1a", fontWeight: wi < onCount ? 800 : 500 }}>{w} </span>))}
                   </div>
                 )}
