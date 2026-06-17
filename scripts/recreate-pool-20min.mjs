@@ -38,15 +38,13 @@ console.log("ref endpoint:", ref);
 const refData = await novita(`/endpoint?id=${ref}`, nkey);
 const envs = refData?.endpoint?.envs;
 if (!Array.isArray(envs) || !envs.length) { console.error("no ref envs:", JSON.stringify(refData).slice(0, 300)); process.exit(1); }
-const have = new Set(envs.map((e) => e.key));
-if (!have.has("NVIDIA_DRIVER_CAPABILITIES")) envs.push({ key: "NVIDIA_DRIVER_CAPABILITIES", value: "compute,utility,video" });
-// FORCE_NVENC OFF (=0): the /ping gate that forces Novita to reroll to an NVENC
-// node was causing slow cold starts + worker churn (2 workers) + /ice-servers
-// failures = the stream wouldn't connect. With it off, each worker serves
-// immediately + stably on libx264 (steady 25fps). Stable > the NVENC lottery.
+const cap = envs.find((e) => e.key === "NVIDIA_DRIVER_CAPABILITIES");
+if (cap) cap.value = "all"; else envs.push({ key: "NVIDIA_DRIVER_CAPABILITIES", value: "all" });
+// FORCE_NVENC=1 → consistent NVENC (libx264 lottery = smooth some days, laggy
+// others). NVIDIA_DRIVER_CAPABILITIES=all maximizes nvenc-open to reduce reroll.
 const fn = envs.find((e) => e.key === "FORCE_NVENC");
-if (fn) fn.value = "0"; else envs.push({ key: "FORCE_NVENC", value: "0" });
-console.log("copied", envs.length, "envs from ref (FORCE_NVENC=0)");
+if (fn) fn.value = "1"; else envs.push({ key: "FORCE_NVENC", value: "1" });
+console.log("copied", envs.length, "envs from ref (FORCE_NVENC=1, caps=all)");
 
 const { data: oldRows } = await sb.from("livehost_pool").select("endpoint_id");
 const oldIds = (oldRows || []).map((r) => r.endpoint_id);

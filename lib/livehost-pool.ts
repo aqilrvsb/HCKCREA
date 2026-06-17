@@ -43,14 +43,14 @@ async function referenceEnvs(key: string, refId: string): Promise<any[]> {
   if (!Array.isArray(envs) || envs.length === 0) {
     throw new Error(`reference endpoint ${refId} returned no envs`);
   }
-  const have = new Set(envs.map((e: any) => e.key));
-  if (!have.has("NVIDIA_DRIVER_CAPABILITIES"))
-    envs.push({ key: "NVIDIA_DRIVER_CAPABILITIES", value: "compute,utility,video" });
-  // FORCE_NVENC OFF: the reroll-to-NVENC gate caused slow cold starts + worker
-  // churn + connection failures. Off = each worker serves immediately + stably
-  // (libx264, steady 25fps). Stable beats the NVENC node lottery.
+  // NVIDIA_DRIVER_CAPABILITIES=all → give the container full access to the GPU's
+  // NVENC video engine so h264_nvenc opens on as many nodes as possible.
+  const cap = envs.find((e: any) => e.key === "NVIDIA_DRIVER_CAPABILITIES");
+  if (cap) cap.value = "all"; else envs.push({ key: "NVIDIA_DRIVER_CAPABILITIES", value: "all" });
+  // FORCE_NVENC=1 → consistent NVENC (the libx264 lottery made it smooth some
+  // days, laggy others). Trade-off: cold start may reroll to find an NVENC node.
   const fn = envs.find((e: any) => e.key === "FORCE_NVENC");
-  if (fn) fn.value = "0"; else envs.push({ key: "FORCE_NVENC", value: "0" });
+  if (fn) fn.value = "1"; else envs.push({ key: "FORCE_NVENC", value: "1" });
   return envs;
 }
 
