@@ -1153,21 +1153,23 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
           const now = performance.now();
           const ent = m.id ? pendingSayRef.current.get(m.id) : undefined;
           if (m.id) pendingSayRef.current.delete(m.id);
-          // `barge` is set by the box for any comment/chat reply (studio OR
-          // extension OR real TikTok DOM); `ent.chat` covers studio-originated
-          // ones whose id we still hold. Either means a barge-in happened.
+          // `barge` = any comment/chat reply (studio sim / extension / TikTok);
+          // `ent.chat` covers studio-originated ones whose id we still hold.
           const isChat = (!!ent && "chat" in ent) || m.barge === true;
-          // A chat/comment answer barges in and DISCARDS all buffered script
-          // audio. The old projected timeline is now void, so rebase to "now" —
-          // otherwise the script resumes only after the discarded audio's
-          // duration elapses (several seconds of dead air). With the rebase the
-          // next line is requested immediately / prefetched so it flows on.
-          const startAt = isChat ? now : Math.max(now, audioEndRef.current);
+          // CHAT/COMMENT reply = BOOKKEEPING ONLY. It plays in the worker queue
+          // BETWEEN script pieces (no discard, no hold), so the script chain must
+          // NOT be touched here — touching it (rescheduling/holding) is exactly
+          // what caused the script to go SILENT while waiting for the reply.
+          if (isChat) {
+            chatActiveRef.current = false;
+            addVoiceChars(Number(m.chars) || 0, true);
+            return;
+          }
+          // SCRIPT PIECE: advance the karaoke + pipeline the next piece.
+          const startAt = Math.max(now, audioEndRef.current);
           audioEndRef.current = startAt + durMs;
-          // Greeting/comment finished → resume the script teleprompter.
-          if (isChat) chatActiveRef.current = false;
-          addVoiceChars(Number(m.chars) || 0, isChat);
-          if (ent && !isChat && durMs > 0) {
+          addVoiceChars(Number(m.chars) || 0, false);
+          if (ent && durMs > 0) {
             const ht = setTimeout(() => {
               if (!playingRef.current) return;
               setPlayPos({ s: ent.s, l: ent.l });
@@ -1507,12 +1509,11 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
   const cleanU = (u: string) => String(u || "").replace(/[*_~`]/g, "").trim().slice(0, 40);
   const speakNow = useCallback((kind: "say" | "ask", text: string) => {
     if (!text.trim()) return false;
-    // Hold the script from advancing + pause the teleprompter. We do NOT pre-cut
-    // the script here — the WORKER does prepare-then-swap (synth while the script
-    // plays, interrupt only when the greeting audio is ready → no synth gap).
-    chatActiveRef.current = true;
-    if (sayTimerRef.current) { clearTimeout(sayTimerRef.current); sayTimerRef.current = null; }
-    if (wordTimerRef.current) { clearInterval(wordTimerRef.current); wordTimerRef.current = null; }
+    // NO HOLD: the script keeps playing while the worker prepares (LLM+synth) the
+    // greeting/comment. The worker ENQUEUES the reply behind the current script
+    // pieces (no discard), so it plays at the NEXT sentence boundary — the avatar
+    // never goes silent waiting for synth. The script chain keeps running on its
+    // own piece say_done's; the chat say_done is bookkeeping only (see onmessage).
     const id = "C" + ++sayCounterRef.current;
     pendingSayRef.current.set(id, { chat: true });
     return sendControl({ kind, text, id, barge: true });
