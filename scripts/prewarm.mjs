@@ -19,7 +19,7 @@ console.log("=== current prewarms ===");
 console.log(JSON.stringify(await list(), null, 2));
 
 if (args[0] === "create") {
-  const body = { imageUrl: "docker.io/aqilrvsb/lh-avtr1:s9-notimeout", imageName: "lh-avtr1-notimeout", clusterId: "as-sgp-2", authId: "73068571-9b1d-44c6-a4d7-fb942614b1a4" };
+  const body = { imageUrl: "docker.io/aqilrvsb/lh-avtr1:s10-stable", imageName: "lh-avtr1-notimeout", clusterId: "as-sgp-2", authId: "73068571-9b1d-44c6-a4d7-fb942614b1a4" };
   const r = await fetch(`${BASE}/image/prewarm`, { method: "POST", headers: { Authorization: `Bearer ${nkey}`, "Content-Type": "application/json" }, body: JSON.stringify(body) });
   console.log("\n=== create prewarm :s9-notimeout ===", r.status, await r.text());
   console.log("\n=== after ===");
