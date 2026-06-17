@@ -1116,13 +1116,16 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
           if (activeRef.current || connectingRef.current) tryReconnectRef.current?.();
         } else if (st === "disconnected") {
           // TRANSIENT per WebRTC spec — a brief blip ICE usually recovers on its
-          // own. Give it ~8s; if still not back, auto-reconnect.
+          // own. Give it ~20s so ICE can recover SEAMLESSLY (no teardown, no gap)
+          // — matches the worker's 20s grace. Only if still not back do we tear
+          // down + auto-reconnect. (Reconnecting too early would preempt the ICE
+          // recovery and force an avoidable new /offer.)
           if (disconnectGraceRef.current) clearTimeout(disconnectGraceRef.current);
           disconnectGraceRef.current = setTimeout(() => {
             disconnectGraceRef.current = null;
             if (pcRef.current === pc && pc.connectionState !== "connected"
                 && (activeRef.current || connectingRef.current)) tryReconnectRef.current?.();
-          }, 8000);
+          }, 20000);
         }
       };
 
