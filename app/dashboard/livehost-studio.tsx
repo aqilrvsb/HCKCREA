@@ -1301,6 +1301,19 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
   }, []);
 
   const pauseRundown = useCallback(() => {
+    // Resume EXACTLY where it's playing = the EARLIEST in-flight piece (the one
+    // whose audio is out right now). The old code used playPos (the karaoke
+    // highlight), which LAGS behind the audio, so resume jumped backwards ~1-2
+    // sentences. Compute the resume point BEFORE clearing the pending map.
+    let resumeAt = posRef.current;
+    for (const v of pendingSayRef.current.values()) {
+      const p = v as { s?: number; l?: number };
+      if (typeof p.s === "number" && typeof p.l === "number"
+          && (p.s < resumeAt.s || (p.s === resumeAt.s && p.l < resumeAt.l))) {
+        resumeAt = { s: p.s, l: p.l };
+      }
+    }
+    posRef.current = resumeAt;
     if (sayTimerRef.current) { clearTimeout(sayTimerRef.current); sayTimerRef.current = null; }
     if (wordTimerRef.current) { clearInterval(wordTimerRef.current); wordTimerRef.current = null; }
     highlightTimersRef.current.forEach((t) => clearTimeout(t));
@@ -1310,8 +1323,7 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
     setScriptPaused(true);
     setWordFrac(0);
     sendControl({ kind: "interrupt" });
-    if (playPos.s >= 0 && playPos.l >= 0) posRef.current = { s: playPos.s, l: playPos.l };
-  }, [sendControl, playPos]);
+  }, [sendControl]);
 
   const resumeRundown = useCallback(() => {
     setScriptPaused(false);
