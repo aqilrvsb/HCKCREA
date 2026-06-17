@@ -50,18 +50,37 @@
 function setupAutoPin() {
   let autoPinTimer = null;
 
+  // TikTok's arco buttons often ignore a bare .click() (their React listens on
+  // pointer/mouse events) — fire a full realistic sequence + .click() fallback.
+  function realClick(el) {
+    if (!el) return false;
+    try {
+      const o = { bubbles: true, cancelable: true, view: window };
+      el.dispatchEvent(new PointerEvent("pointerdown", o));
+      el.dispatchEvent(new MouseEvent("mousedown", o));
+      el.dispatchEvent(new PointerEvent("pointerup", o));
+      el.dispatchEvent(new MouseEvent("mouseup", o));
+      el.dispatchEvent(new MouseEvent("click", o));
+    } catch (e) {}
+    try { el.click(); } catch (e) {}
+    return true;
+  }
+
   function tick() {
     const first = document.querySelector(".pc_pin_product_pin, .pc_pin_product_unpin");
-    if (!first) return; // product list not loaded / no products
+    if (!first) { console.log("[AI Host] auto-pin: product pin button NOT found (right page? products loaded?)"); return; }
     if (first.classList.contains("pc_pin_product_unpin")) {
       // Already pinned → unpin, then re-pin the same (top) product to re-bump.
-      first.click();
+      console.log("[AI Host] auto-pin: re-bump (unpin → 1.5s → pin)");
+      realClick(first);
       setTimeout(() => {
         const pin = document.querySelector(".pc_pin_product_pin");
-        if (pin) pin.click();
+        if (pin) realClick(pin);
+        else console.log("[AI Host] auto-pin: pin button missing after unpin");
       }, 1500);
     } else {
-      first.click(); // not pinned yet → pin it
+      console.log("[AI Host] auto-pin: pinning first product");
+      realClick(first); // not pinned yet → pin it
     }
   }
 
