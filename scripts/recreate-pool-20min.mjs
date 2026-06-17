@@ -16,7 +16,7 @@ if (!sbUrl || !sbKey) { console.error("missing supabase env in .env.local"); pro
 const sb = createClient(sbUrl, sbKey, { auth: { persistSession: false } });
 
 const BASE = "https://api.novita.ai/gpu-instance/openapi/v1";
-const IMAGE = "docker.io/aqilrvsb/lh-avtr1:s9-smooth1";
+const IMAGE = "docker.io/aqilrvsb/lh-avtr1:s9-notimeout";
 const AUTH_ID = "73068571-9b1d-44c6-a4d7-fb942614b1a4";
 const PRODUCT = "SL-serverless-3";
 const CLUSTER = "as-sgp-2";
