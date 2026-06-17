@@ -43,11 +43,14 @@ async function referenceEnvs(key: string, refId: string): Promise<any[]> {
   if (!Array.isArray(envs) || envs.length === 0) {
     throw new Error(`reference endpoint ${refId} returned no envs`);
   }
-  // Make sure NVENC stays on even if the reference ever drops it.
   const have = new Set(envs.map((e: any) => e.key));
   if (!have.has("NVIDIA_DRIVER_CAPABILITIES"))
     envs.push({ key: "NVIDIA_DRIVER_CAPABILITIES", value: "compute,utility,video" });
-  if (!have.has("FORCE_NVENC")) envs.push({ key: "FORCE_NVENC", value: "1" });
+  // FORCE_NVENC OFF: the reroll-to-NVENC gate caused slow cold starts + worker
+  // churn + connection failures. Off = each worker serves immediately + stably
+  // (libx264, steady 25fps). Stable beats the NVENC node lottery.
+  const fn = envs.find((e: any) => e.key === "FORCE_NVENC");
+  if (fn) fn.value = "0"; else envs.push({ key: "FORCE_NVENC", value: "0" });
   return envs;
 }
 
