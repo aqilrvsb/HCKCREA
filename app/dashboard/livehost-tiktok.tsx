@@ -79,6 +79,44 @@ export default function LivehostTiktok({ email }: { email: string }) {
             <li className="flex items-start gap-2.5">{dot}<div>OBS: tangkap avatar → push ke TikTok LIVE</div></li>
             <li className="flex items-start gap-2.5">{dot}<div>Buka tab TikTok Shop LIVE → di extension tekan <span className="font-bold">START</span></div></li>
           </ul>
+
+          {/* STEP 3 — tools needed for the OBS → TikTok LIVE Studio pipeline */}
+          <div className="flex items-center gap-3 mt-6 mb-3">
+            <div className="w-7 h-7 rounded-full flex items-center justify-center font-bold text-green-700 text-sm"
+              style={{ background: "#bbf7d0" }}>3</div>
+            <h4 className="font-display font-extrabold text-lg">Setup OBS &amp; Audio</h4>
+          </div>
+          <ul className="space-y-3 text-sm leading-relaxed">
+            <li className="flex items-start gap-2.5">
+              {dot}
+              <div>
+                <div><span className="font-bold">OBS Vertical (Aitum)</span> — untuk canvas 9:16 + Vertical Virtual Camera → pilih kamera ini dalam TikTok LIVE Studio.</div>
+                <a href="https://aitum.tv/download/vertical/" target="_blank" rel="noreferrer"
+                  className="inline-flex items-center gap-1.5 mt-2 px-4 py-2 rounded-lg font-bold text-sm transition-transform hover:-translate-y-0.5"
+                  style={{ background: "#f0fdf4", border: "1px solid #86efac", color: "#16a34a" }}>
+                  <Download className="w-4 h-4" /> Download OBS Vertical <ArrowUpRight className="w-3.5 h-3.5" />
+                </a>
+              </div>
+            </li>
+            <li className="flex items-start gap-2.5">
+              {dot}
+              <div>
+                <div><span className="font-bold">Audio (cara MUDAH — guna Stereo Mix, tak perlu install):</span> pastikan suara avatar main melalui <span className="font-bold">speaker default</span> PC (tab Livehost jangan mute, volume naik). Dalam TikTok LIVE Studio → <span className="font-bold">Audio source</span> → pilih <span className="font-bold">Stereo Mix</span>. TikTok terus dengar suara avatar.</div>
+                <div className="mt-1.5 text-xs text-gray-500">Tip: Stereo Mix tangkap <span className="font-bold">semua</span> bunyi PC — tutup notifikasi/app lain semasa live. Kalau "No audio detected", pastikan avatar tengah bercakap + Stereo Mix tak di-mute (Sound → Recording → Stereo Mix → Properties → Levels).</div>
+              </div>
+            </li>
+            <li className="flex items-start gap-2.5">
+              {dot}
+              <div>
+                <div><span className="font-bold">Kalau takde Stereo Mix</span> (sesetengah PC) → install Virtual Audio Driver: set output browser → <span className="font-bold">Virtual Audio Driver</span>, dan mic TikTok → <span className="font-bold">Virtual Mic Driver</span>.</div>
+                <a href="https://github.com/VirtualDrivers/Virtual-Audio-Driver" target="_blank" rel="noreferrer"
+                  className="inline-flex items-center gap-1.5 mt-2 px-4 py-2 rounded-lg font-bold text-sm transition-transform hover:-translate-y-0.5"
+                  style={{ background: "#f0fdf4", border: "1px solid #86efac", color: "#16a34a" }}>
+                  <Download className="w-4 h-4" /> Download Virtual Audio Driver <ArrowUpRight className="w-3.5 h-3.5" />
+                </a>
+              </div>
+            </li>
+          </ul>
         </div>
       </div>
     </div>
