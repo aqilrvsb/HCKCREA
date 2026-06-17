@@ -1671,6 +1671,15 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
                   <button className="unmute-btn" onClick={enableSound}>🔇 Tap to enable sound</button>
                 )}
               </div>
+              {/* FULLSCREEN-FOR-OBS: shows ONLY the avatar frame (9:16, video +
+                  overlay + badge) so OBS captures a clean shot — no sidebar,
+                  scripts, or teleprompter. Button sits OUTSIDE .stage so it's
+                  not part of the captured frame; press Esc to exit. */}
+              <button type="button" className="obs-fs-btn"
+                title="Skrin penuh untuk OBS — avatar sahaja (tekan Esc untuk keluar)"
+                onClick={() => { const el = stageRef.current as any; (el?.requestFullscreen || el?.webkitRequestFullscreen)?.call(el); }}>
+                ⛶ OBS
+              </button>
             </div>
 
             <div className="queue-col">
@@ -2283,7 +2292,10 @@ const STUDIO_CSS = `
 .lh-studio .stage video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;transform-origin:center center;}
 .lh-studio .stage .overlay{position:absolute;inset:0;width:100%;height:100%;object-fit:fill;pointer-events:none;}
 .lh-studio .stage .avatar-preview{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;transform-origin:center center;}
-.lh-studio .stage:fullscreen{height:100vh;width:auto;aspect-ratio:9/16;border-radius:0;}
+.lh-studio .stage:fullscreen{height:100vh;width:auto;aspect-ratio:9/16;border-radius:0;cursor:default;}
+.lh-studio .video-wrap{position:relative;}
+.lh-studio .obs-fs-btn{position:absolute;top:8px;right:8px;z-index:6;background:rgba(0,0,0,.72);color:#fff;border:1px solid rgba(255,255,255,.25);border-radius:8px;padding:5px 10px;font-size:12px;font-weight:800;cursor:pointer;backdrop-filter:blur(4px);}
+.lh-studio .obs-fs-btn:hover{background:#000;}
 .lh-studio .placeholder{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#6b7596;font-size:14px;text-align:center;padding:24px;}
 .lh-studio .captions{position:absolute;bottom:14px;left:50%;transform:translateX(-50%);max-width:80%;background:rgba(0,0,0,.72);padding:8px 14px;border-radius:10px;font-size:18px;text-align:center;backdrop-filter:blur(4px);}
 .lh-studio .queue-col{width:230px;flex:none;display:flex;flex-direction:column;min-width:0;min-height:0;}
