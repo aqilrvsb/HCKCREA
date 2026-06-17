@@ -1225,6 +1225,16 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
           }
         } catch {}
       };
+      // The control data-channel can close on its own (worker SCTP drop / worker
+      // restart) WITHOUT pc.connectionState flipping — that left the script
+      // sending into a dead channel = the mid-live "Not connected" you saw.
+      // Recover it the same way as a full drop. Guards: same pc (a user Stop
+      // nulls pcRef), still live, and not already reconnecting.
+      dc.onclose = () => {
+        if (pcRef.current === pc && activeRef.current && !reconnectingRef.current) {
+          tryReconnectRef.current?.();
+        }
+      };
 
       pc.addTransceiver("audio", { direction: "recvonly" });
       const vTr = pc.addTransceiver("video", { direction: "recvonly" });
