@@ -52,6 +52,10 @@ async function referenceEnvs(key: string, refId: string): Promise<any[]> {
   // Off = fast, stable boot; the encoder still uses NVENC whenever caps allow it.
   const fn = envs.find((e: any) => e.key === "FORCE_NVENC");
   if (fn) fn.value = "0"; else envs.push({ key: "FORCE_NVENC", value: "0" });
+  // RIFE_FPS50=1 → AI frame-interpolation 25→50fps (no-lag 1-frame-delay pipeline)
+  // = visibly smoother motion. Slightly softer (same 6Mbps over 2x frames).
+  const rife = envs.find((e: any) => e.key === "RIFE_FPS50");
+  if (rife) rife.value = "1"; else envs.push({ key: "RIFE_FPS50", value: "1" });
   return envs;
 }
 

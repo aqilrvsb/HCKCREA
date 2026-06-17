@@ -44,7 +44,10 @@ if (cap) cap.value = "all"; else envs.push({ key: "NVIDIA_DRIVER_CAPABILITIES", 
 // NVENC lever: the encoder always tries h264_nvenc first; caps=all lets it open.
 const fn = envs.find((e) => e.key === "FORCE_NVENC");
 if (fn) fn.value = "0"; else envs.push({ key: "FORCE_NVENC", value: "0" });
-console.log("copied", envs.length, "envs from ref (FORCE_NVENC=0, caps=all)");
+// RIFE_FPS50=1 → AI interpolation 25->50fps (no-lag pipeline) = smoother motion.
+const rife = envs.find((e) => e.key === "RIFE_FPS50");
+if (rife) rife.value = "1"; else envs.push({ key: "RIFE_FPS50", value: "1" });
+console.log("copied", envs.length, "envs from ref (FORCE_NVENC=0, caps=all, RIFE_FPS50=1)");
 
 const { data: oldRows } = await sb.from("livehost_pool").select("endpoint_id");
 const oldIds = (oldRows || []).map((r) => r.endpoint_id);
