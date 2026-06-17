@@ -472,21 +472,6 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const stageRef = useRef<HTMLDivElement | null>(null);
   const remoteStreamRef = useRef<MediaStream | null>(null);
-  // ANTI-FREEZE (bulletproof): record a few seconds of the live avatar; if the
-  // video TRULY stalls (frames stop while audio flows) show that loop so viewers
-  // see motion, then swap back the instant frames return. SAFETY so it can NEVER
-  // cause "no motion": (1) never freeze unless real frames were seen flowing
-  // first (armed); (2) never show the loop unless it's actually recorded+loaded;
-  // (3) never freeze when stats can't be read; (4) hard fallback to live if
-  // masked too long. Loop is silent (live audio keeps playing separately).
-  const loopVideoRef = useRef<HTMLVideoElement | null>(null);
-  const loopUrlRef = useRef<string>("");
-  const loopRecorderRef = useRef<MediaRecorder | null>(null);
-  const loopRecordTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const vWatchdogRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const vStatsRef = useRef<{ frames: number; at: number; restarted: boolean; armed: boolean }>({ frames: 0, at: 0, restarted: false, armed: false });
-  const freezeMaskRef = useRef(false);
-  const [videoFrozen, setVideoFrozen] = useState(false);
   // Template view = a second copy of the live-host SCREEN + avatar/template/
   // fit controls. Shares ALL state with the live view (so composing here =
   // what streams), but needs its own stage/video refs to avoid ref clashes
@@ -1351,92 +1336,6 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
     return () => { if (warmTimerRef.current) { clearTimeout(warmTimerRef.current); warmTimerRef.current = null; } };
   }, [gpuWarm, active]);
 
-  // Record ~5s of the live avatar video into a silent looping clip (refreshed).
-  const recordAvatarLoop = useCallback(() => {
-    try {
-      const vt = remoteStreamRef.current?.getVideoTracks?.()[0];
-      if (!vt) return;
-      if (loopRecorderRef.current && loopRecorderRef.current.state !== "inactive") return;
-      const MR: typeof MediaRecorder | undefined = (window as any).MediaRecorder;
-      if (!MR) return;
-      const mime = ["video/webm;codecs=vp9", "video/webm;codecs=vp8", "video/webm"].find((m) => MR.isTypeSupported?.(m)) || "video/webm";
-      const rec = new MR(new MediaStream([vt]), { mimeType: mime });
-      loopRecorderRef.current = rec;
-      const chunks: BlobPart[] = [];
-      rec.ondataavailable = (e) => { if (e.data && e.data.size) chunks.push(e.data); };
-      rec.onstop = () => {
-        if (!chunks.length) return;
-        const url = URL.createObjectURL(new Blob(chunks, { type: mime }));
-        if (loopUrlRef.current) { try { URL.revokeObjectURL(loopUrlRef.current); } catch {} }
-        loopUrlRef.current = url;
-        const lv = loopVideoRef.current;
-        if (lv) { lv.src = url; lv.loop = true; lv.muted = true; lv.load(); }
-      };
-      rec.start();
-      setTimeout(() => { try { if (rec.state !== "inactive") rec.stop(); } catch {} }, 5000);
-    } catch {}
-  }, []);
-
-  // BULLETPROOF freeze watchdog. Reads decoded video frames via getStats.
-  const startVideoWatchdog = useCallback(() => {
-    if (vWatchdogRef.current) clearInterval(vWatchdogRef.current);
-    vStatsRef.current = { frames: 0, at: performance.now(), restarted: false, armed: false };
-    let logN = 0;
-    vWatchdogRef.current = setInterval(async () => {
-      const pc = pcRef.current;
-      if (!pc || !activeRef.current) return;
-      try {
-        const stats = await pc.getStats();
-        let decoded = -1, fps = 0, rtt = 0, lost = 0;
-        stats.forEach((r: any) => {
-          if (r.type === "inbound-rtp" && (r.kind === "video" || r.mediaType === "video") && typeof r.framesDecoded === "number") {
-            decoded = r.framesDecoded; fps = r.framesPerSecond || 0; lost = r.packetsLost || 0;
-          }
-          if (r.type === "candidate-pair" && r.nominated && r.currentRoundTripTime != null) rtt = r.currentRoundTripTime;
-        });
-        const now = performance.now();
-        const s = vStatsRef.current;
-        const lv = loopVideoRef.current;
-        const loopReady = !!(lv && lv.src && lv.readyState >= 3);
-        // SAFETY 1: can't read frame count → NEVER treat as frozen.
-        if (decoded < 0) return;
-        if (decoded > s.frames) {
-          // Video confirmed flowing → healthy. Arm + (if masking) recover to live.
-          s.frames = decoded; s.at = now; s.restarted = false; s.armed = true;
-          if (freezeMaskRef.current) { freezeMaskRef.current = false; setVideoFrozen(false); }
-        } else if (s.armed) {
-          const stalled = now - s.at;
-          // SAFETY 2+3: only mask after a GENUINE ≥5s freeze AND a real loaded loop.
-          if (stalled > 5000 && !freezeMaskRef.current && loopReady) {
-            freezeMaskRef.current = true; setVideoFrozen(true);
-            try { lv!.currentTime = 0; lv!.play().catch(() => {}); } catch {}
-          }
-          if (stalled > 8000 && !s.restarted) { s.restarted = true; try { (pc as any).restartIce?.(); } catch {} }
-          // SAFETY 4: never stay masked forever → after 20s drop back to live.
-          if (stalled > 20000 && freezeMaskRef.current) { freezeMaskRef.current = false; setVideoFrozen(false); }
-        }
-        if (++logN % 5 === 0) console.log(`[lh-stats] decoded=${decoded} fps=${fps} rtt=${Math.round(rtt * 1000)}ms lost=${lost} armed=${s.armed} frozen=${freezeMaskRef.current}`);
-      } catch {}
-    }, 1000);
-  }, []);
-
-  // While live: record the loop (after the stream settles, refresh every 60s) +
-  // run the watchdog. Cleaned up on stop.
-  useEffect(() => {
-    if (!active) return;
-    const t0 = setTimeout(() => recordAvatarLoop(), 8000);
-    loopRecordTimerRef.current = setInterval(() => { if (!freezeMaskRef.current) recordAvatarLoop(); }, 60000);
-    startVideoWatchdog();
-    return () => {
-      clearTimeout(t0);
-      if (loopRecordTimerRef.current) { clearInterval(loopRecordTimerRef.current); loopRecordTimerRef.current = null; }
-      if (vWatchdogRef.current) { clearInterval(vWatchdogRef.current); vWatchdogRef.current = null; }
-      try { if (loopRecorderRef.current && loopRecorderRef.current.state !== "inactive") loopRecorderRef.current.stop(); } catch {}
-      if (loopUrlRef.current) { try { URL.revokeObjectURL(loopUrlRef.current); } catch {} loopUrlRef.current = ""; }
-      freezeMaskRef.current = false; setVideoFrozen(false);
-    };
-  }, [active, recordAvatarLoop, startVideoWatchdog]);
-
   const sendControl = useCallback((payload: object): boolean => {
     const dc = dcRef.current;
     if (dc && dc.readyState === "open") { dc.send(JSON.stringify(payload)); return true; }
@@ -1837,12 +1736,6 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
                 onPointerDown={onStagePointerDown} onPointerMove={onStagePointerMove}
                 onPointerUp={onStagePointerUp} onPointerCancel={onStagePointerUp}>
                 <video ref={videoRef} autoPlay playsInline style={{ transform: `translate(${offsetX}%, ${offsetY}%) scale(${zoom})` }} />
-                {/* Anti-freeze loop — shown ONLY while the live video is truly
-                    stalled (default hidden). Same framing; muted. */}
-                <video ref={loopVideoRef} playsInline muted loop aria-hidden="true"
-                  style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover",
-                    transform: `translate(${offsetX}%, ${offsetY}%) scale(${zoom})`,
-                    display: videoFrozen ? "block" : "none" }} />
                 {!active && previewUrl && (
                   <img className="avatar-preview" src={previewUrl} alt="" draggable={false}
                     style={{ transform: `translate(${offsetX}%, ${offsetY}%) scale(${zoom})` }} />
