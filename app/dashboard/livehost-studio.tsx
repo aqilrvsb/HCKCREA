@@ -1052,9 +1052,11 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
       } catch { setGpuWarm("idle"); setError("Tiada GPU tersedia — cuba sekali lagi."); return false; }
     }
     if (!backendRef.current) { setGpuWarm("idle"); setError(configErr || "GPU belum dikonfigurasi."); return false; }
-    // Boot: poll /avatars until the worker answers (cold pull can take ~2–4 min);
-    // each poll keeps the worker alive so the cold start finishes.
-    const deadline = Date.now() + 7 * 60 * 1000;
+    // Boot: poll /avatars until the worker answers. A fresh cold start (image
+    // pull + renderer + RIFE model load) can take several minutes, so wait up to
+    // 12 min (each poll keeps the worker alive) — prevents a premature "GPU
+    // lambat" on first boot. Stays under the 16.7-min freeTimeout.
+    const deadline = Date.now() + 12 * 60 * 1000;
     for (let i = 0; Date.now() < deadline; i++) {
       try {
         const ping = await fetch(`${backendRef.current}/avatars`, { signal: AbortSignal.timeout(5000) });
