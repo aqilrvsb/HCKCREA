@@ -440,6 +440,7 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
   const [rundown, setRundown] = useState<string[]>([]);
   const [rundownAdd, setRundownAdd] = useState("");
   const [playPos, setPlayPos] = useState<{ s: number; l: number }>({ s: -1, l: -1 });
+  const playPosRef = useRef<{ s: number; l: number }>({ s: -1, l: -1 }); // live mirror for pause/resume
   const [scriptPlaying, setScriptPlaying] = useState(false);
   const [scriptPaused, setScriptPaused] = useState(false);
   const [scriptWaiting, setScriptWaiting] = useState(false);
@@ -496,6 +497,7 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
   useEffect(() => { scriptsRef.current = scripts; }, [scripts]);
   useEffect(() => { rundownRef.current = rundown; }, [rundown]);
   useEffect(() => { loopRef.current = scriptLoop; }, [scriptLoop]);
+  useEffect(() => { playPosRef.current = playPos; }, [playPos]);
   const liveDurMsRef = useRef(0);
   useEffect(() => { liveDurMsRef.current = (liveDurH * 3600 + liveDurM * 60) * 1000; }, [liveDurH, liveDurM]);
 
@@ -1347,18 +1349,14 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
   }, []);
 
   const pauseRundown = useCallback(() => {
-    // Resume EXACTLY where it's playing = the EARLIEST in-flight piece (the one
-    // whose audio is out right now). The old code used playPos (the karaoke
-    // highlight), which LAGS behind the audio, so resume jumped backwards ~1-2
-    // sentences. Compute the resume point BEFORE clearing the pending map.
-    let resumeAt = posRef.current;
-    for (const v of pendingSayRef.current.values()) {
-      const p = v as { s?: number; l?: number };
-      if (typeof p.s === "number" && typeof p.l === "number"
-          && (p.s < resumeAt.s || (p.s === resumeAt.s && p.l < resumeAt.l))) {
-        resumeAt = { s: p.s, l: p.l };
-      }
-    }
+    // Resume at the sentence the viewer is ACTUALLY HEARING = the karaoke
+    // highlight (playPos), which is set when each piece's audio starts. Do NOT
+    // use posRef / the pending map: the studio PIPELINES pieces AHEAD of playback
+    // (it sends the next sentences while the current one is still playing), so
+    // those point PAST what's heard → resume skipped ahead. Worst case here =
+    // re-speak the current sentence (fine); never skip.
+    const pp = playPosRef.current;
+    const resumeAt = pp.s >= 0 ? { s: pp.s, l: pp.l } : posRef.current;
     posRef.current = resumeAt;
     if (sayTimerRef.current) { clearTimeout(sayTimerRef.current); sayTimerRef.current = null; }
     if (wordTimerRef.current) { clearInterval(wordTimerRef.current); wordTimerRef.current = null; }
