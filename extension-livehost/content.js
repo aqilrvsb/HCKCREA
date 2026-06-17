@@ -91,10 +91,19 @@ function setupAutoPin() {
 // clicks the LIVE power-off button → waits for the "End LIVE?" modal → Confirm.
 // lhLiveEndAt is cleared after firing (and on STOP) so it never double-ends.
 // ============================================================================
-function endLiveNow() {
-  // Power-off button = the div wrapping <svg class="arco-icon-im_close_chat">.
+function findEndLiveButton() {
+  // 1) The power-off icon (TikTok's End-LIVE control) — primary.
   const svg = document.querySelector("svg.arco-icon-im_close_chat");
-  const btn = svg ? (svg.closest("div.cursor-pointer") || svg.parentElement) : null;
+  if (svg) return svg.closest("div.cursor-pointer") || svg.parentElement;
+  // 2) Fallback: a button/clickable with End-LIVE text (EN/MS variants).
+  const re = /^(end live|end|tamat(kan)?( live)?|akhiri( live)?|stop live)$/i;
+  const cand = [...document.querySelectorAll('button, [role="button"], div.cursor-pointer, span')]
+    .find((el) => re.test((el.innerText || "").trim()));
+  return cand || null;
+}
+
+function endLiveNow() {
+  const btn = findEndLiveButton();
   if (!btn) { console.log("[AI Host] End-LIVE button not found"); return false; }
   console.log("[AI Host] Duration reached → ending LIVE");
   btn.click();

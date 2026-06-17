@@ -380,6 +380,17 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
   // Grace timer for transient WebRTC "disconnected" (network blip) so we don't
   // kill a live stream on a momentary hiccup that ICE would recover on its own.
   const disconnectGraceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // AUTO-RECONNECT (24/7): on a real drop, instead of giving up we re-run the
+  // connection in "resume" mode (same worker URL → re-offer; resumes the script
+  // at the current posRef, no re-bill, no script restart). Retries with backoff
+  // up to a cap; only then surfaces "terputus". The anti-freeze loop masks the
+  // gap so viewers keep seeing motion while it reconnects.
+  const startRef = useRef<(() => void) | null>(null);
+  const tryReconnectRef = useRef<(() => void) | null>(null);
+  const resumeRef = useRef(false);          // next start() should resume (not reset)
+  const reconnectingRef = useRef(false);    // a reconnect is in flight
+  const reconnectAttemptsRef = useRef(0);
+  const sessionBegunRef = useRef(false);    // beginSession() only once per live
 
   const gpuOn = useCallback(async () => {
     setServerBusy(true);
@@ -746,7 +757,10 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
   useEffect(() => {
     const ping = () => {
       if (!activeRef.current) return; // only heartbeat WHILE streaming; idle = Novita's job
-      if (backendRef.current) fetch(`${backendRef.current}/keepalive`, { method: "POST" }).catch(() => {});
+      // no-cors: fire-and-forget — we never read the response, and the request
+      // still reaches the worker (keeps Novita from scaling it down). Avoids the
+      // cosmetic CORS error the browser logs during the worker's boot window.
+      if (backendRef.current) fetch(`${backendRef.current}/keepalive`, { method: "POST", mode: "no-cors" }).catch(() => {});
     };
     ping();
     const t = setInterval(ping, 30000); // < Novita freeTimeout (15 min) so a live never drops
@@ -1000,6 +1014,11 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
     setWordFrac(0);
     setPlayPos({ s: -1, l: -1 });
     posRef.current = { s: 0, l: 0 };
+    // Cancel any in-flight auto-reconnect so STOP really stops.
+    if (disconnectGraceRef.current) { clearTimeout(disconnectGraceRef.current); disconnectGraceRef.current = null; }
+    resumeRef.current = false; reconnectingRef.current = false;
+    reconnectAttemptsRef.current = 0; sessionBegunRef.current = false;
+    setWakeMsg("");
     try { dcRef.current?.close(); } catch {}
     try { pcRef.current?.close(); } catch {}
     pcRef.current = null; dcRef.current = null; remoteStreamRef.current = null;
@@ -1007,6 +1026,27 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
     setActive(false); setConnecting(false);
   }, [endSession]);
   useEffect(() => { stopRef.current = stop; }, [stop]);
+
+  // AUTO-RECONNECT controller: re-run start() in resume mode on a drop. Capped
+  // with backoff; gives up (real "terputus") only after many failed attempts.
+  const tryReconnect = useCallback(() => {
+    if (!activeRef.current && !connectingRef.current) return; // user stopped → don't
+    if (reconnectingRef.current) return;                      // already reconnecting
+    if (reconnectAttemptsRef.current >= 15) {
+      reconnectingRef.current = false;
+      setError("Sambungan terputus — tekan ▶ Start semula.");
+      stopRef.current?.();
+      return;
+    }
+    reconnectingRef.current = true;
+    reconnectAttemptsRef.current += 1;
+    setWakeMsg(`Menyambung semula… (cubaan ${reconnectAttemptsRef.current})`);
+    if (disconnectGraceRef.current) { clearTimeout(disconnectGraceRef.current); disconnectGraceRef.current = null; }
+    try { pcRef.current?.close(); } catch {}
+    resumeRef.current = true;
+    startRef.current?.(); // re-run start() in resume mode (keeps script position)
+  }, []);
+  useEffect(() => { tryReconnectRef.current = tryReconnect; }, [tryReconnect]);
 
   // Warm the GPU: assign a pool slot (if none) + boot the worker until /avatars
   // answers. Used by WARM-ON-OPEN and by ▶ Start. Sets gpuWarm; true when ready.
@@ -1047,11 +1087,18 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
   const start = useCallback(async () => {
     setError("");
     if (!avatarId) { setError("Pick or upload a face first."); return; }
-    // BALANCE GUARD: don't stream if the credit balance is already at/below the min.
-    const bal = await fetchBalance();
-    if (bal && bal.low) {
-      setError(`Baki kredit tidak cukup (baki RM${bal.available.toFixed(2)}, minimum RM${bal.minBalance}). Sila top up dulu.`);
-      return;
+    // RESUME mode = this call is an auto-reconnect (set by tryReconnect). Consume
+    // the flag now; a fresh user-pressed Start (resume=false) resets reconnect
+    // state + checks balance; a reconnect skips both and keeps the script position.
+    const resume = resumeRef.current; resumeRef.current = false;
+    if (!resume) {
+      sessionBegunRef.current = false; reconnectAttemptsRef.current = 0; reconnectingRef.current = false;
+      // BALANCE GUARD: don't stream if the credit balance is already at/below the min.
+      const bal = await fetchBalance();
+      if (bal && bal.low) {
+        setError(`Baki kredit tidak cukup (baki RM${bal.available.toFixed(2)}, minimum RM${bal.minBalance}). Sila top up dulu.`);
+        return;
+      }
     }
     setConnecting(true);
     try {
@@ -1069,31 +1116,24 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
         if (pcRef.current !== pc) return;
         const st = pc.connectionState;
         if (st === "connected") {
-          // recovered (or first connect) — cancel any pending disconnect grace
+          // recovered (or first connect) — cancel grace, clear reconnect state
           if (disconnectGraceRef.current) { clearTimeout(disconnectGraceRef.current); disconnectGraceRef.current = null; }
-          setActive(true); setConnecting(false);
-          beginSession();
+          reconnectingRef.current = false; reconnectAttemptsRef.current = 0;
+          setActive(true); setConnecting(false); setWakeMsg("");
+          if (!sessionBegunRef.current) { sessionBegunRef.current = true; beginSession(); } // once per live
         } else if (st === "failed" || st === "closed") {
-          // TERMINAL — really gone.
+          // Real drop → AUTO-RECONNECT (resume) instead of giving up.
           if (disconnectGraceRef.current) { clearTimeout(disconnectGraceRef.current); disconnectGraceRef.current = null; }
-          if (activeRef.current || connectingRef.current) {
-            setError("Sambungan terputus — tekan ▶ Start semula.");
-            stopRef.current?.();
-          }
+          if (activeRef.current || connectingRef.current) tryReconnectRef.current?.();
         } else if (st === "disconnected") {
-          // TRANSIENT per WebRTC spec — a brief 4G/TURN blip that usually recovers
-          // to "connected" on its own. Do NOT kill the stream immediately; give ICE
-          // ~10s to recover. Only if it's still not connected after the grace do we
-          // treat it as a real drop. (This was the "always disconnects" bug.)
+          // TRANSIENT per WebRTC spec — a brief blip ICE usually recovers on its
+          // own. Give it ~8s; if still not back, auto-reconnect.
           if (disconnectGraceRef.current) clearTimeout(disconnectGraceRef.current);
           disconnectGraceRef.current = setTimeout(() => {
             disconnectGraceRef.current = null;
             if (pcRef.current === pc && pc.connectionState !== "connected"
-                && (activeRef.current || connectingRef.current)) {
-              setError("Sambungan terputus — tekan ▶ Start semula.");
-              stopRef.current?.();
-            }
-          }, 10000);
+                && (activeRef.current || connectingRef.current)) tryReconnectRef.current?.();
+          }, 8000);
         }
       };
 
@@ -1140,16 +1180,19 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
         if (hasLines) {
           playingRef.current = true;
           setScriptPlaying(true);
-          posRef.current = { s: 0, l: 0 };
           audioEndRef.current = 0;
-          pendingSayRef.current.clear();
-          // LOOPING follows the "Enable loop" checkbox (loopRef). Duration + auto
-          // End-LIVE are handled by the TikTok-side extension now, so the avatar
-          // NEVER auto-stops here — it loops (or plays once) until the user Stops
-          // or the extension ends the LIVE. Count UP elapsed for display.
-          liveStartAtRef.current = performance.now();
-          liveEndAtRef.current = 0;
-          startLiveTimer();
+          pendingSayRef.current.clear(); // old in-flight says are dead on a new pc
+          if (!resume) {
+            // FRESH start: begin the rundown from the top + start the elapsed timer.
+            // LOOPING follows the "Enable loop" checkbox (loopRef). Duration + auto
+            // End-LIVE are handled by the extension, so we NEVER auto-stop here.
+            posRef.current = { s: 0, l: 0 };
+            liveStartAtRef.current = performance.now();
+            liveEndAtRef.current = 0;
+            startLiveTimer();
+          }
+          // RECONNECT: keep posRef + the running timer → resume the script exactly
+          // where it was (speakNext reads posRef).
           speakNext();
           speakNext();
         }
@@ -1265,15 +1308,21 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
       // guard: if not connected within 25s, fail cleanly so Start can retry.
       setTimeout(() => {
         if (pcRef.current === pc && pc.connectionState !== "connected") {
-          setError("Sambungan lambat/gagal — tekan ▶ Start semula.");
-          stopRef.current?.();
+          tryReconnectRef.current?.(); // slow/failed connect → reconnect (capped)
         }
       }, 25000);
     } catch (e: any) {
-      setError(e?.message || String(e));
-      stop();
+      if (resume) {
+        // reconnect attempt failed (worker maybe rebooting) → back off + retry
+        reconnectingRef.current = false;
+        setTimeout(() => tryReconnectRef.current?.(), 4000);
+      } else {
+        setError(e?.message || String(e));
+        stop();
+      }
     }
   }, [avatarId, backgrounds, voiceId, stop, speakNext, startWordSweep, buildKbPrompt, activeKb, speed, emotion, volume, configErr, addVoiceChars, beginSession, warmGpu]);
+  useEffect(() => { startRef.current = start; }, [start]);
 
   // WARM-ON-OPEN (EDGE-TRIGGERED): warm the GPU + start the 15-min timer ONCE
   // when the host ENTERS the Livehost (live) tab. Leaving the tab re-arms it; so
@@ -1743,6 +1792,8 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
       if (e.source !== window) return;
       const d = e.data;
       if (d && d.__lh_event && typeof d.type === "string") handleLiveEvent(d.type, d.username || "", d.text || "");
+      // TikTok LIVE ended (extension) → stop the avatar stream + free the GPU.
+      else if (d && d.__lh_stop) stopRef.current?.();
     };
     window.addEventListener("message", h);
     return () => window.removeEventListener("message", h);

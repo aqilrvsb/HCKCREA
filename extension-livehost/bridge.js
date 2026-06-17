@@ -9,5 +9,8 @@ chrome.runtime.onMessage.addListener((msg) => {
       { __lh_event: true, type: msg.evType, username: msg.username || "", text: msg.text || "" },
       window.location.origin,
     );
+  } else if (msg && msg.type === "LH_STOP") {
+    // TikTok LIVE ended (duration auto-end or manual) → stop the studio stream.
+    window.postMessage({ __lh_stop: true }, window.location.origin);
   }
 });

@@ -40,6 +40,16 @@ async function forwardEvent(evType, username, text) {
   } catch (e) {}
 }
 
+// Tell every peninglab tab to STOP the avatar stream — fired when the TikTok LIVE
+// actually ends (duration auto-end, or the host ends it manually) so the GPU is
+// freed and nothing keeps streaming after the live is over.
+async function forwardStop() {
+  try {
+    const tabs = await chrome.tabs.query({ url: "https://peninglab.com/*" });
+    for (const t of tabs) chrome.tabs.sendMessage(t.id, { type: "LH_STOP" }).catch(() => {});
+  } catch (e) {}
+}
+
 // ---- stats (the dashboard's live activity counters) ------------------------
 function record(type, username = "", text = "") {
   pendingEvents.push({ type, username, text });
@@ -102,7 +112,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       case "USER_JOINED": if (running) onJoin(msg.username); break;
       case "USER_FOLLOWED": if (running) onFollow(msg.username); break;
       case "USER_LIKED": if (running) onLike(msg.username); break;
-      case "LIVE_ENDED": handleStop(); break;
+      case "LIVE_ENDED": handleStop(); forwardStop(); break; // also stop peninglab's avatar stream
       case "SIM": {
         // Manual sim from the side panel → forward to the studio brain, same as
         // a real event. "Name JOIN/FOLLOW/LIKE" | "Name: comment" | plain text.
