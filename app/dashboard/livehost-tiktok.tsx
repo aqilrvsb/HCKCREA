@@ -108,11 +108,12 @@ export default function LivehostTiktok({ email }: { email: string }) {
             <li className="flex items-start gap-2.5">
               {dot}
               <div>
-                <div><span className="font-bold">Kalau takde Stereo Mix</span> (sesetengah PC) → install Virtual Audio Driver: set output browser → <span className="font-bold">Virtual Audio Driver</span>, dan mic TikTok → <span className="font-bold">Virtual Mic Driver</span>.</div>
-                <a href="https://github.com/VirtualDrivers/Virtual-Audio-Driver" target="_blank" rel="noreferrer"
+                <div><span className="font-bold">Kalau Stereo Mix tak jadi</span> → guna <span className="font-bold">VB-CABLE</span> (paling senang + reliable). Install → restart PC. Kemudian: output browser → <span className="font-bold">CABLE Input</span>, dan mic TikTok → <span className="font-bold">CABLE Output</span>.</div>
+                <div className="mt-1.5 text-xs text-gray-500">Nak dengar sendiri: Recording → CABLE Output → Properties → Listen → "Listen to this device" → speaker anda.</div>
+                <a href="https://vb-audio.com/Cable/" target="_blank" rel="noreferrer"
                   className="inline-flex items-center gap-1.5 mt-2 px-4 py-2 rounded-lg font-bold text-sm transition-transform hover:-translate-y-0.5"
                   style={{ background: "#f0fdf4", border: "1px solid #86efac", color: "#16a34a" }}>
-                  <Download className="w-4 h-4" /> Download Virtual Audio Driver <ArrowUpRight className="w-3.5 h-3.5" />
+                  <Download className="w-4 h-4" /> Download VB-CABLE <ArrowUpRight className="w-3.5 h-3.5" />
                 </a>
               </div>
             </li>
