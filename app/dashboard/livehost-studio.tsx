@@ -470,63 +470,6 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
 
   const overlayUrl = customOverlay || (overlaySel ? `/overlays/${overlaySel}` : "");
 
-  // ── OBS POP-OUT WINDOW ───────────────────────────────────────────────────
-  // A separate 9:16 (TikTok-shaped) window showing ONLY the avatar frame
-  // (live video OR preview + overlay + AI badge) — nothing else. OBS does a
-  // plain Window Capture of it: auto 9:16, no cropping, no fullscreen, and the
-  // main screen stays usable. A light poll keeps it in sync (stream attach on
-  // Start, overlay/badge/zoom changes, restart).
-  const obsWinRef = useRef<Window | null>(null);
-  const obsTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const obsStateRef = useRef({ overlayUrl, badgePos, zoom, offsetX, offsetY, previewUrl });
-  useEffect(() => { obsStateRef.current = { overlayUrl, badgePos, zoom, offsetX, offsetY, previewUrl }; }, [overlayUrl, badgePos, zoom, offsetX, offsetY, previewUrl]);
-  const openObsWindow = useCallback(() => {
-    let w = obsWinRef.current;
-    if (!w || w.closed) {
-      w = window.open("", "lh_obs", "width=405,height=720");
-      if (!w) { setError("Popup disekat browser — benarkan popup untuk tab ini, kemudian tekan butang OBS sekali lagi."); return; }
-      obsWinRef.current = w;
-      w.document.write(`<!doctype html><html><head><title>OBS — Avatar (9:16)</title><meta name="viewport" content="width=device-width,initial-scale=1"><style>
-        html,body{margin:0;height:100%;background:#000;overflow:hidden;}
-        #s{position:fixed;inset:0;overflow:hidden;background:#000;}
-        #v,#p{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;transform-origin:center center;}
-        #o{position:absolute;inset:0;width:100%;height:100%;object-fit:fill;pointer-events:none;}
-        #b{position:absolute;background:#fff;color:#111;font:800 13px/1.2 system-ui,Arial,sans-serif;padding:5px 12px;border-radius:6px;box-shadow:0 2px 8px rgba(0,0,0,.35);}
-      </style></head><body><div id="s">
-        <video id="v" autoplay playsinline muted></video>
-        <img id="p" alt=""><img id="o" alt=""><div id="b">Saya AI Avatar</div>
-      </div></body></html>`);
-      w.document.close();
-      if (obsTimerRef.current) clearInterval(obsTimerRef.current);
-      obsTimerRef.current = setInterval(() => {
-        const win = obsWinRef.current;
-        if (!win || win.closed) { if (obsTimerRef.current) clearInterval(obsTimerRef.current); obsTimerRef.current = null; obsWinRef.current = null; return; }
-        try {
-          const d = win.document; const st = obsStateRef.current;
-          const v = d.getElementById("v") as HTMLVideoElement | null;
-          const p = d.getElementById("p") as HTMLImageElement | null;
-          const o = d.getElementById("o") as HTMLImageElement | null;
-          const b = d.getElementById("b") as HTMLElement | null;
-          const tf = `translate(${st.offsetX}%, ${st.offsetY}%) scale(${st.zoom})`;
-          if (v) {
-            const s = remoteStreamRef.current;
-            if (activeRef.current && s) { if (v.srcObject !== s) v.srcObject = s; v.style.display = "block"; v.style.transform = tf; }
-            else { v.style.display = "none"; if (v.srcObject) v.srcObject = null; }
-          }
-          if (p) {
-            if (!activeRef.current && st.previewUrl) { if (p.getAttribute("src") !== st.previewUrl) p.src = st.previewUrl; p.style.display = "block"; p.style.transform = tf; }
-            else p.style.display = "none";
-          }
-          if (o) { if (st.overlayUrl) { if (o.getAttribute("src") !== st.overlayUrl) o.src = st.overlayUrl; o.style.display = "block"; } else o.style.display = "none"; }
-          if (b) { b.style.left = `${st.badgePos.x}%`; b.style.top = `${st.badgePos.y}%`; }
-        } catch {}
-      }, 600);
-    }
-    w.focus();
-  }, []);
-  // Tidy up the poll if the studio unmounts.
-  useEffect(() => () => { if (obsTimerRef.current) clearInterval(obsTimerRef.current); }, []);
-
   // The Template tab is a STATIC design surface (arrange avatar + background +
   // label) — it must NEVER mirror the live stream. Mirroring caused two bugs:
   // (1) the avatar lip-synced on the Template tab while live (it should be a
@@ -1728,14 +1671,6 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
                   <button className="unmute-btn" onClick={enableSound}>🔇 Tap to enable sound</button>
                 )}
               </div>
-              {/* OBS POP-OUT: opens a clean 9:16 window with ONLY the avatar
-                  frame. In OBS add a Window Capture of it (one time) — auto 9:16,
-                  no crop, no fullscreen, screen stays free. */}
-              <button type="button" className="obs-fs-btn"
-                title="Buka tetingkap 9:16 bersih untuk OBS (Window Capture)"
-                onClick={openObsWindow}>
-                🖥️ OBS Window
-              </button>
             </div>
 
             <div className="queue-col">
@@ -2348,10 +2283,7 @@ const STUDIO_CSS = `
 .lh-studio .stage video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;transform-origin:center center;}
 .lh-studio .stage .overlay{position:absolute;inset:0;width:100%;height:100%;object-fit:fill;pointer-events:none;}
 .lh-studio .stage .avatar-preview{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;transform-origin:center center;}
-.lh-studio .stage:fullscreen{height:100vh;width:auto;aspect-ratio:9/16;border-radius:0;cursor:default;}
-.lh-studio .video-wrap{position:relative;}
-.lh-studio .obs-fs-btn{position:absolute;top:8px;right:8px;z-index:6;background:rgba(0,0,0,.72);color:#fff;border:1px solid rgba(255,255,255,.25);border-radius:8px;padding:5px 10px;font-size:12px;font-weight:800;cursor:pointer;backdrop-filter:blur(4px);}
-.lh-studio .obs-fs-btn:hover{background:#000;}
+.lh-studio .stage:fullscreen{height:100vh;width:auto;aspect-ratio:9/16;border-radius:0;}
 .lh-studio .placeholder{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#6b7596;font-size:14px;text-align:center;padding:24px;}
 .lh-studio .captions{position:absolute;bottom:14px;left:50%;transform:translateX(-50%);max-width:80%;background:rgba(0,0,0,.72);padding:8px 14px;border-radius:10px;font-size:18px;text-align:center;backdrop-filter:blur(4px);}
 .lh-studio .queue-col{width:230px;flex:none;display:flex;flex-direction:column;min-width:0;min-height:0;}
