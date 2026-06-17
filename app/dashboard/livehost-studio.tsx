@@ -1529,6 +1529,22 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
     greetProfilesRef.current.find((x) => x.id === activeGreetIdRef.current) || greetProfilesRef.current[0],
   []);
 
+  // Record dashboard interactions (cookie auth). The studio is the brain, so it
+  // logs the OUTCOMES it produces (greet / reply / skip) — the extension already
+  // logs the raw join/follow/like/comment for REAL viewers. SIM events also log
+  // their raw type so a rehearsal shows on the dashboard. Batched to stay cheap.
+  const interBufRef = useRef<{ type: string; username: string; text: string }[]>([]);
+  const interTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const recordInteraction = useCallback((type: string, username = "", text = "") => {
+    interBufRef.current.push({ type, username: cleanU(username), text: String(text || "").slice(0, 500) });
+    if (interTimerRef.current) return;
+    interTimerRef.current = setTimeout(() => {
+      interTimerRef.current = null;
+      const events = interBufRef.current.splice(0, 200);
+      if (events.length) fetch("/api/livehost/interactions", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ events }) }).catch(() => {});
+    }, 2500);
+  }, []);
+
   // Greeting loop: sequential rotation + random [greetDelayMin, greetDelayMax].
   const scheduleGreet = useCallback(() => {
     if (greetTimerRef.current) return;
@@ -1544,11 +1560,11 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
           const ls = (g.greetings || "").split(/\n+/).map((l) => l.trim()).filter(Boolean);
           if (ls.length) { line = ls[greetIdxRef.current % ls.length]; greetIdxRef.current++; }
         }
-        if (line) { speakNow("say", line.replaceAll("[username]", cleanU(item.username))); setCaptionText(`👋 ${cleanU(item.username)}`); }
+        if (line) { speakNow("say", line.replaceAll("[username]", cleanU(item.username))); setCaptionText(`👋 ${cleanU(item.username)}`); recordInteraction("greet", item.username); }
       }
       if (greetQueueRef.current.length) scheduleGreet();
     }, randMs(g.greetDelayMin, g.greetDelayMax));
-  }, [activeGreet, speakNow, playSfx]);
+  }, [activeGreet, speakNow, playSfx, recordInteraction]);
 
   // Comment loop: random [commentDelayMin, commentDelayMax] between replies.
   const scheduleComment = useCallback(() => {
@@ -1564,30 +1580,39 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
         speakNow("ask", `Penonton bernama "${cleanU(c.username)}" komen: "${c.text}". Sebut nama dia dulu, kemudian jawab.`);
         setCaptionText(`💬 ${cleanU(c.username)}: ${c.text}`);
         if (isFeedback && g.sfxAuto) setTimeout(() => playSfx("clap"), 4000);
+        recordInteraction("reply", c.username, c.text);
+        if (isPurchase) recordInteraction("purchase", c.username, c.text);
       }
       if (commentQueueRef.current.length) scheduleComment();
     }, randMs(g.commentDelayMin, g.commentDelayMax));
-  }, [activeGreet, speakNow, playSfx]);
+  }, [activeGreet, speakNow, playSfx, recordInteraction]);
 
   // THE BRAIN — a viewer event (extension OR manual sim) → greet/reply. JOIN is
   // deduped by username (greet once); follow/like/comment are NOT deduped.
   const QUEUE_CAP = 50; // drop excess when a like/comment storm outpaces the random-delay pacing
-  const handleLiveEvent = useCallback((type: string, username: string, text = "") => {
+  const handleLiveEvent = useCallback((type: string, username: string, text = "", fromSim = false) => {
     if (!activeRef.current) return; // only while streaming
     const u = cleanU(username) || "Penonton";
+    // SIM events log their own raw type (so a rehearsal shows on the dashboard);
+    // REAL events arrive via the extension which already logged the raw type.
+    if (fromSim) recordInteraction(type, u, text);
     if (type === "join") {
       const key = u.toLowerCase();
       if (greetedJoinsRef.current.has(key)) return;       // JOIN deduped by username
       greetedJoinsRef.current.add(key);
       if (greetQueueRef.current.length < QUEUE_CAP) { greetQueueRef.current.push({ username: u, kind: "join" }); scheduleGreet(); }
+      else recordInteraction("skip", u);
     } else if (type === "follow") {
       if (greetQueueRef.current.length < QUEUE_CAP) { greetQueueRef.current.push({ username: u, kind: "follow" }); scheduleGreet(); }
+      else recordInteraction("skip", u);
     } else if (type === "like") {
       if (greetQueueRef.current.length < QUEUE_CAP) { greetQueueRef.current.push({ username: u, kind: "like" }); scheduleGreet(); }
+      else recordInteraction("skip", u);
     } else if (type === "comment" && text.trim()) {
       if (commentQueueRef.current.length < QUEUE_CAP) { commentQueueRef.current.push({ username: u, text: text.trim() }); scheduleComment(); }
+      else recordInteraction("skip", u, text);
     }
-  }, [scheduleGreet, scheduleComment]);
+  }, [scheduleGreet, scheduleComment, recordInteraction]);
 
   // Manual sim → the SAME brain (true rehearsal). "Name JOIN/FOLLOW/LIKE" |
   // "Name: comment" | plain comment.
@@ -1595,11 +1620,11 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
     const t = chatText.trim(); if (!t) return;
     const name = cleanU(nameInput) || "Penonton";
     const kw = t.match(/^(JOIN|FOLLOW|LIKE)$/i);
-    if (kw) handleLiveEvent(kw[1].toLowerCase(), name);
+    if (kw) handleLiveEvent(kw[1].toLowerCase(), name, "", true);
     else {
       const cm = t.match(/^([^:]{1,30}):\s*(.+)$/);
-      if (cm) handleLiveEvent("comment", cm[1].trim(), cm[2].trim());
-      else handleLiveEvent("comment", name, t);
+      if (cm) handleLiveEvent("comment", cm[1].trim(), cm[2].trim(), true);
+      else handleLiveEvent("comment", name, t, true);
     }
     setChatText("");
   }, [chatText, nameInput, handleLiveEvent]);

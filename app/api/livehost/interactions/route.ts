@@ -6,11 +6,20 @@ import { malaysiaDayToUtcRange } from "@/lib/date-util";
 
 const TYPES = new Set(["comment", "reply", "skip", "join", "greet", "follow", "like", "purchase", "feedback"]);
 
-// POST (extension, batched): record viewer events for the client dashboard.
+// POST: record viewer events for the dashboard. Two callers:
+//  • EXTENSION (batched, ext token) → raw events join/follow/like/comment.
+//  • STUDIO (the brain, cookie auth) → OUTCOMES it produces (greet/reply/skip)
+//    + sim raw events. Without the studio path the GREETED/REPLIED/SKIPPED
+//    counters stay 0 forever (nothing wrote them).
 export async function POST(req: Request) {
   const body = await req.json().catch(() => ({}));
-  const userId = await verifyExtToken(body.token || "");
-  if (!userId) return NextResponse.json({ error: "invalid token" }, { status: 401 });
+  let userId = body.token ? await verifyExtToken(body.token) : null;
+  if (!userId) {
+    const sb = await createClient();
+    const { data: { user } } = await sb.auth.getUser();
+    userId = user?.id || null;
+  }
+  if (!userId) return NextResponse.json({ error: "unauthenticated" }, { status: 401 });
   const events = Array.isArray(body.events) ? body.events.slice(0, 200) : [];
   const rows = events
     .filter((e: any) => TYPES.has(String(e?.type)))
