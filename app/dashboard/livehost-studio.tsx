@@ -311,7 +311,7 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
     sessionCharsRef.current = 0;
     sessionCommentCharsRef.current = 0;
     // tag the session: "live" = a timed live (duration set); "testing" = ad-hoc play
-    const d = await sessionPost({ action: "start", sessionType: liveDurMsRef.current > 0 ? "live" : "testing" });
+    const d = await sessionPost({ action: "start", sessionType: loopRef.current ? "live" : "testing" });
     if (d?.sessionId) {
       sessionIdRef.current = d.sessionId;
       if (heartbeatRef.current) clearInterval(heartbeatRef.current);
@@ -432,7 +432,7 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
   const [scriptPlaying, setScriptPlaying] = useState(false);
   const [scriptPaused, setScriptPaused] = useState(false);
   const [scriptWaiting, setScriptWaiting] = useState(false);
-  const [scriptLoop, setScriptLoop] = useState(false);
+  const [scriptLoop, setScriptLoop] = useState(true); // default ON — loop all scripts; uncheck = play once
   // LIVE DURATION: hours+minutes the live should run. >0 → loop the rundown and
   // auto-stop exactly when the time is up; 0:00 → run as usual (manual/loop checkbox).
   const [liveDurH, setLiveDurH] = useState(0);
@@ -1143,18 +1143,12 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
           posRef.current = { s: 0, l: 0 };
           audioEndRef.current = 0;
           pendingSayRef.current.clear();
-          // LIVE DURATION drives looping (the manual loop toggle was removed):
-          //  • duration > 0 → LOOP/rotate the rundown + auto-stop when time's up (count DOWN)
-          //  • 0:00         → play the rundown through ONCE, no loop, count UP elapsed
-          const durMs = liveDurMsRef.current;
+          // LOOPING follows the "Enable loop" checkbox (loopRef). Duration + auto
+          // End-LIVE are handled by the TikTok-side extension now, so the avatar
+          // NEVER auto-stops here — it loops (or plays once) until the user Stops
+          // or the extension ends the LIVE. Count UP elapsed for display.
           liveStartAtRef.current = performance.now();
-          if (durMs > 0) {
-            liveEndAtRef.current = performance.now() + durMs;
-            loopRef.current = true; setScriptLoop(true);   // rotate scripts until time's up
-          } else {
-            liveEndAtRef.current = 0;
-            loopRef.current = false; setScriptLoop(false);  // 0:00 → play once (no loop)
-          }
+          liveEndAtRef.current = 0;
           startLiveTimer();
           speakNext();
           speakNext();
@@ -1856,16 +1850,12 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
                 {scripts.filter((s) => s.saved && s.audioUrls?.length).map((s) => (<option key={s.id} value={s.id}>{s.title}</option>))}
               </select>
               {!active && (
-                <div className="dur-row" title="Berapa lama live ini? Skrip akan loop ikut masa. 0:00 = main biasa (ikut checkbox loop).">
-                  <span className="dur-label">⏱</span>
-                  <input type="number" min={0} max={23} value={liveDurH}
-                    onChange={(e) => setLiveDurH(Math.max(0, Math.min(23, Math.floor(Number(e.target.value) || 0))))} />
-                  <span>jam</span>
-                  <input type="number" min={0} max={59} value={liveDurM}
-                    onChange={(e) => setLiveDurM(Math.max(0, Math.min(59, Math.floor(Number(e.target.value) || 0))))} />
-                  <span>minit</span>
-                  <span className="hint">{(liveDurH || liveDurM) ? "→ skrip loop sampai habis masa" : "0:00 = main biasa"}</span>
-                </div>
+                <label className="dur-row" style={{ cursor: "pointer" }} title="Loop semua skrip sampai live tamat. Uncheck = main sekali sahaja. Durasi & End LIVE dikawal di extension TikTok.">
+                  <input type="checkbox" checked={scriptLoop}
+                    onChange={(e) => { setScriptLoop(e.target.checked); loopRef.current = e.target.checked; }} />
+                  <span>🔁 Enable loop</span>
+                  <span className="hint">{scriptLoop ? "→ ulang semua skrip sampai live tamat" : "→ main sekali sahaja"}</span>
+                </label>
               )}
               <div className="loop-row">
                 {/* IDLE state: ONLY ▶ Start is rendered. Stop/teleprompter-finish do NOT kill the GPU —

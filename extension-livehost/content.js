@@ -37,6 +37,7 @@
   console.log("[AI Host] Initializing...");
   initLiveHost();
   setupAutoPin();
+  setupLiveTimer();
 })();
 
 // ============================================================================
@@ -81,6 +82,56 @@ function setupAutoPin() {
     if (area === "local" && ("lhAutoPin" in changes || "lhAutoPinSec" in changes)) refresh();
   });
   refresh();
+}
+
+// ============================================================================
+// LIVE DURATION TIMER — auto-end the TikTok LIVE after the set duration.
+// The side panel writes lhLiveEndAt (epoch ms) to storage on START. This watcher
+// (on the TikTok tab) checks every few seconds; when the deadline passes it
+// clicks the LIVE power-off button → waits for the "End LIVE?" modal → Confirm.
+// lhLiveEndAt is cleared after firing (and on STOP) so it never double-ends.
+// ============================================================================
+function endLiveNow() {
+  // Power-off button = the div wrapping <svg class="arco-icon-im_close_chat">.
+  const svg = document.querySelector("svg.arco-icon-im_close_chat");
+  const btn = svg ? (svg.closest("div.cursor-pointer") || svg.parentElement) : null;
+  if (!btn) { console.log("[AI Host] End-LIVE button not found"); return false; }
+  console.log("[AI Host] Duration reached → ending LIVE");
+  btn.click();
+  // Wait for the "End LIVE?" confirm modal, then click Confirm (never Cancel).
+  let tries = 0;
+  const iv = setInterval(() => {
+    tries++;
+    const modal = document.querySelector(".arco-modal");
+    if (modal && /end live/i.test(modal.textContent || "")) {
+      const confirm = [...modal.querySelectorAll("button")].find(
+        (b) => /confirm/i.test(b.textContent || "") || b.classList.contains("arco-btn-primary")
+      );
+      if (confirm) { confirm.click(); console.log("[AI Host] LIVE end confirmed"); clearInterval(iv); return; }
+    }
+    if (tries > 30) clearInterval(iv); // ~9s give-up
+  }, 300);
+  return true;
+}
+
+function setupLiveTimer() {
+  let fired = false;
+  async function check() {
+    const { lhLiveEndAt } = await chrome.storage.local.get("lhLiveEndAt");
+    if (!lhLiveEndAt || fired) return;
+    if (Date.now() >= Number(lhLiveEndAt)) {
+      fired = true;
+      await chrome.storage.local.remove("lhLiveEndAt"); // one-shot
+      endLiveNow();
+      try { chrome.runtime.sendMessage({ type: "LIVE_ENDED" }); } catch (e) {}
+    }
+  }
+  // Reset the one-shot guard whenever a new end-time is scheduled (next START).
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area === "local" && "lhLiveEndAt" in changes && changes.lhLiveEndAt.newValue) fired = false;
+  });
+  setInterval(check, 5000);
+  check();
 }
 
 function initLiveHost() {

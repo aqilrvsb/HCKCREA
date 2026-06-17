@@ -109,8 +109,17 @@
     <div id="mainView" class="hidden" style="display:flex;flex-direction:column;gap:12px;">
       <div class="card tinted">
         <div class="card-header"><span class="icon">🎬</span> Live Control</div>
+        <div class="row" style="align-items:center;gap:6px;margin-bottom:10px;font-size:13px;">
+          <span>⏱ Durasi live</span>
+          <input id="durH" type="number" min="0" value="0" style="width:60px;">
+          <span>jam</span>
+          <input id="durM" type="number" min="0" max="59" value="0" style="width:60px;">
+          <span>minit</span>
+        </div>
+        <div class="note" style="margin:0 0 10px;">Bila masa tamat, extension akan <b>End LIVE</b> + confirm automatik di TikTok. Isi <b>0 jam 0 minit</b> = tiada auto-end (manual).</div>
         <button class="btn" id="startBtn">▶ START</button>
         <button class="btn stop hidden" id="stopBtn">■ STOP</button>
+        <div id="countdown" class="note" style="text-align:center;margin-top:8px;font-weight:800;color:var(--green-700);"></div>
       </div>
 
       <div class="card">

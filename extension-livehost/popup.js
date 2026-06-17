@@ -56,6 +56,12 @@ $("startBtn").addEventListener("click", async () => {
     $("msg").textContent = "✓ Berjalan — avatar akan greet & reply automatik";
     $("msg").className = "msg ok";
     setRunning(true);
+    // Schedule auto-end-live if a duration is set (0/0 = manual, no auto-end).
+    const h = Math.max(0, Number($("durH")?.value) || 0);
+    const m = Math.max(0, Number($("durM")?.value) || 0);
+    const ms = (h * 3600 + m * 60) * 1000;
+    if (ms > 0) await chrome.storage.local.set({ lhLiveEndAt: Date.now() + ms });
+    else await chrome.storage.local.remove("lhLiveEndAt");
   } else {
     $("msg").textContent = r?.error || "Gagal start";
   }
@@ -63,10 +69,35 @@ $("startBtn").addEventListener("click", async () => {
 
 $("stopBtn").addEventListener("click", async () => {
   await send({ type: "STOP" });
+  await chrome.storage.local.remove("lhLiveEndAt"); // cancel any pending auto-end
   setRunning(false);
   $("msg").textContent = "Dihentikan";
   $("msg").className = "msg";
 });
+
+// Live-duration: persist the jam/minit inputs + show a live countdown to auto-end.
+(async () => {
+  const h = $("durH"), m = $("durM");
+  if (h && m) {
+    const { lhLiveDurH, lhLiveDurM } = await chrome.storage.local.get(["lhLiveDurH", "lhLiveDurM"]);
+    if (lhLiveDurH != null) h.value = String(lhLiveDurH);
+    if (lhLiveDurM != null) m.value = String(lhLiveDurM);
+    const save = () => chrome.storage.local.set({ lhLiveDurH: Math.max(0, Number(h.value) || 0), lhLiveDurM: Math.max(0, Number(m.value) || 0) });
+    h.addEventListener("change", save);
+    m.addEventListener("change", save);
+  }
+  const cd = $("countdown");
+  if (cd) setInterval(async () => {
+    const { lhLiveEndAt } = await chrome.storage.local.get("lhLiveEndAt");
+    if (!lhLiveEndAt) { cd.textContent = ""; return; }
+    const left = Math.max(0, Number(lhLiveEndAt) - Date.now());
+    const s = Math.floor(left / 1000);
+    const hh = String(Math.floor(s / 3600)).padStart(2, "0");
+    const mm = String(Math.floor((s % 3600) / 60)).padStart(2, "0");
+    const ss = String(s % 60).padStart(2, "0");
+    cd.textContent = left > 0 ? `⏱ Auto-end dalam ${hh}:${mm}:${ss}` : "⏱ Menamatkan LIVE…";
+  }, 1000);
+})();
 
 $("simBtn").addEventListener("click", async () => {
   const t = $("simText").value.trim();
