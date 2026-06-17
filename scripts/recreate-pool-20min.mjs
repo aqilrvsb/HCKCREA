@@ -40,11 +40,11 @@ const envs = refData?.endpoint?.envs;
 if (!Array.isArray(envs) || !envs.length) { console.error("no ref envs:", JSON.stringify(refData).slice(0, 300)); process.exit(1); }
 const cap = envs.find((e) => e.key === "NVIDIA_DRIVER_CAPABILITIES");
 if (cap) cap.value = "all"; else envs.push({ key: "NVIDIA_DRIVER_CAPABILITIES", value: "all" });
-// FORCE_NVENC=1 → consistent NVENC (libx264 lottery = smooth some days, laggy
-// others). NVIDIA_DRIVER_CAPABILITIES=all maximizes nvenc-open to reduce reroll.
+// FORCE_NVENC=0 (gate OFF — gate=1 hung cold start 8-9min). caps=all is the real
+// NVENC lever: the encoder always tries h264_nvenc first; caps=all lets it open.
 const fn = envs.find((e) => e.key === "FORCE_NVENC");
-if (fn) fn.value = "1"; else envs.push({ key: "FORCE_NVENC", value: "1" });
-console.log("copied", envs.length, "envs from ref (FORCE_NVENC=1, caps=all)");
+if (fn) fn.value = "0"; else envs.push({ key: "FORCE_NVENC", value: "0" });
+console.log("copied", envs.length, "envs from ref (FORCE_NVENC=0, caps=all)");
 
 const { data: oldRows } = await sb.from("livehost_pool").select("endpoint_id");
 const oldIds = (oldRows || []).map((r) => r.endpoint_id);

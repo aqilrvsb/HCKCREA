@@ -43,14 +43,15 @@ async function referenceEnvs(key: string, refId: string): Promise<any[]> {
   if (!Array.isArray(envs) || envs.length === 0) {
     throw new Error(`reference endpoint ${refId} returned no envs`);
   }
-  // NVIDIA_DRIVER_CAPABILITIES=all → give the container full access to the GPU's
-  // NVENC video engine so h264_nvenc opens on as many nodes as possible.
+  // NVIDIA_DRIVER_CAPABILITIES=all → full access to the GPU's NVENC video engine
+  // so the encoder (which ALWAYS tries h264_nvenc first) opens NVENC on as many
+  // nodes as possible — this is the real NVENC lever, not the gate.
   const cap = envs.find((e: any) => e.key === "NVIDIA_DRIVER_CAPABILITIES");
   if (cap) cap.value = "all"; else envs.push({ key: "NVIDIA_DRIVER_CAPABILITIES", value: "all" });
-  // FORCE_NVENC=1 → consistent NVENC (the libx264 lottery made it smooth some
-  // days, laggy others). Trade-off: cold start may reroll to find an NVENC node.
+  // FORCE_NVENC=0 → gate OFF. The gate (=1) made cold start hang 8-9min (tested).
+  // Off = fast, stable boot; the encoder still uses NVENC whenever caps allow it.
   const fn = envs.find((e: any) => e.key === "FORCE_NVENC");
-  if (fn) fn.value = "1"; else envs.push({ key: "FORCE_NVENC", value: "1" });
+  if (fn) fn.value = "0"; else envs.push({ key: "FORCE_NVENC", value: "0" });
   return envs;
 }
 
