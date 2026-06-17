@@ -36,7 +36,52 @@
 
   console.log("[AI Host] Initializing...");
   initLiveHost();
+  setupAutoPin();
 })();
+
+// ============================================================================
+// AUTO-PIN: keep the FEATURED product pinned + re-pin it every N seconds so the
+// product popup re-shows to viewers (a common live-selling tactic). Operates on
+// the FIRST product in the list (put your target product at the top). TikTok
+// needs an UNPIN before a re-PIN, so a re-bump = unpin → (1.5s) → pin.
+// Controlled by chrome.storage.local: lhAutoPin (bool) + lhAutoPinSec (default 15).
+// ============================================================================
+function setupAutoPin() {
+  let autoPinTimer = null;
+
+  function tick() {
+    const first = document.querySelector(".pc_pin_product_pin, .pc_pin_product_unpin");
+    if (!first) return; // product list not loaded / no products
+    if (first.classList.contains("pc_pin_product_unpin")) {
+      // Already pinned → unpin, then re-pin the same (top) product to re-bump.
+      first.click();
+      setTimeout(() => {
+        const pin = document.querySelector(".pc_pin_product_pin");
+        if (pin) pin.click();
+      }, 1500);
+    } else {
+      first.click(); // not pinned yet → pin it
+    }
+  }
+
+  async function refresh() {
+    const { lhAutoPin, lhAutoPinSec } = await chrome.storage.local.get(["lhAutoPin", "lhAutoPinSec"]);
+    if (autoPinTimer) { clearInterval(autoPinTimer); autoPinTimer = null; }
+    if (lhAutoPin) {
+      const sec = Math.max(5, Number(lhAutoPinSec) || 15);
+      tick(); // fire once now
+      autoPinTimer = setInterval(tick, sec * 1000);
+      console.log("[AI Host] Auto-pin ON — every", sec, "s");
+    } else {
+      console.log("[AI Host] Auto-pin OFF");
+    }
+  }
+
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area === "local" && ("lhAutoPin" in changes || "lhAutoPinSec" in changes)) refresh();
+  });
+  refresh();
+}
 
 function initLiveHost() {
   // ============================================================================

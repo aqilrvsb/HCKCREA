@@ -80,6 +80,19 @@ $("simBtn").addEventListener("click", async () => {
 $("bellBtn").addEventListener("click", () => send({ type: "PLAY_MANUAL_SFX", sfx: "bell" }));
 $("clapBtn").addEventListener("click", () => send({ type: "PLAY_MANUAL_SFX", sfx: "clap" }));
 
+// Auto-pin toggle — content.js (on the TikTok Shop tab) watches these storage
+// keys and re-pins the first product every N seconds.
+(async () => {
+  const cb = $("autoPin"), sec = $("autoPinSec");
+  if (!cb || !sec) return;
+  const { lhAutoPin, lhAutoPinSec } = await chrome.storage.local.get(["lhAutoPin", "lhAutoPinSec"]);
+  cb.checked = !!lhAutoPin;
+  sec.value = String(Math.max(5, Number(lhAutoPinSec) || 15));
+  const save = () => chrome.storage.local.set({ lhAutoPin: cb.checked, lhAutoPinSec: Math.max(5, Number(sec.value) || 15) });
+  cb.addEventListener("change", save);
+  sec.addEventListener("change", save);
+})();
+
 chrome.runtime.onMessage.addListener((msg) => {
   if (msg.type === "STATS") {
     showStats(msg.stats);
