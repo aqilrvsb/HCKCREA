@@ -1126,14 +1126,15 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
       remoteStreamRef.current = remote;
       pc.ontrack = (ev) => {
         remote.addTrack(ev.track);
-        // Give the browser a small jitter buffer so playback is smooth even if
-        // frames arrive slightly unevenly over the TURN relay (~150ms added
-        // latency — fine for a one-way live broadcast, kills micro-stutter).
+        // ~1s jitter buffer: absorbs TURN-relay network spikes so they never
+        // become visible stutter. Invisible on a one-way TikTok broadcast (the
+        // viewer doesn't interact with video timing; comment-replies are already
+        // delayed by seconds), and turns "sometimes laggy" into "always smooth".
         try {
           const r: any = ev.receiver;
           if (r) {
-            if ("playoutDelayHint" in r) r.playoutDelayHint = 0.3;
-            if ("jitterBufferTarget" in r) r.jitterBufferTarget = 300;
+            if ("playoutDelayHint" in r) r.playoutDelayHint = 1.0;
+            if ("jitterBufferTarget" in r) r.jitterBufferTarget = 1000;
           }
         } catch {}
         const v = videoRef.current;
