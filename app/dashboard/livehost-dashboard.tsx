@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Radio, CreditCard, LayoutDashboard, MessageCircle, ArrowUpRight, ScrollText, Package, BarChart3, Paperclip, HeartHandshake, Send, LayoutTemplate, Image as ImageIcon, Wallet } from "lucide-react";
+import { Radio, CreditCard, LayoutDashboard, MessageCircle, ArrowUpRight, ScrollText, Package, BarChart3, Paperclip, HeartHandshake, Send, LayoutTemplate, Image as ImageIcon, Wallet, Clapperboard } from "lucide-react";
 import LogoutButton from "./logout-button";
 import BillingSection from "./sections/billing";
 import StudioSection from "./sections/studio";
@@ -11,6 +11,7 @@ import LivehostStudio, { type LiveView } from "./livehost-studio";
 import LivehostGreetings from "./livehost-greetings";
 import LivehostInteractions from "./livehost-interactions";
 import LivehostTiktok from "./livehost-tiktok";
+import LivehostTemplateBody from "./livehost-template-body";
 
 // Livehost community WhatsApp group. Hardcoded here (client component) —
 // the canonical value also lives in lib/whatsapp.ts (server-only) as
@@ -28,6 +29,7 @@ const NAV: { key: View; label: string; Icon: any; step?: number; stepColor?: str
   { key: "products", label: "Knowledge", Icon: Package, step: 3, stepColor: "#f59e0b" },
   { key: "greetings", label: "Greetings", Icon: HeartHandshake, step: 4, stepColor: "#ec4899" },
   { key: "avatar", label: "Avatar", Icon: ImageIcon },
+  { key: "templatebody", label: "Template Body", Icon: Clapperboard },
   { key: "attachment", label: "Attachment", Icon: Paperclip },
   { key: "usage", label: "Usage", Icon: BarChart3 },
   { key: "billing", label: "Billing", Icon: CreditCard },
@@ -38,7 +40,7 @@ const NAV: { key: View; label: string; Icon: any; step?: number; stepColor?: str
 // (which itself shows ONLY the Livehost package for these users) + sign
 // out. None of the generation tabs / sidebar perks appear here.
 
-type View = "home" | "billing" | "livehost" | "template" | "scripts" | "products" | "usage" | "attachment" | "greetings" | "avatar" | "tiktok";
+type View = "home" | "billing" | "livehost" | "template" | "scripts" | "products" | "usage" | "attachment" | "greetings" | "avatar" | "templatebody" | "tiktok";
 
 const STUDIO_VIEWS: View[] = ["livehost", "template", "scripts", "products", "usage"];
 
@@ -57,7 +59,7 @@ export default function LivehostDashboard({
 
   // Deep-link support so right-click → "Open in new tab" works: each view has a
   // ?tab=<key> URL. On load we read it; switching views keeps the URL in sync.
-  const ALL_VIEWS: View[] = ["home", "livehost", "template", "scripts", "products", "greetings", "avatar", "attachment", "usage", "billing", "tiktok"];
+  const ALL_VIEWS: View[] = ["home", "livehost", "template", "scripts", "products", "greetings", "avatar", "templatebody", "attachment", "usage", "billing", "tiktok"];
   useEffect(() => {
     try {
       const t = new URLSearchParams(window.location.search).get("tab");
@@ -331,6 +333,8 @@ export default function LivehostDashboard({
             </div>
           ) : view === "avatar" ? (
             <StudioSection only="image" />
+          ) : view === "templatebody" ? (
+            <div className="lh-studio"><LivehostTemplateBody /></div>
           ) : view === "attachment" ? (
             <AttachmentsSection presets={attachPresets} productLabel="Template" pngOnly />
           ) : view === "greetings" ? (

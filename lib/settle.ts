@@ -900,10 +900,17 @@ export async function settleHistoryRow(hist: HistoryRow): Promise<SettleResult> 
     // Crun scopes task IDs per account so key A returns empty for
     // tasks submitted via key B.
     let apiKeyOverride: string | undefined;
-    if (rowProvider === "p2" && hist.metadata?.slot === "p2-b") {
+    const slotLabel = typeof hist.metadata?.slot === "string" ? hist.metadata.slot : "";
+    if (rowProvider === "p2" && slotLabel === "p2-b") {
       const { getP2Config } = await import("@/lib/settings");
       const cfg = await getP2Config();
       if (cfg.keyB) apiKeyOverride = cfg.keyB;
+    } else if (rowProvider === "p2" && slotLabel.startsWith("kling")) {
+      // Livehost "Template Body" (Kling motion-control) rows record a kling
+      // slot label; resolve the SAME Crun key that created the task so polls
+      // don't hit the wrong account.
+      const { getKlingKeyForSlot } = await import("@/lib/kling");
+      apiKeyOverride = await getKlingKeyForSlot(slotLabel);
     }
     r = await p2GetStatus(hist.task_id, rowProvider as "p1" | "p2", apiKeyOverride);
   }

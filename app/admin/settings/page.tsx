@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import LivehostSettings from "./livehost-settings";
+import KlingSettings from "./kling-settings";
 import {
   Loader2,
   Save,
@@ -1742,6 +1743,8 @@ export default function AdminSettings() {
           )}
         </div>
       </div>
+
+      <KlingSettings />
 
       {/* Storytelling (fairytale) image generator — dedicated card so admin
           can pick which Crun.ai model is used to render the 10 scene images

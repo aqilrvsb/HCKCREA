@@ -159,7 +159,9 @@ async function p2CreateTaskInternal(input: {
   const isVideo = !isGrok && !isSeedance && !isGemini && m.includes("veo");
   const isGptImage = !isGrok && !isSeedance && !isGemini && m.includes("gpt-image");
   const isZImage = !isGrok && !isSeedance && !isVideo && !isGemini && !isGptImage && m === "z-image";
-  const isBanana = !isVideo && !isGptImage && !isGrok && !isSeedance && !isZImage && !isGemini;
+  // Kling v3 motion-control: 1 character image + 1 motion-reference video.
+  const isKling = m.includes("kling");
+  const isBanana = !isVideo && !isGptImage && !isGrok && !isSeedance && !isZImage && !isGemini && !isKling;
 
   const innerInput: Record<string, any> = {};
   // 3000-char cap matching MindStudio Veo 3.1 Fast spec (2000-char
@@ -263,6 +265,12 @@ async function p2CreateTaskInternal(input: {
     innerInput.duration = Number(input.durationMode || 10);
     if (input.aspectRatio) innerInput.aspect_ratio = input.aspectRatio;
     innerInput.resolution = String(input.resolution || "1080p").toLowerCase();
+  } else if (isKling) {
+    // Kling v3 motion-control: exactly 1 character image + 1 motion video.
+    // character_orientation / mode / keep_original_sound arrive via input.extra
+    // and get merged below.
+    if (imgUrls.length > 0) innerInput.img_urls = [imgUrls[0]];
+    if (vidUrls.length > 0) innerInput.video_urls = [vidUrls[0]];
   } else if (isBanana) {
     // nano-banana-pro: resolution dial + native aspect ratio support.
     if (input.aspectRatio) innerInput.aspect_ratio = input.aspectRatio;
