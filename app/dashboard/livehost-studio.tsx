@@ -953,25 +953,18 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
   // on B2 (no CORS) so a server route fetches it + forwards the binary to
   // the GPU backend's /register-avatar.
   const registerAvatarFromAttachment = useCallback(async (url: string) => {
-    setUploading(true); setError("");
+    // POOL model: there is NO fixed backend at pick-time (the worker is assigned
+    // on warm / Start). So just SELECT the avatar here with a fresh client-side
+    // id; start() registers it to the ASSIGNED pool worker (it fetches this B2
+    // image — peninglab-storage sends CORS — and POSTs it to /register-avatar).
+    // The old /api/livehost/register-avatar route used live_client_config.backend_url
+    // (legacy per-client backend), which is empty in the pool model → 404'd, so a
+    // custom avatar never got an id → "pick a face first" on Start.
+    setError("");
     setStockSel("");
     setPreviewUrl(url);
-    try {
-      const r = await fetch("/api/livehost/register-avatar", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ url }),
-      });
-      const d = await r.json().catch(() => ({}));
-      if (!r.ok || d.error) throw new Error(d.error || `HTTP ${r.status}`);
-      await loadAvatars();
-      setAvatarId(d.avatar_id as string);
-    } catch (e: any) {
-      setError(`Avatar register failed: ${e?.message || e}`);
-    } finally {
-      setUploading(false);
-    }
-  }, [loadAvatars]);
+    setAvatarId("u" + Date.now().toString(36));
+  }, []);
 
   // Last voice_id pushed to the live-TTS engine via cfg (so we only resend on
   // change). Reset on stop so a new stream re-syncs from the first script.
@@ -1864,9 +1857,16 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
                 onPointerDown={onStagePointerDown} onPointerMove={onStagePointerMove}
                 onPointerUp={onStagePointerUp} onPointerCancel={onStagePointerUp}>
                 <video ref={videoRef} autoPlay playsInline style={{ transform: `translate(${offsetX}%, ${offsetY}%) scale(${zoom})` }} />
-                {!active && previewUrl && !bodyUrl && (
+                {!active && previewUrl && (
                   <img className="avatar-preview" src={previewUrl} alt="" draggable={false}
-                    style={{ transform: `translate(${offsetX}%, ${offsetY}%) scale(${zoom})` }} />
+                    style={{
+                      transform: `translate(${offsetX}%, ${offsetY}%) scale(${zoom})`,
+                      // When a body is present, show ONLY the model's HEAD (top
+                      // bodyClipTop%) so it sits above the gesture body (which is
+                      // cropped to the bottom) — head + body meet at the crop line,
+                      // no double. The live AVTR-1 head replaces this when streaming.
+                      clipPath: bodyUrl ? `inset(0 0 ${Math.max(0, 100 - bodyClipTop)}% 0)` : undefined,
+                    }} />
                 )}
                 {/* BODY LAYER — gesture clip, green/blue keyed in the canvas,
                     sits ABOVE the avatar (covers its static body) but BELOW the
