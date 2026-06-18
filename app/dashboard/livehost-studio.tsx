@@ -616,9 +616,13 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
     let mode: "green" | "blue" = bodyKey === "blue" ? "blue" : "green";
     let detected = bodyKey !== "auto";
     const draw = () => {
+      // FULL frame rate (no throttle) — keep the body at 50fps to match the
+      // avatar. Render at 440px (not 540) so the per-pixel chroma-key loop is
+      // ~33% cheaper → keeps CPU free for the WebRTC stream so the LIPSYNC
+      // doesn't stutter, while staying sharp at the stage display size.
       raf = requestAnimationFrame(draw);
       if (v.readyState < 2 || !v.videoWidth) return;
-      const W = 540, H = Math.round((W * v.videoHeight) / v.videoWidth);
+      const W = 440, H = Math.round((W * v.videoHeight) / v.videoWidth);
       if (work.width !== W || work.height !== H) { work.width = W; work.height = H; }
       wctx.drawImage(v, 0, 0, W, H);
       let img: ImageData;
@@ -640,17 +644,22 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
         }
       }
       wctx.putImageData(img, 0, 0);
-      for (const ref of [bodyCanvasRef, bodyCanvasTplRef]) {
-        const c = ref.current; if (!c) continue;
+      const c = bodyCanvasRef.current;
+      if (c) {
         if (c.width !== W || c.height !== H) { c.width = W; c.height = H; }
-        const cc = c.getContext("2d"); if (!cc) continue;
-        cc.clearRect(0, 0, W, H); cc.drawImage(work, 0, 0);
+        const cc = c.getContext("2d");
+        if (cc) { cc.clearRect(0, 0, W, H); cc.drawImage(work, 0, 0); }
       }
     };
     raf = requestAnimationFrame(draw);
     v.play().catch(() => {});
     return () => cancelAnimationFrame(raf);
   }, [bodyUrl, bodyKey]);
+
+  // Drag/zoom act on the AVATAR in the Template tab, and on the BODY in the
+  // Livehost tab (where you align the body to the already-streaming avatar — so
+  // there's no still-image-vs-live-video drift). Body is picked/edited in Livehost.
+  useEffect(() => { setEditLayer(view === "live" && bodyUrl ? "body" : "avatar"); }, [view, bodyUrl]);
 
 
   // ---- Saved templates (composition history) ----
@@ -697,23 +706,15 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
         id: "tpl" + Date.now().toString(36), name, createdAt: Date.now(),
         overlaySel, customOverlay, overlayUrl, previewUrl, stockSel, avatarId,
         zoom, offsetX, offsetY, badgePos,
-        bodyUrl, bodyKey, bodyZoom, bodyOffsetX, bodyOffsetY, bodyClipTop,
       },
     ]);
-  }, [savedTemplates, persistTemplates, overlaySel, customOverlay, overlayUrl, previewUrl, stockSel, avatarId, zoom, offsetX, offsetY, badgePos, bodyUrl, bodyKey, bodyZoom, bodyOffsetX, bodyOffsetY, bodyClipTop]);
+  }, [savedTemplates, persistTemplates, overlaySel, customOverlay, overlayUrl, previewUrl, stockSel, avatarId, zoom, offsetX, offsetY, badgePos]);
   const loadTemplate = useCallback((t: SavedTpl) => {
     setOverlaySel(t.overlaySel); setCustomOverlay(t.customOverlay);
     setStockSel(t.stockSel); setAvatarId(t.avatarId); setPreviewUrl(t.previewUrl);
     setZoom(t.zoom); setOffsetX(t.offsetX); setOffsetY(t.offsetY);
     setBadgePos(t.badgePos || { x: 4, y: 10 });
-    // Body layer (auto-organize at Livehost): restore or clear if the template has none.
-    setBodyUrl(t.bodyUrl || "");
-    setBodyKey(t.bodyKey || "auto");
-    setBodyZoom(typeof t.bodyZoom === "number" ? t.bodyZoom : 1);
-    setBodyOffsetX(typeof t.bodyOffsetX === "number" ? t.bodyOffsetX : 0);
-    setBodyOffsetY(typeof t.bodyOffsetY === "number" ? t.bodyOffsetY : 0);
-    setBodyClipTop(typeof t.bodyClipTop === "number" ? t.bodyClipTop : 22);
-    setEditLayer("avatar");
+    // Body is NOT part of the template — it's imported + aligned at Livehost.
   }, []);
   const deleteTemplate = useCallback(async (id: string) => {
     if (!(await confirmDelete("Padam template ini?"))) return;
@@ -1856,19 +1857,12 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
                 <video ref={videoRef} autoPlay playsInline style={{ transform: `translate(${offsetX}%, ${offsetY}%) scale(${zoom})` }} />
                 {!active && previewUrl && (
                   <img className="avatar-preview" src={previewUrl} alt="" draggable={false}
-                    style={{
-                      transform: `translate(${offsetX}%, ${offsetY}%) scale(${zoom})`,
-                      // When a body is present, show ONLY the model's HEAD (top
-                      // bodyClipTop%) so it sits above the gesture body (which is
-                      // cropped to the bottom) — head + body meet at the crop line,
-                      // no double. The live AVTR-1 head replaces this when streaming.
-                      clipPath: bodyUrl ? `inset(0 0 ${Math.max(0, 100 - bodyClipTop)}% 0)` : undefined,
-                    }} />
+                    style={{ transform: `translate(${offsetX}%, ${offsetY}%) scale(${zoom})` }} />
                 )}
                 {/* BODY LAYER (live) — green/blue keyed canvas, ABOVE the avatar
-                    (covers its static body) but BELOW the overlay. clipTop hides
-                    the Kling head so the AVTR-1 head shows. Display-only (drag is
-                    done in the Template tab); composited from the loaded template. */}
+                    (covers its static lower body) but BELOW the overlay. crop-top
+                    hides the Kling head so the AVTR-1 head shows above. Imported +
+                    aligned HERE at Livehost (drag via stage when editLayer=body). */}
                 {bodyUrl && (
                   <canvas ref={bodyCanvasRef} className="body-layer"
                     style={{
@@ -2018,7 +2012,36 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
               onClick={() => setSavedPickerOpen(true)}>
               📁 Pick from saved templates ({savedTemplates.length})
             </button>
-            <div className="hint">Susun avatar + body + template di tab <b>Template</b>, simpan, kemudian pilih di sini — semua layer (avatar, body, overlay, kedudukan) auto-muat.</div>
+            <div className="hint">Susun avatar + template di tab <b>Template</b>, simpan, kemudian pilih di sini. <b>Body (gesture)</b> ditambah di SINI selepas avatar live — supaya ia align dengan kedudukan live sebenar (tiada drift).</div>
+
+            {/* BODY (gesture) — added at Livehost AFTER the avatar is streaming,
+                so you align it to the LIVE avatar (no still-image-vs-video drift).
+                Chroma-keyed; drag on the stage + Zoom + Crop atas to fit. */}
+            <button type="button" className="filebtn secondary" style={{ marginTop: 8 }}
+              onClick={() => { setBodyPickerOpen(true); loadBodyClips(); }}>
+              🎬 Import body (gesture){bodyUrl ? " ✓" : ""}
+            </button>
+            {bodyUrl && (
+              <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 6 }}>
+                <div className="hint" style={{ marginTop: 0 }}>Seret body pada skrin untuk gerak. <b>Crop atas</b> sembunyikan kepala Kling; <b>Zoom</b> + seret supaya leher badan tepat bawah kepala avatar.</div>
+                <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: "var(--muted)" }}>
+                  <span style={{ width: 64 }}>Zoom</span>
+                  <input type="range" min="0.5" max="2.4" step="0.02" value={bodyZoom}
+                    onChange={(e) => setBodyZoom(parseFloat(e.target.value))} style={{ flex: 1 }} />
+                </label>
+                <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: "var(--muted)" }}>
+                  <span style={{ width: 64 }}>Crop atas</span>
+                  <input type="range" min="0" max="60" step="1" value={bodyClipTop}
+                    onChange={(e) => setBodyClipTop(parseInt(e.target.value))} style={{ flex: 1 }} />
+                </label>
+                <div style={{ display: "flex", gap: 6 }}>
+                  <button type="button" className="filebtn secondary" style={{ marginTop: 0, flex: 1 }}
+                    onClick={() => { setBodyOffsetX(0); setBodyOffsetY(0); setBodyZoom(1); setBodyClipTop(22); }}>↺ Reset body</button>
+                  <button type="button" className="filebtn secondary" style={{ marginTop: 0, width: 44, color: "#ff9aa8" }}
+                    title="Buang body" onClick={() => setBodyUrl("")}>✕</button>
+                </div>
+              </div>
+            )}
 
             <div className="hint" style={{ marginTop: 6 }}>🎙 Suara, volume, speed &amp; emosi kini <b>per-skrip</b> — set semasa cipta skrip di tab <b>Scripts</b>. Setiap skrip main dengan audio &amp; suaranya sendiri.</div>
 
@@ -2090,21 +2113,9 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
                 <video ref={templateVideoRef} autoPlay playsInline muted style={{ display: "none" }} />
                 {previewUrl && (
                   <img className="avatar-preview" src={previewUrl} alt="" draggable={false}
-                    style={{
-                      transform: `translate(${offsetX}%, ${offsetY}%) scale(${zoom})`,
-                      // body present → show only the head (top crop-line) so model
-                      // head + gesture body compose without a double figure.
-                      clipPath: bodyUrl ? `inset(0 0 ${Math.max(0, 100 - bodyClipTop)}% 0)` : undefined,
-                    }} />
+                    style={{ transform: `translate(${offsetX}%, ${offsetY}%) scale(${zoom})` }} />
                 )}
-                {bodyUrl && (
-                  <canvas ref={bodyCanvasTplRef} className={`body-layer${editLayer === "body" ? " editing" : ""}`}
-                    style={{
-                      transform: `translate(${bodyOffsetX}%, ${bodyOffsetY}%) scale(${bodyZoom})`,
-                      clipPath: `inset(${bodyClipTop}% 0 0 0)`,
-                      pointerEvents: "none",
-                    }} />
-                )}
+                {/* Template = avatar + overlay only. Body is added at Livehost. */}
                 {overlayUrl && <img className="overlay" src={overlayUrl} alt="" />}
                 <div className="ai-badge" style={{ left: `${badgePos.x}%`, top: `${badgePos.y}%` }}
                   onPointerDown={onBadgePointerDown} onPointerMove={onBadgePointerMove}
@@ -2149,43 +2160,17 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
               </div>
               <div className="hint">Edit di Canva → <b>Share</b> → <b>Download</b> → File Type <b>PNG</b> → <b>Select Pages</b> Edit → <b>Download</b> → Upload <b>Attachment</b> balik.</div>
 
-              {/* BODY (gesture) — green/blue keyed, composited UNDER the avatar head */}
-              <div className="label">Body (gesture) — pick from Template Body</div>
-              <div style={{ display: "flex", gap: 8, marginTop: 0 }}>
-                <button type="button" className="filebtn secondary" style={{ flex: 1, marginTop: 0 }}
-                  onClick={() => { setBodyPickerOpen(true); loadBodyClips(); }}>
-                  🎬 Pick body{bodyUrl ? " ✓" : ""}
-                </button>
-                {bodyUrl && (
-                  <button type="button" className="filebtn secondary" style={{ flex: "0 0 auto", marginTop: 0, width: 44, padding: 0, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 15, color: "#ff9aa8" }} title="Buang body"
-                    onClick={() => { setBodyUrl(""); if (editLayer === "body") setEditLayer("avatar"); }}>✕</button>
-                )}
-              </div>
-
-              {/* LAYER FIT — radio picks which layer the drag + zoom act on */}
-              <div className="label">Layer fit — pilih layer, seret pada skrin + zoom</div>
-              <div style={{ display: "flex", gap: 8 }}>
-                <button type="button" className="filebtn secondary" style={{ flex: 1, marginTop: 0, background: editLayer === "avatar" ? "var(--grad)" : undefined, color: editLayer === "avatar" ? "#fff" : undefined }}
-                  onClick={() => setEditLayer("avatar")}>{editLayer === "avatar" ? "◉" : "○"} Avatar</button>
-                <button type="button" className="filebtn secondary" style={{ flex: 1, marginTop: 0, background: editLayer === "body" ? "var(--grad)" : undefined, color: editLayer === "body" ? "#fff" : undefined, opacity: bodyUrl ? 1 : 0.5, cursor: bodyUrl ? "pointer" : "not-allowed" }}
-                  disabled={!bodyUrl} onClick={() => setEditLayer("body")}>{editLayer === "body" ? "◉" : "○"} Body</button>
-              </div>
-              <button type="button" className="filebtn secondary" onClick={() => {
-                if (editLayer === "body") { setBodyOffsetX(0); setBodyOffsetY(0); setBodyZoom(1); setBodyClipTop(22); }
-                else { setOffsetX(0); setOffsetY(0); setZoom(1); }
-              }}>↺ Reset {editLayer === "body" ? "body" : "avatar"}</button>
+              {/* Avatar fit — drag the avatar on screen + zoom. Body is added at
+                  LIVEHOST (after the avatar is streaming) so it aligns to the live
+                  position — composing it here against a still image caused drift. */}
+              <div className="label">Avatar fit — drag the avatar on screen to move it</div>
+              <button type="button" className="filebtn secondary" onClick={() => { setOffsetX(0); setOffsetY(0); setZoom(1); }}>
+                ↺ Reset position
+              </button>
               <div className="range-row"><span>Zoom</span>
-                <input type="range" min="0.5" max="2.2" step="0.02"
-                  value={editLayer === "body" ? bodyZoom : zoom}
-                  onChange={(e) => { const z = parseFloat(e.target.value); if (editLayer === "body") setBodyZoom(z); else setZoom(z); }} />
+                <input type="range" min="0.5" max="2" step="0.02" value={zoom} onChange={(e) => setZoom(parseFloat(e.target.value))} />
               </div>
-              {editLayer === "body" && bodyUrl && (
-                <div className="range-row"><span>Crop atas</span>
-                  <input type="range" min="0" max="55" step="1" value={bodyClipTop}
-                    onChange={(e) => setBodyClipTop(parseInt(e.target.value))} />
-                </div>
-              )}
-              <div className="hint">Pilih <b>Avatar</b> atau <b>Body</b> → seret pada skrin + Zoom. Untuk Body: <b>Crop atas</b> sembunyikan kepala Kling; letak leher badan tepat bawah kepala avatar.</div>
+              <div className="hint">Body (gesture) ditambah di tab <b>Livehost</b> selepas avatar live.</div>
 
               <button type="button" className="filebtn" style={{ marginTop: 14, opacity: avatarId && overlayUrl ? 1 : 0.5, cursor: avatarId && overlayUrl ? "pointer" : "not-allowed" }}
                 disabled={!avatarId || !overlayUrl} onClick={saveCurrentTemplate}>
