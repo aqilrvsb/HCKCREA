@@ -20,9 +20,13 @@ export default function LivehostTemplateBody() {
   const [charUrl, setCharUrl] = useState("");
   const [videoUrl, setVideoUrl] = useState("");
   const [uploadingVid, setUploadingVid] = useState(false);
-  // Prompt + orientation are fixed (hidden in the UI).
+  // Chroma-key background colour (composited behind the avatar before Kling).
+  const [bgColor, setBgColor] = useState<"green" | "blue">("green");
+  const colorWord = bgColor === "blue" ? "blue" : "green";
+  // Prompt + orientation are fixed (hidden in the UI). Background word tracks
+  // the chosen chroma colour so Kling preserves the baked-in screen.
   const prompt =
-    "Animate the character to follow the reference video's motion exactly, frame for frame. Preserve the character's exact appearance from the reference image — face, hair or head covering, skin tone, and full outfit — with maximum fidelity. Do not change the appearance, clothing, colors, or face. Keep the torso and shoulders stable and upright; only the hands and arms move as in the reference. Photorealistic, ultra-detailed, natural realistic hands, clean consistent studio lighting. Keep the background exactly as in the reference image — a solid, flat, uniform green screen; do not add any scenery, objects, or shadows and do not change the background color. Locked static camera — no zoom, no pan, no camera shake. Keep the character centered with consistent framing throughout.";
+    `Animate the character to follow the reference video's motion exactly, frame for frame. Preserve the character's exact appearance from the reference image — face, hair or head covering, skin tone, and full outfit — with maximum fidelity. Do not change the appearance, clothing, colors, or face. Keep the torso and shoulders stable and upright; only the hands and arms move as in the reference. Photorealistic, ultra-detailed, natural realistic hands, clean consistent studio lighting. Keep the background exactly as in the reference image — a solid, flat, uniform ${colorWord} chroma-key screen; do not add any scenery, objects, or shadows and do not change the background color. Locked static camera — no zoom, no pan, no camera shake. Keep the character centered with consistent framing throughout.`;
   const mode = "pro" as const; // quality fixed at 1080p (Pro)
   const keepSound = false; // audio off by default (toggle hidden)
   const orientation = "video" as const; // always follow reference video motion
@@ -86,7 +90,7 @@ export default function LivehostTemplateBody() {
       const absChar = charUrl.startsWith("/") ? `${window.location.origin}${charUrl}` : charUrl;
       const r = await fetch("/api/generate/template-body", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ image_url: absChar, video_url: videoUrl, prompt, mode, character_orientation: orientation, keep_original_sound: keepSound, duration: DURATION }),
+        body: JSON.stringify({ image_url: absChar, video_url: videoUrl, prompt, mode, character_orientation: orientation, keep_original_sound: keepSound, duration: DURATION, bg_color: bgColor }),
       });
       const d = await r.json();
       if (!r.ok) throw new Error(d?.error || "Generate gagal");
@@ -120,6 +124,24 @@ export default function LivehostTemplateBody() {
         <div style={{ display: "flex", gap: 8 }}>
           <button type="button" onClick={() => setAvatarPickerOpen(true)} style={{ ...F, flex: 1, cursor: "pointer", fontWeight: 700, background: "#fff" }}>🖼 Pick avatar from Attachments</button>
           {charUrl && <button type="button" title="Buang" onClick={() => setCharUrl("")} style={{ ...F, ...clearBtn }}>✕</button>}
+        </div>
+
+        <div style={{ marginTop: 14 }}><LhLabel>Background (chroma key)</LhLabel></div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+          {([["green", "#00FF00", "Hijau", " (default)"], ["blue", "#0000FF", "Biru", ""]] as const).map(([val, hex, label, suffix]) => {
+            const active = bgColor === val;
+            return (
+              <button key={val} type="button" onClick={() => setBgColor(val)}
+                style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", borderRadius: 12, cursor: "pointer", textAlign: "left", border: active ? `2px solid ${hex}` : "1px solid #e8e0d8", background: active ? "#fff" : "#fafaf7" }}>
+                <span style={{ width: 22, height: 22, borderRadius: 6, background: hex, border: "1px solid rgba(0,0,0,0.15)", flex: "0 0 auto" }} />
+                <span style={{ display: "flex", flexDirection: "column", lineHeight: 1.25 }}>
+                  <b style={{ fontSize: 13, color: "#1a1a1a" }}>{label}<span style={{ color: "#888", fontWeight: 600 }}>{suffix}</span></b>
+                  <span style={{ fontSize: 11, color: "#888" }}>{hex}</span>
+                </span>
+                {active && <span style={{ marginLeft: "auto", color: hex, fontWeight: 800 }}>✓</span>}
+              </button>
+            );
+          })}
         </div>
 
         <div style={{ marginTop: 14 }}><LhLabel>Video gerakan (.mp4)</LhLabel></div>

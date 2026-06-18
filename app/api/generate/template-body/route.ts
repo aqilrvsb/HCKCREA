@@ -6,16 +6,20 @@ import { klingCreateWithCascade, getKlingRate } from "@/lib/kling";
 import { uploadBufferToStoragePublic } from "@/lib/b2";
 import sharp from "sharp";
 
-// Composite the (possibly transparent) avatar onto a flat pure #00FF00 green
-// screen so Kling's output background is a clean chroma key. flatten() merges
-// any alpha onto green; opaque images are returned unchanged. Returns the new
-// public URL, or the original on any failure (never blocks generation).
-async function greenScreenify(userId: string, historyId: string, imageUrl: string): Promise<string> {
+// Composite the (possibly transparent) avatar onto a flat solid chroma-key
+// screen so Kling's output background keys cleanly. flatten() merges any alpha
+// onto the colour; opaque images are returned unchanged. Returns the new public
+// URL, or the original on any failure (never blocks generation).
+const CHROMA: Record<string, { r: number; g: number; b: number }> = {
+  green: { r: 0, g: 255, b: 0 },
+  blue: { r: 0, g: 0, b: 255 },
+};
+async function chromaScreenify(userId: string, historyId: string, imageUrl: string, bgColor: "green" | "blue"): Promise<string> {
   try {
     const resp = await fetch(imageUrl);
     if (!resp.ok) return imageUrl;
     const inBuf = Buffer.from(await resp.arrayBuffer());
-    const png = await sharp(inBuf).flatten({ background: { r: 0, g: 255, b: 0 } }).png().toBuffer();
+    const png = await sharp(inBuf).flatten({ background: CHROMA[bgColor] || CHROMA.green }).png().toBuffer();
     const key = `livehost-greenavatar/${userId}/${historyId}.png`;
     const { publicUrl } = await uploadBufferToStoragePublic({ body: png, key, contentType: "image/png" });
     return publicUrl || imageUrl;
@@ -51,6 +55,7 @@ export async function POST(req: Request) {
   const characterOrientation: "image" | "video" = body?.character_orientation === "image" ? "image" : "video";
   // Audio default OFF (hidden in UI). Only ON when explicitly requested.
   const keepOriginalSound = body?.keep_original_sound === true;
+  const bgColor: "green" | "blue" = body?.bg_color === "blue" ? "blue" : "green";
   const projectId = body?.project_id ? String(body.project_id) : null;
   // Output length follows the reference video — client measures the .mp4
   // duration and sends it so we can bill per-second. Clamp to a sane range.
@@ -68,7 +73,7 @@ export async function POST(req: Request) {
 
   const baseMeta = {
     kling: true, mode, character_orientation: characterOrientation,
-    keep_original_sound: keepOriginalSound, motion_url: videoUrl, image_url: imageUrl,
+    keep_original_sound: keepOriginalSound, motion_url: videoUrl, image_url: imageUrl, bg_color: bgColor,
   };
 
   const admin = createAdminClient();
@@ -86,8 +91,9 @@ export async function POST(req: Request) {
 
   after(async () => {
     try {
-      // Put the avatar on a flat #00FF00 green screen → Kling output keys clean.
-      const klingImageUrl = await greenScreenify(user.id, historyId, imageUrl);
+      // 1) Composite the avatar onto the chosen chroma background, THEN
+      // 2) send that image to Kling → output keys clean.
+      const klingImageUrl = await chromaScreenify(user.id, historyId, imageUrl, bgColor);
       const result = await klingCreateWithCascade({
         userId: user.id, imageUrl: klingImageUrl, videoUrl, prompt, mode, characterOrientation, keepOriginalSound,
       });
