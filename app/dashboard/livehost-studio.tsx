@@ -212,12 +212,13 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
   const [bodyOffsetX, setBodyOffsetX] = useState(0);
   const [bodyOffsetY, setBodyOffsetY] = useState(0);
   const [bodyClipTop, setBodyClipTop] = useState(22); // % cropped off the top (hides Kling head)
-  const [bodyEdit, setBodyEdit] = useState(false);    // drag-to-move mode
   const [bodyPickerOpen, setBodyPickerOpen] = useState(false);
   const [bodyClips, setBodyClips] = useState<{ id: string; url: string; bgColor: string; poster: string }[]>([]);
+  // Which layer the Template-tab drag/zoom controls act on (radio: avatar | body).
+  const [editLayer, setEditLayer] = useState<"avatar" | "body">("avatar");
   const bodyVideoRef = useRef<HTMLVideoElement | null>(null);
-  const bodyCanvasRef = useRef<HTMLCanvasElement | null>(null);
-  const bodyDragRef = useRef<{ startX: number; startY: number; baseX: number; baseY: number; active: boolean }>({ startX: 0, startY: 0, baseX: 0, baseY: 0, active: false });
+  const bodyCanvasRef = useRef<HTMLCanvasElement | null>(null);      // live-stage body
+  const bodyCanvasTplRef = useRef<HTMLCanvasElement | null>(null);   // template-stage body (both views are always mounted)
   // Draggable AI-disclosure badge (TikTok AI-content policy) — position in % of stage.
   const [badgePos, setBadgePos] = useState<{ x: number; y: number }>({ x: 4, y: 10 });
   const badgeDragRef = useRef<{ startX: number; startY: number; baseX: number; baseY: number; active: boolean }>({ startX: 0, startY: 0, baseX: 0, baseY: 0, active: false });
@@ -569,40 +570,25 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
     if ((e.target as HTMLElement).closest(".fs-btn")) return;
     const el = e.currentTarget;
     el.setPointerCapture(e.pointerId);
-    dragRef.current = { startX: e.clientX, startY: e.clientY, baseX: offsetX, baseY: offsetY, active: true };
-  }, [offsetX, offsetY]);
+    // Drag the ACTIVE layer (radio in Template: avatar or body). In Livehost
+    // editLayer stays "avatar" so dragging still moves the avatar as before.
+    const layer = editLayer;
+    const bx = layer === "body" ? bodyOffsetX : offsetX;
+    const by = layer === "body" ? bodyOffsetY : offsetY;
+    (dragRef.current as any) = { startX: e.clientX, startY: e.clientY, baseX: bx, baseY: by, active: true, layer };
+  }, [offsetX, offsetY, bodyOffsetX, bodyOffsetY, editLayer]);
 
   const onStagePointerMove = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
-    const d = dragRef.current;
+    const d = dragRef.current as any;
     if (!d.active) return;
     const r = e.currentTarget.getBoundingClientRect();
-    setOffsetX(Math.max(-80, Math.min(80, d.baseX + ((e.clientX - d.startX) / r.width) * 100)));
-    setOffsetY(Math.max(-80, Math.min(80, d.baseY + ((e.clientY - d.startY) / r.height) * 100)));
+    const nx = Math.max(-90, Math.min(90, d.baseX + ((e.clientX - d.startX) / r.width) * 100));
+    const ny = Math.max(-90, Math.min(90, d.baseY + ((e.clientY - d.startY) / r.height) * 100));
+    if (d.layer === "body") { setBodyOffsetX(nx); setBodyOffsetY(ny); } else { setOffsetX(nx); setOffsetY(ny); }
   }, []);
 
   const onStagePointerUp = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
     dragRef.current.active = false;
-    try { e.currentTarget.releasePointerCapture(e.pointerId); } catch {}
-  }, []);
-
-  // ── BODY LAYER: drag (only in bodyEdit mode; stopPropagation so it never
-  // triggers the avatar/stage drag), chroma-key render loop, and clip loader.
-  const onBodyPointerDown = useCallback((e: React.PointerEvent<HTMLCanvasElement>) => {
-    e.stopPropagation();
-    try { e.currentTarget.setPointerCapture(e.pointerId); } catch {}
-    bodyDragRef.current = { startX: e.clientX, startY: e.clientY, baseX: bodyOffsetX, baseY: bodyOffsetY, active: true };
-  }, [bodyOffsetX, bodyOffsetY]);
-  const onBodyPointerMove = useCallback((e: React.PointerEvent<HTMLCanvasElement>) => {
-    const d = bodyDragRef.current;
-    if (!d.active) return;
-    e.stopPropagation();
-    const r = (e.currentTarget.parentElement as HTMLElement | null)?.getBoundingClientRect();
-    if (!r) return;
-    setBodyOffsetX(Math.max(-90, Math.min(90, d.baseX + ((e.clientX - d.startX) / r.width) * 100)));
-    setBodyOffsetY(Math.max(-90, Math.min(90, d.baseY + ((e.clientY - d.startY) / r.height) * 100)));
-  }, []);
-  const onBodyPointerUp = useCallback((e: React.PointerEvent<HTMLCanvasElement>) => {
-    bodyDragRef.current.active = false;
     try { e.currentTarget.releasePointerCapture(e.pointerId); } catch {}
   }, []);
 
@@ -614,15 +600,18 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
     } catch {}
   }, []);
 
-  // Chroma-key the body video onto its canvas each frame: punch out the
-  // green/blue screen → transparent so the AVTR-1 body/head below shows through.
-  // Render at 540px wide (cheap for canvas-2D, sharp enough scaled to the stage).
+  // Chroma-key the body video each frame (punch the green/blue screen → alpha 0
+  // + light despill) on an offscreen, then blit to BOTH the live-stage and
+  // template-stage body canvases (both views are always mounted). The source
+  // <video> lives at the component root (NOT inside a display:none view) so it
+  // keeps decoding regardless of which tab is showing. 540px wide = cheap for 2D.
   useEffect(() => {
     if (!bodyUrl) return;
-    const v = bodyVideoRef.current, c = bodyCanvasRef.current;
-    if (!v || !c) return;
-    const ctx = c.getContext("2d", { willReadFrequently: true });
-    if (!ctx) return;
+    const v = bodyVideoRef.current;
+    if (!v) return;
+    const work = document.createElement("canvas");
+    const wctx = work.getContext("2d", { willReadFrequently: true });
+    if (!wctx) return;
     let raf = 0;
     let mode: "green" | "blue" = bodyKey === "blue" ? "blue" : "green";
     let detected = bodyKey !== "auto";
@@ -630,10 +619,10 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
       raf = requestAnimationFrame(draw);
       if (v.readyState < 2 || !v.videoWidth) return;
       const W = 540, H = Math.round((W * v.videoHeight) / v.videoWidth);
-      if (c.width !== W || c.height !== H) { c.width = W; c.height = H; }
-      ctx.drawImage(v, 0, 0, W, H);
+      if (work.width !== W || work.height !== H) { work.width = W; work.height = H; }
+      wctx.drawImage(v, 0, 0, W, H);
       let img: ImageData;
-      try { img = ctx.getImageData(0, 0, W, H); } catch { return; }
+      try { img = wctx.getImageData(0, 0, W, H); } catch { return; }
       const d = img.data;
       if (!detected) {
         const r0 = d[0], g0 = d[1], b0 = d[2];
@@ -644,13 +633,19 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
         const r = d[i], g = d[i + 1], b = d[i + 2];
         if (mode === "green") {
           if (g > 90 && g > r * 1.25 && g > b * 1.25) d[i + 3] = 0;
-          else if (g > r && g > b) d[i + 1] = Math.max(r, b); // despill
+          else if (g > r && g > b) d[i + 1] = Math.max(r, b);
         } else {
           if (b > 90 && b > r * 1.25 && b > g * 1.25) d[i + 3] = 0;
           else if (b > r && b > g) d[i + 2] = Math.max(r, g);
         }
       }
-      ctx.putImageData(img, 0, 0);
+      wctx.putImageData(img, 0, 0);
+      for (const ref of [bodyCanvasRef, bodyCanvasTplRef]) {
+        const c = ref.current; if (!c) continue;
+        if (c.width !== W || c.height !== H) { c.width = W; c.height = H; }
+        const cc = c.getContext("2d"); if (!cc) continue;
+        cc.clearRect(0, 0, W, H); cc.drawImage(work, 0, 0);
+      }
     };
     raf = requestAnimationFrame(draw);
     v.play().catch(() => {});
@@ -668,6 +663,9 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
     previewUrl: string; stockSel: string; avatarId: string;
     zoom: number; offsetX: number; offsetY: number;
     badgePos: { x: number; y: number };
+    // Body (gesture) layer — bundled so picking a template at Livehost auto-loads it.
+    bodyUrl?: string; bodyKey?: "auto" | "green" | "blue";
+    bodyZoom?: number; bodyOffsetX?: number; bodyOffsetY?: number; bodyClipTop?: number;
   };
   const [savedTemplates, setSavedTemplates] = useState<SavedTpl[]>([]);
   const [savedPickerOpen, setSavedPickerOpen] = useState(false);
@@ -699,14 +697,23 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
         id: "tpl" + Date.now().toString(36), name, createdAt: Date.now(),
         overlaySel, customOverlay, overlayUrl, previewUrl, stockSel, avatarId,
         zoom, offsetX, offsetY, badgePos,
+        bodyUrl, bodyKey, bodyZoom, bodyOffsetX, bodyOffsetY, bodyClipTop,
       },
     ]);
-  }, [savedTemplates, persistTemplates, overlaySel, customOverlay, overlayUrl, previewUrl, stockSel, avatarId, zoom, offsetX, offsetY, badgePos]);
+  }, [savedTemplates, persistTemplates, overlaySel, customOverlay, overlayUrl, previewUrl, stockSel, avatarId, zoom, offsetX, offsetY, badgePos, bodyUrl, bodyKey, bodyZoom, bodyOffsetX, bodyOffsetY, bodyClipTop]);
   const loadTemplate = useCallback((t: SavedTpl) => {
     setOverlaySel(t.overlaySel); setCustomOverlay(t.customOverlay);
     setStockSel(t.stockSel); setAvatarId(t.avatarId); setPreviewUrl(t.previewUrl);
     setZoom(t.zoom); setOffsetX(t.offsetX); setOffsetY(t.offsetY);
     setBadgePos(t.badgePos || { x: 4, y: 10 });
+    // Body layer (auto-organize at Livehost): restore or clear if the template has none.
+    setBodyUrl(t.bodyUrl || "");
+    setBodyKey(t.bodyKey || "auto");
+    setBodyZoom(typeof t.bodyZoom === "number" ? t.bodyZoom : 1);
+    setBodyOffsetX(typeof t.bodyOffsetX === "number" ? t.bodyOffsetX : 0);
+    setBodyOffsetY(typeof t.bodyOffsetY === "number" ? t.bodyOffsetY : 0);
+    setBodyClipTop(typeof t.bodyClipTop === "number" ? t.bodyClipTop : 22);
+    setEditLayer("avatar");
   }, []);
   const deleteTemplate = useCallback(async (id: string) => {
     if (!(await confirmDelete("Padam template ini?"))) return;
@@ -1868,26 +1875,17 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
                       clipPath: bodyUrl ? `inset(0 0 ${Math.max(0, 100 - bodyClipTop)}% 0)` : undefined,
                     }} />
                 )}
-                {/* BODY LAYER — gesture clip, green/blue keyed in the canvas,
-                    sits ABOVE the avatar (covers its static body) but BELOW the
-                    overlay. clipTop hides the Kling head so the AVTR-1 head shows. */}
+                {/* BODY LAYER (live) — green/blue keyed canvas, ABOVE the avatar
+                    (covers its static body) but BELOW the overlay. clipTop hides
+                    the Kling head so the AVTR-1 head shows. Display-only (drag is
+                    done in the Template tab); composited from the loaded template. */}
                 {bodyUrl && (
-                  <>
-                    {/* NOT display:none — a display:none video stops decoding
-                        frames in most browsers, so drawImage() would be blank.
-                        Keep it in layout but invisible (tiny, opacity 0, behind). */}
-                    <video ref={bodyVideoRef} src={bodyUrl} crossOrigin="anonymous" autoPlay loop muted playsInline
-                      style={{ position: "absolute", left: 0, top: 0, width: 2, height: 2, opacity: 0.01, pointerEvents: "none", zIndex: -1 }} />
-                    <canvas ref={bodyCanvasRef} className={`body-layer${bodyEdit ? " editing" : ""}`}
-                      onPointerDown={onBodyPointerDown} onPointerMove={onBodyPointerMove}
-                      onPointerUp={onBodyPointerUp} onPointerCancel={onBodyPointerUp}
-                      style={{
-                        transform: `translate(${bodyOffsetX}%, ${bodyOffsetY}%) scale(${bodyZoom})`,
-                        clipPath: `inset(${bodyClipTop}% 0 0 0)`,
-                        pointerEvents: bodyEdit ? "auto" : "none",
-                        cursor: bodyEdit ? "move" : "default",
-                      }} />
-                  </>
+                  <canvas ref={bodyCanvasRef} className="body-layer"
+                    style={{
+                      transform: `translate(${bodyOffsetX}%, ${bodyOffsetY}%) scale(${bodyZoom})`,
+                      clipPath: `inset(${bodyClipTop}% 0 0 0)`,
+                      pointerEvents: "none",
+                    }} />
                 )}
                 {overlayUrl && <img className="overlay" src={overlayUrl} alt="" />}
                 {active && captions && captionLine && <div className="captions">{captionLine}</div>}
@@ -2030,37 +2028,7 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
               onClick={() => setSavedPickerOpen(true)}>
               📁 Pick from saved templates ({savedTemplates.length})
             </button>
-            <div className="hint">Susun avatar + template di tab <b>Template</b>, simpan, kemudian pilih di sini untuk live.</div>
-
-            {/* BODY layer (gesture) — manual pick at Livehost; chroma-keyed +
-                draggable, composited under the avatar head. */}
-            <button type="button" className="filebtn secondary" style={{ marginTop: 8 }}
-              onClick={() => { setBodyPickerOpen(true); loadBodyClips(); }}>
-              🎬 Pick body (gesture){bodyUrl ? " ✓" : ""}
-            </button>
-            {bodyUrl && (
-              <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 6 }}>
-                <div style={{ display: "flex", gap: 6 }}>
-                  <button type="button" className="filebtn secondary" style={{ marginTop: 0, flex: 1, background: bodyEdit ? "var(--grad)" : undefined }}
-                    onClick={() => setBodyEdit((b) => !b)}>{bodyEdit ? "✓ Selesai" : "✋ Gerak"}</button>
-                  <button type="button" className="filebtn secondary" style={{ marginTop: 0, flex: 1 }}
-                    onClick={() => { setBodyOffsetX(0); setBodyOffsetY(0); setBodyZoom(1); setBodyClipTop(22); }}>↺ Reset</button>
-                  <button type="button" className="filebtn secondary" style={{ marginTop: 0, width: 42 }}
-                    title="Buang body" onClick={() => { setBodyUrl(""); setBodyEdit(false); }}>✕</button>
-                </div>
-                <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: "var(--muted)" }}>
-                  <span style={{ width: 70 }}>Zoom</span>
-                  <input type="range" min="0.5" max="2.2" step="0.02" value={bodyZoom}
-                    onChange={(e) => setBodyZoom(parseFloat(e.target.value))} style={{ flex: 1 }} />
-                </label>
-                <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: "var(--muted)" }}>
-                  <span style={{ width: 70 }}>Crop atas</span>
-                  <input type="range" min="0" max="55" step="1" value={bodyClipTop}
-                    onChange={(e) => setBodyClipTop(parseInt(e.target.value))} style={{ flex: 1 }} />
-                </label>
-                <div className="hint" style={{ marginTop: 0 }}>Body Kling (gesture) — hijau/biru dibuang auto. <b>Crop atas</b> sembunyikan kepala Kling; <b>Gerak</b> + Zoom letak leher badan tepat bawah kepala avatar.</div>
-              </div>
-            )}
+            <div className="hint">Susun avatar + body + template di tab <b>Template</b>, simpan, kemudian pilih di sini — semua layer (avatar, body, overlay, kedudukan) auto-muat.</div>
 
             <div className="hint" style={{ marginTop: 6 }}>🎙 Suara, volume, speed &amp; emosi kini <b>per-skrip</b> — set semasa cipta skrip di tab <b>Scripts</b>. Setiap skrip main dengan audio &amp; suaranya sendiri.</div>
 
@@ -2132,7 +2100,20 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
                 <video ref={templateVideoRef} autoPlay playsInline muted style={{ display: "none" }} />
                 {previewUrl && (
                   <img className="avatar-preview" src={previewUrl} alt="" draggable={false}
-                    style={{ transform: `translate(${offsetX}%, ${offsetY}%) scale(${zoom})` }} />
+                    style={{
+                      transform: `translate(${offsetX}%, ${offsetY}%) scale(${zoom})`,
+                      // body present → show only the head (top crop-line) so model
+                      // head + gesture body compose without a double figure.
+                      clipPath: bodyUrl ? `inset(0 0 ${Math.max(0, 100 - bodyClipTop)}% 0)` : undefined,
+                    }} />
+                )}
+                {bodyUrl && (
+                  <canvas ref={bodyCanvasTplRef} className={`body-layer${editLayer === "body" ? " editing" : ""}`}
+                    style={{
+                      transform: `translate(${bodyOffsetX}%, ${bodyOffsetY}%) scale(${bodyZoom})`,
+                      clipPath: `inset(${bodyClipTop}% 0 0 0)`,
+                      pointerEvents: "none",
+                    }} />
                 )}
                 {overlayUrl && <img className="overlay" src={overlayUrl} alt="" />}
                 <div className="ai-badge" style={{ left: `${badgePos.x}%`, top: `${badgePos.y}%` }}
@@ -2178,13 +2159,43 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
               </div>
               <div className="hint">Edit di Canva → <b>Share</b> → <b>Download</b> → File Type <b>PNG</b> → <b>Select Pages</b> Edit → <b>Download</b> → Upload <b>Attachment</b> balik.</div>
 
-              <div className="label">Avatar fit — drag the avatar on screen to move it</div>
-              <button type="button" className="filebtn secondary" onClick={() => { setOffsetX(0); setOffsetY(0); setZoom(1); }}>
-                ↺ Reset position
-              </button>
-              <div className="range-row"><span>Zoom</span>
-                <input type="range" min="0.5" max="2" step="0.02" value={zoom} onChange={(e) => setZoom(parseFloat(e.target.value))} />
+              {/* BODY (gesture) — green/blue keyed, composited UNDER the avatar head */}
+              <div className="label">Body (gesture) — pick from Template Body</div>
+              <div style={{ display: "flex", gap: 8, marginTop: 0 }}>
+                <button type="button" className="filebtn secondary" style={{ flex: 1, marginTop: 0 }}
+                  onClick={() => { setBodyPickerOpen(true); loadBodyClips(); }}>
+                  🎬 Pick body{bodyUrl ? " ✓" : ""}
+                </button>
+                {bodyUrl && (
+                  <button type="button" className="filebtn secondary" style={{ flex: "0 0 auto", marginTop: 0, width: 44, padding: 0, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 15, color: "#ff9aa8" }} title="Buang body"
+                    onClick={() => { setBodyUrl(""); if (editLayer === "body") setEditLayer("avatar"); }}>✕</button>
+                )}
               </div>
+
+              {/* LAYER FIT — radio picks which layer the drag + zoom act on */}
+              <div className="label">Layer fit — pilih layer, seret pada skrin + zoom</div>
+              <div style={{ display: "flex", gap: 8 }}>
+                <button type="button" className="filebtn secondary" style={{ flex: 1, marginTop: 0, background: editLayer === "avatar" ? "var(--grad)" : undefined, color: editLayer === "avatar" ? "#fff" : undefined }}
+                  onClick={() => setEditLayer("avatar")}>{editLayer === "avatar" ? "◉" : "○"} Avatar</button>
+                <button type="button" className="filebtn secondary" style={{ flex: 1, marginTop: 0, background: editLayer === "body" ? "var(--grad)" : undefined, color: editLayer === "body" ? "#fff" : undefined, opacity: bodyUrl ? 1 : 0.5, cursor: bodyUrl ? "pointer" : "not-allowed" }}
+                  disabled={!bodyUrl} onClick={() => setEditLayer("body")}>{editLayer === "body" ? "◉" : "○"} Body</button>
+              </div>
+              <button type="button" className="filebtn secondary" onClick={() => {
+                if (editLayer === "body") { setBodyOffsetX(0); setBodyOffsetY(0); setBodyZoom(1); setBodyClipTop(22); }
+                else { setOffsetX(0); setOffsetY(0); setZoom(1); }
+              }}>↺ Reset {editLayer === "body" ? "body" : "avatar"}</button>
+              <div className="range-row"><span>Zoom</span>
+                <input type="range" min="0.5" max="2.2" step="0.02"
+                  value={editLayer === "body" ? bodyZoom : zoom}
+                  onChange={(e) => { const z = parseFloat(e.target.value); if (editLayer === "body") setBodyZoom(z); else setZoom(z); }} />
+              </div>
+              {editLayer === "body" && bodyUrl && (
+                <div className="range-row"><span>Crop atas</span>
+                  <input type="range" min="0" max="55" step="1" value={bodyClipTop}
+                    onChange={(e) => setBodyClipTop(parseInt(e.target.value))} />
+                </div>
+              )}
+              <div className="hint">Pilih <b>Avatar</b> atau <b>Body</b> → seret pada skrin + Zoom. Untuk Body: <b>Crop atas</b> sembunyikan kepala Kling; letak leher badan tepat bawah kepala avatar.</div>
 
               <button type="button" className="filebtn" style={{ marginTop: 14, opacity: avatarId && overlayUrl ? 1 : 0.5, cursor: avatarId && overlayUrl ? "pointer" : "not-allowed" }}
                 disabled={!avatarId || !overlayUrl} onClick={saveCurrentTemplate}>
@@ -2481,6 +2492,14 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
         </div>
       </div>
 
+      {/* BODY source <video> at the component ROOT (NOT inside a display:none
+          view) so it keeps decoding regardless of the active tab — the render
+          loop reads it + blits the keyed frame to both stage canvases. */}
+      {bodyUrl && (
+        <video ref={bodyVideoRef} src={bodyUrl} crossOrigin="anonymous" autoPlay loop muted playsInline
+          style={{ position: "fixed", left: 0, top: 0, width: 2, height: 2, opacity: 0.01, pointerEvents: "none", zIndex: -1 }} />
+      )}
+
       {/* Attachment pickers — avatar + overlay/template now come from the
           PeningLab Attachments library (Portal-rendered, app-styled). */}
       <AttachmentPicker
@@ -2568,7 +2587,7 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
                     onClick={() => {
                       setBodyUrl(b.url);
                       setBodyKey(b.bgColor === "blue" ? "blue" : b.bgColor === "green" ? "green" : "auto");
-                      setBodyOffsetX(0); setBodyOffsetY(0); setBodyZoom(1); setBodyClipTop(22); setBodyEdit(false);
+                      setBodyOffsetX(0); setBodyOffsetY(0); setBodyZoom(1); setBodyClipTop(22); setEditLayer("body");
                       setBodyPickerOpen(false);
                     }}>
                     <video src={b.url + "#t=1"} muted preload="metadata" poster={b.poster || undefined}
