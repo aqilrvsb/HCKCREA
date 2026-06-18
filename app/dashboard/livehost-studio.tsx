@@ -439,6 +439,10 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
   const [scripts, setScripts] = useState<Script[]>([]);
   const [rundown, setRundown] = useState<string[]>([]);
   const [rundownAdd, setRundownAdd] = useState("");
+  // Drag-and-drop reorder of the rundown: ref = the row being dragged (no
+  // re-render needed); state = the row currently hovered over (for highlight).
+  const dragIndexRef = useRef<number | null>(null);
+  const [dragOverIdx, setDragOverIdx] = useState<number | null>(null);
   const [playPos, setPlayPos] = useState<{ s: number; l: number }>({ s: -1, l: -1 });
   const playPosRef = useRef<{ s: number; l: number }>({ s: -1, l: -1 }); // live mirror for pause/resume
   const [scriptPlaying, setScriptPlaying] = useState(false);
@@ -1560,6 +1564,20 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
       return u;
     });
   }, [scriptPlaying, playPos.s]);
+  // DRAG-REORDER: pull item out of `from` and insert it at `to` (any position) —
+  // not just an adjacent swap like moveInRundown. While playing, you can't move a
+  // played/playing item or drop into an already-played slot (same guard as ↑↓).
+  const reorderRundown = useCallback((from: number, to: number) => {
+    if (from === to || from < 0 || to < 0) return;
+    if (scriptPlaying && playPos.s >= 0 && (from <= playPos.s || to <= playPos.s)) return;
+    setRundown((prev) => {
+      if (from >= prev.length || to >= prev.length) return prev;
+      const u = [...prev];
+      const [m] = u.splice(from, 1);
+      u.splice(to, 0, m);
+      return u;
+    });
+  }, [scriptPlaying, playPos.s]);
 
   // SFX (bell/clap) — played in the page so OBS tab/window capture picks it up.
   const simRotateRef = useRef(0);
@@ -1789,9 +1807,18 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
                   const sc = scripts.find((x) => x.id === id);
                   const playing = scriptPlaying && playPos.s === i;
                   const done = scriptPlaying && playPos.s >= 0 && i < playPos.s;
+                  // Locked = already played/playing while live → can't drag/move it.
+                  const locked = scriptPlaying && playPos.s >= 0 && i <= playPos.s;
                   return (
-                    <div key={`${id}-${i}`} className={`queue-item ${playing ? "now" : done ? "done" : ""}`}>
-                      <span className="queue-title">{i + 1}. {sc ? sc.title : "(deleted)"}</span>
+                    <div key={`${id}-${i}`}
+                      className={`queue-item ${playing ? "now" : done ? "done" : ""} ${dragOverIdx === i ? "drag-over" : ""} ${locked ? "" : "draggable"}`}
+                      draggable={!locked}
+                      onDragStart={(e) => { dragIndexRef.current = i; e.dataTransfer.effectAllowed = "move"; }}
+                      onDragOver={(e) => { if (dragIndexRef.current === null) return; e.preventDefault(); e.dataTransfer.dropEffect = "move"; if (dragOverIdx !== i) setDragOverIdx(i); }}
+                      onDragLeave={() => { if (dragOverIdx === i) setDragOverIdx(null); }}
+                      onDrop={(e) => { e.preventDefault(); if (dragIndexRef.current !== null) reorderRundown(dragIndexRef.current, i); dragIndexRef.current = null; setDragOverIdx(null); }}
+                      onDragEnd={() => { dragIndexRef.current = null; setDragOverIdx(null); }}>
+                      <span className="queue-title">{locked ? "" : <span className="drag-grip" aria-hidden>⠿</span>}{i + 1}. {sc ? sc.title : "(deleted)"}</span>
                       <span className="queue-btns">
                         <button onClick={() => moveInRundown(i, -1)}>↑</button>
                         <button onClick={() => moveInRundown(i, 1)}>↓</button>
@@ -2402,6 +2429,10 @@ const STUDIO_CSS = `
 .lh-studio .queue-list{flex:1;min-height:0;overflow-y:auto;background:rgba(0,0,0,.32);border:1px solid var(--border-s);border-radius:12px;padding:6px;}
 .lh-studio .queue-item{display:flex;align-items:center;justify-content:space-between;gap:4px;padding:7px 9px;border-radius:9px;font-size:12px;color:var(--text);transition:background .15s;}
 .lh-studio .queue-item:hover{background:rgba(99,102,241,.1);}
+.lh-studio .queue-item.draggable{cursor:grab;}
+.lh-studio .queue-item.draggable:active{cursor:grabbing;}
+.lh-studio .queue-item.drag-over{box-shadow:inset 0 2px 0 0 #818cf8;background:rgba(99,102,241,.18);}
+.lh-studio .drag-grip{display:inline-block;margin-right:6px;color:#818cf8;font-weight:700;letter-spacing:-1px;opacity:.75;cursor:grab;}
 .lh-studio .queue-item.now{background:var(--grad);color:#fff;font-weight:700;box-shadow:0 6px 16px -6px rgba(99,102,241,.7);}
 .lh-studio .queue-item.done{color:#5b6480;}
 .lh-studio .queue-title{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;}
