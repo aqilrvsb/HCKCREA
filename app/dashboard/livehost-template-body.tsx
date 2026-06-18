@@ -124,7 +124,7 @@ export default function LivehostTemplateBody() {
 
         <div style={{ marginTop: 14 }}><LhLabel>Video gerakan (.mp4)</LhLabel></div>
         {videoUrl && (
-          <video src={videoUrl} controls style={{ width: "100%", maxHeight: 220, borderRadius: 12, border: "1px solid #e8e0d8", marginBottom: 8, background: "#000" }} />
+          <video src={videoUrl} controls controlsList="nofullscreen nodownload noplaybackrate" disablePictureInPicture style={{ width: "100%", maxHeight: 220, borderRadius: 12, border: "1px solid #e8e0d8", marginBottom: 8, background: "#000" }} />
         )}
         <div style={{ display: "flex", gap: 8 }}>
           <button type="button" disabled={uploadingVid} onClick={() => vidInputRef.current?.click()} style={{ ...F, flex: 1, cursor: "pointer", fontWeight: 700, background: "#fff" }}>
@@ -157,7 +157,7 @@ export default function LivehostTemplateBody() {
                   style={{ position: "absolute", top: 6, right: 6, zIndex: 2, border: "1px solid #f3c0c0", background: "#fff0f0", color: "#e23", borderRadius: 8, padding: "2px 6px", fontSize: 11, cursor: "pointer" }}>🗑</button>
                 <div style={{ aspectRatio: "9/16", background: "#000", display: "flex", alignItems: "center", justifyContent: "center" }}>
                   {r.status === "done" && r.output_url ? (
-                    <video src={r.output_url + "#t=0.5"} preload="metadata" muted controls style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                    <video src={r.output_url + "#t=0.5"} preload="metadata" muted controls controlsList="nofullscreen nodownload noplaybackrate" disablePictureInPicture style={{ width: "100%", height: "100%", objectFit: "cover" }} />
                   ) : r.status === "failed" ? (
                     <span style={{ color: "#f87171", fontSize: 11, padding: 10, textAlign: "center" }}>❌ {r.error_message || "Failed"}</span>
                   ) : r.reference_url ? (
