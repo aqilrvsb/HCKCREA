@@ -1873,8 +1873,11 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
                     overlay. clipTop hides the Kling head so the AVTR-1 head shows. */}
                 {bodyUrl && (
                   <>
+                    {/* NOT display:none — a display:none video stops decoding
+                        frames in most browsers, so drawImage() would be blank.
+                        Keep it in layout but invisible (tiny, opacity 0, behind). */}
                     <video ref={bodyVideoRef} src={bodyUrl} crossOrigin="anonymous" autoPlay loop muted playsInline
-                      style={{ display: "none" }} />
+                      style={{ position: "absolute", left: 0, top: 0, width: 2, height: 2, opacity: 0.01, pointerEvents: "none", zIndex: -1 }} />
                     <canvas ref={bodyCanvasRef} className={`body-layer${bodyEdit ? " editing" : ""}`}
                       onPointerDown={onBodyPointerDown} onPointerMove={onBodyPointerMove}
                       onPointerUp={onBodyPointerUp} onPointerCancel={onBodyPointerUp}
