@@ -214,7 +214,6 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
   const [bodyOffsetY, setBodyOffsetY] = useState(0);
   const [bodyClipTop, setBodyClipTop] = useState(22); // % cropped off the top (hides Kling head)
   const [bodyPickerOpen, setBodyPickerOpen] = useState(false);
-  const [keepGpuWarm, setKeepGpuWarm] = useState(false); // keep the GPU on (no auto-shutdown) while checked
   const [bodyClips, setBodyClips] = useState<{ id: string; url: string; bgColor: string; poster: string }[]>([]);
   // Which layer the Template-tab drag/zoom controls act on (radio: avatar | body).
   const [editLayer, setEditLayer] = useState<"avatar" | "body">("avatar");
@@ -663,20 +662,6 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
   // there's no still-image-vs-live-video drift). Body is picked/edited in Livehost.
   useEffect(() => { setEditLayer(view === "live" && bodyUrl ? "body" : "avatar"); }, [view, bodyUrl]);
 
-  // KEEP GPU WARM: while checked, make sure it's warmed and PING the assigned
-  // worker every 60s (well inside Novita's ~16-min freeTimeout) so it never
-  // scales to zero — no cold-boot between setup attempts. Unchecking stops the
-  // pings → it idles down on its own. (The 15-min idle auto-release is also
-  // suppressed while this is on — see that effect below.)
-  useEffect(() => {
-    if (!keepGpuWarm) return;
-    // Ping immediately + every 60s. (Warm-on-open assigns/warms the worker; this
-    // just keeps it alive. If no worker yet, the ping is a no-op until one is.)
-    const ping = () => { const u = backendRef.current; if (u) fetch(`${u}/ping`).catch(() => {}); };
-    ping();
-    const id = setInterval(ping, 60000);
-    return () => clearInterval(id);
-  }, [keepGpuWarm]);
 
 
   // ---- Saved templates (composition history) ----
@@ -1448,20 +1433,8 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
     warmGpu();
   }, [view, poolMode, active, connecting, warmGpu]);
 
-  // 15-MIN IDLE WATCHDOG: if the GPU is warmed but the host never presses ▶ Start
-  // within 15 min, release the slot + go back to the Dashboard (no runaway warm cost).
-  useEffect(() => {
-    if (gpuWarm !== "ready" || active) return;
-    if (keepGpuWarm) return; // host explicitly wants the GPU kept on → no auto-release
-    if (warmTimerRef.current) clearTimeout(warmTimerRef.current);
-    warmTimerRef.current = setTimeout(() => {
-      if (activeRef.current || keepGpuWarm) return; // streaming or kept-warm → keep it
-      fetch("/api/livehost/pool", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "release" }), keepalive: true }).catch(() => {});
-      backendRef.current = "";
-      window.location.href = "/dashboard";
-    }, 15 * 60 * 1000);
-    return () => { if (warmTimerRef.current) { clearTimeout(warmTimerRef.current); warmTimerRef.current = null; } };
-  }, [gpuWarm, active, keepGpuWarm]);
+  // (No idle auto-release / timeout — the GPU is dedicated + always-on per client,
+  // controlled manually via the GPU ON/OFF button at Billing. ON = billed.)
 
   const sendControl = useCallback((payload: object): boolean => {
     const dc = dcRef.current;
@@ -2066,13 +2039,7 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
               </div>
             )}
 
-            {/* Keep the GPU warm (no auto-shutdown) while checked — useful while
-                setting up so there's no cold-boot wait between attempts. */}
-            <label style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 12, fontSize: 13, cursor: "pointer" }}>
-              <input type="checkbox" checked={keepGpuWarm} onChange={(e) => setKeepGpuWarm(e.target.checked)} />
-              <span>🔥 Kekalkan GPU hidup (jangan auto-tutup)</span>
-            </label>
-            <div className="hint" style={{ marginTop: 4 }}>Dicentang = GPU kekal panas (tiada cold-boot ~7min semula) sampai awak uncheck. ⚠ GPU panas guna kredit walaupun tak live — uncheck bila habis.</div>
+            <div className="hint" style={{ marginTop: 8 }}>GPU dedikasi (always-on) — hidup/mati di tab <b>Billing</b>. Selagi ON, ia kekal (tiada disconnect) &amp; dicaj ikut jam.</div>
 
             <div className="hint" style={{ marginTop: 6 }}>🎙 Suara, volume, speed &amp; emosi kini <b>per-skrip</b> — set semasa cipta skrip di tab <b>Scripts</b>. Setiap skrip main dengan audio &amp; suaranya sendiri.</div>
 

@@ -83,7 +83,11 @@ export async function createPoolEndpoint(label?: string): Promise<CreateResult> 
     const body = {
       endpoint: {
         name,
-        workerConfig: { minNum: 0, maxNum: 1, freeTimeout: 1000, maxConcurrent: 1, gpuNum: 1, requestTimeout: 120 },
+        // minNum:1 = ALWAYS-ON (1 GPU per client). Keeps the worker permanently so
+        // Novita's freeTimeout never removes it mid-stream (WebRTC sends no HTTP
+        // requests → it would otherwise be killed ~16.7min in). No restart cycle →
+        // no mid-live disconnect. Always billed; host limits client count.
+        workerConfig: { minNum: 1, maxNum: 1, freeTimeout: 1000, maxConcurrent: 1, gpuNum: 1, requestTimeout: 120 },
         policy: { type: "queue", value: 4 },
         image: { image: IMAGE, authId: AUTH_ID, command: "" },
         rootfsSize: 90,

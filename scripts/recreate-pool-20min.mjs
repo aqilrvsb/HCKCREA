@@ -60,16 +60,23 @@ const oldIds = (oldRows || []).map((r) => r.endpoint_id);
 console.log("old endpoints:", oldIds);
 
 const created = [];
-for (let i = 0; i < 4; i++) {
+// 1 GPU = 1 CLIENT, ALWAYS-ON: minNum:1 keeps a worker running permanently so
+// Novita's freeTimeout never removes it mid-stream (the WebRTC stream sends no
+// HTTP requests, so Novita would otherwise think it's idle and kill it at ~16.7
+// min). No scale-to-0 → no restart cycle → no "2 workers" overlap, no mid-live
+// disconnect. Trade-off: always billed (host limits client count to control it).
+const COUNT = parseInt(process.argv[2]) || 2;
+console.log("creating", COUNT, "ALWAYS-ON (minNum:1) endpoints");
+for (let i = 0; i < COUNT; i++) {
   const name = "lh-pool-" + Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
-  const body = { endpoint: { name, workerConfig: { minNum: 0, maxNum: 1, freeTimeout: 1000, maxConcurrent: 1, gpuNum: 1, requestTimeout: 120 }, policy: { type: "queue", value: 4 }, image: { image: IMAGE, authId: AUTH_ID, command: "" }, rootfsSize: 90, products: [{ id: PRODUCT }], ports: [{ port: 8000 }], healthy: { path: "/ping" }, clusterIDs: [CLUSTER], type: "sync", envs } };
+  const body = { endpoint: { name, workerConfig: { minNum: 1, maxNum: 1, freeTimeout: 1000, maxConcurrent: 1, gpuNum: 1, requestTimeout: 120 }, policy: { type: "queue", value: 4 }, image: { image: IMAGE, authId: AUTH_ID, command: "" }, rootfsSize: 90, products: [{ id: PRODUCT }], ports: [{ port: 8000 }], healthy: { path: "/ping" }, clusterIDs: [CLUSTER], type: "sync", envs } };
   const d = await novita("/endpoint/create", nkey, { method: "POST", body: JSON.stringify(body) });
   const id = d?.id || d?.endpoint?.id;
   if (!id) { console.error("create FAILED:", JSON.stringify(d).slice(0, 300)); continue; }
   await sb.from("livehost_pool").insert({ endpoint_id: id, runsync_url: runsyncUrl(id), label: "lh-pool max", status: "free" });
   created.push(id);
   console.log("created", id);
-  if (i < 3) await new Promise((r) => setTimeout(r, 8000));
+  if (i < COUNT - 1) await new Promise((r) => setTimeout(r, 8000));
 }
 if (!created.length) { console.error("no endpoints created — aborting before delete"); process.exit(1); }
 
