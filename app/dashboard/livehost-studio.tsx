@@ -696,8 +696,11 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
     saveLivehostState();
   }, []);
   const saveCurrentTemplate = useCallback(() => {
-    // Must have BOTH an avatar and a template overlay — not just one.
-    if (!avatarId || !overlayUrl) {
+    // Need an avatar IMAGE + a template overlay. We gate on previewUrl (the
+    // picked avatar image), NOT avatarId — Default (own) avatars only get a
+    // registered avatarId once the GPU is warm at live-start, but the template
+    // is just a composition snapshot and the image is enough to save it.
+    if (!previewUrl || !overlayUrl) {
       alert("Pilih AVATAR dan TEMPLATE dahulu sebelum simpan.");
       return;
     }
@@ -1150,7 +1153,13 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
 
   const start = useCallback(async () => {
     setError("");
-    if (!avatarId) { setError("Pick or upload a face first."); return; }
+    // Avatar id: stock + pick-registered avatars already have one. A Default
+    // (own) avatar arranged while the GPU was cold (e.g. in the Template tab)
+    // has only previewUrl — mint an id now; it gets registered on the warm
+    // worker just before /offer below.
+    let aid = avatarId;
+    if (!aid && previewUrl) { aid = "u" + Date.now().toString(36); setAvatarId(aid); }
+    if (!aid) { setError("Pick or upload a face first."); return; }
     // RESUME mode = this call is an auto-reconnect (set by tryReconnect). Consume
     // the flag now; a fresh user-pressed Start (resume=false) resets reconnect
     // state + checks balance; a reconnect skips both and keeps the script position.
@@ -1337,16 +1346,20 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
       // has the baked default avatars. Register the selected avatar on the worker
       // BEFORE /offer, otherwise process-audio-v3 returns 404 (unknown avatar_id)
       // and the avatar renders but can't speak. Retries while the renderer warms.
-      if (avatarId && previewUrl) {
+      if (aid && previewUrl) {
         setWakeMsg("Menyediakan avatar… ⏳");
         for (let a = 0; a < 8; a++) {
           try {
             const avs = await fetch(`${backendRef.current}/avatars`, { signal: AbortSignal.timeout(8000) }).then((r) => r.json());
-            if (Array.isArray(avs?.avatars) && avs.avatars.includes(avatarId)) break;
-            const img = await fetch(previewUrl).then((r) => r.blob());
+            if (Array.isArray(avs?.avatars) && avs.avatars.includes(aid)) break;
+            // Cross-origin (B2) avatars can't be fetched directly in the browser
+            // (no CORS) — route through our same-origin image proxy. Stock
+            // avatars (/avatars/*) are same-origin and usually break out above.
+            const imgSrc = previewUrl.startsWith("http") ? `/api/proxy-image-fetch?url=${encodeURIComponent(previewUrl)}` : previewUrl;
+            const img = await fetch(imgSrc).then((r) => r.blob());
             // avatar_id in the PATH (not query) — the serverless ingress strips
             // query params on POST, which made every avatar register as "custom".
-            const rr = await fetch(`${backendRef.current}/register-avatar/${encodeURIComponent(avatarId)}`, {
+            const rr = await fetch(`${backendRef.current}/register-avatar/${encodeURIComponent(aid)}`, {
               method: "POST", body: img, headers: { "content-type": img.type || "image/png" },
             });
             if (rr.ok) break;
@@ -1360,7 +1373,7 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
         engine: { type: "minimax", voice_id: voiceId, system_prompt: buildKbPrompt(activeKb), speed, emotion },
         sdp: pc.localDescription!.sdp,
         type: pc.localDescription!.type,
-        avatar_id: avatarId,
+        avatar_id: aid,
         background_id: backgrounds.includes("plain_white") ? "plain_white" : (backgrounds[0] || "plain_white"),
       });
       // Robust offer: the renderer may still be warming the first few seconds
@@ -1399,7 +1412,7 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
         stop();
       }
     }
-  }, [avatarId, backgrounds, voiceId, stop, speakNext, startWordSweep, buildKbPrompt, activeKb, speed, emotion, volume, configErr, addVoiceChars, beginSession, warmGpu]);
+  }, [avatarId, previewUrl, backgrounds, voiceId, stop, speakNext, startWordSweep, buildKbPrompt, activeKb, speed, emotion, volume, configErr, addVoiceChars, beginSession, warmGpu]);
   useEffect(() => { startRef.current = start; }, [start]);
 
   // (No warm-on-open. The GPU is turned ON/OFF only at the Usage tab. Opening the
@@ -2189,12 +2202,12 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
               </div>
               <div className="hint">Body (gesture) ditambah di tab <b>Livehost</b> selepas avatar live.</div>
 
-              <button type="button" className="filebtn" style={{ marginTop: 14, opacity: avatarId && overlayUrl ? 1 : 0.5, cursor: avatarId && overlayUrl ? "pointer" : "not-allowed" }}
-                disabled={!avatarId || !overlayUrl} onClick={saveCurrentTemplate}>
+              <button type="button" className="filebtn" style={{ marginTop: 14, opacity: previewUrl && overlayUrl ? 1 : 0.5, cursor: previewUrl && overlayUrl ? "pointer" : "not-allowed" }}
+                disabled={!previewUrl || !overlayUrl} onClick={saveCurrentTemplate}>
                 💾 Save current as template
               </button>
-              {(!avatarId || !overlayUrl) && (
-                <div className="hint" style={{ marginTop: 6 }}>Perlu pilih <b>Avatar</b> {!avatarId ? "❌" : "✓"} dan <b>Template</b> {!overlayUrl ? "❌" : "✓"} dahulu.</div>
+              {(!previewUrl || !overlayUrl) && (
+                <div className="hint" style={{ marginTop: 6 }}>Perlu pilih <b>Avatar</b> {!previewUrl ? "❌" : "✓"} dan <b>Template</b> {!overlayUrl ? "❌" : "✓"} dahulu.</div>
               )}
           </div>
         </div>
