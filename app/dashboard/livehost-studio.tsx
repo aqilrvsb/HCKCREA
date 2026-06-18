@@ -201,6 +201,23 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
   const [offsetX, setOffsetX] = useState(0);
   const [previewUrl, setPreviewUrl] = useState("");
   const dragRef = useRef<{ startX: number; startY: number; baseX: number; baseY: number; active: boolean }>({ startX: 0, startY: 0, baseX: 0, baseY: 0, active: false });
+  // ── BODY LAYER (Livehost) — a chroma-keyed gesture clip (Kling, generated on a
+  // green/blue screen) composited UNDER the AVTR-1 head: it covers the avatar's
+  // static body with a gesturing one, the live talking head shows above. Picked
+  // manually at Livehost. clipTop hides the Kling head (so AVTR-1's shows); the
+  // green/blue is keyed out in a canvas (auto-detect or from the stored bgColor).
+  const [bodyUrl, setBodyUrl] = useState("");
+  const [bodyKey, setBodyKey] = useState<"auto" | "green" | "blue">("auto");
+  const [bodyZoom, setBodyZoom] = useState(1);
+  const [bodyOffsetX, setBodyOffsetX] = useState(0);
+  const [bodyOffsetY, setBodyOffsetY] = useState(0);
+  const [bodyClipTop, setBodyClipTop] = useState(22); // % cropped off the top (hides Kling head)
+  const [bodyEdit, setBodyEdit] = useState(false);    // drag-to-move mode
+  const [bodyPickerOpen, setBodyPickerOpen] = useState(false);
+  const [bodyClips, setBodyClips] = useState<{ id: string; url: string; bgColor: string; poster: string }[]>([]);
+  const bodyVideoRef = useRef<HTMLVideoElement | null>(null);
+  const bodyCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const bodyDragRef = useRef<{ startX: number; startY: number; baseX: number; baseY: number; active: boolean }>({ startX: 0, startY: 0, baseX: 0, baseY: 0, active: false });
   // Draggable AI-disclosure badge (TikTok AI-content policy) — position in % of stage.
   const [badgePos, setBadgePos] = useState<{ x: number; y: number }>({ x: 4, y: 10 });
   const badgeDragRef = useRef<{ startX: number; startY: number; baseX: number; baseY: number; active: boolean }>({ startX: 0, startY: 0, baseX: 0, baseY: 0, active: false });
@@ -568,6 +585,78 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
     try { e.currentTarget.releasePointerCapture(e.pointerId); } catch {}
   }, []);
 
+  // ── BODY LAYER: drag (only in bodyEdit mode; stopPropagation so it never
+  // triggers the avatar/stage drag), chroma-key render loop, and clip loader.
+  const onBodyPointerDown = useCallback((e: React.PointerEvent<HTMLCanvasElement>) => {
+    e.stopPropagation();
+    try { e.currentTarget.setPointerCapture(e.pointerId); } catch {}
+    bodyDragRef.current = { startX: e.clientX, startY: e.clientY, baseX: bodyOffsetX, baseY: bodyOffsetY, active: true };
+  }, [bodyOffsetX, bodyOffsetY]);
+  const onBodyPointerMove = useCallback((e: React.PointerEvent<HTMLCanvasElement>) => {
+    const d = bodyDragRef.current;
+    if (!d.active) return;
+    e.stopPropagation();
+    const r = (e.currentTarget.parentElement as HTMLElement | null)?.getBoundingClientRect();
+    if (!r) return;
+    setBodyOffsetX(Math.max(-90, Math.min(90, d.baseX + ((e.clientX - d.startX) / r.width) * 100)));
+    setBodyOffsetY(Math.max(-90, Math.min(90, d.baseY + ((e.clientY - d.startY) / r.height) * 100)));
+  }, []);
+  const onBodyPointerUp = useCallback((e: React.PointerEvent<HTMLCanvasElement>) => {
+    bodyDragRef.current.active = false;
+    try { e.currentTarget.releasePointerCapture(e.pointerId); } catch {}
+  }, []);
+
+  const loadBodyClips = useCallback(async () => {
+    try {
+      const r = await fetch("/api/livehost/body-clips");
+      const d = await r.json().catch(() => ({}));
+      if (Array.isArray(d.clips)) setBodyClips(d.clips);
+    } catch {}
+  }, []);
+
+  // Chroma-key the body video onto its canvas each frame: punch out the
+  // green/blue screen → transparent so the AVTR-1 body/head below shows through.
+  // Render at 540px wide (cheap for canvas-2D, sharp enough scaled to the stage).
+  useEffect(() => {
+    if (!bodyUrl) return;
+    const v = bodyVideoRef.current, c = bodyCanvasRef.current;
+    if (!v || !c) return;
+    const ctx = c.getContext("2d", { willReadFrequently: true });
+    if (!ctx) return;
+    let raf = 0;
+    let mode: "green" | "blue" = bodyKey === "blue" ? "blue" : "green";
+    let detected = bodyKey !== "auto";
+    const draw = () => {
+      raf = requestAnimationFrame(draw);
+      if (v.readyState < 2 || !v.videoWidth) return;
+      const W = 540, H = Math.round((W * v.videoHeight) / v.videoWidth);
+      if (c.width !== W || c.height !== H) { c.width = W; c.height = H; }
+      ctx.drawImage(v, 0, 0, W, H);
+      let img: ImageData;
+      try { img = ctx.getImageData(0, 0, W, H); } catch { return; }
+      const d = img.data;
+      if (!detected) {
+        const r0 = d[0], g0 = d[1], b0 = d[2];
+        mode = (b0 > g0 && b0 > r0) ? "blue" : "green";
+        detected = true;
+      }
+      for (let i = 0; i < d.length; i += 4) {
+        const r = d[i], g = d[i + 1], b = d[i + 2];
+        if (mode === "green") {
+          if (g > 90 && g > r * 1.25 && g > b * 1.25) d[i + 3] = 0;
+          else if (g > r && g > b) d[i + 1] = Math.max(r, b); // despill
+        } else {
+          if (b > 90 && b > r * 1.25 && b > g * 1.25) d[i + 3] = 0;
+          else if (b > r && b > g) d[i + 2] = Math.max(r, g);
+        }
+      }
+      ctx.putImageData(img, 0, 0);
+    };
+    raf = requestAnimationFrame(draw);
+    v.play().catch(() => {});
+    return () => cancelAnimationFrame(raf);
+  }, [bodyUrl, bodyKey]);
+
 
   // ---- Saved templates (composition history) ----
   // A saved template snapshots the WHOLE composition: which overlay (Canva
@@ -651,6 +740,12 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
       if (typeof saved.speed === "number") setSpeed(saved.speed);
       if (saved.badgePos && typeof saved.badgePos.x === "number") setBadgePos(saved.badgePos);
       if (typeof saved.emotion === "string") setEmotion(saved.emotion);
+      if (typeof saved.bodyUrl === "string") setBodyUrl(saved.bodyUrl);
+      if (saved.bodyKey === "green" || saved.bodyKey === "blue" || saved.bodyKey === "auto") setBodyKey(saved.bodyKey);
+      if (typeof saved.bodyZoom === "number") setBodyZoom(saved.bodyZoom);
+      if (typeof saved.bodyOffsetX === "number") setBodyOffsetX(saved.bodyOffsetX);
+      if (typeof saved.bodyOffsetY === "number") setBodyOffsetY(saved.bodyOffsetY);
+      if (typeof saved.bodyClipTop === "number") setBodyClipTop(saved.bodyClipTop);
       if (Array.isArray(saved.rundown)) { setRundown(saved.rundown); rundownRef.current = saved.rundown; }
       try {
         const lib = JSON.parse(localStorage.getItem("livehost_products_lib") || "[]");
@@ -706,10 +801,10 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
   useEffect(() => {
     if (!hydratedRef.current) return;
     try {
-      localStorage.setItem("livehost_settings", JSON.stringify({ stockSel, overlaySel, voiceId, zoom, offsetX, offsetY, scriptLoop, rundown, volume, speed, badgePos, emotion, liveDurH, liveDurM }));
+      localStorage.setItem("livehost_settings", JSON.stringify({ stockSel, overlaySel, voiceId, zoom, offsetX, offsetY, scriptLoop, rundown, volume, speed, badgePos, emotion, liveDurH, liveDurM, bodyUrl, bodyKey, bodyZoom, bodyOffsetX, bodyOffsetY, bodyClipTop }));
     } catch {}
     saveLivehostState();
-  }, [stockSel, overlaySel, voiceId, zoom, offsetX, offsetY, scriptLoop, rundown, volume, speed, badgePos, emotion, liveDurH, liveDurM]);
+  }, [stockSel, overlaySel, voiceId, zoom, offsetX, offsetY, scriptLoop, rundown, volume, speed, badgePos, emotion, liveDurH, liveDurM, bodyUrl, bodyKey, bodyZoom, bodyOffsetX, bodyOffsetY, bodyClipTop]);
   // (Scripts persist to Supabase via /api/livehost/scripts — no localStorage copy.)
   useEffect(() => {
     if (!hydratedRef.current) return;
@@ -1773,6 +1868,24 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
                   <img className="avatar-preview" src={previewUrl} alt="" draggable={false}
                     style={{ transform: `translate(${offsetX}%, ${offsetY}%) scale(${zoom})` }} />
                 )}
+                {/* BODY LAYER — gesture clip, green/blue keyed in the canvas,
+                    sits ABOVE the avatar (covers its static body) but BELOW the
+                    overlay. clipTop hides the Kling head so the AVTR-1 head shows. */}
+                {bodyUrl && (
+                  <>
+                    <video ref={bodyVideoRef} src={bodyUrl} crossOrigin="anonymous" autoPlay loop muted playsInline
+                      style={{ display: "none" }} />
+                    <canvas ref={bodyCanvasRef} className={`body-layer${bodyEdit ? " editing" : ""}`}
+                      onPointerDown={onBodyPointerDown} onPointerMove={onBodyPointerMove}
+                      onPointerUp={onBodyPointerUp} onPointerCancel={onBodyPointerUp}
+                      style={{
+                        transform: `translate(${bodyOffsetX}%, ${bodyOffsetY}%) scale(${bodyZoom})`,
+                        clipPath: `inset(${bodyClipTop}% 0 0 0)`,
+                        pointerEvents: bodyEdit ? "auto" : "none",
+                        cursor: bodyEdit ? "move" : "default",
+                      }} />
+                  </>
+                )}
                 {overlayUrl && <img className="overlay" src={overlayUrl} alt="" />}
                 {active && captions && captionLine && <div className="captions">{captionLine}</div>}
                 {/* TikTok AI-content policy: AI-generated content must be
@@ -1915,6 +2028,36 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
               📁 Pick from saved templates ({savedTemplates.length})
             </button>
             <div className="hint">Susun avatar + template di tab <b>Template</b>, simpan, kemudian pilih di sini untuk live.</div>
+
+            {/* BODY layer (gesture) — manual pick at Livehost; chroma-keyed +
+                draggable, composited under the avatar head. */}
+            <button type="button" className="filebtn secondary" style={{ marginTop: 8 }}
+              onClick={() => { setBodyPickerOpen(true); loadBodyClips(); }}>
+              🎬 Pick body (gesture){bodyUrl ? " ✓" : ""}
+            </button>
+            {bodyUrl && (
+              <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 6 }}>
+                <div style={{ display: "flex", gap: 6 }}>
+                  <button type="button" className="filebtn secondary" style={{ marginTop: 0, flex: 1, background: bodyEdit ? "var(--grad)" : undefined }}
+                    onClick={() => setBodyEdit((b) => !b)}>{bodyEdit ? "✓ Selesai" : "✋ Gerak"}</button>
+                  <button type="button" className="filebtn secondary" style={{ marginTop: 0, flex: 1 }}
+                    onClick={() => { setBodyOffsetX(0); setBodyOffsetY(0); setBodyZoom(1); setBodyClipTop(22); }}>↺ Reset</button>
+                  <button type="button" className="filebtn secondary" style={{ marginTop: 0, width: 42 }}
+                    title="Buang body" onClick={() => { setBodyUrl(""); setBodyEdit(false); }}>✕</button>
+                </div>
+                <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: "var(--muted)" }}>
+                  <span style={{ width: 70 }}>Zoom</span>
+                  <input type="range" min="0.5" max="2.2" step="0.02" value={bodyZoom}
+                    onChange={(e) => setBodyZoom(parseFloat(e.target.value))} style={{ flex: 1 }} />
+                </label>
+                <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: "var(--muted)" }}>
+                  <span style={{ width: 70 }}>Crop atas</span>
+                  <input type="range" min="0" max="55" step="1" value={bodyClipTop}
+                    onChange={(e) => setBodyClipTop(parseInt(e.target.value))} style={{ flex: 1 }} />
+                </label>
+                <div className="hint" style={{ marginTop: 0 }}>Body Kling (gesture) — hijau/biru dibuang auto. <b>Crop atas</b> sembunyikan kepala Kling; <b>Gerak</b> + Zoom letak leher badan tepat bawah kepala avatar.</div>
+              </div>
+            )}
 
             <div className="hint" style={{ marginTop: 6 }}>🎙 Suara, volume, speed &amp; emosi kini <b>per-skrip</b> — set semasa cipta skrip di tab <b>Scripts</b>. Setiap skrip main dengan audio &amp; suaranya sendiri.</div>
 
@@ -2400,6 +2543,40 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
           </div>
         </div>
       )}
+
+      {/* Body picker (Livehost) — pick a Template Body gesture clip to composite
+          as a chroma-keyed body layer under the avatar head. */}
+      {bodyPickerOpen && (
+        <div onClick={() => setBodyPickerOpen(false)}
+          style={{ position: "fixed", inset: 0, zIndex: 120, background: "rgba(0,0,0,.75)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
+          <div onClick={(e) => e.stopPropagation()}
+            style={{ width: "100%", maxWidth: 780, maxHeight: "85vh", overflowY: "auto", background: "#0a0a0c", border: "1px solid rgba(255,255,255,.1)", borderRadius: 16, padding: 18 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <div className="label" style={{ margin: 0 }}>🎬 Pick body (gesture)</div>
+              <button className="restart-btn" onClick={() => setBodyPickerOpen(false)}>✕</button>
+            </div>
+            {bodyClips.length === 0 ? (
+              <div className="hint" style={{ marginTop: 12 }}>Belum ada body. Pergi tab <b>Template Body</b>, generate body gesture (background hijau/biru), kemudian pilih di sini.</div>
+            ) : (
+              <div className="tpl-grid">
+                {bodyClips.map((b) => (
+                  <button key={b.id} type="button" className="tpl-saved-card"
+                    style={{ cursor: "pointer", padding: 0, border: "none", background: "none" }}
+                    onClick={() => {
+                      setBodyUrl(b.url);
+                      setBodyKey(b.bgColor === "blue" ? "blue" : b.bgColor === "green" ? "green" : "auto");
+                      setBodyOffsetX(0); setBodyOffsetY(0); setBodyZoom(1); setBodyClipTop(22); setBodyEdit(false);
+                      setBodyPickerOpen(false);
+                    }}>
+                    <video src={b.url + "#t=1"} muted preload="metadata" poster={b.poster || undefined}
+                      style={{ width: "100%", borderRadius: 8, display: "block", background: "#000" }} />
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -2422,6 +2599,8 @@ const STUDIO_CSS = `
 .lh-studio .stage video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;transform-origin:center center;}
 .lh-studio .stage .overlay{position:absolute;inset:0;width:100%;height:100%;object-fit:fill;pointer-events:none;}
 .lh-studio .stage .avatar-preview{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;transform-origin:center center;}
+.lh-studio .stage canvas.body-layer{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;transform-origin:center center;}
+.lh-studio .stage canvas.body-layer.editing{outline:2px dashed #818cf8;outline-offset:-2px;}
 .lh-studio .stage:fullscreen{height:100vh;width:auto;aspect-ratio:9/16;border-radius:0;}
 .lh-studio .placeholder{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#6b7596;font-size:14px;text-align:center;padding:24px;}
 .lh-studio .captions{position:absolute;bottom:14px;left:50%;transform:translateX(-50%);max-width:80%;background:rgba(0,0,0,.72);padding:8px 14px;border-radius:10px;font-size:18px;text-align:center;backdrop-filter:blur(4px);}
