@@ -1065,7 +1065,7 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
         if (ping.ok) { setGpuWarm("ready"); setWakeMsg(""); loadAvatarsRef.current?.(); return true; }
       } catch {}
       const s = i * 5;
-      setWakeMsg(`⏳ Tunggu GPU ready dalam ~3 minit… (${s}s) — Button Play akan muncul automatik`);
+      setWakeMsg(`⏳ Menghidupkan GPU… boot kali pertama ~7-8 minit (${s}s) — Button Play muncul automatik bila siap`);
       await new Promise((r) => setTimeout(r, 5000));
     }
     setGpuWarm("idle"); setWakeMsg("");
@@ -1843,7 +1843,7 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
                 {wakeMsg && <div className="status-line">{wakeMsg}</div>}
                 {error && <div className="error">{error}</div>}
                 {!wakeMsg && !error && active && <div className="status-line">● Live · GPU {serverState}</div>}
-                {!wakeMsg && !error && !active && gpuWarm === "warming" && <div className="status-line">⏳ Tunggu GPU ready dalam ~3 minit… Button Play akan muncul automatik</div>}
+                {!wakeMsg && !error && !active && gpuWarm === "warming" && <div className="status-line">⏳ Menghidupkan GPU… boot kali pertama ~7-8 minit — Button Play muncul automatik bila siap</div>}
                 {!wakeMsg && !error && !active && gpuWarm === "ready" && <div className="status-line" style={{ color: "#16a34a" }}>✓ GPU Ready — tekan ▶ Start</div>}
                 {!wakeMsg && !error && !active && gpuWarm === "idle" && <div className="hint">GPU: {serverState}</div>}
                 {scriptWaiting && <div className="status-line">⏸ Selesai — tunggu skrip lagi…</div>}
