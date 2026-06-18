@@ -25,7 +25,9 @@ export const maxDuration = 60;
 // slot than the one that failed.
 //
 // Scope (deliberately narrow):
-//   • tab IN ('video', 'auto', 'auto-content')   ← UGC + Auto Content
+//   • tab IN ('video', 'auto', 'auto-content', 'cinema', 'seedance',
+//             'clone', 'template-body')   ← video gens + Kling motion-control
+//     (template-body re-fires through the Kling cascade, not the video one)
 //   • status = 'failed'
 //   • error_message matches internal-server pattern
 //   • metadata.auto_resubmit_count < MAX_AUTO_RESUBMIT (3)
@@ -94,7 +96,7 @@ export async function GET(req: Request) {
     // All video-producing tabs. Image tabs ("image", "fairytale") use
     // a different cascade and are handled separately — for now they
     // stay manual until image-cascade auto-retry is wired up.
-    .in("tab", ["video", "auto", "auto-content", "cinema", "seedance", "clone"])
+    .in("tab", ["video", "auto", "auto-content", "cinema", "seedance", "clone", "template-body"])
     .gte("updated_at", cutoff)
     .order("updated_at", { ascending: false })
     .limit(BATCH_LIMIT);
@@ -138,6 +140,90 @@ export async function GET(req: Request) {
     }
     const meta = (row.metadata || {}) as Record<string, any>;
     const autoCount = Number(meta.auto_resubmit_count || 0);
+
+    // ---- Template Body (Kling motion-control) ----------------------------
+    // Kling rows re-fire through their OWN cascade (klingCreateWithCascade),
+    // not generateVideoWithCascade — they need the motion video + orientation
+    // + mode that the video cascade knows nothing about. Retry cap = number
+    // of configured kling slots.
+    if (row.tab === "template-body") {
+      const { getKlingSlots, klingCreateWithCascade } = await import("@/lib/kling");
+      const kSlots = await getKlingSlots();
+      const kCap = Math.max(MIN_AUTO_RESUBMIT_CAP, Math.min(MAX_AUTO_RESUBMIT_CAP, kSlots.length || 1));
+      if (autoCount >= kCap) { summary.exhausted += 1; continue; }
+
+      const { data: kClaimed, error: kClaimErr } = await admin
+        .from("history")
+        .update({
+          status: "pending",
+          error_message: null,
+          metadata: {
+            ...meta,
+            auto_resubmit_count: autoCount + 1,
+            auto_resubmit_last_attempt_at: new Date().toISOString(),
+            task_started_at: new Date().toISOString(),
+            last_retry_kind: "auto-internal-server",
+          },
+        })
+        .eq("id", row.id)
+        .eq("status", "failed")
+        .select("id");
+      if (kClaimErr || !kClaimed || kClaimed.length === 0) { summary.ineligible += 1; continue; }
+      summary.eligible += 1;
+
+      const imageUrl = (meta.image_url as string) || row.reference_url || "";
+      const videoUrl = (meta.motion_url as string) || "";
+      if (!imageUrl || !videoUrl) {
+        // The original refs are gone (e.g. B2 TTL) — can't re-fire. Revert.
+        await admin.from("history").update({
+          status: "failed",
+          error_message: "Auto-resubmit skipped: motion/avatar reference missing",
+          metadata: { ...meta, auto_resubmit_count: autoCount + 1 },
+        }).eq("id", row.id);
+        continue;
+      }
+
+      const kr = await klingCreateWithCascade({
+        userId: row.user_id,
+        imageUrl,
+        videoUrl,
+        prompt: row.prompt || undefined,
+        mode: meta.mode === "std" ? "std" : "pro",
+        characterOrientation: meta.character_orientation === "image" ? "image" : "video",
+        keepOriginalSound: meta.keep_original_sound === true,
+      });
+
+      if (!kr.ok) {
+        await admin.from("history").update({
+          status: "failed",
+          error_message: kr.error || "Auto-resubmit failed",
+          metadata: {
+            ...meta,
+            auto_resubmit_count: autoCount + 1,
+            auto_resubmit_last_attempt_at: new Date().toISOString(),
+            auto_resubmit_last_error: kr.error?.slice(0, 200),
+          },
+        }).eq("id", row.id);
+        continue;
+      }
+
+      await admin.from("history").update({
+        task_id: kr.taskId,
+        metadata: {
+          ...meta,
+          provider: "kling",
+          slot: kr.slot,
+          tier_log: kr.tierLog,
+          retried_at: new Date().toISOString(),
+          task_started_at: new Date().toISOString(),
+          auto_resubmit_count: autoCount + 1,
+          auto_resubmit_last_attempt_at: new Date().toISOString(),
+          last_retry_kind: "auto-internal-server",
+        },
+      }).eq("id", row.id);
+      summary.resubmitted += 1;
+      continue;
+    }
 
     // Determine the row's cascade asset (same logic used later when
     // firing the actual retry — match the row's original pool).
