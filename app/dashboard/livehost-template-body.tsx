@@ -26,7 +26,23 @@ export default function LivehostTemplateBody() {
   // Prompt + orientation are fixed (hidden in the UI). Background word tracks
   // the chosen chroma colour so Kling preserves the baked-in screen.
   const prompt =
-    `Keep the character's head, face, and clothing completely frozen and motionless. The mouth stays closed and still — no talking, no lip movement, no expression change, no blinking; the head does not turn, tilt, or nod. The torso, shoulders, neck, hijab/headscarf, and shirt stay perfectly still and rigid — no fabric movement, billow, flutter, or sway. ONLY the arms, hands, and fingers move, copying the reference video's hand motion exactly, frame for frame; the legs and lower body do not move. Preserve the character's exact appearance, face, hijab, outfit, and colors from the reference image with maximum fidelity. Photorealistic, ultra-detailed, natural realistic hands, clean consistent studio lighting. Keep the background exactly as in the reference image — a solid, flat, uniform ${colorWord} chroma-key screen, unchanged; no scenery, objects, or shadows. Locked static camera — no zoom, pan, or shake. Keep the character centered.`;
+    `Transfer ONLY the arm and hand motion from the reference video to the character, frame by frame, exactly. Do NOT create, smooth, interpolate, exaggerate, compensate, or invent any motion not present in the source.
+
+MOTION ISOLATION: the ONLY movement allowed is the hand, wrist, forearm and arm motion from the video. Everything else stays completely frozen for the whole clip — head locked, eyes fixed, NO blinking, mouth fully closed, no lip or jaw movement, no talking, no expression or eyebrow change, no head turn/tilt/nod, and no neck, shoulder, torso, spine, hip, leg or foot movement, no weight shift, no breathing animation, no secondary motion, no inertia, no auto-generated motion.
+
+CLOTHING LOCK: treat the hair, any headwear/hijab, sleeves, shirt, blazer and all fabric as rigid geometry — perfectly stationary and pixel-stable. PROHIBITED: cloth physics, fabric simulation/dynamics, sway, flutter, billow, shifting, stretching, fold or wrinkle changes, sleeve movement, wind or physics effects, motion-induced cloth movement. Even when the arms move, the hair, headwear and clothing stay completely fixed with zero motion.
+
+IDENTITY: preserve the exact appearance from the source image — same face, facial structure, skin tone, hair/headwear style and position, clothing, body proportions, colors, texture and lighting. Do not alter age, ethnicity, hairstyle, features, body or clothing shape.
+
+HANDS: photorealistic, natural anatomy, five correct fingers per hand, stable geometry, no fusion, duplication or malformation.
+
+BACKGROUND: keep exactly as the source image — a solid, flat, uniform ${colorWord} chroma-key screen. Add no objects, scenery, depth, reflections or extra shadows.
+
+CAMERA: fixed tripod — no zoom, dolly, pan, tilt, rotation, reframing, tracking or shake. Character stays centered.
+
+Photorealistic, ultra-detailed, clean studio lighting, sharp focus, natural skin texture.
+
+FINAL RULE: copy ONLY the arm and hand motion; every other pixel of the character, hair, clothing, body, face, background and camera stays unchanged — no secondary motion, no cloth physics, no invented movement.`;
   const mode = "pro" as const; // quality fixed at 1080p (Pro)
   const keepSound = false; // audio off by default (toggle hidden)
   const orientation = "video" as const; // always follow reference video motion
