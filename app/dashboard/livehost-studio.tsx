@@ -856,32 +856,12 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
     return () => clearInterval(t);
   }, []);
 
-  // WARM-ON-OPEN: wake the GPU the moment the studio loads (before ▶ Start) with a
-  // single /keepalive. The worker cold-boots in the background and stays up ~15 min
-  // (Novita's freeTimeout), so pressing Start connects fast instead of the full cold
-  // wait. If they never stream, Novita drops it to $0 after 15 min — no runaway cost.
-  const warmedRef = useRef(false);
-  useEffect(() => {
-    if (!backend || warmedRef.current) return;
-    warmedRef.current = true;
-    fetch(`${backend}/avatars`, { signal: AbortSignal.timeout(8000) }).catch(() => {});
-  }, [backend]);
+  // (No warm-on-open. GPU on/off is controlled ONLY at the Usage tab — opening
+  // the Livehost studio must NOT turn the GPU on. The worker is warmed by the
+  // Usage "Hidupkan GPU" flow; the studio just connects when you press Start.)
 
-  // BALANCE WATCHDOG: while live, poll the credit balance every 60s; if it hits the
-  // minimum threshold (RM5), auto-stop the worker so the user can never overspend.
-  useEffect(() => {
-    if (!active) return;
-    let cancelled = false;
-    const check = async () => {
-      const bal = await fetchBalance();
-      if (!cancelled && bal && bal.low) {
-        setError(`Baki kredit dah sampai had minimum (RM${bal.minBalance}) — live dihentikan automatik. Top up untuk sambung.`);
-        stopRef.current?.();
-      }
-    };
-    const t = setInterval(check, 60000);
-    return () => { cancelled = true; clearInterval(t); };
-  }, [active, fetchBalance]);
+  // (No balance watchdog / no auto-stop. The live NEVER auto-stops — GPU stays
+  // alive for long hours until the host manually Turn OFF at the Usage/Admin tab.)
 
   // Sync the active greeting profile to the DB so the extension uses it.
   useEffect(() => {
@@ -1422,18 +1402,9 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
   }, [avatarId, backgrounds, voiceId, stop, speakNext, startWordSweep, buildKbPrompt, activeKb, speed, emotion, volume, configErr, addVoiceChars, beginSession, warmGpu]);
   useEffect(() => { startRef.current = start; }, [start]);
 
-  // WARM-ON-OPEN (EDGE-TRIGGERED): warm the GPU + start the 15-min timer ONCE
-  // when the host ENTERS the Livehost (live) tab. Leaving the tab re-arms it; so
-  // after the 15-min cutoff turns the GPU off, it stays off until the user clicks
-  // Livehost again — it never re-warms on its own while sitting on the page.
-  useEffect(() => {
-    if (view !== "live") { warmEntryRef.current = false; return; } // left tab → arm next entry
-    if (warmEntryRef.current) return;                              // already warmed this entry
-    if (active || connecting) return;
-    if (!poolMode && !backendRef.current) return; // nothing to warm yet (config still loading)
-    warmEntryRef.current = true;
-    warmGpu();
-  }, [view, poolMode, active, connecting, warmGpu]);
+  // (No warm-on-open. The GPU is turned ON/OFF only at the Usage tab. Opening the
+  // Livehost tab must NOT turn the GPU on. warmGpu() runs only when you press
+  // ▶ Start — it connects to the worker you already turned on at Usage.)
 
   // (No idle auto-release / timeout — the GPU is dedicated + always-on per client,
   // controlled manually via the GPU ON/OFF button at Billing. ON = billed.)

@@ -1,56 +1,46 @@
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { getSetting } from "@/lib/settings";
-import { deduct } from "@/lib/deduct";
+import { runsyncUrl } from "@/lib/livehost-pool";
 
-// GPU billing safety net (Vercel cron, every ~15 min). Billing is mechanism A
-// (charge on OFF), but a client might forget to turn their GPU off / close the
-// tab. This cron force-OFFs any ON client whose ACCRUED charge would push them
-// below the min-balance floor: it charges the elapsed time, deletes the endpoint
-// ($0), and clears the binding. So nobody ever runs a paid GPU into deep
-// negative, and abandoned sessions self-stop near the floor.
+// GPU KEEP-ALIVE cron (Vercel cron, every few minutes). For every client whose
+// GPU is ON, ping their endpoint's /avatars — a real processed request that
+// RESETS Novita's freeTimeout, so the single worker stays alive 24/7 for the
+// WHOLE live (no mid-stream drop, no auto-off) until the host manually Turn OFF
+// at the Usage/Admin tab. This runs server-side so it keeps the worker warm even
+// if the browser tab is closed or the host isn't on the Usage page.
+//
+// It ALSO stamps gpu_on_at the first time the worker actually answers (billing
+// starts at RUNNING, not during the ~7min cold boot). There is NO auto-off here.
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
-const HOUR = 3600;
-function num(v: unknown, f: number): number {
-  const n = parseFloat(String(v ?? ""));
-  return Number.isFinite(n) && n >= 0 ? n : f;
-}
-
 export async function GET() {
   const admin = createAdminClient();
-  const rateHour = num(await getSetting<string>("livehost_gpu_rate_hour"), 6);
-  const minBalance = num(await getSetting<string>("livehost_min_balance"), 5);
-
   const { data: clients } = await admin
     .from("live_client_config")
     .select("user_id, gpu_on_at, gpu_endpoint_id")
     .eq("gpu_on", true);
 
-  let stopped = 0;
-  for (const c of clients || []) {
-    if (!c.gpu_on_at) continue;
-    const elapsed = Math.max(0, (Date.now() - new Date(c.gpu_on_at).getTime()) / 1000);
-    const charge = Number(((elapsed / HOUR) * rateHour).toFixed(4));
-    const { data: prof } = await admin
-      .from("profiles").select("credits").eq("id", c.user_id).single();
-    const credits = Number(prof?.credits || 0);
+  let pinged = 0;
+  let nowRunning = 0;
+  await Promise.all((clients || []).map(async (c) => {
+    if (!c.gpu_endpoint_id) return;
+    let ok = false;
+    try {
+      const r = await fetch(`${runsyncUrl(c.gpu_endpoint_id)}/avatars`, { signal: AbortSignal.timeout(8000) });
+      ok = r.ok;
+    } catch { ok = false; }
+    pinged++;
+    // First time the worker answers → billing starts now (running).
+    if (ok && !c.gpu_on_at) {
+      await admin.from("live_client_config")
+        .update({ gpu_on_at: new Date().toISOString(), updated_at: new Date().toISOString() })
+        .eq("user_id", c.user_id);
+      nowRunning++;
+    }
+  }));
 
-    // Still affordable above the floor → leave it running (charged on manual OFF).
-    if (credits - charge >= minBalance) continue;
-
-    // Hit the floor → charge what's accrued + stop the client's billing (gpu_on
-    // false). The endpoint stays ASSIGNED (admin owns its lifecycle) so the
-    // client can turn it back on after topping up.
-    if (charge > 0) await deduct(c.user_id, "gpu_session", charge);
-    await admin.from("live_client_config").update({
-      gpu_on: false, gpu_on_at: null, updated_at: new Date().toISOString(),
-    }).eq("user_id", c.user_id);
-    stopped++;
-  }
-
-  return NextResponse.json({ ok: true, checked: clients?.length || 0, stopped });
+  return NextResponse.json({ ok: true, on: clients?.length || 0, pinged, nowRunning });
 }

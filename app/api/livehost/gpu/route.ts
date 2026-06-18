@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getSetting } from "@/lib/settings";
-import { setClientGpu } from "@/lib/livehost-pool";
+import { setClientGpu, runsyncUrl } from "@/lib/livehost-pool";
 
 // GPU ON/OFF + per-hour billing for the logged-in Livehost client's DEDICATED
 // always-on GPU (1 GPU = 1 client). Billing model = mechanism A (charge on OFF):
@@ -48,13 +48,32 @@ export async function POST(req: Request) {
   const rateHour = num(await getSetting<string>("livehost_gpu_rate_hour"), 6); // RM/hour
   const minBalance = num(await getSetting<string>("livehost_min_balance"), 5); // RM
 
+  // Is the worker actually RUNNING? (the renderer answers /avatars). While ON but
+  // the worker is still cold-booting (~7min) the GPU is "starting" — NOT charged.
+  // The moment it answers, stamp gpu_on_at so BILLING STARTS AT RUNNING. This
+  // server-side ping also doubles as the boot-kick / keepalive.
+  let running = false;
+  if (cfg?.gpu_on && cfg?.gpu_endpoint_id) {
+    try {
+      const r = await fetch(`${runsyncUrl(cfg.gpu_endpoint_id)}/avatars`, { signal: AbortSignal.timeout(5000) });
+      running = r.ok;
+    } catch { running = false; }
+    if (running && !cfg.gpu_on_at) {
+      const nowIso = new Date().toISOString();
+      await admin.from("live_client_config").update({ gpu_on_at: nowIso, updated_at: nowIso }).eq("user_id", user.id);
+      cfg.gpu_on_at = nowIso;
+    }
+  }
+
   const onAt = cfg?.gpu_on && cfg?.gpu_on_at ? new Date(cfg.gpu_on_at).getTime() : 0;
   const elapsedSec = onAt ? Math.max(0, (Date.now() - onAt) / 1000) : 0;
   const estCharge = Number(((elapsedSec / HOUR) * rateHour).toFixed(4));
+  const state = !cfg?.gpu_on ? "off" : running ? "running" : "starting";
 
   const status = (extra: Record<string, unknown> = {}) => NextResponse.json({
     on: !!cfg?.gpu_on,
     allowed: !!cfg?.gpu_allowed,
+    state, // "off" | "starting" | "running"
     since: cfg?.gpu_on_at || null,
     elapsedSec: Math.round(elapsedSec),
     rateHour, minBalance, estCharge, credits,
@@ -76,9 +95,12 @@ export async function POST(req: Request) {
     const at2 = on2 && c2?.gpu_on_at ? new Date(c2.gpu_on_at).getTime() : 0;
     const el2 = at2 ? Math.max(0, (Date.now() - at2) / 1000) : 0;
     return NextResponse.json({
-      on: on2, allowed: !!c2?.gpu_allowed, since: c2?.gpu_on_at || null, elapsedSec: Math.round(el2),
+      on: on2, allowed: !!c2?.gpu_allowed,
+      // just turned on → worker is cold-booting → "starting" (not charged yet)
+      state: !on2 ? "off" : c2?.gpu_on_at ? "running" : "starting",
+      since: c2?.gpu_on_at || null, elapsedSec: Math.round(el2),
       rateHour, minBalance, estCharge: Number(((el2 / 3600) * rateHour).toFixed(4)),
-      credits: Number(p2?.credits || 0), charged: r.charged, booting: action === "on" || undefined,
+      credits: Number(p2?.credits || 0), charged: r.charged,
     });
   }
 

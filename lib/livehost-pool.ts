@@ -32,11 +32,16 @@ export async function listNovitaEndpoints(): Promise<{ id: string; name: string;
     const d = await novita("/endpoints", key);
     const arr = d?.endpoints || d?.data || [];
     return (Array.isArray(arr) ? arr : [])
-      .map((e: any) => ({
-        id: e.id || e.endpoint?.id || "",
-        name: e.name || e.endpoint?.name || "",
-        state: String(e.status?.state || e.state || e.status || ""),
-      }))
+      .map((e: any) => {
+        // Novita's state can be a string OR an object {state,error,message}.
+        const raw = e.status ?? e.state ?? e.endpoint?.status;
+        const state = typeof raw === "string" ? raw : String(raw?.state || "");
+        return {
+          id: e.id || e.endpoint?.id || "",
+          name: e.name || e.endpoint?.name || "",
+          state,
+        };
+      })
       .filter((e: { id: string }) => !!e.id);
   } catch {
     return [];
@@ -194,11 +199,16 @@ export async function setClientGpu(userId: string, on: boolean): Promise<GpuTogg
       return { ok: false, error: `Kredit < RM ${minBalance.toFixed(2)} — top up dahulu.` };
     }
     const nowIso = new Date().toISOString();
+    // gpu_on_at stays NULL until the worker is actually RUNNING — billing starts
+    // at running, NOT during the ~7min cold boot. The status poll sets gpu_on_at
+    // the moment the worker first answers /avatars.
     await admin.from("live_client_config").update({
-      gpu_on: true, gpu_on_at: nowIso, backend_url: runsyncUrl(cfg.gpu_endpoint_id),
+      gpu_on: true, gpu_on_at: null, backend_url: runsyncUrl(cfg.gpu_endpoint_id),
       updated_at: nowIso,
     }).eq("user_id", userId);
-    return { ok: true, on: true, endpointId: cfg.gpu_endpoint_id, since: nowIso };
+    // Kick the cold boot now (best-effort) so the worker starts spinning up.
+    fetch(`${runsyncUrl(cfg.gpu_endpoint_id)}/avatars`, { signal: AbortSignal.timeout(4000) }).catch(() => {});
+    return { ok: true, on: true, endpointId: cfg.gpu_endpoint_id, since: null };
   }
 
   // OFF — charge the elapsed billed time; keep the endpoint assigned (admin owns

@@ -58,35 +58,6 @@ export default function AdminLivehostPage() {
   useEffect(() => { load(); }, [load]);
 
 
-  const provision = async (c: Client) => {
-    if (!window.confirm(`Auto-provision GPU + tunnel untuk ${c.email}? (~30 min build, ~RM1 GPU time)`)) return;
-    setSavingId(c.id);
-    setMsg("");
-    try {
-      const r = await fetch("/api/admin/livehost", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ action: "provision", userId: c.id }),
-      });
-      const d = await r.json();
-      setMsg(d.ok ? `Provisioning started: ${d.backendUrl || ""} (${d.status})` : d.status || d.error || "failed");
-      load();
-    } finally {
-      setSavingId("");
-    }
-  };
-
-  const checkReady = async (c: Client) => {
-    const r = await fetch("/api/admin/livehost", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ action: "check", userId: c.id }),
-    });
-    const d = await r.json();
-    setMsg(`${c.email}: ${d.status || "no status"}`);
-    load();
-  };
-
   const update = (id: string, patch: Partial<Client>) =>
     setClients((prev) => prev.map((c) => (c.id === id ? { ...c, ...patch } : c)));
 
@@ -108,27 +79,20 @@ export default function AdminLivehostPage() {
     } finally { setSavingId(""); }
   };
 
-  const save = async (c: Client) => {
-    setSavingId(c.id);
-    setMsg("");
+  // Admin turns a client's GPU on/off (worker spins up / scales down → $0;
+  // endpoint never deleted). Same billing path as the client's Usage control.
+  const gpuToggle = async (c: Client, on: boolean) => {
+    if (!on && !window.confirm(`Tutup GPU ${c.email}? Caj masa guna ditolak + worker dibuang (endpoint kekal, $0).`)) return;
+    setSavingId(c.id); setMsg("");
     try {
       const r = await fetch("/api/admin/livehost", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          userId: c.id,
-          backendUrl: c.backend_url,
-          vastInstanceId: c.vast_instance_id,
-          notes: c.notes,
-        }),
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ action: on ? "gpu_on" : "gpu_off", userId: c.id }),
       });
       const d = await r.json();
-      setMsg(d.ok ? `Saved ${c.email}` : d.error || "Save failed");
-    } catch (e: any) {
-      setMsg(String(e?.message || e));
-    } finally {
-      setSavingId("");
-    }
+      setMsg(d.ok ? `${c.email}: GPU ${on ? "ON" : "OFF"}${d.charged ? ` · caj RM ${Number(d.charged).toFixed(2)}` : ""}` : d.error || "failed");
+      load();
+    } finally { setSavingId(""); }
   };
 
   return (
@@ -251,6 +215,19 @@ export default function AdminLivehostPage() {
                   style={{ background: "linear-gradient(135deg,#3b82f6,#2563eb)" }}>
                   {savingId === c.id ? "…" : "Save GPU"}
                 </button>
+                {c.gpu_endpoint_id && (c.gpu_on ? (
+                  <button onClick={() => gpuToggle(c, false)} disabled={savingId === c.id}
+                    className="px-4 py-2 rounded-lg text-xs font-bold text-white disabled:opacity-50"
+                    style={{ background: "linear-gradient(135deg,#ef4444,#dc2626)" }}>
+                    Turn OFF
+                  </button>
+                ) : (
+                  <button onClick={() => gpuToggle(c, true)} disabled={savingId === c.id}
+                    className="px-4 py-2 rounded-lg text-xs font-bold text-white disabled:opacity-50"
+                    style={{ background: "linear-gradient(135deg,#22c55e,#16a34a)" }}>
+                    Turn ON
+                  </button>
+                ))}
               </div>
               {pool.filter((p) => !p.assignedUserId).length === 0 && !c.gpu_endpoint_id && (
                 <p className="text-xs text-[var(--color-text-muted)] -mt-2 mb-3">
@@ -280,72 +257,6 @@ export default function AdminLivehostPage() {
                   <div className="text-[10px] uppercase tracking-wider flex items-center gap-1" style={{ color: "#4ade80" }}><Wallet className="w-3 h-3" /> Total</div>
                   <div className="font-extrabold text-lg" style={{ color: "#4ade80" }}>RM {(c.usage?.totalCost || 0).toFixed(2)}</div>
                 </div>
-              </div>
-              <div className="grid md:grid-cols-2 gap-3">
-                <label className="text-xs font-bold text-[var(--color-text-secondary)]">
-                  Backend URL (GPU tunnel)
-                  <input
-                    value={c.backend_url}
-                    onChange={(e) => update(c.id, { backend_url: e.target.value })}
-                    placeholder="https://client1.peningcast.com"
-                    className="mt-1 w-full px-3 py-2.5 rounded-lg text-sm font-normal"
-                    style={{ background: "var(--color-bg)", border: "1px solid var(--color-border)", color: "var(--color-text-primary)" }}
-                  />
-                </label>
-                <label className="text-xs font-bold text-[var(--color-text-secondary)]">
-                  GPU Instance ID (Novita)
-                  <input
-                    value={c.vast_instance_id}
-                    onChange={(e) => update(c.id, { vast_instance_id: e.target.value })}
-                    placeholder="40601765"
-                    className="mt-1 w-full px-3 py-2.5 rounded-lg text-sm font-normal"
-                    style={{ background: "var(--color-bg)", border: "1px solid var(--color-border)", color: "var(--color-text-primary)" }}
-                  />
-                </label>
-              </div>
-              <div className="mt-3">
-                <label className="text-xs font-bold text-[var(--color-text-secondary)]">
-                  Notes
-                  <input
-                    value={c.notes}
-                    onChange={(e) => update(c.id, { notes: e.target.value })}
-                    placeholder="GPU region, provisioning date…"
-                    className="mt-1 w-full px-3 py-2.5 rounded-lg text-sm font-normal"
-                    style={{ background: "var(--color-bg)", border: "1px solid var(--color-border)", color: "var(--color-text-primary)" }}
-                  />
-                </label>
-              </div>
-              {c.provision_status && (
-                <p className="mt-3 text-xs font-mono px-3 py-2 rounded-lg"
-                  style={{ background: "rgba(59,130,246,0.08)", border: "1px solid rgba(59,130,246,0.25)", color: "#93c5fd" }}>
-                  Provision: {c.provision_status}
-                </p>
-              )}
-              <div className="mt-4 flex flex-wrap gap-2">
-                <button
-                  onClick={() => save(c)}
-                  disabled={savingId === c.id}
-                  className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-bold text-white disabled:opacity-50"
-                  style={{ background: "linear-gradient(135deg, #3b82f6, #2563eb)" }}
-                >
-                  <Save className="w-4 h-4" />
-                  {savingId === c.id ? "Working…" : "Save"}
-                </button>
-                <button
-                  onClick={() => provision(c)}
-                  disabled={savingId === c.id}
-                  className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-bold text-white disabled:opacity-50"
-                  style={{ background: "linear-gradient(135deg, #16a34a, #15803d)" }}
-                >
-                  ⚡ Auto-provision GPU
-                </button>
-                <button
-                  onClick={() => checkReady(c)}
-                  className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold"
-                  style={{ background: "var(--color-bg)", border: "1px solid var(--color-border)", color: "var(--color-text-secondary)" }}
-                >
-                  Check status
-                </button>
               </div>
             </div>
           ))}

@@ -15,7 +15,7 @@
     },
     {
       "path": "/api/worker/gpu-billing",
-      "schedule": "*/15 * * * *"
+      "schedule": "*/5 * * * *"
     }
   ]
 }

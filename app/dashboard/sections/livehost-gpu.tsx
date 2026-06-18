@@ -12,13 +12,13 @@ import { Loader2, Power, PowerOff } from "lucide-react";
 type GpuState = {
   on: boolean;
   allowed: boolean;
+  state: "off" | "starting" | "running";
   since: string | null;
   elapsedSec: number;
   rateHour: number;
   minBalance: number;
   estCharge: number;
   credits: number;
-  booting?: boolean;
 };
 
 function fmtDur(sec: number): string {
@@ -44,15 +44,19 @@ export default function LivehostGpu() {
       setG(await r.json());
     } catch {}
   }
+  // Poll faster (8s) while starting so "running" is caught quickly; slower (30s)
+  // otherwise. The server-side status ping also keeps the worker warm.
+  const starting = g?.state === "starting";
   useEffect(() => {
     void load();
-    const poll = setInterval(load, 30000);
+    const poll = setInterval(load, starting ? 8000 : 30000);
     const clock = setInterval(() => setTick((t) => t + 1), 1000);
     return () => { clearInterval(poll); clearInterval(clock); };
-  }, []);
+  }, [starting]);
 
-  const liveElapsed = g?.on && g.since ? Math.max(0, (Date.now() - new Date(g.since).getTime()) / 1000) : 0;
-  const liveCharge = g?.on ? (liveElapsed / 3600) * (g.rateHour || 0) : 0;
+  // Billing only runs once the worker is RUNNING (g.since = running-start).
+  const liveElapsed = g?.state === "running" && g.since ? Math.max(0, (Date.now() - new Date(g.since).getTime()) / 1000) : 0;
+  const liveCharge = (liveElapsed / 3600) * (g?.rateHour || 0);
 
   async function toggle(on: boolean) {
     if (!on && g) {
@@ -71,7 +75,9 @@ export default function LivehostGpu() {
   }
 
   const isOn = !!g?.on;
+  const isRunning = g?.state === "running";
   const allowed = !!g?.allowed;
+  const accent = isRunning ? "#22c55e" : starting ? "#f59e0b" : "#94a3b8";
 
   // Not appointed by admin → can't use a GPU. Show a clear gated state.
   if (g && !allowed && !isOn) {
@@ -92,33 +98,37 @@ export default function LivehostGpu() {
     <div
       className="rounded-3xl p-6 mb-6"
       style={{
-        background: isOn
+        background: isRunning
           ? "linear-gradient(135deg, rgba(34,197,94,0.10) 0%, rgba(16,185,129,0.06) 100%)"
-          : "linear-gradient(135deg, rgba(148,163,184,0.08) 0%, rgba(100,116,139,0.05) 100%)",
-        border: `1px solid ${isOn ? "rgba(34,197,94,0.35)" : "var(--color-border)"}`,
+          : starting
+            ? "linear-gradient(135deg, rgba(245,158,11,0.10) 0%, rgba(234,88,12,0.05) 100%)"
+            : "linear-gradient(135deg, rgba(148,163,184,0.08) 0%, rgba(100,116,139,0.05) 100%)",
+        border: `1px solid ${isRunning ? "rgba(34,197,94,0.35)" : starting ? "rgba(245,158,11,0.35)" : "var(--color-border)"}`,
       }}
     >
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <div>
           <div className="flex items-center gap-2 mb-1">
-            <span
-              className="inline-flex w-2.5 h-2.5 rounded-full"
-              style={{ background: isOn ? "#22c55e" : "#94a3b8", boxShadow: isOn ? "0 0 10px #22c55e" : "none" }}
-            />
+            <span className="inline-flex w-2.5 h-2.5 rounded-full"
+              style={{ background: accent, boxShadow: isRunning ? "0 0 10px #22c55e" : "none" }} />
             <h3 className="font-display font-extrabold text-xl tracking-tight">
-              GPU {isOn ? "HIDUP" : "MATI"}
+              GPU {isRunning ? "HIDUP" : starting ? "MENYALA…" : "MATI"}
             </h3>
           </div>
           {g ? (
-            isOn ? (
+            isRunning ? (
               <p className="text-sm text-[var(--color-text-secondary)]">
-                Hidup <b>{fmtDur(liveElapsed)}</b> · caj setakat ini{" "}
+                Running <b>{fmtDur(liveElapsed)}</b> · caj setakat ini{" "}
                 <b style={{ color: "#22c55e" }}>RM {liveCharge.toFixed(2)}</b>{" "}
                 <span className="text-[var(--color-text-muted)]">(RM {g.rateHour.toFixed(2)}/jam)</span>
               </p>
+            ) : starting ? (
+              <p className="text-sm" style={{ color: "#f59e0b" }}>
+                GPU sedang start (~7 min)… <b>BELUM dicaj</b> — caj hanya bermula bila GPU benar-benar running.
+              </p>
             ) : (
               <p className="text-sm text-[var(--color-text-secondary)]">
-                Hidupkan GPU sebelum live. Caj RM {g.rateHour.toFixed(2)}/jam, dikira bila tutup.
+                Hidupkan GPU sebelum live. Caj RM {g.rateHour.toFixed(2)}/jam (dari masa GPU running).
                 Auto-tutup bila baki &lt; RM {g.minBalance.toFixed(2)}.
               </p>
             )
@@ -138,9 +148,6 @@ export default function LivehostGpu() {
           {busy ? "Sekejap…" : isOn ? "Tutup GPU" : "Hidupkan GPU"}
         </button>
       </div>
-      {isOn && g?.booting && (
-        <p className="text-xs text-[var(--color-text-muted)] mt-3">✅ GPU hidup (always-on, tiada boot) — terus boleh tekan Start di studio. Tiada disconnect.</p>
-      )}
     </div>
   );
 }
