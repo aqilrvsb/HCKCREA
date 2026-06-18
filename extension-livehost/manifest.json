@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "PeningLab Livehost",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "description": "Sambung TikTok LIVE anda kepada AI avatar Livehost — auto greeting, auto reply, auto sound effects",
   "permissions": ["storage", "tabs", "offscreen", "sidePanel"],
   "host_permissions": [

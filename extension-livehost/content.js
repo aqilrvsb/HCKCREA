@@ -84,21 +84,27 @@ function setupAutoPin() {
     }
   }
 
+  // Pin config comes from the dashboard greeting (Pin Min/Max), fetched on START
+  // → stored as lhPinMin/lhPinMax. Auto-pin runs WHILE LIVE (lhRunning) and
+  // re-pins at a RANDOM interval in [min,max] seconds (looks natural).
+  function scheduleNext(lo, hi) {
+    const sec = Math.round(lo + Math.random() * (hi - lo));
+    autoPinTimer = setTimeout(() => { tick(); scheduleNext(lo, hi); }, sec * 1000);
+    console.log("[AI Host] auto-pin: next in", sec, "s");
+  }
   async function refresh() {
-    const { lhAutoPin, lhAutoPinSec } = await chrome.storage.local.get(["lhAutoPin", "lhAutoPinSec"]);
-    if (autoPinTimer) { clearInterval(autoPinTimer); autoPinTimer = null; }
-    if (lhAutoPin) {
-      const sec = Math.max(5, Number(lhAutoPinSec) || 15);
-      tick(); // fire once now
-      autoPinTimer = setInterval(tick, sec * 1000);
-      console.log("[AI Host] Auto-pin ON — every", sec, "s");
-    } else {
-      console.log("[AI Host] Auto-pin OFF");
-    }
+    const { lhRunning, lhPinMin, lhPinMax } = await chrome.storage.local.get(["lhRunning", "lhPinMin", "lhPinMax"]);
+    if (autoPinTimer) { clearTimeout(autoPinTimer); autoPinTimer = null; }
+    if (!lhRunning) { console.log("[AI Host] Auto-pin OFF (not live)"); return; }
+    const lo = Math.max(5, Number(lhPinMin) || 30);
+    const hi = Math.max(lo, Number(lhPinMax) || 90);
+    tick();              // pin once now
+    scheduleNext(lo, hi); // then re-pin at random intervals
+    console.log("[AI Host] Auto-pin ON — random", lo, "-", hi, "s");
   }
 
   chrome.storage.onChanged.addListener((changes, area) => {
-    if (area === "local" && ("lhAutoPin" in changes || "lhAutoPinSec" in changes)) refresh();
+    if (area === "local" && ("lhRunning" in changes || "lhPinMin" in changes || "lhPinMax" in changes)) refresh();
   });
   refresh();
 }

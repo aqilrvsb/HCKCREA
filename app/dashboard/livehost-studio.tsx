@@ -1774,8 +1774,18 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
       if (e.source !== window) return;
       const d = e.data;
       if (d && d.__lh_event && typeof d.type === "string") handleLiveEvent(d.type, d.username || "", d.text || "");
-      // TikTok LIVE ended (extension) → stop the avatar stream + free the GPU.
-      else if (d && d.__lh_stop) stopRef.current?.();
+      // DURATION auto-end (extension) → stop the avatar stream + turn the GPU OFF
+      // ($0). gpuOff is true ONLY for the duration auto-end; a manual STOP never
+      // posts __lh_stop, so the avatar + GPU keep running on manual stop.
+      else if (d && d.__lh_stop) {
+        stopRef.current?.();
+        if (d.gpuOff) {
+          fetch("/api/livehost/gpu", {
+            method: "POST", headers: { "content-type": "application/json" },
+            body: JSON.stringify({ action: "off" }), keepalive: true,
+          }).catch(() => {});
+        }
+      }
     };
     window.addEventListener("message", h);
     return () => window.removeEventListener("message", h);

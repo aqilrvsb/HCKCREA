@@ -99,30 +99,9 @@ $("stopBtn").addEventListener("click", async () => {
   }, 1000);
 })();
 
-$("simBtn").addEventListener("click", async () => {
-  const t = $("simText").value.trim();
-  if (!t) return;
-  const r = await send({ type: "SIM", text: t });
-  $("msg").textContent = r?.ok ? "✓ Simulasi dihantar" : "Tekan START dulu";
-  $("msg").className = r?.ok ? "msg ok" : "msg";
-  $("simText").value = "";
-});
-
-$("bellBtn").addEventListener("click", () => send({ type: "PLAY_MANUAL_SFX", sfx: "bell" }));
-$("clapBtn").addEventListener("click", () => send({ type: "PLAY_MANUAL_SFX", sfx: "clap" }));
-
-// Auto-pin toggle — content.js (on the TikTok Shop tab) watches these storage
-// keys and re-pins the first product every N seconds.
-(async () => {
-  const cb = $("autoPin"), sec = $("autoPinSec");
-  if (!cb || !sec) return;
-  const { lhAutoPin, lhAutoPinSec } = await chrome.storage.local.get(["lhAutoPin", "lhAutoPinSec"]);
-  cb.checked = !!lhAutoPin;
-  sec.value = String(Math.max(5, Number(lhAutoPinSec) || 15));
-  const save = () => chrome.storage.local.set({ lhAutoPin: cb.checked, lhAutoPinSec: Math.max(5, Number(sec.value) || 15) });
-  cb.addEventListener("change", save);
-  sec.addEventListener("change", save);
-})();
+// (Simulation, manual SFX buttons + the extension's own auto-pin toggle were
+// removed — interactions are auto-handled, and Auto-Pin is now configured at
+// PeningLab → Greetings (Pin Min/Max), applied automatically by content.js.)
 
 chrome.runtime.onMessage.addListener((msg) => {
   if (msg.type === "STATS") {

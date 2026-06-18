@@ -10,7 +10,8 @@ chrome.runtime.onMessage.addListener((msg) => {
       window.location.origin,
     );
   } else if (msg && msg.type === "LH_STOP") {
-    // TikTok LIVE ended (duration auto-end or manual) → stop the studio stream.
-    window.postMessage({ __lh_stop: true }, window.location.origin);
+    // TikTok LIVE ended via DURATION auto-end → stop the studio stream + (when
+    // gpuOff) turn the GPU off ($0). Manual STOP never sends this.
+    window.postMessage({ __lh_stop: true, gpuOff: !!msg.gpuOff }, window.location.origin);
   }
 });

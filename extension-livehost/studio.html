@@ -122,62 +122,6 @@
         <div id="countdown" class="note" style="text-align:center;margin-top:8px;font-weight:800;color:var(--green-700);"></div>
       </div>
 
-      <div class="card">
-        <div class="card-header"><span class="icon">📊</span> Interactions</div>
-        <div class="stats">
-          <div class="stat" style="background:#eff6ff;border-color:#bfdbfe;"><div class="stat-value" style="color:#2563eb" id="s_seen">0</div><div class="stat-label">Seen</div></div>
-          <div class="stat" style="background:#f0fdf4;border-color:#bbf7d0;"><div class="stat-value" style="color:#16a34a" id="s_replied">0</div><div class="stat-label">Replied</div></div>
-          <div class="stat" style="background:#fffbeb;border-color:#fde68a;"><div class="stat-value" style="color:#d97706" id="s_skipped">0</div><div class="stat-label">Skipped</div></div>
-          <div class="stat" style="background:#f0f9ff;border-color:#bae6fd;"><div class="stat-value" style="color:#0ea5e9" id="s_joins">0</div><div class="stat-label">Joins</div></div>
-          <div class="stat" style="background:#faf5ff;border-color:#e9d5ff;"><div class="stat-value" style="color:#7c3aed" id="s_greeted">0</div><div class="stat-label">Greeted</div></div>
-          <div class="stat" style="background:#fdf2f8;border-color:#fbcfe8;"><div class="stat-value" style="color:#db2777" id="s_follows">0</div><div class="stat-label">Follows</div></div>
-          <div class="stat" style="background:#f0fdfa;border-color:#99f6e4;"><div class="stat-value" style="color:#0d9488" id="s_likes">0</div><div class="stat-label">Likes</div></div>
-          <div class="stat" style="background:#fff7ed;border-color:#fed7aa;"><div class="stat-value" style="color:#ea580c" id="s_purchases">0</div><div class="stat-label">Beli 🔔</div></div>
-        </div>
-      </div>
-
-      <div class="card">
-        <div class="card-header"><span class="icon">🎮</span> Simulation</div>
-        <div class="row">
-          <input id="simText" placeholder='komen | "NAMA JOIN/FOLLOW/LIKE"'>
-          <button class="send-btn" id="simBtn">Send</button>
-        </div>
-        <div class="note" style="margin-top:6px;">Sama macam komen TikTok sebenar:</div>
-        <table class="sim-guide">
-          <thead><tr><th>Taip</th><th>Apa jadi</th></tr></thead>
-          <tbody>
-            <tr><td><b>Ali JOIN</b></td><td>Avatar greeting ("Selamat datang Ali!") → GREETED +1</td></tr>
-            <tr><td><b>Siti FOLLOW</b></td><td>👏 clap + greeting follow → FOLLOWS +1</td></tr>
-            <tr><td><b>Abu LIKE</b></td><td>Avatar greeting like → LIKES +1</td></tr>
-            <tr><td><b>Mira: berapa harga?</b></td><td>Avatar reply guna Product Knowledge → SEEN/REPLIED +1</td></tr>
-            <tr><td><b>dah beli powder</b></td><td>🔔 bell + avatar ucap terima kasih → BELI +1</td></tr>
-            <tr><td><b>best sangat!</b></td><td>Avatar reply, kemudian 👏 clap (feedback)</td></tr>
-          </tbody>
-        </table>
-      </div>
-
-      <div class="card">
-        <div class="card-header"><span class="icon">🔊</span> Sound Effects</div>
-        <div class="row sfx">
-          <button class="bell" id="bellBtn">🔔 Bell</button>
-          <button class="clap" id="clapBtn">👏 Clap</button>
-        </div>
-        <div class="note">Auto: Purchase → 🔔 bell + suara · Feedback → suara + 👏 clap · Follow → 👏 clap.</div>
-      </div>
-
-      <div class="card">
-        <div class="card-header"><span class="icon">📌</span> Auto-Pin Produk</div>
-        <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;">
-          <input type="checkbox" id="autoPin"> Auto-pin produk <b>pertama</b> dalam senarai
-        </label>
-        <div class="row" style="align-items:center;gap:6px;margin-top:8px;font-size:12px;">
-          <span>Ulang setiap</span>
-          <input id="autoPinSec" type="number" min="5" value="15" style="width:64px;">
-          <span>saat (unpin → pin semula)</span>
-        </div>
-        <div class="note">Letak produk sasaran di <b>paling atas</b> senarai produk. Buka tab TikTok Shop LIVE supaya ia berfungsi.</div>
-      </div>
-
       <div class="card tinted">
         <div class="note" style="margin:0;">Buka tab <b>TikTok Shop LIVE</b>, kemudian tekan START. Tetapan greeting di <b>PeningLab → Greetings</b>. Seret tepi panel untuk besar/kecil.</div>
       </div>

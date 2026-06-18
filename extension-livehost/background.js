@@ -43,10 +43,12 @@ async function forwardEvent(evType, username, text) {
 // Tell every peninglab tab to STOP the avatar stream — fired when the TikTok LIVE
 // actually ends (duration auto-end, or the host ends it manually) so the GPU is
 // freed and nothing keeps streaming after the live is over.
-async function forwardStop() {
+async function forwardStop(gpuOff = false) {
   try {
     const tabs = await chrome.tabs.query({ url: "https://peninglab.com/*" });
-    for (const t of tabs) chrome.tabs.sendMessage(t.id, { type: "LH_STOP" }).catch(() => {});
+    // gpuOff=true ONLY on duration auto-end → the studio stops the avatar AND
+    // turns the GPU off ($0). Manual STOP never calls this (avatar + GPU stay on).
+    for (const t of tabs) chrome.tabs.sendMessage(t.id, { type: "LH_STOP", gpuOff }).catch(() => {});
   } catch (e) {}
 }
 
@@ -79,6 +81,17 @@ async function handleStart() {
   stats = freshStats();
   running = true;
   if (!flushTimer) flushTimer = setInterval(flushEvents, 5000);
+  // Pull the Pin Min/Max from the dashboard greeting config so content.js can
+  // auto-pin the product at a RANDOM interval (no separate extension toggle).
+  try {
+    const r = await fetch(`${BASE}/api/livehost/greet-config?token=${encodeURIComponent(token)}`);
+    const d = await r.json();
+    const c = d.config || {};
+    await chrome.storage.local.set({
+      lhPinMin: Math.max(5, Number(c.pinMin) || 30),
+      lhPinMax: Math.max(5, Number(c.pinMax) || 90),
+    });
+  } catch (e) {}
   broadcast();
   return { ok: true };
 }
@@ -112,7 +125,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       case "USER_JOINED": if (running) onJoin(msg.username); break;
       case "USER_FOLLOWED": if (running) onFollow(msg.username); break;
       case "USER_LIKED": if (running) onLike(msg.username); break;
-      case "LIVE_ENDED": handleStop(); forwardStop(); break; // also stop peninglab's avatar stream
+      case "LIVE_ENDED": handleStop(); forwardStop(true); break; // duration auto-end → stop avatar + turn GPU OFF
       case "SIM": {
         // Manual sim from the side panel → forward to the studio brain, same as
         // a real event. "Name JOIN/FOLLOW/LIKE" | "Name: comment" | plain text.
