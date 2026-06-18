@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Radio, CreditCard, LayoutDashboard, MessageCircle, ArrowUpRight, ScrollText, Package, BarChart3, Paperclip, HeartHandshake, Send, LayoutTemplate, Wallet, Clapperboard } from "lucide-react";
+import { Radio, CreditCard, LayoutDashboard, MessageCircle, ArrowUpRight, ScrollText, Package, BarChart3, HeartHandshake, Send, LayoutTemplate, Wallet, Clapperboard } from "lucide-react";
 import LogoutButton from "./logout-button";
 import BillingSection from "./sections/billing";
 import StudioSection from "./sections/studio";
@@ -29,7 +29,6 @@ const NAV: { key: View; label: string; Icon: any; step?: number; stepColor?: str
   { key: "scripts", label: "Scripts", Icon: ScrollText, step: 2, stepColor: "#3b82f6" },
   { key: "products", label: "Knowledge", Icon: Package, step: 3, stepColor: "#f59e0b" },
   { key: "greetings", label: "Greetings", Icon: HeartHandshake, step: 4, stepColor: "#ec4899" },
-  { key: "attachment", label: "Attachment", Icon: Paperclip },
   { key: "usage", label: "Usage", Icon: BarChart3 },
   { key: "billing", label: "Billing", Icon: CreditCard },
 ];
