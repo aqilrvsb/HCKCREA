@@ -8,7 +8,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { Radio, Save, RefreshCw, Clock, Wallet } from "lucide-react";
 import { localDateStr, startOfMonthLocal } from "@/lib/date-util";
-import PoolManager from "./pool-manager";
 
 type Client = {
   id: string;
@@ -157,9 +156,6 @@ export default function AdminLivehostPage() {
         </button>
       </div>
 
-      {/* Shared 5090 serverless POOL — clients round-robin a free slot on Play. */}
-      <PoolManager />
-
       {/* date filter (MYT) — like the Errors tab */}
       <div className="flex flex-wrap items-end gap-3 mb-5">
         <label className="text-xs font-bold text-[var(--color-text-secondary)]">
@@ -258,7 +254,7 @@ export default function AdminLivehostPage() {
               </div>
               {pool.filter((p) => !p.assignedUserId).length === 0 && !c.gpu_endpoint_id && (
                 <p className="text-xs text-[var(--color-text-muted)] -mt-2 mb-3">
-                  Tiada GPU free. Cipta GPU baru di <b>Pool Manager</b> (atas) dahulu.
+                  Tiada GPU free di Novita. Cipta endpoint baru di Novita dahulu.
                 </p>
               )}
 

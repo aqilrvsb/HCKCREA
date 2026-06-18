@@ -84,17 +84,19 @@ export async function GET(req: Request) {
   const rates = await getSettings(["livehost_gpu_rate_hour", "livehost_voice_rate_1k", "livehost_audio_rate_gen", "livehost_min_balance", "livehost_warm_window_sec", "livehost_llm", "livehost_ext_version", "livehost_ext_download_url"]);
   const llmRaw = rates["livehost_llm"] || {};
 
-  // Pool endpoints for the admin assign dropdown (which GPU → which client).
-  const { data: poolRows } = await admin
-    .from("livehost_pool")
-    .select("endpoint_id, label, status, assigned_user_id, created_at")
-    .order("created_at", { ascending: true });
-  const pool = (poolRows || []).map((r) => ({
-    endpointId: r.endpoint_id,
-    label: r.label || r.endpoint_id,
-    status: r.status,
-    assignedUserId: r.assigned_user_id || null,
-    assignedEmail: r.assigned_user_id ? (emailById.get(r.assigned_user_id) || "") : "",
+  // Real Novita GPUs (1 client = 1 GPU). Populate the assign dropdown from what
+  // we actually have on Novita, cross-referenced with who it's assigned to
+  // (live_client_config.gpu_endpoint_id). No pool table / round-robin.
+  const { listNovitaEndpoints } = await import("@/lib/livehost-pool");
+  const eps = await listNovitaEndpoints();
+  const epToUser = new Map<string, string>();
+  for (const c of cfgs || []) if (c.gpu_endpoint_id) epToUser.set(c.gpu_endpoint_id, c.user_id);
+  const pool = eps.map((e) => ({
+    endpointId: e.id,
+    label: `${e.name || e.id} · ${e.state || "?"}`,
+    status: e.state,
+    assignedUserId: epToUser.get(e.id) || null,
+    assignedEmail: epToUser.get(e.id) ? (emailById.get(epToUser.get(e.id)!) || "") : "",
   }));
 
   return NextResponse.json({

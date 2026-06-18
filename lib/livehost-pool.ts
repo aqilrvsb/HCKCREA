@@ -23,6 +23,26 @@ export function runsyncUrl(endpointId: string): string {
   return `https://${endpointId}-${endpointId}.runsync.novita.dev`;
 }
 
+// List the REAL serverless GPU endpoints we have on Novita (so admin assigns
+// from reality — 1 client = 1 GPU). Each: { id, name, state }.
+export async function listNovitaEndpoints(): Promise<{ id: string; name: string; state: string }[]> {
+  const key = (await getSettings(["novita_api_key"]))["novita_api_key"];
+  if (!key) return [];
+  try {
+    const d = await novita("/endpoints", key);
+    const arr = d?.endpoints || d?.data || [];
+    return (Array.isArray(arr) ? arr : [])
+      .map((e: any) => ({
+        id: e.id || e.endpoint?.id || "",
+        name: e.name || e.endpoint?.name || "",
+        state: String(e.status?.state || e.state || e.status || ""),
+      }))
+      .filter((e: { id: string }) => !!e.id);
+  } catch {
+    return [];
+  }
+}
+
 async function novita(path: string, key: string, init?: RequestInit): Promise<any> {
   const r = await fetch(`${BASE}${path}`, {
     ...init,
@@ -193,10 +213,10 @@ export async function setClientGpu(userId: string, on: boolean): Promise<GpuTogg
   return { ok: true, on: false, charged };
 }
 
-// Admin assigns/unassigns a PRE-CREATED pool endpoint to a client (the dropdown).
-//   endpointId set → bind it (the client can then turn it on at Usage).
-//   endpointId "" → unassign: charge any running time, free the endpoint back to
-//                   the pool (NOT deleted — reuse it for another client).
+// Admin assigns a REAL Novita endpoint to a client (1 client = 1 GPU; no pool
+// table). Source of truth = live_client_config.gpu_endpoint_id.
+//   endpointId set → bind it (the client then turns it on/off at Usage).
+//   endpointId "" → unassign: charge any running time, clear the binding.
 export async function assignClientGpu(userId: string, endpointId: string): Promise<GpuToggle> {
   const admin = createAdminClient();
   const { data: cfg } = await admin
@@ -207,13 +227,6 @@ export async function assignClientGpu(userId: string, endpointId: string): Promi
   const rateHour = rateNum(await getSetting<string>("livehost_gpu_rate_hour"), 6);
   const nowIso = new Date().toISOString();
 
-  const freeEndpoint = async (id?: string | null) => {
-    if (!id) return;
-    await admin.from("livehost_pool").update({
-      status: "free", assigned_user_id: null, assigned_session_id: null,
-      assigned_at: null, last_seen: null, updated_at: nowIso,
-    }).eq("endpoint_id", id);
-  };
   const chargeIfOn = async () => {
     if (cfg?.gpu_on && cfg.gpu_on_at) {
       const el = Math.max(0, (Date.now() - new Date(cfg.gpu_on_at).getTime()) / 1000);
@@ -230,7 +243,6 @@ export async function assignClientGpu(userId: string, endpointId: string): Promi
 
   if (!endpointId) {
     const charged = await chargeIfOn();
-    await freeEndpoint(cfg?.gpu_endpoint_id);
     await admin.from("live_client_config").update({
       gpu_allowed: false, gpu_on: false, gpu_on_at: null, gpu_endpoint_id: null,
       backend_url: "", updated_at: nowIso,
@@ -238,21 +250,14 @@ export async function assignClientGpu(userId: string, endpointId: string): Promi
     return { ok: true, on: false, charged };
   }
 
-  // assign a (free) endpoint
-  const { data: ep } = await admin.from("livehost_pool")
-    .select("endpoint_id, assigned_user_id").eq("endpoint_id", endpointId).maybeSingle();
-  if (!ep) return { ok: false, error: "Endpoint tak wujud dalam pool." };
-  if (ep.assigned_user_id && ep.assigned_user_id !== userId) {
-    return { ok: false, error: "GPU ini sudah diberi client lain." };
-  }
-  // switching endpoints → charge + free the old one
-  if (cfg?.gpu_endpoint_id && cfg.gpu_endpoint_id !== endpointId) {
-    await chargeIfOn();
-    await freeEndpoint(cfg.gpu_endpoint_id);
-  }
-  await admin.from("livehost_pool").update({
-    status: "busy", assigned_user_id: userId, assigned_at: nowIso, updated_at: nowIso,
-  }).eq("endpoint_id", endpointId);
+  // 1 GPU = 1 client: reject if this endpoint is already another client's.
+  const { data: taken } = await admin.from("live_client_config")
+    .select("user_id").eq("gpu_endpoint_id", endpointId).neq("user_id", userId).maybeSingle();
+  if (taken) return { ok: false, error: "GPU ini sudah diberi client lain." };
+
+  // switching endpoints → charge the old one's running time first
+  if (cfg?.gpu_endpoint_id && cfg.gpu_endpoint_id !== endpointId) await chargeIfOn();
+
   await admin.from("live_client_config").update({
     gpu_allowed: true, gpu_on: false, gpu_on_at: null, gpu_endpoint_id: endpointId,
     backend_url: "", updated_at: nowIso,
