@@ -20,11 +20,13 @@ export default function LivehostTemplateBody() {
   const [charUrl, setCharUrl] = useState("");
   const [videoUrl, setVideoUrl] = useState("");
   const [uploadingVid, setUploadingVid] = useState(false);
-  const [prompt, setPrompt] = useState("");
+  // Prompt + orientation are fixed (hidden in the UI).
+  const prompt =
+    "Animate the character to follow the reference video's motion exactly, frame for frame. Preserve the character's exact appearance from the reference image — face, hair or head covering, skin tone, and full outfit — with maximum fidelity. Do not change the appearance, clothing, colors, or face. Keep the torso and shoulders stable and upright; only the hands and arms move as in the reference. Photorealistic, ultra-detailed, natural realistic hands, clean consistent studio lighting matching the reference image. Locked static camera — no zoom, no pan, no camera shake. Keep the character centered with consistent framing throughout.";
   const mode = "pro" as const; // quality fixed at 1080p (Pro)
   const keepSound = false; // audio off by default (toggle hidden)
+  const orientation = "video" as const; // always follow reference video motion
   const [videoDur, setVideoDur] = useState(0);
-  const [orientation, setOrientation] = useState<"video" | "image">("video");
   const [avatarPickerOpen, setAvatarPickerOpen] = useState(false);
   const [presets, setPresets] = useState<{ id: string; name: string; public_url: string; category: "avatar" }[]>([]);
   const [busy, setBusy] = useState(false);
@@ -145,18 +147,7 @@ export default function LivehostTemplateBody() {
         <input ref={vidInputRef} type="file" accept=".mp4,video/mp4" className="hidden"
           onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ""; if (f) uploadVideo(f); }} />
 
-        <div style={{ marginTop: 14 }}><LhLabel>Prompt (optional)</LhLabel></div>
-        <textarea style={{ ...F, minHeight: 70, resize: "vertical" }} value={prompt} onChange={(e) => setPrompt(e.target.value)}
-          placeholder="Cth: High detail, smooth camera motion, preserve the original costume." />
-
-        <div style={{ marginTop: 14 }}>
-          <LhLabel>Orientation</LhLabel>
-          <select style={F} value={orientation} onChange={(e) => setOrientation(e.target.value as "video" | "image")}>
-            <option value="video">Ikut video</option>
-            <option value="image">Ikut gambar</option>
-          </select>
-        </div>
-        <p className="text-[11px] mt-2" style={{ color: "#999" }}>
+        <p className="text-[11px] mt-3" style={{ color: "#999" }}>
           Kualiti: <b style={{ color: "#555" }}>1080p (Pro)</b>{videoDur ? <> · Panjang video: <b style={{ color: "#555" }}>{videoDur}s</b></> : null}
         </p>
 
