@@ -735,11 +735,10 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
       let saved: any = {};
       try { saved = JSON.parse(localStorage.getItem("livehost_settings") || "{}"); } catch {}
       try { const rawT = localStorage.getItem("livehost_saved_templates"); if (rawT) setSavedTemplates(JSON.parse(rawT)); } catch {}
-      if (saved.overlaySel) setOverlaySel(saved.overlaySel);
+      // NOTE: the visual COMPOSITION (avatar, overlay, body + their transforms) is
+      // intentionally NOT restored on load — the stage starts CLEAR and the host
+      // picks a saved template to load everything. Only general settings persist.
       if (saved.voiceId) setVoiceId(saved.voiceId);
-      if (typeof saved.zoom === "number") setZoom(saved.zoom);
-      if (typeof saved.offsetX === "number") setOffsetX(saved.offsetX);
-      if (typeof saved.offsetY === "number") setOffsetY(saved.offsetY);
       if (typeof saved.scriptLoop === "boolean") { setScriptLoop(saved.scriptLoop); loopRef.current = saved.scriptLoop; }
       if (typeof saved.liveDurH === "number") setLiveDurH(saved.liveDurH);
       if (typeof saved.liveDurM === "number") setLiveDurM(saved.liveDurM);
@@ -747,12 +746,7 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
       if (typeof saved.speed === "number") setSpeed(saved.speed);
       if (saved.badgePos && typeof saved.badgePos.x === "number") setBadgePos(saved.badgePos);
       if (typeof saved.emotion === "string") setEmotion(saved.emotion);
-      if (typeof saved.bodyUrl === "string") setBodyUrl(saved.bodyUrl);
-      if (saved.bodyKey === "green" || saved.bodyKey === "blue" || saved.bodyKey === "auto") setBodyKey(saved.bodyKey);
-      if (typeof saved.bodyZoom === "number") setBodyZoom(saved.bodyZoom);
-      if (typeof saved.bodyOffsetX === "number") setBodyOffsetX(saved.bodyOffsetX);
-      if (typeof saved.bodyOffsetY === "number") setBodyOffsetY(saved.bodyOffsetY);
-      if (typeof saved.bodyClipTop === "number") setBodyClipTop(saved.bodyClipTop);
+      // (body layer NOT restored — composition starts clear; load a template)
       if (Array.isArray(saved.rundown)) { setRundown(saved.rundown); rundownRef.current = saved.rundown; }
       try {
         const lib = JSON.parse(localStorage.getItem("livehost_products_lib") || "[]");
@@ -788,11 +782,7 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
     fetch("/avatars/manifest.json").then((r) => r.json()).then((list) => {
       if (cancelled) return;
       setStock(list);
-      let ss = ""; try { ss = JSON.parse(localStorage.getItem("livehost_settings") || "{}").stockSel || ""; } catch {}
-      if (ss) {
-        const item = (list as { id: string; file: string }[]).find((s) => s.id === ss);
-        if (item) { setStockSel(item.id); setAvatarId(item.id); setPreviewUrl(`/avatars/${item.file}`); }
-      }
+      // (no stock-avatar auto-restore — the stage starts CLEAR; pick a template)
     }).catch(() => {});
 
     // 3) Background: pull DB → cache, then re-apply (DB wins on a fresh device).
@@ -808,10 +798,10 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
   useEffect(() => {
     if (!hydratedRef.current) return;
     try {
-      localStorage.setItem("livehost_settings", JSON.stringify({ stockSel, overlaySel, voiceId, zoom, offsetX, offsetY, scriptLoop, rundown, volume, speed, badgePos, emotion, liveDurH, liveDurM, bodyUrl, bodyKey, bodyZoom, bodyOffsetX, bodyOffsetY, bodyClipTop }));
+      localStorage.setItem("livehost_settings", JSON.stringify({ stockSel, overlaySel, customOverlay, avatarId, previewUrl, voiceId, zoom, offsetX, offsetY, scriptLoop, rundown, volume, speed, badgePos, emotion, liveDurH, liveDurM, bodyUrl, bodyKey, bodyZoom, bodyOffsetX, bodyOffsetY, bodyClipTop }));
     } catch {}
     saveLivehostState();
-  }, [stockSel, overlaySel, voiceId, zoom, offsetX, offsetY, scriptLoop, rundown, volume, speed, badgePos, emotion, liveDurH, liveDurM, bodyUrl, bodyKey, bodyZoom, bodyOffsetX, bodyOffsetY, bodyClipTop]);
+  }, [stockSel, overlaySel, customOverlay, avatarId, previewUrl, voiceId, zoom, offsetX, offsetY, scriptLoop, rundown, volume, speed, badgePos, emotion, liveDurH, liveDurM, bodyUrl, bodyKey, bodyZoom, bodyOffsetX, bodyOffsetY, bodyClipTop]);
   // (Scripts persist to Supabase via /api/livehost/scripts — no localStorage copy.)
   useEffect(() => {
     if (!hydratedRef.current) return;
