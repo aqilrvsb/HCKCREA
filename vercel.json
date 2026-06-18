@@ -12,6 +12,10 @@
     {
       "path": "/api/worker/livehost-idle",
       "schedule": "*/10 * * * *"
+    },
+    {
+      "path": "/api/worker/gpu-billing",
+      "schedule": "*/15 * * * *"
     }
   ]
 }

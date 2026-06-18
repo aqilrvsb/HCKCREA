@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { runsyncUrl } from "@/lib/livehost-pool";
 
 // Client-facing pool assign/release. The studio calls:
 //   POST { action: "assign" }  on Play  → returns { url } of a free 5090
@@ -19,6 +20,21 @@ export async function POST(req: Request) {
   const { action, sessionId } = await req.json().catch(() => ({} as any));
 
   if (action === "assign") {
+    // 1 GPU = 1 client: if this user has turned their DEDICATED GPU on (from
+    // Billing), always hand them THAT endpoint — never a round-robin slot. The
+    // endpoint is always-on (minNum:1) so there's no cold-boot / disconnect.
+    const { data: cfg } = await admin
+      .from("live_client_config")
+      .select("gpu_on, gpu_endpoint_id")
+      .eq("user_id", user.id)
+      .maybeSingle();
+    if (cfg?.gpu_on && cfg?.gpu_endpoint_id) {
+      return NextResponse.json({
+        url: runsyncUrl(cfg.gpu_endpoint_id).replace(/\/+$/, ""),
+        endpointId: cfg.gpu_endpoint_id,
+        dedicated: true,
+      });
+    }
     const { data, error } = await admin.rpc("livehost_pool_assign", {
       p_user: user.id,
       p_session: sessionId || null,
