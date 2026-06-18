@@ -273,10 +273,19 @@ async function applyCheckoutSignup(admin: any, payment: any) {
     { onConflict: "id" }
   );
 
-  // LIVEHOST: no per-client GPU provisioning. Clients stream from the SHARED
-  // POOL of 5090 serverless endpoints (assigned at Play, released at Stop —
-  // see lib/livehost-pool.ts + /api/livehost/pool). The pool is admin-managed
-  // and $0-idle, so buying the plan only needs the plan + credits grant above.
+  // LIVEHOST: AUTO-APPOINT the client to a GPU on payment (1 GPU = 1 client).
+  // gpu_allowed=true lets them turn their dedicated GPU on/off at the Usage tab.
+  // The GPU itself is CREATED on Turn ON (minNum:1, no timeout) and DELETED on
+  // Turn OFF ($0) — see lib/livehost-pool.ts setClientGpu. Fully automatic.
+  if (plan === "livehost") {
+    const { data: existingCfg } = await admin
+      .from("live_client_config").select("user_id").eq("user_id", userId).maybeSingle();
+    if (existingCfg) {
+      await admin.from("live_client_config").update({ gpu_allowed: true, updated_at: now.toISOString() }).eq("user_id", userId);
+    } else {
+      await admin.from("live_client_config").insert({ user_id: userId, gpu_allowed: true, backend_url: "", updated_at: now.toISOString() });
+    }
+  }
 
   // Add free credits if the plan grants any (currently 0 for both plans)
   if (freeCredits > 0) {
@@ -556,6 +565,18 @@ async function applySubscription(admin: any, payment: any) {
       credits: nextCredits,
     })
     .eq("id", userId);
+
+  // LIVEHOST renewal: keep the client auto-appointed (gpu_allowed) so their
+  // dedicated GPU on/off keeps working. Created on Turn ON / deleted on OFF.
+  if (plan === "livehost") {
+    const { data: existingCfg } = await admin
+      .from("live_client_config").select("user_id").eq("user_id", userId).maybeSingle();
+    if (existingCfg) {
+      await admin.from("live_client_config").update({ gpu_allowed: true, updated_at: now.toISOString() }).eq("user_id", userId);
+    } else {
+      await admin.from("live_client_config").insert({ user_id: userId, gpu_allowed: true, backend_url: "", updated_at: now.toISOString() });
+    }
+  }
 
   if (credits > 0) {
     await admin.from("credit_transactions").insert({

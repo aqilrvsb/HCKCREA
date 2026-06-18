@@ -30,11 +30,8 @@ type Client = {
   };
 };
 
-type PoolEp = { endpointId: string; label: string; status: string; assignedUserId: string | null; assignedEmail: string };
-
 export default function AdminLivehostPage() {
   const [clients, setClients] = useState<Client[]>([]);
-  const [pool, setPool] = useState<PoolEp[]>([]);
   const [loading, setLoading] = useState(true);
   const [savingId, setSavingId] = useState("");
   const [msg, setMsg] = useState("");
@@ -50,7 +47,6 @@ export default function AdminLivehostPage() {
       const r = await fetch(`/api/admin/livehost?start=${start}&end=${end}`);
       const d = await r.json();
       setClients(d.clients || []);
-      setPool(d.pool || []);
     } finally {
       setLoading(false);
     }
@@ -61,28 +57,26 @@ export default function AdminLivehostPage() {
   const update = (id: string, patch: Partial<Client>) =>
     setClients((prev) => prev.map((c) => (c.id === id ? { ...c, ...patch } : c)));
 
-  // Assign the selected pool GPU (c.gpu_endpoint_id, set by the dropdown) to this
-  // client — or "" to unassign (free it back to the pool). The client then turns
-  // it on/off themselves at their Usage tab.
-  const assignGpu = async (c: Client) => {
+  // Appoint / revoke a client's GPU entitlement (auto-set on payment too — this
+  // is a manual override). The GPU is created on Turn ON / deleted on Turn OFF.
+  const appoint = async (c: Client, allow: boolean) => {
     setSavingId(c.id); setMsg("");
     try {
       const r = await fetch("/api/admin/livehost", {
         method: "POST", headers: { "content-type": "application/json" },
-        body: JSON.stringify({ action: "gpu_assign", userId: c.id, endpointId: c.gpu_endpoint_id || "" }),
+        body: JSON.stringify({ action: "gpu_appoint", userId: c.id, allow }),
       });
       const d = await r.json();
-      setMsg(d.ok
-        ? `${c.email}: ${c.gpu_endpoint_id ? `GPU di-assign (${c.gpu_endpoint_id})` : "GPU ditarik balik"}${d.charged ? ` · caj RM ${Number(d.charged).toFixed(2)}` : ""}`
-        : d.error || "failed");
+      setMsg(d.ok ? `${c.email}: GPU ${allow ? "diberikan ✓" : "ditarik balik"}` : d.error || "failed");
       load();
     } finally { setSavingId(""); }
   };
 
-  // Admin turns a client's GPU on/off (worker spins up / scales down → $0;
-  // endpoint never deleted). Same billing path as the client's Usage control.
+  // Admin turns a client's GPU on/off (Plan C: create minNum:1 on ON / delete on
+  // OFF → $0). Same path as the client's Usage control.
   const gpuToggle = async (c: Client, on: boolean) => {
-    if (!on && !window.confirm(`Tutup GPU ${c.email}? Caj masa guna ditolak + worker dibuang (endpoint kekal, $0).`)) return;
+    if (on && !window.confirm(`Hidupkan GPU untuk ${c.email}? Cipta GPU (boot ~7min), caj bermula bila running.`)) return;
+    if (!on && !window.confirm(`Tutup GPU ${c.email}? Caj masa guna ditolak + GPU dipadam ($0).`)) return;
     setSavingId(c.id); setMsg("");
     try {
       const r = await fetch("/api/admin/livehost", {
@@ -186,54 +180,50 @@ export default function AdminLivehostPage() {
                 )}
               </div>
 
-              {/* Assign a dedicated GPU (dropdown of UNASSIGNED pool endpoints).
-                  Client then turns it on/off at their Usage tab. */}
+              {/* GPU: auto-appointed on payment. Appoint/revoke = manual override.
+                  Turn ON = create minNum:1 GPU (no timeout) · Turn OFF = delete → $0. */}
               <div className="flex flex-wrap items-center gap-2 mb-4 p-3 rounded-xl"
                 style={{ background: "var(--color-bg)", border: "1px solid var(--color-border)" }}>
                 <span className="text-xs font-bold text-[var(--color-text-secondary)]">GPU dedikasi:</span>
-                <select
-                  value={c.gpu_endpoint_id || ""}
-                  onChange={(e) => update(c.id, { gpu_endpoint_id: e.target.value })}
-                  className="px-3 py-2 rounded-lg text-sm font-bold flex-1 min-w-[220px]"
-                  style={{ background: "var(--color-bg-card)", border: "1px solid var(--color-border)", color: "var(--color-text-primary)" }}>
-                  <option value="">— Tiada (tidak di-assign) —</option>
-                  {pool
-                    .filter((p) => !p.assignedUserId || p.assignedUserId === c.id)
-                    .map((p) => (
-                      <option key={p.endpointId} value={p.endpointId}>
-                        {p.label} {p.assignedUserId === c.id ? "(semasa)" : "(free)"}
-                      </option>
-                    ))}
-                </select>
+                <span className="text-xs px-2 py-0.5 rounded-full font-bold"
+                  style={c.gpu_allowed ? { background: "rgba(34,197,94,0.15)", color: "#4ade80" } : { background: "rgba(148,163,184,0.15)", color: "#94a3b8" }}>
+                  {c.gpu_allowed ? "✓ Diberikan" : "Belum diberi"}
+                </span>
                 {c.gpu_on && (
                   <span className="text-xs px-2 py-0.5 rounded-full font-bold" style={{ background: "rgba(34,197,94,0.15)", color: "#4ade80" }}>
-                    ● client ON{c.gpu_on_at ? ` — ${new Date(c.gpu_on_at).toLocaleString("ms-MY")}` : ""}
+                    ● ON{c.gpu_on_at ? ` — ${new Date(c.gpu_on_at).toLocaleString("ms-MY")}` : " (starting)"}
                   </span>
                 )}
-                <button onClick={() => assignGpu(c)} disabled={savingId === c.id}
-                  className="px-4 py-2 rounded-lg text-xs font-bold text-white disabled:opacity-50"
-                  style={{ background: "linear-gradient(135deg,#3b82f6,#2563eb)" }}>
-                  {savingId === c.id ? "…" : "Save GPU"}
-                </button>
-                {c.gpu_endpoint_id && (c.gpu_on ? (
-                  <button onClick={() => gpuToggle(c, false)} disabled={savingId === c.id}
-                    className="px-4 py-2 rounded-lg text-xs font-bold text-white disabled:opacity-50"
-                    style={{ background: "linear-gradient(135deg,#ef4444,#dc2626)" }}>
-                    Turn OFF
-                  </button>
-                ) : (
-                  <button onClick={() => gpuToggle(c, true)} disabled={savingId === c.id}
-                    className="px-4 py-2 rounded-lg text-xs font-bold text-white disabled:opacity-50"
-                    style={{ background: "linear-gradient(135deg,#22c55e,#16a34a)" }}>
-                    Turn ON
-                  </button>
-                ))}
+                <div className="ml-auto flex gap-2">
+                  {c.gpu_allowed ? (
+                    <button onClick={() => appoint(c, false)} disabled={savingId === c.id || c.gpu_on}
+                      title={c.gpu_on ? "Tutup GPU dahulu" : ""}
+                      className="px-3 py-1.5 rounded-lg text-xs font-bold disabled:opacity-40"
+                      style={{ background: "var(--color-bg-card)", border: "1px solid var(--color-border)", color: "var(--color-text-secondary)" }}>
+                      Tarik balik
+                    </button>
+                  ) : (
+                    <button onClick={() => appoint(c, true)} disabled={savingId === c.id}
+                      className="px-3 py-1.5 rounded-lg text-xs font-bold text-white disabled:opacity-50"
+                      style={{ background: "linear-gradient(135deg,#3b82f6,#2563eb)" }}>
+                      ⚡ Bagi GPU
+                    </button>
+                  )}
+                  {c.gpu_allowed && (c.gpu_on ? (
+                    <button onClick={() => gpuToggle(c, false)} disabled={savingId === c.id}
+                      className="px-3 py-1.5 rounded-lg text-xs font-bold text-white disabled:opacity-50"
+                      style={{ background: "linear-gradient(135deg,#ef4444,#dc2626)" }}>
+                      Turn OFF
+                    </button>
+                  ) : (
+                    <button onClick={() => gpuToggle(c, true)} disabled={savingId === c.id}
+                      className="px-3 py-1.5 rounded-lg text-xs font-bold text-white disabled:opacity-50"
+                      style={{ background: "linear-gradient(135deg,#22c55e,#16a34a)" }}>
+                      Turn ON
+                    </button>
+                  ))}
+                </div>
               </div>
-              {pool.filter((p) => !p.assignedUserId).length === 0 && !c.gpu_endpoint_id && (
-                <p className="text-xs text-[var(--color-text-muted)] -mt-2 mb-3">
-                  Tiada GPU free di Novita. Cipta endpoint baru di Novita dahulu.
-                </p>
-              )}
 
               {/* usage in the selected date range */}
               <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">

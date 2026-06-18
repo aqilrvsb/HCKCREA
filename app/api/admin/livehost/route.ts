@@ -183,17 +183,25 @@ export async function POST(req: Request) {
     return NextResponse.json({ status: await checkProvisionReady(userId) });
   }
 
-  // Admin assigns a pre-created pool GPU to a client (the dropdown). endpointId
-  // "" = unassign (free the GPU back to the pool). The client then turns it
-  // on/off themselves at their Usage tab.
-  if (action === "gpu_assign" && userId) {
-    const { assignClientGpu } = await import("@/lib/livehost-pool");
-    const r = await assignClientGpu(userId, String(body.endpointId || "").trim());
-    return NextResponse.json({ ...r }, { status: r.ok ? 200 : 400 });
+  // Admin APPOINT/REVOKE a client's GPU entitlement (gpu_allowed). Auto-set on
+  // payment too — this is just a manual override. The GPU itself is created on
+  // Turn ON / deleted on Turn OFF (Plan C).
+  if (action === "gpu_appoint" && userId) {
+    const admin = createAdminClient();
+    const allow = body.allow !== false;
+    const nowIso = new Date().toISOString();
+    const { data: existing } = await admin
+      .from("live_client_config").select("user_id").eq("user_id", userId).maybeSingle();
+    if (existing) {
+      await admin.from("live_client_config").update({ gpu_allowed: allow, updated_at: nowIso }).eq("user_id", userId);
+    } else {
+      await admin.from("live_client_config").insert({ user_id: userId, gpu_allowed: allow, backend_url: "", updated_at: nowIso });
+    }
+    return NextResponse.json({ ok: true, gpu_allowed: allow });
   }
 
-  // Admin can also turn a client's GPU on/off directly (same billing path as the
-  // client's Usage-tab control). on requires the client be assigned a GPU first.
+  // Admin can also turn a client's GPU on/off directly (same create/delete path
+  // as the client's Usage-tab control). on requires the client be appointed.
   if ((action === "gpu_on" || action === "gpu_off") && userId) {
     const { setClientGpu } = await import("@/lib/livehost-pool");
     const r = await setClientGpu(userId, action === "gpu_on");

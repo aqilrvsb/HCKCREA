@@ -184,41 +184,36 @@ export async function setClientGpu(userId: string, on: boolean): Promise<GpuTogg
   const rateHour = rateNum(await getSetting<string>("livehost_gpu_rate_hour"), 6);
   const minBalance = rateNum(await getSetting<string>("livehost_min_balance"), 5);
 
-  // Endpoints are admin-managed (created in the pool + assigned to a client via
-  // the admin dropdown). on/off here just START/STOP the client's BILLING on
-  // their ASSIGNED endpoint (which is always-on, minNum:1 → instant, no boot,
-  // no disconnect). It does NOT create/delete endpoints.
+  // PLAN C: ON = CREATE a fresh minNum:1 GPU (never idle-killed → no mid-stream
+  // timeout, any length) + bind it. OFF = charge + DELETE the GPU → $0. Billing
+  // starts at RUNNING (gpu_on_at stays null until the studio reports connect or
+  // the /avatars probe confirms ready) — the ~7min cold boot is free.
   if (on) {
     if (cfg?.gpu_on) return { ok: true, on: true, endpointId: cfg.gpu_endpoint_id || undefined, since: cfg.gpu_on_at };
-    // Admin must assign a GPU to this client first (1 GPU = 1 client, admin-gated).
-    if (!cfg?.gpu_allowed || !cfg?.gpu_endpoint_id) {
-      return { ok: false, error: "GPU belum di-assign oleh admin." };
-    }
+    // Must be appointed (auto on payment, or admin) — 1 GPU = 1 client.
+    if (!cfg?.gpu_allowed) return { ok: false, error: "GPU belum diberikan — sila buat pembayaran / hubungi admin." };
     const { data: prof } = await admin.from("profiles").select("credits").eq("id", userId).single();
     if (Number(prof?.credits || 0) < minBalance) {
       return { ok: false, error: `Kredit < RM ${minBalance.toFixed(2)} — top up dahulu.` };
     }
+    const res = await createPoolEndpoint(`client:${userId.slice(0, 8)}`);
+    if (!res.ok || !res.endpointId) return { ok: false, error: res.error || "GPU create failed" };
     const nowIso = new Date().toISOString();
-    // gpu_on_at stays NULL until the worker is actually RUNNING — billing starts
-    // at running, NOT during the ~7min cold boot. The status poll sets gpu_on_at
-    // the moment the worker first answers /avatars.
-    await admin.from("live_client_config").update({
-      gpu_on: true, gpu_on_at: null, backend_url: runsyncUrl(cfg.gpu_endpoint_id),
-      updated_at: nowIso,
-    }).eq("user_id", userId);
-    // Kick the cold boot now (best-effort) so the worker starts spinning up.
-    fetch(`${runsyncUrl(cfg.gpu_endpoint_id)}/avatars`, { signal: AbortSignal.timeout(4000) }).catch(() => {});
-    return { ok: true, on: true, endpointId: cfg.gpu_endpoint_id, since: null };
+    await admin.from("live_client_config").upsert({
+      user_id: userId, gpu_on: true, gpu_on_at: null, gpu_endpoint_id: res.endpointId,
+      backend_url: res.runsyncUrl || "", updated_at: nowIso,
+    });
+    return { ok: true, on: true, endpointId: res.endpointId, since: null };
   }
 
-  // OFF — charge the elapsed billed time; keep the endpoint assigned (admin owns
-  // the endpoint lifecycle), the client can turn it on again any time.
+  // OFF — charge the running time (from gpu_on_at), then DELETE the GPU → $0.
   if (!cfg?.gpu_on) return { ok: true, on: false, charged: 0 };
   const elapsed = cfg.gpu_on_at ? Math.max(0, (Date.now() - new Date(cfg.gpu_on_at).getTime()) / 1000) : 0;
   const charged = Number(((elapsed / 3600) * rateHour).toFixed(4));
   if (charged > 0) await deduct(userId, "gpu_session", charged);
+  if (cfg.gpu_endpoint_id) await deletePoolEndpoint(cfg.gpu_endpoint_id);
   await admin.from("live_client_config").update({
-    gpu_on: false, gpu_on_at: null, updated_at: new Date().toISOString(),
+    gpu_on: false, gpu_on_at: null, gpu_endpoint_id: null, backend_url: "", updated_at: new Date().toISOString(),
   }).eq("user_id", userId);
   return { ok: true, on: false, charged };
 }
