@@ -2012,7 +2012,39 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
               onClick={() => { setBodyPickerOpen(true); loadBodyClips(); }}>
               🎬 Import body (gesture){bodyUrl ? " ✓" : ""}
             </button>
-            {bodyUrl && (
+
+            {/* LAYER FIT — pick which layer the stage-drag + Zoom controls: the
+                live AVATAR (lipsync head) or the BODY. The avatar's live <video>
+                uses the same translate+scale, so the head zooms/drags WHILE it
+                streams (no effect on the talking — purely CSS on the output). */}
+            {(active || bodyUrl) && (
+              <div style={{ display: "flex", gap: 16, marginTop: 12, fontSize: 13, alignItems: "center", flexWrap: "wrap" }}>
+                <span style={{ color: "var(--muted)" }}>🎯 Kawal:</span>
+                <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer" }}>
+                  <input type="radio" name="lh-editlayer" checked={editLayer === "avatar"} onChange={() => setEditLayer("avatar")} />
+                  <span>Avatar (kepala)</span>
+                </label>
+                <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: bodyUrl ? "pointer" : "not-allowed", opacity: bodyUrl ? 1 : 0.4 }}>
+                  <input type="radio" name="lh-editlayer" checked={editLayer === "body"} disabled={!bodyUrl} onChange={() => setEditLayer("body")} />
+                  <span>Body (gesture)</span>
+                </label>
+              </div>
+            )}
+            {editLayer === "avatar" && active && (
+              <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 6 }}>
+                <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: "var(--muted)" }}>
+                  <span style={{ width: 64 }}>Zoom</span>
+                  <input type="range" min="0.5" max="2.4" step="0.02" value={zoom}
+                    onChange={(e) => setZoom(parseFloat(e.target.value))} style={{ flex: 1 }} />
+                </label>
+                <div style={{ display: "flex", gap: 6 }}>
+                  <button type="button" className="filebtn secondary" style={{ marginTop: 0, flex: 1 }}
+                    onClick={() => { setOffsetX(0); setOffsetY(0); setZoom(1); }}>↺ Reset avatar</button>
+                </div>
+                <div className="hint" style={{ marginTop: 0 }}>Seret kepala avatar pada skrin + Zoom untuk besar/kecil. (Tak ganggu lipsync.)</div>
+              </div>
+            )}
+            {bodyUrl && editLayer === "body" && (
               <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 6 }}>
                 <div className="hint" style={{ marginTop: 0 }}>Seret body pada skrin untuk gerak. <b>Crop atas</b> sembunyikan kepala Kling; <b>Zoom</b> + seret supaya leher badan tepat bawah kepala avatar.</div>
                 <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: "var(--muted)" }}>
