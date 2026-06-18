@@ -4,6 +4,10 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { getSettings, invalidateSettingsCache } from "@/lib/settings";
 import { malaysiaDayToUtcRange } from "@/lib/date-util";
 
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const maxDuration = 60; // Turn ON may create/update an endpoint (cluster wake retry)
+
 // Admin: list Livehost clients + set each one's streaming config
 // (backend_url = their GPU tunnel URL, vast_instance_id = their GPU).
 

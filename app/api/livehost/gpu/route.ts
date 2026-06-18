@@ -20,6 +20,7 @@ import { setClientGpu, runsyncUrl } from "@/lib/livehost-pool";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+export const maxDuration = 60; // Turn ON may retry create while the idled cluster wakes
 
 const HOUR = 3600;
 

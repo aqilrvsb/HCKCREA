@@ -109,11 +109,11 @@ export async function createPoolEndpoint(label?: string): Promise<CreateResult> 
     const body = {
       endpoint: {
         name,
-        // minNum:1 = ALWAYS-ON (1 GPU per client). Keeps the worker permanently so
-        // Novita's freeTimeout never removes it mid-stream (WebRTC sends no HTTP
-        // requests → it would otherwise be killed ~16.7min in). No restart cycle →
-        // no mid-live disconnect. Always billed; host limits client count.
-        workerConfig: { minNum: 1, maxNum: 1, freeTimeout: 1000, maxConcurrent: 1, gpuNum: 1, requestTimeout: 120 },
+        // minNum:0 at CREATE = endpoint exists but NO worker = $0. Turn ON then
+        // scales it to minNum:1 (worker runs, no timeout); Turn OFF scales back to
+        // 0 (worker destroyed, endpoint kept). The endpoint is never deleted → the
+        // cluster stays active → Turn ON is always reliable.
+        workerConfig: { minNum: 0, maxNum: 1, freeTimeout: 1000, maxConcurrent: 1, gpuNum: 1, requestTimeout: 120 },
         policy: { type: "queue", value: 4 },
         image: { image: IMAGE, authId: AUTH_ID, command: "" },
         rootfsSize: 90,
@@ -125,9 +125,22 @@ export async function createPoolEndpoint(label?: string): Promise<CreateResult> 
         envs,
       },
     };
-    const d = await novita(`/endpoint/create`, key, { method: "POST", body: JSON.stringify(body) });
-    const endpointId = d?.id || d?.endpoint?.id;
-    if (!endpointId) return { ok: false, error: `create failed: ${JSON.stringify(d).slice(0, 200)}` };
+    // RETRY on transient Novita errors. When the last endpoint is deleted the
+    // serverless cluster idles → the next create returns "serverless cluster is
+    // not active"; the cluster reactivates on retry. Also covers 429 rate-limit.
+    // Up to ~8 tries over ~80s so a client's Turn ON just works (no user error).
+    let endpointId = "";
+    let lastErr = "";
+    for (let attempt = 1; attempt <= 5; attempt++) {
+      const d = await novita(`/endpoint/create`, key, { method: "POST", body: JSON.stringify(body) });
+      endpointId = d?.id || d?.endpoint?.id || "";
+      if (endpointId) break;
+      lastErr = JSON.stringify(d).slice(0, 200);
+      const transient = /not active|RATE_LIMIT|too many|429|unavailable|try again/i.test(lastErr);
+      if (!transient || attempt === 5) break;
+      await new Promise((r) => setTimeout(r, 8000)); // wait for the idled cluster to wake
+    }
+    if (!endpointId) return { ok: false, error: `create failed (cluster waking, cuba lagi): ${lastErr}` };
 
     const url = runsyncUrl(endpointId);
     const { error: insErr } = await admin.from("livehost_pool").insert({
@@ -168,12 +181,43 @@ export type GpuToggle = {
   endpointId?: string; since?: string | null;
 };
 
-// Turn a client's DEDICATED GPU on/off (single source of truth for the money
-// logic — used by both the client Billing route and the admin route).
-//   on  → create a minNum:1 endpoint, bind it to the user, stamp gpu_on_at
-//         (requires credits ≥ min-balance). Always-on = no mid-stream disconnect.
-//   off → charge elapsed × livehost_gpu_rate_hour (mechanism A), delete the
-//         endpoint ($0), clear the binding.
+// Toggle an EXISTING endpoint's worker count (minNum) via /endpoint/update —
+// WITHOUT deleting the endpoint. minNum:1 = worker runs; minNum:0 = worker
+// destroyed ($0). The endpoint PERSISTS → the cluster never idles → Turn ON is
+// always reliable. Novita's update needs the FULL config (flat body). Retries
+// on transient errors.
+export async function setEndpointWorkers(endpointId: string, minNum: number, freeTimeout = 1000): Promise<{ ok: boolean; error?: string }> {
+  const key = (await getSettings(["novita_api_key"]))["novita_api_key"];
+  if (!key) return { ok: false, error: "novita_api_key not set" };
+  const g = await novita(`/endpoint?id=${endpointId}`, key);
+  const cur = g?.endpoint || g;
+  if (!cur?.name) return { ok: false, error: "endpoint not found" };
+  const envs = await buildLivehostEnvs();
+  const body = {
+    id: endpointId, name: cur.name, clusterID: CLUSTER,
+    workerConfig: { minNum, maxNum: 1, freeTimeout, maxConcurrent: 1, gpuNum: 1, requestTimeout: 120 },
+    ports: [{ port: "8000" }],
+    policy: { type: "queue", value: 4 },
+    image: { image: IMAGE, authId: AUTH_ID, command: "" },
+    envs,
+    healthy: { path: "/ping" },
+  };
+  for (let attempt = 1; attempt <= 4; attempt++) {
+    const d = await novita(`/endpoint/update`, key, { method: "POST", body: JSON.stringify(body) });
+    if (!(d?.code || d?.reason)) return { ok: true };
+    const msg = JSON.stringify(d);
+    if (!/not active|RATE_LIMIT|too many|429|unavailable/i.test(msg) || attempt === 4) return { ok: false, error: msg.slice(0, 160) };
+    await new Promise((r) => setTimeout(r, 6000));
+  }
+  return { ok: false, error: "update failed" };
+}
+
+// Turn a client's DEDICATED GPU on/off by TOGGLING the worker (minNum 1<->0).
+// The endpoint is created ONCE and NEVER deleted (cluster stays active → Turn ON
+// always reliable, not fragile).
+//   on  → minNum:1 (worker spins up; first time creates the endpoint then scales
+//         to 1). off → minNum:0 (worker DESTROYED → $0, endpoint stays).
+//   Billing starts at RUNNING (gpu_on_at stamped when the worker first answers).
 export async function setClientGpu(userId: string, on: boolean): Promise<GpuToggle> {
   const admin = createAdminClient();
   const { data: cfg } = await admin
@@ -184,37 +228,41 @@ export async function setClientGpu(userId: string, on: boolean): Promise<GpuTogg
   const rateHour = rateNum(await getSetting<string>("livehost_gpu_rate_hour"), 6);
   const minBalance = rateNum(await getSetting<string>("livehost_min_balance"), 5);
 
-  // PLAN C: ON = CREATE a fresh minNum:1 GPU (never idle-killed → no mid-stream
-  // timeout, any length) + bind it. OFF = charge + DELETE the GPU → $0. Billing
-  // starts at RUNNING (gpu_on_at stays null until the studio reports connect or
-  // the /avatars probe confirms ready) — the ~7min cold boot is free.
   if (on) {
     if (cfg?.gpu_on) return { ok: true, on: true, endpointId: cfg.gpu_endpoint_id || undefined, since: cfg.gpu_on_at };
-    // Must be appointed (auto on payment, or admin) — 1 GPU = 1 client.
     if (!cfg?.gpu_allowed) return { ok: false, error: "GPU belum diberikan — sila buat pembayaran / hubungi admin." };
     const { data: prof } = await admin.from("profiles").select("credits").eq("id", userId).single();
     if (Number(prof?.credits || 0) < minBalance) {
       return { ok: false, error: `Kredit < RM ${minBalance.toFixed(2)} — top up dahulu.` };
     }
-    const res = await createPoolEndpoint(`client:${userId.slice(0, 8)}`);
-    if (!res.ok || !res.endpointId) return { ok: false, error: res.error || "GPU create failed" };
+    let endpointId = cfg?.gpu_endpoint_id || "";
+    if (!endpointId) {
+      // FIRST time → create the persistent endpoint (minNum:0, $0, no worker yet).
+      const res = await createPoolEndpoint(`client:${userId.slice(0, 8)}`);
+      if (!res.ok || !res.endpointId) return { ok: false, error: res.error || "GPU create failed" };
+      endpointId = res.endpointId;
+    }
+    // spin the worker up (minNum:1) — no timeout while on
+    const r = await setEndpointWorkers(endpointId, 1, 1000);
+    if (!r.ok) return { ok: false, error: r.error || "GPU start failed" };
     const nowIso = new Date().toISOString();
     await admin.from("live_client_config").upsert({
-      user_id: userId, gpu_on: true, gpu_on_at: null, gpu_endpoint_id: res.endpointId,
-      backend_url: res.runsyncUrl || "", updated_at: nowIso,
+      user_id: userId, gpu_on: true, gpu_on_at: null, gpu_endpoint_id: endpointId,
+      backend_url: runsyncUrl(endpointId), updated_at: nowIso,
     });
-    return { ok: true, on: true, endpointId: res.endpointId, since: null };
+    return { ok: true, on: true, endpointId, since: null };
   }
 
-  // OFF — charge the running time (from gpu_on_at), then DELETE the GPU → $0.
+  // OFF — charge running time, then DESTROY THE WORKER (minNum:0) → $0. The
+  // endpoint is NEVER deleted → next Turn ON is reliable (cluster stays active).
   if (!cfg?.gpu_on) return { ok: true, on: false, charged: 0 };
   const elapsed = cfg.gpu_on_at ? Math.max(0, (Date.now() - new Date(cfg.gpu_on_at).getTime()) / 1000) : 0;
   const charged = Number(((elapsed / 3600) * rateHour).toFixed(4));
   if (charged > 0) await deduct(userId, "gpu_session", charged);
-  if (cfg.gpu_endpoint_id) await deletePoolEndpoint(cfg.gpu_endpoint_id);
+  if (cfg.gpu_endpoint_id) await setEndpointWorkers(cfg.gpu_endpoint_id, 0, 1000); // worker → 0 = $0
   await admin.from("live_client_config").update({
-    gpu_on: false, gpu_on_at: null, gpu_endpoint_id: null, backend_url: "", updated_at: new Date().toISOString(),
-  }).eq("user_id", userId);
+    gpu_on: false, gpu_on_at: null, updated_at: new Date().toISOString(),
+  }).eq("user_id", userId); // KEEP gpu_endpoint_id + backend_url — endpoint persists
   return { ok: true, on: false, charged };
 }
 
