@@ -21,8 +21,9 @@ export default function LivehostTemplateBody() {
   const [videoUrl, setVideoUrl] = useState("");
   const [uploadingVid, setUploadingVid] = useState(false);
   const [prompt, setPrompt] = useState("");
-  const [mode, setMode] = useState<"std" | "pro">("pro");
-  const [keepSound, setKeepSound] = useState(true);
+  const mode = "pro" as const; // quality fixed at 1080p (Pro)
+  const keepSound = false; // audio off by default (toggle hidden)
+  const [videoDur, setVideoDur] = useState(0);
   const [orientation, setOrientation] = useState<"video" | "image">("video");
   const [avatarPickerOpen, setAvatarPickerOpen] = useState(false);
   const [presets, setPresets] = useState<{ id: string; name: string; public_url: string; category: "avatar" }[]>([]);
@@ -64,6 +65,18 @@ export default function LivehostTemplateBody() {
 
   async function uploadVideo(file: File) {
     setUploadingVid(true); setErr(null);
+    // Measure the .mp4 duration locally — Kling output follows the reference
+    // length, and we bill per second.
+    try {
+      const dur = await new Promise<number>((resolve) => {
+        const v = document.createElement("video");
+        v.preload = "metadata";
+        v.onloadedmetadata = () => { resolve(v.duration || 0); URL.revokeObjectURL(v.src); };
+        v.onerror = () => resolve(0);
+        v.src = URL.createObjectURL(file);
+      });
+      if (dur) setVideoDur(Math.round(dur));
+    } catch {}
     try {
       const fd = new FormData();
       fd.append("file", file);
@@ -83,7 +96,7 @@ export default function LivehostTemplateBody() {
       const absChar = charUrl.startsWith("/") ? `${window.location.origin}${charUrl}` : charUrl;
       const r = await fetch("/api/generate/template-body", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ image_url: absChar, video_url: videoUrl, prompt, mode, character_orientation: orientation, keep_original_sound: keepSound }),
+        body: JSON.stringify({ image_url: absChar, video_url: videoUrl, prompt, mode, character_orientation: orientation, keep_original_sound: keepSound, duration: videoDur || 8 }),
       });
       const d = await r.json();
       if (!r.ok) throw new Error(d?.error || "Generate gagal");
@@ -136,24 +149,16 @@ export default function LivehostTemplateBody() {
         <textarea style={{ ...F, minHeight: 70, resize: "vertical" }} value={prompt} onChange={(e) => setPrompt(e.target.value)}
           placeholder="Cth: High detail, smooth camera motion, preserve the original costume." />
 
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginTop: 14 }}>
-          <div><LhLabel>Quality</LhLabel>
-            <select style={F} value={mode} onChange={(e) => setMode(e.target.value as "std" | "pro")}>
-              <option value="pro">Pro (1080p)</option>
-              <option value="std">Std (720p)</option>
-            </select>
-          </div>
-          <div><LhLabel>Orientation</LhLabel>
-            <select style={F} value={orientation} onChange={(e) => setOrientation(e.target.value as "video" | "image")}>
-              <option value="video">Ikut video</option>
-              <option value="image">Ikut gambar</option>
-            </select>
-          </div>
+        <div style={{ marginTop: 14 }}>
+          <LhLabel>Orientation</LhLabel>
+          <select style={F} value={orientation} onChange={(e) => setOrientation(e.target.value as "video" | "image")}>
+            <option value="video">Ikut video</option>
+            <option value="image">Ikut gambar</option>
+          </select>
         </div>
-        <label className="flex items-center gap-2 mt-3 text-xs" style={{ color: "#555" }}>
-          <input type="checkbox" checked={keepSound} onChange={(e) => setKeepSound(e.target.checked)} style={{ width: "auto", accentColor: "#f59e0b" }} />
-          🔊 Kekalkan audio asal video rujukan
-        </label>
+        <p className="text-[11px] mt-2" style={{ color: "#999" }}>
+          Kualiti: <b style={{ color: "#555" }}>1080p (Pro)</b>{videoDur ? <> · Panjang video: <b style={{ color: "#555" }}>{videoDur}s</b></> : null}
+        </p>
 
         <div className="mt-4">
           <LhButton onClick={generate} disabled={busy || !charUrl || !videoUrl}>{busy ? "⏳ Menjana…" : "🎬 Generate"}</LhButton>

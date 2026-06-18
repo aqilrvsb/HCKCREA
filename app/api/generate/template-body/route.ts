@@ -29,15 +29,19 @@ export async function POST(req: Request) {
   const prompt = String(body?.prompt || "").trim();
   const mode: "std" | "pro" = body?.mode === "std" ? "std" : "pro";
   const characterOrientation: "image" | "video" = body?.character_orientation === "image" ? "image" : "video";
-  const keepOriginalSound = body?.keep_original_sound !== false;
+  // Audio default OFF (hidden in UI). Only ON when explicitly requested.
+  const keepOriginalSound = body?.keep_original_sound === true;
   const projectId = body?.project_id ? String(body.project_id) : null;
+  // Output length follows the reference video — client measures the .mp4
+  // duration and sends it so we can bill per-second. Clamp to a sane range.
+  const duration = Math.max(1, Math.min(120, Math.round(Number(body?.duration) || 8)));
 
   if (!imageUrl) return NextResponse.json({ error: "Pilih avatar (character image) dahulu." }, { status: 400 });
   if (!videoUrl) return NextResponse.json({ error: "Upload video gerakan (motion .mp4) dahulu." }, { status: 400 });
   if (prompt.length > 2500) return NextResponse.json({ error: "Prompt too long (max 2500)" }, { status: 400 });
 
-  const rate = await getKlingRate();
-  const cost = Number(rate.toFixed(4));
+  const rate = await getKlingRate(); // RM / second
+  const cost = Number((rate * duration).toFixed(4));
   if (!(await hasEnoughCredits(user.id, cost))) {
     return NextResponse.json({ error: `Kredit tak cukup. Perlu RM ${cost.toFixed(2)}.` }, { status: 402 });
   }
@@ -53,7 +57,7 @@ export async function POST(req: Request) {
     .insert({
       user_id: user.id, project_id: projectId, type: "video", tab: "template-body",
       status: "pending", prompt: prompt || null, reference_url: imageUrl, task_id: null,
-      cost: 0, metadata: { ...baseMeta, upload_status: "queued" },
+      duration, cost: 0, metadata: { ...baseMeta, duration, upload_status: "queued" },
     })
     .select("id")
     .single();

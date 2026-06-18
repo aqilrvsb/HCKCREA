@@ -938,6 +938,8 @@ export async function settleHistoryRow(hist: HistoryRow): Promise<SettleResult> 
     const reason =
       isImageGen
         ? "image_generate"
+        : hist.tab === "template-body"
+          ? "template_body"
         : hist.tab === "cinema" || hist.tab === "original-video"
           ? "cinema"
           : hist.tab === "seedance"

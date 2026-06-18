@@ -22,6 +22,7 @@ export type DeductReason =
   | "cinema"
   | "seedance"
   | "storytelling"
+  | "template_body"
   | "scrape";
 
 // Optional model hint to pick a per-model rate. Pass when the caller

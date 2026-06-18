@@ -278,6 +278,7 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
       nonLive: { sessions: number; streamSec: number; voiceChars: number; gpuCost: number; voiceCost: number; idleSec: number; idleCost: number; cost: number };
       comment: { chars: number; cost: number };
       avatar: { generations: number; cost: number };
+      templateBody?: { generations: number; cost: number };
       total: number;
     };
     month: { streamSec: number; voiceChars: number; gpuCost: number; voiceCost: number; totalCost: number };
@@ -2264,6 +2265,7 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
               { label: "Cost NON Live", value: usageData?.costs ? `RM ${usageData.costs.nonLive.cost.toFixed(2)}` : "—", suffix: `${usageData?.costs?.nonLive.sessions ?? 0} sesi + idle ${Math.floor((usageData?.costs?.nonLive.idleSec || 0) / 60)}m`, glow: "rgba(245,158,11,0.12)", cls: "text-amber-500" },
               { label: "Cost Comment", value: usageData?.costs ? `RM ${usageData.costs.comment.cost.toFixed(2)}` : "—", suffix: `${(usageData?.costs?.comment.chars ?? 0).toLocaleString()} aksara balas komen`, glow: "rgba(34,197,94,0.12)", cls: "text-emerald-500" },
               { label: "Cost Avatar", value: usageData?.costs ? `RM ${(usageData.costs.avatar?.cost ?? 0).toFixed(2)}` : "—", suffix: `${usageData?.costs?.avatar?.generations ?? 0} imej dijana`, glow: "rgba(168,85,247,0.12)", cls: "text-purple-500" },
+              { label: "Cost Template Body", value: usageData?.costs ? `RM ${(usageData.costs.templateBody?.cost ?? 0).toFixed(2)}` : "—", suffix: `${usageData?.costs?.templateBody?.generations ?? 0} video dijana`, glow: "rgba(99,102,241,0.12)", cls: "text-indigo-500" },
               { label: "Baki kredit", value: usageData?.balance ? `RM ${usageData.balance.available.toFixed(2)}` : "—", suffix: `min RM${usageData?.balance?.minBalance ?? 5}`, glow: usageData?.balance?.low ? "rgba(239,68,68,0.18)" : "rgba(34,197,94,0.12)", cls: usageData?.balance?.low ? "text-red-500" : "text-emerald-500" },
             ].map((s, i) => (
               <div key={i} className="card relative overflow-hidden">
@@ -2285,6 +2287,7 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
               <span>🧪 NON Live: RM {(usageData.costs?.nonLive.cost ?? 0).toFixed(2)} (incl. idle RM {(usageData.costs?.nonLive.idleCost ?? 0).toFixed(2)})</span>
               <span>💬 Comment: RM {(usageData.costs?.comment.cost ?? 0).toFixed(2)} · RM {usageData.rates.voiceRate1k.toFixed(2)}/1k</span>
               <span>🖼 Avatar: RM {(usageData.costs?.avatar?.cost ?? 0).toFixed(2)} · {usageData.costs?.avatar?.generations ?? 0} imej</span>
+              <span>🕺 Template Body: RM {(usageData.costs?.templateBody?.cost ?? 0).toFixed(2)} · {usageData.costs?.templateBody?.generations ?? 0} video</span>
               <span>💰 Jumlah: RM {(usageData.costs?.total ?? usageData.month.totalCost).toFixed(2)}</span>
             </div>
           )}

@@ -3,7 +3,7 @@
 // then fallback key(s). Admin-tunable via app_settings:
 //   kling_main_key      { key }          — primary Crun key (default = p2_key)
 //   kling_fallback_keys { keys }         — comma/newline list (default = p2_key_b)
-//   kling_rate          { rate }         — flat RM per generation (default 2.00)
+//   kling_rate          { per_second }    — RM per second of output (default 0.10)
 //   kling_default_mode  { mode }         — "std" | "pro" (default pro)
 //
 // Settlement reuses the shared settle path (lib/settle.ts), which resolves
@@ -17,10 +17,12 @@ export const KLING_MODEL = "kling/v3-motion-control";
 
 export type KlingSlot = { key: string; label: string };
 
+// Per-SECOND rate (RM). Kling clips follow the reference-video length, so the
+// caller multiplies this by the motion video's duration.
 export async function getKlingRate(): Promise<number> {
   const s = await getSettings(["kling_rate"]);
-  const r = parseFloat((s.kling_rate?.rate as string) ?? "");
-  return Number.isFinite(r) && r >= 0 ? r : 2.0;
+  const r = parseFloat((s.kling_rate?.per_second as string) ?? (s.kling_rate?.rate as string) ?? "");
+  return Number.isFinite(r) && r >= 0 ? r : 0.1;
 }
 
 export async function getKlingDefaultMode(): Promise<"std" | "pro"> {

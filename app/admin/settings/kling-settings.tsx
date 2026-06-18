@@ -24,7 +24,7 @@ export default function KlingSettings() {
         const get = (k: string) => rows.find((x: any) => x.key === k)?.value;
         setMainKey(get("kling_main_key")?.key || "");
         setFallback(get("kling_fallback_keys")?.keys || "");
-        const rt = get("kling_rate")?.rate;
+        const rt = get("kling_rate")?.per_second ?? get("kling_rate")?.rate;
         setRate(rt != null ? String(rt) : "");
         setMode(get("kling_default_mode")?.mode === "std" ? "std" : "pro");
       })
@@ -45,7 +45,7 @@ export default function KlingSettings() {
       await Promise.all([
         put("kling_main_key", { key: mainKey.trim() }),
         put("kling_fallback_keys", { keys: fallback.trim() }),
-        put("kling_rate", { rate: Number.isFinite(rnum) && rnum >= 0 ? rnum : 2.0 }),
+        put("kling_rate", { per_second: Number.isFinite(rnum) && rnum >= 0 ? rnum : 0.1 }),
         put("kling_default_mode", { mode }),
       ]);
       setMsg("✓ Kling settings saved.");
@@ -82,11 +82,11 @@ export default function KlingSettings() {
         </div>
         <div>
           <label className="block text-xs font-mono uppercase tracking-wider text-[var(--color-text-muted)] font-bold mb-1.5">
-            Rate (RM / generation)
+            Rate (RM / second of output)
           </label>
           <div className="relative">
             <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs font-bold text-[var(--color-text-muted)]">RM</span>
-            <input type="number" min="0" step="0.01" value={rate} onChange={(e) => setRate(e.target.value)} className="input !pl-10" placeholder="2.00" />
+            <input type="number" min="0" step="0.01" value={rate} onChange={(e) => setRate(e.target.value)} className="input !pl-10" placeholder="0.10" />
           </div>
         </div>
         <div>

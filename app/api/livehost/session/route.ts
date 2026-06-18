@@ -128,7 +128,7 @@ export async function GET(req: Request) {
   // Fetch ALL sessions + ALL audio gens (all-time) + credits IN PARALLEL — the
   // balance is a wallet (not period-scoped) and the ledger needs a true running
   // balance from the start.
-  const [{ data: sessions }, { data: gens }, { data: prof }, { data: imgTx }] = await Promise.all([
+  const [{ data: sessions }, { data: gens }, { data: prof }, { data: imgTx }, { data: tbTxRaw }] = await Promise.all([
     admin.from("live_sessions")
       .select("id, started_at, ended_at, voice_chars, comment_chars, session_type")
       .eq("user_id", user.id).order("started_at", { ascending: true }).limit(5000),
@@ -144,6 +144,13 @@ export async function GET(req: Request) {
       .select("amount, created_at, reason")
       .eq("user_id", user.id).eq("reason", "image_generate")
       .order("created_at", { ascending: true }).limit(5000),
+    // TEMPLATE BODY (Kling motion-control) generations — reason 'template_body'.
+    // Same treatment as avatar: real deductions added back into granted so the
+    // wallet tallies, surfaced as their own ledger + cost category.
+    admin.from("credit_transactions")
+      .select("amount, created_at, reason")
+      .eq("user_id", user.id).eq("reason", "template_body")
+      .order("created_at", { ascending: true }).limit(5000),
   ]);
   // profiles.credits is the LIVE wallet = granted − all hard deductions (avatar gen).
   // Reconstruct grantedCredits so the avatar deductions can appear in the ledger
@@ -151,7 +158,9 @@ export async function GET(req: Request) {
   const credits = Number(prof?.credits || 0);
   const avatarTx = (imgTx || []).map((t) => ({ t: new Date(t.created_at).getTime(), cost: Math.abs(Number(t.amount) || 0) }));
   const avatarSpentAll = avatarTx.reduce((a, x) => a + x.cost, 0);
-  const grantedCredits = credits + avatarSpentAll;
+  const tbTx = (tbTxRaw || []).map((t) => ({ t: new Date(t.created_at).getTime(), cost: Math.abs(Number(t.amount) || 0) }));
+  const tbSpentAll = tbTx.reduce((a, x) => a + x.cost, 0);
+  const grantedCredits = credits + avatarSpentAll + tbSpentAll;
 
   const asc = sessions || [];
   // Build ONE chronological ledger of every billable charge:
@@ -159,7 +168,7 @@ export async function GET(req: Request) {
   //   • each audio gen → chars/1k × audio rate
   // Folding the warm-idle into the session that caused it keeps the running
   // balance exact (Σ ledger costs == total spent == credits − available).
-  type Charge = { t: number; type: "live" | "nonLive" | "audioScript" | "avatar"; durationSec: number; chars: number; cost: number };
+  type Charge = { t: number; type: "live" | "nonLive" | "audioScript" | "avatar" | "templateBody"; durationSec: number; chars: number; cost: number };
   const charges: Charge[] = [];
   for (let i = 0; i < asc.length; i++) {
     const s = asc[i];
@@ -192,13 +201,16 @@ export async function GET(req: Request) {
   for (const a of avatarTx) {
     charges.push({ t: a.t, type: "avatar", durationSec: 0, chars: 0, cost: a.cost });
   }
+  for (const a of tbTx) {
+    charges.push({ t: a.t, type: "templateBody", durationSec: 0, chars: 0, cost: a.cost });
+  }
   charges.sort((a, b) => a.t - b.t);
 
   // Running balance (all-time) → ledger rows for the selected period (newest first).
   // Base is grantedCredits (credits + avatar deductions added back) so the avatar
   // charges show in the ledger while the FINAL balance still equals `available`.
   let runSpent = 0;
-  const TYPE_LABEL: Record<string, string> = { live: "Live", nonLive: "NON Live", audioScript: "Audio Script", avatar: "Avatar" };
+  const TYPE_LABEL: Record<string, string> = { live: "Live", nonLive: "NON Live", audioScript: "Audio Script", avatar: "Avatar", templateBody: "Template Body" };
   const ledgerAll = charges.map((c) => {
     runSpent += c.cost;
     return { at: new Date(c.t).toISOString(), type: c.type, typeLabel: TYPE_LABEL[c.type], durationSec: c.durationSec, chars: c.chars, cost: +c.cost.toFixed(2), balanceAfter: +(grantedCredits - runSpent).toFixed(2) };
@@ -234,6 +246,11 @@ export async function GET(req: Request) {
   const avatarGenerations = avatarP.length;
   const avatarCost = avatarP.reduce((a, x) => a + x.cost, 0);
 
+  // Template Body (Kling) generations in this period.
+  const tbP = tbTx.filter((a) => inPeriod(a.t));
+  const templateBodyGenerations = tbP.length;
+  const templateBodyCost = tbP.reduce((a, x) => a + x.cost, 0);
+
   const liveGpu = (liveSec / 3600) * gpuRate;
   const liveVoice = (liveChars / 1000) * voiceRate;
   const testGpu = (testSec / 3600) * gpuRate;
@@ -242,7 +259,7 @@ export async function GET(req: Request) {
   const commentCost = (commentChars / 1000) * voiceRate;
   const liveCost = liveGpu + liveVoice;
   const nonLiveCost = testGpu + testVoice + idleCost;
-  const grandTotal = liveCost + nonLiveCost + audioCost + commentCost + avatarCost;
+  const grandTotal = liveCost + nonLiveCost + audioCost + commentCost + avatarCost + templateBodyCost;
 
   return NextResponse.json({
     rates: { gpuRateHour: gpuRate, voiceRate1k: voiceRate, audioRateGen, warmWindowSec, currency: "RM" },
@@ -261,6 +278,7 @@ export async function GET(req: Request) {
       nonLive: { sessions: testCount, streamSec: testSec, voiceChars: testChars, gpuCost: +testGpu.toFixed(2), voiceCost: +testVoice.toFixed(2), idleSec, idleCost: +idleCost.toFixed(2), cost: +nonLiveCost.toFixed(2) },
       comment: { chars: commentChars, cost: +commentCost.toFixed(2) },
       avatar: { generations: avatarGenerations, cost: +avatarCost.toFixed(2) },
+      templateBody: { generations: templateBodyGenerations, cost: +templateBodyCost.toFixed(2) },
       total: +grandTotal.toFixed(2),
     },
     // backward-compatible fields (legacy consumers)
