@@ -163,12 +163,12 @@ export type GpuToggle = {
   endpointId?: string; since?: string | null;
 };
 
-// Turn a client's DEDICATED GPU on/off. NO TIMEOUT anywhere — just manual
-// on/off (single source of truth for the money logic).
-//   on  → CREATE a minNum:1 endpoint (minNum:1 means Novita NEVER idle-removes
-//         the worker → freeTimeout is irrelevant → no auto-drop, no disconnect).
-//         Requires the client be appointed (gpu_allowed) + credits ≥ min-balance.
-//   off → charge elapsed × livehost_gpu_rate_hour, DELETE the endpoint → $0.
+// Turn a client's DEDICATED GPU on/off (single source of truth for the money
+// logic — used by both the client Billing route and the admin route).
+//   on  → create a minNum:1 endpoint, bind it to the user, stamp gpu_on_at
+//         (requires credits ≥ min-balance). Always-on = no mid-stream disconnect.
+//   off → charge elapsed × livehost_gpu_rate_hour (mechanism A), delete the
+//         endpoint ($0), clear the binding.
 export async function setClientGpu(userId: string, on: boolean): Promise<GpuToggle> {
   const admin = createAdminClient();
   const { data: cfg } = await admin
@@ -179,33 +179,36 @@ export async function setClientGpu(userId: string, on: boolean): Promise<GpuTogg
   const rateHour = rateNum(await getSetting<string>("livehost_gpu_rate_hour"), 6);
   const minBalance = rateNum(await getSetting<string>("livehost_min_balance"), 5);
 
+  // Endpoints are admin-managed (created in the pool + assigned to a client via
+  // the admin dropdown). on/off here just START/STOP the client's BILLING on
+  // their ASSIGNED endpoint (which is always-on, minNum:1 → instant, no boot,
+  // no disconnect). It does NOT create/delete endpoints.
   if (on) {
     if (cfg?.gpu_on) return { ok: true, on: true, endpointId: cfg.gpu_endpoint_id || undefined, since: cfg.gpu_on_at };
-    // Admin must appoint this client first (1 GPU = 1 client, admin-gated).
-    if (!cfg?.gpu_allowed) return { ok: false, error: "GPU belum diberikan oleh admin." };
+    // Admin must assign a GPU to this client first (1 GPU = 1 client, admin-gated).
+    if (!cfg?.gpu_allowed || !cfg?.gpu_endpoint_id) {
+      return { ok: false, error: "GPU belum di-assign oleh admin." };
+    }
     const { data: prof } = await admin.from("profiles").select("credits").eq("id", userId).single();
     if (Number(prof?.credits || 0) < minBalance) {
       return { ok: false, error: `Kredit < RM ${minBalance.toFixed(2)} — top up dahulu.` };
     }
-    const res = await createPoolEndpoint(`client:${userId.slice(0, 8)}`);
-    if (!res.ok || !res.endpointId) return { ok: false, error: res.error || "GPU create failed" };
     const nowIso = new Date().toISOString();
-    await admin.from("live_client_config").upsert({
-      user_id: userId, gpu_on: true, gpu_on_at: nowIso, gpu_endpoint_id: res.endpointId,
-      backend_url: res.runsyncUrl || "", updated_at: nowIso,
-    });
-    return { ok: true, on: true, endpointId: res.endpointId, since: nowIso };
+    await admin.from("live_client_config").update({
+      gpu_on: true, gpu_on_at: nowIso, backend_url: runsyncUrl(cfg.gpu_endpoint_id),
+      updated_at: nowIso,
+    }).eq("user_id", userId);
+    return { ok: true, on: true, endpointId: cfg.gpu_endpoint_id, since: nowIso };
   }
 
-  // OFF — charge the elapsed time, then DELETE the endpoint → $0.
+  // OFF — charge the elapsed billed time; keep the endpoint assigned (admin owns
+  // the endpoint lifecycle), the client can turn it on again any time.
   if (!cfg?.gpu_on) return { ok: true, on: false, charged: 0 };
   const elapsed = cfg.gpu_on_at ? Math.max(0, (Date.now() - new Date(cfg.gpu_on_at).getTime()) / 1000) : 0;
   const charged = Number(((elapsed / 3600) * rateHour).toFixed(4));
   if (charged > 0) await deduct(userId, "gpu_session", charged);
-  if (cfg.gpu_endpoint_id) await deletePoolEndpoint(cfg.gpu_endpoint_id);
   await admin.from("live_client_config").update({
-    gpu_on: false, gpu_on_at: null, gpu_endpoint_id: null, backend_url: "",
-    updated_at: new Date().toISOString(),
+    gpu_on: false, gpu_on_at: null, updated_at: new Date().toISOString(),
   }).eq("user_id", userId);
   return { ok: true, on: false, charged };
 }

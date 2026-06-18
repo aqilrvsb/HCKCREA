@@ -139,7 +139,7 @@ export default function LivehostGpu() {
         </button>
       </div>
       {isOn && g?.booting && (
-        <p className="text-xs text-[var(--color-text-muted)] mt-3">⏳ GPU sedang boot (~7 min) — lepas ready, kekal hidup sampai awak Tutup (tiada timeout, tiada disconnect). Tutup = $0.</p>
+        <p className="text-xs text-[var(--color-text-muted)] mt-3">✅ GPU hidup (always-on, tiada boot) — terus boleh tekan Start di studio. Tiada disconnect.</p>
       )}
     </div>
   );
