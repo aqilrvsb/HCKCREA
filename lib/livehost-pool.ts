@@ -259,7 +259,11 @@ export async function setClientGpu(userId: string, on: boolean): Promise<GpuTogg
   const elapsed = cfg.gpu_on_at ? Math.max(0, (Date.now() - new Date(cfg.gpu_on_at).getTime()) / 1000) : 0;
   const charged = Number(((elapsed / 3600) * rateHour).toFixed(4));
   if (charged > 0) await deduct(userId, "gpu_session", charged);
-  if (cfg.gpu_endpoint_id) await setEndpointWorkers(cfg.gpu_endpoint_id, 0, 1000); // worker → 0 = $0
+  // OFF only: minNum:0 + freeTimeout:1s → the now-idle worker is removed in ~1s →
+  // instant $0 (no 17-min lingering bill). This short timeout is set ONLY here, on
+  // OFF — while streaming (ON) the config is minNum:1/freeTimeout:1000 and the
+  // minimum worker is NEVER removed, so this can't terminate a live stream.
+  if (cfg.gpu_endpoint_id) await setEndpointWorkers(cfg.gpu_endpoint_id, 0, 1);
   await admin.from("live_client_config").update({
     gpu_on: false, gpu_on_at: null, updated_at: new Date().toISOString(),
   }).eq("user_id", userId); // KEEP gpu_endpoint_id + backend_url — endpoint persists
