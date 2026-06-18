@@ -845,13 +845,14 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
   useEffect(() => {
     const ping = () => {
       if (!activeRef.current) return; // only heartbeat WHILE streaming; idle = Novita's job
-      // no-cors: fire-and-forget — we never read the response, and the request
-      // still reaches the worker (keeps Novita from scaling it down). Avoids the
-      // cosmetic CORS error the browser logs during the worker's boot window.
-      if (backendRef.current) fetch(`${backendRef.current}/keepalive`, { method: "POST", mode: "no-cors" }).catch(() => {});
+      // Hit a REAL route the worker actually processes (GET /avatars) — a no-cors
+      // POST to /keepalive did NOT reset Novita's freeTimeout (worker dropped
+      // mid-stream at ~16.7min). A processed GET counts as activity → resets the
+      // freeTimeout → the single worker (maxNum:1) stays up for the whole live.
+      if (backendRef.current) fetch(`${backendRef.current}/avatars`, { signal: AbortSignal.timeout(8000) }).catch(() => {});
     };
     ping();
-    const t = setInterval(ping, 30000); // < Novita freeTimeout (15 min) so a live never drops
+    const t = setInterval(ping, 30000); // < freeTimeout so the worker never idles out mid-live
     return () => clearInterval(t);
   }, []);
 
@@ -863,7 +864,7 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
   useEffect(() => {
     if (!backend || warmedRef.current) return;
     warmedRef.current = true;
-    fetch(`${backend}/keepalive`, { method: "POST" }).catch(() => {});
+    fetch(`${backend}/avatars`, { signal: AbortSignal.timeout(8000) }).catch(() => {});
   }, [backend]);
 
   // BALANCE WATCHDOG: while live, poll the credit balance every 60s; if it hits the
