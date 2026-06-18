@@ -83,7 +83,22 @@ export async function GET(req: Request) {
 
   const rates = await getSettings(["livehost_gpu_rate_hour", "livehost_voice_rate_1k", "livehost_audio_rate_gen", "livehost_min_balance", "livehost_warm_window_sec", "livehost_llm", "livehost_ext_version", "livehost_ext_download_url"]);
   const llmRaw = rates["livehost_llm"] || {};
+
+  // Pool endpoints for the admin assign dropdown (which GPU → which client).
+  const { data: poolRows } = await admin
+    .from("livehost_pool")
+    .select("endpoint_id, label, status, assigned_user_id, created_at")
+    .order("created_at", { ascending: true });
+  const pool = (poolRows || []).map((r) => ({
+    endpointId: r.endpoint_id,
+    label: r.label || r.endpoint_id,
+    status: r.status,
+    assignedUserId: r.assigned_user_id || null,
+    assignedEmail: r.assigned_user_id ? (emailById.get(r.assigned_user_id) || "") : "",
+  }));
+
   return NextResponse.json({
+    pool,
     llm: {
       main: llmRaw.main || { provider: "grsai", model: "gemini-3.1-flash-lite" },
       fallback: (Array.isArray(llmRaw.fallbacks) && llmRaw.fallbacks[0]) || llmRaw.fallback || { provider: "openrouter", model: "openai/gpt-4.1" },
@@ -113,6 +128,7 @@ export async function GET(req: Request) {
       gpu_allowed: !!byId.get(p.id)?.gpu_allowed,
       gpu_on: !!byId.get(p.id)?.gpu_on,
       gpu_on_at: byId.get(p.id)?.gpu_on_at || null,
+      gpu_endpoint_id: byId.get(p.id)?.gpu_endpoint_id || "",
       usage: (() => {
         const a = agg.get(p.id) || { sec: 0, chars: 0, count: 0, live: false };
         const gpuRateN = parseFloat(rates["livehost_gpu_rate_hour"] || "6") || 6;
@@ -165,24 +181,17 @@ export async function POST(req: Request) {
     return NextResponse.json({ status: await checkProvisionReady(userId) });
   }
 
-  // "Appoint" a client to a GPU = grant/revoke the entitlement (1 GPU = 1 client,
-  // admin-gated). Without it the client cannot turn a GPU on at their Usage tab.
-  if (action === "gpu_appoint" && userId) {
-    const admin = createAdminClient();
-    const allow = body.allow !== false;
-    const nowIso = new Date().toISOString();
-    const { data: existing } = await admin
-      .from("live_client_config").select("user_id").eq("user_id", userId).maybeSingle();
-    if (existing) {
-      await admin.from("live_client_config").update({ gpu_allowed: allow, updated_at: nowIso }).eq("user_id", userId);
-    } else {
-      await admin.from("live_client_config").insert({ user_id: userId, gpu_allowed: allow, backend_url: "", updated_at: nowIso });
-    }
-    return NextResponse.json({ ok: true, gpu_allowed: allow });
+  // Admin assigns a pre-created pool GPU to a client (the dropdown). endpointId
+  // "" = unassign (free the GPU back to the pool). The client then turns it
+  // on/off themselves at their Usage tab.
+  if (action === "gpu_assign" && userId) {
+    const { assignClientGpu } = await import("@/lib/livehost-pool");
+    const r = await assignClientGpu(userId, String(body.endpointId || "").trim());
+    return NextResponse.json({ ...r }, { status: r.ok ? 200 : 400 });
   }
 
   // Admin can also turn a client's GPU on/off directly (same billing path as the
-  // client's Usage-tab control). on requires the client be appointed first.
+  // client's Usage-tab control). on requires the client be assigned a GPU first.
   if ((action === "gpu_on" || action === "gpu_off") && userId) {
     const { setClientGpu } = await import("@/lib/livehost-pool");
     const r = await setClientGpu(userId, action === "gpu_on");

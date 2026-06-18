@@ -159,39 +159,108 @@ export async function setClientGpu(userId: string, on: boolean): Promise<GpuTogg
   const rateHour = rateNum(await getSetting<string>("livehost_gpu_rate_hour"), 6);
   const minBalance = rateNum(await getSetting<string>("livehost_min_balance"), 5);
 
+  // Endpoints are admin-managed (created in the pool + assigned to a client via
+  // the admin dropdown). on/off here just START/STOP the client's BILLING on
+  // their ASSIGNED endpoint (which is always-on, minNum:1 → instant, no boot,
+  // no disconnect). It does NOT create/delete endpoints.
   if (on) {
     if (cfg?.gpu_on) return { ok: true, on: true, endpointId: cfg.gpu_endpoint_id || undefined, since: cfg.gpu_on_at };
-    // Admin must "appoint" this client first (1 GPU = 1 client, admin-gated).
-    if (!cfg?.gpu_allowed) return { ok: false, error: "GPU belum diberikan oleh admin." };
+    // Admin must assign a GPU to this client first (1 GPU = 1 client, admin-gated).
+    if (!cfg?.gpu_allowed || !cfg?.gpu_endpoint_id) {
+      return { ok: false, error: "GPU belum di-assign oleh admin." };
+    }
     const { data: prof } = await admin.from("profiles").select("credits").eq("id", userId).single();
     if (Number(prof?.credits || 0) < minBalance) {
       return { ok: false, error: `Kredit < RM ${minBalance.toFixed(2)} — top up dahulu.` };
     }
-    const res = await createPoolEndpoint(`client:${userId.slice(0, 8)}`);
-    if (!res.ok || !res.endpointId) return { ok: false, error: res.error || "GPU create failed" };
     const nowIso = new Date().toISOString();
-    await admin.from("livehost_pool").update({
-      status: "busy", assigned_user_id: userId, assigned_at: nowIso, updated_at: nowIso,
-    }).eq("endpoint_id", res.endpointId);
-    await admin.from("live_client_config").upsert({
-      user_id: userId, gpu_on: true, gpu_on_at: nowIso, gpu_endpoint_id: res.endpointId,
-      backend_url: res.runsyncUrl || "", updated_at: nowIso,
-    });
-    return { ok: true, on: true, endpointId: res.endpointId, since: nowIso };
+    await admin.from("live_client_config").update({
+      gpu_on: true, gpu_on_at: nowIso, backend_url: runsyncUrl(cfg.gpu_endpoint_id),
+      updated_at: nowIso,
+    }).eq("user_id", userId);
+    return { ok: true, on: true, endpointId: cfg.gpu_endpoint_id, since: nowIso };
   }
 
-  // OFF
+  // OFF — charge the elapsed billed time; keep the endpoint assigned (admin owns
+  // the endpoint lifecycle), the client can turn it on again any time.
   if (!cfg?.gpu_on) return { ok: true, on: false, charged: 0 };
   const elapsed = cfg.gpu_on_at ? Math.max(0, (Date.now() - new Date(cfg.gpu_on_at).getTime()) / 1000) : 0;
   const charged = Number(((elapsed / 3600) * rateHour).toFixed(4));
   if (charged > 0) await deduct(userId, "gpu_session", charged);
-  if (cfg.gpu_endpoint_id) await deletePoolEndpoint(cfg.gpu_endpoint_id);
   await admin.from("live_client_config").update({
-    gpu_on: false, gpu_on_at: null, gpu_endpoint_id: null, backend_url: "",
-    updated_at: new Date().toISOString(),
+    gpu_on: false, gpu_on_at: null, updated_at: new Date().toISOString(),
   }).eq("user_id", userId);
   return { ok: true, on: false, charged };
 }
+
+// Admin assigns/unassigns a PRE-CREATED pool endpoint to a client (the dropdown).
+//   endpointId set → bind it (the client can then turn it on at Usage).
+//   endpointId "" → unassign: charge any running time, free the endpoint back to
+//                   the pool (NOT deleted — reuse it for another client).
+export async function assignClientGpu(userId: string, endpointId: string): Promise<GpuToggle> {
+  const admin = createAdminClient();
+  const { data: cfg } = await admin
+    .from("live_client_config")
+    .select("gpu_on, gpu_on_at, gpu_endpoint_id")
+    .eq("user_id", userId)
+    .maybeSingle();
+  const rateHour = rateNum(await getSetting<string>("livehost_gpu_rate_hour"), 6);
+  const nowIso = new Date().toISOString();
+
+  const freeEndpoint = async (id?: string | null) => {
+    if (!id) return;
+    await admin.from("livehost_pool").update({
+      status: "free", assigned_user_id: null, assigned_session_id: null,
+      assigned_at: null, last_seen: null, updated_at: nowIso,
+    }).eq("endpoint_id", id);
+  };
+  const chargeIfOn = async () => {
+    if (cfg?.gpu_on && cfg.gpu_on_at) {
+      const el = Math.max(0, (Date.now() - new Date(cfg.gpu_on_at).getTime()) / 1000);
+      const c = Number(((el / 3600) * rateHour).toFixed(4));
+      if (c > 0) await deduct(userId, "gpu_session", c);
+      return c;
+    }
+    return 0;
+  };
+
+  // ensure the client has a config row (backend_url is NOT NULL → "")
+  const { data: exists } = await admin.from("live_client_config").select("user_id").eq("user_id", userId).maybeSingle();
+  if (!exists) await admin.from("live_client_config").insert({ user_id: userId, backend_url: "", updated_at: nowIso });
+
+  if (!endpointId) {
+    const charged = await chargeIfOn();
+    await freeEndpoint(cfg?.gpu_endpoint_id);
+    await admin.from("live_client_config").update({
+      gpu_allowed: false, gpu_on: false, gpu_on_at: null, gpu_endpoint_id: null,
+      backend_url: "", updated_at: nowIso,
+    }).eq("user_id", userId);
+    return { ok: true, on: false, charged };
+  }
+
+  // assign a (free) endpoint
+  const { data: ep } = await admin.from("livehost_pool")
+    .select("endpoint_id, assigned_user_id").eq("endpoint_id", endpointId).maybeSingle();
+  if (!ep) return { ok: false, error: "Endpoint tak wujud dalam pool." };
+  if (ep.assigned_user_id && ep.assigned_user_id !== userId) {
+    return { ok: false, error: "GPU ini sudah diberi client lain." };
+  }
+  // switching endpoints → charge + free the old one
+  if (cfg?.gpu_endpoint_id && cfg.gpu_endpoint_id !== endpointId) {
+    await chargeIfOn();
+    await freeEndpoint(cfg.gpu_endpoint_id);
+  }
+  await admin.from("livehost_pool").update({
+    status: "busy", assigned_user_id: userId, assigned_at: nowIso, updated_at: nowIso,
+  }).eq("endpoint_id", endpointId);
+  await admin.from("live_client_config").update({
+    gpu_allowed: true, gpu_on: false, gpu_on_at: null, gpu_endpoint_id: endpointId,
+    backend_url: "", updated_at: nowIso,
+  }).eq("user_id", userId);
+  return { ok: true, on: false, endpointId };
+}
+
+// Delete an endpoint from Novita AND remove its pool row.
 
 // Delete an endpoint from Novita AND remove its pool row.
 export async function deletePoolEndpoint(endpointId: string): Promise<{ ok: boolean; error?: string }> {

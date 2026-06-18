@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getSetting } from "@/lib/settings";
-import { deletePoolEndpoint } from "@/lib/livehost-pool";
 import { deduct } from "@/lib/deduct";
 
 // GPU billing safety net (Vercel cron, every ~15 min). Billing is mechanism A
@@ -43,12 +42,12 @@ export async function GET() {
     // Still affordable above the floor → leave it running (charged on manual OFF).
     if (credits - charge >= minBalance) continue;
 
-    // Hit the floor → charge what's accrued + tear down to $0.
+    // Hit the floor → charge what's accrued + stop the client's billing (gpu_on
+    // false). The endpoint stays ASSIGNED (admin owns its lifecycle) so the
+    // client can turn it back on after topping up.
     if (charge > 0) await deduct(c.user_id, "gpu_session", charge);
-    if (c.gpu_endpoint_id) await deletePoolEndpoint(c.gpu_endpoint_id);
     await admin.from("live_client_config").update({
-      gpu_on: false, gpu_on_at: null, gpu_endpoint_id: null, backend_url: "",
-      updated_at: new Date().toISOString(),
+      gpu_on: false, gpu_on_at: null, updated_at: new Date().toISOString(),
     }).eq("user_id", c.user_id);
     stopped++;
   }
