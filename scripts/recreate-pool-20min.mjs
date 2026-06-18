@@ -47,7 +47,13 @@ if (fn) fn.value = "0"; else envs.push({ key: "FORCE_NVENC", value: "0" });
 // RIFE_FPS50=1 → AI interpolation 25->50fps (no-lag pipeline) = smoother motion.
 const rife = envs.find((e) => e.key === "RIFE_FPS50");
 if (rife) rife.value = "1"; else envs.push({ key: "RIFE_FPS50", value: "1" });
-console.log("copied", envs.length, "envs from ref (FORCE_NVENC=0, caps=all, RIFE_FPS50=1)");
+// B1 renderer hang-watchdog DISABLED: it false-restarted healthy-but-BUSY workers
+// mid-stream (renderer too busy with inference to answer /health in 3s → 3 misses
+// → kills worker → disconnect + cold-reboot = "connecting forever"). Absurdly high
+// fail ceiling = watchdog never tears down a live.
+const hw = envs.find((e) => e.key === "RENDERER_HEALTH_MAX_FAIL");
+if (hw) hw.value = "999999"; else envs.push({ key: "RENDERER_HEALTH_MAX_FAIL", value: "999999" });
+console.log("copied", envs.length, "envs (FORCE_NVENC=0, caps=all, RIFE_FPS50=1, watchdog OFF)");
 
 const { data: oldRows } = await sb.from("livehost_pool").select("endpoint_id");
 const oldIds = (oldRows || []).map((r) => r.endpoint_id);

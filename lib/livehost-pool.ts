@@ -56,6 +56,13 @@ async function referenceEnvs(key: string, refId: string): Promise<any[]> {
   // = visibly smoother motion. Slightly softer (same 6Mbps over 2x frames).
   const rife = envs.find((e: any) => e.key === "RIFE_FPS50");
   if (rife) rife.value = "1"; else envs.push({ key: "RIFE_FPS50", value: "1" });
+  // B1 renderer hang-watchdog DISABLED: it false-restarted healthy-but-BUSY workers
+  // mid-stream (renderer busy with inference can't answer /health in 3s → 3 misses
+  // → kills the worker → disconnect + 7min cold-reboot = "connecting forever").
+  // Absurdly high ceiling = never tears down a live. Re-enable only with a
+  // load-safe design (poll lightweight /ping, lenient counts).
+  const hw = envs.find((e: any) => e.key === "RENDERER_HEALTH_MAX_FAIL");
+  if (hw) hw.value = "999999"; else envs.push({ key: "RENDERER_HEALTH_MAX_FAIL", value: "999999" });
   return envs;
 }
 
