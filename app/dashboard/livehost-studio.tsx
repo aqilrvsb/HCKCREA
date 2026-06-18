@@ -882,7 +882,7 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
   useEffect(() => {
     if (poolMode) { setServerState("serverless · auto"); return; }
     gpuAction("status");
-    const t = setInterval(() => gpuAction("status"), 60000);
+    const t = setInterval(() => gpuAction("status"), 15000);
     return () => clearInterval(t);
   }, [gpuAction, poolMode]);
 
@@ -1910,9 +1910,13 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
                     the 10-min idle watchdog keeps it warm so this ▶ Start restarts INSTANTLY; only after
                     10 min of no streaming do pings stop → Novita scales the worker to $0. */}
                 {!active ? (
-                  <button className="restart-btn go" onClick={start} disabled={connecting || gpuWarm !== "ready"}
-                    title={gpuWarm === "ready" ? "Start streaming" : "Tunggu GPU siap dihidupkan…"}>
-                    {connecting ? "… Connecting" : gpuWarm === "warming" ? "⏳ GPU dihidupkan…" : "▶ Start"}
+                  /* Start is enabled the moment the GPU is RUNNING (turned on at
+                     Usage). gpuWarm may still be "idle" because the studio no
+                     longer auto-warms — start() assigns + connects on click. */
+                  <button className="restart-btn go" onClick={start}
+                    disabled={connecting || (gpuWarm !== "ready" && serverState !== "running")}
+                    title={gpuWarm === "ready" || serverState === "running" ? "Start streaming" : "Hidupkan GPU di tab Usage dahulu…"}>
+                    {connecting ? "… Connecting" : gpuWarm === "warming" ? "⏳ Menyambung…" : serverState === "starting" ? "⏳ GPU menyala…" : "▶ Start"}
                   </button>
                 ) : (
                   /* STREAMING state: Start is HIDDEN; only Stop + Pause/Restart are rendered.
