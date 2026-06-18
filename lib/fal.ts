@@ -143,8 +143,11 @@ export async function falRemoveBackground(
       return { ok: false, error: `fal submit HTTP ${sub.status}: ${JSON.stringify(subJson).slice(0, 200)}` };
     }
 
-    const statusUrl = `https://queue.fal.run/${MODEL}/requests/${reqId}/status`;
-    const resUrl = `https://queue.fal.run/${MODEL}/requests/${reqId}`;
+    // IMPORTANT: poll the URLs fal returns — the queue base is the APP
+    // namespace (fal-ai/bria/requests/<id>), NOT the full model path
+    // (fal-ai/bria/background/remove/requests/<id>, which 404s).
+    const statusUrl = subJson?.status_url || `https://queue.fal.run/fal-ai/bria/requests/${reqId}/status`;
+    const resUrl = subJson?.response_url || `https://queue.fal.run/fal-ai/bria/requests/${reqId}`;
     const t0 = Date.now();
     while (Date.now() - t0 < 50_000) {
       await new Promise((r) => setTimeout(r, 2000));
