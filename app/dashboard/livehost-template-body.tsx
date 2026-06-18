@@ -26,7 +26,7 @@ export default function LivehostTemplateBody() {
   const mode = "pro" as const; // quality fixed at 1080p (Pro)
   const keepSound = false; // audio off by default (toggle hidden)
   const orientation = "video" as const; // always follow reference video motion
-  const [videoDur, setVideoDur] = useState(0);
+  const DURATION = 15; // fixed 15s output (billed per second)
   const [avatarPickerOpen, setAvatarPickerOpen] = useState(false);
   const [presets, setPresets] = useState<{ id: string; name: string; public_url: string; category: "avatar" }[]>([]);
   const [busy, setBusy] = useState(false);
@@ -67,18 +67,6 @@ export default function LivehostTemplateBody() {
 
   async function uploadVideo(file: File) {
     setUploadingVid(true); setErr(null);
-    // Measure the .mp4 duration locally — Kling output follows the reference
-    // length, and we bill per second.
-    try {
-      const dur = await new Promise<number>((resolve) => {
-        const v = document.createElement("video");
-        v.preload = "metadata";
-        v.onloadedmetadata = () => { resolve(v.duration || 0); URL.revokeObjectURL(v.src); };
-        v.onerror = () => resolve(0);
-        v.src = URL.createObjectURL(file);
-      });
-      if (dur) setVideoDur(Math.round(dur));
-    } catch {}
     try {
       const fd = new FormData();
       fd.append("file", file);
@@ -98,7 +86,7 @@ export default function LivehostTemplateBody() {
       const absChar = charUrl.startsWith("/") ? `${window.location.origin}${charUrl}` : charUrl;
       const r = await fetch("/api/generate/template-body", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ image_url: absChar, video_url: videoUrl, prompt, mode, character_orientation: orientation, keep_original_sound: keepSound, duration: videoDur || 8 }),
+        body: JSON.stringify({ image_url: absChar, video_url: videoUrl, prompt, mode, character_orientation: orientation, keep_original_sound: keepSound, duration: DURATION }),
       });
       const d = await r.json();
       if (!r.ok) throw new Error(d?.error || "Generate gagal");
@@ -148,7 +136,7 @@ export default function LivehostTemplateBody() {
           onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ""; if (f) uploadVideo(f); }} />
 
         <p className="text-[11px] mt-3" style={{ color: "#999" }}>
-          Kualiti: <b style={{ color: "#555" }}>1080p (Pro)</b>{videoDur ? <> · Panjang video: <b style={{ color: "#555" }}>{videoDur}s</b></> : null}
+          Kualiti: <b style={{ color: "#555" }}>1080p (Pro)</b> · Panjang: <b style={{ color: "#555" }}>{DURATION}s</b>
         </p>
 
         <div className="mt-4">
