@@ -3,6 +3,26 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { hasEnoughCredits } from "@/lib/deduct";
 import { klingCreateWithCascade, getKlingRate } from "@/lib/kling";
+import { uploadBufferToStoragePublic } from "@/lib/b2";
+import sharp from "sharp";
+
+// Composite the (possibly transparent) avatar onto a flat pure #00FF00 green
+// screen so Kling's output background is a clean chroma key. flatten() merges
+// any alpha onto green; opaque images are returned unchanged. Returns the new
+// public URL, or the original on any failure (never blocks generation).
+async function greenScreenify(userId: string, historyId: string, imageUrl: string): Promise<string> {
+  try {
+    const resp = await fetch(imageUrl);
+    if (!resp.ok) return imageUrl;
+    const inBuf = Buffer.from(await resp.arrayBuffer());
+    const png = await sharp(inBuf).flatten({ background: { r: 0, g: 255, b: 0 } }).png().toBuffer();
+    const key = `livehost-greenavatar/${userId}/${historyId}.png`;
+    const { publicUrl } = await uploadBufferToStoragePublic({ body: png, key, contentType: "image/png" });
+    return publicUrl || imageUrl;
+  } catch {
+    return imageUrl;
+  }
+}
 
 // POST /api/generate/template-body — Livehost "Template Body" (Kling v3
 // motion-control). Body: { image_url (avatar/character), video_url (uploaded
@@ -66,20 +86,22 @@ export async function POST(req: Request) {
 
   after(async () => {
     try {
+      // Put the avatar on a flat #00FF00 green screen → Kling output keys clean.
+      const klingImageUrl = await greenScreenify(user.id, historyId, imageUrl);
       const result = await klingCreateWithCascade({
-        userId: user.id, imageUrl, videoUrl, prompt, mode, characterOrientation, keepOriginalSound,
+        userId: user.id, imageUrl: klingImageUrl, videoUrl, prompt, mode, characterOrientation, keepOriginalSound,
       });
       if (!result.ok) {
         await admin.from("history").update({
           status: "failed", cost,
           error_message: result.error || "Kling create failed",
-          metadata: { ...baseMeta, tier_log: result.tierLog, upload_status: "failed" },
+          metadata: { ...baseMeta, green_image_url: klingImageUrl, tier_log: result.tierLog, upload_status: "failed" },
         }).eq("id", historyId);
         return;
       }
       await admin.from("history").update({
         task_id: result.taskId, cost,
-        metadata: { ...baseMeta, provider: "kling", slot: result.slot, tier_log: result.tierLog, upload_status: "done" },
+        metadata: { ...baseMeta, green_image_url: klingImageUrl, provider: "kling", slot: result.slot, tier_log: result.tierLog, upload_status: "done" },
       }).eq("id", historyId);
     } catch (e: any) {
       await admin.from("history").update({

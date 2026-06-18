@@ -41,6 +41,7 @@ export default function AttachmentPicker({
   categories = ["product", "avatar", "all"],
   pngOnly = false,
   autoTransparent = false,
+  bgRemoveAvatar = false,
 }: {
   open: boolean;
   onClose: () => void;
@@ -68,6 +69,9 @@ export default function AttachmentPicker({
   // Auto-key the solid black background of uploads → transparent PNG (Livehost
   // templates exported from Canva free, which can't export transparency).
   autoTransparent?: boolean;
+  // Livehost avatar uploads: run fal Bria background removal server-side so the
+  // stored avatar is already cut out (transparent). Sends bg_remove=1.
+  bgRemoveAvatar?: boolean;
 }) {
   const multi = !!onPickMulti;
   // Single-purpose pickers (e.g. Livehost avatar / template) upload straight
@@ -197,6 +201,7 @@ export default function AttachmentPicker({
           fd.append("file", outFile);
           fd.append("name", file.name.replace(/\.[^.]+$/, ""));
           fd.append("category", category);
+          if (bgRemoveAvatar && category === "avatar") fd.append("bg_remove", "1");
           const r = await fetch("/api/attachments/upload", {
             method: "POST",
             body: fd,

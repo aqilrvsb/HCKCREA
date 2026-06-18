@@ -335,7 +335,7 @@ export default function LivehostDashboard({
           ) : view === "templatebody" ? (
             <div className="lh-studio"><LivehostTemplateBody /></div>
           ) : view === "attachment" ? (
-            <AttachmentsSection presets={attachPresets} productLabel="Template" pngOnly />
+            <AttachmentsSection presets={attachPresets} productLabel="Template" pngOnly bgRemoveAvatar />
           ) : view === "greetings" ? (
             <div className="lh-studio"><LivehostGreetings /></div>
           ) : view === "tiktok" ? (

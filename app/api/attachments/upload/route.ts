@@ -2,9 +2,11 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { uploadBufferToStoragePublic } from "@/lib/b2";
+import { falRemoveBackground } from "@/lib/fal";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+export const maxDuration = 60;
 
 // NOTE: compression happens on the CLIENT (compressImageIfNeeded in
 // attachments.tsx + attachment-picker.tsx) before the body hits Vercel.
@@ -43,6 +45,7 @@ export async function POST(req: Request) {
   let file: File;
   let providedName: string;
   let category: "product" | "avatar";
+  let bgRemove = false;
   try {
     const form = await req.formData();
     const f = form.get("file");
@@ -62,14 +65,33 @@ export async function POST(req: Request) {
     providedName = String(form.get("name") || "").trim();
     const rawCat = String(form.get("category") || "product").toLowerCase();
     category = rawCat === "avatar" ? "avatar" : "product";
+    // Livehost passes bg_remove=1 for avatar uploads — auto-cut the background.
+    bgRemove = String(form.get("bg_remove") || "") === "1";
   } catch (e: any) {
     return NextResponse.json({ error: e?.message || "Read failed" }, { status: 400 });
   }
 
   // Client already compressed (long edge ≤ 2048 px, JPEG@92) so the body
   // is guaranteed under Vercel's limit by the time we get here.
-  const finalCt = file.type || "image/jpeg";
-  const buffer = Buffer.from(await file.arrayBuffer());
+  let finalCt = file.type || "image/jpeg";
+  let buffer = Buffer.from(await file.arrayBuffer());
+
+  // Background removal (livehost avatar only) — run fal Bria FIRST, then store
+  // the resulting transparent PNG. Best-effort: if fal fails we keep the
+  // original image so the upload never hard-fails on a flaky bg-removal call.
+  if (bgRemove && category === "avatar") {
+    try {
+      const dataUri = `data:${finalCt};base64,${buffer.toString("base64")}`;
+      const bg = await falRemoveBackground(dataUri);
+      if (bg.ok && bg.url) {
+        const resp = await fetch(bg.url);
+        if (resp.ok) {
+          buffer = Buffer.from(await resp.arrayBuffer());
+          finalCt = "image/png";
+        }
+      }
+    } catch { /* keep original */ }
+  }
 
   const admin = createAdminClient();
 

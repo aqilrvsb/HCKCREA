@@ -38,6 +38,7 @@ export default function AttachmentsSection({
   presets = [],
   productLabel = "Product",
   pngOnly = false,
+  bgRemoveAvatar = false,
 }: {
   // Built-in DEFAULT items shown read-only at the top (e.g. Livehost stock
   // hosts + templates). Empty for the main dashboard, so it is unaffected.
@@ -45,6 +46,8 @@ export default function AttachmentsSection({
   productLabel?: string;
   // Livehost avatars/templates need transparency → restrict uploads to PNG.
   pngOnly?: boolean;
+  // Livehost avatar uploads: fal Bria background removal server-side.
+  bgRemoveAvatar?: boolean;
 } = {}) {
   const [items, setItems] = useState<Attachment[]>([]);
   // "own" = the user's saved uploads · "demo" = the shared defaults.
@@ -177,6 +180,7 @@ export default function AttachmentsSection({
           fd.append("file", compressed.file);
           fd.append("name", file.name.replace(/\.[^.]+$/, ""));
           fd.append("category", category);
+          if (bgRemoveAvatar && category === "avatar") fd.append("bg_remove", "1");
           const r = await fetch("/api/attachments/upload", {
             method: "POST",
             body: fd,

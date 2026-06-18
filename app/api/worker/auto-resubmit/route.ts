@@ -171,7 +171,9 @@ export async function GET(req: Request) {
       if (kClaimErr || !kClaimed || kClaimed.length === 0) { summary.ineligible += 1; continue; }
       summary.eligible += 1;
 
-      const imageUrl = (meta.image_url as string) || row.reference_url || "";
+      // Prefer the green-screened avatar we built at first generation so the
+      // retry keeps the clean chroma-key background.
+      const imageUrl = (meta.green_image_url as string) || (meta.image_url as string) || row.reference_url || "";
       const videoUrl = (meta.motion_url as string) || "";
       if (!imageUrl || !videoUrl) {
         // The original refs are gone (e.g. B2 TTL) — can't re-fire. Revert.

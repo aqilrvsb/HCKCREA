@@ -110,3 +110,57 @@ export async function falMergeVideos(
     return { ok: false, error: e?.message || "Merge network error" };
   }
 }
+
+// ──────────────────────────────────────────────────────────────────────────
+// falRemoveBackground — Bria RMBG 2.0 image background removal.
+//
+// `imageInput` can be a public URL OR a base64 data URI (so callers can run
+// bg-removal BEFORE storing the file anywhere). Returns a fal-hosted
+// transparent PNG URL. Uses the queue API + short poll (bria image is fast,
+// usually a few seconds). fal_key read from app_settings.
+// ──────────────────────────────────────────────────────────────────────────
+
+export async function falRemoveBackground(
+  imageInput: string
+): Promise<{ ok: boolean; url?: string; error?: string }> {
+  if (!imageInput) return { ok: false, error: "Missing image" };
+  const s = await getSettings(["fal_key"]);
+  const key = s.fal_key?.key;
+  if (!key) return { ok: false, error: "fal.ai not configured" };
+
+  const MODEL = "fal-ai/bria/background/remove";
+  const H = { Authorization: `Key ${key}`, "Content-Type": "application/json" };
+
+  try {
+    const sub = await fetch(`https://queue.fal.run/${MODEL}`, {
+      method: "POST",
+      headers: H,
+      body: JSON.stringify({ image_url: imageInput }),
+    });
+    const subJson: any = await sub.json().catch(() => ({}));
+    const reqId = subJson?.request_id;
+    if (!reqId) {
+      return { ok: false, error: `fal submit HTTP ${sub.status}: ${JSON.stringify(subJson).slice(0, 200)}` };
+    }
+
+    const statusUrl = `https://queue.fal.run/${MODEL}/requests/${reqId}/status`;
+    const resUrl = `https://queue.fal.run/${MODEL}/requests/${reqId}`;
+    const t0 = Date.now();
+    while (Date.now() - t0 < 50_000) {
+      await new Promise((r) => setTimeout(r, 2000));
+      const st: any = await (await fetch(statusUrl, { headers: H })).json().catch(() => ({}));
+      if (st?.status === "COMPLETED") {
+        const out: any = await (await fetch(resUrl, { headers: H })).json().catch(() => ({}));
+        const url = out?.image?.url || out?.images?.[0]?.url;
+        if (url && typeof url === "string") return { ok: true, url };
+        return { ok: false, error: "fal returned no image URL" };
+      }
+      if (st?.status === "FAILED" || st?.status === "ERROR") {
+        return { ok: false, error: "fal bg-removal failed" };
+      }
+    }
+    return { ok: false, error: "fal bg-removal timeout" };
+  } catch (e: any) {
+    return { ok: false, error: e?.message || "fal network error" };
+  }
+}
