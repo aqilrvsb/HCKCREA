@@ -61,35 +61,36 @@ async function novita(path: string, key: string, init?: RequestInit): Promise<an
   return d;
 }
 
-// Pull the env var list from the reference endpoint so a new pool endpoint
-// inherits the exact same secrets/config as the proven live one.
-async function referenceEnvs(key: string, refId: string): Promise<any[]> {
-  const d = await novita(`/endpoint?id=${refId}`, key);
-  const envs = d?.endpoint?.envs;
-  if (!Array.isArray(envs) || envs.length === 0) {
-    throw new Error(`reference endpoint ${refId} returned no envs`);
-  }
-  // NVIDIA_DRIVER_CAPABILITIES=all → full access to the GPU's NVENC video engine
-  // so the encoder (which ALWAYS tries h264_nvenc first) opens NVENC on as many
-  // nodes as possible — this is the real NVENC lever, not the gate.
-  const cap = envs.find((e: any) => e.key === "NVIDIA_DRIVER_CAPABILITIES");
-  if (cap) cap.value = "all"; else envs.push({ key: "NVIDIA_DRIVER_CAPABILITIES", value: "all" });
-  // FORCE_NVENC=0 → gate OFF. The gate (=1) made cold start hang 8-9min (tested).
-  // Off = fast, stable boot; the encoder still uses NVENC whenever caps allow it.
-  const fn = envs.find((e: any) => e.key === "FORCE_NVENC");
-  if (fn) fn.value = "0"; else envs.push({ key: "FORCE_NVENC", value: "0" });
-  // RIFE_FPS50=1 → AI frame-interpolation 25→50fps (no-lag 1-frame-delay pipeline)
-  // = visibly smoother motion. Slightly softer (same 6Mbps over 2x frames).
-  const rife = envs.find((e: any) => e.key === "RIFE_FPS50");
-  if (rife) rife.value = "1"; else envs.push({ key: "RIFE_FPS50", value: "1" });
-  // B1 renderer hang-watchdog DISABLED: it false-restarted healthy-but-BUSY workers
-  // mid-stream (renderer busy with inference can't answer /health in 3s → 3 misses
-  // → kills the worker → disconnect + 7min cold-reboot = "connecting forever").
-  // Absurdly high ceiling = never tears down a live. Re-enable only with a
-  // load-safe design (poll lightweight /ping, lenient counts).
-  const hw = envs.find((e: any) => e.key === "RENDERER_HEALTH_MAX_FAIL");
-  if (hw) hw.value = "999999"; else envs.push({ key: "RENDERER_HEALTH_MAX_FAIL", value: "999999" });
-  return envs;
+// Build the renderer env list DIRECTLY from app_settings (no fragile reference
+// endpoint — that broke when the ref got deleted). Secrets come from app_settings
+// (livehost_*), the flags are the proven NVENC/RIFE/watchdog config. This exact
+// list booted + served /avatars (verified). Env-var NAMES match the bootstrap
+// route + the renderer image.
+async function buildLivehostEnvs(): Promise<{ key: string; value: string }[]> {
+  const s = await getSettings([
+    "livehost_turn_key_id", "livehost_turn_key_token", "livehost_minimax_key",
+    "or_key", "novita_api_key", "livehost_hf_token", "livehost_box_secret",
+  ]);
+  const orRaw: any = s["or_key"];
+  const orKey = orRaw && typeof orRaw === "object" ? (orRaw.key || "") : (orRaw || "");
+  const hf = String(s["livehost_hf_token"] || "");
+  return [
+    { key: "CLOUDFLARE_TURN_KEY_ID", value: String(s["livehost_turn_key_id"] || "") },
+    { key: "CLOUDFLARE_TURN_KEY_TOKEN", value: String(s["livehost_turn_key_token"] || "") },
+    { key: "MINIMAX_API_KEY", value: String(s["livehost_minimax_key"] || "") },
+    { key: "OPENROUTER_API_KEY", value: String(orKey) },
+    { key: "OPENROUTER_MODEL", value: "openai/gpt-4.1" },
+    { key: "NOVITA_API_KEY", value: String(s["novita_api_key"] || "") },
+    { key: "HF_TOKEN", value: hf },
+    { key: "HUGGING_FACE_HUB_TOKEN", value: hf },
+    { key: "LIVEHOST_CONFIG_URL", value: "https://peninglab.com/api/livehost/engine-config" },
+    { key: "LIVEHOST_BOX_SECRET", value: String(s["livehost_box_secret"] || "") },
+    // NVENC on (caps=all + gate off), RIFE 50fps, B1 watchdog off (no false restarts).
+    { key: "NVIDIA_DRIVER_CAPABILITIES", value: "all" },
+    { key: "FORCE_NVENC", value: "0" },
+    { key: "RIFE_FPS50", value: "1" },
+    { key: "RENDERER_HEALTH_MAX_FAIL", value: "999999" },
+  ];
 }
 
 type CreateResult = { ok: boolean; endpointId?: string; runsyncUrl?: string; error?: string };
@@ -97,13 +98,12 @@ type CreateResult = { ok: boolean; endpointId?: string; runsyncUrl?: string; err
 // Create ONE serverless pool endpoint and insert it into livehost_pool.
 export async function createPoolEndpoint(label?: string): Promise<CreateResult> {
   const admin = createAdminClient();
-  const s = await getSettings(["novita_api_key", "livehost_pool_ref_endpoint"]);
+  const s = await getSettings(["novita_api_key"]);
   const key = s["novita_api_key"];
   if (!key) return { ok: false, error: "novita_api_key not set in app_settings" };
-  const refId = s["livehost_pool_ref_endpoint"] || DEFAULT_REF;
 
   try {
-    const envs = await referenceEnvs(key, refId);
+    const envs = await buildLivehostEnvs(); // from app_settings — no reference endpoint needed
     // Unique name; Novita names must be short + dns-ish.
     const name = "lh-pool-" + Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
     const body = {
