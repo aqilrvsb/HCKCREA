@@ -1864,7 +1864,7 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
                 onPointerDown={onStagePointerDown} onPointerMove={onStagePointerMove}
                 onPointerUp={onStagePointerUp} onPointerCancel={onStagePointerUp}>
                 <video ref={videoRef} autoPlay playsInline style={{ transform: `translate(${offsetX}%, ${offsetY}%) scale(${zoom})` }} />
-                {!active && previewUrl && (
+                {!active && previewUrl && !bodyUrl && (
                   <img className="avatar-preview" src={previewUrl} alt="" draggable={false}
                     style={{ transform: `translate(${offsetX}%, ${offsetY}%) scale(${zoom})` }} />
                 )}
