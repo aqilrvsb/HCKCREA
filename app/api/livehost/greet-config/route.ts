@@ -22,6 +22,8 @@ const DEFAULTS = {
   likeGreeting: "Terima kasih [username] sebab like!",
   commentDelayMin: 5,
   commentDelayMax: 15,
+  pinMin: 30, // re-pin product every random(pinMin,pinMax) seconds
+  pinMax: 90,
   selectedProduct: "",
   sfxAuto: true, // purchase -> bell+voice, feedback -> voice+clap, follow -> clap
 };
@@ -62,6 +64,8 @@ export async function POST(req: Request) {
     likeGreeting: String(c.likeGreeting ?? DEFAULTS.likeGreeting).slice(0, 500),
     commentDelayMin: Math.max(1, Math.min(300, Number(c.commentDelayMin) || DEFAULTS.commentDelayMin)),
     commentDelayMax: Math.max(1, Math.min(600, Number(c.commentDelayMax) || DEFAULTS.commentDelayMax)),
+    pinMin: Math.max(5, Math.min(3600, Number(c.pinMin) || DEFAULTS.pinMin)),
+    pinMax: Math.max(5, Math.min(3600, Number(c.pinMax) || DEFAULTS.pinMax)),
     selectedProduct: String(c.selectedProduct ?? "").slice(0, 200),
     sfxAuto: c.sfxAuto !== false,
   };

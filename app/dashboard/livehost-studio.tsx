@@ -254,7 +254,7 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
   const [products, setProducts] = useState<{ id: string; title: string; text: string }[]>([]);
   const [activeProductId, setActiveProductId] = useState("");
   // Greetings LIBRARY (pick ONE active in the rundown); full config per profile
-  type GreetProfile = { id: string; title: string; greetings: string; greetDelayMin: number; greetDelayMax: number; followGreeting: string; likeGreeting: string; commentDelayMin: number; commentDelayMax: number; selectedProduct: string; sfxAuto: boolean };
+  type GreetProfile = { id: string; title: string; greetings: string; greetDelayMin: number; greetDelayMax: number; followGreeting: string; likeGreeting: string; commentDelayMin: number; commentDelayMax: number; pinMin: number; pinMax: number; selectedProduct: string; sfxAuto: boolean };
   const [greetProfiles, setGreetProfiles] = useState<GreetProfile[]>([]);
   const [activeGreetId, setActiveGreetId] = useState("");
   // Live-event brain (greeting/comment driving) reads config from refs so the

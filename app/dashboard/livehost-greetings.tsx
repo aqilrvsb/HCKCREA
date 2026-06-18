@@ -22,6 +22,8 @@ type Profile = {
   likeGreeting: string;
   commentDelayMin: number;
   commentDelayMax: number;
+  pinMin: number; // re-pin product every random(min,max) seconds (extension)
+  pinMax: number;
   selectedProduct: string;
   sfxAuto: boolean;
 };
@@ -35,6 +37,8 @@ const DEFAULT_FIELDS = {
   likeGreeting: "Terima kasih [username] sebab like!",
   commentDelayMin: 5,
   commentDelayMax: 15,
+  pinMin: 30,
+  pinMax: 90,
   selectedProduct: "",
   sfxAuto: false, // clap/bell OFF by default (avoids SFX-before-reply timing)
 };
@@ -184,6 +188,14 @@ export default function LivehostGreetings() {
             <div style={twoCol}>
               <div><LhLabel>Reply Delay Min (saat)</LhLabel><input style={F} type="number" min={1} value={cur.commentDelayMin} onChange={(e) => up({ commentDelayMin: parseInt(e.target.value) || 5 })} /></div>
               <div><LhLabel>Reply Delay Max (saat)</LhLabel><input style={F} type="number" min={1} value={cur.commentDelayMax} onChange={(e) => up({ commentDelayMax: parseInt(e.target.value) || 15 })} /></div>
+            </div>
+
+            {/* Pin product — extension re-pins at a RANDOM interval between min &
+                max (saat) so it looks natural + the product stays visible. */}
+            <div style={{ marginTop: 18 }}><LhLabel>📌 Pin produk — interval rawak (saat)</LhLabel></div>
+            <div style={twoCol}>
+              <div><LhLabel>Pin Min (saat)</LhLabel><input style={F} type="number" min={1} value={cur.pinMin} onChange={(e) => up({ pinMin: parseInt(e.target.value) || 30 })} /></div>
+              <div><LhLabel>Pin Max (saat)</LhLabel><input style={F} type="number" min={1} value={cur.pinMax} onChange={(e) => up({ pinMax: parseInt(e.target.value) || 90 })} /></div>
             </div>
 
             <label className="flex items-center gap-2 mt-4 text-xs" style={{ color: "#555" }}>
