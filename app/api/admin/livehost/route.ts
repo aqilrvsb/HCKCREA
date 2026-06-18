@@ -110,6 +110,9 @@ export async function GET(req: Request) {
       notes: byId.get(p.id)?.notes || "",
       provision_status: byId.get(p.id)?.provision_status || "",
       gpu_status: gpuStatus.get(p.id) || "no gpu",
+      gpu_allowed: !!byId.get(p.id)?.gpu_allowed,
+      gpu_on: !!byId.get(p.id)?.gpu_on,
+      gpu_on_at: byId.get(p.id)?.gpu_on_at || null,
       usage: (() => {
         const a = agg.get(p.id) || { sec: 0, chars: 0, count: 0, live: false };
         const gpuRateN = parseFloat(rates["livehost_gpu_rate_hour"] || "6") || 6;
@@ -160,6 +163,30 @@ export async function POST(req: Request) {
   if (action === "check" && userId) {
     const { checkProvisionReady } = await import("@/lib/livehost-provision");
     return NextResponse.json({ status: await checkProvisionReady(userId) });
+  }
+
+  // "Appoint" a client to a GPU = grant/revoke the entitlement (1 GPU = 1 client,
+  // admin-gated). Without it the client cannot turn a GPU on at their Usage tab.
+  if (action === "gpu_appoint" && userId) {
+    const admin = createAdminClient();
+    const allow = body.allow !== false;
+    const nowIso = new Date().toISOString();
+    const { data: existing } = await admin
+      .from("live_client_config").select("user_id").eq("user_id", userId).maybeSingle();
+    if (existing) {
+      await admin.from("live_client_config").update({ gpu_allowed: allow, updated_at: nowIso }).eq("user_id", userId);
+    } else {
+      await admin.from("live_client_config").insert({ user_id: userId, gpu_allowed: allow, backend_url: "", updated_at: nowIso });
+    }
+    return NextResponse.json({ ok: true, gpu_allowed: allow });
+  }
+
+  // Admin can also turn a client's GPU on/off directly (same billing path as the
+  // client's Usage-tab control). on requires the client be appointed first.
+  if ((action === "gpu_on" || action === "gpu_off") && userId) {
+    const { setClientGpu } = await import("@/lib/livehost-pool");
+    const r = await setClientGpu(userId, action === "gpu_on");
+    return NextResponse.json({ ...r }, { status: r.ok ? 200 : 400 });
   }
 
   // AI Livehost chat-model cascade (main + fallback), same shape as Clone model.

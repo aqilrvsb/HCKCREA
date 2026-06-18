@@ -47,7 +47,7 @@ export async function GET() {
     if (charge > 0) await deduct(c.user_id, "gpu_session", charge);
     if (c.gpu_endpoint_id) await deletePoolEndpoint(c.gpu_endpoint_id);
     await admin.from("live_client_config").update({
-      gpu_on: false, gpu_on_at: null, gpu_endpoint_id: null, backend_url: null,
+      gpu_on: false, gpu_on_at: null, gpu_endpoint_id: null, backend_url: "",
       updated_at: new Date().toISOString(),
     }).eq("user_id", c.user_id);
     stopped++;

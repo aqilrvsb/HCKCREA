@@ -2,8 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getSetting } from "@/lib/settings";
-import { createPoolEndpoint, deletePoolEndpoint } from "@/lib/livehost-pool";
-import { deduct } from "@/lib/deduct";
+import { setClientGpu } from "@/lib/livehost-pool";
 
 // GPU ON/OFF + per-hour billing for the logged-in Livehost client's DEDICATED
 // always-on GPU (1 GPU = 1 client). Billing model = mechanism A (charge on OFF):
@@ -39,7 +38,7 @@ export async function POST(req: Request) {
 
   const { data: cfg } = await admin
     .from("live_client_config")
-    .select("gpu_on, gpu_on_at, gpu_endpoint_id")
+    .select("gpu_on, gpu_on_at, gpu_endpoint_id, gpu_allowed")
     .eq("user_id", user.id)
     .maybeSingle();
   const { data: prof } = await admin
@@ -55,6 +54,7 @@ export async function POST(req: Request) {
 
   const status = (extra: Record<string, unknown> = {}) => NextResponse.json({
     on: !!cfg?.gpu_on,
+    allowed: !!cfg?.gpu_allowed,
     since: cfg?.gpu_on_at || null,
     elapsedSec: Math.round(elapsedSec),
     rateHour, minBalance, estCharge, credits,
@@ -63,47 +63,23 @@ export async function POST(req: Request) {
 
   if (action === "status") return status();
 
-  if (action === "on") {
-    if (cfg?.gpu_on) return status(); // already on — idempotent
-    if (credits < minBalance) {
-      return NextResponse.json({
-        error: `Kredit tak cukup. Perlu sekurang-kurangnya RM ${minBalance.toFixed(2)} untuk hidupkan GPU.`,
-      }, { status: 402 });
-    }
-    const res = await createPoolEndpoint(`client:${user.id.slice(0, 8)}`);
-    if (!res.ok || !res.endpointId) {
-      return NextResponse.json({ error: res.error || "GPU create failed" }, { status: 502 });
-    }
-    const nowIso = new Date().toISOString();
-    // Bind the pool row to this user so the studio's assign hands them THIS
-    // endpoint (per-client, not round-robin). status="busy" keeps it off the
-    // free pool for everyone else.
-    await admin.from("livehost_pool").update({
-      status: "busy", assigned_user_id: user.id, assigned_at: nowIso, updated_at: nowIso,
-    }).eq("endpoint_id", res.endpointId);
-    await admin.from("live_client_config").upsert({
-      user_id: user.id,
-      gpu_on: true, gpu_on_at: nowIso, gpu_endpoint_id: res.endpointId,
-      backend_url: res.runsyncUrl, updated_at: nowIso,
-    });
+  // NOTE: GPU on/off is ADMIN-controlled (Admin → Livehost). These actions are
+  // kept (delegating to the shared helper) for completeness, but the client
+  // Billing card is read-only status. Re-read fresh state after toggling.
+  if (action === "on" || action === "off") {
+    const r = await setClientGpu(user.id, action === "on");
+    if (!r.ok) return NextResponse.json({ error: r.error || "failed" }, { status: action === "on" ? 402 : 500 });
+    const { data: c2 } = await admin
+      .from("live_client_config").select("gpu_on, gpu_on_at, gpu_endpoint_id, gpu_allowed").eq("user_id", user.id).maybeSingle();
+    const { data: p2 } = await admin.from("profiles").select("credits").eq("id", user.id).single();
+    const on2 = !!c2?.gpu_on;
+    const at2 = on2 && c2?.gpu_on_at ? new Date(c2.gpu_on_at).getTime() : 0;
+    const el2 = at2 ? Math.max(0, (Date.now() - at2) / 1000) : 0;
     return NextResponse.json({
-      on: true, since: nowIso, elapsedSec: 0, rateHour, minBalance, estCharge: 0,
-      credits, endpointId: res.endpointId, booting: true,
+      on: on2, allowed: !!c2?.gpu_allowed, since: c2?.gpu_on_at || null, elapsedSec: Math.round(el2),
+      rateHour, minBalance, estCharge: Number(((el2 / 3600) * rateHour).toFixed(4)),
+      credits: Number(p2?.credits || 0), charged: r.charged, booting: action === "on" || undefined,
     });
-  }
-
-  if (action === "off") {
-    if (!cfg?.gpu_on) return status();
-    // Mechanism A: charge the elapsed ON time, then tear the endpoint down to $0.
-    if (estCharge > 0) await deduct(user.id, "gpu_session", estCharge);
-    if (cfg.gpu_endpoint_id) await deletePoolEndpoint(cfg.gpu_endpoint_id);
-    const nowIso = new Date().toISOString();
-    await admin.from("live_client_config").update({
-      gpu_on: false, gpu_on_at: null, gpu_endpoint_id: null, backend_url: null, updated_at: nowIso,
-    }).eq("user_id", user.id);
-    const { data: after } = await admin
-      .from("profiles").select("credits").eq("id", user.id).single();
-    return NextResponse.json({ on: false, charged: estCharge, credits: Number(after?.credits || 0) });
   }
 
   return NextResponse.json({ error: "unknown action" }, { status: 400 });

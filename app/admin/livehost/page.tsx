@@ -21,6 +21,9 @@ type Client = {
   notes: string;
   provision_status: string;
   gpu_status: string;
+  gpu_allowed: boolean;
+  gpu_on: boolean;
+  gpu_on_at: string | null;
   usage: {
     streamSec: number; sessions: number; live: boolean;
     voiceChars: number; gpuCost: number; voiceCost: number; totalCost: number;
@@ -82,6 +85,37 @@ export default function AdminLivehostPage() {
 
   const update = (id: string, patch: Partial<Client>) =>
     setClients((prev) => prev.map((c) => (c.id === id ? { ...c, ...patch } : c)));
+
+  // Appoint / un-appoint a client to a GPU (entitlement). Without it they can't
+  // turn a GPU on at their Usage tab.
+  const appoint = async (c: Client, allow: boolean) => {
+    setSavingId(c.id); setMsg("");
+    try {
+      const r = await fetch("/api/admin/livehost", {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ action: "gpu_appoint", userId: c.id, allow }),
+      });
+      const d = await r.json();
+      setMsg(d.ok ? `${c.email}: GPU ${allow ? "appointed" : "removed"}` : d.error || "failed");
+      load();
+    } finally { setSavingId(""); }
+  };
+
+  // Admin turns a client's GPU on/off directly (same billing as the client).
+  const gpuToggle = async (c: Client, on: boolean) => {
+    if (on && !window.confirm(`Hidupkan GPU untuk ${c.email}? Caj bermula (RM/jam ikut rate).`)) return;
+    if (!on && !window.confirm(`Tutup GPU ${c.email}? Caj masa guna ditolak + GPU dipadam.`)) return;
+    setSavingId(c.id); setMsg("");
+    try {
+      const r = await fetch("/api/admin/livehost", {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ action: on ? "gpu_on" : "gpu_off", userId: c.id }),
+      });
+      const d = await r.json();
+      setMsg(d.ok ? `${c.email}: GPU ${on ? "ON" : "OFF"}${d.charged != null ? ` (caj RM ${Number(d.charged).toFixed(2)})` : ""}` : d.error || "failed");
+      load();
+    } finally { setSavingId(""); }
+  };
 
   const save = async (c: Client) => {
     setSavingId(c.id);
@@ -198,6 +232,50 @@ export default function AdminLivehostPage() {
                     expires {new Date(c.plan_expires_at).toLocaleDateString("ms-MY")}
                   </span>
                 )}
+              </div>
+
+              {/* GPU appoint + on/off (1 GPU = 1 client; admin-gated) */}
+              <div className="flex flex-wrap items-center gap-2 mb-4 p-3 rounded-xl"
+                style={{ background: "var(--color-bg)", border: "1px solid var(--color-border)" }}>
+                <span className="text-xs font-bold text-[var(--color-text-secondary)]">GPU dedikasi:</span>
+                <span className="text-xs px-2 py-0.5 rounded-full font-bold"
+                  style={c.gpu_allowed ? { background: "rgba(34,197,94,0.15)", color: "#4ade80" } : { background: "rgba(148,163,184,0.15)", color: "#94a3b8" }}>
+                  {c.gpu_allowed ? "✓ Appointed" : "Belum appoint"}
+                </span>
+                {c.gpu_on && (
+                  <span className="text-xs px-2 py-0.5 rounded-full font-bold" style={{ background: "rgba(34,197,94,0.15)", color: "#4ade80" }}>
+                    ● ON{c.gpu_on_at ? ` — ${new Date(c.gpu_on_at).toLocaleString("ms-MY")}` : ""}
+                  </span>
+                )}
+                <div className="ml-auto flex gap-2">
+                  {c.gpu_allowed ? (
+                    <button onClick={() => appoint(c, false)} disabled={savingId === c.id || c.gpu_on}
+                      title={c.gpu_on ? "Tutup GPU dahulu sebelum remove" : ""}
+                      className="px-3 py-1.5 rounded-lg text-xs font-bold disabled:opacity-40"
+                      style={{ background: "var(--color-bg-card)", border: "1px solid var(--color-border)", color: "var(--color-text-secondary)" }}>
+                      Remove GPU
+                    </button>
+                  ) : (
+                    <button onClick={() => appoint(c, true)} disabled={savingId === c.id}
+                      className="px-3 py-1.5 rounded-lg text-xs font-bold text-white disabled:opacity-50"
+                      style={{ background: "linear-gradient(135deg,#3b82f6,#2563eb)" }}>
+                      ⚡ Appoint GPU
+                    </button>
+                  )}
+                  {c.gpu_allowed && (c.gpu_on ? (
+                    <button onClick={() => gpuToggle(c, false)} disabled={savingId === c.id}
+                      className="px-3 py-1.5 rounded-lg text-xs font-bold text-white disabled:opacity-50"
+                      style={{ background: "linear-gradient(135deg,#ef4444,#dc2626)" }}>
+                      Turn OFF
+                    </button>
+                  ) : (
+                    <button onClick={() => gpuToggle(c, true)} disabled={savingId === c.id}
+                      className="px-3 py-1.5 rounded-lg text-xs font-bold text-white disabled:opacity-50"
+                      style={{ background: "linear-gradient(135deg,#22c55e,#16a34a)" }}>
+                      Turn ON
+                    </button>
+                  ))}
+                </div>
               </div>
 
               {/* usage in the selected date range */}

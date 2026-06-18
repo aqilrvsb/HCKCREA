@@ -9,6 +9,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import AttachmentPicker from "./sections/attachment-picker";
+import LivehostGpu from "./sections/livehost-gpu";
 import { hydrateLivehostState, saveLivehostState, installLivehostStateFlush } from "@/lib/livehost-state";
 import { confirmDelete } from "@/lib/confirm";
 import { LhSection, LhCard, LhCardHeader, LhLabel, LhButton, LhGrid, LhModal, LH_FIELD_STYLE, ORANGE } from "./livehost-ui";
@@ -2416,6 +2417,8 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
       {/* ============ USAGE VIEW ============ */}
       <div style={{ display: view === "usage" ? undefined : "none" }}>
         <div className="space-y-6 max-w-[1400px] mx-auto px-1 sm:px-2 py-2">
+          {/* GPU power — dedicated GPU on/off (admin must appoint first) */}
+          <LivehostGpu />
           {/* Stats summary — radial-glow cards (match the main Usage tab).
               NOTE: inline-style grid (NOT className="grid") — the studio's
               own `.lh-studio .grid` rule would otherwise force 100vh height
