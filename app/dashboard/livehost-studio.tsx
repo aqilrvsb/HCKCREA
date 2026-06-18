@@ -1193,6 +1193,9 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
           if (disconnectGraceRef.current) { clearTimeout(disconnectGraceRef.current); disconnectGraceRef.current = null; }
           reconnectingRef.current = false; reconnectAttemptsRef.current = 0;
           setActive(true); setConnecting(false); setWakeMsg("");
+          // Stream connected = GPU is RUNNING → report it so billing starts now
+          // (reliable signal; the /avatars status ping is flaky while streaming).
+          fetch("/api/livehost/gpu", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "running" }) }).catch(() => {});
           if (!sessionBegunRef.current) { sessionBegunRef.current = true; beginSession(); } // once per live
         } else if (st === "failed" || st === "closed") {
           // Real drop → AUTO-RECONNECT (resume) instead of giving up.

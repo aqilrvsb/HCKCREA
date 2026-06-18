@@ -48,39 +48,57 @@ export async function POST(req: Request) {
   const rateHour = num(await getSetting<string>("livehost_gpu_rate_hour"), 6); // RM/hour
   const minBalance = num(await getSetting<string>("livehost_min_balance"), 5); // RM
 
-  // Is the worker actually RUNNING? (the renderer answers /avatars). While ON but
-  // the worker is still cold-booting (~7min) the GPU is "starting" — NOT charged.
-  // The moment it answers, stamp gpu_on_at so BILLING STARTS AT RUNNING. This
-  // server-side ping also doubles as the boot-kick / keepalive.
-  let running = false;
-  if (cfg?.gpu_on && cfg?.gpu_endpoint_id) {
+  // RUNNING = gpu_on_at is stamped (the durable billing marker). It's set the
+  // moment the worker is confirmed up — either the studio reports it on connect
+  // (action "running", the reliable signal while streaming) OR, during the cold
+  // boot BEFORE streaming, this server-side /avatars ping detects readiness.
+  // We ONLY ping while still "starting" (gpu_on_at null) — never during a live
+  // stream (where a busy worker makes /avatars flaky and would wrongly read
+  // "starting"). Once running, it STAYS running until OFF.
+  if (cfg?.gpu_on && cfg?.gpu_endpoint_id && !cfg.gpu_on_at) {
+    let ready = false;
     try {
       const r = await fetch(`${runsyncUrl(cfg.gpu_endpoint_id)}/avatars`, { signal: AbortSignal.timeout(5000) });
-      running = r.ok;
-    } catch { running = false; }
-    if (running && !cfg.gpu_on_at) {
+      ready = r.ok;
+    } catch { ready = false; }
+    if (ready) {
       const nowIso = new Date().toISOString();
       await admin.from("live_client_config").update({ gpu_on_at: nowIso, updated_at: nowIso }).eq("user_id", user.id);
       cfg.gpu_on_at = nowIso;
     }
   }
 
-  const onAt = cfg?.gpu_on && cfg?.gpu_on_at ? new Date(cfg.gpu_on_at).getTime() : 0;
-  const elapsedSec = onAt ? Math.max(0, (Date.now() - onAt) / 1000) : 0;
-  const estCharge = Number(((elapsedSec / HOUR) * rateHour).toFixed(4));
-  const state = !cfg?.gpu_on ? "off" : running ? "running" : "starting";
-
-  const status = (extra: Record<string, unknown> = {}) => NextResponse.json({
-    on: !!cfg?.gpu_on,
-    allowed: !!cfg?.gpu_allowed,
-    state, // "off" | "starting" | "running"
-    since: cfg?.gpu_on_at || null,
-    elapsedSec: Math.round(elapsedSec),
-    rateHour, minBalance, estCharge, credits,
-    ...extra,
-  });
+  // Computed live (from the latest cfg) so actions that stamp gpu_on_at reflect
+  // immediately. state: off | starting | running (running = gpu_on_at stamped).
+  const status = (extra: Record<string, unknown> = {}) => {
+    const at = cfg?.gpu_on && cfg?.gpu_on_at ? new Date(cfg.gpu_on_at).getTime() : 0;
+    const el = at ? Math.max(0, (Date.now() - at) / 1000) : 0;
+    return NextResponse.json({
+      on: !!cfg?.gpu_on,
+      allowed: !!cfg?.gpu_allowed,
+      state: !cfg?.gpu_on ? "off" : cfg?.gpu_on_at ? "running" : "starting",
+      since: cfg?.gpu_on_at || null,
+      elapsedSec: Math.round(el),
+      rateHour, minBalance,
+      estCharge: Number(((el / HOUR) * rateHour).toFixed(4)),
+      credits,
+      ...extra,
+    });
+  };
 
   if (action === "status") return status();
+
+  // The studio reports this the moment its WebRTC stream connects — the RELIABLE
+  // "worker is up" signal (no flaky /avatars ping). Stamps gpu_on_at → billing
+  // starts at the real stream start + state flips to "running".
+  if (action === "running") {
+    if (cfg?.gpu_on && !cfg?.gpu_on_at) {
+      const nowIso = new Date().toISOString();
+      await admin.from("live_client_config").update({ gpu_on_at: nowIso, updated_at: nowIso }).eq("user_id", user.id);
+      cfg.gpu_on_at = nowIso;
+    }
+    return status();
+  }
 
   // NOTE: GPU on/off is ADMIN-controlled (Admin → Livehost). These actions are
   // kept (delegating to the shared helper) for completeness, but the client
