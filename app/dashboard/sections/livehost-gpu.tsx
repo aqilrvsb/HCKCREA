@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Loader2, Power, PowerOff } from "lucide-react";
 
 // GPU ON/OFF — the client's dedicated always-on GPU (1 GPU = 1 client), shown in
@@ -34,25 +34,32 @@ export default function LivehostGpu() {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
   const [, setTick] = useState(0); // 1s clock so elapsed/charge count up between polls
+  const inFlight = useRef(false);
 
   async function load() {
+    if (inFlight.current) return; // don't stack polls while the /avatars probe runs
+    inFlight.current = true;
     try {
       const r = await fetch("/api/livehost/gpu", {
         method: "POST", headers: { "content-type": "application/json" },
         body: JSON.stringify({ action: "status" }),
       });
       setG(await r.json());
-    } catch {}
+    } catch {} finally { inFlight.current = false; }
   }
-  // Poll faster (8s) while starting so "running" is caught quickly; slower (30s)
-  // otherwise. The server-side status ping also keeps the worker warm.
+  // Near-real-time polling so the card always tallies with the actual GPU without
+  // a manual page refresh: 3s while starting (catch "running" fast + the server
+  // /avatars probe also runs here), 5s while running (state/charge), 10s while off
+  // (catch an admin/auto turn-on). Interval re-arms whenever the state changes.
   const starting = g?.state === "starting";
+  const st = g?.state ?? "off";
   useEffect(() => {
     void load();
-    const poll = setInterval(load, starting ? 8000 : 30000);
+    const ms = st === "starting" ? 3000 : st === "running" ? 5000 : 10000;
+    const poll = setInterval(load, ms);
     const clock = setInterval(() => setTick((t) => t + 1), 1000);
     return () => { clearInterval(poll); clearInterval(clock); };
-  }, [starting]);
+  }, [st]);
 
   // Billing only runs once the worker is RUNNING (g.since = running-start).
   const liveElapsed = g?.state === "running" && g.since ? Math.max(0, (Date.now() - new Date(g.since).getTime()) / 1000) : 0;

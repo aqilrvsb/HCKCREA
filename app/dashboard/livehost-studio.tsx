@@ -2008,18 +2008,11 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
             </button>
             <div className="hint">Susun avatar + template di tab <b>Template</b>, simpan, kemudian pilih di sini. <b>Body (gesture)</b> ditambah di SINI selepas avatar live — supaya ia align dengan kedudukan live sebenar (tiada drift).</div>
 
-            {/* BODY (gesture) — added at Livehost AFTER the avatar is streaming,
-                so you align it to the LIVE avatar (no still-image-vs-video drift).
-                Chroma-keyed; drag on the stage + Zoom + Crop atas to fit. */}
-            <button type="button" className="filebtn secondary" style={{ marginTop: 8 }}
-              onClick={() => { setBodyPickerOpen(true); loadBodyClips(); }}>
-              🎬 Import body (gesture){bodyUrl ? " ✓" : ""}
-            </button>
-
-            {/* LAYER FIT — pick which layer the stage-drag + Zoom controls: the
-                live AVATAR (lipsync head) or the BODY. The avatar's live <video>
-                uses the same translate+scale, so the head zooms/drags WHILE it
-                streams (no effect on the talking — purely CSS on the output). */}
+            {/* LAYER FIT — the AVATAR radio + Zoom show ABOVE "Import body" the
+                moment the avatar is live; the BODY option stays disabled until a
+                body is imported (its zoom/width/crop appear below, after import).
+                The avatar's live <video> uses the same translate+scale, so the
+                head zooms/drags WHILE it streams (purely CSS on the output). */}
             {(active || bodyUrl) && (
               <div style={{ display: "flex", gap: 16, marginTop: 12, fontSize: 13, alignItems: "center", flexWrap: "wrap" }}>
                 <span style={{ color: "var(--muted)" }}>🎯 Kawal:</span>
@@ -2047,6 +2040,15 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
                 <div className="hint" style={{ marginTop: 0 }}>Seret kepala avatar pada skrin + Zoom untuk besar/kecil. (Tak ganggu lipsync.)</div>
               </div>
             )}
+
+            {/* BODY (gesture) — imported AFTER the avatar is live so you align it
+                to the LIVE avatar (no drift). Chroma-keyed; once imported, pick the
+                "Body" radio above to reveal Zoom/Width/Crop below. */}
+            <button type="button" className="filebtn secondary" style={{ marginTop: 8 }}
+              onClick={() => { setBodyPickerOpen(true); loadBodyClips(); }}>
+              🎬 Import body (gesture){bodyUrl ? " ✓" : ""}
+            </button>
+
             {bodyUrl && editLayer === "body" && (
               <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 6 }}>
                 <div className="hint" style={{ marginTop: 0 }}>Seret body pada skrin untuk gerak. <b>Crop atas</b> sembunyikan kepala Kling; <b>Zoom</b> + seret supaya leher badan tepat bawah kepala avatar.</div>
