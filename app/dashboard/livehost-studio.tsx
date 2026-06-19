@@ -2118,8 +2118,8 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
               </tbody>
             </table>
 
-            {/* Setup links — TikTok dashboard + the 3 tools needed for the
-                OBS(vertical) → TikTok LIVE Studio pipeline (video + audio). */}
+            {/* Setup links — TikTok dashboard + SplitCam (virtual camera for
+                routing the avatar into TikTok LIVE Studio). */}
             <div style={{ marginTop: 14, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
               <a href="https://shop.tiktok.com/streamer/live/product/dashboard" target="_blank" rel="noopener noreferrer"
                 className="filebtn" style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8, background: "#000", color: "#fff", border: "1px solid rgba(255,255,255,.22)", boxShadow: "none" }}>
@@ -2128,17 +2128,9 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
                 </svg>
                 TikTok Live
               </a>
-              <a href="https://obsproject.com/download" target="_blank" rel="noopener noreferrer"
+              <a href="https://splitcam.com/download" target="_blank" rel="noopener noreferrer"
                 className="filebtn" style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
-                🎥 OBS Studio
-              </a>
-              <a href="https://aitum.tv/download/vertical/" target="_blank" rel="noopener noreferrer"
-                className="filebtn" style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
-                📱 OBS Vertical
-              </a>
-              <a href="https://vb-audio.com/Cable/" target="_blank" rel="noopener noreferrer"
-                className="filebtn" style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
-                🔊 VB-CABLE
+                🎥 SplitCam
               </a>
             </div>
           </div>
