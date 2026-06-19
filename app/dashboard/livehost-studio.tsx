@@ -2508,7 +2508,11 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
           view) so it keeps decoding regardless of the active tab — the render
           loop reads it + blits the keyed frame to both stage canvases. */}
       {bodyUrl && (
-        <video ref={bodyVideoRef} src={bodyUrl} crossOrigin="anonymous" autoPlay loop muted playsInline
+        // Route through the same-origin proxy so getImageData (chroma-key) isn't
+        // blocked by the B2 host's missing CORS header (else the canvas is blank).
+        <video ref={bodyVideoRef}
+          src={bodyUrl.startsWith("http") ? `/api/proxy-video?url=${encodeURIComponent(bodyUrl)}` : bodyUrl}
+          crossOrigin="anonymous" autoPlay loop muted playsInline
           style={{ position: "fixed", left: 0, top: 0, width: 2, height: 2, opacity: 0.01, pointerEvents: "none", zIndex: -1 }} />
       )}
 
