@@ -2011,7 +2011,6 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
               onClick={() => setSavedPickerOpen(true)}>
               📁 Pick from saved templates ({savedTemplates.length})
             </button>
-            <div className="hint">Susun avatar + template di tab <b>Template</b>, simpan, kemudian pilih di sini. <b>Body (gesture)</b> ditambah di SINI selepas avatar live — supaya ia align dengan kedudukan live sebenar (tiada drift).</div>
 
             {/* LAYER FIT — the AVATAR radio + Zoom show ABOVE "Import body" the
                 moment the avatar is live; the BODY option stays disabled until a
@@ -2019,16 +2018,18 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
                 The avatar's live <video> uses the same translate+scale, so the
                 head zooms/drags WHILE it streams (purely CSS on the output). */}
             {(previewUrl || active || bodyUrl) && (
-              <div style={{ display: "flex", gap: 16, marginTop: 12, fontSize: 13, alignItems: "center", flexWrap: "wrap" }}>
+              <div style={{ marginTop: 12, fontSize: 13 }}>
                 <span style={{ color: "var(--muted)" }}>🎯 Kawal:</span>
-                <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer" }}>
-                  <input type="radio" name="lh-editlayer" checked={editLayer === "avatar"} onChange={() => setEditLayer("avatar")} />
-                  <span>Avatar (kepala)</span>
-                </label>
-                <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: bodyUrl ? "pointer" : "not-allowed", opacity: bodyUrl ? 1 : 0.4 }}>
-                  <input type="radio" name="lh-editlayer" checked={editLayer === "body"} disabled={!bodyUrl} onChange={() => setEditLayer("body")} />
-                  <span>Body (gesture)</span>
-                </label>
+                <div style={{ display: "flex", gap: 18, marginTop: 6, flexWrap: "wrap" }}>
+                  <label style={{ display: "inline-flex", alignItems: "center", gap: 6, cursor: "pointer", whiteSpace: "nowrap" }}>
+                    <input type="radio" name="lh-editlayer" style={{ flexShrink: 0 }} checked={editLayer === "avatar"} onChange={() => setEditLayer("avatar")} />
+                    <span>Avatar (kepala)</span>
+                  </label>
+                  <label style={{ display: "inline-flex", alignItems: "center", gap: 6, cursor: bodyUrl ? "pointer" : "not-allowed", opacity: bodyUrl ? 1 : 0.4, whiteSpace: "nowrap" }}>
+                    <input type="radio" name="lh-editlayer" style={{ flexShrink: 0 }} checked={editLayer === "body"} disabled={!bodyUrl} onChange={() => setEditLayer("body")} />
+                    <span>Body (gesture)</span>
+                  </label>
+                </div>
               </div>
             )}
             {editLayer === "avatar" && (previewUrl || active) && (
@@ -2091,10 +2092,6 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
                 </div>
               </div>
             )}
-
-            <div className="hint" style={{ marginTop: 8 }}>GPU dedikasi (always-on) — hidup/mati di tab <b>Billing</b>. Selagi ON, ia kekal (tiada disconnect) &amp; dicaj ikut jam.</div>
-
-            <div className="hint" style={{ marginTop: 6 }}>🎙 Suara, volume, speed &amp; emosi kini <b>per-skrip</b> — set semasa cipta skrip di tab <b>Scripts</b>. Setiap skrip main dengan audio &amp; suaranya sendiri.</div>
 
             <div className="label">🎮 Simulation — avatar pauses &amp; answers</div>
             <div className="sim-row">
