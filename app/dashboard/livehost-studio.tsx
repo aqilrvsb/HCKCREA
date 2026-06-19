@@ -214,6 +214,7 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
   const [bodyOffsetX, setBodyOffsetX] = useState(0);
   const [bodyOffsetY, setBodyOffsetY] = useState(0);
   const [bodyClipTop, setBodyClipTop] = useState(22); // % cropped off the top (hides Kling head)
+  const [bodyFeather, setBodyFeather] = useState(10); // % soft-fade BELOW the crop so the head↔body seam blends (no hard line)
   const [bodyPickerOpen, setBodyPickerOpen] = useState(false);
   const [bodyClips, setBodyClips] = useState<{ id: string; url: string; bgColor: string; poster: string }[]>([]);
   // Which layer the Template-tab drag/zoom controls act on (radio: avatar | body).
@@ -805,10 +806,10 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
   useEffect(() => {
     if (!hydratedRef.current) return;
     try {
-      localStorage.setItem("livehost_settings", JSON.stringify({ stockSel, overlaySel, customOverlay, avatarId, previewUrl, voiceId, zoom, offsetX, offsetY, scriptLoop, rundown, volume, speed, badgePos, emotion, liveDurH, liveDurM, bodyUrl, bodyKey, bodyZoom, bodyOffsetX, bodyOffsetY, bodyClipTop }));
+      localStorage.setItem("livehost_settings", JSON.stringify({ stockSel, overlaySel, customOverlay, avatarId, previewUrl, voiceId, zoom, offsetX, offsetY, scriptLoop, rundown, volume, speed, badgePos, emotion, liveDurH, liveDurM, bodyUrl, bodyKey, bodyZoom, bodyOffsetX, bodyOffsetY, bodyClipTop, bodyFeather }));
     } catch {}
     saveLivehostState();
-  }, [stockSel, overlaySel, customOverlay, avatarId, previewUrl, voiceId, zoom, offsetX, offsetY, scriptLoop, rundown, volume, speed, badgePos, emotion, liveDurH, liveDurM, bodyUrl, bodyKey, bodyZoom, bodyOffsetX, bodyOffsetY, bodyClipTop]);
+  }, [stockSel, overlaySel, customOverlay, avatarId, previewUrl, voiceId, zoom, offsetX, offsetY, scriptLoop, rundown, volume, speed, badgePos, emotion, liveDurH, liveDurM, bodyUrl, bodyKey, bodyZoom, bodyOffsetX, bodyOffsetY, bodyClipTop, bodyFeather]);
   // (Scripts persist to Supabase via /api/livehost/scripts — no localStorage copy.)
   useEffect(() => {
     if (!hydratedRef.current) return;
@@ -1857,7 +1858,11 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
                   <canvas ref={bodyCanvasRef} className="body-layer"
                     style={{
                       transform: `translate(${bodyOffsetX}%, ${bodyOffsetY}%) scale(${bodyZoom * bodyWidth}, ${bodyZoom})`,
-                      clipPath: `inset(${bodyClipTop}% 0 0 0)`,
+                      // Soft-fade the top edge (transparent above the crop, fading in
+                      // over `bodyFeather`%) so the head↔body seam BLENDS instead of a
+                      // hard cut line. feather=0 → same as the old hard crop.
+                      WebkitMaskImage: `linear-gradient(to bottom, transparent ${bodyClipTop}%, #000 ${Math.min(100, bodyClipTop + bodyFeather)}%)`,
+                      maskImage: `linear-gradient(to bottom, transparent ${bodyClipTop}%, #000 ${Math.min(100, bodyClipTop + bodyFeather)}%)`,
                       pointerEvents: "none",
                     }} />
                 )}
@@ -2067,9 +2072,20 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
                   <input type="range" min="0" max="60" step="1" value={bodyClipTop}
                     onChange={(e) => setBodyClipTop(parseInt(e.target.value))} style={{ flex: 1 }} />
                 </label>
+                <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: "var(--muted)" }}>
+                  <span style={{ width: 64 }}>Lembut sambung</span>
+                  <input type="range" min="0" max="40" step="1" value={bodyFeather}
+                    onChange={(e) => setBodyFeather(parseInt(e.target.value))} style={{ flex: 1 }} />
+                </label>
+                {/* ONE-BUTTON seam cleaner — soft-fades the body top into the avatar
+                    head so the join (sambung) looks clean, no hard cut line. */}
+                <button type="button" className="filebtn" style={{ marginTop: 2, background: "linear-gradient(135deg,#8b5cf6,#6366f1)", color: "#fff" }}
+                  onClick={() => { setBodyFeather(18); setBodyClipTop((c) => Math.max(c, 20)); }}>
+                  ✨ Haluskan sambung (auto)
+                </button>
                 <div style={{ display: "flex", gap: 6 }}>
                   <button type="button" className="filebtn secondary" style={{ marginTop: 0, flex: 1 }}
-                    onClick={() => { setBodyOffsetX(0); setBodyOffsetY(0); setBodyZoom(1); setBodyWidth(1); setBodyClipTop(22); }}>↺ Reset body</button>
+                    onClick={() => { setBodyOffsetX(0); setBodyOffsetY(0); setBodyZoom(1); setBodyWidth(1); setBodyClipTop(22); setBodyFeather(10); }}>↺ Reset body</button>
                   <button type="button" className="filebtn secondary" style={{ marginTop: 0, width: 44, color: "#ff9aa8" }}
                     title="Buang body" onClick={() => setBodyUrl("")}>✕</button>
                 </div>
