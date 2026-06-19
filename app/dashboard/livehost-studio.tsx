@@ -2013,7 +2013,7 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
                 body is imported (its zoom/width/crop appear below, after import).
                 The avatar's live <video> uses the same translate+scale, so the
                 head zooms/drags WHILE it streams (purely CSS on the output). */}
-            {(active || bodyUrl) && (
+            {(previewUrl || active || bodyUrl) && (
               <div style={{ display: "flex", gap: 16, marginTop: 12, fontSize: 13, alignItems: "center", flexWrap: "wrap" }}>
                 <span style={{ color: "var(--muted)" }}>🎯 Kawal:</span>
                 <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer" }}>
@@ -2026,7 +2026,7 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
                 </label>
               </div>
             )}
-            {editLayer === "avatar" && active && (
+            {editLayer === "avatar" && (previewUrl || active) && (
               <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 6 }}>
                 <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: "var(--muted)" }}>
                   <span style={{ width: 64 }}>Zoom</span>
