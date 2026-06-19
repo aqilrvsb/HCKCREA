@@ -200,6 +200,8 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
   const [zoom, setZoom] = useState(1);
   const [offsetY, setOffsetY] = useState(0);
   const [offsetX, setOffsetX] = useState(0);
+  const [avatarClipBottom, setAvatarClipBottom] = useState(0); // % cropped off the BOTTOM of the avatar (hide its static body so the gesture body shows)
+  const [avatarFeather, setAvatarFeather] = useState(8);       // % soft-fade of that bottom crop so the seam blends
   const [previewUrl, setPreviewUrl] = useState("");
   const dragRef = useRef<{ startX: number; startY: number; baseX: number; baseY: number; active: boolean }>({ startX: 0, startY: 0, baseX: 0, baseY: 0, active: false });
   // ── BODY LAYER (Livehost) — a chroma-keyed gesture clip (Kling, generated on a
@@ -675,6 +677,7 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
     overlaySel: string; customOverlay: string; overlayUrl: string;
     previewUrl: string; stockSel: string; avatarId: string;
     zoom: number; offsetX: number; offsetY: number;
+    avatarClipBottom?: number; avatarFeather?: number;
     badgePos: { x: number; y: number };
     // Body (gesture) layer — bundled so picking a template at Livehost auto-loads it.
     bodyUrl?: string; bodyKey?: "auto" | "green" | "blue";
@@ -712,14 +715,15 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
       {
         id: "tpl" + Date.now().toString(36), name, createdAt: Date.now(),
         overlaySel, customOverlay, overlayUrl, previewUrl, stockSel, avatarId,
-        zoom, offsetX, offsetY, badgePos,
+        zoom, offsetX, offsetY, avatarClipBottom, avatarFeather, badgePos,
       },
     ]);
-  }, [savedTemplates, persistTemplates, overlaySel, customOverlay, overlayUrl, previewUrl, stockSel, avatarId, zoom, offsetX, offsetY, badgePos]);
+  }, [savedTemplates, persistTemplates, overlaySel, customOverlay, overlayUrl, previewUrl, stockSel, avatarId, zoom, offsetX, offsetY, avatarClipBottom, avatarFeather, badgePos]);
   const loadTemplate = useCallback((t: SavedTpl) => {
     setOverlaySel(t.overlaySel); setCustomOverlay(t.customOverlay);
     setStockSel(t.stockSel); setAvatarId(t.avatarId); setPreviewUrl(t.previewUrl);
     setZoom(t.zoom); setOffsetX(t.offsetX); setOffsetY(t.offsetY);
+    setAvatarClipBottom(t.avatarClipBottom || 0); setAvatarFeather(t.avatarFeather ?? 8);
     setBadgePos(t.badgePos || { x: 4, y: 10 });
     // Body is NOT part of the template — it's imported + aligned at Livehost.
   }, []);
@@ -806,10 +810,10 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
   useEffect(() => {
     if (!hydratedRef.current) return;
     try {
-      localStorage.setItem("livehost_settings", JSON.stringify({ stockSel, overlaySel, customOverlay, avatarId, previewUrl, voiceId, zoom, offsetX, offsetY, scriptLoop, rundown, volume, speed, badgePos, emotion, liveDurH, liveDurM, bodyUrl, bodyKey, bodyZoom, bodyOffsetX, bodyOffsetY, bodyClipTop, bodyFeather }));
+      localStorage.setItem("livehost_settings", JSON.stringify({ stockSel, overlaySel, customOverlay, avatarId, previewUrl, voiceId, zoom, offsetX, offsetY, avatarClipBottom, avatarFeather, scriptLoop, rundown, volume, speed, badgePos, emotion, liveDurH, liveDurM, bodyUrl, bodyKey, bodyZoom, bodyOffsetX, bodyOffsetY, bodyClipTop, bodyFeather }));
     } catch {}
     saveLivehostState();
-  }, [stockSel, overlaySel, customOverlay, avatarId, previewUrl, voiceId, zoom, offsetX, offsetY, scriptLoop, rundown, volume, speed, badgePos, emotion, liveDurH, liveDurM, bodyUrl, bodyKey, bodyZoom, bodyOffsetX, bodyOffsetY, bodyClipTop, bodyFeather]);
+  }, [stockSel, overlaySel, customOverlay, avatarId, previewUrl, voiceId, zoom, offsetX, offsetY, avatarClipBottom, avatarFeather, scriptLoop, rundown, volume, speed, badgePos, emotion, liveDurH, liveDurM, bodyUrl, bodyKey, bodyZoom, bodyOffsetX, bodyOffsetY, bodyClipTop, bodyFeather]);
   // (Scripts persist to Supabase via /api/livehost/scripts — no localStorage copy.)
   useEffect(() => {
     if (!hydratedRef.current) return;
@@ -1831,6 +1835,12 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
 
   const captionLine = playPos.l >= 0 ? curLines[playPos.l] : captionText;
 
+  // Avatar BOTTOM crop (+feather) — soft-fade the avatar's lower body away so the
+  // gesture body shows there. undefined when no crop = full avatar (unchanged).
+  const avatarMask = avatarClipBottom > 0
+    ? `linear-gradient(to top, transparent ${avatarClipBottom}%, #000 ${Math.min(100, avatarClipBottom + avatarFeather)}%)`
+    : undefined;
+
   return (
     <div className="lh-studio">
       <style dangerouslySetInnerHTML={{ __html: STUDIO_CSS }} />
@@ -1845,10 +1855,10 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
               <div className="stage" ref={stageRef}
                 onPointerDown={onStagePointerDown} onPointerMove={onStagePointerMove}
                 onPointerUp={onStagePointerUp} onPointerCancel={onStagePointerUp}>
-                <video ref={videoRef} autoPlay playsInline style={{ transform: `translate(${offsetX}%, ${offsetY}%) scale(${zoom})` }} />
+                <video ref={videoRef} autoPlay playsInline style={{ transform: `translate(${offsetX}%, ${offsetY}%) scale(${zoom})`, WebkitMaskImage: avatarMask, maskImage: avatarMask }} />
                 {!active && previewUrl && (
                   <img className="avatar-preview" src={previewUrl} alt="" draggable={false}
-                    style={{ transform: `translate(${offsetX}%, ${offsetY}%) scale(${zoom})` }} />
+                    style={{ transform: `translate(${offsetX}%, ${offsetY}%) scale(${zoom})`, WebkitMaskImage: avatarMask, maskImage: avatarMask }} />
                 )}
                 {/* BODY LAYER (live) — green/blue keyed canvas, ABOVE the avatar
                     (covers its static lower body) but BELOW the overlay. crop-top
@@ -2039,11 +2049,27 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
                   <input type="range" min="0.5" max="2.4" step="0.02" value={zoom}
                     onChange={(e) => setZoom(parseFloat(e.target.value))} style={{ flex: 1 }} />
                 </label>
+                <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: "var(--muted)" }}>
+                  <span style={{ width: 64 }}>Crop bawah</span>
+                  <input type="range" min="0" max="70" step="1" value={avatarClipBottom}
+                    onChange={(e) => setAvatarClipBottom(parseInt(e.target.value))} style={{ flex: 1 }} />
+                </label>
+                <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: "var(--muted)" }}>
+                  <span style={{ width: 64 }}>Lembut sambung</span>
+                  <input type="range" min="0" max="40" step="1" value={avatarFeather}
+                    onChange={(e) => setAvatarFeather(parseInt(e.target.value))} style={{ flex: 1 }} />
+                </label>
+                {/* ONE-BUTTON — cut off the avatar's static lower body so the gesture
+                    body shows there, with a soft seam. */}
+                <button type="button" className="filebtn" style={{ marginTop: 2, background: "linear-gradient(135deg,#8b5cf6,#6366f1)", color: "#fff" }}
+                  onClick={() => { setAvatarClipBottom((c) => (c > 0 ? c : 45)); setAvatarFeather(14); }}>
+                  ✂️ Potong badan avatar (auto)
+                </button>
                 <div style={{ display: "flex", gap: 6 }}>
                   <button type="button" className="filebtn secondary" style={{ marginTop: 0, flex: 1 }}
-                    onClick={() => { setOffsetX(0); setOffsetY(0); setZoom(1); }}>↺ Reset avatar</button>
+                    onClick={() => { setOffsetX(0); setOffsetY(0); setZoom(1); setAvatarClipBottom(0); setAvatarFeather(8); }}>↺ Reset avatar</button>
                 </div>
-                <div className="hint" style={{ marginTop: 0 }}>Seret kepala avatar pada skrin + Zoom untuk besar/kecil. (Tak ganggu lipsync.)</div>
+                <div className="hint" style={{ marginTop: 0 }}>Seret kepala + Zoom untuk besar/kecil. <b>Crop bawah</b> potong badan statik avatar supaya body gesture nampak. (Tak ganggu lipsync.)</div>
               </div>
             )}
 
