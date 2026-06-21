@@ -1833,6 +1833,14 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
 
   useEffect(() => () => stop(), [stop]);
 
+  // CLEAN OUTPUT MODE (for OBS): hides ALL panels/UI and shows ONLY the 1080x1920
+  // stage on black, filling the window — so OBS captures a clean feed (no dashboard
+  // chrome). Toggle in the UI, or load with ?output=1 to start clean.
+  const [outputMode, setOutputMode] = useState(false);
+  useEffect(() => {
+    try { if (new URLSearchParams(window.location.search).get("output") === "1") setOutputMode(true); } catch {}
+  }, []);
+
   const captionLine = playPos.l >= 0 ? curLines[playPos.l] : captionText;
 
   // Avatar BOTTOM crop (+feather) — soft-fade the avatar's lower body away so the
@@ -1842,8 +1850,16 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
     : undefined;
 
   return (
-    <div className="lh-studio">
+    <div className={"lh-studio" + (outputMode ? " output" : "")}>
       <style dangerouslySetInnerHTML={{ __html: STUDIO_CSS }} />
+
+      {/* Exit button — only visible in clean output mode (everything else hidden) */}
+      {outputMode && (
+        <button type="button" onClick={() => setOutputMode(false)}
+          style={{ position: "fixed", top: 8, right: 8, zIndex: 100, padding: "6px 12px", borderRadius: 10, border: "1px solid rgba(255,255,255,.25)", background: "rgba(0,0,0,.6)", color: "#fff", fontSize: 12, cursor: "pointer" }}>
+          ✕ Exit output
+        </button>
+      )}
 
       {configErr && <div className="error" style={{ margin: "8px 0" }}>{configErr}</div>}
 
@@ -2022,102 +2038,25 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
               📁 Pick from saved templates ({savedTemplates.length})
             </button>
 
-            {/* LAYER FIT — the AVATAR radio + Zoom show ABOVE "Import body" the
-                moment the avatar is live; the BODY option stays disabled until a
-                body is imported (its zoom/width/crop appear below, after import).
-                The avatar's live <video> uses the same translate+scale, so the
-                head zooms/drags WHILE it streams (purely CSS on the output). */}
-            {(previewUrl || active || bodyUrl) && (
-              <div style={{ marginTop: 12, fontSize: 13 }}>
-                <span style={{ color: "var(--muted)" }}>🎯 Kawal:</span>
-                <div style={{ display: "flex", gap: 18, marginTop: 6, flexWrap: "wrap" }}>
-                  <label style={{ display: "inline-flex", alignItems: "center", gap: 6, cursor: "pointer", whiteSpace: "nowrap" }}>
-                    <input type="radio" name="lh-editlayer" style={{ flexShrink: 0 }} checked={editLayer === "avatar"} onChange={() => setEditLayer("avatar")} />
-                    <span>Avatar (kepala)</span>
-                  </label>
-                  <label style={{ display: "inline-flex", alignItems: "center", gap: 6, cursor: bodyUrl ? "pointer" : "not-allowed", opacity: bodyUrl ? 1 : 0.4, whiteSpace: "nowrap" }}>
-                    <input type="radio" name="lh-editlayer" style={{ flexShrink: 0 }} checked={editLayer === "body"} disabled={!bodyUrl} onChange={() => setEditLayer("body")} />
-                    <span>Body (gesture)</span>
-                  </label>
-                </div>
-              </div>
-            )}
-            {editLayer === "avatar" && (previewUrl || active) && (
-              <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 6 }}>
+            {/* Avatar fit — head Zoom (CSS on the live video; never touches lipsync) */}
+            {(previewUrl || active) && (
+              <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 10 }}>
                 <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: "var(--muted)" }}>
                   <span style={{ width: 64 }}>Zoom</span>
                   <input type="range" min="0.5" max="2.4" step="0.02" value={zoom}
                     onChange={(e) => setZoom(parseFloat(e.target.value))} style={{ flex: 1 }} />
                 </label>
-                <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: "var(--muted)" }}>
-                  <span style={{ width: 64 }}>Crop bawah</span>
-                  <input type="range" min="0" max="70" step="1" value={avatarClipBottom}
-                    onChange={(e) => setAvatarClipBottom(parseInt(e.target.value))} style={{ flex: 1 }} />
-                </label>
-                <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: "var(--muted)" }}>
-                  <span style={{ width: 64 }}>Lembut sambung</span>
-                  <input type="range" min="0" max="40" step="1" value={avatarFeather}
-                    onChange={(e) => setAvatarFeather(parseInt(e.target.value))} style={{ flex: 1 }} />
-                </label>
-                {/* ONE-BUTTON — cut off the avatar's static lower body so the gesture
-                    body shows there, with a soft seam. */}
-                <button type="button" className="filebtn" style={{ marginTop: 2, background: "linear-gradient(135deg,#8b5cf6,#6366f1)", color: "#fff" }}
-                  onClick={() => { setAvatarClipBottom((c) => (c > 0 ? c : 45)); setAvatarFeather(14); }}>
-                  ✂️ Potong badan avatar (auto)
-                </button>
-                <div style={{ display: "flex", gap: 6 }}>
-                  <button type="button" className="filebtn secondary" style={{ marginTop: 0, flex: 1 }}
-                    onClick={() => { setOffsetX(0); setOffsetY(0); setZoom(1); setAvatarClipBottom(0); setAvatarFeather(8); }}>↺ Reset avatar</button>
-                </div>
-                <div className="hint" style={{ marginTop: 0 }}>Seret kepala + Zoom untuk besar/kecil. <b>Crop bawah</b> potong badan statik avatar supaya body gesture nampak. (Tak ganggu lipsync.)</div>
+                <button type="button" className="filebtn secondary" style={{ marginTop: 0 }}
+                  onClick={() => { setOffsetX(0); setOffsetY(0); setZoom(1); }}>↺ Reset avatar</button>
+                <div className="hint" style={{ marginTop: 0 }}>Seret kepala avatar + Zoom untuk besar/kecil. (Tak ganggu lipsync.)</div>
               </div>
             )}
 
-            {/* BODY (gesture) — imported AFTER the avatar is live so you align it
-                to the LIVE avatar (no drift). Chroma-keyed; once imported, pick the
-                "Body" radio above to reveal Zoom/Width/Crop below. */}
+            {/* CLEAN OUTPUT for OBS — hides all UI, shows only the 1080x1920 stage */}
             <button type="button" className="filebtn secondary" style={{ marginTop: 8 }}
-              onClick={() => { setBodyPickerOpen(true); loadBodyClips(); }}>
-              🎬 Import body (gesture){bodyUrl ? " ✓" : ""}
+              onClick={() => setOutputMode(true)}>
+              🖥 Output mode (OBS) — paparan bersih
             </button>
-
-            {bodyUrl && editLayer === "body" && (
-              <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 6 }}>
-                <div className="hint" style={{ marginTop: 0 }}>Seret body pada skrin untuk gerak. <b>Crop atas</b> sembunyikan kepala Kling; <b>Zoom</b> + seret supaya leher badan tepat bawah kepala avatar.</div>
-                <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: "var(--muted)" }}>
-                  <span style={{ width: 64 }}>Zoom</span>
-                  <input type="range" min="0.5" max="2.4" step="0.02" value={bodyZoom}
-                    onChange={(e) => setBodyZoom(parseFloat(e.target.value))} style={{ flex: 1 }} />
-                </label>
-                <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: "var(--muted)" }}>
-                  <span style={{ width: 64 }}>Width</span>
-                  <input type="range" min="0.6" max="1.6" step="0.02" value={bodyWidth}
-                    onChange={(e) => setBodyWidth(parseFloat(e.target.value))} style={{ flex: 1 }} />
-                </label>
-                <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: "var(--muted)" }}>
-                  <span style={{ width: 64 }}>Crop atas</span>
-                  <input type="range" min="0" max="60" step="1" value={bodyClipTop}
-                    onChange={(e) => setBodyClipTop(parseInt(e.target.value))} style={{ flex: 1 }} />
-                </label>
-                <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: "var(--muted)" }}>
-                  <span style={{ width: 64 }}>Lembut sambung</span>
-                  <input type="range" min="0" max="40" step="1" value={bodyFeather}
-                    onChange={(e) => setBodyFeather(parseInt(e.target.value))} style={{ flex: 1 }} />
-                </label>
-                {/* ONE-BUTTON seam cleaner — soft-fades the body top into the avatar
-                    head so the join (sambung) looks clean, no hard cut line. */}
-                <button type="button" className="filebtn" style={{ marginTop: 2, background: "linear-gradient(135deg,#8b5cf6,#6366f1)", color: "#fff" }}
-                  onClick={() => { setBodyFeather(18); setBodyClipTop((c) => Math.max(c, 20)); }}>
-                  ✨ Haluskan sambung (auto)
-                </button>
-                <div style={{ display: "flex", gap: 6 }}>
-                  <button type="button" className="filebtn secondary" style={{ marginTop: 0, flex: 1 }}
-                    onClick={() => { setBodyOffsetX(0); setBodyOffsetY(0); setBodyZoom(1); setBodyWidth(1); setBodyClipTop(22); setBodyFeather(10); }}>↺ Reset body</button>
-                  <button type="button" className="filebtn secondary" style={{ marginTop: 0, width: 44, color: "#ff9aa8" }}
-                    title="Buang body" onClick={() => setBodyUrl("")}>✕</button>
-                </div>
-              </div>
-            )}
 
             <div className="label">🎮 Simulation — avatar pauses &amp; answers</div>
             <div className="sim-row">
@@ -2671,6 +2610,14 @@ const STUDIO_CSS = `
 .lh-studio .stage canvas.body-layer{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;transform-origin:center center;}
 .lh-studio .stage canvas.body-layer.editing{outline:2px dashed #818cf8;outline-offset:-2px;}
 .lh-studio .stage:fullscreen{height:100vh;width:auto;aspect-ratio:9/16;border-radius:0;}
+/* CLEAN OUTPUT MODE — only the 9:16 stage on black, everything else hidden (for OBS capture) */
+.lh-studio.output{background:#000;border-radius:0;}
+.lh-studio.output .error{display:none;}
+.lh-studio.output .grid{display:block;height:100vh;gap:0;padding:0;}
+.lh-studio.output .grid > .panel:not(.video-panel){display:none;}
+.lh-studio.output .video-panel{position:fixed;inset:0;padding:0;margin:0;background:#000;border:none;border-radius:0;height:100vh;width:100vw;}
+.lh-studio.output .video-wrap{width:100%;height:100%;display:flex;align-items:center;justify-content:center;}
+.lh-studio.output .stage{height:100vh;width:auto;aspect-ratio:9/16;border-radius:0;}
 .lh-studio .placeholder{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#6b7596;font-size:14px;text-align:center;padding:24px;}
 .lh-studio .captions{position:absolute;bottom:14px;left:50%;transform:translateX(-50%);max-width:80%;background:rgba(0,0,0,.72);padding:8px 14px;border-radius:10px;font-size:18px;text-align:center;backdrop-filter:blur(4px);}
 .lh-studio .queue-col{width:230px;flex:none;display:flex;flex-direction:column;min-width:0;min-height:0;}

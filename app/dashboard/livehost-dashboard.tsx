@@ -11,7 +11,6 @@ import LivehostStudio, { type LiveView } from "./livehost-studio";
 import LivehostGreetings from "./livehost-greetings";
 import LivehostInteractions from "./livehost-interactions";
 import LivehostTiktok from "./livehost-tiktok";
-import LivehostTemplateBody from "./livehost-template-body";
 
 // Livehost community WhatsApp group. Hardcoded here (client component) —
 // the canonical value also lives in lib/whatsapp.ts (server-only) as
@@ -25,7 +24,6 @@ const NAV: { key: View; label: string; Icon: any; step?: number; stepColor?: str
   { key: "home", label: "Dashboard", Icon: LayoutDashboard },
   { key: "livehost", label: "Livehost", Icon: Radio },
   { key: "template", label: "Template", Icon: LayoutTemplate, step: 1, stepColor: "#8b5cf6" },
-  { key: "templatebody", label: "Template Body", Icon: Clapperboard },
   { key: "scripts", label: "Scripts", Icon: ScrollText, step: 2, stepColor: "#3b82f6" },
   { key: "products", label: "Knowledge", Icon: Package, step: 3, stepColor: "#f59e0b" },
   { key: "greetings", label: "Greetings", Icon: HeartHandshake, step: 4, stepColor: "#ec4899" },
@@ -331,8 +329,6 @@ export default function LivehostDashboard({
             </div>
           ) : view === "avatar" ? (
             <StudioSection only="image" />
-          ) : view === "templatebody" ? (
-            <div className="lh-studio"><LivehostTemplateBody /></div>
           ) : view === "attachment" ? (
             <AttachmentsSection presets={attachPresets} productLabel="Template" pngOnly bgRemoveAvatar />
           ) : view === "greetings" ? (
