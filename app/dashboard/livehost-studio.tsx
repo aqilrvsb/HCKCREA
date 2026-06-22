@@ -135,7 +135,7 @@ function waitForIceGatheringComplete(pc: RTCPeerConnection, timeoutMs = 4000): P
   });
 }
 
-export default function LivehostStudio({ view }: { view: LiveView }) {
+export default function LivehostStudio({ view, embedOutput }: { view: LiveView; embedOutput?: boolean }) {
   // Backend URL — per-client, admin-configured.
   const [backend, setBackend] = useState("");
   const [configErr, setConfigErr] = useState("");
@@ -1423,6 +1423,17 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
   }, [avatarId, previewUrl, backgrounds, voiceId, stop, speakNext, startWordSweep, buildKbPrompt, activeKb, speed, emotion, volume, configErr, addVoiceChars, beginSession, warmGpu]);
   useEffect(() => { startRef.current = start; }, [start]);
 
+  // AUTOSTART for the OBS output page — in embed/output mode the UI is hidden, so
+  // there is nothing to click. Auto-load the host's first saved template, then
+  // press Start. Requires the GPU to be ON (Usage tab) so the worker is reachable.
+  useEffect(() => {
+    if (!embedOutput || active) return;
+    if (!savedTemplates.length) return;                          // wait for templates to hydrate
+    if (!previewUrl) { loadTemplate(savedTemplates[0]); return; } // load it, effect re-runs
+    const t = setTimeout(() => { startRef.current?.(); }, 1000); // template applied → Start
+    return () => clearTimeout(t);
+  }, [embedOutput, active, savedTemplates, previewUrl, loadTemplate]);
+
   // (No warm-on-open. The GPU is turned ON/OFF only at the Usage tab. Opening the
   // Livehost tab must NOT turn the GPU on. warmGpu() runs only when you press
   // ▶ Start — it connects to the worker you already turned on at Usage.)
@@ -1836,7 +1847,7 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
   // CLEAN OUTPUT MODE (for OBS): hides ALL panels/UI and shows ONLY the 1080x1920
   // stage on black, filling the window — so OBS captures a clean feed (no dashboard
   // chrome). Toggle in the UI, or load with ?output=1 to start clean.
-  const [outputMode, setOutputMode] = useState(false);
+  const [outputMode, setOutputMode] = useState(!!embedOutput);
   useEffect(() => {
     try { if (new URLSearchParams(window.location.search).get("output") === "1") setOutputMode(true); } catch {}
   }, []);
@@ -2052,10 +2063,19 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
               </div>
             )}
 
-            {/* CLEAN OUTPUT for OBS — hides all UI, shows only the 1080x1920 stage */}
+            {/* CLEAN OUTPUT for OBS — opens the no-login output URL in a NEW TAB.
+                That tab IS the live stream (one WebRTC peer per GPU); point OBS
+                Browser Source at it. Hidupkan GPU dahulu (tab Billing/Usage). */}
             <button type="button" className="filebtn secondary" style={{ marginTop: 8 }}
-              onClick={() => setOutputMode(true)}>
-              🖥 Output mode (OBS) — paparan bersih
+              onClick={async () => {
+                try {
+                  const r = await fetch("/api/livehost/output-token", { method: "POST" });
+                  const d = await r.json();
+                  if (d.url) { window.open(d.url, "_blank"); navigator.clipboard?.writeText(d.url).catch(() => {}); }
+                  else alert(d.error || "Gagal jana pautan OBS");
+                } catch { alert("Gagal jana pautan OBS"); }
+              }}>
+              🖥 Buka Output (OBS) — tab baru + salin pautan
             </button>
 
             <div className="label">🎮 Simulation — avatar pauses &amp; answers</div>
