@@ -2611,7 +2611,7 @@ const STUDIO_CSS = `
 .lh-studio .stage canvas.body-layer.editing{outline:2px dashed #818cf8;outline-offset:-2px;}
 .lh-studio .stage:fullscreen{height:100vh;width:auto;aspect-ratio:9/16;border-radius:0;}
 /* CLEAN OUTPUT MODE — only the 9:16 stage on black, everything else hidden (for OBS capture) */
-.lh-studio.output{background:#000;border-radius:0;}
+.lh-studio.output{background:#000;border-radius:0;height:100vh;overflow:hidden;}
 .lh-studio.output .error{display:none;}
 .lh-studio.output .grid{display:block;height:100vh;gap:0;padding:0;}
 .lh-studio.output .grid > .panel:not(.video-panel){display:none;}
