@@ -209,7 +209,11 @@ FINAL RULE: copy ONLY the arm and hand motion; every other pixel of the characte
                   <span style={{ fontWeight: 700, color: r.status === "done" ? "#16a34a" : r.status === "failed" ? "#e23" : "#b45309", textTransform: "uppercase" }}>{r.status}</span>
                   <span style={{ marginLeft: "auto", color: "#888" }}>RM{Number(r.cost).toFixed(2)}</span>
                   {r.status === "done" && r.output_url && (
-                    <a href={r.output_url} target="_blank" rel="noreferrer" style={{ color: "#f59e0b", fontWeight: 800 }}>Open</a>
+                    <>
+                      <a href={`/api/download?url=${encodeURIComponent(r.output_url)}&name=template-body-${r.id.slice(0, 8)}.mp4`}
+                        style={{ color: "#16a34a", fontWeight: 800 }}>⬇ Save</a>
+                      <a href={r.output_url} target="_blank" rel="noreferrer" style={{ color: "#f59e0b", fontWeight: 800 }}>Open</a>
+                    </>
                   )}
                 </div>
               </div>

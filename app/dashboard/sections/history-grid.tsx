@@ -1341,11 +1341,14 @@ function HistoryCardInner({
     const safeName = (name || `${item.type}-${item.id.substring(0, 8)}`)
       .replace(/[^a-z0-9_\-]/gi, "_")
       .substring(0, 60);
+    const fileName = `${safeName}.${isVideo ? "mp4" : "png"}`;
+    // Route through the same-origin download proxy so the file actually SAVES
+    // (Content-Disposition: attachment) — browsers ignore the <a download>
+    // attribute for cross-origin (B2) URLs, and iOS Safari has no download
+    // button in its native video controls.
     const a = document.createElement("a");
-    a.href = item.output_url;
-    a.download = `${safeName}.${isVideo ? "mp4" : "png"}`;
-    a.target = "_blank";
-    a.rel = "noopener";
+    a.href = `/api/download?url=${encodeURIComponent(item.output_url)}&name=${encodeURIComponent(fileName)}`;
+    a.download = fileName;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
