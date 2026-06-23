@@ -119,6 +119,12 @@ const RETRYABLE_ERROR_PATTERNS: RegExp[] = [
   //    Added per user direction 2026-06-19.
   /attempt\s*\d+\s*:[^\n]*insufficient balance/i,
   /insufficient balance[^\n]{0,30}api/i,
+  // 9. Provider param/type validation rejection (APIPod): "Missing Params or
+  //    Type Error". Same rotation-recoverable class as the schema validator
+  //    (#4) — a different slot/model in the pool accepts. Also un-sticks rows
+  //    that hit our own past mis-routing (a grok row sent to the Veo pool),
+  //    which now route correctly through the grok cascade. Added 2026-06-19.
+  /missing param/i,
 ];
 
 export function isInternalError(err: string | null | undefined): boolean {
