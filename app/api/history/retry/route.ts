@@ -325,14 +325,13 @@ export async function POST(req: Request) {
       // (same pool used by the dedicated Seedance tab).
       asset = "cinema";
     }
-    else if (
-      (row.tab === "cinema" || row.tab === "original-video" || row.tab === "grok") &&
-      (meta.modelChoice === "grok" || /grok/i.test(model))
-    ) {
-      // Grok Imagine 1.5 Preview rows route through the dedicated grok
-      // cascade pool (p6-a/b/c by default). Detection covers BOTH the
-      // legacy Grok tab and the new Original Video Grok chip per user
-      // direction 2026-06-08.
+    else if (meta.modelChoice === "grok" || /grok/i.test(model)) {
+      // Grok Imagine rows route through the dedicated grok cascade pool
+      // (p6-a/b/c). modelChoice/model is the authoritative signal — match
+      // REGARDLESS of tab. Dialog UGC grok rows are tab="video" (see
+      // /api/generate/video), so the old tab gate (cinema/original-video/grok
+      // only) sent them to the Veo 'video' pool on resubmit → wrong params →
+      // "attempt1: Missing Params or Type Error". Fixed 2026-06-19.
       asset = "grok";
     }
 

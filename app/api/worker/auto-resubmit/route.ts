@@ -238,10 +238,10 @@ export async function GET(req: Request) {
       rowAsset = "sora2";
     }
     else if (row.tab === "seedance") rowAsset = "cinema";
-    else if (
-      (row.tab === "cinema" || row.tab === "original-video") &&
-      (meta.modelChoice === "grok" || /grok/i.test(rowModel))
-    ) {
+    else if (meta.modelChoice === "grok" || /grok/i.test(rowModel)) {
+      // Grok by modelChoice/model REGARDLESS of tab — Dialog UGC grok rows
+      // are tab="video", so the old tab gate misrouted them to the Veo
+      // 'video' pool → "Missing Params or Type Error". Fixed 2026-06-19.
       rowAsset = "grok";
     }
     else if (row.tab === "original-video" && meta.modelChoice === "veo") {
