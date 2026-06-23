@@ -104,6 +104,21 @@ const RETRYABLE_ERROR_PATTERNS: RegExp[] = [
   //    here. Real provider phrasing: "attempt1: Insufficient Credits".
   //    Added per user direction 2026-06-13.
   /attempt\s*\d+\s*:[^\n]*insufficient credits/i,
+  // 8. PROVIDER-slot "Insufficient balance" (HTTP 402) — same class as #7 but
+  //    some providers phrase the out-of-funds rejection as "Insufficient
+  //    balance" instead of "Insufficient Credits". This is OUR upstream
+  //    provider API account running dry (e.g. admin didn't top up the key),
+  //    NOT the client's PeningLab balance — the client error is a pre-flight
+  //    bare 402 that never reaches a history error_message, and no code path
+  //    writes the literal "insufficient balance" string for a client. Each
+  //    provider slot/key has its OWN balance, so rotating to a funded slot
+  //    CAN recover → eligible for fallback cascade + event-driven retry +
+  //    auto-resubmit cron, and shown on the admin Errors feed.
+  //    Real phrasing: 'attempt1: API error (status 402): {"status":"FAILED",
+  //    "message":"Insufficient balance in TT API.","data":null}'.
+  //    Added per user direction 2026-06-19.
+  /attempt\s*\d+\s*:[^\n]*insufficient balance/i,
+  /insufficient balance[^\n]{0,30}api/i,
 ];
 
 export function isInternalError(err: string | null | undefined): boolean {
