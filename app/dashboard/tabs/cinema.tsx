@@ -78,7 +78,7 @@ export default function CinemaTab({ projectId }: { projectId?: string } = {}) {
   // intentionally; the value still flows through to the API body so the
   // backend stays unchanged.
   const resolution: "720p" = "720p";
-  // Grok bills per-second (6-30s range). Veo is fixed 8s.
+  // Grok bills per-second (1-15s range, Grok Imagine 1.5). Veo is fixed 8s.
   const [grokDuration, setGrokDuration] = useState<number>(8);
   const effectiveDuration = model === "veo" ? 8 : grokDuration;
   const [ratePerSec, setRatePerSec] = useState<number | null>(null);
@@ -706,15 +706,15 @@ export default function CinemaTab({ projectId }: { projectId?: string } = {}) {
             <Label>Duration ({grokDuration}s)</Label>
             <input
               type="range"
-              min={6}
-              max={30}
+              min={1}
+              max={15}
               step={1}
               value={grokDuration}
               onChange={(e) => setGrokDuration(Number(e.target.value))}
               className="w-full accent-purple-500"
             />
             <div className="flex items-center justify-between mt-2 text-[10px] text-gray-500">
-              <span>6s</span>
+              <span>1s</span>
               {cost != null && (
                 <span
                   className="font-mono uppercase tracking-wider px-2 py-0.5 rounded"
@@ -723,7 +723,7 @@ export default function CinemaTab({ projectId }: { projectId?: string } = {}) {
                   ~RM{cost.toFixed(2)}
                 </span>
               )}
-              <span>30s</span>
+              <span>15s</span>
             </div>
             <p className="text-[10px] text-gray-500 mt-1">
               Grok bills per second. Longer = pricier.
