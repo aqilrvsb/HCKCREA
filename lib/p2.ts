@@ -181,16 +181,22 @@ async function p2CreateTaskInternal(input: {
     // We reassign input.model (like the Seedance branch) so whatever grok
     // model string the cascade passed becomes the canonical Crun id. UGC /
     // Original Video grok always supply a reference image → i2v.
+    // Built to EXACTLY match the p6 (APIPod) grok-imagine-1.5-preview request
+    // so a p6→p2 fallback produces an identical clip:
+    //   • 1 reference image (Crun field is img_urls[]; APIPod is image_url)
+    //   • aspect_ratio clamped to {1:1,2:3,3:2,9:16,16:9}, else 16:9
+    //   • resolution fixed "720p"
+    //   • duration 1-15, default 10
     const hasImg = imgUrls.length > 0;
     if (hasImg) {
       input.model = "grok-imagine-video-1.5-preview";
       innerInput.img_urls = [imgUrls[0]];
     }
-    innerInput.aspect_ratio = input.aspectRatio || "auto";
-    // Resolution FIXED at 720p — matches p6 (grok-imagine-1.5-preview is 720p
-    // only there too), so a p6→p2 fallback produces an identical clip.
+    const grokAspects = new Set(["1:1", "2:3", "3:2", "9:16", "16:9"]);
+    innerInput.aspect_ratio = grokAspects.has(String(input.aspectRatio)) ? input.aspectRatio : "16:9";
     innerInput.resolution = "720p";
-    innerInput.duration = Math.max(1, Math.min(15, Math.round(Number(input.durationMode || 6))));
+    const grokDur = Number(input.durationMode);
+    innerInput.duration = Number.isFinite(grokDur) && grokDur >= 1 && grokDur <= 15 ? Math.round(grokDur) : 10;
   } else if (isSeedance) {
     // Seedance 2.0 Fast — Crun ships t2v and r2v as separate endpoints
     // identified by the model name. Auto-switch: any ref → r2v.

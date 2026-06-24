@@ -467,10 +467,12 @@ async function tryAutoRetry(
     // (same pool used by the dedicated Seedance tab).
     cascadeAsset = "cinema";
   }
-  else if (
-    (hist.tab === "cinema" || hist.tab === "original-video") &&
-    (meta.modelChoice === "grok" || /grok/i.test(rowModel))
-  ) {
+  else if (meta.modelChoice === "grok" || /grok/i.test(rowModel)) {
+    // Grok by modelChoice/model REGARDLESS of tab. Dialog UGC grok rows are
+    // tab="video" (see /api/generate/video), so the old tab gate
+    // (cinema/original-video only) sent them to the Veo 'video' pool on
+    // event-driven retry → wrong params + never reached the grok p2 fallback.
+    // Matches the manual-retry route + auto-resubmit cron. Fixed 2026-06-19.
     cascadeAsset = "grok";
   } else {
     cascadeAsset = "video";
