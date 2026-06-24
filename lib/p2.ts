@@ -172,23 +172,24 @@ async function p2CreateTaskInternal(input: {
   if (input.prompt) innerInput.prompt = input.prompt.substring(0, 3000);
 
   if (isGrok) {
-    // Grok Imagine — t2v takes aspect_ratio, i2v doesn't (inherits from img).
-    // Both take duration (6-30), resolution (480p|720p), mode (fun|normal|spicy).
-    const isI2V = input.model.includes("i2v");
-    if (isI2V) {
-      if (imgUrls.length > 0) innerInput.img_urls = imgUrls;
-    } else {
-      if (input.aspectRatio) innerInput.aspect_ratio = input.aspectRatio;
+    // Grok Imagine Video 1.5 Preview on Crun (/CreateTask). Built EXACTLY per
+    // Crun docs so a grok task fails over from p6 (APIPod) to p2 (Crun) with
+    // the same result. The 1.5-preview i2v endpoint REQUIRES exactly 1
+    // img_urls + prompt; params are { prompt, img_urls, aspect_ratio,
+    // resolution(480p|720p), duration(1-15) } — NO legacy "mode" field.
+    //
+    // We reassign input.model (like the Seedance branch) so whatever grok
+    // model string the cascade passed becomes the canonical Crun id. UGC /
+    // Original Video grok always supply a reference image → i2v.
+    const hasImg = imgUrls.length > 0;
+    if (hasImg) {
+      input.model = "grok-imagine-video-1.5-preview";
+      innerInput.img_urls = [imgUrls[0]];
     }
-    innerInput.duration = Number(input.durationMode || 6);
-    innerInput.resolution = input.resolution
-      ? String(input.resolution).toLowerCase()
-      : "720p";
-    innerInput.mode =
-      (input.extra?.mode as string) === "fun" ||
-      (input.extra?.mode as string) === "spicy"
-        ? input.extra!.mode
-        : "normal";
+    innerInput.aspect_ratio = input.aspectRatio || "auto";
+    innerInput.resolution =
+      String(input.resolution || "720p").toLowerCase() === "480p" ? "480p" : "720p";
+    innerInput.duration = Math.max(1, Math.min(15, Math.round(Number(input.durationMode || 6))));
   } else if (isSeedance) {
     // Seedance 2.0 Fast — Crun ships t2v and r2v as separate endpoints
     // identified by the model name. Auto-switch: any ref → r2v.
