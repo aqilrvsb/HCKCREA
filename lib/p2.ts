@@ -187,8 +187,9 @@ async function p2CreateTaskInternal(input: {
       innerInput.img_urls = [imgUrls[0]];
     }
     innerInput.aspect_ratio = input.aspectRatio || "auto";
-    innerInput.resolution =
-      String(input.resolution || "720p").toLowerCase() === "480p" ? "480p" : "720p";
+    // Resolution FIXED at 720p — matches p6 (grok-imagine-1.5-preview is 720p
+    // only there too), so a p6→p2 fallback produces an identical clip.
+    innerInput.resolution = "720p";
     innerInput.duration = Math.max(1, Math.min(15, Math.round(Number(input.durationMode || 6))));
   } else if (isSeedance) {
     // Seedance 2.0 Fast — Crun ships t2v and r2v as separate endpoints
