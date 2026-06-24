@@ -68,7 +68,9 @@ export async function POST(req: Request) {
   //   • Gemini   → fixed 10s (Original Video tab UX choice; API accepts
   //               4|6|8|10 but the chip only exposes 10)
   //   • Seedance → 4-15 (Seedance 2.0 Fast spec; slider)
-  //   • Grok     → 6-30 (slider, per-second billing)
+  //   • Grok     → 1-15 (Grok Imagine 1.5 Preview spec; slider, per-second
+  //               billing). Was 6-30 (legacy grok) which floored a client's
+  //               3s pick up to 6s — fixed 2026-06-19 so the slider is honoured.
   const duration =
     modelChoice === "veo"
       ? 8
@@ -80,7 +82,7 @@ export async function POST(req: Request) {
           ? 10
           : modelChoice === "seedance"
             ? Math.min(15, Math.max(4, Math.round(Number(body?.duration || 5))))
-            : Math.min(30, Math.max(6, Math.round(Number(body?.duration || 6))));
+            : Math.min(15, Math.max(1, Math.round(Number(body?.duration || 6))));
   // Three image modes (richer than the old image/text split):
   //   • "text"       → no reference images
   //   • "frame"      → single first-frame image (i2v, all 3 providers)
