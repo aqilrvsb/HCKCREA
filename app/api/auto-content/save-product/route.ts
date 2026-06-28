@@ -1,0 +1,81 @@
+import { NextResponse } from "next/server";
+import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
+
+// POST /api/auto-content/save-product
+// Saves (upserts) a reusable product preset so the client never re-picks/
+// re-types. Stores only references — the attachment images already live in the
+// user's Attachments library.
+//
+// Body: { kind: "affiliate"|"manual", product_id?, product_name, detail?, attachments: string[] }
+//   • affiliate: keyed by (user, product_id) — saves the 3 attachment URLs
+//   • manual:    keyed by (user, lower(product_name)) — saves name + detail + attachments
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
+export async function POST(req: Request) {
+  const sb = await createClient();
+  const { data: { user } } = await sb.auth.getUser();
+  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  const body = await req.json().catch(() => ({}));
+  const kind: "affiliate" | "manual" = body?.kind === "manual" ? "manual" : "affiliate";
+  const productName = String(body?.product_name || "").trim();
+  const detail = body?.detail != null ? String(body.detail).trim() : null;
+  const productId = body?.product_id ? String(body.product_id).trim() : null;
+  const attachments: string[] = Array.isArray(body?.attachments)
+    ? body.attachments.filter((u: any) => typeof u === "string" && u.trim()).slice(0, 3)
+    : [];
+
+  if (!productName) return NextResponse.json({ error: "product_name required" }, { status: 400 });
+  if (kind === "affiliate" && !productId) {
+    return NextResponse.json({ error: "product_id required for affiliate" }, { status: 400 });
+  }
+  if (attachments.length === 0) {
+    return NextResponse.json({ error: "Upload your 3 attachments before saving." }, { status: 400 });
+  }
+  if (kind === "manual" && !detail) {
+    return NextResponse.json({ error: "Detail Product required for manual save." }, { status: 400 });
+  }
+
+  const admin = createAdminClient();
+
+  // Find an existing record (partial unique indexes make ON CONFLICT awkward,
+  // so we look up then update/insert).
+  let existingId: string | null = null;
+  if (kind === "affiliate") {
+    const { data } = await admin
+      .from("saved_products")
+      .select("id")
+      .eq("user_id", user.id).eq("kind", "affiliate").eq("product_id", productId)
+      .maybeSingle();
+    existingId = data?.id || null;
+  } else {
+    const { data } = await admin
+      .from("saved_products")
+      .select("id")
+      .eq("user_id", user.id).eq("kind", "manual").ilike("product_name", productName)
+      .maybeSingle();
+    existingId = data?.id || null;
+  }
+
+  const row = {
+    user_id: user.id,
+    kind,
+    product_id: productId,
+    product_name: productName,
+    detail,
+    attachments,
+    updated_at: new Date().toISOString(),
+  };
+
+  if (existingId) {
+    const { error } = await admin.from("saved_products").update(row).eq("id", existingId);
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  } else {
+    const { error } = await admin.from("saved_products").insert(row);
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+
+  return NextResponse.json({ ok: true });
+}

@@ -36,10 +36,19 @@ const AMBER_FAINT = "rgba(245, 158, 11, 0.06)";
 const GREEN = "#facc15";
 
 type ManualProduct = {
-  info: string;          // textarea content
+  info: string;          // textarea content (backend field). For manual mode it
+                         // is kept in sync as `name + "\n" + detail`.
+  name?: string;         // manual mode: Product Name (line 1 of info)
+  detail?: string;       // manual mode: Detail Product (rest of info)
   imageData: string;     // primary slot (also used by affiliate auto-fill)
   imageUrls: string[];   // multi-pick slots 1-3. imageData mirrors imageUrls[0].
 };
+
+// Merge the manual Product Name + Detail Product into the single `info` field
+// the backend consumes: name on the first line, detail below.
+function mergeManualInfo(name?: string, detail?: string): string {
+  return [String(name || "").trim(), String(detail || "").trim()].filter(Boolean).join("\n");
+}
 
 type RecentProduct = {
   product_id: string;
@@ -168,6 +177,12 @@ export default function AutoContentTab({ projectId }: { projectId?: string } = {
   const [pickerSlot, setPickerSlot] = useState<number | null>(null);
   // Attachment picker — opened by the manual-product Upload button.
   const [attachmentSlot, setAttachmentSlot] = useState<number | null>(null);
+  // Saved-product presets — save name/detail/3-attachments once, reload on
+  // reselect so clients never redo work. See /api/auto-content/*.
+  type SavedProduct = { id: string; kind: "affiliate" | "manual"; product_id: string | null; product_name: string; detail: string | null; attachments: string[] };
+  const [savingIdx, setSavingIdx] = useState<number | null>(null);
+  const [savedMsg, setSavedMsg] = useState<string | null>(null);
+  const [savedManual, setSavedManual] = useState<SavedProduct[]>([]);
   // Per-product scrape state. Click "Scrape" → loading=true → fetch
   // fires → either `images: string[]` or `error: string` lands here.
   // The count badge that replaces the Scrape button reads from this map.
@@ -218,6 +233,7 @@ export default function AutoContentTab({ projectId }: { projectId?: string } = {
 
   useEffect(() => {
     loadRecentProducts();
+    loadSavedManual();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -365,6 +381,7 @@ export default function AutoContentTab({ projectId }: { projectId?: string } = {
       return next;
     });
     setTiktokProductId(p.product_id);
+    loadAffiliateSaved(p.product_id); // auto-load the saved 3 attachments, if any
     setScrapeMsg({
       ok: true,
       text: `✓ Loaded "${p.product_name.substring(0, 60)}${
@@ -454,6 +471,7 @@ export default function AutoContentTab({ projectId }: { projectId?: string } = {
       // stamp it on every generated history row for auto-post later.
       // Manual mode resets this to empty.
       setTiktokProductId(d.product_id ? String(d.product_id) : "");
+      if (d.product_id) loadAffiliateSaved(String(d.product_id));
       setScrapeMsg({
         ok: true,
         text: `✓ Loaded "${d.product_name.substring(0, 60)}${d.product_name.length > 60 ? "…" : ""}" — edit below if needed.`,
@@ -483,6 +501,81 @@ export default function AutoContentTab({ projectId }: { projectId?: string } = {
     const file = await dataUrlToFile(v, "ref.png");
     const { url } = await uploadImage(file);
     return url;
+  }
+
+  // ── Saved-product presets ──────────────────────────────────────────────
+  // Load saved attachments for an affiliate product (by product_id) → apply to
+  // the first card so the client doesn't re-pick images.
+  async function loadAffiliateSaved(productId: string) {
+    if (!productId) return;
+    try {
+      const r = await fetch(`/api/auto-content/saved-products?product_id=${encodeURIComponent(productId)}`, { cache: "no-store" });
+      const d = await r.json().catch(() => ({}));
+      const urls: string[] = (d?.item?.attachments || []).filter(Boolean).slice(0, 3);
+      if (urls.length) {
+        setManualProducts((prev) => prev.map((x, j) => (j === 0 ? { ...x, imageUrls: urls, imageData: urls[0] || x.imageData } : x)));
+      }
+    } catch {}
+  }
+
+  // Load the user's saved MANUAL products into the dropdown.
+  async function loadSavedManual() {
+    try {
+      const r = await fetch("/api/auto-content/saved-products?kind=manual", { cache: "no-store" });
+      const d = await r.json().catch(() => ({}));
+      if (Array.isArray(d?.items)) setSavedManual(d.items as SavedProduct[]);
+    } catch {}
+  }
+
+  // Apply a saved manual product → fill Product Name + Detail + attachments.
+  function applyManualSaved(sp: SavedProduct) {
+    const urls = (sp.attachments || []).filter(Boolean).slice(0, 3);
+    setManualProducts((prev) => prev.map((x, j) => (j === 0 ? {
+      ...x,
+      name: sp.product_name,
+      detail: sp.detail || "",
+      info: mergeManualInfo(sp.product_name, sp.detail || ""),
+      imageUrls: urls,
+      imageData: urls[0] || "",
+    } : x)));
+  }
+
+  // Save the current product card as a reusable preset (name + detail + 3 imgs).
+  async function saveProduct(i: number) {
+    const p = manualProducts[i];
+    if (!p) return;
+    const isAffiliate = productMode === "affiliate";
+    const imgs = (p.imageUrls || []).filter(Boolean);
+    if (imgs.length < 3) { setSavedMsg("Upload 3 attachments first."); return; }
+    if (isAffiliate && !tiktokProductId) { setSavedMsg("Pick the affiliate product first."); return; }
+    const productName = isAffiliate
+      ? ((p.name || (p.info || "").split("\n")[0] || "Product").trim())
+      : (p.name || "").trim();
+    if (!isAffiliate && (!productName || !(p.detail || "").trim())) {
+      setSavedMsg("Fill Product Name + Detail first."); return;
+    }
+    setSavingIdx(i); setSavedMsg(null);
+    try {
+      const r = await fetch("/api/auto-content/save-product", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          kind: isAffiliate ? "affiliate" : "manual",
+          product_id: isAffiliate ? tiktokProductId : undefined,
+          product_name: productName,
+          detail: isAffiliate ? (p.info || null) : (p.detail || null),
+          attachments: imgs.slice(0, 3),
+        }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok || !d?.ok) throw new Error(d?.error || "Save failed");
+      setSavedMsg("✓ Saved");
+      if (!isAffiliate) loadSavedManual();
+      setTimeout(() => setSavedMsg(null), 4000);
+    } catch (e: any) {
+      setSavedMsg(e?.message || "Save failed");
+    } finally {
+      setSavingIdx(null);
+    }
   }
 
   async function submit() {
@@ -1051,6 +1144,36 @@ export default function AutoContentTab({ projectId }: { projectId?: string } = {
             and signals "paste link first" to the user. Once the scrape
             fills slot 0, the card appears so they can edit / replace
             the auto-filled fields before firing. */}
+        {/* Saved manual products — pick one to reload Name + Detail + the 3
+            attachments instantly (no re-typing / re-picking). */}
+        {productMode === "manual" && savedManual.length > 0 && (
+          <div className="mb-3">
+            <label className="block text-[9px] font-bold uppercase tracking-wider mb-1" style={{ color: "#888" }}>
+              Load saved product
+            </label>
+            <select
+              defaultValue=""
+              onChange={(e) => {
+                const sp = savedManual.find((s) => s.id === e.target.value);
+                if (sp) applyManualSaved(sp);
+                e.target.value = "";
+              }}
+              className="w-full p-2 rounded text-xs outline-none"
+              style={{ background: "#ffffff", border: "1px solid #e8e0d8", color: "#1a1a1a" }}
+            >
+              <option value="">— Pick a saved product —</option>
+              {savedManual.map((s) => (
+                <option key={s.id} value={s.id}>{s.product_name}</option>
+              ))}
+            </select>
+          </div>
+        )}
+        {savedMsg && (
+          <div className="mb-2 text-[11px] font-bold" style={{ color: savedMsg.startsWith("✓") ? "#16a34a" : "#dc2626" }}>
+            {savedMsg}
+          </div>
+        )}
+
         {(productMode === "manual" ||
           manualProducts[0]?.imageData ||
           manualProducts[0]?.info?.trim()) && (
@@ -1061,15 +1184,25 @@ export default function AutoContentTab({ projectId }: { projectId?: string } = {
                 idx={i}
                 showLabel={unitCount > 1}
                 product={p}
+                mode={productMode}
                 onInfoChange={(info) =>
                   setManualProducts((prev) =>
                     prev.map((x, j) => (j === i ? { ...x, info } : x))
                   )
                 }
+                onNameChange={(name) =>
+                  setManualProducts((prev) =>
+                    prev.map((x, j) => (j === i ? { ...x, name, info: mergeManualInfo(name, x.detail) } : x))
+                  )
+                }
+                onDetailChange={(detail) =>
+                  setManualProducts((prev) =>
+                    prev.map((x, j) => (j === i ? { ...x, detail, info: mergeManualInfo(x.name, detail) } : x))
+                  )
+                }
                 onPickAttachment={() => setAttachmentSlot(i)}
-                scrape={scrapeByIdx[i]}
-                onScrape={() => fireScrape(i)}
-                onOpenScrapePicker={() => setScrapePickerIdx(i)}
+                onSave={() => saveProduct(i)}
+                saving={savingIdx === i}
                 onRemoveSlot={(slotIdx) =>
                   setManualProducts((prev) =>
                     prev.map((x, j) => {
@@ -1761,45 +1894,39 @@ function ManualProductCard({
   idx,
   showLabel,
   product,
+  mode,
   onInfoChange,
+  onNameChange,
+  onDetailChange,
   onPickAttachment,
-  scrape,
-  onScrape,
-  onOpenScrapePicker,
+  onSave,
+  saving,
   onRemoveSlot,
   onClear,
 }: {
   idx: number;
   showLabel: boolean;
   product: ManualProduct;
+  mode: "affiliate" | "manual";
   onInfoChange: (s: string) => void;
+  onNameChange: (s: string) => void;
+  onDetailChange: (s: string) => void;
   onPickAttachment: () => void;
-  // Scrape state for this product slot — loading / images / error.
-  // Undefined means "never scraped yet" → button shows the idle "Scrape".
-  scrape?: {
-    loading: boolean;
-    images: string[] | null;
-    query: string | null;
-    error: string | null;
-  };
-  // Auto-fires the scrape against this product's first info line.
-  onScrape: () => void;
-  // Re-opens the picker once we already have scrape results cached.
-  onOpenScrapePicker: () => void;
+  // Save this product card as a reusable preset.
+  onSave: () => void;
+  saving: boolean;
   // Clear ONE image slot (slot index i within this product's imageUrls)
-  // without touching info / textarea content. Lets the user replace a
-  // bad affiliate-scraped image while keeping product_id + description.
+  // without touching the text. Lets the user replace a bad image while
+  // keeping product_id + description.
   onRemoveSlot: (i: number) => void;
   onClear: () => void;
 }) {
-  const slotsFull = (product.imageUrls?.length || 0) >= 3;
-  const hasInfo = !!(product.info || "").trim();
-  const hasResults = !!scrape?.images && scrape.images.length > 0;
-  // The button is disabled when there's nothing to search or nowhere
-  // to put picks. Re-clicking after a successful scrape opens the
-  // picker instead of re-firing — saves a Crawlbase credit.
-  const disabledScrape =
-    !hasInfo || slotsFull || !!scrape?.loading;
+  const imgCount = product.imageUrls?.length || 0;
+  // Save rules: affiliate needs 3 attachments; manual needs Name + Detail + 3.
+  const canSave =
+    imgCount >= 3 &&
+    (mode === "affiliate" ||
+      (!!(product.name || "").trim() && !!(product.detail || "").trim()));
   return (
     <div
       className="rounded-lg p-3"
@@ -1813,15 +1940,44 @@ function ManualProductCard({
           Product {idx + 1}
         </div>
       )}
-      <textarea
-        rows={2}
-        maxLength={500}
-        value={product.info}
-        onChange={(e) => onInfoChange(e.target.value)}
-        placeholder={`Product ${idx + 1}: name, price, USP...`}
-        className="w-full p-2 rounded text-xs resize-y outline-none mb-2"
-        style={{ background: "#ffffff", border: "1px solid #e8e0d8", color: "#1a1a1a" }}
-      />
+      {mode === "manual" ? (
+        <>
+          <label className="block text-[9px] font-bold uppercase tracking-wider mb-1" style={{ color: "#888" }}>
+            Product Name
+          </label>
+          <input
+            type="text"
+            maxLength={120}
+            value={product.name || ""}
+            onChange={(e) => onNameChange(e.target.value)}
+            placeholder="e.g. LUQFA Lotion 100ml"
+            className="w-full p-2 rounded text-xs outline-none mb-2"
+            style={{ background: "#ffffff", border: "1px solid #e8e0d8", color: "#1a1a1a" }}
+          />
+          <label className="block text-[9px] font-bold uppercase tracking-wider mb-1" style={{ color: "#888" }}>
+            Detail Product
+          </label>
+          <textarea
+            rows={3}
+            maxLength={1000}
+            value={product.detail || ""}
+            onChange={(e) => onDetailChange(e.target.value)}
+            placeholder="Price, USP, ingredients, benefits…"
+            className="w-full p-2 rounded text-xs resize-y outline-none mb-2"
+            style={{ background: "#ffffff", border: "1px solid #e8e0d8", color: "#1a1a1a" }}
+          />
+        </>
+      ) : (
+        <textarea
+          rows={2}
+          maxLength={500}
+          value={product.info}
+          onChange={(e) => onInfoChange(e.target.value)}
+          placeholder={`Product ${idx + 1}: name, price, USP...`}
+          className="w-full p-2 rounded text-xs resize-y outline-none mb-2"
+          style={{ background: "#ffffff", border: "1px solid #e8e0d8", color: "#1a1a1a" }}
+        />
+      )}
       {idx === 0 && (
         <div className="mb-2">
           <ProductRefTips />
@@ -1894,52 +2050,29 @@ function ManualProductCard({
           <SmallBtn onClick={onPickAttachment} color={AMBER}>
             Attachments
           </SmallBtn>
-          {/* Three-state scrape button:
-              1. idle      → "🔍 Scrape" (fires the search)
-              2. loading   → spinner, disabled
-              3. has hits  → "🖼️ N images" (re-opens picker, no re-fetch)
-              Errors render as a thin red bar under. */}
+          {/* Save Data — store this product's name/detail/3 attachments so the
+              client never re-picks. Enabled only when the save rules are met
+              (affiliate: 3 imgs · manual: name + detail + 3 imgs). */}
           <button
             type="button"
-            onClick={hasResults && !scrape?.loading ? onOpenScrapePicker : onScrape}
-            disabled={disabledScrape && !hasResults}
+            onClick={onSave}
+            disabled={!canSave || saving}
             title={
-              scrape?.loading
-                ? "Scraping…"
-                : slotsFull
-                  ? "Slots full — clear one to scrape"
-                  : !hasInfo
-                    ? "Type a product name first"
-                    : hasResults
-                      ? `Re-open ${scrape!.images!.length} scraped images`
-                      : "Auto-scrape Google Images for this product"
+              canSave
+                ? "Save this product so you can reload it later"
+                : mode === "manual"
+                  ? "Fill Product Name + Detail + 3 attachments to save"
+                  : "Upload 3 attachments to save"
             }
             className="px-2 py-1 rounded text-[10px] font-bold disabled:opacity-40 whitespace-nowrap"
             style={{
-              background: "rgba(234,179,8,0.08)",
-              border: "1px solid #eab308",
-              color: "#a16207",
+              background: "rgba(34,197,94,0.10)",
+              border: "1px solid #16a34a",
+              color: "#15803d",
             }}
           >
-            {scrape?.loading
-              ? "⏳ Scraping…"
-              : hasResults
-                ? `🖼️ ${scrape!.images!.length} images`
-                : "🔍 Scrape · 10¢"}
+            {saving ? "⏳ Saving…" : "💾 Save Data"}
           </button>
-          {scrape?.error && (
-            <div
-              className="text-[9px] font-mono px-1.5 py-0.5 rounded"
-              style={{
-                background: "rgba(244,67,54,0.08)",
-                border: "1px solid rgba(244,67,54,0.3)",
-                color: "#b91c1c",
-              }}
-              title={scrape.error}
-            >
-              ✗ {scrape.error.slice(0, 22)}
-            </div>
-          )}
           {(product.imageUrls?.length || product.imageData) && (
             <SmallBtn onClick={onClear} danger>
               x
