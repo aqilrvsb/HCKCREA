@@ -78,6 +78,12 @@ export default function ImageTab({ projectId, avatar }: { projectId?: string; av
   const [productUrl, setProductUrl] = useState("");
   const [posterUrl, setPosterUrl] = useState("");
   const [virtProductUrl, setVirtProductUrl] = useState("");
+  // Create-mode (non-avatar) references — up to REF_CAP attachments (face +
+  // product angles). Banana Pro accepts more, but APIPod caps nano-banana-pro
+  // at 8, so 4 is a safe, simple ceiling. All optional → text-to-image when empty.
+  const REF_CAP = 4;
+  const [refSlots, setRefSlots] = useState<string[]>(["", "", "", ""]);
+  const [refPickIdx, setRefPickIdx] = useState<number | null>(null);
   const [promptCat, setPromptCat] = useState<PromptCat>("avatar");
   const [historyId, setHistoryId] = useState<string | null>(null);
   const [status, setStatus] = useState<Status>("idle");
@@ -136,17 +142,19 @@ export default function ImageTab({ projectId, avatar }: { projectId?: string; av
     try {
       // Upload any locally-previewed images to RunningHub now (before we
       // hit the generate endpoint). Pass-through for already-public URLs.
-      const [charPub, productPub, posterPub, virtProductPub] = await Promise.all([
+      const [charPub, posterPub, virtProductPub, ...refSlotPubs] = await Promise.all([
         ensurePublicUrl(charUrl),
-        ensurePublicUrl(productUrl),
         ensurePublicUrl(posterUrl),
         ensurePublicUrl(virtProductUrl),
+        ...refSlots.map(ensurePublicUrl),
       ]);
 
       const refs =
         mode === "virtualize"
           ? [posterPub, virtProductPub].filter(Boolean)
-          : [charPub, productPub].filter(Boolean);
+          : avatar
+            ? [charPub].filter(Boolean) // Livehost Avatar variant: single face ref
+            : refSlotPubs.filter(Boolean); // up to REF_CAP references
 
       const r = await fetch("/api/generate/image", {
         method: "POST",
@@ -217,7 +225,7 @@ export default function ImageTab({ projectId, avatar }: { projectId?: string; av
       {/* CREATE MODE — Character + Product references (both optional).
           Matches AI Agent UGC's avatar/product slot pattern. Generation
           falls back to text-to-image when both are empty. */}
-      {mode === "create" && (
+      {mode === "create" && (avatar ? (
         <>
           <Card>
             <CardHeader
@@ -234,32 +242,77 @@ export default function ImageTab({ projectId, avatar }: { projectId?: string; av
               onClear={() => setCharUrl("")}
             />
           </Card>
-
-          {!avatar && (
-            <Card>
-              <CardHeader
-                icon="📦"
-                title="Product Reference (Optional)"
-                right={null}
-              />
-              <RefZone
-                url={productUrl}
-                icon="📦"
-                title="Click or drop product photo"
-                subtitle="Keeps packaging, labels, colors accurate"
-                onPick={() => setAttachmentSlot("product")}
-                onClear={() => setProductUrl("")}
-              />
-            </Card>
-          )}
-
           <p className="text-[11px] text-gray-500 text-center -mt-2">
-            {avatar
-              ? "Optional. Upload a face → it's used as the avatar reference; leave empty → text-to-image."
-              : "Both optional. Upload nothing → text-to-image. Upload one → reference. Upload both → both used as references."}
+            Optional. Upload a face → it's used as the avatar reference; leave empty → text-to-image.
           </p>
         </>
-      )}
+      ) : (
+        <>
+          <Card>
+            <CardHeader
+              icon="🖼️"
+              title={`References (${refSlots.filter(Boolean).length}/${REF_CAP})`}
+              right={null}
+            />
+            <div className="flex items-stretch gap-2">
+              <div className="flex gap-1.5 flex-wrap">
+                {Array.from({ length: REF_CAP }).map((_, i) => {
+                  const url = refSlots[i] || "";
+                  return (
+                    <div key={i} className="flex flex-col items-center gap-0.5">
+                      <button
+                        type="button"
+                        onClick={() => setRefPickIdx(i)}
+                        className="relative w-16 h-16 rounded-lg overflow-hidden flex-shrink-0 flex items-center justify-center"
+                        style={{
+                          border: url ? "2px solid #f59e0b" : "2px dashed #e8e0d8",
+                          background: url ? "#000" : "#fafaf7",
+                        }}
+                      >
+                        {url ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img src={url} alt="" className="w-full h-full object-cover" />
+                        ) : (
+                          <span className="text-xs font-semibold" style={{ color: "#f59e0b" }}>{i + 1}</span>
+                        )}
+                        {url && (
+                          <span
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setRefSlots(refSlots.map((u, j) => (j === i ? "" : u)));
+                            }}
+                            className="absolute top-0 right-0 w-4 h-4 rounded-bl bg-black/70 text-white text-[10px] flex items-center justify-center cursor-pointer"
+                          >
+                            ×
+                          </span>
+                        )}
+                      </button>
+                      <span className="text-[9px] font-mono uppercase tracking-wider" style={{ color: "#9ca3af" }}>
+                        OPTIONAL
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  const empty = refSlots.findIndex((u) => !u);
+                  setRefPickIdx(empty === -1 ? 0 : empty);
+                }}
+                disabled={refSlots.filter(Boolean).length >= REF_CAP}
+                className="px-3 py-1 rounded text-[11px] font-bold whitespace-nowrap disabled:opacity-40 self-start"
+                style={{ background: "rgba(245,158,11,0.1)", border: "1px solid #f59e0b", color: "#b45309" }}
+              >
+                Reference
+              </button>
+            </div>
+          </Card>
+          <p className="text-[11px] text-gray-500 text-center -mt-2">
+            All optional — upload nothing → text-to-image. Add up to {REF_CAP} references (face + product angles).
+          </p>
+        </>
+      ))}
 
       {/* VIRTUALIZE MODE — Poster + Product side-by-side */}
       {mode === "virtualize" && (
@@ -502,6 +555,18 @@ export default function ImageTab({ projectId, avatar }: { projectId?: string; av
         onClose={() => setAttachmentSlot(null)}
         onPick={(a) => attachmentSlot && pickFromAttachment(attachmentSlot, a.public_url)}
         defaultCategory={attachmentSlot === "char" ? "avatar" : "product"}
+      />
+
+      {/* Create-mode references grid picker (non-avatar). Pick any attachment
+          into the chosen slot index. */}
+      <AttachmentPicker
+        open={refPickIdx !== null}
+        onClose={() => setRefPickIdx(null)}
+        onPick={(a) => {
+          setRefSlots((prev) => prev.map((u, j) => (j === refPickIdx ? a.public_url : u)));
+          setRefPickIdx(null);
+        }}
+        defaultCategory="all"
       />
 
 
