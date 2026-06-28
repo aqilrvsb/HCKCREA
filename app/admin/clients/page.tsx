@@ -12,6 +12,7 @@ import {
   PowerOff,
   Trash2,
   X,
+  Plus,
 } from "lucide-react";
 import { PLAN_KEYS, PLAN_DEFAULTS } from "@/lib/plans";
 
@@ -40,6 +41,7 @@ export default function AdminClients() {
   const [affiliateFilter, setAffiliateFilter] = useState<AffiliateFilter>("all");
   const [busy, setBusy] = useState<string | null>(null);
   const [editing, setEditing] = useState<Client | null>(null);
+  const [creating, setCreating] = useState(false);
   const [impersonatingId, setImpersonatingId] = useState<string | null>(null);
 
   // Click an email → server mints a session for the target user via
@@ -171,13 +173,23 @@ export default function AdminClients() {
 
   return (
     <div>
-      <div className="mb-8">
-        <h1 className="font-display font-extrabold text-3xl tracking-tight text-[var(--color-text-primary)]">
-          Client Management
-        </h1>
-        <p className="text-sm text-[var(--color-text-secondary)] mt-1">
-          {clients.length} clients · {clients.filter((c) => c.is_active).length} active.
-        </p>
+      <div className="mb-8 flex items-start justify-between gap-4">
+        <div>
+          <h1 className="font-display font-extrabold text-3xl tracking-tight text-[var(--color-text-primary)]">
+            Client Management
+          </h1>
+          <p className="text-sm text-[var(--color-text-secondary)] mt-1">
+            {clients.length} clients · {clients.filter((c) => c.is_active).length} active.
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={() => setCreating(true)}
+          className="shrink-0 inline-flex items-center gap-2 px-4 py-2.5 rounded-xl font-bold text-sm transition-transform hover:-translate-y-0.5"
+          style={{ background: "var(--color-orange)", color: "#1a1a1a" }}
+        >
+          <Plus className="w-4 h-4" /> Add new client
+        </button>
       </div>
 
       <div
@@ -424,6 +436,186 @@ export default function AdminClients() {
           }}
         />
       )}
+
+      {creating && (
+        <CreateClientModal
+          onClose={() => setCreating(false)}
+          onCreated={async () => {
+            setCreating(false);
+            await load();
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+// ── Create modal ──────────────────────────────────────────────────────────
+function CreateClientModal({
+  onClose,
+  onCreated,
+}: {
+  onClose: () => void;
+  onCreated: () => void;
+}) {
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [fullName, setFullName] = useState("");
+  const [whatsapp, setWhatsapp] = useState("");
+  const [plan, setPlan] = useState<string>("free");
+  const [expiresDays, setExpiresDays] = useState("365");
+  const [credits, setCredits] = useState("0");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    window.addEventListener("keydown", onKey);
+    document.body.style.overflow = "hidden";
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      document.body.style.overflow = "";
+    };
+  }, [onClose]);
+
+  async function create() {
+    setError(null);
+    if (!email.trim() || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email.trim())) {
+      setError("Enter a valid email.");
+      return;
+    }
+    if (password.length < 6) {
+      setError("Password must be at least 6 characters.");
+      return;
+    }
+    setBusy(true);
+    try {
+      const r = await fetch("/api/admin/clients/create", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: email.trim(),
+          password,
+          full_name: fullName.trim(),
+          whatsapp: whatsapp.trim(),
+          plan,
+          expires_days: Number(expiresDays) || 0,
+          credits: Number(credits) || 0,
+        }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok || !d?.ok) throw new Error(d?.error || `HTTP ${r.status}`);
+      onCreated();
+    } catch (e: any) {
+      setError(e?.message || "Create failed");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      style={{ background: "rgba(0,0,0,0.7)", backdropFilter: "blur(8px)" }}
+      onClick={onClose}
+    >
+      <div
+        className="rounded-2xl max-w-lg w-full max-h-[92vh] overflow-y-auto"
+        style={{
+          background: "var(--color-bg-card)",
+          border: "1px solid var(--color-border)",
+          boxShadow: "0 20px 60px rgba(0,0,0,0.5)",
+        }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div
+          className="flex items-center justify-between px-5 py-4 border-b"
+          style={{ borderColor: "var(--color-border)" }}
+        >
+          <h2 className="font-display font-extrabold text-lg text-[var(--color-text-primary)]">
+            Add New Client
+          </h2>
+          <button
+            onClick={onClose}
+            className="w-8 h-8 rounded-lg flex items-center justify-center hover:bg-white/5"
+          >
+            <X className="w-4 h-4 text-[var(--color-text-secondary)]" />
+          </button>
+        </div>
+
+        <div className="p-5 space-y-4">
+          <Section title="Login">
+            <div>
+              <FieldLabel>Email</FieldLabel>
+              <DarkInput type="email" value={email} onChange={setEmail} placeholder="client@gmail.com" />
+            </div>
+            <div className="mt-3">
+              <FieldLabel>Password (min 6 chars)</FieldLabel>
+              <DarkInput type="text" value={password} onChange={setPassword} placeholder="temporary password" />
+            </div>
+          </Section>
+
+          <Section title="Details">
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <FieldLabel>Full name</FieldLabel>
+                <DarkInput type="text" value={fullName} onChange={setFullName} placeholder="optional" />
+              </div>
+              <div>
+                <FieldLabel>WhatsApp</FieldLabel>
+                <DarkInput type="text" value={whatsapp} onChange={setWhatsapp} placeholder="optional" />
+              </div>
+            </div>
+          </Section>
+
+          <Section title="Plan & credits">
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <FieldLabel>Plan</FieldLabel>
+                <DarkSelect value={plan} onChange={setPlan}>
+                  <option value="free">Free</option>
+                  {PLAN_KEYS.map((k) => (
+                    <option key={k} value={k}>{PLAN_DEFAULTS[k].label}</option>
+                  ))}
+                </DarkSelect>
+              </div>
+              <div>
+                <FieldLabel>Valid for (days)</FieldLabel>
+                <DarkInput type="number" value={expiresDays} onChange={setExpiresDays} placeholder="365" />
+              </div>
+            </div>
+            <div className="mt-3">
+              <FieldLabel>Starting credit balance (RM)</FieldLabel>
+              <DarkInput type="number" value={credits} onChange={setCredits} placeholder="0" />
+            </div>
+          </Section>
+
+          {error && (
+            <div className="text-xs font-semibold" style={{ color: "#f87171" }}>{error}</div>
+          )}
+
+          <div className="flex gap-2 pt-1">
+            <button
+              type="button"
+              onClick={() => void create()}
+              disabled={busy}
+              className="flex-1 inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl font-bold text-sm disabled:opacity-50"
+              style={{ background: "var(--color-orange)", color: "#1a1a1a" }}
+            >
+              {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
+              Create client
+            </button>
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-4 py-2.5 rounded-xl font-bold text-sm"
+              style={{ background: "rgba(255,255,255,0.06)", border: "1px solid var(--color-border)", color: "var(--color-text-secondary)" }}
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
