@@ -1154,51 +1154,59 @@ export default function AutoContentTab({ projectId }: { projectId?: string } = {
         <label className="block text-xs font-mono uppercase tracking-widest text-[var(--color-text-muted)] font-bold mb-2">
           Provider
         </label>
-        <div className="flex gap-2 mb-3">
-          <DurationBtn active={provider === "veo"} onClick={() => setProvider("veo")}>
-            🎬 Veo 3.1
-          </DurationBtn>
-          {!SORA2_DISABLED && (
-            <DurationBtn active={provider === "grok"} onClick={() => setProvider("grok")}>
-              ⚡ Sora 2
-            </DurationBtn>
-          )}
-          {/* GeminiOmni chip hidden per admin direction — backend still
-              wired (providerChoice='gemini'). Re-enable by removing the
-              `false &&` guard below. Pairs with the Sora 2 hide above so
-              Auto Content is Veo-only in V1. */}
-          {false && (
-            <button
-              type="button"
-              onClick={() => setProvider("gemini")}
-              className="flex-1 h-9 rounded-lg text-xs font-extrabold transition-all"
-              style={
-                provider === "gemini"
-                  ? {
-                      background: "linear-gradient(135deg, #3b82f6, #06b6d4)",
-                      color: "white",
-                      boxShadow: "0 4px 14px rgba(6,182,212,0.4)",
-                    }
-                  : {
-                      background: "#fafaf7",
-                      border: "1px solid #e8e0d8",
-                      color: "#888",
-                    }
-              }
-            >
-              🔷 GeminiOmni
-            </button>
-          )}
-        </div>
-
-        {provider === "veo" && (
+        {SORA2_DISABLED ? (
+          // V1 is Veo-only — show Veo 3.1 + the fixed 8s on ONE half-half row.
           <div className="flex gap-2 mb-3">
+            <DurationBtn active={provider === "veo"} onClick={() => setProvider("veo")}>
+              🎬 Veo 3.1
+            </DurationBtn>
             <DurationBtn active={duration === "8"} onClick={() => setDuration("8")}>
               8s (1 shot)
             </DurationBtn>
-            {/* 16s auto-extend hidden — use Extend button on the finished card
-                to add segment 2, exactly like UGC tab. */}
           </div>
+        ) : (
+          <>
+            <div className="flex gap-2 mb-3">
+              <DurationBtn active={provider === "veo"} onClick={() => setProvider("veo")}>
+                🎬 Veo 3.1
+              </DurationBtn>
+              <DurationBtn active={provider === "grok"} onClick={() => setProvider("grok")}>
+                ⚡ Sora 2
+              </DurationBtn>
+              {/* GeminiOmni chip hidden per admin direction — backend still
+                  wired (providerChoice='gemini'). Re-enable by removing the
+                  `false &&` guard. */}
+              {false && (
+                <button
+                  type="button"
+                  onClick={() => setProvider("gemini")}
+                  className="flex-1 h-9 rounded-lg text-xs font-extrabold transition-all"
+                  style={
+                    provider === "gemini"
+                      ? {
+                          background: "linear-gradient(135deg, #3b82f6, #06b6d4)",
+                          color: "white",
+                          boxShadow: "0 4px 14px rgba(6,182,212,0.4)",
+                        }
+                      : {
+                          background: "#fafaf7",
+                          border: "1px solid #e8e0d8",
+                          color: "#888",
+                        }
+                  }
+                >
+                  🔷 GeminiOmni
+                </button>
+              )}
+            </div>
+            {provider === "veo" && (
+              <div className="flex gap-2 mb-3">
+                <DurationBtn active={duration === "8"} onClick={() => setDuration("8")}>
+                  8s (1 shot)
+                </DurationBtn>
+              </div>
+            )}
+          </>
         )}
 
         {provider === "grok" && (
