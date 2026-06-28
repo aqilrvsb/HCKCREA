@@ -2390,6 +2390,11 @@ function HistoryCardInner({
               <ActionBtn title="Edit Image" onClick={() => setShowEditModal(true)} bg={ACTION.edit}>
                 <Palette className="w-3.5 h-3.5" strokeWidth={2.4} />
               </ActionBtn>
+              {/* Save (yellow) hidden on the Image tab — pure image gens are
+                  already permanently stored (Transfer to Attachments / B2), so
+                  the Save button is redundant. Kept for storytelling scene
+                  images which DO have a TTL. */}
+              {item.tab !== "image" && (
               <SaveTrafficLight
                 saved={saved}
                 saving={saving}
@@ -2408,6 +2413,7 @@ function HistoryCardInner({
                   item.type === "video"
                 }
               />
+              )}
               <ActionBtn title="Download" onClick={handleDownload} bg={ACTION.download}>
                 <Download className="w-3.5 h-3.5" strokeWidth={2.4} />
               </ActionBtn>
