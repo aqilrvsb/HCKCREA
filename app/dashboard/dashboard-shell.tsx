@@ -674,7 +674,9 @@ function ProjectView({
           customers can ask anything from anywhere. The `tab` prop is now
           purely cosmetic (used for the panel header label) — knowledge
           comes from getUnifiedKnowledge() in lib/qa-knowledge.ts. */}
-      {planActive && (
+      {/* Floating Q&A chat hidden per user direction 2026-06-28. Re-enable by
+          restoring `planActive &&`. */}
+      {false && planActive && (
         <QAChatPanel
           tab={
             (activeTab === "video"

@@ -607,7 +607,9 @@ export default function Sidebar({
         </div>
         {(
           [
-            { kind: "attachments" as const, label: "Attachments", Icon: ImageIcon },
+            // Attachments nav hidden per user direction 2026-06-28 (still
+            // reachable via pickers; re-enable by uncommenting).
+            // { kind: "attachments" as const, label: "Attachments", Icon: ImageIcon },
             { kind: "billing" as const, label: "Billing", Icon: CreditCard },
             // Top Up Credit nav — visible ONLY for Pro + Premium plan
             // holders (the tiers that include the perk per the pricing
@@ -679,7 +681,9 @@ export default function Sidebar({
             package. Real /dashboard/mcp Next.js page (not a view-kind
             state), so we use a Link. Same Pro/Premium gate as Top Up
             Credit + Affiliate. */}
-        {planActive && (plan === "pro" || plan === "premium") && (
+        {/* MCP API Key nav hidden per user direction 2026-06-28. Page still
+            exists at /dashboard/mcp; re-enable by restoring the gate below. */}
+        {false && planActive && (plan === "pro" || plan === "premium") && (
           <Link
             href="/dashboard/mcp"
             onClick={() => onMobileClose()}
