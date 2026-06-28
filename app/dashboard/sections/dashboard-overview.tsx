@@ -27,6 +27,13 @@ type Stats = {
     sora2: number;
     talking_object: number;
     story: number;
+    // Per-model counts (second row):
+    gpt_image: number;
+    banana_pro: number;
+    veo: number;
+    omni: number;
+    grok: number;
+    animation: number;
     total: number;
   };
   total_cost: number;
@@ -156,7 +163,7 @@ export default function DashboardOverview({ name }: { name: string }) {
           Viral. Final card set mirrors the dashboard nav exactly:
           Image · Auto Content · Original Video · Storytelling · Viral
           + Total Cost. Layout: 2 cols mobile / 3 cols md / 6 cols lg. */}
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 mb-5">
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3 mb-3">
         <StatCard
           label="Image"
           value={loading ? "—" : String(stats?.counts.image ?? 0)}
@@ -182,12 +189,6 @@ export default function DashboardOverview({ name }: { name: string }) {
           icon={<Video className="w-4 h-4" />}
         />
         <StatCard
-          label="Viral"
-          value={loading ? "—" : String(stats?.counts.viral ?? 0)}
-          accent="#22c55e"
-          icon={<Film className="w-4 h-4" />}
-        />
-        <StatCard
           label="Total Cost"
           value={
             loading
@@ -197,6 +198,18 @@ export default function DashboardOverview({ name }: { name: string }) {
           accent="#ef4444"
           icon={<Wallet className="w-4 h-4" />}
         />
+      </div>
+
+      {/* Per-MODEL row — count by generation model. Image models (GPT Image /
+          Banana Pro) · video models (Veo 3.1 / Omni / Grok) · Animation
+          (Storytelling video). */}
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 mb-5">
+        <StatCard label="GPT Image" value={loading ? "—" : String(stats?.counts.gpt_image ?? 0)} accent="#10b981" icon={<ImageIcon className="w-4 h-4" />} />
+        <StatCard label="Banana Pro" value={loading ? "—" : String(stats?.counts.banana_pro ?? 0)} accent="#facc15" icon={<ImageIcon className="w-4 h-4" />} />
+        <StatCard label="Veo 3.1" value={loading ? "—" : String(stats?.counts.veo ?? 0)} accent="#f59e0b" icon={<Film className="w-4 h-4" />} />
+        <StatCard label="Omni" value={loading ? "—" : String(stats?.counts.omni ?? 0)} accent="#06b6d4" icon={<Film className="w-4 h-4" />} />
+        <StatCard label="Grok" value={loading ? "—" : String(stats?.counts.grok ?? 0)} accent="#f97316" icon={<Film className="w-4 h-4" />} />
+        <StatCard label="Animation" value={loading ? "—" : String(stats?.counts.animation ?? 0)} accent="#8b5cf6" icon={<Video className="w-4 h-4" />} />
       </div>
 
       {/* Filter card */}

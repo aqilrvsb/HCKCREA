@@ -61,6 +61,15 @@ export async function GET(req: Request) {
   let viralCount = 0;
   let originalVideoCount = 0;
   let totalCost = 0;
+  // Per-MODEL counts (the second dashboard row): GPT Image / Banana Pro
+  // (image models) · Veo 3.1 / Omni / Grok (video models) · Animation
+  // (Storytelling video). Derived from metadata.model | metadata.modelChoice.
+  let gptImageCount = 0;
+  let bananaProCount = 0;
+  let veoCount = 0;
+  let omniCount = 0;
+  let grokCount = 0;
+  let animationCount = 0;
   const dailyMap = new Map<
     string,
     { image: number; ugc: number; cinema: number; auto: number; total: number }
@@ -114,6 +123,23 @@ export async function GET(req: Request) {
       bucket = "auto";
     } else if (tab === "clone") {
       cloneCount += 1;
+    }
+
+    // ── Per-MODEL bucketing (independent of the tab buckets above) ──────────
+    const modelStr = String(meta.model || modelChoice || "").toLowerCase();
+    if (tab === "image" || type === "image") {
+      if (modelStr.includes("gpt-image") || modelStr.includes("gpt_image")) gptImageCount += 1;
+      else bananaProCount += 1; // nano-banana-pro is the image default
+    } else if (tab === "fairytale" && type === "fairytale") {
+      animationCount += 1; // Storytelling = Animation video
+    } else if (
+      tab === "video" || tab === "ugc" || tab === "cinema" ||
+      tab === "original-video" || tab === "auto"
+    ) {
+      if (modelStr.includes("grok")) grokCount += 1;
+      else if (modelStr.includes("gemini") || modelStr.includes("omni")) omniCount += 1;
+      else if (modelStr.includes("sora")) { /* Sora 2 — not a model card */ }
+      else veoCount += 1; // Veo 3.1 is the video default
     }
 
     const day = String(r.created_at).slice(0, 10);
@@ -178,6 +204,13 @@ export async function GET(req: Request) {
       sora2: sora2Count,
       talking_object: talkingObjectCount,
       story: storyCount,
+      // Per-model row:
+      gpt_image: gptImageCount,
+      banana_pro: bananaProCount,
+      veo: veoCount,
+      omni: omniCount,
+      grok: grokCount,
+      animation: animationCount,
       // total = sum of every TAB-level bucket. cinemaCount is already
       // viralCount + originalVideoCount so we do NOT add them again.
       total:
