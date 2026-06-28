@@ -22,10 +22,26 @@ type FeedRow = {
   display_name: string;
   tab: string;
   type: string;
+  model: string;
+  duration: number | null;
   output_url: string | null;
   thumbnail_url: string | null;
   created_at: string;
 };
+
+// Friendly model name from the row's metadata (modelChoice/model) so the feed
+// shows "Grok" / "Veo" / "Seedance" etc. Empty when we can't tell.
+function friendlyModel(meta: any, type: string): string {
+  if (type === "fairytale") return "Storytelling";
+  const s = String(meta?.modelChoice || meta?.model || "").toLowerCase();
+  if (s.includes("grok")) return "Grok";
+  if (s.includes("sora")) return "Sora 2";
+  if (s.includes("seedance")) return "Seedance";
+  if (s.includes("gemini")) return "Gemini";
+  if (s.includes("kling")) return "Kling";
+  if (s.includes("veo")) return "Veo";
+  return "";
+}
 
 export async function GET(req: Request) {
   const sb = await createClient();
@@ -57,7 +73,7 @@ export async function GET(req: Request) {
   const admin = createAdminClient();
   const { data: rows, error } = await admin
     .from("history")
-    .select("id, user_id, type, tab, output_url, thumbnail_url, created_at")
+    .select("id, user_id, type, tab, output_url, thumbnail_url, created_at, metadata, duration")
     .eq("status", "done")
     .not("output_url", "is", null)
     .in("type", VIDEO_TYPES)
@@ -84,6 +100,8 @@ export async function GET(req: Request) {
     display_name: emailById.get(r.user_id) || "(unknown)",
     tab: r.tab || r.type || "—",
     type: r.type,
+    model: friendlyModel((r as any).metadata, r.type),
+    duration: typeof (r as any).duration === "number" ? (r as any).duration : null,
     output_url: r.output_url,
     thumbnail_url: r.thumbnail_url,
     created_at: r.created_at,

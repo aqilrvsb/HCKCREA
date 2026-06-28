@@ -17,6 +17,8 @@ type FeedItem = {
   display_name: string;
   tab: string;
   type: string;
+  model?: string;
+  duration?: number | null;
   output_url: string | null;
   thumbnail_url: string | null;
   created_at: string;
@@ -187,10 +189,18 @@ export default function ActivityFeed() {
                     <div className="text-[11px] font-bold text-white truncate">
                       {it.display_name}
                     </div>
-                    <div className="text-[10px] text-gray-400 flex items-center gap-1.5">
+                    <div className="text-[10px] text-gray-400 flex items-center gap-1.5 flex-wrap">
                       <span className="px-1.5 py-0.5 rounded font-mono uppercase font-bold tracking-wide" style={{ background: "rgba(250,204,21,0.12)", color: "#fde68a" }}>
                         {tabLabel(it)}
                       </span>
+                      {it.model && (
+                        <span className="px-1.5 py-0.5 rounded font-mono font-bold tracking-wide" style={{ background: "rgba(255,255,255,0.06)", color: "#cbd5e1" }}>
+                          {it.model}
+                        </span>
+                      )}
+                      {it.duration ? (
+                        <span className="font-mono text-emerald-400/80">{it.duration}s</span>
+                      ) : null}
                       <span className="font-mono text-gray-500">{fmtMyTime(it.created_at)}</span>
                     </div>
                   </div>
