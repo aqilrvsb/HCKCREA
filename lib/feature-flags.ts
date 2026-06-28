@@ -3,9 +3,10 @@
 // the relevant flag here and the UI + API surfaces auto-hide it. Avoids
 // scattering hardcoded conditions across the codebase.
 
-// Re-enabled 2026-06-08 after APIPod restored the sora-2-vip registry
-// entry (their console banner: "The official transfer API for OpenAI
-// Sora 2 is now restored"). Outage window: 2026-06-07 through
-// 2026-06-08. Failed task IDs from the outage that customers should
-// NOT be charged for: eab71f03-..., eb8a23bc-...
-export const SORA2_DISABLED = false;
+// Disabled 2026-06-28 per user direction — remove Sora 2 as a provider option
+// from Dialog UGC, Auto Content, and Original Video. The flag auto-hides the
+// Sora 2 chip on all three tabs (each checks SORA2_DISABLED). Existing Sora 2
+// history rows still render normally.
+//   (Previously re-enabled 2026-06-08 after APIPod restored the sora-2-vip
+//    registry entry; outage window 2026-06-07 → 2026-06-08.)
+export const SORA2_DISABLED = true;

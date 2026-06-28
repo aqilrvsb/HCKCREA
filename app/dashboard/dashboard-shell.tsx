@@ -69,9 +69,11 @@ const TABS: { key: TabKey; label: string; icon: any; tag: string }[] = [
   // the Sora 2 / Viral grids if shared. Re-enable by uncommenting.
   // { key: "seedance",  label: "Cinema",       icon: Film,      tag: "04" },
   { key: "original-video", label: "Original Video", icon: Film, tag: "04" },
-  { key: "clone",     label: "Clone Prompt", icon: Layers,    tag: "05" },
+  // Clone Prompt + Viral tabs hidden per user direction 2026-06-28. Routes +
+  // imports kept so existing history rows still render; re-enable by uncommenting.
+  // { key: "clone",     label: "Clone Prompt", icon: Layers,    tag: "05" },
   { key: "fairytale", label: "Storytelling", icon: BookOpen,  tag: "06" },
-  { key: "cinema",    label: "Viral",        icon: Film,      tag: "07" },
+  // { key: "cinema",    label: "Viral",        icon: Film,      tag: "07" },
   // Grok hidden per user direction (server unstable).
   // Sora 2 standalone tab hidden — Original Video (04) now exposes
   // Sora 2 as a provider option alongside Veo + Grok, making the
