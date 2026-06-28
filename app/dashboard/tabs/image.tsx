@@ -55,6 +55,10 @@ const PRODUCT_PROMPTS = PRODUCT_LABELS.map((p) => ({
 const SALES_PROMPTS = [
   { label: "Soft Sales", color: "#4caf50", val: SOFT_SELL_PROMPT },
   { label: "Hard Sell", color: "#f44336", val: HARD_SELL_PROMPT },
+  // Was the "Virtualize" example prompt — recreate a poster/ad with the user's
+  // real product. Now a Sales preset; pair it with poster + product in the
+  // References grid.
+  { label: "TiruVasi", color: "#e91e63", val: VIRT_EXAMPLE_PROMPT },
 ];
 
 // Livehost Avatar variant — hardcoded host presets (sit / stand), no personas,
@@ -201,24 +205,13 @@ export default function ImageTab({ projectId, avatar }: { projectId?: string; av
       {/* IMAGE GENERATOR — Model (+ Mode, hidden in avatar variant) */}
       <Card borderColor={ORANGE}>
         <CardHeader icon="🖼️" title="Image Generator" />
-        <div className={avatar ? "" : "grid grid-cols-2 gap-3"}>
-          <div>
-            <Label>Model</Label>
-            <Select value={model} onChange={(v) => setModel(v as ImageModel)}>
-              {MODEL_OPTIONS.map((m) => (
-                <option key={m.key} value={m.key}>{m.label}</option>
-              ))}
-            </Select>
-          </div>
-          {!avatar && (
-            <div>
-              <Label>Mode</Label>
-              <Select value={mode} onChange={(v) => setMode(v as Mode)}>
-                <option value="create">Create Image</option>
-                <option value="virtualize">Virtualize (Poster/Ad)</option>
-              </Select>
-            </div>
-          )}
+        <div>
+          <Label>Model</Label>
+          <Select value={model} onChange={(v) => setModel(v as ImageModel)}>
+            {MODEL_OPTIONS.map((m) => (
+              <option key={m.key} value={m.key}>{m.label}</option>
+            ))}
+          </Select>
         </div>
       </Card>
 
@@ -313,65 +306,6 @@ export default function ImageTab({ projectId, avatar }: { projectId?: string; av
           </p>
         </>
       ))}
-
-      {/* VIRTUALIZE MODE — Poster + Product side-by-side */}
-      {mode === "virtualize" && (
-        <Card borderColor="#e91e63">
-          <CardHeader
-            icon="🎨"
-            title="Virtualize"
-            right={<Badge color="#e91e63">Upload existing poster/ad + product</Badge>}
-          />
-          <div className="grid grid-cols-2 gap-2">
-            <div>
-              <div className="flex items-center justify-between mb-1">
-                <div className="text-[10px] font-bold" style={{ color: "#e91e63" }}>
-                  Poster / Ad Image
-                </div>
-              </div>
-              <RefZone
-                url={posterUrl}
-                icon="🖼️"
-                title=""
-                subtitle="Upload existing poster or ad design"
-                small
-                onPick={() => setAttachmentSlot("poster")}
-                onClear={() => setPosterUrl("")}
-              />
-            </div>
-            <div>
-              <div className="flex items-center justify-between mb-1">
-                <div className="text-[10px] font-bold" style={{ color: ORANGE }}>
-                  Product Photo
-                </div>
-              </div>
-              <RefZone
-                url={virtProductUrl}
-                icon="📦"
-                title=""
-                subtitle="Upload real product photo"
-                small
-                onPick={() => setAttachmentSlot("virtProduct")}
-                onClear={() => setVirtProductUrl("")}
-              />
-            </div>
-          </div>
-          <p className="text-[10px] text-gray-500 mt-2">
-            AI will recreate the poster design with your actual product. Keep exact product details, labels, and packaging.
-          </p>
-          <button
-            onClick={() => setPrompt(VIRT_EXAMPLE_PROMPT)}
-            className="mt-2 w-full py-1.5 rounded-md text-xs font-bold transition"
-            style={{
-              background: "rgba(233,30,99,0.08)",
-              border: "1px solid #e91e63",
-              color: "#e91e63",
-            }}
-          >
-            View Example Prompt
-          </button>
-        </Card>
-      )}
 
       {/* PROMPT & SETTINGS */}
       <Card>
