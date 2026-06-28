@@ -2473,7 +2473,7 @@ function HistoryCardInner({
                   "improve this specific clip", so the Extend / Combine
                   buttons cover the use case. Kept for Cinema / Story /
                   Clone where users do iterate on a single result. */}
-              {item.tab !== "video" && item.tab !== "auto" && (
+              {item.tab !== "video" && item.tab !== "auto" && item.tab !== "original-video" && (
                 <ActionBtn title="Improve Video" onClick={() => setShowEditModal(true)} bg={ACTION.edit}>
                   <Pencil className="w-3.5 h-3.5" strokeWidth={2.4} />
                 </ActionBtn>
