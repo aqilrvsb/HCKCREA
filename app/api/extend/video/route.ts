@@ -1,7 +1,7 @@
 import { NextResponse, after } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { getP2Config } from "@/lib/settings";
+import { getP2Config, getCinemaRate, getGeminiRate } from "@/lib/settings";
 import { priceFor } from "@/lib/deduct";
 import { falExtractFrame, type FrameAnchor } from "@/lib/fal";
 import { refineFrameWithProduct } from "@/lib/refine-frame";
@@ -89,8 +89,26 @@ export async function POST(req: Request) {
     : null;
   const endFrameUrl = body?.end_frame_url ? String(body.end_frame_url) : "";
 
-  // Extension duration ladder: 8→16, 16→24, 24→30 (cap).
+  // Provider — which model generates seg-2. Default "veo" (legacy behaviour).
+  //   • "grok" → Grok i2v from the selected start frame, NO product refine,
+  //              user-chosen duration (1-15s slider). Routes through the
+  //              dedicated "grok" cascade pool.
+  //   • "omni" → GeminiOmni i2v, SAME reference/refine flow as Veo, but the
+  //              clip length is fixed 10s (Omni's native length). Routes
+  //              through the dedicated "gemini" cascade pool.
+  //   • "veo"  → existing Veo i2v + Banana refine + 8→16→24→30 ladder.
+  const provider = String(body?.provider || "veo").toLowerCase();
+  const isGrokExt = provider === "grok";
+  const isOmniExt = provider === "omni";
+
+  // Extension duration. Veo uses the 8→16→24→30 ladder; Grok takes the
+  // slider value (1-15s); Omni is fixed 10s.
   const extendSeconds = ((): number => {
+    if (isOmniExt) return 10; // Omni fixed 10s
+    if (isGrokExt) {
+      const r = Math.round(Number(body?.extend_seconds || 0));
+      return Math.min(15, Math.max(1, r || 5));
+    }
     const requested = Number(body?.extend_seconds || 0);
     if (requested === 6 || requested === 8) return requested;
     if (sourceDuration < 16) return 8;
@@ -218,10 +236,21 @@ export async function POST(req: Request) {
       //    upload still ran. Actual recover-seg2 reusing an in-flight
       //    refine task does NOT double-charge (the original extend
       //    cost is already on the row).
-      const videoCost = Number(
-        ((await priceFor(user.id, "video_8s")) * extendSeconds / 8).toFixed(4)
-      );
-      const willRefine = bucket !== "cinema" && !!productImageUrl;
+      // Per-provider video cost — mirrors the generation routes so the
+      // extend charge matches what a fresh clip of the same model costs:
+      //   • Grok → cinema per-second rate × extendSeconds
+      //   • Omni → flat 10s GeminiOmni rate
+      //   • Veo  → video_8s rate × (extendSeconds / 8)
+      const videoCost = isGrokExt
+        ? Number(((await getCinemaRate()) * extendSeconds).toFixed(4))
+        : isOmniExt
+          ? Number((await getGeminiRate("10")).toFixed(4))
+          : Number(
+              ((await priceFor(user.id, "video_8s")) * extendSeconds / 8).toFixed(4)
+            );
+      // Grok extends use the selected frame directly (no product anchor),
+      // so the Banana refine never runs. Omni + Veo keep the refine.
+      const willRefine = !isGrokExt && bucket !== "cinema" && !!productImageUrl;
       const refineCost = willRefine
         ? await priceFor(user.id, "image_generate", "banana_pro")
         : 0;
@@ -314,9 +343,13 @@ export async function POST(req: Request) {
       // configured. Cinema bucket uses Grok i2v.
       const cfg = await getP2Config();
       const model =
-        bucket === "cinema"
+        isGrokExt
           ? cfg.grokI2V
-          : cfg.videoI2V || cfg.videoR2V;
+          : isOmniExt
+            ? "google/gemini-omni"
+            : bucket === "cinema"
+              ? cfg.grokI2V
+              : cfg.videoI2V || cfg.videoR2V;
       if (!model) {
         await admin.from("history").update({
           status: "failed",
@@ -350,7 +383,7 @@ export async function POST(req: Request) {
       let refineError: string | null = null;
       let refineProvider: string | null = null;
       let refineTierLog: string[] | null = null;
-      if (bucket !== "cinema" && productImageUrl) {
+      if (!isGrokExt && bucket !== "cinema" && productImageUrl) {
         try {
           const refined = await refineFrameWithProduct({
             frameUrl: startUrl,
@@ -442,7 +475,13 @@ export async function POST(req: Request) {
         // r2v mode here; that was producing visible seg-1 → seg-2 cuts
         // because Veo interpreted the ref instead of starting from it.
         imageMode: "frame",
-        asset: bucket === "cinema" ? "cinema" : "video",
+        asset: isGrokExt
+          ? "grok"
+          : isOmniExt
+            ? "gemini"
+            : bucket === "cinema"
+              ? "cinema"
+              : "video",
       });
       const created: {
         ok: boolean;
@@ -487,6 +526,11 @@ export async function POST(req: Request) {
             },
             end_frame_url: endUrl || null,
             bucket,
+            // Stamp the model family so settle/recheck polls the right
+            // upstream + the dashboard per-model counter classifies the
+            // seg-2 row correctly (grok / gemini / veo).
+            modelChoice: isGrokExt ? "grok" : isOmniExt ? "gemini" : "veo",
+            model: cfg.grokI2V && isGrokExt ? cfg.grokI2V : isOmniExt ? "google/gemini-omni" : undefined,
             aspectRatio,
             extend_seconds: extendSeconds,
             start_frame_source: startFrameSource,

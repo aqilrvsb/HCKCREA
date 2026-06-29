@@ -52,6 +52,7 @@ export default function ExtendDialog({
   videoUrl,
   duration,
   bucket,
+  provider = "veo",
   productImageUrl,
   productDescription,
   voice,
@@ -64,6 +65,12 @@ export default function ExtendDialog({
   videoUrl: string;
   duration: number;
   bucket: "ugc" | "cinema" | "auto";
+  // Model that generates seg-2:
+  //   • "grok" → Grok i2v from the picked start frame, NO product reference,
+  //              user-chosen 1-15s duration slider.
+  //   • "omni" → GeminiOmni, SAME reference flow as Veo, fixed 10s.
+  //   • "veo"  → existing Veo refine + 8→16→24→30 ladder (default).
+  provider?: "veo" | "grok" | "omni";
   productImageUrl?: string;
   productDescription?: string;
   voice?: string;
@@ -76,6 +83,18 @@ export default function ExtendDialog({
   onFired: (seg2HistoryId: string) => void;
 }) {
   const plan = extensionPlan(duration);
+  const isGrok = provider === "grok";
+  const isOmni = provider === "omni";
+  // Grok extend length — user-chosen 1-15s (Grok 1.5 range). Veo uses the
+  // fixed ladder; Omni is fixed 10s.
+  const [grokSeconds, setGrokSeconds] = useState(5);
+  // Resolved extension length + total, per provider.
+  const extSeconds = isOmni ? 10 : isGrok ? grokSeconds : plan?.ext ?? 0;
+  const totalSeconds = isOmni
+    ? duration + 10
+    : isGrok
+      ? duration + grokSeconds
+      : plan?.total ?? duration;
   // Default start frame = last (most common = pure continuation)
   const [startFrame, setStartFrame] = useState<FrameSelection>({ source: "last" });
   // Editable seg2 prompt textarea, pre-filled with seg1's prompt.
@@ -311,14 +330,17 @@ export default function ExtendDialog({
   }
 
   async function fire() {
-    if (!plan) return setError("This clip is already at the 30-second cap.");
+    // Veo uses the fixed ladder — a null plan means the clip already hit
+    // the 30s cap. Grok / Omni have no ladder so they're never blocked here.
+    if (!isGrok && !isOmni && !plan) {
+      return setError("This clip is already at the 30-second cap.");
+    }
     if (!editedPrompt.trim()) return setError("The seg-2 prompt cannot be empty — edit the textarea below.");
-    // Product reference is REQUIRED for the Banana Pro refine step. The
-    // refine rebuilds the product into the start frame pixel-perfectly
-    // before Veo conditions on it, so seg-2 keeps the label crystal
-    // clear. Without an attachment we can't run that refine and the
-    // product will drift like before.
-    if (!overrideProductDataUrl) {
+    // Product reference is REQUIRED for the Banana Pro refine step (Veo +
+    // Omni). The refine rebuilds the product into the start frame
+    // pixel-perfectly before the model conditions on it. Grok extends use
+    // the picked frame directly (no product anchor), so it's skipped.
+    if (!isGrok && !overrideProductDataUrl) {
       return setError("Pick a product image from Attachments — needed for the HD refine step.");
     }
     setError(null);
@@ -326,10 +348,12 @@ export default function ExtendDialog({
     try {
       const seg2Prompt = buildSeg2Prompt();
       let resolvedProductUrl: string | undefined;
-      try {
-        resolvedProductUrl = await ensurePublicUrl(overrideProductDataUrl);
-      } catch (e: any) {
-        throw new Error(`Product image upload failed: ${e?.message || e}`);
+      if (!isGrok && overrideProductDataUrl) {
+        try {
+          resolvedProductUrl = await ensurePublicUrl(overrideProductDataUrl);
+        } catch (e: any) {
+          throw new Error(`Product image upload failed: ${e?.message || e}`);
+        }
       }
 
       const res = await fetch("/api/extend/video", {
@@ -340,6 +364,7 @@ export default function ExtendDialog({
           source_video_url: videoUrl,
           source_duration: duration,
           bucket,
+          provider,
           // When source is "upload" we already captured the HD frame in
           // the browser + uploaded to peninglab-content. Backend uses
           // startFrame.url directly and skips its fal.ai extract. When
@@ -357,7 +382,7 @@ export default function ExtendDialog({
           product_description: productDescription,
           voice,
           aspect_ratio: aspectRatio || "9:16",
-          extend_seconds: plan.ext,
+          extend_seconds: extSeconds,
         }),
       });
       const j = await res.json().catch(() => ({}));
@@ -371,7 +396,7 @@ export default function ExtendDialog({
 
   const accent = bucket === "ugc" ? "#22c55e" : bucket === "cinema" ? "#7c4dff" : "#f59e0b";
 
-  if (!plan) {
+  if (!plan && !isGrok && !isOmni) {
     return (
       <Portal>
         <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
@@ -401,7 +426,7 @@ export default function ExtendDialog({
               <Plus className="w-5 h-5" style={{ color: accent }} />
               <h2 className="text-base font-semibold text-white">Extend Video</h2>
               <span className="text-[10px] font-mono uppercase tracking-wider text-gray-500">
-                {duration}s + {plan.ext}s = {plan.total}s
+                {duration}s + {extSeconds}s = {totalSeconds}s
               </span>
             </div>
             <button onClick={onClose} className="p-1 rounded hover:bg-gray-800 text-gray-400">
@@ -455,13 +480,52 @@ export default function ExtendDialog({
               accent={accent}
             />
 
+            {/* Grok extend length — Grok 1.5 supports 1-15s. The picked
+                start frame is fed straight to Grok i2v (no product
+                refine), so the only control here is how long seg-2 runs. */}
+            {isGrok && (
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-xs font-bold uppercase tracking-wider" style={{ color: accent }}>
+                    Extend length
+                  </label>
+                  <span className="text-[11px] font-mono px-2 py-0.5 rounded" style={{ background: `${accent}20`, color: accent, border: `1px solid ${accent}40` }}>
+                    {grokSeconds}s
+                  </span>
+                </div>
+                <input
+                  type="range"
+                  min={1}
+                  max={15}
+                  step={1}
+                  value={grokSeconds}
+                  onChange={(e) => setGrokSeconds(Number(e.target.value))}
+                  className="w-full"
+                  style={{ accentColor: accent }}
+                />
+                <div className="flex justify-between text-[10px] text-gray-500 mt-0.5">
+                  <span>1s</span>
+                  <span>15s</span>
+                </div>
+              </div>
+            )}
+
+            {/* Omni extend is fixed 10s (Omni's native clip length). */}
+            {isOmni && (
+              <div className="text-[11px] text-gray-400 px-3 py-2 rounded-md" style={{ background: `${accent}10`, border: `1px solid ${accent}30` }}>
+                Omni extends generate a fixed <span className="font-semibold" style={{ color: accent }}>10-second</span> continuation.
+              </div>
+            )}
+
             {/* Product Reference — REQUIRED for the Banana Pro refine
                 step. The HD start frame + product attachment go into
                 Nano Banana Pro, which rebuilds the frame so the product
                 in the user's hand exactly matches the attached image
                 pixel-for-pixel (label, typography, colour). Veo r2v
                 then conditions on the refined frame and seg-2 stays
-                crystal clear from frame 1. */}
+                crystal clear from frame 1. Hidden for Grok — it conditions
+                on the picked frame directly with no product anchor. */}
+            {!isGrok && (
             <div>
               <label className="block text-xs font-bold uppercase tracking-wider mb-1" style={{ color: overrideProductDataUrl ? "var(--color-text-secondary, #aaa)" : "#fbbf24" }}>
                 Product Reference (required) {!overrideProductDataUrl && "*"}
@@ -510,6 +574,7 @@ export default function ExtendDialog({
                 </button>
               )}
             </div>
+            )}
 
             {/* End Frame UI removed — backend defaults to last frame of
                 source clip so segment 2 lands where segment 1 ended,
@@ -529,7 +594,7 @@ export default function ExtendDialog({
                   className="text-[10px] font-mono uppercase tracking-wider px-2 py-0.5 rounded"
                   style={{ background: `${accent}20`, color: accent, border: `1px solid ${accent}40` }}
                 >
-                  {plan.ext} seconds
+                  {extSeconds} seconds
                 </span>
               </div>
 
@@ -599,12 +664,12 @@ export default function ExtendDialog({
                 busy ||
                 !!capturingFrame ||
                 !editedPrompt.trim() ||
-                !overrideProductDataUrl
+                (!isGrok && !overrideProductDataUrl)
               }
               title={
                 capturingFrame
                   ? "Capturing HD frame…"
-                  : !overrideProductDataUrl
+                  : !isGrok && !overrideProductDataUrl
                     ? "Pick a product image from Attachments first — needed for the refine step"
                     : !editedPrompt.trim()
                       ? "Edit the seg-2 prompt first (cannot be empty)"
@@ -619,7 +684,7 @@ export default function ExtendDialog({
                   Submitting…
                 </>
               ) : (
-                <>Generate +{plan.ext}s</>
+                <>Generate +{extSeconds}s</>
               )}
             </button>
           </div>

@@ -866,13 +866,26 @@ function HistoryCardInner({
   const isGeminiRow =
     modelChoiceLower === "gemini" ||
     /gemini-omni/i.test(rawModelLower);
+  // Which model generates the extension — drives the ExtendDialog branch
+  // + the /api/extend/video provider path.
+  const extendProvider: "veo" | "grok" | "omni" = isGrokRow
+    ? "grok"
+    : isGeminiRow
+      ? "omni"
+      : "veo";
+  // Grok Extend is allowed on Dialog UGC (tab='video') + Original Video.
+  // Omni Extend is allowed on Original Video only. Veo (default) keeps its
+  // existing reach — every non-cinema / non-clone / non-sora2 video row.
+  const grokExtendOk =
+    isGrokRow && (item.tab === "video" || item.tab === "original-video");
+  const omniExtendOk = isGeminiRow && item.tab === "original-video";
+  const veoExtendOk = !isGrokRow && !isGeminiRow;
   const canExtend =
     isVideo &&
     !isCinema &&
     !isClonePrompt &&
-    !isGrokRow &&
     !isSora2Row &&
-    !isGeminiRow &&
+    (grokExtendOk || omniExtendOk || veoExtendOk) &&
     item.status === "done" &&
     item.output_url;
 
@@ -2430,7 +2443,13 @@ function HistoryCardInner({
               {canExtend && (
                 <button
                   onClick={() => setShowExtendModal(true)}
-                  title="Extend +8s"
+                  title={
+                    extendProvider === "grok"
+                      ? "Extend (pick length 1-15s)"
+                      : extendProvider === "omni"
+                        ? "Extend +10s"
+                        : "Extend +8s"
+                  }
                   className="flex-1 h-7 rounded-lg text-[9px] font-extrabold uppercase tracking-wider text-white flex items-center justify-center gap-1 transition-transform hover:scale-105"
                   style={{ background: ACTION.extend, boxShadow: "0 2px 6px rgba(245,158,11,0.4)" }}
                 >
@@ -2605,6 +2624,7 @@ function HistoryCardInner({
                 ? "auto"
                 : "ugc"
           }
+          provider={extendProvider}
           productImageUrl={item.reference_url || undefined}
           voice={(item.metadata as any)?.voice || undefined}
           aspectRatio={(item.metadata as any)?.aspectRatio || "9:16"}
