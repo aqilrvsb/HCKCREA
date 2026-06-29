@@ -86,22 +86,19 @@ export async function GET(req: Request) {
     );
   }
 
-  // Admin's own test errors clutter the feed — hide rows owned by the
-  // admin@gmail.com account so the table only shows real client errors.
-  const adminUserIds = new Set<string>();
-  (authList?.users || []).forEach((u: any) => {
-    if ((u.email || "").toLowerCase() === "admin@gmail.com") {
-      adminUserIds.add(u.id);
-    }
-  });
   // Filter to internal-error-class failures only. Per user direction:
   // "at admin error also only show internal error". Content moderation,
   // audio-gen, rate-limit, validator, auth failures, etc. are not
   // admin-actionable (re-firing same row won't help) — user resolves
   // them on their own dashboard. Same gate used by all retry paths so
   // admin only sees rows that the system could/should retry.
+  //
+  // NOTE: previously this ALSO excluded rows owned by admin@gmail.com to
+  // keep test errors out of the feed. Removed per user direction
+  // 2026-06-29 — admin tests Original Video / UGC / Auto Content on the
+  // admin account itself and needs those failures to surface here.
   const visibleRows = (failedRows || []).filter(
-    (r: any) => !adminUserIds.has(r.user_id) && isInternalError(r.error_message)
+    (r: any) => isInternalError(r.error_message)
   );
 
   let videoCount = 0;
