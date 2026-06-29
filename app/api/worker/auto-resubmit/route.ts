@@ -8,6 +8,7 @@ import {
   getGrokFallbackSlots,
   getCinemaFallbackSlots,
   getSora2FallbackSlots,
+  getGeminiFallbackSlots,
   type CascadeAsset,
 } from "@/lib/cascade-rotation";
 import { isInternalError } from "@/lib/retry-eligibility";
@@ -49,6 +50,7 @@ async function getAutoRetryCap(asset: CascadeAsset): Promise<number> {
   if (asset === "grok") slots = await getGrokFallbackSlots();
   else if (asset === "cinema") slots = await getCinemaFallbackSlots();
   else if (asset === "sora2") slots = await getSora2FallbackSlots();
+  else if (asset === "gemini") slots = await getGeminiFallbackSlots();
   else slots = await getVideoFallbackSlots();
   // Count active slots only — "none" entries are placeholders, not
   // real retry destinations.
@@ -96,7 +98,7 @@ export async function GET(req: Request) {
     // All video-producing tabs. Image tabs ("image", "fairytale") use
     // a different cascade and are handled separately — for now they
     // stay manual until image-cascade auto-retry is wired up.
-    .in("tab", ["video", "auto", "auto-content", "cinema", "seedance", "clone", "template-body"])
+    .in("tab", ["video", "auto", "auto-content", "cinema", "original-video", "seedance", "clone", "template-body"])
     .gte("updated_at", cutoff)
     .order("updated_at", { ascending: false })
     .limit(BATCH_LIMIT);
@@ -237,7 +239,21 @@ export async function GET(req: Request) {
       // also route through the sora2 pool for retries.
       rowAsset = "sora2";
     }
+    else if (meta.modelChoice === "gemini" || /gemini-omni/i.test(rowModel)) {
+      // GeminiOmni rows (Original Video / Auto Content Omni) route through
+      // the dedicated gemini cascade pool — NOT the generic video pool,
+      // which may include p6 slots that don't accept google/gemini-omni.
+      // This branch was MISSING here, so Omni rows defaulted to the Veo
+      // 'video' pool and re-failed every retry. lib/settle.ts already had
+      // it; this brings the cron in sync. Fixed 2026-06-29.
+      rowAsset = "gemini";
+    }
     else if (row.tab === "seedance") rowAsset = "cinema";
+    else if (meta.modelChoice === "seedance" || /seedance/i.test(rowModel)) {
+      // Original Video Seedance rows are tab='original-video' — route by
+      // modelChoice through the cinema pool. Matches lib/settle.ts.
+      rowAsset = "cinema";
+    }
     else if (meta.modelChoice === "grok" || /grok/i.test(rowModel)) {
       // Grok by modelChoice/model REGARDLESS of tab — Dialog UGC grok rows
       // are tab="video", so the old tab gate misrouted them to the Veo
@@ -298,7 +314,18 @@ export async function GET(req: Request) {
         : refImage
           ? "ingredient"
           : "text";
-    const model = String(meta.model || (refImage ? cfg.videoR2V : cfg.videoT2V));
+    // Resolve the model. Prefer the stamped meta.model (grok/omni/sora rows
+    // carry it). When empty, fall back BY modelChoice so a grok/omni row
+    // without a stamped model doesn't silently retry as Veo. Mirrors
+    // lib/settle.ts. Fixed 2026-06-29.
+    let model = String(meta.model || "");
+    if (!model) {
+      if (meta.modelChoice === "gemini") model = "google/gemini-omni";
+      else if (meta.modelChoice === "sora2") model = "sora2";
+      else if (meta.modelChoice === "seedance") model = "seedance";
+      else if (meta.modelChoice === "grok") model = refImage ? cfg.grokI2V : cfg.grokT2V;
+      else model = refImage ? cfg.videoR2V : cfg.videoT2V;
+    }
 
     // Force the cascade to a slot different from the last-failed one.
     const priorLog: any[] = Array.isArray(meta.tier_log) ? meta.tier_log : [];

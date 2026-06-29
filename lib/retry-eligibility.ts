@@ -125,6 +125,23 @@ const RETRYABLE_ERROR_PATTERNS: RegExp[] = [
   //    that hit our own past mis-routing (a grok row sent to the Veo pool),
   //    which now route correctly through the grok cascade. Added 2026-06-19.
   /missing param/i,
+  // 10. Provider gateway / 5xx timeout — APIPod (Cloudflare-fronted) returns
+  //     "HTTP 524" (origin timeout) or other 5xx when the upstream model
+  //     server is slow/overloaded. The task was rejected PRE-QUEUE (no task
+  //     created upstream), so nothing is in flight to double-charge — a clean
+  //     rotation to another slot/key regenerates fine. Covers 500/502/503/504
+  //     and Cloudflare's 520-527 family. Real phrasing observed:
+  //       • APIPod: "attempt1: APIPod HTTP 524"
+  //     Added per user direction 2026-06-29.
+  /\bhttp\s*5\d{2}\b/i,
+  /\b52[0-7]\b/,
+  // 11. Generic provider transient reject — APIPod sometimes rejects pre-queue
+  //     with a bare "An error occurred. Please retry or contact support." It
+  //     literally asks to retry, and (like #524 above) no task was created,
+  //     so rotating to another slot recovers. Real phrasing observed:
+  //       • APIPod: "attempt1: An error occurred. Please retry or contact support."
+  //     Added per user direction 2026-06-29.
+  /an error occurred[^\n]{0,40}(?:please retry|contact support|please contact)/i,
 ];
 
 export function isInternalError(err: string | null | undefined): boolean {
