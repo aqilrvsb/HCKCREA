@@ -219,7 +219,9 @@ export default function HistoryGrid({
   // Combine/merge multi-select. Only enabled on video tabs (UGC/Auto/Cinema)
   // — image tabs don't have a "combine" semantic. Reset whenever the tab or
   // project switches (the parent re-keys this component, but extra-safe).
-  const supportsMerge = tab === "video" || tab === "auto" || tab === "cinema";
+  // Merge/Combine removed from all tabs per user direction — the per-card
+  // Combine toggle + the floating Merge bar no longer surface anywhere.
+  const supportsMerge = false;
   const [mergeSelection, setMergeSelection] = useState<string[]>([]);
   const [merging, setMerging] = useState(false);
   function toggleMergeSelection(id: string) {
