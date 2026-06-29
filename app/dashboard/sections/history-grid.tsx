@@ -1521,10 +1521,10 @@ function HistoryCardInner({
         )}
         {item.status === "failed" && item.type !== "fairytale" && (
           <>
-            <div className="absolute inset-0 flex flex-col items-center justify-center text-red-400 text-xs font-bold gap-2 px-3 text-center">
-              <XCircle className="w-5 h-5" />
-              <span className="line-clamp-2">
-                {/^Stale\b/i.test(item.error_message || "") ? "Failed" : (item.error_message || "Failed")}
+            <div className="absolute inset-0 flex flex-col items-center justify-center text-xs font-bold gap-2 px-3 text-center" style={{ color: "#86efac" }}>
+              <Clock className="w-6 h-6" />
+              <span className="line-clamp-3 leading-snug">
+                Tunggu je — video akan pulih sendiri. Sistem sedang cuba semula automatik. 🎬
               </span>
               {/* Full prompt + inline editor. Click Edit to modify
                   before clicking Resubmit. Edited prompt is sent to
@@ -1863,25 +1863,13 @@ function HistoryCardInner({
             <div className="relative z-10 flex flex-col items-center justify-center gap-2">
             {segmentPlaceholder === "failed" ? (
               <>
-                <X className="w-10 h-10" style={{ color: "rgb(239, 68, 68)" }} />
-                <div className="text-xs font-bold" style={{ color: "rgb(239, 68, 68)" }}>
-                  {activeSlide?.label} failed
-                </div>
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    if (activeSlide) void retrySlide(activeSlide);
-                  }}
-                  className="mt-2 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-[11px] font-bold transition"
-                  style={{
-                    background: "rgba(239,68,68,0.18)",
-                    border: "1px solid rgba(239,68,68,0.5)",
-                    color: "rgb(252,165,165)",
-                  }}
+                <Clock className="w-10 h-10" style={{ color: "#86efac" }} />
+                <div
+                  className="text-[11px] font-bold text-center px-3 leading-snug"
+                  style={{ color: "#86efac" }}
                 >
-                  <RefreshCw className="w-3 h-3" />
-                  Resubmit
-                </button>
+                  Tunggu je — {activeSlide?.label} akan pulih sendiri 🎬
+                </div>
               </>
             ) : segmentPlaceholder === "queued" ? (
               (() => {
@@ -2526,25 +2514,26 @@ function HistoryCardInner({
             </>
           )}
 
-          {/* FAILED — Retry + Delete (Storytelling merged videos skip
-              Resubmit because the render is expensive (~60s+ Modal
-              compute), and the recheck icon at top-right already
-              handles the common case where Modal succeeded but the
-              row got stuck. Resubmit here would just spend money
-              re-rendering what may already exist in B2). */}
+          {/* FAILED — the manual Resubmit button is hidden. The system now
+              auto-recovers failed rows on its own (event-driven retry on
+              settle + the auto-resubmit cron every 8 min + the fallback
+              cascade across provider slots), so a manual button just
+              confuses clients. Show a calm reassurance message instead +
+              keep Delete. Per user direction 2026-06-29. */}
           {item.status === "failed" && (
             <>
-              {item.type !== "fairytale" && (
-                <button
-                  onClick={handleRetry}
-                  disabled={checking}
-                  title="Resubmit"
-                  className="flex-1 h-7 rounded-lg text-[9px] font-extrabold uppercase tracking-wider text-white flex items-center justify-center gap-1 disabled:opacity-50 transition-transform hover:scale-105"
-                  style={{ background: ACTION.retry, boxShadow: "0 2px 6px rgba(34,197,94,0.4)" }}
-                >
-                  {checking ? <Loader2 className="w-3 h-3 animate-spin" /> : <><RotateCw className="w-3 h-3" />Resubmit</>}
-                </button>
-              )}
+              <div
+                className="flex-1 min-h-7 px-2 py-1 rounded-lg text-[9px] font-bold tracking-wide text-center flex items-center justify-center gap-1 leading-tight"
+                style={{
+                  background: "rgba(34,197,94,0.12)",
+                  border: "1px solid rgba(34,197,94,0.35)",
+                  color: "#86efac",
+                }}
+                title="Sistem akan cuba semula secara automatik sehingga berjaya — tak perlu buat apa-apa"
+              >
+                <Clock className="w-3 h-3 flex-shrink-0" />
+                Tunggu je — video akan pulih sendiri
+              </div>
               <ActionBtn title="Delete" onClick={handleDelete} bg={ACTION.delete} disabled={deleting}>
                 <Trash2 className="w-3.5 h-3.5" strokeWidth={2.4} />
               </ActionBtn>
