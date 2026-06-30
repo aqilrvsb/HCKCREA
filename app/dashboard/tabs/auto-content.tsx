@@ -896,8 +896,9 @@ export default function AutoContentTab({ projectId }: { projectId?: string } = {
                 { src: "/ac-rule-3.webp", cap: "3) Product RAW (naked)" },
               ].map((im) => (
                 <div key={im.src} className="rounded-lg overflow-hidden" style={{ background: "#fff", border: "1px solid rgba(220,38,38,0.35)" }}>
+                  {/* object-contain = papar gambar PENUH (tak potong). */}
                   {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={im.src} alt={im.cap} className="w-full h-28 object-cover" />
+                  <img src={im.src} alt={im.cap} className="w-full h-44 object-contain bg-white" />
                   <div className="px-1.5 py-1 text-[9px] font-bold leading-tight" style={{ color: "#7f1d1d" }}>{im.cap}</div>
                 </div>
               ))}
