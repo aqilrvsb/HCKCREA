@@ -236,7 +236,11 @@ export default function OriginalVideoTab({
   // so the user always lands in a valid state.
   useEffect(() => {
     if (!PROVIDER_MODES[provider].includes(imageMode)) {
-      setImageMode("text");
+      // Reset to the provider's FIRST VALID mode — NOT a hardcoded "text".
+      // Grok only allows ["frame"], so the old "text" reset left Grok on an
+      // invalid text-to-video mode (Grok 1.5 has no t2v) which the provider
+      // then rejected with "requires a reference image". Fixed 2026-06-30.
+      setImageMode(PROVIDER_MODES[provider][0]);
     }
     if (provider === "veo" && duration !== 8) setDuration(8);
     if (provider === "sora2" && duration !== 8 && duration !== 12) {

@@ -110,6 +110,14 @@ export async function POST(req: Request) {
   if (imageModeRaw === "frame" && modelChoice === "gemini") {
     imageModeRaw = "ingredient";
   }
+  // Grok Imagine 1.5 has NO working text-to-video — the model REQUIRES a
+  // start-frame image (provider rejects t2v with "grok-imagine-1.5-preview
+  // requires a reference image"). Force frame mode so the image-required
+  // guard below rejects an image-less Grok submission BEFORE it creates a
+  // billable row / hits the provider. Fixed 2026-06-30.
+  if (modelChoice === "grok") {
+    imageModeRaw = "frame";
+  }
   const imageMode = imageModeRaw;
   const projectId = body?.project_id ? String(body.project_id) : null;
   // Feature tag — distinguishes which tab submitted this row:
@@ -135,7 +143,12 @@ export async function POST(req: Request) {
   if (!prompt) return NextResponse.json({ error: "Prompt required" }, { status: 400 });
   if (imageMode !== "text" && effectiveImageUrls.length === 0) {
     return NextResponse.json(
-      { error: "Reference image required for this image mode" },
+      {
+        error:
+          modelChoice === "grok"
+            ? "Grok 1.5 needs a start-frame image — upload a reference image first."
+            : "Reference image required for this image mode",
+      },
       { status: 400 }
     );
   }
