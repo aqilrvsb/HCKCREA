@@ -196,9 +196,9 @@ Clean vertical video frame with no interface overlay. No social media UI, no Tik
         <SField label="Durasi (saat)" val={dur} set={setDur} ph="8" />
       </div>
       <SField label="Tone" val={tone} set={setTone} ph="santai / serius / ceria" />
-      <SField label={`Hook (0–${h1}s)`} val={hook} set={setHook} area />
-      <SField label={`Value (${h1}–${h2}s)`} val={value} set={setValue} area />
-      <SField label={`CTA (${h2}–${n}s)`} val={cta} set={setCta} area />
+      <SField label="Hook" val={hook} set={setHook} area />
+      <SField label="Value" val={value} set={setValue} area />
+      <SField label="CTA" val={cta} set={setCta} area />
 
       <div className="text-[10px] text-gray-400 leading-relaxed bg-white/5 rounded-lg px-2.5 py-2 border border-white/10">
         👇 Ini <b className="text-white">contoh penuh</b> supaya awak nampak macam mana prompt sebenar. Tukar je ruang atas (durasi, dialog) → prompt ni update sendiri (termasuk saat). Lepas tu tekan <b style={{ color: accent }}>Salin</b>.
