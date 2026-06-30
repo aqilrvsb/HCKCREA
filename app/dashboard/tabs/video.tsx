@@ -700,6 +700,11 @@ export default function VideoTab({ projectId }: { projectId?: string } = {}) {
             lineHeight: 1.5,
           }}
         />
+        {/* Live word + character count — helps the client hit the
+            recommended word range from the planner table above. */}
+        <div className="flex justify-end mt-1 text-[10px] font-semibold text-gray-500">
+          {(dialog.trim() ? dialog.trim().split(/\s+/).length : 0)} perkataan · {dialog.length}/600 aksara
+        </div>
 
         {/* Sora 2 dialog guard — Sora silences audio on medical/efficacy
             claims. Since the client writes the dialog directly (no AI
