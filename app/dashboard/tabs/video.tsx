@@ -32,46 +32,72 @@ const ORANGE_FAINT = "rgba(255, 87, 34, 0.06)";
 // so the client sees the right LENGTH + hook structure (pain → solution →
 // CTA). Client edits the content to their own product after inserting.
 type DialogPace = "santai" | "normal" | "seller";
+// Word counts calibrated to fall INSIDE each cell's range in the planner
+// table (e.g. 8s Santai = 16-18 → 17 words; 15s Seller = 35-40 → 37 words).
 const DIALOG_EXAMPLES: Record<string, Record<DialogPace, string>> = {
   "8s": {
-    santai: "Penat sangat sekarang?\nCuba Beauty sebelum tidur.\nBangun rasa lebih segar.\nTekan bawah.",
-    normal: "Tidur cukup tapi masih letih?\nBeauty bantu support hormon waktu tidur.\nTekan button bawah sekarang.",
-    seller: "Suami makin kurang mesra?\nHormon makin drop.\nRamai dah mula Beauty sebelum tidur.\nTekan button bawah sekarang.",
+    // 17 words (16-18)
+    santai: "Penat sangat sekarang?\nCuba Beauty sebelum tidur malam ni.\nBangun esok rasa lebih segar.\nTekan butang bawah.",
+    // 19 words (18-20)
+    normal: "Tidur cukup tapi masih rasa letih?\nBeauty bantu support hormon waktu tidur.\nTekan butang kuning di bawah sekarang juga.",
+    // 23 words (20-24)
+    seller: "Suami makin kurang mesra kebelakangan ni?\nHormon yang makin drop boleh jadi puncanya.\nRamai dah mula ambil Beauty sebelum tidur.\nTekan butang bawah.",
   },
   "9s": {
-    santai: "Bangun pagi masih lesu?\nBeauty bantu badan waktu tidur.\nBangun rasa lebih ringan.\nCuba sekarang.",
-    normal: "Masih letih walaupun tidur awal?\nHormon mungkin tak seimbang.\nBeauty bantu waktu tidur.\nTekan bawah.",
-    seller: "Suami dah makin kurang tegur?\nHormon yang makin drop boleh jadi puncanya.\nCuba Beauty malam ni.\nTekan bawah.",
+    // 19 words (18-20)
+    santai: "Bangun pagi masih rasa lesu?\nBeauty bantu support badan waktu tidur malam.\nBangun esok rasa lebih ringan.\nCuba sekarang.",
+    // 21 words (20-22)
+    normal: "Masih letih walaupun dah tidur awal?\nHormon mungkin dah tak seimbang.\nBeauty bantu support badan sepanjang waktu tidur.\nTekan butang bawah.",
+    // 24 words (22-26)
+    seller: "Suami dah makin kurang tegur kebelakangan ni?\nHormon yang makin drop boleh jadi puncanya.\nCuba Beauty malam ni sebelum tidur.\nTekan butang bawah sekarang.",
   },
   "10s": {
-    santai: "Setiap pagi badan berat?\nBeauty bantu support badan waktu tidur.\nBangun lebih segar.\nTekan button bawah.",
-    normal: "Penat walaupun rehat cukup?\nHormon tak sempat repair.\nBeauty bantu support waktu tidur.\nCuba sekarang.",
-    seller: "Suami makin kurang perhatian?\nBila hormon drop, tenaga pun hilang.\nBeauty bantu support waktu tidur.\nTekan button bawah sekarang.",
+    // 21 words (20-22)
+    santai: "Setiap pagi badan rasa berat?\nBeauty bantu support badan sepanjang waktu tidur.\nBangun esok rasa lebih segar dan ringan.\nTekan bawah.",
+    // 23 words (22-24)
+    normal: "Penat walaupun rehat dah cukup?\nHormon tak sempat repair masa tidur.\nBeauty bantu support badan sepanjang malam.\nCuba ambil Beauty malam ni sekarang.",
+    // 26 words (24-28)
+    seller: "Suami makin kurang perhatian kebelakangan ni?\nBila hormon drop, tenaga dan mood pun hilang.\nBeauty bantu support hormon waktu tidur.\nTekan butang kuning di bawah sekarang.",
   },
   "11s": {
-    santai: "Badan cepat penat sekarang?\nBeauty bantu support hormon sepanjang tidur.\nBangun rasa lebih segar setiap pagi.\nTekan bawah.",
-    normal: "Asyik bangun letih walaupun tidur lama?\nHormon mungkin tak balance.\nBeauty bantu support badan waktu tidur.\nCuba sekarang.",
-    seller: "Suami makin jauh sejak kebelakangan ni?\nJangan salahkan diri dulu.\nBeauty bantu support hormon waktu tidur.\nTekan button bawah hari ni.",
+    // 23 words (22-24)
+    santai: "Badan cepat rasa penat sekarang?\nBeauty bantu support hormon sepanjang waktu tidur.\nBangun esok rasa lebih segar setiap pagi.\nTekan butang kuning bawah.",
+    // 25 words (24-26)
+    normal: "Asyik bangun letih walaupun dah tidur lama?\nHormon mungkin dah tak balance lagi.\nBeauty bantu support badan sepanjang waktu tidur.\nCuba ambil malam ni sekarang.",
+    // 28 words (26-30)
+    seller: "Suami makin jauh sejak kebelakangan ni?\nJangan salahkan diri sendiri dulu.\nHormon yang makin drop selalu jadi punca.\nBeauty bantu support waktu tidur.\nTekan butang kuning bawah sekarang.",
   },
   "12s": {
-    santai: "Bangun pagi masih tak bertenaga?\nBeauty bantu support hormon sepanjang malam.\nBadan rasa lebih ringan setiap pagi.\nTekan bawah sekarang.",
-    normal: "Selalu penat walaupun tidur cukup?\nBila hormon tak balance, badan susah recharge.\nBeauty bantu support waktu tidur.\nCuba sekarang.",
-    seller: "Suami makin kurang mesra?\nHormon yang makin drop boleh jejaskan tenaga.\nBeauty bantu support hormon sepanjang tidur.\nBangun lebih segar.\nTekan button bawah.",
+    // 25 words (24-26)
+    santai: "Bangun pagi masih rasa tak bertenaga?\nBeauty bantu support hormon sepanjang malam.\nBadan rasa lebih ringan dan segar setiap pagi.\nTekan butang bawah sekarang juga.",
+    // 27 words (26-28)
+    normal: "Selalu rasa penat walaupun dah tidur cukup?\nBila hormon tak balance, badan susah nak recharge.\nBeauty bantu support badan sepanjang waktu tidur.\nCuba malam ni sekarang juga.",
+    // 30 words (28-32)
+    seller: "Suami makin kurang mesra kebelakangan ni?\nHormon yang makin drop boleh jejaskan tenaga dan mood.\nBeauty bantu support hormon sepanjang waktu tidur.\nBangun esok lebih segar.\nTekan butang kuning bawah.",
   },
   "13s": {
-    santai: "Dulu bangun terus bertenaga.\nSekarang badan cepat letih.\nBeauty bantu support hormon waktu tidur.\nBangun lebih segar.\nTekan bawah.",
-    normal: "Pernah tertanya kenapa badan cepat letih?\nHormon makin berubah bila umur meningkat.\nBeauty bantu support waktu tidur.\nCuba sekarang.",
-    seller: "Suami dah makin kurang beri perhatian?\nHormon yang makin drop boleh kurangkan tenaga dan mood.\nBeauty bantu support hormon sepanjang tidur.\nTekan button bawah sekarang.",
+    // 27 words (26-28)
+    santai: "Dulu bangun terus rasa bertenaga.\nSekarang badan cepat rasa letih dan lesu.\nBeauty bantu support hormon sepanjang waktu tidur.\nBangun esok lebih segar.\nTekan butang kuning bawah.",
+    // 28 words (28-30)
+    normal: "Pernah tertanya kenapa badan cepat rasa letih?\nHormon makin berubah bila umur dah meningkat.\nBeauty bantu support hormon dan badan sepanjang waktu tidur.\nCuba malam ni sekarang juga.",
+    // 32 words (30-34)
+    seller: "Suami dah makin kurang beri perhatian kebelakangan ni?\nHormon yang makin drop boleh kurangkan tenaga dan mood awak.\nBeauty bantu support hormon sepanjang waktu tidur.\nTekan butang kuning di bawah sekarang juga.",
   },
   "14s": {
-    santai: "Setiap pagi rasa macam tak cukup rehat?\nBeauty bantu support hormon waktu tidur.\nBangun rasa lebih ringan dan bertenaga.\nTekan bawah sekarang.",
-    normal: "Penat walaupun tidur lama?\nBila hormon tak seimbang, badan susah pulih.\nBeauty bantu support hormon sepanjang malam.\nCuba sekarang.",
-    seller: "Suami dah mula kurang mesra?\nJangan tunggu hubungan makin renggang.\nBeauty bantu support hormon waktu tidur supaya badan kembali bertenaga.\nTekan button bawah sekarang.",
+    // 29 words (28-30)
+    santai: "Setiap pagi rasa macam tak cukup rehat lagi?\nBeauty bantu support hormon sepanjang waktu tidur.\nBangun esok rasa lebih ringan dan bertenaga setiap hari.\nTekan butang bawah sekarang juga.",
+    // 31 words (30-32)
+    normal: "Penat walaupun dah tidur lama setiap malam?\nBila hormon tak seimbang, badan jadi susah nak pulih.\nBeauty bantu support hormon sepanjang malam waktu tidur.\nCuba ambil Beauty malam ni sekarang juga.",
+    // 32 words (32-36)
+    seller: "Suami dah mula makin kurang mesra kebelakangan ni?\nJangan tunggu sampai hubungan jadi makin renggang.\nBeauty bantu support hormon waktu tidur supaya badan kembali bertenaga.\nTekan butang kuning di bawah sekarang juga.",
   },
   "15s": {
-    santai: "Bangun pagi masih rasa lesu?\nBeauty bantu support hormon sepanjang tidur.\nBangun dengan tenaga yang lebih baik setiap hari.\nCuba sekarang.",
-    normal: "Tidur cukup tapi badan tetap penat?\nBila hormon tak balance, badan sukar recharge.\nBeauty bantu support hormon sepanjang malam.\nTekan button bawah hari ni.",
-    seller: "Suami dah makin kurang mesra sejak akhir-akhir ni?\nJangan tunggu sampai hubungan makin jauh.\nBeauty bantu support hormon sepanjang tidur supaya bangun lebih bertenaga dan yakin semula.\nTekan button bawah sekarang.",
+    // 30 words (30-32)
+    santai: "Bangun pagi masih rasa lesu dan tak bermaya?\nBeauty bantu support hormon sepanjang waktu tidur malam.\nBangun esok dengan tenaga yang lebih baik setiap hari.\nCuba ambil Beauty sekarang juga.",
+    // 33 words (32-35)
+    normal: "Tidur cukup tapi badan tetap rasa penat setiap hari?\nBila hormon tak balance, badan jadi sukar nak recharge.\nBeauty bantu support hormon sepanjang malam waktu tidur.\nTekan butang kuning di bawah hari ni.",
+    // 37 words (35-40)
+    seller: "Suami dah makin kurang mesra sejak akhir-akhir ni?\nJangan tunggu sampai hubungan jadi makin jauh dan renggang.\nBeauty bantu support hormon sepanjang tidur supaya bangun lebih bertenaga dan yakin semula.\nTekan butang kuning di bawah sekarang juga.",
   },
 };
 
