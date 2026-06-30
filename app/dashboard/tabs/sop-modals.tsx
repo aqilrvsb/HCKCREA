@@ -113,10 +113,10 @@ export function SopStoryboardModal({
 // ── SOP UGC Frame ────────────────────────────────────────────────────────
 const DEFAULTS = {
   setting: "a cozy bedroom with traditional Malaysian decor",
-  actor: "@FaraaMeldoria",
-  productHandle: "@meldoriaprd1",
-  hook: "akak-akak kena ada Gel Herba Meldoria ni dalam bilik!",
-  value: "Gel ni la akak kena guna bila cik somi ajak tuu. Boleh tambah sedap. hehe",
+  actor: "@namapelakon",
+  productHandle: "@namaproduk",
+  hook: "akak-akak kena ada produk ni dalam bilik!",
+  value: "Produk ni la akak kena guna bila cik somi ajak tuu. Boleh tambah sedap. hehe",
   cta: "Tekan butang kat bawah kalau nak order!",
   tone: "santai",
 };
@@ -196,7 +196,7 @@ Clean vertical video frame with no interface overlay. No social media UI, no Tik
       <Field label="CTA (6–8s)" val={cta} set={setCta} area />
 
       <div className="text-[10px] text-gray-400 leading-relaxed bg-white/5 rounded-lg px-2.5 py-2 border border-white/10">
-        👇 Ini <b className="text-white">contoh penuh</b> (dah diisi dengan contoh produk Meldoria) supaya awak nampak macam mana prompt sebenar. Tukar je ruang atas → prompt ni update sendiri. Lepas tu tekan <b style={{ color: accent }}>Salin</b>.
+        👇 Ini <b className="text-white">contoh penuh</b> supaya awak nampak macam mana prompt sebenar. Tukar je ruang atas (nama produk, handle, dialog) → prompt ni update sendiri. Lepas tu tekan <b style={{ color: accent }}>Salin</b>.
       </div>
       <CopyBox text={prompt} accent={accent} />
     </Shell>
