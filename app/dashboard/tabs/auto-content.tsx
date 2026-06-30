@@ -882,6 +882,27 @@ export default function AutoContentTab({ projectId }: { projectId?: string } = {
               </span>
             </li>
           </ol>
+
+          {/* Example reference images for the 3-attachment rule. */}
+          <div className="mt-4">
+            <div className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-extrabold uppercase tracking-wider mb-2"
+              style={{ background: "#dc2626", color: "#fff" }}>
+              ⓘ Contoh sahaja
+            </div>
+            <div className="grid grid-cols-3 gap-2">
+              {[
+                { src: "/ac-rule-1.png", cap: "1) Tangan pegang — tanpa muka" },
+                { src: "/ac-rule-2.webp", cap: "2) Product RAW (naked)" },
+                { src: "/ac-rule-3.webp", cap: "3) Product RAW (naked)" },
+              ].map((im) => (
+                <div key={im.src} className="rounded-lg overflow-hidden" style={{ background: "#fff", border: "1px solid rgba(220,38,38,0.35)" }}>
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={im.src} alt={im.cap} className="w-full h-28 object-cover" />
+                  <div className="px-1.5 py-1 text-[9px] font-bold leading-tight" style={{ color: "#7f1d1d" }}>{im.cap}</div>
+                </div>
+              ))}
+            </div>
+          </div>
         </div>
 
         {/* Affiliate / Manual toggle. Affiliate = paste URL, scrape via
