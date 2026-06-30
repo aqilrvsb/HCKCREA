@@ -1498,7 +1498,19 @@ export default function AutoContentTab({ projectId }: { projectId?: string } = {
                   reads as "new / premium" without being noisy. */}
               <button
                 type="button"
-                onClick={() => setPlanStyle("custom")}
+                onClick={() => {
+                  setPlanStyle("custom");
+                  // Frameworks picker is hidden for Custom Idea, but the
+                  // plan API still needs ≥1 (it drives dialog/shot
+                  // structure — the idea only drives the scene). Auto-pick
+                  // a neutral default if the user hasn't chosen any so
+                  // generation still works.
+                  setSelectedFrameworks((prev) =>
+                    prev.length > 0
+                      ? prev
+                      : [(FRAMEWORKS.find((f) => f.type !== "lifestyle") ?? FRAMEWORKS[0]).id]
+                  );
+                }}
                 className="flex-1 relative overflow-hidden px-3 py-2 rounded-md text-[12px] font-bold transition-all"
                 style={{
                   background:
@@ -1562,7 +1574,7 @@ export default function AutoContentTab({ projectId }: { projectId?: string } = {
                 <textarea
                   value={ideaStyle}
                   onChange={(e) => setIdeaStyle(e.target.value)}
-                  placeholder={`Contoh: "preview baju depan cermin, lighting natural pagi"\nContoh: "unboxing atas meja kayu, slow reveal label"\nContoh: "duduk atas sofa, sambil minum kopi, casual"\n\nFramework still control dialog + on-screen type. Idea control scene + action.`}
+                  placeholder={`Contoh: "preview baju depan cermin, lighting natural pagi"\nContoh: "unboxing atas meja kayu, slow reveal label"\nContoh: "duduk atas sofa, sambil minum kopi, casual"\n\nAI akan buat beberapa variant video ikut idea ni. Tak perlu pilih framework.`}
                   rows={3}
                   className="w-full mb-4 px-3 py-2 text-[12px] rounded-md outline-none resize-y"
                   style={{
@@ -1578,8 +1590,10 @@ export default function AutoContentTab({ projectId }: { projectId?: string } = {
           </>
         )}
 
-        {/* Frameworks (AI Plan + Verify Plan) */}
-        {showFrameworks && (
+        {/* Frameworks (AI Plan + Verify Plan) — hidden for Custom Idea,
+            which doesn't rely on the framework picker (a neutral default
+            is applied under the hood). */}
+        {showFrameworks && planStyle !== "custom" && (
           <>
             <Label>
               Frameworks{" "}
