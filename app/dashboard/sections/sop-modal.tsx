@@ -297,31 +297,31 @@ const SOP_SHORT_LABEL: Record<string, string> = {
 // Shows "SOP <label>" so users know which panduan they're about to open
 // (e.g. SOP Dashboard, SOP Image, SOP UGC). Updates automatically as the
 // active tab/view changes.
-export function SopButton({ sop }: { sop: SopPage | null }) {
-  const [open, setOpen] = useState(false);
-  if (!sop) return null;
-  const label = SOP_SHORT_LABEL[sop.pageKey] || "Panduan";
+// Vimeo SOP walkthrough — shown on every tab. Opens in a new browser tab.
+const SOP_VIDEO_URL = "https://vimeo.com/1205788481?share=copy&fl=sv&fe=ci";
+
+export function SopButton(_props: { sop: SopPage | null }) {
+  // Always renders on every tab now (label fixed to "SOP VIDEO"); the
+  // `sop` prop is ignored — clicking opens the Vimeo guide in a new tab.
   return (
-    <>
-      <button
-        onClick={() => setOpen(true)}
-        title={`Panduan ${label}`}
-        aria-label={`Buka panduan ${label}`}
-        className="fixed top-3 right-3 z-30 h-10 lg:h-11 px-3 lg:px-4 rounded-full flex items-center gap-2 transition-transform hover:scale-105"
-        style={{
-          background:
-            "linear-gradient(135deg, #fde047 0%, #facc15 100%)",
-          color: "#000",
-          boxShadow: "0 6px 20px rgba(250,204,21,0.35)",
-          border: "2px solid rgba(0,0,0,0.15)",
-        }}
-      >
-        <BookOpen className="w-5 h-5 flex-shrink-0" strokeWidth={2.5} />
-        <span className="font-extrabold text-xs lg:text-sm tracking-tight whitespace-nowrap">
-          SOP {label}
-        </span>
-      </button>
-      {open && <SopModal sop={sop} onClose={() => setOpen(false)} />}
-    </>
+    <a
+      href={SOP_VIDEO_URL}
+      target="_blank"
+      rel="noopener noreferrer"
+      title="SOP Video"
+      aria-label="Buka SOP Video"
+      className="fixed top-3 right-3 z-30 h-10 lg:h-11 px-3 lg:px-4 rounded-full flex items-center gap-2 transition-transform hover:scale-105"
+      style={{
+        background: "linear-gradient(135deg, #fde047 0%, #facc15 100%)",
+        color: "#000",
+        boxShadow: "0 6px 20px rgba(250,204,21,0.35)",
+        border: "2px solid rgba(0,0,0,0.15)",
+      }}
+    >
+      <BookOpen className="w-5 h-5 flex-shrink-0" strokeWidth={2.5} />
+      <span className="font-extrabold text-xs lg:text-sm tracking-tight whitespace-nowrap">
+        SOP VIDEO
+      </span>
+    </a>
   );
 }
