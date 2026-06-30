@@ -142,6 +142,19 @@ const RETRYABLE_ERROR_PATTERNS: RegExp[] = [
   //       • APIPod: "attempt1: An error occurred. Please retry or contact support."
   //     Added per user direction 2026-06-29.
   /an error occurred[^\n]{0,40}(?:please retry|contact support|please contact)/i,
+  // 12. Provider routing / channel-pool errors — APIPod / Crun return
+  //     "(status 503)" with "fail_to_fetch_task" / "No available channel"
+  //     when their upstream channel pool is momentarily exhausted or the
+  //     task lookup misses. Rejected pre-queue (no task created), transient,
+  //     rotation-recoverable → eligible for fallback cascade + event-driven
+  //     retry + auto-resubmit cron, and shown on the admin Errors feed.
+  //     Real phrasing observed (GeminiOmni · p6):
+  //       'API error (status 503): {"code":"fail_to_fetch_task",
+  //        "message":"...not_found...","message":"No available channel for ..."}'
+  //     Added per user direction 2026-06-30.
+  /\bstatus\s*5\d{2}\b/i,
+  /fail_to_fetch_task/i,
+  /no available channel/i,
 ];
 
 export function isInternalError(err: string | null | undefined): boolean {
