@@ -5,14 +5,16 @@
 // user picks options (no prompt-writing) + attaches a product photo; we
 // assemble a structured prompt and fire the SAME /api/generate/image
 // pipeline (nano-banana-pro + product reference). Tuned for Malaysian
-// TikTok sellers — including a Tutup Aurat (modest) priority toggle.
+// TikTok sellers — including a Tutup Aurat (modest) priority toggle, a
+// per-section "Custom" free-text override, and a quantity batch generator.
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Loader2, X, Sparkles, ImagePlus } from "lucide-react";
 import Portal from "../sections/portal";
 import AttachmentPicker from "../sections/attachment-picker";
 
 type Opt = { val: string; label: string };
+const CUSTOM = "custom";
 
 const GENDER: Opt[] = [
   { val: "female", label: "👩 Perempuan" },
@@ -31,7 +33,6 @@ const ETHNIC: Opt[] = [
   { val: "india", label: "India" },
   { val: "asian", label: "Asia" },
 ];
-// Bentuk muka — the 6 standard portrait face shapes.
 const FACE: Opt[] = [
   { val: "oval", label: "Oval" },
   { val: "round", label: "Bulat" },
@@ -40,13 +41,11 @@ const FACE: Opt[] = [
   { val: "oblong", label: "Panjang" },
   { val: "diamond", label: "Diamond" },
 ];
-// Tona kulit — Malaysian-relevant range (cerah → sawo matang → gelap).
 const SKIN: Opt[] = [
   { val: "fair", label: "Cerah" },
   { val: "tan", label: "Sawo matang" },
   { val: "deep", label: "Gelap manis" },
 ];
-// PRIORITY — modesty. "Modest" = aurat covered + loose clothing.
 const MODESTY: Opt[] = [
   { val: "modest", label: "🧕 Tutup Aurat (longgar)" },
   { val: "stylish", label: "✨ Stylish / Biasa" },
@@ -124,6 +123,13 @@ const ORIENT: Opt[] = [
   { val: "1:1", label: "1:1" },
   { val: "4:5", label: "4:5" },
 ];
+const QTY: Opt[] = [
+  { val: "1", label: "1" },
+  { val: "2", label: "2" },
+  { val: "3", label: "3" },
+  { val: "4", label: "4" },
+  { val: "6", label: "6" },
+];
 
 // ── Prompt fragment maps (English — nano-banana-pro responds best to EN) ──
 const ETHNIC_EN: Record<string, string> = {
@@ -183,10 +189,64 @@ const LIGHT_EN: Record<string, string> = {
   studio: "professional studio softbox light", airy: "bright airy soft light", moody: "moody low-key light",
 };
 
-function pill(active: boolean, accent: string): React.CSSProperties {
+function pillStyle(active: boolean, accent: string): React.CSSProperties {
   return active
     ? { background: accent, color: "#fff", border: `1px solid ${accent}`, boxShadow: `0 2px 8px ${accent}55` }
     : { background: "rgba(255,255,255,0.04)", color: "#cbd5e1", border: "1px solid rgba(255,255,255,0.12)" };
+}
+
+// Module-level so the custom text input keeps focus while typing (an
+// inline-defined component would remount on every keystroke).
+function Group({
+  label, opts, value, onChange, gkey, customs, setCustom, accent, allowCustom = true,
+}: {
+  label: string;
+  opts: Opt[];
+  value: string;
+  onChange: (v: string) => void;
+  gkey: string;
+  customs: Record<string, string>;
+  setCustom: (k: string, v: string) => void;
+  accent: string;
+  allowCustom?: boolean;
+}) {
+  return (
+    <div>
+      <div className="text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-1.5">{label}</div>
+      <div className="flex flex-wrap gap-1.5">
+        {opts.map((o) => (
+          <button
+            key={o.val}
+            type="button"
+            onClick={() => onChange(o.val)}
+            className="px-2.5 py-1.5 rounded-lg text-[11px] font-semibold transition"
+            style={pillStyle(value === o.val, accent)}
+          >
+            {o.label}
+          </button>
+        ))}
+        {allowCustom && (
+          <button
+            type="button"
+            onClick={() => onChange(CUSTOM)}
+            className="px-2.5 py-1.5 rounded-lg text-[11px] font-semibold transition"
+            style={pillStyle(value === CUSTOM, accent)}
+          >
+            ✏️ Custom
+          </button>
+        )}
+      </div>
+      {allowCustom && value === CUSTOM && (
+        <input
+          value={customs[gkey] || ""}
+          onChange={(e) => setCustom(gkey, e.target.value)}
+          placeholder="Tulis sendiri…"
+          className="mt-1.5 w-full text-[11px] rounded-lg px-2.5 py-1.5 outline-none"
+          style={{ background: "rgba(255,255,255,0.05)", color: "#fff", border: "1px solid rgba(255,255,255,0.15)" }}
+        />
+      )}
+    </div>
+  );
 }
 
 export default function UgcStudioModal({
@@ -218,31 +278,74 @@ export default function UgcStudioModal({
   const [light, setLight] = useState("ringlight");
   const [auth, setAuth] = useState("ugc");
   const [orient, setOrient] = useState("9:16");
+  const [qty, setQty] = useState("1");
+  // Per-section free-text overrides, keyed by section. Empty unless the
+  // user picks the ✏️ Custom pill for that section.
+  const [customs, setCustoms] = useState<Record<string, string>>({});
+  const setCustom = (k: string, v: string) => setCustoms((p) => ({ ...p, [k]: v }));
   const [busy, setBusy] = useState(false);
+  const [progress, setProgress] = useState("");
   const [error, setError] = useState<string | null>(null);
 
+  // Reset the whole form to defaults every time the modal opens, so each
+  // session starts clean (no leftover product / selections from last time).
+  useEffect(() => {
+    if (!open) return;
+    setProduct("");
+    setPickerOpen(false);
+    setGender("female");
+    setAge("20s");
+    setEthnic("melayu");
+    setFace("oval");
+    setSkin("tan");
+    setHijab(true);
+    setModesty("modest");
+    setExpression("smile");
+    setOutfit("muslimah");
+    setShot("half");
+    setAngle("selfie");
+    setPose("show-label");
+    setProdpos("in-hand");
+    setBg("bedroom");
+    setLight("ringlight");
+    setAuth("ugc");
+    setOrient("9:16");
+    setQty("1");
+    setCustoms({});
+    setBusy(false);
+    setProgress("");
+    setError(null);
+  }, [open]);
+
   const isFemale = gender === "female";
+  // Resolve a section to its prompt fragment — custom free text wins.
+  const cv = (key: string, map: Record<string, string>, val: string) =>
+    val === CUSTOM ? (customs[key] || "").trim() : map[val] || "";
 
   const prompt = useMemo(() => {
-    const person = `a ${ETHNIC_EN[ethnic]} ${AGE_EN[age]} ${isFemale ? "woman" : "man"} with authentic Malaysian Southeast-Asian features, ${FACE_EN[face]}, ${SKIN_EN[skin]}`;
+    const person = `a ${cv("ethnic", ETHNIC_EN, ethnic)} ${cv("age", AGE_EN, age)} ${isFemale ? "woman" : "man"} with authentic Malaysian Southeast-Asian features, ${cv("face", FACE_EN, face)}, ${cv("skin", SKIN_EN, skin)}`;
     const hijabClause = isFemale && hijab ? ", wearing a neat hijab/tudung that fully covers the hair" : "";
     const modestyClause =
-      modesty === "modest"
-        ? ", dressed modestly in loose, non-form-fitting clothing that fully covers the aurat (arms, legs and body covered), nothing tight or revealing"
-        : ", in a stylish trendy outfit";
+      modesty === CUSTOM
+        ? `, ${(customs.modesty || "").trim()}`
+        : modesty === "modest"
+          ? ", dressed modestly in loose, non-form-fitting clothing that fully covers the aurat (arms, legs and body covered), nothing tight or revealing"
+          : ", in a stylish trendy outfit";
     const authClause =
-      auth === "ugc"
-        ? "Shot on a smartphone, authentic user-generated-content look with natural realistic imperfections"
-        : "Clean professional commercial product photography, studio quality";
+      auth === CUSTOM
+        ? (customs.auth || "").trim()
+        : auth === "ugc"
+          ? "Shot on a smartphone, authentic user-generated-content look with natural realistic imperfections"
+          : "Clean professional commercial product photography, studio quality";
     return [
-      `UGC-style product photo. ${person}${hijabClause}, with a ${EXPR_EN[expression]}, wearing ${OUTFIT_EN[outfit]}${modestyClause}.`,
-      `${SHOT_EN[shot]}, ${ANGLE_EN[angle]}.`,
-      `The person is ${POSE_EN[pose]}.`,
-      `The product is ${PRODPOS_EN[prodpos]}, with its label/packaging clearly facing the camera, sharp and legible, matching the attached reference product image EXACTLY (same label, typography, colour, shape).`,
-      `Scene: ${BG_EN[bg]} with ${LIGHT_EN[light]}.`,
+      `UGC-style product photo. ${person}${hijabClause}, with a ${cv("expression", EXPR_EN, expression)}, wearing ${cv("outfit", OUTFIT_EN, outfit)}${modestyClause}.`,
+      `${cv("shot", SHOT_EN, shot)}, ${cv("angle", ANGLE_EN, angle)}.`,
+      `The person is ${cv("pose", POSE_EN, pose)}.`,
+      `The product is ${cv("prodpos", PRODPOS_EN, prodpos)}, with its label/packaging clearly facing the camera, sharp and legible, matching the attached reference product image EXACTLY (same label, typography, colour, shape).`,
+      `Scene: ${cv("bg", BG_EN, bg)} with ${cv("light", LIGHT_EN, light)}.`,
       `${authClause}. Photorealistic, natural skin texture, ${orient} vertical composition, no text overlay, no watermark, no logo.`,
     ].join(" ");
-  }, [ethnic, age, isFemale, face, skin, hijab, modesty, expression, outfit, shot, angle, pose, prodpos, bg, light, auth, orient]);
+  }, [ethnic, age, isFemale, face, skin, hijab, modesty, expression, outfit, shot, angle, pose, prodpos, bg, light, auth, orient, customs]);
 
   async function generate() {
     if (!product) {
@@ -251,54 +354,44 @@ export default function UgcStudioModal({
     }
     setError(null);
     setBusy(true);
-    try {
-      const r = await fetch("/api/generate/image", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          model: "nano-banana-pro",
-          prompt,
-          reference_url: product,
-          reference_urls: [product],
-          aspect_ratio: orient,
-          project_id: projectId,
-        }),
-      });
-      const d = await r.json().catch(() => ({}));
-      if (!r.ok || !d?.ok) {
-        setError(d?.error || `Gagal (HTTP ${r.status})`);
-        setBusy(false);
-        return;
+    const n = Math.max(1, Math.min(6, Number(qty) || 1));
+    let ok = 0;
+    for (let i = 0; i < n; i++) {
+      setProgress(`${i + 1}/${n}`);
+      try {
+        // Nudge each variation so a batch doesn't return identical frames.
+        const p = n > 1 ? `${prompt} Variation ${i + 1}, slightly different pose and framing.` : prompt;
+        const r = await fetch("/api/generate/image", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            model: "nano-banana-pro",
+            prompt: p,
+            reference_url: product,
+            reference_urls: [product],
+            aspect_ratio: orient,
+            project_id: projectId,
+          }),
+        });
+        const d = await r.json().catch(() => ({}));
+        if (r.ok && d?.ok) {
+          ok += 1;
+          window.dispatchEvent(new CustomEvent("history:refresh"));
+        }
+      } catch {
+        /* keep going — partial batch still useful */
       }
-      window.dispatchEvent(new CustomEvent("history:refresh"));
-      setBusy(false);
+    }
+    setBusy(false);
+    setProgress("");
+    if (ok > 0) {
       onClose();
-    } catch (e: any) {
-      setError(e?.message || "Network error");
-      setBusy(false);
+    } else {
+      setError("Gagal generate. Cuba lagi.");
     }
   }
 
   if (!open) return null;
-
-  const Group = ({ label, opts, value, onChange }: { label: string; opts: Opt[]; value: string; onChange: (v: string) => void }) => (
-    <div>
-      <div className="text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-1.5">{label}</div>
-      <div className="flex flex-wrap gap-1.5">
-        {opts.map((o) => (
-          <button
-            key={o.val}
-            type="button"
-            onClick={() => onChange(o.val)}
-            className="px-2.5 py-1.5 rounded-lg text-[11px] font-semibold transition"
-            style={pill(value === o.val, ACCENT)}
-          >
-            {o.label}
-          </button>
-        ))}
-      </div>
-    </div>
-  );
 
   return (
     <Portal>
@@ -310,7 +403,7 @@ export default function UgcStudioModal({
               <Sparkles className="w-5 h-5" style={{ color: ACCENT }} />
               <div>
                 <h2 className="text-base font-bold text-white">UGC Studio</h2>
-                <p className="text-[10px] text-gray-500">Pilih je — tak payah tulis prompt. Lampirkan produk, generate UGC.</p>
+                <p className="text-[10px] text-gray-500">Pilih je — tak payah tulis prompt. Setiap section ada ✏️ Custom. Lampir produk, generate.</p>
               </div>
             </div>
             <button onClick={onClose} className="p-1 rounded hover:bg-white/10 text-gray-400">
@@ -351,20 +444,20 @@ export default function UgcStudioModal({
             </div>
 
             {/* PRIORITY — modesty */}
-            <Group label="Tutup Aurat?" opts={MODESTY} value={modesty} onChange={setModesty} />
+            <Group label="Tutup Aurat?" opts={MODESTY} value={modesty} onChange={setModesty} gkey="modesty" customs={customs} setCustom={setCustom} accent={ACCENT} />
 
             <div className="grid grid-cols-2 gap-4">
-              <Group label="Jantina" opts={GENDER} value={gender} onChange={setGender} />
-              <Group label="Umur" opts={AGE} value={age} onChange={setAge} />
+              <Group label="Jantina" opts={GENDER} value={gender} onChange={setGender} gkey="gender" customs={customs} setCustom={setCustom} accent={ACCENT} allowCustom={false} />
+              <Group label="Umur" opts={AGE} value={age} onChange={setAge} gkey="age" customs={customs} setCustom={setCustom} accent={ACCENT} />
             </div>
             <div className="grid grid-cols-2 gap-4">
-              <Group label="Bangsa" opts={ETHNIC} value={ethnic} onChange={setEthnic} />
+              <Group label="Bangsa" opts={ETHNIC} value={ethnic} onChange={setEthnic} gkey="ethnic" customs={customs} setCustom={setCustom} accent={ACCENT} />
               {isFemale ? (
                 <div>
                   <div className="text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-1.5">Hijab</div>
                   <div className="flex gap-1.5">
-                    <button type="button" onClick={() => setHijab(true)} className="px-2.5 py-1.5 rounded-lg text-[11px] font-semibold transition" style={pill(hijab, ACCENT)}>🧕 Ada</button>
-                    <button type="button" onClick={() => setHijab(false)} className="px-2.5 py-1.5 rounded-lg text-[11px] font-semibold transition" style={pill(!hijab, ACCENT)}>Tiada</button>
+                    <button type="button" onClick={() => setHijab(true)} className="px-2.5 py-1.5 rounded-lg text-[11px] font-semibold transition" style={pillStyle(hijab, ACCENT)}>🧕 Ada</button>
+                    <button type="button" onClick={() => setHijab(false)} className="px-2.5 py-1.5 rounded-lg text-[11px] font-semibold transition" style={pillStyle(!hijab, ACCENT)}>Tiada</button>
                   </div>
                 </div>
               ) : (
@@ -372,22 +465,41 @@ export default function UgcStudioModal({
               )}
             </div>
             <div className="grid grid-cols-2 gap-4">
-              <Group label="Bentuk Muka" opts={FACE} value={face} onChange={setFace} />
-              <Group label="Tona Kulit" opts={SKIN} value={skin} onChange={setSkin} />
+              <Group label="Bentuk Muka" opts={FACE} value={face} onChange={setFace} gkey="face" customs={customs} setCustom={setCustom} accent={ACCENT} />
+              <Group label="Tona Kulit" opts={SKIN} value={skin} onChange={setSkin} gkey="skin" customs={customs} setCustom={setCustom} accent={ACCENT} />
             </div>
-            <Group label="Ekspresi" opts={EXPRESSION} value={expression} onChange={setExpression} />
-            <Group label="Pakaian" opts={OUTFIT} value={outfit} onChange={setOutfit} />
+            <Group label="Ekspresi" opts={EXPRESSION} value={expression} onChange={setExpression} gkey="expression" customs={customs} setCustom={setCustom} accent={ACCENT} />
+            <Group label="Pakaian" opts={OUTFIT} value={outfit} onChange={setOutfit} gkey="outfit" customs={customs} setCustom={setCustom} accent={ACCENT} />
             <div className="grid grid-cols-2 gap-4">
-              <Group label="Jenis Shot" opts={SHOT} value={shot} onChange={setShot} />
-              <Group label="Angle Kamera" opts={ANGLE} value={angle} onChange={setAngle} />
+              <Group label="Jenis Shot" opts={SHOT} value={shot} onChange={setShot} gkey="shot" customs={customs} setCustom={setCustom} accent={ACCENT} />
+              <Group label="Angle Kamera" opts={ANGLE} value={angle} onChange={setAngle} gkey="angle" customs={customs} setCustom={setCustom} accent={ACCENT} />
             </div>
-            <Group label="Pose / Aksi" opts={POSE} value={pose} onChange={setPose} />
-            <Group label="Kedudukan Produk" opts={PRODPOS} value={prodpos} onChange={setProdpos} />
-            <Group label="Latar Belakang" opts={BG} value={bg} onChange={setBg} />
-            <Group label="Pencahayaan" opts={LIGHT} value={light} onChange={setLight} />
+            <Group label="Pose / Aksi" opts={POSE} value={pose} onChange={setPose} gkey="pose" customs={customs} setCustom={setCustom} accent={ACCENT} />
+            <Group label="Kedudukan Produk" opts={PRODPOS} value={prodpos} onChange={setProdpos} gkey="prodpos" customs={customs} setCustom={setCustom} accent={ACCENT} />
+            <Group label="Latar Belakang" opts={BG} value={bg} onChange={setBg} gkey="bg" customs={customs} setCustom={setCustom} accent={ACCENT} />
+            <Group label="Pencahayaan" opts={LIGHT} value={light} onChange={setLight} gkey="light" customs={customs} setCustom={setCustom} accent={ACCENT} />
             <div className="grid grid-cols-2 gap-4">
-              <Group label="Gaya" opts={AUTH} value={auth} onChange={setAuth} />
-              <Group label="Orientasi" opts={ORIENT} value={orient} onChange={setOrient} />
+              <Group label="Gaya" opts={AUTH} value={auth} onChange={setAuth} gkey="auth" customs={customs} setCustom={setCustom} accent={ACCENT} />
+              <Group label="Orientasi" opts={ORIENT} value={orient} onChange={setOrient} gkey="orient" customs={customs} setCustom={setCustom} accent={ACCENT} allowCustom={false} />
+            </div>
+
+            {/* Quantity — batch generate N variations */}
+            <div>
+              <div className="text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-1.5">Kuantiti (generate sekaligus)</div>
+              <div className="flex flex-wrap gap-1.5">
+                {QTY.map((o) => (
+                  <button
+                    key={o.val}
+                    type="button"
+                    onClick={() => setQty(o.val)}
+                    className="px-3 py-1.5 rounded-lg text-[11px] font-bold transition"
+                    style={pillStyle(qty === o.val, ACCENT)}
+                  >
+                    {o.label}
+                  </button>
+                ))}
+              </div>
+              <div className="text-[9px] text-gray-500 mt-1">Setiap satu dicaj seperti 1 imej.</div>
             </div>
 
             {/* Prompt preview */}
@@ -411,7 +523,7 @@ export default function UgcStudioModal({
               style={{ background: ACCENT }}
               title={!product ? "Pilih gambar produk dahulu" : "Generate UGC"}
             >
-              {busy ? <><Loader2 className="w-4 h-4 animate-spin" /> Menjana…</> : <><Sparkles className="w-4 h-4" /> Generate UGC</>}
+              {busy ? <><Loader2 className="w-4 h-4 animate-spin" /> Menjana… {progress}</> : <><Sparkles className="w-4 h-4" /> Generate UGC{Number(qty) > 1 ? ` ×${qty}` : ""}</>}
             </button>
           </div>
         </div>
