@@ -889,16 +889,16 @@ export default function AutoContentTab({ projectId }: { projectId?: string } = {
               style={{ background: "#dc2626", color: "#fff" }}>
               ⓘ Contoh sahaja
             </div>
-            <div className="grid grid-cols-3 gap-2">
+            <div className="grid grid-cols-3 gap-2 items-start">
               {[
                 { src: "/ac-rule-1.png", cap: "1) Tangan pegang — tanpa muka" },
                 { src: "/ac-rule-2.webp", cap: "2) Product RAW (naked)" },
                 { src: "/ac-rule-3.webp", cap: "3) Product RAW (naked)" },
               ].map((im) => (
                 <div key={im.src} className="rounded-lg overflow-hidden" style={{ background: "#fff", border: "1px solid rgba(220,38,38,0.35)" }}>
-                  {/* object-contain = papar gambar PENUH (tak potong). */}
+                  {/* h-auto = papar gambar PENUH ikut nisbah asal (tak potong). */}
                   {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={im.src} alt={im.cap} className="w-full h-44 object-contain bg-white" />
+                  <img src={im.src} alt={im.cap} className="w-full h-auto bg-white" />
                   <div className="px-1.5 py-1 text-[9px] font-bold leading-tight" style={{ color: "#7f1d1d" }}>{im.cap}</div>
                 </div>
               ))}
