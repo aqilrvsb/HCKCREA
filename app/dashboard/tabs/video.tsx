@@ -27,6 +27,54 @@ const ORANGE = "#facc15";
 const ORANGE_SOFT = "rgba(255, 87, 34, 0.18)";
 const ORANGE_FAINT = "rgba(255, 87, 34, 0.06)";
 
+// Example dialog library — clickable from the word-count planner table.
+// Each duration × pace (santai / normal / seller) inserts a ready example
+// so the client sees the right LENGTH + hook structure (pain → solution →
+// CTA). Client edits the content to their own product after inserting.
+type DialogPace = "santai" | "normal" | "seller";
+const DIALOG_EXAMPLES: Record<string, Record<DialogPace, string>> = {
+  "8s": {
+    santai: "Penat sangat sekarang?\nCuba Beauty sebelum tidur.\nBangun rasa lebih segar.\nTekan bawah.",
+    normal: "Tidur cukup tapi masih letih?\nBeauty bantu support hormon waktu tidur.\nTekan button bawah sekarang.",
+    seller: "Suami makin kurang mesra?\nHormon makin drop.\nRamai dah mula Beauty sebelum tidur.\nTekan button bawah sekarang.",
+  },
+  "9s": {
+    santai: "Bangun pagi masih lesu?\nBeauty bantu badan waktu tidur.\nBangun rasa lebih ringan.\nCuba sekarang.",
+    normal: "Masih letih walaupun tidur awal?\nHormon mungkin tak seimbang.\nBeauty bantu waktu tidur.\nTekan bawah.",
+    seller: "Suami dah makin kurang tegur?\nHormon yang makin drop boleh jadi puncanya.\nCuba Beauty malam ni.\nTekan bawah.",
+  },
+  "10s": {
+    santai: "Setiap pagi badan berat?\nBeauty bantu support badan waktu tidur.\nBangun lebih segar.\nTekan button bawah.",
+    normal: "Penat walaupun rehat cukup?\nHormon tak sempat repair.\nBeauty bantu support waktu tidur.\nCuba sekarang.",
+    seller: "Suami makin kurang perhatian?\nBila hormon drop, tenaga pun hilang.\nBeauty bantu support waktu tidur.\nTekan button bawah sekarang.",
+  },
+  "11s": {
+    santai: "Badan cepat penat sekarang?\nBeauty bantu support hormon sepanjang tidur.\nBangun rasa lebih segar setiap pagi.\nTekan bawah.",
+    normal: "Asyik bangun letih walaupun tidur lama?\nHormon mungkin tak balance.\nBeauty bantu support badan waktu tidur.\nCuba sekarang.",
+    seller: "Suami makin jauh sejak kebelakangan ni?\nJangan salahkan diri dulu.\nBeauty bantu support hormon waktu tidur.\nTekan button bawah hari ni.",
+  },
+  "12s": {
+    santai: "Bangun pagi masih tak bertenaga?\nBeauty bantu support hormon sepanjang malam.\nBadan rasa lebih ringan setiap pagi.\nTekan bawah sekarang.",
+    normal: "Selalu penat walaupun tidur cukup?\nBila hormon tak balance, badan susah recharge.\nBeauty bantu support waktu tidur.\nCuba sekarang.",
+    seller: "Suami makin kurang mesra?\nHormon yang makin drop boleh jejaskan tenaga.\nBeauty bantu support hormon sepanjang tidur.\nBangun lebih segar.\nTekan button bawah.",
+  },
+  "13s": {
+    santai: "Dulu bangun terus bertenaga.\nSekarang badan cepat letih.\nBeauty bantu support hormon waktu tidur.\nBangun lebih segar.\nTekan bawah.",
+    normal: "Pernah tertanya kenapa badan cepat letih?\nHormon makin berubah bila umur meningkat.\nBeauty bantu support waktu tidur.\nCuba sekarang.",
+    seller: "Suami dah makin kurang beri perhatian?\nHormon yang makin drop boleh kurangkan tenaga dan mood.\nBeauty bantu support hormon sepanjang tidur.\nTekan button bawah sekarang.",
+  },
+  "14s": {
+    santai: "Setiap pagi rasa macam tak cukup rehat?\nBeauty bantu support hormon waktu tidur.\nBangun rasa lebih ringan dan bertenaga.\nTekan bawah sekarang.",
+    normal: "Penat walaupun tidur lama?\nBila hormon tak seimbang, badan susah pulih.\nBeauty bantu support hormon sepanjang malam.\nCuba sekarang.",
+    seller: "Suami dah mula kurang mesra?\nJangan tunggu hubungan makin renggang.\nBeauty bantu support hormon waktu tidur supaya badan kembali bertenaga.\nTekan button bawah sekarang.",
+  },
+  "15s": {
+    santai: "Bangun pagi masih rasa lesu?\nBeauty bantu support hormon sepanjang tidur.\nBangun dengan tenaga yang lebih baik setiap hari.\nCuba sekarang.",
+    normal: "Tidur cukup tapi badan tetap penat?\nBila hormon tak balance, badan sukar recharge.\nBeauty bantu support hormon sepanjang malam.\nTekan button bawah hari ni.",
+    seller: "Suami dah makin kurang mesra sejak akhir-akhir ni?\nJangan tunggu sampai hubungan makin jauh.\nBeauty bantu support hormon sepanjang tidur supaya bangun lebih bertenaga dan yakin semula.\nTekan button bawah sekarang.",
+  },
+};
+
 export default function VideoTab({ projectId }: { projectId?: string } = {}) {
   // Provider picker — Veo 3.1 (default talking-head UGC) or Sora 2
   // (cinematic with native synced audio). Each provider constrains the
@@ -565,7 +613,8 @@ export default function VideoTab({ projectId }: { projectId?: string } = {}) {
             before writing (Veo/Grok 8s · Sora 2 8/12s). */}
         <div className="mb-3">
           <div className="text-[11px] font-extrabold text-orange-600 mb-1.5">
-            Cadangan saya:
+            Cadangan saya:{" "}
+            <span className="font-normal text-gray-500">👇 klik mana-mana kotak untuk masukkan contoh dialog (ikut durasi + gaya)</span>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full text-[10px] border-collapse">
@@ -592,22 +641,37 @@ export default function VideoTab({ projectId }: { projectId?: string } = {}) {
                   ["13s", "26-28", "28-30", "30-34"],
                   ["14s", "28-30", "30-32", "32-36"],
                   ["15s", "30-32", "32-35", "35-40"],
-                ].map((r) => (
-                  <tr key={r[0]}>
-                    {r.map((cell, i) => (
-                      <td
-                        key={i}
-                        className={`px-2 py-1 ${i === 0 ? "font-bold" : "text-center"}`}
-                        style={{
-                          color: i === 0 ? "#1a1a1a" : "#555",
-                          border: "1px solid #f0e6da",
-                        }}
-                      >
-                        {cell}
-                      </td>
-                    ))}
-                  </tr>
-                ))}
+                ].map((r) => {
+                  const paces: DialogPace[] = ["santai", "normal", "seller"];
+                  return (
+                    <tr key={r[0]}>
+                      {r.map((cell, i) => {
+                        if (i === 0) {
+                          return (
+                            <td key={i} className="px-2 py-1 font-bold" style={{ color: "#1a1a1a", border: "1px solid #f0e6da" }}>
+                              {cell}
+                            </td>
+                          );
+                        }
+                        const pace = paces[i - 1];
+                        const example = DIALOG_EXAMPLES[r[0]]?.[pace] || "";
+                        return (
+                          <td key={i} className="p-0" style={{ border: "1px solid #f0e6da" }}>
+                            <button
+                              type="button"
+                              onClick={() => example && setDialog(example.substring(0, 600))}
+                              title="Klik untuk masukkan contoh dialog ikut durasi + gaya ni"
+                              className="w-full h-full px-2 py-1 text-center transition-colors hover:bg-orange-100 cursor-pointer"
+                              style={{ color: "#9a3412", fontWeight: 600 }}
+                            >
+                              {cell}
+                            </button>
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
