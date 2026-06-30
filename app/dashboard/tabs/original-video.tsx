@@ -1,11 +1,12 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Loader2, X, Film } from "lucide-react";
+import { Loader2, X, Film, ClipboardList, Clapperboard } from "lucide-react";
 import Portal from "../sections/portal";
 import { uploadImage, dataUrlToFile } from "@/lib/upload-image";
 import AttachmentPicker from "../sections/attachment-picker";
 import { SORA2_DISABLED } from "@/lib/feature-flags";
+import { SopStoryboardModal, SopUgcFrameModal } from "./sop-modals";
 
 // Original Video tab — 3-provider raw video generator.
 //
@@ -262,6 +263,9 @@ export default function OriginalVideoTab({
 
   const theme = PROVIDER_THEME[provider];
   const availableModes = PROVIDER_MODES[provider];
+  // SOP guide modals (storyboard / UGC frame).
+  const [sopStoryboard, setSopStoryboard] = useState(false);
+  const [sopUgc, setSopUgc] = useState(false);
   const refCap = getRefCap(provider, imageMode);
   const filledRefs = refSlots.filter((u) => !!u);
 
@@ -365,6 +369,26 @@ export default function OriginalVideoTab({
           100% verbatim, no auto-locks or templates. Cascade fallback +
           history + deduct-on-success all work like other tabs.
         </p>
+
+        {/* SOP guides — step-by-step panduan (storyboard + UGC frame). */}
+        <div className="flex flex-wrap gap-2 mb-4">
+          <button
+            type="button"
+            onClick={() => setSopStoryboard(true)}
+            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-[11px] font-bold transition hover:scale-105"
+            style={{ background: "rgba(59,130,246,0.15)", color: "#93c5fd", border: "1px solid rgba(59,130,246,0.4)" }}
+          >
+            <ClipboardList className="w-3.5 h-3.5" /> SOP Storyboard
+          </button>
+          <button
+            type="button"
+            onClick={() => setSopUgc(true)}
+            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-[11px] font-bold transition hover:scale-105"
+            style={{ background: "rgba(249,115,22,0.15)", color: "#fdba74", border: "1px solid rgba(249,115,22,0.4)" }}
+          >
+            <Clapperboard className="w-3.5 h-3.5" /> SOP UGC Frame
+          </button>
+        </div>
 
         {/* Provider picker — 3 chips, each themed */}
         <label className="block text-[10px] uppercase tracking-widest text-[var(--color-text-secondary)] font-bold mb-2">
@@ -810,6 +834,10 @@ export default function OriginalVideoTab({
           />
         </Portal>
       )}
+
+      {/* SOP guide modals */}
+      <SopStoryboardModal open={sopStoryboard} onClose={() => setSopStoryboard(false)} />
+      <SopUgcFrameModal open={sopUgc} onClose={() => setSopUgc(false)} />
     </div>
   );
 }
