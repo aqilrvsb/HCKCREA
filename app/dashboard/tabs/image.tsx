@@ -7,6 +7,7 @@ import Portal from "../sections/portal";
 import { uploadImage, dataUrlToFile } from "@/lib/upload-image";
 import { isVisibleAfterTtl, fetchSavedSet } from "@/lib/history-filter";
 import AttachmentPicker from "../sections/attachment-picker";
+import UgcStudioModal from "./ugc-studio-modal";
 import {
   AVATAR_PROMPTS,
   AVATAR_LABELS,
@@ -94,6 +95,9 @@ export default function ImageTab({ projectId, avatar }: { projectId?: string; av
   const [error, setError] = useState<string | null>(null);
   const [outputUrl, setOutputUrl] = useState<string | null>(null);
   const [cost, setCost] = useState<number | null>(null);
+  // UGC Studio modal (click-driven UGC product-image builder). Additive —
+  // does not touch the existing generator below.
+  const [ugcOpen, setUgcOpen] = useState(false);
 
   // History picker modal state — which slot is being filled
   const [pickerSlot, setPickerSlot] = useState<RefSlot | null>(null);
@@ -202,6 +206,30 @@ export default function ImageTab({ projectId, avatar }: { projectId?: string; av
 
   return (
     <div className="rounded-3xl p-6 md:p-8 space-y-5" style={sectionBg}>
+      {/* UGC Studio launcher — click-driven UGC product-image builder.
+          Hidden in the Livehost Avatar variant. */}
+      {!avatar && (
+        <button
+          type="button"
+          onClick={() => setUgcOpen(true)}
+          className="w-full rounded-2xl px-5 py-4 flex items-center justify-between text-left transition hover:scale-[1.01]"
+          style={{
+            background: "linear-gradient(135deg, #ff7a18, #ff5722)",
+            boxShadow: "0 6px 20px rgba(255,87,34,0.35)",
+            color: "#fff",
+          }}
+        >
+          <div className="flex items-center gap-3">
+            <span className="text-2xl">✨</span>
+            <div>
+              <div className="font-extrabold text-base">UGC Studio</div>
+              <div className="text-[11px] opacity-90">Pilih je — jantina, umur, bentuk muka, aurat, pose… lampir produk, terus jadi UGC</div>
+            </div>
+          </div>
+          <span className="text-sm font-bold bg-white/20 rounded-lg px-3 py-1.5">Buka →</span>
+        </button>
+      )}
+
       {/* IMAGE GENERATOR — Model (+ Mode, hidden in avatar variant) */}
       <Card borderColor={ORANGE}>
         <CardHeader icon="🖼️" title="Image Generator" />
@@ -502,6 +530,9 @@ export default function ImageTab({ projectId, avatar }: { projectId?: string; av
         }}
         defaultCategory="all"
       />
+
+      {/* UGC Studio modal — click-driven UGC builder (additive). */}
+      <UgcStudioModal open={ugcOpen} projectId={projectId} onClose={() => setUgcOpen(false)} />
 
 
       {/* Image Agent panel is mounted at dashboard-shell level so it
