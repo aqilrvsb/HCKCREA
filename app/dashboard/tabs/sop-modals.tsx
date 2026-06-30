@@ -113,55 +113,17 @@ export function SopStoryboardModal({
 // ── SOP UGC Frame ────────────────────────────────────────────────────────
 const DEFAULTS = {
   setting: "a cozy bedroom with traditional Malaysian decor",
-  actor: "@namapelakon",
-  productHandle: "@namaproduk",
+  dur: "8",
   hook: "akak-akak kena ada produk ni dalam bilik!",
   value: "Produk ni la akak kena guna bila cik somi ajak tuu. Boleh tambah sedap. hehe",
   cta: "Tekan butang kat bawah kalau nak order!",
   tone: "santai",
 };
 
-export function SopUgcFrameModal({ open, onClose }: { open: boolean; onClose: () => void }) {
-  const accent = "#f97316";
-  const [setting, setSetting] = useState(DEFAULTS.setting);
-  const [actor, setActor] = useState(DEFAULTS.actor);
-  const [productHandle, setProductHandle] = useState(DEFAULTS.productHandle);
-  const [hook, setHook] = useState(DEFAULTS.hook);
-  const [value, setValue] = useState(DEFAULTS.value);
-  const [cta, setCta] = useState(DEFAULTS.cta);
-  const [tone, setTone] = useState(DEFAULTS.tone);
-
-  useEffect(() => {
-    if (!open) return;
-    setSetting(DEFAULTS.setting); setActor(DEFAULTS.actor); setProductHandle(DEFAULTS.productHandle);
-    setHook(DEFAULTS.hook); setValue(DEFAULTS.value); setCta(DEFAULTS.cta); setTone(DEFAULTS.tone);
-  }, [open]);
-
-  const prompt = useMemo(() => `Visual description:
-Vertical 9:16, 8 seconds. Medium close-up shot in ${setting.trim()}. A Malay woman ${actor.trim()}, holding the ${productHandle.trim()} facing the camera. The product must retain all its original details, design, colors, labels, and packaging exactly as shown in the reference image. She smiles genuinely, subtly gestures with the product, and maintains eye contact while speaking. Natural lighting, realistic home environment.
-
-Spoken dialog (exact script):
-0–3s (Hook):
-"${hook.trim()}"
-
-3–6s (Value / Problem–Solution):
-"${value.trim()}"
-
-6–8s (CTA):
-"${cta.trim()}"
-
-Tone:
-${tone.trim()}
-
-Voice: maintain the same voice from @part1
-
-NO subtitles or new add text overlays, NO on-screen dialogue text, All dialogue is AUDIO ONLY, reduce contrast, natural skintone, soft highlights, no oversharpen, low contrast, soft colors, natural tone, film look, soft light
-
-Clean vertical video frame with no interface overlay. No social media UI, no TikTok interface, no buttons, no icons, no overlay interface elements.`, [setting, actor, productHandle, hook, value, cta, tone]);
-
-  if (!open) return null;
-
-  const Field = ({ label, val, set, ph, area }: { label: string; val: string; set: (v: string) => void; ph?: string; area?: boolean }) => (
+// Module-level so text inputs keep focus while typing (an inline component
+// would remount on every keystroke).
+function SField({ label, val, set, ph, area }: { label: string; val: string; set: (v: string) => void; ph?: string; area?: boolean }) {
+  return (
     <div>
       <div className="text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-1">{label}</div>
       {area ? (
@@ -173,30 +135,73 @@ Clean vertical video frame with no interface overlay. No social media UI, no Tik
       )}
     </div>
   );
+}
+
+export function SopUgcFrameModal({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const accent = "#f97316";
+  const [setting, setSetting] = useState(DEFAULTS.setting);
+  const [dur, setDur] = useState(DEFAULTS.dur);
+  const [hook, setHook] = useState(DEFAULTS.hook);
+  const [value, setValue] = useState(DEFAULTS.value);
+  const [cta, setCta] = useState(DEFAULTS.cta);
+  const [tone, setTone] = useState(DEFAULTS.tone);
+
+  useEffect(() => {
+    if (!open) return;
+    setSetting(DEFAULTS.setting); setDur(DEFAULTS.dur);
+    setHook(DEFAULTS.hook); setValue(DEFAULTS.value); setCta(DEFAULTS.cta); setTone(DEFAULTS.tone);
+  }, [open]);
+
+  // Dynamic time segments — split the chosen duration into Hook / Value /
+  // CTA (~37.5% / ~37.5% / ~25%). No hardcoded 0-3/3-6/6-8.
+  const n = Math.max(3, Math.min(60, Math.round(Number(dur) || 8)));
+  const h1 = Math.max(1, Math.round(n * 0.375));
+  const h2 = Math.min(n - 1, Math.max(h1 + 1, Math.round(n * 0.75)));
+
+  const prompt = useMemo(() => `Visual description:
+Vertical 9:16, ${n} seconds. Medium close-up shot in ${setting.trim()}. A Malay woman holding the product facing the camera. The product must retain all its original details, design, colors, labels, and packaging exactly as shown in the reference image. She smiles genuinely, subtly gestures with the product, and maintains eye contact while speaking. Natural lighting, realistic home environment.
+
+Spoken dialog (exact script):
+0–${h1}s (Hook):
+"${hook.trim()}"
+
+${h1}–${h2}s (Value / Problem–Solution):
+"${value.trim()}"
+
+${h2}–${n}s (CTA):
+"${cta.trim()}"
+
+Tone:
+${tone.trim()}
+
+Voice: maintain the same voice from @part1
+
+NO subtitles or new add text overlays, NO on-screen dialogue text, All dialogue is AUDIO ONLY, reduce contrast, natural skintone, soft highlights, no oversharpen, low contrast, soft colors, natural tone, film look, soft light
+
+Clean vertical video frame with no interface overlay. No social media UI, no TikTok interface, no buttons, no icons, no overlay interface elements.`, [setting, n, h1, h2, hook, value, cta, tone]);
+
+  if (!open) return null;
 
   return (
     <Shell title="SOP — UGC Frame (Grok)" icon={<Clapperboard className="w-5 h-5" />} accent={accent} onClose={onClose}>
       <div className="text-[11px] text-gray-400 leading-relaxed">
-        Buat video UGC bercakap dari gambar (start frame). Sebab gambar UGC awak dah dijana ikut kriteria sendiri, isi je ruang bawah ni — prompt siap auto.
+        Buat video UGC bercakap dari gambar (start frame). Sebab gambar UGC awak dah dijana ikut kriteria sendiri, isi je ruang bawah ni — prompt siap auto. Saat hook/value/CTA ikut durasi automatik.
       </div>
       <Step n={1}>Pilih provider <b className="text-white">Grok 1.5</b>.</Step>
       <Step n={2}>Mode <b className="text-white">Start frame</b> → upload gambar UGC awak.</Step>
       <Step n={3}>Isi butiran bawah, lepas tu <b className="text-white">salin</b> prompt yang dijana:</Step>
 
-      <div className="grid grid-cols-2 gap-2.5">
-        <Field label="Latar / Setting" val={setting} set={setSetting} />
-        <Field label="Tone" val={tone} set={setTone} ph="santai / serius / ceria" />
+      <div className="grid grid-cols-3 gap-2.5">
+        <div className="col-span-2"><SField label="Latar / Setting" val={setting} set={setSetting} /></div>
+        <SField label="Durasi (saat)" val={dur} set={setDur} ph="8" />
       </div>
-      <div className="grid grid-cols-2 gap-2.5">
-        <Field label="Handle Pelakon" val={actor} set={setActor} ph="@namapelakon" />
-        <Field label="Handle Produk" val={productHandle} set={setProductHandle} ph="@namaproduk" />
-      </div>
-      <Field label="Hook (0–3s)" val={hook} set={setHook} area />
-      <Field label="Value (3–6s)" val={value} set={setValue} area />
-      <Field label="CTA (6–8s)" val={cta} set={setCta} area />
+      <SField label="Tone" val={tone} set={setTone} ph="santai / serius / ceria" />
+      <SField label={`Hook (0–${h1}s)`} val={hook} set={setHook} area />
+      <SField label={`Value (${h1}–${h2}s)`} val={value} set={setValue} area />
+      <SField label={`CTA (${h2}–${n}s)`} val={cta} set={setCta} area />
 
       <div className="text-[10px] text-gray-400 leading-relaxed bg-white/5 rounded-lg px-2.5 py-2 border border-white/10">
-        👇 Ini <b className="text-white">contoh penuh</b> supaya awak nampak macam mana prompt sebenar. Tukar je ruang atas (nama produk, handle, dialog) → prompt ni update sendiri. Lepas tu tekan <b style={{ color: accent }}>Salin</b>.
+        👇 Ini <b className="text-white">contoh penuh</b> supaya awak nampak macam mana prompt sebenar. Tukar je ruang atas (durasi, dialog) → prompt ni update sendiri (termasuk saat). Lepas tu tekan <b style={{ color: accent }}>Salin</b>.
       </div>
       <CopyBox text={prompt} accent={accent} />
     </Shell>
