@@ -356,7 +356,7 @@ export default function UgcStudioModal({
   const [age, setAge] = useState("20s");
   const [ethnic, setEthnic] = useState("melayu");
   const [face, setFace] = useState("oval");
-  const [skin, setSkin] = useState("tan");
+  const [skin, setSkin] = useState("fair");
   const [hijab, setHijab] = useState(true);
   const [styleFit, setStyleFit] = useState("longgar"); // clothing fit; aurat = hijab toggle
   const [expression, setExpression] = useState("smile");
@@ -396,7 +396,7 @@ export default function UgcStudioModal({
     setAge("20s");
     setEthnic("melayu");
     setFace("oval");
-    setSkin("tan");
+    setSkin("fair");
     setHijab(true);
     setStyleFit("longgar");
     setExpression("smile");

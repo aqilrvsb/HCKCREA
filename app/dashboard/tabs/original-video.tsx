@@ -111,7 +111,7 @@ const PROVIDER_MODES: Record<Provider, ImageMode[]> = {
   // GeminiOmni: ingredient + text. API has no first-frame concept (just
   // generic img_urls) — frame mode would be UX duplication of single-
   // image ingredient mode.
-  gemini: ["ingredient", "text"],
+  gemini: ["ingredient"],
   // Seedance 2.0 Fast: all 3 modes (r2v / t2v / i2v). Frame mode is
   // start+end frame i2v (2 images max per APIPod spec). Ingredient is
   // r2v with up to 9 refs (capped at 3 here for UX consistency).
@@ -160,7 +160,7 @@ function modeDescription(mode: ImageMode): string {
 export default function OriginalVideoTab({
   projectId,
 }: { projectId?: string } = {}) {
-  const [provider, setProvider] = useState<Provider>("veo");
+  const [provider, setProvider] = useState<Provider>("gemini");
   const [imageMode, setImageMode] = useState<ImageMode>("text");
   // Up to 3 ref slots. Per-provider cap applied at submit time so the
   // user doesn't lose picks when switching providers.
@@ -408,7 +408,8 @@ export default function OriginalVideoTab({
               (2026-06-08) — Seedance has its own dedicated tab. Grok =
               Grok Imagine 1.5 Preview (image-to-video, 1-15s, 720p). */}
           {(["veo", "sora2", "gemini", "grok"] as const)
-            .filter((p) => !(SORA2_DISABLED && p === "sora2"))
+            // Veo 3.1 hidden from Original Video per user direction 2026-06-30.
+            .filter((p) => p !== "veo" && !(SORA2_DISABLED && p === "sora2"))
             .map((p) => {
             const active = provider === p;
             const t = PROVIDER_THEME[p];

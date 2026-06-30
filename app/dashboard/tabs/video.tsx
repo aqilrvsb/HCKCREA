@@ -109,7 +109,7 @@ export default function VideoTab({ projectId }: { projectId?: string } = {}) {
   //   - Sora 2: text/frame mode only, 8s or 12s duration, single ref
   //   - Grok:   same frame + dialog UI as Veo; fixed 8s. Routes through
   //             /api/generate/video with provider='grok' (grok cascade).
-  const [provider, setProvider] = useState<"veo" | "sora2" | "grok">("veo");
+  const [provider, setProvider] = useState<"veo" | "sora2" | "grok">("grok");
   // Sora 2 supports 8 or 12s natively. APIPod also accepts 4s but our
   // UI dropped it (too short for useful UGC). State is independent from
   // Veo's fixed 8s so switching providers doesn't reset the other.
@@ -379,6 +379,28 @@ export default function VideoTab({ projectId }: { projectId?: string } = {}) {
             SORA2_DISABLED ? "grid-cols-2" : "grid-cols-3"
           } gap-2 mb-4`}
         >
+          {/* Grok FIRST (default), then Veo. Sora 2 hidden when disabled. */}
+          <button
+            type="button"
+            onClick={() => setProvider("grok")}
+            className="px-3 py-3 rounded-xl text-sm font-extrabold transition-all"
+            style={
+              provider === "grok"
+                ? {
+                    background: "linear-gradient(135deg, #f97316, #ea580c)",
+                    color: "white",
+                    boxShadow: "0 4px 12px rgba(249,115,22,0.35)",
+                    border: "1px solid transparent",
+                  }
+                : {
+                    background: "white",
+                    color: "#1a1a1a",
+                    border: "1px solid #e8e0d8",
+                  }
+            }
+          >
+            ⚡ Grok 1.5 · 1–15s
+          </button>
           <button
             type="button"
             onClick={() => setProvider("veo")}
@@ -423,27 +445,6 @@ export default function VideoTab({ projectId }: { projectId?: string } = {}) {
               ⚡ Sora 2 · 8 / 12s
             </button>
           )}
-          <button
-            type="button"
-            onClick={() => setProvider("grok")}
-            className="px-3 py-3 rounded-xl text-sm font-extrabold transition-all"
-            style={
-              provider === "grok"
-                ? {
-                    background: "linear-gradient(135deg, #f97316, #ea580c)",
-                    color: "white",
-                    boxShadow: "0 4px 12px rgba(249,115,22,0.35)",
-                    border: "1px solid transparent",
-                  }
-                : {
-                    background: "white",
-                    color: "#1a1a1a",
-                    border: "1px solid #e8e0d8",
-                  }
-            }
-          >
-            ⚡ Grok 1.5 · 1–15s
-          </button>
         </div>
 
         {/* Veo cost — fixed 8s flat per-video rate (no slider). Shown so

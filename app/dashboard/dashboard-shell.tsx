@@ -59,20 +59,19 @@ type TabKey =
 // with a model selector (Grok / Veo). Backend route paths still use the
 // "cinema" key internally so we don't have to rename agent-cinema.ts.
 const TABS: { key: TabKey; label: string; icon: any; tag: string }[] = [
+  // Tab order per user direction 2026-06-30: Image → Dialog UGC →
+  // Original Video → Auto Content → Storytelling.
   { key: "image",     label: "Image",        icon: ImageIcon, tag: "01" },
   // Dialog UGC tab — re-enabled 2026-06-10 per user direction. Dialog-only
-  // input; exposes 3 providers (Veo 3.1 · Sora 2 · Grok Imagine 1.5).
+  // input; exposes Grok Imagine 1.5 (default) · Veo 3.1.
   { key: "video",     label: "Dialog UGC",   icon: Video,     tag: "02" },
-  { key: "auto",      label: "Auto Content", icon: Wand2,     tag: "03" },
-  // Seedance/Cinema tab hidden per user direction. Route + import kept
-  // so existing seedance history rows still render via their cards in
-  // the Sora 2 / Viral grids if shared. Re-enable by uncommenting.
-  // { key: "seedance",  label: "Cinema",       icon: Film,      tag: "04" },
-  { key: "original-video", label: "Original Video", icon: Film, tag: "04" },
-  // Clone Prompt + Viral tabs hidden per user direction 2026-06-28. Routes +
+  { key: "original-video", label: "Original Video", icon: Film, tag: "03" },
+  { key: "auto",      label: "Auto Content", icon: Wand2,     tag: "04" },
+  // Clone Prompt + Viral + Seedance tabs hidden per user direction. Routes +
   // imports kept so existing history rows still render; re-enable by uncommenting.
-  // { key: "clone",     label: "Clone Prompt", icon: Layers,    tag: "05" },
-  { key: "fairytale", label: "Storytelling", icon: BookOpen,  tag: "06" },
+  // { key: "seedance",  label: "Cinema",       icon: Film,      tag: "--" },
+  // { key: "clone",     label: "Clone Prompt", icon: Layers,    tag: "--" },
+  { key: "fairytale", label: "Storytelling", icon: BookOpen,  tag: "05" },
   // { key: "cinema",    label: "Viral",        icon: Film,      tag: "07" },
   // Grok hidden per user direction (server unstable).
   // Sora 2 standalone tab hidden — Original Video (04) now exposes
