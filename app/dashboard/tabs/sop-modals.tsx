@@ -195,6 +195,9 @@ Clean vertical video frame with no interface overlay. No social media UI, no Tik
       <Field label="Value (3–6s)" val={value} set={setValue} area />
       <Field label="CTA (6–8s)" val={cta} set={setCta} area />
 
+      <div className="text-[10px] text-gray-400 leading-relaxed bg-white/5 rounded-lg px-2.5 py-2 border border-white/10">
+        👇 Ini <b className="text-white">contoh penuh</b> (dah diisi dengan contoh produk Meldoria) supaya awak nampak macam mana prompt sebenar. Tukar je ruang atas → prompt ni update sendiri. Lepas tu tekan <b style={{ color: accent }}>Salin</b>.
+      </div>
       <CopyBox text={prompt} accent={accent} />
     </Shell>
   );

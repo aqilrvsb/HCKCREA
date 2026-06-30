@@ -836,7 +836,7 @@ export default function OriginalVideoTab({
       )}
 
       {/* SOP guide modals */}
-      <SopStoryboardModal open={sopStoryboard} onClose={() => setSopStoryboard(false)} />
+      <SopStoryboardModal open={sopStoryboard} onClose={() => setSopStoryboard(false)} exampleImageUrl="/sop-storyboard.jpg" />
       <SopUgcFrameModal open={sopUgc} onClose={() => setSopUgc(false)} />
     </div>
   );
