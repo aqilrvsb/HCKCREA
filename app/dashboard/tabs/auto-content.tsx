@@ -70,7 +70,10 @@ export default function AutoContentTab({ projectId }: { projectId?: string } = {
   // submitting product_mode "manual" downstream because the same
   // manual_products[] payload shape is used either way; the affiliate
   // path just pre-fills it.
-  const [productMode, setProductMode] = useState<ProductMode>("affiliate");
+  // Merged single "Product" panel — default to the manual form look; the
+  // mode flips to "affiliate" only when the user picks an affiliate link
+  // from the 🔗 dropdown (so Save still records the TikTok product_id).
+  const [productMode, setProductMode] = useState<ProductMode>("manual");
   const [affiliateUrl, setAffiliateUrl] = useState("");
   const [scraping, setScraping] = useState(false);
   const [scrapeMsg, setScrapeMsg] = useState<{ ok: boolean; text: string } | null>(null);
@@ -183,6 +186,8 @@ export default function AutoContentTab({ projectId }: { projectId?: string } = {
   const [savingIdx, setSavingIdx] = useState<number | null>(null);
   const [savedMsg, setSavedMsg] = useState<string | null>(null);
   const [savedManual, setSavedManual] = useState<SavedProduct[]>([]);
+  // 📦 saved-manual dropdown open state (merged Product panel).
+  const [showSavedManual, setShowSavedManual] = useState(false);
   // Per-product scrape state. Click "Scrape" → loading=true → fetch
   // fires → either `images: string[]` or `error: string` lands here.
   // The count badge that replaces the Scrape button reads from this map.
@@ -361,6 +366,7 @@ export default function AutoContentTab({ projectId }: { projectId?: string } = {
   function applyRecentProduct(p: RecentProduct) {
     setAffiliateUrl(p.raw_url);
     setShowRecent(false);
+    setProductMode("affiliate"); // picked an affiliate link → affiliate mode
     setScrapeMsg(null);
 
     const lines: string[] = [p.product_name];
@@ -529,6 +535,9 @@ export default function AutoContentTab({ projectId }: { projectId?: string } = {
 
   // Apply a saved manual product → fill Product Name + Detail + attachments.
   function applyManualSaved(sp: SavedProduct) {
+    setProductMode("manual"); // picked a saved manual product → manual mode
+    setTiktokProductId("");
+    setShowSavedManual(false);
     const urls = (sp.attachments || []).filter(Boolean).slice(0, 3);
     setManualProducts((prev) => prev.map((x, j) => (j === 0 ? {
       ...x,
@@ -879,45 +888,81 @@ export default function AutoContentTab({ projectId }: { projectId?: string } = {
             Crawlbase, auto-fill manual_products[0]. Manual = upload
             directly. The submit body is identical either way (both paths
             populate manual_products[]). */}
-        <div className="flex rounded-lg overflow-hidden mb-3" style={{ border: "1px solid #e8e0d8" }}>
-          <ToggleBtn
-            active={productMode === "affiliate"}
-            onClick={() => {
-              setProductMode("affiliate");
-              // Switching to Affiliate clears any manual product data so
-              // the user starts with a clean slate. Affiliate flow re-
-              // populates manual_products[0] when a product is picked.
-              setManualProducts((prev) =>
-                prev.map(() => ({ info: "", imageData: "", imageUrls: [] }))
-              );
-              setScrapeMsg(null);
-            }}
-          >
-            🔗 Affiliate
-          </ToggleBtn>
-          <ToggleBtn
-            active={productMode === "manual"}
-            onClick={() => {
-              setProductMode("manual");
-              // Manual flow has no TikTok ID — clear so it doesn't
-              // accidentally ride through with leftover data from a
-              // previous Affiliate fetch. Also clear the affiliate URL +
-              // any prefilled product card so user starts fresh.
-              setTiktokProductId("");
-              setAffiliateUrl("");
-              setScrapeMsg(null);
-              setShowRecent(false);
-              setManualProducts((prev) =>
-                prev.map(() => ({ info: "", imageData: "", imageUrls: [] }))
-              );
-            }}
-            borderLeft
-          >
-            📦 Manual Product
-          </ToggleBtn>
+        {/* Merged Product panel — one form (manual look). Two icon buttons
+            auto-fill it: 🔗 from an affiliate link dropdown, 📦 from saved
+            manual products (with their saved attachments). */}
+        <div className="flex items-center justify-between mb-2">
+          <label className="block text-[11px] font-extrabold uppercase tracking-wider" style={{ color: "#9a3412" }}>
+            Product
+          </label>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                loadRecentProducts();
+                setShowRecent((s) => !s);
+                setShowSavedManual(false);
+              }}
+              title="Pilih dari link affiliate (fetch guna extension)"
+              className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[11px] font-bold"
+              style={{ border: "1px solid #e8e0d8", background: showRecent ? "#fff8d6" : "#ffffff", color: "#1a1a1a" }}
+            >
+              🔗 Affiliate
+              <span style={{ fontSize: "10px", background: "#facc15", borderRadius: 999, padding: "1px 6px", minWidth: 16, textAlign: "center" }}>{recentProducts.length}</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                loadSavedManual();
+                setShowSavedManual((s) => !s);
+                setShowRecent(false);
+              }}
+              title="Pilih dari produk manual yang dah Save Attachment"
+              className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[11px] font-bold"
+              style={{ border: "1px solid #e8e0d8", background: showSavedManual ? "#fff8d6" : "#ffffff", color: "#1a1a1a" }}
+            >
+              📦 Saved Data
+              <span style={{ fontSize: "10px", background: "#facc15", borderRadius: 999, padding: "1px 6px", minWidth: 16, textAlign: "center" }}>{savedManual.length}</span>
+            </button>
+          </div>
         </div>
 
-        {productMode === "affiliate" && (
+        {/* 📦 Saved manual products dropdown — pick to reload Name + Detail
+            + the 3 saved attachments instantly. */}
+        {showSavedManual && (
+          <div className="mb-3 rounded-xl overflow-hidden" style={{ border: "1px solid #e8e0d8", background: "#ffffff" }}>
+            <div className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider" style={{ color: "#8a7a6a", borderBottom: "1px solid #f0e8de" }}>
+              Produk disimpan ({savedManual.length})
+            </div>
+            {savedManual.length === 0 && (
+              <div className="px-3 py-4 text-[11px] leading-relaxed" style={{ color: "#8a7a6a" }}>
+                Belum ada produk disimpan. Isi form bawah → tekan <strong>Save Attachment</strong> untuk simpan.
+              </div>
+            )}
+            {savedManual.map((s) => (
+              <button
+                key={s.id}
+                type="button"
+                onClick={() => applyManualSaved(s)}
+                className="w-full flex items-center gap-2.5 px-3 py-2 text-left hover:bg-yellow-50"
+                style={{ borderBottom: "1px solid #f7f0e6" }}
+              >
+                {s.attachments?.[0] ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={s.attachments[0]} alt="" className="w-9 h-9 rounded-md object-cover flex-shrink-0" style={{ background: "#f0e8de" }} />
+                ) : (
+                  <div className="w-9 h-9 rounded-md flex-shrink-0" style={{ background: "#f0e8de" }} />
+                )}
+                <div className="flex-1 min-w-0">
+                  <div className="text-xs font-semibold truncate" style={{ color: "#1a1a1a" }}>{s.product_name}</div>
+                  <div className="text-[10px] mt-0.5" style={{ color: "#8a7a6a" }}>{(s.attachments || []).length} attachment</div>
+                </div>
+              </button>
+            ))}
+          </div>
+        )}
+
+        {showRecent && (
           <div className="space-y-2 mb-4">
             {/* Stack input + Fetch Product vertically on mobile so the URL
                 field has full width. Side-by-side on sm+ stays as before. */}
@@ -1144,39 +1189,16 @@ export default function AutoContentTab({ projectId }: { projectId?: string } = {
             and signals "paste link first" to the user. Once the scrape
             fills slot 0, the card appears so they can edit / replace
             the auto-filled fields before firing. */}
-        {/* Saved manual products — pick one to reload Name + Detail + the 3
-            attachments instantly (no re-typing / re-picking). */}
-        {productMode === "manual" && savedManual.length > 0 && (
-          <div className="mb-3">
-            <label className="block text-[9px] font-bold uppercase tracking-wider mb-1" style={{ color: "#888" }}>
-              Load saved product
-            </label>
-            <select
-              defaultValue=""
-              onChange={(e) => {
-                const sp = savedManual.find((s) => s.id === e.target.value);
-                if (sp) applyManualSaved(sp);
-                e.target.value = "";
-              }}
-              className="w-full p-2 rounded text-xs outline-none"
-              style={{ background: "#ffffff", border: "1px solid #e8e0d8", color: "#1a1a1a" }}
-            >
-              <option value="">— Pick a saved product —</option>
-              {savedManual.map((s) => (
-                <option key={s.id} value={s.id}>{s.product_name}</option>
-              ))}
-            </select>
-          </div>
-        )}
         {savedMsg && (
           <div className="mb-2 text-[11px] font-bold" style={{ color: savedMsg.startsWith("✓") ? "#16a34a" : "#dc2626" }}>
             {savedMsg}
           </div>
         )}
 
-        {(productMode === "manual" ||
-          manualProducts[0]?.imageData ||
-          manualProducts[0]?.info?.trim()) && (
+        {/* Product form — always visible (manual look). Auto-filled by the
+            🔗 affiliate dropdown or 📦 saved-data dropdown above, or typed
+            manually. */}
+        {true && (
           <div className="space-y-2 mb-4">
             {manualProducts.map((p, i) => (
               <ManualProductCard
@@ -2071,7 +2093,7 @@ function ManualProductCard({
               color: "#15803d",
             }}
           >
-            {saving ? "⏳ Saving…" : "💾 Save Data"}
+            {saving ? "⏳ Saving…" : "💾 Save Attachment"}
           </button>
           {(product.imageUrls?.length || product.imageData) && (
             <SmallBtn onClick={onClear} danger>
