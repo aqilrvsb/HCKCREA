@@ -89,7 +89,7 @@ export default function ImageTab({ projectId, avatar }: { projectId?: string; av
   const REF_CAP = 4;
   const [refSlots, setRefSlots] = useState<string[]>(["", "", "", ""]);
   const [refPickIdx, setRefPickIdx] = useState<number | null>(null);
-  const [promptCat, setPromptCat] = useState<PromptCat>("avatar");
+  const [promptCat, setPromptCat] = useState<PromptCat>("product");
   const [historyId, setHistoryId] = useState<string | null>(null);
   const [status, setStatus] = useState<Status>("idle");
   const [error, setError] = useState<string | null>(null);
@@ -348,7 +348,6 @@ export default function ImageTab({ projectId, avatar }: { projectId?: string; av
         >
           {(
             [
-              { k: "avatar", icon: "👤", label: "Avatar" },
               { k: "product", icon: "📦", label: "Product" },
               { k: "sales", icon: "💰", label: "Sales" },
             ] as { k: PromptCat; icon: string; label: string }[]
@@ -402,31 +401,9 @@ export default function ImageTab({ projectId, avatar }: { projectId?: string; av
           </div>
         )}
 
-        {/* Avatar presets (full studio) */}
-        {!avatar && promptCat === "avatar" && (
-          <div className="space-y-3 mb-4">
-            <div>
-              <div className="text-[10px] font-bold uppercase tracking-wider text-gray-500 mb-1.5">
-                👩 Female
-              </div>
-              <div className="flex flex-wrap gap-1.5">
-                {AVATAR_FEMALE.map((p) => (
-                  <PresetChip key={p.label} {...p} onClick={() => setPrompt(p.val)} />
-                ))}
-              </div>
-            </div>
-            <div>
-              <div className="text-[10px] font-bold uppercase tracking-wider text-gray-500 mb-1.5">
-                👨 Male
-              </div>
-              <div className="flex flex-wrap gap-1.5">
-                {AVATAR_MALE.map((p) => (
-                  <PresetChip key={p.label} {...p} onClick={() => setPrompt(p.val)} />
-                ))}
-              </div>
-            </div>
-          </div>
-        )}
+        {/* Avatar presets removed per user direction 2026-06-30 — the
+            non-avatar Images tab now starts on Product; UGC personas live
+            in the dedicated UGC Studio modal. */}
 
         {/* Product presets */}
         {!avatar && promptCat === "product" && (

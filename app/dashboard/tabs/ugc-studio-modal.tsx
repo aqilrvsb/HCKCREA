@@ -9,12 +9,35 @@
 // per-section "Custom" free-text override, and a quantity batch generator.
 
 import { useEffect, useMemo, useState } from "react";
-import { Loader2, X, Sparkles, ImagePlus } from "lucide-react";
+import { Loader2, X, Sparkles, ImagePlus, Info } from "lucide-react";
 import Portal from "../sections/portal";
 import AttachmentPicker from "../sections/attachment-picker";
 
 type Opt = { val: string; label: string };
 const CUSTOM = "custom";
+
+// Malay explanations shown when the ℹ icon next to a section is tapped.
+const TIPS: Record<string, string> = {
+  product: "Gambar produk sebenar anda. AI akan pastikan label/pakej dalam gambar UGC sama macam gambar ni (warna, tulisan, bentuk).",
+  stylefit: "Fit pakaian model: Longgar (selesa, flowy), Biasa (sederhana — tak ketat tak melampau), atau Fashion (bergaya). Tutup aurat pula ikut tetapan Hijab di bawah.",
+  gender: "Jantina model dalam gambar — perempuan atau lelaki.",
+  age: "Lingkungan umur model (remaja hingga 50+).",
+  ethnic: "Bangsa / etnik wajah model. Semua dijana dengan rupa Malaysia yang natural.",
+  hijab: "Ada hijab = AUTO tutup aurat penuh (rambut, tangan, kaki, badan ditutup). Tiada hijab = tak tutup aurat.",
+  face: "Bentuk muka model — oval, bulat, square, hati, panjang atau diamond.",
+  skin: "Tona kulit model — cerah, sawo matang, atau gelap manis.",
+  expression: "Riak/emosi wajah model — senyum, teruja, wow, neutral atau fokus.",
+  outfit: "Jenis pakaian — casual, muslimah, baju kurung, office, sporty, loungewear atau glam.",
+  shot: "Saiz shot kamera — fokus produk, close-up muka, separuh badan atau penuh badan.",
+  angle: "Sudut kamera — aras mata, atas, bawah, flat-lay (atas ke bawah) atau selfie POV (paling natural untuk UGC).",
+  pose: "Apa model buat dengan produk — tunjuk label, pegang dekat muka, tunjuk, guna, unboxing, atau cakap depan kamera (sesuai jadi start frame video).",
+  prodpos: "Di mana produk diletak — dalam tangan, dekat muka, atas meja, sebelah model, atau dipakai.",
+  bg: "Lokasi / latar belakang gambar — bilik, kafe, dapur, studio, jalan, dll.",
+  light: "Jenis pencahayaan — ring-light (gaya UGC), cahaya siang, golden hour, studio, terang lembut, atau moody.",
+  auth: "Look akhir gambar: UGC phone (nampak macam guna telefon, real & natural) atau Komersial (bersih, gaya studio).",
+  orient: "Saiz/orientasi gambar — 9:16 (TikTok/Reels), 1:1 (square), 4:5 (feed).",
+  qty: "Berapa banyak gambar nak generate sekali gus. Setiap satu dicaj seperti 1 imej.",
+};
 
 const GENDER: Opt[] = [
   { val: "female", label: "👩 Perempuan" },
@@ -46,9 +69,12 @@ const SKIN: Opt[] = [
   { val: "tan", label: "Sawo matang" },
   { val: "deep", label: "Gelap manis" },
 ];
-const MODESTY: Opt[] = [
-  { val: "modest", label: "🧕 Tutup Aurat (longgar)" },
-  { val: "stylish", label: "✨ Stylish / Biasa" },
+// Clothing FIT / style (3 levels). Aurat coverage is NOT decided here —
+// it's driven by the hijab toggle (hijab ON = auto tutup aurat).
+const STYLEFIT: Opt[] = [
+  { val: "longgar", label: "🧥 Longgar" },
+  { val: "biasa", label: "👕 Biasa (sederhana)" },
+  { val: "fashion", label: "✨ Fashion / Style" },
 ];
 const EXPRESSION: Opt[] = [
   { val: "smile", label: "😊 Senyum" },
@@ -147,6 +173,11 @@ const FACE_EN: Record<string, string> = {
 const SKIN_EN: Record<string, string> = {
   fair: "fair light skin", tan: "warm tan sawo-matang skin", deep: "deep warm brown skin",
 };
+const FIT_EN: Record<string, string> = {
+  longgar: "loose, flowy, non-form-fitting clothing",
+  biasa: "a moderate regular fit — neither too loose nor too tight, modest and natural, not revealing",
+  fashion: "a stylish, trendy, fashionable outfit",
+};
 const EXPR_EN: Record<string, string> = {
   smile: "warm natural smile", excited: "excited delighted expression",
   wow: "surprised wow expression", neutral: "calm neutral expression",
@@ -198,7 +229,7 @@ function pillStyle(active: boolean, accent: string): React.CSSProperties {
 // Module-level so the custom text input keeps focus while typing (an
 // inline-defined component would remount on every keystroke).
 function Group({
-  label, opts, value, onChange, gkey, customs, setCustom, accent, allowCustom = true,
+  label, opts, value, onChange, gkey, customs, setCustom, accent, allowCustom = true, tip, onInfo,
 }: {
   label: string;
   opts: Opt[];
@@ -209,10 +240,24 @@ function Group({
   setCustom: (k: string, v: string) => void;
   accent: string;
   allowCustom?: boolean;
+  tip?: string;
+  onInfo?: (title: string, text: string) => void;
 }) {
   return (
     <div>
-      <div className="text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-1.5">{label}</div>
+      <div className="flex items-center gap-1.5 mb-1.5">
+        <span className="text-[10px] font-bold uppercase tracking-wider text-gray-400">{label}</span>
+        {tip && onInfo && (
+          <button
+            type="button"
+            onClick={() => onInfo(label, tip)}
+            className="text-gray-500 hover:text-white transition"
+            title="Apa ni?"
+          >
+            <Info className="w-3 h-3" />
+          </button>
+        )}
+      </div>
       <div className="flex flex-wrap gap-1.5">
         {opts.map((o) => (
           <button
@@ -267,7 +312,7 @@ export default function UgcStudioModal({
   const [face, setFace] = useState("oval");
   const [skin, setSkin] = useState("tan");
   const [hijab, setHijab] = useState(true);
-  const [modesty, setModesty] = useState("modest"); // PRIORITY default = Tutup Aurat
+  const [styleFit, setStyleFit] = useState("longgar"); // clothing fit; aurat = hijab toggle
   const [expression, setExpression] = useState("smile");
   const [outfit, setOutfit] = useState("muslimah");
   const [shot, setShot] = useState("half");
@@ -286,6 +331,9 @@ export default function UgcStudioModal({
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState("");
   const [error, setError] = useState<string | null>(null);
+  // ℹ info popup (Malay explanation per section).
+  const [info, setInfo] = useState<{ title: string; text: string } | null>(null);
+  const onInfo = (title: string, text: string) => setInfo({ title, text });
 
   // Reset the whole form to defaults every time the modal opens, so each
   // session starts clean (no leftover product / selections from last time).
@@ -299,7 +347,7 @@ export default function UgcStudioModal({
     setFace("oval");
     setSkin("tan");
     setHijab(true);
-    setModesty("modest");
+    setStyleFit("longgar");
     setExpression("smile");
     setOutfit("muslimah");
     setShot("half");
@@ -324,13 +372,15 @@ export default function UgcStudioModal({
 
   const prompt = useMemo(() => {
     const person = `a ${cv("ethnic", ETHNIC_EN, ethnic)} ${cv("age", AGE_EN, age)} ${isFemale ? "woman" : "man"} with authentic Malaysian Southeast-Asian features, ${cv("face", FACE_EN, face)}, ${cv("skin", SKIN_EN, skin)}`;
+    // Aurat coverage is driven by the hijab toggle (female): hijab ON =>
+    // hair covered + body fully covered (tutup aurat); hijab OFF => no
+    // coverage constraint.
     const hijabClause = isFemale && hijab ? ", wearing a neat hijab/tudung that fully covers the hair" : "";
-    const modestyClause =
-      modesty === CUSTOM
-        ? `, ${(customs.modesty || "").trim()}`
-        : modesty === "modest"
-          ? ", dressed modestly in loose, non-form-fitting clothing that fully covers the aurat (arms, legs and body covered), nothing tight or revealing"
-          : ", in a stylish trendy outfit";
+    const auratClause =
+      isFemale && hijab
+        ? " The outfit fully covers the aurat — arms, wrists, legs and whole body covered; no skin exposure beyond the face and hands."
+        : "";
+    const fitClause = styleFit === CUSTOM ? (customs.stylefit || "").trim() : FIT_EN[styleFit];
     const authClause =
       auth === CUSTOM
         ? (customs.auth || "").trim()
@@ -338,14 +388,14 @@ export default function UgcStudioModal({
           ? "Shot on a smartphone, authentic user-generated-content look with natural realistic imperfections"
           : "Clean professional commercial product photography, studio quality";
     return [
-      `UGC-style product photo. ${person}${hijabClause}, with a ${cv("expression", EXPR_EN, expression)}, wearing ${cv("outfit", OUTFIT_EN, outfit)}${modestyClause}.`,
+      `UGC-style product photo. ${person}${hijabClause}, with a ${cv("expression", EXPR_EN, expression)}, wearing ${cv("outfit", OUTFIT_EN, outfit)}, ${fitClause}.${auratClause}`,
       `${cv("shot", SHOT_EN, shot)}, ${cv("angle", ANGLE_EN, angle)}.`,
       `The person is ${cv("pose", POSE_EN, pose)}.`,
       `The product is ${cv("prodpos", PRODPOS_EN, prodpos)}, with its label/packaging clearly facing the camera, sharp and legible, matching the attached reference product image EXACTLY (same label, typography, colour, shape).`,
       `Scene: ${cv("bg", BG_EN, bg)} with ${cv("light", LIGHT_EN, light)}.`,
       `${authClause}. Photorealistic, natural skin texture, ${orient} vertical composition, no text overlay, no watermark, no logo.`,
     ].join(" ");
-  }, [ethnic, age, isFemale, face, skin, hijab, modesty, expression, outfit, shot, angle, pose, prodpos, bg, light, auth, orient, customs]);
+  }, [ethnic, age, isFemale, face, skin, hijab, styleFit, expression, outfit, shot, angle, pose, prodpos, bg, light, auth, orient, customs]);
 
   async function generate() {
     if (!product) {
@@ -364,8 +414,11 @@ export default function UgcStudioModal({
         const r = await fetch("/api/generate/image", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
+          // NOTE: no hardcoded model/provider — the route resolves the
+          // model dynamically from the admin's image_default and routes
+          // through the admin-configured image cascade (p2/p4/p6 with
+          // fallback). So UGC Studio always follows live admin settings.
           body: JSON.stringify({
-            model: "nano-banana-pro",
             prompt: p,
             reference_url: product,
             reference_urls: [product],
@@ -414,7 +467,12 @@ export default function UgcStudioModal({
           <div className="p-4 space-y-4">
             {/* Product attachment */}
             <div>
-              <div className="text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-1.5">Gambar Produk *</div>
+              <div className="flex items-center gap-1.5 mb-1.5">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-gray-400">Gambar Produk *</span>
+                <button type="button" onClick={() => onInfo("Gambar Produk", TIPS.product)} className="text-gray-500 hover:text-white transition" title="Apa ni?">
+                  <Info className="w-3 h-3" />
+                </button>
+              </div>
               <div className="flex items-center gap-3">
                 <div
                   className="w-16 h-16 rounded-lg border border-dashed border-white/20 flex items-center justify-center overflow-hidden flex-shrink-0"
@@ -443,20 +501,25 @@ export default function UgcStudioModal({
               </div>
             </div>
 
-            {/* PRIORITY — modesty */}
-            <Group label="Tutup Aurat?" opts={MODESTY} value={modesty} onChange={setModesty} gkey="modesty" customs={customs} setCustom={setCustom} accent={ACCENT} />
+            {/* PRIORITY — clothing fit (aurat coverage = hijab toggle) */}
+            <Group label="Gaya Pakaian" opts={STYLEFIT} value={styleFit} onChange={setStyleFit} gkey="stylefit" customs={customs} setCustom={setCustom} accent={ACCENT} tip={TIPS.stylefit} onInfo={onInfo} />
 
             <div className="grid grid-cols-2 gap-4">
-              <Group label="Jantina" opts={GENDER} value={gender} onChange={setGender} gkey="gender" customs={customs} setCustom={setCustom} accent={ACCENT} allowCustom={false} />
-              <Group label="Umur" opts={AGE} value={age} onChange={setAge} gkey="age" customs={customs} setCustom={setCustom} accent={ACCENT} />
+              <Group label="Jantina" opts={GENDER} value={gender} onChange={setGender} gkey="gender" customs={customs} setCustom={setCustom} accent={ACCENT} allowCustom={false} tip={TIPS.gender} onInfo={onInfo} />
+              <Group label="Umur" opts={AGE} value={age} onChange={setAge} gkey="age" customs={customs} setCustom={setCustom} accent={ACCENT} tip={TIPS.age} onInfo={onInfo} />
             </div>
             <div className="grid grid-cols-2 gap-4">
-              <Group label="Bangsa" opts={ETHNIC} value={ethnic} onChange={setEthnic} gkey="ethnic" customs={customs} setCustom={setCustom} accent={ACCENT} />
+              <Group label="Bangsa" opts={ETHNIC} value={ethnic} onChange={setEthnic} gkey="ethnic" customs={customs} setCustom={setCustom} accent={ACCENT} tip={TIPS.ethnic} onInfo={onInfo} />
               {isFemale ? (
                 <div>
-                  <div className="text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-1.5">Hijab</div>
+                  <div className="flex items-center gap-1.5 mb-1.5">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-gray-400">Hijab</span>
+                    <button type="button" onClick={() => onInfo("Hijab", TIPS.hijab)} className="text-gray-500 hover:text-white transition" title="Apa ni?">
+                      <Info className="w-3 h-3" />
+                    </button>
+                  </div>
                   <div className="flex gap-1.5">
-                    <button type="button" onClick={() => setHijab(true)} className="px-2.5 py-1.5 rounded-lg text-[11px] font-semibold transition" style={pillStyle(hijab, ACCENT)}>🧕 Ada</button>
+                    <button type="button" onClick={() => setHijab(true)} className="px-2.5 py-1.5 rounded-lg text-[11px] font-semibold transition" style={pillStyle(hijab, ACCENT)}>🧕 Ada (tutup aurat)</button>
                     <button type="button" onClick={() => setHijab(false)} className="px-2.5 py-1.5 rounded-lg text-[11px] font-semibold transition" style={pillStyle(!hijab, ACCENT)}>Tiada</button>
                   </div>
                 </div>
@@ -465,27 +528,32 @@ export default function UgcStudioModal({
               )}
             </div>
             <div className="grid grid-cols-2 gap-4">
-              <Group label="Bentuk Muka" opts={FACE} value={face} onChange={setFace} gkey="face" customs={customs} setCustom={setCustom} accent={ACCENT} />
-              <Group label="Tona Kulit" opts={SKIN} value={skin} onChange={setSkin} gkey="skin" customs={customs} setCustom={setCustom} accent={ACCENT} />
+              <Group label="Bentuk Muka" opts={FACE} value={face} onChange={setFace} gkey="face" customs={customs} setCustom={setCustom} accent={ACCENT} tip={TIPS.face} onInfo={onInfo} />
+              <Group label="Tona Kulit" opts={SKIN} value={skin} onChange={setSkin} gkey="skin" customs={customs} setCustom={setCustom} accent={ACCENT} tip={TIPS.skin} onInfo={onInfo} />
             </div>
-            <Group label="Ekspresi" opts={EXPRESSION} value={expression} onChange={setExpression} gkey="expression" customs={customs} setCustom={setCustom} accent={ACCENT} />
-            <Group label="Pakaian" opts={OUTFIT} value={outfit} onChange={setOutfit} gkey="outfit" customs={customs} setCustom={setCustom} accent={ACCENT} />
+            <Group label="Ekspresi" opts={EXPRESSION} value={expression} onChange={setExpression} gkey="expression" customs={customs} setCustom={setCustom} accent={ACCENT} tip={TIPS.expression} onInfo={onInfo} />
+            <Group label="Pakaian" opts={OUTFIT} value={outfit} onChange={setOutfit} gkey="outfit" customs={customs} setCustom={setCustom} accent={ACCENT} tip={TIPS.outfit} onInfo={onInfo} />
             <div className="grid grid-cols-2 gap-4">
-              <Group label="Jenis Shot" opts={SHOT} value={shot} onChange={setShot} gkey="shot" customs={customs} setCustom={setCustom} accent={ACCENT} />
-              <Group label="Angle Kamera" opts={ANGLE} value={angle} onChange={setAngle} gkey="angle" customs={customs} setCustom={setCustom} accent={ACCENT} />
+              <Group label="Jenis Shot" opts={SHOT} value={shot} onChange={setShot} gkey="shot" customs={customs} setCustom={setCustom} accent={ACCENT} tip={TIPS.shot} onInfo={onInfo} />
+              <Group label="Angle Kamera" opts={ANGLE} value={angle} onChange={setAngle} gkey="angle" customs={customs} setCustom={setCustom} accent={ACCENT} tip={TIPS.angle} onInfo={onInfo} />
             </div>
-            <Group label="Pose / Aksi" opts={POSE} value={pose} onChange={setPose} gkey="pose" customs={customs} setCustom={setCustom} accent={ACCENT} />
-            <Group label="Kedudukan Produk" opts={PRODPOS} value={prodpos} onChange={setProdpos} gkey="prodpos" customs={customs} setCustom={setCustom} accent={ACCENT} />
-            <Group label="Latar Belakang" opts={BG} value={bg} onChange={setBg} gkey="bg" customs={customs} setCustom={setCustom} accent={ACCENT} />
-            <Group label="Pencahayaan" opts={LIGHT} value={light} onChange={setLight} gkey="light" customs={customs} setCustom={setCustom} accent={ACCENT} />
+            <Group label="Pose / Aksi" opts={POSE} value={pose} onChange={setPose} gkey="pose" customs={customs} setCustom={setCustom} accent={ACCENT} tip={TIPS.pose} onInfo={onInfo} />
+            <Group label="Kedudukan Produk" opts={PRODPOS} value={prodpos} onChange={setProdpos} gkey="prodpos" customs={customs} setCustom={setCustom} accent={ACCENT} tip={TIPS.prodpos} onInfo={onInfo} />
+            <Group label="Latar Belakang" opts={BG} value={bg} onChange={setBg} gkey="bg" customs={customs} setCustom={setCustom} accent={ACCENT} tip={TIPS.bg} onInfo={onInfo} />
+            <Group label="Pencahayaan" opts={LIGHT} value={light} onChange={setLight} gkey="light" customs={customs} setCustom={setCustom} accent={ACCENT} tip={TIPS.light} onInfo={onInfo} />
             <div className="grid grid-cols-2 gap-4">
-              <Group label="Gaya" opts={AUTH} value={auth} onChange={setAuth} gkey="auth" customs={customs} setCustom={setCustom} accent={ACCENT} />
-              <Group label="Orientasi" opts={ORIENT} value={orient} onChange={setOrient} gkey="orient" customs={customs} setCustom={setCustom} accent={ACCENT} allowCustom={false} />
+              <Group label="Gaya" opts={AUTH} value={auth} onChange={setAuth} gkey="auth" customs={customs} setCustom={setCustom} accent={ACCENT} tip={TIPS.auth} onInfo={onInfo} />
+              <Group label="Orientasi" opts={ORIENT} value={orient} onChange={setOrient} gkey="orient" customs={customs} setCustom={setCustom} accent={ACCENT} allowCustom={false} tip={TIPS.orient} onInfo={onInfo} />
             </div>
 
             {/* Quantity — batch generate N variations */}
             <div>
-              <div className="text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-1.5">Kuantiti (generate sekaligus)</div>
+              <div className="flex items-center gap-1.5 mb-1.5">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-gray-400">Kuantiti (generate sekaligus)</span>
+                <button type="button" onClick={() => onInfo("Kuantiti", TIPS.qty)} className="text-gray-500 hover:text-white transition" title="Apa ni?">
+                  <Info className="w-3 h-3" />
+                </button>
+              </div>
               <div className="flex flex-wrap gap-1.5">
                 {QTY.map((o) => (
                   <button
@@ -538,6 +606,37 @@ export default function UgcStudioModal({
         }}
         defaultCategory="product"
       />
+
+      {/* ℹ Info popup — Malay explanation for the tapped section. */}
+      {info && (
+        <div
+          className="fixed inset-0 z-[140] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
+          onClick={() => setInfo(null)}
+        >
+          <div
+            className="w-full max-w-sm rounded-2xl bg-[#1c1c1c] border border-white/15 p-5 shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center gap-2">
+                <Info className="w-4 h-4" style={{ color: ACCENT }} />
+                <h3 className="text-sm font-bold text-white">{info.title}</h3>
+              </div>
+              <button onClick={() => setInfo(null)} className="p-1 rounded hover:bg-white/10 text-gray-400">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <p className="text-[12px] text-gray-300 leading-relaxed">{info.text}</p>
+            <button
+              onClick={() => setInfo(null)}
+              className="mt-4 w-full py-2 rounded-lg text-[12px] font-bold text-white"
+              style={{ background: ACCENT }}
+            >
+              Faham
+            </button>
+          </div>
+        </div>
+      )}
     </Portal>
   );
 }
