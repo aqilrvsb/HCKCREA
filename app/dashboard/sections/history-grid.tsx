@@ -1521,10 +1521,10 @@ function HistoryCardInner({
         )}
         {item.status === "failed" && item.type !== "fairytale" && (
           <>
-            <div className="absolute inset-0 flex flex-col items-center justify-center text-xs font-bold gap-2 px-3 text-center" style={{ color: "#86efac" }}>
-              <Clock className="w-6 h-6" />
-              <span className="line-clamp-3 leading-snug">
-                Tunggu je — video akan pulih sendiri. Sistem sedang cuba semula automatik. 🎬
+            <div className="absolute inset-0 flex flex-col items-center justify-center text-red-400 text-xs font-bold gap-2 px-3 text-center">
+              <XCircle className="w-5 h-5" />
+              <span className="line-clamp-2">
+                {/^Stale\b/i.test(item.error_message || "") ? "Failed" : (item.error_message || "Failed")}
               </span>
               {/* Full prompt + inline editor. Click Edit to modify
                   before clicking Resubmit. Edited prompt is sent to
@@ -1863,12 +1863,20 @@ function HistoryCardInner({
             <div className="relative z-10 flex flex-col items-center justify-center gap-2">
             {segmentPlaceholder === "failed" ? (
               <>
-                <Clock className="w-10 h-10" style={{ color: "#86efac" }} />
+                <X className="w-10 h-10" style={{ color: "rgb(239, 68, 68)" }} />
+                <div className="text-xs font-bold" style={{ color: "rgb(239, 68, 68)" }}>
+                  {activeSlide?.label} failed
+                </div>
                 <div
-                  className="text-[11px] font-bold text-center px-3 leading-snug"
-                  style={{ color: "#86efac" }}
+                  className="mt-2 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-[11px] font-bold"
+                  style={{
+                    background: "rgba(34,197,94,0.12)",
+                    border: "1px solid rgba(34,197,94,0.35)",
+                    color: "#86efac",
+                  }}
                 >
-                  Tunggu je — {activeSlide?.label} akan pulih sendiri 🎬
+                  <Clock className="w-3 h-3" />
+                  Tunggu je — video akan pulih sendiri
                 </div>
               </>
             ) : segmentPlaceholder === "queued" ? (
