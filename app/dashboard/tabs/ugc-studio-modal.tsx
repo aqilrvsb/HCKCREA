@@ -32,7 +32,11 @@ const TIPS: Record<string, string> = {
   angle: "Sudut kamera — aras mata, atas, bawah, flat-lay (atas ke bawah) atau selfie POV (paling natural untuk UGC).",
   pose: "Apa model buat dengan produk — tunjuk label, pegang dekat muka, tunjuk, guna, unboxing, atau cakap depan kamera (sesuai jadi start frame video).",
   prodpos: "Di mana produk diletak — dalam tangan, dekat muka, atas meja, sebelah model, atau dipakai.",
-  bg: "Lokasi / latar belakang gambar — bilik, kafe, dapur, studio, jalan, dll.",
+  bg: "Lokasi / latar belakang gambar — bilik, kafe, dapur, studio, jalan, dll. Pilih 🟩 Green Screen kalau nak tukar background nanti / jadikan start frame video.",
+  posisi: "Posisi badan model — berdiri, duduk, gaya podcast, bersandar di sofa, atas katil, atau selfie depan cermin. (Lain dari Pose — Pose tu apa buat dengan produk.)",
+  makeup: "Tahap solekan — Natural (harian), Glam (penuh), atau Tiada (muka bersih).",
+  contrast: "Kontras gambar — Soft (lembut), Normal, atau High (tajam).",
+  color: "Tema warna keseluruhan — Warm (rumah Malaysia), Neutral, Pastel, Earthy atau Cool.",
   light: "Jenis pencahayaan — ring-light (gaya UGC), cahaya siang, golden hour, studio, terang lembut, atau moody.",
   auth: "Look akhir gambar: UGC phone (nampak macam guna telefon, real & natural) atau Komersial (bersih, gaya studio).",
   orient: "Saiz/orientasi gambar — 9:16 (TikTok/Reels), 1:1 (square), 4:5 (feed).",
@@ -131,6 +135,33 @@ const BG: Opt[] = [
   { val: "retail", label: "Kedai" },
   { val: "gym", label: "Gym" },
   { val: "car", label: "Kereta" },
+  { val: "greenscreen", label: "🟩 Green Screen" },
+];
+// Posisi / posture (badan) — beza dgn Pose/Aksi (apa buat dgn produk).
+const POSISI: Opt[] = [
+  { val: "berdiri", label: "🧍 Berdiri" },
+  { val: "duduk", label: "🪑 Duduk" },
+  { val: "podcast", label: "🎙️ Duduk podcast" },
+  { val: "sofa", label: "🛋️ Bersandar / sofa" },
+  { val: "katil", label: "🛏️ Atas katil" },
+  { val: "cermin", label: "🤳 Selfie cermin" },
+];
+const MAKEUP: Opt[] = [
+  { val: "natural", label: "Natural" },
+  { val: "glam", label: "Glam" },
+  { val: "none", label: "Tiada" },
+];
+const CONTRAST: Opt[] = [
+  { val: "soft", label: "Soft" },
+  { val: "normal", label: "Normal" },
+  { val: "high", label: "High" },
+];
+const COLOR: Opt[] = [
+  { val: "warm", label: "Warm (rumah MY)" },
+  { val: "neutral", label: "Neutral" },
+  { val: "pastel", label: "Pastel" },
+  { val: "earthy", label: "Earthy" },
+  { val: "cool", label: "Cool" },
 ];
 const LIGHT: Opt[] = [
   { val: "ringlight", label: "Ring-light (UGC)" },
@@ -214,10 +245,25 @@ const BG_EN: Record<string, string> = {
   cafe: "casual cafe", office: "modern office", street: "outdoor city street",
   "studio-white": "seamless white studio backdrop", retail: "retail store",
   gym: "fitness gym", car: "inside a car",
+  greenscreen: "a solid chroma-key GREEN SCREEN background (#00FF00), evenly lit, no objects or shadows behind the subject",
 };
 const LIGHT_EN: Record<string, string> = {
   ringlight: "soft ring-light", daylight: "natural daylight", golden: "warm golden-hour light",
   studio: "professional studio softbox light", airy: "bright airy soft light", moody: "moody low-key light",
+};
+const POSISI_EN: Record<string, string> = {
+  berdiri: "standing", duduk: "sitting", podcast: "sitting at a desk in a podcast-style setup",
+  sofa: "leaning back / lounging on a sofa", katil: "sitting on a bed", cermin: "taking a mirror selfie",
+};
+const MAKEUP_EN: Record<string, string> = {
+  natural: "natural everyday makeup", glam: "polished glam makeup", none: "no makeup, bare natural skin",
+};
+const CONTRAST_EN: Record<string, string> = {
+  soft: "soft gentle contrast", normal: "balanced natural contrast", high: "punchy high contrast",
+};
+const COLOR_EN: Record<string, string> = {
+  warm: "warm cozy Malaysian indoor colour tones", neutral: "clean neutral colour palette",
+  pastel: "soft pastel colour palette", earthy: "earthy natural colour tones", cool: "cool calm colour palette",
 };
 
 function pillStyle(active: boolean, accent: string): React.CSSProperties {
@@ -324,6 +370,11 @@ export default function UgcStudioModal({
   const [auth, setAuth] = useState("ugc");
   const [orient, setOrient] = useState("9:16");
   const [qty, setQty] = useState("1");
+  const [posisi, setPosisi] = useState("duduk");
+  const [makeup, setMakeup] = useState("natural");
+  const [contrast, setContrast] = useState("soft");
+  const [color, setColor] = useState("warm");
+  const [advanced, setAdvanced] = useState(false); // Lanjutan collapsed by default
   // Per-section free-text overrides, keyed by section. Empty unless the
   // user picks the ✏️ Custom pill for that section.
   const [customs, setCustoms] = useState<Record<string, string>>({});
@@ -359,6 +410,11 @@ export default function UgcStudioModal({
     setAuth("ugc");
     setOrient("9:16");
     setQty("1");
+    setPosisi("duduk");
+    setMakeup("natural");
+    setContrast("soft");
+    setColor("warm");
+    setAdvanced(false);
     setCustoms({});
     setBusy(false);
     setProgress("");
@@ -388,14 +444,14 @@ export default function UgcStudioModal({
           ? "Shot on a smartphone, authentic user-generated-content look with natural realistic imperfections"
           : "Clean professional commercial product photography, studio quality";
     return [
-      `UGC-style product photo. ${person}${hijabClause}, with a ${cv("expression", EXPR_EN, expression)}, wearing ${cv("outfit", OUTFIT_EN, outfit)}, ${fitClause}.${auratClause}`,
+      `UGC-style product photo. ${person}${hijabClause}, with a ${cv("expression", EXPR_EN, expression)}, ${cv("makeup", MAKEUP_EN, makeup)}, wearing ${cv("outfit", OUTFIT_EN, outfit)}, ${fitClause}.${auratClause}`,
+      `The person is ${cv("posisi", POSISI_EN, posisi)}, ${cv("pose", POSE_EN, pose)}.`,
       `${cv("shot", SHOT_EN, shot)}, ${cv("angle", ANGLE_EN, angle)}.`,
-      `The person is ${cv("pose", POSE_EN, pose)}.`,
       `The product is ${cv("prodpos", PRODPOS_EN, prodpos)}, with its label/packaging clearly facing the camera, sharp and legible, matching the attached reference product image EXACTLY (same label, typography, colour, shape).`,
-      `Scene: ${cv("bg", BG_EN, bg)} with ${cv("light", LIGHT_EN, light)}.`,
-      `${authClause}. Photorealistic, natural skin texture, ${orient} vertical composition, no text overlay, no watermark, no logo.`,
+      `Scene: ${cv("bg", BG_EN, bg)} with ${cv("light", LIGHT_EN, light)}, ${cv("contrast", CONTRAST_EN, contrast)}, ${cv("color", COLOR_EN, color)}.`,
+      `${authClause}. Photorealistic, natural visible skin texture, ${orient} vertical composition, no text overlay, no watermark, no logo.`,
     ].join(" ");
-  }, [ethnic, age, isFemale, face, skin, hijab, styleFit, expression, outfit, shot, angle, pose, prodpos, bg, light, auth, orient, customs]);
+  }, [ethnic, age, isFemale, face, skin, hijab, styleFit, expression, makeup, outfit, posisi, shot, angle, pose, prodpos, bg, light, contrast, color, auth, orient, customs]);
 
   async function generate() {
     if (!product) {
@@ -501,9 +557,7 @@ export default function UgcStudioModal({
               </div>
             </div>
 
-            {/* PRIORITY — clothing fit (aurat coverage = hijab toggle) */}
-            <Group label="Gaya Pakaian" opts={STYLEFIT} value={styleFit} onChange={setStyleFit} gkey="stylefit" customs={customs} setCustom={setCustom} accent={ACCENT} tip={TIPS.stylefit} onInfo={onInfo} />
-
+            {/* ───────── ASAS (sentiasa nampak) ───────── */}
             <div className="grid grid-cols-2 gap-4">
               <Group label="Jantina" opts={GENDER} value={gender} onChange={setGender} gkey="gender" customs={customs} setCustom={setCustom} accent={ACCENT} allowCustom={false} tip={TIPS.gender} onInfo={onInfo} />
               <Group label="Umur" opts={AGE} value={age} onChange={setAge} gkey="age" customs={customs} setCustom={setCustom} accent={ACCENT} tip={TIPS.age} onInfo={onInfo} />
@@ -527,24 +581,46 @@ export default function UgcStudioModal({
                 <div />
               )}
             </div>
-            <div className="grid grid-cols-2 gap-4">
-              <Group label="Bentuk Muka" opts={FACE} value={face} onChange={setFace} gkey="face" customs={customs} setCustom={setCustom} accent={ACCENT} tip={TIPS.face} onInfo={onInfo} />
-              <Group label="Tona Kulit" opts={SKIN} value={skin} onChange={setSkin} gkey="skin" customs={customs} setCustom={setCustom} accent={ACCENT} tip={TIPS.skin} onInfo={onInfo} />
-            </div>
-            <Group label="Ekspresi" opts={EXPRESSION} value={expression} onChange={setExpression} gkey="expression" customs={customs} setCustom={setCustom} accent={ACCENT} tip={TIPS.expression} onInfo={onInfo} />
+            <Group label="Gaya Pakaian" opts={STYLEFIT} value={styleFit} onChange={setStyleFit} gkey="stylefit" customs={customs} setCustom={setCustom} accent={ACCENT} tip={TIPS.stylefit} onInfo={onInfo} />
             <Group label="Pakaian" opts={OUTFIT} value={outfit} onChange={setOutfit} gkey="outfit" customs={customs} setCustom={setCustom} accent={ACCENT} tip={TIPS.outfit} onInfo={onInfo} />
-            <div className="grid grid-cols-2 gap-4">
-              <Group label="Jenis Shot" opts={SHOT} value={shot} onChange={setShot} gkey="shot" customs={customs} setCustom={setCustom} accent={ACCENT} tip={TIPS.shot} onInfo={onInfo} />
-              <Group label="Angle Kamera" opts={ANGLE} value={angle} onChange={setAngle} gkey="angle" customs={customs} setCustom={setCustom} accent={ACCENT} tip={TIPS.angle} onInfo={onInfo} />
-            </div>
+            <Group label="Ekspresi" opts={EXPRESSION} value={expression} onChange={setExpression} gkey="expression" customs={customs} setCustom={setCustom} accent={ACCENT} tip={TIPS.expression} onInfo={onInfo} />
+            <Group label="Posisi" opts={POSISI} value={posisi} onChange={setPosisi} gkey="posisi" customs={customs} setCustom={setCustom} accent={ACCENT} tip={TIPS.posisi} onInfo={onInfo} />
             <Group label="Pose / Aksi" opts={POSE} value={pose} onChange={setPose} gkey="pose" customs={customs} setCustom={setCustom} accent={ACCENT} tip={TIPS.pose} onInfo={onInfo} />
-            <Group label="Kedudukan Produk" opts={PRODPOS} value={prodpos} onChange={setProdpos} gkey="prodpos" customs={customs} setCustom={setCustom} accent={ACCENT} tip={TIPS.prodpos} onInfo={onInfo} />
             <Group label="Latar Belakang" opts={BG} value={bg} onChange={setBg} gkey="bg" customs={customs} setCustom={setCustom} accent={ACCENT} tip={TIPS.bg} onInfo={onInfo} />
-            <Group label="Pencahayaan" opts={LIGHT} value={light} onChange={setLight} gkey="light" customs={customs} setCustom={setCustom} accent={ACCENT} tip={TIPS.light} onInfo={onInfo} />
-            <div className="grid grid-cols-2 gap-4">
-              <Group label="Gaya" opts={AUTH} value={auth} onChange={setAuth} gkey="auth" customs={customs} setCustom={setCustom} accent={ACCENT} tip={TIPS.auth} onInfo={onInfo} />
-              <Group label="Orientasi" opts={ORIENT} value={orient} onChange={setOrient} gkey="orient" customs={customs} setCustom={setCustom} accent={ACCENT} allowCustom={false} tip={TIPS.orient} onInfo={onInfo} />
-            </div>
+
+            {/* ───────── LANJUTAN (collapse — buka kalau nak halus) ───────── */}
+            <button
+              type="button"
+              onClick={() => setAdvanced((v) => !v)}
+              className="w-full flex items-center justify-between px-3 py-2 rounded-lg text-[11px] font-bold transition"
+              style={{ background: "rgba(255,255,255,0.04)", color: "#cbd5e1", border: "1px solid rgba(255,255,255,0.12)" }}
+            >
+              <span>⚙️ Tetapan Lanjutan {advanced ? "(sembunyi)" : "(pilihan)"}</span>
+              <span>{advanced ? "▲" : "▼"}</span>
+            </button>
+            {advanced && (
+              <div className="space-y-4 pl-1 border-l-2" style={{ borderColor: `${ACCENT}40` }}>
+                <div className="grid grid-cols-2 gap-4">
+                  <Group label="Bentuk Muka" opts={FACE} value={face} onChange={setFace} gkey="face" customs={customs} setCustom={setCustom} accent={ACCENT} tip={TIPS.face} onInfo={onInfo} />
+                  <Group label="Tona Kulit" opts={SKIN} value={skin} onChange={setSkin} gkey="skin" customs={customs} setCustom={setCustom} accent={ACCENT} tip={TIPS.skin} onInfo={onInfo} />
+                </div>
+                <Group label="Makeup" opts={MAKEUP} value={makeup} onChange={setMakeup} gkey="makeup" customs={customs} setCustom={setCustom} accent={ACCENT} tip={TIPS.makeup} onInfo={onInfo} />
+                <div className="grid grid-cols-2 gap-4">
+                  <Group label="Jenis Shot" opts={SHOT} value={shot} onChange={setShot} gkey="shot" customs={customs} setCustom={setCustom} accent={ACCENT} tip={TIPS.shot} onInfo={onInfo} />
+                  <Group label="Angle Kamera" opts={ANGLE} value={angle} onChange={setAngle} gkey="angle" customs={customs} setCustom={setCustom} accent={ACCENT} tip={TIPS.angle} onInfo={onInfo} />
+                </div>
+                <Group label="Kedudukan Produk" opts={PRODPOS} value={prodpos} onChange={setProdpos} gkey="prodpos" customs={customs} setCustom={setCustom} accent={ACCENT} tip={TIPS.prodpos} onInfo={onInfo} />
+                <div className="grid grid-cols-2 gap-4">
+                  <Group label="Pencahayaan" opts={LIGHT} value={light} onChange={setLight} gkey="light" customs={customs} setCustom={setCustom} accent={ACCENT} tip={TIPS.light} onInfo={onInfo} />
+                  <Group label="Contrast" opts={CONTRAST} value={contrast} onChange={setContrast} gkey="contrast" customs={customs} setCustom={setCustom} accent={ACCENT} tip={TIPS.contrast} onInfo={onInfo} />
+                </div>
+                <Group label="Tema Warna" opts={COLOR} value={color} onChange={setColor} gkey="color" customs={customs} setCustom={setCustom} accent={ACCENT} tip={TIPS.color} onInfo={onInfo} />
+                <div className="grid grid-cols-2 gap-4">
+                  <Group label="Gaya" opts={AUTH} value={auth} onChange={setAuth} gkey="auth" customs={customs} setCustom={setCustom} accent={ACCENT} tip={TIPS.auth} onInfo={onInfo} />
+                  <Group label="Orientasi" opts={ORIENT} value={orient} onChange={setOrient} gkey="orient" customs={customs} setCustom={setCustom} accent={ACCENT} allowCustom={false} tip={TIPS.orient} onInfo={onInfo} />
+                </div>
+              </div>
+            )}
 
             {/* Quantity — batch generate N variations */}
             <div>
