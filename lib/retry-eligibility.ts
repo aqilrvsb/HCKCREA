@@ -66,16 +66,15 @@ const RETRYABLE_ERROR_PATTERNS: RegExp[] = [
   /cue validator/i,
   /#\/validators\./i,
   /validation failed.*invalid value/i,
-  // 5. Safety / content-filter classifier rejections. Provider safety
-  //    layers vary PER ACCOUNT KEY — a prompt that p6-a flags often
-  //    sails through p6-b or p2. Same rotation-recovery logic as the
-  //    CUE validator class above. Real production phrasings observed:
-  //      • APIPod:  "attempt1: Detected explicit content in the prompt..."
-  //      • Generic: "content filter triggered", "content moderation rejected"
-  //      • Safety:  "safety classifier blocked"
-  /detected (?:explicit|inappropriate|unsafe) content/i,
-  /content[\s-]?(?:filter|moderation)/i,
-  /safety[\s-]?(?:classifier|filter|check)[\s-]?(?:rejected|blocked|triggered|flagged)/i,
+  // 5. (REMOVED 2026-06-30 per user direction) Safety / content-filter
+  //    rejections — e.g. "attempt1: Detected explicit content in the
+  //    prompt. Please modify your prompt and try again." — are NO LONGER
+  //    retryable. This is a PROMPT-content problem: re-firing the same
+  //    prompt (even on another slot) won't fix it, the user must edit the
+  //    prompt. So it is excluded from auto-resubmit, event-driven retry,
+  //    the fallback cascade, AND the admin Errors feed. (Patterns removed:
+  //    /detected explicit content/, /content filter|moderation/,
+  //    /safety classifier blocked/.)
   // 6. Generic provider transient failure — the task WAS accepted (a
   //    task_id was created) then the provider failed the generation
   //    DOWNSTREAM and returned a "... please try again later" message that
@@ -155,6 +154,14 @@ const RETRYABLE_ERROR_PATTERNS: RegExp[] = [
   /\bstatus\s*5\d{2}\b/i,
   /fail_to_fetch_task/i,
   /no available channel/i,
+  // 13. Poll timeout — the task WAS accepted upstream but never finished
+  //     within our polling window ("Video generation timed out after
+  //     polling"). The provider was slow/stuck on that slot; abandoning it
+  //     and firing a fresh attempt (event-driven retry / fallback cascade /
+  //     auto-resubmit cron) on another slot usually completes. Also shown on
+  //     the admin Errors feed. Added per user direction 2026-06-30.
+  /timed out after polling/i,
+  /generation timed out/i,
 ];
 
 export function isInternalError(err: string | null | undefined): boolean {
