@@ -131,6 +131,10 @@ function getRefCap(provider: Provider, mode: ImageMode): number {
   // stay at 3 (Gemini API allows 7, Veo/Grok at 3 by spec). REF_SLOTS=5
   // so state can hold 5 picks for Seedance.
   if (provider === "seedance") return 5;
+  // GeminiOmni (gemini-omni-i2v) rejects >2 frame images — cap at 2 so the
+  // UI can't submit a request the provider will reject ("supports at most
+  // 2 frame images"). Fixed 2026-06-30.
+  if (provider === "gemini") return 2;
   return 3;
 }
 
