@@ -168,6 +168,16 @@ const RETRYABLE_ERROR_PATTERNS: RegExp[] = [
   //     fire a fresh attempt (event-driven retry / fallback cascade /
   //     auto-resubmit cron); also shown in admin Errors. Added 2026-06-30.
   /task timeout/i,
+  // 15. Provider content-REVIEW rejection ("This request didn't pass
+  //     content review"). Different from the hard "Detected explicit
+  //     content in the prompt" reject (removed above): this provider-side
+  //     review is inconsistent across slots/keys — a different slot/key
+  //     often passes the same request — so it's rotation-recoverable →
+  //     eligible for event-driven retry / fallback cascade / auto-resubmit
+  //     cron, and shown in admin Errors. Added per user direction 2026-06-30.
+  //     NOTE: "content review" (not the word "content" alone) keeps this
+  //     scoped so it does NOT re-enable the explicit-content prompt reject.
+  /content review/i,
 ];
 
 export function isInternalError(err: string | null | undefined): boolean {
