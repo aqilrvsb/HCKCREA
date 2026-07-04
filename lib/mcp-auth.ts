@@ -34,7 +34,15 @@ export async function validateMcpKey(req: Request): Promise<McpAuthResult> {
   if (!key) {
     return { ok: false, error: "Missing Authorization: Bearer header", status: 401 };
   }
-  if (!key.startsWith("pl_live_") || key.length < 20) {
+  return validateMcpKeyString(key);
+}
+
+// Same validation but from a raw key string — used when the key arrives in
+// the request BODY / QUERY instead of the Authorization header (the custom-
+// GPT flow: /api/mcp/login returns a key the model then passes as a param
+// to generate/status, since GPT Actions can't set a dynamic Bearer header).
+export async function validateMcpKeyString(key: string): Promise<McpAuthResult> {
+  if (!key || !key.startsWith("pl_live_") || key.length < 20) {
     return { ok: false, error: "Invalid key format", status: 401 };
   }
 

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { validateMcpKey } from "@/lib/mcp-auth";
+import { validateMcpKey, validateMcpKeyString } from "@/lib/mcp-auth";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 // GET /api/mcp/status/:task_id — the polling endpoint. npm package
@@ -18,7 +18,9 @@ export async function GET(
   req: Request,
   { params }: { params: Promise<{ task_id: string }> }
 ) {
-  const auth = await validateMcpKey(req);
+  // Accept key from ?api_key query (custom-GPT flow) or Authorization header.
+  const qKey = new URL(req.url).searchParams.get("api_key");
+  const auth = qKey ? await validateMcpKeyString(qKey.trim()) : await validateMcpKey(req);
   if (!auth.ok) {
     return NextResponse.json({ error: auth.error }, { status: auth.status });
   }

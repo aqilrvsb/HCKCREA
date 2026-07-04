@@ -1,5 +1,5 @@
 import { NextResponse, after } from "next/server";
-import { validateMcpKey, mcpCallerId } from "@/lib/mcp-auth";
+import { validateMcpKey, validateMcpKeyString, mcpCallerId } from "@/lib/mcp-auth";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { priceFor, hasEnoughCredits } from "@/lib/deduct";
 import { getP2Config, getCinemaRate, getVeoRate, getGeminiRate, getSeedanceRate, getSetting } from "@/lib/settings";
@@ -25,12 +25,15 @@ export const dynamic = "force-dynamic";
 type ModelChoice = "veo" | "sora2" | "gemini" | "seedance" | "grok";
 
 export async function POST(req: Request) {
-  const auth = await validateMcpKey(req);
+  const body = await req.json().catch(() => ({}));
+  // Accept the key from the body (custom-GPT flow: /api/mcp/login returns it
+  // and the model passes it as a param) OR the Authorization header (npm
+  // package / direct API). Body key wins when present.
+  const bodyKey = typeof body?.api_key === "string" ? body.api_key.trim() : "";
+  const auth = bodyKey ? await validateMcpKeyString(bodyKey) : await validateMcpKey(req);
   if (!auth.ok) {
     return NextResponse.json({ error: auth.error }, { status: auth.status });
   }
-
-  const body = await req.json().catch(() => ({}));
   const prompt = String(body?.prompt || "").trim().substring(0, 5000);
   const requestedModel = String(body?.model || "").trim().toLowerCase();
   const imageUrls: string[] = Array.isArray(body?.image_urls)
