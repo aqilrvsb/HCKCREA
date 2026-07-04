@@ -72,6 +72,29 @@ Key format: `pl_live_` + 32 hex chars. Only the account owner can mint keys
 
 ---
 
+### 3.1b `POST /api/mcp/upload`  — turn a client image into a public URL  ⚠️ REQUIRED for image inputs
+`image_urls` must be **public https URLs the server can fetch**. A
+ChatGPT-uploaded file, a base64 blob, or a hotlink-protected / region-blocked
+link will FAIL. So **upload first**, then pass the returned `url`.
+
+**Auth:** `api_key` in body **or** `Authorization: Bearer` header.
+
+**Body — either one:**
+```json
+{ "api_key": "pl_live_....", "image_url": "https://client-site.com/product.jpg" }
+```
+```json
+{ "api_key": "pl_live_....", "image_base64": "data:image/png;base64,iVBORw0..." }
+```
+**200**
+```json
+{ "ok": true, "url": "https://peninglab-storage.../mcp-uploads/.../abc.jpg" }
+```
+Use that `url` in `generateVideo.image_urls`. Max 15 MB. Errors: `400`
+missing input · `413` too large · `502` source fetch failed.
+
+---
+
 ### 3.2 `POST /api/mcp/generate/video`  — start a video job
 **Auth:** `api_key` in body **or** `Authorization: Bearer` header.
 
@@ -165,8 +188,10 @@ Returns `{ ok, email, balance, plan }` — handy to confirm setup.
 
 ```
 1. login(email, password)                         -> api_key
-2. generateVideo(api_key, prompt, model)          -> task_id
-3. loop: getVideoStatus(task_id, api_key)
+2. IF the client supplies an image:
+     uploadImage(api_key, image_url | image_base64) -> url   (REQUIRED — never pass a raw/ChatGPT/link directly)
+3. generateVideo(api_key, prompt, model, image_urls:[url]) -> task_id
+4. loop: getVideoStatus(task_id, api_key)
         status == "pending" -> wait ~30s, repeat
         status == "done"    -> return output_url
         status == "failed"  -> show error
@@ -209,6 +234,31 @@ paths:
                   api_key: { type: string }
                   balance: { type: number }
                   plan: { type: string }
+  /api/mcp/upload:
+    post:
+      operationId: uploadImage
+      summary: Rehost a client image (URL or base64) to a public URL usable in generateVideo.image_urls.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [api_key]
+              properties:
+                api_key: { type: string }
+                image_url: { type: string, description: A public/link image to rehost. }
+                image_base64: { type: string, description: A data URL or raw base64 image. }
+      responses:
+        "200":
+          description: Uploaded.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean }
+                  url: { type: string, description: Use this in generateVideo.image_urls. }
   /api/mcp/generate/video:
     post:
       operationId: generateVideo
@@ -271,6 +321,10 @@ paths:
 > show it). To make a video: call **generateVideo** with `api_key`, the
 > `prompt`, and a `model` (default `"gemini"`; use `"veo"` for 8s;
 > `"grok"` needs an image in `image_urls` with `image_mode:"frame"`). You
+> If the client gives an **image**, you MUST call **uploadImage** first
+> (with `image_url` or `image_base64`) to get a public `url`, then put that
+> `url` in `generateVideo.image_urls` — never pass a raw/ChatGPT/unhosted
+> image directly (it will error). You
 > receive a `task_id`. Then poll **getVideoStatus** with that `task_id` and
 > the `api_key` every ~30 seconds until `status` is `done`, then give the
 > client the `output_url`. If `status` is `failed`, show the `error`. Videos
