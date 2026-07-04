@@ -72,35 +72,49 @@ Key format: `pl_live_` + 32 hex chars. Only the account owner can mint keys
 
 ---
 
-### 3.1b `POST /api/mcp/upload`  — send the client's image straight to us  ⚠️ REQUIRED for image inputs
-The client uploads their image **directly to PeningLab** here (exactly like
-the PeningLab app does) — **no need to host it anywhere public first**. We
-store it and hand back a public `url` that the generators can fetch. Then
-pass that `url` in `generateVideo.image_urls`.
-
-`generateVideo` will NOT accept a raw ChatGPT file, a base64 blob, or a
-random link — always upload through this endpoint first.
+### 3.1b `POST /api/mcp/upload`  — get a permanent public URL for an image  ⚠️ REQUIRED for image inputs
+`generateVideo` will NOT accept a raw ChatGPT file, a base64 blob, or an
+unhosted/login-protected link. Always convert the image to a fetchable URL
+here first, then pass it in `generateVideo.image_urls`.
 
 **Auth:** `api_key` in body **or** `Authorization: Bearer` header.
 
-**Primary — send the image bytes directly (base64):**
+**PRIMARY (Custom GPT) — `openaiFileIdRefs` (zero-touch, native):**
+A Custom GPT Action **cannot** read raw image bytes, but it CAN attach files
+via the special **`openaiFileIdRefs`** parameter. ChatGPT injects a
+**5-minute public `download_link`** for each image the user uploaded **or the
+GPT generated** (e.g. a storyboard). Our endpoint fetches those links within
+the 5 minutes and rehosts to permanent storage — no pasting, native quality.
 ```json
-{ "api_key": "pl_live_....", "image_base64": "data:image/png;base64,iVBORw0..." }
+{
+  "api_key": "pl_live_....",
+  "openaiFileIdRefs": [
+    { "name": "storyboard.png", "download_link": "https://files.oaiusercontent.com/...(5-min)" }
+  ]
+}
 ```
-> This is the direct upload — same as the app. The GPT sends the client's
-> uploaded image content itself; nothing needs to be hosted elsewhere.
+> Declare `openaiFileIdRefs` in the Action schema (see §6) — ChatGPT fills it
+> automatically from the attached/generated image. Nothing to host, nothing
+> to paste.
 
-**Optional — rehost an existing public link (if the client already has one):**
+**FALLBACK — `image_url` (if the client pastes a public link):**
 ```json
 { "api_key": "pl_live_....", "image_url": "https://client-site.com/product.jpg" }
 ```
 
+**Server-to-server only — `image_base64`** (NOT usable from a ChatGPT Action,
+since the model can't access file bytes; for scripts holding the file):
+```json
+{ "api_key": "pl_live_....", "image_base64": "data:image/png;base64,iVBORw0..." }
+```
+
 **200**
 ```json
-{ "ok": true, "url": "https://peninglab-storage.../mcp-uploads/.../abc.jpg" }
+{ "ok": true, "url": "https://.../mcp-uploads/.../abc.jpg", "urls": ["https://.../abc.jpg"] }
 ```
-Use that `url` in `generateVideo.image_urls`. Max 15 MB. Errors: `400`
-missing input · `413` too large · `502` source fetch failed.
+`url` = first uploaded; `urls` = all (openaiFileIdRefs can carry several).
+Use them in `generateVideo.image_urls`. Max 15 MB each · up to 4 refs.
+Errors: `400` no input · `413` too large · `502` source fetch failed.
 
 ---
 
@@ -197,8 +211,8 @@ Returns `{ ok, email, balance, plan }` — handy to confirm setup.
 
 ```
 1. login(email, password)                         -> api_key
-2. IF the client supplies an image:
-     uploadImage(api_key, image_base64:<the client's image>) -> url   (direct upload to us — same as the app; NOT hosted publicly first)
+2. IF there's an image (client upload OR a GPT-generated storyboard):
+     uploadImage(api_key, openaiFileIdRefs:<attached image>) -> url   (ChatGPT auto-attaches; zero-touch. Fallback: image_url if they paste a link.)
 3. generateVideo(api_key, prompt, model, image_urls:[url]) -> task_id
 4. loop: getVideoStatus(task_id, api_key)
         status == "pending" -> wait ~30s, repeat
@@ -246,7 +260,7 @@ paths:
   /api/mcp/upload:
     post:
       operationId: uploadImage
-      summary: Upload the client's image directly (base64) and get a public URL for generateVideo.image_urls.
+      summary: Convert an attached/generated image (openaiFileIdRefs) or a link into a public URL for generateVideo.image_urls.
       requestBody:
         required: true
         content:
@@ -256,8 +270,12 @@ paths:
               required: [api_key]
               properties:
                 api_key: { type: string }
-                image_base64: { type: string, description: The client's image sent directly as a data URL or raw base64. Preferred. }
-                image_url: { type: string, description: Optional — rehost an existing public link instead. }
+                openaiFileIdRefs:
+                  type: array
+                  description: PRIMARY. ChatGPT auto-fills this with the attached/generated image(s); each item carries a 5-min download_link we fetch.
+                  items:
+                    type: string
+                image_url: { type: string, description: Fallback — rehost an existing public link. }
       responses:
         "200":
           description: Uploaded.
@@ -330,11 +348,13 @@ paths:
 > show it). To make a video: call **generateVideo** with `api_key`, the
 > `prompt`, and a `model` (default `"gemini"`; use `"veo"` for 8s;
 > `"grok"` needs an image in `image_urls` with `image_mode:"frame"`). You
-> If the client gives an **image**, send it **directly** to **uploadImage**
-> as `image_base64` (the client's uploaded image itself — do NOT ask them to
-> host it anywhere; upload it to us like the app does). Use the returned
-> `url` in `generateVideo.image_urls`. Never pass a raw ChatGPT file or an
-> unhosted image straight into generateVideo (it will error). You
+> If there is an **image** — one the client uploaded OR a storyboard YOU
+> generated — call **uploadImage** and let ChatGPT attach it via
+> `openaiFileIdRefs` (this happens automatically; do not ask the client to
+> host or paste anything). Use the returned `url` in
+> `generateVideo.image_urls`. If the attachment doesn't come through, ask
+> the client for a public image link and pass it as `image_url` instead.
+> Never pass a raw ChatGPT file straight into generateVideo. You
 > receive a `task_id`. Then poll **getVideoStatus** with that `task_id` and
 > the `api_key` every ~30 seconds until `status` is `done`, then give the
 > client the `output_url`. If `status` is `failed`, show the `error`. Videos
