@@ -169,13 +169,17 @@ credits · `403` plan gate.
   ~45s Action timeout).
 - No `wait` param = instant return (unchanged).
 
-Because one call can wait at most ~40s, a **5-min** render ≈ **~8 sequential
-`wait=1` calls**, a **10-min** render ≈ **~15**. The GPT should loop these
-back-to-back in one reply. If it runs out of per-turn tool calls before the
-video is done, tell the client *"masih render — hantar apa-apa mesej untuk
-saya semak semula"* and resume the `wait=1` loop on their next message. Most
-videos finish inside a single reply; only the longest (~10 min) may need one
-short nudge.
+**Server has NO time limit** — the `task_id` never expires and the video
+keeps rendering however long it takes (5, 8, 10 min). The **~5-minute window
+is a GPT-side loop count, not a server cap.**
+
+Because one call waits ~33s, the GPT should loop `wait=1` **up to ~9 times
+(~5 minutes)** in a single reply — this covers almost every video with
+zero client action. If it's still `pending` after ~9 calls, the GPT tells the
+client *"Video masih render — hantar apa-apa mesej dan saya sambung semak"*,
+then **resumes the same loop** on the next message. Never abandon the
+`task_id`. So: **≤5-min renders = fully auto (one reply); longer = at most one
+nudge.**
 
 **200 — still rendering**
 ```json
@@ -437,10 +441,13 @@ paths:
 > Never pass a raw ChatGPT file straight into generateVideo. You
 > receive a `task_id`. Then call **getVideoStatus** with that `task_id`, the
 > `api_key`, and **`wait:1`** — repeatedly, back-to-back, in a loop (each call
-> blocks ~38s). Keep looping until `status` is `done`. A render takes 1–10
-> min, so you may need ~8–15 `wait:1` calls; if you run out of tool calls
-> before it's done, tell the client "masih render — hantar mesej untuk saya
-> semak semula" and continue the loop on their next message. When done, give the
+> blocks ~33s). Loop up to **~9 times (~5 minutes)**. If it's `done` before
+> that, great. If after ~9 calls it's still `pending`, tell the client
+> exactly: *"Video masih render — hantar apa-apa mesej dan saya sambung
+> semak."* and then **resume the same `wait:1` loop on their next message**.
+> NEVER give up on the `task_id` — the server keeps rendering and the task
+> never expires, so the video will finish (5-min videos usually finish inside
+> this one reply; only longer ones need one nudge). When done, give the
 > client BOTH links: `output_url` (watch inline) and `download_url` (save —
 > tell them to use this on iPhone; an inline URL won't download on iOS). If
 > `status` is `failed`, show the `error`. Videos take 1–5 minutes — tell the
