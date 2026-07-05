@@ -45,8 +45,10 @@ export async function GET(
   let holdMs = 0;
   if (waitRaw && waitRaw !== "0" && waitRaw.toLowerCase() !== "false") {
     const n = Number(waitRaw);
-    const secs = Number.isFinite(n) && n > 1 ? n : 38; // "1"/"true" => 38s default
-    holdMs = Math.min(40, Math.max(1, secs)) * 1000;
+    // "1"/"true" => 33s default. +~2s loop granularity +~1s final reads
+    // keeps the whole call ~36s — comfortably under ChatGPT's ~45s timeout.
+    const secs = Number.isFinite(n) && n > 1 ? n : 33;
+    holdMs = Math.min(38, Math.max(1, secs)) * 1000;
   }
 
   const admin = createAdminClient();
