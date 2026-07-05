@@ -17,6 +17,31 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { canUseMcp } from "@/lib/plans";
 import bcrypt from "bcryptjs";
+import crypto from "crypto";
+
+// Per-task download token — lets us hand out a shareable "force download"
+// link (`/api/mcp/download/<task_id>?t=<token>`) WITHOUT leaking the account
+// API key in a URL. Deterministic HMAC of the task id with a server secret,
+// so no DB write is needed to issue or verify it.
+function dlSecret(): string {
+  return (
+    process.env.MCP_DOWNLOAD_SECRET ||
+    process.env.SUPABASE_SERVICE_ROLE_KEY ||
+    "peninglab-mcp-download"
+  );
+}
+export function mcpDownloadToken(taskId: string): string {
+  return crypto.createHmac("sha256", dlSecret()).update(`dl:${taskId}`).digest("hex").slice(0, 24);
+}
+export function verifyMcpDownloadToken(taskId: string, t: string): boolean {
+  const expected = mcpDownloadToken(taskId);
+  if (!t || t.length !== expected.length) return false;
+  try {
+    return crypto.timingSafeEqual(Buffer.from(t), Buffer.from(expected));
+  } catch {
+    return false;
+  }
+}
 
 export type McpAuthResult =
   | { ok: true; userId: string; keyPrefix: string; keyId: string }

@@ -168,11 +168,19 @@ credits · `403` plan gate.
 ```json
 {
   "ok": true, "status": "done", "task_id": "uuid",
-  "output_url": "https://.../video.mp4",
+  "output_url":   "https://.../video.mp4",      // stream / play inline
+  "stream_url":   "https://.../video.mp4",       // alias of output_url
+  "download_url": "https://peninglab.com/api/mcp/download/<task_id>?t=<token>",
   "cost": 0.5, "balance": 55.5, "duration_sec": 10,
   "model": "google/gemini-omni", "provider": "crun", "slot": "p2-a"
 }
 ```
+> **Give the client BOTH links.** `output_url` (= `stream_url`) plays the
+> video inline in a browser. **`download_url`** forces a save
+> (`Content-Disposition: attachment`) — this is the **only reliable way to
+> download the video on iPhone / iOS Safari**, which can't save an inline
+> video URL. The `download_url` uses a per-task token (not the API key), so
+> it's safe to share directly with the client.
 **200 — failed**
 ```json
 { "ok": true, "status": "failed", "task_id": "uuid", "error": "…", "balance": 56.0 }
@@ -411,8 +419,10 @@ paths:
 > Never pass a raw ChatGPT file straight into generateVideo. You
 > receive a `task_id`. Then poll **getVideoStatus** with that `task_id` and
 > the `api_key` every ~30 seconds until `status` is `done`, then give the
-> client the `output_url`. If `status` is `failed`, show the `error`. Videos
-> take 1–5 minutes — tell the client to wait.
+> client BOTH links: `output_url` (watch inline) and `download_url` (save —
+> tell them to use this on iPhone; an inline URL won't download on iOS). If
+> `status` is `failed`, show the `error`. Videos take 1–5 minutes — tell the
+> client to wait.
 
 ---
 

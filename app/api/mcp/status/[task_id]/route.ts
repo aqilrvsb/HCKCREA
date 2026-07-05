@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { validateMcpKey, validateMcpKeyString } from "@/lib/mcp-auth";
+import { validateMcpKey, validateMcpKeyString, mcpDownloadToken } from "@/lib/mcp-auth";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 // GET /api/mcp/status/:task_id — the polling endpoint. npm package
@@ -53,11 +53,18 @@ export async function GET(
 
   if (row.status === "done") {
     const meta = (row.metadata as any) || {};
+    const origin = new URL(req.url).origin;
     return NextResponse.json({
       ok: true,
       status: "done",
       task_id: row.id,
+      // Two links for the client:
+      //   • output_url / stream_url — plays inline in a browser.
+      //   • download_url — forces a SAVE (Content-Disposition: attachment),
+      //     the only reliable way to download on iOS Safari.
       output_url: row.output_url,
+      stream_url: row.output_url,
+      download_url: `${origin}/api/mcp/download/${row.id}?t=${mcpDownloadToken(row.id)}`,
       cost: Number(row.cost ?? 0),
       balance,
       duration_sec: row.duration,
