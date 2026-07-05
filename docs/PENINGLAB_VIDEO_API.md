@@ -160,6 +160,23 @@ credits · `403` plan gate.
 
 `GET /api/mcp/status/{task_id}?api_key=pl_live_....`
 
+**Long-poll (recommended for GPTs): add `&wait=1`.**
+`GET /api/mcp/status/{task_id}?api_key=...&wait=1`
+- With `wait=1` (or `wait=<seconds>`) the request **blocks server-side**,
+  re-checking every ~2s, and returns the instant the job is `done`/`failed`.
+- If still rendering, it holds up to **~38s** then returns `{status:"pending"}`
+  so you call again. Hold is clamped to **≤40s** (must stay under ChatGPT's
+  ~45s Action timeout).
+- No `wait` param = instant return (unchanged).
+
+Because one call can wait at most ~40s, a **5-min** render ≈ **~8 sequential
+`wait=1` calls**, a **10-min** render ≈ **~15**. The GPT should loop these
+back-to-back in one reply. If it runs out of per-turn tool calls before the
+video is done, tell the client *"masih render — hantar apa-apa mesej untuk
+saya semak semula"* and resume the `wait=1` loop on their next message. Most
+videos finish inside a single reply; only the longest (~10 min) may need one
+short nudge.
+
 **200 — still rendering**
 ```json
 { "ok": true, "status": "pending", "task_id": "uuid", "balance": 56.0 }
@@ -382,6 +399,7 @@ paths:
       parameters:
         - { name: task_id, in: path, required: true, schema: { type: string } }
         - { name: api_key, in: query, required: true, schema: { type: string } }
+        - { name: wait, in: query, required: false, schema: { type: integer }, description: "Set to 1 to long-poll — the call blocks up to ~38s and returns early when done/failed. Loop it until done." }
       responses:
         "200":
           description: Job state.
@@ -417,8 +435,12 @@ paths:
 > `generateVideo.image_urls`. If the attachment doesn't come through, ask
 > the client for a public image link and pass it as `image_url` instead.
 > Never pass a raw ChatGPT file straight into generateVideo. You
-> receive a `task_id`. Then poll **getVideoStatus** with that `task_id` and
-> the `api_key` every ~30 seconds until `status` is `done`, then give the
+> receive a `task_id`. Then call **getVideoStatus** with that `task_id`, the
+> `api_key`, and **`wait:1`** — repeatedly, back-to-back, in a loop (each call
+> blocks ~38s). Keep looping until `status` is `done`. A render takes 1–10
+> min, so you may need ~8–15 `wait:1` calls; if you run out of tool calls
+> before it's done, tell the client "masih render — hantar mesej untuk saya
+> semak semula" and continue the loop on their next message. When done, give the
 > client BOTH links: `output_url` (watch inline) and `download_url` (save —
 > tell them to use this on iPhone; an inline URL won't download on iOS). If
 > `status` is `failed`, show the `error`. Videos take 1–5 minutes — tell the
