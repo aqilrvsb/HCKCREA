@@ -699,6 +699,25 @@ export default function Sidebar({
           </Link>
         )}
 
+        {/* PeningLab GPT — external Custom GPT (generate video inside
+            ChatGPT). Visible to EVERY package as an upsell; login inside
+            the GPT itself gates Pro/Premium. */}
+        <a
+          href="https://chatgpt.com/g/g-6a4a25012480819189f195010ccf6fdc-pening-lab-gpt"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="sidebar-row w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-bold"
+          style={{ color: "var(--color-text-secondary)" }}
+        >
+          <Sparkles
+            className="sidebar-row-icon w-4 h-4 flex-shrink-0"
+            strokeWidth={2.4}
+            style={{ color: "#8b5cf6" }}
+          />
+          <span>PeningLab GPT</span>
+          <ArrowUpRight className="w-3.5 h-3.5 ml-auto opacity-60" strokeWidth={2.4} />
+        </a>
+
         {/* Auto Post TikTok — opens install SOP modal (matches the
             Hack Creative Extension SOP style). Click pulls the current
             extension version + download URL from /api/extension/info.
