@@ -11,6 +11,7 @@ import {
   Plus,
   Film,
   BookOpen,
+  Sparkles,
   Zap,
 } from "lucide-react";
 import ImageTab from "./tabs/image";
@@ -49,7 +50,8 @@ type TabKey =
   | "clone"
   | "auto"
   | "fairytale"
-  | "original-video";
+  | "original-video"
+  | "gpt";
 
 // Tab order: Image → UGC → Auto Content → Story → Cinema (Seedance) →
 // Clone Prompt → Fairytale. "Story" keeps the legacy "cinema" key + the
@@ -72,6 +74,9 @@ const TABS: { key: TabKey; label: string; icon: any; tag: string }[] = [
   // { key: "seedance",  label: "Cinema",       icon: Film,      tag: "--" },
   // { key: "clone",     label: "Clone Prompt", icon: Layers,    tag: "--" },
   { key: "fairytale", label: "Storytelling", icon: BookOpen,  tag: "05" },
+  // PeningLab GPT — external Custom GPT (video via the MCP API). Available
+  // on every package.
+  { key: "gpt",       label: "PeningLab GPT", icon: Sparkles,  tag: "06" },
   // { key: "cinema",    label: "Viral",        icon: Film,      tag: "07" },
   // Grok hidden per user direction (server unstable).
   // Sora 2 standalone tab hidden — Original Video (04) now exposes
@@ -333,6 +338,7 @@ export default function DashboardShell({
               onTabChange={setActiveTab}
               planActive={planActive}
               planExpiresAt={planExpiresAt}
+              plan={plan}
               onGotoBilling={() => setView({ kind: "billing" })}
             />
           )}
@@ -438,6 +444,7 @@ function resolveActiveSop(view: SidebarView, activeTab: TabKey) {
       fairytale: "fairytale",
       // Original Video reuses Story SOP for now (no dedicated SOP yet).
       "original-video": "story",
+      gpt: "story", // SOP button is now a fixed video link; value unused.
     };
     key = map[activeTab];
   } else if (view.kind === "billing") key = "billing";
@@ -455,6 +462,7 @@ function ProjectView({
   onTabChange,
   planActive,
   planExpiresAt,
+  plan,
   onGotoBilling,
 }: {
   project: Project;
@@ -462,8 +470,10 @@ function ProjectView({
   onTabChange: (t: TabKey) => void;
   planActive: boolean;
   planExpiresAt: string | null;
+  plan: string;
   onGotoBilling: () => void;
 }) {
+  const isProOrPremium = plan === "pro" || plan === "premium";
   const active = TABS.find((t) => t.key === activeTab)!;
   return (
     <>
@@ -661,6 +671,77 @@ function ProjectView({
               </div>
               <HistoryGrid tab="fairytale" title={`Storytelling — ${project.name}`} projectId={project.id} />
             </>
+          )}
+          {activeTab === "gpt" && (
+            <div className="max-w-3xl mx-auto w-full">
+              <div
+                className="rounded-3xl p-8 md:p-10 text-center"
+                style={{
+                  background: "linear-gradient(135deg, #10a37f22, #6366f122, #ec489922)",
+                  border: "1px solid var(--color-border)",
+                }}
+              >
+                <div
+                  className="w-16 h-16 rounded-2xl mx-auto flex items-center justify-center mb-4"
+                  style={{ background: "linear-gradient(135deg, #10a37f, #6366f1)", boxShadow: "0 8px 24px rgba(99,102,241,0.35)" }}
+                >
+                  <Sparkles className="w-8 h-8 text-white" strokeWidth={2.4} />
+                </div>
+                <h2 className="font-display font-extrabold text-2xl mb-2 text-[var(--color-text-primary)]">
+                  PeningLab GPT
+                </h2>
+                {isProOrPremium ? (
+                  <>
+                    <p className="text-sm text-[var(--color-text-secondary)] max-w-md mx-auto mb-6 leading-relaxed">
+                      Jana video terus dalam ChatGPT — taip idea atau attach gambar/storyboard,
+                      GPT buatkan video guna enjin PeningLab.
+                    </p>
+                    <a
+                      href="https://chatgpt.com/g/g-6a4a25012480819189f195010ccf6fdc-pening-lab-gpt"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-2 px-6 py-3.5 rounded-xl font-extrabold text-white transition-transform hover:scale-105"
+                      style={{ background: "linear-gradient(135deg, #10a37f, #6366f1)", boxShadow: "0 6px 20px rgba(16,163,127,0.4)" }}
+                    >
+                      <Sparkles className="w-5 h-5" /> Buka PeningLab GPT →
+                    </a>
+                    <div className="mt-6 text-left max-w-md mx-auto rounded-xl p-4" style={{ background: "var(--color-bg-card)", border: "1px solid var(--color-border)" }}>
+                      <div className="text-[11px] font-bold uppercase tracking-wider text-[var(--color-text-secondary)] mb-2">Cara guna</div>
+                      <ol className="text-[13px] text-[var(--color-text-primary)] space-y-1.5 list-decimal list-inside leading-relaxed">
+                        <li>Tekan butang di atas → buka dalam ChatGPT.</li>
+                        <li>Login guna <b>email + password PeningLab</b> anda (akaun perlu aktif).</li>
+                        <li>Taip idea video / attach gambar → GPT jana video.</li>
+                        <li>GPT bagi link tonton + link download (sesuai iPhone).</li>
+                      </ol>
+                      <div className="text-[11px] text-[var(--color-text-muted)] mt-3">
+                        Kredit ditolak dari akaun PeningLab anda (hanya bila video berjaya).
+                      </div>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <p className="text-sm text-[var(--color-text-secondary)] max-w-md mx-auto mb-2 leading-relaxed">
+                      Jana video terus dalam ChatGPT guna enjin PeningLab.
+                    </p>
+                    <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-extrabold mb-5" style={{ background: "#f59e0b22", color: "#b45309", border: "1px solid #f59e0b55" }}>
+                      🔒 Eksklusif untuk pakej <b>Pro</b> &amp; <b>Premium</b>
+                    </div>
+                    <div className="mb-6" />
+                    <button
+                      type="button"
+                      onClick={onGotoBilling}
+                      className="inline-flex items-center gap-2 px-6 py-3.5 rounded-xl font-extrabold text-white transition-transform hover:scale-105"
+                      style={{ background: "linear-gradient(135deg, #f59e0b, #ea580c)", boxShadow: "0 6px 20px rgba(245,158,11,0.4)" }}
+                    >
+                      ⬆️ Naik taraf ke Pro / Premium
+                    </button>
+                    <div className="text-[11px] text-[var(--color-text-muted)] mt-4 max-w-md mx-auto">
+                      PeningLab GPT hanya tersedia untuk pelanggan Pro &amp; Premium yang aktif.
+                    </div>
+                  </>
+                )}
+              </div>
+            </div>
           )}
         </div>
       )}

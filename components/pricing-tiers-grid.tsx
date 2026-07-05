@@ -89,6 +89,7 @@ function featureLinesFor(key: PlanKey): FeatureLine[] {
     lines.push({ text: "Auto Post TikTok (Chrome extension)" });
   }
   if ((MCP_TIERS as readonly string[]).includes(key)) {
+    lines.push({ text: "PeningLab GPT — jana video terus dalam ChatGPT", highlight: true });
     lines.push({ text: "MCP API access (peninglab-mcp npm)" });
   }
   if ((AFFILIATE_TIERS as readonly string[]).includes(key)) {
