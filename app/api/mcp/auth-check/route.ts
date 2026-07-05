@@ -23,7 +23,7 @@ export async function GET(req: Request) {
   const [profileRes, userRes] = await Promise.all([
     admin
       .from("profiles")
-      .select("credits, plan, full_name")
+      .select("credits, plan, full_name, plan_expires_at")
       .eq("id", auth.userId)
       .maybeSingle(),
     admin.auth.admin.getUserById(auth.userId),
@@ -31,6 +31,9 @@ export async function GET(req: Request) {
 
   const profile = profileRes.data;
   const email = userRes.data?.user?.email ?? null;
+
+  const expiresAt = (profile?.plan_expires_at as string | null) ?? null;
+  const planActive = !!expiresAt && new Date(expiresAt) > new Date();
 
   return NextResponse.json({
     ok: true,
@@ -40,5 +43,10 @@ export async function GET(req: Request) {
     full_name: profile?.full_name ?? null,
     balance: Number(profile?.credits ?? 0),
     plan: profile?.plan ?? "light",
+    plan_expires_at: expiresAt,
+    plan_active: planActive,
+    days_left: expiresAt
+      ? Math.max(0, Math.ceil((new Date(expiresAt).getTime() - Date.now()) / 86400000))
+      : 0,
   });
 }

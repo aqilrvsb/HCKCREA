@@ -109,5 +109,10 @@ export async function POST(req: Request) {
     email,
     balance: Number(profile?.credits ?? 0),
     plan: planKey,
+    plan_expires_at: expiresAt,
+    plan_active: planActive,
+    days_left: expiresAt
+      ? Math.max(0, Math.ceil((new Date(expiresAt).getTime() - Date.now()) / 86400000))
+      : 0,
   });
 }

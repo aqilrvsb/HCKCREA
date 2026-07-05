@@ -61,10 +61,20 @@ Key format: `pl_live_` + 32 hex chars. Only the account owner can mint keys
 ```
 **200**
 ```json
-{ "ok": true, "api_key": "pl_live_....", "email": "client@example.com", "balance": 56.5, "plan": "pro" }
+{
+  "ok": true, "api_key": "pl_live_....", "email": "client@example.com",
+  "balance": 56.5,                 // credits (RM) left
+  "plan": "pro",                    // pro | premium (others rejected)
+  "plan_expires_at": "2026-07-27T15:59:59Z",
+  "plan_active": true,              // false = subscription expired
+  "days_left": 23                   // days until expiry
+}
 ```
 **Errors**: `400` email/password missing · `401` invalid credentials ·
 `403` account not on an active Pro/Premium plan.
+
+See **§4.5 Rules the GPT must respect** for how to use `balance` +
+`plan_active`.
 
 > Each successful login mints a fresh key and revokes the previous "Custom
 > GPT" key for that user (one active key per client). Password verification
@@ -207,6 +217,44 @@ Returns `{ ok, email, balance, plan }` — handy to confirm setup.
 
 ---
 
+## 4.5 Rules the GPT must respect (plan expiry + credits)
+
+Every `login`, `auth-check` and `status`/`balance` response carries
+`balance` and (for login/auth-check) `plan_active` + `plan_expires_at` +
+`days_left`. Enforce these **before** and **after** generating:
+
+**A. Plan expiry (hard gate — the server enforces it too).**
+- API works **only** on an **active Pro or Premium** plan.
+- If `plan_active` is `false` (or a generate/upload call returns **403**):
+  **STOP** — tell the client *"Your PeningLab subscription has expired /
+  isn't Pro/Premium. Renew at https://peninglab.com/dashboard/billing to use
+  the video API."* Do **not** keep retrying.
+- If `days_left` ≤ 3, proactively remind the client their plan expires soon.
+
+**B. Credits (per-generation cost).**
+- Each generation **costs credits** (deducted on success). Rates are in
+  `GET /api/mcp/models` (e.g. Veo `0.5`/video, Gemini per-10s, Grok/Seedance
+  per-second). `generateVideo` returns `estimated_cost` up front.
+- **Before generating:** if `balance < estimated_cost` (or you already know
+  the rate), tell the client *"Not enough credits (balance RM X). Top up at
+  https://peninglab.com/dashboard/billing."* and don't fire the job.
+- If a generate call returns **402** (`insufficient credits`): surface that
+  message; do not retry until they top up.
+- **After each job:** the `status`/`login` response returns the fresh
+  `balance` — mention it if it's low (< RM 5) so the client isn't surprised.
+
+**C. Summary of gate codes**
+| code | meaning | GPT action |
+|------|---------|-----------|
+| 403  | plan expired / not Pro-Premium | tell client to renew; stop |
+| 402  | insufficient credits | tell client to top up; stop |
+| 401  | bad/expired key | re-login |
+
+> The server enforces A + B regardless, but the GPT should check `balance`
+> and `plan_active` itself so it gives a clear message instead of a raw error.
+
+---
+
 ## 5. Full flow (per-client GPT)
 
 ```
@@ -257,6 +305,9 @@ paths:
                   api_key: { type: string }
                   balance: { type: number }
                   plan: { type: string }
+                  plan_active: { type: boolean }
+                  plan_expires_at: { type: string }
+                  days_left: { type: integer }
   /api/mcp/upload:
     post:
       operationId: uploadImage
@@ -344,7 +395,10 @@ paths:
 > You generate videos via the PeningLab API. First ask the client for their
 > **PeningLab email and password** (once per conversation). Call **login**;
 > if it fails, tell them to check their credentials or that they need an
-> active **Pro/Premium** plan. Keep the returned **api_key** private (never
+> active **Pro/Premium** plan. After login, if `plan_active` is false tell
+> them to renew and STOP; if `balance` is low, warn them; if any call returns
+> 403 (plan) or 402 (credits), surface that and don't retry. Keep the
+> returned **api_key** private (never
 > show it). To make a video: call **generateVideo** with `api_key`, the
 > `prompt`, and a `model` (default `"gemini"`; use `"veo"` for 8s;
 > `"grok"` needs an image in `image_urls` with `image_mode:"frame"`). You
