@@ -43,6 +43,28 @@ export function verifyMcpDownloadToken(taskId: string, t: string): boolean {
   }
 }
 
+// Find-or-create the user's "GPT" project. Everything generated via the GPT
+// (MCP API) is filed under one project named "GPT" so it stays separate from
+// the client's dashboard projects. Reuses the existing one if present; else
+// creates it (bypasses the normal project-count limit — it's a system
+// container). Returns the project id, or null if creation failed.
+export async function getOrCreateGptProjectId(userId: string): Promise<string | null> {
+  const admin = createAdminClient();
+  const { data: rows } = await admin
+    .from("projects")
+    .select("id")
+    .eq("user_id", userId)
+    .eq("name", "GPT")
+    .limit(1);
+  if (rows && rows[0]?.id) return rows[0].id;
+  const { data: created } = await admin
+    .from("projects")
+    .insert({ user_id: userId, name: "GPT" })
+    .select("id")
+    .single();
+  return created?.id ?? null;
+}
+
 export type McpAuthResult =
   | { ok: true; userId: string; keyPrefix: string; keyId: string }
   | { ok: false; error: string; status: number };

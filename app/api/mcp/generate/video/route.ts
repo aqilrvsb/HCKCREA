@@ -1,5 +1,5 @@
 import { NextResponse, after } from "next/server";
-import { validateMcpKey, validateMcpKeyString, mcpCallerId } from "@/lib/mcp-auth";
+import { validateMcpKey, validateMcpKeyString, mcpCallerId, getOrCreateGptProjectId } from "@/lib/mcp-auth";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { priceFor, hasEnoughCredits } from "@/lib/deduct";
 import { getP2Config, getCinemaRate, getVeoRate, getGeminiRate, getSeedanceRate, getSetting } from "@/lib/settings";
@@ -109,13 +109,16 @@ export async function POST(req: Request) {
     );
   }
 
-  // Insert placeholder row
+  // Insert placeholder row. GPT-generated videos are filed under the
+  // client's auto "GPT" project → they show in that project's Original
+  // Video history (tab='original-video').
   const admin = createAdminClient();
+  const gptProjectId = await getOrCreateGptProjectId(auth.userId);
   const { data: hist, error: insErr } = await admin
     .from("history")
     .insert({
       user_id: auth.userId,
-      project_id: null,
+      project_id: gptProjectId,
       type: "video",
       tab: "original-video",
       status: "pending",

@@ -1,5 +1,5 @@
 import { NextResponse, after } from "next/server";
-import { validateMcpKey, mcpCallerId } from "@/lib/mcp-auth";
+import { validateMcpKey, mcpCallerId, getOrCreateGptProjectId } from "@/lib/mcp-auth";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { priceFor, hasEnoughCredits } from "@/lib/deduct";
 import { getP2Config } from "@/lib/settings";
@@ -72,11 +72,12 @@ export async function POST(req: Request) {
   // Insert placeholder row tagged with mcp_caller_id so admin/usage
   // can show the MCP badge.
   const admin = createAdminClient();
+  const gptProjectId = await getOrCreateGptProjectId(auth.userId);
   const { data: hist, error: insErr } = await admin
     .from("history")
     .insert({
       user_id: auth.userId,
-      project_id: null,
+      project_id: gptProjectId,
       type: "image",
       tab: "image",
       status: "pending",
