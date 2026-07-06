@@ -154,16 +154,16 @@ ${
     ? `
 <angle_cut_rules>
 🎬 ANGLE CUT (NON-NEGOTIABLE for multi-segment videos): Seg 1 and Seg 2 are the SAME SCENE — same avatar, same outfit, same location, same lighting, same product placement, same time-of-day. The ONLY thing that changes between segments is the CAMERA ANGLE / SHOT SIZE — exactly like a real UGC video edit that cuts to a new angle mid-take.
-- ANGLE BANK (shot sizes): extreme close-up (ECU), close-up (CU — head & shoulders), medium close-up (MCU — chest up), medium shot (MS — waist up), full shot (FS).
-- ANGLE BANK (camera height): eye-level, high angle (looking down), low angle (looking up).
-- ANGLE BANK (orientation): front-facing, 3/4 angle, side profile, over-the-shoulder (OTS).
-- ANGLE BANK (specialty): selfie-style handheld POV, overhead/top-down (product-in-hand detail).
+- ANGLE BANK (shot sizes): close-up (CU — head & shoulders), medium close-up (MCU — chest up), medium shot (MS — waist up).
+- ANGLE BANK (camera height): eye-level, SLIGHTLY high, SLIGHTLY low — subtle only.
+- ANGLE BANK (orientation): front-facing, 3/4 angle, selfie-style handheld POV.
+- 🚫 FORBIDDEN ANGLES (cause grotesque anomalies — the avatar is TALKING and must face the camera naturally): overhead/top-down/bird's-eye, extreme low worm's-eye, directly behind, side profile where the mouth is hidden, extreme close-up of parts of the face, any angle showing the top of the head or requiring a craned neck. In EVERY frame the avatar's face is UPRIGHT, chin level, eyes toward camera — like a real person filming themselves.
 - PROVEN Seg 1 → Seg 2 CUT PAIRS (pick ONE per video, rotate across the batch):
   • medium shot → close-up (the classic punch-in for the payoff/CTA)
   • selfie handheld → static medium shot
-  • eye-level medium → low angle (confidence beat)
+  • eye-level medium → slightly low angle (confidence beat)
   • front-facing → 3/4 angle
-  • medium shot → overhead product close-up in hand (product detail beat)
+  • medium shot → medium close-up with the product raised beside the face (product detail beat — face still fully visible toward camera)
 - Write the CHOSEN angle explicitly in each segment's imagePrompt AND videoPrompt (e.g. Seg 1 "medium shot, eye-level, front-facing", Seg 2 "close-up, eye-level, 3/4 angle — SAME room, SAME outfit, SAME position").
 - FORBIDDEN between segments: changing location/room, changing outfit, changing hairstyle/hijab, changing lighting/time-of-day, moving the product to a different surface, changing the avatar's general position in the room. Angle changes; the world does not.
 - The dialog continuation and the angle cut must AGREE: the cut lands where a real editor would cut (new beat / payoff / CTA emphasis).
@@ -255,7 +255,8 @@ Each segment needs an imagePrompt (max 600 chars) = the Banana Pro 2 START FRAME
 - Then state the SAME outfit chosen for this video (from <clothing_variety>).
 - Then the scene/setting + the product interaction: the person HOLDS/USES the product (for consumables) OR WEARS it (if the product itself is clothing/hijab/shoes/bag/jewelry).
 - 🚨 PRODUCT VISIBLE LOCK: the product MUST be clearly VISIBLE in EVERY segment's frame — in hand, label toward camera (or worn on body). NEVER a frame of the avatar alone without the product. Product stays pixel-identical to the product reference — label sharp, no warping/recolour/text drift.
-- State the CAMERA ANGLE explicitly (from <angle_cut_rules>'s angle bank)${segCount > 1 ? " — Seg 2 = SAME scene/outfit/position as Seg 1, ONLY the angle changes" : ""}.
+- State the CAMERA ANGLE explicitly (from <angle_cut_rules>'s angle bank — NEVER a forbidden angle)${segCount > 1 ? " — Seg 2 = SAME scene/outfit/position as Seg 1, ONLY the angle changes" : ""}.
+- 🚨 ANATOMY LOCK (append to every imagePrompt): "Anatomically perfect: two hands, five fingers each, natural neck and upright posture, face level and clearly toward the camera — no craned neck, no top-of-head view, no distorted limbs."
 - Photorealistic UGC, ${aspectRatio}, soft natural lighting, shallow depth of field, ultra-realistic skin texture.
 </image_prompt_rules>
 
@@ -265,6 +266,7 @@ Each segment needs a videoPrompt = the Grok i2v instruction that animates the st
 - Include the spoken Malay dialog line for this segment, wrapped in single quotes, matching the ~3-words/sec word target above.
 - Keep the SAME person, outfit, product, and general scene as this segment's start frame (Grok animates the frame).
 - Audio = ONE voice only (${gender === "male" ? "young Malay man" : "young Malay woman"}), no background music, no chatter. Raw UGC phone-recorded vibe. ZERO subtitles/captions/on-screen text/icons — "beg kuning" is SPOKEN words only, never a visual bag icon.
+- 🚨 ANATOMY LOCK (append to every videoPrompt): "Anatomically perfect: two hands, five fingers each, natural neck and upright posture, face level and toward the camera throughout. No head-spinning, no body warping, no extra limbs."
 ${segCount > 1 ? "- CONTINUITY: Seg 2's dialog continues Seg 1's sentence/idea (picks up where it ended). Same voice, same person, same outfit, SAME scene — ONLY the camera angle + spoken line differ per <angle_cut_rules>. The product stays visible in both. The CTA lands only in the LAST segment." : ""}
 </video_prompt_rules>
 

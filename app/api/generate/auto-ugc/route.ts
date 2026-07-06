@@ -364,6 +364,9 @@ export async function POST(req: Request) {
             job.imagePrompt,
             anchorUrl ? `Outfit (locked for this video): ${job.outfit}. Scene: ${job.scene}.` : `${personaDesc}. Outfit (locked for this video): ${job.outfit}. Scene: ${job.scene}.`,
             roleSplit,
+            // Code-level anatomy lock — the avatar is TALKING to camera, so
+            // overhead/behind/profile angles produce grotesque results.
+            "Anatomically perfect: two hands, five fingers each, natural neck and upright posture, the person's face level and clearly toward the camera (never top-of-head view, never craned neck, never from behind).",
             `Photorealistic vertical UGC start frame, ${aspectRatio}, soft natural lighting, shallow depth of field.`,
           ].join(" ");
 
@@ -385,9 +388,11 @@ export async function POST(req: Request) {
             return null;
           }
 
-          const videoPrompt = job.dialog
-            ? `${job.videoPrompt}\nSpoken dialog (Malay): "${job.dialog}"`
-            : job.videoPrompt;
+          const videoPrompt =
+            (job.dialog
+              ? `${job.videoPrompt}\nSpoken dialog (Malay): "${job.dialog}"`
+              : job.videoPrompt) +
+            "\nAnatomically perfect: two hands, five fingers each, natural neck and upright posture, face level and toward the camera throughout. No head-spinning, no body warping, no extra limbs.";
 
           const result = await generateVideoWithCascade({
             primaryModel: grokModel,
