@@ -1906,14 +1906,21 @@ function HistoryCardInner({
                 pending but somehow still selectable) → product
                 reference. */}
         {item.status === "done" && !isClonePrompt && segmentPlaceholder && (() => {
-          const phBgUrl =
-            activeSlide?.id === "seg_1"
-              ? (seg2?.reference_url ||
-                  (seg2 as any)?.metadata?.anchor_frame_url ||
-                  null)
-              : activeSlide?.id === "merged"
-                ? (seg2?.output_url || item.output_url || null)
-                : (item.reference_url || null);
+          // Resolve the ACTIVE slide's own row (works for Seg 2, Seg 3, …
+          // in extend chains — not just children[0]) so clicking any
+          // segment thumb shows THAT segment's start-frame picture.
+          const activeChild =
+            activeSlide?.childId && activeSlide.childId !== item.id
+              ? children.find((c) => c.id === activeSlide.childId) || null
+              : null;
+          const phBgUrl = activeChild
+            ? (activeChild.reference_url ||
+                (activeChild.metadata as any)?.startframe_url ||
+                (activeChild.metadata as any)?.anchor_frame_url ||
+                null)
+            : activeSlide?.id === "merged"
+              ? (seg2?.output_url || item.output_url || null)
+              : (item.reference_url || null);
           const phIsVideo =
             activeSlide?.id === "merged" && !seg2?.output_url && !!item.output_url;
           return (
@@ -1923,12 +1930,13 @@ function HistoryCardInner({
               background: "linear-gradient(135deg, #1a1a1a 0%, #0a0a0a 100%)",
             }}
           >
+            {/* Show the segment's start frame CLEARLY (was 0.32 + blur —
+                read as a black screen; user wants to SEE the picture). */}
             {phBgUrl && !phIsVideo && (
               <img
                 src={phBgUrl}
                 alt=""
                 className="absolute inset-0 w-full h-full object-cover pointer-events-none"
-                style={{ opacity: 0.32, filter: "blur(2px) saturate(0.9)" }}
               />
             )}
             {phBgUrl && phIsVideo && (
@@ -1937,10 +1945,9 @@ function HistoryCardInner({
                 muted
                 playsInline
                 className="absolute inset-0 w-full h-full object-cover pointer-events-none"
-                style={{ opacity: 0.32, filter: "blur(2px) saturate(0.9)" }}
               />
             )}
-            <div className="absolute inset-0 pointer-events-none" style={{ background: "rgba(0,0,0,0.45)" }} />
+            <div className="absolute inset-0 pointer-events-none" style={{ background: "rgba(0,0,0,0.35)" }} />
             <div className="relative z-10 flex flex-col items-center justify-center gap-2">
             {segmentPlaceholder === "failed" ? (
               <>
