@@ -103,10 +103,14 @@ export default function AutoUgcTab({ projectId }: { projectId?: string } = {}) {
   const [gender, setGender] = useState<"female" | "male">("female");
   const [hijab, setHijab] = useState<"yes" | "no">("yes");
   const [age, setAge] = useState<"20s" | "30s" | "40s" | "55+">("30s");
-  // Auto UGC additions — avatar create/existing + up-to-30s duration slider.
+  // Auto UGC additions — avatar create/existing + fixed duration options.
   const [avatarMode, setAvatarMode] = useState<"create" | "existing">("create");
   const [avatarUrl, setAvatarUrl] = useState("");
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
+  // Avatar Kekal = SAME face across all videos in the batch (default).
+  // Avatar Dynamic = a DIFFERENT face per video (same gender/style/age
+  // criteria). Only applies to create-mode; existing avatar is always kekal.
+  const [avatarConsistency, setAvatarConsistency] = useState<"kekal" | "dynamic">("kekal");
   const [ugcDuration, setUgcDuration] = useState(15);
 
   // Settings
@@ -623,10 +627,8 @@ export default function AutoUgcTab({ projectId }: { projectId?: string } = {}) {
       } catch (e: any) {
         return setError(`Invalid Plan JSON: ${e?.message || "parse error"}`);
       }
-    } else {
-      if (selectedFrameworks.length === 0)
-        return setError("Select at least 1 framework.");
     }
+    // Auto UGC: no framework validation — AI picks frameworks internally.
 
     setStatus("planning");
     pushLog(`Mode: ${planMode === "manual" ? "Manual Plan (JSON)" : planMode === "verify" ? "Verify Plan" : "AI Plan"}`);
@@ -708,6 +710,7 @@ export default function AutoUgcTab({ projectId }: { projectId?: string } = {}) {
         duration_sec: ugcDuration,
         avatar_mode: avatarMode,
         avatar_url: avatarMode === "existing" ? avatarUrl : "",
+        avatar_consistency: avatarMode === "existing" ? "kekal" : avatarConsistency,
         aspect_ratio: aspect,
         avatar_gender: gender,
         avatar_hijab: hijab === "yes" ? "hijab" : "no-hijab",
@@ -828,7 +831,11 @@ export default function AutoUgcTab({ projectId }: { projectId?: string } = {}) {
   }
 
   const busy = status === "planning" || status === "generating";
-  const showFrameworks = planMode !== "manual";
+  // Auto UGC: Plan Style (Normal/Custom Idea) + Frameworks picker are
+  // REMOVED per user direction — the AI decides the framework + idea
+  // internally per video (always UGC type, avatar on-screen). Flag kept
+  // false so both JSX blocks stay hidden without deleting them.
+  const showFrameworks = false;
 
   const sectionBg: React.CSSProperties = {
     background:
@@ -1354,6 +1361,32 @@ export default function AutoUgcTab({ projectId }: { projectId?: string } = {}) {
                 dijana dengan produk.
               </p>
             </div>
+          )}
+
+          {/* Avatar consistency — Kekal (same face all videos) vs Dynamic
+              (different face per video, same criteria). Create-mode only. */}
+          {avatarMode === "create" && (
+            <div className="flex gap-2 mb-3">
+              <DurationBtn
+                active={avatarConsistency === "kekal"}
+                onClick={() => setAvatarConsistency("kekal")}
+              >
+                🔒 Avatar Kekal
+              </DurationBtn>
+              <DurationBtn
+                active={avatarConsistency === "dynamic"}
+                onClick={() => setAvatarConsistency("dynamic")}
+              >
+                🎭 Avatar Dynamic
+              </DurationBtn>
+            </div>
+          )}
+          {avatarMode === "create" && (
+            <p className="text-[10px] text-[var(--color-text-muted)] mb-2">
+              {avatarConsistency === "kekal"
+                ? "Kekal: muka SAMA untuk semua video dalam batch ni."
+                : "Dynamic: muka BERBEZA setiap video (kriteria jantina/style/umur sama)."}
+            </p>
           )}
 
           {/* Persona selectors — used when generating a new avatar. Hidden

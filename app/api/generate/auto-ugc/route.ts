@@ -67,17 +67,19 @@ export async function POST(req: Request) {
   const productDetail = String(body?.product_detail || manualProducts?.[0]?.info || "").trim();
   const avatarMode: "create" | "existing" = body?.avatar_mode === "existing" ? "existing" : "create";
   const avatarUrl = String(body?.avatar_url || "").trim();
+  // Avatar Kekal (default) = one face across the whole batch. Avatar
+  // Dynamic = a different face per video (same gender/style/age criteria).
+  // Existing-avatar mode is inherently kekal.
+  const avatarConsistency: "kekal" | "dynamic" =
+    avatarMode === "create" && body?.avatar_consistency === "dynamic" ? "dynamic" : "kekal";
   const gender = body?.avatar_gender === "male" ? "male" : "female";
   const hijab = body?.avatar_hijab === "hijab" ? "hijab" : "no-hijab";
   const age = ["20s", "30s", "40s", "55+"].includes(body?.avatar_age) ? body.avatar_age : "30s";
-  // Creative angle: the selected Auto Content frameworks feed the scene list.
-  const selectedFrameworks: number[] = Array.isArray(body?.selected_frameworks)
-    ? body.selected_frameworks.map((n: any) => Number(n)).filter((n: number) => !Number.isNaN(n))
-    : [];
-  const frameworkNames = selectedFrameworks
-    .map((id) => FRAMEWORKS.find((f) => f.id === id))
-    .filter(Boolean)
-    .map((f: any) => `${f.name} (${f.focus})`);
+  // Framework selection is INTERNAL — the AI picks one UGC framework per
+  // video from the full UGC bank (frameworks UI removed per user direction).
+  const frameworkNames = FRAMEWORKS.filter((f) => f.type === "ugc").map(
+    (f) => `${f.name} (${f.focus})`
+  );
   const customIdea = String(body?.idea_style || body?.custom_idea || "").trim();
   const durationSec = Math.max(4, Math.min(30, Number(body?.duration_sec) || 15));
   const quantity = Math.max(1, Math.min(10, Number(body?.quantity) || 1));
@@ -156,6 +158,7 @@ export async function POST(req: Request) {
     hijabMode: hijab === "hijab",
     age,
     avatarMode,
+    avatarConsistency,
     sceneList,
     customIdea,
     ctaMode,
@@ -249,6 +252,7 @@ export async function POST(req: Request) {
         imageMode: "frame",
         aspectRatio,
         avatar_mode: avatarMode,
+        avatar_consistency: avatarConsistency,
         avatar_persona: personaDesc,
         product_image_urls: productUrls,
         outfit: plan.outfit,
@@ -316,11 +320,14 @@ export async function POST(req: Request) {
   after(async () => {
     try {
       // Resolve the locked avatar (face reference used by every start frame).
-      // create-mode: generate ONE base avatar+product image first so every
-      // segment references the SAME face (v16 GPT-clone learning: the
-      // start-frame IS the deliverable, product must stay pixel-exact).
+      // create+KEKAL: generate ONE base avatar+product image first so every
+      // segment of every video references the SAME face.
+      // create+DYNAMIC: skip the global base — each video's Seg 1 frame is
+      // generated fresh from the persona (different face per video); Seg 2
+      // still anchors on Seg 1's frame so the face stays consistent WITHIN
+      // the video.
       let baseAvatarUrl = avatarMode === "existing" ? avatarUrl : "";
-      if (avatarMode === "create") {
+      if (avatarMode === "create" && avatarConsistency === "kekal") {
         const basePrompt = [
           `Ultra-realistic vertical UGC selfie-style photo of a ${personaDesc}.`,
           "They are holding and showing the product toward the camera.",

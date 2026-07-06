@@ -39,6 +39,9 @@ export type MasterPlanOpts = {
   hijabMode: boolean;
   age: "20s" | "30s" | "40s" | "55+";
   avatarMode: "create" | "existing";
+  /** kekal = one face across the whole batch; dynamic = a different face
+   *  per video (same gender/hijab/age criteria), consistent within a video. */
+  avatarConsistency?: "kekal" | "dynamic";
   sceneList: string;
   customIdea: string;
   ctaMode: "shop" | "custom" | "none";
@@ -68,6 +71,7 @@ export function buildAutoUgcMasterPlan(opts: MasterPlanOpts): {
     hijabMode,
     age,
     avatarMode,
+    avatarConsistency = "kekal",
     sceneList,
     customIdea,
     ctaMode,
@@ -138,11 +142,13 @@ CTA: ${ctaInstruction}
 Market: Malaysian TikTok (Malay-speaking, informal). Language = BAHASA MELAYU only (never Bahasa Indonesia).
 </content_settings>
 
-<scene_ideas>
-UGC scene concepts the client picked — vary them across VIDEOS (each video gets a different scene/situation): ${sceneList}.
-Within ONE video everything stays identical across its segments (avatar, outfit, location, lighting) — only the CAMERA ANGLE changes per <angle_cut_rules>. Between different videos the outfit + scene MAY change.
+<framework_bank>
+🧠 YOU pick the framework INTERNALLY — the client does NOT choose. For EACH video, pick ONE framework from this UGC bank and rotate across the batch (no two videos share a framework):
+${sceneList}
+🔒 EVERY video is UGC TYPE: the avatar is ON SCREEN, face visible, speaking directly to camera, with the product clearly visible (held/used/worn). NEVER product-only shots, NEVER hand-POV, NEVER voiceover-without-person.
+Within ONE video everything stays identical across its segments (avatar, outfit, location, lighting) — only the CAMERA ANGLE changes per <angle_cut_rules>. Between different videos the outfit + scene MUST change per <diversity_rules>.
 ${customIdea ? `\n🎯 CLIENT'S CUSTOM IDEA (PRIORITISE THIS — it is the core visual concept every video must embody): """${customIdea}"""` : ""}
-</scene_ideas>
+</framework_bank>
 ${
   segCount > 1
     ? `
@@ -215,12 +221,16 @@ Every segment MUST have dynamic visuals — no static medium-pose-only. Rotate s
 </camera_and_visual_rules>
 
 <locked_avatar>
-🔒 NON-NEGOTIABLE CHARACTER LOCK — SAME PERSON across the WHOLE batch.
+🔒 NON-NEGOTIABLE CHARACTER LOCK${avatarConsistency === "dynamic" ? " — criteria locked, FACE varies per video (Avatar Dynamic)" : " — SAME PERSON across the WHOLE batch (Avatar Kekal)"}.
 1. GENDER = ${gender.toUpperCase()} → always write "${genderWord}" (never "person"/"individual").
 2. STYLE = ${hijabMode ? "HIJAB (LOOSE tudung labuh fully covering all hair/ears/neck — ZERO hair strands, never tight, stays put through every head turn). If you imply visible hair it is a CRITICAL FAILURE." : "NO HIJAB (hair visible, modern modest). NEVER write 'hijab'/'tudung'. Modesty still applies: no cleavage, no midriff, no thigh exposure."}
 3. AGE = ${ageRange}.
 4. BEAUTY = ${beautyLock}.
-${avatarMode === "existing" ? "The avatar comes from an UPLOADED reference image — every start-frame keeps that exact face/identity. Only outfit (per video) + scene change." : "You LOCK one consistent face across all videos (same face structure, skin tone, age). A base avatar image is generated first; every start-frame references it. Only outfit (per video) + scene change."}
+${avatarMode === "existing"
+    ? "The avatar comes from an UPLOADED reference image — every start-frame keeps that exact face/identity. Only outfit (per video) + scene change."
+    : avatarConsistency === "dynamic"
+      ? "AVATAR DYNAMIC: each video features a DIFFERENT unique person (invent a distinct realistic Malaysian face per video — vary face shape, features, skin tone within Malaysian range) while ALL matching the gender/style/age criteria above. WITHIN a video, the face stays identical across its segments. Describe each video's face specifically in its Seg 1 imagePrompt so the segments can lock onto it."
+      : "AVATAR KEKAL: you LOCK one consistent face across all videos (same face structure, skin tone, age). A base avatar image is generated first; every start-frame references it. Only outfit (per video) + scene change."}
 OUTFIT RULE: SAME outfit for all segments WITHIN one video; outfit MAY differ BETWEEN videos.
 </locked_avatar>
 
