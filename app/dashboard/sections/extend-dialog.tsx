@@ -464,7 +464,10 @@ export default function ExtendDialog({
                 src={proxiedVideo(videoUrl)}
                 controls
                 crossOrigin="anonymous"
-                className="w-full max-h-48 rounded-lg bg-black border border-gray-800"
+                // Height-capped + centered so a vertical 9:16 clip shows LARGE
+                // (was w-full+max-h-48 → tiny letterboxed strip). max-w-full
+                // keeps horizontal clips inside the dialog too.
+                className="max-h-[52vh] max-w-full mx-auto block rounded-lg bg-black border border-gray-800"
               />
               <div className="text-[10px] text-gray-500 mt-1">
                 Tip: drag the scrubber below to pick the exact frame where segment 2 should start. Release to capture in HD.
