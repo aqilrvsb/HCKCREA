@@ -330,6 +330,9 @@ export async function POST(req: Request) {
       if (avatarMode === "create" && avatarConsistency === "kekal") {
         const basePrompt = [
           `Ultra-realistic vertical UGC selfie-style photo of a ${personaDesc}.`,
+          // Face is DYNAMIC — Banana invents a fresh, specific face per batch
+          // (no hardcoded template) so avatars vary between batches.
+          "Invent a UNIQUE specific attractive Malaysian face: pick ONE face shape (oval / round / square / heart / long / diamond), realistic natural makeup with concrete details, a specific Malaysian skin tone (fair / medium / sawo matang), and 1-2 distinct features (dimples, monolid or double eyelid, small beauty mark). Never a generic AI-template face.",
           "They are holding and showing the product toward the camera.",
           "Natural indoor lighting, authentic Malaysian micro-influencer look, neutral casual outfit.",
           "PRODUCT REFERENCE (the attached product image) = the exact colour, label, typography, shape and packaging ONLY — copy it pixel-identically, ignore its own background/scene. No warping, no recolour, no text drift.",

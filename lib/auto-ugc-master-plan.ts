@@ -232,6 +232,16 @@ ${avatarMode === "existing"
       ? "AVATAR DYNAMIC: each video features a DIFFERENT unique person (invent a distinct realistic Malaysian face per video — vary face shape, features, skin tone within Malaysian range) while ALL matching the gender/style/age criteria above. WITHIN a video, the face stays identical across its segments. Describe each video's face specifically in its Seg 1 imagePrompt so the segments can lock onto it."
       : "AVATAR KEKAL: you LOCK one consistent face across all videos (same face structure, skin tone, age). A base avatar image is generated first; every start-frame references it. Only outfit (per video) + scene change."}
 OUTFIT RULE: SAME outfit for all segments WITHIN one video; outfit MAY differ BETWEEN videos.
+
+<face_craft_rules>
+🎭 THE FACE IS DYNAMIC — NEVER A HARDCODED TEMPLATE. When inventing an avatar face (create mode), YOU pick the specifics ${avatarConsistency === "dynamic" ? "PER VIDEO (a fresh combo each video)" : "ONCE for the whole batch"}:
+- FACE SHAPE — pick ONE: oval, bulat (round), sembung (square), hati (heart), panjang (long), diamond.
+- MAKEUP — pick a style with concrete details: natural (soft blush, glossy lips, defined brows) / soft glam / barefaced.
+- SKIN TONE — state it specifically within the Malaysian range: cerah (fair) / sederhana (medium) / sawo matang.
+- DISTINCT FEATURES — 1-2 realistic markers (dimples, monolid or double eyelid, small beauty mark, softly rounded jaw…) so the person reads as a REAL individual, not an AI template.
+- 🚫 NEVER the generic "oval face, warm brown eyes" combo; never default to the same face-shape + makeup + tone combination — VARY it dynamically.
+Write the crafted face INTO the imagePrompt${avatarConsistency === "dynamic" ? " of each video's Seg 1 (its segments lock onto it)" : " where the avatar is described"}.
+</face_craft_rules>
 </locked_avatar>
 
 <clothing_variety>
