@@ -952,13 +952,17 @@ function HistoryCardInner({
 
     // EXTEND CHAIN — Seg 1 + one slide per child (Seg 2, Seg 3, …). NO merged.
     const out: Slide[] = [seg1];
+    // Label by POSITION among the segments that still EXIST (Seg 2, Seg 3, …),
+    // NOT the stored segment_index — so after deleting some, the remaining
+    // ones renumber sequentially (e.g. Seg 1 + one child = "Seg 2", never
+    // "Seg 6"). Children are already sorted by segment_index above.
     children.forEach((c, i) => {
       const done = c.status === "done" && !!c.output_url;
       const st: Slide["status"] = done ? "ready" : c.status === "failed" ? "failed" : "pending";
       out.push({
         id: i === 0 ? "seg_1" : `seg_${i + 1}`,
         childId: c.id,
-        label: `Seg ${c.segment_index ?? i + 2}`,
+        label: `Seg ${i + 2}`,
         url: done ? c.output_url : null,
         status: st,
       });
