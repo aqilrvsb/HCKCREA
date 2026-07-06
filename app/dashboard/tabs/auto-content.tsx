@@ -1119,7 +1119,6 @@ export default function AutoContentTab({ projectId }: { projectId?: string } = {
                             className="w-9 h-9 rounded-md object-cover flex-shrink-0"
                             style={{ background: "#f0e8de" }}
                             referrerPolicy="no-referrer"
-                            crossOrigin="anonymous"
                             onError={(e) => {
                               const img = e.currentTarget;
                               img.style.display = "none";
@@ -2074,7 +2073,6 @@ function ManualProductCard({
                       alt=""
                       className="w-full h-full object-cover"
                       referrerPolicy="no-referrer"
-                      crossOrigin="anonymous"
                     />
                   ) : (
                     <span className="text-[10px] font-bold" style={{ color: AMBER }}>
