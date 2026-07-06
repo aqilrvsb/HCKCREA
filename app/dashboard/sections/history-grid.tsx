@@ -1053,6 +1053,14 @@ function HistoryCardInner({
     slides.length > 0 && !activeSlide?.url
       ? (activeSlide?.status as Slide["status"]) || "queued"
       : null;
+  // The ACTIVE slide's own child row (Seg 2, Seg 3, … — null for Seg 1 /
+  // merged / non-segmented). Drives the main player's poster + the
+  // pending-placeholder background so clicking a segment thumb always
+  // shows THAT segment's picture, not Seg 1's.
+  const activeChildRow =
+    slides.length > 0 && activeSlide?.childId && activeSlide.childId !== item.id
+      ? children.find((c) => c.id === activeSlide.childId) || null
+      : null;
 
   async function checkNow() {
     setChecking(true);
@@ -1869,6 +1877,7 @@ function HistoryCardInner({
           <>
             {isImage && (
               <img
+                key={playerUrl}
                 src={playerUrl}
                 alt=""
                 className="w-full h-full object-cover cursor-pointer"
@@ -1877,9 +1886,20 @@ function HistoryCardInner({
             )}
             {isVideo && (
               <LazyVideo
+                // key forces a remount when the user switches slides —
+                // LazyVideo's poster fast-path renders a static <img>, so
+                // without the remount + slide-aware poster, clicking Seg 2
+                // kept showing Seg 1's poster even when Seg 2 was done.
+                key={playerUrl}
                 src={playerUrl + "#t=1"}
-                posterUrl={item.metadata?.poster_url || null}
-                historyId={item.id}
+                posterUrl={
+                  activeChildRow
+                    ? ((activeChildRow.metadata as any)?.poster_url ||
+                        activeChildRow.reference_url ||
+                        null)
+                    : item.metadata?.poster_url || null
+                }
+                historyId={activeChildRow?.id || item.id}
                 muted
                 playsInline
                 className="w-full h-full object-cover cursor-pointer"
@@ -1906,17 +1926,13 @@ function HistoryCardInner({
                 pending but somehow still selectable) → product
                 reference. */}
         {item.status === "done" && !isClonePrompt && segmentPlaceholder && (() => {
-          // Resolve the ACTIVE slide's own row (works for Seg 2, Seg 3, …
-          // in extend chains — not just children[0]) so clicking any
-          // segment thumb shows THAT segment's start-frame picture.
-          const activeChild =
-            activeSlide?.childId && activeSlide.childId !== item.id
-              ? children.find((c) => c.id === activeSlide.childId) || null
-              : null;
-          const phBgUrl = activeChild
-            ? (activeChild.reference_url ||
-                (activeChild.metadata as any)?.startframe_url ||
-                (activeChild.metadata as any)?.anchor_frame_url ||
+          // activeChildRow (computed above) resolves the ACTIVE slide's own
+          // row (Seg 2, Seg 3, …) so clicking any segment thumb shows THAT
+          // segment's start-frame picture.
+          const phBgUrl = activeChildRow
+            ? (activeChildRow.reference_url ||
+                (activeChildRow.metadata as any)?.startframe_url ||
+                (activeChildRow.metadata as any)?.anchor_frame_url ||
                 null)
             : activeSlide?.id === "merged"
               ? (seg2?.output_url || item.output_url || null)
