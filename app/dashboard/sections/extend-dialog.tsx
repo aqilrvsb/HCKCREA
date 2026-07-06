@@ -103,7 +103,7 @@ export default function ExtendDialog({
   const isOmni = provider === "omni";
   // Grok extend length — user-chosen 1-15s (Grok 1.5 range). Veo uses the
   // fixed ladder; Omni is fixed 10s.
-  const [grokSeconds, setGrokSeconds] = useState(5);
+  const [grokSeconds, setGrokSeconds] = useState(10); // Grok default extend = 10s
   // Resolved extension length + total, per provider.
   const extSeconds = isOmni ? 10 : isGrok ? grokSeconds : plan?.ext ?? 0;
   const totalSeconds = isOmni
