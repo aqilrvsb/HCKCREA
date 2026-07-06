@@ -180,6 +180,8 @@ export default function AutoContentTab({ projectId }: { projectId?: string } = {
   const [pickerSlot, setPickerSlot] = useState<number | null>(null);
   // Attachment picker — opened by the manual-product Upload button.
   const [attachmentSlot, setAttachmentSlot] = useState<number | null>(null);
+  // Per-image-slot single pick: { prod: product idx, slot: 0|1|2 }.
+  const [attachmentSlotImg, setAttachmentSlotImg] = useState<{ prod: number; slot: number } | null>(null);
   // Saved-product presets — save name/detail/3-attachments once, reload on
   // reselect so clients never redo work. See /api/auto-content/*.
   type SavedProduct = { id: string; kind: "affiliate" | "manual"; product_id: string | null; product_name: string; detail: string | null; attachments: string[] };
@@ -301,6 +303,22 @@ export default function AutoContentTab({ projectId }: { projectId?: string } = {
       )
     );
     setAttachmentSlot(null);
+  }
+
+  // Per-slot single pick — clicking slot 1/2/3 opens a SINGLE-pick picker
+  // and writes only that slot (the "Attachments" button keeps bulk pick).
+  // Slots compact after the write so refs stay contiguous.
+  function pickAttachmentForImgSlot(prodIdx: number, slotIdx: number, url: string) {
+    setManualProducts((prev) =>
+      prev.map((p, i) => {
+        if (i !== prodIdx) return p;
+        const urls = [...(p.imageUrls || [])];
+        while (urls.length <= slotIdx) urls.push("");
+        urls[slotIdx] = url;
+        const clean = urls.filter(Boolean).slice(0, 3);
+        return { ...p, imageUrls: clean, imageData: clean[0] || "" };
+      })
+    );
   }
 
   // Fire the Google Images scrape for product `idx` and stash the result.
@@ -1244,6 +1262,7 @@ export default function AutoContentTab({ projectId }: { projectId?: string } = {
                   )
                 }
                 onPickAttachment={() => setAttachmentSlot(i)}
+                onPickSlot={(slotIdx) => setAttachmentSlotImg({ prod: i, slot: slotIdx })}
                 onSave={() => saveProduct(i)}
                 saving={savingIdx === i}
                 onRemoveSlot={(slotIdx) =>
@@ -1919,6 +1938,22 @@ export default function AutoContentTab({ projectId }: { projectId?: string } = {
         maxPick={3}
         defaultCategory="product"
       />
+      {/* Per-slot SINGLE pick — clicking slot 1/2/3 opens this picker and
+          writes only that slot, so the user can fill slots one by one
+          (pick no 1 → done → pick no 2 → done). The bulk "Attachments"
+          button above keeps the multi-pick flow. */}
+      <AttachmentPicker
+        open={attachmentSlotImg !== null}
+        onClose={() => setAttachmentSlotImg(null)}
+        onPick={(a) => {
+          if (attachmentSlotImg && a?.public_url) {
+            pickAttachmentForImgSlot(attachmentSlotImg.prod, attachmentSlotImg.slot, a.public_url);
+          }
+          setAttachmentSlotImg(null);
+        }}
+        title="Pilih gambar untuk slot ini"
+        defaultCategory="product"
+      />
       {/* Google Images scrape picker — opens after first fire and on
           subsequent count-badge clicks. Picks get saved to the user's
           Attachments library (category=product). They then pick from
@@ -1956,6 +1991,7 @@ function ManualProductCard({
   onNameChange,
   onDetailChange,
   onPickAttachment,
+  onPickSlot,
   onSave,
   saving,
   onRemoveSlot,
@@ -1969,6 +2005,9 @@ function ManualProductCard({
   onNameChange: (s: string) => void;
   onDetailChange: (s: string) => void;
   onPickAttachment: () => void;
+  // Single-pick for ONE image slot (0|1|2) — clicking a numbered slot
+  // opens a single-pick picker that writes only that slot.
+  onPickSlot: (i: number) => void;
   // Save this product card as a reusable preset.
   onSave: () => void;
   saving: boolean;
@@ -2062,7 +2101,7 @@ function ManualProductCard({
                     nesting buttons. */}
                 <button
                   type="button"
-                  onClick={onPickAttachment}
+                  onClick={() => onPickSlot(i)}
                   className="w-full h-full flex items-center justify-center"
                   aria-label={url ? "Replace this image" : `Add image ${i + 1}`}
                 >
