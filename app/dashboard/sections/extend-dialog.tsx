@@ -40,6 +40,22 @@ const FRAME_BUTTONS: { source: FrameSource; label: string; hint: string }[] = [
   { source: "last",    label: "Last Frame",   hint: "Continue right where this clip ended." },
 ];
 
+// Route B2 / Supabase / fal source clips through our SAME-ORIGIN proxy so the
+// HD canvas frame-capture works. Those storage hosts don't send
+// Access-Control-Allow-Origin, so a cross-origin <video crossorigin="anonymous">
+// taints the canvas → drawImage/toBlob fail ("HD capture failed"). The proxy
+// streams the same bytes from our own origin (Range-forwarded), removing the
+// CORS taint. Non-storage hosts pass through unchanged.
+function proxiedVideo(u: string): string {
+  try {
+    const h = new URL(u).hostname;
+    if (/(^|\.)(backblazeb2\.com|supabase\.co|fal\.media|fal\.run)$/i.test(h)) {
+      return `/api/proxy-video?url=${encodeURIComponent(u)}`;
+    }
+  } catch {}
+  return u;
+}
+
 function extensionPlan(currentSec: number): { ext: number; total: number } | null {
   if (currentSec >= 30) return null;
   if (currentSec < 16) return { ext: 8, total: 16 };
@@ -442,11 +458,11 @@ export default function ExtendDialog({
               </div>
               <video
                 ref={videoRef}
-                src={videoUrl}
+                // Same-origin proxy → no CORS taint, so the HD canvas
+                // frame-capture below works (B2 buckets don't send CORS
+                // headers). crossOrigin stays for the now-same-origin fetch.
+                src={proxiedVideo(videoUrl)}
                 controls
-                // crossOrigin="anonymous" so we can drawImage onto a canvas
-                // without tainting it. Both peninglab-content and
-                // peninglab-storage have CORS open for *.peninglab.com.
                 crossOrigin="anonymous"
                 className="w-full max-h-48 rounded-lg bg-black border border-gray-800"
               />
