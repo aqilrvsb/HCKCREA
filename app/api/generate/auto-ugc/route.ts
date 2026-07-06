@@ -1,12 +1,13 @@
 import { NextResponse, after } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { orChat } from "@/lib/openrouter";
+import { orChat, orChatVision } from "@/lib/openrouter";
 import { hasEnoughCredits } from "@/lib/deduct";
 import { getP2Config, getGrokRate } from "@/lib/settings";
 import { generateVideoWithCascade } from "@/lib/video-cascade";
 import { generateUgcStartFrame } from "@/lib/ugc-startframe";
-import { splitDuration, sellerWordTarget } from "@/lib/auto-ugc-segments";
+import { splitDuration } from "@/lib/auto-ugc-segments";
+import { buildAutoUgcMasterPlan, type UgcPlan } from "@/lib/auto-ugc-master-plan";
 
 // Auto UGC — restricted (nl@/admin@ only). Grok-Imagine avatar UGC:
 //   • duration ≤15s → 1 clip; 16–30s → 2 balanced segments (Seg 1 + Seg 2)
@@ -34,12 +35,6 @@ const SCENE_LABELS: Record<string, string> = {
   "before-after": "Before & After",
   tutorial: "Tutorial langkah demi langkah",
   unboxing: "Unboxing",
-};
-
-type Plan = {
-  topic: string;
-  outfit: string;
-  segments: { scene: string; dialog: string; videoPrompt: string; imagePrompt: string }[];
 };
 
 // Bounded-concurrency map so we don't fan out dozens of Banana polls at once.
@@ -70,6 +65,8 @@ export async function POST(req: Request) {
   const productUrls: string[] = Array.isArray(body?.product_image_urls)
     ? body.product_image_urls.filter((u: any) => typeof u === "string" && !!u).slice(0, 3)
     : [];
+  const productName = String(body?.product_name || "").trim();
+  const productDetail = String(body?.product_detail || "").trim();
   const avatarMode: "create" | "existing" = body?.avatar_mode === "existing" ? "existing" : "create";
   const avatarUrl = String(body?.avatar_url || "").trim();
   const gender = body?.avatar_gender === "male" ? "male" : "female";
@@ -118,63 +115,64 @@ export async function POST(req: Request) {
     );
   }
 
-  // ── Build the continuous-dialog master script (one LLM call) ──────
   const personaDesc =
     `${gender === "male" ? "lelaki" : "perempuan"} Melayu ${age}` +
     (hijab === "hijab" ? ", bertudung (menutup aurat, pakaian sopan)" : ", tiada tudung");
   const sceneList = sceneIds.map((s) => SCENE_LABELS[s] || s).join(", ") || "UGC realistik";
-  const wt0 = sellerWordTarget(segLens[0]);
-  const wt1 = segCount > 1 ? sellerWordTarget(segLens[1]) : wt0;
-  const ctaInstruction =
-    ctaMode === "shop"
-      ? "Akhiri segmen TERAKHIR dengan CTA jualan (cth: 'Klik keranjang kuning sekarang!')."
-      : ctaMode === "custom"
-        ? `Akhiri segmen TERAKHIR dengan CTA ini: "${customCta}".`
-        : "Tiada CTA jualan.";
 
-  const systemPrompt = [
-    "Anda copywriter UGC TikTok Malaysia. Hasilkan skrip video jualan yang natural, gaya Seller/TikTok (bukan bahasa buku).",
-    "PERATURAN AVATAR (WAJIB):",
-    `- Avatar (WAJAH) SAMA untuk SEMUA video: ${personaDesc}.`,
-    "- Dalam SATU video: baju/outfit SAMA untuk semua segmen; hanya SCENE/situasi berbeza.",
-    "- Antara video berlainan: wajah tetap sama, tetapi outfit BOLEH berbeza; topik mesti berbeza.",
-    "PERATURAN DIALOG (WAJIB):",
-    `- Nada Seller/TikTok, Bahasa Melayu santai. Sasaran perkataan: Seg 1 ~${wt0.min}-${wt0.max} patah` +
-      (segCount > 1 ? `, Seg 2 ~${wt1.min}-${wt1.max} patah.` : "."),
-    segCount > 1
-      ? "- Dialog mesti BERSAMBUNG: Seg 2 menyambung ayat/idea Seg 1 (macam satu take dipotong). Jangan ulang."
-      : "- Satu dialog padat untuk satu segmen.",
-    `- ${ctaInstruction}`,
-    "PERATURAN SCENE:",
-    `- Guna konsep ini bila sesuai: ${sceneList}.`,
-    customIdea ? `- Idea khusus klien (UTAMAKAN): ${customIdea}` : "",
-    "OUTPUT: JSON array sahaja (tiada markdown), tepat " + quantity + " objek video. Setiap video:",
-    `{ "topic": "...", "outfit": "...", "segments": [ ${segLens
-      .map(
-        (s, i) =>
-          `{ "scene":"setting/situasi Seg ${i + 1} (berbeza)", "dialog":"dialog Melayu Seg ${i + 1}", ` +
-          `"imagePrompt":"deskripsi visual frame permulaan (English) — orang pegang/guna produk, ${aspectRatio}", ` +
-          `"videoPrompt":"arahan gerakan + spoken line (English) untuk Grok i2v, ~${s}s, termasuk ayat dialog Melayu" }`
-      )
-      .join(", ")} ] }`,
-  ]
-    .filter(Boolean)
-    .join("\n");
+  // ── Product OCR (best-effort) — read the label off the product photo
+  // and fold it into the master-plan product data (mirrors Auto Content).
+  let ocrText = "";
+  try {
+    const ocr = await orChatVision({
+      modelKey: "model_product_ocr",
+      systemPrompt:
+        "You are a product label reader. Output ONLY valid JSON. Keys: main_text, subtitle, logo_description, package_color. Empty string if unknown.",
+      textPrompt:
+        'Read the product packaging. Return JSON only: {"main_text":"","subtitle":"","logo_description":"","package_color":""}.',
+      images: [productUrls[0]],
+      temperature: 0.1,
+      maxTokens: 400,
+    });
+    if (ocr.ok && ocr.content) {
+      const s = ocr.content.indexOf("{");
+      const e = ocr.content.lastIndexOf("}");
+      if (s >= 0 && e > s) {
+        const parsed = JSON.parse(ocr.content.substring(s, e + 1));
+        ocrText = [parsed.main_text, parsed.subtitle, parsed.logo_description, parsed.package_color]
+          .filter(Boolean)
+          .join(" · ");
+      }
+    }
+  } catch {
+    // OCR is best-effort — the manual Detail Product field is the primary source.
+  }
 
-  const userPrompt =
-    `Produk: rujuk gambar yang dilampirkan. Hasilkan ${quantity} video UGC ${durationSec}s ` +
-    `(${segCount === 1 ? "1 segmen" : `${segCount} segmen: ${segLens.join("s + ")}s`}). ` +
-    `Setiap video topik berbeza, avatar sama. Output JSON array sahaja.`;
+  // ── Master plan (ported from Auto Content, twisted for Grok) ──────
+  const { systemPrompt, userPrompt } = buildAutoUgcMasterPlan({
+    quantity,
+    segLens,
+    gender,
+    hijabMode: hijab === "hijab",
+    age,
+    avatarMode,
+    sceneList,
+    customIdea,
+    ctaMode,
+    customCta,
+    product: { name: productName, detail: productDetail, ocr: ocrText },
+    aspectRatio,
+  });
 
-  let plans: Plan[] = [];
+  let plans: UgcPlan[] = [];
   try {
     const res = await orChat({
       modelKey: "model_custom_idea",
       systemPrompt,
       userPrompt,
       temperature: 0.8,
-      maxTokens: Math.max(2000, Math.min(quantity * 900, 20000)),
-      logFeature: "auto_only",
+      maxTokens: Math.max(3000, Math.min(quantity * 1100, 28000)),
+      logFeature: customIdea ? "auto_with_idea" : "auto_only",
       logUserId: user.id,
     });
     if (res.ok && res.content) {
@@ -192,9 +190,9 @@ export async function POST(req: Request) {
   }
 
   // Normalise to exactly `quantity` plans × `segCount` segments.
-  const norm: Plan[] = [];
+  const norm: UgcPlan[] = [];
   for (let v = 0; v < quantity; v++) {
-    const p = plans[v] || ({} as any);
+    const p = (plans[v] || {}) as any;
     const segsIn: any[] = Array.isArray(p.segments) ? p.segments : [];
     const segsOut = segLens.map((_s, i) => {
       const seg = segsIn[i] || segsIn[segsIn.length - 1] || {};
@@ -207,7 +205,13 @@ export async function POST(req: Request) {
     });
     norm.push({
       topic: String(p.topic || `UGC ${v + 1}`),
+      framework: String(p.framework || ""),
+      targetEmotion: String(p.targetEmotion || ""),
+      hookAngle: String(p.hookAngle || ""),
       outfit: String(p.outfit || "smart-casual outfit"),
+      caption: String(p.caption || ""),
+      coverTitle: String(p.coverTitle || ""),
+      coverSubtitle: String(p.coverSubtitle || ""),
       segments: segsOut,
     });
   }
@@ -253,6 +257,11 @@ export async function POST(req: Request) {
         video_prompt: seg.videoPrompt,
         image_prompt: seg.imagePrompt,
         topic: plan.topic,
+        framework: plan.framework || plan.topic,
+        target_emotion: plan.targetEmotion,
+        hook_angle: plan.hookAngle,
+        cover_title: plan.coverTitle,
+        cover_subtitle: plan.coverSubtitle,
         seg_index: s + 1,
         seg_count: segCount,
         video_index: v + 1,
@@ -267,8 +276,8 @@ export async function POST(req: Request) {
           tab: "auto-ugc",
           status: "pending",
           prompt: seg.videoPrompt,
-          caption: plan.topic,
-          framework: plan.topic,
+          caption: plan.caption || plan.topic,
+          framework: plan.framework || plan.topic,
           reference_url: null,
           task_id: null,
           duration: segLen,
@@ -307,13 +316,16 @@ export async function POST(req: Request) {
   after(async () => {
     try {
       // Resolve the locked avatar (face reference used by every start frame).
+      // create-mode: generate ONE base avatar+product image first so every
+      // segment references the SAME face (v16 GPT-clone learning: the
+      // start-frame IS the deliverable, product must stay pixel-exact).
       let baseAvatarUrl = avatarMode === "existing" ? avatarUrl : "";
       if (avatarMode === "create") {
         const basePrompt = [
           `Ultra-realistic vertical UGC selfie-style photo of a ${personaDesc}.`,
-          "They are holding and showing the product from the reference image(s) toward the camera.",
+          "They are holding and showing the product toward the camera.",
           "Natural indoor lighting, authentic Malaysian micro-influencer look, neutral casual outfit.",
-          "The product label must be sharp and match the reference exactly — no warping, no text drift.",
+          "PRODUCT REFERENCE (the attached product image) = the exact colour, label, typography, shape and packaging ONLY — copy it pixel-identically, ignore its own background/scene. No warping, no recolour, no text drift.",
         ].join(" ");
         const base = await generateUgcStartFrame({
           prompt: basePrompt,
@@ -327,22 +339,24 @@ export async function POST(req: Request) {
 
       await mapLimit(jobs, 4, async (job) => {
         try {
+          // Reference role-split (v16): IMAGE 1 = avatar identity (face/hair
+          // lock), IMAGE 2+ = product = colour/label/shape reference ONLY.
           const refs = [baseAvatarUrl, ...productUrls].filter((u) => !!u);
+          const roleSplit = baseAvatarUrl
+            ? "IMAGE 1 = the person's identity (keep the EXACT same face, hair, features). LAST reference image = the PRODUCT = its exact colour, label, typography, shape ONLY — copy pixel-identically, ignore the product image's own background/scene."
+            : "The reference image is the PRODUCT = its exact colour, label, typography, shape ONLY — copy pixel-identically, ignore its own background/scene.";
           const framePrompt = baseAvatarUrl
             ? [
-                "Photorealistic vertical UGC frame.",
-                "The person is the SAME identity as the FIRST reference image (identical face, hair, features).",
-                `They are wearing: ${job.outfit}.`,
-                `Scene / setting: ${job.scene}.`,
-                "They are using/showing the product from the other reference image(s); product label sharp and matching exactly.",
                 job.imagePrompt,
+                `Outfit (locked for this video): ${job.outfit}. Scene: ${job.scene}.`,
+                roleSplit,
+                `Photorealistic vertical UGC start frame, ${aspectRatio}, soft natural lighting, shallow depth of field.`,
               ].join(" ")
             : [
-                `Photorealistic vertical UGC frame of a ${personaDesc}.`,
-                `Wearing: ${job.outfit}.`,
-                `Scene / setting: ${job.scene}.`,
-                "Using/showing the product from the reference image(s); product label sharp and matching exactly.",
                 job.imagePrompt,
+                `${personaDesc}. Outfit (locked for this video): ${job.outfit}. Scene: ${job.scene}.`,
+                roleSplit,
+                `Photorealistic vertical UGC start frame, ${aspectRatio}, soft natural lighting, shallow depth of field.`,
               ].join(" ");
 
           const frame = await generateUgcStartFrame({

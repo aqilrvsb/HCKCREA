@@ -39,6 +39,8 @@ const SCENE_IDEAS: { id: string; label: string; hint: string }[] = [
 
 export default function AutoUgcTab({ projectId }: { projectId?: string } = {}) {
   // ── Product ──────────────────────────────────────────────────────
+  const [productName, setProductName] = useState("");
+  const [productDetail, setProductDetail] = useState("");
   const [productUrls, setProductUrls] = useState<string[]>([]);
   const [uploadingProduct, setUploadingProduct] = useState(false);
   const [showProductPicker, setShowProductPicker] = useState(false);
@@ -135,6 +137,8 @@ export default function AutoUgcTab({ projectId }: { projectId?: string } = {}) {
     abortRef.current = new AbortController();
 
     const body = {
+      product_name: productName.trim(),
+      product_detail: productDetail.trim(),
       product_image_urls: productUrls,
       avatar_mode: avatarMode,
       avatar_url: avatarMode === "existing" ? avatarUrl : "",
@@ -203,8 +207,25 @@ export default function AutoUgcTab({ projectId }: { projectId?: string } = {}) {
         <Label
           n="1"
           title="Produk"
-          hint="Gambar produk (attachment yang jadi asas start-frame Banana Pro 2)."
+          hint="Nama + detail (harga/USP/bahan/benefit) supaya AI tulis dialog rujuk fakta sebenar. Gambar produk jadi asas start-frame Banana Pro 2."
         />
+        <div className="space-y-2 mb-3">
+          <input
+            value={productName}
+            onChange={(e) => setProductName(e.target.value)}
+            placeholder="Nama produk — cth: LUQFA Lotion 100ml"
+            className="w-full rounded-lg px-3 py-2 text-sm bg-transparent"
+            style={{ border: "1px solid var(--color-border)", color: "var(--color-text-primary)" }}
+          />
+          <textarea
+            value={productDetail}
+            onChange={(e) => setProductDetail(e.target.value)}
+            rows={3}
+            placeholder="Detail produk — harga, USP, bahan, benefit… (AI guna ni untuk dialog + hook)"
+            className="w-full rounded-lg px-3 py-2 text-sm bg-transparent"
+            style={{ border: "1px solid var(--color-border)", color: "var(--color-text-primary)" }}
+          />
+        </div>
         <div className="flex flex-wrap gap-3">
           {productUrls.map((u, i) => (
             <div key={u} className="relative">
