@@ -10,6 +10,10 @@
       "schedule": "*/8 * * * *"
     },
     {
+      "path": "/api/worker/auto-ugc-recover",
+      "schedule": "*/4 * * * *"
+    },
+    {
       "path": "/api/worker/livehost-idle",
       "schedule": "*/10 * * * *"
     },

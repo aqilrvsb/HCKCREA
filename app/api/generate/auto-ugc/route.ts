@@ -341,10 +341,23 @@ export async function POST(req: Request) {
           prompt: basePrompt,
           imageUrls: productUrls,
           aspectRatio,
-          perTierTimeoutMs: 120_000,
+          // Shorter tier budget — the whole after() window is 300s; a slow
+          // base avatar must not starve the per-segment frames + Grok fires.
+          perTierTimeoutMs: 90_000,
         });
-        if (base.ok) baseAvatarUrl = base.url;
-        else console.warn("[auto-ugc] base avatar failed, falling back to per-frame persona:", base.error);
+        if (base.ok) {
+          baseAvatarUrl = base.url;
+          // Persist onto every row so the auto-ugc-recover worker can anchor
+          // seg-1 frames if this after() dies before firing them.
+          for (const j of jobs) {
+            await admin
+              .from("history")
+              .update({ metadata: await mergeMeta(admin, j.rowId, { base_avatar_url: base.url }) })
+              .eq("id", j.rowId);
+          }
+        } else {
+          console.warn("[auto-ugc] base avatar failed, falling back to per-frame persona:", base.error);
+        }
       }
 
       // One segment: Banana start-frame → Grok i2v. Returns the frame URL
@@ -377,7 +390,7 @@ export async function POST(req: Request) {
             prompt: framePrompt,
             imageUrls: refs,
             aspectRatio,
-            perTierTimeoutMs: 120_000,
+            perTierTimeoutMs: 90_000,
           });
           if (!frame.ok) {
             await admin
