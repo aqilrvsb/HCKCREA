@@ -127,6 +127,27 @@ export async function POST(req: Request) {
   const cfg = await getP2Config();
   const meta = (row.metadata || {}) as Record<string, any>;
   const refImage = row.reference_url || "";
+
+  // Auto UGC rows that failed BEFORE their Banana start frame existed can't
+  // retry through the video cascade (Grok i2v needs the frame). Hand them
+  // back to the auto-ugc-recover cron: reset the phase + attempts so the
+  // next tick regenerates the frame and fires Grok. Status is already
+  // "pending" from the claim above, which is exactly the state the worker
+  // scans for (pending + task_id null).
+  if (row.tab === "auto-ugc" && !refImage && !row.task_id) {
+    await admin
+      .from("history")
+      .update({
+        task_id: null,
+        metadata: { ...meta, ugc_phase: "startframe_pending", startframe_attempts: 0 },
+      })
+      .eq("id", historyId);
+    return NextResponse.json({
+      ok: true,
+      mode: "auto-ugc-recover",
+      message: "Dihantar ke auto-recover — frame akan dijana semula dan Grok akan fire dalam beberapa minit.",
+    });
+  }
   // Prefer the full image_urls array stamped at original-fire time so
   // Resubmit re-fires with ALL attachments (up to 3). Falls back to
   // [reference_url] for legacy rows that didn't stamp the full array.
