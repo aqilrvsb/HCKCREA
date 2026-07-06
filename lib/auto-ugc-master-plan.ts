@@ -234,13 +234,17 @@ ${avatarMode === "existing"
 OUTFIT RULE: SAME outfit for all segments WITHIN one video; outfit MAY differ BETWEEN videos.
 
 <face_craft_rules>
-🎭 THE FACE IS DYNAMIC — NEVER A HARDCODED TEMPLATE. When inventing an avatar face (create mode), YOU pick the specifics ${avatarConsistency === "dynamic" ? "PER VIDEO (a fresh combo each video)" : "ONCE for the whole batch"}:
-- FACE SHAPE — pick ONE: oval, bulat (round), sembung (square), hati (heart), panjang (long), diamond.
-- MAKEUP — pick a style with concrete details: natural (soft blush, glossy lips, defined brows) / soft glam / barefaced.
-- SKIN TONE — state it specifically within the Malaysian range: cerah (fair) / sederhana (medium) / sawo matang.
-- DISTINCT FEATURES — 1-2 realistic markers (dimples, monolid or double eyelid, small beauty mark, softly rounded jaw…) so the person reads as a REAL individual, not an AI template.
-- 🚫 NEVER the generic "oval face, warm brown eyes" combo; never default to the same face-shape + makeup + tone combination — VARY it dynamically.
-Write the crafted face INTO the imagePrompt${avatarConsistency === "dynamic" ? " of each video's Seg 1 (its segments lock onto it)" : " where the avatar is described"}.
+🎭 THE FACE IS DYNAMIC — NEVER A HARDCODED TEMPLATE. When inventing an avatar face (create mode), YOU pick ONE from EACH dimension ${avatarConsistency === "dynamic" ? "PER VIDEO (a fresh combo each video)" : "ONCE for the whole batch"} — roll different combos, never a default:
+- FACE SHAPE: oval / bulat (round) / sembung (square) / hati (heart, dagu tirus) / panjang (long) / diamond (tulang pipi tinggi) / rahang lembut (soft jaw) / rahang tegas (defined jaw).
+- MAKEUP: natural (soft blush, glossy lips, defined brows) / dewy Korean-style (glass skin, tint lips) / soft glam (soft smokey, nude lip) / matte minimal / bold lip (merah/berry) statement / earth-tone (terracotta blush, brown lip) / barefaced (tiada makeup, kulit bersih).
+- SKIN TONE (Malaysian range): cerah / cerah kekuningan (warm fair) / sederhana cerah / sederhana (medium) / sawo matang cerah / sawo matang / gelap manis.
+- EYES: monolid / double eyelid / hooded / almond / bulat besar / sepet manis — plus lash style (natural lashes / curled / mascara-only).
+- BROWS: natural bushy / defined arch / straight Korean / soft feathered.
+- NOSE: kecil mancung / button nose / straight bridge / lebar lembut.
+- LIPS: penuh / sederhana / nipis dengan smile lines / cupid's bow jelas.
+- DISTINCT FEATURES (pick 1-2): dimples / small beauty mark (pipi/dagu/bawah mata) / light freckles / gigi gingsul manis / senyuman gummy smile / high cheekbones / bulu mata panjang natural / lesung dagu.
+${hijabMode ? "" : "- HAIR (no-hijab only): panjang lurus / lob sebahu / bob pendek / ikal natural / curtain bangs / bun santai / ponytail — plus warna (hitam / dark brown / brown highlights).\n"}- 🚫 NEVER the generic "oval face, warm brown eyes" combo; never repeat the same face-shape + makeup + tone + eyes combination${avatarConsistency === "dynamic" ? " across videos in this batch" : " across batches"} — VARY every dimension dynamically.
+Write the crafted face INTO the imagePrompt${avatarConsistency === "dynamic" ? " of each video's Seg 1 (its segments lock onto it)" : " where the avatar is described"} — concretely, dimension by dimension.
 </face_craft_rules>
 </locked_avatar>
 
@@ -267,7 +271,12 @@ Each segment needs an imagePrompt (max 600 chars) = the Banana Pro 2 START FRAME
 - 🚨 PRODUCT VISIBLE LOCK: the product MUST be clearly VISIBLE in EVERY segment's frame — in hand, label toward camera (or worn on body). NEVER a frame of the avatar alone without the product. Product stays pixel-identical to the product reference — label sharp, no warping/recolour/text drift.
 - State the CAMERA ANGLE explicitly (from <angle_cut_rules>'s angle bank — NEVER a forbidden angle)${segCount > 1 ? " — Seg 2 = SAME scene/outfit/position as Seg 1, ONLY the angle changes" : ""}.
 - 🚨 ANATOMY LOCK (append to every imagePrompt): "Anatomically perfect: two hands, five fingers each, natural neck and upright posture, face level and clearly toward the camera — no craned neck, no top-of-head view, no distorted limbs."
-- Photorealistic UGC, ${aspectRatio}, soft natural lighting, shallow depth of field, ultra-realistic skin texture.
+- DYNAMIC SCENE DIMENSIONS — pick ONE from each bank PER VIDEO (vary across the batch, never the same combo):
+  • KEDUDUKAN PRODUK: dalam tangan (label ke kamera) / diangkat dekat muka / atas meja depan avatar / disapu-diguna atas kulit / dipakai (wearable).
+  • PENCAHAYAAN: ring-light UGC / cahaya siang tingkap / golden hour hangat / terang lembut rumah / studio bersih / moody senja.
+  • TEMA WARNA: warm rumah Malaysia / neutral / pastel lembut / earthy / cool tone.
+  • GAYA: UGC phone-recorded (real, sedikit grain) / komersial bersih.
+- Photorealistic UGC, ${aspectRatio}, shallow depth of field, ultra-realistic skin texture.
 </image_prompt_rules>
 
 <video_prompt_rules>
