@@ -16,7 +16,7 @@ import {
   typeLabel,
   type Framework,
 } from "@/lib/auto-content-frameworks";
-import { splitLabel, AUTO_UGC_MIN_SEC, AUTO_UGC_MAX_SEC } from "@/lib/auto-ugc-segments";
+import { splitLabel } from "@/lib/auto-ugc-segments";
 
 // Auto Content — port of creative-hack-auto 12.8.3 auto-content-section.
 // Three plan modes (AI Plan / Verify Plan / Manual Plan), 15 framework
@@ -1421,19 +1421,18 @@ export default function AutoUgcTab({ projectId }: { projectId?: string } = {}) {
               </span>
             )}
           </div>
-          <input
-            type="range"
-            min={AUTO_UGC_MIN_SEC}
-            max={AUTO_UGC_MAX_SEC}
-            step={1}
-            value={ugcDuration}
-            onChange={(e) => setUgcDuration(Number(e.target.value))}
-            className="w-full"
-            style={{ accentColor: "var(--color-orange)" }}
-          />
+          {/* Fixed duration options per user direction (no free slider):
+              10 / 15 = single clip; 20 / 30 = 2 balanced segments. */}
+          <div className="flex gap-2 mb-1">
+            {([10, 15, 20, 30] as const).map((d) => (
+              <DurationBtn key={d} active={ugcDuration === d} onClick={() => setUgcDuration(d)}>
+                {d}s{d > 15 ? ` (${d / 2}+${d / 2})` : ""}
+              </DurationBtn>
+            ))}
+          </div>
           <p className="text-[10px] text-[var(--color-text-muted)] mt-1">
             Grok Imagine 1.5 · start-frame (Banana Pro 2) · maks 15s/klip —
-            16–30s dipecah kepada 2 segmen seimbang, dialog bersambung.
+            20s/30s dipecah kepada 2 segmen seimbang, scene berkaitan + dialog bersambung.
           </p>
         </div>
 

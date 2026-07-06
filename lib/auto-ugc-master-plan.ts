@@ -128,7 +128,7 @@ Total videos: ${quantity}
 Structure per video: ${
     segCount === 1
       ? `1 segment (${segLens[0]}s single Grok clip).`
-      : `${segCount} segments (${segLens.join("s + ")}s) — SEPARATE Grok clips shown as Seg 1 / Seg 2. The dialog is ONE continuous script split across the segments; Seg 2 picks up EXACTLY where Seg 1 left off (like one take cut in two). Never repeat a beat.`
+      : `${segCount} segments (${segLens.join("s + ")}s) — SEPARATE Grok clips shown as Seg 1 / Seg 2. The dialog is ONE continuous script split across the segments; Seg 2 picks up EXACTLY where Seg 1 left off (like one take cut in two). Never repeat a beat. The two scenes are DIFFERENT but RELATED — one connected mini-story (see <scene_arc_rules>).`
   }
 Grok dialog pacing: EXACTLY ~3 Malay words per second. Per-segment dialog word targets: ${segLens
     .map((s, i) => `Seg ${i + 1} = ~${segWordTargets[i]} words (${s}s)`)
@@ -143,6 +143,24 @@ UGC scene concepts the client picked — spread them across videos + segments so
 Within ONE video the avatar + OUTFIT stay identical across its segments; only the SCENE changes. Between different videos the outfit MAY change.
 ${customIdea ? `\n🎯 CLIENT'S CUSTOM IDEA (PRIORITISE THIS — it is the core visual concept every video must embody): """${customIdea}"""` : ""}
 </scene_ideas>
+${
+  segCount > 1
+    ? `
+<scene_arc_rules>
+🎬 SCENE ARC (NON-NEGOTIABLE for multi-segment videos): the segments' scenes are DIFFERENT but RELATED — together they read as ONE connected mini-story, never two random unconnected clips.
+- Seg 2's scene MUST be a LOGICAL NEXT BEAT of Seg 1's scene: same story world, time flows forward. Think "what would this person naturally do NEXT?"
+- Valid arc patterns (pick one per video):
+  • SAME LOCATION, NEW SPOT/ANGLE: Seg 1 unboxing at the front door → Seg 2 trying it at the living room mirror.
+  • NEXT STEP OF USE: Seg 1 applying the product at the bathroom vanity → Seg 2 showing the result in bedroom light.
+  • PROBLEM → PAYOFF: Seg 1 the pain moment (kitchen mess / tired face / sweaty commute) → Seg 2 the relief moment using the product in the adjoining space.
+  • BEFORE → AFTER: Seg 1 "before" state → Seg 2 "after" state, same home/day.
+- FORBIDDEN: teleporting to an unrelated world (bedroom → car showroom, cafe → beach) with no narrative link; changing time-of-day backwards; changing outfit/avatar between segments.
+- The dialog continuation and the scene arc must AGREE: if Seg 1's last line leads in ("...jap aku tunjuk hasilnya"), Seg 2's scene must be WHERE that payoff happens.
+- SELF-CHECK per video: could a viewer watch Seg 1 then Seg 2 and feel it's ONE take/story cut in two? If NO — rewrite the scenes.
+</scene_arc_rules>
+`
+    : ""
+}
 
 <dialog_style_rules>
 ALL dialog MUST sound like a real Malaysian friend talking — NEVER like a script:
@@ -231,7 +249,7 @@ Each segment needs a videoPrompt = the Grok i2v instruction that animates the st
 - Include the spoken Malay dialog line for this segment, wrapped in single quotes, matching the ~3-words/sec word target above.
 - Keep the SAME person, outfit, product, and general scene as this segment's start frame (Grok animates the frame).
 - Audio = ONE voice only (${gender === "male" ? "young Malay man" : "young Malay woman"}), no background music, no chatter. Raw UGC phone-recorded vibe. ZERO subtitles/captions/on-screen text/icons — "beg kuning" is SPOKEN words only, never a visual bag icon.
-${segCount > 1 ? "- CONTINUITY: Seg 2's dialog continues Seg 1's sentence/idea (picks up where it ended). Same voice, same person, same outfit; only the scene + spoken line differ. The CTA lands only in the LAST segment." : ""}
+${segCount > 1 ? "- CONTINUITY: Seg 2's dialog continues Seg 1's sentence/idea (picks up where it ended). Same voice, same person, same outfit; only the scene + spoken line differ — and Seg 2's scene must be the RELATED next beat per <scene_arc_rules>. The CTA lands only in the LAST segment." : ""}
 </video_prompt_rules>
 
 <diversity_rules>
@@ -262,7 +280,7 @@ Respond with ONLY a valid JSON array of EXACTLY ${quantity} objects. No markdown
 ${segLens
   .map(
     (s, i) =>
-      `      { "scene": "setting/situasi for Seg ${i + 1} (different from other segments)", "dialog": "Malay dialog for Seg ${i + 1} (~${s * 3} words${segCount > 1 && i > 0 ? ", continues Seg 1" : ""})", "imagePrompt": "Banana start-frame (English) starting with the persona lock + outfit + scene + product", "videoPrompt": "Grok i2v motion + camera + the spoken Malay dialog line, ~${s}s" }`
+      `      { "scene": "setting/situasi for Seg ${i + 1}${i > 0 ? " (DIFFERENT from Seg 1 but RELATED — the logical next beat per <scene_arc_rules>)" : segCount > 1 ? " (opens the mini-story)" : ""}", "dialog": "Malay dialog for Seg ${i + 1} (~${s * 3} words${segCount > 1 && i > 0 ? ", continues Seg 1 mid-thought" : segCount > 1 ? ", ends mid-thought leading into Seg 2" : ""})", "imagePrompt": "Banana start-frame (English) starting with the persona lock + outfit + scene + product", "videoPrompt": "Grok i2v motion + camera + the spoken Malay dialog line, ~${s}s" }`
   )
   .join(",\n")}
     ]
