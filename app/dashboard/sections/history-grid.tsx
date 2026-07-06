@@ -985,6 +985,43 @@ function HistoryCardInner({
     setActiveIdx(0);
   }, [slides, userPicked]);
 
+  // Manual per-segment merge — user ticks 2+ FINISHED segments then merges
+  // them (in slide order) into a new combined video via /api/merge/videos.
+  const [segMerge, setSegMerge] = useState<string[]>([]);
+  const [segMerging, setSegMerging] = useState(false);
+  const toggleSegMerge = (id: string) =>
+    setSegMerge((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+  async function fireSegMerge() {
+    if (segMerge.length < 2 || segMerging) return;
+    // Merge in slider order (Seg 1 → Seg 2 → …), only ready segments.
+    const ordered = slides
+      .filter((s) => s.childId && s.status === "ready" && segMerge.includes(s.childId))
+      .map((s) => s.childId as string);
+    if (ordered.length < 2) {
+      alert("Pilih sekurang-kurangnya 2 segmen yang DAH SIAP untuk merge.");
+      return;
+    }
+    setSegMerging(true);
+    try {
+      const r = await fetch("/api/merge/videos", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ history_ids: ordered }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok || !d?.ok) {
+        alert(d?.error || "Merge gagal");
+      } else {
+        setSegMerge([]);
+        window.dispatchEvent(new CustomEvent("history:refresh"));
+      }
+    } catch (e: any) {
+      alert(e?.message || "Merge gagal");
+    } finally {
+      setSegMerging(false);
+    }
+  }
+
   const activeSlide = slides[activeIdx];
   // Player URL: when the slider is active, use the active slide's URL so
   // clicking a thumbnail switches the main player. Otherwise fall back to
@@ -2178,6 +2215,32 @@ function HistoryCardInner({
                     />
                   </div>
                 )}
+                {/* Manual-merge tick — only on FINISHED segments. Click
+                    selects this segment for merging (doesn't switch slide). */}
+                {ready && slide.childId && (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      toggleSegMerge(slide.childId as string);
+                    }}
+                    title="Pilih segmen ni untuk merge"
+                    className="absolute top-1 left-1 w-5 h-5 rounded-md flex items-center justify-center z-10"
+                    style={{
+                      background: segMerge.includes(slide.childId)
+                        ? "#8b5cf6"
+                        : "rgba(20,20,20,0.9)",
+                      border: "1px solid rgba(255,255,255,0.45)",
+                      color: "#fff",
+                    }}
+                  >
+                    {segMerge.includes(slide.childId) ? (
+                      <Check className="w-3 h-3" strokeWidth={3} />
+                    ) : (
+                      <span className="w-2.5 h-2.5 rounded-sm border border-white/70" />
+                    )}
+                  </button>
+                )}
                 <div
                   className="absolute bottom-0 left-0 right-0 px-1 text-[8px] font-bold text-center truncate"
                   style={{
@@ -2191,6 +2254,25 @@ function HistoryCardInner({
               </div>
             );
           })}
+        </div>
+      )}
+
+      {/* Manual merge bar — appears once 2+ finished segments are ticked. */}
+      {segMerge.length >= 2 && (
+        <div className="px-1.5 pb-1.5 bg-black">
+          <button
+            type="button"
+            onClick={fireSegMerge}
+            disabled={segMerging}
+            className="w-full h-7 rounded-lg text-[10px] font-extrabold uppercase tracking-wider text-white flex items-center justify-center gap-1 disabled:opacity-50"
+            style={{ background: ACTION.merge, boxShadow: "0 2px 6px rgba(139,92,246,0.4)" }}
+          >
+            {segMerging ? (
+              <Loader2 className="w-3 h-3 animate-spin" />
+            ) : (
+              <><Layers className="w-3 h-3" /> Merge {segMerge.length} segmen → video baru</>
+            )}
+          </button>
         </div>
       )}
 
