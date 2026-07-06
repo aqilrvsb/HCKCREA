@@ -325,14 +325,14 @@ export default function HistoryGrid({
       keepPreviousData: true, // <-- warm tab switch = instant
       revalidateOnFocus: true,
       dedupingInterval: 3000,
-      // 15s poll while anything is pending AND tab is visible. Returns
-      // 0 to disable. Same gating as the old setInterval, declarative.
+      // 60s poll while anything is pending AND tab is visible (was 15s —
+      // slowed per user direction 2026-07-06). Returns 0 to disable.
       refreshInterval: (latest) => {
         if (!latest || latest.length === 0) return 0;
         const hasPending = latest.some((i) => i.status === "pending");
         if (!hasPending) return 0;
         if (typeof document !== "undefined" && document.visibilityState !== "visible") return 0;
-        return 15_000;
+        return 60_000;
       },
     }
   );
@@ -1175,6 +1175,12 @@ function HistoryCardInner({
     // by firing Veo seg-2 now with that frame instead of letting the
     // user delete + redo the whole extend (which would re-charge the
     // refine). Only applies to seg_1 slide (the seg-2 child row).
+    // Auto UGC seg-2 rows are recovered by the auto-ugc-recover cron (they
+    // need a fresh Banana start frame anchored on Seg 1's frame — a
+    // different pipeline from the extend refine recovery). Calling
+    // /api/extend/recover-seg2 on them just errors with "No anchor frame",
+    // so show a friendly wait message instead.
+    const isAutoUgcRow = (targetRow as any)?.tab === "auto-ugc";
     const seg2NeedsRecover =
       slide.id === "seg_1" &&
       !taskId &&
@@ -1182,6 +1188,14 @@ function HistoryCardInner({
       (targetRow as any)?.parent_history_id &&
       (targetRow as any)?.status !== "done" &&
       (targetRow as any)?.status !== "failed";
+    if (seg2NeedsRecover && isAutoUgcRow) {
+      setRecheckingId(null);
+      setRecheckMsg({
+        text: "Seg 2: dalam barisan — sistem auto-recover akan jana frame (anchor Seg 1) dan fire Grok dalam beberapa minit.",
+        tone: "ok",
+      });
+      return;
+    }
     if (seg2NeedsRecover) {
       try {
         const r = await fetch("/api/extend/recover-seg2", {
@@ -2052,7 +2066,7 @@ function HistoryCardInner({
                   {activeSlide?.label} generating…
                 </div>
                 <div className="text-[10px] text-white/50">
-                  Auto-refresh every 15s
+                  Auto-refresh every 1 min
                 </div>
               </>
             )}
