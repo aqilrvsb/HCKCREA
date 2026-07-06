@@ -148,7 +148,7 @@ export async function POST(req: Request) {
   // small + needed to reject hostile callers before we insert).
   const { data: source } = await admin
     .from("history")
-    .select("id, user_id, status, project_id, tab, parent_history_id")
+    .select("id, user_id, status, project_id, tab, parent_history_id, reference_url, metadata")
     .eq("id", sourceHistoryId)
     .single();
   if (!source || source.user_id !== user.id) {
@@ -467,7 +467,20 @@ export async function POST(req: Request) {
       // separate ref. If refine failed across all tiers we fall back to
       // the raw start frame (still bookended) so the extend still fires.
       const anchorFrame = refineUsed ? effectiveFrameUrl : startUrl;
-      const refImages: string[] = [anchorFrame, anchorFrame];
+      // Omni (gemini) extend uses the ORIGINAL video's reference — the
+      // STORYBOARD — as the scene reference (per user direction 2026-07-06),
+      // paired with the continuity anchor frame. gemini-omni-i2v caps at 2
+      // frame images. For Veo/Grok keep the bookend anchor.
+      const sourceRefs: string[] = Array.isArray((source as any).metadata?.image_urls)
+        ? (source as any).metadata.image_urls.filter((u: any) => typeof u === "string" && u.trim())
+        : (source as any).reference_url
+          ? [(source as any).reference_url]
+          : [];
+      const storyboardRef = sourceRefs[0];
+      const refImages: string[] =
+        isOmniExt && storyboardRef
+          ? [storyboardRef, anchorFrame]
+          : [anchorFrame, anchorFrame];
       // Fire seg-2 through the cascade — admin's main + fallback rotation
       // picks the slot. Previously hardcoded to p2CreateTask, which meant
       // a P2 outage / revoked key / out-of-credits broke every Extend
