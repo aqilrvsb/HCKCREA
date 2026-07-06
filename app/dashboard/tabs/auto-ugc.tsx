@@ -1432,7 +1432,7 @@ export default function AutoUgcTab({ projectId }: { projectId?: string } = {}) {
           </div>
           <p className="text-[10px] text-[var(--color-text-muted)] mt-1">
             Grok Imagine 1.5 · start-frame (Banana Pro 2) · maks 15s/klip —
-            20s/30s dipecah kepada 2 segmen seimbang, scene berkaitan + dialog bersambung.
+            20s/30s dipecah kepada 2 segmen seimbang — scene sama, angle kamera beza, dialog bersambung.
           </p>
         </div>
 

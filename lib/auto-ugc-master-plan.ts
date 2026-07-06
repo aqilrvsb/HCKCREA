@@ -128,7 +128,7 @@ Total videos: ${quantity}
 Structure per video: ${
     segCount === 1
       ? `1 segment (${segLens[0]}s single Grok clip).`
-      : `${segCount} segments (${segLens.join("s + ")}s) — SEPARATE Grok clips shown as Seg 1 / Seg 2. The dialog is ONE continuous script split across the segments; Seg 2 picks up EXACTLY where Seg 1 left off (like one take cut in two). Never repeat a beat. The two scenes are DIFFERENT but RELATED — one connected mini-story (see <scene_arc_rules>).`
+      : `${segCount} segments (${segLens.join("s + ")}s) — SEPARATE Grok clips shown as Seg 1 / Seg 2. The dialog is ONE continuous script split across the segments; Seg 2 picks up EXACTLY where Seg 1 left off (like one take cut in two). Never repeat a beat. Both segments are the SAME scene — only the CAMERA ANGLE changes (see <angle_cut_rules>), and the PRODUCT stays clearly VISIBLE in both.`
   }
 Grok dialog pacing: EXACTLY ~3 Malay words per second. Per-segment dialog word targets: ${segLens
     .map((s, i) => `Seg ${i + 1} = ~${segWordTargets[i]} words (${s}s)`)
@@ -139,25 +139,30 @@ Market: Malaysian TikTok (Malay-speaking, informal). Language = BAHASA MELAYU on
 </content_settings>
 
 <scene_ideas>
-UGC scene concepts the client picked — spread them across videos + segments so each segment has a DIFFERENT scene/situation: ${sceneList}.
-Within ONE video the avatar + OUTFIT stay identical across its segments; only the SCENE changes. Between different videos the outfit MAY change.
+UGC scene concepts the client picked — vary them across VIDEOS (each video gets a different scene/situation): ${sceneList}.
+Within ONE video everything stays identical across its segments (avatar, outfit, location, lighting) — only the CAMERA ANGLE changes per <angle_cut_rules>. Between different videos the outfit + scene MAY change.
 ${customIdea ? `\n🎯 CLIENT'S CUSTOM IDEA (PRIORITISE THIS — it is the core visual concept every video must embody): """${customIdea}"""` : ""}
 </scene_ideas>
 ${
   segCount > 1
     ? `
-<scene_arc_rules>
-🎬 SCENE ARC (NON-NEGOTIABLE for multi-segment videos): the segments' scenes are DIFFERENT but RELATED — together they read as ONE connected mini-story, never two random unconnected clips.
-- Seg 2's scene MUST be a LOGICAL NEXT BEAT of Seg 1's scene: same story world, time flows forward. Think "what would this person naturally do NEXT?"
-- Valid arc patterns (pick one per video):
-  • SAME LOCATION, NEW SPOT/ANGLE: Seg 1 unboxing at the front door → Seg 2 trying it at the living room mirror.
-  • NEXT STEP OF USE: Seg 1 applying the product at the bathroom vanity → Seg 2 showing the result in bedroom light.
-  • PROBLEM → PAYOFF: Seg 1 the pain moment (kitchen mess / tired face / sweaty commute) → Seg 2 the relief moment using the product in the adjoining space.
-  • BEFORE → AFTER: Seg 1 "before" state → Seg 2 "after" state, same home/day.
-- FORBIDDEN: teleporting to an unrelated world (bedroom → car showroom, cafe → beach) with no narrative link; changing time-of-day backwards; changing outfit/avatar between segments.
-- The dialog continuation and the scene arc must AGREE: if Seg 1's last line leads in ("...jap aku tunjuk hasilnya"), Seg 2's scene must be WHERE that payoff happens.
-- SELF-CHECK per video: could a viewer watch Seg 1 then Seg 2 and feel it's ONE take/story cut in two? If NO — rewrite the scenes.
-</scene_arc_rules>
+<angle_cut_rules>
+🎬 ANGLE CUT (NON-NEGOTIABLE for multi-segment videos): Seg 1 and Seg 2 are the SAME SCENE — same avatar, same outfit, same location, same lighting, same product placement, same time-of-day. The ONLY thing that changes between segments is the CAMERA ANGLE / SHOT SIZE — exactly like a real UGC video edit that cuts to a new angle mid-take.
+- ANGLE BANK (shot sizes): extreme close-up (ECU), close-up (CU — head & shoulders), medium close-up (MCU — chest up), medium shot (MS — waist up), full shot (FS).
+- ANGLE BANK (camera height): eye-level, high angle (looking down), low angle (looking up).
+- ANGLE BANK (orientation): front-facing, 3/4 angle, side profile, over-the-shoulder (OTS).
+- ANGLE BANK (specialty): selfie-style handheld POV, overhead/top-down (product-in-hand detail).
+- PROVEN Seg 1 → Seg 2 CUT PAIRS (pick ONE per video, rotate across the batch):
+  • medium shot → close-up (the classic punch-in for the payoff/CTA)
+  • selfie handheld → static medium shot
+  • eye-level medium → low angle (confidence beat)
+  • front-facing → 3/4 angle
+  • medium shot → overhead product close-up in hand (product detail beat)
+- Write the CHOSEN angle explicitly in each segment's imagePrompt AND videoPrompt (e.g. Seg 1 "medium shot, eye-level, front-facing", Seg 2 "close-up, eye-level, 3/4 angle — SAME room, SAME outfit, SAME position").
+- FORBIDDEN between segments: changing location/room, changing outfit, changing hairstyle/hijab, changing lighting/time-of-day, moving the product to a different surface, changing the avatar's general position in the room. Angle changes; the world does not.
+- The dialog continuation and the angle cut must AGREE: the cut lands where a real editor would cut (new beat / payoff / CTA emphasis).
+- SELF-CHECK per video: if you froze both start frames side by side, would they look like TWO CAMERA ANGLES of the SAME moment? If NO — rewrite.
+</angle_cut_rules>
 `
     : ""
 }
@@ -238,9 +243,10 @@ Across ${quantity} videos, outfits MUST span at least ${Math.min(Math.max(quanti
 Each segment needs an imagePrompt (max 600 chars) = the Banana Pro 2 START FRAME the Grok clip animates from. It MUST:
 - START with the persona lock: "${personaLock}".
 - Then state the SAME outfit chosen for this video (from <clothing_variety>).
-- Then the SCENE/setting for THIS segment (different per segment) + the product interaction: the person HOLDS/USES the product (for consumables) OR WEARS it (if the product itself is clothing/hijab/shoes/bag/jewelry).
-- Product must stay pixel-identical to the product reference — label sharp, no warping/recolour/text drift.
-- Photorealistic UGC, ${aspectRatio}, soft natural lighting, shallow depth of field, ultra-realistic skin texture. Different pose/emotion per segment.
+- Then the scene/setting + the product interaction: the person HOLDS/USES the product (for consumables) OR WEARS it (if the product itself is clothing/hijab/shoes/bag/jewelry).
+- 🚨 PRODUCT VISIBLE LOCK: the product MUST be clearly VISIBLE in EVERY segment's frame — in hand, label toward camera (or worn on body). NEVER a frame of the avatar alone without the product. Product stays pixel-identical to the product reference — label sharp, no warping/recolour/text drift.
+- State the CAMERA ANGLE explicitly (from <angle_cut_rules>'s angle bank)${segCount > 1 ? " — Seg 2 = SAME scene/outfit/position as Seg 1, ONLY the angle changes" : ""}.
+- Photorealistic UGC, ${aspectRatio}, soft natural lighting, shallow depth of field, ultra-realistic skin texture.
 </image_prompt_rules>
 
 <video_prompt_rules>
@@ -249,11 +255,24 @@ Each segment needs a videoPrompt = the Grok i2v instruction that animates the st
 - Include the spoken Malay dialog line for this segment, wrapped in single quotes, matching the ~3-words/sec word target above.
 - Keep the SAME person, outfit, product, and general scene as this segment's start frame (Grok animates the frame).
 - Audio = ONE voice only (${gender === "male" ? "young Malay man" : "young Malay woman"}), no background music, no chatter. Raw UGC phone-recorded vibe. ZERO subtitles/captions/on-screen text/icons — "beg kuning" is SPOKEN words only, never a visual bag icon.
-${segCount > 1 ? "- CONTINUITY: Seg 2's dialog continues Seg 1's sentence/idea (picks up where it ended). Same voice, same person, same outfit; only the scene + spoken line differ — and Seg 2's scene must be the RELATED next beat per <scene_arc_rules>. The CTA lands only in the LAST segment." : ""}
+${segCount > 1 ? "- CONTINUITY: Seg 2's dialog continues Seg 1's sentence/idea (picks up where it ended). Same voice, same person, same outfit, SAME scene — ONLY the camera angle + spoken line differ per <angle_cut_rules>. The product stays visible in both. The CTA lands only in the LAST segment." : ""}
 </video_prompt_rules>
 
 <diversity_rules>
-CRITICAL — all ${quantity} videos must differ: NO two share hook angle, background, shot type, emotion, opening-line pattern, or outfit family. Vary emotional/question/shock/story/urgent hooks and warm/bright/moody/clean styles.
+🚨 META ENTITY-ID DIVERSIFICATION (CRITICAL — from Meta's Creative ID documentation):
+Meta fingerprints each ad's IMAGERY into an "Entity ID". Creatives with the same/similar imagery — even with different text or messaging — get the SAME Entity ID: they share learnings, can't reach new audience cohorts, and repeated exposure causes ad fatigue (viewers mark it irrelevant). Only a SIGNIFICANT visual change earns a NEW Entity ID and fresh scaling. Minor tweaks (same room with different lighting, same outfit in a new colour, small angle change) are NOT enough — Meta may still fingerprint them as the same entity.
+
+Therefore all ${quantity} videos in this batch MUST each be a visually DISTINCT creative — a human should instantly see them as DIFFERENT ads:
+- DIFFERENT outfit (different silhouette AND colour family — not a recolour)
+- DIFFERENT location/background (bedroom vs kitchen vs cafe vs car vs outdoor — a different WORLD, not a different corner of the same room)
+- DIFFERENT scene concept/situation (unboxing vs testimonial vs before-after vs tutorial…)
+- DIFFERENT opening frame composition (the Seg 1 start frame is effectively the THUMBNAIL — Meta's fingerprint keys heavily on it; vary shot size, avatar position, product placement across videos)
+- DIFFERENT hook angle + emotion + opening-line pattern (from <viral_hook_bank>)
+- DIFFERENT lighting/time-of-day mood (warm morning vs bright noon vs moody evening)
+
+SURROUND-SOUND MESSAGING (Meta's strategy): each video pushes a DIFFERENT benefit / solves a DIFFERENT problem of the SAME product (e.g. video 1 = jimat masa, video 2 = hasil lepas 2 minggu, video 3 = harga berbaloi, video 4 = senang guna, video 5 = social proof). A customer scrolling past several of these gets "many reasons to buy" instead of the same message repeated.
+
+REMINDER: this diversification is BETWEEN videos. WITHIN one video, segments stay visually locked (same scene, angle change only) per <angle_cut_rules>.
 </diversity_rules>
 
 <caption_rules>
@@ -280,7 +299,7 @@ Respond with ONLY a valid JSON array of EXACTLY ${quantity} objects. No markdown
 ${segLens
   .map(
     (s, i) =>
-      `      { "scene": "setting/situasi for Seg ${i + 1}${i > 0 ? " (DIFFERENT from Seg 1 but RELATED — the logical next beat per <scene_arc_rules>)" : segCount > 1 ? " (opens the mini-story)" : ""}", "dialog": "Malay dialog for Seg ${i + 1} (~${s * 3} words${segCount > 1 && i > 0 ? ", continues Seg 1 mid-thought" : segCount > 1 ? ", ends mid-thought leading into Seg 2" : ""})", "imagePrompt": "Banana start-frame (English) starting with the persona lock + outfit + scene + product", "videoPrompt": "Grok i2v motion + camera + the spoken Malay dialog line, ~${s}s" }`
+      `      { "scene": "${i > 0 ? `SAME location/scene as Seg 1 — only state the NEW camera angle (per <angle_cut_rules>)` : segCount > 1 ? `the ONE scene this whole video happens in + Seg 1's camera angle` : `setting/situasi for this video`}", "dialog": "Malay dialog for Seg ${i + 1} (~${s * 3} words${segCount > 1 && i > 0 ? ", continues Seg 1 mid-thought" : segCount > 1 ? ", ends mid-thought leading into Seg 2" : ""})", "imagePrompt": "Banana start-frame (English): persona lock + outfit + scene + camera angle + product CLEARLY VISIBLE", "videoPrompt": "Grok i2v motion + camera + the spoken Malay dialog line, ~${s}s" }`
   )
   .join(",\n")}
     ]
@@ -303,7 +322,7 @@ Avatar source: ${avatarMode === "existing" ? "UPLOADED reference image (keep tha
 
 Plan ${quantity} unique viral TikTok UGC videos for this product${customIdea ? " built around the client's custom idea above" : ""}. ${
     segCount > 1
-      ? `Each video has ${segCount} segments with ONE continuous dialog split across them (Seg 2 continues Seg 1). Same avatar + outfit within a video, different scene per segment.`
+      ? `Each video has ${segCount} segments with ONE continuous dialog split across them (Seg 2 continues Seg 1). Same avatar + outfit + SAME scene within a video — only the camera angle changes per segment, and the product stays clearly visible in every segment.`
       : "Each video is a single segment."
   } Different topic + outfit per video, SAME face across all. Output ONLY the JSON array.`;
 

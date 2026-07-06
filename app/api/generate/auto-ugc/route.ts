@@ -337,27 +337,28 @@ export async function POST(req: Request) {
         else console.warn("[auto-ugc] base avatar failed, falling back to per-frame persona:", base.error);
       }
 
-      await mapLimit(jobs, 4, async (job) => {
+      // One segment: Banana start-frame → Grok i2v. Returns the frame URL
+      // so the NEXT segment of the same video can reference it (same scene,
+      // new camera angle). `seg1FrameUrl` is empty for Seg 1.
+      const processJob = async (job: Job, seg1FrameUrl: string): Promise<string | null> => {
         try {
-          // Reference role-split (v16): IMAGE 1 = avatar identity (face/hair
-          // lock), IMAGE 2+ = product = colour/label/shape reference ONLY.
-          const refs = [baseAvatarUrl, ...productUrls].filter((u) => !!u);
-          const roleSplit = baseAvatarUrl
-            ? "IMAGE 1 = the person's identity (keep the EXACT same face, hair, features). LAST reference image = the PRODUCT = its exact colour, label, typography, shape ONLY — copy pixel-identically, ignore the product image's own background/scene."
-            : "The reference image is the PRODUCT = its exact colour, label, typography, shape ONLY — copy pixel-identically, ignore its own background/scene.";
-          const framePrompt = baseAvatarUrl
-            ? [
-                job.imagePrompt,
-                `Outfit (locked for this video): ${job.outfit}. Scene: ${job.scene}.`,
-                roleSplit,
-                `Photorealistic vertical UGC start frame, ${aspectRatio}, soft natural lighting, shallow depth of field.`,
-              ].join(" ")
-            : [
-                job.imagePrompt,
-                `${personaDesc}. Outfit (locked for this video): ${job.outfit}. Scene: ${job.scene}.`,
-                roleSplit,
-                `Photorealistic vertical UGC start frame, ${aspectRatio}, soft natural lighting, shallow depth of field.`,
-              ].join(" ");
+          // Reference role-split (v16): IMAGE 1 = identity/scene anchor,
+          // LAST image(s) = product = colour/label/shape reference ONLY.
+          // Seg 2 anchors on Seg 1's START FRAME so both frames are the
+          // SAME scene — only the camera angle changes (angle_cut_rules).
+          const anchorUrl = seg1FrameUrl || baseAvatarUrl;
+          const refs = [anchorUrl, ...productUrls].filter((u) => !!u);
+          const roleSplit = seg1FrameUrl
+            ? "IMAGE 1 = Segment 1's start frame — the SAME person, SAME outfit, SAME room, SAME lighting, SAME product placement. RE-SHOOT this exact moment from the NEW camera angle described above. Change NOTHING except the camera angle. LAST reference image = the PRODUCT = its exact colour, label, typography, shape ONLY — keep it pixel-identical and clearly VISIBLE."
+            : anchorUrl
+              ? "IMAGE 1 = the person's identity (keep the EXACT same face, hair, features). LAST reference image = the PRODUCT = its exact colour, label, typography, shape ONLY — copy pixel-identically, ignore the product image's own background/scene. The product must be clearly VISIBLE in the frame (in hand, label toward camera, or worn)."
+              : "The reference image is the PRODUCT = its exact colour, label, typography, shape ONLY — copy pixel-identically, ignore its own background/scene. The product must be clearly VISIBLE in the frame.";
+          const framePrompt = [
+            job.imagePrompt,
+            anchorUrl ? `Outfit (locked for this video): ${job.outfit}. Scene: ${job.scene}.` : `${personaDesc}. Outfit (locked for this video): ${job.outfit}. Scene: ${job.scene}.`,
+            roleSplit,
+            `Photorealistic vertical UGC start frame, ${aspectRatio}, soft natural lighting, shallow depth of field.`,
+          ].join(" ");
 
           const frame = await generateUgcStartFrame({
             prompt: framePrompt,
@@ -374,7 +375,7 @@ export async function POST(req: Request) {
                 metadata: await mergeMeta(admin, job.rowId, { ugc_phase: "startframe_failed", startframe_tier_log: frame.tierLog }),
               })
               .eq("id", job.rowId);
-            return;
+            return null;
           }
 
           const videoPrompt = job.dialog
@@ -428,11 +429,33 @@ export async function POST(req: Request) {
               })
               .eq("id", job.rowId);
           }
+          return frame.url;
         } catch (e: any) {
           await admin
             .from("history")
             .update({ status: "failed", error_message: e?.message || "Auto UGC background error" })
             .eq("id", job.rowId);
+          return null;
+        }
+      };
+
+      // Group segments by video — videos run in parallel (capped), but the
+      // segments WITHIN a video run sequentially so Seg 2's start frame can
+      // anchor on Seg 1's start frame (same scene, new angle).
+      const byVideo = new Map<number, Job[]>();
+      for (const j of jobs) {
+        const arr = byVideo.get(j.videoIdx) || [];
+        arr.push(j);
+        byVideo.set(j.videoIdx, arr);
+      }
+      const videoGroups = Array.from(byVideo.values()).map((arr) =>
+        arr.sort((a, b) => a.segIdx - b.segIdx)
+      );
+      await mapLimit(videoGroups, 3, async (group) => {
+        let seg1FrameUrl = "";
+        for (const job of group) {
+          const url = await processJob(job, job.segIdx > 0 ? seg1FrameUrl : "");
+          if (job.segIdx === 0 && url) seg1FrameUrl = url;
         }
       });
     } catch (e: any) {
