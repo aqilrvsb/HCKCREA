@@ -8,6 +8,7 @@ import { generateVideoWithCascade } from "@/lib/video-cascade";
 import { generateUgcStartFrame } from "@/lib/ugc-startframe";
 import { splitDuration } from "@/lib/auto-ugc-segments";
 import { buildAutoUgcMasterPlan, type UgcPlan } from "@/lib/auto-ugc-master-plan";
+import { FRAMEWORKS } from "@/lib/auto-content-frameworks";
 
 // Auto UGC — restricted (nl@/admin@ only). Grok-Imagine avatar UGC:
 //   • duration ≤15s → 1 clip; 16–30s → 2 balanced segments (Seg 1 + Seg 2)
@@ -24,18 +25,6 @@ import { buildAutoUgcMasterPlan, type UgcPlan } from "@/lib/auto-ugc-master-plan
 export const maxDuration = 300;
 
 const AUTO_UGC_EMAILS = ["nl@gmail.com", "admin@gmail.com"];
-
-const SCENE_LABELS: Record<string, string> = {
-  ugc: "UGC realistik",
-  "giant-figure": "Giant Figure (produk gergasi)",
-  "unbox-tryon": "Unboxing + Virtual Try-On",
-  "unbox-asmr": "Unboxing ASMR",
-  "tryon-sneakers": "Virtual Try-On",
-  addiction: "UGC Addiction (obsesi produk)",
-  "before-after": "Before & After",
-  tutorial: "Tutorial langkah demi langkah",
-  unboxing: "Unboxing",
-};
 
 // Bounded-concurrency map so we don't fan out dozens of Banana polls at once.
 async function mapLimit<T, R>(items: T[], limit: number, fn: (x: T, i: number) => Promise<R>): Promise<R[]> {
@@ -62,20 +51,34 @@ export async function POST(req: Request) {
   }
 
   const body = await req.json().catch(() => ({}));
-  const productUrls: string[] = Array.isArray(body?.product_image_urls)
-    ? body.product_image_urls.filter((u: any) => typeof u === "string" && !!u).slice(0, 3)
-    : [];
-  const productName = String(body?.product_name || "").trim();
-  const productDetail = String(body?.product_detail || "").trim();
+
+  // Body shape = the duplicated Auto Content tab, plus Auto UGC's extra
+  // fields (avatar_mode / avatar_url / duration_sec). Product images come
+  // from manual_products[].imageUrls (+ product_image_url fallback).
+  const manualProducts: any[] = Array.isArray(body?.manual_products) ? body.manual_products : [];
+  const productUrls: string[] = [
+    ...manualProducts.flatMap((p: any) => (Array.isArray(p?.imageUrls) ? p.imageUrls : [])),
+    body?.product_image_url,
+  ]
+    .filter((u: any) => typeof u === "string" && !!u)
+    .filter((u, i, a) => a.indexOf(u) === i)
+    .slice(0, 3);
+  const productName = String(body?.product_name || manualProducts?.[0]?.info?.split("\n")[0] || "").trim();
+  const productDetail = String(body?.product_detail || manualProducts?.[0]?.info || "").trim();
   const avatarMode: "create" | "existing" = body?.avatar_mode === "existing" ? "existing" : "create";
   const avatarUrl = String(body?.avatar_url || "").trim();
   const gender = body?.avatar_gender === "male" ? "male" : "female";
   const hijab = body?.avatar_hijab === "hijab" ? "hijab" : "no-hijab";
   const age = ["20s", "30s", "40s", "55+"].includes(body?.avatar_age) ? body.avatar_age : "30s";
-  const sceneIds: string[] = Array.isArray(body?.scene_ideas)
-    ? body.scene_ideas.filter((s: any) => typeof s === "string")
+  // Creative angle: the selected Auto Content frameworks feed the scene list.
+  const selectedFrameworks: number[] = Array.isArray(body?.selected_frameworks)
+    ? body.selected_frameworks.map((n: any) => Number(n)).filter((n: number) => !Number.isNaN(n))
     : [];
-  const customIdea = String(body?.custom_idea || "").trim();
+  const frameworkNames = selectedFrameworks
+    .map((id) => FRAMEWORKS.find((f) => f.id === id))
+    .filter(Boolean)
+    .map((f: any) => `${f.name} (${f.focus})`);
+  const customIdea = String(body?.idea_style || body?.custom_idea || "").trim();
   const durationSec = Math.max(4, Math.min(30, Number(body?.duration_sec) || 15));
   const quantity = Math.max(1, Math.min(10, Number(body?.quantity) || 1));
   const aspectRatio = body?.aspect_ratio === "16:9" ? "16:9" : "9:16";
@@ -83,6 +86,7 @@ export async function POST(req: Request) {
     body?.cta_mode === "custom" ? "custom" : body?.cta_mode === "none" ? "none" : "shop";
   const customCta = String(body?.custom_cta || "").trim();
   const projectId = body?.project_id || null;
+  const sceneList = frameworkNames.length > 0 ? frameworkNames.join(", ") : "UGC realistik, testimoni jujur, before & after";
 
   // Validation
   if (productUrls.length === 0) {
@@ -90,9 +94,6 @@ export async function POST(req: Request) {
   }
   if (avatarMode === "existing" && !avatarUrl) {
     return NextResponse.json({ error: "Sila muat naik gambar avatar." }, { status: 400 });
-  }
-  if (sceneIds.length === 0 && !customIdea) {
-    return NextResponse.json({ error: "Pilih sekurang-kurangnya satu idea/scene." }, { status: 400 });
   }
 
   const segLens = splitDuration(durationSec);
@@ -118,7 +119,6 @@ export async function POST(req: Request) {
   const personaDesc =
     `${gender === "male" ? "lelaki" : "perempuan"} Melayu ${age}` +
     (hijab === "hijab" ? ", bertudung (menutup aurat, pakaian sopan)" : ", tiada tudung");
-  const sceneList = sceneIds.map((s) => SCENE_LABELS[s] || s).join(", ") || "UGC realistik";
 
   // ── Product OCR (best-effort) — read the label off the product photo
   // and fold it into the master-plan product data (mirrors Auto Content).
@@ -197,7 +197,7 @@ export async function POST(req: Request) {
     const segsOut = segLens.map((_s, i) => {
       const seg = segsIn[i] || segsIn[segsIn.length - 1] || {};
       return {
-        scene: String(seg.scene || `${SCENE_LABELS[sceneIds[0]] || "UGC"} scene ${i + 1}`),
+        scene: String(seg.scene || `UGC scene ${i + 1}`),
         dialog: String(seg.dialog || ""),
         videoPrompt: String(seg.videoPrompt || seg.dialog || "Authentic UGC talking to camera about the product."),
         imagePrompt: String(seg.imagePrompt || "Ultra-realistic UGC frame, person showing the product."),
