@@ -12,6 +12,7 @@ import {
   Film,
   BookOpen,
   Zap,
+  Sparkles,
 } from "lucide-react";
 import ImageTab from "./tabs/image";
 import VideoTab from "./tabs/video";
@@ -22,6 +23,7 @@ import OriginalVideoTab from "./tabs/original-video";
 import SeedanceTab from "./tabs/seedance";
 import CloneTab from "./tabs/clone";
 import AutoContentTab from "./tabs/auto-content";
+import AutoUgcTab from "./tabs/auto-ugc";
 import FairytaleTab from "./tabs/fairytale";
 import HistoryGrid from "./sections/history-grid";
 import BillingSection from "./sections/billing";
@@ -48,8 +50,17 @@ type TabKey =
   | "seedance"
   | "clone"
   | "auto"
+  | "auto-ugc"
   | "fairytale"
   | "original-video";
+
+// Auto UGC is a restricted tab — only these accounts see it in the nav and
+// only they can open its body. Server-side (/api/generate/auto-ugc) enforces
+// the same allowlist; this client gate is UX only.
+const AUTO_UGC_EMAILS = ["nl@gmail.com", "admin@gmail.com"];
+function canSeeAutoUgc(email: string): boolean {
+  return AUTO_UGC_EMAILS.includes((email || "").trim().toLowerCase());
+}
 
 // Tab order: Image → UGC → Auto Content → Story → Cinema (Seedance) →
 // Clone Prompt → Fairytale. "Story" keeps the legacy "cinema" key + the
@@ -67,6 +78,10 @@ const TABS: { key: TabKey; label: string; icon: any; tag: string }[] = [
   { key: "video",     label: "Dialog UGC",   icon: Video,     tag: "02" },
   { key: "original-video", label: "Original Video", icon: Film, tag: "03" },
   { key: "auto",      label: "Auto Content", icon: Wand2,     tag: "04" },
+  // Auto UGC — restricted tab (nl@/admin@ only), gated at render time via
+  // canSeeAutoUgc(email). Grok-Imagine avatar UGC with 30s split into
+  // Seg 1/Seg 2. Filtered out of `visibleTabs` for everyone else.
+  { key: "auto-ugc",  label: "Auto UGC",     icon: Sparkles,  tag: "4b" },
   // Clone Prompt + Viral + Seedance tabs hidden per user direction. Routes +
   // imports kept so existing history rows still render; re-enable by uncommenting.
   // { key: "seedance",  label: "Cinema",       icon: Film,      tag: "--" },
@@ -114,6 +129,11 @@ export default function DashboardShell({
   // Mobile drawer state — controls whether the sidebar is slid in. Closes
   // automatically when the user picks a tab / view from inside the drawer.
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
+
+  // Restricted-tab gate. Auto UGC only shows for the allowlisted accounts;
+  // everyone else never sees it in the nav or the body. Server enforces too.
+  const canAutoUgc = canSeeAutoUgc(email);
+  const visibleTabs = canAutoUgc ? TABS : TABS.filter((t) => t.key !== "auto-ugc");
 
   // Live credit balance — initialised from the server-rendered prop, then
   // refreshed via /api/me/credits. Triggers:
@@ -253,7 +273,7 @@ export default function DashboardShell({
           onProjectsChange={setProjects}
           view={view}
           onViewChange={setView}
-          tabs={TABS}
+          tabs={visibleTabs}
           activeTab={activeTab}
           onTabChange={(k) => {
             // If subscription is inactive, route ALL tab clicks to billing
@@ -331,6 +351,8 @@ export default function DashboardShell({
               project={activeProject}
               activeTab={activeTab}
               onTabChange={setActiveTab}
+              tabs={visibleTabs}
+              canAutoUgc={canAutoUgc}
               planActive={planActive}
               planExpiresAt={planExpiresAt}
               onGotoBilling={() => setView({ kind: "billing" })}
@@ -430,6 +452,7 @@ function resolveActiveSop(view: SidebarView, activeTab: TabKey) {
       image: "image",
       video: "ugc",
       auto: "auto-content",
+      "auto-ugc": "auto-content",
       cinema: "story",
       grok: "story",
       sora2: "story", // Sora 2 reuses Story SOP content
@@ -453,6 +476,8 @@ function ProjectView({
   project,
   activeTab,
   onTabChange,
+  tabs,
+  canAutoUgc,
   planActive,
   planExpiresAt,
   onGotoBilling,
@@ -460,11 +485,13 @@ function ProjectView({
   project: Project;
   activeTab: TabKey;
   onTabChange: (t: TabKey) => void;
+  tabs: { key: TabKey; label: string; icon: any; tag: string }[];
+  canAutoUgc: boolean;
   planActive: boolean;
   planExpiresAt: string | null;
   onGotoBilling: () => void;
 }) {
-  const active = TABS.find((t) => t.key === activeTab)!;
+  const active = tabs.find((t) => t.key === activeTab)!;
   return (
     <>
       {/* Project header — desktop unchanged (lg+ only) + mobile gets a
@@ -502,7 +529,7 @@ function ProjectView({
           className="flex gap-2 overflow-x-auto pb-2 border-b"
           style={{ borderColor: "var(--color-border)" }}
         >
-          {TABS.map((t) => {
+          {tabs.map((t) => {
             const Icon = t.icon;
             const isActive = activeTab === t.key;
             const locked = !planActive;
@@ -654,6 +681,17 @@ function ProjectView({
               <HistoryGrid tab="auto" title={`Auto Content — ${project.name}`} projectId={project.id} />
             </>
           )}
+          {activeTab === "auto-ugc" && canAutoUgc && (
+            <>
+              <div className="max-w-5xl mx-auto w-full">
+                <AutoUgcTab projectId={project.id} />
+              </div>
+              {/* Auto UGC posts to /api/generate/auto-ugc; each long request
+                  becomes Seg 1 (parent) + Seg 2 (child) rows stamped
+                  tab='auto-ugc' so this grid shows them as one card. */}
+              <HistoryGrid tab="auto-ugc" title={`Auto UGC — ${project.name}`} projectId={project.id} />
+            </>
+          )}
           {activeTab === "fairytale" && (
             <>
               <div className="max-w-6xl mx-auto w-full">
@@ -680,7 +718,7 @@ function ProjectView({
           tab={
             (activeTab === "video"
               ? "ugc"
-              : activeTab === "auto"
+              : activeTab === "auto" || activeTab === "auto-ugc"
                 ? "auto"
                 : activeTab === "fairytale"
                   ? "fairytale"

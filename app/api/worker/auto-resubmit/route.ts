@@ -98,7 +98,7 @@ export async function GET(req: Request) {
     // All video-producing tabs. Image tabs ("image", "fairytale") use
     // a different cascade and are handled separately — for now they
     // stay manual until image-cascade auto-retry is wired up.
-    .in("tab", ["video", "auto", "auto-content", "cinema", "original-video", "seedance", "clone", "template-body"])
+    .in("tab", ["video", "auto", "auto-ugc", "auto-content", "cinema", "original-video", "seedance", "clone", "template-body"])
     .gte("updated_at", cutoff)
     .order("updated_at", { ascending: false })
     .limit(BATCH_LIMIT);

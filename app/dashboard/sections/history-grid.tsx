@@ -169,6 +169,7 @@ export default function HistoryGrid({
     | "seedance"
     | "clone"
     | "auto"
+    | "auto-ugc"
     | "fairytale"
     | "original-video";
   title: string;
