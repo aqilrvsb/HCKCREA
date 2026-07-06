@@ -148,7 +148,7 @@ export async function POST(req: Request) {
   // small + needed to reject hostile callers before we insert).
   const { data: source } = await admin
     .from("history")
-    .select("id, user_id, status, project_id")
+    .select("id, user_id, status, project_id, tab")
     .eq("id", sourceHistoryId)
     .single();
   if (!source || source.user_id !== user.id) {
@@ -174,7 +174,12 @@ export async function POST(req: Request) {
       user_id: user.id,
       project_id: source.project_id || null,
       type: "video",
-      tab: bucket === "cinema" ? "cinema" : bucket === "auto" ? "auto" : "video",
+      // Seg-2 MUST share the parent's tab — the dashboard's segment slider
+      // matches children (parent_history_id) only within the SAME tab's
+      // history query. If the parent is 'original-video' but seg-2 lands on
+      // 'video', the child is invisible and no progress card shows. Inherit
+      // the source row's tab; fall back to the bucket mapping for legacy.
+      tab: (source as any).tab || (bucket === "cinema" ? "cinema" : bucket === "auto" ? "auto" : "video"),
       status: "pending",
       prompt: seg2Prompt,
       reference_url: null,
