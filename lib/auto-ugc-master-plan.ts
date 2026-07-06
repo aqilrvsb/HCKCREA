@@ -164,7 +164,7 @@ ${
   • eye-level medium → slightly low angle (confidence beat)
   • front-facing → 3/4 angle
   • medium shot → medium close-up with the product raised beside the face (product detail beat — face still fully visible toward camera)
-- Write the CHOSEN angle explicitly in each segment's imagePrompt AND videoPrompt (e.g. Seg 1 "medium shot, eye-level, front-facing", Seg 2 "close-up, eye-level, 3/4 angle — SAME room, SAME outfit, SAME position").
+- 🚨 THE ANGLE LIVES IN THE IMAGE, NOT THE VIDEO PROMPT: Grok animates a fixed start frame — it CANNOT change the camera angle afterward. The NEW angle must therefore be written into the segment's imagePrompt (the Banana start frame IS the angle). Write the CHOSEN angle explicitly and FIRST in each segment's imagePrompt (e.g. Seg 1 "Medium shot, eye-level, front-facing: …", Seg 2 "Close-up, eye-level, 3/4 angle — SAME room, SAME outfit, SAME position: …"). The videoPrompt only describes motion consistent with that frame's angle.
 - FORBIDDEN between segments: changing location/room, changing outfit, changing hairstyle/hijab, changing lighting/time-of-day, moving the product to a different surface, changing the avatar's general position in the room. Angle changes; the world does not.
 - The dialog continuation and the angle cut must AGREE: the cut lands where a real editor would cut (new beat / payoff / CTA emphasis).
 - SELF-CHECK per video: if you froze both start frames side by side, would they look like TWO CAMERA ANGLES of the SAME moment? If NO — rewrite.
@@ -281,7 +281,8 @@ Each segment needs an imagePrompt (max 600 chars) = the Banana Pro 2 START FRAME
 
 <video_prompt_rules>
 Each segment needs a videoPrompt = the Grok i2v instruction that animates the start frame. It MUST:
-- Describe ONE simple action + ONE camera move (never chain actions). Describe the FINAL state, not a multi-step process.
+- 🚨 NEVER instruct a camera-angle change or cut — the angle is already BAKED INTO the start frame image; Grok cannot re-frame it. Motion is limited to: natural talking/gesture/product use + at most a subtle push-in or handheld drift that keeps the frame's existing angle.
+- Describe ONE simple action (never chain actions). Describe the FINAL state, not a multi-step process.
 - Include the spoken Malay dialog line for this segment, wrapped in single quotes, matching the ~3-words/sec word target above.
 - Keep the SAME person, outfit, product, and general scene as this segment's start frame (Grok animates the frame).
 - Audio = ONE voice only (${gender === "male" ? "young Malay man" : "young Malay woman"}), no background music, no chatter. Raw UGC phone-recorded vibe. ZERO subtitles/captions/on-screen text/icons — "beg kuning" is SPOKEN words only, never a visual bag icon.

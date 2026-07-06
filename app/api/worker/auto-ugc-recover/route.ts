@@ -151,7 +151,7 @@ export async function GET(req: Request) {
     const personaDesc = String(meta.avatar_persona || "perempuan Melayu 30s");
 
     const roleSplit = isChild
-      ? "IMAGE 1 = Segment 1's start frame — the SAME person, SAME outfit, SAME room, SAME lighting, SAME product placement. RE-SHOOT this exact moment from the NEW camera angle described above. Change NOTHING except the camera angle. LAST reference image = the PRODUCT = its exact colour, label, typography, shape ONLY — keep it pixel-identical and clearly VISIBLE."
+      ? `THE ONLY CHANGE IS THE CAMERA ANGLE — re-shoot IMAGE 1's exact moment from this new angle: ${meta.scene || "a new natural talking-head angle"}. IMAGE 1 = Segment 1's start frame — keep the SAME person, SAME outfit, SAME room, SAME lighting, SAME product placement; change NOTHING except the camera angle. LAST reference image = the PRODUCT = its exact colour, label, typography, shape ONLY — keep it pixel-identical and clearly VISIBLE.`
       : anchorUrl
         ? "IMAGE 1 = the person's identity (keep the EXACT same face, hair, features). LAST reference image = the PRODUCT = its exact colour, label, typography, shape ONLY — copy pixel-identically, ignore the product image's own background/scene. The product must be clearly VISIBLE in the frame (in hand, label toward camera, or worn)."
         : "The reference image is the PRODUCT = its exact colour, label, typography, shape ONLY — copy pixel-identically, ignore its own background/scene. The product must be clearly VISIBLE in the frame.";
