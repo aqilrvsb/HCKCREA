@@ -148,7 +148,7 @@ export async function POST(req: Request) {
   // small + needed to reject hostile callers before we insert).
   const { data: source } = await admin
     .from("history")
-    .select("id, user_id, status, project_id, tab")
+    .select("id, user_id, status, project_id, tab, parent_history_id")
     .eq("id", sourceHistoryId)
     .single();
   if (!source || source.user_id !== user.id) {
@@ -161,9 +161,20 @@ export async function POST(req: Request) {
     );
   }
 
-  // Insert seg-2 placeholder row NOW. parent_history_id + segment_index=2
-  // is what makes the parent card's slider render the seg-2 thumb (pending
-  // state) immediately. task_id, cost, locks metadata filled by after().
+  // Each Extend adds a SEGMENT to the ORIGINAL card's slider (Seg 2, Seg 3,
+  // …) — NO merged clip (agent="extend" makes onSegmentSettled skip merge).
+  //   • Root parent = the original video. If the user extends a segment
+  //     (which already has a parent), attach the new one to the SAME root so
+  //     all segments group under the one original card.
+  //   • segment_index = next free index (2, 3, 4, …) so the slider orders +
+  //     labels them Seg 2, Seg 3, …
+  const rootParentId = (source as any).parent_history_id || sourceHistoryId;
+  const { count: existingSegCount } = await admin
+    .from("history")
+    .select("id", { count: "exact", head: true })
+    .eq("parent_history_id", rootParentId);
+  const nextSegmentIndex = (existingSegCount ?? 0) + 2;
+
   const legacyAnchor: FrameAnchor =
     startFrameSource === "first" || startFrameSource === "middle" || startFrameSource === "last"
       ? startFrameSource
@@ -174,11 +185,6 @@ export async function POST(req: Request) {
       user_id: user.id,
       project_id: source.project_id || null,
       type: "video",
-      // Seg-2 MUST share the parent's tab — the dashboard's segment slider
-      // matches children (parent_history_id) only within the SAME tab's
-      // history query. If the parent is 'original-video' but seg-2 lands on
-      // 'video', the child is invisible and no progress card shows. Inherit
-      // the source row's tab; fall back to the bucket mapping for legacy.
       tab: (source as any).tab || (bucket === "cinema" ? "cinema" : bucket === "auto" ? "auto" : "video"),
       status: "pending",
       prompt: seg2Prompt,
@@ -186,12 +192,12 @@ export async function POST(req: Request) {
       task_id: null,
       duration: extendSeconds,
       cost: 0,
-      segment_index: 2,
-      parent_history_id: sourceHistoryId,
+      segment_index: nextSegmentIndex,
+      parent_history_id: rootParentId,
       frame_anchor: legacyAnchor,
       metadata: {
         agent: "extend",
-        segment_role: "seg2",
+        segment_role: `seg${nextSegmentIndex}`,
         source_history_id: sourceHistoryId,
         bucket,
         aspectRatio,

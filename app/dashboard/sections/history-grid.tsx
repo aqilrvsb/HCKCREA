@@ -352,10 +352,20 @@ export default function HistoryGrid({
   // segment slider, and only show parent rows in the grid.
   const { parents, childMap } = useMemo(() => {
     const parents: HistoryItem[] = [];
-    const childMap: Record<string, HistoryItem> = {};
+    // Multiple children per parent (Extend adds Seg 2, Seg 3, …). Sorted by
+    // segment_index so the slider orders them correctly.
+    const childMap: Record<string, HistoryItem[]> = {};
     for (const it of items) {
-      if (it.parent_history_id) childMap[it.parent_history_id] = it;
-      else parents.push(it);
+      if (it.parent_history_id) {
+        (childMap[it.parent_history_id] ||= []).push(it);
+      } else {
+        parents.push(it);
+      }
+    }
+    for (const pid of Object.keys(childMap)) {
+      childMap[pid].sort(
+        (a, b) => (a.segment_index ?? 0) - (b.segment_index ?? 0)
+      );
     }
     return { parents, childMap };
   }, [items]);
@@ -669,7 +679,7 @@ export default function HistoryGrid({
               <HistoryCard
                 key={it.id}
                 item={it}
-                seg2={childMap[it.id]}
+                segChildren={childMap[it.id]}
                 saveStatus={saveStatus[it.id]}
                 transferred={transferredSet.has(it.id)}
                 mergeSupported={supportsMerge}
@@ -761,7 +771,7 @@ const ACTION = {
 
 function HistoryCardInner({
   item,
-  seg2,
+  segChildren,
   saveStatus,
   transferred,
   mergeSupported,
@@ -769,13 +779,17 @@ function HistoryCardInner({
   onToggleMerge,
 }: {
   item: HistoryItem;
-  seg2?: HistoryItem;
+  segChildren?: HistoryItem[];
   saveStatus?: { saved: boolean; storage_id?: string; url?: string };
   transferred?: boolean;
   mergeSupported?: boolean;
   mergeSelectedIdx?: number;
   onToggleMerge?: () => void;
 }) {
+  // All extension/16s segments (sorted Seg 2, Seg 3, …). seg2 = the first
+  // child, kept for the legacy 16s-pipeline code paths below.
+  const children = segChildren || [];
+  const seg2 = children[0];
   const [checking, setChecking] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [name, setName] = useState(item.metadata?.name || "");
@@ -903,48 +917,54 @@ function HistoryCardInner({
   //   ready    — final URL available, playable.
   //   failed   — give up, X icon.
   type Slide = {
-    id: "seg_0" | "seg_1" | "merged";
+    id: string; // "seg_0" (parent) | "seg_1"… | "merged"
+    childId: string | null; // history row backing this slide (null = merged)
     label: string;
     url: string | null;
     status: "ready" | "pending" | "queued" | "failed";
   };
   const slides = useMemo<Slide[]>(() => {
     const has16s = item.metadata?.duration_mode === "16s";
-    if (!has16s && !seg2) return [];
-    // Before merge: parent.output_url is the seg-1 URL, merged_url is null.
-    // After merge: parent.output_url is the merged URL, metadata.seg1_url
-    // preserves the original seg-1 URL.
+    const isExtendChain = children.some((c) => (c.metadata as any)?.agent === "extend");
+    if (!has16s && children.length === 0) return [];
+
     const merged = item.merged_url || null;
     const seg1Url = merged ? (item.metadata?.seg1_url ?? null) : item.output_url;
-    const seg2Url = seg2?.output_url || null;
     const fail = item.status === "failed";
     const seg1Status: Slide["status"] = seg1Url ? "ready" : fail ? "failed" : "pending";
-    const seg2Ready = !!seg2 && seg2.status === "done" && !!seg2Url;
-    const seg2Status: Slide["status"] = seg2
-      ? seg2Ready
-        ? "ready"
-        : seg2.status === "failed"
-          ? "failed"
-          : "pending"
-      : "queued"; // seg-2 hasn't been kicked off yet (seg-1 still running)
-    // Merged slide:
-    //   ready  — merge URL exists
-    //   failed — parent flagged failed
-    //   pending — seg-2 is ready, merge step is actively running
-    //   queued — seg-2 not done yet, so the merge hasn't started
-    const mergedStatus: Slide["status"] = merged
-      ? "ready"
-      : fail
-        ? "failed"
-        : seg2Ready
-          ? "pending"
-          : "queued";
-    return [
-      { id: "seg_0", label: "Seg 1", url: seg1Url, status: seg1Status },
-      { id: "seg_1", label: "Seg 2", url: seg2Url, status: seg2Status },
-      { id: "merged", label: "16s", url: merged, status: mergedStatus },
-    ];
-  }, [item, seg2]);
+    const seg1: Slide = { id: "seg_0", childId: item.id, label: "Seg 1", url: seg1Url, status: seg1Status };
+
+    // 16s AUTO-PIPELINE (UGC) — keep Seg 1 · Seg 2 · merged (unchanged).
+    if (has16s && !isExtendChain) {
+      const child = children[0];
+      const seg2Url = child?.output_url || null;
+      const seg2Ready = child?.status === "done" && !!seg2Url;
+      const seg2Status: Slide["status"] = child
+        ? seg2Ready ? "ready" : child.status === "failed" ? "failed" : "pending"
+        : "queued";
+      const mergedStatus: Slide["status"] = merged ? "ready" : fail ? "failed" : seg2Ready ? "pending" : "queued";
+      return [
+        seg1,
+        { id: "seg_1", childId: child?.id ?? null, label: "Seg 2", url: seg2Url, status: seg2Status },
+        { id: "merged", childId: null, label: "16s", url: merged, status: mergedStatus },
+      ];
+    }
+
+    // EXTEND CHAIN — Seg 1 + one slide per child (Seg 2, Seg 3, …). NO merged.
+    const out: Slide[] = [seg1];
+    children.forEach((c, i) => {
+      const done = c.status === "done" && !!c.output_url;
+      const st: Slide["status"] = done ? "ready" : c.status === "failed" ? "failed" : "pending";
+      out.push({
+        id: i === 0 ? "seg_1" : `seg_${i + 1}`,
+        childId: c.id,
+        label: `Seg ${c.segment_index ?? i + 2}`,
+        url: done ? c.output_url : null,
+        status: st,
+      });
+    });
+    return out;
+  }, [item, children]);
 
   // Default to Segment 1 (index 0) on initial load. User can click any
   // slide thumb to switch — userPicked flag locks their choice in so
@@ -1064,7 +1084,9 @@ function HistoryCardInner({
     //   • "seg_1"  → "Seg 2" in UI, tracks `seg2` (the child row)
     //   • "merged" → final 16s, no upstream task
     const targetRow =
-      slide.id === "seg_0" ? item : slide.id === "seg_1" ? seg2 : null;
+      slide.childId === item.id
+        ? item
+        : (children.find((c) => c.id === slide.childId) ?? null);
     const targetId = targetRow?.id;
     if (recheckingId) return;
 
@@ -1228,8 +1250,7 @@ function HistoryCardInner({
   // here — the merge step is just a download+concat, retrying it without
   // its inputs makes no sense.
   async function retrySlide(slide: Slide) {
-    const targetId =
-      slide.id === "seg_1" ? seg2?.id : item.id;
+    const targetId = slide.childId ?? item.id;
     if (!targetId || slide.id === "merged") return;
     if (recheckingId) return;
     setRecheckingId(slide.id);
@@ -1317,12 +1338,16 @@ function HistoryCardInner({
     //     cards by the backend (parent_history_id cleared) so the user
     //     still has those clips as independent videos.
     //   • Plain non-chain card → just delete the row.
-    const isSeg2View = activeSlide?.id === "seg_1" && !!seg2?.id;
-    const targetId = isSeg2View ? seg2!.id : item.id;
-    const confirmMsg = isSeg2View
-      ? "Padam Segment 2 (dan segmen lepas seperti Seg 3 kalau ada)? Seg 1 akan jadi 8 saat semula."
-      : seg2?.id
-        ? "Padam Seg 1 sahaja? Seg 2 (dan segmen lain) akan jadi video bebas — tak akan hilang."
+    // Viewing a child segment (Seg 2/3/…) → delete THAT segment only.
+    // Viewing Seg 1 (parent) → delete the parent (children promoted / rolled
+    // back by the backend).
+    const activeChildId =
+      activeSlide?.childId && activeSlide.childId !== item.id ? activeSlide.childId : null;
+    const targetId = activeChildId ?? item.id;
+    const confirmMsg = activeChildId
+      ? `Padam ${activeSlide?.label ?? "segmen ni"}?`
+      : children.length > 0
+        ? "Padam Seg 1 (video asal)? Segmen lain akan jadi video bebas — tak akan hilang."
         : "Padam item ni?";
     if (!confirm(confirmMsg)) return;
     setDeleting(true);
@@ -2655,9 +2680,8 @@ const HistoryCard = memo(HistoryCardInner, (prev, next) => {
     prev.item.merged_url === next.item.merged_url &&
     prev.item.caption === next.item.caption &&
     prev.item.error_message === next.item.error_message &&
-    prev.seg2?.id === next.seg2?.id &&
-    prev.seg2?.status === next.seg2?.status &&
-    prev.seg2?.output_url === next.seg2?.output_url &&
+    (prev.segChildren || []).map((c) => `${c.id}:${c.status}:${c.output_url || ""}`).join("|") ===
+      (next.segChildren || []).map((c) => `${c.id}:${c.status}:${c.output_url || ""}`).join("|") &&
     prev.saveStatus?.saved === next.saveStatus?.saved &&
     prev.saveStatus?.storage_id === next.saveStatus?.storage_id &&
     prev.transferred === next.transferred &&

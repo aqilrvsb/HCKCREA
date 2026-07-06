@@ -123,8 +123,15 @@ export async function onSegmentSettled(
     return;
   }
 
-  // Branch 2: this is seg-2 of a 16s clip — merge with parent's seg-1
-  if (hist.segment_index === 2 && hist.parent_history_id) {
+  // Branch 2: this is seg-2 of a 16s clip — merge with parent's seg-1.
+  // EXCEPT manual "Extend" segments: per user direction 2026-07-06 they are
+  // shown as independent slider items (Seg 2, Seg 3, …) with NO merged clip.
+  // Only the 16s auto-pipeline (agent !== "extend") merges.
+  if (
+    hist.segment_index === 2 &&
+    hist.parent_history_id &&
+    (hist.metadata as any)?.agent !== "extend"
+  ) {
     await mergeSegments(hist, outputUrl).catch((e) => {
       console.error("[segment-chain] merge failed:", e);
     });
