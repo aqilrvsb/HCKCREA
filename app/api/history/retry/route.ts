@@ -134,7 +134,9 @@ export async function POST(req: Request) {
   // next tick regenerates the frame and fires Grok. Status is already
   // "pending" from the claim above, which is exactly the state the worker
   // scans for (pending + task_id null).
-  if (row.tab === "auto-ugc" && !refImage && !row.task_id) {
+  // (No task_id check needed — if Grok had ever fired, reference_url would
+  // carry the start frame; a frameless failed row by definition never fired.)
+  if (row.tab === "auto-ugc" && !refImage) {
     await admin
       .from("history")
       .update({
