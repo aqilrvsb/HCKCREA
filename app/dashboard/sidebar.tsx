@@ -703,7 +703,7 @@ export default function Sidebar({
             ChatGPT). Visible to EVERY package as an upsell; login inside
             the GPT itself gates Pro/Premium. */}
         <a
-          href="https://chatgpt.com/g/g-6a4a25012480819189f195010ccf6fdc-pening-lab-gpt"
+          href="https://chatgpt.com/g/g-6a48ae23dcd481918004d50a91ea51f2-pening-lab-gpt"
           target="_blank"
           rel="noopener noreferrer"
           className="sidebar-row w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-bold"
