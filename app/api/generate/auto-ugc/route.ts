@@ -24,8 +24,6 @@ import { FRAMEWORKS } from "@/lib/auto-content-frameworks";
 
 export const maxDuration = 300;
 
-const AUTO_UGC_EMAILS = ["nl@gmail.com", "admin@gmail.com"];
-
 // Bounded-concurrency map so we don't fan out dozens of Banana polls at once.
 async function mapLimit<T, R>(items: T[], limit: number, fn: (x: T, i: number) => Promise<R>): Promise<R[]> {
   const out: R[] = new Array(items.length);
@@ -45,10 +43,9 @@ export async function POST(req: Request) {
   const { data: { session } } = await sb.auth.getSession();
   const user = session?.user;
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const email = (user.email || "").trim().toLowerCase();
-  if (!AUTO_UGC_EMAILS.includes(email)) {
-    return NextResponse.json({ error: "Auto UGC tidak tersedia untuk akaun ini." }, { status: 403 });
-  }
+  // Auto UGC opened to every signed-in account per user direction
+  // 2026-07-06 (pilot allowlist removed). Plan/credit gating below still
+  // applies as usual.
 
   const body = await req.json().catch(() => ({}));
 

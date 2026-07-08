@@ -54,12 +54,11 @@ type TabKey =
   | "fairytale"
   | "original-video";
 
-// Auto UGC is a restricted tab — only these accounts see it in the nav and
-// only they can open its body. Server-side (/api/generate/auto-ugc) enforces
-// the same allowlist; this client gate is UX only.
-const AUTO_UGC_EMAILS = ["nl@gmail.com", "admin@gmail.com"];
-function canSeeAutoUgc(email: string): boolean {
-  return AUTO_UGC_EMAILS.includes((email || "").trim().toLowerCase());
+// Auto UGC — opened to EVERYONE per user direction 2026-07-06 (was gated
+// to nl@/admin@ during the pilot). Gate machinery kept so it can be
+// re-restricted by editing this one function.
+function canSeeAutoUgc(_email: string): boolean {
+  return true;
 }
 
 // Tab order: Image → UGC → Auto Content → Story → Cinema (Seedance) →
@@ -78,9 +77,8 @@ const TABS: { key: TabKey; label: string; icon: any; tag: string }[] = [
   { key: "video",     label: "Dialog UGC",   icon: Video,     tag: "02" },
   { key: "original-video", label: "Original Video", icon: Film, tag: "03" },
   { key: "auto",      label: "Auto Content", icon: Wand2,     tag: "04" },
-  // Auto UGC — restricted tab (nl@/admin@ only), gated at render time via
-  // canSeeAutoUgc(email). Grok-Imagine avatar UGC with 30s split into
-  // Seg 1/Seg 2. Filtered out of `visibleTabs` for everyone else.
+  // Auto UGC — Grok-Imagine avatar UGC with 30s split into Seg 1/Seg 2.
+  // Open to everyone (canSeeAutoUgc gate kept for easy re-restriction).
   { key: "auto-ugc",  label: "Auto UGC",     icon: Sparkles,  tag: "4b" },
   // Clone Prompt + Viral + Seedance tabs hidden per user direction. Routes +
   // imports kept so existing history rows still render; re-enable by uncommenting.
