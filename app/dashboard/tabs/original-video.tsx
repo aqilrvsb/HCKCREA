@@ -108,10 +108,11 @@ const PROVIDER_MODES: Record<Provider, ImageMode[]> = {
   veo: ["ingredient", "text", "frame"],
   grok: ["frame"],
   sora2: ["text", "frame"],
-  // GeminiOmni: ingredient + text. API has no first-frame concept (just
-  // generic img_urls) — frame mode would be UX duplication of single-
-  // image ingredient mode.
-  gemini: ["ingredient"],
+  // GeminiOmni: ingredient + frame. APIPod's gemini-omni-i2v is a true
+  // first-frame endpoint (image_urls 1-2 = first frame + optional last
+  // frame, fixed 10s) — frame mode added per user direction 2026-07-06.
+  // Crun (p2) path passes the same image_urls through unchanged.
+  gemini: ["ingredient", "frame"],
   // Seedance 2.0 Fast: all 3 modes (r2v / t2v / i2v). Frame mode is
   // start+end frame i2v (2 images max per APIPod spec). Ingredient is
   // r2v with up to 9 refs (capped at 3 here for UX consistency).
@@ -123,9 +124,10 @@ const PROVIDER_MODES: Record<Provider, ImageMode[]> = {
 // multi-ref). API caps in /api/generate/cinema mirror these.
 function getRefCap(provider: Provider, mode: ImageMode): number {
   if (mode === "text") return 0;
-  // frame: Veo + Seedance accept start+end (2 images); Sora 2 + Grok 1.5
-  // + others accept a single first frame.
-  if (mode === "frame") return provider === "veo" || provider === "seedance" ? 2 : 1;
+  // frame: Veo + Seedance + GeminiOmni accept start+end (2 images);
+  // Sora 2 + Grok 1.5 accept a single first frame.
+  if (mode === "frame")
+    return provider === "veo" || provider === "seedance" || provider === "gemini" ? 2 : 1;
   // ingredient — Seedance accepts up to 9 refs natively; we cap at 5
   // here (sweet spot between API capacity and UI layout). Other providers
   // stay at 3 (Gemini API allows 7, Veo/Grok at 3 by spec). REF_SLOTS=5

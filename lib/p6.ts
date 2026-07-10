@@ -162,9 +162,11 @@ function apipodVideoModel(input: {
   }
 
   // Gemini Omni — APIPod splits into:
-  //   • gemini-omni-i2v : requires image_urls (frame/i2v)
+  //   • gemini-omni-i2v : image_urls 1-2 (first frame required + optional
+  //     last frame). Serves BOTH the tab's "frame" mode (true start-frame)
+  //     and "ingredient" mode (refs ride the same endpoint).
   //   • gemini-omni-t2v : pure text prompt, no image_urls
-  // Duration fixed at 10s, resolution fixed at 720p, aspect 9:16 | 16:9.
+  // Duration fixed at 10s, aspect 9:16 | 16:9.
   if (m.includes("gemini")) {
     return refs > 0 && mode !== "text" ? "gemini-omni-i2v" : "gemini-omni-t2v";
   }
@@ -302,13 +304,14 @@ export async function p6CreateVideo(input: {
     //   • veo3-1-fast-ref         → up to 3 (reference images)
     //   • seedance-2.0-fast-i2v   → 1-2  (start + end frame)
     //   • seedance-2.0-fast-r2v   → 0-9  (reference images)
-    //   • gemini-omni-i2v         → 1-3
+    //   • gemini-omni-i2v         → 1-2 (first frame + optional last frame,
+    //     per the current APIPod Gemini Omni Image-to-Video doc)
     let cap = 2;
     if (resolvedModel === "seedance-2.0-fast-i2v") cap = 2;
     else if (resolvedModel === "seedance-2.0-fast-r2v") cap = 9;
     else if (resolvedModel === "veo3-1-fast-ref") cap = 3;
     else if (resolvedModel === "veo3-1-fast") cap = 2;
-    else if (resolvedModel === "gemini-omni-i2v") cap = 3;
+    else if (resolvedModel === "gemini-omni-i2v") cap = 2;
     body.image_urls = refs.slice(0, cap);
   }
 
@@ -330,12 +333,12 @@ export async function p6CreateVideo(input: {
         ? Math.round(reqDur)
         : 5;
   } else if (resolvedModel.startsWith("gemini-omni")) {
-    // Gemini Omni — APIPod docs: duration always 10, resolution always
-    // "720P" (note uppercase P per the docs), aspect_ratio enum is just
-    // 16:9 | 9:16. Clamp aspect_ratio if caller passed something else
-    // (e.g. 1:1 from a legacy code path).
+    // Gemini Omni — APIPod docs: duration always 10, resolution enum is
+    // lowercase "720p" | "1080p" (current doc; the old uppercase "720P"
+    // was from an earlier doc revision). aspect_ratio enum is just
+    // 16:9 | 9:16 — clamp if caller passed something else.
     body.duration = 10;
-    body.resolution = "720P";
+    body.resolution = "720p";
     if (body.aspect_ratio !== "9:16" && body.aspect_ratio !== "16:9") {
       body.aspect_ratio = "9:16";
     }

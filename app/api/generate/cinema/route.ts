@@ -107,9 +107,10 @@ export async function POST(req: Request) {
   ) {
     imageModeRaw = "frame";
   }
-  if (imageModeRaw === "frame" && modelChoice === "gemini") {
-    imageModeRaw = "ingredient";
-  }
+  // (Gemini frame→ingredient clamp REMOVED 2026-07-06 — APIPod's
+  // gemini-omni-i2v is a real first-frame endpoint (1-2 image_urls =
+  // first + optional last frame), so Original Video now exposes Start
+  // Frame for Omni. Crun/p2 passes the same image_urls unchanged.)
   // Grok Imagine 1.5 has NO working text-to-video — the model REQUIRES a
   // start-frame image (provider rejects t2v with "grok-imagine-1.5-preview
   // requires a reference image"). Force frame mode so the image-required
