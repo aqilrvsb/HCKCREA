@@ -36,7 +36,7 @@ export async function GET(req: Request) {
   const { data: cache, error: cacheErr } = await admin
     .from("tiktok_product_cache")
     .select(
-      "product_id, raw_url, product_name, product_image_url, hosted_image_url, price, rating, total_sold, source"
+      "product_id, raw_url, product_name, description, product_image_url, hosted_image_url, price, rating, total_sold, source"
     )
     .in("product_id", productIds);
 
