@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getSetting } from "@/lib/settings";
 import { authExtensionUser } from "@/lib/extension-auth";
+import { canUseAutoPost } from "@/lib/plans";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -79,9 +80,12 @@ export async function POST(req: Request) {
   const requiredVersion = String(versionSetting?.value || versionSetting?.version || "").trim();
   const downloadUrl = String(downloadSetting?.url || "").trim();
 
+  // Auto Post is gated by AUTO_POST_TIERS (standard / pro / premium) in
+  // lib/plans.ts — NOT a hardcoded "pro" string. Premium is a HIGHER tier
+  // than Pro, so an exact === "pro" check wrongly locked Premium users out.
   const planExpiresAt = profile?.plan_expires_at as string | null;
   const planActive =
-    profile?.plan === "pro" &&
+    canUseAutoPost(profile?.plan) &&
     !!planExpiresAt &&
     new Date(planExpiresAt) > new Date();
 
@@ -89,7 +93,7 @@ export async function POST(req: Request) {
     return NextResponse.json(
       {
         ok: false,
-        error: "Pro subscription required. Renew at peninglab.com/dashboard?view=billing.",
+        error: "Pelan Standard/Pro/Premium aktif diperlukan. Renew di peninglab.com/dashboard?view=billing.",
         plan_active: false,
       },
       { status: 403 }
