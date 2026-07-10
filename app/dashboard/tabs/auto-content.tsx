@@ -679,6 +679,32 @@ export default function AutoContentTab({ projectId }: { projectId?: string } = {
         return setError("Select at least 1 framework.");
     }
 
+    // Auto-save each product's info on Generate. Server dedupes by name
+    // (update if the name exists in EITHER bucket, else create; the Beg
+    // Kuning link decides the bucket). Best-effort — never blocks generate.
+    await Promise.all(
+      manualProducts.slice(0, unitCount).map(async (p) => {
+        const name = (p.name || "").trim();
+        const detail = (p.detail || "").trim();
+        const imgs = (p.imageUrls || []).filter(Boolean);
+        if (!name || !detail || imgs.length < 3) return;
+        try {
+          await fetch("/api/auto-content/save-product", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              product_name: name,
+              detail,
+              beg_kuning_url: (p.begKuningUrl || "").trim(),
+              attachments: imgs.slice(0, 3),
+            }),
+          });
+        } catch {}
+      })
+    );
+    loadSavedManual();
+    loadSavedAffiliate();
+
     setStatus("planning");
     pushLog(`Mode: ${planMode === "manual" ? "Manual Plan (JSON)" : planMode === "verify" ? "Verify Plan" : "AI Plan"}`);
     pushLog(`Source: ${unitCount} manual product(s)`);
