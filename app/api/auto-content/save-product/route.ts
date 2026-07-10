@@ -19,23 +19,40 @@ export async function POST(req: Request) {
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const body = await req.json().catch(() => ({}));
-  const kind: "affiliate" | "manual" = body?.kind === "manual" ? "manual" : "affiliate";
   const productName = String(body?.product_name || "").trim();
   const detail = body?.detail != null ? String(body.detail).trim() : null;
-  const productId = body?.product_id ? String(body.product_id).trim() : null;
   const attachments: string[] = Array.isArray(body?.attachments)
     ? body.attachments.filter((u: any) => typeof u === "string" && u.trim()).slice(0, 3)
     : [];
 
+  // Unified model (2026-07-06): the Beg Kuning link decides the bucket.
+  // Link present + an extractable product_id → "affiliate" (Beg Kuning
+  // Product). No link → "manual" (Tiada Link Product). Client sends
+  // beg_kuning_url; legacy callers may still send kind + product_id.
+  const begKuningUrl = String(body?.beg_kuning_url || "").trim();
+  let productId = body?.product_id ? String(body.product_id).trim() : null;
+  if (!productId && begKuningUrl) {
+    const m =
+      begKuningUrl.match(/(?:product|pdp(?:\/[^/?]+)*)\/(\d{13,20})(?:[/?#]|$)/i) ||
+      begKuningUrl.match(/\/(\d{13,20})(?:[/?#]|$)/) ||
+      begKuningUrl.match(/(\d{13,20})/);
+    productId = m ? m[1] : null;
+  }
+  const kind: "affiliate" | "manual" =
+    body?.kind === "affiliate" || productId ? "affiliate" : "manual";
+
   if (!productName) return NextResponse.json({ error: "product_name required" }, { status: 400 });
   if (kind === "affiliate" && !productId) {
-    return NextResponse.json({ error: "product_id required for affiliate" }, { status: 400 });
+    return NextResponse.json(
+      { error: "Link Beg Kuning tak sah — tak jumpa ID produk dalam link." },
+      { status: 400 }
+    );
   }
   if (attachments.length === 0) {
-    return NextResponse.json({ error: "Upload your 3 attachments before saving." }, { status: 400 });
+    return NextResponse.json({ error: "Upload your attachment(s) before saving." }, { status: 400 });
   }
-  if (kind === "manual" && !detail) {
-    return NextResponse.json({ error: "Detail Product required for manual save." }, { status: 400 });
+  if (!detail) {
+    return NextResponse.json({ error: "Detail Product diperlukan." }, { status: 400 });
   }
 
   const admin = createAdminClient();
@@ -77,5 +94,16 @@ export async function POST(req: Request) {
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  return NextResponse.json({ ok: true });
+  // Bucket MOVE: adding a link to a Tiada Link Product promotes it to Beg
+  // Kuning (and removing the link demotes it). Delete the same-named row in
+  // the OPPOSITE bucket so the product lives in exactly one list, never both.
+  const otherKind = kind === "affiliate" ? "manual" : "affiliate";
+  await admin
+    .from("saved_products")
+    .delete()
+    .eq("user_id", user.id)
+    .eq("kind", otherKind)
+    .ilike("product_name", productName);
+
+  return NextResponse.json({ ok: true, kind });
 }

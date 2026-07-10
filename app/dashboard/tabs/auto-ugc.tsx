@@ -39,8 +39,10 @@ const GREEN = "#facc15";
 type ManualProduct = {
   info: string;          // textarea content (backend field). For manual mode it
                          // is kept in sync as `name + "\n" + detail`.
-  name?: string;         // manual mode: Product Name (line 1 of info)
-  detail?: string;       // manual mode: Detail Product (rest of info)
+  name?: string;         // Product Name (line 1 of info)
+  detail?: string;       // Detail Product (rest of info)
+  begKuningUrl?: string; // optional Beg Kuning link. Present → "Beg Kuning
+                         // Product"; empty → "Tiada Link Product".
   imageData: string;     // primary slot (also used by affiliate auto-fill)
   imageUrls: string[];   // multi-pick slots 1-3. imageData mirrors imageUrls[0].
 };
@@ -200,6 +202,9 @@ export default function AutoUgcTab({ projectId }: { projectId?: string } = {}) {
   const [savedManual, setSavedManual] = useState<SavedProduct[]>([]);
   // 📦 saved-manual dropdown open state (merged Product panel).
   const [showSavedManual, setShowSavedManual] = useState(false);
+  // 🔗 Beg Kuning Product = saved products that HAVE a link (kind=affiliate).
+  const [savedAffiliate, setSavedAffiliate] = useState<SavedProduct[]>([]);
+  const [showSavedAffiliate, setShowSavedAffiliate] = useState(false);
   // Per-product scrape state. Click "Scrape" → loading=true → fetch
   // fires → either `images: string[]` or `error: string` lands here.
   // The count badge that replaces the Scrape button reads from this map.
@@ -251,6 +256,7 @@ export default function AutoUgcTab({ projectId }: { projectId?: string } = {}) {
   useEffect(() => {
     loadRecentProducts();
     loadSavedManual();
+    loadSavedAffiliate();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -561,52 +567,83 @@ export default function AutoUgcTab({ projectId }: { projectId?: string } = {}) {
     } catch {}
   }
 
-  // Apply a saved manual product → fill Product Name + Detail + attachments.
+  // 🔗 Beg Kuning Product = saved products that carry a link (kind=affiliate).
+  async function loadSavedAffiliate() {
+    try {
+      const r = await fetch("/api/auto-content/saved-products?kind=affiliate", { cache: "no-store" });
+      const d = await r.json().catch(() => ({}));
+      if (Array.isArray(d?.items)) setSavedAffiliate(d.items as SavedProduct[]);
+    } catch {}
+  }
+
+  function begKuningLinkFor(productId: string | null): string {
+    return productId ? `https://www.tiktok.com/shop/my/pdp/product/${productId}` : "";
+  }
+
+  // Apply a saved Tiada Link product → fill Name + Detail + attachments, no link.
   function applyManualSaved(sp: SavedProduct) {
-    setProductMode("manual"); // picked a saved manual product → manual mode
+    setProductMode("manual");
     setTiktokProductId("");
     setShowSavedManual(false);
+    setShowSavedAffiliate(false);
     const urls = (sp.attachments || []).filter(Boolean).slice(0, 3);
     setManualProducts((prev) => prev.map((x, j) => (j === 0 ? {
       ...x,
       name: sp.product_name,
       detail: sp.detail || "",
+      begKuningUrl: "",
       info: mergeManualInfo(sp.product_name, sp.detail || ""),
       imageUrls: urls,
       imageData: urls[0] || "",
     } : x)));
   }
 
-  // Save the current product card as a reusable preset (name + detail + 3 imgs).
+  // Apply a saved Beg Kuning product → fill Name + Detail + attachments + link.
+  function applyAffiliateSaved(sp: SavedProduct) {
+    setProductMode("manual");
+    setTiktokProductId(sp.product_id || "");
+    setShowSavedAffiliate(false);
+    setShowSavedManual(false);
+    const urls = (sp.attachments || []).filter(Boolean).slice(0, 3);
+    setManualProducts((prev) => prev.map((x, j) => (j === 0 ? {
+      ...x,
+      name: sp.product_name,
+      detail: sp.detail || "",
+      begKuningUrl: begKuningLinkFor(sp.product_id),
+      info: mergeManualInfo(sp.product_name, sp.detail || ""),
+      imageUrls: urls,
+      imageData: urls[0] || "",
+    } : x)));
+  }
+
+  // Save the current product card as a reusable preset. Unified model: the
+  // Beg Kuning link decides the bucket — link present → Beg Kuning Product,
+  // empty → Tiada Link Product. Name + Detail + attachment(s) always required.
   async function saveProduct(i: number) {
     const p = manualProducts[i];
     if (!p) return;
-    const isAffiliate = productMode === "affiliate";
     const imgs = (p.imageUrls || []).filter(Boolean);
-    if (imgs.length < 3) { setSavedMsg("Upload 3 attachments first."); return; }
-    if (isAffiliate && !tiktokProductId) { setSavedMsg("Pick the affiliate product first."); return; }
-    const productName = isAffiliate
-      ? ((p.name || (p.info || "").split("\n")[0] || "Product").trim())
-      : (p.name || "").trim();
-    if (!isAffiliate && (!productName || !(p.detail || "").trim())) {
-      setSavedMsg("Fill Product Name + Detail first."); return;
-    }
+    if (imgs.length < 3) { setSavedMsg("Upload 3 attachment dulu."); return; }
+    const productName = (p.name || "").trim();
+    const detail = (p.detail || "").trim();
+    if (!productName || !detail) { setSavedMsg("Isi Product Name + Detail Product dulu."); return; }
+    const begKuningUrl = (p.begKuningUrl || "").trim();
     setSavingIdx(i); setSavedMsg(null);
     try {
       const r = await fetch("/api/auto-content/save-product", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          kind: isAffiliate ? "affiliate" : "manual",
-          product_id: isAffiliate ? tiktokProductId : undefined,
           product_name: productName,
-          detail: isAffiliate ? (p.info || null) : (p.detail || null),
+          detail,
+          beg_kuning_url: begKuningUrl,
           attachments: imgs.slice(0, 3),
         }),
       });
       const d = await r.json().catch(() => ({}));
       if (!r.ok || !d?.ok) throw new Error(d?.error || "Save failed");
-      setSavedMsg("✓ Saved");
-      if (!isAffiliate) loadSavedManual();
+      setSavedMsg(d.kind === "affiliate" ? "✓ Saved → Beg Kuning Product" : "✓ Saved → Tiada Link Product");
+      loadSavedManual();
+      loadSavedAffiliate();
       setTimeout(() => setSavedMsg(null), 4000);
     } catch (e: any) {
       setSavedMsg(e?.message || "Save failed");
@@ -954,40 +991,76 @@ export default function AutoUgcTab({ projectId }: { projectId?: string } = {}) {
             <button
               type="button"
               onClick={() => {
-                loadRecentProducts();
-                setShowRecent((s) => !s);
+                loadSavedAffiliate();
+                setShowSavedAffiliate((s) => !s);
                 setShowSavedManual(false);
+                setShowRecent(false);
               }}
-              title="Pilih dari link affiliate (fetch guna extension)"
+              title="Produk yang ada Link Beg Kuning"
               className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[11px] font-bold"
-              style={{ border: "1px solid #e8e0d8", background: showRecent ? "#fff8d6" : "#ffffff", color: "#1a1a1a" }}
+              style={{ border: "1px solid #e8e0d8", background: showSavedAffiliate ? "#fff8d6" : "#ffffff", color: "#1a1a1a" }}
             >
-              🔗 Affiliate
-              <span style={{ fontSize: "10px", background: "#facc15", borderRadius: 999, padding: "1px 6px", minWidth: 16, textAlign: "center" }}>{recentProducts.length}</span>
+              🔗 Beg Kuning Product
+              <span style={{ fontSize: "10px", background: "#facc15", borderRadius: 999, padding: "1px 6px", minWidth: 16, textAlign: "center" }}>{savedAffiliate.length}</span>
             </button>
             <button
               type="button"
               onClick={() => {
                 loadSavedManual();
                 setShowSavedManual((s) => !s);
+                setShowSavedAffiliate(false);
                 setShowRecent(false);
               }}
-              title="Pilih dari produk manual yang dah Save Attachment"
+              title="Produk tanpa Link Beg Kuning"
               className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[11px] font-bold"
               style={{ border: "1px solid #e8e0d8", background: showSavedManual ? "#fff8d6" : "#ffffff", color: "#1a1a1a" }}
             >
-              📦 Saved Data
+              📦 Tiada Link Product
               <span style={{ fontSize: "10px", background: "#facc15", borderRadius: 999, padding: "1px 6px", minWidth: 16, textAlign: "center" }}>{savedManual.length}</span>
             </button>
           </div>
         </div>
 
-        {/* 📦 Saved manual products dropdown — pick to reload Name + Detail
+        {/* 🔗 Beg Kuning Product dropdown — saved products WITH a link. */}
+        {showSavedAffiliate && (
+          <div className="mb-3 rounded-xl overflow-hidden" style={{ border: "1px solid #e8e0d8", background: "#ffffff" }}>
+            <div className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider" style={{ color: "#8a7a6a", borderBottom: "1px solid #f0e8de" }}>
+              Beg Kuning Product ({savedAffiliate.length})
+            </div>
+            {savedAffiliate.length === 0 && (
+              <div className="px-3 py-4 text-[11px] leading-relaxed" style={{ color: "#8a7a6a" }}>
+                Belum ada. Isi form bawah + <strong>Link Beg Kuning</strong> → tekan <strong>Save Attachment</strong>.
+              </div>
+            )}
+            {savedAffiliate.map((s) => (
+              <button
+                key={s.id}
+                type="button"
+                onClick={() => applyAffiliateSaved(s)}
+                className="w-full flex items-center gap-2.5 px-3 py-2 text-left hover:bg-yellow-50"
+                style={{ borderBottom: "1px solid #f7f0e6" }}
+              >
+                {s.attachments?.[0] ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={s.attachments[0]} alt="" className="w-9 h-9 rounded-md object-cover flex-shrink-0" style={{ background: "#f0e8de" }} />
+                ) : (
+                  <div className="w-9 h-9 rounded-md flex-shrink-0" style={{ background: "#f0e8de" }} />
+                )}
+                <div className="flex-1 min-w-0">
+                  <div className="text-xs font-semibold truncate" style={{ color: "#1a1a1a" }}>{s.product_name}</div>
+                  <div className="text-[10px] mt-0.5" style={{ color: "#8a7a6a" }}>🔗 {(s.attachments || []).length} attachment</div>
+                </div>
+              </button>
+            ))}
+          </div>
+        )}
+
+        {/* 📦 Tiada Link Product dropdown — pick to reload Name + Detail
             + the 3 saved attachments instantly. */}
         {showSavedManual && (
           <div className="mb-3 rounded-xl overflow-hidden" style={{ border: "1px solid #e8e0d8", background: "#ffffff" }}>
             <div className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider" style={{ color: "#8a7a6a", borderBottom: "1px solid #f0e8de" }}>
-              Produk disimpan ({savedManual.length})
+              Tiada Link Product ({savedManual.length})
             </div>
             {savedManual.length === 0 && (
               <div className="px-3 py-4 text-[11px] leading-relaxed" style={{ color: "#8a7a6a" }}>
@@ -1274,6 +1347,11 @@ export default function AutoUgcTab({ projectId }: { projectId?: string } = {}) {
                 onDetailChange={(detail) =>
                   setManualProducts((prev) =>
                     prev.map((x, j) => (j === i ? { ...x, detail, info: mergeManualInfo(x.name, detail) } : x))
+                  )
+                }
+                onBegKuningChange={(begKuningUrl) =>
+                  setManualProducts((prev) =>
+                    prev.map((x, j) => (j === i ? { ...x, begKuningUrl } : x))
                   )
                 }
                 onPickAttachment={() => setAttachmentSlot(i)}
@@ -2006,6 +2084,7 @@ function ManualProductCard({
   onInfoChange,
   onNameChange,
   onDetailChange,
+  onBegKuningChange,
   onPickAttachment,
   onPickSlot,
   onSave,
@@ -2020,6 +2099,7 @@ function ManualProductCard({
   onInfoChange: (s: string) => void;
   onNameChange: (s: string) => void;
   onDetailChange: (s: string) => void;
+  onBegKuningChange: (s: string) => void;
   onPickAttachment: () => void;
   // Single-pick for ONE image slot (0|1|2) — clicking a numbered slot
   // opens a single-pick picker that writes only that slot.
@@ -2034,11 +2114,12 @@ function ManualProductCard({
   onClear: () => void;
 }) {
   const imgCount = product.imageUrls?.length || 0;
-  // Save rules: affiliate needs 3 attachments; manual needs Name + Detail + 3.
+  // Save rules (unified): Name + Detail + 3 attachments. Beg Kuning link is
+  // optional — its presence just decides the bucket at save time.
   const canSave =
     imgCount >= 3 &&
-    (mode === "affiliate" ||
-      (!!(product.name || "").trim() && !!(product.detail || "").trim()));
+    !!(product.name || "").trim() &&
+    !!(product.detail || "").trim();
   return (
     <div
       className="rounded-lg p-3"
@@ -2076,6 +2157,19 @@ function ManualProductCard({
             onChange={(e) => onDetailChange(e.target.value)}
             placeholder="Price, USP, ingredients, benefits…"
             className="w-full p-2 rounded text-xs resize-y outline-none mb-2"
+            style={{ background: "#ffffff", border: "1px solid #e8e0d8", color: "#1a1a1a" }}
+          />
+          {/* Link Beg Kuning (optional) — fill it + Save → Beg Kuning Product;
+              leave empty → Tiada Link Product. */}
+          <label className="block text-[9px] font-bold uppercase tracking-wider mb-1" style={{ color: "#888" }}>
+            Link Beg Kuning <span style={{ color: "#b8a898" }}>(optional)</span>
+          </label>
+          <input
+            type="url"
+            value={product.begKuningUrl || ""}
+            onChange={(e) => onBegKuningChange(e.target.value)}
+            placeholder="https://www.tiktok.com/... (kosongkan = Tiada Link Product)"
+            className="w-full p-2 rounded text-xs outline-none mb-2"
             style={{ background: "#ffffff", border: "1px solid #e8e0d8", color: "#1a1a1a" }}
           />
         </>
