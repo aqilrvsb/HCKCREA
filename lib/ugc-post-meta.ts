@@ -27,6 +27,44 @@ export type UgcPostMetaResult = {
   raw?: string;
 };
 
+// Distinct copy angles rotated per-video (by seed) so bulk-assigned
+// videos for the SAME product each lead with a different emotional hook
+// instead of all sounding identical.
+const COVER_ANGLES = [
+  "pain/masalah (before)",
+  "hasil/transformation (after)",
+  "urgency/takut terlepas",
+  "harga/berbaloi",
+  "social proof/ramai dah beli",
+  "curiosity/rahsia",
+  "empati/aku pun sama",
+  "cabaran/berani try",
+];
+
+// Seed-indexed fallback banks — used only when the LLM fails/parses empty.
+// Because they're indexed by the per-video seed, two fallbacks in the same
+// batch won't collide (the old code hardcoded one line → guaranteed dupes).
+const FB_COVER_TITLES = [
+  "JANGAN SKIP!",
+  "SERIUS NI?",
+  "MENYESAL TAK?",
+  "STOP SCROLL!",
+  "NAK GLOW?",
+  "RUGI TAU!",
+  "PERASAN TAK?",
+  "WAJIB TENGOK!",
+];
+const FB_COVER_SUBS = [
+  "TENGOK NI DULU",
+  "JANGAN MENYESAL LAMA",
+  "RAMAI DAH TRY NI",
+  "HASIL DALAM SEMINGGU",
+  "SIKIT LAGI SOLD OUT",
+  "KORANG KENA TAHU NI",
+  "AKU PUN TERKEJUT",
+  "TRY SEKALI TERUS SUKA",
+];
+
 // Parse the caption JSON an LLM returns, tolerating the mistakes models
 // routinely make: markdown fences, a trailing comma before } or ], and
 // single-quoted strings. Returns the object, or null if even the regex
@@ -86,6 +124,10 @@ export async function generateUgcPostMeta(
     productUrl?: string;
     productName?: string;
     productDetail?: string;
+    // Per-video seed (extension passes a hash of the history id). Drives
+    // hook selection, the LLM variation directive, and the fallback cover
+    // banks so bulk-assigned videos for the same product never duplicate.
+    variantSeed?: number;
     userIdGuard?: string;
     force?: boolean;
   } = {}
@@ -156,9 +198,16 @@ export async function generateUgcPostMeta(
   const productDetail = String(
     opts.productDetail || meta.product_detail || meta.detail || ""
   ).trim();
+  // Seed everything off the per-video variant so each video in a bulk
+  // assign gets a different opener + cover angle. 0 → derive from the
+  // history id so single/legacy calls still vary.
+  const seed =
+    Math.abs(Number(opts.variantSeed) || 0) ||
+    Array.from(historyId).reduce((h, c) => (h * 31 + c.charCodeAt(0)) >>> 0, 7);
   const { category: hookCategory, hooks: seedHooks } = hooksForProduct(
     `${productName} ${productDetail} ${(row.prompt || "").slice(0, 300)}`,
-    5
+    5,
+    seed
   );
   const hookBlock = seedHooks.length
     ? `\n\nTRENDING HOOK EXAMPLES (real viral ${hookCategory} affiliate hooks — open the caption with ONE line in THIS energy/style, then adapt it to THIS product; do not copy verbatim):\n${seedHooks
@@ -184,6 +233,8 @@ ${productName ? `Product: ${productName}` : "Product: (unknown — derive a gene
 ${productUrl ? `Product URL: ${productUrl}` : ""}
 
 Existing caption (rewrite if weak/empty): ${existingCaption || "(none)"}
+
+IMPORTANT — this is video #${(seed % 1000)} of MANY for the SAME product. Make the caption, cover_title, and cover_subtitle UNIQUE to this video. Lead with the "${COVER_ANGLES[seed % COVER_ANGLES.length]}" angle so it does NOT read like the other videos for this product. Vary the wording, emotion, and hook — no repeated cover lines.
 
 Return JSON only. No markdown, no prose. Start with { and end with }.`;
 
@@ -271,13 +322,12 @@ Return JSON only. No markdown, no prose. Start with { and end with }.`;
     .join(" ");
   let coverSubtitle = String(parsed.cover_subtitle || "").trim().toUpperCase();
   // Guarantee cover text even when the LLM failed/parsed empty — otherwise
-  // the video ships with a blank cover (the exact client complaint).
-  if (!coverTitle) coverTitle = "JANGAN SKIP!";
+  // the video ships with a blank cover (the exact client complaint). Pull
+  // from seed-indexed banks (offset the subtitle by a different stride) so
+  // fallbacks across a batch stay distinct instead of all identical.
+  if (!coverTitle) coverTitle = FB_COVER_TITLES[seed % FB_COVER_TITLES.length];
   if (!coverSubtitle) {
-    coverSubtitle = (productName
-      ? `CUBA ${productName.split(/\s+/).slice(0, 3).join(" ")}`
-      : "TENGOK NI DULU"
-    ).toUpperCase();
+    coverSubtitle = FB_COVER_SUBS[(seed + 3) % FB_COVER_SUBS.length];
   }
 
   await admin

@@ -22,6 +22,7 @@ export async function POST(req: Request) {
   const productUrl = String(body?.product_url || "").trim();
   const productName = String(body?.product_name || "").trim();
   const productDetail = String(body?.product_detail || "").trim();
+  const variantSeed = Number(body?.variant_seed) || 0;
   if (!historyId) {
     return NextResponse.json({ error: "history_id required" }, { status: 400 });
   }
@@ -30,6 +31,7 @@ export async function POST(req: Request) {
     productUrl,
     productName,
     productDetail,
+    variantSeed,
     userIdGuard: user.id,
     force: true,
   });
