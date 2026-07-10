@@ -1029,7 +1029,7 @@ export default function AutoUgcTab({ projectId }: { projectId?: string } = {}) {
             </div>
             {savedAffiliate.length === 0 && (
               <div className="px-3 py-4 text-[11px] leading-relaxed" style={{ color: "#8a7a6a" }}>
-                Belum ada. Isi form bawah + <strong>Link Beg Kuning</strong> → tekan <strong>Save Attachment</strong>.
+                Belum ada. Isi form bawah + <strong>Link Beg Kuning</strong> → tekan <strong>Save Info Product</strong>.
               </div>
             )}
             {savedAffiliate.map((s) => (
@@ -1064,7 +1064,7 @@ export default function AutoUgcTab({ projectId }: { projectId?: string } = {}) {
             </div>
             {savedManual.length === 0 && (
               <div className="px-3 py-4 text-[11px] leading-relaxed" style={{ color: "#8a7a6a" }}>
-                Belum ada produk disimpan. Isi form bawah → tekan <strong>Save Attachment</strong> untuk simpan.
+                Belum ada produk disimpan. Isi form bawah → tekan <strong>Save Info Product</strong> untuk simpan.
               </div>
             )}
             {savedManual.map((s) => (
@@ -2269,14 +2269,14 @@ function ManualProductCard({
                   ? "Fill Product Name + Detail + 3 attachments to save"
                   : "Upload 3 attachments to save"
             }
-            className="px-2 py-1 rounded text-[10px] font-bold disabled:opacity-40 whitespace-nowrap"
+            className="w-full px-3 py-2.5 rounded-lg text-sm font-extrabold disabled:opacity-40 whitespace-nowrap"
             style={{
-              background: "rgba(34,197,94,0.10)",
+              background: "rgba(34,197,94,0.12)",
               border: "1px solid #16a34a",
               color: "#15803d",
             }}
           >
-            {saving ? "⏳ Saving…" : "💾 Save Attachment"}
+            {saving ? "⏳ Saving…" : "💾 Save Info Product"}
           </button>
           {(product.imageUrls?.length || product.imageData) && (
             <SmallBtn onClick={onClear} danger>

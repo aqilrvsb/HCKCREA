@@ -57,24 +57,17 @@ export async function POST(req: Request) {
 
   const admin = createAdminClient();
 
-  // Find an existing record (partial unique indexes make ON CONFLICT awkward,
-  // so we look up then update/insert).
-  let existingId: string | null = null;
-  if (kind === "affiliate") {
-    const { data } = await admin
-      .from("saved_products")
-      .select("id")
-      .eq("user_id", user.id).eq("kind", "affiliate").eq("product_id", productId)
-      .maybeSingle();
-    existingId = data?.id || null;
-  } else {
-    const { data } = await admin
-      .from("saved_products")
-      .select("id")
-      .eq("user_id", user.id).eq("kind", "manual").ilike("product_name", productName)
-      .maybeSingle();
-    existingId = data?.id || null;
-  }
+  // ONE product name = ONE row (per user), regardless of bucket. Look up
+  // EVERY existing row with this name: update the first, delete the rest.
+  // This guarantees no duplicates by name and makes bucket moves (link
+  // added/removed) just flip the same row's kind — never a second entry.
+  const { data: dupes } = await admin
+    .from("saved_products")
+    .select("id")
+    .eq("user_id", user.id)
+    .ilike("product_name", productName)
+    .order("updated_at", { ascending: false });
+  const ids = (dupes || []).map((d: any) => d.id);
 
   const row = {
     user_id: user.id,
@@ -86,24 +79,18 @@ export async function POST(req: Request) {
     updated_at: new Date().toISOString(),
   };
 
-  if (existingId) {
-    const { error } = await admin.from("saved_products").update(row).eq("id", existingId);
+  if (ids.length > 0) {
+    const keepId = ids[0];
+    const { error } = await admin.from("saved_products").update(row).eq("id", keepId);
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    if (ids.length > 1) {
+      // Purge any older duplicates of the same name.
+      await admin.from("saved_products").delete().in("id", ids.slice(1));
+    }
   } else {
     const { error } = await admin.from("saved_products").insert(row);
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   }
-
-  // Bucket MOVE: adding a link to a Tiada Link Product promotes it to Beg
-  // Kuning (and removing the link demotes it). Delete the same-named row in
-  // the OPPOSITE bucket so the product lives in exactly one list, never both.
-  const otherKind = kind === "affiliate" ? "manual" : "affiliate";
-  await admin
-    .from("saved_products")
-    .delete()
-    .eq("user_id", user.id)
-    .eq("kind", otherKind)
-    .ilike("product_name", productName);
 
   return NextResponse.json({ ok: true, kind });
 }
