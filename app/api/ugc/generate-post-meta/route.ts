@@ -20,12 +20,16 @@ export async function POST(req: Request) {
   const body = await req.json().catch(() => ({}));
   const historyId = String(body?.history_id || "").trim();
   const productUrl = String(body?.product_url || "").trim();
+  const productName = String(body?.product_name || "").trim();
+  const productDetail = String(body?.product_detail || "").trim();
   if (!historyId) {
     return NextResponse.json({ error: "history_id required" }, { status: 400 });
   }
 
   const result = await generateUgcPostMeta(historyId, {
     productUrl,
+    productName,
+    productDetail,
     userIdGuard: user.id,
     force: true,
   });

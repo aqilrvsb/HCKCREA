@@ -29,7 +29,13 @@ export type UgcPostMetaResult = {
 
 export async function generateUgcPostMeta(
   historyId: string,
-  opts: { productUrl?: string; userIdGuard?: string; force?: boolean } = {}
+  opts: {
+    productUrl?: string;
+    productName?: string;
+    productDetail?: string;
+    userIdGuard?: string;
+    force?: boolean;
+  } = {}
 ): Promise<UgcPostMetaResult> {
   if (!historyId) return { ok: false, error: "history_id required" };
 
@@ -75,22 +81,28 @@ export async function generateUgcPostMeta(
     };
   }
 
-  // Extract TikTok product_id from a URL the caller passed (extension flow).
+  // Extract the product_id (Beg Kuning link) from the URL the caller passed.
   let tiktokProductId = String(meta.tiktok_product_id || "");
   const productUrl = String(opts.productUrl || "").trim();
-  if (productUrl && /tiktok\.com\//.test(productUrl)) {
+  if (productUrl) {
     const m =
       productUrl.match(/(?:product|pdp(?:\/[^/?]+)*)\/(\d{13,20})(?:[/?#]|$)/i) ||
-      productUrl.match(/\/(\d{15,20})(?:[/?#]|$)/);
+      productUrl.match(/\/(\d{13,20})(?:[/?#]|$)/) ||
+      productUrl.match(/(\d{13,20})/);
     if (m) tiktokProductId = m[1];
   }
 
-  const productName = String(meta.product_name || "").trim();
+  // Prefer the ASSIGNED product's name/detail (extension Non Saved ID flow)
+  // over anything already on the row, so the caption is written for THIS
+  // product.
+  const productName = String(opts.productName || meta.product_name || "").trim();
 
   // Seed real, category-matched trending hooks (scraped from hook-affiliate)
   // so the caption opens like a proven viral line instead of a generic one.
-  // Category inferred from product name + the video prompt body.
-  const productDetail = String(meta.product_detail || meta.detail || "").trim();
+  // Category inferred from product name + detail + the video prompt body.
+  const productDetail = String(
+    opts.productDetail || meta.product_detail || meta.detail || ""
+  ).trim();
   const { category: hookCategory, hooks: seedHooks } = hooksForProduct(
     `${productName} ${productDetail} ${(row.prompt || "").slice(0, 300)}`,
     5
@@ -208,6 +220,10 @@ Return JSON only. No markdown, no prose. Start with { and end with }.`;
         cover_title: coverTitle,
         cover_subtitle: coverSubtitle,
         tiktok_product_id: tiktokProductId || meta.tiktok_product_id || null,
+        // Stamp the assigned product so Auto Post + future loads carry the
+        // Beg Kuning link + product name/detail alongside the caption.
+        product_name: productName || meta.product_name || null,
+        product_detail: productDetail || meta.product_detail || null,
       },
     })
     .eq("id", row.id);
