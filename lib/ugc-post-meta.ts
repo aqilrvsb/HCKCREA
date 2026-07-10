@@ -27,6 +27,59 @@ export type UgcPostMetaResult = {
   raw?: string;
 };
 
+// Parse the caption JSON an LLM returns, tolerating the mistakes models
+// routinely make: markdown fences, a trailing comma before } or ], and
+// single-quoted strings. Returns the object, or null if even the regex
+// fallback finds nothing. Never throws.
+function tolerantParseMeta(
+  raw: string
+): { caption?: string; cover_title?: string; cover_subtitle?: string } | null {
+  let cleaned = String(raw || "").trim();
+  // Strip a leading/trailing markdown fence.
+  if (cleaned.startsWith("```")) {
+    cleaned = cleaned.replace(/^```json?\s*/i, "").replace(/```\s*$/, "").trim();
+  }
+  // Slice to the outermost braces.
+  const start = cleaned.indexOf("{");
+  const end = cleaned.lastIndexOf("}");
+  if (start >= 0 && end > start) cleaned = cleaned.substring(start, end + 1);
+
+  // Attempt 1 — parse as-is.
+  try {
+    return JSON.parse(cleaned);
+  } catch {
+    /* fall through to repair */
+  }
+
+  // Attempt 2 — repair the two most common defects: trailing commas and
+  // (naively) single-quoted property names/values.
+  try {
+    const repaired = cleaned
+      .replace(/,\s*([}\]])/g, "$1") // drop trailing commas
+      .replace(/([{,]\s*)'([^']+?)'(\s*:)/g, '$1"$2"$3') // 'key': -> "key":
+      .replace(/(:\s*)'([^']*?)'(\s*[},])/g, '$1"$2"$3'); // : 'val' -> : "val"
+    return JSON.parse(repaired);
+  } catch {
+    /* fall through to regex extraction */
+  }
+
+  // Attempt 3 — pull the 3 known fields out with regex. Handles badly
+  // broken output where the JSON structure itself is unrecoverable.
+  const grab = (key: string): string | undefined => {
+    const m = cleaned.match(
+      new RegExp(`["']?${key}["']?\\s*:\\s*["']([\\s\\S]*?)["']\\s*[,}]`, "i")
+    );
+    return m ? m[1].replace(/\\"/g, '"').trim() : undefined;
+  };
+  const caption = grab("caption");
+  const cover_title = grab("cover_title");
+  const cover_subtitle = grab("cover_subtitle");
+  if (caption || cover_title || cover_subtitle) {
+    return { caption, cover_title, cover_subtitle };
+  }
+  return null;
+}
+
 export async function generateUgcPostMeta(
   historyId: string,
   opts: {
@@ -144,23 +197,32 @@ Return JSON only. No markdown, no prose. Start with { and end with }.`;
     temperature: 0.85,
     maxTokens: 1200,
   });
-  if (!llm.ok || !llm.content) {
-    return { ok: false, error: llm.error || "LLM call failed" };
-  }
+  // A fallback caption/cover we can ALWAYS fall back on — built from the
+  // seeded hook + product name so the row never ends up with a bare
+  // filename description. Used when the LLM call fails OR its JSON can't
+  // be parsed/repaired. Critically, we still stamp the product below in
+  // both cases so the Beg Kuning link + cover survive an LLM hiccup.
+  const fbHook = (seedHooks[0] || "Korang kena tengok ni!").replace(/\s+/g, " ").trim();
+  const fbTags = [
+    "#TikTokShopMalaysia",
+    "#ViralMY",
+    "#MestiCuba",
+    "#ReviewJujur",
+    "#FYPMalaysia",
+  ];
+  const fallbackCaption = `${fbHook}${
+    productName ? ` Aku try ${productName.substring(0, 50)}, memang berbaloi!` : ""
+  } ${fbTags.join(" ")}`.trim();
 
-  // Parse JSON (handle markdown fence the model sometimes adds).
-  let parsed: any;
-  try {
-    let cleaned = llm.content.trim();
-    if (cleaned.startsWith("```")) {
-      cleaned = cleaned.replace(/^```json?\s*/i, "").replace(/```\s*$/, "").trim();
-    }
-    const start = cleaned.indexOf("{");
-    const end = cleaned.lastIndexOf("}");
-    if (start >= 0 && end > start) cleaned = cleaned.substring(start, end + 1);
-    parsed = JSON.parse(cleaned);
-  } catch (e: any) {
-    return { ok: false, error: `Parse failed: ${e?.message}`, raw: llm.content.substring(0, 300) };
+  // Parse the LLM JSON tolerantly — models frequently emit a trailing
+  // comma, single quotes, or a markdown fence. We strip the fence, slice
+  // to the outermost braces, remove trailing commas, and (last resort)
+  // regex-extract the 3 fields. parsed stays {} if everything fails; the
+  // repair pass below fills every field from fallbacks so we still write
+  // a usable row instead of bailing.
+  let parsed: any = {};
+  if (llm.ok && llm.content) {
+    parsed = tolerantParseMeta(llm.content) || {};
   }
 
   // Enforce exactly 5 hashtags (auto-content's same repair pass).
@@ -173,11 +235,9 @@ Return JSON only. No markdown, no prose. Start with { and end with }.`;
   ];
   let caption = String(parsed.caption || "").trim();
   if (caption.length < 20) {
-    const t = String(parsed.cover_title || "").trim();
-    const s = String(parsed.cover_subtitle || "").trim();
-    caption = `${t && s ? `${t} ${s}` : "Korang kena try ni!"} ${
-      productName ? `Aku pakai ${productName.substring(0, 40)}, memang berbaloi!` : ""
-    } ${FALLBACK_HASHTAGS.join(" ")}`.trim();
+    // LLM gave nothing usable — fall back to the hook-seeded caption so
+    // the description is never a bare filename.
+    caption = fallbackCaption;
   }
 
   const tokens = caption.split(/\s+/);
@@ -203,13 +263,22 @@ Return JSON only. No markdown, no prose. Start with { and end with }.`;
     .filter((t) => t.startsWith("#"))
     .slice(0, 5);
 
-  const coverTitle = String(parsed.cover_title || "")
+  let coverTitle = String(parsed.cover_title || "")
     .trim()
     .toUpperCase()
     .split(/\s+/)
     .slice(0, 2)
     .join(" ");
-  const coverSubtitle = String(parsed.cover_subtitle || "").trim().toUpperCase();
+  let coverSubtitle = String(parsed.cover_subtitle || "").trim().toUpperCase();
+  // Guarantee cover text even when the LLM failed/parsed empty — otherwise
+  // the video ships with a blank cover (the exact client complaint).
+  if (!coverTitle) coverTitle = "JANGAN SKIP!";
+  if (!coverSubtitle) {
+    coverSubtitle = (productName
+      ? `CUBA ${productName.split(/\s+/).slice(0, 3).join(" ")}`
+      : "TENGOK NI DULU"
+    ).toUpperCase();
+  }
 
   await admin
     .from("history")
