@@ -5,22 +5,29 @@ import { authExtensionUser } from "@/lib/extension-auth";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-// GET /api/extension/recent?tab=ugc|auto&posted=all|posted|unposted&limit=50
+// GET /api/extension/recent?tab=ugc|auto|original-video|auto-ugc
+//     &posted=all|posted|unposted&limit=50&project=<project_id>
 //
-// Feeds the extension's auto-post tabs:
-//   tab=ugc  → history rows where tab='video' (UGC tab + Agent UGC),
-//              filter status='done' so only finished videos show up.
-//   tab=auto → history rows where tab='auto' (Auto Content batch).
-//
-// The extension uses this to populate the UGC / Auto Content sub-tabs
-// under "Not Posted" and "Posted" sections. `posted` query param lets
-// the extension fetch one bucket at a time (default = all).
+// Feeds the extension's Auto Post tab (v3.6+: ONE tab with a profile
+// [project] picker + source-tab dropdown; pre-3.6 clients send only
+// ugc|auto and no project — both keep working unchanged):
+//   tab=ugc            → history tab='video'          (Dialog UGC)
+//   tab=auto           → history tab='auto'           (Auto Content)
+//   tab=original-video → history tab='original-video' (Original Video)
+//   tab=auto-ugc       → history tab='auto-ugc'       (Auto UGC / Grok)
+// All filtered to status='done'. Optional `project` narrows to one
+// PeningLab project. `posted` lets the extension fetch one bucket at a
+// time (default = all).
 export async function GET(req: Request) {
   const user = await authExtensionUser(req);
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const url = new URL(req.url);
-  const tab = url.searchParams.get("tab") === "auto" ? "auto" : "ugc";
+  const tabParam = url.searchParams.get("tab") || "ugc";
+  const tab = ["auto", "original-video", "auto-ugc", "ugc"].includes(tabParam)
+    ? tabParam
+    : "ugc";
+  const project = (url.searchParams.get("project") || "").trim();
   const posted = url.searchParams.get("posted") || "all";
   const limit = Math.min(200, Math.max(1, Number(url.searchParams.get("limit") || 50)));
 
@@ -41,11 +48,19 @@ export async function GET(req: Request) {
 
   if (tab === "auto") {
     q = q.eq("tab", "auto");
+  } else if (tab === "original-video") {
+    q = q.eq("tab", "original-video");
+  } else if (tab === "auto-ugc") {
+    q = q.eq("tab", "auto-ugc");
   } else {
     // UGC = both the video tab + agent UGC rows. Both store tab='video'
     // currently, with metadata.agent === "ugc" for the agent variant.
     q = q.eq("tab", "video");
   }
+
+  // Profile filter — the extension's Auto Post tab scopes videos to one
+  // PeningLab project. Empty/absent = all projects (pre-3.6 behaviour).
+  if (project) q = q.eq("project_id", project);
 
   if (posted === "posted") q = q.eq("posted_to_tiktok", true);
   if (posted === "unposted") q = q.eq("posted_to_tiktok", false);
