@@ -41,30 +41,6 @@ const COVER_ANGLES = [
   "cabaran/berani try",
 ];
 
-// Seed-indexed fallback banks — used only when the LLM fails/parses empty.
-// Because they're indexed by the per-video seed, two fallbacks in the same
-// batch won't collide (the old code hardcoded one line → guaranteed dupes).
-const FB_COVER_TITLES = [
-  "JANGAN SKIP!",
-  "SERIUS NI?",
-  "MENYESAL TAK?",
-  "STOP SCROLL!",
-  "NAK GLOW?",
-  "RUGI TAU!",
-  "PERASAN TAK?",
-  "WAJIB TENGOK!",
-];
-const FB_COVER_SUBS = [
-  "TENGOK NI DULU",
-  "JANGAN MENYESAL LAMA",
-  "RAMAI DAH TRY NI",
-  "HASIL DALAM SEMINGGU",
-  "SIKIT LAGI SOLD OUT",
-  "KORANG KENA TAHU NI",
-  "AKU PUN TERKEJUT",
-  "TRY SEKALI TERUS SUKA",
-];
-
 // Parse the caption JSON an LLM returns, tolerating the mistakes models
 // routinely make: markdown fences, a trailing comma before } or ], and
 // single-quoted strings. Returns the object, or null if even the regex
@@ -248,35 +224,35 @@ Return JSON only. No markdown, no prose. Start with { and end with }.`;
     temperature: 0.85,
     maxTokens: 1200,
   });
-  // A fallback caption/cover we can ALWAYS fall back on — built from the
-  // seeded hook + product name so the row never ends up with a bare
-  // filename description. Used when the LLM call fails OR its JSON can't
-  // be parsed/repaired. Critically, we still stamp the product below in
-  // both cases so the Beg Kuning link + cover survive an LLM hiccup.
-  const fbHook = (seedHooks[0] || "Korang kena tengok ni!").replace(/\s+/g, " ").trim();
-  const fbTags = [
-    "#TikTokShopMalaysia",
-    "#ViralMY",
-    "#MestiCuba",
-    "#ReviewJujur",
-    "#FYPMalaysia",
-  ];
-  const fallbackCaption = `${fbHook}${
-    productName ? ` Aku try ${productName.substring(0, 50)}, memang berbaloi!` : ""
-  } ${fbTags.join(" ")}`.trim();
-
   // Parse the LLM JSON tolerantly — models frequently emit a trailing
   // comma, single quotes, or a markdown fence. We strip the fence, slice
   // to the outermost braces, remove trailing commas, and (last resort)
-  // regex-extract the 3 fields. parsed stays {} if everything fails; the
-  // repair pass below fills every field from fallbacks so we still write
-  // a usable row instead of bailing.
+  // regex-extract the 3 fields. parsed stays {} if everything fails.
   let parsed: any = {};
   if (llm.ok && llm.content) {
     parsed = tolerantParseMeta(llm.content) || {};
   }
 
-  // Enforce exactly 5 hashtags (auto-content's same repair pass).
+  // NO FALLBACK. If the LLM didn't produce a real caption + BOTH cover
+  // lines, we SKIP this video entirely — write nothing, return ok:false.
+  // A generic fallback would falsely mark the row "Auto-Post ready" with
+  // weak duplicate copy; instead the row stays incomplete, the extension's
+  // completeness gate keeps it out of Auto Post, and the user regenerates
+  // it later to get a real, unique caption/cover.
+  const rawCaption = String(parsed.caption || "").trim();
+  const rawCoverTitle = String(parsed.cover_title || "").trim();
+  const rawCoverSubtitle = String(parsed.cover_subtitle || "").trim();
+  if (rawCaption.length < 20 || !rawCoverTitle || !rawCoverSubtitle) {
+    return {
+      ok: false,
+      error: "LLM output incomplete (caption/cover) — skipped, regenerate later",
+      raw: (llm.content || "").substring(0, 200),
+    };
+  }
+
+  // Enforce exactly 5 hashtags (auto-content's same repair pass). Hashtags
+  // are the one field we top up (they're generic by nature); the caption
+  // body + cover text themselves are never synthesised.
   const FALLBACK_HASHTAGS = [
     "#TikTokShopMalaysia",
     "#ViralMY",
@@ -284,12 +260,7 @@ Return JSON only. No markdown, no prose. Start with { and end with }.`;
     "#ReviewJujur",
     "#FYPMalaysia",
   ];
-  let caption = String(parsed.caption || "").trim();
-  if (caption.length < 20) {
-    // LLM gave nothing usable — fall back to the hook-seeded caption so
-    // the description is never a bare filename.
-    caption = fallbackCaption;
-  }
+  let caption = rawCaption;
 
   const tokens = caption.split(/\s+/);
   const hashIdxs = tokens
@@ -314,21 +285,14 @@ Return JSON only. No markdown, no prose. Start with { and end with }.`;
     .filter((t) => t.startsWith("#"))
     .slice(0, 5);
 
-  let coverTitle = String(parsed.cover_title || "")
-    .trim()
+  // Cover text is guaranteed present (we returned ok:false above otherwise),
+  // so no synthesis here — just normalise casing/length.
+  const coverTitle = rawCoverTitle
     .toUpperCase()
     .split(/\s+/)
     .slice(0, 2)
     .join(" ");
-  let coverSubtitle = String(parsed.cover_subtitle || "").trim().toUpperCase();
-  // Guarantee cover text even when the LLM failed/parsed empty — otherwise
-  // the video ships with a blank cover (the exact client complaint). Pull
-  // from seed-indexed banks (offset the subtitle by a different stride) so
-  // fallbacks across a batch stay distinct instead of all identical.
-  if (!coverTitle) coverTitle = FB_COVER_TITLES[seed % FB_COVER_TITLES.length];
-  if (!coverSubtitle) {
-    coverSubtitle = FB_COVER_SUBS[(seed + 3) % FB_COVER_SUBS.length];
-  }
+  const coverSubtitle = rawCoverSubtitle.toUpperCase();
 
   await admin
     .from("history")
