@@ -13,6 +13,8 @@
 // dialog-style rules, the 20-pattern viral hook bank, clothing variety,
 // diversity, caption + cover rules.
 
+import { hooksForProduct } from "@/lib/hook-bank";
+
 export type UgcPlanSegment = {
   scene: string;
   dialog: string;
@@ -83,6 +85,14 @@ export function buildAutoUgcMasterPlan(opts: MasterPlanOpts): {
   const segCount = segLens.length;
   const ageRange = ageRangeOf(age);
   const genderWord = gender === "male" ? "Malay man" : "Malay woman";
+
+  // Real category-matched trending hooks (scraped from hook-affiliate) —
+  // inferred from the product name/detail and injected into the hook bank
+  // so the AI seeds proven viral lines, not just generic patterns.
+  const { category: hookCategory, hooks: seedHooks } = hooksForProduct(
+    `${product.name} ${product.detail} ${customIdea}`,
+    8
+  );
   const beautyLock =
     gender === "male"
       ? "handsome attractive Malay man with sharp features and clear skin"
@@ -214,7 +224,13 @@ DIALOG QUALITY:
 - Last (last segment) = CTA or emotional close.
 - Use SPECIFIC WORDS (numbers, named pain points, concrete results) — never vague "best"/"bagus".
 - ROTATE hooks across the batch — no two videos share a hook pattern.
-</viral_hook_bank>
+${
+  seedHooks.length
+    ? `\nREAL TRENDING ${hookCategory.toUpperCase()} HOOKS (scraped from live Malaysian affiliate feeds — match THIS product's niche). Use these as the ENERGY/STYLE reference for your spoken hooks + captions; adapt to the product, spread across the batch, never copy verbatim:\n${seedHooks
+        .map((h) => `- ${h}`)
+        .join("\n")}\n`
+    : ""
+}</viral_hook_bank>
 
 <camera_and_visual_rules>
 Every segment MUST have dynamic visuals — no static medium-pose-only. Rotate shot types across the batch: medium waist-up, close-up head/shoulders, selfie-style handheld, low-angle, over-the-shoulder, product close-up with hands, walking-to-camera. Camera energy varies: static/calm, slight zoom on hook, handheld shake, slow pan, pull-back reveal. Backgrounds match the product logically and DIFFER per segment (bedroom, bright kitchen, bathroom vanity, living room, car, cafe, dressing table, etc.).

@@ -11,6 +11,7 @@
 
 import { createAdminClient } from "@/lib/supabase/admin";
 import { orChat } from "@/lib/openrouter";
+import { hooksForProduct } from "@/lib/hook-bank";
 
 export type UgcPostMetaResult = {
   ok: boolean;
@@ -86,14 +87,28 @@ export async function generateUgcPostMeta(
 
   const productName = String(meta.product_name || "").trim();
 
+  // Seed real, category-matched trending hooks (scraped from hook-affiliate)
+  // so the caption opens like a proven viral line instead of a generic one.
+  // Category inferred from product name + the video prompt body.
+  const productDetail = String(meta.product_detail || meta.detail || "").trim();
+  const { category: hookCategory, hooks: seedHooks } = hooksForProduct(
+    `${productName} ${productDetail} ${(row.prompt || "").slice(0, 300)}`,
+    5
+  );
+  const hookBlock = seedHooks.length
+    ? `\n\nTRENDING HOOK EXAMPLES (real viral ${hookCategory} affiliate hooks — open the caption with ONE line in THIS energy/style, then adapt it to THIS product; do not copy verbatim):\n${seedHooks
+        .map((h) => `- ${h}`)
+        .join("\n")}`
+    : "";
+
   const systemPrompt = `You write TikTok post metadata for Malaysian UGC creators. Output ONLY a JSON object — no markdown, no commentary.
 
 Required keys:
-- caption: 2-3 sentences in informal Bahasa Melayu (korang, aku, ni, tu, memang, gila), 50-280 chars, ending with EXACTLY 5 viral hashtags. The 5 hashtags MUST be different categories: product category, benefit, problem/solution, Malaysian trending, buying intent. NO duplicate tags.
+- caption: 2-3 sentences in informal Bahasa Melayu (korang, aku, ni, tu, memang, gila), 50-280 chars. OPEN with a scroll-stopping trending hook (see the hook examples below), then 1 line of value, ending with EXACTLY 5 viral hashtags. The 5 hashtags MUST be different categories: product category, benefit, problem/solution, Malaysian trending, buying intent. NO duplicate tags.
 - cover_title: EXACTLY 2 words, ALL CAPS, ends with "?" or "!". Pain question / interrupt / bold claim — NEVER the product name. Examples: "GATAL BAU?", "ASYIK SEMPIT?", "STOP!", "MAHAL KAN?"
 - cover_subtitle: 3-6 words, ALL CAPS, completes the hook from cover_title. Patterns: urgency / result-timeline / instruction / empathy. Examples: "JANGAN BIAR LAMA!", "30 HARI BOLEH GLOW", "TENGOK NI DULU".
 
-Tone: real Malaysian friend sharing, never an ad. The cover text + caption together should make a viewer who's scrolling stop and feel "eh, ni pasal masalah aku".`;
+Tone: real Malaysian friend sharing, never an ad. The cover text + caption together should make a viewer who's scrolling stop and feel "eh, ni pasal masalah aku".${hookBlock}`;
 
   const userPrompt = `Video prompt body (for context only — describes the scene/subject):
 """
