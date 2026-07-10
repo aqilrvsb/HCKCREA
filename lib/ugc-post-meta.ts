@@ -123,7 +123,10 @@ Existing caption (rewrite if weak/empty): ${existingCaption || "(none)"}
 Return JSON only. No markdown, no prose. Start with { and end with }.`;
 
   const llm = await orChat({
-    modelKey: "model_auto",
+    // Same model slot as the Auto UGC / Auto Content master plan
+    // (model_custom_idea) so caption copywriting matches the on-platform
+    // dialog voice. Falls back to model_auto when admin hasn't set it.
+    modelKey: "model_custom_idea",
     systemPrompt,
     userPrompt,
     temperature: 0.85,
