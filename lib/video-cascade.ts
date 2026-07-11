@@ -68,6 +68,13 @@ export type VideoCascadeInput = {
    *  resubmit, it starts from first fallback cascade". Combined with
    *  retry=true. No effect when retry=false. */
   forceFirstFallback?: boolean;
+  /** Force this EXACT slot for this attempt, bypassing round-robin +
+   *  fallback selection entirely. Set by the History → Original Video
+   *  "pick provider" Resubmit: the user chose e.g. p6-b, so this fire uses
+   *  p6-b. If it fails, event-driven recovery (settle.ts / cron, which do
+   *  NOT set forceSlot) cascades normally — "try chosen provider first,
+   *  then cascade". Takes precedence over retry/forceFirstFallback/skipSlot. */
+  forceSlot?: SlotProvider;
   /** Which cascade pool to draw from. Defaults to "video" (UGC + Auto
    *  Content + Veo cinema). "grok" routes through the Grok cascade
    *  (typically p6-a..h). "cinema" routes through the Cinema (Seedance)
@@ -268,7 +275,13 @@ export async function generateVideoWithCascade(
       startIdx = validIdxs[(pos + 1) % validIdxs.length];
     }
   }
-  const order: SlotProvider[] = slots[startIdx] === "none" ? [] : [slots[startIdx]];
+  // forceSlot: user explicitly picked a provider for this fire — use it
+  // verbatim, ignoring the round-robin/fallback selection above.
+  const order: SlotProvider[] = input.forceSlot
+    ? [input.forceSlot]
+    : slots[startIdx] === "none"
+      ? []
+      : [slots[startIdx]];
 
   const errs: Record<number, string> = {};
   for (let i = 0; i < order.length; i++) {

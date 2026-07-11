@@ -35,6 +35,15 @@ export async function POST(req: Request) {
   // original row.prompt — and persists it back to row.prompt so the
   // edit sticks for future retries / extends.
   const promptOverride = typeof body?.prompt === "string" ? body.prompt.trim() : "";
+  // Optional forced provider slot from the History → Original Video "pick
+  // provider" dropdown. Whitelisted to the 4 user-selectable slots so a
+  // caller can't force an arbitrary/invalid slot. When set, the cascade
+  // uses THIS slot for the resubmit fire (then normal cascade on failure).
+  const FORCEABLE_SLOTS = ["p2-a", "p2-b", "p6-a", "p6-b"] as const;
+  const rawForceSlot = String(body?.force_slot || "").trim().toLowerCase();
+  const forceSlot = (FORCEABLE_SLOTS as readonly string[]).includes(rawForceSlot)
+    ? (rawForceSlot as (typeof FORCEABLE_SLOTS)[number])
+    : undefined;
   if (!historyId) {
     return NextResponse.json({ error: "history_id required" }, { status: 400 });
   }
@@ -359,8 +368,12 @@ export async function POST(req: Request) {
       // start at the FIRST configured fallback slot, not wherever the
       // round-robin counter is. Per user direction. Event-driven retry
       // in settle.ts keeps the normal round-robin so retries naturally
-      // spread across slots.
+      // spread across slots. Ignored when forceSlot is set (the user
+      // picked an exact provider).
       forceFirstFallback: true,
+      // User-picked provider (History → Original Video). Overrides all
+      // slot selection for this fire.
+      forceSlot,
       asset,
     });
     if (r.ok) {

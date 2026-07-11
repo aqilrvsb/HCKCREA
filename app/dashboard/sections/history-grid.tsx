@@ -18,6 +18,7 @@ import {
   Palette,
   ChevronLeft,
   ChevronRight,
+  ChevronDown,
   Layers,
   Clock,
   HardDrive,
@@ -798,6 +799,10 @@ function HistoryCardInner({
   // Prompt edit mode for failed cards. null = view-only, string = editing.
   // When non-null, Resubmit sends this overridden prompt to the retry route.
   const [editedPrompt, setEditedPrompt] = useState<string | null>(null);
+  // Forced provider slot for Original Video resubmit. null = use the normal
+  // cascade; "p2-a"/"p2-b"/"p6-a"/"p6-b" = force that provider on resubmit.
+  const [pickedSlot, setPickedSlot] = useState<string | null>(null);
+  const [slotMenuOpen, setSlotMenuOpen] = useState(false);
   const [savingName, setSavingName] = useState(false);
   const [showFullscreen, setShowFullscreen] = useState(false);
   const [showPromptModal, setShowPromptModal] = useState(false);
@@ -1485,6 +1490,9 @@ function HistoryCardInner({
       if (editedPrompt !== null && editedPrompt.trim() && editedPrompt !== item.prompt) {
         body.prompt = editedPrompt;
       }
+      // User picked a specific provider from the badge dropdown → force it
+      // for this resubmit (cascade still kicks in on failure via recovery).
+      if (pickedSlot) body.force_slot = pickedSlot;
       const r = await fetch("/api/history/retry", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -2359,12 +2367,98 @@ function HistoryCardInner({
                 {videoModeLabel(item)}
               </span>
             )}
-            <span
-              className="text-[10px] font-mono uppercase tracking-wider font-bold"
-              style={{ color: "var(--color-orange)" }}
-            >
-              {modelLabel(item)}
-            </span>
+            {(() => {
+              // Original Video failed rows get a provider picker: click the
+              // badge → choose P2 A/B or P6 A/B → Resubmit forces that
+              // provider (cascade still recovers it on failure).
+              const canPickSlot =
+                item.status === "failed" && item.tab === "original-video";
+              const SLOT_OPTS = [
+                { slot: "p2-a", label: "P2 A" },
+                { slot: "p2-b", label: "P2 B" },
+                { slot: "p6-a", label: "P6 A" },
+                { slot: "p6-b", label: "P6 B" },
+              ];
+              const pickedLabel = pickedSlot
+                ? SLOT_OPTS.find((o) => o.slot === pickedSlot)?.label
+                : null;
+              if (!canPickSlot) {
+                return (
+                  <span
+                    className="text-[10px] font-mono uppercase tracking-wider font-bold"
+                    style={{ color: "var(--color-orange)" }}
+                  >
+                    {modelLabel(item)}
+                  </span>
+                );
+              }
+              return (
+                <span className="relative inline-flex">
+                  <button
+                    type="button"
+                    onClick={() => setSlotMenuOpen((v) => !v)}
+                    className="text-[10px] font-mono uppercase tracking-wider font-bold inline-flex items-center gap-0.5 cursor-pointer"
+                    style={{ color: pickedSlot ? "#22c55e" : "var(--color-orange)" }}
+                    title="Pilih provider untuk resubmit"
+                  >
+                    {pickedLabel ? `➤ ${pickedLabel}` : modelLabel(item)}
+                    <ChevronDown className="w-2.5 h-2.5" />
+                  </button>
+                  {slotMenuOpen && (
+                    <div
+                      className="absolute right-0 top-full mt-1 z-30 rounded-md overflow-hidden shadow-lg"
+                      style={{
+                        background: "#1a1a1a",
+                        border: "1px solid rgba(255,255,255,0.12)",
+                        minWidth: "96px",
+                      }}
+                    >
+                      <div
+                        className="px-2 py-1 text-[8px] uppercase tracking-wider"
+                        style={{
+                          color: "var(--text-tertiary)",
+                          borderBottom: "1px solid rgba(255,255,255,0.08)",
+                        }}
+                      >
+                        Guna provider
+                      </div>
+                      {SLOT_OPTS.map((o) => (
+                        <button
+                          key={o.slot}
+                          type="button"
+                          onClick={() => {
+                            setPickedSlot(o.slot);
+                            setSlotMenuOpen(false);
+                          }}
+                          className="block w-full text-left px-2 py-1 text-[10px] font-mono font-bold hover:bg-white/10"
+                          style={{
+                            color: pickedSlot === o.slot ? "#22c55e" : "#eee",
+                          }}
+                        >
+                          {o.label}
+                        </button>
+                      ))}
+                      {pickedSlot && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setPickedSlot(null);
+                            setSlotMenuOpen(false);
+                          }}
+                          className="block w-full text-left px-2 py-1 text-[9px] hover:bg-white/10"
+                          style={{
+                            color: "var(--text-tertiary)",
+                            borderTop: "1px solid rgba(255,255,255,0.08)",
+                          }}
+                        >
+                          ✕ Auto (cascade)
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </span>
+              );
+            })()}
           </span>
         </div>
 
@@ -2688,7 +2782,16 @@ function HistoryCardInner({
                   className="flex-1 h-7 rounded-lg text-[9px] font-extrabold uppercase tracking-wider text-white flex items-center justify-center gap-1 disabled:opacity-50 transition-transform hover:scale-105"
                   style={{ background: ACTION.retry, boxShadow: "0 2px 6px rgba(34,197,94,0.4)" }}
                 >
-                  {checking ? <Loader2 className="w-3 h-3 animate-spin" /> : <><RotateCw className="w-3 h-3" />Resubmit</>}
+                  {checking ? (
+                    <Loader2 className="w-3 h-3 animate-spin" />
+                  ) : (
+                    <>
+                      <RotateCw className="w-3 h-3" />
+                      {pickedSlot
+                        ? `Resubmit ${pickedSlot.toUpperCase().replace("-", " ")}`
+                        : "Resubmit"}
+                    </>
+                  )}
                 </button>
               )}
               <ActionBtn title="Delete" onClick={handleDelete} bg={ACTION.delete} disabled={deleting}>
