@@ -1616,6 +1616,50 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
     if (sc?.audioUrls?.length) playPreview(id, sc.audioUrls);
   }, [previewPlayId, stopPreview, playPreview]);
 
+  // Download the generated/saved voiceover as a single MP3. Audio is
+  // produced in ≤250-char pieces (multiple audioUrls); we fetch each and
+  // concatenate the bytes into one audio/mpeg blob — MP3 is frame-based so
+  // naive concatenation plays back fine. Falls back to downloading each
+  // piece separately if a fetch is blocked (CORS on the signed URL).
+  const [downloadingId, setDownloadingId] = useState<string | null>(null);
+  const triggerDownload = useCallback((url: string, filename: string) => {
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    a.style.display = "none";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  }, []);
+  const downloadMp3 = useCallback(async (id: string) => {
+    const sc = scriptsRef.current.find((s) => s.id === id);
+    const urls = sc?.audioUrls || [];
+    if (!urls.length) return;
+    const base =
+      (sc?.title || "voiceover").replace(/[^a-z0-9]+/gi, "_").slice(0, 40) ||
+      "voiceover";
+    setDownloadingId(id);
+    try {
+      const blobs: Blob[] = [];
+      for (const u of urls) {
+        const r = await fetch(u);
+        if (!r.ok) throw new Error("fetch failed");
+        blobs.push(await r.blob());
+      }
+      const merged = new Blob(blobs, { type: "audio/mpeg" });
+      const obj = URL.createObjectURL(merged);
+      triggerDownload(obj, base + ".mp3");
+      setTimeout(() => URL.revokeObjectURL(obj), 15000);
+    } catch {
+      // CORS / fetch blocked → download the raw pieces directly.
+      urls.forEach((u, i) =>
+        triggerDownload(u, urls.length > 1 ? `${base}_${i + 1}.mp3` : `${base}.mp3`)
+      );
+    } finally {
+      setDownloadingId(null);
+    }
+  }, [triggerDownload]);
+
   const addToRundown = useCallback((id: string) => {
     if (!id) return;
     setRundown((prev) => [...prev, id]);
@@ -2294,6 +2338,7 @@ export default function LivehostStudio({ view }: { view: LiveView }) {
                   <LhButton onClick={() => generateScript(s.id)} disabled={s.generating || !s.text.trim()}>{s.generating ? "⏳ Generating…" : "🎙 Generate"}</LhButton>
                   <LhButton variant="ghost" onClick={() => playSaved(s.id)} disabled={!hasAudio}>{previewPlayId === s.id ? "■ Stop" : "▶ Play"}</LhButton>
                   <LhButton variant="ghost" onClick={() => saveScript(s.id)} disabled={!s.audioPaths?.length || s.saved || s.saving}>{s.saving ? "⏳ Saving…" : s.saved ? "💾 Saved" : "💾 Save"}</LhButton>
+                  <LhButton variant="ghost" onClick={() => downloadMp3(s.id)} disabled={!hasAudio || downloadingId === s.id}>{downloadingId === s.id ? "⏳ …" : "⬇ MP3"}</LhButton>
                 </div>
 
                 {previewPlayId === s.id && (
