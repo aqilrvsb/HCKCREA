@@ -223,6 +223,67 @@ export default function OriginalVideoTab({
     }
   }
 
+  // Video Reference GUIDED mode fields — the free prompt is replaced by a
+  // hardcoded template built from these. Only the dialog is manual.
+  const [vrProductName, setVrProductName] = useState("");
+  const [vrProductDetail, setVrProductDetail] = useState("");
+  const [vrDialog, setVrDialog] = useState("");
+  const [vrGender, setVrGender] = useState<"female" | "male">("female");
+  const [vrHijab, setVrHijab] = useState<"yes" | "no">("yes");
+  const [vrAge, setVrAge] = useState<"20s" | "30s" | "40s" | "55+">("30s");
+  // Uploaded avatar face (1 image) — the presenter. Optional.
+  const [avatarRef, setAvatarRef] = useState<string>("");
+  const [avatarUploading, setAvatarUploading] = useState(false);
+  async function uploadAvatarRef(file: File) {
+    setError(null);
+    setAvatarUploading(true);
+    try {
+      const { url } = await uploadImage(file);
+      setAvatarRef(url);
+    } catch (e: any) {
+      setError(e?.message || "Upload avatar gagal");
+    } finally {
+      setAvatarUploading(false);
+    }
+  }
+
+  // Build the hardcoded Video Reference prompt from the guided fields. The
+  // reference video drives motion/scene; the images are the presenter
+  // (avatar, if uploaded) + the product; the dialog is what she says.
+  function buildVideoRefPrompt(): string {
+    const who = `a ${vrAge} ${vrGender === "female" ? "woman" : "man"}${
+      vrGender === "female" && vrHijab === "yes" ? " wearing a modest hijab" : ""
+    }`;
+    const parts: string[] = [];
+    parts.push(
+      `Recreate this reference video EXACTLY — copy the same camera movement, framing, pacing, scene, lighting and energy, shot for shot.`
+    );
+    if (avatarRef) {
+      parts.push(
+        `The presenter is the person in the FIRST reference image (${who}). Keep that face and look consistent throughout.`
+      );
+    } else {
+      parts.push(`The presenter is ${who}, a natural Malaysian UGC creator.`);
+    }
+    parts.push(
+      avatarRef
+        ? `She/he holds and shows the product in the OTHER reference images${
+            vrProductName ? ` (${vrProductName})` : ""
+          } — keep the product's exact shape, label, colour and packaging.`
+        : `She/he holds and shows the product in the reference images${
+            vrProductName ? ` (${vrProductName})` : ""
+          } — keep the product's exact shape, label, colour and packaging.`
+    );
+    if (vrProductDetail.trim()) parts.push(`Product context: ${vrProductDetail.trim()}.`);
+    if (vrDialog.trim()) {
+      parts.push(
+        `The presenter speaks naturally in Bahasa Melayu, lip-synced, one voice only, no subtitles: "${vrDialog.trim()}".`
+      );
+    }
+    parts.push(`Vertical 9:16, natural lighting, authentic UGC selfie style.`);
+    return parts.join(" ");
+  }
+
   useEffect(() => {
     let cancel = false;
     // Veo flat rate (rate_veo.per_video_8s setting — admin-driven).
@@ -339,30 +400,41 @@ export default function OriginalVideoTab({
   }
 
   async function submit() {
-    if (!prompt.trim()) return setError("Sila masukkan prompt.");
-    if (imageMode === "video") {
-      if (videoUploading) return setError("Tunggu upload video siap dulu.");
-      if (!videoRef) return setError("Upload video rujukan dulu.");
-    } else if (imageMode !== "text" && filledRefs.length === 0) {
-      return setError("Pick at least one reference image.");
+    // Video Reference = GUIDED mode: no free prompt, prompt is hardcoded
+    // from Product + Avatar + Dialog. Every other mode uses the prompt box.
+    const isVideoMode = imageMode === "video";
+    if (isVideoMode) {
+      if (videoUploading || avatarUploading)
+        return setError("Tunggu upload siap dulu.");
+      if (!videoRef) return setError("Upload / paste video rujukan dulu.");
+      if (!vrDialog.trim()) return setError("Isi Dialog dulu.");
+    } else {
+      if (!prompt.trim()) return setError("Sila masukkan prompt.");
+      if (imageMode !== "text" && filledRefs.length === 0) {
+        return setError("Pick at least one reference image.");
+      }
     }
     setError(null);
     setStatus("submitting");
     try {
-      // Video Reference sends product images (optional) alongside the
-      // video_url; only pure text mode sends nothing.
-      const sourceUrls =
-        imageMode === "text" ? [] : filledRefs.slice(0, refCap);
+      // Video mode: image_urls = [avatar (if any), ...product images] so the
+      // hardcoded prompt can reference "first image = presenter". Other
+      // modes: just the picked refs. Text mode: none.
+      const sourceUrls = isVideoMode
+        ? [avatarRef, ...filledRefs.slice(0, refCap)].filter(Boolean)
+        : imageMode === "text"
+          ? []
+          : filledRefs.slice(0, refCap);
       const pubUrls = await Promise.all(sourceUrls.map((u) => ensurePublicUrl(u)));
       const r = await fetch("/api/generate/cinema", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          prompt: prompt.trim(),
+          prompt: isVideoMode ? buildVideoRefPrompt() : prompt.trim(),
           image_url: pubUrls[0] || "",
           image_urls: pubUrls,
-          // GeminiOmni Video Reference — source video URL (video-only).
-          video_url: imageMode === "video" ? videoRef : "",
+          // GeminiOmni Video Reference — source video URL.
+          video_url: isVideoMode ? videoRef : "",
           duration,
           // Gemini forces 1080p server-side; we still send the right
           // value here so the optimistic UI cost preview matches what
@@ -698,7 +770,120 @@ export default function OriginalVideoTab({
             Upload a source/reference video. Both providers support it:
             P2 (Crun) video_list, P6 (APIPod) gemini-omni-extend. */}
         {imageMode === "video" && (
-          <div className="mb-4">
+          <div className="mb-4 space-y-4">
+            {/* PRODUCT — name + detail (images are the "Product Reference"
+                slots below). Feeds the hardcoded prompt. */}
+            <div>
+              <div
+                className="text-[11px] font-bold uppercase tracking-wider mb-1.5"
+                style={{ color: theme.primary }}
+              >
+                Product
+              </div>
+              <input
+                value={vrProductName}
+                onChange={(e) => setVrProductName(e.target.value)}
+                placeholder="Product name (cth: LUQFA Lotion 100ml)"
+                className="w-full px-3 py-2 rounded-lg text-sm mb-2 bg-[var(--color-bg)] outline-none"
+                style={{ border: `1px solid ${theme.soft}`, color: "var(--color-text)" }}
+              />
+              <textarea
+                value={vrProductDetail}
+                onChange={(e) => setVrProductDetail(e.target.value)}
+                rows={2}
+                placeholder="Detail produk (harga, USP, benefits…) — optional"
+                className="w-full px-3 py-2 rounded-lg text-sm bg-[var(--color-bg)] outline-none resize-y"
+                style={{ border: `1px solid ${theme.soft}`, color: "var(--color-text)" }}
+              />
+            </div>
+
+            {/* AVATAR — presenter. Gender/Style/Age feed the prompt; an
+                optional uploaded face pins the presenter. No Kekal/Dynamic. */}
+            <div>
+              <div
+                className="text-[11px] font-bold uppercase tracking-wider mb-1.5"
+                style={{ color: theme.primary }}
+              >
+                Avatar (Presenter)
+              </div>
+              <div className="grid grid-cols-3 gap-2 mb-2">
+                <select
+                  value={vrGender}
+                  onChange={(e) => {
+                    const g = e.target.value as "female" | "male";
+                    setVrGender(g);
+                    if (g === "male") setVrHijab("no");
+                  }}
+                  className="px-2 py-2 rounded-lg text-sm bg-[var(--color-bg)]"
+                  style={{ border: `1px solid ${theme.soft}`, color: "var(--color-text)" }}
+                >
+                  <option value="female">Female</option>
+                  <option value="male">Male</option>
+                </select>
+                <select
+                  value={vrHijab}
+                  onChange={(e) => setVrHijab(e.target.value as "yes" | "no")}
+                  disabled={vrGender === "male"}
+                  className="px-2 py-2 rounded-lg text-sm bg-[var(--color-bg)] disabled:opacity-50"
+                  style={{ border: `1px solid ${theme.soft}`, color: "var(--color-text)" }}
+                >
+                  <option value="yes">Hijab</option>
+                  <option value="no">No Hijab</option>
+                </select>
+                <select
+                  value={vrAge}
+                  onChange={(e) => setVrAge(e.target.value as "20s" | "30s" | "40s" | "55+")}
+                  className="px-2 py-2 rounded-lg text-sm bg-[var(--color-bg)]"
+                  style={{ border: `1px solid ${theme.soft}`, color: "var(--color-text)" }}
+                >
+                  <option value="20s">20s</option>
+                  <option value="30s">30s</option>
+                  <option value="40s">40s</option>
+                  <option value="55+">55+</option>
+                </select>
+              </div>
+              {avatarRef ? (
+                <div className="flex items-center gap-2">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={avatarRef}
+                    alt=""
+                    className="w-14 h-14 rounded-lg object-cover"
+                    style={{ border: `2px solid ${theme.primary}` }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setAvatarRef("")}
+                    className="text-[11px] font-bold"
+                    style={{ color: theme.primary }}
+                  >
+                    ✕ Buang avatar
+                  </button>
+                </div>
+              ) : (
+                <label
+                  className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg cursor-pointer text-[11px] font-bold"
+                  style={{ border: `1px dashed ${theme.soft}`, background: theme.faint, color: theme.primary }}
+                >
+                  <input
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    disabled={avatarUploading}
+                    onChange={(e) => {
+                      const f = e.target.files?.[0];
+                      e.target.value = "";
+                      if (f) void uploadAvatarRef(f);
+                    }}
+                  />
+                  {avatarUploading ? "⏳ Uploading…" : "+ Upload muka avatar (optional)"}
+                </label>
+              )}
+              <p className="text-[10px] text-[var(--color-text-muted)] mt-1">
+                Upload 1 gambar muka → presenter guna muka ni. Kosong = model reka ikut Gender/Style/Age.
+              </p>
+            </div>
+
             <div
               className="text-[11px] font-bold uppercase tracking-wider mb-1.5"
               style={{ color: theme.primary }}
@@ -886,10 +1071,35 @@ export default function OriginalVideoTab({
                 Optional — letak gambar produk anda, video akan keluar guna produk anda.
               </p>
             </div>
+
+            {/* DIALOG — the only manual input. Baked into the hardcoded
+                prompt (no free prompt box in this mode). */}
+            <div>
+              <div
+                className="text-[11px] font-bold uppercase tracking-wider mb-1.5"
+                style={{ color: theme.primary }}
+              >
+                Dialog (Bahasa Melayu)
+              </div>
+              <textarea
+                value={vrDialog}
+                onChange={(e) => setVrDialog(e.target.value)}
+                rows={3}
+                placeholder="Apa presenter cakap… cth: 'Korang kena try ni, memang berbaloi!'"
+                className="w-full px-3 py-2 rounded-lg text-sm bg-[var(--color-bg)] outline-none resize-y"
+                style={{ border: `1px solid ${theme.soft}`, color: "var(--color-text)" }}
+              />
+              <p className="text-[10px] text-[var(--color-text-muted)] mt-1">
+                Prompt dibina automatik dari Product + Avatar + Dialog — tak perlu tulis prompt.
+              </p>
+            </div>
           </div>
         )}
 
-        {/* Prompt */}
+        {/* Prompt — hidden in Video Reference (guided) mode; the prompt is
+            auto-built from Product + Avatar + Dialog there. */}
+        {imageMode !== "video" && (
+          <>
         <label className="block text-[10px] uppercase tracking-widest text-[var(--color-text-secondary)] font-bold mb-2">
           Prompt (sent verbatim — no auto-locks)
         </label>
@@ -906,6 +1116,8 @@ export default function OriginalVideoTab({
             color: "var(--color-text-primary)",
           }}
         />
+          </>
+        )}
 
         {/* Aspect + Duration */}
         <div className="grid grid-cols-2 gap-3 mb-4">
