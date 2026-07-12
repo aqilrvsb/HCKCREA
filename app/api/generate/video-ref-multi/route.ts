@@ -177,18 +177,16 @@ export async function POST(req: Request) {
     await admin.from("history").update({ metadata: { ...meta, segIds } }).eq("id", mergeId);
   }
 
-  // 3) Fire the FIRST segment on each account (round-robin), staggered 3-6s.
+  // 3) Fire ALL segments, ONE AT A TIME with a 3-6s stagger. Each segment
+  //    is submitted only AFTER the previous one was accepted (task_id
+  //    returned) — i.e. "wait until the previous is sent to render, then
+  //    fire the next", round-robin across P2 A / P2 B. We don't wait for a
+  //    segment to FINISH before firing the next.
   after(async () => {
     const cfg = await getP2Config();
     const keyForSlot = (slot: string) => (slot === "p2-b" && cfg.keyB ? cfg.keyB : undefined);
 
-    // First segment per slot = lowest index assigned to that slot.
-    const firstA = segments.findIndex((_, i) => slotForIndex(i) === "p2-a");
-    const firstB = segments.findIndex((_, i) => slotForIndex(i) === "p2-b");
-    const toFire = [firstA, firstB].filter((i) => i >= 0);
-
-    for (let k = 0; k < toFire.length; k++) {
-      const i = toFire[k];
+    for (let i = 0; i < segments.length; i++) {
       const segId = segIds[i];
       if (!segId) continue;
       const s = segments[i];
@@ -227,8 +225,9 @@ export async function POST(req: Request) {
           .update({ metadata: { ...meta, seg_error: e?.message || "create error", seg_attempts: 1 } })
           .eq("id", segId);
       }
-      // Stagger the two initial fires 3-6s.
-      if (k < toFire.length - 1) await sleep(randStaggerMs());
+      // Wait 3-6s before submitting the next segment (staggered, not
+      // simultaneous — this is what avoids Crun's "Internal Error").
+      if (i < segments.length - 1) await sleep(randStaggerMs());
     }
   });
 

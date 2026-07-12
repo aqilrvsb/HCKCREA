@@ -138,22 +138,19 @@ export async function GET(req: Request) {
           .eq("id", sr.id);
       }
 
-      // 2) GATE + FIRE — for each account, if it's free (no in-flight
-      //    segment: pending WITH a task_id), fire the next un-fired segment
-      //    (pending, no task_id) assigned to it. Stagger the fires 3-6s.
-      const toFire: { sr: any; slot: string }[] = [];
-      for (const slot of SLOTS) {
-        const slotSegs = segRows.filter((s: any) => String(s.metadata?.slot || "p2-a") === slot);
-        const inFlight = slotSegs.find((s: any) => s.status === "pending" && s.task_id);
-        if (inFlight) continue; // account busy
-        const next = slotSegs.find(
+      // 2) FIRE — submit any segment that hasn't been sent to render yet
+      //    (pending, no task_id) — recovery for ones the origin after()
+      //    never fired + just-reset retries. Staggered 3-6s; we do NOT wait
+      //    for a sibling to finish (per user direction: fire once the
+      //    previous is submitted, not once it's done).
+      const toFire = segRows
+        .filter(
           (s: any) =>
             s.status === "pending" &&
             !s.task_id &&
             Number(s.metadata?.seg_attempts || 0) < MAX_SEG_ATTEMPTS
-        );
-        if (next) toFire.push({ sr: next, slot });
-      }
+        )
+        .map((s: any) => ({ sr: s, slot: String(s.metadata?.slot || "p2-a") }));
       for (let k = 0; k < toFire.length; k++) {
         await fireSeg(toFire[k].sr, toFire[k].slot);
         if (k < toFire.length - 1) await sleep(randStaggerMs());
