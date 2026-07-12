@@ -144,6 +144,7 @@ function videoModeLabel(item: HistoryItem): string | null {
   if (meta === "image") return "Image to Video";
   if (meta === "frame") return "First Frame";
   if (meta === "ingredient") return "Product Ref";
+  if (meta === "video") return "Video Ref";
   const m = item.metadata?.model || "";
   if (m.includes("grok-imagine/i2v")) return "Image to Video";
   if (m.includes("grok-imagine/t2v")) return "Text to Video";

@@ -409,7 +409,10 @@ export async function POST(req: Request) {
           cost,
           error_message: createdError || "Viral create failed",
           metadata: {
-            model, imageMode, resolution,
+            model,
+            imageMode: isVideoRef ? "video" : imageMode,
+            ...(isVideoRef ? { videoRef: videoRefUrl } : {}),
+            resolution,
             aspectRatio: imageMode !== "text" ? null : aspectRatio,
             cinemaProvider:
               modelChoice === "veo"
@@ -437,7 +440,10 @@ export async function POST(req: Request) {
         task_id: createdTaskId,
         cost,
         metadata: {
-          model: actualModel, imageMode, resolution,
+          model: actualModel,
+          imageMode: isVideoRef ? "video" : imageMode,
+          ...(isVideoRef ? { videoRef: videoRefUrl } : {}),
+          resolution,
           aspectRatio: imageMode !== "text" ? null : aspectRatio,
           cinemaProvider:
             modelChoice === "veo"
