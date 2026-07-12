@@ -123,6 +123,8 @@ export async function POST(req: Request) {
           ends: s.ends,
           prompt: s.prompt,
           task_id: null,
+          slot: "p2-a", // p2-a first; the worker flips to p2-b on retry
+          attempts: 0,
           status: "pending",
           output_url: null,
           error: null,

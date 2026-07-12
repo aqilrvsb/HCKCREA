@@ -970,81 +970,38 @@ export default function OriginalVideoTab({
                 </div>
               </div>
             ) : (
-              <>
-                <label
-                  className="flex flex-col items-center justify-center gap-1 rounded-lg cursor-pointer py-8 px-4 text-center"
-                  style={{
-                    border: `2px dashed ${theme.soft}`,
-                    background: theme.faint,
-                  }}
-                >
-                  <input
-                    type="file"
-                    accept="video/mp4,video/webm,video/quicktime"
-                    className="hidden"
-                    disabled={videoUploading}
-                    onChange={(e) => {
-                      const f = e.target.files?.[0];
-                      e.target.value = "";
-                      if (f) void uploadVideoRef(f);
-                    }}
-                  />
-                  {videoUploading ? (
-                    <span
-                      className="flex items-center gap-2 text-[12px] font-bold"
-                      style={{ color: theme.primary }}
-                    >
-                      <Loader2 className="w-4 h-4 animate-spin" /> Uploading video…
-                    </span>
-                  ) : (
-                    <>
-                      <span
-                        className="text-[13px] font-bold"
-                        style={{ color: theme.primary }}
-                      >
-                        + Upload video rujukan
-                      </span>
-                      <span className="text-[10px] text-[var(--color-text-muted)]">
-                        MP4 / WEBM / MOV · maks 60MB · video sahaja
-                      </span>
-                    </>
-                  )}
-                </label>
-                {/* Or paste a public video URL directly — no upload needed.
-                    Both providers fetch it server-side (must be a public
-                    https link, e.g. a CDN .mp4). */}
-                <div className="mt-2 flex items-center gap-2">
-                  <span className="text-[10px] text-[var(--color-text-muted)] whitespace-nowrap">
-                    atau link:
-                  </span>
-                  <input
-                    type="url"
-                    inputMode="url"
-                    placeholder="https://…/video.mp4"
-                    disabled={videoUploading}
-                    className="flex-1 px-2 py-1.5 rounded text-[11px] bg-[var(--color-bg)] outline-none"
-                    style={{ border: `1px solid ${theme.soft}`, color: "var(--color-text)" }}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") {
-                        const v = (e.target as HTMLInputElement).value.trim();
-                        if (/^https?:\/\/.+/i.test(v)) {
-                          setVideoRef(v);
-                          setVideoRefName("URL link");
-                        } else {
-                          setError("URL video tak valid (kena https://…).");
-                        }
-                      }
-                    }}
-                    onBlur={(e) => {
-                      const v = e.target.value.trim();
-                      if (v && /^https?:\/\/.+/i.test(v)) {
+              <div>
+                {/* URL-only — paste a public video link (both providers fetch
+                    it server-side). Upload option removed per user direction. */}
+                <input
+                  type="url"
+                  inputMode="url"
+                  placeholder="https://…/video.mp4 — tampal link video sumber"
+                  className="w-full px-3 py-2 rounded-lg text-sm bg-[var(--color-bg)] outline-none"
+                  style={{ border: `1px solid ${theme.soft}`, color: "var(--color-text)" }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      const v = (e.target as HTMLInputElement).value.trim();
+                      if (/^https?:\/\/.+/i.test(v)) {
                         setVideoRef(v);
                         setVideoRefName("URL link");
+                      } else {
+                        setError("URL video tak valid (kena https://…).");
                       }
-                    }}
-                  />
-                </div>
-              </>
+                    }
+                  }}
+                  onBlur={(e) => {
+                    const v = e.target.value.trim();
+                    if (v && /^https?:\/\/.+/i.test(v)) {
+                      setVideoRef(v);
+                      setVideoRefName("URL link");
+                    }
+                  }}
+                />
+                <p className="text-[10px] text-[var(--color-text-muted)] mt-1">
+                  Tampal link video sumber (public MP4/URL) — cth dari CDN. Tekan Enter atau klik luar.
+                </p>
+              </div>
             )}
 
             {/* Product reference images (optional) — the product to feature

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { p2CreateTask, p2GetStatus } from "@/lib/p2";
+import { getP2Config } from "@/lib/settings";
 import { falMergeVideos } from "@/lib/fal";
 import { rehostToContent } from "@/lib/b2";
 import { deduct } from "@/lib/deduct";
@@ -23,7 +24,9 @@ export const dynamic = "force-dynamic";
 
 const GEMINI_MODEL = "google/gemini-omni";
 const MAX_ROWS_PER_TICK = 5;
-const MAX_FIRE_ATTEMPTS = 3;
+// Per-segment fire attempts. A transient Crun error retries on the OTHER
+// p2 slot (p2-a ↔ p2-b) rather than failing the whole job.
+const MAX_SEG_ATTEMPTS = 4;
 
 export async function GET(req: Request) {
   const auth = req.headers.get("authorization") || "";
@@ -45,6 +48,12 @@ export async function GET(req: Request) {
     return NextResponse.json({ ok: true, processed: 0 });
   }
 
+  // Resolve Crun keys once. p2-a = default key; p2-b = keyB (falls back to
+  // default when keyB isn't configured, so a retry still fires somewhere).
+  const p2cfg = await getP2Config();
+  const keyForSlot = (slot: string): string | undefined =>
+    slot === "p2-b" && p2cfg.keyB ? p2cfg.keyB : undefined;
+
   const results: any[] = [];
 
   for (const row of rows) {
@@ -56,52 +65,77 @@ export async function GET(req: Request) {
       const imageUrls: string[] = Array.isArray(meta.image_urls) ? meta.image_urls : [];
       const refVideoUrl = String(meta.refVideoUrl || "");
       const aspectRatio = String(meta.aspectRatio || "9:16");
-      let fireAttempts = Number(meta.fire_attempts || 0);
 
-      // 1) RECOVER — re-fire any segment still missing a task_id.
-      const missing = segs.filter((s) => !s.task_id && s.status !== "failed");
-      if (missing.length > 0 && refVideoUrl && fireAttempts < MAX_FIRE_ATTEMPTS) {
-        fireAttempts += 1;
-        for (const s of segs) {
-          if (s.task_id || s.status === "failed") continue;
-          try {
-            const r = await p2CreateTask({
-              model: GEMINI_MODEL,
-              userId: row.user_id,
-              prompt: String(s.prompt || ""),
-              imageUrls,
-              videoUrls: [refVideoUrl],
-              refVideoStart: Number(s.start) || 0,
-              refVideoEnd: Number(s.ends) || (Number(s.start) || 0) + 10,
-              aspectRatio,
-              resolution: "1080p",
-              forceP2: true,
-            });
-            if (r.ok && r.task_id) s.task_id = String(r.task_id);
-            else s.error = r.error || "re-fire failed";
-          } catch (e: any) {
-            s.error = e?.message || "re-fire error";
+      // Fire (or re-fire) ONE segment on its current p2 slot; bumps attempts.
+      const fireSeg = async (s: any) => {
+        s.attempts = Number(s.attempts || 0) + 1;
+        try {
+          const r = await p2CreateTask({
+            model: GEMINI_MODEL,
+            userId: row.user_id,
+            prompt: String(s.prompt || ""),
+            imageUrls,
+            videoUrls: [refVideoUrl],
+            refVideoStart: Number(s.start) || 0,
+            refVideoEnd: Number(s.ends) || (Number(s.start) || 0) + 10,
+            aspectRatio,
+            resolution: "1080p",
+            forceP2: true,
+            apiKeyOverride: keyForSlot(String(s.slot || "p2-a")),
+          });
+          if (r.ok && r.task_id) {
+            s.task_id = String(r.task_id);
+            s.status = "pending";
+            s.error = null;
+          } else {
+            s.task_id = null;
+            s.error = r.error || "create failed";
           }
+        } catch (e: any) {
+          s.task_id = null;
+          s.error = e?.message || "create error";
         }
+      };
+
+      // 1) RECOVER — fire any pending segment still missing a task_id
+      //    (origin after() died before firing, or a retry cleared it).
+      for (const s of segs) {
+        if (s.status !== "pending" || s.task_id || !refVideoUrl) continue;
+        if (Number(s.attempts || 0) >= MAX_SEG_ATTEMPTS) {
+          s.status = "failed";
+          s.error = s.error || "max attempts reached";
+          continue;
+        }
+        await fireSeg(s);
       }
 
-      // 2) POLL — check each fired-but-pending segment.
+      // 2) POLL — check each fired segment. A transient Crun failure retries
+      //    on the OTHER p2 slot (p2-a ↔ p2-b) until MAX_SEG_ATTEMPTS.
       for (const s of segs) {
         if (!s.task_id || s.status !== "pending") continue;
         try {
-          const st = await p2GetStatus(String(s.task_id), "p2");
+          const st = await p2GetStatus(String(s.task_id), "p2", keyForSlot(String(s.slot || "p2-a")));
           if (st.status === "succeeded" && st.outputUrl) {
             s.status = "succeeded";
             s.output_url = st.outputUrl;
           } else if (st.status === "failed") {
-            s.status = "failed";
-            s.error = st.error || "segment failed";
+            if (Number(s.attempts || 0) < MAX_SEG_ATTEMPTS) {
+              // Flip slot + re-fire — the P2 A↔B cascade for this segment.
+              s.slot = String(s.slot || "p2-a") === "p2-a" ? "p2-b" : "p2-a";
+              s.task_id = null;
+              s.error = st.error || "segment error (retrying)";
+              await fireSeg(s);
+            } else {
+              s.status = "failed";
+              s.error = st.error || "segment failed";
+            }
           }
         } catch {
-          /* transient — retry next tick */
+          /* transient poll error — retry next tick */
         }
       }
 
+      const fireAttempts = segs.reduce((m, s) => Math.max(m, Number(s.attempts || 0)), 0);
       const done = segs.filter((s) => s.status === "succeeded").length;
       const failed = segs.filter((s) => s.status === "failed").length;
 
