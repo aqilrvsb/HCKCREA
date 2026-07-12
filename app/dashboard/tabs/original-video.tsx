@@ -437,7 +437,7 @@ export default function OriginalVideoTab({
     // input video before the prompt matters. It won't rescue a clearly
     // front-facing identifiable face, but it clears borderline clips.
     parts.push(
-      `Create a NEW, ORIGINAL vertical short-form video featuring a FICTIONAL Malaysian UGC creator. Use the attached source video ONLY as a choreography and timing reference — match its camera movement, framing, pacing, timing, scene layout, lighting, mood and the SEQUENCE of actions, gestures and poses. Do NOT reproduce, copy, clone or preserve the identity, face, likeness or voice of any real person shown in the source video — the presenter is an entirely new invented character.`
+      `Create a NEW, ORIGINAL vertical short-form video featuring a FICTIONAL Malaysian content creator. Use the attached source video ONLY as a choreography and timing reference — match its camera movement, framing, pacing, timing, scene layout, lighting, mood and the SEQUENCE of actions, gestures and poses. Do NOT reproduce, copy, clone or preserve the identity, face, likeness or voice of any real person shown in the source video — the presenter is an entirely new invented character.`
     );
     parts.push(`Build the video around two elements:`);
     if (avatarRef) {
@@ -446,7 +446,7 @@ export default function OriginalVideoTab({
       );
     } else {
       parts.push(
-        `(1) PRESENTER: a fictional ${who}, a natural Malaysian UGC creator (invented character, not anyone real) performing the same choreography and beats as the reference timing.`
+        `(1) PRESENTER: a fictional ${who}, a natural Malaysian content creator (invented character, not anyone real) performing the same choreography and beats as the reference timing.`
       );
     }
     parts.push(
@@ -465,7 +465,7 @@ export default function OriginalVideoTab({
         `The presenter speaks naturally in Malaysian Bahasa Melayu, lip-synced, one voice only, no subtitles, NO Indonesian slang: "${dialog.trim()}".`
       );
     }
-    parts.push(`Vertical 9:16, authentic UGC selfie style.`);
+    parts.push(`Vertical 9:16, in the SAME visual style, look and energy as the source video.`);
     return parts.join(" ");
   }
 
