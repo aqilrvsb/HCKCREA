@@ -134,10 +134,12 @@ export async function POST(req: Request) {
   const globalRules = extractGlobalRules(subCardsDoc);
 
   after(async () => {
-    for (let k = 0; k < jobs.length; k++) {
-      const job = jobs[k];
+    // Generate every storyboard CONCURRENTLY — the old for-await ran them
+    // sequentially (segment 2 waited for segment 1 to finish). Each job is
+    // independent, so fire them all in parallel.
+    await Promise.all(jobs.map(async (job, k) => {
       const id = historyIds[k];
-      if (!id) continue;
+      if (!id) return;
       const card = extractSubCard(subCardsDoc, job.sub);
       const mainLabel = mainLabelOf(job.main);
 
@@ -210,7 +212,7 @@ export async function POST(req: Request) {
       } else {
         await admin.from("history").update({ status: "failed", error_message: r.error }).eq("id", id);
       }
-    }
+    }));
   });
 
   return NextResponse.json({ ok: true, history_ids: historyIds, count: historyIds.length, campaign, cost: total });

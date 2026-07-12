@@ -23,6 +23,10 @@ export async function POST(req: Request) {
   const productName = String(body?.product_name || "").trim();
   const productDetail = String(body?.product_detail || "").trim();
   const variantSeed = Number(body?.variant_seed) || 0;
+  // "Jana Assign" preserves fields the user already edited and only fills the
+  // empty ones. Default TRUE; send fill_only_empty:false to force a full
+  // regenerate of every field.
+  const fillOnlyEmpty = body?.fill_only_empty === false ? false : true;
   if (!historyId) {
     return NextResponse.json({ error: "history_id required" }, { status: 400 });
   }
@@ -34,6 +38,7 @@ export async function POST(req: Request) {
     variantSeed,
     userIdGuard: user.id,
     force: true,
+    fillOnlyEmpty,
   });
 
   if (!result.ok) {

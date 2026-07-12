@@ -106,6 +106,10 @@ export async function generateUgcPostMeta(
     variantSeed?: number;
     userIdGuard?: string;
     force?: boolean;
+    // "Jana assign" preserve-edits mode: keep any field the user already
+    // filled (caption / cover_title / cover_subtitle) and only write the
+    // ones that are still empty. Default off (full regenerate).
+    fillOnlyEmpty?: boolean;
   } = {}
 ): Promise<UgcPostMetaResult> {
   if (!historyId) return { ok: false, error: "history_id required" };
@@ -294,14 +298,26 @@ Return JSON only. No markdown, no prose. Start with { and end with }.`;
     .join(" ");
   const coverSubtitle = rawCoverSubtitle.toUpperCase();
 
+  // Fill-only-empty ("Jana Assign"): keep whatever the user already edited,
+  // write the generated value ONLY into fields that were still empty. So if
+  // the user edited the caption but left the cover blank, jana-assign keeps
+  // the caption and fills just the cover text.
+  const existCoverTitle = String(meta.cover_title || "").trim();
+  const existCoverSub = String(meta.cover_subtitle || "").trim();
+  const keepCaption = !!opts.fillOnlyEmpty && existingCaption.length >= 20;
+  const finalCaption = keepCaption ? existingCaption : caption;
+  const finalCoverTitle = opts.fillOnlyEmpty && existCoverTitle ? String(meta.cover_title) : coverTitle;
+  const finalCoverSubtitle = opts.fillOnlyEmpty && existCoverSub ? String(meta.cover_subtitle) : coverSubtitle;
+  const finalHashtagsOut = finalCaption.split(/\s+/).filter((t) => t.startsWith("#")).slice(0, 5);
+
   await admin
     .from("history")
     .update({
-      caption,
+      caption: finalCaption,
       metadata: {
         ...meta,
-        cover_title: coverTitle,
-        cover_subtitle: coverSubtitle,
+        cover_title: finalCoverTitle,
+        cover_subtitle: finalCoverSubtitle,
         tiktok_product_id: tiktokProductId || meta.tiktok_product_id || null,
         // Stamp the assigned product so Auto Post + future loads carry the
         // Beg Kuning link + product name/detail alongside the caption.
@@ -313,10 +329,10 @@ Return JSON only. No markdown, no prose. Start with { and end with }.`;
 
   return {
     ok: true,
-    caption,
-    hashtags: finalHashtags,
-    cover_title: coverTitle,
-    cover_subtitle: coverSubtitle,
+    caption: finalCaption,
+    hashtags: finalHashtagsOut.length ? finalHashtagsOut : finalHashtags,
+    cover_title: finalCoverTitle,
+    cover_subtitle: finalCoverSubtitle,
     tiktok_product_id: tiktokProductId || null,
     product_name: productName || null,
   };
