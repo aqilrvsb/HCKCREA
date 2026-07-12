@@ -14,10 +14,6 @@
       "schedule": "*/4 * * * *"
     },
     {
-      "path": "/api/worker/video-ref-merge",
-      "schedule": "*/2 * * * *"
-    },
-    {
       "path": "/api/worker/livehost-idle",
       "schedule": "*/10 * * * *"
     },

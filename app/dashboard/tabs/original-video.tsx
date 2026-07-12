@@ -546,18 +546,11 @@ export default function OriginalVideoTab({
     // Video Reference = GUIDED mode: no free prompt, prompt is hardcoded
     // from Product + Avatar + Dialog. Every other mode uses the prompt box.
     const isVideoMode = imageMode === "video";
-    const isMultiSeg = isVideoMode && vrSegCount > 1;
     if (isVideoMode) {
       if (videoUploading || avatarUploading)
         return setError("Tunggu upload siap dulu.");
       if (!videoRef) return setError("Upload / paste video rujukan dulu.");
-      if (isMultiSeg) {
-        const active = vrSegs.slice(0, vrSegCount);
-        if (active.some((s) => !s.dialog.trim()))
-          return setError("Isi Dialog untuk setiap segment dulu.");
-      } else if (!vrDialog.trim()) {
-        return setError("Isi Dialog dulu.");
-      }
+      if (!vrDialog.trim()) return setError("Isi Dialog dulu.");
     } else {
       if (!prompt.trim()) return setError("Sila masukkan prompt.");
       if (imageMode !== "text" && filledRefs.length === 0) {
@@ -576,37 +569,6 @@ export default function OriginalVideoTab({
           ? []
           : filledRefs.slice(0, refCap);
       const pubUrls = await Promise.all(sourceUrls.map((u) => ensurePublicUrl(u)));
-
-      // Multi-segment Video Reference → dedicated pipeline (N Crun gens +
-      // stitch). Single-segment + all other modes → /api/generate/cinema.
-      if (isMultiSeg) {
-        const active = vrSegs.slice(0, vrSegCount);
-        const rMulti = await fetch("/api/generate/video-ref-multi", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            video_url: videoRef,
-            image_urls: pubUrls,
-            product_name: vrProductName.trim(),
-            aspect_ratio: aspect,
-            project_id: projectId,
-            segments: active.map((s, i) => ({
-              start: Number(s.start) || 0,
-              ends: Number(s.end) || (Number(s.start) || 0) + 10,
-              prompt: buildVideoRefPrompt(s.dialog, i + 1, vrSegCount),
-            })),
-          }),
-        });
-        const dM = await rMulti.json();
-        if (!rMulti.ok || !dM?.ok) {
-          setError(dM?.error || "Generation failed");
-          setStatus("failed");
-          return;
-        }
-        window.dispatchEvent(new CustomEvent("history:refresh"));
-        setStatus("idle");
-        return;
-      }
 
       const r = await fetch("/api/generate/cinema", {
         method: "POST",
@@ -1199,38 +1161,69 @@ export default function OriginalVideoTab({
                 </div>
               </div>
             ) : (
-              <div>
-                {/* URL-only — paste a public video link (both providers fetch
-                    it server-side). Upload option removed per user direction. */}
-                <input
-                  type="url"
-                  inputMode="url"
-                  placeholder="https://…/video.mp4 — tampal link video sumber"
-                  className="w-full px-3 py-2 rounded-lg text-sm bg-[var(--color-bg)] outline-none"
-                  style={{ border: `1px solid ${theme.soft}`, color: "var(--color-text)" }}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      const v = (e.target as HTMLInputElement).value.trim();
-                      if (/^https?:\/\/.+/i.test(v)) {
+              <>
+                {/* Upload a video file… */}
+                <label
+                  className="flex flex-col items-center justify-center gap-1 rounded-lg cursor-pointer py-6 px-4 text-center"
+                  style={{ border: `2px dashed ${theme.soft}`, background: theme.faint }}
+                >
+                  <input
+                    type="file"
+                    accept="video/mp4,video/webm,video/quicktime"
+                    className="hidden"
+                    disabled={videoUploading}
+                    onChange={(e) => {
+                      const f = e.target.files?.[0];
+                      e.target.value = "";
+                      if (f) void uploadVideoRef(f);
+                    }}
+                  />
+                  {videoUploading ? (
+                    <span className="flex items-center gap-2 text-[12px] font-bold" style={{ color: theme.primary }}>
+                      <Loader2 className="w-4 h-4 animate-spin" /> Uploading video…
+                    </span>
+                  ) : (
+                    <>
+                      <span className="text-[13px] font-bold" style={{ color: theme.primary }}>
+                        + Upload video rujukan
+                      </span>
+                      <span className="text-[10px] text-[var(--color-text-muted)]">
+                        MP4 / WEBM / MOV · maks 60MB
+                      </span>
+                    </>
+                  )}
+                </label>
+                {/* …or paste a public URL. */}
+                <div className="mt-2 flex items-center gap-2">
+                  <span className="text-[10px] text-[var(--color-text-muted)] whitespace-nowrap">atau link:</span>
+                  <input
+                    type="url"
+                    inputMode="url"
+                    placeholder="https://…/video.mp4"
+                    disabled={videoUploading}
+                    className="flex-1 px-2 py-1.5 rounded text-[11px] bg-[var(--color-bg)] outline-none"
+                    style={{ border: `1px solid ${theme.soft}`, color: "var(--color-text)" }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        const v = (e.target as HTMLInputElement).value.trim();
+                        if (/^https?:\/\/.+/i.test(v)) {
+                          setVideoRef(v);
+                          setVideoRefName("URL link");
+                        } else {
+                          setError("URL video tak valid (kena https://…).");
+                        }
+                      }
+                    }}
+                    onBlur={(e) => {
+                      const v = e.target.value.trim();
+                      if (v && /^https?:\/\/.+/i.test(v)) {
                         setVideoRef(v);
                         setVideoRefName("URL link");
-                      } else {
-                        setError("URL video tak valid (kena https://…).");
                       }
-                    }
-                  }}
-                  onBlur={(e) => {
-                    const v = e.target.value.trim();
-                    if (v && /^https?:\/\/.+/i.test(v)) {
-                      setVideoRef(v);
-                      setVideoRefName("URL link");
-                    }
-                  }}
-                />
-                <p className="text-[10px] text-[var(--color-text-muted)] mt-1">
-                  Tampal link video sumber (public MP4/URL) — cth dari CDN. Tekan Enter atau klik luar.
-                </p>
-              </div>
+                    }}
+                  />
+                </div>
+              </>
             )}
 
             {/* Product reference images (optional) — the product to feature
@@ -1310,118 +1303,42 @@ export default function OriginalVideoTab({
             </div>
 
             {/* DIALOG — the only manual input. Baked into the hardcoded
-                prompt (no free prompt box in this mode). */}
+                prompt. Single 10s video (P6 gemini-omni-extend caps at 10s;
+                no windowing / multi-segment). */}
             <div>
-              <div
-                className="text-[11px] font-bold uppercase tracking-wider mb-1.5"
-                style={{ color: theme.primary }}
-              >
-                Segments (durasi)
-              </div>
-              <div className="grid grid-cols-3 gap-2 mb-3">
-                {([1, 2, 3] as const).map((n) => (
-                  <button
-                    key={n}
-                    type="button"
-                    onClick={() => setVrSegCount(n)}
-                    className="py-2 rounded-lg text-xs font-bold transition-all"
-                    style={
-                      vrSegCount === n
-                        ? { background: theme.gradient, color: "#1a1a1a" }
-                        : { background: theme.faint, border: `1px solid ${theme.soft}`, color: theme.primary }
-                    }
-                  >
-                    {n} × 10s = {n * 10}s
-                  </button>
-                ))}
-              </div>
-
-              {/* AI dialog generator — fills ALL parts, continuous, natural
-                  Bahasa Melayu (no Indon slang), sized to ~10s per segment. */}
-              <button
-                type="button"
-                onClick={() => void generateVrDialog()}
-                disabled={vrDialogGen}
-                className="w-full mb-3 py-2 rounded-lg text-xs font-extrabold flex items-center justify-center gap-2 disabled:opacity-60"
-                style={{ background: theme.gradient, color: "#1a1a1a" }}
-              >
-                {vrDialogGen ? (
-                  <>
-                    <Loader2 className="w-3.5 h-3.5 animate-spin" /> Menjana dialog…
-                  </>
-                ) : (
-                  <>🪄 Jana Dialog (AI) — {vrSegCount === 1 ? "1 part" : `${vrSegCount} part bersambung`}</>
-                )}
-              </button>
-
-              {vrSegCount === 1 ? (
-                <>
-                  <div
-                    className="text-[11px] font-bold uppercase tracking-wider mb-1.5"
-                    style={{ color: theme.primary }}
-                  >
-                    Dialog (Bahasa Melayu)
-                  </div>
-                  <textarea
-                    value={vrDialog}
-                    onChange={(e) => setVrDialog(e.target.value)}
-                    rows={3}
-                    placeholder="Apa presenter cakap… cth: 'Korang kena try ni, memang berbaloi!'"
-                    className="w-full px-3 py-2 rounded-lg text-sm bg-[var(--color-bg)] outline-none resize-y"
-                    style={{ border: `1px solid ${theme.soft}`, color: "var(--color-text)" }}
-                  />
-                </>
-              ) : (
-                <div className="space-y-3">
-                  {Array.from({ length: vrSegCount }).map((_, i) => {
-                    const seg = vrSegs[i] || { start: "", end: "", dialog: "" };
-                    const patch = (p: Partial<typeof seg>) =>
-                      setVrSegs((prev) => prev.map((s, j) => (j === i ? { ...s, ...p } : s)));
-                    return (
-                      <div
-                        key={i}
-                        className="rounded-lg p-2.5"
-                        style={{ border: `1px solid ${theme.soft}`, background: theme.faint }}
-                      >
-                        <div className="text-[10px] font-bold uppercase tracking-wider mb-1.5" style={{ color: theme.primary }}>
-                          Segment {i + 1}
-                        </div>
-                        <div className="flex items-center gap-2 mb-2">
-                          <span className="text-[10px] text-[var(--color-text-muted)]">Source</span>
-                          <input
-                            type="number" min={0} inputMode="numeric"
-                            value={seg.start}
-                            onChange={(e) => patch({ start: e.target.value })}
-                            placeholder="start s"
-                            className="w-16 px-2 py-1 rounded text-[11px] bg-[var(--color-bg)] outline-none"
-                            style={{ border: `1px solid ${theme.soft}`, color: "var(--color-text)" }}
-                          />
-                          <span className="text-[10px] text-[var(--color-text-muted)]">→</span>
-                          <input
-                            type="number" min={0} inputMode="numeric"
-                            value={seg.end}
-                            onChange={(e) => patch({ end: e.target.value })}
-                            placeholder="end s"
-                            className="w-16 px-2 py-1 rounded text-[11px] bg-[var(--color-bg)] outline-none"
-                            style={{ border: `1px solid ${theme.soft}`, color: "var(--color-text)" }}
-                          />
-                          <span className="text-[9px] text-[var(--color-text-muted)]">saat (window dalam video sumber)</span>
-                        </div>
-                        <textarea
-                          value={seg.dialog}
-                          onChange={(e) => patch({ dialog: e.target.value })}
-                          rows={2}
-                          placeholder={`Dialog segment ${i + 1}…`}
-                          className="w-full px-2 py-1.5 rounded text-[12px] bg-[var(--color-bg)] outline-none resize-y"
-                          style={{ border: `1px solid ${theme.soft}`, color: "var(--color-text)" }}
-                        />
-                      </div>
-                    );
-                  })}
+              <div className="flex items-center justify-between mb-1.5">
+                <div
+                  className="text-[11px] font-bold uppercase tracking-wider"
+                  style={{ color: theme.primary }}
+                >
+                  Dialog (Bahasa Melayu)
                 </div>
-              )}
+                <button
+                  type="button"
+                  onClick={() => void generateVrDialog()}
+                  disabled={vrDialogGen}
+                  className="px-3 py-1.5 rounded-lg text-[11px] font-extrabold inline-flex items-center gap-1.5 disabled:opacity-60"
+                  style={{ background: theme.gradient, color: "#1a1a1a" }}
+                >
+                  {vrDialogGen ? (
+                    <>
+                      <Loader2 className="w-3 h-3 animate-spin" /> Menjana…
+                    </>
+                  ) : (
+                    <>🪄 Jana Dialog (AI)</>
+                  )}
+                </button>
+              </div>
+              <textarea
+                value={vrDialog}
+                onChange={(e) => setVrDialog(e.target.value)}
+                rows={3}
+                placeholder="Apa presenter cakap… cth: 'Korang kena try ni, memang berbaloi!'"
+                className="w-full px-3 py-2 rounded-lg text-sm bg-[var(--color-bg)] outline-none resize-y"
+                style={{ border: `1px solid ${theme.soft}`, color: "var(--color-text)" }}
+              />
               <p className="text-[10px] text-[var(--color-text-muted)] mt-1">
-                Prompt dibina automatik dari Product + Avatar + Dialog. Multi-segment: setiap segment ambil slice video sumber (start→end) + dialog sendiri, lepas tu digabung jadi satu video.
+                Prompt dibina automatik dari Product + Avatar + Dialog. Output ~10 saat (ikut video sumber).
               </p>
             </div>
           </div>

@@ -258,14 +258,9 @@ export async function generateVideoWithCascade(
   //   retry=true  (resubmit / auto-cron): pick ONE fallback slot via
   //                                       independent round-robin
   let slots = input.retry ? await getFbs() : await getMains();
-  // Video Reference (a source video) runs on CRUN (P2) ONLY — cascade
-  // strictly between P2 A and P2 B. P6's gemini-omni-extend can't window a
-  // source video (needed for multi-segment) and behaves differently, so we
-  // never route a reference-video job there. Round-robin + skipSlot below
-  // still rotate/fall back across the two P2 slots.
-  if (input.refVideoUrl) {
-    slots = ["p2-a", "p2-b"];
-  }
+  // Video Reference uses the normal gemini cascade (main + fallback) — no
+  // hardcoded P2/P6. The admin-configured gemini pool already routes to P6
+  // (gemini-omni-extend), which reliably turns a video_url into a clip.
   let startIdx: number;
   if (input.retry && input.forceFirstFallback) {
     // Admin Resubmit: bypass round-robin and start at the FIRST non-"none"
