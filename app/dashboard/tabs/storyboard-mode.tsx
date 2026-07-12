@@ -112,9 +112,28 @@ export default function StoryboardMode({ projectId }: { projectId?: string }) {
           </button>
         </div>
         {product ? (
-          <div className="flex items-center gap-2">
-            {product.attachments?.[0] ? <img src={product.attachments[0]} className="w-10 h-10 rounded object-cover" alt="" /> : <span className="w-10 h-10 rounded flex items-center justify-center" style={{ background: "var(--color-bg)" }}><ImageIcon className="w-4 h-4" /></span>}
-            <span className="text-[13px] font-semibold text-[var(--color-text-primary)]">{product.product_name}</span>
+          <div className="space-y-2">
+            <div className="flex items-center gap-2">
+              {product.attachments?.[0] ? <img src={product.attachments[0]} className="w-10 h-10 rounded object-cover" alt="" /> : <span className="w-10 h-10 rounded flex items-center justify-center" style={{ background: "var(--color-bg)" }}><ImageIcon className="w-4 h-4" /></span>}
+              <span className="text-[13px] font-semibold text-[var(--color-text-primary)]">{product.product_name}</span>
+            </div>
+            {/* Product attachments (used as gpt-image-2 visual reference) */}
+            {(product.attachments || []).filter(Boolean).length > 1 && (
+              <div className="flex gap-1.5 flex-wrap">
+                {(product.attachments || []).filter(Boolean).slice(0, 3).map((u, i) => (
+                  <img key={i} src={u} className="w-12 h-12 rounded object-cover" style={{ border: "1px solid var(--color-border)" }} alt="" />
+                ))}
+              </div>
+            )}
+            {/* Product description (fed to the prompt planner) */}
+            {product.detail && (
+              <div>
+                <div className="text-[10px] font-bold uppercase tracking-wider mb-1 text-[var(--color-text-muted)]">Description produk</div>
+                <div className="text-[12px] leading-relaxed whitespace-pre-wrap max-h-40 overflow-y-auto rounded-lg p-2.5 text-[var(--color-text-secondary)]" style={{ background: "var(--color-bg)", border: "1px solid var(--color-border)" }}>
+                  {product.detail}
+                </div>
+              </div>
+            )}
           </div>
         ) : (
           <div className="text-[12px] text-[var(--color-text-muted)]">Pilih produk (Beg Kuning / Tiada Link).</div>
