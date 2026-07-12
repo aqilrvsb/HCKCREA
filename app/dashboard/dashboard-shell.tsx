@@ -37,6 +37,7 @@ import StorageSection from "./sections/storage";
 import AttachmentsSection from "./sections/attachments";
 import ActivityFeed from "./sections/activity-feed";
 import QAChatPanel, { type QATab } from "./sections/qa-chat-panel";
+import LivechatPanel from "./sections/livechat-panel";
 import { SopButton } from "./sections/sop-modal";
 import { SOP_CONTENT } from "@/lib/sop-content";
 import Sidebar, { type Project, type SidebarView } from "./sidebar";
@@ -635,6 +636,12 @@ function ProjectView({
           )}
           {activeTab === "original-video" && (
             <>
+              {/* Pening Lab Live — native livechat agent (Load Data product
+                  picker → storyboard → Omni video). Runs the Pening Lab GPT
+                  brain server-side via /api/agent/cinema/chat. */}
+              <div className="max-w-5xl mx-auto w-full mb-6">
+                <LivechatPanel projectId={project.id} />
+              </div>
               <div className="max-w-5xl mx-auto w-full">
                 <OriginalVideoTab projectId={project.id} />
               </div>
