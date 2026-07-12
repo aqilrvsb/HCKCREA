@@ -256,6 +256,45 @@ export default function OriginalVideoTab({
     }
   }
 
+  // AI dialog generator (Bahasa Melayu, no Indon slang) from the product
+  // detail — one line per segment, ~10s each. Fills vrDialog (single) or
+  // every segment's dialog (multi).
+  const [vrDialogGen, setVrDialogGen] = useState(false);
+  async function generateVrDialog() {
+    if (!vrProductName.trim() && !vrProductDetail.trim()) {
+      setError("Isi Product Name / Detail Product dulu untuk jana dialog.");
+      return;
+    }
+    setError(null);
+    setVrDialogGen(true);
+    try {
+      const r = await fetch("/api/generate/video-ref-dialog", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          product_name: vrProductName.trim(),
+          product_detail: vrProductDetail.trim(),
+          seg_count: vrSegCount,
+        }),
+      });
+      const d = await r.json();
+      if (!r.ok || !d?.ok || !Array.isArray(d.dialogs)) {
+        throw new Error(d?.error || "Jana dialog gagal");
+      }
+      if (vrSegCount === 1) {
+        setVrDialog(d.dialogs[0] || "");
+      } else {
+        setVrSegs((prev) =>
+          prev.map((s, i) => (i < vrSegCount ? { ...s, dialog: d.dialogs[i] || s.dialog } : s))
+        );
+      }
+    } catch (e: any) {
+      setError(e?.message || "Jana dialog gagal");
+    } finally {
+      setVrDialogGen(false);
+    }
+  }
+
   // Build the hardcoded Video Reference prompt from the guided fields. The
   // reference video drives motion/scene; the images are the presenter
   // (avatar, if uploaded) + the product; the dialog is what she says.
@@ -1106,6 +1145,24 @@ export default function OriginalVideoTab({
                   </button>
                 ))}
               </div>
+
+              {/* AI dialog generator — fills ALL parts, continuous, natural
+                  Bahasa Melayu (no Indon slang), sized to ~10s per segment. */}
+              <button
+                type="button"
+                onClick={() => void generateVrDialog()}
+                disabled={vrDialogGen}
+                className="w-full mb-3 py-2 rounded-lg text-xs font-extrabold flex items-center justify-center gap-2 disabled:opacity-60"
+                style={{ background: theme.gradient, color: "#1a1a1a" }}
+              >
+                {vrDialogGen ? (
+                  <>
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" /> Menjana dialog…
+                  </>
+                ) : (
+                  <>🪄 Jana Dialog (AI) — {vrSegCount === 1 ? "1 part" : `${vrSegCount} part bersambung`}</>
+                )}
+              </button>
 
               {vrSegCount === 1 ? (
                 <>
