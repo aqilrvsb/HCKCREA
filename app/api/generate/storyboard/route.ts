@@ -7,7 +7,10 @@ import { priceFor, hasEnoughCredits } from "@/lib/deduct";
 import { loadSubCards, extractGlobalRules, extractSubCard } from "@/lib/storyboard-cards";
 
 export const runtime = "nodejs";
-export const maxDuration = 60;
+// 300s so a large batch's background after() (prompt planning + firing every
+// image cascade) can never be killed before all rows submit — an orphaned
+// pending row (no task_id) would otherwise spin "Generating…" forever.
+export const maxDuration = 300;
 export const dynamic = "force-dynamic";
 
 // POST /api/generate/storyboard
