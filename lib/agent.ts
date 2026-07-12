@@ -20,6 +20,7 @@
 
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getSettings } from "@/lib/settings";
+import { parseModelSetting, providerCreds } from "@/lib/openrouter";
 
 // ──────────────────────────────────────────────────────────────────────────
 // Types
@@ -500,6 +501,11 @@ type LoopOpts = {
   // "gpt-image-2") so the generate_image tool handler can force the
   // user's pick without the LLM having to fetch the decision-tree skill.
   stateOverrides?: Record<string, any>;
+  // Which app_settings model key drives the tool-use LLM for this tab.
+  // Defaults to "model_agent_text". The livechat passes "model_qa" so it
+  // runs on the Q&A routing (grsai gemini-3.5-flash → openrouter fallback),
+  // resolved through parseModelSetting + providerCreds so grsai works too.
+  modelSettingKey?: string;
 };
 
 export type LoopResult = {
@@ -514,13 +520,15 @@ export async function runAgentTurn(opts: LoopOpts): Promise<LoopResult> {
   // Fetch ALL settings needed for this turn in ONE query — agent config AND
   // OpenRouter config. This prevents getSettings from being called on every
   // iteration of the tool-use loop below.
+  const modelKey = opts.modelSettingKey || "model_agent_text";
   const settings = await getSettings([
     "agent_max_turns",
     "agent_max_tools_per_turn",
     "agent_daily_message_cap",
     "or_base",
     "or_key",
-    "model_agent_text",
+    "p4_key", // grsai chat key (for model settings routed to the grsai provider)
+    modelKey,
     "model_agent_vision",
   ]);
   const maxTurns = Number(settings.agent_max_turns?.value || 30);
@@ -531,13 +539,24 @@ export async function runAgentTurn(opts: LoopOpts): Promise<LoopResult> {
   // fetches plus the generate in one turn comfortably.
   const maxToolsPerTurn = Number(settings.agent_max_tools_per_turn?.value || 12);
 
-  // Pre-resolved OpenRouter config — passed into orChatWithTools so it never
-  // calls getSettings inside the loop.
-  const orConfigText = {
-    base: settings.or_base?.url as string,
-    key: settings.or_key?.key as string,
-    model: settings.model_agent_text?.model as string,
-  };
+  // Pre-resolved chat config — passed into orChatWithTools so it never calls
+  // getSettings inside the loop. Resolve the tab's model setting through the
+  // shared parser so BOTH shapes work: the bare {model} form (model_agent_text
+  // → OpenRouter) AND the {main, fallbacks} cascade form (model_qa → grsai
+  // gemini-3.5-flash). We use the MAIN slot's provider creds (grsai uses the
+  // p4 chat key + grsaiapi base; openrouter uses or_base/or_key).
+  const parsedModel = parseModelSetting(settings[modelKey]);
+  let orConfigText: { base: string; key: string; model: string };
+  if (parsedModel) {
+    const creds = await providerCreds(parsedModel.main.provider, settings);
+    orConfigText = { base: creds.base, key: creds.key, model: parsedModel.main.model };
+  } else {
+    orConfigText = {
+      base: settings.or_base?.url as string,
+      key: settings.or_key?.key as string,
+      model: (settings[modelKey]?.model as string) || "",
+    };
+  }
   // model_agent_vision is fetched above so describeImageForAgent's getSettings
   // call hits the in-memory cache (free). orConfigVision kept as a local for
   // readability; unused directly because describeImageForAgent is exported and

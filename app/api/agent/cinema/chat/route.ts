@@ -94,6 +94,10 @@ export async function POST(req: Request) {
     tab: "cinema",
     systemPrompt,
     tools: LIVECHAT_TOOLS,
+    // Livechat runs on the Q&A routing (grsai gemini-3.5-flash → openrouter
+    // fallback) per user direction — resolved via parseModelSetting so the
+    // grsai provider works for the tool-use loop.
+    modelSettingKey: "model_qa",
     userText: finalUserText || "(produk dipilih)",
     attachedImageUrl: attachedImageUrl || undefined,
     attachedImageRole: imageRole,

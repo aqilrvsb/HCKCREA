@@ -84,8 +84,9 @@ const TABS: { key: TabKey; label: string; icon: any; tag: string }[] = [
   // Viral + Seedance tabs hidden per user direction. Routes + imports kept
   // so existing history rows still render; re-enable by uncommenting.
   // { key: "seedance",  label: "Cinema",       icon: Film,      tag: "--" },
-  // Clone Prompt re-opened per user direction (now with an Omni 10s mode).
-  { key: "clone",     label: "Clone Prompt", icon: Layers,    tag: "05" },
+  // Clone Prompt hidden per user direction 2026-07-12. Route + block + imports
+  // kept so existing history rows still render; re-enable by uncommenting.
+  // { key: "clone",     label: "Clone Prompt", icon: Layers,    tag: "05" },
   // Storytelling hidden per user direction 2026-07-06. Route + imports
   // kept so existing history rows still render; re-enable by uncommenting.
   // { key: "fairytale", label: "Storytelling", icon: BookOpen,  tag: "05" },
