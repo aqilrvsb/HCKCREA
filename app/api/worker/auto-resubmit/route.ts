@@ -304,6 +304,9 @@ export async function GET(req: Request) {
     const allImageUrls: string[] = Array.isArray(meta.image_urls) && meta.image_urls.length > 0
       ? meta.image_urls.filter((u: any) => typeof u === "string" && u.trim())
       : (refImage ? [refImage] : []);
+    // GeminiOmni Video Reference source — carry it so the cron resubmit
+    // re-runs video→video with the same reference + all attachments.
+    const refVideoUrl = String(meta.videoRef || "").trim();
     const aspectRatio = String(meta.aspectRatio || meta.aspect_ratio || "9:16");
     // Preserve the ORIGINAL duration (Veo 8/16, Grok 1-15s, Sora 8/12).
     // Old `=== 16 ? "16" : "8"` downgraded a 15s Grok job to 8s on retry.
@@ -345,6 +348,7 @@ export async function GET(req: Request) {
       userId: row.user_id,
       prompt: row.prompt,
       imageUrls: allImageUrls,
+      refVideoUrl: refVideoUrl || undefined,
       durationMode,
       aspectRatio,
       imageMode,

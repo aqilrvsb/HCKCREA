@@ -165,6 +165,11 @@ export async function POST(req: Request) {
   const allImageUrls: string[] = Array.isArray(meta.image_urls) && meta.image_urls.length > 0
     ? meta.image_urls.filter((u: any) => typeof u === "string" && u.trim())
     : (refImage ? [refImage] : []);
+  // GeminiOmni Video Reference — re-fire with the SAME source video so a
+  // failed video-ref row RESUBMITS with the full context (video + every
+  // product/avatar image), not as a plain image/text gen. Stamped at
+  // original-fire time as metadata.videoRef.
+  const refVideoUrl = String(meta.videoRef || "").trim();
   const aspectRatio = String(meta.aspectRatio || meta.aspect_ratio || "9:16");
   // Preserve the ORIGINAL duration on resubmit/fallback. Veo = 8 or 16;
   // Grok Imagine = 1-15s; Sora 2 = 8 or 12. The old `=== 16 ? "16" : "8"`
@@ -359,6 +364,9 @@ export async function POST(req: Request) {
       userId: actingUserId,
       prompt: effectivePrompt,
       imageUrls: allImageUrls,
+      // Video Reference: carry the source video so resubmit re-runs the
+      // video→video with the same reference (+ all attachments).
+      refVideoUrl: refVideoUrl || undefined,
       durationMode,
       aspectRatio,
       imageMode,

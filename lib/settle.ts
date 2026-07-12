@@ -527,6 +527,9 @@ async function tryAutoRetry(
       : refImage
         ? [refImage]
         : [];
+  // GeminiOmni Video Reference source — carry it so event-driven retry
+  // re-runs the video→video with the same reference + all attachments.
+  const refVideoUrl = String(meta.videoRef || "").trim();
   const aspectRatio = String(meta.aspectRatio || meta.aspect_ratio || "9:16");
   // Preserve the ORIGINAL duration on event-driven retry/fallback (Veo
   // 8/16, Grok 1-15s, Sora 8/12). Old `=== 16 ? "16" : "8"` downgraded a
@@ -727,6 +730,7 @@ async function tryAutoRetry(
       // Pass ALL attachments (multi-ref Veo r2v needs every URL — was
       // silently truncated to 1 image on event-driven retries before).
       imageUrls: allImageUrls,
+      refVideoUrl: refVideoUrl || undefined,
       durationMode,
       aspectRatio,
       imageMode,
