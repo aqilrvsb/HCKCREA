@@ -1310,36 +1310,9 @@ export default function OriginalVideoTab({
                     </>
                   )}
                 </label>
-                {/* …or paste a public URL. */}
-                <div className="mt-2 flex items-center gap-2">
-                  <span className="text-[10px] text-[var(--color-text-muted)] whitespace-nowrap">atau link:</span>
-                  <input
-                    type="url"
-                    inputMode="url"
-                    placeholder="https://…/video.mp4"
-                    disabled={videoUploading}
-                    className="flex-1 px-2 py-1.5 rounded text-[11px] bg-[var(--color-bg)] outline-none"
-                    style={{ border: `1px solid ${theme.soft}`, color: "var(--color-text)" }}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") {
-                        const v = (e.target as HTMLInputElement).value.trim();
-                        if (/^https?:\/\/.+/i.test(v)) {
-                          setVideoRef(v);
-                          setVideoRefName("URL link");
-                        } else {
-                          setError("URL video tak valid (kena https://…).");
-                        }
-                      }
-                    }}
-                    onBlur={(e) => {
-                      const v = e.target.value.trim();
-                      if (v && /^https?:\/\/.+/i.test(v)) {
-                        setVideoRef(v);
-                        setVideoRefName("URL link");
-                      }
-                    }}
-                  />
-                </div>
+                {/* URL-link source removed: the browser can only auto-compress
+                    an UPLOADED file, not a remote URL, so an oversized link had
+                    no recovery path (blocked at the 8MB cap). Upload only. */}
               </>
             )}
 

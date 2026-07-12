@@ -171,7 +171,7 @@ export async function POST(req: Request) {
       if (bytes > 8 * 1024 * 1024) {
         return NextResponse.json(
           {
-            error: `Video rujukan terlalu besar (${(bytes / 1024 / 1024).toFixed(1)}MB, maks 8MB). Muat naik fail video terus — kami auto-kecilkan. Atau guna link video < 8MB.`,
+            error: `Video rujukan terlalu besar (${(bytes / 1024 / 1024).toFixed(1)}MB, maks 8MB). Muat naik fail video yang lebih pendek — kami auto-kecilkan bila anda upload.`,
           },
           { status: 400 }
         );
