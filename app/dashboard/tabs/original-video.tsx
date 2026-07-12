@@ -1126,6 +1126,81 @@ export default function OriginalVideoTab({
               </p>
             </div>
 
+            {/* Product reference images (optional) — the product to feature
+                in the replicated video. Sits ABOVE the video source. */}
+            <div>
+              <div
+                className="text-[11px] font-bold uppercase tracking-wider mb-1.5"
+                style={{ color: theme.primary }}
+              >
+                Product Reference ({filledRefs.length}/{refCap}) — optional
+              </div>
+              <div className="flex items-stretch gap-2">
+                <div className="flex gap-1.5 flex-wrap">
+                  {Array.from({ length: refCap }).map((_, i) => {
+                    const url = refSlots[i] || "";
+                    return (
+                      <div key={i} className="flex flex-col items-center gap-0.5">
+                        <button
+                          type="button"
+                          onClick={() => setPickingSlot(i)}
+                          className="relative w-16 h-16 rounded-lg overflow-hidden flex-shrink-0 flex items-center justify-center"
+                          style={{
+                            border: url
+                              ? `2px solid ${theme.primary}`
+                              : `2px dashed ${theme.soft}`,
+                            background: url ? "#000" : "var(--color-bg)",
+                          }}
+                        >
+                          {url ? (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img src={url} alt="" className="w-full h-full object-cover" />
+                          ) : (
+                            <span className="text-xs font-semibold" style={{ color: theme.primary }}>
+                              {i + 1}
+                            </span>
+                          )}
+                          {url && (
+                            <span
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setRefSlots(refSlots.map((u, j) => (j === i ? "" : u)));
+                              }}
+                              className="absolute top-0 right-0 w-4 h-4 rounded-bl bg-black/70 text-white text-[10px] flex items-center justify-center cursor-pointer"
+                            >
+                              ×
+                            </span>
+                          )}
+                        </button>
+                        <span
+                          className="text-[9px] font-mono uppercase tracking-wider"
+                          style={{ color: "var(--color-text-muted)" }}
+                        >
+                          PRODUK
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setPickingSlot(filledRefs.length)}
+                  disabled={filledRefs.length >= refCap}
+                  className="px-3 py-1 rounded text-[11px] font-bold whitespace-nowrap disabled:opacity-40 self-start"
+                  style={{
+                    background: theme.faint,
+                    border: `1px solid ${theme.primary}`,
+                    color: theme.primary,
+                  }}
+                >
+                  Attachments
+                </button>
+              </div>
+              <p className="text-[10px] text-[var(--color-text-muted)] mt-1">
+                Optional — letak gambar produk anda, video akan keluar guna produk anda.
+              </p>
+            </div>
+
             <div
               className="text-[11px] font-bold uppercase tracking-wider mb-1.5"
               style={{ color: theme.primary }}
@@ -1225,82 +1300,6 @@ export default function OriginalVideoTab({
                 </div>
               </>
             )}
-
-            {/* Product reference images (optional) — the product to feature
-                in the replicated video. Both providers accept them
-                alongside the source video. */}
-            <div className="mt-3">
-              <div
-                className="text-[11px] font-bold uppercase tracking-wider mb-1.5"
-                style={{ color: theme.primary }}
-              >
-                Product Reference ({filledRefs.length}/{refCap}) — optional
-              </div>
-              <div className="flex items-stretch gap-2">
-                <div className="flex gap-1.5 flex-wrap">
-                  {Array.from({ length: refCap }).map((_, i) => {
-                    const url = refSlots[i] || "";
-                    return (
-                      <div key={i} className="flex flex-col items-center gap-0.5">
-                        <button
-                          type="button"
-                          onClick={() => setPickingSlot(i)}
-                          className="relative w-16 h-16 rounded-lg overflow-hidden flex-shrink-0 flex items-center justify-center"
-                          style={{
-                            border: url
-                              ? `2px solid ${theme.primary}`
-                              : `2px dashed ${theme.soft}`,
-                            background: url ? "#000" : "var(--color-bg)",
-                          }}
-                        >
-                          {url ? (
-                            // eslint-disable-next-line @next/next/no-img-element
-                            <img src={url} alt="" className="w-full h-full object-cover" />
-                          ) : (
-                            <span className="text-xs font-semibold" style={{ color: theme.primary }}>
-                              {i + 1}
-                            </span>
-                          )}
-                          {url && (
-                            <span
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setRefSlots(refSlots.map((u, j) => (j === i ? "" : u)));
-                              }}
-                              className="absolute top-0 right-0 w-4 h-4 rounded-bl bg-black/70 text-white text-[10px] flex items-center justify-center cursor-pointer"
-                            >
-                              ×
-                            </span>
-                          )}
-                        </button>
-                        <span
-                          className="text-[9px] font-mono uppercase tracking-wider"
-                          style={{ color: "var(--color-text-muted)" }}
-                        >
-                          PRODUK
-                        </span>
-                      </div>
-                    );
-                  })}
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setPickingSlot(filledRefs.length)}
-                  disabled={filledRefs.length >= refCap}
-                  className="px-3 py-1 rounded text-[11px] font-bold whitespace-nowrap disabled:opacity-40 self-start"
-                  style={{
-                    background: theme.faint,
-                    border: `1px solid ${theme.primary}`,
-                    color: theme.primary,
-                  }}
-                >
-                  Attachments
-                </button>
-              </div>
-              <p className="text-[10px] text-[var(--color-text-muted)] mt-1">
-                Optional — letak gambar produk anda, video akan keluar guna produk anda.
-              </p>
-            </div>
 
             {/* DIALOG — the only manual input. Baked into the hardcoded
                 prompt. Single 10s video (P6 gemini-omni-extend caps at 10s;
