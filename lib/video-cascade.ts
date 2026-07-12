@@ -75,6 +75,11 @@ export type VideoCascadeInput = {
    *  NOT set forceSlot) cascades normally — "try chosen provider first,
    *  then cascade". Takes precedence over retry/forceFirstFallback/skipSlot. */
   forceSlot?: SlotProvider;
+  /** GeminiOmni "Video Reference" mode — a source/reference VIDEO URL.
+   *  Both providers support it: P2 (Crun) sends it as video_list, P6
+   *  (APIPod) as gemini-omni-extend video_url. Ignored by every other
+   *  model. When set, imageUrls (if any) ride along as optional refs. */
+  refVideoUrl?: string;
   /** Which cascade pool to draw from. Defaults to "video" (UGC + Auto
    *  Content + Veo cinema). "grok" routes through the Grok cascade
    *  (typically p6-a..h). "cinema" routes through the Cinema (Seedance)
@@ -116,7 +121,7 @@ async function tryVideoSlot(
   slot: SlotProvider,
   input: VideoCascadeInput
 ): Promise<{ ok: boolean; taskId: string | null; error: string | null; model: string; keyIndex?: number }> {
-  const { primaryModel, prompt, aspectRatio, imageUrls, imageMode, durationMode, userId } = input;
+  const { primaryModel, prompt, aspectRatio, imageUrls, imageMode, durationMode, userId, refVideoUrl } = input;
   if (slot === "none") {
     return { ok: false, taskId: null, error: "slot disabled (none)", model: primaryModel };
   }
@@ -135,6 +140,8 @@ async function tryVideoSlot(
         userId,
         prompt,
         imageUrls,
+        // GeminiOmni Video Reference → Crun video_list (built in p2.ts).
+        videoUrls: refVideoUrl ? [refVideoUrl] : undefined,
         durationMode,
         aspectRatio,
         imageMode,
@@ -189,6 +196,8 @@ async function tryVideoSlot(
         imageUrls,
         imageMode,
         durationMode,
+        // GeminiOmni Video Reference → APIPod gemini-omni-extend video_url.
+        refVideoUrl,
       });
       return {
         ok: r.ok,

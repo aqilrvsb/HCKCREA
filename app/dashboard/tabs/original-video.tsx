@@ -31,7 +31,8 @@ import { SopStoryboardModal, SopUgcFrameModal } from "./sop-modals";
 
 type Status = "idle" | "submitting" | "failed";
 type Provider = "veo" | "grok" | "sora2" | "gemini" | "seedance";
-type ImageMode = "text" | "frame" | "ingredient";
+// "video" = GeminiOmni Video Reference (upload a source video, no images).
+type ImageMode = "text" | "frame" | "ingredient" | "video";
 
 // Max slots state array can hold. Seedance ingredient mode caps at 5;
 // other providers cap at 3 (per-provider cap enforced by getRefCap at
@@ -112,7 +113,10 @@ const PROVIDER_MODES: Record<Provider, ImageMode[]> = {
   // first-frame endpoint (image_urls 1-2 = first frame + optional last
   // frame, fixed 10s) — frame mode added per user direction 2026-07-06.
   // Crun (p2) path passes the same image_urls through unchanged.
-  gemini: ["ingredient", "frame"],
+  // GeminiOmni also gets "video" — a Video Reference mode (upload a source
+  // video, no images). Both providers support it: P2 (Crun) video_list,
+  // P6 (APIPod) gemini-omni-extend. Cascade fallback as usual.
+  gemini: ["ingredient", "frame", "video"],
   // Seedance 2.0 Fast: all 3 modes (r2v / t2v / i2v). Frame mode is
   // start+end frame i2v (2 images max per APIPod spec). Ingredient is
   // r2v with up to 9 refs (capped at 3 here for UX consistency).
@@ -124,6 +128,8 @@ const PROVIDER_MODES: Record<Provider, ImageMode[]> = {
 // multi-ref). API caps in /api/generate/cinema mirror these.
 function getRefCap(provider: Provider, mode: ImageMode): number {
   if (mode === "text") return 0;
+  // Video Reference — no image slots (video-only per user direction).
+  if (mode === "video") return 0;
   // frame: Veo + Seedance + GeminiOmni accept start+end (2 images);
   // Sora 2 + Grok 1.5 accept a single first frame.
   if (mode === "frame")
@@ -148,6 +154,7 @@ function getRefCap(provider: Provider, mode: ImageMode): number {
 function modeLabel(provider: Provider, mode: ImageMode): string {
   if (mode === "text") return "📝 Text only";
   if (mode === "frame") return "🖼️ Start frame";
+  if (mode === "video") return "🎬 Video Reference";
   // ingredient (multi-ref) → "References" for all providers. The
   // "(Recommend)" tag steers new users to the highest-quality path
   // (multi-ref produces the most consistent affiliate output).
@@ -160,6 +167,7 @@ function modeLabel(provider: Provider, mode: ImageMode): string {
 function modeDescription(mode: ImageMode): string {
   if (mode === "text") return "Tak perlu letak gambar, prompt je keluar video";
   if (mode === "frame") return "Image yang di-upload dijadikan first frame dalam video";
+  if (mode === "video") return "Upload video sebagai rujukan — hasilkan video baru";
   return "Guna gambar sebagai rujukan untuk hasilkan video cantik";
 }
 
@@ -190,6 +198,28 @@ export default function OriginalVideoTab({
   const [status, setStatus] = useState<Status>("idle");
   const [error, setError] = useState<string | null>(null);
   const [pickingSlot, setPickingSlot] = useState<number | null>(null);
+  // GeminiOmni Video Reference — uploaded source video URL + upload state.
+  const [videoRef, setVideoRef] = useState<string>("");
+  const [videoRefName, setVideoRefName] = useState<string>("");
+  const [videoUploading, setVideoUploading] = useState(false);
+
+  async function uploadVideoRef(file: File) {
+    setError(null);
+    setVideoUploading(true);
+    try {
+      const fd = new FormData();
+      fd.append("file", file, file.name || "ref.mp4");
+      const r = await fetch("/api/upload/video", { method: "POST", body: fd });
+      const d = await r.json();
+      if (!r.ok || !d?.url) throw new Error(d?.error || "Upload video gagal");
+      setVideoRef(d.url);
+      setVideoRefName(file.name || "video");
+    } catch (e: any) {
+      setError(e?.message || "Upload video gagal");
+    } finally {
+      setVideoUploading(false);
+    }
+  }
 
   useEffect(() => {
     let cancel = false;
@@ -308,14 +338,19 @@ export default function OriginalVideoTab({
 
   async function submit() {
     if (!prompt.trim()) return setError("Sila masukkan prompt.");
-    if (imageMode !== "text" && filledRefs.length === 0) {
+    if (imageMode === "video") {
+      if (videoUploading) return setError("Tunggu upload video siap dulu.");
+      if (!videoRef) return setError("Upload video rujukan dulu.");
+    } else if (imageMode !== "text" && filledRefs.length === 0) {
       return setError("Pick at least one reference image.");
     }
     setError(null);
     setStatus("submitting");
     try {
       const sourceUrls =
-        imageMode === "text" ? [] : filledRefs.slice(0, refCap);
+        imageMode === "text" || imageMode === "video"
+          ? []
+          : filledRefs.slice(0, refCap);
       const pubUrls = await Promise.all(sourceUrls.map((u) => ensurePublicUrl(u)));
       const r = await fetch("/api/generate/cinema", {
         method: "POST",
@@ -324,6 +359,8 @@ export default function OriginalVideoTab({
           prompt: prompt.trim(),
           image_url: pubUrls[0] || "",
           image_urls: pubUrls,
+          // GeminiOmni Video Reference — source video URL (video-only).
+          video_url: imageMode === "video" ? videoRef : "",
           duration,
           // Gemini forces 1080p server-side; we still send the right
           // value here so the optimistic UI cost preview matches what
@@ -652,6 +689,89 @@ export default function OriginalVideoTab({
                 Reference
               </button>
             </div>
+          </div>
+        )}
+
+        {/* === GeminiOmni Video Reference (video-only, no images) ===
+            Upload a source/reference video. Both providers support it:
+            P2 (Crun) video_list, P6 (APIPod) gemini-omni-extend. */}
+        {imageMode === "video" && (
+          <div className="mb-4">
+            <div
+              className="text-[11px] font-bold uppercase tracking-wider mb-1.5"
+              style={{ color: theme.primary }}
+            >
+              Video Reference {videoRef ? "(1/1)" : "(0/1)"}
+            </div>
+            {videoRef ? (
+              <div
+                className="rounded-lg overflow-hidden relative"
+                style={{ border: `2px solid ${theme.primary}`, background: "#000" }}
+              >
+                {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
+                <video
+                  src={videoRef}
+                  controls
+                  className="w-full max-h-56 object-contain bg-black"
+                />
+                <div
+                  className="flex items-center justify-between px-2 py-1 text-[10px]"
+                  style={{ background: theme.faint, color: theme.primary }}
+                >
+                  <span className="truncate">🎬 {videoRefName || "video"}</span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setVideoRef("");
+                      setVideoRefName("");
+                    }}
+                    className="font-bold ml-2"
+                  >
+                    ✕ Buang
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <label
+                className="flex flex-col items-center justify-center gap-1 rounded-lg cursor-pointer py-8 px-4 text-center"
+                style={{
+                  border: `2px dashed ${theme.soft}`,
+                  background: theme.faint,
+                }}
+              >
+                <input
+                  type="file"
+                  accept="video/mp4,video/webm,video/quicktime"
+                  className="hidden"
+                  disabled={videoUploading}
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    e.target.value = "";
+                    if (f) void uploadVideoRef(f);
+                  }}
+                />
+                {videoUploading ? (
+                  <span
+                    className="flex items-center gap-2 text-[12px] font-bold"
+                    style={{ color: theme.primary }}
+                  >
+                    <Loader2 className="w-4 h-4 animate-spin" /> Uploading video…
+                  </span>
+                ) : (
+                  <>
+                    <span
+                      className="text-[13px] font-bold"
+                      style={{ color: theme.primary }}
+                    >
+                      + Upload video rujukan
+                    </span>
+                    <span className="text-[10px] text-[var(--color-text-muted)]">
+                      MP4 / WEBM / MOV · maks 60MB · video sahaja
+                    </span>
+                  </>
+                )}
+              </label>
+            )}
           </div>
         )}
 

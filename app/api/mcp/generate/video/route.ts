@@ -40,6 +40,9 @@ export async function POST(req: Request) {
     ? body.image_urls.filter((x: any) => typeof x === "string" && !!x)
     : [];
   const aspectRatio = String(body?.aspect_ratio || "9:16");
+  // GeminiOmni Video Reference — a source/reference video URL. Both
+  // providers support it (P2 Crun video_list / P6 APIPod gemini-omni-extend).
+  const videoRefUrl = String(body?.video_url || "").trim();
   const imageMode: "text" | "frame" | "ingredient" =
     body?.image_mode === "ingredient"
       ? "ingredient"
@@ -176,7 +179,10 @@ export async function POST(req: Request) {
         model = imageMode !== "text" ? cfg.grokI2V : cfg.grokT2V;
       }
 
-      const imgs = imageMode === "text" ? []
+      // Video Reference (gemini only) is video-only — no images.
+      const useVideoRef = modelChoice === "gemini" && !!videoRefUrl;
+      const imgs = useVideoRef ? []
+        : imageMode === "text" ? []
         : modelChoice === "sora2" ? imageUrls.slice(0, 1)
         : modelChoice === "seedance" ? imageUrls.slice(0, 5)
         : imageUrls.slice(0, 3);
@@ -185,6 +191,7 @@ export async function POST(req: Request) {
         primaryModel: model,
         prompt,
         imageUrls: imgs,
+        refVideoUrl: useVideoRef ? videoRefUrl : undefined,
         durationMode: String(duration),
         aspectRatio,
         imageMode,

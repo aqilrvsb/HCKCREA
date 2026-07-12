@@ -120,6 +120,15 @@ export async function POST(req: Request) {
     imageModeRaw = "frame";
   }
   const imageMode = imageModeRaw;
+  // GeminiOmni "Video Reference" mode — video-only (no images). The UI
+  // sends image_mode="video" + video_url; both providers support it
+  // (P2 Crun video_list, P6 APIPod gemini-omni-extend). Only meaningful
+  // for gemini; ignored otherwise.
+  const videoRefUrl =
+    modelChoice === "gemini" && body?.image_mode === "video"
+      ? String(body?.video_url || "").trim()
+      : "";
+  const isVideoRef = !!videoRefUrl;
   const projectId = body?.project_id ? String(body.project_id) : null;
   // Feature tag — distinguishes which tab submitted this row:
   //   • feature='original-video' → Original Video tab (3-provider raw)
@@ -142,7 +151,14 @@ export async function POST(req: Request) {
     featureType === "original-video" ? "original-video" : "cinema";
 
   if (!prompt) return NextResponse.json({ error: "Prompt required" }, { status: 400 });
-  if (imageMode !== "text" && effectiveImageUrls.length === 0) {
+  // Video Reference mode requires the video (and needs no image).
+  if (modelChoice === "gemini" && body?.image_mode === "video" && !videoRefUrl) {
+    return NextResponse.json(
+      { error: "Video reference required — upload a reference video first." },
+      { status: 400 }
+    );
+  }
+  if (!isVideoRef && imageMode !== "text" && effectiveImageUrls.length === 0) {
     return NextResponse.json(
       {
         error:
@@ -170,7 +186,8 @@ export async function POST(req: Request) {
       duration,
       cost: 0,
       metadata: {
-        imageMode,
+        imageMode: isVideoRef ? "video" : imageMode,
+        ...(isVideoRef ? { videoRef: videoRefUrl } : {}),
         resolution,
         aspectRatio: imageMode !== "text" ? null : aspectRatio,
         cinemaProvider:
@@ -355,7 +372,10 @@ export async function POST(req: Request) {
       const result = await generateVideoWithCascade({
         primaryModel: model,
         prompt,
-        imageUrls: imgs,
+        imageUrls: isVideoRef ? [] : imgs,
+        // GeminiOmni Video Reference → both providers (P2 video_list /
+        // P6 gemini-omni-extend). No images in this mode.
+        refVideoUrl: videoRefUrl || undefined,
         durationMode: String(duration),
         aspectRatio,
         imageMode: imgMode,

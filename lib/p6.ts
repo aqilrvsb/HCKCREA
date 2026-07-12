@@ -133,6 +133,7 @@ function apipodVideoModel(input: {
   model?: string;
   imageMode?: "frame" | "ingredient" | "text";
   imageUrls?: string[];
+  refVideoUrl?: string;
 }): string {
   const m = (input.model || "").toLowerCase();
   const refs = input.imageUrls?.length || 0;
@@ -168,6 +169,8 @@ function apipodVideoModel(input: {
   //   • gemini-omni-t2v : pure text prompt, no image_urls
   // Duration fixed at 10s, aspect 9:16 | 16:9.
   if (m.includes("gemini")) {
+    // Video Reference → gemini-omni-extend (source video_url, no images).
+    if (input.refVideoUrl) return "gemini-omni-extend";
     return refs > 0 && mode !== "text" ? "gemini-omni-i2v" : "gemini-omni-t2v";
   }
 
@@ -221,6 +224,9 @@ export async function p6CreateVideo(input: {
   imageUrls?: string[];
   imageMode?: "frame" | "ingredient" | "text";
   durationMode?: string | number;
+  // GeminiOmni "Video Reference" — a source/reference video URL. Routes to
+  // APIPod's gemini-omni-extend (video_url required, no images).
+  refVideoUrl?: string;
 }): Promise<P6CreateResult> {
   const apiKey = await getP6KeyForSlot(input.slot);
   if (!apiKey) {
@@ -230,6 +236,7 @@ export async function p6CreateVideo(input: {
   const resolvedModel = apipodVideoModel({
     model: input.model,
     imageMode: input.imageMode,
+    refVideoUrl: input.refVideoUrl,
     imageUrls: refs,
   });
   // Per-model prompt cap.
@@ -298,6 +305,15 @@ export async function p6CreateVideo(input: {
         ? Math.round(reqDur)
         : 10;
     body.resolution = "720p";
+  } else if (resolvedModel === "gemini-omni-extend") {
+    // GeminiOmni Video Reference — source/reference VIDEO. APIPod
+    // gemini-omni-extend: video_url REQUIRED, no images (video-only per
+    // user direction), aspect 16:9|9:16, resolution 720p|1080p, NO
+    // duration field (output follows the source, capped 10s).
+    if (!input.refVideoUrl) {
+      return { ok: false, error: "gemini-omni-extend requires a reference video", provider: "p6" };
+    }
+    body.video_url = input.refVideoUrl;
   } else if (refs.length > 0) {
     // Per-model image_urls cap per APIPod docs:
     //   • veo3-1-fast             → up to 2 (start + end frame)
@@ -332,11 +348,18 @@ export async function p6CreateVideo(input: {
       Number.isFinite(reqDur) && reqDur >= 4 && reqDur <= 15
         ? Math.round(reqDur)
         : 5;
+  } else if (resolvedModel === "gemini-omni-extend") {
+    // Video Reference / extend — NO duration field (output follows the
+    // source, capped 10s). Resolution fixed 1080p per user direction;
+    // aspect enum 16:9 | 9:16.
+    body.resolution = "1080p";
+    if (body.aspect_ratio !== "9:16" && body.aspect_ratio !== "16:9") {
+      body.aspect_ratio = "9:16";
+    }
   } else if (resolvedModel.startsWith("gemini-omni")) {
-    // Gemini Omni — APIPod docs: duration always 10, resolution enum is
-    // lowercase "720p" | "1080p" (current doc; the old uppercase "720P"
-    // was from an earlier doc revision). aspect_ratio enum is just
-    // 16:9 | 9:16 — clamp if caller passed something else.
+    // Gemini Omni i2v / t2v — APIPod docs: duration always 10, resolution
+    // enum lowercase "720p" | "1080p". aspect_ratio enum 16:9 | 9:16 —
+    // clamp if caller passed something else.
     body.duration = 10;
     body.resolution = "720p";
     if (body.aspect_ratio !== "9:16" && body.aspect_ratio !== "16:9") {

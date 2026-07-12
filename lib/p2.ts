@@ -270,8 +270,19 @@ async function p2CreateTaskInternal(input: {
     // 3 refs. Slice defensively at 3 — matches Veo cap, keeps body
     // payloads small.
     if (imgUrls.length > 0) innerInput.img_urls = imgUrls.slice(0, 3);
-    innerInput.duration = Number(input.durationMode || 10);
+    // GeminiOmni "Video Reference" — a source/reference video. Crun takes
+    // it as video_list: [{ url, start, ends }] (max 1 item). When present,
+    // the model determines output duration from the source (duration field
+    // is ignored) and img_urls cap drops to 5. start/ends bound the source
+    // segment used as reference; default full first 10s.
+    if (vidUrls.length > 0) {
+      innerInput.video_list = [{ url: vidUrls[0], start: 0, ends: 10 }];
+      if (imgUrls.length > 0) innerInput.img_urls = imgUrls.slice(0, 5);
+    } else {
+      innerInput.duration = Number(input.durationMode || 10);
+    }
     if (input.aspectRatio) innerInput.aspect_ratio = input.aspectRatio;
+    // Video-reference (+ image-ref) Omni fixed at 1080p per user direction.
     innerInput.resolution = String(input.resolution || "1080p").toLowerCase();
   } else if (isKling) {
     // Kling v3 motion-control: exactly 1 character image + 1 motion video.
