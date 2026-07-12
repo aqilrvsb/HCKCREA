@@ -637,12 +637,11 @@ function ProjectView({
           )}
           {activeTab === "original-video" && (
             <>
-              {/* Pening Lab Live — native livechat agent (Load Data product
-                  picker → storyboard → Omni video). Runs the Pening Lab GPT
-                  brain server-side via /api/agent/cinema/chat. */}
-              <div className="max-w-5xl mx-auto w-full mb-6">
-                <LivechatPanel projectId={project.id} />
-              </div>
+              {/* Pening Lab Live — floating livechat agent (bottom-right FAB →
+                  right drawer): Load Data product picker → storyboard → Omni
+                  video. Runs the Pening Lab GPT brain via /api/agent/cinema/chat.
+                  Portals itself, so it needs no layout slot here. */}
+              <LivechatPanel projectId={project.id} />
               <div className="max-w-5xl mx-auto w-full">
                 <OriginalVideoTab projectId={project.id} />
               </div>
