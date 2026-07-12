@@ -15,6 +15,7 @@ import {
   Sparkles,
 } from "lucide-react";
 import ImageTab from "./tabs/image";
+import ImageTabWithMode from "./tabs/image-with-mode";
 import VideoTab from "./tabs/video";
 import CinemaTab from "./tabs/cinema";
 import GrokTab from "./tabs/grok";
@@ -606,7 +607,7 @@ function ProjectView({
           {activeTab === "image" && (
             <>
               <div className="max-w-5xl mx-auto w-full">
-                <ImageTab projectId={project.id} />
+                <ImageTabWithMode projectId={project.id} />
               </div>
               <HistoryGrid tab="image" title={`Image — ${project.name}`} projectId={project.id} />
             </>
