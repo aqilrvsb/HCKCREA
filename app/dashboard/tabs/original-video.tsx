@@ -228,6 +228,15 @@ export default function OriginalVideoTab({
   const [vrProductName, setVrProductName] = useState("");
   const [vrProductDetail, setVrProductDetail] = useState("");
   const [vrDialog, setVrDialog] = useState("");
+  // Multi-segment: 1/2/3 output segments (~10/20/30s), each with its own
+  // source window (start→end seconds) + dialog. seg[0].dialog mirrors
+  // vrDialog for the single-segment path.
+  const [vrSegCount, setVrSegCount] = useState<1 | 2 | 3>(1);
+  const [vrSegs, setVrSegs] = useState<Array<{ start: string; end: string; dialog: string }>>([
+    { start: "0", end: "10", dialog: "" },
+    { start: "10", end: "20", dialog: "" },
+    { start: "20", end: "30", dialog: "" },
+  ]);
   const [vrGender, setVrGender] = useState<"female" | "male">("female");
   const [vrHijab, setVrHijab] = useState<"yes" | "no">("yes");
   const [vrAge, setVrAge] = useState<"20s" | "30s" | "40s" | "55+">("30s");
@@ -1079,18 +1088,94 @@ export default function OriginalVideoTab({
                 className="text-[11px] font-bold uppercase tracking-wider mb-1.5"
                 style={{ color: theme.primary }}
               >
-                Dialog (Bahasa Melayu)
+                Segments (durasi)
               </div>
-              <textarea
-                value={vrDialog}
-                onChange={(e) => setVrDialog(e.target.value)}
-                rows={3}
-                placeholder="Apa presenter cakap… cth: 'Korang kena try ni, memang berbaloi!'"
-                className="w-full px-3 py-2 rounded-lg text-sm bg-[var(--color-bg)] outline-none resize-y"
-                style={{ border: `1px solid ${theme.soft}`, color: "var(--color-text)" }}
-              />
+              <div className="grid grid-cols-3 gap-2 mb-3">
+                {([1, 2, 3] as const).map((n) => (
+                  <button
+                    key={n}
+                    type="button"
+                    onClick={() => setVrSegCount(n)}
+                    className="py-2 rounded-lg text-xs font-bold transition-all"
+                    style={
+                      vrSegCount === n
+                        ? { background: theme.gradient, color: "#1a1a1a" }
+                        : { background: theme.faint, border: `1px solid ${theme.soft}`, color: theme.primary }
+                    }
+                  >
+                    {n} × 10s = {n * 10}s
+                  </button>
+                ))}
+              </div>
+
+              {vrSegCount === 1 ? (
+                <>
+                  <div
+                    className="text-[11px] font-bold uppercase tracking-wider mb-1.5"
+                    style={{ color: theme.primary }}
+                  >
+                    Dialog (Bahasa Melayu)
+                  </div>
+                  <textarea
+                    value={vrDialog}
+                    onChange={(e) => setVrDialog(e.target.value)}
+                    rows={3}
+                    placeholder="Apa presenter cakap… cth: 'Korang kena try ni, memang berbaloi!'"
+                    className="w-full px-3 py-2 rounded-lg text-sm bg-[var(--color-bg)] outline-none resize-y"
+                    style={{ border: `1px solid ${theme.soft}`, color: "var(--color-text)" }}
+                  />
+                </>
+              ) : (
+                <div className="space-y-3">
+                  {Array.from({ length: vrSegCount }).map((_, i) => {
+                    const seg = vrSegs[i] || { start: "", end: "", dialog: "" };
+                    const patch = (p: Partial<typeof seg>) =>
+                      setVrSegs((prev) => prev.map((s, j) => (j === i ? { ...s, ...p } : s)));
+                    return (
+                      <div
+                        key={i}
+                        className="rounded-lg p-2.5"
+                        style={{ border: `1px solid ${theme.soft}`, background: theme.faint }}
+                      >
+                        <div className="text-[10px] font-bold uppercase tracking-wider mb-1.5" style={{ color: theme.primary }}>
+                          Segment {i + 1}
+                        </div>
+                        <div className="flex items-center gap-2 mb-2">
+                          <span className="text-[10px] text-[var(--color-text-muted)]">Source</span>
+                          <input
+                            type="number" min={0} inputMode="numeric"
+                            value={seg.start}
+                            onChange={(e) => patch({ start: e.target.value })}
+                            placeholder="start s"
+                            className="w-16 px-2 py-1 rounded text-[11px] bg-[var(--color-bg)] outline-none"
+                            style={{ border: `1px solid ${theme.soft}`, color: "var(--color-text)" }}
+                          />
+                          <span className="text-[10px] text-[var(--color-text-muted)]">→</span>
+                          <input
+                            type="number" min={0} inputMode="numeric"
+                            value={seg.end}
+                            onChange={(e) => patch({ end: e.target.value })}
+                            placeholder="end s"
+                            className="w-16 px-2 py-1 rounded text-[11px] bg-[var(--color-bg)] outline-none"
+                            style={{ border: `1px solid ${theme.soft}`, color: "var(--color-text)" }}
+                          />
+                          <span className="text-[9px] text-[var(--color-text-muted)]">saat (window dalam video sumber)</span>
+                        </div>
+                        <textarea
+                          value={seg.dialog}
+                          onChange={(e) => patch({ dialog: e.target.value })}
+                          rows={2}
+                          placeholder={`Dialog segment ${i + 1}…`}
+                          className="w-full px-2 py-1.5 rounded text-[12px] bg-[var(--color-bg)] outline-none resize-y"
+                          style={{ border: `1px solid ${theme.soft}`, color: "var(--color-text)" }}
+                        />
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
               <p className="text-[10px] text-[var(--color-text-muted)] mt-1">
-                Prompt dibina automatik dari Product + Avatar + Dialog — tak perlu tulis prompt.
+                Prompt dibina automatik dari Product + Avatar + Dialog. Multi-segment: setiap segment ambil slice video sumber (start→end) + dialog sendiri, lepas tu digabung jadi satu video.
               </p>
             </div>
           </div>
