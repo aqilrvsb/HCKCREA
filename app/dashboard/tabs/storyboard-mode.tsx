@@ -72,6 +72,15 @@ export default function StoryboardMode({ projectId }: { projectId?: string }) {
     if (!main) return;
     setSubs((prev) => (prev.some((x) => x.sub === s) ? prev.filter((x) => x.sub !== s) : [...prev, { main, sub: s }]));
   }
+  function moveSub(i: number, dir: -1 | 1) {
+    setSubs((prev) => {
+      const j = i + dir;
+      if (j < 0 || j >= prev.length) return prev;
+      const arr = [...prev];
+      [arr[i], arr[j]] = [arr[j], arr[i]];
+      return arr;
+    });
+  }
 
   async function uploadAvatar(file: File) {
     setErr(null);
@@ -263,8 +272,18 @@ export default function StoryboardMode({ projectId }: { projectId?: string }) {
               </div>
             </div>
           ) : (
-            <div className="text-[12px] px-3 py-2 rounded-lg" style={{ background: `${THEME}14`, color: "var(--color-text-secondary)", border: `1px solid ${THEME}44` }}>
-              🎬 <b>Campaign bersambung</b> — {subs.length} storyboard, cerita berterusan ({subs.map((x, i) => `${i + 1}·${x.sub}`).join(" → ")}), yang akhir jadi <b>closing/CTA</b>.
+            <div className="rounded-lg p-3" style={{ background: `${THEME}14`, border: `1px solid ${THEME}44` }}>
+              <div className="text-[11px] font-bold mb-2" style={{ color: THEME }}>🎬 Campaign bersambung — susun turutan (atas = Video 1, bawah = penutup + CTA)</div>
+              <div className="space-y-1.5">
+                {subs.map((x, i) => (
+                  <div key={x.sub} className="flex items-center gap-2 px-2 py-1.5 rounded-lg" style={{ background: "var(--color-bg)", border: "1px solid var(--color-border)" }}>
+                    <span className="text-[11px] font-bold rounded-full w-5 h-5 flex items-center justify-center flex-shrink-0" style={{ background: THEME, color: "#1a1a1a" }}>{i + 1}</span>
+                    <span className="flex-1 text-[12px] font-semibold text-[var(--color-text-primary)] truncate">{x.sub} <span className="text-[10px] text-[var(--color-text-muted)]">· {x.main === "ugc" ? "UGC" : "PC"}{i === subs.length - 1 ? " · CTA" : ""}</span></span>
+                    <button onClick={() => moveSub(i, -1)} disabled={i === 0} className="w-6 h-6 rounded text-[13px] disabled:opacity-30" style={{ border: "1px solid var(--color-border)", color: "var(--color-text-secondary)" }}>↑</button>
+                    <button onClick={() => moveSub(i, 1)} disabled={i === subs.length - 1} className="w-6 h-6 rounded text-[13px] disabled:opacity-30" style={{ border: "1px solid var(--color-border)", color: "var(--color-text-secondary)" }}>↓</button>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
           <button onClick={generate} disabled={busy} className="w-full py-3 rounded-xl text-[14px] font-bold flex items-center justify-center gap-2" style={{ background: THEME, color: "#1a1a1a", opacity: busy ? 0.6 : 1 }}>

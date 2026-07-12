@@ -143,23 +143,27 @@ export async function POST(req: Request) {
 
       const roleLine = job.campaign
         ? job.role === "opening"
-          ? `This is the OPENING storyboard (segment 1 of ${job.total}) of ONE connected campaign — hook the viewer and introduce the product/problem. The story CONTINUES into the next segments.`
+          ? `This is the OPENING storyboard (segment 1 of ${job.total}) of ONE continuous campaign. Show the PROBLEM / HOOK phase — set up the need; the product may appear but is NOT yet used or demonstrated. **NO call-to-action here.** End on a curiosity/cliffhanger that leads INTO the next segment.`
           : job.role === "closing"
-            ? `This is the CLOSING storyboard (segment ${job.index + 1} of ${job.total}) of ONE connected campaign — pay off the story with a premium close + clear call-to-action (CTA). It must feel like the ENDING that resolves the earlier segments.`
-            : `This is segment ${job.index + 1} of ${job.total} of ONE connected campaign — continue the story (demo / benefit / proof), bridging the opening and the closing. Same product identity + narrative arc throughout.`
+            ? `This is the CLOSING storyboard (final segment ${job.index + 1} of ${job.total}) of ONE continuous campaign. Show the RESULT / payoff phase and end with the ONE call-to-action (CTA) for the whole campaign. This is the ONLY segment allowed to have a CTA.`
+            : `This is the MIDDLE storyboard (segment ${job.index + 1} of ${job.total}) of ONE continuous campaign. Show a DIFFERENT phase from the other segments — the demo/usage or the proof/benefit. **NO call-to-action.** End on a bridge to the next segment.`
         : `Variation ${job.index + 1} of ${job.total} — make the hook / framing / panel order DIFFERENT from the other variations of the same sub-style.`;
+      // Anti-duplication + single-CTA rules for the campaign arc.
+      const campaignRule = job.campaign
+        ? `CAMPAIGN RULES (this is ONE continuous story across: ${campaignArc}): (1) Each segment must show DISTINCT actions & scenes — NEVER duplicate the same hero action across segments (e.g. if one segment shows drinking the product, another must NOT show drinking — pick a different moment/action). (2) ONLY the final/closing segment ends with a CTA; the opening & middle segments end on a bridge to the next, with NO CTA. (3) Same product identity throughout. `
+        : ``;
 
       const sysPrompt = card
         ? // Full spec available — hand the planner the exact card + global rules.
           `You are a Pening Lab storyboard specialist. Produce ONE image-generation prompt for a 9:16 storyboard GRID by following the RULES and the SUB-CATEGORY CARD below EXACTLY (its Signature must dominate ≥3–4 frames; follow its 10s beat flow and frame-by-frame guidance).\n\n` +
           `${globalRules}\n\n=== SUB-CATEGORY CARD (${job.sub}, ${mainLabel}) ===\n${card}\n\n=== TASK ===\n` +
           `Write the storyboard image prompt now, assembling per the "UNIVERSAL IMAGE-PROMPT ASSEMBLY RECIPE": begin with "ONE single 9:16 storyboard grid for ONE video only.", then grid spec, then this card's Signature + shots as per-frame scene directions following its beat flow, Malaysian talent + local setting, product identity lock (verbatim label), one short claim-safe BM caption per frame, neutral problem framing. ` +
-          (job.campaign ? `CAMPAIGN: full arc = ${campaignArc}; keep the SAME product identity + one continuous storyline across segments. ` : ``) +
+          campaignRule +
           `Output ONLY the final image prompt, no preamble, no headings.`
         : // Fallback if the spec isn't seeded.
           `You write ONE image-generation prompt for a 9:16 UGC/product-ad STORYBOARD GRID (6–9 panels, full-bleed, no header/numbers/timecodes). ` +
           `The prompt MUST BEGIN with "ONE single 9:16 storyboard grid for ONE video only." Execute the "${job.sub}" sub-style under ${mainLabel}, 6–9 panels (hook → beats → CTA), Malaysian talent, short BM captions, product identity locked, neutral framing. ` +
-          (job.campaign ? `CAMPAIGN CONTEXT — arc: ${campaignArc}. Same product identity + one continuous storyline. ` : ``) +
+          campaignRule +
           `Output ONLY the final image prompt.`;
 
       // Kekal Avatar: instruct the planner to lock every human frame to the

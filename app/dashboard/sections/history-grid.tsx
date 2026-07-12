@@ -2427,6 +2427,16 @@ function HistoryCardInner({
           {item.status === "pending" && <Loader2 className="w-3 h-3 animate-spin text-amber-400" />}
           {item.status === "failed" && <XCircle className="w-3 h-3 text-red-400" />}
           <span className="ml-auto flex items-center gap-1.5 flex-wrap justify-end">
+            {isStoryboard && (
+              <span
+                className="text-[9px] font-mono uppercase tracking-wider font-bold px-1.5 py-0.5 rounded"
+                style={{ background: "rgba(245,177,0,0.14)", color: "#f5b100", border: "1px solid rgba(245,177,0,0.4)" }}
+              >
+                {(item.metadata as any)?.campaign
+                  ? `🎬 Video ${(item.metadata as any)?.campaign_index}/${(item.metadata as any)?.campaign_total} · ${(item.metadata as any)?.sub || ""}`
+                  : `🎬 ${(item.metadata as any)?.sub || "Storyboard"}`}
+              </span>
+            )}
             {videoModeLabel(item) && (
               <span
                 className="text-[9px] font-mono uppercase tracking-wider font-bold px-1.5 py-0.5 rounded"
