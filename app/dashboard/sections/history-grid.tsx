@@ -196,6 +196,8 @@ export default function HistoryGrid({
   // Sub-tab toggles which the query returns. Default = "videos" (parity
   // with the old behaviour). Only relevant when tab === "fairytale".
   const [storytellingSubTab, setStorytellingSubTab] = useState<"videos" | "images" | "drafts">("videos");
+  // Images tab: filter between plain images and storyboard-mode grids.
+  const [imgSubTab, setImgSubTab] = useState<"all" | "image" | "storyboard">("all");
   // Viral tab sub-tab — Talking Object AI generates BOTH a banana-pro
   // image AND a Veo video; users want to browse them as separate lists,
   // same UX as Storytelling. "videos" = the final mp4s (type=video).
@@ -453,6 +455,12 @@ export default function HistoryGrid({
   const visibleParents = useMemo(() => {
     const now = Date.now();
     return parents.filter((p) => {
+      // Images tab sub-filter: plain images vs storyboard-mode grids.
+      if (tab === "image" && imgSubTab !== "all") {
+        const isSb = (p.metadata as any)?.feature === "storyboard";
+        if (imgSubTab === "storyboard" && !isSb) return false;
+        if (imgSubTab === "image" && isSb) return false;
+      }
       if (!p.created_at) return true; // unknown age — keep
       const ageMs = now - new Date(p.created_at).getTime();
       const saved = !!saveStatus[p.id]?.saved;
@@ -462,7 +470,7 @@ export default function HistoryGrid({
       if (!past) return true;
       return saved;
     });
-  }, [parents, saveStatus]);
+  }, [parents, saveStatus, tab, imgSubTab]);
 
   const totalPages = Math.max(1, Math.ceil(visibleParents.length / PAGE_SIZE));
   // Clamp page if items shrink (e.g. after delete) so we never show empty page.
@@ -482,6 +490,32 @@ export default function HistoryGrid({
           {counts.total} items
         </span>
       </div>
+
+      {/* Images tab: toggle between plain images and storyboard grids. */}
+      {tab === "image" && (
+        <div className="flex gap-1 p-1 rounded-xl bg-[var(--color-bg-card)] mb-4 max-w-sm">
+          {([
+            ["all", "Semua"],
+            ["image", "🖼️ Image"],
+            ["storyboard", "🎬 Storyboard"],
+          ] as const).map(([t, label]) => {
+            const active = imgSubTab === t;
+            return (
+              <button
+                key={t}
+                onClick={() => { setImgSubTab(t); setPage(0); }}
+                className="flex-1 px-3 py-1.5 rounded-lg text-[12px] font-bold transition-colors"
+                style={{
+                  background: active ? "#f5b100" : "transparent",
+                  color: active ? "#1a1a1a" : "var(--color-text-secondary)",
+                }}
+              >
+                {label}
+              </button>
+            );
+          })}
+        </div>
+      )}
 
       {/* Storytelling has three artifact types worth surfacing — the
           merged final videos, the raw scene images that fed into them,
