@@ -82,8 +82,25 @@ export async function POST(req: Request) {
       ? `You are a Pening Lab storyboard specialist. Produce ONE image-generation prompt for a 9:16 storyboard GRID by following the RULES and the SUB-CATEGORY CARD below EXACTLY (its Signature must dominate ≥3–4 frames; follow its 10s beat flow and frame-by-frame guidance).\n\n${globalRules}\n\n=== SUB-CATEGORY CARD (${sub}, ${mainLabel}) ===\n${card}\n\n=== TASK ===\nWrite the storyboard image prompt now: begin with "ONE single 9:16 storyboard grid for ONE video only.", grid spec, this card's Signature + shots as per-frame directions following its beat flow, Malaysian talent + local setting, product identity lock (verbatim label), one short claim-safe BM caption per frame, neutral problem framing. Output ONLY the final image prompt.`
       : `You write ONE image-generation prompt for a 9:16 UGC/product-ad STORYBOARD GRID (6–9 panels, full-bleed, no header/numbers/timecodes). The prompt MUST BEGIN with "ONE single 9:16 storyboard grid for ONE video only." Execute the "${sub}" sub-style under ${mainLabel}, Malaysian talent, short BM captions, product identity locked, neutral framing. Output ONLY the final image prompt.`;
 
+    // Preserve the campaign role so a resubmitted/tukar'd segment CONTINUES
+    // the arc with the segments that already succeeded (segment N of M =
+    // opening / middle / closing+CTA), not a standalone.
+    const cIdx = Number(meta.campaign_index || 0);
+    const cTotal = Number(meta.campaign_total || 0);
+    const isCampaign = !!meta.campaign && cTotal >= 2 && cIdx >= 1;
+    let roleLine = "";
+    if (isCampaign) {
+      roleLine =
+        cIdx === 1
+          ? `This is the OPENING storyboard (segment 1 of ${cTotal}) of ONE continuous campaign — problem/hook phase, product not yet used; NO call-to-action, end on a hook into the next segment.\n`
+          : cIdx === cTotal
+            ? `This is the CLOSING storyboard (final segment ${cIdx} of ${cTotal}) of ONE continuous campaign — result/payoff phase, end with the ONE call-to-action (CTA). This is the ONLY segment with a CTA.\n`
+            : `This is the MIDDLE storyboard (segment ${cIdx} of ${cTotal}) of ONE continuous campaign — a DIFFERENT phase (demo/proof); NO call-to-action; bridge into the next segment.\n`;
+      roleLine += `CAMPAIGN RULES: it must CONTINUE the story of the other segments (same product identity, distinct actions — never duplicate another segment's hero action). Only the final segment has a CTA.\n`;
+    }
+
     const userPrompt =
-      `Product: ${productName || "(unnamed)"}\nDetail: ${productDetail || "(none)"}\nSub-style: ${sub} · Category: ${mainLabel}\n${avatarLine}Write the storyboard image prompt now.`;
+      `Product: ${productName || "(unnamed)"}\nDetail: ${productDetail || "(none)"}\nSub-style: ${sub} · Category: ${mainLabel}\n${roleLine}${avatarLine}Write the storyboard image prompt now.`;
 
     let prompt = `ONE single 9:16 storyboard grid for ONE video only. A ${sub} storyboard for ${productName || "the product"}, 6-9 panels, Malaysian UGC talent, product shown clearly with exact label.`;
     try {

@@ -1548,6 +1548,27 @@ function HistoryCardInner({
   }
 
   async function handleRetry() {
+    // Storyboard rows: RESUBMIT must REBUILD the prompt from the sub's card
+    // (the stored prompt is only a placeholder label — for orphaned rows the
+    // real prompt was never generated). Route through the storyboard replace
+    // endpoint with the row's OWN main+sub so it regenerates properly.
+    if (isStoryboard) {
+      setChecking(true);
+      try {
+        const meta = (item.metadata as any) || {};
+        const r = await fetch("/api/generate/storyboard/replace", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ history_id: item.id, main: meta.main || "ugc", sub: meta.sub || "" }),
+        });
+        const d = await r.json().catch(() => ({}));
+        if (!r.ok || !d?.ok) alert(d?.error || `Resubmit gagal (HTTP ${r.status})`);
+        else window.dispatchEvent(new CustomEvent("history:refresh"));
+      } finally {
+        setChecking(false);
+      }
+      return;
+    }
     // /api/history/retry re-fires the SAME row in place — keeps the same
     // history_id, original prompt, original reference image, original model
     // (read from metadata so admin model rotations don't break retries).
