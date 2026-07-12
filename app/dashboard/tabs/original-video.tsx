@@ -387,43 +387,47 @@ export default function OriginalVideoTab({
     }
   }
 
-  // Build the hardcoded Video Reference prompt from the guided fields. The
-  // reference video drives motion/scene; the images are the presenter
-  // (avatar, if uploaded) + the product; the dialog is what she says.
-  function buildVideoRefPrompt(dialog: string, part?: number, partCount?: number): string {
+  // Build the hardcoded Video Reference prompt. The source video is
+  // replicated EXACTLY; the ONLY things changed are the presenter (avatar)
+  // and the product (product-reference images). Everything else — motion,
+  // camera, scene, timing — stays identical.
+  function buildVideoRefPrompt(dialog: string): string {
     const who = `a ${vrAge} ${vrGender === "female" ? "woman" : "man"}${
       vrGender === "female" && vrHijab === "yes" ? " wearing a modest hijab" : ""
     }`;
     const parts: string[] = [];
-    if (part && partCount && partCount > 1) {
-      parts.push(`This is part ${part} of ${partCount} of a continuous video.`);
-    }
     parts.push(
-      `Recreate this reference video EXACTLY — copy the same camera movement, framing, pacing, scene, lighting and energy, shot for shot.`
+      `Recreate the SOURCE VIDEO EXACTLY, shot-for-shot: keep the SAME camera movement, angles, framing, pacing, timing, scene, background, props, lighting, mood and every action, gesture and pose. Do NOT change the composition, motion or timing in any way.`
+    );
+    parts.push(
+      `The ONLY two things to change from the source video are the PRESENTER and the PRODUCT — nothing else:`
     );
     if (avatarRef) {
       parts.push(
-        `The presenter is the person in the FIRST reference image (${who}). Keep that face and look consistent throughout.`
+        `(1) PRESENTER: replace the person's face and appearance with the person in the FIRST reference image (${who}). Keep that exact face, skin tone and look consistent for the whole clip — but the body performs the SAME motion, actions and lip movements as the source.`
       );
     } else {
-      parts.push(`The presenter is ${who}, a natural Malaysian UGC creator.`);
-    }
-    parts.push(
-      avatarRef
-        ? `She/he holds and shows the product in the OTHER reference images${
-            vrProductName ? ` (${vrProductName})` : ""
-          } — keep the product's exact shape, label, colour and packaging.`
-        : `She/he holds and shows the product in the reference images${
-            vrProductName ? ` (${vrProductName})` : ""
-          } — keep the product's exact shape, label, colour and packaging.`
-    );
-    if (vrProductDetail.trim()) parts.push(`Product context: ${vrProductDetail.trim()}.`);
-    if (dialog.trim()) {
       parts.push(
-        `The presenter speaks naturally in Bahasa Melayu, lip-synced, one voice only, no subtitles: "${dialog.trim()}".`
+        `(1) PRESENTER: the person is ${who}, a natural Malaysian UGC creator — but they perform the SAME motion and actions as the source.`
       );
     }
-    parts.push(`Vertical 9:16, natural lighting, authentic UGC selfie style.`);
+    parts.push(
+      `(2) PRODUCT: replace whatever product the person holds/shows with the product in the ${
+        avatarRef ? "OTHER" : ""
+      } reference image(s)${
+        vrProductName ? ` (${vrProductName})` : ""
+      }. Keep the product's exact shape, label, text, colour and packaging, and have the person hold/show it the SAME way and at the SAME moments as in the source.`
+    );
+    if (vrProductDetail.trim()) parts.push(`Product context (for accuracy): ${vrProductDetail.trim()}.`);
+    parts.push(
+      `Everything else — the location, other people, on-screen text/graphics, transitions and energy — stays IDENTICAL to the source video.`
+    );
+    if (dialog.trim()) {
+      parts.push(
+        `The presenter speaks naturally in Malaysian Bahasa Melayu, lip-synced, one voice only, no subtitles, NO Indonesian slang: "${dialog.trim()}".`
+      );
+    }
+    parts.push(`Vertical 9:16, authentic UGC selfie style.`);
     return parts.join(" ");
   }
 
