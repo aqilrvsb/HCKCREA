@@ -119,6 +119,9 @@ export async function GET(req: Request) {
             s.status = "succeeded";
             s.output_url = st.outputUrl;
           } else if (st.status === "failed") {
+            // Persist the real generation error so it survives a re-fire
+            // (fireSeg clears s.error on success) — for diagnosis.
+            s.last_err = st.error || "generation failed (no detail)";
             if (Number(s.attempts || 0) < MAX_SEG_ATTEMPTS) {
               // Flip slot + re-fire — the P2 A↔B cascade for this segment.
               s.slot = String(s.slot || "p2-a") === "p2-a" ? "p2-b" : "p2-a";
@@ -127,7 +130,7 @@ export async function GET(req: Request) {
               await fireSeg(s);
             } else {
               s.status = "failed";
-              s.error = st.error || "segment failed";
+              s.error = st.error || s.last_err || "segment failed";
             }
           }
         } catch {
