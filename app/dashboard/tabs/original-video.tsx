@@ -9,6 +9,20 @@ import AttachmentPicker from "../sections/attachment-picker";
 import { SORA2_DISABLED } from "@/lib/feature-flags";
 import { SopStoryboardModal, SopUgcFrameModal } from "./sop-modals";
 
+// Read a response body as JSON, but tolerate a non-JSON error body (a Vercel
+// function crash/timeout returns a plain-text "An error occurred…" page which
+// would otherwise blow up JSON.parse with a cryptic "Unexpected token 'A'").
+// Surfaces a trimmed, human-readable hint instead.
+async function readJsonSafe(r: Response): Promise<any> {
+  const text = await r.text();
+  try {
+    return JSON.parse(text);
+  } catch {
+    const hint = text.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().slice(0, 160);
+    return { __nonjson: true, error: hint || `Server error (HTTP ${r.status})` };
+  }
+}
+
 // Original Video tab — 3-provider raw video generator.
 //
 // Replaces the hidden "Normal Video" (was inside Viral) and exposes
@@ -297,9 +311,9 @@ export default function OriginalVideoTab({
           seg_count: vrSegCount,
         }),
       });
-      const d = await r.json();
+      const d = await readJsonSafe(r);
       if (!r.ok || !d?.ok || !Array.isArray(d.dialogs)) {
-        throw new Error(d?.error || "Jana dialog gagal");
+        throw new Error(d?.error || `Jana dialog gagal (HTTP ${r.status})`);
       }
       if (vrSegCount === 1) {
         setVrDialog(d.dialogs[0] || "");
@@ -622,9 +636,9 @@ export default function OriginalVideoTab({
           project_id: projectId,
         }),
       });
-      const d = await r.json();
+      const d = await readJsonSafe(r);
       if (!r.ok || !d?.ok) {
-        setError(d?.error || "Generation failed");
+        setError(d?.error || `Generation failed (HTTP ${r.status})`);
         setStatus("failed");
         return;
       }
