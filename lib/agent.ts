@@ -73,11 +73,26 @@ export type ToolResult =
       // What to show the agent in its next turn (gets fed back as a tool message)
       summary: string;
       // What to show the user (frontend renders this as a special message bubble)
-      ui?: {
-        type: "generation_started";
-        history_ids: string[];
-        cost: number;
-      };
+      ui?:
+        | {
+            type: "generation_started";
+            history_ids: string[];
+            cost: number;
+          }
+        | {
+            // Livechat: a finished storyboard grid image to show inline, with
+            // Approve / Revise affordances.
+            type: "storyboard_ready";
+            history_id: string;
+            image_url: string;
+          }
+        | {
+            // Livechat: a finished video to play inline + its download link.
+            type: "video_ready";
+            history_id: string;
+            output_url: string;
+            download_url?: string;
+          };
       cost?: number;
       historyIds?: string[];
     }

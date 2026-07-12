@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { runAgentTurn, loadConversation, clearConversation } from "@/lib/agent";
-import { CINEMA_SYSTEM_PROMPT, CINEMA_TOOLS } from "@/lib/agent-cinema";
+import { loadLivechatSystemPrompt, LIVECHAT_TOOLS } from "@/lib/agent-livechat";
 
 export const runtime = "nodejs";
 export const maxDuration = 180;
@@ -37,21 +37,38 @@ export async function POST(req: Request) {
   const projectId = body?.project_id ? String(body.project_id) : null;
   const userText = String(body?.message || "").trim();
   let attachedImageUrl = body?.image_url ? String(body.image_url) : "";
-  // "product" → skip vision, pass straight to Grok as i2v reference.
+  // "product" → skip vision, pass straight through as the product reference.
   const imageRole: "general" | "product" =
     body?.image_role === "product" ? "product" : "general";
   // Plain-text USP / description that came in alongside a product image.
-  // Folded into the user turn so the LLM can anchor the prompt on it.
   const productUsp = String(body?.product_usp || "").trim();
 
-  if (!userText && !attachedImageUrl) {
+  // Load Data product picker — the frontend sends the chosen saved product
+  // (Beg Kuning affiliate / Tiada Link manual): name, detail, and image URLs.
+  // We fold a context block into the user turn AND stash the image URLs on
+  // conversation state so generate_image locks the exact product.
+  const product = body?.product || null;
+  const productName = String(product?.name || "").trim();
+  const productDetail = String(product?.detail || "").trim();
+  const productImageUrls: string[] = (Array.isArray(product?.image_urls) ? product.image_urls : [])
+    .filter((u: any) => typeof u === "string" && u.trim())
+    .slice(0, 3);
+
+  if (!userText && !attachedImageUrl && !productName && productImageUrls.length === 0) {
     return NextResponse.json({ error: "Empty message" }, { status: 400 });
   }
 
-  const finalUserText =
-    imageRole === "product" && productUsp
-      ? `[Product reference attached. USP / description:\n${productUsp}\n]\n\n${userText}`
-      : userText;
+  let finalUserText = userText;
+  if (productName || productDetail || productImageUrls.length > 0) {
+    finalUserText =
+      `[PRODUK DIPILIH dari Load Data]\n` +
+      (productName ? `Nama: ${productName}\n` : "") +
+      (productDetail ? `Detail: ${productDetail}\n` : "") +
+      (productImageUrls.length > 0 ? `Gambar produk: ${productImageUrls.length} imej dilampirkan.\n` : "") +
+      `\n${userText}`.trimEnd();
+  } else if (imageRole === "product" && productUsp) {
+    finalUserText = `[Product reference attached. USP / description:\n${productUsp}\n]\n\n${userText}`;
+  }
 
   if (attachedImageUrl.startsWith("data:")) {
     try {
@@ -70,16 +87,21 @@ export async function POST(req: Request) {
     }
   }
 
+  const systemPrompt = await loadLivechatSystemPrompt();
   const result = await runAgentTurn({
     userId: user.id,
     projectId,
     tab: "cinema",
-    systemPrompt: CINEMA_SYSTEM_PROMPT,
-    tools: CINEMA_TOOLS,
-    userText: finalUserText,
+    systemPrompt,
+    tools: LIVECHAT_TOOLS,
+    userText: finalUserText || "(produk dipilih)",
     attachedImageUrl: attachedImageUrl || undefined,
     attachedImageRole: imageRole,
     attachedProductUsp: imageRole === "product" ? productUsp : undefined,
+    // Persist the picked product's images so generate_image can lock the
+    // exact product across turns without the LLM re-passing every URL.
+    stateOverrides:
+      productImageUrls.length > 0 ? { product_image_urls: productImageUrls } : undefined,
   });
 
   if (!result.ok) {
