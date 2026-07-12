@@ -52,8 +52,11 @@ Detail / knowledge: ${productDetail || "(none given — infer a believable Malay
 
 Write ${segCount} Malaysian BM dialog line(s) as specified. Return JSON only.`;
 
+  // Dialog gen runs on gemini-3.1-flash-lite per user direction — model_auto
+  // is configured as exactly that cascade (grsai gemini-3.1-flash-lite →
+  // openrouter gemini-3.1-flash-lite fallback), so we point at it directly.
   const llm = await orChat({
-    modelKey: "model_custom_idea",
+    modelKey: "model_auto",
     systemPrompt,
     userPrompt,
     temperature: 0.9,
