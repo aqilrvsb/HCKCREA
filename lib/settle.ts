@@ -15,7 +15,7 @@ import { deduct, priceFor, type PriceModelHint } from "@/lib/deduct";
 import { onSegmentSettled } from "@/lib/segment-chain";
 import { generateUgcPostMeta } from "@/lib/ugc-post-meta";
 import { uploadFromUrlToContent, buildKey, type StorageType } from "@/lib/b2";
-import { falExtractFrame } from "@/lib/fal";
+import { falExtractFrame, falCompressVideo, isRefVideoTooLargeError } from "@/lib/fal";
 import { generateImageWithCascade } from "@/lib/image-cascade";
 import { generateVideoWithCascade } from "@/lib/video-cascade";
 import {
@@ -723,6 +723,24 @@ async function tryAutoRetry(
     // above and never reach this point).
     const videoAsset: "video" | "grok" | "cinema" | "sora2" | "gemini" =
       cascadeAsset === "image" ? "video" : cascadeAsset;
+    // If the prior failure was APIPod rejecting an oversized reference
+    // video (>8MB), compress it via fal and persist the smaller URL so
+    // this retry — and any future ones — resubmit with a source that fits.
+    let effectiveRefVideoUrl = refVideoUrl;
+    if (refVideoUrl && isRefVideoTooLargeError(errMsg)) {
+      const c = await falCompressVideo(refVideoUrl);
+      if (c.ok && c.url) {
+        effectiveRefVideoUrl = c.url;
+        meta.videoRef = c.url;
+        await admin
+          .from("history")
+          .update({ metadata: { ...meta } })
+          .eq("id", hist.id);
+        console.log(`[settle/auto-retry] row ${hist.id}: compressed oversized ref video → ${c.url}`);
+      } else {
+        console.warn(`[settle/auto-retry] row ${hist.id}: ref video compress failed: ${c.error}`);
+      }
+    }
     const r = await generateVideoWithCascade({
       primaryModel: model,
       userId: hist.user_id,
@@ -730,7 +748,7 @@ async function tryAutoRetry(
       // Pass ALL attachments (multi-ref Veo r2v needs every URL — was
       // silently truncated to 1 image on event-driven retries before).
       imageUrls: allImageUrls,
-      refVideoUrl: refVideoUrl || undefined,
+      refVideoUrl: effectiveRefVideoUrl || undefined,
       durationMode,
       aspectRatio,
       imageMode,

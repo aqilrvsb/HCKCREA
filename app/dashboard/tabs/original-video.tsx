@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { Loader2, X, Film, ClipboardList, Clapperboard } from "lucide-react";
 import Portal from "../sections/portal";
 import { uploadImage, dataUrlToFile } from "@/lib/upload-image";
+import { compressVideoIfNeeded } from "@/lib/compress-video";
 import AttachmentPicker from "../sections/attachment-picker";
 import { SORA2_DISABLED } from "@/lib/feature-flags";
 import { SopStoryboardModal, SopUgcFrameModal } from "./sop-modals";
@@ -204,13 +205,31 @@ export default function OriginalVideoTab({
   const [videoRef, setVideoRef] = useState<string>("");
   const [videoRefName, setVideoRefName] = useState<string>("");
   const [videoUploading, setVideoUploading] = useState(false);
+  const [videoStatus, setVideoStatus] = useState<string>("");
 
   async function uploadVideoRef(file: File) {
     setError(null);
     setVideoUploading(true);
+    setVideoStatus("");
     try {
+      // APIPod (P6 gemini-omni-extend) caps the reference video at 8MB. A
+      // 10s 1080p clip is almost always bigger, so auto-compress oversized
+      // files in the browser first (downscale + drop audio) — the reference
+      // is only a motion guide so fidelity loss is irrelevant.
+      let toUpload = file;
+      if (file.size > 7.5 * 1024 * 1024) {
+        setVideoStatus("Memampat video…");
+        const res = await compressVideoIfNeeded(file);
+        toUpload = res.file;
+        if (res.compressed && toUpload.size > 8 * 1024 * 1024) {
+          throw new Error(
+            `Video masih terlalu besar selepas dimampat (${(toUpload.size / 1024 / 1024).toFixed(1)}MB). Cuba video yang lebih pendek.`
+          );
+        }
+      }
+      setVideoStatus("Uploading video…");
       const fd = new FormData();
-      fd.append("file", file, file.name || "ref.mp4");
+      fd.append("file", toUpload, toUpload.name || "ref.mp4");
       const r = await fetch("/api/upload/video", { method: "POST", body: fd });
       const d = await r.json();
       if (!r.ok || !d?.url) throw new Error(d?.error || "Upload video gagal");
@@ -220,6 +239,7 @@ export default function OriginalVideoTab({
       setError(e?.message || "Upload video gagal");
     } finally {
       setVideoUploading(false);
+      setVideoStatus("");
     }
   }
 
@@ -1259,7 +1279,7 @@ export default function OriginalVideoTab({
                   />
                   {videoUploading ? (
                     <span className="flex items-center gap-2 text-[12px] font-bold" style={{ color: theme.primary }}>
-                      <Loader2 className="w-4 h-4 animate-spin" /> Uploading video…
+                      <Loader2 className="w-4 h-4 animate-spin" /> {videoStatus || "Uploading video…"}
                     </span>
                   ) : (
                     <>
@@ -1267,7 +1287,7 @@ export default function OriginalVideoTab({
                         + Upload video rujukan
                       </span>
                       <span className="text-[10px] text-[var(--color-text-muted)]">
-                        MP4 / WEBM / MOV · maks 60MB
+                        MP4 / WEBM / MOV · besar auto-mampat &lt;8MB
                       </span>
                     </>
                   )}

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getP2Config } from "@/lib/settings";
 import { generateVideoWithCascade } from "@/lib/video-cascade";
+import { falCompressVideo, isRefVideoTooLargeError } from "@/lib/fal";
 import { filterVisibleToClient } from "@/lib/server-history-visibility";
 import {
   getVideoFallbackSlots,
@@ -343,12 +344,31 @@ export async function GET(req: Request) {
     // retry cap could be computed from the matching cascade pool. Reuse
     // it here for the actual generateVideoWithCascade call.
 
+    // If the row failed because APIPod rejected an oversized reference
+    // video (>8MB), compress it via fal and persist the smaller URL so the
+    // cron resubmit — and any later ones — re-fire with a source that fits.
+    let effectiveRefVideoUrl = refVideoUrl;
+    if (refVideoUrl && isRefVideoTooLargeError(String(row.error_message || ""))) {
+      const c = await falCompressVideo(refVideoUrl);
+      if (c.ok && c.url) {
+        effectiveRefVideoUrl = c.url;
+        meta.videoRef = c.url;
+        await admin
+          .from("history")
+          .update({ metadata: { ...meta } })
+          .eq("id", row.id);
+        console.log(`[auto-resubmit] row ${row.id}: compressed oversized ref video → ${c.url}`);
+      } else {
+        console.warn(`[auto-resubmit] row ${row.id}: ref video compress failed: ${c.error}`);
+      }
+    }
+
     const r = await generateVideoWithCascade({
       primaryModel: model,
       userId: row.user_id,
       prompt: row.prompt,
       imageUrls: allImageUrls,
-      refVideoUrl: refVideoUrl || undefined,
+      refVideoUrl: effectiveRefVideoUrl || undefined,
       durationMode,
       aspectRatio,
       imageMode,
