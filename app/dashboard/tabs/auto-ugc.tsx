@@ -113,6 +113,8 @@ export default function AutoUgcTab({ projectId }: { projectId?: string } = {}) {
   // Avatar Dynamic = a DIFFERENT face per video (same gender/style/age
   // criteria). Only applies to create-mode; existing avatar is always kekal.
   const [avatarConsistency, setAvatarConsistency] = useState<"kekal" | "dynamic">("kekal");
+  // Multi-segment variation: angle (same scene, diff angle) vs scene (diff scene).
+  const [segmentVariation, setSegmentVariation] = useState<"angle" | "scene">("angle");
   const [ugcDuration, setUgcDuration] = useState(15);
 
   // Settings
@@ -792,6 +794,7 @@ export default function AutoUgcTab({ projectId }: { projectId?: string } = {}) {
         avatar_mode: avatarMode,
         avatar_url: avatarMode === "existing" ? avatarUrl : "",
         avatar_consistency: avatarMode === "existing" ? "kekal" : avatarConsistency,
+        segment_variation: segmentVariation,
         aspect_ratio: aspect,
         avatar_gender: gender,
         avatar_hijab: hijab === "yes" ? "hijab" : "no-hijab",
@@ -1504,6 +1507,22 @@ export default function AutoUgcTab({ projectId }: { projectId?: string } = {}) {
               </DurationBtn>
             </div>
           )}
+
+          {/* Multi-segment variation — for videos split into 2+ segments,
+              each segment differs by ANGLE (same scene) or SCENE (diff spot). */}
+          <div className="flex gap-2 mb-1">
+            <DurationBtn active={segmentVariation === "angle"} onClick={() => setSegmentVariation("angle")}>
+              🎥 Beza Angle
+            </DurationBtn>
+            <DurationBtn active={segmentVariation === "scene"} onClick={() => setSegmentVariation("scene")}>
+              🏠 Beza Scene
+            </DurationBtn>
+          </div>
+          <p className="text-[10px] text-[var(--color-text-muted)] mb-2">
+            {segmentVariation === "angle"
+              ? "Beza Angle: video 2+ segmen — scene SAMA, cuma angle kamera berubah tiap segmen."
+              : "Beza Scene: video 2+ segmen — avatar/outfit/produk SAMA, tapi lokasi/scene berubah tiap segmen."}
+          </p>
           {avatarMode === "create" && (
             <p className="text-[10px] text-[var(--color-text-muted)] mb-2">
               {avatarConsistency === "kekal"

@@ -44,6 +44,11 @@ export type MasterPlanOpts = {
   /** kekal = one face across the whole batch; dynamic = a different face
    *  per video (same gender/hijab/age criteria), consistent within a video. */
   avatarConsistency?: "kekal" | "dynamic";
+  /** How multi-segment videos vary between segments:
+   *  "angle" = SAME scene, only the camera angle changes (default).
+   *  "scene" = each segment is a DIFFERENT scene/location (avatar+outfit+
+   *  product stay consistent, story continues). */
+  segmentVariation?: "angle" | "scene";
   sceneList: string;
   customIdea: string;
   ctaMode: "shop" | "custom" | "none";
@@ -74,6 +79,7 @@ export function buildAutoUgcMasterPlan(opts: MasterPlanOpts): {
     age,
     avatarMode,
     avatarConsistency = "kekal",
+    segmentVariation = "angle",
     sceneList,
     customIdea,
     ctaMode,
@@ -142,7 +148,11 @@ Total videos: ${quantity}
 Structure per video: ${
     segCount === 1
       ? `1 segment (${segLens[0]}s single Grok clip).`
-      : `${segCount} segments (${segLens.join("s + ")}s) — SEPARATE Grok clips shown as Seg 1 / Seg 2. The dialog is ONE continuous script split across the segments; Seg 2 picks up EXACTLY where Seg 1 left off (like one take cut in two). Never repeat a beat. Both segments are the SAME scene — only the CAMERA ANGLE changes (see <angle_cut_rules>), and the PRODUCT stays clearly VISIBLE in both.`
+      : `${segCount} segments (${segLens.join("s + ")}s) — SEPARATE Grok clips shown as Seg 1 / Seg 2. The dialog is ONE continuous script split across the segments; Seg 2 picks up EXACTLY where Seg 1 left off (like one take cut in two). Never repeat a beat. ${
+          segmentVariation === "scene"
+            ? "Each segment is a DIFFERENT SCENE/location (see <segment_variation_rules>) — the avatar, outfit and product stay the SAME, but the setting changes every segment. The PRODUCT stays clearly VISIBLE in all."
+            : "All segments are the SAME scene — only the CAMERA ANGLE changes (see <segment_variation_rules>), and the PRODUCT stays clearly VISIBLE in all."
+        }`
   }
 Grok dialog pacing: EXACTLY ~3 Malay words per second. Per-segment dialog word targets: ${segLens
     .map((s, i) => `Seg ${i + 1} = ~${segWordTargets[i]} words (${s}s)`)
@@ -156,13 +166,25 @@ Market: Malaysian TikTok (Malay-speaking, informal). Language = BAHASA MELAYU on
 🧠 YOU pick the framework INTERNALLY — the client does NOT choose. For EACH video, pick ONE framework from this UGC bank and rotate across the batch (no two videos share a framework):
 ${sceneList}
 🔒 EVERY video is UGC TYPE: the avatar is ON SCREEN, face visible, speaking directly to camera, with the product clearly visible (held/used/worn). NEVER product-only shots, NEVER hand-POV, NEVER voiceover-without-person.
-Within ONE video everything stays identical across its segments (avatar, outfit, location, lighting) — only the CAMERA ANGLE changes per <angle_cut_rules>. Between different videos the outfit + scene MUST change per <diversity_rules>.
+Within ONE video the avatar, outfit and hairstyle stay identical across its segments — ${segmentVariation === "scene" ? "the SCENE/location changes every segment" : "the location/lighting stay the same and only the CAMERA ANGLE changes"} per <segment_variation_rules>. Between different videos the outfit + scene MUST change per <diversity_rules>.
 ${customIdea ? `\n🎯 CLIENT'S CUSTOM IDEA (PRIORITISE THIS — it is the core visual concept every video must embody): """${customIdea}"""` : ""}
 </framework_bank>
 ${
-  segCount > 1
+  segCount > 1 && segmentVariation === "scene"
     ? `
-<angle_cut_rules>
+<segment_variation_rules>
+🎬 SCENE CUT (NON-NEGOTIABLE for multi-segment videos): each segment is a DIFFERENT SCENE/location — the avatar's FACE, outfit, hairstyle/hijab and the PRODUCT stay 100% identical across segments, but the SETTING changes every segment (e.g. Seg 1 bedroom vanity → Seg 2 kitchen counter → Seg 3 living room sofa). It's the same person + same outfit filming the same continuous review in different spots of the house.
+- SCENE BANK (pick a DIFFERENT one per segment; no two segments share a scene): bedroom vanity/mirror, bathroom sink, kitchen counter, living room sofa, study desk, balcony/near a window, walk-in/wardrobe, dining table. Malaysian home interiors, natural light.
+- 🚨 THE SCENE LIVES IN THE IMAGE, NOT THE VIDEO PROMPT: Grok animates a fixed start frame — write the CHOSEN scene explicitly and FIRST in each segment's imagePrompt (e.g. Seg 1 "In a bedroom at a vanity mirror, soft window light: SAME avatar SAME outfit …", Seg 2 "At a kitchen counter, bright daylight — SAME avatar, SAME outfit, SAME hairstyle: …"). Keep the avatar's face, outfit and product IDENTICAL; only the background/location differs.
+- The avatar's face is ALWAYS upright, chin level, eyes toward camera (talking to camera). FORBIDDEN: overhead/top-down, extreme low, directly behind, hidden-mouth side profile.
+- FORBIDDEN between segments: changing the avatar's face, outfit, hairstyle/hijab, or the product. Scene changes; the person + product do not.
+- The dialog continuation and the scene cut must AGREE (Seg 2 continues the same review, just filmed in a new spot).
+- SELF-CHECK per video: would the segments look like the SAME person + outfit filming in DIFFERENT rooms? If NO — rewrite.
+</segment_variation_rules>
+`
+    : segCount > 1
+    ? `
+<segment_variation_rules>
 🎬 ANGLE CUT (NON-NEGOTIABLE for multi-segment videos): Seg 1 and Seg 2 are the SAME SCENE — same avatar, same outfit, same location, same lighting, same product placement, same time-of-day. The ONLY thing that changes between segments is the CAMERA ANGLE / SHOT SIZE — exactly like a real UGC video edit that cuts to a new angle mid-take.
 - ANGLE BANK (shot sizes): close-up (CU — head & shoulders), medium close-up (MCU — chest up), medium shot (MS — waist up).
 - ANGLE BANK (camera height): eye-level, SLIGHTLY high, SLIGHTLY low — subtle only.
@@ -178,7 +200,7 @@ ${
 - FORBIDDEN between segments: changing location/room, changing outfit, changing hairstyle/hijab, changing lighting/time-of-day, moving the product to a different surface, changing the avatar's general position in the room. Angle changes; the world does not.
 - The dialog continuation and the angle cut must AGREE: the cut lands where a real editor would cut (new beat / payoff / CTA emphasis).
 - SELF-CHECK per video: if you froze both start frames side by side, would they look like TWO CAMERA ANGLES of the SAME moment? If NO — rewrite.
-</angle_cut_rules>
+</segment_variation_rules>
 `
     : ""
 }

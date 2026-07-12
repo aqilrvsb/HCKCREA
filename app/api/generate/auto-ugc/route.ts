@@ -69,6 +69,10 @@ export async function POST(req: Request) {
   // Existing-avatar mode is inherently kekal.
   const avatarConsistency: "kekal" | "dynamic" =
     avatarMode === "create" && body?.avatar_consistency === "dynamic" ? "dynamic" : "kekal";
+  // Multi-segment variation: "angle" (same scene, different camera angle) or
+  // "scene" (different scene each segment, same avatar/outfit/product).
+  const segmentVariation: "angle" | "scene" =
+    body?.segment_variation === "scene" ? "scene" : "angle";
   const gender = body?.avatar_gender === "male" ? "male" : "female";
   const hijab = body?.avatar_hijab === "hijab" ? "hijab" : "no-hijab";
   const age = ["20s", "30s", "40s", "55+"].includes(body?.avatar_age) ? body.avatar_age : "30s";
@@ -156,6 +160,7 @@ export async function POST(req: Request) {
     age,
     avatarMode,
     avatarConsistency,
+    segmentVariation,
     sceneList,
     customIdea,
     ctaMode,
