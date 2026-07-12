@@ -140,6 +140,11 @@ function videoModeLabel(item: HistoryItem): string | null {
   if (!(item.type === "video" || item.type === "auto-content" || item.type === "clone"))
     return null;
   const meta = item.metadata?.imageMode;
+  // Multi-segment Video Reference — distinguish the segment cards from the
+  // final stitched card.
+  if (item.metadata?.videoRefMerge) return "Video Ref · Final";
+  if (item.metadata?.videoRefSeg)
+    return `Video Ref · Seg ${item.metadata?.segIndex || "?"}`;
   if (meta === "text") return "Text to Video";
   if (meta === "image") return "Image to Video";
   if (meta === "frame") return "First Frame";

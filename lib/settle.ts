@@ -1086,7 +1086,12 @@ export async function settleHistoryRow(hist: HistoryRow): Promise<SettleResult> 
     // rate-limits, validator errors, etc. are permanent failures from
     // the cascade's POV — re-firing the same row won't help. Per user
     // direction: "all the logic resubmit is...only for internal error".
-    const isAutoRetryable = isRetryableTab && isInternalError(errMsg);
+    // Multi-segment Video Reference segments (metadata.videoRefSeg) are
+    // retried by /api/worker/video-ref-merge, which re-fires with the
+    // per-segment source window + p2 A↔B round-robin gating. The generic
+    // cascade retry here would drop the video_list window → skip it.
+    const isVideoRefSeg = !!(hist.metadata as any)?.videoRefSeg;
+    const isAutoRetryable = isRetryableTab && !isVideoRefSeg && isInternalError(errMsg);
     if (isAutoRetryable) {
       const retried = await tryAutoRetry(admin, hist, errMsg);
       if (retried) {
