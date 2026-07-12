@@ -915,11 +915,12 @@ export default function AutoUgcTab({ projectId }: { projectId?: string } = {}) {
   }
 
   const busy = status === "planning" || status === "generating";
-  // Auto UGC: Plan Style (Normal/Custom Idea) + Frameworks picker are
-  // REMOVED per user direction — the AI decides the framework + idea
-  // internally per video (always UGC type, avatar on-screen). Flag kept
-  // false so both JSX blocks stay hidden without deleting them.
+  // Auto UGC: the Frameworks PICKER stays hidden (AI picks the framework
+  // internally). But the Plan Style radio (Normal / Custom Idea) IS shown so
+  // the client can OPTIONALLY give a custom idea that drives every video's
+  // scene — same as Auto Content. Re-added per user direction.
   const showFrameworks = false;
+  const showCustomIdea = true;
 
   const sectionBg: React.CSSProperties = {
     background:
@@ -1628,7 +1629,7 @@ export default function AutoUgcTab({ projectId }: { projectId?: string } = {}) {
             concept (e.g. "preview baju depan cermin") and the master
             plan makes that the core scene of every video. Default is
             Normal so the usual flow doesn't require a toggle. */}
-        {showFrameworks && (
+        {showCustomIdea && (
           <>
             <Label>Plan Style</Label>
             <div className="flex gap-2 mb-3">
