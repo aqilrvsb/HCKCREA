@@ -15,7 +15,7 @@ import { isVisibleAfterTtl, fetchSavedSet } from "@/lib/history-filter";
 // segment and runs parallel vision calls.
 
 type Status = "idle" | "extracting" | "analyzing" | "failed";
-type Mode = "ugc" | "cinema";
+type Mode = "ugc" | "cinema" | "omni";
 
 const RED = "#e60023";
 const RED_SOFT = "rgba(230, 0, 35, 0.18)";
@@ -24,6 +24,7 @@ const ORANGE = "#f59e0b";
 
 const MAX_FRAMES = 60;
 const SEG_DUR_UGC = 8;
+const SEG_DUR_OMNI = 10;
 const SEG_DUR_CINEMA = 30;
 
 export default function CloneTab({ projectId }: { projectId?: string } = {}) {
@@ -153,8 +154,11 @@ export default function CloneTab({ projectId }: { projectId?: string } = {}) {
     // agnostic anyway; the dropdown that used to expose Cinema (30s
     // segments) was removed.
     const frameCount = Math.min(MAX_FRAMES, Math.max(2, videoDuration));
-    const segDur = SEG_DUR_UGC; // 8s per segment (provider-agnostic chunking)
-    const segCount = Math.ceil(frameCount / 8);
+    // Segment length follows the chosen output model: UGC/Veo = 8s,
+    // Omni/GeminiOmni = 10s. The prompt is provider-agnostic; only the
+    // chunk length changes so each prompt fits that model's window.
+    const segDur = mode === "omni" ? SEG_DUR_OMNI : SEG_DUR_UGC;
+    const segCount = Math.ceil(frameCount / segDur);
 
     pushLog(`Extracting ${frameCount} frames (1 fps)…`);
     pushLog(`Will plan ${segCount} × ${segDur}s segment(s) in parallel.`);
@@ -187,11 +191,10 @@ export default function CloneTab({ projectId }: { projectId?: string } = {}) {
           // so user can fill in their script later.
           custom_dialog: "",
           duration: videoDuration,
-          // Provider-agnostic. mode/aspect_ratio still passed but the
-          // server uses them only for chunking math, not for picking a
-          // specific provider.
-          mode: "ugc",
-          aspect_ratio: "9:16",
+          // mode drives the chunk length only (ugc=8s, omni=10s) — the
+          // prompt itself stays provider-agnostic.
+          mode,
+          aspect_ratio: aspect,
           project_id: projectId,
         }),
       });
@@ -278,12 +281,40 @@ export default function CloneTab({ projectId }: { projectId?: string } = {}) {
           </div>
         )}
 
-        {/* Output / Size / Dialog inputs removed per admin direction —
-            Clone Prompt is now provider-agnostic. The generated prompt
-            describes the reference video frame-by-frame and contains
-            placeholder "Dialog: 0s-Xs ..." lines for the user to fill
-            in later. User picks provider + size when they paste the
-            prompt into Original Video / UGC / etc. */}
+        {/* Segment length — only difference between modes is how long each
+            cloned segment is, matching the model you'll paste into:
+            UGC (Veo) = 8s, Omni (GeminiOmni) = 10s. Prompt stays
+            provider-agnostic. */}
+        <div className="mb-3">
+          <div className="text-[10px] font-bold uppercase tracking-wider mb-1.5" style={{ color: RED }}>
+            Segment length
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            {([
+              { m: "ugc" as Mode, label: "🎬 UGC · Veo 8s" },
+              { m: "omni" as Mode, label: "🔷 Omni · 10s" },
+            ]).map((opt) => (
+              <button
+                key={opt.m}
+                type="button"
+                onClick={() => setMode(opt.m)}
+                className="py-2 rounded-lg text-xs font-bold transition-all"
+                style={
+                  mode === opt.m
+                    ? { background: `linear-gradient(135deg, ${RED}, #ff4444)`, color: "#fff" }
+                    : { background: RED_FAINT, border: `1px solid ${RED_SOFT}`, color: RED }
+                }
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
+          <div className="text-[10px] text-gray-500 mt-1">
+            {mode === "omni"
+              ? "Video dipecah 10s setiap segment → sesuai untuk GeminiOmni (Original Video)."
+              : "Video dipecah 8s setiap segment → sesuai untuk Veo."}
+          </div>
+        </div>
 
         <button
           onClick={submit}

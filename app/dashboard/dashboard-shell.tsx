@@ -80,10 +80,11 @@ const TABS: { key: TabKey; label: string; icon: any; tag: string }[] = [
   // Auto UGC — Grok-Imagine avatar UGC with 30s split into Seg 1/Seg 2.
   // Open to everyone (canSeeAutoUgc gate kept for easy re-restriction).
   { key: "auto-ugc",  label: "Auto UGC",     icon: Sparkles,  tag: "4b" },
-  // Clone Prompt + Viral + Seedance tabs hidden per user direction. Routes +
-  // imports kept so existing history rows still render; re-enable by uncommenting.
+  // Viral + Seedance tabs hidden per user direction. Routes + imports kept
+  // so existing history rows still render; re-enable by uncommenting.
   // { key: "seedance",  label: "Cinema",       icon: Film,      tag: "--" },
-  // { key: "clone",     label: "Clone Prompt", icon: Layers,    tag: "--" },
+  // Clone Prompt re-opened per user direction (now with an Omni 10s mode).
+  { key: "clone",     label: "Clone Prompt", icon: Layers,    tag: "05" },
   // Storytelling hidden per user direction 2026-07-06. Route + imports
   // kept so existing history rows still render; re-enable by uncommenting.
   // { key: "fairytale", label: "Storytelling", icon: BookOpen,  tag: "05" },

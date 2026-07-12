@@ -35,7 +35,8 @@ export async function POST(req: Request) {
   const productImageUrl = String(body?.product_image_url || "").trim();
   const customDialog = String(body?.custom_dialog || "").trim();
   const refDuration = Number(body?.duration || allFrames.length || 8);
-  const mode: "ugc" | "cinema" = body?.mode === "cinema" ? "cinema" : "ugc";
+  const mode: "ugc" | "cinema" | "omni" =
+    body?.mode === "cinema" ? "cinema" : body?.mode === "omni" ? "omni" : "ugc";
   const projectId = body?.project_id ? String(body.project_id) : null;
   const aspectRatio = String(body?.aspect_ratio || "9:16");
 
@@ -46,8 +47,9 @@ export async function POST(req: Request) {
     );
   }
 
-  // Plan how many segments the user gets back. UGC = 8s each, Cinema = 30s each.
-  const segDur = mode === "cinema" ? 30 : 8;
+  // Plan how many segments the user gets back. UGC = 8s (Veo), Omni = 10s
+  // (GeminiOmni), Cinema = 30s (Grok).
+  const segDur = mode === "cinema" ? 30 : mode === "omni" ? 10 : 8;
   const segCount = Math.max(1, Math.ceil(refDuration / segDur));
 
   // Insert placeholder NOW.
