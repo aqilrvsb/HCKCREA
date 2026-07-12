@@ -26,7 +26,7 @@ import {
   getImageFallbackSlots,
   type CascadeAsset,
 } from "@/lib/cascade-rotation";
-import { isInternalError } from "@/lib/retry-eligibility";
+import { isInternalError, dropFlaggedImage } from "@/lib/retry-eligibility";
 
 // Map a model string (from history.metadata.model) to a per-model rate
 // hint. Used at settle time so the live admin rate (rate_<model>) is
@@ -521,12 +521,26 @@ async function tryAutoRetry(
   // to refImage only for legacy rows that predate the array stamp.
   // Cron worker + manual retry route already do this correctly; this
   // sync brings event-driven retry in line.
-  const allImageUrls: string[] =
+  let allImageUrls: string[] =
     Array.isArray(meta.image_urls) && meta.image_urls.length > 0
       ? meta.image_urls.filter((u: any) => typeof u === "string" && u.trim())
       : refImage
         ? [refImage]
         : [];
+  // Content-policy recovery: if the failure was APIPod blocking a specific
+  // reference image ("image reference N blocked: previously flagged by
+  // content policy"), drop THAT image so this auto-retry re-fires without
+  // it — slot rotation can't recover a per-image md5 flag. meta.image_urls
+  // is updated so both metadata writes below (which spread ...meta) persist
+  // the reduced set for subsequent retries.
+  const flaggedDrop = dropFlaggedImage(errMsg, allImageUrls);
+  if (flaggedDrop) {
+    allImageUrls = flaggedDrop.urls;
+    meta.image_urls = allImageUrls;
+    console.log(
+      `[settle/auto-retry] row ${hist.id}: dropped flagged image reference ${flaggedDrop.index + 1} → ${flaggedDrop.dropped}`
+    );
+  }
   // GeminiOmni Video Reference source — carry it so event-driven retry
   // re-runs the video→video with the same reference + all attachments.
   const refVideoUrl = String(meta.videoRef || "").trim();

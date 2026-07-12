@@ -11,7 +11,7 @@ import {
   getGeminiFallbackSlots,
   type CascadeAsset,
 } from "@/lib/cascade-rotation";
-import { isInternalError } from "@/lib/retry-eligibility";
+import { isInternalError, dropFlaggedImage } from "@/lib/retry-eligibility";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -301,9 +301,21 @@ export async function GET(req: Request) {
     summary.eligible += 1;
 
     const refImage = row.reference_url || "";
-    const allImageUrls: string[] = Array.isArray(meta.image_urls) && meta.image_urls.length > 0
+    let allImageUrls: string[] = Array.isArray(meta.image_urls) && meta.image_urls.length > 0
       ? meta.image_urls.filter((u: any) => typeof u === "string" && u.trim())
       : (refImage ? [refImage] : []);
+    // Content-policy recovery: if the row failed because APIPod blocked a
+    // specific reference image ("image reference N blocked: previously
+    // flagged by content policy"), drop THAT image so this cron resubmit
+    // re-fires without it — a per-image md5 flag can't be rotated around.
+    // meta.image_urls is updated so both writes below (which spread ...meta)
+    // persist the reduced set for subsequent attempts.
+    const flaggedDrop = dropFlaggedImage(row.error_message, allImageUrls);
+    if (flaggedDrop) {
+      allImageUrls = flaggedDrop.urls;
+      meta.image_urls = allImageUrls;
+      console.log(`[auto-resubmit] row ${row.id}: dropped flagged image reference ${flaggedDrop.index + 1} → ${flaggedDrop.dropped}`);
+    }
     // GeminiOmni Video Reference source — carry it so the cron resubmit
     // re-runs video→video with the same reference + all attachments.
     const refVideoUrl = String(meta.videoRef || "").trim();

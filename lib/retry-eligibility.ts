@@ -178,12 +178,49 @@ const RETRYABLE_ERROR_PATTERNS: RegExp[] = [
   //     NOTE: "content review" (not the word "content" alone) keeps this
   //     scoped so it does NOT re-enable the explicit-content prompt reject.
   /content review/i,
+  // 16. Flagged reference IMAGE — APIPod rejects a create when one of the
+  //     reference images was previously flagged by content policy:
+  //     "Reference upload failed: image reference 1 blocked: this image was
+  //     previously flagged by content policy (md5=…)". The block is per-image
+  //     and permanent (md5-based), so slot rotation can't recover — BUT the
+  //     retry paths recover by DROPPING that specific image and re-firing
+  //     without it (see dropFlaggedImage). Marked retryable so the automatic
+  //     cascade/fallback + event-driven retry + auto-resubmit cron all self-
+  //     heal, not just the manual Resubmit button. Scoped to the flagged-image
+  //     wording so it does NOT re-enable the prompt explicit-content reject.
+  //     Added per user direction 2026-07-12.
+  /image reference\s+\d+\s+blocked/i,
+  /previously flagged by content policy/i,
   // NOTE: an oversized reference video ("video reference N too large … maximum
   //     is 8.0MB") is deliberately NOT retryable — every slot enforces the same
   //     8MB cap so re-firing the same source can't recover. It's prevented at
   //     the source instead: uploads are shrunk client-side (<8MB) and oversized
   //     pasted URLs are rejected at submit, so the stored videoRef always fits.
 ];
+
+// dropFlaggedImage — given an APIPod "image reference N blocked / previously
+// flagged by content policy" error and the reference-image list, return the
+// list with the flagged image removed. The 1-based index is parsed from the
+// message; when absent, the FIRST image is dropped (per user direction).
+// Returns null when the error isn't a flagged-image block or there's nothing
+// to drop, so callers can leave the list untouched.
+export function isFlaggedImageError(msg: string | null | undefined): boolean {
+  const s = String(msg || "");
+  return /image reference\s+\d+\s+blocked/i.test(s) || /previously flagged by content policy/i.test(s);
+}
+
+export function dropFlaggedImage(
+  msg: string | null | undefined,
+  imageUrls: string[]
+): { urls: string[]; dropped: string; index: number } | null {
+  if (!imageUrls || imageUrls.length === 0) return null;
+  if (!isFlaggedImageError(msg)) return null;
+  const m = String(msg).match(/image reference\s+(\d+)/i);
+  const index = m ? parseInt(m[1], 10) - 1 : 0; // 1-based → 0-based; default first
+  if (index < 0 || index >= imageUrls.length) return null;
+  const dropped = imageUrls[index];
+  return { urls: imageUrls.filter((_, i) => i !== index), dropped, index };
+}
 
 export function isInternalError(err: string | null | undefined): boolean {
   if (!err) return false;

@@ -5,6 +5,7 @@ import { p2CreateTask } from "@/lib/p2";
 import { getP2Config } from "@/lib/settings";
 import { generateImageWithCascade } from "@/lib/image-cascade";
 import { generateVideoWithCascade } from "@/lib/video-cascade";
+import { dropFlaggedImage } from "@/lib/retry-eligibility";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -162,9 +163,24 @@ export async function POST(req: Request) {
   // Prefer the full image_urls array stamped at original-fire time so
   // Resubmit re-fires with ALL attachments (up to 3). Falls back to
   // [reference_url] for legacy rows that didn't stamp the full array.
-  const allImageUrls: string[] = Array.isArray(meta.image_urls) && meta.image_urls.length > 0
+  let allImageUrls: string[] = Array.isArray(meta.image_urls) && meta.image_urls.length > 0
     ? meta.image_urls.filter((u: any) => typeof u === "string" && u.trim())
     : (refImage ? [refImage] : []);
+  // Content-policy recovery: if this row failed because APIPod blocked a
+  // specific reference image ("image reference N blocked: previously flagged
+  // by content policy"), drop THAT image and resubmit without it. The block
+  // is per-image and permanent (md5-flagged upstream), so slot rotation can't
+  // recover — the only fix is to leave it out. meta.image_urls is updated so
+  // the reduced set persists through the metadata writes below (both spread
+  // ...meta) and future resubmits don't re-add the flagged image.
+  const flagged = dropFlaggedImage(row.error_message, allImageUrls);
+  if (flagged) {
+    allImageUrls = flagged.urls;
+    meta.image_urls = allImageUrls;
+    console.log(
+      `[retry] row ${row.id}: dropped flagged image reference ${flagged.index + 1} before resubmit → ${flagged.dropped}`
+    );
+  }
   // GeminiOmni Video Reference — re-fire with the SAME source video so a
   // failed video-ref row RESUBMITS with the full context (video + every
   // product/avatar image), not as a plain image/text gen. Stamped at
