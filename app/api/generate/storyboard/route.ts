@@ -10,14 +10,19 @@ export const maxDuration = 60;
 export const dynamic = "force-dynamic";
 
 // POST /api/generate/storyboard
-// Body: { product: { name, detail, image_urls[] }, main: "ugc"|"pc", sub, quantity, project_id }
+// Body: { product, main, subs: string[], quantity, project_id }
 //
-// Storyboard mode on the Images tab — same Load Data → MAIN → SUB flow as the
-// livechat, but batch: fires `quantity` 9:16 storyboard GRID images (gpt-image-2)
-// that land in the Images history grid. Each storyboard gets its own AI-built
-// prompt (with a per-index variation seed) so multiples aren't identical.
+// Storyboard mode on the Images tab. Two behaviours:
+//   • ONE sub selected  → quantity 1–10 storyboards of that SAME sub
+//                         (independent variations).
+//   • 2+ subs selected  → a CONNECTED campaign storyline: one storyboard per
+//                         sub, in order, that continue each other (opening →
+//                         … → closing/CTA). quantity is ignored.
+// Each fires a 9:16 storyboard GRID image (gpt-image-2) into the Images grid.
 
 const STORYBOARD_MODEL = "gpt-image-2";
+
+type Job = { sub: string; index: number; total: number; role: "variation" | "opening" | "middle" | "closing"; campaign: boolean };
 
 export async function POST(req: Request) {
   const sb = await createClient();
@@ -26,8 +31,10 @@ export async function POST(req: Request) {
 
   const body = await req.json().catch(() => ({}));
   const main: "ugc" | "pc" = body?.main === "pc" ? "pc" : "ugc";
-  const sub = String(body?.sub || "").trim();
-  const qty = Math.max(1, Math.min(4, Math.round(Number(body?.quantity) || 1)));
+  const subs: string[] = (Array.isArray(body?.subs) ? body.subs : body?.sub ? [body.sub] : [])
+    .map((s: any) => String(s || "").trim())
+    .filter(Boolean)
+    .slice(0, 8);
   const projectId = body?.project_id ? String(body.project_id) : null;
   const product = body?.product || {};
   const productName = String(product?.name || "").trim();
@@ -36,23 +43,40 @@ export async function POST(req: Request) {
     .filter((u: any) => typeof u === "string" && u.trim())
     .slice(0, 3);
 
-  if (!sub) return NextResponse.json({ error: "Pilih sub-style dulu." }, { status: 400 });
+  if (subs.length === 0) return NextResponse.json({ error: "Pilih sub-style dulu." }, { status: 400 });
   if (!productName && productImages.length === 0) {
     return NextResponse.json({ error: "Load produk dulu (Beg Kuning / Tiada Link)." }, { status: 400 });
   }
 
+  const campaign = subs.length >= 2;
+  // Build the job list.
+  const jobs: Job[] = [];
+  if (campaign) {
+    subs.forEach((sub, i) => {
+      const role: Job["role"] = i === 0 ? "opening" : i === subs.length - 1 ? "closing" : "middle";
+      jobs.push({ sub, index: i, total: subs.length, role, campaign: true });
+    });
+  } else {
+    const qty = Math.max(1, Math.min(10, Math.round(Number(body?.quantity) || 1)));
+    for (let i = 0; i < qty; i++) jobs.push({ sub: subs[0], index: i, total: qty, role: "variation", campaign: false });
+  }
+
   const unit = await priceFor(user.id, "image_generate", "gpt_image");
-  const total = Number((unit * qty).toFixed(4));
+  const total = Number((unit * jobs.length).toFixed(4));
   if (!(await hasEnoughCredits(user.id, total))) {
     return NextResponse.json({ error: `Kredit tak cukup (perlu RM ${total.toFixed(2)}).`, needed: total }, { status: 402 });
   }
 
   const mainLabel = main === "ugc" ? "UGC (realistic, TikTok/Reels)" : "Product Commercial (polished, cinematic)";
+  const campaignArc = campaign ? subs.map((s, i) => `${i + 1}. ${s}`).join(" → ") : "";
   const admin = createAdminClient();
 
-  // Insert N pending rows up front so they appear immediately in the grid.
+  // Insert all pending rows up front so they show immediately in the grid.
   const historyIds: string[] = [];
-  for (let i = 0; i < qty; i++) {
+  for (const job of jobs) {
+    const label = job.campaign
+      ? `Campaign ${job.index + 1}/${job.total} · ${job.sub}`
+      : `Storyboard · ${job.sub} (${job.index + 1}/${job.total})`;
     const { data: hist } = await admin
       .from("history")
       .insert({
@@ -61,7 +85,7 @@ export async function POST(req: Request) {
         type: "image",
         tab: "image",
         status: "pending",
-        prompt: `Storyboard · ${sub} · ${productName || "produk"} (${i + 1}/${qty})`,
+        prompt: `${label} · ${productName || "produk"}`,
         reference_url: productImages[0] || null,
         cost: unit,
         metadata: {
@@ -70,46 +94,58 @@ export async function POST(req: Request) {
           image_model: STORYBOARD_MODEL,
           aspectRatio: "9:16",
           main,
-          sub,
+          sub: job.sub,
+          campaign: job.campaign,
+          campaign_index: job.index + 1,
+          campaign_total: job.total,
           image_urls: productImages,
-          variation: i + 1,
           upload_status: "queued",
         },
       })
-      .select("id, metadata")
+      .select("id")
       .single();
     if (hist) historyIds.push(hist.id);
   }
+  if (historyIds.length === 0) return NextResponse.json({ error: "DB insert gagal" }, { status: 500 });
 
-  if (historyIds.length === 0) {
-    return NextResponse.json({ error: "DB insert gagal" }, { status: 500 });
-  }
-
-  // Build each prompt + fire the image cascade in the background.
   after(async () => {
-    const sysPrompt =
-      `You write ONE image-generation prompt for a 9:16 UGC/product-ad STORYBOARD GRID (6–9 panels, full-bleed, no header/numbers/timecodes). ` +
-      `The prompt MUST BEGIN with the literal sentence "ONE single 9:16 storyboard grid for ONE video only." ` +
-      `Execute the "${sub}" sub-style under ${mainLabel}: design 6–9 panels (hook → beats → CTA) that are unmistakably this sub-style's signature. ` +
-      `Talent = a natural Malaysian creator (Malay/Chinese/Indian per fit, may wear hijab), local vibe. On-screen text short + Bahasa Melayu. ` +
-      `Lock the product identity 100% (exact label text, colour, shape, packaging). Neutral framing — no negative/medical wording. ` +
-      `Output ONLY the final image prompt, no preamble.`;
+    for (let k = 0; k < jobs.length; k++) {
+      const job = jobs[k];
+      const id = historyIds[k];
+      if (!id) continue;
 
-    for (let i = 0; i < historyIds.length; i++) {
-      const id = historyIds[i];
+      const roleLine = job.campaign
+        ? job.role === "opening"
+          ? `This is the OPENING storyboard (segment 1 of ${job.total}) of ONE connected campaign — hook the viewer and introduce the product/problem. The story CONTINUES into the next segments.`
+          : job.role === "closing"
+            ? `This is the CLOSING storyboard (segment ${job.index + 1} of ${job.total}) of ONE connected campaign — pay off the story with a premium close + clear call-to-action (CTA). It must feel like the ENDING that resolves the earlier segments.`
+            : `This is segment ${job.index + 1} of ${job.total} of ONE connected campaign — continue the story (demo / benefit / proof), bridging the opening and the closing. Same product identity + narrative arc throughout.`
+        : `Variation ${job.index + 1} of ${job.total} — make the hook / framing / panel order DIFFERENT from the other variations of the same sub-style.`;
+
+      const sysPrompt =
+        `You write ONE image-generation prompt for a 9:16 UGC/product-ad STORYBOARD GRID (6–9 panels, full-bleed, no header/numbers/timecodes). ` +
+        `The prompt MUST BEGIN with the literal sentence "ONE single 9:16 storyboard grid for ONE video only." ` +
+        `Execute the "${job.sub}" sub-style under ${mainLabel}: 6–9 panels (hook → beats → CTA) unmistakably this sub-style's signature. ` +
+        `Talent = a natural Malaysian creator (Malay/Chinese/Indian per fit, may wear hijab), local vibe. On-screen text short + Bahasa Melayu. ` +
+        `Lock the product identity 100% (exact label text, colour, shape, packaging). Neutral framing — no negative/medical wording. ` +
+        (job.campaign ? `CAMPAIGN CONTEXT — the full arc is: ${campaignArc}. Keep the SAME product identity and one continuous storyline across all segments. ` : ``) +
+        `Output ONLY the final image prompt, no preamble.`;
+
       const userPrompt =
         `Product: ${productName || "(unnamed)"}\n` +
         `Detail: ${productDetail || "(none)"}\n` +
-        `Sub-style: ${sub} · Category: ${mainLabel}\n` +
-        `Variation ${i + 1} of ${qty} — make the hook / framing / panel order DIFFERENT from other variations.\n` +
+        `Sub-style: ${job.sub} · Category: ${mainLabel}\n` +
+        `${roleLine}\n` +
         `Write the storyboard image prompt now.`;
 
-      let prompt = `ONE single 9:16 storyboard grid for ONE video only. A ${sub} storyboard for ${productName || "the product"}, 6-9 panels, Malaysian UGC talent, product shown clearly with exact label.`;
+      let prompt = `ONE single 9:16 storyboard grid for ONE video only. A ${job.sub} storyboard for ${productName || "the product"}, 6-9 panels, Malaysian UGC talent, product shown clearly with exact label.`;
       try {
-        const llm = await orChat({ modelKey: "model_auto", systemPrompt: sysPrompt, userPrompt, temperature: 0.9, maxTokens: 800 });
+        // Heavy-lifting prompt planning → model_custom_idea (grsai gemini-3-flash
+        // cascade), same routing as UGC Custom Idea / Auto Content master plan.
+        const llm = await orChat({ modelKey: "model_custom_idea", systemPrompt: sysPrompt, userPrompt, temperature: 0.9, maxTokens: 800 });
         if (llm.ok && llm.content && llm.content.trim().length > 40) prompt = llm.content.trim();
       } catch {
-        /* fall back to the default prompt above */
+        /* fall back to the default prompt */
       }
 
       const r = await generateImageWithCascade({
@@ -122,11 +158,7 @@ export async function POST(req: Request) {
         const { data: cur } = await admin.from("history").select("metadata").eq("id", id).single();
         await admin
           .from("history")
-          .update({
-            task_id: r.taskId,
-            prompt,
-            metadata: { ...(cur?.metadata || {}), provider: r.actualProvider, slot: r.actualSlot, model: r.actualModel },
-          })
+          .update({ task_id: r.taskId, prompt, metadata: { ...(cur?.metadata || {}), provider: r.actualProvider, slot: r.actualSlot, model: r.actualModel } })
           .eq("id", id);
       } else {
         await admin.from("history").update({ status: "failed", error_message: r.error }).eq("id", id);
@@ -134,5 +166,5 @@ export async function POST(req: Request) {
     }
   });
 
-  return NextResponse.json({ ok: true, history_ids: historyIds, count: historyIds.length, cost: total });
+  return NextResponse.json({ ok: true, history_ids: historyIds, count: historyIds.length, campaign, cost: total });
 }

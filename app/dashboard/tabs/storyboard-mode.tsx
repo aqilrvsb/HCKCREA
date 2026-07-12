@@ -32,7 +32,9 @@ export default function StoryboardMode({ projectId }: { projectId?: string }) {
   const [showLoad, setShowLoad] = useState<"affiliate" | "manual" | null>(null);
   const [product, setProduct] = useState<SavedProduct | null>(null);
   const [main, setMain] = useState<"ugc" | "pc" | null>(null);
-  const [sub, setSub] = useState<string | null>(null);
+  // Multi-select. 1 sub → quantity mode (1–10 of the same sub). 2+ subs →
+  // connected campaign storyline (one storyboard per sub, in order).
+  const [subs, setSubs] = useState<string[]>([]);
   const [qty, setQty] = useState(1);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
@@ -57,11 +59,15 @@ export default function StoryboardMode({ projectId }: { projectId?: string }) {
     setProduct(p);
     setShowLoad(null);
     setMain(null);
-    setSub(null);
+    setSubs([]);
+  }
+
+  function toggleSub(s: string) {
+    setSubs((prev) => (prev.includes(s) ? prev.filter((x) => x !== s) : [...prev, s]));
   }
 
   async function generate() {
-    if (!product || !main || !sub) {
+    if (!product || !main || subs.length === 0) {
       setErr("Lengkapkan: produk → kategori → sub-style dulu.");
       return;
     }
@@ -75,8 +81,8 @@ export default function StoryboardMode({ projectId }: { projectId?: string }) {
         body: JSON.stringify({
           project_id: projectId || null,
           main,
-          sub,
-          quantity: qty,
+          subs,
+          quantity: subs.length === 1 ? qty : undefined,
           product: { name: product.product_name, detail: product.detail || "", image_urls: (product.attachments || []).filter(Boolean).slice(0, 3) },
         }),
       });
@@ -139,7 +145,7 @@ export default function StoryboardMode({ projectId }: { projectId?: string }) {
           <div className="text-[11px] font-bold uppercase tracking-wider mb-2" style={{ color: THEME }}>2 · Kategori</div>
           <div className="grid grid-cols-2 gap-2">
             {MAIN_OPTIONS.map((o) => (
-              <button key={o.value} onClick={() => { setMain(o.value); setSub(null); }} className="text-left px-3 py-2.5 rounded-lg" style={{ border: `1px solid ${main === o.value ? THEME : "var(--color-border)"}`, background: main === o.value ? `${THEME}18` : "var(--color-bg)" }}>
+              <button key={o.value} onClick={() => { setMain(o.value); setSubs([]); }} className="text-left px-3 py-2.5 rounded-lg" style={{ border: `1px solid ${main === o.value ? THEME : "var(--color-border)"}`, background: main === o.value ? `${THEME}18` : "var(--color-bg)" }}>
                 <span className="block text-[13px] font-bold text-[var(--color-text-primary)]">{o.label}</span>
                 <span className="block text-[11px] text-[var(--color-text-muted)]">{o.desc}</span>
               </button>
@@ -148,32 +154,50 @@ export default function StoryboardMode({ projectId }: { projectId?: string }) {
         </div>
       )}
 
-      {/* 3. SUB */}
+      {/* 3. SUB — multi-select */}
       {product && main && (
         <div className="rounded-2xl p-4" style={box}>
-          <div className="text-[11px] font-bold uppercase tracking-wider mb-2" style={{ color: THEME }}>3 · Sub-style</div>
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-[11px] font-bold uppercase tracking-wider" style={{ color: THEME }}>3 · Sub-style</span>
+            <span className="text-[10px] text-[var(--color-text-muted)]">
+              {subs.length >= 2 ? `${subs.length} sub · campaign bersambung` : "pilih 1 (kuantiti) atau 2+ (campaign)"}
+            </span>
+          </div>
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5">
-            {SUBS[main].map((s) => (
-              <button key={s} onClick={() => setSub(s)} className="text-[12px] font-semibold px-2.5 py-2 rounded-lg text-left" style={{ border: `1px solid ${sub === s ? THEME : "var(--color-border)"}`, background: sub === s ? `${THEME}18` : "var(--color-bg)", color: "var(--color-text-primary)" }}>{s}</button>
-            ))}
+            {SUBS[main].map((s) => {
+              const on = subs.includes(s);
+              const order = subs.indexOf(s) + 1;
+              return (
+                <button key={s} onClick={() => toggleSub(s)} className="text-[12px] font-semibold px-2.5 py-2 rounded-lg text-left flex items-center gap-1.5" style={{ border: `1px solid ${on ? THEME : "var(--color-border)"}`, background: on ? `${THEME}18` : "var(--color-bg)", color: "var(--color-text-primary)" }}>
+                  {subs.length >= 2 && on && <span className="text-[10px] font-bold rounded-full w-4 h-4 flex items-center justify-center" style={{ background: THEME, color: "#1a1a1a" }}>{order}</span>}
+                  {s}
+                </button>
+              );
+            })}
           </div>
         </div>
       )}
 
-      {/* 4. Quantity + Generate */}
-      {product && main && sub && (
+      {/* 4. Quantity (single sub) OR campaign note (multi) + Generate */}
+      {product && main && subs.length > 0 && (
         <div className="rounded-2xl p-4 space-y-3" style={box}>
-          <div className="flex items-center gap-3">
-            <span className="text-[11px] font-bold uppercase tracking-wider" style={{ color: THEME }}>Kuantiti</span>
-            <div className="flex gap-1.5">
-              {[1, 2, 3, 4].map((n) => (
-                <button key={n} onClick={() => setQty(n)} className="w-9 h-9 rounded-lg text-[13px] font-bold" style={{ border: `1px solid ${qty === n ? THEME : "var(--color-border)"}`, background: qty === n ? THEME : "var(--color-bg)", color: qty === n ? "#1a1a1a" : "var(--color-text-primary)" }}>{n}</button>
-              ))}
+          {subs.length === 1 ? (
+            <div className="flex items-center gap-3 flex-wrap">
+              <span className="text-[11px] font-bold uppercase tracking-wider" style={{ color: THEME }}>Kuantiti</span>
+              <div className="flex gap-1.5 flex-wrap">
+                {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((n) => (
+                  <button key={n} onClick={() => setQty(n)} className="w-8 h-8 rounded-lg text-[12px] font-bold" style={{ border: `1px solid ${qty === n ? THEME : "var(--color-border)"}`, background: qty === n ? THEME : "var(--color-bg)", color: qty === n ? "#1a1a1a" : "var(--color-text-primary)" }}>{n}</button>
+                ))}
+              </div>
             </div>
-          </div>
+          ) : (
+            <div className="text-[12px] px-3 py-2 rounded-lg" style={{ background: `${THEME}14`, color: "var(--color-text-secondary)", border: `1px solid ${THEME}44` }}>
+              🎬 <b>Campaign bersambung</b> — {subs.length} storyboard, cerita berterusan ({subs.map((s, i) => `${i + 1}·${s}`).join(" → ")}), yang akhir jadi <b>closing/CTA</b>.
+            </div>
+          )}
           <button onClick={generate} disabled={busy} className="w-full py-3 rounded-xl text-[14px] font-bold flex items-center justify-center gap-2" style={{ background: THEME, color: "#1a1a1a", opacity: busy ? 0.6 : 1 }}>
             {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
-            {busy ? "Menjana…" : `Jana ${qty} Storyboard`}
+            {busy ? "Menjana…" : subs.length === 1 ? `Jana ${qty} Storyboard` : `Jana Campaign (${subs.length} storyboard)`}
           </button>
         </div>
       )}
