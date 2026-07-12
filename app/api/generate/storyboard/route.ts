@@ -53,6 +53,9 @@ export async function POST(req: Request) {
   const productImages: string[] = (Array.isArray(product?.image_urls) ? product.image_urls : [])
     .filter((u: any) => typeof u === "string" && u.trim())
     .slice(0, 3);
+  // "Kekal Avatar" — a fixed presenter face used in every frame that shows a
+  // person (frames with no person stay person-free). Empty = AI invents talent.
+  const avatarUrl = String(body?.avatar_url || "").trim();
 
   if (subItems.length === 0) return NextResponse.json({ error: "Pilih sub-style dulu." }, { status: 400 });
   if (!productName && productImages.length === 0) {
@@ -79,6 +82,9 @@ export async function POST(req: Request) {
   }
 
   const campaignArc = campaign ? subItems.map((x, i) => `${i + 1}. ${x.sub} (${x.main === "ugc" ? "UGC" : "Product Commercial"})`).join(" → ") : "";
+  // Group id so a batch's storyboards stay associated (for the "Tukar sub"
+  // replace flow + arrangement numbering in History).
+  const batchId = crypto.randomUUID();
   const admin = createAdminClient();
 
   // Insert all pending rows up front so they show immediately in the grid.
@@ -108,7 +114,12 @@ export async function POST(req: Request) {
           campaign: job.campaign,
           campaign_index: job.index + 1,
           campaign_total: job.total,
+          batch_id: batchId,
+          // Stored so the "Tukar sub" replace flow can rebuild the prompt.
+          product_name: productName,
+          product_detail: productDetail,
           image_urls: productImages,
+          avatar_url: avatarUrl || null,
           upload_status: "queued",
         },
       })
@@ -151,10 +162,16 @@ export async function POST(req: Request) {
           (job.campaign ? `CAMPAIGN CONTEXT — arc: ${campaignArc}. Same product identity + one continuous storyline. ` : ``) +
           `Output ONLY the final image prompt.`;
 
+      // Kekal Avatar: instruct the planner to lock every human frame to the
+      // uploaded face, and keep person-less frames person-free.
+      const avatarLine = avatarUrl
+        ? `KEKAL AVATAR — a presenter face reference image is attached. EVERY frame that shows a human presenter MUST use THAT exact same face/person (identical across all frames — a fixed avatar). Frames that show NO person (product-only, macro, packshot, flat-lay) must NOT add a person. Do not invent other faces.\n`
+        : ``;
       const userPrompt =
         `Product: ${productName || "(unnamed)"}\n` +
         `Detail: ${productDetail || "(none)"}\n` +
         `Sub-style: ${job.sub} · Category: ${mainLabel}\n` +
+        avatarLine +
         `${roleLine}\n` +
         `Write the storyboard image prompt now.`;
 
@@ -167,12 +184,18 @@ export async function POST(req: Request) {
       } catch {
         /* fall back to the default prompt */
       }
+      if (avatarUrl) {
+        prompt = `${prompt}\n\nPRESENTER LOCK: the attached face reference is the fixed avatar — every human shown must be that exact same person/face across all frames; frames with no person stay person-free.`;
+      }
 
+      // Avatar face rides as the FIRST reference image (presenter), product
+      // images after it. gpt-image-2 uses them all as visual references.
+      const refImages = (avatarUrl ? [avatarUrl, ...productImages] : productImages).slice(0, 4);
       const r = await generateImageWithCascade({
         primaryModel: STORYBOARD_MODEL,
         prompt,
         aspectRatio: "9:16",
-        imageUrls: productImages.length > 0 ? productImages : undefined,
+        imageUrls: refImages.length > 0 ? refImages : undefined,
       });
       if (r.ok) {
         const { data: cur } = await admin.from("history").select("metadata").eq("id", id).single();

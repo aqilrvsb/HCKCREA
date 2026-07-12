@@ -5,7 +5,8 @@
 // images (gpt-image-2) that land in the Images history grid below.
 
 import { useEffect, useState } from "react";
-import { Loader2, Package, ImageIcon, Sparkles } from "lucide-react";
+import { Loader2, Package, ImageIcon, Sparkles, UserRound } from "lucide-react";
+import { uploadImage } from "@/lib/upload-image";
 
 type SavedProduct = {
   id: string;
@@ -37,6 +38,10 @@ export default function StoryboardMode({ projectId }: { projectId?: string }) {
   // subs may come from BOTH categories — main is just a filter for the list.
   const [subs, setSubs] = useState<{ main: "ugc" | "pc"; sub: string }[]>([]);
   const [qty, setQty] = useState(1);
+  // Kekal Avatar — fixed presenter face across every human frame.
+  const [keepAvatar, setKeepAvatar] = useState(false);
+  const [avatarUrl, setAvatarUrl] = useState("");
+  const [avatarUploading, setAvatarUploading] = useState(false);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
@@ -68,9 +73,26 @@ export default function StoryboardMode({ projectId }: { projectId?: string }) {
     setSubs((prev) => (prev.some((x) => x.sub === s) ? prev.filter((x) => x.sub !== s) : [...prev, { main, sub: s }]));
   }
 
+  async function uploadAvatar(file: File) {
+    setErr(null);
+    setAvatarUploading(true);
+    try {
+      const { url } = await uploadImage(file);
+      setAvatarUrl(url);
+    } catch (e: any) {
+      setErr(e?.message || "Upload avatar gagal");
+    } finally {
+      setAvatarUploading(false);
+    }
+  }
+
   async function generate() {
     if (!product || !main || subs.length === 0) {
       setErr("Lengkapkan: produk → kategori → sub-style dulu.");
+      return;
+    }
+    if (keepAvatar && !avatarUrl) {
+      setErr("Kekal Avatar ditick — upload gambar avatar dulu.");
       return;
     }
     setErr(null);
@@ -85,6 +107,7 @@ export default function StoryboardMode({ projectId }: { projectId?: string }) {
           main,
           subs,
           quantity: subs.length === 1 ? qty : undefined,
+          avatar_url: keepAvatar ? avatarUrl : undefined,
           product: { name: product.product_name, detail: product.detail || "", image_urls: (product.attachments || []).filter(Boolean).slice(0, 3) },
         }),
       });
@@ -159,6 +182,34 @@ export default function StoryboardMode({ projectId }: { projectId?: string }) {
           </div>
         )}
       </div>
+
+      {/* Kekal Avatar — fixed presenter face */}
+      {product && (
+        <div className="rounded-2xl p-4" style={box}>
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input type="checkbox" checked={keepAvatar} onChange={(e) => setKeepAvatar(e.target.checked)} style={{ accentColor: THEME, width: 16, height: 16 }} />
+            <span className="text-[13px] font-bold text-[var(--color-text-primary)] flex items-center gap-1.5"><UserRound className="w-4 h-4" /> Kekal Avatar</span>
+            <span className="text-[10px] text-[var(--color-text-muted)]">muka presenter sama tiap frame</span>
+          </label>
+          {keepAvatar && (
+            <div className="mt-3 flex items-center gap-3">
+              {avatarUrl ? (
+                <div className="flex items-center gap-2">
+                  <img src={avatarUrl} className="w-14 h-14 rounded-lg object-cover" style={{ border: `1px solid ${THEME}` }} alt="avatar" />
+                  <button onClick={() => setAvatarUrl("")} className="text-[11px]" style={{ color: "var(--color-text-muted)" }}>✕ Buang</button>
+                </div>
+              ) : (
+                <label className="flex items-center gap-2 text-[12px] font-bold px-3 py-2 rounded-lg cursor-pointer" style={{ border: `1px dashed ${THEME}88`, color: THEME }}>
+                  <input type="file" accept="image/*" className="hidden" disabled={avatarUploading} onChange={(e) => { const f = e.target.files?.[0]; e.currentTarget.value = ""; if (f) void uploadAvatar(f); }} />
+                  {avatarUploading ? <Loader2 className="w-4 h-4 animate-spin" /> : <UserRound className="w-4 h-4" />}
+                  {avatarUploading ? "Uploading…" : "Upload gambar avatar"}
+                </label>
+              )}
+              <span className="text-[10px] text-[var(--color-text-muted)] flex-1">Muka ni akan jadi presenter tetap. Frame tanpa orang (produk sahaja) takkan tunjuk avatar.</span>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* 2. MAIN */}
       {product && (
