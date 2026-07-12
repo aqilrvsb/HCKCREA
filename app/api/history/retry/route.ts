@@ -5,7 +5,6 @@ import { p2CreateTask } from "@/lib/p2";
 import { getP2Config } from "@/lib/settings";
 import { generateImageWithCascade } from "@/lib/image-cascade";
 import { generateVideoWithCascade } from "@/lib/video-cascade";
-import { falCompressVideo, isRefVideoTooLargeError } from "@/lib/fal";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -360,25 +359,6 @@ export async function POST(req: Request) {
       asset = "grok";
     }
 
-    // If the row failed because APIPod rejected an oversized reference
-    // video (>8MB), compress it via fal and persist the smaller URL before
-    // resubmitting so this retry re-fires with a source that fits.
-    let effectiveRefVideoUrl = refVideoUrl;
-    if (refVideoUrl && isRefVideoTooLargeError(String(row.error_message || ""))) {
-      const c = await falCompressVideo(refVideoUrl);
-      if (c.ok && c.url) {
-        effectiveRefVideoUrl = c.url;
-        meta.videoRef = c.url;
-        await admin
-          .from("history")
-          .update({ metadata: { ...meta } })
-          .eq("id", row.id);
-        console.log(`[retry] row ${row.id}: compressed oversized ref video → ${c.url}`);
-      } else {
-        console.warn(`[retry] row ${row.id}: ref video compress failed: ${c.error}`);
-      }
-    }
-
     const r = await generateVideoWithCascade({
       primaryModel: model,
       userId: actingUserId,
@@ -386,7 +366,7 @@ export async function POST(req: Request) {
       imageUrls: allImageUrls,
       // Video Reference: carry the source video so resubmit re-runs the
       // video→video with the same reference (+ all attachments).
-      refVideoUrl: effectiveRefVideoUrl || undefined,
+      refVideoUrl: refVideoUrl || undefined,
       durationMode,
       aspectRatio,
       imageMode,

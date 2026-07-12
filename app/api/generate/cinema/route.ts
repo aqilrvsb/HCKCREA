@@ -2,7 +2,6 @@ import { NextResponse, after } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { generateVideoWithCascade } from "@/lib/video-cascade";
-import { ensureRefVideoUnderCap } from "@/lib/fal";
 import { getCinemaRate, getGeminiRate, getP2Config, getSeedanceRate, getSetting, getVeoRate } from "@/lib/settings";
 
 // POST /api/generate/cinema — Original Video tab + legacy Viral. Three
@@ -158,6 +157,29 @@ export async function POST(req: Request) {
       { error: "Video reference required — upload a reference video first." },
       { status: 400 }
     );
+  }
+  // Guarantee the stored reference video fits APIPod's 8MB cap up front, so
+  // every downstream path (render, cascade fallback, resubmit, cron) reuses
+  // a source that's already small enough — no per-path compression needed.
+  // Uploaded files are pre-shrunk in the browser (<8MB), so this only trips
+  // on an oversized PASTED URL, which the browser can't touch. Fail fast
+  // with a clear message instead of a cryptic ~16-min render failure.
+  if (isVideoRef) {
+    try {
+      const head = await fetch(videoRefUrl, { method: "HEAD" });
+      const bytes = Number(head.headers.get("content-length") || 0);
+      if (bytes > 8 * 1024 * 1024) {
+        return NextResponse.json(
+          {
+            error: `Video rujukan terlalu besar (${(bytes / 1024 / 1024).toFixed(1)}MB, maks 8MB). Muat naik fail video terus — kami auto-kecilkan. Atau guna link video < 8MB.`,
+          },
+          { status: 400 }
+        );
+      }
+    } catch {
+      // HEAD unreachable (host blocks it / no content-length) — let it
+      // through; the render still validates size upstream.
+    }
   }
   if (!isVideoRef && imageMode !== "text" && effectiveImageUrls.length === 0) {
     return NextResponse.json(
@@ -357,20 +379,6 @@ export async function POST(req: Request) {
                 ? effectiveImageUrls.slice(0, 5)
                 : effectiveImageUrls.slice(0, 3);
 
-      // Video Reference: if the source URL is already over APIPod's 8MB cap
-      // (pasted URL — browser uploads are pre-compressed), shrink it via fal
-      // BEFORE the first attempt so it doesn't have to fail once first.
-      let effectiveVideoRefUrl = videoRefUrl;
-      if (isVideoRef && videoRefUrl) {
-        const fit = await ensureRefVideoUnderCap(videoRefUrl);
-        effectiveVideoRefUrl = fit.url;
-        if (fit.compressed) {
-          console.log(`[cinema] row ${historyId}: pre-compressed oversized ref video → ${fit.url}`);
-        } else if (fit.error) {
-          console.warn(`[cinema] row ${historyId}: ref video pre-compress skipped: ${fit.error}`);
-        }
-      }
-
       let createdOk = false;
       let createdTaskId: string | null = null;
       let createdError: string | null = null;
@@ -396,7 +404,7 @@ export async function POST(req: Request) {
         // GeminiOmni Video Reference → both providers (P2 video_list /
         // P6 gemini-omni-extend). Product images (imgs) ride along as
         // reference images so the output uses the user's product.
-        refVideoUrl: effectiveVideoRefUrl || undefined,
+        refVideoUrl: videoRefUrl || undefined,
         durationMode: String(duration),
         aspectRatio,
         imageMode: imgMode,
@@ -432,7 +440,7 @@ export async function POST(req: Request) {
           metadata: {
             model,
             imageMode: isVideoRef ? "video" : imageMode,
-            ...(isVideoRef ? { videoRef: effectiveVideoRefUrl } : {}),
+            ...(isVideoRef ? { videoRef: videoRefUrl } : {}),
             resolution,
             aspectRatio: imageMode !== "text" ? null : aspectRatio,
             cinemaProvider:
@@ -463,7 +471,7 @@ export async function POST(req: Request) {
         metadata: {
           model: actualModel,
           imageMode: isVideoRef ? "video" : imageMode,
-          ...(isVideoRef ? { videoRef: effectiveVideoRefUrl } : {}),
+          ...(isVideoRef ? { videoRef: videoRefUrl } : {}),
           resolution,
           aspectRatio: imageMode !== "text" ? null : aspectRatio,
           cinemaProvider:

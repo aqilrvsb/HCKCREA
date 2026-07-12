@@ -178,16 +178,11 @@ const RETRYABLE_ERROR_PATTERNS: RegExp[] = [
   //     NOTE: "content review" (not the word "content" alone) keeps this
   //     scoped so it does NOT re-enable the explicit-content prompt reject.
   /content review/i,
-  // 16. Oversized reference video — APIPod (P6 gemini-omni-extend) rejects a
-  //     Video Reference source over its 8MB cap: "Reference upload failed:
-  //     video reference N too large: 10.3MB, maximum is 8.0MB". Unlike the
-  //     other patterns this is NOT slot-rotation-recoverable on its own —
-  //     every slot enforces the same cap. It's marked retryable because the
-  //     retry paths (event-driven, manual, auto-resubmit cron) COMPRESS the
-  //     source via fal down under the cap and persist the smaller URL BEFORE
-  //     re-firing (see falCompressVideo). Added per user direction 2026-07-12.
-  /too large[^\n]{0,30}maximum is/i,
-  /reference[^\n]{0,20}too large/i,
+  // NOTE: an oversized reference video ("video reference N too large … maximum
+  //     is 8.0MB") is deliberately NOT retryable — every slot enforces the same
+  //     8MB cap so re-firing the same source can't recover. It's prevented at
+  //     the source instead: uploads are shrunk client-side (<8MB) and oversized
+  //     pasted URLs are rejected at submit, so the stored videoRef always fits.
 ];
 
 export function isInternalError(err: string | null | undefined): boolean {
