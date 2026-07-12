@@ -134,9 +134,10 @@ type OrChatToolCallOpts = {
   }>;
   temperature?: number;
   maxTokens?: number;
-  // Pre-resolved OpenRouter config — hoisted out of the agent loop so we only
-  // call getSettings once per runAgentTurn instead of once per iteration.
-  orConfig?: { base: string; key: string; model: string };
+  // Pre-resolved provider attempts (main + fallbacks), hoisted by runAgentTurn.
+  // Tried in order until one returns — so a slow/hung primary (e.g. grsai)
+  // falls back to the next provider (e.g. openrouter) instead of failing.
+  attempts?: Array<{ base: string; key: string; model: string }>;
 };
 
 async function orChatWithTools(opts: OrChatToolCallOpts): Promise<{
@@ -146,22 +147,15 @@ async function orChatWithTools(opts: OrChatToolCallOpts): Promise<{
   tokensIn?: number;
   tokensOut?: number;
 }> {
-  let base: string | undefined;
-  let key: string | undefined;
-  let model: string | undefined;
-
-  if (opts.orConfig) {
-    // Fast path: config was hoisted by runAgentTurn — no DB round-trip needed.
-    ({ base, key, model } = opts.orConfig);
-  } else {
-    // Fallback path (e.g. if called outside runAgentTurn).
+  let attempts = opts.attempts && opts.attempts.length > 0 ? opts.attempts : undefined;
+  if (!attempts) {
     const s = await getSettings(["or_base", "or_key", opts.modelKey]);
-    base = s.or_base?.url;
-    key = s.or_key?.key;
-    model = s[opts.modelKey]?.model;
+    const base = s.or_base?.url;
+    const key = s.or_key?.key;
+    const model = s[opts.modelKey]?.model;
+    if (base && key && model) attempts = [{ base, key, model }];
   }
-
-  if (!base || !key || !model) {
+  if (!attempts || attempts.length === 0) {
     return { ok: false, error: "OpenRouter not configured" };
   }
 
@@ -183,113 +177,96 @@ async function orChatWithTools(opts: OrChatToolCallOpts): Promise<{
     }),
   ];
 
-  const body: any = {
-    model,
-    messages: payloadMessages,
-    temperature: opts.temperature ?? 0.7,
-    max_tokens: opts.maxTokens ?? 2000,
-    stream: false,
-    // Cap reasoning budget for thinking models (Kimi K2.6, GPT-5,
-    // claude-sonnet-thinking, etc.). Without this they burn ALL tokens on
-    // internal chain-of-thought and return empty content/tool_calls. Effort
-    // 'low' keeps thinking under ~500 tokens — plenty for tool-call planning,
-    // none wasted. OpenRouter routes this to the model's native reasoning
-    // controls, and ignores it for non-reasoning models (V3.2, Gemini Flash).
-    reasoning: { effort: "low" },
-  };
-  if (opts.tools && opts.tools.length > 0) {
-    body.tools = opts.tools;
-    // 'auto' lets the agent reply with text when no tool is needed (e.g.
-    // clarifying questions, status replies). The reasoning budget cap above
-    // prevents the model from spiraling.
-    body.tool_choice = "auto";
-  }
+  let lastError = "no provider attempt succeeded";
+  for (const at of attempts) {
+    const body: any = {
+      model: at.model,
+      messages: payloadMessages,
+      temperature: opts.temperature ?? 0.7,
+      max_tokens: opts.maxTokens ?? 2000,
+      stream: false,
+      // Cap reasoning budget for thinking models so they don't burn all tokens
+      // on chain-of-thought; ignored by non-reasoning models (Gemini Flash).
+      reasoning: { effort: "low" },
+    };
+    if (opts.tools && opts.tools.length > 0) {
+      body.tools = opts.tools;
+      body.tool_choice = "auto";
+    }
 
-  // Hard timeout so a slow/hung provider can't stall the whole agent turn up
-  // to the route's maxDuration. Fails fast with a clear message instead.
-  const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), 80_000);
-  let res: Response;
-  try {
-    res = await fetch(`${base}/chat/completions`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${key}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(body),
-      signal: ctrl.signal,
-    });
-  } catch (e: any) {
+    // Per-attempt hard timeout — a slow/hung provider (e.g. grsai) aborts at
+    // 45s and we fall through to the NEXT attempt (e.g. openrouter) instead of
+    // failing the whole turn.
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 45_000);
+    let res: Response;
+    try {
+      res = await fetch(`${at.base}/chat/completions`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${at.key}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(body),
+        signal: ctrl.signal,
+      });
+    } catch (e: any) {
+      clearTimeout(timer);
+      lastError = e?.name === "AbortError" ? `${at.model} timeout (45s)` : e?.message || "network error";
+      continue;
+    }
     clearTimeout(timer);
+    const text = await res.text().catch(() => "");
+    let json: any = null;
+    try { json = JSON.parse(text); } catch {}
+    if (!res.ok || !json) {
+      const err = json?.error;
+      const provider = err?.metadata?.provider_name;
+      const raw = err?.metadata?.raw;
+      const baseMsg = err?.message || `HTTP ${res.status}: ${text.substring(0, 200)}`;
+      let composed = baseMsg;
+      if (provider) composed = `${provider}: ${composed}`;
+      if (raw && typeof raw === "string" && !composed.includes(raw)) {
+        composed = `${composed} — ${raw.substring(0, 300)}`;
+      }
+      lastError = composed;
+      continue;
+    }
+
+    const choice = json?.choices?.[0]?.message;
+    if (!choice) { lastError = "No choice in response"; continue; }
+
+    let extractedContent = choice.content;
+    if (!extractedContent && typeof choice.reasoning === "string") {
+      extractedContent = choice.reasoning;
+    } else if (!extractedContent && Array.isArray(choice.reasoning_details)) {
+      const reasoningText = choice.reasoning_details
+        .map((rd: any) => rd?.text || rd?.content || "")
+        .filter(Boolean)
+        .join("\n\n");
+      if (reasoningText) extractedContent = reasoningText;
+    }
+
+    const m: Message = { role: "assistant", content: extractedContent || null };
+    if (Array.isArray(choice.tool_calls) && choice.tool_calls.length > 0) {
+      m.tool_calls = choice.tool_calls.map((tc: any) => ({
+        id: tc.id,
+        type: "function",
+        function: {
+          name: tc.function?.name || "",
+          arguments: tc.function?.arguments || "{}",
+        },
+      }));
+    }
+
     return {
-      ok: false,
-      error: e?.name === "AbortError" ? "Model timeout (80s) — cuba lagi." : e?.message || "network error",
+      ok: true,
+      message: m,
+      tokensIn: json?.usage?.prompt_tokens || 0,
+      tokensOut: json?.usage?.completion_tokens || 0,
     };
   }
-  clearTimeout(timer);
-  const text = await res.text().catch(() => "");
-  let json: any = null;
-  try { json = JSON.parse(text); } catch {}
-  if (!res.ok || !json) {
-    // OpenRouter's error envelope:
-    //   { error: { message, code, metadata: { raw, provider_name } } }
-    // The top-level `message` is usually generic ("Provider returned
-    // error"); the real upstream failure lives in metadata.raw +
-    // metadata.provider_name. Surface all three so the user sees WHICH
-    // provider failed and WHY instead of a useless wrapper string.
-    const err = json?.error;
-    const provider = err?.metadata?.provider_name;
-    const raw = err?.metadata?.raw;
-    const baseMsg =
-      err?.message || `HTTP ${res.status}: ${text.substring(0, 200)}`;
-    let composed = baseMsg;
-    if (provider) composed = `${provider}: ${composed}`;
-    if (raw && typeof raw === "string" && !composed.includes(raw)) {
-      composed = `${composed} — ${raw.substring(0, 300)}`;
-    }
-    return { ok: false, error: composed };
-  }
-
-  const choice = json?.choices?.[0]?.message;
-  if (!choice) return { ok: false, error: "No choice in response" };
-
-  // Reasoning models (Kimi K2.6, GPT-5, etc.) put their thinking in
-  // `reasoning` or `reasoning_details`. If `content` is empty but we have
-  // reasoning text, surface it as fallback so the user sees something
-  // meaningful instead of silent failure.
-  let extractedContent = choice.content;
-  if (!extractedContent && typeof choice.reasoning === "string") {
-    extractedContent = choice.reasoning;
-  } else if (!extractedContent && Array.isArray(choice.reasoning_details)) {
-    const reasoningText = choice.reasoning_details
-      .map((rd: any) => rd?.text || rd?.content || "")
-      .filter(Boolean)
-      .join("\n\n");
-    if (reasoningText) extractedContent = reasoningText;
-  }
-
-  const m: Message = {
-    role: "assistant",
-    content: extractedContent || null,
-  };
-  if (Array.isArray(choice.tool_calls) && choice.tool_calls.length > 0) {
-    m.tool_calls = choice.tool_calls.map((tc: any) => ({
-      id: tc.id,
-      type: "function",
-      function: {
-        name: tc.function?.name || "",
-        arguments: tc.function?.arguments || "{}",
-      },
-    }));
-  }
-
-  return {
-    ok: true,
-    message: m,
-    tokensIn: json?.usage?.prompt_tokens || 0,
-    tokensOut: json?.usage?.completion_tokens || 0,
-  };
+  return { ok: false, error: lastError };
 }
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -561,16 +538,22 @@ export async function runAgentTurn(opts: LoopOpts): Promise<LoopResult> {
   // gemini-3.5-flash). We use the MAIN slot's provider creds (grsai uses the
   // p4 chat key + grsaiapi base; openrouter uses or_base/or_key).
   const parsedModel = parseModelSetting(settings[modelKey]);
-  let orConfigText: { base: string; key: string; model: string };
+  const attemptsText: Array<{ base: string; key: string; model: string }> = [];
   if (parsedModel) {
-    const creds = await providerCreds(parsedModel.main.provider, settings);
-    orConfigText = { base: creds.base, key: creds.key, model: parsedModel.main.model };
-  } else {
-    orConfigText = {
-      base: settings.or_base?.url as string,
-      key: settings.or_key?.key as string,
-      model: (settings[modelKey]?.model as string) || "",
-    };
+    // main + every fallback, resolved to real creds — orChatWithTools tries
+    // them in order so a slow/hung primary (grsai) falls back to openrouter.
+    for (const slot of [parsedModel.main, ...parsedModel.fallbacks]) {
+      const creds = await providerCreds(slot.provider, settings);
+      if (creds.base && creds.key) {
+        attemptsText.push({ base: creds.base, key: creds.key, model: slot.model });
+      }
+    }
+  }
+  if (attemptsText.length === 0) {
+    const base = settings.or_base?.url as string;
+    const key = settings.or_key?.key as string;
+    const model = (settings[modelKey]?.model as string) || "";
+    if (base && key && model) attemptsText.push({ base, key, model });
   }
   // model_agent_vision is fetched above so describeImageForAgent's getSettings
   // call hits the in-memory cache (free). orConfigVision kept as a local for
@@ -679,7 +662,7 @@ export async function runAgentTurn(opts: LoopOpts): Promise<LoopResult> {
       // internal chain-of-thought before producing visible output. Cheaper
       // models (V3.2) won't use this much, so no waste — they stop early.
       maxTokens: 4000,
-      orConfig: orConfigText,
+      attempts: attemptsText,
     });
 
     if (!llm.ok || !llm.message) {

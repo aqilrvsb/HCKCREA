@@ -12,6 +12,16 @@ import Portal from "./portal";
 
 const THEME = { color: "#f5b100", gradient: "linear-gradient(135deg,#f5c518,#f59e0b)" };
 
+// Deterministic menu (instant, no LLM) — from the Pening Lab MENU.
+const MAIN_OPTIONS = [
+  { value: "ugc" as const, label: "UGC", desc: "Realistik · TikTok/Reels" },
+  { value: "pc" as const, label: "Product Commercial", desc: "Premium · sinematik" },
+];
+const SUBS: Record<"ugc" | "pc", string[]> = {
+  ugc: ["UGC Review", "Unboxing", "Unboxing ASMR", "Unboxing Try-On", "Virtual Try-On", "Before/After", "Tutorial", "UGC Addiction", "Giant Figure", "Testimoni Selfie", "Talking Head", "Secret Tips/Hack", "Lifestyle", "Masalah→Solusi"],
+  pc: ["TV Spot", "Cinematic", "Crush Test", "Hyper Motion", "Mystery Box", "Reboxing", "Pro Virtual Try-On", "Product Studio", "Pix Story", "Stop Motion", "Motion Graphics", "Wild Card"],
+};
+
 type SavedProduct = {
   id: string;
   kind: "affiliate" | "manual";
@@ -41,6 +51,12 @@ export default function LivechatPanel({ projectId }: { projectId: string }) {
   const [affiliate, setAffiliate] = useState<SavedProduct[]>([]);
   const [manual, setManual] = useState<SavedProduct[]>([]);
   const [showLoad, setShowLoad] = useState<"affiliate" | "manual" | null>(null);
+  // Deterministic flow: product → MAIN → SUB happen INSTANTLY as buttons (no
+  // LLM); the AI ("thinking") only runs when it's time to generate the
+  // storyboard. "idle" (no menu) · "main" · "sub" · "chat" (free/generating).
+  const [flowStep, setFlowStep] = useState<"idle" | "main" | "sub" | "chat">("idle");
+  const [chosenMain, setChosenMain] = useState<"ugc" | "pc" | null>(null);
+  const [chosenProduct, setChosenProduct] = useState<SavedProduct | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   // Load the persisted conversation ONCE — never re-fetch on reopen, or an
   // in-flight/optimistic turn (e.g. the product pick that's still rendering)
@@ -89,12 +105,9 @@ export default function LivechatPanel({ projectId }: { projectId: string }) {
   useEffect(() => { if (open) { refreshBalance(); loadSaved(); } }, [open]);
   useEffect(() => { scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" }); }, [messages, loading]);
 
-  async function send(text: string, product?: SavedProduct) {
-    if (loading) return;
-    const bubble = product ? `📦 Guna produk: ${product.product_name}${text ? ` — ${text}` : ""}` : text;
-    if (!bubble.trim()) return;
-    setMessages((p) => [...p, { id: mid(), role: "user", text: bubble }]);
-    setInput("");
+  // Call the AI agent (the only "thinking" step). Does NOT add a user bubble —
+  // callers add their own first.
+  async function postTurn(text: string, product?: SavedProduct) {
     setLoading(true);
     try {
       const r = await fetch("/api/agent/cinema/chat", {
@@ -121,15 +134,61 @@ export default function LivechatPanel({ projectId }: { projectId: string }) {
     }
   }
 
+  // Free-text send from the composer / quick-action buttons.
+  function send(text: string) {
+    if (loading || !text.trim()) return;
+    setMessages((p) => [...p, { id: mid(), role: "user", text }]);
+    setInput("");
+    setFlowStep("chat");
+    postTurn(text, chosenProduct || undefined);
+  }
+
+  // 1) Pick product → INSTANT: show MAIN buttons (no AI call).
+  function pickProduct(p: SavedProduct) {
+    setShowLoad(null);
+    setChosenProduct(p);
+    setChosenMain(null);
+    setMessages((prev) => [
+      ...prev,
+      { id: mid(), role: "user", text: `📦 Guna produk: ${p.product_name}` },
+      { id: mid(), role: "assistant", text: `Produk "${p.product_name}" dah masuk 📸\nNak buat storyboard jenis apa? Pilih kategori:` },
+    ]);
+    setFlowStep("main");
+  }
+  // 2) Pick MAIN → INSTANT: show SUB buttons (no AI call).
+  function pickMain(main: "ugc" | "pc") {
+    setChosenMain(main);
+    const label = main === "ugc" ? "UGC" : "Product Commercial";
+    setMessages((prev) => [
+      ...prev,
+      { id: mid(), role: "user", text: label },
+      { id: mid(), role: "assistant", text: `Pilih sub-style ${label}:` },
+    ]);
+    setFlowStep("sub");
+  }
+  // 3) Pick SUB → NOW call the AI to generate the storyboard (the only wait).
+  function pickSub(sub: string) {
+    if (loading) return;
+    const main = chosenMain;
+    setMessages((prev) => [...prev, { id: mid(), role: "user", text: sub }]);
+    setFlowStep("chat");
+    postTurn(
+      `Terus JANA storyboard grid (10s, 1 video) untuk sub-style "${sub}" — kategori ${main === "ugc" ? "UGC" : "Product Commercial"}. Guna produk yang dah dipilih. JANGAN tanya soalan lagi — terus panggil generate_image.`,
+      chosenProduct || undefined
+    );
+  }
+
   async function handleClear() {
     if (!confirm("Kosongkan chat ni? Pening Lab akan lupa semuanya.")) return;
     try {
       await fetch(`/api/agent/cinema/chat?project_id=${projectId}`, { method: "DELETE" });
     } catch {}
     setMessages([]);
+    setFlowStep("idle");
+    setChosenMain(null);
+    setChosenProduct(null);
   }
 
-  function pickProduct(p: SavedProduct) { setShowLoad(null); send("", p); }
   const savedList = showLoad === "affiliate" ? affiliate : showLoad === "manual" ? manual : [];
 
   return (
@@ -218,6 +277,30 @@ export default function LivechatPanel({ projectId }: { projectId: string }) {
                     ))}
                   </div>
                 )}
+              </div>
+            )}
+
+            {/* MAIN category — instant buttons, no AI */}
+            {flowStep === "main" && !loading && (
+              <div className="px-4 py-3 border-t grid grid-cols-2 gap-2" style={{ borderColor: "var(--color-border)", background: "var(--color-bg-card)" }}>
+                {MAIN_OPTIONS.map((o) => (
+                  <button key={o.value} onClick={() => pickMain(o.value)} className="text-left px-3 py-2.5 rounded-lg" style={{ background: "var(--color-bg)", border: `1px solid ${THEME.color}55` }}>
+                    <span className="block text-[13px] font-bold text-[var(--color-text-primary)]">{o.label}</span>
+                    <span className="block text-[11px] text-[var(--color-text-muted)]">{o.desc}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {/* SUB style — instant buttons, no AI */}
+            {flowStep === "sub" && chosenMain && !loading && (
+              <div className="px-4 py-3 border-t max-h-52 overflow-y-auto" style={{ borderColor: "var(--color-border)", background: "var(--color-bg-card)" }}>
+                <div className="grid grid-cols-2 gap-1.5">
+                  {SUBS[chosenMain].map((s) => (
+                    <button key={s} onClick={() => pickSub(s)} className="text-[12px] font-semibold px-2.5 py-2 rounded-lg text-left" style={{ background: "var(--color-bg)", border: "1px solid var(--color-border)", color: "var(--color-text-primary)" }}>{s}</button>
+                  ))}
+                </div>
+                <button onClick={() => setFlowStep("main")} className="mt-2 text-[11px] text-[var(--color-text-muted)]">← Kategori lain</button>
               </div>
             )}
 
