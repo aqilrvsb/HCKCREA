@@ -30,6 +30,7 @@ import {
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import Portal from "./portal";
+import StoryboardReplaceModal from "./storyboard-replace-modal";
 import ExtendDialog from "./extend-dialog";
 import AttachmentPicker from "./attachment-picker";
 import { CategoryPickModal } from "./attachments";
@@ -842,6 +843,9 @@ function HistoryCardInner({
   // Forced provider slot for Original Video resubmit. null = use the normal
   // cascade; "p2-a"/"p2-b"/"p6-a"/"p6-b" = force that provider on resubmit.
   const [pickedSlot, setPickedSlot] = useState<string | null>(null);
+  // "Tukar sub" replace picker (storyboard rows only).
+  const [tukarOpen, setTukarOpen] = useState(false);
+  const isStoryboard = (item.metadata as any)?.feature === "storyboard";
   const [slotMenuOpen, setSlotMenuOpen] = useState(false);
   const [savingName, setSavingName] = useState(false);
   const [showFullscreen, setShowFullscreen] = useState(false);
@@ -1558,6 +1562,9 @@ function HistoryCardInner({
         borderColor: "var(--color-border)",
       }}
     >
+      {tukarOpen && isStoryboard && (
+        <StoryboardReplaceModal historyId={item.id} onClose={() => setTukarOpen(false)} />
+      )}
       {/* Keyframes for the rainbow Custom Idea badge below. Cheap to
           duplicate per card (browser de-dupes identical rule names);
           keeps the animation self-contained without a global CSS file. */}
@@ -2688,6 +2695,11 @@ function HistoryCardInner({
               <ActionBtn title="Edit Image" onClick={() => setShowEditModal(true)} bg={ACTION.edit}>
                 <Palette className="w-3.5 h-3.5" strokeWidth={2.4} />
               </ActionBtn>
+              {isStoryboard && (
+                <ActionBtn title="Tukar sub-style" onClick={() => setTukarOpen(true)} bg="linear-gradient(135deg,#f5c518,#f59e0b)">
+                  <RefreshCw className="w-3.5 h-3.5" strokeWidth={2.4} />
+                </ActionBtn>
+              )}
               {/* Save (yellow) hidden on the Image tab — pure image gens are
                   already permanently stored (Transfer to Attachments / B2), so
                   the Save button is redundant. Kept for storytelling scene
@@ -2833,6 +2845,11 @@ function HistoryCardInner({
                     </>
                   )}
                 </button>
+              )}
+              {isStoryboard && (
+                <ActionBtn title="Tukar sub-style" onClick={() => setTukarOpen(true)} bg="linear-gradient(135deg,#f5c518,#f59e0b)">
+                  <RefreshCw className="w-3.5 h-3.5" strokeWidth={2.4} />
+                </ActionBtn>
               )}
               <ActionBtn title="Delete" onClick={handleDelete} bg={ACTION.delete} disabled={deleting}>
                 <Trash2 className="w-3.5 h-3.5" strokeWidth={2.4} />
