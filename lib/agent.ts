@@ -205,14 +205,29 @@ async function orChatWithTools(opts: OrChatToolCallOpts): Promise<{
     body.tool_choice = "auto";
   }
 
-  const res = await fetch(`${base}/chat/completions`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${key}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(body),
-  });
+  // Hard timeout so a slow/hung provider can't stall the whole agent turn up
+  // to the route's maxDuration. Fails fast with a clear message instead.
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 80_000);
+  let res: Response;
+  try {
+    res = await fetch(`${base}/chat/completions`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${key}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(body),
+      signal: ctrl.signal,
+    });
+  } catch (e: any) {
+    clearTimeout(timer);
+    return {
+      ok: false,
+      error: e?.name === "AbortError" ? "Model timeout (80s) — cuba lagi." : e?.message || "network error",
+    };
+  }
+  clearTimeout(timer);
   const text = await res.text().catch(() => "");
   let json: any = null;
   try { json = JSON.parse(text); } catch {}

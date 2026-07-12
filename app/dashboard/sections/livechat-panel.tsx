@@ -42,9 +42,14 @@ export default function LivechatPanel({ projectId }: { projectId: string }) {
   const [manual, setManual] = useState<SavedProduct[]>([]);
   const [showLoad, setShowLoad] = useState<"affiliate" | "manual" | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+  // Load the persisted conversation ONCE — never re-fetch on reopen, or an
+  // in-flight/optimistic turn (e.g. the product pick that's still rendering)
+  // would be wiped by the server's older copy.
+  const loadedRef = useRef(false);
 
   useEffect(() => {
-    if (!open) return;
+    if (!open || loadedRef.current) return;
+    loadedRef.current = true;
     let cancel = false;
     (async () => {
       try {
@@ -57,7 +62,8 @@ export default function LivechatPanel({ projectId }: { projectId: string }) {
               msgs.push({ id: mid(), role: m.role, text: m.content });
             }
           }
-          setMessages(msgs);
+          // Only adopt the server copy if we don't already have local turns.
+          setMessages((prev) => (prev.length > 0 ? prev : msgs));
         }
       } catch {}
     })();
