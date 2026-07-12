@@ -222,7 +222,25 @@ export function dropFlaggedImage(
   return { urls: imageUrls.filter((_, i) => i !== index), dropped, index };
 }
 
+// HARD-PERMANENT refusals that OVERRIDE the retryable patterns above. The
+// broad /content review/i pattern (#15) is rotation-recoverable for the
+// inconsistent per-slot review, BUT the provider also emits a definitive
+// content-review refusal on a Video Reference whose SOURCE clip shows an
+// identifiable real person ("This request didn't pass content review …
+// Retrying or switching accounts won't help … can't make that type of
+// video"). That block is on the INPUT video, permanent, and slot rotation
+// cannot recover — so it must fail fast with a clear message instead of
+// burning retry attempts. Checked BEFORE the retryable list. 2026-07-12.
+const PERMANENT_ERROR_PATTERNS: RegExp[] = [
+  /didn'?t pass content review/i,
+  /retrying or switching accounts won'?t help/i,
+  /identifiable real person/i,
+  /can'?t make that type of video/i,
+];
+
 export function isInternalError(err: string | null | undefined): boolean {
   if (!err) return false;
-  return RETRYABLE_ERROR_PATTERNS.some((re) => re.test(err));
+  const s = String(err);
+  if (PERMANENT_ERROR_PATTERNS.some((re) => re.test(s))) return false;
+  return RETRYABLE_ERROR_PATTERNS.some((re) => re.test(s));
 }

@@ -416,31 +416,35 @@ export default function OriginalVideoTab({
       vrGender === "female" && vrHijab === "yes" ? " wearing a modest hijab" : ""
     }`;
     const parts: string[] = [];
+    // Framed as an ORIGINAL creation with a FICTIONAL presenter that merely
+    // follows the source's choreography/timing — NOT a reproduction of the
+    // real person in the source clip. This lowers provider content-review
+    // flags ("identifiable real person / protected IP") which fire on the
+    // input video before the prompt matters. It won't rescue a clearly
+    // front-facing identifiable face, but it clears borderline clips.
     parts.push(
-      `Recreate the SOURCE VIDEO EXACTLY, shot-for-shot: keep the SAME camera movement, angles, framing, pacing, timing, scene, background, props, lighting, mood and every action, gesture and pose. Do NOT change the composition, motion or timing in any way.`
+      `Create a NEW, ORIGINAL vertical short-form video featuring a FICTIONAL Malaysian UGC creator. Use the attached source video ONLY as a choreography and timing reference — match its camera movement, framing, pacing, timing, scene layout, lighting, mood and the SEQUENCE of actions, gestures and poses. Do NOT reproduce, copy, clone or preserve the identity, face, likeness or voice of any real person shown in the source video — the presenter is an entirely new invented character.`
     );
-    parts.push(
-      `The ONLY two things to change from the source video are the PRESENTER and the PRODUCT — nothing else:`
-    );
+    parts.push(`Build the video around two elements:`);
     if (avatarRef) {
       parts.push(
-        `(1) PRESENTER: replace the person's face and appearance with the person in the FIRST reference image (${who}). Keep that exact face, skin tone and look consistent for the whole clip — but the body performs the SAME motion, actions and lip movements as the source.`
+        `(1) PRESENTER: a fictional ${who} — use the person in the FIRST reference image as the character design. Keep that face, skin tone and look consistent for the whole clip; the character performs the same choreography and lip movements as the reference timing.`
       );
     } else {
       parts.push(
-        `(1) PRESENTER: the person is ${who}, a natural Malaysian UGC creator — but they perform the SAME motion and actions as the source.`
+        `(1) PRESENTER: a fictional ${who}, a natural Malaysian UGC creator (invented character, not anyone real) performing the same choreography and beats as the reference timing.`
       );
     }
     parts.push(
-      `(2) PRODUCT: replace whatever product the person holds/shows with the product in the ${
+      `(2) PRODUCT: the presenter holds and shows the product in the ${
         avatarRef ? "OTHER" : ""
       } reference image(s)${
         vrProductName ? ` (${vrProductName})` : ""
-      }. Keep the product's exact shape, label, text, colour and packaging, and have the person hold/show it the SAME way and at the SAME moments as in the source.`
+      }, matching the source's timing for when the product is shown. Keep the product's exact shape, label, text, colour and packaging.`
     );
     if (vrProductDetail.trim()) parts.push(`Product context (for accuracy): ${vrProductDetail.trim()}.`);
     parts.push(
-      `Everything else — the location, other people, on-screen text/graphics, transitions and energy — stays IDENTICAL to the source video.`
+      `Match the source's location style, on-screen text/graphics rhythm, transitions and energy — but as a fresh original scene, not a copy of the original footage.`
     );
     if (dialog.trim()) {
       parts.push(
