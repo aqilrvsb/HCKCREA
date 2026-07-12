@@ -162,6 +162,32 @@ export async function falCompressVideo(
   }
 }
 
+// ensureRefVideoUnderCap — proactively shrink a reference video URL that is
+// already over APIPod's 8MB cap, BEFORE the first render attempt. Used at
+// submit time for pasted URLs (browser uploads are compressed client-side).
+// HEADs the URL for its size; only compresses when it's known to be over
+// the cap. Returns the (possibly new) URL — always safe to use.
+const REF_VIDEO_CAP_BYTES = 8 * 1024 * 1024;
+
+export async function ensureRefVideoUnderCap(
+  videoUrl: string
+): Promise<{ url: string; compressed: boolean; error?: string }> {
+  if (!videoUrl) return { url: videoUrl, compressed: false };
+  let size = 0;
+  try {
+    const head = await fetch(videoUrl, { method: "HEAD" });
+    size = Number(head.headers.get("content-length") || 0);
+  } catch {
+    // HEAD unreachable (CORS/host) — leave as-is; the render + retry path
+    // still compresses on the "too large" error as a fallback.
+    return { url: videoUrl, compressed: false };
+  }
+  if (!size || size <= REF_VIDEO_CAP_BYTES) return { url: videoUrl, compressed: false };
+  const c = await falCompressVideo(videoUrl);
+  if (c.ok && c.url) return { url: c.url, compressed: true };
+  return { url: videoUrl, compressed: false, error: c.error };
+}
+
 // Match the upstream "reference video too large" rejection from APIPod so
 // the retry paths know when to compress before resubmitting.
 export function isRefVideoTooLargeError(msg: string): boolean {
