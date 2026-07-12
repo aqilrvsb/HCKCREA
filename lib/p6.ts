@@ -306,14 +306,16 @@ export async function p6CreateVideo(input: {
         : 10;
     body.resolution = "720p";
   } else if (resolvedModel === "gemini-omni-extend") {
-    // GeminiOmni Video Reference — source/reference VIDEO. APIPod
-    // gemini-omni-extend: video_url REQUIRED, no images (video-only per
-    // user direction), aspect 16:9|9:16, resolution 720p|1080p, NO
-    // duration field (output follows the source, capped 10s).
+    // GeminiOmni Video Reference — source/reference VIDEO + optional product
+    // reference images (1-5) so the output replicates the reference video
+    // but features the user's product. APIPod gemini-omni-extend:
+    // video_url REQUIRED, image_urls optional (1-5), aspect 16:9|9:16,
+    // resolution 720p|1080p, NO duration (output follows source, cap 10s).
     if (!input.refVideoUrl) {
       return { ok: false, error: "gemini-omni-extend requires a reference video", provider: "p6" };
     }
     body.video_url = input.refVideoUrl;
+    if (refs.length > 0) body.image_urls = refs.slice(0, 5);
   } else if (refs.length > 0) {
     // Per-model image_urls cap per APIPod docs:
     //   • veo3-1-fast             → up to 2 (start + end frame)

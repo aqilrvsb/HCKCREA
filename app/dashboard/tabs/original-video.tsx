@@ -128,8 +128,10 @@ const PROVIDER_MODES: Record<Provider, ImageMode[]> = {
 // multi-ref). API caps in /api/generate/cinema mirror these.
 function getRefCap(provider: Provider, mode: ImageMode): number {
   if (mode === "text") return 0;
-  // Video Reference — no image slots (video-only per user direction).
-  if (mode === "video") return 0;
+  // Video Reference — the source video (motion/scene) + up to 3 product
+  // reference images so the output replicates the video using the user's
+  // product. Both providers accept up to 5; capped at 3 here for UX.
+  if (mode === "video") return 3;
   // frame: Veo + Seedance + GeminiOmni accept start+end (2 images);
   // Sora 2 + Grok 1.5 accept a single first frame.
   if (mode === "frame")
@@ -167,7 +169,7 @@ function modeLabel(provider: Provider, mode: ImageMode): string {
 function modeDescription(mode: ImageMode): string {
   if (mode === "text") return "Tak perlu letak gambar, prompt je keluar video";
   if (mode === "frame") return "Image yang di-upload dijadikan first frame dalam video";
-  if (mode === "video") return "Upload video sebagai rujukan — hasilkan video baru";
+  if (mode === "video") return "Video jadi rujukan gerak/scene + gambar produk anda → replicate video guna produk anda";
   return "Guna gambar sebagai rujukan untuk hasilkan video cantik";
 }
 
@@ -347,10 +349,10 @@ export default function OriginalVideoTab({
     setError(null);
     setStatus("submitting");
     try {
+      // Video Reference sends product images (optional) alongside the
+      // video_url; only pure text mode sends nothing.
       const sourceUrls =
-        imageMode === "text" || imageMode === "video"
-          ? []
-          : filledRefs.slice(0, refCap);
+        imageMode === "text" ? [] : filledRefs.slice(0, refCap);
       const pubUrls = await Promise.all(sourceUrls.map((u) => ensurePublicUrl(u)));
       const r = await fetch("/api/generate/cinema", {
         method: "POST",
@@ -808,6 +810,82 @@ export default function OriginalVideoTab({
                 </div>
               </>
             )}
+
+            {/* Product reference images (optional) — the product to feature
+                in the replicated video. Both providers accept them
+                alongside the source video. */}
+            <div className="mt-3">
+              <div
+                className="text-[11px] font-bold uppercase tracking-wider mb-1.5"
+                style={{ color: theme.primary }}
+              >
+                Product Reference ({filledRefs.length}/{refCap}) — optional
+              </div>
+              <div className="flex items-stretch gap-2">
+                <div className="flex gap-1.5 flex-wrap">
+                  {Array.from({ length: refCap }).map((_, i) => {
+                    const url = refSlots[i] || "";
+                    return (
+                      <div key={i} className="flex flex-col items-center gap-0.5">
+                        <button
+                          type="button"
+                          onClick={() => setPickingSlot(i)}
+                          className="relative w-16 h-16 rounded-lg overflow-hidden flex-shrink-0 flex items-center justify-center"
+                          style={{
+                            border: url
+                              ? `2px solid ${theme.primary}`
+                              : `2px dashed ${theme.soft}`,
+                            background: url ? "#000" : "var(--color-bg)",
+                          }}
+                        >
+                          {url ? (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img src={url} alt="" className="w-full h-full object-cover" />
+                          ) : (
+                            <span className="text-xs font-semibold" style={{ color: theme.primary }}>
+                              {i + 1}
+                            </span>
+                          )}
+                          {url && (
+                            <span
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setRefSlots(refSlots.map((u, j) => (j === i ? "" : u)));
+                              }}
+                              className="absolute top-0 right-0 w-4 h-4 rounded-bl bg-black/70 text-white text-[10px] flex items-center justify-center cursor-pointer"
+                            >
+                              ×
+                            </span>
+                          )}
+                        </button>
+                        <span
+                          className="text-[9px] font-mono uppercase tracking-wider"
+                          style={{ color: "var(--color-text-muted)" }}
+                        >
+                          PRODUK
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setPickingSlot(filledRefs.length)}
+                  disabled={filledRefs.length >= refCap}
+                  className="px-3 py-1 rounded text-[11px] font-bold whitespace-nowrap disabled:opacity-40 self-start"
+                  style={{
+                    background: theme.faint,
+                    border: `1px solid ${theme.primary}`,
+                    color: theme.primary,
+                  }}
+                >
+                  Attachments
+                </button>
+              </div>
+              <p className="text-[10px] text-[var(--color-text-muted)] mt-1">
+                Optional — letak gambar produk anda, video akan keluar guna produk anda.
+              </p>
+            </div>
           </div>
         )}
 

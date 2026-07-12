@@ -343,13 +343,18 @@ export async function POST(req: Request) {
       //   • Veo r2v / i2v → up to 3
       //   • Grok i2v → up to 3 (UX cap; APIPod supports 1-7)
       const imgs =
-        imageMode === "text"
-          ? []
-          : modelChoice === "sora2"
-            ? effectiveImageUrls.slice(0, 1)
-            : modelChoice === "seedance"
-              ? effectiveImageUrls.slice(0, 5)
-              : effectiveImageUrls.slice(0, 3);
+        // Video Reference: product images ride ALONGSIDE the source video
+        // (both providers accept up to 5 reference images) so the output
+        // replicates the reference video but featuring the user's product.
+        isVideoRef
+          ? effectiveImageUrls.slice(0, 5)
+          : imageMode === "text"
+            ? []
+            : modelChoice === "sora2"
+              ? effectiveImageUrls.slice(0, 1)
+              : modelChoice === "seedance"
+                ? effectiveImageUrls.slice(0, 5)
+                : effectiveImageUrls.slice(0, 3);
 
       let createdOk = false;
       let createdTaskId: string | null = null;
@@ -372,9 +377,10 @@ export async function POST(req: Request) {
       const result = await generateVideoWithCascade({
         primaryModel: model,
         prompt,
-        imageUrls: isVideoRef ? [] : imgs,
+        imageUrls: imgs,
         // GeminiOmni Video Reference → both providers (P2 video_list /
-        // P6 gemini-omni-extend). No images in this mode.
+        // P6 gemini-omni-extend). Product images (imgs) ride along as
+        // reference images so the output uses the user's product.
         refVideoUrl: videoRefUrl || undefined,
         durationMode: String(duration),
         aspectRatio,
