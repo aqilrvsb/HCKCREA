@@ -33,7 +33,7 @@ export async function POST(req: Request) {
   if (!historyId || !sub) return NextResponse.json({ error: "history_id + sub diperlukan" }, { status: 400 });
 
   const admin = createAdminClient();
-  const { data: row } = await admin.from("history").select("id, user_id, metadata").eq("id", historyId).maybeSingle();
+  const { data: row } = await admin.from("history").select("id, user_id, project_id, metadata").eq("id", historyId).maybeSingle();
   if (!row || row.user_id !== user.id) return NextResponse.json({ error: "Storyboard tak dijumpai" }, { status: 404 });
   const meta = (row.metadata || {}) as Record<string, any>;
   if (meta.feature !== "storyboard") return NextResponse.json({ error: "Bukan baris storyboard" }, { status: 400 });
@@ -48,18 +48,26 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: `Kredit tak cukup (perlu RM ${unit.toFixed(2)}).` }, { status: 402 });
   }
 
-  // Flip the row to pending immediately with the new sub so the card morphs.
-  await admin
+  // Create a NEW row (fresh id → fresh B2 key, avoiding the old image's
+  // immutable-cache) at the SAME batch position, then remove the old row.
+  const { data: newRow } = await admin
     .from("history")
-    .update({
+    .insert({
+      user_id: user.id,
+      project_id: (row as any).project_id ?? null,
+      type: "image",
+      tab: "image",
       status: "pending",
-      output_url: null,
-      error_message: null,
-      cost: unit,
       prompt: `Storyboard · ${sub} (tukar) · ${productName || "produk"}`,
+      reference_url: productImages[0] || null,
+      cost: unit,
       metadata: { ...meta, main, sub, upload_status: "queued" },
     })
-    .eq("id", historyId);
+    .select("id")
+    .single();
+  const targetId = newRow?.id;
+  if (!targetId) return NextResponse.json({ error: "DB insert gagal" }, { status: 500 });
+  await admin.from("history").delete().eq("id", historyId).eq("user_id", user.id);
 
   after(async () => {
     const doc = await loadSubCards();
@@ -89,12 +97,12 @@ export async function POST(req: Request) {
     const refImages = (avatarUrl ? [avatarUrl, ...productImages] : productImages).slice(0, 4);
     const r = await generateImageWithCascade({ primaryModel: STORYBOARD_MODEL, prompt, aspectRatio: "9:16", imageUrls: refImages.length > 0 ? refImages : undefined });
     if (r.ok) {
-      const { data: cur } = await admin.from("history").select("metadata").eq("id", historyId).single();
-      await admin.from("history").update({ task_id: r.taskId, prompt, metadata: { ...(cur?.metadata || {}), provider: r.actualProvider, slot: r.actualSlot, model: r.actualModel } }).eq("id", historyId);
+      const { data: cur } = await admin.from("history").select("metadata").eq("id", targetId).single();
+      await admin.from("history").update({ task_id: r.taskId, prompt, metadata: { ...(cur?.metadata || {}), provider: r.actualProvider, slot: r.actualSlot, model: r.actualModel } }).eq("id", targetId);
     } else {
-      await admin.from("history").update({ status: "failed", error_message: r.error }).eq("id", historyId);
+      await admin.from("history").update({ status: "failed", error_message: r.error }).eq("id", targetId);
     }
   });
 
-  return NextResponse.json({ ok: true, history_id: historyId });
+  return NextResponse.json({ ok: true, history_id: targetId });
 }
