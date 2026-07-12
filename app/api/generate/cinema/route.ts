@@ -2,6 +2,7 @@ import { NextResponse, after } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { generateVideoWithCascade } from "@/lib/video-cascade";
+import { freshMd5Images } from "@/lib/flagged-image";
 import { getCinemaRate, getGeminiRate, getP2Config, getSeedanceRate, getSetting, getVeoRate } from "@/lib/settings";
 
 // POST /api/generate/cinema — Original Video tab + legacy Viral. Three
@@ -365,7 +366,7 @@ export async function POST(req: Request) {
       //   • Sora 2 → 1 first frame only (API-mandated)
       //   • Veo r2v / i2v → up to 3
       //   • Grok i2v → up to 3 (UX cap; APIPod supports 1-7)
-      const imgs =
+      let imgs =
         // Video Reference: product images ride ALONGSIDE the source video
         // (both providers accept up to 5 reference images) so the output
         // replicates the reference video but featuring the user's product.
@@ -378,6 +379,14 @@ export async function POST(req: Request) {
               : modelChoice === "seedance"
                 ? effectiveImageUrls.slice(0, 5)
                 : effectiveImageUrls.slice(0, 3);
+
+      // PROACTIVE md5 refresh (Video Reference): re-encode the product images
+      // to a fresh md5 BEFORE the first submit so a previously-flagged photo
+      // (e.g. a reused saved-product image) doesn't trip APIPod's cached-md5
+      // block. Best-effort — keeps originals on failure. Per user direction.
+      if (isVideoRef && imgs.length > 0) {
+        imgs = await freshMd5Images(imgs, user.id, historyId);
+      }
 
       let createdOk = false;
       let createdTaskId: string | null = null;
@@ -455,6 +464,9 @@ export async function POST(req: Request) {
                       : "grok-imagine",
             modelChoice,
             featureType,
+            // Persist the actual (fresh-md5, for video-ref) image list so
+            // resubmit/recovery re-fires with the same references.
+            image_urls: imgs,
             provider: actualProvider,
           slot: actualSlot,
           ...(actualKeyIndex !== undefined ? { p6_key_index: actualKeyIndex } : {}),
@@ -486,6 +498,9 @@ export async function POST(req: Request) {
                     : "grok-imagine",
           modelChoice,
           featureType,
+          // Persist the actual (fresh-md5, for video-ref) image list so
+          // resubmit/recovery re-fires with the same references.
+          image_urls: imgs,
           provider: actualProvider,
           slot: actualSlot,
           ...(actualKeyIndex !== undefined ? { p6_key_index: actualKeyIndex } : {}),

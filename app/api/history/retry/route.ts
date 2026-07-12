@@ -5,7 +5,7 @@ import { p2CreateTask } from "@/lib/p2";
 import { getP2Config } from "@/lib/settings";
 import { generateImageWithCascade } from "@/lib/image-cascade";
 import { generateVideoWithCascade } from "@/lib/video-cascade";
-import { dropFlaggedImage } from "@/lib/retry-eligibility";
+import { recoverFlaggedImage } from "@/lib/flagged-image";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -173,12 +173,17 @@ export async function POST(req: Request) {
   // recover — the only fix is to leave it out. meta.image_urls is updated so
   // the reduced set persists through the metadata writes below (both spread
   // ...meta) and future resubmits don't re-add the flagged image.
-  const flagged = dropFlaggedImage(row.error_message, allImageUrls);
+  const flagged = await recoverFlaggedImage({
+    errMsg: row.error_message,
+    imageUrls: allImageUrls,
+    meta,
+    userId: row.user_id,
+    historyId: row.id,
+  });
   if (flagged) {
     allImageUrls = flagged.urls;
-    meta.image_urls = allImageUrls;
     console.log(
-      `[retry] row ${row.id}: dropped flagged image reference ${flagged.index + 1} before resubmit → ${flagged.dropped}`
+      `[retry] row ${row.id}: ${flagged.action} flagged image reference ${flagged.index + 1} before resubmit → ${flagged.detail}`
     );
   }
   // GeminiOmni Video Reference — re-fire with the SAME source video so a

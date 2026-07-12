@@ -26,7 +26,8 @@ import {
   getImageFallbackSlots,
   type CascadeAsset,
 } from "@/lib/cascade-rotation";
-import { isInternalError, dropFlaggedImage } from "@/lib/retry-eligibility";
+import { isInternalError } from "@/lib/retry-eligibility";
+import { recoverFlaggedImage } from "@/lib/flagged-image";
 
 // Map a model string (from history.metadata.model) to a per-model rate
 // hint. Used at settle time so the live admin rate (rate_<model>) is
@@ -533,12 +534,17 @@ async function tryAutoRetry(
   // it — slot rotation can't recover a per-image md5 flag. meta.image_urls
   // is updated so both metadata writes below (which spread ...meta) persist
   // the reduced set for subsequent retries.
-  const flaggedDrop = dropFlaggedImage(errMsg, allImageUrls);
-  if (flaggedDrop) {
-    allImageUrls = flaggedDrop.urls;
-    meta.image_urls = allImageUrls;
+  const flaggedFix = await recoverFlaggedImage({
+    errMsg,
+    imageUrls: allImageUrls,
+    meta,
+    userId: hist.user_id,
+    historyId: hist.id,
+  });
+  if (flaggedFix) {
+    allImageUrls = flaggedFix.urls;
     console.log(
-      `[settle/auto-retry] row ${hist.id}: dropped flagged image reference ${flaggedDrop.index + 1} → ${flaggedDrop.dropped}`
+      `[settle/auto-retry] row ${hist.id}: ${flaggedFix.action} flagged image reference ${flaggedFix.index + 1} → ${flaggedFix.detail}`
     );
   }
   // GeminiOmni Video Reference source — carry it so event-driven retry

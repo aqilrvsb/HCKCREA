@@ -11,7 +11,8 @@ import {
   getGeminiFallbackSlots,
   type CascadeAsset,
 } from "@/lib/cascade-rotation";
-import { isInternalError, dropFlaggedImage } from "@/lib/retry-eligibility";
+import { isInternalError } from "@/lib/retry-eligibility";
+import { recoverFlaggedImage } from "@/lib/flagged-image";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -310,11 +311,16 @@ export async function GET(req: Request) {
     // re-fires without it — a per-image md5 flag can't be rotated around.
     // meta.image_urls is updated so both writes below (which spread ...meta)
     // persist the reduced set for subsequent attempts.
-    const flaggedDrop = dropFlaggedImage(row.error_message, allImageUrls);
-    if (flaggedDrop) {
-      allImageUrls = flaggedDrop.urls;
-      meta.image_urls = allImageUrls;
-      console.log(`[auto-resubmit] row ${row.id}: dropped flagged image reference ${flaggedDrop.index + 1} → ${flaggedDrop.dropped}`);
+    const flaggedFix = await recoverFlaggedImage({
+      errMsg: row.error_message,
+      imageUrls: allImageUrls,
+      meta,
+      userId: row.user_id,
+      historyId: row.id,
+    });
+    if (flaggedFix) {
+      allImageUrls = flaggedFix.urls;
+      console.log(`[auto-resubmit] row ${row.id}: ${flaggedFix.action} flagged image reference ${flaggedFix.index + 1} → ${flaggedFix.detail}`);
     }
     // GeminiOmni Video Reference source — carry it so the cron resubmit
     // re-runs video→video with the same reference + all attachments.
