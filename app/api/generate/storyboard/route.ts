@@ -23,7 +23,10 @@ export const dynamic = "force-dynamic";
 
 const STORYBOARD_MODEL = "gpt-image-2";
 
-type Job = { sub: string; index: number; total: number; role: "variation" | "opening" | "middle" | "closing"; campaign: boolean };
+type Main = "ugc" | "pc";
+type Job = { sub: string; main: Main; index: number; total: number; role: "variation" | "opening" | "middle" | "closing"; campaign: boolean };
+
+const mainLabelOf = (m: Main) => (m === "ugc" ? "UGC (realistic, TikTok/Reels)" : "Product Commercial (polished, cinematic)");
 
 export async function POST(req: Request) {
   const sb = await createClient();
@@ -31,10 +34,17 @@ export async function POST(req: Request) {
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const body = await req.json().catch(() => ({}));
-  const main: "ugc" | "pc" = body?.main === "pc" ? "pc" : "ugc";
-  const subs: string[] = (Array.isArray(body?.subs) ? body.subs : body?.sub ? [body.sub] : [])
-    .map((s: any) => String(s || "").trim())
-    .filter(Boolean)
+  const topMain: Main = body?.main === "pc" ? "pc" : "ugc";
+  // subs can be strings (all under top-level main) OR {main, sub} objects
+  // (cross-main campaign — each segment carries its own main).
+  const rawSubs = Array.isArray(body?.subs) ? body.subs : body?.sub ? [body.sub] : [];
+  const subItems: { main: Main; sub: string }[] = rawSubs
+    .map((s: any) =>
+      typeof s === "string"
+        ? { main: topMain, sub: s.trim() }
+        : { main: (s?.main === "pc" ? "pc" : "ugc") as Main, sub: String(s?.sub || "").trim() }
+    )
+    .filter((x: { sub: string }) => x.sub)
     .slice(0, 8);
   const projectId = body?.project_id ? String(body.project_id) : null;
   const product = body?.product || {};
@@ -44,22 +54,22 @@ export async function POST(req: Request) {
     .filter((u: any) => typeof u === "string" && u.trim())
     .slice(0, 3);
 
-  if (subs.length === 0) return NextResponse.json({ error: "Pilih sub-style dulu." }, { status: 400 });
+  if (subItems.length === 0) return NextResponse.json({ error: "Pilih sub-style dulu." }, { status: 400 });
   if (!productName && productImages.length === 0) {
     return NextResponse.json({ error: "Load produk dulu (Beg Kuning / Tiada Link)." }, { status: 400 });
   }
 
-  const campaign = subs.length >= 2;
+  const campaign = subItems.length >= 2;
   // Build the job list.
   const jobs: Job[] = [];
   if (campaign) {
-    subs.forEach((sub, i) => {
-      const role: Job["role"] = i === 0 ? "opening" : i === subs.length - 1 ? "closing" : "middle";
-      jobs.push({ sub, index: i, total: subs.length, role, campaign: true });
+    subItems.forEach((it, i) => {
+      const role: Job["role"] = i === 0 ? "opening" : i === subItems.length - 1 ? "closing" : "middle";
+      jobs.push({ sub: it.sub, main: it.main, index: i, total: subItems.length, role, campaign: true });
     });
   } else {
     const qty = Math.max(1, Math.min(10, Math.round(Number(body?.quantity) || 1)));
-    for (let i = 0; i < qty; i++) jobs.push({ sub: subs[0], index: i, total: qty, role: "variation", campaign: false });
+    for (let i = 0; i < qty; i++) jobs.push({ sub: subItems[0].sub, main: subItems[0].main, index: i, total: qty, role: "variation", campaign: false });
   }
 
   const unit = await priceFor(user.id, "image_generate", "gpt_image");
@@ -68,8 +78,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: `Kredit tak cukup (perlu RM ${total.toFixed(2)}).`, needed: total }, { status: 402 });
   }
 
-  const mainLabel = main === "ugc" ? "UGC (realistic, TikTok/Reels)" : "Product Commercial (polished, cinematic)";
-  const campaignArc = campaign ? subs.map((s, i) => `${i + 1}. ${s}`).join(" → ") : "";
+  const campaignArc = campaign ? subItems.map((x, i) => `${i + 1}. ${x.sub} (${x.main === "ugc" ? "UGC" : "Product Commercial"})`).join(" → ") : "";
   const admin = createAdminClient();
 
   // Insert all pending rows up front so they show immediately in the grid.
@@ -94,7 +103,7 @@ export async function POST(req: Request) {
           kind: "storyboard",
           image_model: STORYBOARD_MODEL,
           aspectRatio: "9:16",
-          main,
+          main: job.main,
           sub: job.sub,
           campaign: job.campaign,
           campaign_index: job.index + 1,
@@ -119,6 +128,7 @@ export async function POST(req: Request) {
       const id = historyIds[k];
       if (!id) continue;
       const card = extractSubCard(subCardsDoc, job.sub);
+      const mainLabel = mainLabelOf(job.main);
 
       const roleLine = job.campaign
         ? job.role === "opening"
