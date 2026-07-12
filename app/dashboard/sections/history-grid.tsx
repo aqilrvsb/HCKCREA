@@ -27,6 +27,7 @@ import {
   UploadCloud,
   Check,
   Hash,
+  Clapperboard,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import Portal from "./portal";
@@ -845,7 +846,31 @@ function HistoryCardInner({
   const [pickedSlot, setPickedSlot] = useState<string | null>(null);
   // "Tukar sub" replace picker (storyboard rows only).
   const [tukarOpen, setTukarOpen] = useState(false);
+  const [videoing, setVideoing] = useState(false);
   const isStoryboard = (item.metadata as any)?.feature === "storyboard";
+
+  // Generate an Omni video FROM this storyboard (image1=storyboard blueprint,
+  // image2=product ref). Lands in the Original Video history grid.
+  async function handleGenVideoFromStoryboard() {
+    if (videoing) return;
+    setVideoing(true);
+    try {
+      const r = await fetch("/api/generate/storyboard/video", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ history_id: item.id }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok || !d?.ok) {
+        alert(d?.error || `Gagal jana video (HTTP ${r.status})`);
+      } else {
+        alert("🎬 Video Omni tengah dijana — akan muncul di tab Original Video.");
+        window.dispatchEvent(new CustomEvent("history:refresh"));
+      }
+    } finally {
+      setVideoing(false);
+    }
+  }
   const [slotMenuOpen, setSlotMenuOpen] = useState(false);
   const [savingName, setSavingName] = useState(false);
   const [showFullscreen, setShowFullscreen] = useState(false);
@@ -2695,6 +2720,11 @@ function HistoryCardInner({
               <ActionBtn title="Edit Image" onClick={() => setShowEditModal(true)} bg={ACTION.edit}>
                 <Palette className="w-3.5 h-3.5" strokeWidth={2.4} />
               </ActionBtn>
+              {isStoryboard && (
+                <ActionBtn title="Generate Video (Omni)" onClick={handleGenVideoFromStoryboard} bg="linear-gradient(135deg,#3b82f6,#22d3ee)" disabled={videoing}>
+                  {videoing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Clapperboard className="w-3.5 h-3.5" strokeWidth={2.4} />}
+                </ActionBtn>
+              )}
               {isStoryboard && (
                 <ActionBtn title="Tukar sub-style" onClick={() => setTukarOpen(true)} bg="linear-gradient(135deg,#f5c518,#f59e0b)">
                   <RefreshCw className="w-3.5 h-3.5" strokeWidth={2.4} />
