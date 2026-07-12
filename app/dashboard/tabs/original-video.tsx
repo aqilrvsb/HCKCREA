@@ -295,6 +295,98 @@ export default function OriginalVideoTab({
     }
   }
 
+  // ── Saved-product picker (same store as Auto Content) — Beg Kuning
+  //    (affiliate, has link) + Tiada Link (manual). Load / apply / save.
+  type VrSaved = {
+    id: string;
+    kind: "affiliate" | "manual";
+    product_id: string | null;
+    product_name: string;
+    detail: string | null;
+    attachments: string[];
+  };
+  const [vrBegKuning, setVrBegKuning] = useState("");
+  const [vrSavedAffiliate, setVrSavedAffiliate] = useState<VrSaved[]>([]);
+  const [vrSavedManual, setVrSavedManual] = useState<VrSaved[]>([]);
+  const [vrShowSaved, setVrShowSaved] = useState<"affiliate" | "manual" | null>(null);
+  const [vrSaving, setVrSaving] = useState(false);
+  const [vrSaveMsg, setVrSaveMsg] = useState<string | null>(null);
+
+  async function loadVrSaved() {
+    try {
+      const [a, m] = await Promise.all([
+        fetch("/api/auto-content/saved-products?kind=affiliate", { cache: "no-store" })
+          .then((r) => r.json())
+          .catch(() => ({})),
+        fetch("/api/auto-content/saved-products?kind=manual", { cache: "no-store" })
+          .then((r) => r.json())
+          .catch(() => ({})),
+      ]);
+      if (Array.isArray(a?.items)) setVrSavedAffiliate(a.items);
+      if (Array.isArray(m?.items)) setVrSavedManual(m.items);
+    } catch {}
+  }
+  useEffect(() => {
+    loadVrSaved();
+  }, []);
+
+  // Apply a saved product → fill Name + Detail + Link + attachment slots.
+  function applyVrSaved(sp: VrSaved) {
+    setVrProductName(sp.product_name);
+    setVrProductDetail(sp.detail || "");
+    setVrBegKuning(
+      sp.product_id ? `https://www.tiktok.com/shop/my/pdp/product/${sp.product_id}` : ""
+    );
+    const urls = (sp.attachments || []).filter(Boolean).slice(0, 3);
+    setRefSlots(() => {
+      const next = Array(REF_SLOTS).fill("");
+      urls.forEach((u, i) => {
+        next[i] = u;
+      });
+      return next;
+    });
+    setVrShowSaved(null);
+  }
+
+  // Save the current product as a preset. Link present → Beg Kuning,
+  // empty → Tiada Link (the server decides + dedupes by name).
+  async function saveVrProduct() {
+    const imgs = refSlots.filter(Boolean).slice(0, 3);
+    if (imgs.length < 3) {
+      setVrSaveMsg("Upload 3 attachment (Product Reference) dulu.");
+      return;
+    }
+    if (!vrProductName.trim() || !vrProductDetail.trim()) {
+      setVrSaveMsg("Isi Product Name + Detail Product dulu.");
+      return;
+    }
+    setVrSaving(true);
+    setVrSaveMsg(null);
+    try {
+      const r = await fetch("/api/auto-content/save-product", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          product_name: vrProductName.trim(),
+          detail: vrProductDetail.trim(),
+          beg_kuning_url: vrBegKuning.trim(),
+          attachments: imgs,
+        }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok || !d?.ok) throw new Error(d?.error || "Save failed");
+      setVrSaveMsg(
+        d.kind === "affiliate" ? "✓ Saved → Beg Kuning Product" : "✓ Saved → Tiada Link Product"
+      );
+      loadVrSaved();
+      setTimeout(() => setVrSaveMsg(null), 4000);
+    } catch (e: any) {
+      setVrSaveMsg(e?.message || "Save failed");
+    } finally {
+      setVrSaving(false);
+    }
+  }
+
   // Build the hardcoded Video Reference prompt from the guided fields. The
   // reference video drives motion/scene; the images are the presenter
   // (avatar, if uploaded) + the product; the dialog is what she says.
@@ -861,15 +953,90 @@ export default function OriginalVideoTab({
             P2 (Crun) video_list, P6 (APIPod) gemini-omni-extend. */}
         {imageMode === "video" && (
           <div className="mb-4 space-y-4">
-            {/* PRODUCT — name + detail (images are the "Product Reference"
-                slots below). Feeds the hardcoded prompt. */}
+            {/* PRODUCT — full card: saved-product loaders (Beg Kuning /
+                Tiada Link) + Name + Detail + Link + Save. Attachments are
+                the "Product Reference" slots below. */}
             <div>
-              <div
-                className="text-[11px] font-bold uppercase tracking-wider mb-1.5"
-                style={{ color: theme.primary }}
-              >
-                Product
+              <div className="flex items-center justify-between mb-1.5">
+                <div
+                  className="text-[11px] font-bold uppercase tracking-wider"
+                  style={{ color: theme.primary }}
+                >
+                  Product
+                </div>
+                <div className="flex gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setVrShowSaved((v) => (v === "affiliate" ? null : "affiliate"))
+                    }
+                    className="px-2 py-1 rounded-full text-[10px] font-bold inline-flex items-center gap-1"
+                    style={{
+                      background: vrShowSaved === "affiliate" ? theme.gradient : theme.faint,
+                      border: `1px solid ${theme.soft}`,
+                      color: vrShowSaved === "affiliate" ? "#1a1a1a" : theme.primary,
+                    }}
+                  >
+                    🔗 Beg Kuning
+                    <span
+                      className="px-1.5 rounded-full text-[9px]"
+                      style={{ background: theme.primary, color: "#1a1a1a" }}
+                    >
+                      {vrSavedAffiliate.length}
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setVrShowSaved((v) => (v === "manual" ? null : "manual"))}
+                    className="px-2 py-1 rounded-full text-[10px] font-bold inline-flex items-center gap-1"
+                    style={{
+                      background: vrShowSaved === "manual" ? theme.gradient : theme.faint,
+                      border: `1px solid ${theme.soft}`,
+                      color: vrShowSaved === "manual" ? "#1a1a1a" : theme.primary,
+                    }}
+                  >
+                    📦 Tiada Link
+                    <span
+                      className="px-1.5 rounded-full text-[9px]"
+                      style={{ background: theme.primary, color: "#1a1a1a" }}
+                    >
+                      {vrSavedManual.length}
+                    </span>
+                  </button>
+                </div>
               </div>
+
+              {/* Saved-product dropdown list — click one to load its data. */}
+              {vrShowSaved && (
+                <div
+                  className="rounded-lg mb-2 max-h-40 overflow-y-auto"
+                  style={{ border: `1px solid ${theme.soft}`, background: theme.faint }}
+                >
+                  {(vrShowSaved === "affiliate" ? vrSavedAffiliate : vrSavedManual).length === 0 ? (
+                    <div className="px-3 py-3 text-[11px] text-[var(--color-text-muted)] text-center">
+                      Belum ada produk disimpan. Isi + Save Info Product untuk simpan.
+                    </div>
+                  ) : (
+                    (vrShowSaved === "affiliate" ? vrSavedAffiliate : vrSavedManual).map((sp) => (
+                      <button
+                        key={sp.id}
+                        type="button"
+                        onClick={() => applyVrSaved(sp)}
+                        className="block w-full text-left px-3 py-2 text-[12px] hover:bg-white/5"
+                        style={{ borderBottom: `1px solid ${theme.soft}`, color: "var(--color-text)" }}
+                      >
+                        <div className="font-bold truncate">{sp.product_name}</div>
+                        {sp.detail && (
+                          <div className="text-[10px] text-[var(--color-text-muted)] truncate">
+                            {sp.detail}
+                          </div>
+                        )}
+                      </button>
+                    ))
+                  )}
+                </div>
+              )}
+
               <input
                 value={vrProductName}
                 onChange={(e) => setVrProductName(e.target.value)}
@@ -881,10 +1048,33 @@ export default function OriginalVideoTab({
                 value={vrProductDetail}
                 onChange={(e) => setVrProductDetail(e.target.value)}
                 rows={2}
-                placeholder="Detail produk (harga, USP, benefits…) — optional"
-                className="w-full px-3 py-2 rounded-lg text-sm bg-[var(--color-bg)] outline-none resize-y"
+                placeholder="Detail produk (harga, USP, benefits…)"
+                className="w-full px-3 py-2 rounded-lg text-sm mb-2 bg-[var(--color-bg)] outline-none resize-y"
                 style={{ border: `1px solid ${theme.soft}`, color: "var(--color-text)" }}
               />
+              <input
+                value={vrBegKuning}
+                onChange={(e) => setVrBegKuning(e.target.value)}
+                placeholder="Link Beg Kuning (optional) — https://www.tiktok.com/…"
+                className="w-full px-3 py-2 rounded-lg text-sm bg-[var(--color-bg)] outline-none"
+                style={{ border: `1px solid ${theme.soft}`, color: "var(--color-text)" }}
+              />
+              <div className="flex items-center gap-2 mt-2">
+                <button
+                  type="button"
+                  onClick={() => void saveVrProduct()}
+                  disabled={vrSaving}
+                  className="px-3 py-1.5 rounded-lg text-[11px] font-bold disabled:opacity-60"
+                  style={{ background: theme.faint, border: `1px solid ${theme.primary}`, color: theme.primary }}
+                >
+                  {vrSaving ? "⏳ Saving…" : "💾 Save Info Product"}
+                </button>
+                {vrSaveMsg && (
+                  <span className="text-[10px]" style={{ color: theme.primary }}>
+                    {vrSaveMsg}
+                  </span>
+                )}
+              </div>
             </div>
 
             {/* AVATAR — presenter. Gender/Style/Age feed the prompt; an

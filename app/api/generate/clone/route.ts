@@ -100,6 +100,12 @@ export async function POST(req: Request) {
       // end second (e.g. an 8s segment → "Dialog: 0s-8s [user fills]").
       // The output is intentionally generic — user pastes it into UGC /
       // Original Video / Auto Content / etc, picks the provider there.
+      // When the user supplied a dialog/script, the model writes the actual
+      // spoken line (Malaysian BM) into each segment's Dialog: line instead
+      // of the [USER FILLS] placeholder.
+      const dialogFill = hasDialog
+        ? "<the natural Malaysian Bahasa Melayu spoken line for THIS segment's time window — a continuous portion of the creator's script; NO Indonesian slang>"
+        : "[USER FILLS THIS IN LATER]";
       const baseSystem = `You are a video frame-by-frame describer. Your job is to study the attached frames and produce a SELF-CONTAINED text prompt that, if fed to any video model (Veo / Grok / Sora 2), would reproduce the segment as closely as possible to the SECOND frame onwards.
 
 Each segment uses this EXACT structure (short lines, no prose paragraphs):
@@ -111,14 +117,14 @@ CAMERA: [shot type + angle + movement observed — e.g. medium shot, eye level, 
 LIGHTING: [observed light direction + temperature + mood — e.g. warm window light from camera-left, soft fill from front, cozy daylight]
 BACKGROUND: [specific elements visible behind subject — furniture, props, plants, walls, kitchen items, etc. Not generic "in a kitchen", instead "modern kitchen with white cabinets, wooden countertop, small plant in window"]
 ACTION: [exact beat-by-beat motion across the segment — what the subject DOES from second 0 to second N]
-Dialog: 0s-{segDur}s — [USER FILLS THIS IN LATER]
+Dialog: 0s-{segDur}s — ${dialogFill}
 
 Rules:
 - The SECOND frame onwards is what the prompt must match. The first frame may be a flash/cut transition; trust the second frame as the canonical start state.
 - Be SPECIFIC about every visible element. Reject generic phrasing ("standing in a room", "wearing a shirt"). Name colors, textures, brands if visible.
 - Anatomy lock: state "2 hands, 5 fingers each" if subject's hands are visible.
 - Provider-agnostic: do NOT mention Veo, Grok, Sora 2, or any model-specific format (no "Dialogue:" block, no "Spoken dialog:", no "Cinematography:" block). Just the SCENE / CHARACTER / HANDS / CAMERA / LIGHTING / BACKGROUND / ACTION / Dialog: lines.
-- Output the Dialog: line VERBATIM as "Dialog: 0s-{segDur}s — [USER FILLS THIS IN LATER]" so the user knows the timing window when they paste the prompt elsewhere.
+- The Dialog: line MUST keep the "0s-{segDur}s — " timing prefix so the user knows the window; ${hasDialog ? "fill it with the Malaysian BM spoken line for this segment (split the provided script continuously across all segments)." : 'output the "[USER FILLS THIS IN LATER]" placeholder verbatim after the prefix.'}
 
 Every segment is SELF-CONTAINED — do NOT write "same as segment 1". Each prompt must stand alone and contain every detail needed to reproduce that segment from scratch.`.replace(/\{segDur\}/g, String(segDur));
 
@@ -126,8 +132,12 @@ Every segment is SELF-CONTAINED — do NOT write "same as segment 1". Each promp
         ? `\n\nThe LAST image attached is the product reference. Keep it pixel-identical in every prompt — preserve label text, logo, colors exactly.`
         : "";
 
+      const dialogBlock = hasDialog
+        ? `\n\nThe creator's spoken script (Malaysian Bahasa Melayu) for the WHOLE ${refDuration}s video is:\n"""${customDialog}"""\nSplit this script continuously across the ${segCount} segment(s) and place each part in that segment's "Dialog: 0s-${segDur}s — ..." line. Keep it natural Malaysian BM — no Indonesian slang.`
+        : "";
+
       const systemPrompt = baseSystem + productBlock;
-      const textPrompt = `These are ${allFrames.length} frames extracted at 1 frame per second from a ${refDuration}s reference video. Study every frame carefully and produce ${segCount} segment prompt${segCount > 1 ? "s" : ""} that recreate the video.
+      const textPrompt = `These are ${allFrames.length} frames extracted at 1 frame per second from a ${refDuration}s reference video. Study every frame carefully and produce ${segCount} segment prompt${segCount > 1 ? "s" : ""} that recreate the video.${dialogBlock}
 
 Return JSON ONLY in this exact shape (no markdown, no commentary):
 {

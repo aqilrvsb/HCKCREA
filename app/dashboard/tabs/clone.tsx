@@ -189,7 +189,9 @@ export default function CloneTab({ projectId }: { projectId?: string } = {}) {
           // No custom_dialog — backend generates placeholder
           // "Dialog: 0s-Xs ..." lines based on actual segment duration
           // so user can fill in their script later.
-          custom_dialog: "",
+          // User's spoken script (optional) — backend splits it across
+          // segments into each Dialog: line. Empty → [USER FILLS] placeholder.
+          custom_dialog: dialog.trim(),
           duration: videoDuration,
           // mode drives the chunk length only (ugc=8s, omni=10s) — the
           // prompt itself stays provider-agnostic.
@@ -314,6 +316,22 @@ export default function CloneTab({ projectId }: { projectId?: string } = {}) {
               ? "Video dipecah 10s setiap segment → sesuai untuk GeminiOmni (Original Video)."
               : "Video dipecah 8s setiap segment → sesuai untuk Veo."}
           </div>
+        </div>
+
+        {/* Dialog (optional) — the spoken script; backend splits it across
+            each segment's Dialog: line. Empty → [USER FILLS] placeholder. */}
+        <div className="mb-3">
+          <div className="text-[10px] font-bold uppercase tracking-wider mb-1.5" style={{ color: RED }}>
+            Dialog (optional) — apa nak cakap dalam video
+          </div>
+          <textarea
+            value={dialog}
+            onChange={(e) => setDialog(e.target.value)}
+            rows={3}
+            placeholder="Tulis skrip Bahasa Melayu… kosongkan = prompt keluar '[USER FILLS]' untuk isi kemudian."
+            className="w-full px-3 py-2 rounded-lg text-sm outline-none resize-y"
+            style={{ border: `1px solid ${RED_SOFT}`, background: "#fff", color: "#1a1a1a" }}
+          />
         </div>
 
         <button
