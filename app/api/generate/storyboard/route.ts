@@ -4,6 +4,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { orChat } from "@/lib/openrouter";
 import { generateImageWithCascade } from "@/lib/image-cascade";
 import { priceFor, hasEnoughCredits } from "@/lib/deduct";
+import { loadSubCards, extractGlobalRules, extractSubCard } from "@/lib/storyboard-cards";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -108,11 +109,16 @@ export async function POST(req: Request) {
   }
   if (historyIds.length === 0) return NextResponse.json({ error: "DB insert gagal" }, { status: 500 });
 
+  // Load the 26-card execution spec once; global rules apply to every job.
+  const subCardsDoc = await loadSubCards();
+  const globalRules = extractGlobalRules(subCardsDoc);
+
   after(async () => {
     for (let k = 0; k < jobs.length; k++) {
       const job = jobs[k];
       const id = historyIds[k];
       if (!id) continue;
+      const card = extractSubCard(subCardsDoc, job.sub);
 
       const roleLine = job.campaign
         ? job.role === "opening"
@@ -122,14 +128,18 @@ export async function POST(req: Request) {
             : `This is segment ${job.index + 1} of ${job.total} of ONE connected campaign — continue the story (demo / benefit / proof), bridging the opening and the closing. Same product identity + narrative arc throughout.`
         : `Variation ${job.index + 1} of ${job.total} — make the hook / framing / panel order DIFFERENT from the other variations of the same sub-style.`;
 
-      const sysPrompt =
-        `You write ONE image-generation prompt for a 9:16 UGC/product-ad STORYBOARD GRID (6–9 panels, full-bleed, no header/numbers/timecodes). ` +
-        `The prompt MUST BEGIN with the literal sentence "ONE single 9:16 storyboard grid for ONE video only." ` +
-        `Execute the "${job.sub}" sub-style under ${mainLabel}: 6–9 panels (hook → beats → CTA) unmistakably this sub-style's signature. ` +
-        `Talent = a natural Malaysian creator (Malay/Chinese/Indian per fit, may wear hijab), local vibe. On-screen text short + Bahasa Melayu. ` +
-        `Lock the product identity 100% (exact label text, colour, shape, packaging). Neutral framing — no negative/medical wording. ` +
-        (job.campaign ? `CAMPAIGN CONTEXT — the full arc is: ${campaignArc}. Keep the SAME product identity and one continuous storyline across all segments. ` : ``) +
-        `Output ONLY the final image prompt, no preamble.`;
+      const sysPrompt = card
+        ? // Full spec available — hand the planner the exact card + global rules.
+          `You are a Pening Lab storyboard specialist. Produce ONE image-generation prompt for a 9:16 storyboard GRID by following the RULES and the SUB-CATEGORY CARD below EXACTLY (its Signature must dominate ≥3–4 frames; follow its 10s beat flow and frame-by-frame guidance).\n\n` +
+          `${globalRules}\n\n=== SUB-CATEGORY CARD (${job.sub}, ${mainLabel}) ===\n${card}\n\n=== TASK ===\n` +
+          `Write the storyboard image prompt now, assembling per the "UNIVERSAL IMAGE-PROMPT ASSEMBLY RECIPE": begin with "ONE single 9:16 storyboard grid for ONE video only.", then grid spec, then this card's Signature + shots as per-frame scene directions following its beat flow, Malaysian talent + local setting, product identity lock (verbatim label), one short claim-safe BM caption per frame, neutral problem framing. ` +
+          (job.campaign ? `CAMPAIGN: full arc = ${campaignArc}; keep the SAME product identity + one continuous storyline across segments. ` : ``) +
+          `Output ONLY the final image prompt, no preamble, no headings.`
+        : // Fallback if the spec isn't seeded.
+          `You write ONE image-generation prompt for a 9:16 UGC/product-ad STORYBOARD GRID (6–9 panels, full-bleed, no header/numbers/timecodes). ` +
+          `The prompt MUST BEGIN with "ONE single 9:16 storyboard grid for ONE video only." Execute the "${job.sub}" sub-style under ${mainLabel}, 6–9 panels (hook → beats → CTA), Malaysian talent, short BM captions, product identity locked, neutral framing. ` +
+          (job.campaign ? `CAMPAIGN CONTEXT — arc: ${campaignArc}. Same product identity + one continuous storyline. ` : ``) +
+          `Output ONLY the final image prompt.`;
 
       const userPrompt =
         `Product: ${productName || "(unnamed)"}\n` +
