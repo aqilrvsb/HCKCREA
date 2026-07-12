@@ -259,11 +259,14 @@ export default function OriginalVideoTab({
   // Build the hardcoded Video Reference prompt from the guided fields. The
   // reference video drives motion/scene; the images are the presenter
   // (avatar, if uploaded) + the product; the dialog is what she says.
-  function buildVideoRefPrompt(): string {
+  function buildVideoRefPrompt(dialog: string, part?: number, partCount?: number): string {
     const who = `a ${vrAge} ${vrGender === "female" ? "woman" : "man"}${
       vrGender === "female" && vrHijab === "yes" ? " wearing a modest hijab" : ""
     }`;
     const parts: string[] = [];
+    if (part && partCount && partCount > 1) {
+      parts.push(`This is part ${part} of ${partCount} of a continuous video.`);
+    }
     parts.push(
       `Recreate this reference video EXACTLY — copy the same camera movement, framing, pacing, scene, lighting and energy, shot for shot.`
     );
@@ -284,9 +287,9 @@ export default function OriginalVideoTab({
           } — keep the product's exact shape, label, colour and packaging.`
     );
     if (vrProductDetail.trim()) parts.push(`Product context: ${vrProductDetail.trim()}.`);
-    if (vrDialog.trim()) {
+    if (dialog.trim()) {
       parts.push(
-        `The presenter speaks naturally in Bahasa Melayu, lip-synced, one voice only, no subtitles: "${vrDialog.trim()}".`
+        `The presenter speaks naturally in Bahasa Melayu, lip-synced, one voice only, no subtitles: "${dialog.trim()}".`
       );
     }
     parts.push(`Vertical 9:16, natural lighting, authentic UGC selfie style.`);
@@ -412,11 +415,18 @@ export default function OriginalVideoTab({
     // Video Reference = GUIDED mode: no free prompt, prompt is hardcoded
     // from Product + Avatar + Dialog. Every other mode uses the prompt box.
     const isVideoMode = imageMode === "video";
+    const isMultiSeg = isVideoMode && vrSegCount > 1;
     if (isVideoMode) {
       if (videoUploading || avatarUploading)
         return setError("Tunggu upload siap dulu.");
       if (!videoRef) return setError("Upload / paste video rujukan dulu.");
-      if (!vrDialog.trim()) return setError("Isi Dialog dulu.");
+      if (isMultiSeg) {
+        const active = vrSegs.slice(0, vrSegCount);
+        if (active.some((s) => !s.dialog.trim()))
+          return setError("Isi Dialog untuk setiap segment dulu.");
+      } else if (!vrDialog.trim()) {
+        return setError("Isi Dialog dulu.");
+      }
     } else {
       if (!prompt.trim()) return setError("Sila masukkan prompt.");
       if (imageMode !== "text" && filledRefs.length === 0) {
@@ -435,11 +445,43 @@ export default function OriginalVideoTab({
           ? []
           : filledRefs.slice(0, refCap);
       const pubUrls = await Promise.all(sourceUrls.map((u) => ensurePublicUrl(u)));
+
+      // Multi-segment Video Reference → dedicated pipeline (N Crun gens +
+      // stitch). Single-segment + all other modes → /api/generate/cinema.
+      if (isMultiSeg) {
+        const active = vrSegs.slice(0, vrSegCount);
+        const rMulti = await fetch("/api/generate/video-ref-multi", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            video_url: videoRef,
+            image_urls: pubUrls,
+            product_name: vrProductName.trim(),
+            aspect_ratio: aspect,
+            project_id: projectId,
+            segments: active.map((s, i) => ({
+              start: Number(s.start) || 0,
+              ends: Number(s.end) || (Number(s.start) || 0) + 10,
+              prompt: buildVideoRefPrompt(s.dialog, i + 1, vrSegCount),
+            })),
+          }),
+        });
+        const dM = await rMulti.json();
+        if (!rMulti.ok || !dM?.ok) {
+          setError(dM?.error || "Generation failed");
+          setStatus("failed");
+          return;
+        }
+        window.dispatchEvent(new CustomEvent("history:refresh"));
+        setStatus("idle");
+        return;
+      }
+
       const r = await fetch("/api/generate/cinema", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          prompt: isVideoMode ? buildVideoRefPrompt() : prompt.trim(),
+          prompt: isVideoMode ? buildVideoRefPrompt(vrDialog) : prompt.trim(),
           image_url: pubUrls[0] || "",
           image_urls: pubUrls,
           // GeminiOmni Video Reference — source video URL.

@@ -67,6 +67,10 @@ export async function p2CreateTask(input: {
   // Seedance-only (P1 omni + P2 r2v): reference video / audio URLs.
   videoUrls?: string[];
   audioUrls?: string[];
+  // GeminiOmni video_list window (seconds) — which slice of the source
+  // reference video to use for THIS segment. Defaults 0..10.
+  refVideoStart?: number;
+  refVideoEnd?: number;
   durationMode?: "8" | "16" | string | number;
   aspectRatio?: string;
   resolution?: "1K" | "2K" | "4K" | "480p" | "720p" | string;
@@ -126,6 +130,8 @@ async function p2CreateTaskInternal(input: {
   imageUrls?: string[];
   videoUrls?: string[];
   audioUrls?: string[];
+  refVideoStart?: number;
+  refVideoEnd?: number;
   durationMode?: "8" | "16" | string | number;
   aspectRatio?: string;
   resolution?: "1K" | "2K" | "4K" | "480p" | "720p" | string;
@@ -276,7 +282,12 @@ async function p2CreateTaskInternal(input: {
     // is ignored) and img_urls cap drops to 5. start/ends bound the source
     // segment used as reference; default full first 10s.
     if (vidUrls.length > 0) {
-      innerInput.video_list = [{ url: vidUrls[0], start: 0, ends: 10 }];
+      // Per-segment source window (multi-segment reference video). Defaults
+      // to the first 10s. ends must be > start.
+      const vStart = Math.max(0, Math.round(Number(input.refVideoStart ?? 0)));
+      const vEndRaw = Math.round(Number(input.refVideoEnd ?? vStart + 10));
+      const vEnd = vEndRaw > vStart ? vEndRaw : vStart + 10;
+      innerInput.video_list = [{ url: vidUrls[0], start: vStart, ends: vEnd }];
       if (imgUrls.length > 0) innerInput.img_urls = imgUrls.slice(0, 5);
     } else {
       innerInput.duration = Number(input.durationMode || 10);
