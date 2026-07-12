@@ -20,11 +20,14 @@
 // Browsers without MediaRecorder / captureStream throw — the caller
 // surfaces the error so the user can trim the clip manually.
 
-const MAX_PASSTHROUGH_BYTES = 7.5 * 1024 * 1024; // under APIPod's 8 MB cap
-const TARGET_BYTES = 7.0 * 1024 * 1024; // aim below the cap with headroom
-const MAX_SHORT_EDGE = 720; // px — downscale portrait width / landscape height
-const MIN_BITRATE = 1_500_000; // 1.5 Mbps floor so quality doesn't collapse
-const MAX_BITRATE = 8_000_000; // 8 Mbps ceiling for short clips
+// The binding limit is NOT APIPod's 8MB reference cap — it's Vercel's ~4.5MB
+// serverless request-body cap on the /api/upload/video route the file passes
+// through. So we target well under 4.5MB (which also satisfies APIPod's 8MB).
+const MAX_PASSTHROUGH_BYTES = 4 * 1024 * 1024; // compress anything over ~4 MB
+const TARGET_BYTES = 3.6 * 1024 * 1024; // headroom under Vercel's 4.5 MB (+ multipart overhead)
+const MAX_SHORT_EDGE = 640; // px — downscale portrait width / landscape height (smaller = better at low bitrate)
+const MIN_BITRATE = 500_000; // 0.5 Mbps floor so a LONG reference can still fit under the cap
+const MAX_BITRATE = 6_000_000; // ceiling for short clips
 
 export type VideoCompressResult = {
   file: File;

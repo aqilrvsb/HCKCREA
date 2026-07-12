@@ -226,16 +226,16 @@ export default function OriginalVideoTab({
     setVideoUploading(true);
     setVideoStatus("");
     try {
-      // APIPod (P6 gemini-omni-extend) caps the reference video at 8MB. A
-      // 10s 1080p clip is almost always bigger, so auto-compress oversized
-      // files in the browser first (downscale + drop audio) — the reference
-      // is only a motion guide so fidelity loss is irrelevant.
+      // The upload passes through Vercel's serverless request-body cap (~4.5MB)
+      // on /api/upload/video, so anything over ~4MB must be shrunk in the
+      // browser first (downscale + drop audio). The reference is only a motion
+      // guide so fidelity loss is irrelevant. (This also clears APIPod's 8MB cap.)
       let toUpload = file;
-      if (file.size > 7.5 * 1024 * 1024) {
+      if (file.size > 4 * 1024 * 1024) {
         setVideoStatus("Memampat video…");
         const res = await compressVideoIfNeeded(file);
         toUpload = res.file;
-        if (res.compressed && toUpload.size > 8 * 1024 * 1024) {
+        if (toUpload.size > 4.4 * 1024 * 1024) {
           throw new Error(
             `Video masih terlalu besar selepas dimampat (${(toUpload.size / 1024 / 1024).toFixed(1)}MB). Cuba video yang lebih pendek.`
           );
@@ -245,8 +245,8 @@ export default function OriginalVideoTab({
       const fd = new FormData();
       fd.append("file", toUpload, toUpload.name || "ref.mp4");
       const r = await fetch("/api/upload/video", { method: "POST", body: fd });
-      const d = await r.json();
-      if (!r.ok || !d?.url) throw new Error(d?.error || "Upload video gagal");
+      const d = await readJsonSafe(r);
+      if (!r.ok || !d?.url) throw new Error(d?.error || `Upload video gagal (HTTP ${r.status})`);
       setVideoRef(d.url);
       setVideoRefName(file.name || "video");
     } catch (e: any) {
@@ -1305,7 +1305,7 @@ export default function OriginalVideoTab({
                         + Upload video rujukan
                       </span>
                       <span className="text-[10px] text-[var(--color-text-muted)]">
-                        MP4 / WEBM / MOV · besar auto-mampat &lt;8MB
+                        MP4 / WEBM / MOV · besar auto-mampat &lt;4MB
                       </span>
                     </>
                   )}
