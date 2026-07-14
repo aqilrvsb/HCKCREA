@@ -5,7 +5,7 @@
 // images (gpt-image-2) that land in the Images history grid below.
 
 import { useEffect, useState } from "react";
-import { Loader2, Package, ImageIcon, Sparkles, UserRound } from "lucide-react";
+import { Loader2, Sparkles, UserRound } from "lucide-react";
 import { uploadImage } from "@/lib/upload-image";
 
 type SavedProduct = {
@@ -32,7 +32,15 @@ export default function StoryboardMode({ projectId }: { projectId?: string }) {
   const [affiliate, setAffiliate] = useState<SavedProduct[]>([]);
   const [manual, setManual] = useState<SavedProduct[]>([]);
   const [showLoad, setShowLoad] = useState<"affiliate" | "manual" | null>(null);
-  const [product, setProduct] = useState<SavedProduct | null>(null);
+  // Editable product form (exact same shape as Auto UGC's PRODUCT card):
+  // Name + Detail + Link Beg Kuning (optional) + 3 attachments + Save.
+  const [pName, setPName] = useState("");
+  const [pDetail, setPDetail] = useState("");
+  const [pLink, setPLink] = useState("");
+  const [pImgs, setPImgs] = useState<string[]>([]);
+  const [slotUploading, setSlotUploading] = useState<number | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [savedMsg, setSavedMsg] = useState<string | null>(null);
   const [main, setMain] = useState<"ugc" | "pc" | "custom" | null>(null);
   // Multi-select, CROSS-MAIN. 1 sub → quantity mode (1–10 of the same sub).
   // 2+ subs → connected campaign storyline (one storyboard per sub, in order);
@@ -49,27 +57,88 @@ export default function StoryboardMode({ projectId }: { projectId?: string }) {
   const [msg, setMsg] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
 
-  useEffect(() => {
-    (async () => {
-      try {
-        const [a, m] = await Promise.all([
-          fetch("/api/auto-content/saved-products?kind=affiliate", { cache: "no-store" }).then((r) => r.json()).catch(() => ({})),
-          fetch("/api/auto-content/saved-products?kind=manual", { cache: "no-store" }).then((r) => r.json()).catch(() => ({})),
-        ]);
-        if (Array.isArray(a?.items)) setAffiliate(a.items);
-        if (Array.isArray(m?.items)) setManual(m.items);
-      } catch {}
-    })();
-  }, []);
+  async function reloadLists() {
+    try {
+      const [a, m] = await Promise.all([
+        fetch("/api/auto-content/saved-products?kind=affiliate", { cache: "no-store" }).then((r) => r.json()).catch(() => ({})),
+        fetch("/api/auto-content/saved-products?kind=manual", { cache: "no-store" }).then((r) => r.json()).catch(() => ({})),
+      ]);
+      if (Array.isArray(a?.items)) setAffiliate(a.items);
+      if (Array.isArray(m?.items)) setManual(m.items);
+    } catch {}
+  }
+
+  useEffect(() => { void reloadLists(); }, []);
 
   const savedList = showLoad === "affiliate" ? affiliate : showLoad === "manual" ? manual : [];
+  // Product is "ready" once it has a name + at least one attachment — this
+  // gates the category / avatar / generate steps below (like Load Data did).
+  const productReady = pName.trim().length > 0 && pImgs.filter(Boolean).length > 0;
 
+  // Load a saved preset → fill the whole form. Reconstruct the Beg Kuning link
+  // from the saved product_id (TikTok Shop), same as Auto UGC.
   function pickProduct(p: SavedProduct) {
-    setProduct(p);
+    setPName(p.product_name);
+    setPDetail(p.detail || "");
+    setPLink(p.product_id ? `https://www.tiktok.com/shop/my/pdp/product/${p.product_id}` : "");
+    setPImgs((p.attachments || []).filter(Boolean).slice(0, 3));
     setShowLoad(null);
+    setSavedMsg(null);
     setMain(null);
     setSubs([]);
     setCustomIdea("");
+  }
+
+  async function uploadSlot(i: number, file: File) {
+    setErr(null);
+    setSlotUploading(i);
+    try {
+      const { url } = await uploadImage(file);
+      setPImgs((prev) => {
+        const a = [...prev];
+        while (a.length <= i) a.push("");
+        a[i] = url;
+        return a;
+      });
+    } catch (e: any) {
+      setErr(e?.message || "Upload attachment gagal");
+    } finally {
+      setSlotUploading(null);
+    }
+  }
+
+  function removeSlot(i: number) {
+    setPImgs((prev) => {
+      const a = [...prev];
+      if (i < a.length) a[i] = "";
+      return a;
+    });
+  }
+
+  // Save the current form as a reusable preset. Beg Kuning link present →
+  // Beg Kuning Product; empty → Tiada Link Product. Needs name+detail+3 imgs.
+  async function saveProduct() {
+    const imgs = pImgs.filter(Boolean);
+    if (imgs.length < 3) { setSavedMsg("Upload 3 attachment dulu."); return; }
+    if (!pName.trim() || !pDetail.trim()) { setSavedMsg("Isi Product Name + Detail Product dulu."); return; }
+    setSaving(true);
+    setSavedMsg(null);
+    try {
+      const r = await fetch("/api/auto-content/save-product", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ product_name: pName.trim(), detail: pDetail.trim(), beg_kuning_url: pLink.trim(), attachments: imgs.slice(0, 3) }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok || !d?.ok) throw new Error(d?.error || "Save gagal");
+      setSavedMsg(d.kind === "affiliate" ? "✓ Saved → Beg Kuning Product" : "✓ Saved → Tiada Link Product");
+      void reloadLists();
+      setTimeout(() => setSavedMsg(null), 4000);
+    } catch (e: any) {
+      setSavedMsg(e?.message || "Save gagal");
+    } finally {
+      setSaving(false);
+    }
   }
 
   function toggleSub(s: string) {
@@ -102,8 +171,8 @@ export default function StoryboardMode({ projectId }: { projectId?: string }) {
   }
 
   async function generate() {
-    if (!product || !main) {
-      setErr("Lengkapkan: produk → kategori dulu.");
+    if (!productReady || !main) {
+      setErr("Lengkapkan: produk (nama + attachment) → kategori dulu.");
       return;
     }
     if (isCustom && !customIdea.trim()) {
@@ -133,7 +202,7 @@ export default function StoryboardMode({ projectId }: { projectId?: string }) {
           // Custom Idea + non-campaign both use quantity (1–10).
           quantity: isCustom || subs.length === 1 ? qty : undefined,
           avatar_urls: keepAvatar ? avatarUrls : undefined,
-          product: { name: product.product_name, detail: product.detail || "", image_urls: (product.attachments || []).filter(Boolean).slice(0, 3) },
+          product: { name: pName.trim(), detail: pDetail.trim(), image_urls: pImgs.filter(Boolean).slice(0, 3) },
         }),
       });
       const text = await r.text();
@@ -155,61 +224,83 @@ export default function StoryboardMode({ projectId }: { projectId?: string }) {
     <div className="space-y-4">
       {/* 1. Product */}
       <div className="rounded-2xl p-4" style={box}>
-        <div className="flex items-center justify-between mb-2">
+        <div className="flex items-center justify-between mb-3 gap-2 flex-wrap">
           <span className="text-[11px] font-bold uppercase tracking-wider" style={{ color: THEME }}>1 · Produk</span>
-          <button onClick={() => setShowLoad((s) => (s ? null : "affiliate"))} className="flex items-center gap-1.5 text-[12px] font-bold px-3 py-1.5 rounded-lg" style={{ background: THEME, color: "#1a1a1a" }}>
-            <Package className="w-4 h-4" /> Load Data
-          </button>
-        </div>
-        {product ? (
-          <div className="space-y-2">
-            <div className="flex items-center gap-2">
-              {product.attachments?.[0] ? <img src={product.attachments[0]} className="w-10 h-10 rounded object-cover" alt="" /> : <span className="w-10 h-10 rounded flex items-center justify-center" style={{ background: "var(--color-bg)" }}><ImageIcon className="w-4 h-4" /></span>}
-              <span className="text-[13px] font-semibold text-[var(--color-text-primary)]">{product.product_name}</span>
-            </div>
-            {/* Product attachments (used as gpt-image-2 visual reference) */}
-            {(product.attachments || []).filter(Boolean).length > 1 && (
-              <div className="flex gap-1.5 flex-wrap">
-                {(product.attachments || []).filter(Boolean).slice(0, 3).map((u, i) => (
-                  <img key={i} src={u} className="w-12 h-12 rounded object-cover" style={{ border: "1px solid var(--color-border)" }} alt="" />
-                ))}
-              </div>
-            )}
-            {/* Product description (fed to the prompt planner) */}
-            {product.detail && (
-              <div>
-                <div className="text-[10px] font-bold uppercase tracking-wider mb-1 text-[var(--color-text-muted)]">Description produk</div>
-                <div className="text-[12px] leading-relaxed whitespace-pre-wrap max-h-40 overflow-y-auto rounded-lg p-2.5 text-[var(--color-text-secondary)]" style={{ background: "var(--color-bg)", border: "1px solid var(--color-border)" }}>
-                  {product.detail}
-                </div>
-              </div>
-            )}
+          {/* Load a saved preset — Beg Kuning (with link) / Tiada Link buckets. */}
+          <div className="flex gap-2">
+            <button onClick={() => setShowLoad((s) => (s === "affiliate" ? null : "affiliate"))} title="Produk yang ada Link Beg Kuning" className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[11px] font-bold" style={{ border: "1px solid var(--color-border)", background: showLoad === "affiliate" ? THEME : "var(--color-bg)", color: showLoad === "affiliate" ? "#1a1a1a" : "var(--color-text-secondary)" }}>
+              🔗 Beg Kuning Product
+              <span style={{ fontSize: 10, background: "#facc15", color: "#1a1a1a", borderRadius: 999, padding: "1px 6px", minWidth: 16, textAlign: "center" }}>{affiliate.length}</span>
+            </button>
+            <button onClick={() => setShowLoad((s) => (s === "manual" ? null : "manual"))} title="Produk tanpa Link Beg Kuning" className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[11px] font-bold" style={{ border: "1px solid var(--color-border)", background: showLoad === "manual" ? THEME : "var(--color-bg)", color: showLoad === "manual" ? "#1a1a1a" : "var(--color-text-secondary)" }}>
+              📦 Tiada Link Product
+              <span style={{ fontSize: 10, background: "#facc15", color: "#1a1a1a", borderRadius: 999, padding: "1px 6px", minWidth: 16, textAlign: "center" }}>{manual.length}</span>
+            </button>
           </div>
-        ) : (
-          <div className="text-[12px] text-[var(--color-text-muted)]">Pilih produk (Beg Kuning / Tiada Link).</div>
-        )}
+        </div>
+
+        {/* Saved-preset dropdown — pick to reload Name + Detail + attachments (+ link). */}
         {showLoad && (
-          <div className="mt-2 max-h-48 overflow-y-auto rounded-lg p-2" style={{ background: "var(--color-bg)" }}>
-            <div className="flex gap-2 mb-2">
-              <button onClick={() => setShowLoad("affiliate")} className="text-[12px] font-bold px-3 py-1 rounded-full" style={{ background: showLoad === "affiliate" ? THEME : "var(--color-bg-card)", color: showLoad === "affiliate" ? "#1a1a1a" : "var(--color-text-secondary)" }}>Beg Kuning ({affiliate.length})</button>
-              <button onClick={() => setShowLoad("manual")} className="text-[12px] font-bold px-3 py-1 rounded-full" style={{ background: showLoad === "manual" ? THEME : "var(--color-bg-card)", color: showLoad === "manual" ? "#1a1a1a" : "var(--color-text-secondary)" }}>Tiada Link ({manual.length})</button>
-            </div>
-            {savedList.length === 0 ? <div className="text-[12px] text-[var(--color-text-muted)] py-1">Tiada produk tersimpan.</div> : (
+          <div className="mb-3 max-h-48 overflow-y-auto rounded-xl p-2" style={{ background: "var(--color-bg)", border: "1px solid var(--color-border)" }}>
+            {savedList.length === 0 ? (
+              <div className="px-1 py-2 text-[11px] leading-relaxed text-[var(--color-text-muted)]">
+                Belum ada. Isi form bawah{showLoad === "affiliate" ? " + Link Beg Kuning" : ""} → tekan <strong>Save Info Product</strong>.
+              </div>
+            ) : (
               <div className="grid grid-cols-1 gap-1.5">
                 {savedList.map((p) => (
-                  <button key={p.id} onClick={() => pickProduct(p)} className="flex items-center gap-2 text-left px-2 py-1.5 rounded-lg" style={box}>
-                    {p.attachments?.[0] ? <img src={p.attachments[0]} className="w-8 h-8 rounded object-cover" alt="" /> : <span className="w-8 h-8 rounded" style={{ background: "var(--color-bg)" }} />}
-                    <span className="text-[13px] font-semibold truncate text-[var(--color-text-primary)]">{p.product_name}</span>
+                  <button key={p.id} onClick={() => pickProduct(p)} className="flex items-center gap-2.5 text-left px-2 py-1.5 rounded-lg" style={box}>
+                    {p.attachments?.[0] ? <img src={p.attachments[0]} className="w-9 h-9 rounded-md object-cover flex-shrink-0" alt="" /> : <span className="w-9 h-9 rounded-md flex-shrink-0" style={{ background: "var(--color-bg-card)" }} />}
+                    <div className="flex-1 min-w-0">
+                      <div className="text-[13px] font-semibold truncate text-[var(--color-text-primary)]">{p.product_name}</div>
+                      <div className="text-[10px] mt-0.5 text-[var(--color-text-muted)]">{(p.attachments || []).filter(Boolean).length} attachment</div>
+                    </div>
                   </button>
                 ))}
               </div>
             )}
           </div>
         )}
+
+        {/* Editable product form (same as Auto UGC). Fields feed the storyboard
+            planner; Save persists it as a reusable preset. */}
+        <label className="block text-[9px] font-bold uppercase tracking-wider mb-1 text-[var(--color-text-muted)]">Product Name</label>
+        <input type="text" maxLength={120} value={pName} onChange={(e) => setPName(e.target.value)} placeholder="e.g. LUQFA Lotion 100ml" className="w-full p-2 rounded text-xs outline-none mb-2 text-[var(--color-text-primary)]" style={{ background: "var(--color-bg)", border: "1px solid var(--color-border)" }} />
+        <label className="block text-[9px] font-bold uppercase tracking-wider mb-1 text-[var(--color-text-muted)]">Detail Product</label>
+        <textarea rows={3} maxLength={1000} value={pDetail} onChange={(e) => setPDetail(e.target.value)} placeholder="Price, USP, ingredients, benefits…" className="w-full p-2 rounded text-xs resize-y outline-none mb-2 text-[var(--color-text-primary)]" style={{ background: "var(--color-bg)", border: "1px solid var(--color-border)" }} />
+        <label className="block text-[9px] font-bold uppercase tracking-wider mb-1 text-[var(--color-text-muted)]">Link Beg Kuning <span style={{ color: "var(--color-text-muted)" }}>(optional)</span></label>
+        <input type="url" value={pLink} onChange={(e) => setPLink(e.target.value)} placeholder="https://www.tiktok.com/... (kosongkan = Tiada Link Product)" className="w-full p-2 rounded text-xs outline-none mb-2 text-[var(--color-text-primary)]" style={{ background: "var(--color-bg)", border: "1px solid var(--color-border)" }} />
+
+        {/* 3 attachment slots + Save Info Product */}
+        <div className="flex items-stretch gap-2 mt-1">
+          <div className="flex gap-1.5">
+            {[0, 1, 2].map((i) => {
+              const url = pImgs[i] || "";
+              return (
+                <div key={i} className="relative w-[52px] h-[52px] rounded-lg overflow-hidden flex-shrink-0" style={{ border: `2px dashed ${url ? "transparent" : `${THEME}88`}`, background: url ? "#000" : "var(--color-bg)" }}>
+                  <label className="w-full h-full flex items-center justify-center cursor-pointer">
+                    <input type="file" accept="image/*" className="hidden" disabled={slotUploading === i} onChange={(e) => { const f = e.target.files?.[0]; e.currentTarget.value = ""; if (f) void uploadSlot(i, f); }} />
+                    {slotUploading === i ? <Loader2 className="w-4 h-4 animate-spin" style={{ color: THEME }} /> : url ? <img src={url} className="w-full h-full object-cover" alt="" /> : <span className="text-[11px] font-bold" style={{ color: THEME }}>{i + 1}</span>}
+                  </label>
+                  {url && (
+                    <button type="button" onClick={() => removeSlot(i)} className="absolute top-0 right-0 w-4 h-4 rounded-bl bg-black/70 text-white text-[10px] flex items-center justify-center" title="Buang gambar ni">×</button>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+          <button type="button" onClick={saveProduct} disabled={saving} className="flex-1 min-h-[52px] px-3 rounded-lg text-sm font-extrabold disabled:opacity-40 whitespace-nowrap" style={{ background: "rgba(34,197,94,0.12)", border: "1px solid #16a34a", color: "#15803d" }}>
+            {saving ? "⏳ Saving…" : "💾 Save Info Product"}
+          </button>
+        </div>
+        {savedMsg && (
+          <div className="text-[11px] mt-1.5 font-semibold" style={{ color: savedMsg.startsWith("✓") ? "#16a34a" : "#dc2626" }}>{savedMsg}</div>
+        )}
+        <p className="text-[10px] text-[var(--color-text-muted)] mt-1.5">Upload 3 attachment produk (dijadikan rujukan visual gpt-image-2). Isi Link Beg Kuning → simpan sebagai Beg Kuning Product; kosongkan → Tiada Link Product.</p>
       </div>
 
       {/* Kekal Avatar — fixed presenter face */}
-      {product && (
+      {productReady && (
         <div className="rounded-2xl p-4" style={box}>
           <label className="flex items-center gap-2 cursor-pointer">
             <input type="checkbox" checked={keepAvatar} onChange={(e) => setKeepAvatar(e.target.checked)} style={{ accentColor: THEME, width: 16, height: 16 }} />
@@ -239,7 +330,7 @@ export default function StoryboardMode({ projectId }: { projectId?: string }) {
       )}
 
       {/* 2. MAIN */}
-      {product && (
+      {productReady && (
         <div className="rounded-2xl p-4" style={box}>
           <div className="text-[11px] font-bold uppercase tracking-wider mb-2" style={{ color: THEME }}>2 · Kategori</div>
           <div className="grid grid-cols-3 gap-2">
@@ -254,7 +345,7 @@ export default function StoryboardMode({ projectId }: { projectId?: string }) {
       )}
 
       {/* 3. Custom Idea textarea (when Custom Idea category picked) */}
-      {product && isCustom && (
+      {productReady && isCustom && (
         <div className="rounded-2xl p-4" style={box}>
           <div className="text-[11px] font-bold uppercase tracking-wider mb-2" style={{ color: THEME }}>3 · Idea Anda</div>
           <textarea
@@ -270,7 +361,7 @@ export default function StoryboardMode({ projectId }: { projectId?: string }) {
       )}
 
       {/* 3. SUB — multi-select (ugc/pc only) */}
-      {product && main && !isCustom && (
+      {productReady && main && !isCustom && (
         <div className="rounded-2xl p-4" style={box}>
           <div className="flex items-center justify-between mb-2">
             <span className="text-[11px] font-bold uppercase tracking-wider" style={{ color: THEME }}>3 · Sub-style</span>
@@ -294,7 +385,7 @@ export default function StoryboardMode({ projectId }: { projectId?: string }) {
       )}
 
       {/* 4. Quantity (single sub) OR campaign note (multi) + Generate */}
-      {product && main && (subs.length > 0 || isCustom) && (
+      {productReady && main && (subs.length > 0 || isCustom) && (
         <div className="rounded-2xl p-4 space-y-3" style={box}>
           {isCustom || subs.length === 1 ? (
             <div className="flex items-center gap-3 flex-wrap">
