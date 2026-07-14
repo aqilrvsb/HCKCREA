@@ -118,6 +118,15 @@ const RETRYABLE_ERROR_PATTERNS: RegExp[] = [
   //    Added per user direction 2026-06-19.
   /attempt\s*\d+\s*:[^\n]*insufficient balance/i,
   /insufficient balance[^\n]{0,30}api/i,
+  // 8c. PROVIDER-slot "insufficient quota" — the slot's upstream API key hit
+  //     its per-key quota (Gemini/OpenAI "insufficient_quota", Omni "attempt1:
+  //     insufficient quota"). Each slot/key has its OWN quota, so rotating to a
+  //     different slot CAN recover — same rotation class as insufficient
+  //     credits (#7) / balance (#8). Eligible for fallback cascade +
+  //     event-driven retry + auto-resubmit cron, and shown in admin Errors.
+  //     Added per user direction 2026-07-13.
+  /attempt\s*\d+\s*:[^\n]*insufficient quota/i,
+  /insufficient[_ ]quota/i,
   // 9. Provider param/type validation rejection (APIPod): "Missing Params or
   //    Type Error". Same rotation-recoverable class as the schema validator
   //    (#4) — a different slot/model in the pool accepts. Also un-sticks rows
