@@ -96,6 +96,11 @@ export async function POST(req: Request) {
       metadata: {
         feature: "original-video",
         from_storyboard: historyId,
+        // Carry the storyboard's campaign position so the Original Video card
+        // can show "🎬 N/M · <sub>".
+        campaign: meta.campaign || false,
+        campaign_index: meta.campaign_index || null,
+        campaign_total: meta.campaign_total || null,
         model: "google/gemini-omni",
         modelChoice: "gemini",
         cinemaProvider: "crun",

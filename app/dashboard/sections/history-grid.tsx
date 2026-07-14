@@ -142,6 +142,15 @@ function videoModeLabel(item: HistoryItem): string | null {
   if (!(item.type === "video" || item.type === "auto-content" || item.type === "clone"))
     return null;
   const meta = item.metadata?.imageMode;
+  // Video generated FROM a storyboard (🎬 Generate Video) — carry the sub
+  // (and campaign position) label over from the storyboard so the Original
+  // Video card shows which sub-category / segment it came from.
+  if ((item.metadata as any)?.from_storyboard && (item.metadata as any)?.sub) {
+    const m: any = item.metadata;
+    return m.campaign && m.campaign_total
+      ? `🎬 ${m.campaign_index}/${m.campaign_total} · ${m.sub}`
+      : `🎬 ${m.sub}`;
+  }
   // Multi-segment Video Reference — distinguish the segment cards from the
   // final stitched card.
   if (item.metadata?.videoRefMerge) return "Video Ref · Final";
