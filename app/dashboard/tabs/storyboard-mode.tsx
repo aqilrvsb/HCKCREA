@@ -93,7 +93,7 @@ export default function StoryboardMode({ projectId }: { projectId?: string }) {
     setAvatarUploading(true);
     try {
       const { url } = await uploadImage(file);
-      setAvatarUrls((prev) => [...prev, url].slice(0, 3));
+      setAvatarUrls((prev) => [...prev, url].slice(0, 2));
     } catch (e: any) {
       setErr(e?.message || "Upload avatar gagal");
     } finally {
@@ -225,14 +225,14 @@ export default function StoryboardMode({ projectId }: { projectId?: string }) {
                     <button onClick={() => setAvatarUrls((prev) => prev.filter((_, j) => j !== i))} className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full text-[11px] font-bold flex items-center justify-center" style={{ background: "#7f1d1d", color: "#fff" }}>✕</button>
                   </div>
                 ))}
-                {avatarUrls.length < 3 && (
+                {avatarUrls.length < 2 && (
                   <label className="w-14 h-14 rounded-lg flex flex-col items-center justify-center gap-0.5 text-[10px] font-bold cursor-pointer" style={{ border: `1px dashed ${THEME}88`, color: THEME }}>
                     <input type="file" accept="image/*" className="hidden" disabled={avatarUploading} onChange={(e) => { const f = e.target.files?.[0]; e.currentTarget.value = ""; if (f) void uploadAvatar(f); }} />
                     {avatarUploading ? <Loader2 className="w-4 h-4 animate-spin" /> : <><UserRound className="w-4 h-4" /><span>+ Muka</span></>}
                   </label>
                 )}
               </div>
-              <p className="text-[10px] text-[var(--color-text-muted)] mt-1.5">Upload 1–3 gambar muka SAMA (angle berbeza = lebih konsisten). Frame tanpa orang (produk sahaja) takkan tunjuk avatar.</p>
+              <p className="text-[10px] text-[var(--color-text-muted)] mt-1.5">Upload 1–2 gambar muka SAMA (angle berbeza = lebih konsisten). Frame tanpa orang (produk sahaja) takkan tunjuk avatar.</p>
             </div>
           )}
         </div>

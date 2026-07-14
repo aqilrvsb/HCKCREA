@@ -43,7 +43,7 @@ export async function POST(req: Request) {
   const productImages: string[] = (Array.isArray(meta.image_urls) ? meta.image_urls : []).filter((u: any) => typeof u === "string" && u.trim()).slice(0, 3);
   const avatarUrls: string[] = (Array.isArray(meta.avatar_urls) ? meta.avatar_urls : meta.avatar_url ? [meta.avatar_url] : [])
     .filter((u: any) => typeof u === "string" && u.trim())
-    .slice(0, 3);
+    .slice(0, 2);
   const avatarUrl = avatarUrls[0] || "";
 
   const unit = await priceFor(user.id, "image_generate", "gpt_image");

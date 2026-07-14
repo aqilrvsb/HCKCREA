@@ -76,7 +76,7 @@ export async function POST(req: Request) {
   // angles → stronger consistency). Back-compat: single avatar_url still works.
   const avatarUrls: string[] = (Array.isArray(body?.avatar_urls) ? body.avatar_urls : body?.avatar_url ? [body.avatar_url] : [])
     .filter((u: any) => typeof u === "string" && u.trim())
-    .slice(0, 3);
+    .slice(0, 2);
   const avatarUrl = avatarUrls[0] || "";
 
   if (subItems.length === 0) return NextResponse.json({ error: "Pilih sub-style dulu." }, { status: 400 });
