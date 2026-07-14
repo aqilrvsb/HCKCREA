@@ -80,10 +80,14 @@ export async function POST(req: Request) {
     const avatarLine = avatarUrl
       ? `KEKAL AVATAR — a presenter face reference image is attached. EVERY frame that shows a human presenter MUST use THAT exact same face/person (identical across all frames). Frames with NO person must NOT add a person.\n`
       : ``;
+    // Caption instruction flipped by the original storyboard's No-subtitle flag.
+    const captionClause = meta.no_subtitle === true
+      ? "NO captions/subtitles/on-screen text anywhere (pure visuals only)"
+      : "one short claim-safe BM caption per frame";
 
     const sysPrompt = card
-      ? `You are a Pening Lab storyboard specialist. Produce ONE image-generation prompt for a 9:16 storyboard GRID by following the RULES and the SUB-CATEGORY CARD below EXACTLY (its Signature must dominate ≥3–4 frames; follow its 10s beat flow and frame-by-frame guidance).\n\n${globalRules}\n\n=== SUB-CATEGORY CARD (${sub}, ${mainLabel}) ===\n${card}\n\n=== TASK ===\nWrite the storyboard image prompt now: begin with "ONE single 9:16 storyboard grid for ONE video only.", grid spec, this card's Signature + shots as per-frame directions following its beat flow, Malaysian talent + local setting, product identity lock (verbatim label), NO captions/subtitles/on-screen text anywhere (pure visuals only), neutral problem framing. Output ONLY the final image prompt.`
-      : `You write ONE image-generation prompt for a 9:16 UGC/product-ad STORYBOARD GRID (6–9 panels, full-bleed, no header/numbers/timecodes). The prompt MUST BEGIN with "ONE single 9:16 storyboard grid for ONE video only." Execute the "${sub}" sub-style under ${mainLabel}, Malaysian talent, NO captions/subtitles/on-screen text (pure visuals only), product identity locked, neutral framing. Output ONLY the final image prompt.`;
+      ? `You are a Pening Lab storyboard specialist. Produce ONE image-generation prompt for a 9:16 storyboard GRID by following the RULES and the SUB-CATEGORY CARD below EXACTLY (its Signature must dominate ≥3–4 frames; follow its 10s beat flow and frame-by-frame guidance).\n\n${globalRules}\n\n=== SUB-CATEGORY CARD (${sub}, ${mainLabel}) ===\n${card}\n\n=== TASK ===\nWrite the storyboard image prompt now: begin with "ONE single 9:16 storyboard grid for ONE video only.", grid spec, this card's Signature + shots as per-frame directions following its beat flow, Malaysian talent + local setting, product identity lock (verbatim label), ${captionClause}, neutral problem framing. Output ONLY the final image prompt.`
+      : `You write ONE image-generation prompt for a 9:16 UGC/product-ad STORYBOARD GRID (6–9 panels, full-bleed, no header/numbers/timecodes). The prompt MUST BEGIN with "ONE single 9:16 storyboard grid for ONE video only." Execute the "${sub}" sub-style under ${mainLabel}, Malaysian talent, ${captionClause}, product identity locked, neutral framing. Output ONLY the final image prompt.`;
 
     // Preserve the campaign role so a resubmitted/tukar'd segment CONTINUES
     // the arc with the segments that already succeeded (segment N of M =
@@ -117,8 +121,10 @@ export async function POST(req: Request) {
     if (meta.no_cta === true && !isCampaign) {
       prompt = `${prompt}\n\nNO CALL-TO-ACTION: do NOT include any call-to-action anywhere — no 'buy now', 'order', 'add to cart', 'swipe up', 'link in bio', price tags or purchase prompts, and no final CTA frame. End on the content/benefit itself, not on a sell.`;
     }
-    // Hard no-subtitle/no-text rule — appended LAST so it always wins.
-    prompt = `${prompt}\n\nABSOLUTE HARD RULE — NO TEXT WHATSOEVER: this storyboard image must contain ZERO text of any kind. No subtitles, no captions, no on-screen words, no dialogue text, no headlines, no labels overlaid on the scene, no watermarks, no typography, no lettering, no numbers, no speech bubbles, no UI/graphics text. The ONLY text allowed is the product's own real packaging label as it physically appears on the product. Every panel is pure imagery (people, product, action, setting) with NO written words added.`;
+    // Hard no-subtitle/no-text rule — ONLY when the original had it ticked.
+    if (meta.no_subtitle === true) {
+      prompt = `${prompt}\n\nABSOLUTE HARD RULE — NO TEXT WHATSOEVER: this storyboard image must contain ZERO text of any kind. No subtitles, no captions, no on-screen words, no dialogue text, no headlines, no labels overlaid on the scene, no watermarks, no typography, no lettering, no numbers, no speech bubbles, no UI/graphics text. The ONLY text allowed is the product's own real packaging label as it physically appears on the product. Every panel is pure imagery (people, product, action, setting) with NO written words added.`;
+    }
 
     const refImages = [...avatarUrls, ...productImages].slice(0, 5);
     const r = await generateImageWithCascade({ primaryModel: STORYBOARD_MODEL, prompt, aspectRatio: "9:16", imageUrls: refImages.length > 0 ? refImages : undefined });

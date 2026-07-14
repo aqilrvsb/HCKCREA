@@ -51,6 +51,8 @@ export default function StoryboardMode({ projectId }: { projectId?: string }) {
   const [qty, setQty] = useState(1);
   // No CTA — single/quantity storyboards skip any call-to-action frame.
   const [noCta, setNoCta] = useState(false);
+  // No subtitle — when ticked, storyboard images are 100% text-free (hard).
+  const [noSubtitle, setNoSubtitle] = useState(false);
   // Kekal Avatar — fixed presenter face across every human frame.
   const [keepAvatar, setKeepAvatar] = useState(false);
   const [avatarUrls, setAvatarUrls] = useState<string[]>([]);
@@ -206,6 +208,8 @@ export default function StoryboardMode({ projectId }: { projectId?: string }) {
           // No-CTA only applies to single/quantity + custom (campaign handles
           // its own CTA on the closing segment).
           no_cta: (isCustom || subs.length === 1) && noCta ? true : undefined,
+          // No-subtitle applies to every mode.
+          no_subtitle: noSubtitle ? true : undefined,
           avatar_urls: keepAvatar ? avatarUrls : undefined,
           product: { name: pName.trim(), detail: pDetail.trim(), image_urls: pImgs.filter(Boolean).slice(0, 3) },
         }),
@@ -421,6 +425,12 @@ export default function StoryboardMode({ projectId }: { projectId?: string }) {
               </div>
             </div>
           )}
+          {/* No subtitle — applies to every mode (single + campaign). */}
+          <label className="flex items-center gap-2 cursor-pointer select-none text-[12px] font-bold px-3 py-2 rounded-lg" style={{ border: `1px solid ${noSubtitle ? THEME : "var(--color-border)"}`, background: noSubtitle ? `${THEME}18` : "var(--color-bg)", color: "var(--color-text-primary)" }}>
+            <input type="checkbox" checked={noSubtitle} onChange={(e) => setNoSubtitle(e.target.checked)} className="accent-[#f5b100]" />
+            No subtitle
+            <span className="text-[10px] font-normal text-[var(--color-text-muted)]">— storyboard 100% tiada text (hard rule)</span>
+          </label>
           <button onClick={generate} disabled={busy} className="w-full py-3 rounded-xl text-[14px] font-bold flex items-center justify-center gap-2" style={{ background: THEME, color: "#1a1a1a", opacity: busy ? 0.6 : 1 }}>
             {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
             {busy ? "Menjana…" : isCustom || subs.length === 1 ? `Jana ${qty} Storyboard` : `Jana Campaign (${subs.length} storyboard)`}
