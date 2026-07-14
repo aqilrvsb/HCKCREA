@@ -21,6 +21,7 @@ const THEME = "#f5b100";
 const MAIN_OPTIONS = [
   { value: "ugc" as const, label: "UGC", desc: "Realistik · TikTok/Reels" },
   { value: "pc" as const, label: "Product Commercial", desc: "Premium · sinematik" },
+  { value: "custom" as const, label: "Custom Idea", desc: "Tulis idea sendiri" },
 ];
 const SUBS: Record<"ugc" | "pc", string[]> = {
   ugc: ["UGC Review", "Unboxing", "Unboxing ASMR", "Unboxing Try-On", "Virtual Try-On", "Before/After", "Tutorial", "UGC Addiction", "Giant Figure", "Testimoni Selfie", "Talking Head", "Secret Tips/Hack", "Lifestyle", "Masalah→Solusi"],
@@ -32,11 +33,13 @@ export default function StoryboardMode({ projectId }: { projectId?: string }) {
   const [manual, setManual] = useState<SavedProduct[]>([]);
   const [showLoad, setShowLoad] = useState<"affiliate" | "manual" | null>(null);
   const [product, setProduct] = useState<SavedProduct | null>(null);
-  const [main, setMain] = useState<"ugc" | "pc" | null>(null);
+  const [main, setMain] = useState<"ugc" | "pc" | "custom" | null>(null);
   // Multi-select, CROSS-MAIN. 1 sub → quantity mode (1–10 of the same sub).
   // 2+ subs → connected campaign storyline (one storyboard per sub, in order);
   // subs may come from BOTH categories — main is just a filter for the list.
   const [subs, setSubs] = useState<{ main: "ugc" | "pc"; sub: string }[]>([]);
+  // Custom Idea (3rd category) — client's own concept.
+  const [customIdea, setCustomIdea] = useState("");
   const [qty, setQty] = useState(1);
   // Kekal Avatar — fixed presenter face across every human frame.
   const [keepAvatar, setKeepAvatar] = useState(false);
@@ -66,12 +69,15 @@ export default function StoryboardMode({ projectId }: { projectId?: string }) {
     setShowLoad(null);
     setMain(null);
     setSubs([]);
+    setCustomIdea("");
   }
 
   function toggleSub(s: string) {
-    if (!main) return;
-    setSubs((prev) => (prev.some((x) => x.sub === s) ? prev.filter((x) => x.sub !== s) : [...prev, { main, sub: s }]));
+    if (!main || main === "custom") return;
+    const m = main;
+    setSubs((prev) => (prev.some((x) => x.sub === s) ? prev.filter((x) => x.sub !== s) : [...prev, { main: m, sub: s }]));
   }
+  const isCustom = main === "custom";
   function moveSub(i: number, dir: -1 | 1) {
     setSubs((prev) => {
       const j = i + dir;
@@ -96,8 +102,16 @@ export default function StoryboardMode({ projectId }: { projectId?: string }) {
   }
 
   async function generate() {
-    if (!product || !main || subs.length === 0) {
-      setErr("Lengkapkan: produk → kategori → sub-style dulu.");
+    if (!product || !main) {
+      setErr("Lengkapkan: produk → kategori dulu.");
+      return;
+    }
+    if (isCustom && !customIdea.trim()) {
+      setErr("Tulis idea anda dulu untuk Custom Idea.");
+      return;
+    }
+    if (!isCustom && subs.length === 0) {
+      setErr("Pilih sub-style dulu.");
       return;
     }
     if (keepAvatar && !avatarUrl) {
@@ -113,9 +127,11 @@ export default function StoryboardMode({ projectId }: { projectId?: string }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           project_id: projectId || null,
-          main,
-          subs,
-          quantity: subs.length === 1 ? qty : undefined,
+          main: isCustom ? "custom" : main,
+          subs: isCustom ? [] : subs,
+          custom_idea: isCustom ? customIdea.trim() : undefined,
+          // Custom Idea + non-campaign both use quantity (1–10).
+          quantity: isCustom || subs.length === 1 ? qty : undefined,
           avatar_url: keepAvatar ? avatarUrl : undefined,
           product: { name: product.product_name, detail: product.detail || "", image_urls: (product.attachments || []).filter(Boolean).slice(0, 3) },
         }),
@@ -224,7 +240,7 @@ export default function StoryboardMode({ projectId }: { projectId?: string }) {
       {product && (
         <div className="rounded-2xl p-4" style={box}>
           <div className="text-[11px] font-bold uppercase tracking-wider mb-2" style={{ color: THEME }}>2 · Kategori</div>
-          <div className="grid grid-cols-2 gap-2">
+          <div className="grid grid-cols-3 gap-2">
             {MAIN_OPTIONS.map((o) => (
               <button key={o.value} onClick={() => setMain(o.value)} className="text-left px-3 py-2.5 rounded-lg" style={{ border: `1px solid ${main === o.value ? THEME : "var(--color-border)"}`, background: main === o.value ? `${THEME}18` : "var(--color-bg)" }}>
                 <span className="block text-[13px] font-bold text-[var(--color-text-primary)]">{o.label}</span>
@@ -235,8 +251,24 @@ export default function StoryboardMode({ projectId }: { projectId?: string }) {
         </div>
       )}
 
-      {/* 3. SUB — multi-select */}
-      {product && main && (
+      {/* 3. Custom Idea textarea (when Custom Idea category picked) */}
+      {product && isCustom && (
+        <div className="rounded-2xl p-4" style={box}>
+          <div className="text-[11px] font-bold uppercase tracking-wider mb-2" style={{ color: THEME }}>3 · Idea Anda</div>
+          <textarea
+            value={customIdea}
+            onChange={(e) => setCustomIdea(e.target.value)}
+            placeholder="Tulis idea storyboard anda… cth: 'Preview botol AuraWhite depan cermin vanity, morning routine, tunjuk before/after glow'"
+            rows={4}
+            className="w-full px-3 py-2 rounded-lg text-[13px] outline-none resize-none text-[var(--color-text-primary)]"
+            style={{ border: "1px solid var(--color-border)", background: "var(--color-bg)" }}
+          />
+          <p className="text-[10px] text-[var(--color-text-muted)] mt-1.5">AI akan bina storyboard ikut idea ni. Kuantiti &gt; 1 → variasi berbeza (tak sama antara satu sama lain & minggu lepas).</p>
+        </div>
+      )}
+
+      {/* 3. SUB — multi-select (ugc/pc only) */}
+      {product && main && !isCustom && (
         <div className="rounded-2xl p-4" style={box}>
           <div className="flex items-center justify-between mb-2">
             <span className="text-[11px] font-bold uppercase tracking-wider" style={{ color: THEME }}>3 · Sub-style</span>
@@ -260,9 +292,9 @@ export default function StoryboardMode({ projectId }: { projectId?: string }) {
       )}
 
       {/* 4. Quantity (single sub) OR campaign note (multi) + Generate */}
-      {product && main && subs.length > 0 && (
+      {product && main && (subs.length > 0 || isCustom) && (
         <div className="rounded-2xl p-4 space-y-3" style={box}>
-          {subs.length === 1 ? (
+          {isCustom || subs.length === 1 ? (
             <div className="flex items-center gap-3 flex-wrap">
               <span className="text-[11px] font-bold uppercase tracking-wider" style={{ color: THEME }}>Kuantiti</span>
               <div className="flex gap-1.5 flex-wrap">
@@ -288,7 +320,7 @@ export default function StoryboardMode({ projectId }: { projectId?: string }) {
           )}
           <button onClick={generate} disabled={busy} className="w-full py-3 rounded-xl text-[14px] font-bold flex items-center justify-center gap-2" style={{ background: THEME, color: "#1a1a1a", opacity: busy ? 0.6 : 1 }}>
             {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
-            {busy ? "Menjana…" : subs.length === 1 ? `Jana ${qty} Storyboard` : `Jana Campaign (${subs.length} storyboard)`}
+            {busy ? "Menjana…" : isCustom || subs.length === 1 ? `Jana ${qty} Storyboard` : `Jana Campaign (${subs.length} storyboard)`}
           </button>
         </div>
       )}

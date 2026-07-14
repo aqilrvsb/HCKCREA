@@ -26,10 +26,16 @@ export const dynamic = "force-dynamic";
 
 const STORYBOARD_MODEL = "gpt-image-2";
 
-type Main = "ugc" | "pc";
+type Main = "ugc" | "pc" | "custom";
 type Job = { sub: string; main: Main; index: number; total: number; role: "variation" | "opening" | "middle" | "closing"; campaign: boolean };
 
-const mainLabelOf = (m: Main) => (m === "ugc" ? "UGC (realistic, TikTok/Reels)" : "Product Commercial (polished, cinematic)");
+const asMain = (m: any): Main => (m === "pc" ? "pc" : m === "custom" ? "custom" : "ugc");
+const mainLabelOf = (m: Main) =>
+  m === "custom"
+    ? "Custom Idea (the client's own concept — build the storyboard around it)"
+    : m === "pc"
+      ? "Product Commercial (polished, cinematic)"
+      : "UGC (realistic, TikTok/Reels)";
 
 export async function POST(req: Request) {
   const sb = await createClient();
@@ -37,18 +43,26 @@ export async function POST(req: Request) {
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const body = await req.json().catch(() => ({}));
-  const topMain: Main = body?.main === "pc" ? "pc" : "ugc";
+  const topMain: Main = asMain(body?.main);
+  // Custom Idea — the client's own concept (3rd category). When present, the
+  // storyboard is built around THIS instead of a sub-style card.
+  const customIdea = String(body?.custom_idea || "").trim();
   // subs can be strings (all under top-level main) OR {main, sub} objects
   // (cross-main campaign — each segment carries its own main).
   const rawSubs = Array.isArray(body?.subs) ? body.subs : body?.sub ? [body.sub] : [];
-  const subItems: { main: Main; sub: string }[] = rawSubs
+  let subItems: { main: Main; sub: string }[] = rawSubs
     .map((s: any) =>
       typeof s === "string"
         ? { main: topMain, sub: s.trim() }
-        : { main: (s?.main === "pc" ? "pc" : "ugc") as Main, sub: String(s?.sub || "").trim() }
+        : { main: asMain(s?.main), sub: String(s?.sub || "").trim() }
     )
     .filter((x: { sub: string }) => x.sub)
     .slice(0, 8);
+  // Custom Idea with no sub picked → synthesise one custom job (quantity below
+  // fans it out). Its "sub" is a label; the prompt comes from customIdea.
+  if (customIdea && subItems.length === 0) {
+    subItems = [{ main: "custom", sub: "Custom Idea" }];
+  }
   const projectId = body?.project_id ? String(body.project_id) : null;
   const product = body?.product || {};
   const productName = String(product?.name || "").trim();
@@ -121,6 +135,7 @@ export async function POST(req: Request) {
           // Stored so the "Tukar sub" replace flow can rebuild the prompt.
           product_name: productName,
           product_detail: productDetail,
+          custom_idea: customIdea || null,
           image_urls: productImages,
           avatar_url: avatarUrl || null,
           upload_status: "queued",
@@ -137,12 +152,44 @@ export async function POST(req: Request) {
   const globalRules = extractGlobalRules(subCardsDoc);
 
   after(async () => {
-    // Generate every storyboard CONCURRENTLY — the old for-await ran them
-    // sequentially (segment 2 waited for segment 1 to finish). Each job is
-    // independent, so fire them all in parallel.
-    await Promise.all(jobs.map(async (job, k) => {
+    // WEEKLY NO-REPEAT: pull this user's storyboard prompts from the last 7
+    // days so new ones can be made clearly different. Best-effort.
+    let pastConcepts: string[] = [];
+    try {
+      const weekAgo = new Date(Date.now() - 7 * 86_400_000).toISOString();
+      const { data: recent } = await admin
+        .from("history")
+        .select("prompt")
+        .eq("user_id", user.id)
+        .eq("type", "image")
+        .eq("tab", "image")
+        .filter("metadata->>feature", "eq", "storyboard")
+        .gte("created_at", weekAgo)
+        .order("created_at", { ascending: false })
+        .limit(40);
+      pastConcepts = (recent || [])
+        .map((r: any) => String(r.prompt || "").replace(/\s+/g, " ").trim())
+        // drop the boilerplate opener so the concept (hook/scene) is what compares
+        .map((p: string) => p.replace(/^ONE single 9:16 storyboard grid for ONE video only\.?\s*/i, "").slice(0, 180))
+        .filter((p: string) => p.length > 30 && !/^(Storyboard ·|Campaign \d)/i.test(p));
+    } catch {
+      /* dedup is best-effort */
+    }
+
+    const avatarLine = avatarUrl
+      ? `KEKAL AVATAR — a presenter face reference image is attached. EVERY frame that shows a human presenter MUST use THAT exact same face/person (identical across all frames — a fixed avatar). Frames that show NO person (product-only, macro, packshot, flat-lay) must NOT add a person. Do not invent other faces.\n`
+      : ``;
+
+    // ── PHASE 1: plan all prompts SEQUENTIALLY, deduping against past-week +
+    //    the prompts already planned in THIS batch (so parallel/bulk gens are
+    //    all distinct). Then PHASE 2 fires the images in parallel.
+    const builtInBatch: string[] = [];
+    const plans: Array<{ id: string; prompt: string; refImages: string[] }> = [];
+
+    for (let k = 0; k < jobs.length; k++) {
+      const job = jobs[k];
       const id = historyIds[k];
-      if (!id) return;
+      if (!id) continue;
       const card = extractSubCard(subCardsDoc, job.sub);
       const mainLabel = mainLabelOf(job.main);
 
@@ -152,70 +199,71 @@ export async function POST(req: Request) {
           : job.role === "closing"
             ? `This is the CLOSING storyboard (final segment ${job.index + 1} of ${job.total}) of ONE continuous campaign. Show the RESULT / payoff phase and end with the ONE call-to-action (CTA) for the whole campaign. This is the ONLY segment allowed to have a CTA.`
             : `This is the MIDDLE storyboard (segment ${job.index + 1} of ${job.total}) of ONE continuous campaign. Show a DIFFERENT phase from the other segments — the demo/usage or the proof/benefit. **NO call-to-action.** End on a bridge to the next segment.`
-        : `Variation ${job.index + 1} of ${job.total} — make the hook / framing / panel order DIFFERENT from the other variations of the same sub-style.`;
-      // Anti-duplication + single-CTA rules for the campaign arc.
+        : `Variation ${job.index + 1} of ${job.total} — make the hook / framing / panel order DIFFERENT from the other variations.`;
       const campaignRule = job.campaign
-        ? `CAMPAIGN RULES (this is ONE continuous story across: ${campaignArc}): (1) Each segment must show DISTINCT actions & scenes — NEVER duplicate the same hero action across segments (e.g. if one segment shows drinking the product, another must NOT show drinking — pick a different moment/action). (2) ONLY the final/closing segment ends with a CTA; the opening & middle segments end on a bridge to the next, with NO CTA. (3) Same product identity throughout. `
+        ? `CAMPAIGN RULES (this is ONE continuous story across: ${campaignArc}): (1) Each segment must show DISTINCT actions & scenes — NEVER duplicate the same hero action across segments. (2) ONLY the final/closing segment ends with a CTA; opening & middle end on a bridge, NO CTA. (3) Same product identity throughout. `
         : ``;
 
-      const sysPrompt = card
-        ? // Full spec available — hand the planner the exact card + global rules.
-          `You are a Pening Lab storyboard specialist. Produce ONE image-generation prompt for a 9:16 storyboard GRID by following the RULES and the SUB-CATEGORY CARD below EXACTLY (its Signature must dominate ≥3–4 frames; follow its 10s beat flow and frame-by-frame guidance).\n\n` +
-          `${globalRules}\n\n=== SUB-CATEGORY CARD (${job.sub}, ${mainLabel}) ===\n${card}\n\n=== TASK ===\n` +
-          `Write the storyboard image prompt now, assembling per the "UNIVERSAL IMAGE-PROMPT ASSEMBLY RECIPE": begin with "ONE single 9:16 storyboard grid for ONE video only.", then grid spec, then this card's Signature + shots as per-frame scene directions following its beat flow, Malaysian talent + local setting, product identity lock (verbatim label), one short claim-safe BM caption per frame, neutral problem framing. ` +
-          campaignRule +
-          `Output ONLY the final image prompt, no preamble, no headings.`
-        : // Fallback if the spec isn't seeded.
-          `You write ONE image-generation prompt for a 9:16 UGC/product-ad STORYBOARD GRID (6–9 panels, full-bleed, no header/numbers/timecodes). ` +
-          `The prompt MUST BEGIN with "ONE single 9:16 storyboard grid for ONE video only." Execute the "${job.sub}" sub-style under ${mainLabel}, 6–9 panels (hook → beats → CTA), Malaysian talent, short BM captions, product identity locked, neutral framing. ` +
-          campaignRule +
-          `Output ONLY the final image prompt.`;
+      const sysPrompt =
+        job.main === "custom"
+          ? // Custom Idea — build around the client's own concept.
+            `You are a Pening Lab storyboard specialist. The CLIENT gave their OWN idea/concept below — build ONE 9:16 storyboard GRID (6–9 panels) around IT (do not force a preset sub-style).\n\n${globalRules}\n\n=== CLIENT'S CUSTOM IDEA (execute this) ===\n"""${customIdea}"""\n\n=== TASK ===\nBegin with "ONE single 9:16 storyboard grid for ONE video only.", grid spec, then execute the client's idea as per-frame scene directions (hook → beats → CTA), Malaysian talent + local setting, product identity lock (verbatim label), one short claim-safe BM caption per frame, neutral framing. ${campaignRule}Output ONLY the final image prompt, no preamble.`
+          : card
+            ? `You are a Pening Lab storyboard specialist. Produce ONE image-generation prompt for a 9:16 storyboard GRID by following the RULES and the SUB-CATEGORY CARD below EXACTLY (its Signature must dominate ≥3–4 frames; follow its 10s beat flow and frame-by-frame guidance).\n\n${globalRules}\n\n=== SUB-CATEGORY CARD (${job.sub}, ${mainLabel}) ===\n${card}\n\n=== TASK ===\nWrite the storyboard image prompt now, assembling per the "UNIVERSAL IMAGE-PROMPT ASSEMBLY RECIPE": begin with "ONE single 9:16 storyboard grid for ONE video only.", grid spec, this card's Signature + shots as per-frame scene directions following its beat flow, Malaysian talent + local setting, product identity lock (verbatim label), one short claim-safe BM caption per frame, neutral problem framing. ${campaignRule}Output ONLY the final image prompt, no preamble, no headings.`
+            : `You write ONE image-generation prompt for a 9:16 UGC/product-ad STORYBOARD GRID (6–9 panels, full-bleed, no header/numbers/timecodes). The prompt MUST BEGIN with "ONE single 9:16 storyboard grid for ONE video only." Execute the "${job.sub}" sub-style under ${mainLabel}, Malaysian talent, short BM captions, product identity locked, neutral framing. ${campaignRule}Output ONLY the final image prompt.`;
 
-      // Kekal Avatar: instruct the planner to lock every human frame to the
-      // uploaded face, and keep person-less frames person-free.
-      const avatarLine = avatarUrl
-        ? `KEKAL AVATAR — a presenter face reference image is attached. EVERY frame that shows a human presenter MUST use THAT exact same face/person (identical across all frames — a fixed avatar). Frames that show NO person (product-only, macro, packshot, flat-lay) must NOT add a person. Do not invent other faces.\n`
+      // NO-REPEAT context: last week's concepts + this batch's so far.
+      const avoidList = [...pastConcepts, ...builtInBatch.map((p) => p.replace(/^ONE single 9:16 storyboard grid for ONE video only\.?\s*/i, "").slice(0, 180))].slice(-24);
+      const dedupSection = avoidList.length
+        ? `\n\n🚫 NO-REPEAT — these storyboard concepts were already used (past 7 days + this batch). Your storyboard MUST be clearly DIFFERENT — a different hook line, different opening scene, different framing/props, and a different caption angle. Do NOT reuse their hooks or scenes:\n${avoidList.map((c, i) => `${i + 1}. ${c}`).join("\n")}`
         : ``;
+
       const userPrompt =
         `Product: ${productName || "(unnamed)"}\n` +
         `Detail: ${productDetail || "(none)"}\n` +
-        `Sub-style: ${job.sub} · Category: ${mainLabel}\n` +
+        (job.main === "custom" ? `Client idea: ${customIdea}\n` : `Sub-style: ${job.sub} · Category: ${mainLabel}\n`) +
         avatarLine +
-        `${roleLine}\n` +
+        `${roleLine}${dedupSection}\n` +
         `Write the storyboard image prompt now.`;
 
-      let prompt = `ONE single 9:16 storyboard grid for ONE video only. A ${job.sub} storyboard for ${productName || "the product"}, 6-9 panels, Malaysian UGC talent, product shown clearly with exact label.`;
+      let prompt = `ONE single 9:16 storyboard grid for ONE video only. A ${job.main === "custom" ? "custom-concept" : job.sub} storyboard for ${productName || "the product"}, 6-9 panels, Malaysian talent, product shown clearly with exact label.`;
       try {
-        // Heavy-lifting prompt planning → model_custom_idea (grsai gemini-3-flash
-        // cascade), same routing as UGC Custom Idea / Auto Content master plan.
-        const llm = await orChat({ modelKey: "model_custom_idea", systemPrompt: sysPrompt, userPrompt, temperature: 0.9, maxTokens: 800 });
+        const llm = await orChat({ modelKey: "model_custom_idea", systemPrompt: sysPrompt, userPrompt, temperature: 0.95, maxTokens: 800 });
         if (llm.ok && llm.content && llm.content.trim().length > 40) prompt = llm.content.trim();
       } catch {
         /* fall back to the default prompt */
       }
+      builtInBatch.push(prompt);
       if (avatarUrl) {
         prompt = `${prompt}\n\nPRESENTER LOCK: the attached face reference is the fixed avatar — every human shown must be that exact same person/face across all frames; frames with no person stay person-free.`;
       }
-
-      // Avatar face rides as the FIRST reference image (presenter), product
-      // images after it. gpt-image-2 uses them all as visual references.
       const refImages = (avatarUrl ? [avatarUrl, ...productImages] : productImages).slice(0, 4);
-      const r = await generateImageWithCascade({
-        primaryModel: STORYBOARD_MODEL,
-        prompt,
-        aspectRatio: "9:16",
-        imageUrls: refImages.length > 0 ? refImages : undefined,
-      });
-      if (r.ok) {
-        const { data: cur } = await admin.from("history").select("metadata").eq("id", id).single();
-        await admin
-          .from("history")
-          .update({ task_id: r.taskId, prompt, metadata: { ...(cur?.metadata || {}), provider: r.actualProvider, slot: r.actualSlot, model: r.actualModel } })
-          .eq("id", id);
-      } else {
-        await admin.from("history").update({ status: "failed", error_message: r.error }).eq("id", id);
-      }
-    }));
+      plans.push({ id, prompt, refImages });
+      // Persist the planned prompt now so the "saved AI story" exists even
+      // before the image renders (and feeds future weeks' dedup).
+      await admin.from("history").update({ prompt }).eq("id", id);
+    }
+
+    // ── PHASE 2: fire all image generations in PARALLEL.
+    await Promise.all(
+      plans.map(async ({ id, prompt, refImages }) => {
+        const r = await generateImageWithCascade({
+          primaryModel: STORYBOARD_MODEL,
+          prompt,
+          aspectRatio: "9:16",
+          imageUrls: refImages.length > 0 ? refImages : undefined,
+        });
+        if (r.ok) {
+          const { data: cur } = await admin.from("history").select("metadata").eq("id", id).single();
+          await admin
+            .from("history")
+            .update({ task_id: r.taskId, prompt, metadata: { ...(cur?.metadata || {}), provider: r.actualProvider, slot: r.actualSlot, model: r.actualModel } })
+            .eq("id", id);
+        } else {
+          await admin.from("history").update({ status: "failed", error_message: r.error }).eq("id", id);
+        }
+      })
+    );
   });
 
   return NextResponse.json({ ok: true, history_ids: historyIds, count: historyIds.length, campaign, cost: total });
