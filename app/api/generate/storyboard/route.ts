@@ -26,6 +26,13 @@ export const dynamic = "force-dynamic";
 
 const STORYBOARD_MODEL = "gpt-image-2";
 
+// HARD RULE — storyboard grids must be 100% caption/subtitle free. Appended to
+// every final image prompt so it holds no matter what the planner wrote. The
+// storyboard is a visual blueprint only; captions/voiceover come later at the
+// video stage.
+const NO_SUBTITLE_RULE =
+  "\n\nABSOLUTE HARD RULE — NO TEXT WHATSOEVER: this storyboard image must contain ZERO text of any kind. No subtitles, no captions, no on-screen words, no dialogue text, no headlines, no labels overlaid on the scene, no watermarks, no typography, no lettering, no numbers, no speech bubbles, no UI/graphics text. The ONLY text allowed is the product's own real packaging label as it physically appears on the product. Every panel is pure imagery (people, product, action, setting) with NO written words added.";
+
 type Main = "ugc" | "pc" | "custom";
 type Job = { sub: string; main: Main; index: number; total: number; role: "variation" | "opening" | "middle" | "closing"; campaign: boolean };
 
@@ -213,15 +220,15 @@ export async function POST(req: Request) {
       const sysPrompt =
         job.main === "custom"
           ? // Custom Idea — build around the client's own concept.
-            `You are a Pening Lab storyboard specialist. The CLIENT gave their OWN idea/concept below — build ONE 9:16 storyboard GRID (6–9 panels) around IT (do not force a preset sub-style).\n\n${globalRules}\n\n=== CLIENT'S CUSTOM IDEA (execute this) ===\n"""${customIdea}"""\n\n=== TASK ===\nBegin with "ONE single 9:16 storyboard grid for ONE video only.", grid spec, then execute the client's idea as per-frame scene directions (hook → beats → CTA), Malaysian talent + local setting, product identity lock (verbatim label), one short claim-safe BM caption per frame, neutral framing. ${campaignRule}Output ONLY the final image prompt, no preamble.`
+            `You are a Pening Lab storyboard specialist. The CLIENT gave their OWN idea/concept below — build ONE 9:16 storyboard GRID (6–9 panels) around IT (do not force a preset sub-style).\n\n${globalRules}\n\n=== CLIENT'S CUSTOM IDEA (execute this) ===\n"""${customIdea}"""\n\n=== TASK ===\nBegin with "ONE single 9:16 storyboard grid for ONE video only.", grid spec, then execute the client's idea as per-frame scene directions (hook → beats → CTA), Malaysian talent + local setting, product identity lock (verbatim label), NO captions/subtitles/on-screen text anywhere (pure visuals only), neutral framing. ${campaignRule}Output ONLY the final image prompt, no preamble.`
           : card
-            ? `You are a Pening Lab storyboard specialist. Produce ONE image-generation prompt for a 9:16 storyboard GRID by following the RULES and the SUB-CATEGORY CARD below EXACTLY (its Signature must dominate ≥3–4 frames; follow its 10s beat flow and frame-by-frame guidance).\n\n${globalRules}\n\n=== SUB-CATEGORY CARD (${job.sub}, ${mainLabel}) ===\n${card}\n\n=== TASK ===\nWrite the storyboard image prompt now, assembling per the "UNIVERSAL IMAGE-PROMPT ASSEMBLY RECIPE": begin with "ONE single 9:16 storyboard grid for ONE video only.", grid spec, this card's Signature + shots as per-frame scene directions following its beat flow, Malaysian talent + local setting, product identity lock (verbatim label), one short claim-safe BM caption per frame, neutral problem framing. ${campaignRule}Output ONLY the final image prompt, no preamble, no headings.`
-            : `You write ONE image-generation prompt for a 9:16 UGC/product-ad STORYBOARD GRID (6–9 panels, full-bleed, no header/numbers/timecodes). The prompt MUST BEGIN with "ONE single 9:16 storyboard grid for ONE video only." Execute the "${job.sub}" sub-style under ${mainLabel}, Malaysian talent, short BM captions, product identity locked, neutral framing. ${campaignRule}Output ONLY the final image prompt.`;
+            ? `You are a Pening Lab storyboard specialist. Produce ONE image-generation prompt for a 9:16 storyboard GRID by following the RULES and the SUB-CATEGORY CARD below EXACTLY (its Signature must dominate ≥3–4 frames; follow its 10s beat flow and frame-by-frame guidance).\n\n${globalRules}\n\n=== SUB-CATEGORY CARD (${job.sub}, ${mainLabel}) ===\n${card}\n\n=== TASK ===\nWrite the storyboard image prompt now, assembling per the "UNIVERSAL IMAGE-PROMPT ASSEMBLY RECIPE": begin with "ONE single 9:16 storyboard grid for ONE video only.", grid spec, this card's Signature + shots as per-frame scene directions following its beat flow, Malaysian talent + local setting, product identity lock (verbatim label), NO captions/subtitles/on-screen text anywhere (pure visuals only), neutral problem framing. ${campaignRule}Output ONLY the final image prompt, no preamble, no headings.`
+            : `You write ONE image-generation prompt for a 9:16 UGC/product-ad STORYBOARD GRID (6–9 panels, full-bleed, no header/numbers/timecodes). The prompt MUST BEGIN with "ONE single 9:16 storyboard grid for ONE video only." Execute the "${job.sub}" sub-style under ${mainLabel}, Malaysian talent, NO captions/subtitles/on-screen text (pure visuals only), product identity locked, neutral framing. ${campaignRule}Output ONLY the final image prompt.`;
 
       // NO-REPEAT context: last week's concepts + this batch's so far.
       const avoidList = [...pastConcepts, ...builtInBatch.map((p) => p.replace(/^ONE single 9:16 storyboard grid for ONE video only\.?\s*/i, "").slice(0, 180))].slice(-24);
       const dedupSection = avoidList.length
-        ? `\n\n🚫 NO-REPEAT — these storyboard concepts were already used (past 7 days + this batch). Your storyboard MUST be clearly DIFFERENT — a different hook line, different opening scene, different framing/props, and a different caption angle. Do NOT reuse their hooks or scenes:\n${avoidList.map((c, i) => `${i + 1}. ${c}`).join("\n")}`
+        ? `\n\n🚫 NO-REPEAT — these storyboard concepts were already used (past 7 days + this batch). Your storyboard MUST be clearly DIFFERENT — a different hook, different opening scene, different framing/props, and a different visual angle. Do NOT reuse their hooks or scenes:\n${avoidList.map((c, i) => `${i + 1}. ${c}`).join("\n")}`
         : ``;
 
       const userPrompt =
@@ -243,6 +250,8 @@ export async function POST(req: Request) {
       if (avatarUrl) {
         prompt = `${prompt}\n\nPRESENTER LOCK: the attached face reference is the fixed avatar — every human shown must be that exact same person/face across all frames; frames with no person stay person-free.`;
       }
+      // Hard no-subtitle/no-text rule — appended LAST so it always wins.
+      prompt = `${prompt}${NO_SUBTITLE_RULE}`;
       // Avatar photos FIRST (so the face-lock is always included even if the
       // provider caps refs), then product images. Cap 5 (provider ceiling).
       const refImages = [...avatarUrls, ...productImages].slice(0, 5);
