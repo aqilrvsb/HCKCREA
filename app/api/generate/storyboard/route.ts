@@ -33,6 +33,12 @@ const STORYBOARD_MODEL = "gpt-image-2";
 const NO_SUBTITLE_RULE =
   "\n\nABSOLUTE HARD RULE — NO TEXT WHATSOEVER: this storyboard image must contain ZERO text of any kind. No subtitles, no captions, no on-screen words, no dialogue text, no headlines, no labels overlaid on the scene, no watermarks, no typography, no lettering, no numbers, no speech bubbles, no UI/graphics text. The ONLY text allowed is the product's own real packaging label as it physically appears on the product. Every panel is pure imagery (people, product, action, setting) with NO written words added.";
 
+// Optional — when the client ticks "No CTA", the storyboard must not end on or
+// include any call-to-action beat (no "buy now", no add-to-cart, no swipe-up,
+// no directing the viewer to purchase). Pure content only.
+const NO_CTA_RULE =
+  "\n\nNO CALL-TO-ACTION: do NOT include any call-to-action anywhere — no 'buy now', 'order', 'add to cart', 'swipe up', 'link in bio', price tags or purchase prompts, and no final CTA frame. End on the content/benefit itself, not on a sell.";
+
 type Main = "ugc" | "pc" | "custom";
 type Job = { sub: string; main: Main; index: number; total: number; role: "variation" | "opening" | "middle" | "closing"; campaign: boolean };
 
@@ -54,6 +60,8 @@ export async function POST(req: Request) {
   // Custom Idea — the client's own concept (3rd category). When present, the
   // storyboard is built around THIS instead of a sub-style card.
   const customIdea = String(body?.custom_idea || "").trim();
+  // No-CTA — single/quantity + custom storyboards skip any call-to-action.
+  const noCta = body?.no_cta === true;
   // subs can be strings (all under top-level main) OR {main, sub} objects
   // (cross-main campaign — each segment carries its own main).
   const rawSubs = Array.isArray(body?.subs) ? body.subs : body?.sub ? [body.sub] : [];
@@ -151,6 +159,7 @@ export async function POST(req: Request) {
           image_urls: productImages,
           avatar_url: avatarUrl || null,
           avatar_urls: avatarUrls,
+          no_cta: noCta || null,
           upload_status: "queued",
         },
       })
@@ -250,6 +259,8 @@ export async function POST(req: Request) {
       if (avatarUrl) {
         prompt = `${prompt}\n\nPRESENTER LOCK: the attached face reference is the fixed avatar — every human shown must be that exact same person/face across all frames; frames with no person stay person-free.`;
       }
+      // No-CTA (single/quantity + custom only — campaign controls its own CTA).
+      if (noCta && !job.campaign) prompt = `${prompt}${NO_CTA_RULE}`;
       // Hard no-subtitle/no-text rule — appended LAST so it always wins.
       prompt = `${prompt}${NO_SUBTITLE_RULE}`;
       // Avatar photos FIRST (so the face-lock is always included even if the

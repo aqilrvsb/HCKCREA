@@ -113,6 +113,10 @@ export async function POST(req: Request) {
       /* fall back */
     }
     if (avatarUrl) prompt = `${prompt}\n\nPRESENTER LOCK: the attached face reference is the fixed avatar — every human shown must be that exact same person/face across all frames; frames with no person stay person-free.`;
+    // No-CTA carried from the original storyboard (single/quantity only).
+    if (meta.no_cta === true && !isCampaign) {
+      prompt = `${prompt}\n\nNO CALL-TO-ACTION: do NOT include any call-to-action anywhere — no 'buy now', 'order', 'add to cart', 'swipe up', 'link in bio', price tags or purchase prompts, and no final CTA frame. End on the content/benefit itself, not on a sell.`;
+    }
     // Hard no-subtitle/no-text rule — appended LAST so it always wins.
     prompt = `${prompt}\n\nABSOLUTE HARD RULE — NO TEXT WHATSOEVER: this storyboard image must contain ZERO text of any kind. No subtitles, no captions, no on-screen words, no dialogue text, no headlines, no labels overlaid on the scene, no watermarks, no typography, no lettering, no numbers, no speech bubbles, no UI/graphics text. The ONLY text allowed is the product's own real packaging label as it physically appears on the product. Every panel is pure imagery (people, product, action, setting) with NO written words added.`;
 

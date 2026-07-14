@@ -49,6 +49,8 @@ export default function StoryboardMode({ projectId }: { projectId?: string }) {
   // Custom Idea (3rd category) — client's own concept.
   const [customIdea, setCustomIdea] = useState("");
   const [qty, setQty] = useState(1);
+  // No CTA — single/quantity storyboards skip any call-to-action frame.
+  const [noCta, setNoCta] = useState(false);
   // Kekal Avatar — fixed presenter face across every human frame.
   const [keepAvatar, setKeepAvatar] = useState(false);
   const [avatarUrls, setAvatarUrls] = useState<string[]>([]);
@@ -201,6 +203,9 @@ export default function StoryboardMode({ projectId }: { projectId?: string }) {
           custom_idea: isCustom ? customIdea.trim() : undefined,
           // Custom Idea + non-campaign both use quantity (1–10).
           quantity: isCustom || subs.length === 1 ? qty : undefined,
+          // No-CTA only applies to single/quantity + custom (campaign handles
+          // its own CTA on the closing segment).
+          no_cta: (isCustom || subs.length === 1) && noCta ? true : undefined,
           avatar_urls: keepAvatar ? avatarUrls : undefined,
           product: { name: pName.trim(), detail: pDetail.trim(), image_urls: pImgs.filter(Boolean).slice(0, 3) },
         }),
@@ -395,6 +400,11 @@ export default function StoryboardMode({ projectId }: { projectId?: string }) {
                   <button key={n} onClick={() => setQty(n)} className="w-8 h-8 rounded-lg text-[12px] font-bold" style={{ border: `1px solid ${qty === n ? THEME : "var(--color-border)"}`, background: qty === n ? THEME : "var(--color-bg)", color: qty === n ? "#1a1a1a" : "var(--color-text-primary)" }}>{n}</button>
                 ))}
               </div>
+              {/* No CTA — skip any call-to-action frame in the storyboard. */}
+              <label className="flex items-center gap-1.5 cursor-pointer select-none ml-auto text-[12px] font-bold px-2.5 py-1.5 rounded-lg" style={{ border: `1px solid ${noCta ? THEME : "var(--color-border)"}`, background: noCta ? `${THEME}18` : "var(--color-bg)", color: "var(--color-text-primary)" }}>
+                <input type="checkbox" checked={noCta} onChange={(e) => setNoCta(e.target.checked)} className="accent-[#f5b100]" />
+                No CTA
+              </label>
             </div>
           ) : (
             <div className="rounded-lg p-3" style={{ background: `${THEME}14`, border: `1px solid ${THEME}44` }}>
