@@ -72,7 +72,12 @@ export async function POST(req: Request) {
     .slice(0, 3);
   // "Kekal Avatar" — a fixed presenter face used in every frame that shows a
   // person (frames with no person stay person-free). Empty = AI invents talent.
-  const avatarUrl = String(body?.avatar_url || "").trim();
+  // Kekal Avatar accepts 1-3 reference photos of the SAME face (multiple
+  // angles → stronger consistency). Back-compat: single avatar_url still works.
+  const avatarUrls: string[] = (Array.isArray(body?.avatar_urls) ? body.avatar_urls : body?.avatar_url ? [body.avatar_url] : [])
+    .filter((u: any) => typeof u === "string" && u.trim())
+    .slice(0, 3);
+  const avatarUrl = avatarUrls[0] || "";
 
   if (subItems.length === 0) return NextResponse.json({ error: "Pilih sub-style dulu." }, { status: 400 });
   if (!productName && productImages.length === 0) {
@@ -138,6 +143,7 @@ export async function POST(req: Request) {
           custom_idea: customIdea || null,
           image_urls: productImages,
           avatar_url: avatarUrl || null,
+          avatar_urls: avatarUrls,
           upload_status: "queued",
         },
       })
@@ -177,7 +183,7 @@ export async function POST(req: Request) {
     }
 
     const avatarLine = avatarUrl
-      ? `KEKAL AVATAR — a presenter face reference image is attached. EVERY frame that shows a human presenter MUST use THAT exact same face/person (identical across all frames — a fixed avatar). Frames that show NO person (product-only, macro, packshot, flat-lay) must NOT add a person. Do not invent other faces.\n`
+      ? `KEKAL AVATAR — ${avatarUrls.length} presenter face reference photo(s) attached (the SAME person${avatarUrls.length > 1 ? ", different angles" : ""}). EVERY frame that shows a human presenter MUST use THAT exact same face/person (identical across all frames — a fixed avatar). Frames that show NO person (product-only, macro, packshot, flat-lay) must NOT add a person. Do not invent other faces.\n`
       : ``;
 
     // ── PHASE 1: plan all prompts SEQUENTIALLY, deduping against past-week +
@@ -237,7 +243,9 @@ export async function POST(req: Request) {
       if (avatarUrl) {
         prompt = `${prompt}\n\nPRESENTER LOCK: the attached face reference is the fixed avatar — every human shown must be that exact same person/face across all frames; frames with no person stay person-free.`;
       }
-      const refImages = (avatarUrl ? [avatarUrl, ...productImages] : productImages).slice(0, 4);
+      // Avatar photos FIRST (so the face-lock is always included even if the
+      // provider caps refs), then product images. Cap 5 (provider ceiling).
+      const refImages = [...avatarUrls, ...productImages].slice(0, 5);
       plans.push({ id, prompt, refImages });
       // Persist the planned prompt now so the "saved AI story" exists even
       // before the image renders (and feeds future weeks' dedup).

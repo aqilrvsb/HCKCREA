@@ -43,7 +43,7 @@ export default function StoryboardMode({ projectId }: { projectId?: string }) {
   const [qty, setQty] = useState(1);
   // Kekal Avatar — fixed presenter face across every human frame.
   const [keepAvatar, setKeepAvatar] = useState(false);
-  const [avatarUrl, setAvatarUrl] = useState("");
+  const [avatarUrls, setAvatarUrls] = useState<string[]>([]);
   const [avatarUploading, setAvatarUploading] = useState(false);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
@@ -93,7 +93,7 @@ export default function StoryboardMode({ projectId }: { projectId?: string }) {
     setAvatarUploading(true);
     try {
       const { url } = await uploadImage(file);
-      setAvatarUrl(url);
+      setAvatarUrls((prev) => [...prev, url].slice(0, 3));
     } catch (e: any) {
       setErr(e?.message || "Upload avatar gagal");
     } finally {
@@ -114,7 +114,7 @@ export default function StoryboardMode({ projectId }: { projectId?: string }) {
       setErr("Pilih sub-style dulu.");
       return;
     }
-    if (keepAvatar && !avatarUrl) {
+    if (keepAvatar && avatarUrls.length === 0) {
       setErr("Kekal Avatar ditick — upload gambar avatar dulu.");
       return;
     }
@@ -132,7 +132,7 @@ export default function StoryboardMode({ projectId }: { projectId?: string }) {
           custom_idea: isCustom ? customIdea.trim() : undefined,
           // Custom Idea + non-campaign both use quantity (1–10).
           quantity: isCustom || subs.length === 1 ? qty : undefined,
-          avatar_url: keepAvatar ? avatarUrl : undefined,
+          avatar_urls: keepAvatar ? avatarUrls : undefined,
           product: { name: product.product_name, detail: product.detail || "", image_urls: (product.attachments || []).filter(Boolean).slice(0, 3) },
         }),
       });
@@ -217,20 +217,22 @@ export default function StoryboardMode({ projectId }: { projectId?: string }) {
             <span className="text-[10px] text-[var(--color-text-muted)]">muka presenter sama tiap frame</span>
           </label>
           {keepAvatar && (
-            <div className="mt-3 flex items-center gap-3">
-              {avatarUrl ? (
-                <div className="flex items-center gap-2">
-                  <img src={avatarUrl} className="w-14 h-14 rounded-lg object-cover" style={{ border: `1px solid ${THEME}` }} alt="avatar" />
-                  <button onClick={() => setAvatarUrl("")} className="text-[11px]" style={{ color: "var(--color-text-muted)" }}>✕ Buang</button>
-                </div>
-              ) : (
-                <label className="flex items-center gap-2 text-[12px] font-bold px-3 py-2 rounded-lg cursor-pointer" style={{ border: `1px dashed ${THEME}88`, color: THEME }}>
-                  <input type="file" accept="image/*" className="hidden" disabled={avatarUploading} onChange={(e) => { const f = e.target.files?.[0]; e.currentTarget.value = ""; if (f) void uploadAvatar(f); }} />
-                  {avatarUploading ? <Loader2 className="w-4 h-4 animate-spin" /> : <UserRound className="w-4 h-4" />}
-                  {avatarUploading ? "Uploading…" : "Upload gambar avatar"}
-                </label>
-              )}
-              <span className="text-[10px] text-[var(--color-text-muted)] flex-1">Muka ni akan jadi presenter tetap. Frame tanpa orang (produk sahaja) takkan tunjuk avatar.</span>
+            <div className="mt-3">
+              <div className="flex items-center gap-2 flex-wrap">
+                {avatarUrls.map((u, i) => (
+                  <div key={i} className="relative">
+                    <img src={u} className="w-14 h-14 rounded-lg object-cover" style={{ border: `1px solid ${THEME}` }} alt="avatar" />
+                    <button onClick={() => setAvatarUrls((prev) => prev.filter((_, j) => j !== i))} className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full text-[11px] font-bold flex items-center justify-center" style={{ background: "#7f1d1d", color: "#fff" }}>✕</button>
+                  </div>
+                ))}
+                {avatarUrls.length < 3 && (
+                  <label className="w-14 h-14 rounded-lg flex flex-col items-center justify-center gap-0.5 text-[10px] font-bold cursor-pointer" style={{ border: `1px dashed ${THEME}88`, color: THEME }}>
+                    <input type="file" accept="image/*" className="hidden" disabled={avatarUploading} onChange={(e) => { const f = e.target.files?.[0]; e.currentTarget.value = ""; if (f) void uploadAvatar(f); }} />
+                    {avatarUploading ? <Loader2 className="w-4 h-4 animate-spin" /> : <><UserRound className="w-4 h-4" /><span>+ Muka</span></>}
+                  </label>
+                )}
+              </div>
+              <p className="text-[10px] text-[var(--color-text-muted)] mt-1.5">Upload 1–3 gambar muka SAMA (angle berbeza = lebih konsisten). Frame tanpa orang (produk sahaja) takkan tunjuk avatar.</p>
             </div>
           )}
         </div>

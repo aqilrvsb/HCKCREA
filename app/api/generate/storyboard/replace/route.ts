@@ -41,7 +41,10 @@ export async function POST(req: Request) {
   const productName = String(meta.product_name || "");
   const productDetail = String(meta.product_detail || "");
   const productImages: string[] = (Array.isArray(meta.image_urls) ? meta.image_urls : []).filter((u: any) => typeof u === "string" && u.trim()).slice(0, 3);
-  const avatarUrl = String(meta.avatar_url || "").trim();
+  const avatarUrls: string[] = (Array.isArray(meta.avatar_urls) ? meta.avatar_urls : meta.avatar_url ? [meta.avatar_url] : [])
+    .filter((u: any) => typeof u === "string" && u.trim())
+    .slice(0, 3);
+  const avatarUrl = avatarUrls[0] || "";
 
   const unit = await priceFor(user.id, "image_generate", "gpt_image");
   if (!(await hasEnoughCredits(user.id, unit))) {
@@ -111,7 +114,7 @@ export async function POST(req: Request) {
     }
     if (avatarUrl) prompt = `${prompt}\n\nPRESENTER LOCK: the attached face reference is the fixed avatar — every human shown must be that exact same person/face across all frames; frames with no person stay person-free.`;
 
-    const refImages = (avatarUrl ? [avatarUrl, ...productImages] : productImages).slice(0, 4);
+    const refImages = [...avatarUrls, ...productImages].slice(0, 5);
     const r = await generateImageWithCascade({ primaryModel: STORYBOARD_MODEL, prompt, aspectRatio: "9:16", imageUrls: refImages.length > 0 ? refImages : undefined });
     if (r.ok) {
       const { data: cur } = await admin.from("history").select("metadata").eq("id", targetId).single();
