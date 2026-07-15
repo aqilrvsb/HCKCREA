@@ -4,7 +4,6 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { orChat } from "@/lib/openrouter";
 import { generateVideoWithCascade } from "@/lib/video-cascade";
 import { getGeminiRate } from "@/lib/settings";
-import { hasEnoughCredits } from "@/lib/deduct";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -19,6 +18,9 @@ export const dynamic = "force-dynamic";
 // Video history grid.
 
 const mainLabelOf = (m: string) => (m === "pc" ? "Product Commercial (polished, cinematic)" : "UGC (realistic, TikTok/Reels)");
+
+// Minimum balance required to fire a storyboard→video job. See the guard below.
+const MIN_BALANCE_RM = 5;
 
 export async function POST(req: Request) {
   const sb = await createClient();
@@ -51,8 +53,23 @@ export async function POST(req: Request) {
 
   const duration = 10;
   const cost = Number((await getGeminiRate("10")).toFixed(4));
-  if (!(await hasEnoughCredits(user.id, cost))) {
-    return NextResponse.json({ error: `Kredit tak cukup untuk video (perlu RM ${cost.toFixed(2)}). Top up dulu.` }, { status: 402 });
+
+  // SAFETY FLOOR (RM5) — this is the easiest place to burst-queue jobs: one
+  // click per finished storyboard, and the charge only lands at settle 3–29
+  // min later. A plain `credits >= cost` check passes every click while the
+  // earlier videos are still rendering, so the balance can be driven past
+  // zero (decrement_credits floors at 0, silently absorbing the overspend).
+  // Requiring a RM5 buffer keeps that burst from draining the account.
+  const { data: prof } = await admin.from("profiles").select("credits").eq("id", user.id).single();
+  const credits = Number(prof?.credits || 0);
+  if (credits <= MIN_BALANCE_RM || credits < cost) {
+    return NextResponse.json(
+      {
+        error:
+          `Baki kredit RM ${credits.toFixed(2)} — perlu melebihi RM ${MIN_BALANCE_RM.toFixed(2)} untuk jana video dari storyboard. Top up dulu.`,
+      },
+      { status: 402 }
+    );
   }
 
   // Dynamic creative-direction line, matched to the sub-style + product.
