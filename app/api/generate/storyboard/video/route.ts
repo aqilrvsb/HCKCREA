@@ -3,7 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { orChat } from "@/lib/openrouter";
 import { generateVideoWithCascade } from "@/lib/video-cascade";
-import { getGeminiRate } from "@/lib/settings";
+import { getGeminiRate, getSeedanceRate } from "@/lib/settings";
 import { hasEnoughCredits } from "@/lib/deduct";
 
 export const runtime = "nodejs";
@@ -28,6 +28,13 @@ export async function POST(req: Request) {
   const body = await req.json().catch(() => ({}));
   const historyId = String(body?.history_id || "").trim();
   if (!historyId) return NextResponse.json({ error: "history_id diperlukan" }, { status: 400 });
+  // Provider picked in the storyboard "Generate Video" popup. Default gemini
+  // (Omni) so older clients / retries keep the original behaviour.
+  const videoProvider: "gemini" | "seedance" = body?.provider === "seedance" ? "seedance" : "gemini";
+  // Seedance bills per second and takes 4-15s; Omni is fixed 10s. Popup
+  // defaults to 10s for both.
+  const reqDur = Math.round(Number(body?.duration) || 10);
+  const duration = videoProvider === "seedance" ? Math.max(4, Math.min(15, reqDur)) : 10;
 
   const admin = createAdminClient();
   const { data: row } = await admin
@@ -49,8 +56,12 @@ export async function POST(req: Request) {
   const productDetail = String(meta.product_detail || "");
   const productImage = (Array.isArray(meta.image_urls) ? meta.image_urls : []).filter((u: any) => typeof u === "string" && u.trim())[0] || "";
 
-  const duration = 10;
-  const cost = Number((await getGeminiRate("10")).toFixed(4));
+  // Omni = flat per-10s-video rate; Seedance = live per-second rate × duration
+  // (settle re-reads the same live rate, so admin price changes apply).
+  const cost =
+    videoProvider === "seedance"
+      ? Number(((await getSeedanceRate()) * duration).toFixed(4))
+      : Number((await getGeminiRate("10")).toFixed(4));
   if (!(await hasEnoughCredits(user.id, cost))) {
     return NextResponse.json({ error: `Kredit tak cukup untuk video (perlu RM ${cost.toFixed(2)}). Top up dulu.` }, { status: 402 });
   }
@@ -77,7 +88,7 @@ export async function POST(req: Request) {
     `Use image 1 as the storyboard blueprint ONLY — follow its panels and actions in order, but do NOT show or display the storyboard grid itself; open directly on live action at 0:00. ` +
     `Use image 2 ONLY as the product identity reference (copy the exact label text, colour, shape and packaging; never redraw or invent the label — if it can't be shown sharply, angle the product away). ` +
     `${creative} ` +
-    `Malaysian presenter, natural Bahasa Melayu voiceover (no Indonesian slang), on-screen captions short and correctly spelled, vertical 9:16, about 10 seconds. No on-screen medical or whitening claims.`;
+    `Malaysian presenter, natural Bahasa Melayu voiceover (no Indonesian slang), on-screen captions short and correctly spelled, vertical 9:16, about ${duration} seconds. No on-screen medical or whitening claims.`;
 
   const imageUrls = [storyboardUrl, productImage].filter(Boolean).slice(0, 2);
 
@@ -101,11 +112,13 @@ export async function POST(req: Request) {
         campaign: meta.campaign || false,
         campaign_index: meta.campaign_index || null,
         campaign_total: meta.campaign_total || null,
-        model: "google/gemini-omni",
-        modelChoice: "gemini",
-        cinemaProvider: "crun",
+        // Provider picked in the storyboard popup. model/modelChoice drive the
+        // cascade pool + rate lookup on Resubmit and at settle.
+        model: videoProvider === "seedance" ? "seedance" : "google/gemini-omni",
+        modelChoice: videoProvider,
+        ...(videoProvider === "gemini" ? { cinemaProvider: "crun" } : {}),
         imageMode: "ingredient",
-        resolution: "1080p",
+        resolution: videoProvider === "seedance" ? "720p" : "1080p",
         aspectRatio: null,
         image_urls: imageUrls,
         sub,
@@ -119,14 +132,17 @@ export async function POST(req: Request) {
 
   after(async () => {
     const r = await generateVideoWithCascade({
-      primaryModel: "google/gemini-omni",
+      primaryModel: videoProvider === "seedance" ? "seedance" : "google/gemini-omni",
       userId: user.id,
       prompt,
       imageUrls,
       imageMode: "ingredient",
-      durationMode: "10",
+      durationMode: String(duration),
       aspectRatio: "9:16",
-      asset: "gemini",
+      // Each provider draws from its own admin-configured pool, so a
+      // storyboard video cascades/falls back exactly like the same model
+      // fired from the Original Video tab.
+      asset: videoProvider === "seedance" ? "seedance" : "gemini",
     });
     if (r.ok) {
       await admin

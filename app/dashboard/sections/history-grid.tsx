@@ -118,7 +118,7 @@ function modelLabel(item: HistoryItem): string {
   if (m === "z-image" || m.includes("z-image")) return "Z-Image" + providerSuffix;
   if (m.includes("grok-imagine") || m.includes("grok-3"))
     return "Grok Imagine" + providerSuffix;
-  if (m.includes("seedance")) return "Seedance" + providerSuffix;
+  if (m.includes("seedance")) return "Seedance 2.0" + providerSuffix;
   // Viral tab "Talking Object AI" rows — show the special badge so users can
   // distinguish them from free-form Veo generations on the same tab.
   if (
@@ -856,9 +856,14 @@ function HistoryCardInner({
   // "Tukar sub" replace picker (storyboard rows only).
   const [tukarOpen, setTukarOpen] = useState(false);
   const [videoing, setVideoing] = useState(false);
+  // "Generate Video" provider popup (storyboard rows) — Omni or Seedance 2.0.
+  const [vidPickOpen, setVidPickOpen] = useState(false);
+  const [vidProvider, setVidProvider] = useState<"gemini" | "seedance">("gemini");
+  // Default 10s / 1 video. Omni is fixed 10s; Seedance takes 4-15.
+  const [vidDuration, setVidDuration] = useState(10);
   const isStoryboard = (item.metadata as any)?.feature === "storyboard";
 
-  // Generate an Omni video FROM this storyboard (image1=storyboard blueprint,
+  // Generate a video FROM this storyboard (image1=storyboard blueprint,
   // image2=product ref). Lands in the Original Video history grid.
   async function handleGenVideoFromStoryboard() {
     if (videoing) return;
@@ -867,13 +872,20 @@ function HistoryCardInner({
       const r = await fetch("/api/generate/storyboard/video", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ history_id: item.id }),
+        body: JSON.stringify({
+          history_id: item.id,
+          provider: vidProvider,
+          duration: vidProvider === "seedance" ? vidDuration : 10,
+        }),
       });
       const d = await r.json().catch(() => ({}));
       if (!r.ok || !d?.ok) {
         alert(d?.error || `Gagal jana video (HTTP ${r.status})`);
       } else {
-        alert("🎬 Video Omni tengah dijana — akan muncul di tab Original Video.");
+        setVidPickOpen(false);
+        alert(
+          `🎬 Video ${vidProvider === "seedance" ? "Seedance 2.0" : "Omni"} tengah dijana — akan muncul di tab Original Video.`
+        );
         window.dispatchEvent(new CustomEvent("history:refresh"));
       }
     } finally {
@@ -966,6 +978,13 @@ function HistoryCardInner({
   const isGeminiRow =
     modelChoiceLower === "gemini" ||
     /gemini-omni/i.test(rawModelLower);
+  // Seedance rows are excluded from Extend for the same reason as Grok /
+  // Sora 2 / Omni — the extend pipeline is hard-wired to Veo i2v + Banana
+  // refine, so a Veo seg-2 onto a Seedance seg-1 is a visible style cut.
+  // Needed once Seedance became selectable in Original Video (2026-07-15);
+  // before that these rows lived on their own tab and never hit veoExtendOk.
+  const isSeedanceRow =
+    modelChoiceLower === "seedance" || /seedance/i.test(rawModelLower);
   // Which model generates the extension — drives the ExtendDialog branch
   // + the /api/extend/video provider path.
   const extendProvider: "veo" | "grok" | "omni" = isGrokRow
@@ -979,12 +998,13 @@ function HistoryCardInner({
   const grokExtendOk =
     isGrokRow && (item.tab === "video" || item.tab === "original-video");
   const omniExtendOk = isGeminiRow && item.tab === "original-video";
-  const veoExtendOk = !isGrokRow && !isGeminiRow;
+  const veoExtendOk = !isGrokRow && !isGeminiRow && !isSeedanceRow;
   const canExtend =
     isVideo &&
     !isCinema &&
     !isClonePrompt &&
     !isSora2Row &&
+    !isSeedanceRow &&
     (grokExtendOk || omniExtendOk || veoExtendOk) &&
     item.status === "done" &&
     item.output_url;
@@ -1619,6 +1639,83 @@ function HistoryCardInner({
     >
       {tukarOpen && isStoryboard && (
         <StoryboardReplaceModal historyId={item.id} onClose={() => setTukarOpen(false)} />
+      )}
+      {/* Generate Video — pick the provider first. Defaults: Omni, 10s, 1 video. */}
+      {vidPickOpen && isStoryboard && (
+        <div
+          className="fixed inset-0 z-[200] flex items-center justify-center p-4"
+          style={{ background: "rgba(0,0,0,0.72)" }}
+          onClick={() => !videoing && setVidPickOpen(false)}
+        >
+          <div
+            className="w-full max-w-sm rounded-2xl p-5"
+            style={{ background: "var(--color-bg-card)", border: "1px solid var(--color-border)" }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="text-[13px] font-extrabold text-[var(--color-text-primary)] mb-1">🎬 Jana Video dari Storyboard</div>
+            <div className="text-[11px] text-[var(--color-text-muted)] mb-3">Pilih model video. 1 video setiap storyboard.</div>
+
+            <div className="grid grid-cols-2 gap-2 mb-3">
+              {([
+                { v: "gemini" as const, label: "🔷 Omni", desc: "Fixed 10s · 1080p" },
+                { v: "seedance" as const, label: "🌸 Seedance 2.0", desc: "4–15s · 720p" },
+              ]).map((o) => (
+                <button
+                  key={o.v}
+                  onClick={() => setVidProvider(o.v)}
+                  className="text-left px-3 py-2.5 rounded-xl"
+                  style={{
+                    border: `1px solid ${vidProvider === o.v ? "#3b82f6" : "var(--color-border)"}`,
+                    background: vidProvider === o.v ? "rgba(59,130,246,0.14)" : "var(--color-bg)",
+                  }}
+                >
+                  <span className="block text-[12px] font-bold text-[var(--color-text-primary)]">{o.label}</span>
+                  <span className="block text-[10px] text-[var(--color-text-muted)]">{o.desc}</span>
+                </button>
+              ))}
+            </div>
+
+            {/* Seedance bills per second, so let the user pick the length. */}
+            {vidProvider === "seedance" && (
+              <div className="mb-3">
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-[var(--color-text-muted)]">Saat</span>
+                  <span className="text-[12px] font-extrabold" style={{ color: "#f472b6" }}>{vidDuration}s</span>
+                </div>
+                <input
+                  type="range"
+                  min={4}
+                  max={15}
+                  step={1}
+                  value={vidDuration}
+                  onChange={(e) => setVidDuration(Number(e.target.value))}
+                  className="w-full accent-[#ec4899]"
+                />
+                <div className="flex justify-between text-[9px] text-[var(--color-text-muted)] mt-0.5"><span>4s</span><span>15s</span></div>
+              </div>
+            )}
+
+            <div className="flex gap-2">
+              <button
+                onClick={() => setVidPickOpen(false)}
+                disabled={videoing}
+                className="flex-1 py-2.5 rounded-xl text-[12px] font-bold disabled:opacity-40"
+                style={{ border: "1px solid var(--color-border)", color: "var(--color-text-secondary)" }}
+              >
+                Batal
+              </button>
+              <button
+                onClick={handleGenVideoFromStoryboard}
+                disabled={videoing}
+                className="flex-[2] py-2.5 rounded-xl text-[12px] font-extrabold flex items-center justify-center gap-1.5 disabled:opacity-40"
+                style={{ background: "linear-gradient(135deg,#3b82f6,#22d3ee)", color: "#fff" }}
+              >
+                {videoing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Clapperboard className="w-3.5 h-3.5" />}
+                {videoing ? "Menjana…" : "Jana Video"}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
       {/* Keyframes for the rainbow Custom Idea badge below. Cheap to
           duplicate per card (browser de-dupes identical rule names);
@@ -2761,7 +2858,7 @@ function HistoryCardInner({
                 <Palette className="w-3.5 h-3.5" strokeWidth={2.4} />
               </ActionBtn>
               {isStoryboard && (
-                <ActionBtn title="Generate Video (Omni)" onClick={handleGenVideoFromStoryboard} bg="linear-gradient(135deg,#3b82f6,#22d3ee)" disabled={videoing}>
+                <ActionBtn title="Generate Video" onClick={() => setVidPickOpen(true)} bg="linear-gradient(135deg,#3b82f6,#22d3ee)" disabled={videoing}>
                   {videoing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Clapperboard className="w-3.5 h-3.5" strokeWidth={2.4} />}
                 </ActionBtn>
               )}
