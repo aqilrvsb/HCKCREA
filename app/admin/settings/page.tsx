@@ -173,7 +173,12 @@ export default function AdminSettings() {
   const [geminiFallbackCount, setGeminiFallbackCount] = useState(10);
   const [geminiMainSlots, setGeminiMainSlots] = useState<SlotV[]>([]);
   const [geminiFallbackSlots, setGeminiFallbackSlots] = useState<SlotV[]>([]);
-  const [savingMfSlots, setSavingMfSlots] = useState<"video" | "image" | "grok" | "cinema" | "sora2" | "gemini" | null>(null);
+  // Seedance 2.0 — own cascade pool (split out of `cinema` 2026-07-15).
+  const [seedanceMainCount, setSeedanceMainCount] = useState(10);
+  const [seedanceFallbackCount, setSeedanceFallbackCount] = useState(10);
+  const [seedanceMainSlots, setSeedanceMainSlots] = useState<SlotV[]>([]);
+  const [seedanceFallbackSlots, setSeedanceFallbackSlots] = useState<SlotV[]>([]);
+  const [savingMfSlots, setSavingMfSlots] = useState<"video" | "image" | "grok" | "cinema" | "sora2" | "gemini" | "seedance" | null>(null);
   const [mfSlotsMsg, setMfSlotsMsg] = useState<string | null>(null);
 
   // Per-feature model overrides — cascade with main + fallback. Admin
@@ -509,13 +514,32 @@ export default function AdminSettings() {
           const cnt = (list.find((r) => r.key === "gemini_fallback_count")?.value?.count) || 10;
           setGeminiFallbackSlots(fitArr<SlotV>(arr, cnt, allowedV));
         }
+        // Seedance 2.0 cascade
+        if (row.key === "seedance_main_count") {
+          const n = Number(row.value?.count);
+          if (Number.isFinite(n) && n >= 1) setSeedanceMainCount(Math.floor(n));
+        }
+        if (row.key === "seedance_fallback_count") {
+          const n = Number(row.value?.count);
+          if (Number.isFinite(n) && n >= 1) setSeedanceFallbackCount(Math.floor(n));
+        }
+        if (row.key === "seedance_main_slots") {
+          const arr = Array.isArray(row.value?.slots) ? row.value.slots : [];
+          const cnt = (list.find((r) => r.key === "seedance_main_count")?.value?.count) || 10;
+          setSeedanceMainSlots(fitArr<SlotV>(arr, cnt, allowedV));
+        }
+        if (row.key === "seedance_fallback_slots") {
+          const arr = Array.isArray(row.value?.slots) ? row.value.slots : [];
+          const cnt = (list.find((r) => r.key === "seedance_fallback_count")?.value?.count) || 10;
+          setSeedanceFallbackSlots(fitArr<SlotV>(arr, cnt, allowedV));
+        }
       }
     } finally {
       setLoading(false);
     }
   }
 
-  async function saveMainFallback(asset: "video" | "image" | "grok" | "cinema" | "sora2" | "gemini") {
+  async function saveMainFallback(asset: "video" | "image" | "grok" | "cinema" | "sora2" | "gemini" | "seedance") {
     setSavingMfSlots(asset);
     setMfSlotsMsg(null);
     try {
@@ -525,6 +549,7 @@ export default function AdminSettings() {
         : asset === "grok" ? grokMainCount
         : asset === "sora2" ? sora2MainCount
         : asset === "gemini" ? geminiMainCount
+        : asset === "seedance" ? seedanceMainCount
         : cinemaMainCount;
       const fbCount =
         asset === "video" ? videoFallbackCount
@@ -532,6 +557,7 @@ export default function AdminSettings() {
         : asset === "grok" ? grokFallbackCount
         : asset === "sora2" ? sora2FallbackCount
         : asset === "gemini" ? geminiFallbackCount
+        : asset === "seedance" ? seedanceFallbackCount
         : cinemaFallbackCount;
       const main =
         asset === "video" ? videoMainSlots
@@ -539,6 +565,7 @@ export default function AdminSettings() {
         : asset === "grok" ? grokMainSlots
         : asset === "sora2" ? sora2MainSlots
         : asset === "gemini" ? geminiMainSlots
+        : asset === "seedance" ? seedanceMainSlots
         : cinemaMainSlots;
       const fb =
         asset === "video" ? videoFallbackSlots
@@ -546,6 +573,7 @@ export default function AdminSettings() {
         : asset === "grok" ? grokFallbackSlots
         : asset === "sora2" ? sora2FallbackSlots
         : asset === "gemini" ? geminiFallbackSlots
+        : asset === "seedance" ? seedanceFallbackSlots
         : cinemaFallbackSlots;
       const calls = [
         { key: `${asset}_main_count`, value: { count: mainCount } },
@@ -1130,6 +1158,8 @@ export default function AdminSettings() {
     "sora2_fallback_counter",
     "gemini_rotation_counter",
     "gemini_fallback_counter",
+    "seedance_rotation_counter",
+    "seedance_fallback_counter",
     "image_rotation_counter",
     "image_fallback_counter",
     "last_auto_resubmit_run",
@@ -1206,6 +1236,10 @@ export default function AdminSettings() {
     "gemini_main_slots",
     "gemini_fallback_count",
     "gemini_fallback_slots",
+    "seedance_main_count",
+    "seedance_main_slots",
+    "seedance_fallback_count",
+    "seedance_fallback_slots",
   ]);
 
   const grouped = useMemo(() => {
@@ -1240,7 +1274,7 @@ export default function AdminSettings() {
           Admin can grow / shrink each list with + / - buttons. */}
       {(() => {
         const assets: Array<{
-          asset: "video" | "image" | "grok" | "cinema" | "sora2" | "gemini";
+          asset: "video" | "image" | "grok" | "cinema" | "sora2" | "gemini" | "seedance";
           color: string;
           options: { value: string; label: string }[];
           mainCount: number;
@@ -1424,6 +1458,37 @@ export default function AdminSettings() {
             setMainSlots: (s) => setGeminiMainSlots(s as SlotV[]),
             fbSlots: geminiFallbackSlots,
             setFbSlots: (s) => setGeminiFallbackSlots(s as SlotV[]),
+          },
+          {
+            // Seedance 2.0 cascade — split out of `cinema` (2026-07-15) so
+            // Seedance rotates independently of the Cinema tab. P6 (APIPod)
+            // resolves seedance-2.0-fast-{t2v,i2v,r2v}, P1 (GeminiGen)
+            // resolves seedance-2-omni, P2 (Crun) bytedance/seedance2-0-fast-*.
+            asset: "seedance",
+            color: "#f43f5e", // rose — matches the Seedance chip theme
+            options: [
+              { value: "p1", label: "P1 — GeminiGen" },
+              { value: "p2-a", label: "P2 — Crun (key A)" },
+              { value: "p2-b", label: "P2 — Crun (key B)" },
+              { value: "p5", label: "P5 — APIMart" },
+              { value: "p6-a", label: "P6 — APIPod (A)" },
+              { value: "p6-b", label: "P6 — APIPod (B)" },
+              { value: "p6-c", label: "P6 — APIPod (C)" },
+              { value: "p6-d", label: "P6 — APIPod (D)" },
+              { value: "p6-e", label: "P6 — APIPod (E)" },
+              { value: "p6-f", label: "P6 — APIPod (F)" },
+              { value: "p6-g", label: "P6 — APIPod (G)" },
+              { value: "p6-h", label: "P6 — APIPod (H)" },
+              { value: "none", label: "— None —" },
+            ],
+            mainCount: seedanceMainCount,
+            setMainCount: setSeedanceMainCount,
+            fbCount: seedanceFallbackCount,
+            setFbCount: setSeedanceFallbackCount,
+            mainSlots: seedanceMainSlots,
+            setMainSlots: (s) => setSeedanceMainSlots(s as SlotV[]),
+            fbSlots: seedanceFallbackSlots,
+            setFbSlots: (s) => setSeedanceFallbackSlots(s as SlotV[]),
           },
         ];
         return (

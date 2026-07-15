@@ -249,11 +249,14 @@ export async function POST(req: Request) {
 
   // Route through the appropriate cascade:
   //   • image / fairytale-scene → image cascade (p2 ↔ p4 bidirectional)
-  //   • cinema with Grok        → p2 only (no Grok cascade defined)
-  //   • else (video tabs)       → video cascade (p2-A → p2-B, 2 tiers only)
+  //   • seedance                → seedance cascade pool (own main/fallback,
+  //                               split out of `cinema` 2026-07-15). Was a
+  //                               hardcoded single p1 call, so Resubmit could
+  //                               only ever land on p1 and never used the
+  //                               admin-configured fallback slots.
+  //   • else (video tabs)       → per-asset video cascade
   const isImageRow =
     row.tab === "image" || row.type === "image" || row.type === "fairytale-scene";
-  const isSeedance = model.toLowerCase().includes("seedance");
 
   let newTaskId: string | null = null;
   let newProvider: "p1" | "p2" | "p3" | "p4" | "p5" | "p6" = "p2";
@@ -303,23 +306,6 @@ export async function POST(req: Request) {
       retryError = r.error;
       tierLog = r.tierLog;
     }
-  } else if (isSeedance) {
-    // Seedance: single P1 (GeminiGen) call, no cascade.
-    const { p1CreateTask } = await import("@/lib/p1");
-    const created = await p1CreateTask({
-      model,
-      prompt: effectivePrompt,
-      imageUrls: allImageUrls,
-      durationMode,
-      aspectRatio,
-      imageMode,
-    });
-    if (created.ok && created.task_id) {
-      newTaskId = created.task_id;
-      newProvider = "p1";
-    } else {
-      retryError = created.error || "Seedance create failed";
-    }
   } else {
     // Single-shot video cascade — retry rotates to a different slot.
     // skipSlot tells the cascade to AVOID the slot from the prior
@@ -347,11 +333,12 @@ export async function POST(req: Request) {
     // Asset detection — match the cascade pool the row originally
     // fired through so the fallback round-robin uses the same family:
     //   • Sora 2 rows  → tab='sora2' OR modelChoice='sora2' → sora2 cascade
-    //   • Seedance rows → tab='seedance' → cinema cascade
+    //   • Seedance rows → tab='seedance' OR modelChoice/model 'seedance' →
+    //                     dedicated seedance cascade pool
     //   • Grok rows     → tab='cinema' or 'original-video' or 'grok' +
     //                     modelChoice='grok' (or model has 'grok') → grok cascade
     //   • Everything else (UGC, Auto, Veo viral, clone) → video cascade
-    let asset: "video" | "grok" | "cinema" | "sora2" | "gemini" = "video";
+    let asset: "video" | "grok" | "cinema" | "sora2" | "gemini" | "seedance" = "video";
     if (row.tab === "sora2") asset = "sora2";
     else if (meta.modelChoice === "sora2" || /sora/i.test(model)) {
       asset = "sora2";
@@ -362,13 +349,13 @@ export async function POST(req: Request) {
       // fire used — not the generic video pool which may route p6/p5.
       asset = "gemini";
     }
-    else if (row.tab === "seedance") asset = "cinema";
+    else if (row.tab === "seedance") asset = "seedance";
     else if (meta.modelChoice === "seedance" || /seedance/i.test(model)) {
       // Original Video tab Seedance rows have tab='original-video', not
       // tab='seedance', so they'd fall through to the default 'video'
-      // pool without this branch. Route them through the cinema cascade
-      // (same pool used by the dedicated Seedance tab).
-      asset = "cinema";
+      // pool without this branch. Both land on the dedicated seedance pool
+      // (split out of `cinema` 2026-07-15).
+      asset = "seedance";
     }
     else if (meta.modelChoice === "grok" || /grok/i.test(model)) {
       // Grok Imagine rows route through the dedicated grok cascade pool

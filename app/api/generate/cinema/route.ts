@@ -425,7 +425,7 @@ export async function POST(req: Request) {
               : modelChoice === "gemini"
                 ? "gemini"
                 : modelChoice === "seedance"
-                  ? "cinema"
+                  ? "seedance"
                   : "video",
       });
       if (result.ok) {

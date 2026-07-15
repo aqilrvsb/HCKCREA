@@ -70,6 +70,13 @@ const DEFAULT_GEMINI_MAIN: SlotProvider[] = ["p2-a", "p2-b", "none", "none", "no
 // Crun (p2-a/p2-b in MAIN) so survives a Crun-platform-wide outage.
 // Slot 0 = p5; rest empty until more providers come online.
 const DEFAULT_GEMINI_FALLBACK: SlotProvider[] = ["p5", "none", "none", "none", "none", "none", "none", "none", "none", "none"];
+// Seedance 2.0 Fast — its OWN pool (split out of `cinema` 2026-07-15 so admin
+// can rotate Seedance independently of the Cinema tab). APIPod (p6) resolves
+// seedance-2.0-fast-{t2v,i2v,r2v}; GeminiGen (p1) resolves seedance-2-omni;
+// Crun (p2) resolves bytedance/seedance2-0-fast-*. Main rotates p6 keys for
+// throughput, fallback drops to a different vendor.
+const DEFAULT_SEEDANCE_MAIN: SlotProvider[] = ["p6-a", "p6-b", "none", "none", "none", "none", "none", "none", "none", "none"];
+const DEFAULT_SEEDANCE_FALLBACK: SlotProvider[] = ["p6-c", "p1", "none", "none", "none", "none", "none", "none", "none", "none"];
 
 function sanitizeSlotList(
   raw: unknown,
@@ -198,7 +205,26 @@ export async function getGeminiFallbackSlots(): Promise<SlotProvider[]> {
   return sanitizeSlotList(raw?.slots, count, VIDEO_ALLOWED, DEFAULT_GEMINI_FALLBACK);
 }
 
-export type CascadeAsset = "video" | "image" | "grok" | "cinema" | "sora2" | "gemini";
+// Seedance 2.0 cascade — its own pool so admin can rotate Seedance slots
+// independently of the Cinema tab (split out 2026-07-15). VIDEO_ALLOWED, so
+// any video-capable slot can be picked; p6/p1/p2 all resolve a Seedance model.
+export async function getSeedanceMainSlots(): Promise<SlotProvider[]> {
+  const [count, raw] = await Promise.all([
+    getSlotCount("seedance_main_count"),
+    getSetting<{ slots: SlotProvider[] }>("seedance_main_slots"),
+  ]);
+  return sanitizeSlotList(raw?.slots, count, VIDEO_ALLOWED, DEFAULT_SEEDANCE_MAIN);
+}
+
+export async function getSeedanceFallbackSlots(): Promise<SlotProvider[]> {
+  const [count, raw] = await Promise.all([
+    getSlotCount("seedance_fallback_count"),
+    getSetting<{ slots: SlotProvider[] }>("seedance_fallback_slots"),
+  ]);
+  return sanitizeSlotList(raw?.slots, count, VIDEO_ALLOWED, DEFAULT_SEEDANCE_FALLBACK);
+}
+
+export type CascadeAsset = "video" | "image" | "grok" | "cinema" | "sora2" | "gemini" | "seedance";
 
 // Atomic round-robin counter for either MAIN or FALLBACK slot list.
 // Two separate counters per asset so main/fallback rotation are

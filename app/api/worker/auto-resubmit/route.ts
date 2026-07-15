@@ -9,6 +9,7 @@ import {
   getCinemaFallbackSlots,
   getSora2FallbackSlots,
   getGeminiFallbackSlots,
+  getSeedanceFallbackSlots,
   type CascadeAsset,
 } from "@/lib/cascade-rotation";
 import { isInternalError } from "@/lib/retry-eligibility";
@@ -52,6 +53,7 @@ async function getAutoRetryCap(asset: CascadeAsset): Promise<number> {
   else if (asset === "cinema") slots = await getCinemaFallbackSlots();
   else if (asset === "sora2") slots = await getSora2FallbackSlots();
   else if (asset === "gemini") slots = await getGeminiFallbackSlots();
+  else if (asset === "seedance") slots = await getSeedanceFallbackSlots();
   else slots = await getVideoFallbackSlots();
   // Count active slots only — "none" entries are placeholders, not
   // real retry destinations.
@@ -249,11 +251,11 @@ export async function GET(req: Request) {
       // it; this brings the cron in sync. Fixed 2026-06-29.
       rowAsset = "gemini";
     }
-    else if (row.tab === "seedance") rowAsset = "cinema";
+    else if (row.tab === "seedance") rowAsset = "seedance";
     else if (meta.modelChoice === "seedance" || /seedance/i.test(rowModel)) {
       // Original Video Seedance rows are tab='original-video' — route by
-      // modelChoice through the cinema pool. Matches lib/settle.ts.
-      rowAsset = "cinema";
+      // modelChoice through the dedicated seedance pool. Matches settle.ts.
+      rowAsset = "seedance";
     }
     else if (meta.modelChoice === "grok" || /grok/i.test(rowModel)) {
       // Grok by modelChoice/model REGARDLESS of tab — Dialog UGC grok rows

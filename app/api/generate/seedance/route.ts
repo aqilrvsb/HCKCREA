@@ -92,6 +92,10 @@ export async function POST(req: Request) {
       metadata: {
         aspectRatio,
         seedance_mode: hasRefs ? "r2v" : "t2v",
+        // Authoritative signal for the seedance cascade pool + the model
+        // fallback picker on Resubmit / auto-retry (settle.ts, retry route,
+        // auto-resubmit cron all read modelChoice).
+        modelChoice: "seedance",
         ref_image_count: imageUrls.length,
         ref_video_count: videoUrls.length,
         ref_audio_count: audioUrls.length,
@@ -115,11 +119,11 @@ export async function POST(req: Request) {
 
   after(async () => {
     try {
-      // Route Seedance through the Cinema cascade so admin can rotate
-      // across p1 (GeminiGen) + p6-a..h (APIPod). Each slot's
-      // CreateVideo handles the model id mapping internally
-      // (p6CreateVideo → seedance-2.0-fast-t2v / -i2v / -r2v;
-      //  p1CreateTask → seedance-2-omni).
+      // Route Seedance through its OWN cascade pool (split out of `cinema`
+      // 2026-07-15) so admin can rotate Seedance slots independently in
+      // /admin/settings → Cascade → seedance. Each slot's CreateVideo
+      // handles the model id mapping internally (p6CreateVideo →
+      // seedance-2.0-fast-t2v / -i2v / -r2v; p1CreateTask → seedance-2-omni).
       const imgMode: "frame" | "ingredient" | "text" =
         hasRefs ? "ingredient" : "text";
       const result = await generateVideoWithCascade({
@@ -130,8 +134,14 @@ export async function POST(req: Request) {
         durationMode: String(duration),
         aspectRatio,
         imageMode: imgMode,
-        asset: "cinema",
+        asset: "seedance",
       });
+
+      // MERGE metadata, never replace it — the insert stored image_urls /
+      // video_urls / audio_urls, and Resubmit + the auto-retry cron re-read
+      // them to re-fire with the same attachments. A wholesale overwrite here
+      // dropped them, so a failed Seedance row came back with no refs.
+      const { data: curFail } = await admin.from("history").select("metadata").eq("id", historyId).single();
 
       if (!result.ok) {
         await admin.from("history").update({
@@ -139,8 +149,7 @@ export async function POST(req: Request) {
           cost,
           error_message: result.error || "Seedance create failed",
           metadata: {
-            aspectRatio,
-            seedance_mode: hasRefs ? "r2v" : "t2v",
+            ...(curFail?.metadata || {}),
             tier_log: result.tierLog,
             upload_status: "failed",
           },
@@ -152,17 +161,13 @@ export async function POST(req: Request) {
         task_id: result.taskId,
         cost,
         metadata: {
-          aspectRatio,
-          seedance_mode: hasRefs ? "r2v" : "t2v",
+          ...(curFail?.metadata || {}),
           provider: result.actualProvider,
           slot: result.actualSlot,
           ...(result.keyIndex !== undefined ? { p6_key_index: result.keyIndex } : {}),
           model: result.actualModel,
           fallback_used: result.fallbackUsed,
           tier_log: result.tierLog,
-          ref_image_count: imageUrls.length,
-          ref_video_count: videoUrls.length,
-          ref_audio_count: audioUrls.length,
           upload_status: "done",
         },
       }).eq("id", historyId);
@@ -171,13 +176,15 @@ export async function POST(req: Request) {
       // done. Settle reads the live rate_seedance × duration so admin
       // pricing changes apply even if this row was queued earlier.
     } catch (e: any) {
+      // Merge, don't replace — keep image_urls/video_urls/audio_urls so
+      // Resubmit re-fires with the same attachments.
+      const { data: curErr } = await admin.from("history").select("metadata").eq("id", historyId).single();
       await admin.from("history").update({
         status: "failed",
         cost,
         error_message: e?.message || "Seedance background error",
         metadata: {
-          aspectRatio,
-          seedance_mode: hasRefs ? "r2v" : "t2v",
+          ...(curErr?.metadata || {}),
           upload_status: "failed",
         },
       }).eq("id", historyId);

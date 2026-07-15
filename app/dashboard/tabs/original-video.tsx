@@ -98,8 +98,8 @@ const PROVIDER_THEME: Record<
   seedance: {
     // Seedance 2.0 Fast (Bytedance Doubao) — pink/magenta gradient
     // matching the SEEDANCE badge in /admin/usage (#ec4899). Routes
-    // through the existing cinema cascade pool (asset='cinema') which
-    // already handles Seedance via p2 (Crun) + p6 (APIPod) adapters.
+    // through its own cascade pool (asset='seedance', split out of
+    // 'cinema' 2026-07-15) via the p6 / p1 / p2 adapters.
     primary: "#ec4899",
     soft: "rgba(236,72,153,0.25)",
     faint: "rgba(236,72,153,0.08)",
@@ -128,14 +128,11 @@ const PROVIDER_MODES: Record<Provider, ImageMode[]> = {
   // first-frame endpoint (image_urls 1-2 = first frame + optional last
   // frame, fixed 10s) — frame mode added per user direction 2026-07-06.
   // Crun (p2) path passes the same image_urls through unchanged.
-  // GeminiOmni also gets "video" — a Video Reference mode (upload a source
-  // video, no images). Both providers support it: P2 (Crun) video_list,
-  // P6 (APIPod) gemini-omni-extend. Cascade fallback as usual.
-  gemini: ["ingredient", "frame", "video"],
-  // Seedance 2.0 Fast: all 3 modes (r2v / t2v / i2v). Frame mode is
-  // start+end frame i2v (2 images max per APIPod spec). Ingredient is
-  // r2v with up to 9 refs (capped at 3 here for UX consistency).
-  seedance: ["ingredient", "text", "frame"],
+  // "video" (Video Reference) hidden per user direction 2026-07-15.
+  gemini: ["ingredient", "frame"],
+  // Seedance 2.0 Fast — Reference to Video (r2v). Same reference flow as
+  // GeminiOmni's ingredient mode, with 3 attachments + a seconds slider.
+  seedance: ["ingredient"],
 };
 
 // Per-(provider, mode) slot count. text=0 by definition; frame is 1
@@ -151,11 +148,9 @@ function getRefCap(provider: Provider, mode: ImageMode): number {
   // Sora 2 + Grok 1.5 accept a single first frame.
   if (mode === "frame")
     return provider === "veo" || provider === "seedance" || provider === "gemini" ? 2 : 1;
-  // ingredient — Seedance accepts up to 9 refs natively; we cap at 5
-  // here (sweet spot between API capacity and UI layout). Other providers
-  // stay at 3 (Gemini API allows 7, Veo/Grok at 3 by spec). REF_SLOTS=5
-  // so state can hold 5 picks for Seedance.
-  if (provider === "seedance") return 5;
+  // ingredient — Seedance 2.0 r2v accepts up to 9 refs natively; capped at
+  // 3 per user direction 2026-07-15 (same reference flow as GeminiOmni).
+  if (provider === "seedance") return 3;
   // GeminiOmni (gemini-omni-i2v) rejects >2 frame images — cap at 2 so the
   // UI can't submit a request the provider will reject ("supports at most
   // 2 frame images"). Fixed 2026-06-30.
@@ -707,10 +702,10 @@ export default function OriginalVideoTab({
             SORA2_DISABLED ? "sm:grid-cols-3" : "sm:grid-cols-4"
           } gap-2 mb-4`}
         >
-          {/* Seedance hidden from Original Video picker per user direction
-              (2026-06-08) — Seedance has its own dedicated tab. Grok =
-              Grok Imagine 1.5 Preview (image-to-video, 1-15s, 720p). */}
-          {(["veo", "sora2", "gemini", "grok"] as const)
+          {/* Seedance 2.0 shown here per user direction 2026-07-15 (Reference
+              to Video — same reference flow as GeminiOmni + a seconds slider).
+              Grok = Grok Imagine 1.5 Preview (image-to-video, 1-15s, 720p). */}
+          {(["veo", "sora2", "gemini", "grok", "seedance"] as const)
             // Veo 3.1 hidden from Original Video per user direction 2026-06-30.
             .filter((p) => p !== "veo" && !(SORA2_DISABLED && p === "sora2"))
             .map((p) => {
@@ -744,7 +739,9 @@ export default function OriginalVideoTab({
                     ? "Sora 2"
                     : p === "gemini"
                       ? "GeminiOmni"
-                      : "Grok 1.5"}
+                      : p === "seedance"
+                        ? "Seedance 2.0"
+                        : "Grok 1.5"}
               </button>
             );
           })}

@@ -24,6 +24,8 @@ import {
   getCinemaFallbackSlots,
   getSora2FallbackSlots,
   getImageFallbackSlots,
+  getSeedanceFallbackSlots,
+  getGeminiFallbackSlots,
   type CascadeAsset,
 } from "@/lib/cascade-rotation";
 import { isInternalError } from "@/lib/retry-eligibility";
@@ -354,6 +356,10 @@ async function getDynamicRetryCap(
   else if (asset === "grok") slots = await getGrokFallbackSlots();
   else if (asset === "cinema") slots = await getCinemaFallbackSlots();
   else if (asset === "sora2") slots = await getSora2FallbackSlots();
+  else if (asset === "seedance") slots = await getSeedanceFallbackSlots();
+  // gemini had no branch and silently fell through to the video pool, so its
+  // retry cap was computed from the wrong slot list. Fixed 2026-07-15.
+  else if (asset === "gemini") slots = await getGeminiFallbackSlots();
   else slots = await getVideoFallbackSlots();
   const count = slots.filter((s) => s !== "none").length;
   const cap = Math.max(
@@ -458,15 +464,15 @@ async function tryAutoRetry(
     // video pool which may include p6 keys that don't accept this model.
     cascadeAsset = "gemini";
   }
-  else if (hist.tab === "seedance") cascadeAsset = "cinema";
+  else if (hist.tab === "seedance") cascadeAsset = "seedance";
   else if (
     meta.modelChoice === "seedance" ||
     /seedance/i.test(rowModel)
   ) {
     // Original Video tab Seedance rows have tab='original-video', not
-    // tab='seedance', so route them through the cinema cascade pool
-    // (same pool used by the dedicated Seedance tab).
-    cascadeAsset = "cinema";
+    // tab='seedance', so match on model/modelChoice too. Both land on the
+    // dedicated seedance pool (split out of `cinema` 2026-07-15).
+    cascadeAsset = "seedance";
   }
   else if (meta.modelChoice === "grok" || /grok/i.test(rowModel)) {
     // Grok by modelChoice/model REGARDLESS of tab. Dialog UGC grok rows are
@@ -603,16 +609,17 @@ async function tryAutoRetry(
 
   // Route to the right cascade based on row type:
   //   • image / fairytale-scene → image cascade (p2 ↔ p4 bidirectional)
-  //   • seedance               → direct p2 call (no cascade; Seedance is
-  //                              one specific p2 model with no key-B
-  //                              fallback equivalent)
+  //   • seedance               → seedance cascade pool (own main/fallback,
+  //                              split out of `cinema` 2026-07-15). Was a
+  //                              hardcoded single p1 call, which meant a
+  //                              failed Seedance row could only ever retry
+  //                              on p1 and never used the admin fallback.
   //   • everything else (Veo + Grok across UGC / Auto Content / Cinema /
   //     Talking Object / Extend / AI agent) → video cascade (p2-A → p2-B)
   const isImageRow =
     hist.tab === "image" ||
     hist.type === "image" ||
     hist.type === "fairytale-scene";
-  const isSeedance = model.toLowerCase().includes("seedance");
 
   let newTaskId: string | null = null;
   let newProvider: "p1" | "p2" | "p3" | "p4" | "p5" | "p6" = "p2";
@@ -673,44 +680,6 @@ async function tryAutoRetry(
     newKeyIndex = (r as any).keyIndex;
     newModel = r.actualModel;
     fallbackUsed = r.fallbackUsed;
-  } else if (isSeedance) {
-    // Seedance: single P1 (GeminiGen) call, no cascade. Per user
-    // direction, Cinema/Seedance always routes to p1 directly.
-    const { p1CreateTask } = await import("@/lib/p1");
-    const created = await p1CreateTask({
-      model,
-      prompt: retryPrompt,
-      // Pass ALL attachments (multi-ref Seedance needs every URL).
-      imageUrls: allImageUrls,
-      durationMode,
-      aspectRatio,
-      imageMode,
-    });
-    if (!created.ok || !created.task_id) {
-      // Seedance create failed. Revert status (was set to "pending"
-      // by the atomic claim) back to "failed" so the row doesn't
-      // appear stuck in a permanent loading state.
-      await admin
-        .from("history")
-        .update({
-          status: "failed",
-          error_message: (created.error || "Seedance retry failed").slice(0, 300),
-          metadata: {
-            ...meta,
-            last_retry_error: (created.error || "Seedance retry failed").slice(0, 300),
-            last_retry_at: new Date().toISOString(),
-            retry_count: retryCount + 1,
-            auto_resubmit_count: Math.max(
-              Number(meta.auto_resubmit_count || 0),
-              retryCount + 1
-            ),
-          },
-        })
-        .eq("id", hist.id);
-      return false;
-    }
-    newTaskId = created.task_id;
-    newProvider = "p1";
   } else {
     // Video cascade for UGC / Auto / Cinema Veo / Talking Object / Extend.
     // Auto-retry must skip tiers that previously accepted but failed
@@ -741,7 +710,7 @@ async function tryAutoRetry(
     // detected at the top of this function; here it's narrowed to
     // non-image values (image rows take the dedicated image branch
     // above and never reach this point).
-    const videoAsset: "video" | "grok" | "cinema" | "sora2" | "gemini" =
+    const videoAsset: "video" | "grok" | "cinema" | "sora2" | "gemini" | "seedance" =
       cascadeAsset === "image" ? "video" : cascadeAsset;
     const r = await generateVideoWithCascade({
       primaryModel: model,
