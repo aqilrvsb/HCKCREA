@@ -170,6 +170,24 @@ function videoModeLabel(item: HistoryItem): string | null {
   return null;
 }
 
+// Which model family produced this row — drives the Original Video history
+// filter. metadata.modelChoice is the authoritative signal (stamped at create);
+// the model id is the fallback for older rows that predate it. Check order
+// mirrors inferModelHint() in lib/settle.ts: sora → seedance → grok →
+// gemini-omni → veo, so "google/gemini-omni" can't be claimed by the broader
+// veo match.
+type ModelFamily = "gemini" | "grok" | "seedance" | "veo" | "sora2" | "other";
+function rowModelFamily(item: HistoryItem): ModelFamily {
+  const mc = String((item.metadata as any)?.modelChoice || "").toLowerCase();
+  const m = String((item.metadata as any)?.model || "").toLowerCase();
+  if (mc === "sora2" || m.includes("sora")) return "sora2";
+  if (mc === "seedance" || m.includes("seedance")) return "seedance";
+  if (mc === "grok" || m.includes("grok")) return "grok";
+  if (mc === "gemini" || m.includes("gemini-omni")) return "gemini";
+  if (mc === "veo" || m.includes("veo")) return "veo";
+  return "other";
+}
+
 // Reusable "history below the form" grid. Loads + auto-polls rows for one tab.
 // Used by Image, Video, Clone, Auto Content sections.
 export default function HistoryGrid({
@@ -209,6 +227,8 @@ export default function HistoryGrid({
   const [storytellingSubTab, setStorytellingSubTab] = useState<"videos" | "images" | "drafts">("videos");
   // Images tab: filter between plain images and storyboard-mode grids.
   const [imgSubTab, setImgSubTab] = useState<"all" | "image" | "storyboard">("all");
+  // Original Video: filter history by which model produced the row.
+  const [vidModelTab, setVidModelTab] = useState<"all" | "gemini" | "grok" | "seedance" | "veo" | "sora2">("all");
   // Viral tab sub-tab — Talking Object AI generates BOTH a banana-pro
   // image AND a Veo video; users want to browse them as separate lists,
   // same UX as Storytelling. "videos" = the final mp4s (type=video).
@@ -472,6 +492,10 @@ export default function HistoryGrid({
         if (imgSubTab === "storyboard" && !isSb) return false;
         if (imgSubTab === "image" && isSb) return false;
       }
+      // Original Video sub-filter: show only rows from the picked model.
+      if (tab === "original-video" && vidModelTab !== "all") {
+        if (rowModelFamily(p) !== vidModelTab) return false;
+      }
       if (!p.created_at) return true; // unknown age — keep
       const ageMs = now - new Date(p.created_at).getTime();
       const saved = !!saveStatus[p.id]?.saved;
@@ -481,7 +505,19 @@ export default function HistoryGrid({
       if (!past) return true;
       return saved;
     });
-  }, [parents, saveStatus, tab, imgSubTab]);
+  }, [parents, saveStatus, tab, imgSubTab, vidModelTab]);
+
+  // Per-model counts for the Original Video filter chips. Counted off the raw
+  // parent list so a chip's number doesn't change when a filter is applied.
+  const modelCounts = useMemo(() => {
+    const c: Record<string, number> = {};
+    if (tab !== "original-video") return c;
+    for (const p of parents) {
+      const f = rowModelFamily(p);
+      c[f] = (c[f] || 0) + 1;
+    }
+    return c;
+  }, [parents, tab]);
 
   const totalPages = Math.max(1, Math.ceil(visibleParents.length / PAGE_SIZE));
   // Clamp page if items shrink (e.g. after delete) so we never show empty page.
@@ -525,6 +561,50 @@ export default function HistoryGrid({
               </button>
             );
           })}
+        </div>
+      )}
+
+      {/* Original Video: filter history by model. Click 🔷 Omni → only Omni
+          videos. Chips for models with zero rows are hidden so the row stays
+          short as providers come and go. */}
+      {tab === "original-video" && (
+        <div className="flex gap-1 p-1 rounded-xl bg-[var(--color-bg-card)] mb-4 flex-wrap">
+          {([
+            ["all", "Semua", "#f5b100"],
+            ["gemini", "🔷 Omni", "#06b6d4"],
+            ["grok", "⚡ Grok", "#f97316"],
+            ["seedance", "🌸 Seedance 2.0", "#ec4899"],
+            ["veo", "🎬 Veo", "#facc15"],
+            ["sora2", "✨ Sora 2", "#f87171"],
+            ["other", "Lain", "#94a3b8"],
+          ] as const)
+            .filter(([t]) => t === "all" || (modelCounts[t] || 0) > 0)
+            .map(([t, label, color]) => {
+              const active = vidModelTab === (t as any);
+              const n = t === "all" ? parents.length : modelCounts[t] || 0;
+              return (
+                <button
+                  key={t}
+                  onClick={() => { setVidModelTab(t as any); setPage(0); }}
+                  className="px-3 py-1.5 rounded-lg text-[12px] font-bold transition-colors flex items-center gap-1.5"
+                  style={{
+                    background: active ? color : "transparent",
+                    color: active ? "#1a1a1a" : "var(--color-text-secondary)",
+                  }}
+                >
+                  {label}
+                  <span
+                    className="text-[10px] font-mono rounded-full px-1.5"
+                    style={{
+                      background: active ? "rgba(0,0,0,0.18)" : "var(--color-bg)",
+                      color: active ? "#1a1a1a" : "var(--color-text-muted)",
+                    }}
+                  >
+                    {n}
+                  </span>
+                </button>
+              );
+            })}
         </div>
       )}
 
