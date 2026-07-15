@@ -857,10 +857,10 @@ function HistoryCardInner({
   const [tukarOpen, setTukarOpen] = useState(false);
   const [videoing, setVideoing] = useState(false);
   // "Generate Video" provider popup (storyboard rows) — Omni or Seedance 2.0.
+  // FIXED 10s / 1 video for both per user direction — no duration picker here
+  // (the 4-15s Seedance slider lives on the Original Video tab instead).
   const [vidPickOpen, setVidPickOpen] = useState(false);
   const [vidProvider, setVidProvider] = useState<"gemini" | "seedance">("gemini");
-  // Default 10s / 1 video. Omni is fixed 10s; Seedance takes 4-15.
-  const [vidDuration, setVidDuration] = useState(10);
   const isStoryboard = (item.metadata as any)?.feature === "storyboard";
 
   // Generate a video FROM this storyboard (image1=storyboard blueprint,
@@ -875,7 +875,7 @@ function HistoryCardInner({
         body: JSON.stringify({
           history_id: item.id,
           provider: vidProvider,
-          duration: vidProvider === "seedance" ? vidDuration : 10,
+          duration: 10,
         }),
       });
       const d = await r.json().catch(() => ({}));
@@ -1653,12 +1653,12 @@ function HistoryCardInner({
             onClick={(e) => e.stopPropagation()}
           >
             <div className="text-[13px] font-extrabold text-[var(--color-text-primary)] mb-1">🎬 Jana Video dari Storyboard</div>
-            <div className="text-[11px] text-[var(--color-text-muted)] mb-3">Pilih model video. 1 video setiap storyboard.</div>
+            <div className="text-[11px] text-[var(--color-text-muted)] mb-3">Pilih model video. Fixed 10 saat · 1 video setiap storyboard.</div>
 
             <div className="grid grid-cols-2 gap-2 mb-3">
               {([
-                { v: "gemini" as const, label: "🔷 Omni", desc: "Fixed 10s · 1080p" },
-                { v: "seedance" as const, label: "🌸 Seedance 2.0", desc: "4–15s · 720p" },
+                { v: "gemini" as const, label: "🔷 Omni", desc: "10s · 1080p" },
+                { v: "seedance" as const, label: "🌸 Seedance 2.0", desc: "10s · 720p" },
               ]).map((o) => (
                 <button
                   key={o.v}
@@ -1674,26 +1674,6 @@ function HistoryCardInner({
                 </button>
               ))}
             </div>
-
-            {/* Seedance bills per second, so let the user pick the length. */}
-            {vidProvider === "seedance" && (
-              <div className="mb-3">
-                <div className="flex items-center justify-between mb-1">
-                  <span className="text-[10px] font-bold uppercase tracking-wider text-[var(--color-text-muted)]">Saat</span>
-                  <span className="text-[12px] font-extrabold" style={{ color: "#f472b6" }}>{vidDuration}s</span>
-                </div>
-                <input
-                  type="range"
-                  min={4}
-                  max={15}
-                  step={1}
-                  value={vidDuration}
-                  onChange={(e) => setVidDuration(Number(e.target.value))}
-                  className="w-full accent-[#ec4899]"
-                />
-                <div className="flex justify-between text-[9px] text-[var(--color-text-muted)] mt-0.5"><span>4s</span><span>15s</span></div>
-              </div>
-            )}
 
             <div className="flex gap-2">
               <button
