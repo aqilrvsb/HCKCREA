@@ -15,6 +15,9 @@ type SavedProduct = {
   product_name: string;
   detail: string | null;
   attachments: string[];
+  // "extension" → pulled from the extension's Beg Kuning list (has a link but
+  // was never saved in-app), so it ships with 1 image instead of 3.
+  source?: string;
 };
 
 const THEME = "#f5b100";
@@ -262,7 +265,9 @@ export default function StoryboardMode({ projectId }: { projectId?: string }) {
                     {p.attachments?.[0] ? <img src={p.attachments[0]} className="w-9 h-9 rounded-md object-cover flex-shrink-0" alt="" /> : <span className="w-9 h-9 rounded-md flex-shrink-0" style={{ background: "var(--color-bg-card)" }} />}
                     <div className="flex-1 min-w-0">
                       <div className="text-[13px] font-semibold truncate text-[var(--color-text-primary)]">{p.product_name}</div>
-                      <div className="text-[10px] mt-0.5 text-[var(--color-text-muted)]">{(p.attachments || []).filter(Boolean).length} attachment</div>
+                      <div className="text-[10px] mt-0.5 text-[var(--color-text-muted)]">
+                        {(p.attachments || []).filter(Boolean).length} attachment{p.source === "extension" ? " · 🧩 dari extension" : ""}
+                      </div>
                     </div>
                   </button>
                 ))}
