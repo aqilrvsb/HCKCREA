@@ -5,6 +5,7 @@ import { orChat } from "@/lib/openrouter";
 import { generateImageWithCascade } from "@/lib/image-cascade";
 import { priceFor, hasEnoughCredits } from "@/lib/deduct";
 import { loadSubCards, extractGlobalRules, extractSubCard } from "@/lib/storyboard-cards";
+import { productLockRule } from "@/lib/storyboard-locks";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -109,6 +110,14 @@ export async function POST(req: Request) {
     const userPrompt =
       `Product: ${productName || "(unnamed)"}\nDetail: ${productDetail || "(none)"}\nSub-style: ${sub} · Category: ${mainLabel}\n${roleLine}${avatarLine}Write the storyboard image prompt now.`;
 
+    // Built BEFORE the locks so productLockRule's index map ("images 3–5 are
+    // the product") describes what is ACTUALLY sent — the cap-5 slice can drop
+    // trailing product photos, and a lock pointing at an image that wasn't
+    // attached is worse than no lock at all.
+    const refImages = [...avatarUrls, ...productImages].slice(0, 5);
+    const sentAvatars = Math.min(avatarUrls.length, refImages.length);
+    const sentProducts = refImages.length - sentAvatars;
+
     let prompt = `ONE single 9:16 storyboard grid for ONE video only. A ${sub} storyboard for ${productName || "the product"}, 6-9 panels, Malaysian UGC talent, product shown clearly with exact label.`;
     try {
       const llm = await orChat({ modelKey: "model_custom_idea", systemPrompt: sysPrompt, userPrompt, temperature: 0.9, maxTokens: 800 });
@@ -117,6 +126,10 @@ export async function POST(req: Request) {
       /* fall back */
     }
     if (avatarUrl) prompt = `${prompt}\n\nPRESENTER LOCK: the attached face reference is the fixed avatar — every human shown must be that exact same person/face across all frames; frames with no person stay person-free.`;
+    // Hard product lock — colour / cap / shape / label text copied verbatim.
+    // Counts are taken from refImages (post cap-5 slice) so the index map
+    // matches what is actually attached. Same rule as the original fire.
+    prompt = `${prompt}${productLockRule(sentAvatars, sentProducts)}`;
     // No-CTA carried from the original storyboard (single/quantity only).
     if (meta.no_cta === true && !isCampaign) {
       prompt = `${prompt}\n\nNO CALL-TO-ACTION: do NOT include any call-to-action anywhere — no 'buy now', 'order', 'add to cart', 'swipe up', 'link in bio', price tags or purchase prompts, and no final CTA frame. End on the content/benefit itself, not on a sell.`;
@@ -126,7 +139,6 @@ export async function POST(req: Request) {
       prompt = `${prompt}\n\nABSOLUTE HARD RULE — NO TEXT WHATSOEVER: this storyboard image must contain ZERO text of any kind. No subtitles, no captions, no on-screen words, no dialogue text, no headlines, no labels overlaid on the scene, no watermarks, no typography, no lettering, no numbers, no speech bubbles, no UI/graphics text. The ONLY text allowed is the product's own real packaging label as it physically appears on the product. Every panel is pure imagery (people, product, action, setting) with NO written words added.`;
     }
 
-    const refImages = [...avatarUrls, ...productImages].slice(0, 5);
     const r = await generateImageWithCascade({ primaryModel: STORYBOARD_MODEL, prompt, aspectRatio: "9:16", imageUrls: refImages.length > 0 ? refImages : undefined });
     if (r.ok) {
       const { data: cur } = await admin.from("history").select("metadata").eq("id", targetId).single();

@@ -5,6 +5,7 @@ import { orChat } from "@/lib/openrouter";
 import { generateImageWithCascade } from "@/lib/image-cascade";
 import { priceFor, hasEnoughCredits } from "@/lib/deduct";
 import { loadSubCards, extractGlobalRules, extractSubCard } from "@/lib/storyboard-cards";
+import { productLockRule } from "@/lib/storyboard-locks";
 
 export const runtime = "nodejs";
 // 300s so a large batch's background after() (prompt planning + firing every
@@ -263,16 +264,24 @@ export async function POST(req: Request) {
         /* fall back to the default prompt */
       }
       builtInBatch.push(prompt);
+      // Avatar photos FIRST (so the face-lock is always included even if the
+      // provider caps refs), then product images. Cap 5 (provider ceiling).
+      // Built BEFORE the locks below so the PRODUCT LOCK's index map ("images
+      // 3–5 are the product") describes what is ACTUALLY sent — the slice can
+      // drop trailing product photos, and a lock pointing at an image that
+      // wasn't attached is worse than no lock at all.
+      const refImages = [...avatarUrls, ...productImages].slice(0, 5);
+      const sentAvatars = Math.min(avatarUrls.length, refImages.length);
+      const sentProducts = refImages.length - sentAvatars;
       if (avatarUrl) {
         prompt = `${prompt}\n\nPRESENTER LOCK: the attached face reference is the fixed avatar — every human shown must be that exact same person/face across all frames; frames with no person stay person-free.`;
       }
+      // Hard product lock — colour / cap / shape / label text copied verbatim.
+      prompt = `${prompt}${productLockRule(sentAvatars, sentProducts)}`;
       // No-CTA (single/quantity + custom only — campaign controls its own CTA).
       if (noCta && !job.campaign) prompt = `${prompt}${NO_CTA_RULE}`;
       // Hard no-subtitle/no-text rule — ONLY when the client ticked it.
       if (noSubtitle) prompt = `${prompt}${NO_SUBTITLE_RULE}`;
-      // Avatar photos FIRST (so the face-lock is always included even if the
-      // provider caps refs), then product images. Cap 5 (provider ceiling).
-      const refImages = [...avatarUrls, ...productImages].slice(0, 5);
       plans.push({ id, prompt, refImages });
       // Persist the planned prompt now so the "saved AI story" exists even
       // before the image renders (and feeds future weeks' dedup).
