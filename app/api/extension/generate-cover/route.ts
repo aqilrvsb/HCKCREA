@@ -26,7 +26,11 @@ import { settleHistoryRow } from "@/lib/settle";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-export const maxDuration = 60;
+// 300s so the inline poll can WAIT for a slow cover instead of giving up early
+// and dropping to the frame flow. All covers are fired in parallel from the
+// panel, so in practice only the FIRST cover video actually waits — by the
+// time its image lands, the rest (fired at the same instant) are ready too.
+export const maxDuration = 300;
 
 const ROW_SELECT =
   "id, user_id, type, tab, status, task_id, duration, cost, prompt, reference_url, project_id, metadata, error_message, created_at, segment_index, parent_history_id, frame_anchor, output_url, merged_url";
@@ -160,11 +164,12 @@ export async function POST(req: Request) {
     })
     .eq("id", coverId);
 
-  // Poll-settle inline until the image lands. ~48s budget inside the 60s
-  // maxDuration. settleHistoryRow does the provider poll + B2 rehost + the
+  // Poll-settle inline until the image lands. ~240s budget inside the 300s
+  // maxDuration — generous so a slow first cover is WAITED for, not dropped to
+  // the frame flow. settleHistoryRow does the provider poll + B2 rehost + the
   // single deduct on pending→done (its own guards prevent a double charge if
   // the cron settles the same row concurrently).
-  const deadline = Date.now() + 48_000;
+  const deadline = Date.now() + 240_000;
   let coverUrl = "";
   while (Date.now() < deadline) {
     await new Promise((r) => setTimeout(r, 3000));
