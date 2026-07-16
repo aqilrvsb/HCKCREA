@@ -133,8 +133,11 @@ export async function POST(req: Request) {
   if (insErr || !coverRow) return NextResponse.json({ error: "DB insert failed" }, { status: 500 });
   const coverId = coverRow.id;
 
-  // Fire the cascade (gpt-image-2 primary → admin image-fallback tiers).
-  const gen = await generateImageWithCascade({ primaryModel: "gpt-image-2", prompt, aspectRatio: "9:16", imageUrls: refImages });
+  // Fire the cascade with fullCascade → walk ALL main slots then ALL fallback
+  // slots until one CREATE succeeds (not the default single-shot, which tries
+  // ONE slot and gives up). A cover is worth burning a few slots to land, and
+  // only if EVERY tier fails do we skip to the frame flow.
+  const gen = await generateImageWithCascade({ primaryModel: "gpt-image-2", prompt, aspectRatio: "9:16", imageUrls: refImages, fullCascade: true });
   if (!gen.ok) {
     await admin.from("history").update({ status: "failed", error_message: gen.error }).eq("id", coverId);
     // 200 + ok:false → extension skips to the normal frame flow.
