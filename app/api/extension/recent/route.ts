@@ -101,6 +101,9 @@ export async function GET(req: Request) {
     created_at: r.created_at,
     cover_title: r.metadata?.cover_title || null,
     cover_subtitle: r.metadata?.cover_subtitle || null,
+    // AI-generated 9:16 doodle cover (extension "🎨 Cover"). When present, the
+    // TikTok flow uploads THIS as the cover instead of picking a middle frame.
+    cover_thumbnail_url: r.metadata?.cover_thumbnail_url || null,
     tiktok_product_id: r.metadata?.tiktok_product_id || null,
     product_name: r.metadata?.product_name || null,
   }));

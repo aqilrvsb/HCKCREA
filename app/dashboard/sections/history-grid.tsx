@@ -486,6 +486,9 @@ export default function HistoryGrid({
   const visibleParents = useMemo(() => {
     const now = Date.now();
     return parents.filter((p) => {
+      // Cover thumbnails (extension "🎨 Cover") are a byproduct of a video, not
+      // a user-requested image — never list them in the Images grid.
+      if ((p.metadata as any)?.feature === "cover-thumbnail") return false;
       // Images tab sub-filter: plain images vs storyboard-mode grids.
       if (tab === "image" && imgSubTab !== "all") {
         const isSb = (p.metadata as any)?.feature === "storyboard";
