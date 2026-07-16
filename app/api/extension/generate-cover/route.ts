@@ -80,13 +80,19 @@ export async function POST(req: Request) {
   const coverTitle = String(body?.cover_title ?? meta.cover_title ?? "").trim();
   const coverSubtitle = String(body?.cover_subtitle ?? meta.cover_subtitle ?? "").trim();
 
-  // First frame (poster) = the subject; product photo (if any) = 2nd reference.
+  // First frame (poster) = the subject; ONE product photo = 2nd reference.
   const firstFrame = String(meta.poster_url || src.reference_url || "").trim();
   if (!firstFrame) {
     return NextResponse.json({ error: "No first-frame poster available for this video" }, { status: 422 });
   }
-  const productImg =
-    (Array.isArray(meta.image_urls) ? meta.image_urls : []).filter((u: any) => typeof u === "string" && u.trim())[0] || "";
+  // Product image selection (per user direction): take the SECOND attachment
+  // when there is one (usually the cleaner packshot), else the FIRST. Only a
+  // single product photo is sent — the cover just needs one clean reference,
+  // not the whole set.
+  const prodList = (Array.isArray(meta.image_urls) ? meta.image_urls : []).filter(
+    (u: any) => typeof u === "string" && u.trim()
+  );
+  const productImg = prodList[1] || prodList[0] || "";
   const refImages = [firstFrame, ...(productImg ? [productImg] : [])];
   const prompt = buildCoverPrompt(coverTitle, coverSubtitle, !!productImg);
 
