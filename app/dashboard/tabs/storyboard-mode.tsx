@@ -213,6 +213,9 @@ export default function StoryboardMode({ projectId }: { projectId?: string }) {
           no_cta: (isCustom || subs.length === 1) && noCta ? true : undefined,
           // No-subtitle applies to every mode.
           no_subtitle: noSubtitle ? true : undefined,
+          // Sent so the API can reject "Kekal Avatar ticked but no face
+          // uploaded" instead of silently generating with no presenter lock.
+          keep_avatar: keepAvatar,
           avatar_urls: keepAvatar ? avatarUrls : undefined,
           product: { name: pName.trim(), detail: pDetail.trim(), image_urls: pImgs.filter(Boolean).slice(0, 3) },
         }),
@@ -311,6 +314,15 @@ export default function StoryboardMode({ projectId }: { projectId?: string }) {
           <div className="text-[11px] mt-1.5 font-semibold" style={{ color: savedMsg.startsWith("✓") ? "#16a34a" : "#dc2626" }}>{savedMsg}</div>
         )}
         <p className="text-[10px] text-[var(--color-text-muted)] mt-1.5">Upload 3 attachment produk (dijadikan rujukan visual gpt-image-2). Isi Link Beg Kuning → simpan sebagai Beg Kuning Product; kosongkan → Tiada Link Product.</p>
+        {/* Make the reference budget visible BEFORE generating. Products loaded
+            from the extension arrive with only 1 photo, and 1 angle is a much
+            weaker identity lock than 3 — the client should see that and can
+            add more rather than wonder why the packaging drifted. */}
+        {pImgs.filter(Boolean).length > 0 && pImgs.filter(Boolean).length < 3 && (
+          <p className="text-[10px] mt-1" style={{ color: "#f59e0b" }}>
+            ⚠️ {pImgs.filter(Boolean).length} gambar produk sahaja. Lagi banyak angle = produk lagi tepat (warna/tudung/bentuk/tulisan). Tambah sampai 3 kalau ada.
+          </p>
+        )}
       </div>
 
       {/* Kekal Avatar — fixed presenter face */}

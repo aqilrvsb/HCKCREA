@@ -105,6 +105,26 @@ export async function POST(req: Request) {
   if (!productName && productImages.length === 0) {
     return NextResponse.json({ error: "Load produk dulu (Beg Kuning / Tiada Link)." }, { status: 400 });
   }
+  // At least ONE product photo is mandatory. The check above is an AND, so a
+  // request carrying a product NAME but zero photos used to pass — and a
+  // storyboard with no product reference means gpt-image-2 invents the
+  // packaging wholesale (wrong colour/cap/shape/label), which is the single
+  // worst version of the "produk tak sama" complaint. The UI already gates on
+  // name + >=1 attachment; this closes the API-level hole.
+  if (productImages.length === 0) {
+    return NextResponse.json(
+      { error: "Upload sekurang-kurangnya 1 attachment produk — tanpa gambar rujukan, AI akan reka produk sendiri." },
+      { status: 400 }
+    );
+  }
+  // Kekal Avatar ticked but no face uploaded → the presenter lock silently
+  // does nothing and every frame invents a different face. Fail loudly instead.
+  if (body?.keep_avatar === true && avatarUrls.length === 0) {
+    return NextResponse.json(
+      { error: "Kekal Avatar ditick — upload sekurang-kurangnya 1 gambar muka avatar." },
+      { status: 400 }
+    );
+  }
 
   const campaign = subItems.length >= 2;
   // Build the job list.
