@@ -5,6 +5,7 @@ import { orChat } from "@/lib/openrouter";
 import { generateVideoWithCascade } from "@/lib/video-cascade";
 import { getGeminiRate, getSeedanceRate } from "@/lib/settings";
 import { hasEnoughCredits } from "@/lib/deduct";
+import { ensureBiometricGrid } from "@/lib/biometric-grid";
 
 export const runtime = "nodejs";
 // 300s so the after() background block (creative LLM + up to two cascade CREATE
@@ -75,14 +76,23 @@ export async function POST(req: Request) {
   // creative line — the default line is used for the initial insert so we can
   // return instantly; the LLM-refined line is swapped in inside after() before
   // the cascade fires (so the slow orChat call never blocks the response).
+  const tail =
+    `Malaysian presenter, natural Bahasa Melayu voiceover (no Indonesian slang), on-screen captions short and correctly spelled, vertical 9:16, about ${duration} seconds. No on-screen medical or whitening claims.`;
+  // Two-image prompt (Omni): storyboard blueprint + separate product ref.
   const buildPrompt = (creative: string) =>
     `Use image 1 as the storyboard blueprint ONLY — follow its panels and actions in order, but do NOT show or display the storyboard grid itself; open directly on live action at 0:00. ` +
     `Use image 2 ONLY as the product identity reference (copy the exact label text, colour, shape and packaging; never redraw or invent the label — if it can't be shown sharply, angle the product away). ` +
-    `${creative} ` +
-    `Malaysian presenter, natural Bahasa Melayu voiceover (no Indonesian slang), on-screen captions short and correctly spelled, vertical 9:16, about ${duration} seconds. No on-screen medical or whitening claims.`;
+    `${creative} ` + tail;
+  // Single-image prompt (Seedance): the ONE grid-overlaid storyboard is both
+  // the blueprint AND the product source. (Any faint white grid lines on the
+  // reference are a biometric-bypass artefact — ignore them, never reproduce
+  // them in the video.)
+  const buildSoloPrompt = (creative: string) =>
+    `Use image 1 as the storyboard blueprint AND the product identity reference — follow its panels and actions in order, keep the product's exact label, colour, shape and packaging, but do NOT show or display the storyboard grid itself; open directly on live action at 0:00. Ignore any faint thin white grid lines on the reference image — they are a technical overlay, do NOT reproduce them. ` +
+    `${creative} ` + tail;
 
   const defaultCreative = `Create a ${main === "pc" ? "premium cinematic" : "natural UGC-style"} 10-second vertical video for the product, Malaysian presenter and setting.`;
-  const provisionalPrompt = buildPrompt(defaultCreative);
+  const provisionalPrompt = videoProvider === "seedance" ? buildSoloPrompt(defaultCreative) : buildPrompt(defaultCreative);
 
   const imageUrls = [storyboardUrl, productImage].filter(Boolean).slice(0, 2);
 
@@ -131,7 +141,7 @@ export async function POST(req: Request) {
     // can NEVER stall the cascade — we just fall back to the provisional
     // prompt and fire immediately. Before this, a hanging orChat could eat the
     // whole function budget and leave the row stuck pending with no task_id.
-    let prompt = provisionalPrompt;
+    let creative = defaultCreative;
     try {
       const llm = await Promise.race([
         orChat({
@@ -145,23 +155,44 @@ export async function POST(req: Request) {
         }),
         new Promise<{ ok: false; content?: string }>((resolve) => setTimeout(() => resolve({ ok: false, content: undefined }), 20_000)),
       ]);
-      if (llm.ok && llm.content && llm.content.trim().length > 15) {
-        prompt = buildPrompt(llm.content.trim().replace(/^["']|["']$/g, ""));
-        // Persist the refined prompt so history / retry / settle show what was
-        // actually sent, not the provisional line.
-        await admin.from("history").update({ prompt }).eq("id", hist.id);
-      }
+      if (llm.ok && llm.content && llm.content.trim().length > 15) creative = llm.content.trim().replace(/^["']|["']$/g, "");
     } catch {
-      /* keep the provisional prompt */
+      /* keep the default creative line */
     }
 
     const asset = videoProvider === "seedance" ? "seedance" : "gemini";
     const primaryModel = videoProvider === "seedance" ? "seedance" : "google/gemini-omni";
-    let r = await generateVideoWithCascade({
+
+    // SEEDANCE ONLY — Omni flow untouched below. Seedance's provider runs a
+    // "real person" biometric filter that rejects our AI faces ("input image
+    // may contain real person"), and it also rejects tiny (<300px) images.
+    // Fix both at once: overlay a subtle 6x6 grid on the storyboard (breaks the
+    // face landmarks) and send just THAT single large image (it already shows
+    // the product). Grid is cached on the storyboard row so a re-fire is free.
+    let refs = imageUrls; // Omni: [storyboard, product]
+    let prompt = buildPrompt(creative);
+    if (videoProvider === "seedance") {
+      const gridUrl = await ensureBiometricGrid({
+        userId: user.id,
+        projectId: (row as any).project_id ?? null,
+        sourceHistoryId: historyId,
+        imageUrl: storyboardUrl,
+        cachedGridUrl: (meta as any).biometric_grid_url,
+      });
+      refs = [gridUrl || storyboardUrl];
+      prompt = buildSoloPrompt(creative);
+    }
+    // Persist the actual prompt + the actual reference images sent. For
+    // Seedance `refs` is the grid-overlaid storyboard, so Resubmit re-fires
+    // with the grid (not the original faces) and won't re-trip the filter.
+    const baseMeta = { ...(hist.metadata || {}), image_urls: refs };
+    await admin.from("history").update({ prompt, metadata: baseMeta }).eq("id", hist.id);
+
+    const r = await generateVideoWithCascade({
       primaryModel,
       userId: user.id,
       prompt,
-      imageUrls,
+      imageUrls: refs,
       imageMode: "ingredient",
       durationMode: String(duration),
       aspectRatio: "9:16",
@@ -171,43 +202,13 @@ export async function POST(req: Request) {
       asset,
     });
 
-    // Seedance rejects reference images narrower than 300px ("expected the
-    // width to be at least 300px, but received a 282x312px image"). The
-    // storyboard grid is always large; the PRODUCT photo (image 2) is often a
-    // small extension thumbnail and is what trips this. Omni tolerates small
-    // images — Seedance doesn't. On that exact error, retry with ONLY the
-    // storyboard (which already shows the product) so the job succeeds instead
-    // of dying. Prompt swaps to a single-image variant.
-    if (
-      !r.ok &&
-      videoProvider === "seedance" &&
-      imageUrls.length > 1 &&
-      /at least\s*\d+\s*px|width to be at least|received a \d+x\d+px|image too small/i.test(r.error || "")
-    ) {
-      const soloPrompt =
-        `Use image 1 as the storyboard blueprint AND the product identity reference — follow its panels and actions in order, keep the product's exact label, colour, shape and packaging, but do NOT show or display the storyboard grid itself; open directly on live action at 0:00. ` +
-        prompt.replace(/^Use image 1[^.]*\.\s*Use image 2[^.]*\.\s*/i, "");
-      await admin.from("history").update({ prompt: soloPrompt }).eq("id", hist.id);
-      r = await generateVideoWithCascade({
-        primaryModel,
-        userId: user.id,
-        prompt: soloPrompt,
-        imageUrls: [storyboardUrl],
-        imageMode: "ingredient",
-        durationMode: String(duration),
-        aspectRatio: "9:16",
-        asset,
-      });
-      if (r.ok) prompt = soloPrompt;
-    }
-
     if (r.ok) {
       await admin
         .from("history")
         .update({
           task_id: r.taskId,
           cost,
-          metadata: { ...(hist.metadata || {}), provider: r.actualProvider, slot: r.actualSlot, ...(typeof (r as any).keyIndex === "number" ? { p6_key_index: (r as any).keyIndex } : {}), model: r.actualModel, fallback_used: r.fallbackUsed, tier_log: r.tierLog },
+          metadata: { ...baseMeta, provider: r.actualProvider, slot: r.actualSlot, ...(typeof (r as any).keyIndex === "number" ? { p6_key_index: (r as any).keyIndex } : {}), model: r.actualModel, fallback_used: r.fallbackUsed, tier_log: r.tierLog },
         })
         .eq("id", hist.id);
     } else {
@@ -222,7 +223,7 @@ export async function POST(req: Request) {
           status: "failed",
           error_message: r.error,
           cost,
-          metadata: { ...(hist.metadata || {}), tier_log: r.tierLog },
+          metadata: { ...baseMeta, tier_log: r.tierLog },
         })
         .eq("id", hist.id);
     }

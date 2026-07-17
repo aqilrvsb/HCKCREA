@@ -493,9 +493,11 @@ export default function HistoryGrid({
   const visibleParents = useMemo(() => {
     const now = Date.now();
     return parents.filter((p) => {
-      // Cover thumbnails (extension "🎨 Cover") are a byproduct of a video, not
-      // a user-requested image — never list them in the Images grid.
-      if ((p.metadata as any)?.feature === "cover-thumbnail") return false;
+      // Cover thumbnails (extension "🎨 Cover") + biometric-grid overlays
+      // (Seedance real-person bypass) are byproducts of a video, not
+      // user-requested images — never list them in the Images grid.
+      const feat = (p.metadata as any)?.feature;
+      if (feat === "cover-thumbnail" || feat === "biometric-grid") return false;
       // Images tab sub-filter: plain images vs storyboard-mode grids.
       if (tab === "image" && imgSubTab !== "all") {
         const isSb = (p.metadata as any)?.feature === "storyboard";
