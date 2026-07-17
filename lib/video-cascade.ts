@@ -46,7 +46,7 @@ import {
   type CascadeAsset,
 } from "@/lib/cascade-rotation";
 
-export type VideoCascadeProvider = "p1" | "p2" | "p5" | "p6";
+export type VideoCascadeProvider = "p1" | "p2" | "p5" | "p6" | "p7";
 
 export type VideoCascadeInput = {
   /** Veo or Crun model name in p2/Crun format. */
@@ -206,6 +206,17 @@ async function tryVideoSlot(
         taskId: r.ok ? (r.task_id ?? null) : null,
         error: r.ok ? null : (r.error ?? null),
         model: primaryModel,
+      };
+    }
+    if (slot === "p7") {
+      // PixelByte — Seedance 2.0 mini, no face filter. Seedance-only slot.
+      const { p7CreateVideo } = await import("@/lib/p7");
+      const r = await p7CreateVideo({ prompt, imageUrls, aspectRatio, durationMode });
+      return {
+        ok: r.ok,
+        taskId: r.ok ? (r.task_id ?? null) : null,
+        error: r.ok ? null : (r.error ?? null),
+        model: r.ok ? r.model : primaryModel,
       };
     }
     return { ok: false, taskId: null, error: `unknown slot ${slot}`, model: primaryModel };

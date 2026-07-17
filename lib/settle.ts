@@ -622,7 +622,7 @@ async function tryAutoRetry(
     hist.type === "fairytale-scene";
 
   let newTaskId: string | null = null;
-  let newProvider: "p1" | "p2" | "p3" | "p4" | "p5" | "p6" = "p2";
+  let newProvider: "p1" | "p2" | "p3" | "p4" | "p5" | "p6" | "p7" = "p2";
   let newSlot: string | undefined = undefined;
   let newKeyIndex: number | undefined = undefined;
   let newModel: string = model;
@@ -855,8 +855,10 @@ export async function settleHistoryRow(hist: HistoryRow): Promise<SettleResult> 
   const metaWebhookProvider = String(
     hist.metadata?.webhook_provider || ""
   ).toLowerCase();
-  const rowProvider: "p1" | "p2" | "p3" | "p4" | "p5" | "p6" =
-    metaProvider === "p6" || metaWebhookProvider === "p6"
+  const rowProvider: "p1" | "p2" | "p3" | "p4" | "p5" | "p6" | "p7" =
+    metaProvider === "p7" || metaWebhookProvider === "p7"
+      ? "p7"
+      : metaProvider === "p6" || metaWebhookProvider === "p6"
       ? "p6"
       : metaProvider === "p5" || metaWebhookProvider === "p5"
         ? "p5"
@@ -881,6 +883,9 @@ export async function settleHistoryRow(hist: HistoryRow): Promise<SettleResult> 
       typeof slot === "string" && slot.startsWith("p6-") ? (slot as any) : undefined,
       isImageRow ? "image" : "video"
     );
+  } else if (rowProvider === "p7") {
+    const { p7GetStatus } = await import("@/lib/p7");
+    r = await p7GetStatus(hist.task_id);
   } else if (rowProvider === "p5") {
     const { p5GetStatus } = await import("@/lib/p5");
     r = await p5GetStatus(hist.task_id);

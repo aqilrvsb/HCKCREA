@@ -136,7 +136,7 @@ export async function POST(req: Request) {
   // Resolve the viral provider/model here too so the placeholder badge
   // shows the correct model from the start.
   let imageHistoryId: string | null = null;
-  let viralCfgPreflight: { provider: "p1" | "p2" | "p3" | "p4" | "p5" | "p6"; modelKey: string } | null = null;
+  let viralCfgPreflight: { provider: "p1" | "p2" | "p3" | "p4" | "p5" | "p6" | "p7"; modelKey: string } | null = null;
   if (mode === "i2v") {
     try {
       viralCfgPreflight = await getViralImageConfig();
@@ -286,7 +286,7 @@ export async function POST(req: Request) {
       const veoCreate: {
         ok: boolean;
         task_id?: string;
-        provider?: "p1" | "p2" | "p3" | "p4" | "p5" | "p6";
+        provider?: "p1" | "p2" | "p3" | "p4" | "p5" | "p6" | "p7";
         error?: string;
       } = veoResult.ok
         ? { ok: true, task_id: veoResult.taskId, provider: veoResult.actualProvider }
@@ -451,7 +451,7 @@ export async function POST(req: Request) {
       // banana-pro / nano-banana variants do text-to-image, no reference
       imageUrls: [],
     });
-    const imgCreate: { ok: boolean; task_id?: string; provider?: "p1" | "p2" | "p3" | "p4" | "p5" | "p6"; error?: string; tierLog?: any } =
+    const imgCreate: { ok: boolean; task_id?: string; provider?: "p1" | "p2" | "p3" | "p4" | "p5" | "p6" | "p7"; error?: string; tierLog?: any } =
       cascadeResult.ok
         ? {
             ok: true,
@@ -500,7 +500,7 @@ export async function POST(req: Request) {
 
     // Stamp the image task_id on the placeholder row so /api/check-status
     // (or any future poller) can re-query it if needed.
-    const imgProvider = (imgCreate.provider || viralCfg.provider) as "p1" | "p2" | "p3" | "p4" | "p5" | "p6";
+    const imgProvider = (imgCreate.provider || viralCfg.provider) as "p1" | "p2" | "p3" | "p4" | "p5" | "p6" | "p7";
     if (imageHistoryId) {
       await admin
         .from("history")
@@ -694,7 +694,7 @@ export async function POST(req: Request) {
       imageMode: "frame",
     });
 
-    const veoCreate: { ok: boolean; task_id?: string; provider?: "p1" | "p2" | "p3" | "p4" | "p5" | "p6"; error?: string } =
+    const veoCreate: { ok: boolean; task_id?: string; provider?: "p1" | "p2" | "p3" | "p4" | "p5" | "p6" | "p7"; error?: string } =
       veoResult.ok
         ? { ok: true, task_id: veoResult.taskId, provider: veoResult.actualProvider }
         : { ok: false, error: veoResult.error };

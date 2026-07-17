@@ -132,6 +132,7 @@ export default function AdminSettings() {
   type SlotV =
     | "p1" | "p2-a" | "p2-b" | "p5"
     | "p6-a" | "p6-b" | "p6-c" | "p6-d" | "p6-e" | "p6-f" | "p6-g" | "p6-h"
+    | "p7"
     | "none";
   type SlotI =
     | "p1" | "p2-a" | "p2-b" | "p4" | "p5"
@@ -387,6 +388,7 @@ export default function AdminSettings() {
         const allowedV: string[] = [
           "p1", "p2-a", "p2-b", "p5",
           "p6-a", "p6-b", "p6-c", "p6-d", "p6-e", "p6-f", "p6-g", "p6-h",
+          "p7",
           "none",
         ];
         const allowedI: string[] = [
@@ -1210,6 +1212,7 @@ export default function AdminSettings() {
     "p6_key_f",
     "p6_key_g",
     "p6_key_h",
+    "p7_key",
     // Per-slot cascade configuration — managed via the Cascade
     // section above (slot count + per-slot provider selectors).
     "video_main_count",
@@ -1467,6 +1470,7 @@ export default function AdminSettings() {
             asset: "seedance",
             color: "#f43f5e", // rose — matches the Seedance chip theme
             options: [
+              { value: "p7", label: "P7 — PixelByte (Seedance, NO face filter) ★" },
               { value: "p1", label: "P1 — GeminiGen" },
               { value: "p2-a", label: "P2 — Crun (key A)" },
               { value: "p2-b", label: "P2 — Crun (key B)" },

@@ -29,11 +29,13 @@ export type SlotProvider =
   | "p4"
   | "p5"
   | "p6-a" | "p6-b" | "p6-c" | "p6-d" | "p6-e" | "p6-f" | "p6-g" | "p6-h"
+  | "p7"
   | "none";
 
 export const VIDEO_ALLOWED: SlotProvider[] = [
   "p1", "p2-a", "p2-b", "p5",
   "p6-a", "p6-b", "p6-c", "p6-d", "p6-e", "p6-f", "p6-g", "p6-h",
+  "p7",
   "none",
 ];
 
@@ -75,7 +77,11 @@ const DEFAULT_GEMINI_FALLBACK: SlotProvider[] = ["p5", "none", "none", "none", "
 // seedance-2.0-fast-{t2v,i2v,r2v}; GeminiGen (p1) resolves seedance-2-omni;
 // Crun (p2) resolves bytedance/seedance2-0-fast-*. Main rotates p6 keys for
 // throughput, fallback drops to a different vendor.
-const DEFAULT_SEEDANCE_MAIN: SlotProvider[] = ["p6-a", "p6-b", "none", "none", "none", "none", "none", "none", "none", "none"];
+// p7 (PixelByte) FIRST — it runs Seedance mini WITHOUT the "real person" face
+// filter, so it's the only slot that works for AI-face storyboards. p6 slots
+// (APIPod) are fallback only (they still 403 on faces, but survive if p7 is
+// down and the content has no faces).
+const DEFAULT_SEEDANCE_MAIN: SlotProvider[] = ["p7", "p6-a", "none", "none", "none", "none", "none", "none", "none", "none"];
 const DEFAULT_SEEDANCE_FALLBACK: SlotProvider[] = ["p6-c", "p1", "none", "none", "none", "none", "none", "none", "none", "none"];
 
 function sanitizeSlotList(
@@ -320,9 +326,10 @@ export function walkOrder(
 // via p2GetStatus (same endpoint, just different API keys at submit time).
 // "none" should never reach here (filtered earlier) but fall back to p2
 // just in case.
-export function slotToProvider(slot: SlotProvider): "p1" | "p2" | "p4" | "p5" | "p6" {
+export function slotToProvider(slot: SlotProvider): "p1" | "p2" | "p4" | "p5" | "p6" | "p7" {
   if (slot === "p2-a" || slot === "p2-b") return "p2";
   if (slot.startsWith("p6-")) return "p6";
+  if (slot === "p7") return "p7";
   if (slot === "none") return "p2";
   return slot as "p1" | "p4" | "p5";
 }

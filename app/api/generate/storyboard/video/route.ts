@@ -77,20 +77,16 @@ export async function POST(req: Request) {
   // the cascade fires (so the slow orChat call never blocks the response).
   const tail =
     `Malaysian presenter, natural Bahasa Melayu voiceover (no Indonesian slang), on-screen captions short and correctly spelled, vertical 9:16, about ${duration} seconds. No on-screen medical or whitening claims.`;
-  // Two-image prompt (Omni): storyboard blueprint + separate product ref.
+  // Storyboard blueprint (image 1) + separate product ref (image 2). Both Omni
+  // AND Seedance use this SAME two-image flow now — Seedance runs through p7
+  // (PixelByte) which has no face filter, so no special-casing.
   const buildPrompt = (creative: string) =>
     `Use image 1 as the storyboard blueprint ONLY — follow its panels and actions in order, but do NOT show or display the storyboard grid itself; open directly on live action at 0:00. ` +
     `Use image 2 ONLY as the product identity reference (copy the exact label text, colour, shape and packaging; never redraw or invent the label — if it can't be shown sharply, angle the product away). ` +
     `${creative} ` + tail;
-  // Single-image prompt (Seedance): the ONE storyboard is both the blueprint
-  // AND the product source (sending only it avoids the <300px product-thumbnail
-  // rejection).
-  const buildSoloPrompt = (creative: string) =>
-    `Use image 1 as the storyboard blueprint AND the product identity reference — follow its panels and actions in order, keep the product's exact label, colour, shape and packaging, but do NOT show or display the storyboard grid itself; open directly on live action at 0:00. ` +
-    `${creative} ` + tail;
 
   const defaultCreative = `Create a ${main === "pc" ? "premium cinematic" : "natural UGC-style"} 10-second vertical video for the product, Malaysian presenter and setting.`;
-  const provisionalPrompt = videoProvider === "seedance" ? buildSoloPrompt(defaultCreative) : buildPrompt(defaultCreative);
+  const provisionalPrompt = buildPrompt(defaultCreative);
 
   const imageUrls = [storyboardUrl, productImage].filter(Boolean).slice(0, 2);
 
@@ -161,23 +157,12 @@ export async function POST(req: Request) {
     const asset = videoProvider === "seedance" ? "seedance" : "gemini";
     const primaryModel = videoProvider === "seedance" ? "seedance" : "google/gemini-omni";
 
-    // SEEDANCE ONLY — Omni flow untouched below. Seedance sends just the single
-    // large storyboard (it already shows the product), which sidesteps the
-    // provider's <300px image rejection. NOTE: Seedance's ByteDance moderation
-    // ("input image may contain real person") still blocks AI-face storyboards
-    // — that's a provider-account limitation (needs real-human verification),
-    // not something we can fix in the prompt/image. Use Omni for storyboards
-    // with faces. (The 6x6 grid-overlay hack was tested and does NOT beat the
-    // filter — removed to avoid a wasted image gen per attempt.)
-    let refs = imageUrls; // Omni: [storyboard, product]
-    let prompt = buildPrompt(creative);
-    if (videoProvider === "seedance") {
-      refs = [storyboardUrl];
-      prompt = buildSoloPrompt(creative);
-    }
-    // Persist the actual prompt + the actual reference images sent. For
-    // Seedance `refs` is the grid-overlaid storyboard, so Resubmit re-fires
-    // with the grid (not the original faces) and won't re-trip the filter.
+    // Seedance and Omni now use the EXACT SAME flow — both send [storyboard,
+    // product] with the two-image prompt. Seedance runs through the seedance
+    // cascade pool whose primary slot is p7 (PixelByte, no face filter), so
+    // AI-face storyboards pass. Nothing provider-specific here anymore.
+    const refs = imageUrls;
+    const prompt = buildPrompt(creative);
     const baseMeta = { ...(hist.metadata || {}), image_urls: refs };
     await admin.from("history").update({ prompt, metadata: baseMeta }).eq("id", hist.id);
 
