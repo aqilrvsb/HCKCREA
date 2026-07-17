@@ -128,7 +128,8 @@ function transformPromptForSora2(prompt: string): string {
 //   • Seedance 2.0 Fast
 //       - seedance-2.0-fast-t2v : text only
 //       - seedance-2.0-fast-i2v : single start-frame image (frame)
-//       - seedance-2.0-fast-r2v : 1-3 reference images (ingredient)
+//       - seedance-2.0-mini-r2v : 1-3 reference images (ingredient) — the
+//         variant used by Storyboard→Video + Original Video (2026-07-17)
 function apipodVideoModel(input: {
   model?: string;
   imageMode?: "frame" | "ingredient" | "text";
@@ -159,7 +160,10 @@ function apipodVideoModel(input: {
   if (m.includes("seedance")) {
     if (refs === 0 || mode === "text") return "seedance-2.0-fast-t2v";
     if (mode === "frame") return "seedance-2.0-fast-i2v";
-    return "seedance-2.0-fast-r2v";
+    // Reference-to-video (ingredient) uses the MINI model per user direction
+    // 2026-07-17. This is the variant Storyboard→Video and Original Video both
+    // hit (both send ingredient-mode refs).
+    return "seedance-2.0-mini-r2v";
   }
 
   // Gemini Omni — APIPod splits into:
@@ -321,12 +325,12 @@ export async function p6CreateVideo(input: {
     //   • veo3-1-fast             → up to 2 (start + end frame)
     //   • veo3-1-fast-ref         → up to 3 (reference images)
     //   • seedance-2.0-fast-i2v   → 1-2  (start + end frame)
-    //   • seedance-2.0-fast-r2v   → 0-9  (reference images)
+    //   • seedance-2.0-*-r2v      → 0-9  (reference images; fast or mini)
     //   • gemini-omni-i2v         → 1-2 (first frame + optional last frame,
     //     per the current APIPod Gemini Omni Image-to-Video doc)
     let cap = 2;
     if (resolvedModel === "seedance-2.0-fast-i2v") cap = 2;
-    else if (resolvedModel === "seedance-2.0-fast-r2v") cap = 9;
+    else if (resolvedModel.endsWith("-r2v")) cap = 9; // fast OR mini r2v
     else if (resolvedModel === "veo3-1-fast-ref") cap = 3;
     else if (resolvedModel === "veo3-1-fast") cap = 2;
     else if (resolvedModel === "gemini-omni-i2v") cap = 2;

@@ -386,7 +386,7 @@ const SEEDANCE_KNOWLEDGE = `You are the Q&A help assistant for the Seedance tab 
 === WHAT THIS TAB DOES ===
 Generates videos using ByteDance's Seedance 2.0 models via APIPod (p6 cascade). Two model variants:
 - **seedance-2.0-fast-i2v** (image-to-video): 1-2 reference images (start frame + optional end frame). Animates a still image into a moving video.
-- **seedance-2.0-fast-r2v** (reference-to-video): 0-9 reference images. More freeform — uses refs as style/subject anchors but generates a fresh scene.
+- **seedance-2.0-mini-r2v** (reference-to-video): 0-9 reference images. More freeform — uses refs as style/subject anchors but generates a fresh scene. This is the variant Storyboard→Video + Original Video use.
 
 Per-second billing: ~$0.15-0.30 per second depending on variant.
 
