@@ -327,7 +327,14 @@ export default function HistoryGrid({
         .select("*")
         .eq("tab", dbTab)
         .order("created_at", { ascending: false })
-        .limit(60);
+        // Was 60 → only ever surfaced the latest 5 pages (60 / PAGE_SIZE 12).
+        // 1000 is PostgREST's default max-rows, so this shows every row a
+        // project realistically holds. The client-side filters (model filter,
+        // 30-day TTL, cover-thumbnail exclusion, parent/child merge) all run
+        // over this set, so they need the full list loaded — hence a big cap
+        // rather than server-side paging (a project past 1000 rows would need
+        // that refactor).
+        .limit(1000);
       if (projectId) q = q.eq("project_id", projectId);
       if (tab === "fairytale") {
         q = q.eq(
