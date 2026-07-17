@@ -83,7 +83,7 @@ function modelLabel(item: HistoryItem): string {
   if (!rawSlot) {
     const tier1: any = item.metadata?.tier_log?.[0];
     const parts = String(tier1?.tier || "").split(":");
-    if (parts.length >= 2 && /^p[1-5](-[ab])?$|^p6-[a-h]$|^none$/i.test(parts[1])) {
+    if (parts.length >= 2 && /^p[1-5](-[ab])?$|^p6-[a-h]$|^p7$|^none$/i.test(parts[1])) {
       rawSlot = parts[1];
     }
   }
@@ -95,7 +95,7 @@ function modelLabel(item: HistoryItem): string {
         .replace(/^P6-([A-H])$/, "P6 $1")
     : rawProvider.toUpperCase();
   const providerSuffix =
-    /^P[1-6]/.test(slotLabel) ? ` • ${slotLabel}` : "";
+    /^P[1-7]/.test(slotLabel) ? ` • ${slotLabel}` : "";
 
   if (item.type === "fairytale-scene") {
     // Storytelling scene image — show model + provider so it's
