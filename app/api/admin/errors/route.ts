@@ -37,12 +37,18 @@ export async function GET(req: Request) {
   const end = url.searchParams.get("end");
 
   const admin = createAdminClient();
+  // Surface FAILED rows AND STUCK PENDING rows (pending + an error_message
+  // that was never cleared). The auto-resubmit cron flips failed→pending when
+  // it re-fires; a row that then re-failed and got stuck would vanish from a
+  // failed-only feed, so the admin couldn't see or Resubmit it. Actively
+  // retrying rows clear error_message on re-fire, so the not-null gate keeps
+  // those transient in-flight rows out — only genuinely stuck ones appear.
   let q = admin
     .from("history")
     .select(
       "id, user_id, project_id, task_id, type, tab, status, error_message, metadata, created_at, prompt"
     )
-    .eq("status", "failed")
+    .in("status", ["failed", "pending"])
     .not("error_message", "is", null)
     .order("created_at", { ascending: false })
     .limit(2000);

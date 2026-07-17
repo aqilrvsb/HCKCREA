@@ -53,7 +53,7 @@ export async function POST(req: Request) {
   const { data: row, error: selErr } = await admin
     .from("history")
     .select(
-      "id, user_id, type, tab, status, prompt, reference_url, duration, cost, metadata, error_message"
+      "id, user_id, type, tab, status, task_id, prompt, reference_url, duration, cost, metadata, error_message"
     )
     .eq("id", historyId)
     .maybeSingle();
@@ -95,14 +95,20 @@ export async function POST(req: Request) {
       .eq("id", historyId);
   }
 
-  // Block retry on rows that are still in flight or already done. Only
-  // failed rows make sense to retry; the user can stop pending rows by
-  // letting them settle / fail naturally first.
-  if (row.status !== "failed") {
+  // Allow retry on FAILED rows and STUCK PENDING rows. Pending is permitted
+  // because the auto-resubmit cron (every 8 min) often claims a failed row
+  // (failed→pending) between the admin page loading it and the client clicking
+  // Resubmit — the old guard rejected those with "only failed rows", so the
+  // button looked broken on exactly the errors the user wanted to retry
+  // (503 "no available channel", insufficient credits, etc.).
+  //
+  // Safe from double-charge: settle only ever processes a row's CURRENT
+  // task_id. The atomic claim below nulls task_id and the fire sets a new one,
+  // so any old in-flight task is orphaned — it can never settle/deduct against
+  // this row again. Only genuinely finished rows are off-limits.
+  if (row.status === "done" || row.status === "succeeded") {
     return NextResponse.json(
-      {
-        error: `Row is "${row.status}" — only failed rows can be retried`,
-      },
+      { error: `Row is "${row.status}" — already finished, nothing to retry` },
       { status: 400 }
     );
   }
@@ -114,19 +120,21 @@ export async function POST(req: Request) {
   // (Auto paths — event-driven settle + auto-resubmit cron — still keep
   // the isInternalError gate; only this manual button is unrestricted.)
 
-  // ATOMIC CLAIM: flip status failed → pending BEFORE firing the
-  // cascade. If 0 rows match (because the auto-resubmit cron got here
-  // first OR a parallel user click), abort with a clear error so we
-  // don't fire a duplicate task at the upstream provider.
-  const { data: claimed, error: claimErr } = await admin
+  // ATOMIC CLAIM: (re)set status → pending + NULL the task_id BEFORE firing.
+  // Gated on the row still holding the task_id we just read, so two concurrent
+  // claims can't both win — the first nulls it, the second's `.eq(task_id)`
+  // matches 0 rows and aborts. Nulling task_id also orphans any old in-flight
+  // task so its later settle can't deduct against this row (see note above).
+  // Rows with a null task_id (never fired — e.g. insufficient credits before
+  // create) are matched via the is-null branch.
+  const priorTaskId = row.task_id || null;
+  let claimQ = admin
     .from("history")
-    .update({
-      status: "pending",
-      error_message: null,
-    })
+    .update({ status: "pending", error_message: null, task_id: null })
     .eq("id", historyId)
-    .eq("status", "failed")
-    .select("id");
+    .in("status", ["failed", "pending"]);
+  claimQ = priorTaskId ? claimQ.eq("task_id", priorTaskId) : claimQ.is("task_id", null);
+  const { data: claimed, error: claimErr } = await claimQ.select("id");
   if (claimErr || !claimed || claimed.length === 0) {
     return NextResponse.json(
       { error: "Already resubmitting — please wait for the in-flight task to finish." },
