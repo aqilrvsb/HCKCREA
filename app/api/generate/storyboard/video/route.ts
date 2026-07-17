@@ -66,29 +66,18 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: `Kredit tak cukup untuk video (perlu RM ${cost.toFixed(2)}). Top up dulu.` }, { status: 402 });
   }
 
-  // Dynamic creative-direction line, matched to the sub-style + product.
-  let creative = `Create a ${main === "pc" ? "premium cinematic" : "natural UGC-style"} 10-second vertical video for the product, Malaysian presenter and setting.`;
-  try {
-    const llm = await orChat({
-      modelKey: "model_custom_idea",
-      systemPrompt:
-        `Write ONE vivid creative-direction sentence (max ~30 words) for a 10-second VERTICAL product video, matched to the given sub-style and product. ` +
-        `Malaysian talent + local setting. Claim-safe (no medical/whitening words). Describe look, talent, lighting, camera motion, mood — NOT a shot list. Output ONLY the sentence.`,
-      userPrompt: `Sub-style: ${sub} (${mainLabelOf(main)}). Product: ${productName || "(unnamed)"} — ${productDetail || "(no detail)"}.`,
-      temperature: 0.9,
-      maxTokens: 120,
-    });
-    if (llm.ok && llm.content && llm.content.trim().length > 15) creative = llm.content.trim().replace(/^["']|["']$/g, "");
-  } catch {
-    /* fall back to the default creative line */
-  }
-
-  // FIXED role-split prefix + DYNAMIC creative direction.
-  const prompt =
+  // FIXED role-split prefix + creative direction. Build the prompt for a GIVEN
+  // creative line — the default line is used for the initial insert so we can
+  // return instantly; the LLM-refined line is swapped in inside after() before
+  // the cascade fires (so the slow orChat call never blocks the response).
+  const buildPrompt = (creative: string) =>
     `Use image 1 as the storyboard blueprint ONLY — follow its panels and actions in order, but do NOT show or display the storyboard grid itself; open directly on live action at 0:00. ` +
     `Use image 2 ONLY as the product identity reference (copy the exact label text, colour, shape and packaging; never redraw or invent the label — if it can't be shown sharply, angle the product away). ` +
     `${creative} ` +
     `Malaysian presenter, natural Bahasa Melayu voiceover (no Indonesian slang), on-screen captions short and correctly spelled, vertical 9:16, about ${duration} seconds. No on-screen medical or whitening claims.`;
+
+  const defaultCreative = `Create a ${main === "pc" ? "premium cinematic" : "natural UGC-style"} 10-second vertical video for the product, Malaysian presenter and setting.`;
+  const provisionalPrompt = buildPrompt(defaultCreative);
 
   const imageUrls = [storyboardUrl, productImage].filter(Boolean).slice(0, 2);
 
@@ -100,7 +89,7 @@ export async function POST(req: Request) {
       type: "video",
       tab: "original-video",
       status: "pending",
-      prompt,
+      prompt: provisionalPrompt,
       reference_url: imageUrls[0],
       duration,
       cost: 0,
@@ -131,6 +120,30 @@ export async function POST(req: Request) {
   if (!hist) return NextResponse.json({ error: "DB insert gagal" }, { status: 500 });
 
   after(async () => {
+    // Dynamic creative-direction line (slow LLM call) — moved here so the
+    // request returned instantly. Falls back to the provisional prompt if the
+    // LLM is slow/unavailable.
+    let prompt = provisionalPrompt;
+    try {
+      const llm = await orChat({
+        modelKey: "model_custom_idea",
+        systemPrompt:
+          `Write ONE vivid creative-direction sentence (max ~30 words) for a 10-second VERTICAL product video, matched to the given sub-style and product. ` +
+          `Malaysian talent + local setting. Claim-safe (no medical/whitening words). Describe look, talent, lighting, camera motion, mood — NOT a shot list. Output ONLY the sentence.`,
+        userPrompt: `Sub-style: ${sub} (${mainLabelOf(main)}). Product: ${productName || "(unnamed)"} — ${productDetail || "(no detail)"}.`,
+        temperature: 0.9,
+        maxTokens: 120,
+      });
+      if (llm.ok && llm.content && llm.content.trim().length > 15) {
+        prompt = buildPrompt(llm.content.trim().replace(/^["']|["']$/g, ""));
+        // Persist the refined prompt so history / retry / settle show what was
+        // actually sent, not the provisional line.
+        await admin.from("history").update({ prompt }).eq("id", hist.id);
+      }
+    } catch {
+      /* keep the provisional prompt */
+    }
+
     const r = await generateVideoWithCascade({
       primaryModel: videoProvider === "seedance" ? "seedance" : "google/gemini-omni",
       userId: user.id,
