@@ -58,6 +58,11 @@ export default function AdminSettings() {
   const [savingExt, setSavingExt] = useState(false);
   const [extMsg, setExtMsg] = useState<string | null>(null);
 
+  // p7 (PixelByte) Seedance API key — app_settings.p7_key = { key }.
+  const [p7Key, setP7Key] = useState("");
+  const [savingP7, setSavingP7] = useState(false);
+  const [p7Msg, setP7Msg] = useState<string | null>(null);
+
   // Per-model pricing — one editable knob per model (rate_<model>).
   // Loaded from app_settings on mount; saved on Apply.
   const [rateBananaPro, setRateBananaPro] = useState("");
@@ -276,6 +281,9 @@ export default function AdminSettings() {
       for (const row of list) {
         if (row.key === "extension_version") {
           setExtVersion(String(row.value?.value || row.value?.version || ""));
+        }
+        if (row.key === "p7_key") {
+          setP7Key(String(row.value?.key || ""));
         }
         if (row.key === "extension_download_url") {
           setExtDownloadUrl(String(row.value?.url || ""));
@@ -844,6 +852,23 @@ export default function AdminSettings() {
       setReferralMsg(`✗ Save failed: ${e?.message || "unknown error"}`);
     } finally {
       setSavingReferral(false);
+    }
+  }
+
+  async function saveP7Key() {
+    setSavingP7(true);
+    setP7Msg(null);
+    try {
+      await fetch("/api/admin/settings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ key: "p7_key", value: { key: p7Key.trim() } }),
+      });
+      setP7Msg("✓ Saved. Seedance jobs on slot p7 will use this key.");
+      void load();
+      setTimeout(() => setP7Msg(null), 5000);
+    } finally {
+      setSavingP7(false);
     }
   }
 
@@ -2186,6 +2211,43 @@ export default function AdminSettings() {
           the version + download URL the extension reads. The extension
           calls /api/extension/verify on launch; if its bundled version
           doesn't match this, it tells the user to update. */}
+      {/* p7 (PixelByte) — Seedance 2.0 mini gateway with NO face filter. */}
+      <div className="card p-6 mb-6 border-2 border-rose-200 bg-rose-50/40">
+        <div className="flex items-center gap-2 mb-1">
+          <KeyRound className="w-5 h-5 text-rose-600" />
+          <h2 className="font-display font-bold text-lg">P7 — PixelByte (Seedance 2.0)</h2>
+        </div>
+        <p className="text-sm text-[var(--color-text-secondary)] mb-4">
+          Seedance 2.0 mini gateway (api.muvi.video) that runs WITHOUT ByteDance&apos;s
+          &quot;may contain real person&quot; face filter — so AI-face storyboards pass.
+          Set p7 as the primary slot in the Seedance cascade above.
+        </p>
+        <label className="block text-xs font-mono uppercase tracking-widest text-[var(--color-text-muted)] font-bold mb-2">
+          PixelByte API Key
+        </label>
+        <input
+          type="password"
+          value={p7Key}
+          onChange={(e) => setP7Key(e.target.value)}
+          placeholder="pk_..."
+          className="input"
+          autoComplete="off"
+        />
+        <p className="text-[10px] text-[var(--color-text-muted)] mt-1 mb-3">
+          Stored in app_settings.p7_key. Used as the Bearer token for
+          POST /v1/jobs/submit + GET /v1/jobs/&#123;id&#125;.
+        </p>
+        <button
+          onClick={saveP7Key}
+          disabled={savingP7}
+          className="btn-primary disabled:opacity-50"
+        >
+          {savingP7 ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+          Save p7 key
+        </button>
+        {p7Msg && <div className="text-xs mt-2 text-emerald-700">{p7Msg}</div>}
+      </div>
+
       <div className="card p-6 mb-6 border-2 border-blue-100 bg-blue-50/40">
         <div className="flex items-center gap-2 mb-1">
           <Puzzle className="w-5 h-5 text-blue-600" />
