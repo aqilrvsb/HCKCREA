@@ -82,7 +82,11 @@ const DEFAULT_GEMINI_FALLBACK: SlotProvider[] = ["p5", "none", "none", "none", "
 // (APIPod) are fallback only (they still 403 on faces, but survive if p7 is
 // down and the content has no faces).
 const DEFAULT_SEEDANCE_MAIN: SlotProvider[] = ["p7", "p6-a", "none", "none", "none", "none", "none", "none", "none", "none"];
-const DEFAULT_SEEDANCE_FALLBACK: SlotProvider[] = ["p6-c", "p1", "none", "none", "none", "none", "none", "none", "none", "none"];
+// p7 FIRST in fallback too — Resubmit uses forceFirstFallback (starts at the
+// first fallback slot), so p7 must lead here or a Seedance resubmit would land
+// on p6 (face filter → fails on AI-face storyboards). p6-c stays as the
+// second-line for the rare case p7 itself is down.
+const DEFAULT_SEEDANCE_FALLBACK: SlotProvider[] = ["p7", "p6-c", "none", "none", "none", "none", "none", "none", "none", "none"];
 
 function sanitizeSlotList(
   raw: unknown,

@@ -13,8 +13,9 @@ update public.app_settings
 set value = '{"slots":["p7","p6-a","none","none","none","none","none","none","none","none"]}'::jsonb
 where key = 'seedance_main_slots';
 
+-- p7 leads the fallback too — Resubmit starts at the first fallback slot.
 update public.app_settings
-set value = '{"slots":["p6-b","p1","none","none","none","none","none","none","none","none"]}'::jsonb
+set value = '{"slots":["p7","p6-c","none","none","none","none","none","none","none","none"]}'::jsonb
 where key = 'seedance_fallback_slots';
 
 -- Seed the rows if they don't exist yet (fresh installs).
@@ -23,6 +24,6 @@ insert into public.app_settings (key, value, description, category) values
    '{"slots":["p7","p6-a","none","none","none","none","none","none","none","none"]}',
    'Seedance 2.0 cascade — MAIN slot order (p7 = PixelByte, no face filter)', 'general'),
   ('seedance_fallback_slots',
-   '{"slots":["p6-b","p1","none","none","none","none","none","none","none","none"]}',
-   'Seedance 2.0 cascade — FALLBACK slot order', 'general')
+   '{"slots":["p7","p6-c","none","none","none","none","none","none","none","none"]}',
+   'Seedance 2.0 cascade — FALLBACK slot order (p7 leads — Resubmit uses it)', 'general')
 on conflict (key) do nothing;
