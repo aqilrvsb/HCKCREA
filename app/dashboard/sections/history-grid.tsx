@@ -1758,7 +1758,7 @@ function HistoryCardInner({
             <div className="grid grid-cols-2 gap-2 mb-3">
               {([
                 { v: "gemini" as const, label: "🔷 Omni", desc: "10s · 1080p" },
-                { v: "seedance" as const, label: "🌸 Seedance 2.0", desc: "10s · 720p" },
+                { v: "seedance" as const, label: "🌸 Seedance 2.0", desc: "10s · 480p" },
               ]).map((o) => (
                 <button
                   key={o.v}

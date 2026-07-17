@@ -61,7 +61,8 @@ export async function p7CreateVideo(input: {
   const modelInput: any = {
     prompt: (input.prompt || "").slice(0, 4000),
     aspect_ratio: ar,
-    resolution: "720p",
+    // Seedance 2.0 fixed at 480p per user direction (cheaper/faster).
+    resolution: "480p",
     duration,
     has_sound: true,
   };

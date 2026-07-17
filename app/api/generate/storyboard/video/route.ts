@@ -116,7 +116,7 @@ export async function POST(req: Request) {
         modelChoice: videoProvider,
         ...(videoProvider === "gemini" ? { cinemaProvider: "crun" } : {}),
         imageMode: "ingredient",
-        resolution: videoProvider === "seedance" ? "720p" : "1080p",
+        resolution: videoProvider === "seedance" ? "480p" : "1080p",
         aspectRatio: null,
         image_urls: imageUrls,
         sub,
