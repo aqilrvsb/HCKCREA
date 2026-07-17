@@ -5,7 +5,6 @@ import { orChat } from "@/lib/openrouter";
 import { generateVideoWithCascade } from "@/lib/video-cascade";
 import { getGeminiRate, getSeedanceRate } from "@/lib/settings";
 import { hasEnoughCredits } from "@/lib/deduct";
-import { ensureBiometricGrid } from "@/lib/biometric-grid";
 
 export const runtime = "nodejs";
 // 300s so the after() background block (creative LLM + up to two cascade CREATE
@@ -83,12 +82,11 @@ export async function POST(req: Request) {
     `Use image 1 as the storyboard blueprint ONLY — follow its panels and actions in order, but do NOT show or display the storyboard grid itself; open directly on live action at 0:00. ` +
     `Use image 2 ONLY as the product identity reference (copy the exact label text, colour, shape and packaging; never redraw or invent the label — if it can't be shown sharply, angle the product away). ` +
     `${creative} ` + tail;
-  // Single-image prompt (Seedance): the ONE grid-overlaid storyboard is both
-  // the blueprint AND the product source. (Any faint white grid lines on the
-  // reference are a biometric-bypass artefact — ignore them, never reproduce
-  // them in the video.)
+  // Single-image prompt (Seedance): the ONE storyboard is both the blueprint
+  // AND the product source (sending only it avoids the <300px product-thumbnail
+  // rejection).
   const buildSoloPrompt = (creative: string) =>
-    `Use image 1 as the storyboard blueprint AND the product identity reference — follow its panels and actions in order, keep the product's exact label, colour, shape and packaging, but do NOT show or display the storyboard grid itself; open directly on live action at 0:00. Ignore any faint thin white grid lines on the reference image — they are a technical overlay, do NOT reproduce them. ` +
+    `Use image 1 as the storyboard blueprint AND the product identity reference — follow its panels and actions in order, keep the product's exact label, colour, shape and packaging, but do NOT show or display the storyboard grid itself; open directly on live action at 0:00. ` +
     `${creative} ` + tail;
 
   const defaultCreative = `Create a ${main === "pc" ? "premium cinematic" : "natural UGC-style"} 10-second vertical video for the product, Malaysian presenter and setting.`;
@@ -163,23 +161,18 @@ export async function POST(req: Request) {
     const asset = videoProvider === "seedance" ? "seedance" : "gemini";
     const primaryModel = videoProvider === "seedance" ? "seedance" : "google/gemini-omni";
 
-    // SEEDANCE ONLY — Omni flow untouched below. Seedance's provider runs a
-    // "real person" biometric filter that rejects our AI faces ("input image
-    // may contain real person"), and it also rejects tiny (<300px) images.
-    // Fix both at once: overlay a subtle 6x6 grid on the storyboard (breaks the
-    // face landmarks) and send just THAT single large image (it already shows
-    // the product). Grid is cached on the storyboard row so a re-fire is free.
+    // SEEDANCE ONLY — Omni flow untouched below. Seedance sends just the single
+    // large storyboard (it already shows the product), which sidesteps the
+    // provider's <300px image rejection. NOTE: Seedance's ByteDance moderation
+    // ("input image may contain real person") still blocks AI-face storyboards
+    // — that's a provider-account limitation (needs real-human verification),
+    // not something we can fix in the prompt/image. Use Omni for storyboards
+    // with faces. (The 6x6 grid-overlay hack was tested and does NOT beat the
+    // filter — removed to avoid a wasted image gen per attempt.)
     let refs = imageUrls; // Omni: [storyboard, product]
     let prompt = buildPrompt(creative);
     if (videoProvider === "seedance") {
-      const gridUrl = await ensureBiometricGrid({
-        userId: user.id,
-        projectId: (row as any).project_id ?? null,
-        sourceHistoryId: historyId,
-        imageUrl: storyboardUrl,
-        cachedGridUrl: (meta as any).biometric_grid_url,
-      });
-      refs = [gridUrl || storyboardUrl];
+      refs = [storyboardUrl];
       prompt = buildSoloPrompt(creative);
     }
     // Persist the actual prompt + the actual reference images sent. For
