@@ -4,6 +4,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { hasEnoughCredits } from "@/lib/deduct";
 import { getSeedanceRate } from "@/lib/settings";
 import { generateVideoWithCascade } from "@/lib/video-cascade";
+import { withNoIndon } from "@/lib/seedance-lang";
 
 // POST /api/generate/seedance — manual Seedance 2.0 Fast generation.
 //
@@ -62,6 +63,11 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Prompt too long (max 5000 chars)" }, { status: 400 });
   }
 
+  // Bake the hardcoded no-Indonesian language rule into the prompt we STORE, so
+  // Resubmit / settle / auto-retry all re-fire with it (they re-read hist.prompt).
+  // Cascade/fallback routing is untouched — still the dynamic seedance pool.
+  const finalPrompt = withNoIndon(prompt);
+
   const hasRefs = imageUrls.length > 0 || videoUrls.length > 0 || audioUrls.length > 0;
 
   // Pre-flight credit check — using the Seedance per-second rate × duration.
@@ -84,7 +90,7 @@ export async function POST(req: Request) {
       type: "video",
       tab: "seedance",
       status: "pending",
-      prompt,
+      prompt: finalPrompt,
       reference_url: imageUrls[0] || null,
       task_id: null,
       duration,
@@ -129,7 +135,7 @@ export async function POST(req: Request) {
       const result = await generateVideoWithCascade({
         primaryModel: "seedance",
         userId: user.id,
-        prompt,
+        prompt: finalPrompt,
         imageUrls,
         durationMode: String(duration),
         aspectRatio,

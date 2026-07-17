@@ -5,6 +5,7 @@ import { orChat } from "@/lib/openrouter";
 import { generateVideoWithCascade } from "@/lib/video-cascade";
 import { getGeminiRate, getSeedanceRate } from "@/lib/settings";
 import { hasEnoughCredits } from "@/lib/deduct";
+import { SEEDANCE_NO_INDON } from "@/lib/seedance-lang";
 
 export const runtime = "nodejs";
 // 300s so the after() background block (creative LLM + up to two cascade CREATE
@@ -75,8 +76,12 @@ export async function POST(req: Request) {
   // creative line — the default line is used for the initial insert so we can
   // return instantly; the LLM-refined line is swapped in inside after() before
   // the cascade fires (so the slow orChat call never blocks the response).
+  // Seedance drifts into Indonesian, so it gets the STRICT no-Indon rule (Malay
+  // OR English, dynamic). Omni keeps its original forced-Malay line untouched.
   const tail =
-    `Malaysian presenter, natural Bahasa Melayu voiceover (no Indonesian slang), on-screen captions short and correctly spelled, vertical 9:16, about ${duration} seconds. No on-screen medical or whitening claims.`;
+    videoProvider === "seedance"
+      ? `Malaysian presenter, on-screen captions short and correctly spelled, vertical 9:16, about ${duration} seconds. ${SEEDANCE_NO_INDON} No on-screen medical or whitening claims.`
+      : `Malaysian presenter, natural Bahasa Melayu voiceover (no Indonesian slang), on-screen captions short and correctly spelled, vertical 9:16, about ${duration} seconds. No on-screen medical or whitening claims.`;
   // Storyboard blueprint (image 1) + separate product ref (image 2). Both Omni
   // AND Seedance use this SAME two-image flow now — Seedance runs through p7
   // (PixelByte) which has no face filter, so no special-casing.
