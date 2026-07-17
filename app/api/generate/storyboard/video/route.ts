@@ -7,7 +7,12 @@ import { getGeminiRate, getSeedanceRate } from "@/lib/settings";
 import { hasEnoughCredits } from "@/lib/deduct";
 
 export const runtime = "nodejs";
-export const maxDuration = 60;
+// 300s so the after() background block (creative LLM + up to two cascade CREATE
+// calls for the Seedance small-image retry) always finishes and stamps a
+// task_id. At 60s a slow LLM / provider could get the function killed mid-way,
+// leaving the row stuck "pending" with a null task_id — which poll-pending
+// never settles (it only polls rows that HAVE a task_id).
+export const maxDuration = 300;
 export const dynamic = "force-dynamic";
 
 // POST /api/generate/storyboard/video  { history_id }
@@ -120,20 +125,26 @@ export async function POST(req: Request) {
   if (!hist) return NextResponse.json({ error: "DB insert gagal" }, { status: 500 });
 
   after(async () => {
+   try {
     // Dynamic creative-direction line (slow LLM call) — moved here so the
-    // request returned instantly. Falls back to the provisional prompt if the
-    // LLM is slow/unavailable.
+    // request returned instantly. Hard 20s cap (Promise.race) so a hung LLM
+    // can NEVER stall the cascade — we just fall back to the provisional
+    // prompt and fire immediately. Before this, a hanging orChat could eat the
+    // whole function budget and leave the row stuck pending with no task_id.
     let prompt = provisionalPrompt;
     try {
-      const llm = await orChat({
-        modelKey: "model_custom_idea",
-        systemPrompt:
-          `Write ONE vivid creative-direction sentence (max ~30 words) for a 10-second VERTICAL product video, matched to the given sub-style and product. ` +
-          `Malaysian talent + local setting. Claim-safe (no medical/whitening words). Describe look, talent, lighting, camera motion, mood — NOT a shot list. Output ONLY the sentence.`,
-        userPrompt: `Sub-style: ${sub} (${mainLabelOf(main)}). Product: ${productName || "(unnamed)"} — ${productDetail || "(no detail)"}.`,
-        temperature: 0.9,
-        maxTokens: 120,
-      });
+      const llm = await Promise.race([
+        orChat({
+          modelKey: "model_custom_idea",
+          systemPrompt:
+            `Write ONE vivid creative-direction sentence (max ~30 words) for a 10-second VERTICAL product video, matched to the given sub-style and product. ` +
+            `Malaysian talent + local setting. Claim-safe (no medical/whitening words). Describe look, talent, lighting, camera motion, mood — NOT a shot list. Output ONLY the sentence.`,
+          userPrompt: `Sub-style: ${sub} (${mainLabelOf(main)}). Product: ${productName || "(unnamed)"} — ${productDetail || "(no detail)"}.`,
+          temperature: 0.9,
+          maxTokens: 120,
+        }),
+        new Promise<{ ok: false; content?: string }>((resolve) => setTimeout(() => resolve({ ok: false, content: undefined }), 20_000)),
+      ]);
       if (llm.ok && llm.content && llm.content.trim().length > 15) {
         prompt = buildPrompt(llm.content.trim().replace(/^["']|["']$/g, ""));
         // Persist the refined prompt so history / retry / settle show what was
@@ -214,6 +225,17 @@ export async function POST(req: Request) {
           metadata: { ...(hist.metadata || {}), tier_log: r.tierLog },
         })
         .eq("id", hist.id);
+    }
+   } catch (e: any) {
+      // Any unexpected throw in the background block would otherwise leave the
+      // row stuck "pending" with a null task_id forever (poll-pending only
+      // polls rows that HAVE a task_id). Mark it failed so the client sees it
+      // and can Resubmit.
+      await admin
+        .from("history")
+        .update({ status: "failed", error_message: `Background error: ${e?.message || String(e)}`.slice(0, 300) })
+        .eq("id", hist.id)
+        .then(() => {}, () => {});
     }
   });
 
