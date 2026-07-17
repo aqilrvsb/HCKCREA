@@ -1732,6 +1732,7 @@ function HistoryCardInner({
       )}
       {/* Generate Video — pick the provider first. Defaults: Omni, 10s, 1 video. */}
       {vidPickOpen && isStoryboard && (
+        <Portal>
         <div
           className="fixed inset-0 z-[200] flex items-center justify-center p-4"
           style={{ background: "rgba(0,0,0,0.72)" }}
@@ -1786,6 +1787,7 @@ function HistoryCardInner({
             </div>
           </div>
         </div>
+        </Portal>
       )}
       {/* Keyframes for the rainbow Custom Idea badge below. Cheap to
           duplicate per card (browser de-dupes identical rule names);
