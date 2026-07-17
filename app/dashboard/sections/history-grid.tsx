@@ -950,32 +950,30 @@ function HistoryCardInner({
   // FIXED 10s / 1 video for both per user direction — no duration picker here
   // (the 4-15s Seedance slider lives on the Original Video tab instead).
   const [vidPickOpen, setVidPickOpen] = useState(false);
-  const [vidProvider, setVidProvider] = useState<"gemini" | "seedance">("gemini");
   const isStoryboard = (item.metadata as any)?.feature === "storyboard";
 
   // Generate a video FROM this storyboard (image1=storyboard blueprint,
   // image2=product ref). Lands in the Original Video history grid.
-  async function handleGenVideoFromStoryboard() {
+  // Fire the storyboard→video job for the picked provider and close the modal
+  // IMMEDIATELY — no confirm step, no success alert. The endpoint returns
+  // instantly (generation runs in background via after()), and the row shows up
+  // in Original Video as "Generating…". Only a genuine failure surfaces (an
+  // alert), so a silent no-op can't happen. Optimistic close means clicking a
+  // provider feels instant even though the fetch is still in flight.
+  async function handleGenVideoFromStoryboard(provider: "gemini" | "seedance") {
     if (videoing) return;
+    setVidPickOpen(false); // close all the modal right away
     setVideoing(true);
     try {
       const r = await fetch("/api/generate/storyboard/video", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          history_id: item.id,
-          provider: vidProvider,
-          duration: 10,
-        }),
+        body: JSON.stringify({ history_id: item.id, provider, duration: 10 }),
       });
       const d = await r.json().catch(() => ({}));
       if (!r.ok || !d?.ok) {
         alert(d?.error || `Gagal jana video (HTTP ${r.status})`);
       } else {
-        setVidPickOpen(false);
-        alert(
-          `🎬 Video ${vidProvider === "seedance" ? "Seedance 2.0" : "Omni"} tengah dijana — akan muncul di tab Original Video.`
-        );
         window.dispatchEvent(new CustomEvent("history:refresh"));
       }
     } finally {
@@ -1744,8 +1742,9 @@ function HistoryCardInner({
             onClick={(e) => e.stopPropagation()}
           >
             <div className="text-[13px] font-extrabold text-[var(--color-text-primary)] mb-1">🎬 Jana Video dari Storyboard</div>
-            <div className="text-[11px] text-[var(--color-text-muted)] mb-3">Pilih model video. Fixed 10 saat · 1 video setiap storyboard.</div>
+            <div className="text-[11px] text-[var(--color-text-muted)] mb-3">Tekan model — terus jana (10 saat · 1 video).</div>
 
+            {/* Each provider fires the job + closes the modal immediately. */}
             <div className="grid grid-cols-2 gap-2 mb-3">
               {([
                 { v: "gemini" as const, label: "🔷 Omni", desc: "10s · 1080p" },
@@ -1753,12 +1752,10 @@ function HistoryCardInner({
               ]).map((o) => (
                 <button
                   key={o.v}
-                  onClick={() => setVidProvider(o.v)}
-                  className="text-left px-3 py-2.5 rounded-xl"
-                  style={{
-                    border: `1px solid ${vidProvider === o.v ? "#3b82f6" : "var(--color-border)"}`,
-                    background: vidProvider === o.v ? "rgba(59,130,246,0.14)" : "var(--color-bg)",
-                  }}
+                  onClick={() => void handleGenVideoFromStoryboard(o.v)}
+                  disabled={videoing}
+                  className="text-left px-3 py-3 rounded-xl transition-transform hover:scale-[1.02] disabled:opacity-40"
+                  style={{ border: "1px solid var(--color-border)", background: "var(--color-bg)" }}
                 >
                   <span className="block text-[12px] font-bold text-[var(--color-text-primary)]">{o.label}</span>
                   <span className="block text-[10px] text-[var(--color-text-muted)]">{o.desc}</span>
@@ -1766,25 +1763,13 @@ function HistoryCardInner({
               ))}
             </div>
 
-            <div className="flex gap-2">
-              <button
-                onClick={() => setVidPickOpen(false)}
-                disabled={videoing}
-                className="flex-1 py-2.5 rounded-xl text-[12px] font-bold disabled:opacity-40"
-                style={{ border: "1px solid var(--color-border)", color: "var(--color-text-secondary)" }}
-              >
-                Batal
-              </button>
-              <button
-                onClick={handleGenVideoFromStoryboard}
-                disabled={videoing}
-                className="flex-[2] py-2.5 rounded-xl text-[12px] font-extrabold flex items-center justify-center gap-1.5 disabled:opacity-40"
-                style={{ background: "linear-gradient(135deg,#3b82f6,#22d3ee)", color: "#fff" }}
-              >
-                {videoing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Clapperboard className="w-3.5 h-3.5" />}
-                {videoing ? "Menjana…" : "Jana Video"}
-              </button>
-            </div>
+            <button
+              onClick={() => setVidPickOpen(false)}
+              className="w-full py-2 rounded-xl text-[12px] font-bold"
+              style={{ border: "1px solid var(--color-border)", color: "var(--color-text-secondary)" }}
+            >
+              Batal
+            </button>
           </div>
         </div>
         </Portal>

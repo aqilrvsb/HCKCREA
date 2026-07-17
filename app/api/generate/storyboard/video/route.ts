@@ -144,8 +144,10 @@ export async function POST(req: Request) {
       /* keep the provisional prompt */
     }
 
-    const r = await generateVideoWithCascade({
-      primaryModel: videoProvider === "seedance" ? "seedance" : "google/gemini-omni",
+    const asset = videoProvider === "seedance" ? "seedance" : "gemini";
+    const primaryModel = videoProvider === "seedance" ? "seedance" : "google/gemini-omni";
+    let r = await generateVideoWithCascade({
+      primaryModel,
       userId: user.id,
       prompt,
       imageUrls,
@@ -155,8 +157,39 @@ export async function POST(req: Request) {
       // Each provider draws from its own admin-configured pool, so a
       // storyboard video cascades/falls back exactly like the same model
       // fired from the Original Video tab.
-      asset: videoProvider === "seedance" ? "seedance" : "gemini",
+      asset,
     });
+
+    // Seedance rejects reference images narrower than 300px ("expected the
+    // width to be at least 300px, but received a 282x312px image"). The
+    // storyboard grid is always large; the PRODUCT photo (image 2) is often a
+    // small extension thumbnail and is what trips this. Omni tolerates small
+    // images — Seedance doesn't. On that exact error, retry with ONLY the
+    // storyboard (which already shows the product) so the job succeeds instead
+    // of dying. Prompt swaps to a single-image variant.
+    if (
+      !r.ok &&
+      videoProvider === "seedance" &&
+      imageUrls.length > 1 &&
+      /at least\s*\d+\s*px|width to be at least|received a \d+x\d+px|image too small/i.test(r.error || "")
+    ) {
+      const soloPrompt =
+        `Use image 1 as the storyboard blueprint AND the product identity reference — follow its panels and actions in order, keep the product's exact label, colour, shape and packaging, but do NOT show or display the storyboard grid itself; open directly on live action at 0:00. ` +
+        prompt.replace(/^Use image 1[^.]*\.\s*Use image 2[^.]*\.\s*/i, "");
+      await admin.from("history").update({ prompt: soloPrompt }).eq("id", hist.id);
+      r = await generateVideoWithCascade({
+        primaryModel,
+        userId: user.id,
+        prompt: soloPrompt,
+        imageUrls: [storyboardUrl],
+        imageMode: "ingredient",
+        durationMode: String(duration),
+        aspectRatio: "9:16",
+        asset,
+      });
+      if (r.ok) prompt = soloPrompt;
+    }
+
     if (r.ok) {
       await admin
         .from("history")
@@ -167,7 +200,20 @@ export async function POST(req: Request) {
         })
         .eq("id", hist.id);
     } else {
-      await admin.from("history").update({ status: "failed", error_message: r.error, cost }).eq("id", hist.id);
+      // Store the cascade's tier_log + provider on failure too, so the error
+      // card shows WHICH provider rejected (not "failure before cascade
+      // fired") and Resubmit/settle can route through the right pool — exactly
+      // like the Original Video tab. Keeps model/modelChoice/image_urls intact
+      // for the retry re-fire.
+      await admin
+        .from("history")
+        .update({
+          status: "failed",
+          error_message: r.error,
+          cost,
+          metadata: { ...(hist.metadata || {}), tier_log: r.tierLog },
+        })
+        .eq("id", hist.id);
     }
   });
 
