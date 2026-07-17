@@ -218,16 +218,27 @@ IMPORTANT — this is video #${(seed % 1000)} of MANY for the SAME product. Make
 
 Return JSON only. No markdown, no prose. Start with { and end with }.`;
 
-  const llm = await orChat({
-    // Same model slot as the Auto UGC / Auto Content master plan
-    // (model_custom_idea) so caption copywriting matches the on-platform
-    // dialog voice. Falls back to model_auto when admin hasn't set it.
-    modelKey: "model_custom_idea",
-    systemPrompt,
-    userPrompt,
-    temperature: 0.85,
-    maxTokens: 1200,
-  });
+  // Hard 45s cap on the LLM call. Without it a single hung generation runs
+  // until Vercel kills the whole function at 60s (FUNCTION_INVOCATION_TIMEOUT),
+  // which the extension surfaces as a scary "deployment error" mid-batch. On
+  // timeout we return ok:false → this video is SKIPPED (no fallback copy) and
+  // the extension's retry pass re-fires it, instead of stalling the batch.
+  const LLM_TIMEOUT_MS = 45_000;
+  const llm = await Promise.race([
+    orChat({
+      // Same model slot as the Auto UGC / Auto Content master plan
+      // (model_custom_idea) so caption copywriting matches the on-platform
+      // dialog voice. Falls back to model_auto when admin hasn't set it.
+      modelKey: "model_custom_idea",
+      systemPrompt,
+      userPrompt,
+      temperature: 0.85,
+      maxTokens: 1200,
+    }),
+    new Promise<{ ok: false; content?: string; error: string }>((resolve) =>
+      setTimeout(() => resolve({ ok: false, content: undefined, error: `LLM timeout after ${LLM_TIMEOUT_MS / 1000}s` }), LLM_TIMEOUT_MS)
+    ),
+  ]);
   // Parse the LLM JSON tolerantly — models frequently emit a trailing
   // comma, single quotes, or a markdown fence. We strip the fence, slice
   // to the outermost braces, remove trailing commas, and (last resort)
