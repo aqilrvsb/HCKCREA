@@ -950,6 +950,8 @@ function HistoryCardInner({
   // FIXED 10s / 1 video for both per user direction — no duration picker here
   // (the 4-15s Seedance slider lives on the Original Video tab instead).
   const [vidPickOpen, setVidPickOpen] = useState(false);
+  // Bottom-right "submitted" toast after firing a storyboard→video job.
+  const [submitToast, setSubmitToast] = useState<string | null>(null);
   const isStoryboard = (item.metadata as any)?.feature === "storyboard";
 
   // Generate a video FROM this storyboard (image1=storyboard blueprint,
@@ -974,6 +976,12 @@ function HistoryCardInner({
       if (!r.ok || !d?.ok) {
         alert(d?.error || `Gagal jana video (HTTP ${r.status})`);
       } else {
+        // Small bottom-right toast so the client knows it was submitted.
+        // Auto-dismisses after 4.5s.
+        setSubmitToast(
+          `🎬 Video ${provider === "seedance" ? "Seedance 2.0" : "Omni"} dihantar — akan muncul di tab Original Video.`
+        );
+        window.setTimeout(() => setSubmitToast(null), 4500);
         window.dispatchEvent(new CustomEvent("history:refresh"));
       }
     } finally {
@@ -1774,6 +1782,23 @@ function HistoryCardInner({
         </div>
         </Portal>
       )}
+      {/* Bottom-right "submitted" toast — non-blocking, auto-dismisses. */}
+      {submitToast && (
+        <Portal>
+          <div
+            className="fixed bottom-4 right-4 z-[300] max-w-xs px-4 py-3 rounded-xl text-[12px] font-semibold"
+            style={{
+              background: "var(--color-bg-card)",
+              border: "1px solid #22c55e",
+              color: "var(--color-text-primary)",
+              boxShadow: "0 8px 28px rgba(0,0,0,0.45)",
+              animation: "hg-toast-in 0.25s ease-out",
+            }}
+          >
+            {submitToast}
+          </div>
+        </Portal>
+      )}
       {/* Keyframes for the rainbow Custom Idea badge below. Cheap to
           duplicate per card (browser de-dupes identical rule names);
           keeps the animation self-contained without a global CSS file. */}
@@ -1782,6 +1807,10 @@ function HistoryCardInner({
           0%   { background-position: 0% 50%; }
           50%  { background-position: 100% 50%; }
           100% { background-position: 0% 50%; }
+        }
+        @keyframes hg-toast-in {
+          from { opacity: 0; transform: translateY(12px); }
+          to   { opacity: 1; transform: translateY(0); }
         }
       `}</style>
       <div
