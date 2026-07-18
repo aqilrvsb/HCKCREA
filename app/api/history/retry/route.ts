@@ -174,6 +174,18 @@ export async function POST(req: Request) {
   let allImageUrls: string[] = Array.isArray(meta.image_urls) && meta.image_urls.length > 0
     ? meta.image_urls.filter((u: any) => typeof u === "string" && u.trim())
     : (refImage ? [refImage] : []);
+  // ADMIN OVERRIDE — /admin/errors lets the admin delete a bad attachment
+  // (e.g. a content-policy-blocked product photo) and resubmit with the
+  // reduced set. When body.image_urls is present, it REPLACES the stored
+  // list (must be a subset of the originals) and is persisted to
+  // meta.image_urls so the change sticks for future retries/polls.
+  if (Array.isArray(body?.image_urls)) {
+    const orig = new Set(allImageUrls);
+    const override = body.image_urls.filter((u: any) => typeof u === "string" && orig.has(u));
+    allImageUrls = override;
+    meta.image_urls = override;
+    await admin.from("history").update({ metadata: { ...meta } }).eq("id", historyId);
+  }
   // Content-policy recovery: if this row failed because APIPod blocked a
   // specific reference image ("image reference N blocked: previously flagged
   // by content policy"), drop THAT image and resubmit without it. The block

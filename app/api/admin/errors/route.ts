@@ -138,6 +138,12 @@ export async function GET(req: Request) {
       created_at: r.created_at,
       prompt: r.prompt || "",
       task_id: r.task_id || "",
+      // Reference attachments sent with this generation — so the admin can
+      // see them and strip a bad one (e.g. a content-policy-blocked product
+      // photo) before a manual Resubmit.
+      image_urls: Array.isArray(meta.image_urls)
+        ? meta.image_urls.filter((u: any) => typeof u === "string" && u.trim())
+        : [],
       // How many times the auto-resubmit cron has re-fired this row.
       // Capped at 3 (MAX_AUTO_RESUBMIT). If a row sits on /admin/errors
       // with auto_count=3 the cron won't touch it anymore — admin must

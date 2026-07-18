@@ -29,6 +29,7 @@ type ErrorRow = {
   prompt: string;
   task_id: string;
   auto_count: number;
+  image_urls: string[];
 };
 
 type Counts = { video: number; image: number; total: number };
@@ -91,6 +92,18 @@ export default function AdminErrors() {
   // Bulk resubmit state — true while the resubmitSelected loop is firing.
   const [bulkResubmitting, setBulkResubmitting] = useState(false);
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  // Per-row removed attachment indices — admin can strip a bad attachment
+  // (e.g. a content-policy-blocked photo) before a manual Resubmit.
+  const [removedAtt, setRemovedAtt] = useState<Record<string, Set<number>>>({});
+
+  function toggleAtt(rowId: string, idx: number) {
+    setRemovedAtt((prev) => {
+      const cur = new Set(prev[rowId] || []);
+      if (cur.has(idx)) cur.delete(idx);
+      else cur.add(idx);
+      return { ...prev, [rowId]: cur };
+    });
+  }
 
   function copyTaskId(id: string) {
     void navigator.clipboard?.writeText(id).then(() => {
@@ -169,10 +182,18 @@ export default function AdminErrors() {
   async function resubmit(rowId: string) {
     setResubmitState((s) => ({ ...s, [rowId]: "loading" }));
     try {
+      // If the admin stripped any attachments on this row, send the reduced
+      // set as an override so the resubmit fires without them.
+      const row = rows.find((r) => r.id === rowId);
+      const removedIdx = removedAtt[rowId];
+      const body: Record<string, any> = { history_id: rowId };
+      if (row && removedIdx && removedIdx.size > 0 && row.image_urls.length > 0) {
+        body.image_urls = row.image_urls.filter((_, i) => !removedIdx.has(i));
+      }
       const r = await fetch("/api/history/retry", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ history_id: rowId }),
+        body: JSON.stringify(body),
       });
       const d = await r.json().catch(() => ({}));
       if (!r.ok) {
@@ -677,6 +698,7 @@ export default function AdminErrors() {
                   <th className="px-4 py-3">Provider</th>
                   <th className="px-4 py-3">Model</th>
                   <th className="px-4 py-3">Task ID</th>
+                  <th className="px-4 py-3">Attachments</th>
                   <th className="px-4 py-3 text-center">Auto Retries</th>
                   <th className="px-4 py-3">Error</th>
                   <th className="px-4 py-3 text-right">Action</th>
@@ -752,6 +774,44 @@ export default function AdminErrors() {
                         </span>
                       ) : (
                         "—"
+                      )}
+                    </td>
+                    <td className="px-4 py-3">
+                      {r.image_urls.length > 0 ? (
+                        <div className="flex items-center gap-1.5">
+                          {r.image_urls.map((url, i) => {
+                            const removed = removedAtt[r.id]?.has(i);
+                            return (
+                              <div key={i} className="relative group" title={removed ? `Attachment ${i + 1} — akan dibuang bila Resubmit` : `Attachment ${i + 1}`}>
+                                <img
+                                  src={url}
+                                  alt={`ref ${i + 1}`}
+                                  className="w-10 h-10 rounded-md object-cover border transition"
+                                  style={{
+                                    borderColor: removed ? "#ef4444" : "var(--color-border)",
+                                    opacity: removed ? 0.35 : 1,
+                                    filter: removed ? "grayscale(1)" : "none",
+                                  }}
+                                />
+                                <span className="absolute -top-1.5 -left-1.5 w-4 h-4 rounded-full bg-black/70 text-white text-[9px] font-bold flex items-center justify-center">{i + 1}</span>
+                                <button
+                                  onClick={() => toggleAtt(r.id, i)}
+                                  title={removed ? "Undo remove" : "Remove this attachment for Resubmit"}
+                                  className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full flex items-center justify-center text-[10px] font-bold border transition"
+                                  style={
+                                    removed
+                                      ? { background: "#16a34a", color: "#fff", borderColor: "#16a34a" }
+                                      : { background: "#ef4444", color: "#fff", borderColor: "#ef4444" }
+                                  }
+                                >
+                                  {removed ? "↺" : "×"}
+                                </button>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      ) : (
+                        <span className="text-[var(--color-text-muted)]">—</span>
                       )}
                     </td>
                     <td className="px-4 py-3 text-center whitespace-nowrap">
