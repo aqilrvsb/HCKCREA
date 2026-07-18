@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { notifyAdmins } from "@/lib/whatsapp";
 
 // Standalone credit top-up (RM1 = 1 credit) — MANUAL Touch 'n Go flow.
 //
@@ -55,6 +56,39 @@ export async function POST(req: Request) {
 
     if (payErr || !payment) {
       return NextResponse.json({ error: "Gagal cipta permohonan top-up" }, { status: 500 });
+    }
+
+    // Alert admins on WhatsApp so they verify the screenshot + approve. Best-
+    // effort — a notify failure must never block the client's submit.
+    try {
+      const { data: prof } = await admin
+        .from("profiles")
+        .select("full_name, whatsapp")
+        .eq("id", user.id)
+        .maybeSingle();
+      const now = new Date().toLocaleString("ms-MY", {
+        timeZone: "Asia/Kuala_Lumpur",
+        dateStyle: "short",
+        timeStyle: "short",
+      });
+      await notifyAdmins(
+        [
+          "⏳ *PeningLab — Top Up Pending Approval*",
+          "",
+          "Client dah transfer Touch 'n Go & upload resit. Sila verify & approve.",
+          "",
+          `Amount   : RM${credits.toFixed(2)}`,
+          `Credits  : +${credits}`,
+          `Name     : ${prof?.full_name || user.email?.split("@")[0] || "User"}`,
+          `Email    : ${user.email || "-"}`,
+          `WhatsApp : ${prof?.whatsapp || "-"}`,
+          `Tarikh   : ${now} MYT`,
+          "",
+          "Approve di: Admin → Transactions → Credit Top Up",
+        ].join("\n")
+      );
+    } catch (e: any) {
+      console.warn("[topup] admin notify failed:", e?.message);
     }
 
     return NextResponse.json({ ok: true, payment_id: payment.id });
