@@ -667,6 +667,7 @@ export default function AdminErrors() {
                   <th className="px-4 py-3">Tab</th>
                   <th className="px-4 py-3">Provider</th>
                   <th className="px-4 py-3">Model</th>
+                  <th className="px-4 py-3">Task ID</th>
                   <th className="px-4 py-3 text-center">Auto Retries</th>
                   <th className="px-4 py-3">Error</th>
                   <th className="px-4 py-3 text-right">Action</th>
@@ -697,14 +698,6 @@ export default function AdminErrors() {
                     </td>
                     <td className="px-4 py-3 whitespace-nowrap text-[var(--color-text-primary)]">
                       <div>{r.email}</div>
-                      {r.task_id && (
-                        <div
-                          className="font-mono text-[10px] text-[var(--color-text-secondary)] mt-0.5"
-                          title={r.task_id}
-                        >
-                          {r.task_id.slice(0, 12)}…
-                        </div>
-                      )}
                     </td>
                     <td className="px-4 py-3">
                       <span
@@ -732,6 +725,15 @@ export default function AdminErrors() {
                     </td>
                     <td className="px-4 py-3 whitespace-nowrap font-mono text-xs text-[var(--color-text-secondary)]">
                       {r.model || "—"}
+                    </td>
+                    <td className="px-4 py-3 whitespace-nowrap font-mono text-xs text-[var(--color-text-secondary)]">
+                      {r.task_id ? (
+                        <span title={r.task_id} className="cursor-text select-all">
+                          {r.task_id.length > 20 ? r.task_id.slice(0, 20) + "…" : r.task_id}
+                        </span>
+                      ) : (
+                        "—"
+                      )}
                     </td>
                     <td className="px-4 py-3 text-center whitespace-nowrap">
                       {(() => {
