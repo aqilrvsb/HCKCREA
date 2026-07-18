@@ -8,7 +8,10 @@ import { createChipPurchase } from "@/lib/chip";
 // without committing to a 30-day plan have a clear path. The dashboard
 // sidebar nav exposes this via "Top Up Credit".
 
-const VALID_CREDITS = [10, 20, 30, 50, 100];
+// Manual top-up now allows ANY whole-RM amount in this range (RM1 = 1 credit),
+// not just the preset package tiles. Bounds keep CHIP happy and block typos.
+const MIN_CREDITS = 1;
+const MAX_CREDITS = 1000;
 
 export async function POST(req: Request) {
   try {
@@ -19,9 +22,12 @@ export async function POST(req: Request) {
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
     const body = await req.json();
-    const credits = Number(body?.credits);
-    if (!VALID_CREDITS.includes(credits)) {
-      return NextResponse.json({ error: "Invalid credit package" }, { status: 400 });
+    const credits = Math.round(Number(body?.credits));
+    if (!Number.isFinite(credits) || credits < MIN_CREDITS || credits > MAX_CREDITS) {
+      return NextResponse.json(
+        { error: `Amount must be between RM${MIN_CREDITS} and RM${MAX_CREDITS}` },
+        { status: 400 }
+      );
     }
 
     const admin = createAdminClient();

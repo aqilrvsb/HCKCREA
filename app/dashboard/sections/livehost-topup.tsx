@@ -29,10 +29,20 @@ type Topup = {
 
 export default function LivehostTopup({ credits }: { credits: number }) {
   const [selected, setSelected] = useState(50);
+  const [custom, setCustom] = useState("");
   const [paying, setPaying] = useState(false);
   const [topups, setTopups] = useState<Topup[]>([]);
 
   const pick = PACKAGES.find((p) => p.credits === selected) || PACKAGES[0];
+
+  // Manual amount (RM1 = 1 kredit) — overrides the tile when valid.
+  const MIN_AMT = 1;
+  const MAX_AMT = 1000;
+  const customNum = Math.round(Number(custom));
+  const customFilled = custom.trim() !== "";
+  const customValid = customFilled && Number.isFinite(customNum) && customNum >= MIN_AMT && customNum <= MAX_AMT;
+  const payCredits = customValid ? customNum : pick.credits;
+  const customError = customFilled && !customValid;
 
   useEffect(() => {
     void loadTopups();
@@ -60,7 +70,7 @@ export default function LivehostTopup({ credits }: { credits: number }) {
       const res = await fetch("/api/credit/topup", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ credits: pick.credits }),
+        body: JSON.stringify({ credits: payCredits }),
       });
       const data = await res.json();
       if (data?.checkout_url) {
@@ -148,11 +158,14 @@ export default function LivehostTopup({ credits }: { credits: number }) {
 
         <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-5">
           {PACKAGES.map((p) => {
-            const isSelected = selected === p.credits;
+            const isSelected = !customValid && selected === p.credits;
             return (
               <button
                 key={p.credits}
-                onClick={() => setSelected(p.credits)}
+                onClick={() => {
+                  setSelected(p.credits);
+                  setCustom("");
+                }}
                 className="relative rounded-2xl p-5 border-2 text-left transition-all"
                 style={
                   isSelected
@@ -189,9 +202,48 @@ export default function LivehostTopup({ credits }: { credits: number }) {
           })}
         </div>
 
+        {/* Manual amount — enter any RM value instead of a tile */}
+        <div className="mb-5">
+          <label className="block text-xs uppercase tracking-wider font-bold text-[var(--color-text-muted)] mb-2">
+            Atau masuk amount sendiri
+          </label>
+          <div
+            className="flex items-center gap-2 rounded-2xl border-2 px-4 py-3 transition-all"
+            style={{
+              borderColor: customValid ? "#fbbf24" : customError ? "#ef4444" : "var(--color-border)",
+              background: customValid
+                ? "linear-gradient(135deg, rgba(245,158,11,0.1) 0%, rgba(255,87,34,0.06) 100%)"
+                : "var(--color-bg-card)",
+            }}
+          >
+            <span className="font-bold text-lg text-[var(--color-text-secondary)]">RM</span>
+            <input
+              type="number"
+              inputMode="numeric"
+              min={MIN_AMT}
+              max={MAX_AMT}
+              step={1}
+              value={custom}
+              onChange={(e) => setCustom(e.target.value.replace(/[^\d]/g, ""))}
+              placeholder="cth. 75"
+              className="flex-1 bg-transparent outline-none font-display font-extrabold text-2xl tracking-tight text-[var(--color-text-primary)] placeholder:text-[var(--color-text-muted)] placeholder:font-normal placeholder:text-lg"
+            />
+            {customValid && (
+              <span className="text-sm font-semibold text-amber-500 whitespace-nowrap">
+                = {customNum} kredit
+              </span>
+            )}
+          </div>
+          <p className="text-[11px] mt-1.5" style={{ color: customError ? "#ef4444" : "var(--color-text-muted)" }}>
+            {customError
+              ? `Amount kena antara RM${MIN_AMT} dan RM${MAX_AMT}.`
+              : `RM1 = 1 kredit. Min RM${MIN_AMT}, max RM${MAX_AMT}.`}
+          </p>
+        </div>
+
         <button
           onClick={startTopup}
-          disabled={paying}
+          disabled={paying || customError}
           className="w-full py-4 rounded-2xl font-bold text-base text-white shadow-xl shadow-amber-500/30 hover:scale-[1.01] transition-transform disabled:opacity-70 disabled:scale-100"
           style={{ background: "linear-gradient(135deg, #f59e0b 0%, #ea580c 100%)" }}
         >
@@ -204,7 +256,7 @@ export default function LivehostTopup({ credits }: { credits: number }) {
             ) : (
               <>
                 <Zap className="w-5 h-5" />
-                Pay RM{pick.price} for {pick.credits} Kredit
+                Pay RM{payCredits} for {payCredits} Kredit
                 <ArrowRight className="w-4 h-4" />
               </>
             )}
