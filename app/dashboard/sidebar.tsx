@@ -610,7 +610,10 @@ export default function Sidebar({
             // Attachments nav hidden per user direction 2026-06-28 (still
             // reachable via pickers; re-enable by uncommenting).
             // { kind: "attachments" as const, label: "Attachments", Icon: ImageIcon },
-            { kind: "billing" as const, label: "Billing", Icon: CreditCard },
+            // Billing nav hidden per user direction — subscriptions are being
+            // wound down (no new subscribe / resubscribe from the menu). Top Up
+            // Credit stays. Re-enable by uncommenting this line.
+            // { kind: "billing" as const, label: "Billing", Icon: CreditCard },
             // Top Up Credit nav — visible ONLY for Pro + Premium plan
             // holders (the tiers that include the perk per the pricing
             // grid's "Access Top Up Credit" highlighted line). Free /
