@@ -11,6 +11,8 @@ import {
   X,
   Copy,
   Check,
+  Eye,
+  EyeOff,
   Image as ImageIcon,
   Video as VideoIcon,
 } from "lucide-react";
@@ -47,6 +49,9 @@ export default function AdminUsage() {
   const [loading, setLoading] = useState(true);
   const [promptModal, setPromptModal] = useState<UsageRow | null>(null);
   const [previewModal, setPreviewModal] = useState<UsageRow | null>(null);
+  // Total Usage (RM) is blurred by default — tap the eye to reveal. Keeps the
+  // revenue figure hidden during screen-shares / recordings.
+  const [showUsage, setShowUsage] = useState(false);
 
   // Malaysia-local dates (UTC+8) — default both to today, admin can
   // widen if they want. Avoid Date.toISOString here (off-by-one to UTC).
@@ -325,6 +330,7 @@ export default function AdminUsage() {
         ].filter((s) => (view === "detail" ? !s.perUser : true)).map((s, i) => {
           const Icon = s.icon;
           const isMoney = String(s.value).startsWith("RM");
+          const isUsage = s.label === "Total Usage";
           return (
             <div
               key={i}
@@ -347,23 +353,37 @@ export default function AdminUsage() {
                   <span className="text-[10px] font-mono uppercase tracking-widest text-[var(--color-text-muted)] font-bold">
                     {s.label}
                   </span>
-                  <div
-                    className="w-8 h-8 rounded-lg flex items-center justify-center"
+                  <button
+                    onClick={isUsage ? () => setShowUsage((v) => !v) : undefined}
+                    title={isUsage ? (showUsage ? "Hide total usage" : "Show total usage") : undefined}
+                    className={`w-8 h-8 rounded-lg flex items-center justify-center ${isUsage ? "cursor-pointer hover:brightness-125 transition" : "cursor-default"}`}
                     style={{
                       background: isMoney ? "rgba(255,87,34,0.12)" : "rgba(200,245,62,0.12)",
                       border: `1px solid ${isMoney ? "rgba(255,87,34,0.3)" : "rgba(200,245,62,0.3)"}`,
                     }}
                   >
-                    <Icon
-                      className="w-4 h-4"
-                      style={{ color: isMoney ? "var(--color-orange)" : "var(--color-lime)" }}
-                      strokeWidth={2.4}
-                    />
-                  </div>
+                    {isUsage ? (
+                      showUsage ? (
+                        <EyeOff className="w-4 h-4" style={{ color: "var(--color-orange)" }} strokeWidth={2.4} />
+                      ) : (
+                        <Eye className="w-4 h-4" style={{ color: "var(--color-orange)" }} strokeWidth={2.4} />
+                      )
+                    ) : (
+                      <Icon
+                        className="w-4 h-4"
+                        style={{ color: isMoney ? "var(--color-orange)" : "var(--color-lime)" }}
+                        strokeWidth={2.4}
+                      />
+                    )}
+                  </button>
                 </div>
                 <div
-                  className="font-display font-extrabold text-3xl md:text-4xl tracking-tight tabular-nums"
-                  style={{ color: isMoney ? "var(--color-orange)" : "var(--color-lime)" }}
+                  className="font-display font-extrabold text-3xl md:text-4xl tracking-tight tabular-nums transition-all select-none"
+                  style={{
+                    color: isMoney ? "var(--color-orange)" : "var(--color-lime)",
+                    filter: isUsage && !showUsage ? "blur(10px)" : "none",
+                  }}
+                  onClick={isUsage ? () => setShowUsage((v) => !v) : undefined}
                 >
                   {s.value}
                 </div>
