@@ -202,19 +202,28 @@ export async function POST(req: Request) {
   const globalRules = extractGlobalRules(subCardsDoc);
 
   after(async () => {
-    // WEEKLY NO-REPEAT: pull this user's storyboard prompts from the last 7
-    // days so new ones can be made clearly different. Best-effort.
+    // WEEKLY NO-REPEAT: pull the last 7 days of storyboard prompts to make new
+    // ones clearly different. Scope is the PROJECT ("profile"), NOT the whole
+    // user account — TikTok duplicate-detection is per brand/account, so each
+    // project keeps its OWN uniqueness pool and different projects don't
+    // cross-block. Falls back to user-level only for unscoped (no-project)
+    // storyboards. Best-effort.
     let pastConcepts: string[] = [];
     try {
       const weekAgo = new Date(Date.now() - 7 * 86_400_000).toISOString();
-      const { data: recent } = await admin
+      let recentQ = admin
         .from("history")
         .select("prompt")
-        .eq("user_id", user.id)
         .eq("type", "image")
         .eq("tab", "image")
         .filter("metadata->>feature", "eq", "storyboard")
-        .gte("created_at", weekAgo)
+        .gte("created_at", weekAgo);
+      // Compare within the project ("profile") when one is set; otherwise fall
+      // back to this user's unscoped storyboards.
+      recentQ = projectId
+        ? recentQ.eq("project_id", projectId)
+        : recentQ.eq("user_id", user.id);
+      const { data: recent } = await recentQ
         .order("created_at", { ascending: false })
         .limit(40);
       pastConcepts = (recent || [])
