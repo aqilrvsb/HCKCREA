@@ -11,6 +11,7 @@ import {
   RefreshCcw,
   RotateCw,
   Check,
+  Copy,
   Trash2,
 } from "lucide-react";
 import { localDateStr, startOfMonthLocal } from "@/lib/date-util";
@@ -89,6 +90,14 @@ export default function AdminErrors() {
   const [resubmitState, setResubmitState] = useState<Record<string, string>>({});
   // Bulk resubmit state — true while the resubmitSelected loop is firing.
   const [bulkResubmitting, setBulkResubmitting] = useState(false);
+  const [copiedId, setCopiedId] = useState<string | null>(null);
+
+  function copyTaskId(id: string) {
+    void navigator.clipboard?.writeText(id).then(() => {
+      setCopiedId(id);
+      setTimeout(() => setCopiedId((c) => (c === id ? null : c)), 1500);
+    });
+  }
   // Bulk resubmit progress (X of Y submitted so far) — shown in the button.
   const [bulkProgress, setBulkProgress] = useState<{ done: number; total: number } | null>(null);
 
@@ -728,8 +737,18 @@ export default function AdminErrors() {
                     </td>
                     <td className="px-4 py-3 whitespace-nowrap font-mono text-xs text-[var(--color-text-secondary)]">
                       {r.task_id ? (
-                        <span title={r.task_id} className="cursor-text select-all">
-                          {r.task_id.length > 20 ? r.task_id.slice(0, 20) + "…" : r.task_id}
+                        <span className="inline-flex items-center gap-1.5">
+                          <span title={r.task_id} className="cursor-text select-all">
+                            {r.task_id.length > 20 ? r.task_id.slice(0, 20) + "…" : r.task_id}
+                          </span>
+                          <button
+                            onClick={() => copyTaskId(r.task_id)}
+                            title="Copy task id"
+                            aria-label="Copy task id"
+                            className="inline-flex items-center justify-center w-6 h-6 rounded-md border border-[var(--color-border)] hover:border-amber-300 text-[var(--color-text-muted)] hover:text-amber-500 transition"
+                          >
+                            {copiedId === r.task_id ? <Check className="w-3.5 h-3.5 text-emerald-500" /> : <Copy className="w-3.5 h-3.5" />}
+                          </button>
                         </span>
                       ) : (
                         "—"
