@@ -264,16 +264,28 @@ export async function POST(req: Request) {
 
       // NO-REPEAT context: last week's concepts + this batch's so far.
       const avoidList = [...pastConcepts, ...builtInBatch.map((p) => p.replace(/^ONE single 9:16 storyboard grid for ONE video only\.?\s*/i, "").slice(0, 180))].slice(-24);
+      // Campaign segments deliberately SHARE a look (story continuity) and only
+      // their ACTIONS differ; standalone variations must also differ VISUALLY.
+      const dedupVisual = job.campaign
+        ? ``
+        : ` And make the visual EXECUTION different too — not just the hook: a different setting/location, presenter wardrobe & styling, lighting/time-of-day, camera framing, panel layout and colour mood. Two grids that look ~90% alike get flagged as duplicate content.`;
       const dedupSection = avoidList.length
-        ? `\n\n🚫 NO-REPEAT — these storyboard concepts were already used (past 7 days + this batch). Your storyboard MUST be clearly DIFFERENT — a different hook, different opening scene, different framing/props, and a different visual angle. Do NOT reuse their hooks or scenes:\n${avoidList.map((c, i) => `${i + 1}. ${c}`).join("\n")}`
+        ? `\n\n🚫 NO-REPEAT — these storyboard concepts were already used (past 7 days + this batch). Your storyboard MUST be clearly DIFFERENT — a different hook, different opening scene, different framing/props, and a different visual angle.${dedupVisual} Do NOT reuse their hooks or scenes:\n${avoidList.map((c, i) => `${i + 1}. ${c}`).join("\n")}`
         : ``;
+      // Always-on (standalone only): tell the planner to deliberately
+      // art-direct a distinct look so even the FIRST grid commits to specifics
+      // the next ones can diverge from. The AI CHOOSES the values — nothing is
+      // hardcoded here. Campaigns skip this so segments stay visually coherent.
+      const visualDistinct = job.campaign
+        ? ``
+        : `\nVISUAL DISTINCTNESS: deliberately art-direct THIS grid's look — choose a specific setting/location, presenter wardrobe & styling, lighting & time-of-day, camera framing, panel layout (e.g. 3×3, 2×3 or 2×4) and colour mood, rather than a default template. Keep ONLY the product packaging/label and the ${avatarUrl ? "locked presenter face" : "presenter"} consistent — everything else about the look should feel freshly chosen.`;
 
       const userPrompt =
         `Product: ${productName || "(unnamed)"}\n` +
         `Detail: ${productDetail || "(none)"}\n` +
         (job.main === "custom" ? `Client idea: ${customIdea}\n` : `Sub-style: ${job.sub} · Category: ${mainLabel}\n`) +
         avatarLine +
-        `${roleLine}${dedupSection}\n` +
+        `${roleLine}${dedupSection}${visualDistinct}\n` +
         `Write the storyboard image prompt now.`;
 
       let prompt = `ONE single 9:16 storyboard grid for ONE video only. A ${job.main === "custom" ? "custom-concept" : job.sub} storyboard for ${productName || "the product"}, 6-9 panels, Malaysian talent, product shown clearly with exact label.`;
