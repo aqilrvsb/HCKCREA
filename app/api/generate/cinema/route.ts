@@ -380,11 +380,14 @@ export async function POST(req: Request) {
                 ? effectiveImageUrls.slice(0, 5)
                 : effectiveImageUrls.slice(0, 3);
 
-      // PROACTIVE md5 refresh (Video Reference): re-encode the product images
-      // to a fresh md5 BEFORE the first submit so a previously-flagged photo
-      // (e.g. a reused saved-product image) doesn't trip APIPod's cached-md5
-      // block. Best-effort — keeps originals on failure. Per user direction.
-      if (isVideoRef && imgs.length > 0) {
+      // PROACTIVE md5 refresh: re-encode the product/reference images to a
+      // fresh md5 BEFORE the first submit so a previously-flagged photo (e.g. a
+      // reused saved-product image) doesn't trip APIPod's cached-md5 content-
+      // policy block. This affects ANY image-reference video (gemini-omni-i2v,
+      // grok-i2v, seedance-i2v — not just Video Reference), which is exactly
+      // where the recurring "image reference N blocked" failures came from.
+      // Best-effort — keeps originals on failure.
+      if (imgs.length > 0) {
         imgs = await freshMd5Images(imgs, user.id, historyId);
       }
 
