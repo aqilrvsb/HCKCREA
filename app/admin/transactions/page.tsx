@@ -81,6 +81,7 @@ export default function AdminTransactions() {
   const [end, setEnd] = useState(localDateStr());
   const [statusFilter, setStatusFilter] = useState<Status | "all">("all");
   const [busy, setBusy] = useState<string | null>(null);
+  const [proofZoom, setProofZoom] = useState<string | null>(null);
 
   useEffect(() => {
     void load();
@@ -175,8 +176,35 @@ export default function AdminTransactions() {
     }
   }
 
+  // Manual Touch 'n Go top-up decision — approve credits the wallet, reject
+  // marks it failed. Runs through the double-credit-safe approve endpoint.
+  async function approveTopup(p: Payment, action: "approve" | "reject") {
+    if (action === "approve" && !confirm(`Approve RM${Number(p.amount).toFixed(0)} top-up and credit the wallet?`)) return;
+    if (action === "reject" && !confirm("Reject this top-up? No credits added.")) return;
+    setBusy(p.id);
+    try {
+      const r = await fetch("/api/admin/topups/approve", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ payment_id: p.id, action }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) { alert(`❌ ${d?.error || `HTTP ${r.status}`}`); return; }
+      await load();
+    } catch (e: any) {
+      alert(`❌ Network error: ${e?.message || "unknown"}`);
+    } finally {
+      setBusy(null);
+    }
+  }
+
   return (
     <div>
+      {proofZoom && (
+        <div className="fixed inset-0 z-[200] flex items-center justify-center p-6" style={{ background: "rgba(0,0,0,0.85)" }} onClick={() => setProofZoom(null)}>
+          <img src={proofZoom} alt="proof" className="max-w-full max-h-full object-contain rounded-lg" />
+        </div>
+      )}
       <div className="mb-8">
         <h1 className="font-display font-extrabold text-3xl tracking-tight">
           Transaction Management
@@ -495,6 +523,40 @@ export default function AdminTransactions() {
                           >
                             <MessageCircle className="w-4 h-4" />
                           </a>
+                        )}
+                        {/* Manual TnG top-up — view proof screenshot */}
+                        {p.metadata?.method === "tng" && p.metadata?.proof_url && (
+                          <button
+                            onClick={() => setProofZoom(String(p.metadata.proof_url))}
+                            title="View transfer screenshot"
+                            aria-label="View proof"
+                            className="inline-flex items-center justify-center w-8 h-8 rounded-lg bg-white border border-[var(--color-border)] hover:border-amber-300 text-[var(--color-text-secondary)]"
+                          >
+                            <FileText className="w-4 h-4" />
+                          </button>
+                        )}
+                        {/* Manual TnG top-up — approve (credit wallet) / reject */}
+                        {p.metadata?.method === "tng" && p.status === "pending" && (
+                          <>
+                            <button
+                              disabled={busy === p.id}
+                              onClick={() => approveTopup(p, "approve")}
+                              title="Approve — credit wallet"
+                              aria-label="Approve top-up"
+                              className="inline-flex items-center justify-center w-8 h-8 rounded-lg bg-emerald-500 text-white border border-emerald-500 hover:bg-emerald-600 disabled:opacity-50"
+                            >
+                              {busy === p.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
+                            </button>
+                            <button
+                              disabled={busy === p.id}
+                              onClick={() => approveTopup(p, "reject")}
+                              title="Reject top-up"
+                              aria-label="Reject top-up"
+                              className="inline-flex items-center justify-center w-8 h-8 rounded-lg bg-red-50 border border-red-200 text-red-600 hover:bg-red-100 disabled:opacity-50"
+                            >
+                              <XCircle className="w-4 h-4" />
+                            </button>
+                          </>
                         )}
                         {/* Chip checkout link */}
                         {p.chip_checkout_url && (

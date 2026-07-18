@@ -1202,15 +1202,13 @@ export default function Home() {
             <CheckCircle2 className="w-4 h-4 text-emerald-500" />
             <span>Cancel bila-bila</span>
           </div>
-          <div className="flex items-center gap-1.5">
-            <CheckCircle2 className="w-4 h-4 text-emerald-500" />
-            <span>FPX online banking via Chip</span>
-          </div>
         </div>
       </section>
 
-      {/* Checkout — direct continuation of pricing, same page */}
-      <CheckoutForm />
+      {/* Checkout / CHIP payment form hidden — top-ups now go through the
+          manual Touch 'n Go flow inside the dashboard, not FPX/CHIP. Re-enable
+          by uncommenting <CheckoutForm /> below. */}
+      {/* <CheckoutForm /> */}
 
       {/* FAQ */}
       <section className="relative z-10 mx-auto max-w-3xl px-6 py-24">
