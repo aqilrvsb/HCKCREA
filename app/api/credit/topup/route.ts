@@ -1,15 +1,15 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { createChipPurchase } from "@/lib/chip";
 
-// Standalone credit top-up (RM1 = 1 credit). Re-enabled alongside the
-// 4-tier subscription plans so users who prefer to pay per credit
-// without committing to a 30-day plan have a clear path. The dashboard
-// sidebar nav exposes this via "Top Up Credit".
+// Standalone credit top-up (RM1 = 1 credit) — MANUAL Touch 'n Go flow.
+//
+// CHIP/FPX was removed (slow + takes a cut). Now: the client transfers to the
+// admin's Touch 'n Go account, uploads the transfer screenshot, and submits.
+// This creates a credit_topup payment with status='pending'. The credits are
+// added to the wallet ONLY when an admin approves the screenshot on
+// /admin/topups (see /api/admin/topups/approve).
 
-// Manual top-up now allows ANY whole-RM amount in this range (RM1 = 1 credit),
-// not just the preset package tiles. Bounds keep CHIP happy and block typos.
 const MIN_CREDITS = 1;
 const MAX_CREDITS = 1000;
 
@@ -21,75 +21,43 @@ export async function POST(req: Request) {
     } = await sb.auth.getUser();
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-    const body = await req.json();
+    const body = await req.json().catch(() => ({}));
     const credits = Math.round(Number(body?.credits));
     if (!Number.isFinite(credits) || credits < MIN_CREDITS || credits > MAX_CREDITS) {
       return NextResponse.json(
-        { error: `Amount must be between RM${MIN_CREDITS} and RM${MAX_CREDITS}` },
+        { error: `Amount kena antara RM${MIN_CREDITS} dan RM${MAX_CREDITS}` },
+        { status: 400 }
+      );
+    }
+    // Proof screenshot is mandatory — nothing to approve without it.
+    const proofUrl = String(body?.proof_url || "").trim();
+    if (!proofUrl || !/^https?:\/\//i.test(proofUrl)) {
+      return NextResponse.json(
+        { error: "Sila upload screenshot transfer dulu sebelum submit." },
         { status: 400 }
       );
     }
 
     const admin = createAdminClient();
-    const { data: profile } = await admin
-      .from("profiles")
-      .select("full_name")
-      .eq("id", user.id)
-      .single();
-
-    const fullName = profile?.full_name || user.email?.split("@")[0] || "User";
-    const amountMYR = credits; // RM1 = 1 credit
-
     const { data: payment, error: payErr } = await admin
       .from("payments")
       .insert({
         user_id: user.id,
         type: "credit_topup",
         credits,
-        amount: amountMYR,
+        amount: credits, // RM1 = 1 credit
         currency: "MYR",
-        status: "pending",
-        metadata: { credits },
+        status: "pending", // stays pending until an admin approves the proof
+        metadata: { credits, method: "tng", proof_url: proofUrl },
       })
-      .select()
+      .select("id")
       .single();
 
     if (payErr || !payment) {
-      return NextResponse.json({ error: "Failed to create payment" }, { status: 500 });
+      return NextResponse.json({ error: "Gagal cipta permohonan top-up" }, { status: 500 });
     }
 
-    const origin = req.headers.get("origin") || process.env.APP_ORIGIN || "https://peninglab.vercel.app";
-
-    const purchase = await createChipPurchase({
-      email: user.email!,
-      fullName,
-      productName: `PeningLab ${credits} Credits Top-Up`,
-      amountMYR,
-      reference: `TOPUP-${payment.id.substring(0, 8)}`,
-      metadata: {
-        type: "credit_topup",
-        user_id: user.id,
-        payment_id: payment.id,
-        credits,
-      },
-      successRedirect: `${origin}/dashboard?topup=success`,
-      failureRedirect: `${origin}/dashboard?topup=failed`,
-      webhookUrl: `${origin}/api/payments/webhook`,
-    });
-
-    await admin
-      .from("payments")
-      .update({
-        chip_purchase_id: purchase.id,
-        chip_checkout_url: purchase.checkout_url,
-      })
-      .eq("id", payment.id);
-
-    return NextResponse.json({
-      ok: true,
-      payment_id: payment.id,
-      checkout_url: purchase.checkout_url,
-    });
+    return NextResponse.json({ ok: true, payment_id: payment.id });
   } catch (e: any) {
     console.error("topup error:", e?.message);
     return NextResponse.json({ error: e?.message || "Server error" }, { status: 500 });

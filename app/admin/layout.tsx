@@ -15,6 +15,7 @@ import {
   Megaphone,
   MessageSquare,
   Radio,
+  Wallet,
 } from "lucide-react";
 
 export default async function AdminLayout({
@@ -64,6 +65,7 @@ export default async function AdminLayout({
 
   const NAV = [
     { href: "/admin/transactions", label: "Transactions", icon: CreditCard },
+    { href: "/admin/topups", label: "Top-up Approvals", icon: Wallet },
     { href: "/admin/ads", label: "Ads Performance", icon: Megaphone },
     { href: "/admin/affiliate", label: "Affiliate Apps", icon: UserPlus },
     { href: "/admin/cashout", label: "Cashout", icon: Banknote },

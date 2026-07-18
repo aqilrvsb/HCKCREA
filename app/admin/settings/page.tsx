@@ -7,6 +7,7 @@ import {
   Loader2,
   Save,
   KeyRound,
+  Wallet,
   Cpu,
   Package,
   MessageCircle,
@@ -62,6 +63,14 @@ export default function AdminSettings() {
   const [p7Key, setP7Key] = useState("");
   const [savingP7, setSavingP7] = useState(false);
   const [p7Msg, setP7Msg] = useState<string | null>(null);
+
+  // Touch 'n Go manual top-up destination (shown to clients on the top-up page).
+  const [tngNumber, setTngNumber] = useState("");
+  const [tngName, setTngName] = useState("");
+  const [tngQr, setTngQr] = useState("");
+  const [savingTng, setSavingTng] = useState(false);
+  const [uploadingQr, setUploadingQr] = useState(false);
+  const [tngMsg, setTngMsg] = useState<string | null>(null);
 
   // Per-model pricing — one editable knob per model (rate_<model>).
   // Loaded from app_settings on mount; saved on Apply.
@@ -282,6 +291,11 @@ export default function AdminSettings() {
         if (row.key === "extension_version") {
           setExtVersion(String(row.value?.value || row.value?.version || ""));
         }
+        if (row.key === "tng_account") {
+          setTngNumber(String(row.value?.number || ""));
+          setTngName(String(row.value?.name || ""));
+        }
+        if (row.key === "tng_qr_url") setTngQr(String(row.value?.url || ""));
         if (row.key === "p7_key") {
           setP7Key(String(row.value?.key || ""));
         }
@@ -855,6 +869,46 @@ export default function AdminSettings() {
     }
   }
 
+  async function uploadTngQr(file: File) {
+    setUploadingQr(true);
+    setTngMsg(null);
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      const r = await fetch("/api/upload/image", { method: "POST", body: fd });
+      const d = await r.json();
+      if (!r.ok || !d?.url) { setTngMsg(`✗ Upload failed: ${d?.error || "unknown"}`); return; }
+      setTngQr(String(d.url));
+      setTngMsg("✓ QR uploaded — tekan Save untuk simpan.");
+    } catch (e: any) {
+      setTngMsg(`✗ Upload failed: ${e?.message || "unknown"}`);
+    } finally {
+      setUploadingQr(false);
+    }
+  }
+
+  async function saveTng() {
+    setSavingTng(true);
+    setTngMsg(null);
+    try {
+      await fetch("/api/admin/settings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ key: "tng_account", value: { number: tngNumber.trim(), name: tngName.trim() } }),
+      });
+      await fetch("/api/admin/settings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ key: "tng_qr_url", value: { url: tngQr.trim() } }),
+      });
+      setTngMsg("✓ Saved. Clients akan nampak akaun + QR ni di page top-up.");
+      void load();
+      setTimeout(() => setTngMsg(null), 5000);
+    } finally {
+      setSavingTng(false);
+    }
+  }
+
   async function saveP7Key() {
     setSavingP7(true);
     setP7Msg(null);
@@ -1144,6 +1198,9 @@ export default function AdminSettings() {
   //   rate_seedance / rate_grok keys; admin shouldn't need to touch them
   //   directly anymore.
   const HIDDEN_KEYS = new Set<string>([
+    // Manual Touch 'n Go top-up — edited via the dedicated card above.
+    "tng_account",
+    "tng_qr_url",
     "price_video_16s",
     "rate_banana_pro",
     "rate_gpt_image",
@@ -2211,6 +2268,45 @@ export default function AdminSettings() {
           the version + download URL the extension reads. The extension
           calls /api/extension/verify on launch; if its bundled version
           doesn't match this, it tells the user to update. */}
+      {/* Touch 'n Go manual top-up — account + QR shown to clients. */}
+      <div className="card p-6 mb-6 border-2 border-amber-200 bg-amber-50/40">
+        <div className="flex items-center gap-2 mb-1">
+          <Wallet className="w-5 h-5 text-amber-600" />
+          <h2 className="font-display font-bold text-lg">Touch &apos;n Go Top-Up (manual)</h2>
+        </div>
+        <p className="text-sm text-[var(--color-text-secondary)] mb-4">
+          Clients transfer here, upload the screenshot, and submit — it lands as a
+          PENDING top-up in <b>Top-up Approvals</b>. Credits are added only after you approve.
+          (CHIP/FPX is no longer used for top-ups.)
+        </p>
+        <div className="grid md:grid-cols-2 gap-4">
+          <div>
+            <label className="block text-xs font-mono uppercase tracking-widest text-[var(--color-text-muted)] font-bold mb-2">TnG Account Number</label>
+            <input value={tngNumber} onChange={(e) => setTngNumber(e.target.value)} placeholder="e.g. 0123456789" className="input" autoComplete="off" />
+            <label className="block text-xs font-mono uppercase tracking-widest text-[var(--color-text-muted)] font-bold mt-3 mb-2">Holder Name</label>
+            <input value={tngName} onChange={(e) => setTngName(e.target.value)} placeholder="e.g. AHMAD BIN ALI" className="input" autoComplete="off" />
+          </div>
+          <div>
+            <label className="block text-xs font-mono uppercase tracking-widest text-[var(--color-text-muted)] font-bold mb-2">QR Code Image</label>
+            {tngQr ? (
+              <img src={tngQr} alt="TnG QR" className="w-40 h-40 object-contain rounded-lg border border-[var(--color-border)] bg-white mb-2" />
+            ) : (
+              <div className="w-40 h-40 rounded-lg border border-dashed border-[var(--color-border)] flex items-center justify-center text-[10px] text-[var(--color-text-muted)] mb-2">No QR yet</div>
+            )}
+            <label className="btn-secondary cursor-pointer inline-flex items-center gap-2 text-xs">
+              {uploadingQr ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+              {tngQr ? "Replace QR" : "Upload QR"}
+              <input type="file" accept="image/*" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) void uploadTngQr(f); }} />
+            </label>
+          </div>
+        </div>
+        <button onClick={saveTng} disabled={savingTng} className="btn-primary disabled:opacity-50 mt-4">
+          {savingTng ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+          Save TnG details
+        </button>
+        {tngMsg && <div className="text-xs mt-2 text-emerald-700">{tngMsg}</div>}
+      </div>
+
       {/* p7 (PixelByte) — Seedance 2.0 mini gateway with NO face filter. */}
       <div className="card p-6 mb-6 border-2 border-rose-200 bg-rose-50/40">
         <div className="flex items-center gap-2 mb-1">
