@@ -924,16 +924,19 @@ const ACTION = {
 };
 
 // ── Near-duplicate detection ──────────────────────────────────────────────
-// Flags cards whose CONCEPT is ~the same as another card in the SAME project
-// ("profile") and kind, so a client can tell which storyboards/videos are
-// near-duplicates BEFORE TikTok flags them. It's light: the shared boilerplate
-// (opener, grid spec, hard rules, locks) is auto-removed by a document-
-// frequency filter — tokens that appear in most cards of a group are dropped,
-// leaving only each card's distinctive concept words — then Jaccard is compared
-// pairwise ONLY within a (project + kind) group. Memoized on the loaded set, so
-// it runs once per load, not per render.
+// Flags a card when its CONCEPT matches an EARLIER card in the same project
+// ("profile") and kind — so a client sees which storyboards/videos repeat one
+// they already made, BEFORE TikTok flags them.
+//
+// Deliberately LIGHT + 1-to-1 (per user direction): each card is checked, in
+// chronological order, against the ones BEFORE it, and STOPS at the first match
+// — the earlier card is the "original" (stays unmarked) and only the later copy
+// gets flagged, pointing back to that one original. No all-pairs, no match
+// lists. The shared boilerplate (opener, grid spec, rules, locks) is auto-
+// removed by a document-frequency pass so only distinctive concept words are
+// compared. Memoized on the loaded set → runs once per load, not per render.
 type DupSim = { id: string; name: string; thumb: string | null; score: number };
-type DupInfo = { sig: string; top: number; items: DupSim[] };
+type DupInfo = { sig: string; match: DupSim };
 
 const DUP_STOP = new Set(
   "the a an and or of for with to in on at is are be this that your you our from into video image grid panel frame malaysian talent product presenter storyboard scene shot single only show shows shown same exact label face person people human clean neutral text caption subtitle rule hard must never each every panels vertical seconds"
@@ -978,37 +981,35 @@ function computeDupMap(items: HistoryItem[]): Map<string, DupInfo> {
   }
   for (const group of groups.values()) {
     if (group.length < 2) continue;
+    // Oldest first — the FIRST occurrence is the "original"; later similar ones
+    // are the duplicates we flag.
+    group.sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
     // Document frequency → drop boilerplate/common tokens (in >60% of the group).
     const toks = group.map((it) => dupTokens(it.prompt));
     const df = new Map<string, number>();
     toks.forEach((ts) => ts.forEach((t) => df.set(t, (df.get(t) || 0) + 1)));
     const cap = Math.max(2, Math.floor(group.length * 0.6));
     const sets = toks.map((ts) => new Set(ts.filter((t) => (df.get(t) || 0) <= cap)));
-    const linked: DupSim[][] = group.map(() => []);
-    for (let i = 0; i < group.length; i++) {
-      for (let j = i + 1; j < group.length; j++) {
-        const A = sets[i], B = sets[j];
-        if (A.size < 3 || B.size < 3) continue; // too little signal to judge
+    // Each card checks ONLY the earlier ones, and stops at the FIRST match
+    // (1-to-1, lighter). group[j] (earlier) is the original it copied.
+    for (let i = 1; i < group.length; i++) {
+      const A = sets[i];
+      if (A.size < 3) continue; // too little signal to judge
+      for (let j = 0; j < i; j++) {
+        const B = sets[j];
+        if (B.size < 3) continue;
         const [small, big] = A.size < B.size ? [A, B] : [B, A];
         let inter = 0;
         for (const t of small) if (big.has(t)) inter++;
         const jac = inter / (A.size + B.size - inter);
         if (jac >= DUP_THRESHOLD) {
           const score = Math.round(jac * 100);
-          linked[i].push({ id: group[j].id, name: dupName(group[j]), thumb: dupThumb(group[j]), score });
-          linked[j].push({ id: group[i].id, name: dupName(group[i]), thumb: dupThumb(group[i]), score });
+          const match: DupSim = { id: group[j].id, name: dupName(group[j]), thumb: dupThumb(group[j]), score };
+          out.set(group[i].id, { sig: `${match.id}:${score}`, match });
+          break; // first match wins — stop checking this card
         }
       }
     }
-    group.forEach((it, i) => {
-      if (!linked[i].length) return;
-      linked[i].sort((a, b) => b.score - a.score);
-      out.set(it.id, {
-        sig: linked[i].map((s) => `${s.id}:${s.score}`).join("|"),
-        top: linked[i][0].score,
-        items: linked[i],
-      });
-    });
   }
   return out;
 }
@@ -1850,7 +1851,7 @@ function HistoryCardInner({
           title="Content hampir sama — tekan untuk banding"
         >
           <GitCompare className="w-3 h-3" />
-          {dupSimilar.top}% serupa · {dupSimilar.items.length}
+          {dupSimilar.match.score}% serupa
         </button>
       )}
       {compareOpen && dupSimilar && (
@@ -1877,21 +1878,17 @@ function HistoryCardInner({
                 <div className="text-[11px] font-bold text-[var(--color-text-primary)]">Kad ini: {dupName(item)}</div>
               </div>
               <div className="text-[10px] uppercase tracking-wider font-bold text-[var(--color-text-muted)] mb-2">
-                Serupa dengan ({dupSimilar.items.length}):
+                Serupa dengan (asal):
               </div>
-              <div className="space-y-2">
-                {dupSimilar.items.map((s) => (
-                  <div key={s.id} className="flex items-center gap-2 p-2 rounded-lg" style={{ border: "1px solid var(--color-border)" }}>
-                    {s.thumb && <img src={s.thumb} className="w-10 h-10 rounded object-cover flex-shrink-0" alt="" />}
-                    <div className="flex-1 text-[11px] text-[var(--color-text-primary)] truncate">{s.name}</div>
-                    <span
-                      className="text-[10px] font-extrabold px-2 py-0.5 rounded-full text-white flex-shrink-0"
-                      style={{ background: s.score >= 80 ? "#dc2626" : "#f59e0b" }}
-                    >
-                      {s.score}%
-                    </span>
-                  </div>
-                ))}
+              <div className="flex items-center gap-2 p-2 rounded-lg" style={{ border: "1px solid var(--color-border)" }}>
+                {dupSimilar.match.thumb && <img src={dupSimilar.match.thumb} className="w-10 h-10 rounded object-cover flex-shrink-0" alt="" />}
+                <div className="flex-1 text-[11px] text-[var(--color-text-primary)] truncate">{dupSimilar.match.name}</div>
+                <span
+                  className="text-[10px] font-extrabold px-2 py-0.5 rounded-full text-white flex-shrink-0"
+                  style={{ background: dupSimilar.match.score >= 80 ? "#dc2626" : "#f59e0b" }}
+                >
+                  {dupSimilar.match.score}%
+                </span>
               </div>
               <button
                 onClick={() => setCompareOpen(false)}
