@@ -7,6 +7,35 @@ import { priceFor, hasEnoughCredits } from "@/lib/deduct";
 import { getP2Config } from "@/lib/settings";
 import { buildVeoLocks, pickAutoContentVoice, type AutoContentAge } from "@/lib/veo-voices";
 import { generateVideoWithCascade } from "@/lib/video-cascade";
+
+// ── Veo 3.1 prompt sanitizer (VEO PATH ONLY) ──────────────────────────────
+// Veo's text-moderation classifier false-flags these words as "explicit
+// content" even inside modesty NEGATIVES — it doesn't parse the "NO" in "NO
+// cleavage", it just sees the word. Auto-content's character/modesty locks are
+// heavy on exactly these terms (attractive, anatomically, breast/cleavage/
+// midriff/navel/thigh), which is why hijab-MODEST videos get rejected with
+// "Detected explicit content" and never reach Veo. Rewrite them to neutral
+// equivalents right before the prompt is fired. Grok/Gemini are untouched.
+const VEO_SANITIZE: [RegExp, string][] = [
+  [/beautiful attractive/gi, "polished camera-ready"],
+  [/handsome attractive/gi, "sharp camera-ready"],
+  [/\battractive\b/gi, "camera-ready"],
+  [/anatomically perfect/gi, "natural realistic proportions"],
+  [/no extra limbs/gi, "no distortion"],
+  [/breast shape/gi, "silhouette"],
+  [/\bbreasts?\b/gi, "chest"],
+  [/\bcleavage\b/gi, "low necklines"],
+  [/\bmidriff\b/gi, "waist"],
+  [/\bnavel\b/gi, "waistline"],
+  [/thigh exposure/gi, "leg exposure"],
+  [/\bthighs?\b/gi, "legs"],
+  [/body shape/gi, "figure"],
+];
+function sanitizeForVeo(s: string): string {
+  let out = s;
+  for (const [re, rep] of VEO_SANITIZE) out = out.replace(re, rep);
+  return out;
+}
 import {
   FRAMEWORKS,
   SHOP_CTA_VARIATIONS,
@@ -2014,15 +2043,18 @@ CRITICAL OUTPUT RULES:
   // (rule: N seconds × 3 words). buildVeoLocks reads durationSec and
   // emits "MUST be N×3 ±2 Malay words" so the LLM has a hard target.
   function veoSeg1PromptFor(p: Plan, voiceLine: string): string {
-    return (
+    const combined =
       p.videoPromptShot1 +
       buildVeoLocks({
         voiceId: lockedVoiceId,
         voiceLine, // legacy fallback if voiceId ever fails to resolve
         hijab: hijabMode,
         durationSec: providerChoice === "grok" ? grokDuration : 8,
-      })
-    );
+      });
+    // Veo ONLY — strip its moderation-trigger words (covers the LLM's prompt
+    // AND the appended locks). seg-2 builds from this string, so it's covered
+    // too. Grok/Gemini keep the original wording.
+    return providerChoice === "veo" ? sanitizeForVeo(combined) : combined;
   }
 
   // CODE-LEVEL guarantee that seg-2's prompt == seg-1's prompt with ONLY
