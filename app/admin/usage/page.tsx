@@ -125,10 +125,14 @@ export default function AdminUsage() {
   const generationRows = useMemo(
     () => {
       const base = filtered.filter((r) => {
-        // VIDEO-ONLY DETAIL LOG — per admin direction, exclude all
-        // image rows from the usage log entirely. The breakdown +
-        // table + counters all only consider video generations.
-        if (!r.reason.startsWith("video")) {
+        // VIDEO-ONLY DETAIL LOG — keep every VIDEO deduction, drop images.
+        // Video bills under several reasons: `video_8s` / `video_16s` (Veo,
+        // Auto/Dialog UGC) AND `cinema` (the per-second Original-Video/Cinema
+        // bill that covers GeminiOmni, Seedance, and Original-Video Grok). The
+        // old `startsWith("video")` matched only `video_*`, so ALL `cinema`
+        // rows were dropped — which zeroed GeminiOmni + Seedance in the
+        // breakdown. Exclude images + non-generation reasons only.
+        if (r.reason.startsWith("image") || r.reason === "gpu_session") {
           return false;
         }
         // Drop Storytelling intermediate image rows (per-scene + hero).
@@ -623,14 +627,12 @@ export default function AdminUsage() {
                 in the current date+media filter window. Hidden when the
                 media filter is "image" because the breakdown is video-only. */}
             {mediaFilter !== "image" && (
-              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 mb-5">
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
                 {[
-                  { label: "Veo Videos", value: videoBreakdown.veo,   tone: "rgba(34,197,94,0.18)",  fg: "#16a34a", sub: "UGC + Auto + Original Video (Veo) + Viral" },
-                  { label: "Grok Videos", value: videoBreakdown.grok, tone: "rgba(99,102,241,0.18)", fg: "#6366f1", sub: "Original Video (Grok) + legacy Cinema" },
-                  { label: "Sora 2 Videos", value: videoBreakdown.sora, tone: "rgba(74,222,128,0.18)", fg: "#4ade80", sub: "Original Video (Sora 2) + Auto Content Sora 2" },
+                  { label: "Veo Videos", value: videoBreakdown.veo,   tone: "rgba(34,197,94,0.18)",  fg: "#16a34a", sub: "Dialog UGC (Veo) + Auto Content + Viral" },
+                  { label: "Grok Videos", value: videoBreakdown.grok, tone: "rgba(99,102,241,0.18)", fg: "#6366f1", sub: "Grok (latest) — Original Video + Auto/Dialog UGC + Cinema" },
                   { label: "GeminiOmni", value: videoBreakdown.gemini, tone: "rgba(6,182,212,0.18)", fg: "#06b6d4", sub: "Original Video (Gemini) + Auto Content Gemini" },
-                  { label: "Seedance", value: videoBreakdown.seedance, tone: "rgba(244,114,182,0.18)", fg: "#ec4899", sub: "Cinema Seedance + Auto Content Seedance" },
-                  { label: "Storytelling", value: videoBreakdown.story, tone: "rgba(139,92,246,0.18)", fg: "#8b5cf6", sub: "Final merged story video" },
+                  { label: "Seedance", value: videoBreakdown.seedance, tone: "rgba(244,114,182,0.18)", fg: "#ec4899", sub: "Original Video / Cinema Seedance + Auto Content" },
                 ].map((b) => (
                   <div
                     key={b.label}
