@@ -387,6 +387,15 @@ export default function CreditSection({ credits }: { credits: number }) {
               )}
             </div>
 
+            {/* Total amount — so the client is crystal-clear on what to pay */}
+            <div className="rounded-2xl p-4 mb-4 flex items-center justify-between" style={{ background: "linear-gradient(135deg, rgba(245,158,11,0.12), rgba(255,87,34,0.08))", border: "1px solid rgba(245,158,11,0.4)" }}>
+              <div>
+                <div className="text-[11px] uppercase tracking-wider font-bold text-[var(--color-text-muted)]">Jumlah untuk transfer</div>
+                <div className="text-xs text-[var(--color-text-secondary)]">{payCredits} credits</div>
+              </div>
+              <div className="font-display font-extrabold text-3xl text-amber-500">RM{payCredits}</div>
+            </div>
+
             {/* Screenshot upload */}
             <div className="mb-4">
               <div className="text-xs uppercase tracking-wider font-bold text-[var(--color-text-muted)] mb-2">

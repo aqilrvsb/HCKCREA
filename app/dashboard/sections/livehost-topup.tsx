@@ -296,6 +296,13 @@ export default function LivehostTopup({ credits }: { credits: number }) {
                 <div className="text-sm text-[var(--color-text-muted)]">Admin belum set akaun Touch &apos;n Go. Sila hubungi admin.</div>
               )}
             </div>
+            <div className="rounded-2xl p-4 mb-4 flex items-center justify-between" style={{ background: "linear-gradient(135deg, rgba(245,158,11,0.12), rgba(255,87,34,0.08))", border: "1px solid rgba(245,158,11,0.4)" }}>
+              <div>
+                <div className="text-[11px] uppercase tracking-wider font-bold text-[var(--color-text-muted)]">Jumlah untuk transfer</div>
+                <div className="text-xs text-[var(--color-text-secondary)]">{payCredits} kredit</div>
+              </div>
+              <div className="font-display font-extrabold text-3xl text-amber-500">RM{payCredits}</div>
+            </div>
             <div className="mb-4">
               <div className="text-xs uppercase tracking-wider font-bold text-[var(--color-text-muted)] mb-2">Langkah 2 — Upload screenshot transfer</div>
               <label className="flex items-center justify-center gap-2 w-full py-4 rounded-2xl border-2 border-dashed cursor-pointer" style={{ borderColor: proofUrl ? "#16a34a" : "var(--color-border)", background: proofUrl ? "rgba(16,185,129,0.06)" : "var(--color-bg-card)" }}>
