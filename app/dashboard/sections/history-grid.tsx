@@ -15,6 +15,8 @@ import {
   RotateCw,
   X,
   Copy,
+  GitCompare,
+  AlertTriangle,
   Palette,
   ChevronLeft,
   ChevronRight,
@@ -417,6 +419,12 @@ export default function HistoryGrid({
     }
     return { parents, childMap };
   }, [items]);
+
+  // Near-duplicate map — flags cards whose concept is ~the same as another in
+  // the same project + kind (TikTok duplicate-content guard). Memoized on the
+  // full loaded set so cross-page dupes are caught and it recomputes only when
+  // the data changes, not on every render.
+  const dupMap = useMemo(() => computeDupMap(parents), [parents]);
 
   // Save-to-storage status — single batched POST to /api/storage/status
   // with all parent ids on screen, cached via SWR so a tab re-switch
@@ -836,6 +844,7 @@ export default function HistoryGrid({
                 onToggleMerge={
                   supportsMerge ? () => toggleMergeSelection(it.id) : undefined
                 }
+                dupSimilar={dupMap.get(it.id)}
               />
             ))}
           </div>
@@ -914,6 +923,96 @@ const ACTION = {
   retry: "linear-gradient(135deg, #22c55e, #4ade80)",      // green — retry failed
 };
 
+// ── Near-duplicate detection ──────────────────────────────────────────────
+// Flags cards whose CONCEPT is ~the same as another card in the SAME project
+// ("profile") and kind, so a client can tell which storyboards/videos are
+// near-duplicates BEFORE TikTok flags them. It's light: the shared boilerplate
+// (opener, grid spec, hard rules, locks) is auto-removed by a document-
+// frequency filter — tokens that appear in most cards of a group are dropped,
+// leaving only each card's distinctive concept words — then Jaccard is compared
+// pairwise ONLY within a (project + kind) group. Memoized on the loaded set, so
+// it runs once per load, not per render.
+type DupSim = { id: string; name: string; thumb: string | null; score: number };
+type DupInfo = { sig: string; top: number; items: DupSim[] };
+
+const DUP_STOP = new Set(
+  "the a an and or of for with to in on at is are be this that your you our from into video image grid panel frame malaysian talent product presenter storyboard scene shot single only show shows shown same exact label face person people human clean neutral text caption subtitle rule hard must never each every panels vertical seconds"
+    .split(/\s+/)
+);
+const DUP_THRESHOLD = 0.6; // distinctive-token Jaccard cutoff (~"90% same flow")
+
+function dupTokens(prompt: string | null): string[] {
+  if (!prompt) return [];
+  const seen = new Set<string>();
+  for (const w of prompt.toLowerCase().match(/[a-z0-9]{4,}/g) || []) {
+    if (!DUP_STOP.has(w)) seen.add(w);
+  }
+  return [...seen];
+}
+function dupKind(it: HistoryItem): "sb" | "vid" | null {
+  if (it.metadata?.feature === "storyboard") return "sb";
+  if (it.type === "video") return "vid";
+  return null;
+}
+function dupName(it: HistoryItem): string {
+  const n = String(it.metadata?.name || "").trim();
+  if (n) return n;
+  const c = String(it.prompt || "")
+    .replace(/^ONE single 9:16 storyboard grid for ONE video only\.?\s*/i, "")
+    .trim();
+  return c.slice(0, 42) || "Untitled";
+}
+function dupThumb(it: HistoryItem): string | null {
+  return it.thumbnail_url || it.output_url || it.reference_url || null;
+}
+function computeDupMap(items: HistoryItem[]): Map<string, DupInfo> {
+  const out = new Map<string, DupInfo>();
+  const groups = new Map<string, HistoryItem[]>();
+  for (const it of items) {
+    const k = dupKind(it);
+    if (!k || !it.prompt) continue;
+    const key = `${it.project_id || "-"}|${k}`;
+    let arr = groups.get(key);
+    if (!arr) { arr = []; groups.set(key, arr); }
+    arr.push(it);
+  }
+  for (const group of groups.values()) {
+    if (group.length < 2) continue;
+    // Document frequency → drop boilerplate/common tokens (in >60% of the group).
+    const toks = group.map((it) => dupTokens(it.prompt));
+    const df = new Map<string, number>();
+    toks.forEach((ts) => ts.forEach((t) => df.set(t, (df.get(t) || 0) + 1)));
+    const cap = Math.max(2, Math.floor(group.length * 0.6));
+    const sets = toks.map((ts) => new Set(ts.filter((t) => (df.get(t) || 0) <= cap)));
+    const linked: DupSim[][] = group.map(() => []);
+    for (let i = 0; i < group.length; i++) {
+      for (let j = i + 1; j < group.length; j++) {
+        const A = sets[i], B = sets[j];
+        if (A.size < 3 || B.size < 3) continue; // too little signal to judge
+        const [small, big] = A.size < B.size ? [A, B] : [B, A];
+        let inter = 0;
+        for (const t of small) if (big.has(t)) inter++;
+        const jac = inter / (A.size + B.size - inter);
+        if (jac >= DUP_THRESHOLD) {
+          const score = Math.round(jac * 100);
+          linked[i].push({ id: group[j].id, name: dupName(group[j]), thumb: dupThumb(group[j]), score });
+          linked[j].push({ id: group[i].id, name: dupName(group[i]), thumb: dupThumb(group[i]), score });
+        }
+      }
+    }
+    group.forEach((it, i) => {
+      if (!linked[i].length) return;
+      linked[i].sort((a, b) => b.score - a.score);
+      out.set(it.id, {
+        sig: linked[i].map((s) => `${s.id}:${s.score}`).join("|"),
+        top: linked[i][0].score,
+        items: linked[i],
+      });
+    });
+  }
+  return out;
+}
+
 function HistoryCardInner({
   item,
   segChildren,
@@ -922,6 +1021,7 @@ function HistoryCardInner({
   mergeSupported,
   mergeSelectedIdx,
   onToggleMerge,
+  dupSimilar,
 }: {
   item: HistoryItem;
   segChildren?: HistoryItem[];
@@ -930,7 +1030,9 @@ function HistoryCardInner({
   mergeSupported?: boolean;
   mergeSelectedIdx?: number;
   onToggleMerge?: () => void;
+  dupSimilar?: DupInfo;
 }) {
+  const [compareOpen, setCompareOpen] = useState(false);
   // All extension/16s segments (sorted Seg 2, Seg 3, …). seg2 = the first
   // child, kept for the legacy 16s-pipeline code paths below.
   const children = segChildren || [];
@@ -1732,9 +1834,76 @@ function HistoryCardInner({
       className="rounded-xl overflow-hidden border"
       style={{
         background: "var(--color-bg-card)",
-        borderColor: "var(--color-border)",
+        // Near-duplicate cards get a RED border so they stand out in the grid.
+        borderColor: dupSimilar ? "#ef4444" : "var(--color-border)",
+        borderWidth: dupSimilar ? 2 : undefined,
+        position: "relative",
       }}
     >
+      {/* Duplicate-content warning badge (top-left). Tap to compare which
+          other cards this one is ~the same as. */}
+      {dupSimilar && (
+        <button
+          onClick={(e) => { e.stopPropagation(); setCompareOpen(true); }}
+          className="absolute top-2 left-2 z-30 inline-flex items-center gap-1 px-2 py-1 rounded-full text-[10px] font-extrabold text-white shadow-lg"
+          style={{ background: "linear-gradient(135deg,#ef4444,#dc2626)" }}
+          title="Content hampir sama — tekan untuk banding"
+        >
+          <GitCompare className="w-3 h-3" />
+          {dupSimilar.top}% serupa · {dupSimilar.items.length}
+        </button>
+      )}
+      {compareOpen && dupSimilar && (
+        <Portal>
+          <div
+            className="fixed inset-0 z-[210] flex items-center justify-center p-4"
+            style={{ background: "rgba(0,0,0,0.72)" }}
+            onClick={() => setCompareOpen(false)}
+          >
+            <div
+              className="w-full max-w-md rounded-2xl p-5 max-h-[85vh] overflow-y-auto"
+              style={{ background: "var(--color-bg-card)", border: "1px solid var(--color-border)" }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-center gap-2 mb-1">
+                <AlertTriangle className="w-4 h-4 text-red-500" />
+                <div className="text-[13px] font-extrabold text-[var(--color-text-primary)]">Content hampir sama</div>
+              </div>
+              <div className="text-[11px] text-[var(--color-text-muted)] mb-3">
+                TikTok boleh flag video/gambar yang ~90% serupa. Ubah hook / scene / flow sebelum post.
+              </div>
+              <div className="flex items-center gap-2 mb-3 p-2 rounded-lg" style={{ background: "var(--color-bg)" }}>
+                {dupThumb(item) && <img src={dupThumb(item)!} className="w-12 h-12 rounded-lg object-cover" alt="" />}
+                <div className="text-[11px] font-bold text-[var(--color-text-primary)]">Kad ini: {dupName(item)}</div>
+              </div>
+              <div className="text-[10px] uppercase tracking-wider font-bold text-[var(--color-text-muted)] mb-2">
+                Serupa dengan ({dupSimilar.items.length}):
+              </div>
+              <div className="space-y-2">
+                {dupSimilar.items.map((s) => (
+                  <div key={s.id} className="flex items-center gap-2 p-2 rounded-lg" style={{ border: "1px solid var(--color-border)" }}>
+                    {s.thumb && <img src={s.thumb} className="w-10 h-10 rounded object-cover flex-shrink-0" alt="" />}
+                    <div className="flex-1 text-[11px] text-[var(--color-text-primary)] truncate">{s.name}</div>
+                    <span
+                      className="text-[10px] font-extrabold px-2 py-0.5 rounded-full text-white flex-shrink-0"
+                      style={{ background: s.score >= 80 ? "#dc2626" : "#f59e0b" }}
+                    >
+                      {s.score}%
+                    </span>
+                  </div>
+                ))}
+              </div>
+              <button
+                onClick={() => setCompareOpen(false)}
+                className="mt-4 w-full py-2 rounded-xl text-[12px] font-bold"
+                style={{ background: "var(--color-bg)", border: "1px solid var(--color-border)" }}
+              >
+                Tutup
+              </button>
+            </div>
+          </div>
+        </Portal>
+      )}
       {tukarOpen && isStoryboard && (
         <StoryboardReplaceModal historyId={item.id} onClose={() => setTukarOpen(false)} />
       )}
@@ -3225,7 +3394,8 @@ const HistoryCard = memo(HistoryCardInner, (prev, next) => {
     prev.saveStatus?.storage_id === next.saveStatus?.storage_id &&
     prev.transferred === next.transferred &&
     prev.mergeSupported === next.mergeSupported &&
-    prev.mergeSelectedIdx === next.mergeSelectedIdx
+    prev.mergeSelectedIdx === next.mergeSelectedIdx &&
+    prev.dupSimilar?.sig === next.dupSimilar?.sig
     // Intentionally NOT comparing onToggleMerge — the parent passes an
     // inline lambda that's a new ref every render, but it always closes
     // over the same `item.id` and a stable setState, so the old ref is
