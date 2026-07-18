@@ -4,6 +4,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { isPlanKey, isLivehost } from "@/lib/plans";
 import DashboardShell from "./dashboard-shell";
 import LivehostDashboard from "./livehost-dashboard";
+import ExpiredLock from "./expired-lock";
 
 export default async function DashboardPage() {
   const supabase = await createClient();
@@ -21,7 +22,7 @@ export default async function DashboardPage() {
   const [{ data: profile }, { data: affiliateApp }] = await Promise.all([
     admin
       .from("profiles")
-      .select("credits, full_name, plan, plan_expires_at")
+      .select("credits, full_name, plan, plan_expires_at, is_admin")
       .eq("id", user.id)
       .maybeSingle(),
     // An "approved" affiliate row keyed by this user — used to swap the
@@ -49,6 +50,14 @@ export default async function DashboardPage() {
     isPlanKey(plan) &&
     !!planExpiresAt &&
     new Date(planExpiresAt) > new Date();
+
+  // ACCESS GATE — per admin direction, a client with NO active plan (expired
+  // or never subscribed) is fully locked out until an admin re-activates them.
+  // Admins are exempt. Session stays alive; they just hit the lock screen.
+  const isAdmin = !!profile?.is_admin;
+  if (!planActive && !isAdmin) {
+    return <ExpiredLock name={name} planExpiresAt={planExpiresAt} />;
+  }
 
   // Livehost is a SEPARATE package — render its own (blank) dashboard
   // instead of the generation studio. Billing inside it shows only the
