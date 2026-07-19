@@ -876,11 +876,9 @@ export default function HistoryGrid({
               Select All Cover
             </label>
             <div className="flex-1" />
-            <button onClick={() => void edGenerateText()} disabled={edBusyText || edBusyCover} className="text-xs font-extrabold px-4 py-1.5 rounded-lg text-white disabled:opacity-50 inline-flex items-center gap-1.5" style={{ background: "linear-gradient(135deg,#3b82f6,#60a5fa)" }}>{edBusyText ? <Loader2 className="w-4 h-4 animate-spin" /> : <span>📝</span>} Generate Text</button>
-            <button onClick={() => void edGenerateCover()} disabled={edBusyText || edBusyCover} className="text-xs font-extrabold px-4 py-1.5 rounded-lg text-white disabled:opacity-50 inline-flex items-center gap-1.5" style={{ background: "linear-gradient(135deg,#f59e0b,#ea580c)" }}>{edBusyCover ? <Loader2 className="w-4 h-4 animate-spin" /> : <span>🎨</span>} Generate Cover</button>
-            <button onClick={() => void edGenerateBoth()} disabled={edBusyText || edBusyCover} className="text-xs font-extrabold px-4 py-1.5 rounded-lg text-white disabled:opacity-50 inline-flex items-center gap-1.5" style={{ background: "linear-gradient(135deg,#16a34a,#22c55e)" }}>{(edBusyText || edBusyCover) ? <Loader2 className="w-4 h-4 animate-spin" /> : <span>📝🎨</span>} Text + Cover</button>
+            <button onClick={() => void edGenerateBoth()} disabled={edBusyText || edBusyCover} className="text-xs font-extrabold px-5 py-1.5 rounded-lg text-white disabled:opacity-50 inline-flex items-center gap-1.5" style={{ background: "linear-gradient(135deg,#16a34a,#22c55e)" }}>{(edBusyText || edBusyCover) ? <Loader2 className="w-4 h-4 animate-spin" /> : <span>📝🎨</span>} Generate</button>
           </div>
-          <p className="text-[10px] text-[var(--color-text-muted)] mt-1.5">Cover perlu Text dulu. Pilih kedua-dua checkbox lalu tekan <b>Text + Cover</b> — sistem jana Text (parallel) dulu, lepas siap baru jana Cover (parallel).</p>
+          <p className="text-[10px] text-[var(--color-text-muted)] mt-1.5">Satu butang uruskan semua: video yang tick <b style={{ color: "#60a5fa" }}>Text</b> je → jana Text; tick <b style={{ color: "#f59e0b" }}>Cover</b> je → jana Cover (perlu Text dulu); tick dua-dua → jana Text (parallel) dulu, lepas siap baru Cover (parallel).</p>
           {edLog.length > 0 && <div className="mt-2 font-mono text-[10px] max-h-24 overflow-y-auto text-[var(--color-text-secondary)]">{edLog.map((l, i) => <div key={i}>{l}</div>)}</div>}
         </div>
       )}
