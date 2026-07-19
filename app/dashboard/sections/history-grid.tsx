@@ -1153,6 +1153,19 @@ function computeDupMap(items: HistoryItem[]): Map<string, DupInfo> {
   return out;
 }
 
+// Which generation tab a video came from — shown on Editor cards.
+function sourceTabLabel(item: HistoryItem): string {
+  const t = String(item.tab || "").toLowerCase();
+  if (t === "original-video") return "Original Video";
+  if (t === "video") return "Dialog UGC";
+  if (t === "auto-ugc") return "Auto UGC";
+  if (t === "cinema") return "Viral";
+  if (t === "seedance") return "Cinema";
+  if (t === "grok") return "Grok";
+  if (t === "auto") return "Auto Content";
+  return t ? t.replace(/(^|[-_])(\w)/g, (_m, _s, c) => " " + c.toUpperCase()).trim() : "Video";
+}
+
 function HistoryCardInner({
   item,
   segChildren,
@@ -2020,9 +2033,29 @@ function HistoryCardInner({
         position: "relative",
       }}
     >
+      {/* Editor mode — source-tab chip (top-left) + remove-from-Editor (×). */}
+      {editorMode && (
+        <>
+          <span
+            className="absolute top-2 left-2 z-30 px-2 py-1 rounded-full text-[10px] font-extrabold text-white shadow-lg"
+            style={{ background: "linear-gradient(135deg,#8b5cf6,#a78bfa)" }}
+            title="Dari tab ini"
+          >
+            {sourceTabLabel(item)}
+          </span>
+          <button
+            onClick={(e) => { e.stopPropagation(); onEdRemove?.(); }}
+            title="Buang dari Editor (balik ke tab asal)"
+            className="absolute top-2 right-2 z-30 w-6 h-6 rounded-md flex items-center justify-center text-white shadow-lg"
+            style={{ background: "rgba(239,68,68,0.9)" }}
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </>
+      )}
       {/* Duplicate-content warning badge (top-left). Tap to compare which
           other cards this one is ~the same as. */}
-      {dupSimilar && (
+      {!editorMode && dupSimilar && (
         <button
           onClick={(e) => { e.stopPropagation(); setCompareOpen(true); }}
           className="absolute top-2 left-2 z-30 inline-flex items-center gap-1 px-2 py-1 rounded-full text-[10px] font-extrabold text-white shadow-lg"
@@ -3257,9 +3290,7 @@ function HistoryCardInner({
               >
                 <span className="text-[11px] font-extrabold leading-none">{edCoverOn ? "✓" : ""}🎨</span>
               </ActionBtn>
-              <ActionBtn title="Buang dari Editor" onClick={() => onEdRemove?.()} bg={ACTION.delete}>
-                <Trash2 className="w-3.5 h-3.5" strokeWidth={2.4} />
-              </ActionBtn>
+              {/* Remove-from-Editor moved to the × overlay on the card media. */}
             </>
           )}
           {/* DONE — clone prompt: Copy + Delete only (no media, no extend) */}
