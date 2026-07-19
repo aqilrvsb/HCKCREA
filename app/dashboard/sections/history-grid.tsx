@@ -824,26 +824,37 @@ export default function HistoryGrid({
   }
 
   // Frame — take each ticked video's cover, make a 3s static intro clip, merge
-  // it in front of the video. Server-side (fal ffmpeg, no client credit). The
-  // framed result replaces the original in the Editor; poll refreshes the grid.
+  // it in front of the video (fal ffmpeg, no client credit). Fired PER-VIDEO
+  // with a small concurrency cap so bulk stays bounded: each request runs one
+  // fal job inside its own server budget, at most `LIMIT` in flight — instead of
+  // one giant request spawning N background jobs that hammer fal / time out. The
+  // grid refreshes as each finishes.
   async function edGenerateFrame() {
     const ids = [...edFrame].filter((id) => visibleParents.some((v) => v.id === id) && edFramePickable(id));
     if (!ids.length) { edAddLog("⚠ Tick Frame (ungu) pada video yang dah ada Cover dulu."); return; }
     setEdBusyFrame(true);
     try {
-      edAddLog(`🎞️ Frame untuk ${ids.length} video — jana intro 3s + gabung… (percuma, tiada kredit)`);
-      const r = await fetch("/api/editor/frame", {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ history_ids: ids }),
-      });
-      const d = await r.json().catch(() => ({}));
-      if (!r.ok) { edAddLog(`✗ Frame gagal: ${d?.error || r.status}`); return; }
-      (d.skipped || []).forEach((s: any) => edAddLog(`  ✗ ${String(s.id).slice(0, 6)}: ${s.reason}`));
+      edAddLog(`🎞️ Frame untuk ${ids.length} video — intro 3s + gabung (percuma, tiada kredit)…`);
+      const LIMIT = 3; // frame is heavier than text/cover → fewer in flight
+      let done = 0, idx = 0;
+      const worker = async () => {
+        while (idx < ids.length) {
+          const id = ids[idx++];
+          try {
+            // Generous timeout — clip+merge+rehost can take ~30–60s per video.
+            const { ok, d } = await edFetchJson("/api/editor/frame", { history_ids: [id] }, 240000);
+            const r = d?.results?.[0];
+            if (ok && r?.status === "done") { done++; edAddLog(`  ✓ ${id.slice(0, 6)} framed`); }
+            else edAddLog(`  ✗ ${id.slice(0, 6)}: ${r?.reason || d?.error || "gagal"}`);
+          } catch (e: any) { edAddLog(`  ✗ ${id.slice(0, 6)}: ${e?.message || "error"}`); }
+          edReload(); // refresh grid as each one lands
+        }
+      };
+      await Promise.all(Array.from({ length: Math.min(LIMIT, ids.length) }, worker));
       setEdFrame(new Set());
       edReload();
-      edAddLog(`✓ Frame bermula untuk ${d.started || 0} video — tunggu ia siap render (intro + video).`);
-    } catch (e: any) { edAddLog(`✗ Frame error: ${e?.message || "error"}`); }
-    finally { setEdBusyFrame(false); }
+      edAddLog(`✓ Frame siap — ${done}/${ids.length}.`);
+    } finally { setEdBusyFrame(false); }
   }
 
   // Undo Frame — remove a framed video and bring its original back.

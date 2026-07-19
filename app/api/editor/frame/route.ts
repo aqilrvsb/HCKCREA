@@ -1,4 +1,4 @@
-import { NextResponse, after } from "next/server";
+import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { falImageToVideo, falMergeVideos } from "@/lib/fal";
@@ -9,18 +9,21 @@ import { rehostToContent, type StorageType } from "@/lib/b2";
 // "Frame" — take each video's generated cover (metadata.cover_thumbnail_url),
 // turn it into a 3-second STATIC clip (fal ffmpeg, no AI, no client credit),
 // and MERGE it as an intro at the START of the video. The result is a NEW
-// "framed" video row that REPLACES the original in the Editor (the original is
-// hidden on success and can be brought back with Undo Frame → /api/editor/unframe).
+// "framed" video row that REPLACES the original in the Editor (original hidden;
+// Undo Frame → /api/editor/unframe brings it back). cost:0 — billed to our fal
+// usage, never the client.
 //
-// Placeholder-first + after() (mirrors /api/merge/videos). cost:0 — billed to
-// our fal usage, never the client.
+// PROCESSED SYNCHRONOUSLY (not in after()) so bulk stays bounded: the CLIENT
+// fires per-video with a small concurrency cap, so at most a few fal jobs run
+// at once and each request lives inside its own maxDuration budget — instead of
+// one request spawning N unbounded background jobs that hammer fal / time out.
 
 export const runtime = "nodejs";
 export const maxDuration = 300; // Vercel clamps to the plan's max.
 export const dynamic = "force-dynamic";
 
 const INTRO_SECONDS = 3;
-const MAX_BATCH = 50;
+const MAX_BATCH = 8; // safety cap per request (client normally sends 1)
 
 export async function POST(req: Request) {
   const sb = await createClient();
@@ -40,18 +43,21 @@ export async function POST(req: Request) {
     .select("id, user_id, tab, status, output_url, project_id, duration, caption, metadata")
     .in("id", ids)
     .eq("user_id", user.id);
-
   const rows = sources || [];
-  const started: string[] = [];
-  const skipped: { id: string; reason: string }[] = [];
 
-  for (const src of rows) {
+  const results: { id: string; status: "done" | "failed" | "skip"; framed_id?: string; reason?: string }[] = [];
+
+  // Sequential within a request — parallelism is the client's job (bounded).
+  for (const id of ids) {
+    const src = rows.find((r) => r.id === id);
+    if (!src) { results.push({ id, status: "skip", reason: "tak dijumpai" }); continue; }
+
     const meta = (src.metadata || {}) as Record<string, any>;
     const coverUrl = String(meta.cover_thumbnail_url || "").trim();
     const videoUrl = String(src.output_url || "").trim();
-    if (src.status !== "done" || !videoUrl) { skipped.push({ id: src.id, reason: "video belum siap" }); continue; }
-    if (!coverUrl) { skipped.push({ id: src.id, reason: "tiada cover — jana Cover dulu" }); continue; }
-    if (meta.framed_child) { skipped.push({ id: src.id, reason: "sudah di-frame" }); continue; }
+    if (src.status !== "done" || !videoUrl) { results.push({ id, status: "skip", reason: "video belum siap" }); continue; }
+    if (!coverUrl) { results.push({ id, status: "skip", reason: "tiada cover — jana Cover dulu" }); continue; }
+    if (meta.framed_child) { results.push({ id, status: "skip", reason: "sudah di-frame" }); continue; }
 
     // New framed row — inherits tab/project/caption + the auto-post payload so
     // the framed video is post-ready, and shows in the Editor (in_editor=true).
@@ -83,66 +89,59 @@ export async function POST(req: Request) {
       })
       .select("id")
       .single();
-    if (!framed) { skipped.push({ id: src.id, reason: "DB insert gagal" }); continue; }
+    if (!framed) { results.push({ id, status: "skip", reason: "DB insert gagal" }); continue; }
 
     const framedId = framed.id;
-    started.push(framedId);
     const sType: StorageType = src.tab === "auto" ? "auto" : src.tab === "cinema" ? "cinema" : "ugc";
 
-    // Replace immediately: hide the original the moment framing starts (the
-    // pending framed row shows in its place). If framing fails, after() restores
-    // it — and even a hard crash leaves the failed framed card in the Editor with
-    // an Undo Frame button, so the original is always recoverable.
+    // Replace immediately: hide the original the moment framing starts.
     await admin.from("history").update({
       metadata: { ...meta, hidden_by_frame: true, framed_child: framedId, in_editor: false },
     }).eq("id", src.id).eq("user_id", user.id);
 
-    after(async () => {
-      const fail = async (msg: string) => {
-        // Mark the framed row failed + hide it, and bring the original back.
-        await admin.from("history").update({
-          status: "failed", error_message: msg,
-          metadata: { feature: "framed", framed_from: src.id, frame_status: "failed", in_editor: false },
-        }).eq("id", framedId);
-        const { data: o } = await admin.from("history").select("metadata").eq("id", src.id).maybeSingle();
-        const om = (o?.metadata || meta) as Record<string, any>;
-        delete om.hidden_by_frame; delete om.framed_child;
-        await admin.from("history").update({ metadata: { ...om, in_editor: true } }).eq("id", src.id).eq("user_id", user.id);
-      };
-      try {
-        // 1) cover image → 3s static clip (ffmpeg, no AI).
-        const clip = await falImageToVideo(coverUrl, INTRO_SECONDS);
-        if (!clip.ok || !clip.url) return void (await fail(clip.error || "Intro clip gagal"));
-        // 2) merge [intro, video] → one video (intro plays first).
-        const merged = await falMergeVideos([clip.url, videoUrl]);
-        if (!merged.ok || !merged.url) return void (await fail(merged.error || "Merge gagal"));
-        // 3) rehost the merged result to our B2 (same as every generation).
-        const rehosted = await rehostToContent({ url: merged.url, userId: user.id, historyId: framedId, type: sType, fallbackExt: "mp4" });
-        // 4) framed row done.
-        await admin.from("history").update({
-          status: "done", output_url: rehosted, merged_url: rehosted, thumbnail_url: rehosted,
-          metadata: {
-            feature: "framed", framed_from: src.id, frame_status: "done", framed_at: new Date().toISOString(),
-            in_editor: true,
-            cover_thumbnail_url: coverUrl,
-            cover_title: meta.cover_title || null,
-            cover_subtitle: meta.cover_subtitle || null,
-            tiktok_product_id: meta.tiktok_product_id || null,
-            product_name: meta.product_name || null,
-          },
-        }).eq("id", framedId);
-        // 5) hide the ORIGINAL — framed replaces it in the Editor. Merge fresh
-        // metadata so nothing else is lost.
-        const { data: cur } = await admin.from("history").select("metadata").eq("id", src.id).maybeSingle();
-        const m2 = (cur?.metadata || meta) as Record<string, any>;
-        await admin.from("history").update({
-          metadata: { ...m2, hidden_by_frame: true, framed_child: framedId, in_editor: false },
-        }).eq("id", src.id).eq("user_id", user.id);
-      } catch (e: any) {
-        await fail(e?.message || "Frame error");
-      }
-    });
+    const restoreOriginal = async () => {
+      const { data: o } = await admin.from("history").select("metadata").eq("id", src.id).maybeSingle();
+      const om = (o?.metadata || meta) as Record<string, any>;
+      delete om.hidden_by_frame; delete om.framed_child;
+      await admin.from("history").update({ metadata: { ...om, in_editor: true } }).eq("id", src.id).eq("user_id", user.id);
+    };
+    const markFailed = async (msg: string) => {
+      await admin.from("history").update({
+        status: "failed", error_message: msg,
+        metadata: { feature: "framed", framed_from: src.id, frame_status: "failed", in_editor: false },
+      }).eq("id", framedId);
+      await restoreOriginal();
+    };
+
+    try {
+      // 1) cover image → 3s static clip (ffmpeg, no AI).
+      const clip = await falImageToVideo(coverUrl, INTRO_SECONDS);
+      if (!clip.ok || !clip.url) { await markFailed(clip.error || "Intro clip gagal"); results.push({ id, status: "failed", reason: clip.error || "intro gagal" }); continue; }
+      // 2) merge [intro, video] → one video (intro plays first).
+      const merged = await falMergeVideos([clip.url, videoUrl]);
+      if (!merged.ok || !merged.url) { await markFailed(merged.error || "Merge gagal"); results.push({ id, status: "failed", reason: merged.error || "merge gagal" }); continue; }
+      // 3) rehost the merged result to our B2.
+      const rehosted = await rehostToContent({ url: merged.url, userId: user.id, historyId: framedId, type: sType, fallbackExt: "mp4" });
+      // 4) framed row done.
+      await admin.from("history").update({
+        status: "done", output_url: rehosted, merged_url: rehosted, thumbnail_url: rehosted,
+        metadata: {
+          feature: "framed", framed_from: src.id, frame_status: "done", framed_at: new Date().toISOString(),
+          in_editor: true,
+          cover_thumbnail_url: coverUrl,
+          cover_title: meta.cover_title || null,
+          cover_subtitle: meta.cover_subtitle || null,
+          tiktok_product_id: meta.tiktok_product_id || null,
+          product_name: meta.product_name || null,
+        },
+      }).eq("id", framedId);
+      results.push({ id, status: "done", framed_id: framedId });
+    } catch (e: any) {
+      await markFailed(e?.message || "Frame error");
+      results.push({ id, status: "failed", reason: e?.message || "error" });
+    }
   }
 
-  return NextResponse.json({ ok: true, started: started.length, skipped });
+  const done = results.filter((r) => r.status === "done").length;
+  return NextResponse.json({ ok: true, done, results });
 }
