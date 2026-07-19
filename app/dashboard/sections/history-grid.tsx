@@ -230,7 +230,7 @@ export default function HistoryGrid({
   const [edText, setEdText] = useState<Set<string>>(new Set());
   const [edCover, setEdCover] = useState<Set<string>>(new Set());
   const [edProduct, setEdProduct] = useState("");
-  const [edProducts, setEdProducts] = useState<Array<{ product_id: string; product_name: string; detail?: string }>>([]);
+  const [edProducts, setEdProducts] = useState<Array<{ product_id: string; product_name?: string; name?: string; raw_url?: string; description?: string; detail?: string }>>([]);
   const [edBusyText, setEdBusyText] = useState(false);
   const [edBusyCover, setEdBusyCover] = useState(false);
   const [edLog, setEdLog] = useState<string[]>([]);
@@ -561,9 +561,12 @@ export default function HistoryGrid({
     if (!editorMode) return;
     void (async () => {
       try {
-        const r = await fetch("/api/auto-content/saved-products", { cache: "no-store" });
+        // SAME product source as the extension's Non Saved ID (Beg Kuning
+        // affiliate list) — carries raw_url + description so Generate Text is
+        // byte-identical to the extension.
+        const r = await fetch("/api/extension/affiliate/list", { cache: "no-store" });
         const d = await r.json();
-        setEdProducts(d?.items || []);
+        setEdProducts(d?.products || d?.items || []);
       } catch { /* ignore */ }
     })();
   }, [editorMode]);
@@ -576,32 +579,48 @@ export default function HistoryGrid({
   const edSeed = (id: string) => { let h = 0; for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0; return h; };
   const edReload = () => window.dispatchEvent(new CustomEvent("history:refresh"));
 
+  // MIRRORS the extension's Non Saved ID runAssign() 1:1 — same product_url
+  // (raw_url first), same product_name/detail fields, same variant seed,
+  // concurrency 4, one automatic retry, and the same "complete" check.
   async function edGenerateText() {
-    const product = edProducts.find((p) => String(p.product_id) === edProduct);
+    const product: any = edProducts.find((p) => String(p.product_id) === edProduct);
     if (!product) { edAddLog("⚠ Pilih produk dulu."); return; }
     const ids = [...edText].filter((id) => visibleParents.some((v) => v.id === id));
-    if (!ids.length) { edAddLog("⚠ Tick 📝 pada video dulu."); return; }
-    const productUrl = "https://www.tiktok.com/shop/my/pdp/product/" + product.product_id;
+    if (!ids.length) { edAddLog("⚠ Tick Text (biru) pada video dulu."); return; }
+    const productUrl = product.raw_url || (product.product_id ? "https://www.tiktok.com/shop/my/pdp/product/" + product.product_id : "");
+    const productName = product.product_name || product.name || "";
+    const productDetail = product.description || product.detail || "";
     setEdBusyText(true);
-    edAddLog(`Generate Text "${product.product_name}" untuk ${ids.length} video…`);
-    let ok = 0, idx = 0;
-    const worker = async () => {
-      while (idx < ids.length) {
-        const id = ids[idx++];
-        try {
-          const r = await fetch("/api/ugc/generate-post-meta", {
-            method: "POST", headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ history_id: id, product_url: productUrl, product_name: product.product_name, product_detail: product.detail || "", variant_seed: edSeed(id) }),
-          });
-          const d = await r.json();
-          if (r.ok && (d.caption || d.cover_title)) ok++;
-          else edAddLog(`  ✗ ${id.slice(0, 6)}: ${d.error || "tak lengkap"}`);
-        } catch (e: any) { edAddLog(`  ✗ ${id.slice(0, 6)}: ${e?.message || "error"}`); }
-      }
+    edAddLog(`Generate Text "${productName}" untuk ${ids.length} video…`);
+    const done = new Set<string>();
+    // metaComplete (extension): caption ≥20 chars + has #, cover title/subtitle,
+    // and the product got stamped.
+    const metaOk = (d: any) =>
+      !!d && String(d.caption || "").trim().length >= 20 && String(d.caption || "").includes("#") &&
+      !!d.cover_title && !!d.cover_subtitle && !!d.tiktok_product_id;
+    const runPass = async (list: string[]) => {
+      let idx = 0;
+      const worker = async () => {
+        while (idx < list.length) {
+          const id = list[idx++];
+          try {
+            const r = await fetch("/api/ugc/generate-post-meta", {
+              method: "POST", headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ history_id: id, product_url: productUrl, product_name: productName, product_detail: productDetail, variant_seed: edSeed(id) }),
+            });
+            const d = await r.json();
+            if (r.ok && metaOk(d)) done.add(id);
+            else edAddLog(`  ✗ ${id.slice(0, 6)}: ${d.error || "tak lengkap"}`);
+          } catch (e: any) { edAddLog(`  ✗ ${id.slice(0, 6)}: ${e?.message || "error"}`); }
+        }
+      };
+      await Promise.all(Array.from({ length: Math.min(4, list.length) }, worker));
     };
-    await Promise.all(Array.from({ length: Math.min(4, ids.length) }, worker));
+    await runPass(ids);
+    const missing = ids.filter((id) => !done.has(id));
+    if (missing.length) { edAddLog(`Cuba semula ${missing.length} video yang gagal…`); await runPass(missing); }
     edReload();
-    edAddLog(`✓ Text siap — ${ok}/${ids.length} lengkap.`);
+    edAddLog(`✓ Text siap — ${done.size}/${ids.length} lengkap.`);
     setEdBusyText(false);
   }
 
