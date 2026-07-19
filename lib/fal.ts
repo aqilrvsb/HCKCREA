@@ -112,6 +112,67 @@ export async function falMergeVideos(
 }
 
 // ──────────────────────────────────────────────────────────────────────────
+// falImageToVideo — turn a STILL image into a static video that holds the
+// image for `durationSec` seconds (no AI, no motion). Used by the Editor's
+// "Frame" feature to make a 3s intro clip from a cover thumbnail, then merge it
+// in front of the video. Pure ffmpeg on fal (fal-ai/ffmpeg-api/images-to-video)
+// — cheap, and billed to fal, NOT to the client (caller uses cost:0 like merge).
+//
+// Schema: { images: [{ url, frames }], fps } → { video: { url } }.
+// On-screen seconds = frames / fps. fps=24, so 3s = 72 frames. The cover is
+// already 9:16, so the output video is vertical as-is.
+// Queue API + poll (like falRemoveBackground). fal_key from app_settings.
+// ──────────────────────────────────────────────────────────────────────────
+
+export async function falImageToVideo(
+  imageUrl: string,
+  durationSec = 3
+): Promise<{ ok: boolean; url?: string; error?: string }> {
+  if (!imageUrl) return { ok: false, error: "Missing image" };
+  const s = await getSettings(["fal_key"]);
+  const key = s.fal_key?.key;
+  if (!key) return { ok: false, error: "fal.ai not configured" };
+
+  const MODEL = "fal-ai/ffmpeg-api/images-to-video";
+  const FPS = 24;
+  const frames = Math.max(1, Math.round(durationSec * FPS));
+  const H = { Authorization: `Key ${key}`, "Content-Type": "application/json" };
+
+  try {
+    const sub = await fetch(`https://queue.fal.run/${MODEL}`, {
+      method: "POST",
+      headers: H,
+      body: JSON.stringify({ images: [{ url: imageUrl, frames }], fps: FPS }),
+    });
+    const subJson: any = await sub.json().catch(() => ({}));
+    const reqId = subJson?.request_id;
+    if (!reqId) {
+      return { ok: false, error: `fal submit HTTP ${sub.status}: ${JSON.stringify(subJson).slice(0, 200)}` };
+    }
+    // Poll the URLs fal returns (app namespace = fal-ai/ffmpeg-api/requests/<id>).
+    const statusUrl = subJson?.status_url || `https://queue.fal.run/fal-ai/ffmpeg-api/requests/${reqId}/status`;
+    const resUrl = subJson?.response_url || `https://queue.fal.run/fal-ai/ffmpeg-api/requests/${reqId}`;
+    const t0 = Date.now();
+    while (Date.now() - t0 < 90_000) {
+      await new Promise((r) => setTimeout(r, 2000));
+      const st: any = await (await fetch(statusUrl, { headers: H })).json().catch(() => ({}));
+      if (st?.status === "COMPLETED") {
+        const out: any = await (await fetch(resUrl, { headers: H })).json().catch(() => ({}));
+        const url = out?.video?.url || out?.url;
+        if (url && typeof url === "string") return { ok: true, url };
+        return { ok: false, error: "fal returned no video URL" };
+      }
+      if (st?.status === "FAILED" || st?.status === "ERROR") {
+        return { ok: false, error: "fal image-to-video failed" };
+      }
+    }
+    return { ok: false, error: "fal image-to-video timeout" };
+  } catch (e: any) {
+    return { ok: false, error: e?.message || "fal network error" };
+  }
+}
+
+// ──────────────────────────────────────────────────────────────────────────
 // falRemoveBackground — Bria RMBG 2.0 image background removal.
 //
 // `imageInput` can be a public URL OR a base64 data URI (so callers can run

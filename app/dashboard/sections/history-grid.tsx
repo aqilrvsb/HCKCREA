@@ -238,6 +238,8 @@ export default function HistoryGrid({
   // for Text / Cover generation, the chosen product, and busy flags.
   const [edText, setEdText] = useState<Set<string>>(new Set());
   const [edCover, setEdCover] = useState<Set<string>>(new Set());
+  const [edFrame, setEdFrame] = useState<Set<string>>(new Set());
+  const [edBusyFrame, setEdBusyFrame] = useState(false);
   const [edProduct, setEdProduct] = useState("");
   const [edProducts, setEdProducts] = useState<Array<{ product_id: string; product_name?: string; name?: string; raw_url?: string; description?: string; detail?: string }>>([]);
   const [edBusyText, setEdBusyText] = useState(false);
@@ -544,6 +546,9 @@ export default function HistoryGrid({
       // Done Post grid — every video already auto-posted (fetcher already
       // scoped posted_to_tiktok=true); no TTL, no editor/image sub-filters.
       if (donePostMode) return true;
+      // Framed original — replaced by its framed (intro+video) row; hidden from
+      // every grid until Undo Frame restores it.
+      if ((p.metadata as any)?.hidden_by_frame) return false;
       // Moved to the Editor (⇄) OR already auto-posted by the extension — the
       // video leaves the normal tab grids. In editorMode this IS the editor
       // grid, so we KEEP the transferred ones — but still drop posted ones,
@@ -615,6 +620,17 @@ export default function HistoryGrid({
   const edToggleCover = (id: string) => {
     if (!edCover.has(id) && !edCoverPickable(id)) return; // block picking, allow un-picking
     setEdCover((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  };
+  // Frame can only be picked once the video already has a Cover generated
+  // (the cover image is what becomes the 3s intro). Not a framed row itself.
+  const edFramePickable = (id: string) => {
+    const v = visibleParents.find((x) => x.id === id);
+    const m = (v?.metadata as any) || {};
+    return !!m.cover_thumbnail_url && !m.framed_from;
+  };
+  const edToggleFrame = (id: string) => {
+    if (!edFrame.has(id) && !edFramePickable(id)) return;
+    setEdFrame((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
   };
   const edSeed = (id: string) => { let h = 0; for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0; return h; };
   const edReload = () => window.dispatchEvent(new CustomEvent("history:refresh"));
@@ -807,6 +823,35 @@ export default function HistoryGrid({
     edReload();
   }
 
+  // Frame — take each ticked video's cover, make a 3s static intro clip, merge
+  // it in front of the video. Server-side (fal ffmpeg, no client credit). The
+  // framed result replaces the original in the Editor; poll refreshes the grid.
+  async function edGenerateFrame() {
+    const ids = [...edFrame].filter((id) => visibleParents.some((v) => v.id === id) && edFramePickable(id));
+    if (!ids.length) { edAddLog("⚠ Tick Frame (ungu) pada video yang dah ada Cover dulu."); return; }
+    setEdBusyFrame(true);
+    try {
+      edAddLog(`🎞️ Frame untuk ${ids.length} video — jana intro 3s + gabung… (percuma, tiada kredit)`);
+      const r = await fetch("/api/editor/frame", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ history_ids: ids }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) { edAddLog(`✗ Frame gagal: ${d?.error || r.status}`); return; }
+      (d.skipped || []).forEach((s: any) => edAddLog(`  ✗ ${String(s.id).slice(0, 6)}: ${s.reason}`));
+      setEdFrame(new Set());
+      edReload();
+      edAddLog(`✓ Frame bermula untuk ${d.started || 0} video — tunggu ia siap render (intro + video).`);
+    } catch (e: any) { edAddLog(`✗ Frame error: ${e?.message || "error"}`); }
+    finally { setEdBusyFrame(false); }
+  }
+
+  // Undo Frame — remove a framed video and bring its original back.
+  async function edUnframe(framedId: string) {
+    await fetch("/api/editor/unframe", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ history_ids: [framedId] }) });
+    edReload();
+  }
+
   // Per-model counts for the Original Video filter chips. Counted off the raw
   // parent list so a chip's number doesn't change when a filter is applied.
   const modelCounts = useMemo(() => {
@@ -899,10 +944,22 @@ export default function HistoryGrid({
               />
               Select All Cover
             </label>
+            <label className="flex items-center gap-1.5 text-xs font-extrabold cursor-pointer" style={{ color: "#a78bfa" }}>
+              <input
+                type="checkbox"
+                // Only videos whose Frame is pickable (already have a Cover)
+                // count toward Select All Frame.
+                checked={(() => { const ids = pageItems.filter((v) => edFramePickable(v.id)).map((v) => v.id); return ids.length > 0 && ids.every((i) => edFrame.has(i)); })()}
+                onChange={() => { const ids = pageItems.filter((v) => edFramePickable(v.id)).map((v) => v.id); const allOn = ids.length > 0 && ids.every((i) => edFrame.has(i)); const n = new Set(edFrame); ids.forEach((i) => allOn ? n.delete(i) : n.add(i)); setEdFrame(n); }}
+                style={{ accentColor: "#8b5cf6", width: 15, height: 15 }}
+              />
+              Select All Frame
+            </label>
             <div className="flex-1" />
-            <button onClick={() => void edGenerateBoth()} disabled={edBusyText || edBusyCover} className="text-xs font-extrabold px-5 py-1.5 rounded-lg text-white disabled:opacity-50 inline-flex items-center gap-1.5" style={{ background: "linear-gradient(135deg,#16a34a,#22c55e)" }}>{(edBusyText || edBusyCover) ? <Loader2 className="w-4 h-4 animate-spin" /> : <span>📝🎨</span>} Generate</button>
+            <button onClick={() => void edGenerateBoth()} disabled={edBusyText || edBusyCover || edBusyFrame} className="text-xs font-extrabold px-5 py-1.5 rounded-lg text-white disabled:opacity-50 inline-flex items-center gap-1.5" style={{ background: "linear-gradient(135deg,#16a34a,#22c55e)" }}>{(edBusyText || edBusyCover) ? <Loader2 className="w-4 h-4 animate-spin" /> : <span>📝🎨</span>} Generate</button>
+            <button onClick={() => void edGenerateFrame()} disabled={edBusyText || edBusyCover || edBusyFrame} className="text-xs font-extrabold px-5 py-1.5 rounded-lg text-white disabled:opacity-50 inline-flex items-center gap-1.5" style={{ background: "linear-gradient(135deg,#7c3aed,#a78bfa)" }}>{edBusyFrame ? <Loader2 className="w-4 h-4 animate-spin" /> : <span>🎞️</span>} Frame</button>
           </div>
-          <p className="text-[10px] text-[var(--color-text-muted)] mt-1.5">Satu butang uruskan semua: video yang tick <b style={{ color: "#60a5fa" }}>Text</b> je → jana Text; tick <b style={{ color: "#f59e0b" }}>Cover</b> je → jana Cover (perlu Text dulu); tick dua-dua → jana Text (parallel) dulu, lepas siap baru Cover (parallel).</p>
+          <p className="text-[10px] text-[var(--color-text-muted)] mt-1.5">Satu butang uruskan semua: video yang tick <b style={{ color: "#60a5fa" }}>Text</b> je → jana Text; tick <b style={{ color: "#f59e0b" }}>Cover</b> je → jana Cover (perlu Text dulu); tick dua-dua → Text dulu, lepas siap Cover. <b style={{ color: "#a78bfa" }}>Frame</b> (perlu Cover dulu) → jadikan cover sebagai intro 3 saat, gabung depan video (percuma, tiada kredit) — video baru gantikan yang asal.</p>
           {edLog.length > 0 && <div className="mt-2 font-mono text-[10px] max-h-24 overflow-y-auto text-[var(--color-text-secondary)]">{edLog.map((l, i) => <div key={i}>{l}</div>)}</div>}
         </div>
       )}
@@ -1219,9 +1276,13 @@ export default function HistoryGrid({
                 edTextOn={edText.has(it.id)}
                 edCoverOn={edCover.has(it.id)}
                 edCoverPickable={edCoverPickable(it.id)}
+                edFrameOn={edFrame.has(it.id)}
+                edFramePickable={edFramePickable(it.id)}
                 onEdText={() => edToggleText(it.id)}
                 onEdCover={() => edToggleCover(it.id)}
+                onEdFrame={() => edToggleFrame(it.id)}
                 onEdRemove={() => void edRemove(it.id)}
+                onEdUnframe={() => void edUnframe(it.id)}
                 donePostMode={donePostMode}
                 dpOn={dpSel.has(it.id)}
                 onDpToggle={() => dpToggle(it.id)}
@@ -1421,9 +1482,13 @@ function HistoryCardInner({
   edTextOn,
   edCoverOn,
   edCoverPickable,
+  edFrameOn,
+  edFramePickable,
   onEdText,
   onEdCover,
+  onEdFrame,
   onEdRemove,
+  onEdUnframe,
   donePostMode,
   dpOn,
   onDpToggle,
@@ -1441,9 +1506,13 @@ function HistoryCardInner({
   edTextOn?: boolean;
   edCoverOn?: boolean;
   edCoverPickable?: boolean;
+  edFrameOn?: boolean;
+  edFramePickable?: boolean;
   onEdText?: () => void;
   onEdCover?: () => void;
+  onEdFrame?: () => void;
   onEdRemove?: () => void;
+  onEdUnframe?: () => void;
   donePostMode?: boolean;
   dpOn?: boolean;
   onDpToggle?: () => void;
@@ -2352,6 +2421,19 @@ function HistoryCardInner({
                   : { background: "rgba(0,0,0,0.55)", borderColor: "rgba(148,163,184,0.5)", color: "rgba(148,163,184,0.8)", cursor: "not-allowed" }}
             >
               {edCoverOn ? <Check className="w-3.5 h-3.5" strokeWidth={3} /> : "C"}
+            </button>
+            <button
+              onClick={(e) => { e.stopPropagation(); if (edFrameOn || edFramePickable) onEdFrame?.(); }}
+              disabled={!edFrameOn && !edFramePickable}
+              title={(edFrameOn || edFramePickable) ? "Pilih untuk Frame (cover → intro 3s)" : "Jana Cover dulu — Frame perlu Cover"}
+              className="w-6 h-6 rounded-md flex items-center justify-center shadow-lg border-2 text-[9px] font-extrabold"
+              style={edFrameOn
+                ? { background: "#8b5cf6", borderColor: "#8b5cf6", color: "#fff" }
+                : edFramePickable
+                  ? { background: "rgba(0,0,0,0.6)", borderColor: "#a78bfa", color: "#a78bfa" }
+                  : { background: "rgba(0,0,0,0.55)", borderColor: "rgba(148,163,184,0.5)", color: "rgba(148,163,184,0.8)", cursor: "not-allowed" }}
+            >
+              {edFrameOn ? <Check className="w-3.5 h-3.5" strokeWidth={3} /> : "F"}
             </button>
           </div>
         </>
@@ -3642,9 +3724,20 @@ function HistoryCardInner({
                   <span className="text-[11px] font-extrabold leading-none">🎨</span>
                 </ActionBtn>
               )}
-              <ActionBtn title="Buang dari Editor (balik ke tab asal)" onClick={() => onEdRemove?.()} bg={ACTION.delete}>
-                <Trash2 className="w-3.5 h-3.5" strokeWidth={2.4} />
-              </ActionBtn>
+              {/* Framed video (intro + video) — 🎞️ badge + Undo Frame (restores
+                  the original). Otherwise the normal Remove-from-Editor. */}
+              {(item.metadata as any)?.framed_from ? (
+                <>
+                  <span className="inline-flex items-center h-6 px-2 rounded-md text-[10px] font-extrabold text-white" style={{ background: "linear-gradient(135deg,#7c3aed,#a78bfa)" }} title="Video ada intro cover 3s">🎞️ Framed</span>
+                  <ActionBtn title="Undo Frame — buang intro, pulihkan video asal" onClick={() => onEdUnframe?.()} bg="linear-gradient(135deg,#7c3aed,#a78bfa)">
+                    <Undo2 className="w-3.5 h-3.5" strokeWidth={2.4} />
+                  </ActionBtn>
+                </>
+              ) : (
+                <ActionBtn title="Buang dari Editor (balik ke tab asal)" onClick={() => onEdRemove?.()} bg={ACTION.delete}>
+                  <Trash2 className="w-3.5 h-3.5" strokeWidth={2.4} />
+                </ActionBtn>
+              )}
             </>
           )}
           {/* DONE — clone prompt: Copy + Delete only (no media, no extend) */}
@@ -4003,6 +4096,8 @@ const HistoryCard = memo(HistoryCardInner, (prev, next) => {
     prev.edTextOn === next.edTextOn &&
     prev.edCoverOn === next.edCoverOn &&
     prev.edCoverPickable === next.edCoverPickable &&
+    prev.edFrameOn === next.edFrameOn &&
+    prev.edFramePickable === next.edFramePickable &&
     prev.donePostMode === next.donePostMode &&
     prev.dpOn === next.dpOn
     // Intentionally NOT comparing onToggleMerge — the parent passes an
