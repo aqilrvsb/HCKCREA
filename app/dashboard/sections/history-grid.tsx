@@ -579,29 +579,41 @@ export default function HistoryGrid({
   const edSeed = (id: string) => { let h = 0; for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0; return h; };
   const edReload = () => window.dispatchEvent(new CustomEvent("history:refresh"));
 
-  // MIRRORS the extension's Non Saved ID runAssign() 1:1 — same product_url
-  // (raw_url first), same product_name/detail fields, same variant seed,
-  // concurrency 4, one automatic retry, and the same "complete" check.
-  async function edGenerateText() {
-    const product: any = edProducts.find((p) => String(p.product_id) === edProduct);
-    if (!product) { edAddLog("⚠ Pilih produk dulu."); return; }
-    let ids = [...edText].filter((id) => visibleParents.some((v) => v.id === id));
-    if (!ids.length) { edAddLog("⚠ Tick Text (biru) pada video dulu."); return; }
-    // Same safety cap as the extension (MAX_ASSIGN_BATCH) — first 50 per batch.
-    const MAX_ASSIGN_BATCH = 50;
-    if (ids.length > MAX_ASSIGN_BATCH) {
-      const capped = ids.length - MAX_ASSIGN_BATCH;
-      ids = ids.slice(0, MAX_ASSIGN_BATCH);
-      edAddLog(`ℹ️ Had ${MAX_ASSIGN_BATCH}/batch — ${capped} video lagi, buat batch seterusnya lepas ni.`);
-    }
+  // ── Editor generation core ────────────────────────────────────────────────
+  // Every network call is timeout-guarded (AbortController) so a hung request
+  // can never leave a worker stuck forever (no zombie). Concurrency is bounded
+  // and every public entry point resets its busy flag in a finally block.
+  async function edFetchJson(url: string, body: any, ms = 180000): Promise<{ ok: boolean; d: any }> {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), ms);
+    try {
+      const r = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body), signal: ctrl.signal });
+      const d = await r.json().catch(() => ({} as any));
+      return { ok: r.ok, d };
+    } catch (e: any) {
+      if (e?.name === "AbortError") throw new Error("timeout");
+      throw e;
+    } finally { clearTimeout(timer); }
+  }
+
+  // Same safety cap as the extension (MAX_ASSIGN_BATCH) — first 50 per batch.
+  function edCapBatch(ids: string[]): string[] {
+    const MAX = 50;
+    if (ids.length > MAX) { edAddLog(`ℹ️ Had ${MAX}/batch — ${ids.length - MAX} video lagi, buat batch seterusnya lepas ni.`); return ids.slice(0, MAX); }
+    return ids;
+  }
+
+  // TEXT core — MIRRORS the extension's Non Saved ID runAssign() 1:1 (product_url
+  // raw_url first, product_name/detail fields, variant seed, concurrency 4, one
+  // automatic retry, metaComplete gate). Returns a Map id→result so a following
+  // cover pass can use the JUST-generated cover_title/subtitle directly, without
+  // waiting for a DB reload.
+  async function edRunText(ids: string[], product: any): Promise<Map<string, any>> {
     const productUrl = product.raw_url || (product.product_id ? "https://www.tiktok.com/shop/my/pdp/product/" + product.product_id : "");
     const productName = product.product_name || product.name || "";
     const productDetail = product.description || product.detail || "";
-    setEdBusyText(true);
-    edAddLog(`Generate Text "${productName}" untuk ${ids.length} video…`);
+    const results = new Map<string, any>();
     const done = new Set<string>();
-    // metaComplete (extension): caption ≥20 chars + has #, cover title/subtitle,
-    // and the product got stamped.
     const metaOk = (d: any) =>
       !!d && String(d.caption || "").trim().length >= 20 && String(d.caption || "").includes("#") &&
       !!d.cover_title && !!d.cover_subtitle && !!d.tiktok_product_id;
@@ -611,13 +623,9 @@ export default function HistoryGrid({
         while (idx < list.length) {
           const id = list[idx++];
           try {
-            const r = await fetch("/api/ugc/generate-post-meta", {
-              method: "POST", headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ history_id: id, product_url: productUrl, product_name: productName, product_detail: productDetail, variant_seed: edSeed(id) }),
-            });
-            const d = await r.json();
-            if (r.ok && metaOk(d)) done.add(id);
-            else edAddLog(`  ✗ ${id.slice(0, 6)}: ${d.error || "tak lengkap"}`);
+            const { ok, d } = await edFetchJson("/api/ugc/generate-post-meta", { history_id: id, product_url: productUrl, product_name: productName, product_detail: productDetail, variant_seed: edSeed(id) });
+            if (ok && metaOk(d)) { done.add(id); results.set(id, d); }
+            else edAddLog(`  ✗ ${id.slice(0, 6)}: ${d?.error || "tak lengkap"}`);
           } catch (e: any) { edAddLog(`  ✗ ${id.slice(0, 6)}: ${e?.message || "error"}`); }
         }
       };
@@ -626,48 +634,31 @@ export default function HistoryGrid({
     await runPass(ids);
     const missing = ids.filter((id) => !done.has(id));
     if (missing.length) { edAddLog(`Cuba semula ${missing.length} video yang gagal…`); await runPass(missing); }
-    edReload();
-    edAddLog(`✓ Text siap — ${done.size}/${ids.length} lengkap.`);
-    setEdBusyText(false);
+    return results;
   }
 
-  // MIRRORS the extension's Auto-Post cover flow (genOne) 1:1 — same endpoint,
-  // same params (history_id, cover_title, cover_subtitle from the row's stored
-  // metadata), skips videos that already have a cover (the extension's
-  // `!v.cover_thumbnail_url` filter — the endpoint is idempotent so this only
-  // avoids wasted calls), and gives each video ONE retry (COVER_RETRIES).
-  async function edGenerateCover() {
+  // COVER core — MIRRORS the extension's Auto-Post genOne() (same endpoint +
+  // params, ONE retry). `fresh` carries text results generated moments ago so a
+  // just-texted video uses its fresh title/subtitle. A video with NO text
+  // (title/subtitle empty) is skipped — a cover cannot exist without text.
+  async function edRunCover(ids: string[], fresh?: Map<string, any>): Promise<{ ok: number; skip: number }> {
     const COVER_RETRIES = 1;
-    const selected = [...edCover].filter((id) => visibleParents.some((v) => v.id === id));
-    if (!selected.length) { edAddLog("⚠ Tick Cover (oren) pada video dulu."); return; }
-    // Drop rows that already carry a cover — identical to the extension.
-    let already = 0;
-    const ids = selected.filter((id) => {
-      const v = visibleParents.find((x) => x.id === id);
-      if ((v?.metadata as any)?.cover_thumbnail_url) { already++; return false; }
-      return true;
-    });
-    setEdBusyCover(true);
-    edAddLog(`Generate Cover untuk ${ids.length} video…${already ? ` (${already} dah ada cover)` : ""}`);
     let ok = 0, skip = 0, idx = 0;
     const worker = async () => {
       while (idx < ids.length) {
         const id = ids[idx++];
         const v = visibleParents.find((x) => x.id === id);
-        const title = String((v?.metadata as any)?.cover_title || "").trim();
-        const sub = String((v?.metadata as any)?.cover_subtitle || "").trim();
-        if (!title || !sub) { skip++; edAddLog(`  ✗ ${id.slice(0, 6)}: cover title/subtitle kosong — Generate Text dulu`); continue; }
-        let done = false;
-        for (let attempt = 0; attempt <= COVER_RETRIES && !done; attempt++) {
+        const fm = fresh?.get(id);
+        const title = String(fm?.cover_title || (v?.metadata as any)?.cover_title || "").trim();
+        const sub = String(fm?.cover_subtitle || (v?.metadata as any)?.cover_subtitle || "").trim();
+        if (!title || !sub) { skip++; edAddLog(`  ✗ ${id.slice(0, 6)}: tiada text — Generate Text dulu`); continue; }
+        let d0 = false;
+        for (let attempt = 0; attempt <= COVER_RETRIES && !d0; attempt++) {
           try {
-            const r = await fetch("/api/extension/generate-cover", {
-              method: "POST", headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ history_id: id, cover_title: title, cover_subtitle: sub }),
-            });
-            const d = await r.json();
-            if (r.ok && (d.cover_thumbnail_url || d.url)) { ok++; done = true; }
-            else if (attempt < COVER_RETRIES) { edAddLog(`  … ${id.slice(0, 6)}: cuba lagi (${d.error || "gagal"})`); }
-            else edAddLog(`  ✗ ${id.slice(0, 6)}: ${d.error || "cover gagal"}`);
+            const { ok: rok, d } = await edFetchJson("/api/extension/generate-cover", { history_id: id, cover_title: title, cover_subtitle: sub }, 300000);
+            if (rok && (d.cover_thumbnail_url || d.url)) { ok++; d0 = true; }
+            else if (attempt < COVER_RETRIES) { edAddLog(`  … ${id.slice(0, 6)}: cuba lagi (${d?.error || "gagal"})`); }
+            else edAddLog(`  ✗ ${id.slice(0, 6)}: ${d?.error || "cover gagal"}`);
           } catch (e: any) {
             if (attempt < COVER_RETRIES) { edAddLog(`  … ${id.slice(0, 6)}: cuba lagi (${e?.message || "error"})`); }
             else edAddLog(`  ✗ ${id.slice(0, 6)}: ${e?.message || "error"}`);
@@ -676,9 +667,99 @@ export default function HistoryGrid({
       }
     };
     await Promise.all(Array.from({ length: Math.min(3, ids.length) }, worker));
-    edReload();
-    edAddLog(`✓ Cover siap — ${ok}/${ids.length}${skip ? `, ${skip} skip` : ""}.`);
-    setEdBusyCover(false);
+    return { ok, skip };
+  }
+
+  // Does a video already have text (caption + cover title/subtitle stamped)?
+  function edHasText(id: string): boolean {
+    const v = visibleParents.find((x) => x.id === id);
+    const m = (v?.metadata as any) || {};
+    return !!m.cover_title && !!m.cover_subtitle;
+  }
+
+  async function edGenerateText() {
+    const product: any = edProducts.find((p) => String(p.product_id) === edProduct);
+    if (!product) { edAddLog("⚠ Pilih produk dulu."); return; }
+    const ids = edCapBatch([...edText].filter((id) => visibleParents.some((v) => v.id === id)));
+    if (!ids.length) { edAddLog("⚠ Tick Text (biru) pada video dulu."); return; }
+    setEdBusyText(true);
+    try {
+      edAddLog(`Generate Text "${product.product_name || product.name}" untuk ${ids.length} video…`);
+      const res = await edRunText(ids, product);
+      edReload();
+      edAddLog(`✓ Text siap — ${res.size}/${ids.length} lengkap.`);
+    } finally { setEdBusyText(false); }
+  }
+
+  async function edGenerateCover() {
+    const selected = [...edCover].filter((id) => visibleParents.some((v) => v.id === id));
+    if (!selected.length) { edAddLog("⚠ Tick Cover (oren) pada video dulu."); return; }
+    // GATE — a cover needs text. Videos without text are not allowed here; tell
+    // the user to Generate Text first (or use Text + Cover to do both).
+    const noText = selected.filter((id) => !edHasText(id));
+    if (noText.length === selected.length) {
+      edAddLog(`⚠ Cover perlu Text dulu. ${noText.length} video belum ada text — Generate Text dulu, atau guna "Text + Cover".`);
+      return;
+    }
+    if (noText.length) edAddLog(`⚠ ${noText.length} video takde text — di-skip (cover perlu text).`);
+    // Drop already-covered (extension's !cover_thumbnail_url filter).
+    let already = 0;
+    const ids = selected.filter((id) => {
+      if (!edHasText(id)) return false;
+      const v = visibleParents.find((x) => x.id === id);
+      if ((v?.metadata as any)?.cover_thumbnail_url) { already++; return false; }
+      return true;
+    });
+    setEdBusyCover(true);
+    try {
+      edAddLog(`Generate Cover untuk ${ids.length} video…${already ? ` (${already} dah ada cover)` : ""}`);
+      const { ok, skip } = await edRunCover(ids);
+      edReload();
+      edAddLog(`✓ Cover siap — ${ok}/${ids.length}${skip ? `, ${skip} skip` : ""}.`);
+    } finally { setEdBusyCover(false); }
+  }
+
+  // Combined pipeline: Text first (parallel) → WAIT until every text finished →
+  // then Cover (parallel), using the fresh titles/subtitles. A cover whose text
+  // wasn't generated (and didn't already exist) is skipped — cover needs text.
+  async function edGenerateBoth() {
+    const product: any = edProducts.find((p) => String(p.product_id) === edProduct);
+    const textIds = edCapBatch([...edText].filter((id) => visibleParents.some((v) => v.id === id)));
+    const coverIds = [...edCover].filter((id) => visibleParents.some((v) => v.id === id));
+    if (!textIds.length && !coverIds.length) { edAddLog("⚠ Tick Text / Cover pada video dulu."); return; }
+    setEdBusyText(true); setEdBusyCover(true);
+    try {
+      let fresh: Map<string, any> | undefined;
+      // ── PHASE 1: TEXT (parallel) ──
+      if (textIds.length) {
+        if (!product) { edAddLog("⚠ Pilih produk dulu untuk Generate Text."); return; }
+        edAddLog(`① Text "${product.product_name || product.name}" untuk ${textIds.length} video…`);
+        fresh = await edRunText(textIds, product);
+        edReload();
+        edAddLog(`✓ Text siap — ${fresh.size}/${textIds.length} lengkap.`);
+      }
+      // ── PHASE 2: COVER (parallel) — only AFTER text is fully done ──
+      if (coverIds.length) {
+        let blocked = 0, already = 0;
+        const eligible: string[] = [];
+        for (const id of coverIds) {
+          const hasText = fresh?.has(id) || edHasText(id); // just-generated OR pre-existing
+          if (!hasText) { blocked++; continue; }            // cover needs text → not allowed
+          const v = visibleParents.find((x) => x.id === id);
+          if ((v?.metadata as any)?.cover_thumbnail_url && !fresh?.has(id)) { already++; continue; }
+          eligible.push(id);
+        }
+        if (blocked) edAddLog(`⚠ ${blocked} video takde text — cover di-skip (cover perlu text).`);
+        if (eligible.length) {
+          edAddLog(`② Cover untuk ${eligible.length} video…${already ? ` (${already} dah ada cover)` : ""}`);
+          const { ok, skip } = await edRunCover(eligible, fresh);
+          edReload();
+          edAddLog(`✓ Cover siap — ${ok}/${eligible.length}${skip ? `, ${skip} skip` : ""}.`);
+        } else if (!blocked) {
+          edAddLog(`ℹ Tiada cover baru untuk dijana${already ? ` (${already} dah ada cover)` : ""}.`);
+        }
+      }
+    } finally { setEdBusyText(false); setEdBusyCover(false); }
   }
 
   async function edRemove(id: string) {
@@ -747,8 +828,9 @@ export default function HistoryGrid({
             <div className="flex-1" />
             <button onClick={() => void edGenerateText()} disabled={edBusyText || edBusyCover} className="text-xs font-extrabold px-4 py-1.5 rounded-lg text-white disabled:opacity-50 inline-flex items-center gap-1.5" style={{ background: "linear-gradient(135deg,#3b82f6,#60a5fa)" }}>{edBusyText ? <Loader2 className="w-4 h-4 animate-spin" /> : <span>📝</span>} Generate Text</button>
             <button onClick={() => void edGenerateCover()} disabled={edBusyText || edBusyCover} className="text-xs font-extrabold px-4 py-1.5 rounded-lg text-white disabled:opacity-50 inline-flex items-center gap-1.5" style={{ background: "linear-gradient(135deg,#f59e0b,#ea580c)" }}>{edBusyCover ? <Loader2 className="w-4 h-4 animate-spin" /> : <span>🎨</span>} Generate Cover</button>
+            <button onClick={() => void edGenerateBoth()} disabled={edBusyText || edBusyCover} className="text-xs font-extrabold px-4 py-1.5 rounded-lg text-white disabled:opacity-50 inline-flex items-center gap-1.5" style={{ background: "linear-gradient(135deg,#16a34a,#22c55e)" }}>{(edBusyText || edBusyCover) ? <Loader2 className="w-4 h-4 animate-spin" /> : <span>📝🎨</span>} Text + Cover</button>
           </div>
-          <p className="text-[10px] text-[var(--color-text-muted)] mt-1.5">Generate Text dulu (isi caption + cover title/subtitle), kemudian Generate Cover.</p>
+          <p className="text-[10px] text-[var(--color-text-muted)] mt-1.5">Cover perlu Text dulu. Pilih kedua-dua checkbox lalu tekan <b>Text + Cover</b> — sistem jana Text (parallel) dulu, lepas siap baru jana Cover (parallel).</p>
           {edLog.length > 0 && <div className="mt-2 font-mono text-[10px] max-h-24 overflow-y-auto text-[var(--color-text-secondary)]">{edLog.map((l, i) => <div key={i}>{l}</div>)}</div>}
         </div>
       )}
