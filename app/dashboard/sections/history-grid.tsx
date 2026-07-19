@@ -585,8 +585,15 @@ export default function HistoryGrid({
   async function edGenerateText() {
     const product: any = edProducts.find((p) => String(p.product_id) === edProduct);
     if (!product) { edAddLog("⚠ Pilih produk dulu."); return; }
-    const ids = [...edText].filter((id) => visibleParents.some((v) => v.id === id));
+    let ids = [...edText].filter((id) => visibleParents.some((v) => v.id === id));
     if (!ids.length) { edAddLog("⚠ Tick Text (biru) pada video dulu."); return; }
+    // Same safety cap as the extension (MAX_ASSIGN_BATCH) — first 50 per batch.
+    const MAX_ASSIGN_BATCH = 50;
+    if (ids.length > MAX_ASSIGN_BATCH) {
+      const capped = ids.length - MAX_ASSIGN_BATCH;
+      ids = ids.slice(0, MAX_ASSIGN_BATCH);
+      edAddLog(`ℹ️ Had ${MAX_ASSIGN_BATCH}/batch — ${capped} video lagi, buat batch seterusnya lepas ni.`);
+    }
     const productUrl = product.raw_url || (product.product_id ? "https://www.tiktok.com/shop/my/pdp/product/" + product.product_id : "");
     const productName = product.product_name || product.name || "";
     const productDetail = product.description || product.detail || "";
@@ -624,11 +631,24 @@ export default function HistoryGrid({
     setEdBusyText(false);
   }
 
+  // MIRRORS the extension's Auto-Post cover flow (genOne) 1:1 — same endpoint,
+  // same params (history_id, cover_title, cover_subtitle from the row's stored
+  // metadata), skips videos that already have a cover (the extension's
+  // `!v.cover_thumbnail_url` filter — the endpoint is idempotent so this only
+  // avoids wasted calls), and gives each video ONE retry (COVER_RETRIES).
   async function edGenerateCover() {
-    const ids = [...edCover].filter((id) => visibleParents.some((v) => v.id === id));
-    if (!ids.length) { edAddLog("⚠ Tick 🎨 pada video dulu."); return; }
+    const COVER_RETRIES = 1;
+    const selected = [...edCover].filter((id) => visibleParents.some((v) => v.id === id));
+    if (!selected.length) { edAddLog("⚠ Tick Cover (oren) pada video dulu."); return; }
+    // Drop rows that already carry a cover — identical to the extension.
+    let already = 0;
+    const ids = selected.filter((id) => {
+      const v = visibleParents.find((x) => x.id === id);
+      if ((v?.metadata as any)?.cover_thumbnail_url) { already++; return false; }
+      return true;
+    });
     setEdBusyCover(true);
-    edAddLog(`Generate Cover untuk ${ids.length} video…`);
+    edAddLog(`Generate Cover untuk ${ids.length} video…${already ? ` (${already} dah ada cover)` : ""}`);
     let ok = 0, skip = 0, idx = 0;
     const worker = async () => {
       while (idx < ids.length) {
@@ -637,15 +657,22 @@ export default function HistoryGrid({
         const title = String((v?.metadata as any)?.cover_title || "").trim();
         const sub = String((v?.metadata as any)?.cover_subtitle || "").trim();
         if (!title || !sub) { skip++; edAddLog(`  ✗ ${id.slice(0, 6)}: cover title/subtitle kosong — Generate Text dulu`); continue; }
-        try {
-          const r = await fetch("/api/extension/generate-cover", {
-            method: "POST", headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ history_id: id, cover_title: title, cover_subtitle: sub }),
-          });
-          const d = await r.json();
-          if (r.ok && (d.cover_thumbnail_url || d.url)) ok++;
-          else edAddLog(`  ✗ ${id.slice(0, 6)}: ${d.error || "cover gagal"}`);
-        } catch (e: any) { edAddLog(`  ✗ ${id.slice(0, 6)}: ${e?.message || "error"}`); }
+        let done = false;
+        for (let attempt = 0; attempt <= COVER_RETRIES && !done; attempt++) {
+          try {
+            const r = await fetch("/api/extension/generate-cover", {
+              method: "POST", headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ history_id: id, cover_title: title, cover_subtitle: sub }),
+            });
+            const d = await r.json();
+            if (r.ok && (d.cover_thumbnail_url || d.url)) { ok++; done = true; }
+            else if (attempt < COVER_RETRIES) { edAddLog(`  … ${id.slice(0, 6)}: cuba lagi (${d.error || "gagal"})`); }
+            else edAddLog(`  ✗ ${id.slice(0, 6)}: ${d.error || "cover gagal"}`);
+          } catch (e: any) {
+            if (attempt < COVER_RETRIES) { edAddLog(`  … ${id.slice(0, 6)}: cuba lagi (${e?.message || "error"})`); }
+            else edAddLog(`  ✗ ${id.slice(0, 6)}: ${e?.message || "error"}`);
+          }
+        }
       }
     };
     await Promise.all(Array.from({ length: Math.min(3, ids.length) }, worker));
