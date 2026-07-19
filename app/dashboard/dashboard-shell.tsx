@@ -14,6 +14,7 @@ import {
   Zap,
   Sparkles,
   Scissors,
+  Send,
 } from "lucide-react";
 import ImageTab from "./tabs/image";
 import ImageTabWithMode from "./tabs/image-with-mode";
@@ -55,6 +56,7 @@ type TabKey =
   | "auto"
   | "auto-ugc"
   | "editor"
+  | "done-post"
   | "fairytale"
   | "original-video";
 
@@ -88,6 +90,9 @@ const TABS: { key: TabKey; label: string; icon: any; tag: string }[] = [
   // Special: clicking it opens the /editor page in a NEW browser tab (handled
   // in onTabChange), it is NOT an in-page tab body.
   { key: "editor",    label: "Editor",       icon: Scissors,  tag: "4c" },
+  // Done Post — read-only grid of videos already auto-posted to TikTok by the
+  // extension; select + bulk "Undo Post" sends them back to the Editor.
+  { key: "done-post", label: "Done Post",    icon: Send,      tag: "4d" },
   // Viral + Seedance tabs hidden per user direction. Routes + imports kept
   // so existing history rows still render; re-enable by uncommenting.
   // { key: "seedance",  label: "Cinema",       icon: Film,      tag: "--" },
@@ -464,6 +469,7 @@ function resolveActiveSop(view: SidebarView, activeTab: TabKey) {
       auto: "auto-content",
       "auto-ugc": "auto-content",
       editor: "auto-content", // never used — Editor opens its own /editor page
+      "done-post": "auto-content",
 
       cinema: "story",
       grok: "story",
@@ -719,6 +725,9 @@ function ProjectView({
           )}
           {activeTab === "editor" && (
             <HistoryGrid tab="original-video" editorMode title="Editor" projectId={project.id} />
+          )}
+          {activeTab === "done-post" && (
+            <HistoryGrid tab="original-video" donePostMode title="Done Post" projectId={project.id} />
           )}
         </div>
       )}

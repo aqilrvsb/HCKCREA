@@ -18,6 +18,7 @@ import {
   GitCompare,
   AlertTriangle,
   Scissors,
+  Undo2,
   Palette,
   ChevronLeft,
   ChevronRight,
@@ -199,6 +200,7 @@ export default function HistoryGrid({
   projectId,
   hideViralSubTabs,
   editorMode,
+  donePostMode,
 }: {
   tab:
     | "image"
@@ -223,8 +225,15 @@ export default function HistoryGrid({
    *  transferred to the Editor (metadata.in_editor across ALL tabs of the
    *  project), and swap the action row for Text/Cover generate toggles. */
   editorMode?: boolean;
+  /** Done Post mode — read-only grid of videos already auto-posted to TikTok by
+   *  the extension (posted_to_tiktok=true). Each card is view-only + a select
+   *  checkbox; a bulk "Undo Post" sends the picked videos back to the Editor. */
+  donePostMode?: boolean;
 }) {
   const [page, setPage] = useState(0);
+  // Done-Post selection (only used when donePostMode) + busy flag.
+  const [dpSel, setDpSel] = useState<Set<string>>(new Set());
+  const [dpBusy, setDpBusy] = useState(false);
   // Editor-mode state (only used when editorMode) — which videos are ticked
   // for Text / Cover generation, the chosen product, and busy flags.
   const [edText, setEdText] = useState<Set<string>>(new Set());
@@ -235,8 +244,8 @@ export default function HistoryGrid({
   const [edBusyCover, setEdBusyCover] = useState(false);
   const [edLog, setEdLog] = useState<string[]>([]);
   const edAddLog = (m: string) => setEdLog((l) => [m, ...l].slice(0, 40));
-  // Editor grid = 6 columns × 4 rows = 24 per page. Normal grids = 12.
-  const PAGE_SIZE = editorMode ? 24 : 12;
+  // Editor / Done-Post grids = 6 columns × 4 rows = 24 per page. Normal = 12.
+  const PAGE_SIZE = editorMode || donePostMode ? 24 : 12;
 
   // Storytelling has TWO kinds of artifacts the user wants visible:
   //   • merged final videos (type='fairytale')        ← the deliverable
@@ -329,8 +338,8 @@ export default function HistoryGrid({
   // is pending AND when the tab is hidden — same behaviour as the old
   // interval, just expressed declaratively.
   const swrKey = useMemo(
-    () => ["history", editorMode ? "editor" : tab, projectId || "", storytellingSubTab, viralSubTab, viralFeature] as const,
-    [tab, projectId, storytellingSubTab, viralSubTab, viralFeature, editorMode]
+    () => ["history", donePostMode ? "doneposted" : editorMode ? "editor" : tab, projectId || "", storytellingSubTab, viralSubTab, viralFeature] as const,
+    [tab, projectId, storytellingSubTab, viralSubTab, viralFeature, editorMode, donePostMode]
   );
   const { data: items = [], isLoading: loading, mutate: mutateItems } = useSWR<HistoryItem[]>(
     swrKey,
@@ -345,7 +354,10 @@ export default function HistoryGrid({
         .from("history")
         .select("*")
         .order("created_at", { ascending: false });
-      if (editorMode) {
+      if (donePostMode) {
+        // Done Post grid — videos already auto-posted to TikTok (any tab).
+        q = q.eq("type", "video").eq("posted_to_tiktok", true);
+      } else if (editorMode) {
         // Editor grid — the videos transferred here from ANY tab.
         q = q.eq("type", "video").filter("metadata->>in_editor", "eq", "true");
       } else {
@@ -525,9 +537,15 @@ export default function HistoryGrid({
   const visibleParents = useMemo(() => {
     const now = Date.now();
     return parents.filter((p) => {
-      // Moved to the Editor (⇄) — the video leaves the normal tab grids. In
-      // editorMode this IS the editor grid, so we KEEP them instead.
-      if (!editorMode && (p.metadata as any)?.in_editor) return false;
+      // Done Post grid — every video already auto-posted (fetcher already
+      // scoped posted_to_tiktok=true); no TTL, no editor/image sub-filters.
+      if (donePostMode) return true;
+      // Moved to the Editor (⇄) OR already auto-posted by the extension — the
+      // video leaves the normal tab grids. In editorMode this IS the editor
+      // grid, so we KEEP the transferred ones — but still drop posted ones,
+      // which have moved on to the Done Post grid.
+      if (!editorMode && ((p.metadata as any)?.in_editor || (p as any).posted_to_tiktok)) return false;
+      if (editorMode && (p as any).posted_to_tiktok) return false;
       // Cover thumbnails (extension "🎨 Cover") + biometric-grid overlays
       // (Seedance real-person bypass) are byproducts of a video, not
       // user-requested images — never list them in the Images grid.
@@ -554,7 +572,7 @@ export default function HistoryGrid({
       if (!past) return true;
       return saved;
     });
-  }, [parents, saveStatus, tab, imgSubTab, vidModelTab, editorMode]);
+  }, [parents, saveStatus, tab, imgSubTab, vidModelTab, editorMode, donePostMode]);
 
   // ── Editor mode: load products + Text/Cover bulk generation ──────────────
   useEffect(() => {
@@ -784,6 +802,38 @@ export default function HistoryGrid({
   const safePage = Math.min(page, totalPages - 1);
   const pageItems = visibleParents.slice(safePage * PAGE_SIZE, safePage * PAGE_SIZE + PAGE_SIZE);
 
+  // ── Done Post mode: select + bulk Undo Post (send back to Editor) ──────────
+  const dpToggle = (id: string) =>
+    setDpSel((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  // Select-all is scoped to the current page (same as the Editor's checkboxes).
+  const dpAllOnPage = pageItems.length > 0 && pageItems.every((v) => dpSel.has(v.id));
+  const dpToggleAll = () =>
+    setDpSel((s) => {
+      const n = new Set(s);
+      if (dpAllOnPage) pageItems.forEach((v) => n.delete(v.id));
+      else pageItems.forEach((v) => n.add(v.id));
+      return n;
+    });
+  async function dpUndo() {
+    const ids = [...dpSel].filter((id) => visibleParents.some((v) => v.id === id));
+    if (!ids.length) return;
+    if (!confirm(`Undo Post ${ids.length} video? Ia akan kembali ke tab Editor.`)) return;
+    setDpBusy(true);
+    try {
+      const r = await fetch("/api/editor/undo-post", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ history_ids: ids }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) { alert(d?.error || "Undo gagal"); return; }
+      setDpSel(new Set());
+      // Refresh this grid AND the Editor grid (the videos reappear there).
+      window.dispatchEvent(new CustomEvent("history:refresh"));
+      void mutateItems();
+    } catch (e: any) { alert(e?.message || "Undo gagal"); }
+    finally { setDpBusy(false); }
+  }
+
   return (
     <section className="card">
       <div className="flex items-center justify-between mb-5 pb-4 border-b border-[var(--color-border)]">
@@ -832,6 +882,26 @@ export default function HistoryGrid({
           </div>
           <p className="text-[10px] text-[var(--color-text-muted)] mt-1.5">Cover perlu Text dulu. Pilih kedua-dua checkbox lalu tekan <b>Text + Cover</b> — sistem jana Text (parallel) dulu, lepas siap baru jana Cover (parallel).</p>
           {edLog.length > 0 && <div className="mt-2 font-mono text-[10px] max-h-24 overflow-y-auto text-[var(--color-text-secondary)]">{edLog.map((l, i) => <div key={i}>{l}</div>)}</div>}
+        </div>
+      )}
+
+      {donePostMode && (
+        <div className="mb-4 rounded-xl p-3" style={{ background: "var(--color-bg-card)", border: "1px solid var(--color-border)" }}>
+          <div className="flex flex-wrap gap-3 items-center">
+            <label className="flex items-center gap-1.5 text-xs font-extrabold cursor-pointer" style={{ color: "var(--color-text-primary)" }}>
+              <input
+                type="checkbox"
+                checked={dpAllOnPage}
+                onChange={dpToggleAll}
+                style={{ accentColor: "#16a34a", width: 15, height: 15 }}
+              />
+              Select All
+            </label>
+            <span className="text-[11px] text-[var(--color-text-muted)] font-mono">{dpSel.size} dipilih</span>
+            <div className="flex-1" />
+            <button onClick={() => void dpUndo()} disabled={dpBusy || dpSel.size === 0} className="text-xs font-extrabold px-4 py-1.5 rounded-lg text-white disabled:opacity-50 inline-flex items-center gap-1.5" style={{ background: "linear-gradient(135deg,#f59e0b,#ea580c)" }}>{dpBusy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Undo2 className="w-4 h-4" />} Undo Post</button>
+          </div>
+          <p className="text-[10px] text-[var(--color-text-muted)] mt-1.5">Video yang sudah auto-post di TikTok. <b>Lihat sahaja.</b> Tick video, tekan <b>Undo Post</b> untuk hantar balik ke tab Editor.</p>
         </div>
       )}
 
@@ -1104,7 +1174,7 @@ export default function HistoryGrid({
               each at 393px viewport) per user direction. Action row uses
               flex-wrap so 30d/Download/Delete wrap to a second row when
               they don't fit — no overflow. Larger screens scale up. */}
-          <div className={editorMode ? "grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3" : "grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3"}>
+          <div className={(editorMode || donePostMode) ? "grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3" : "grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3"}>
             {pageItems.map((it) => (
               <HistoryCard
                 key={it.id}
@@ -1129,6 +1199,9 @@ export default function HistoryGrid({
                 onEdText={() => edToggle(edText, setEdText, it.id)}
                 onEdCover={() => edToggle(edCover, setEdCover, it.id)}
                 onEdRemove={() => void edRemove(it.id)}
+                donePostMode={donePostMode}
+                dpOn={dpSel.has(it.id)}
+                onDpToggle={() => dpToggle(it.id)}
               />
             ))}
           </div>
@@ -1327,6 +1400,9 @@ function HistoryCardInner({
   onEdText,
   onEdCover,
   onEdRemove,
+  donePostMode,
+  dpOn,
+  onDpToggle,
 }: {
   item: HistoryItem;
   segChildren?: HistoryItem[];
@@ -1343,6 +1419,9 @@ function HistoryCardInner({
   onEdText?: () => void;
   onEdCover?: () => void;
   onEdRemove?: () => void;
+  donePostMode?: boolean;
+  dpOn?: boolean;
+  onDpToggle?: () => void;
 }) {
   const [compareOpen, setCompareOpen] = useState(false);
   // Editor: view/edit generated Text (caption + cover title/subtitle) + view cover.
@@ -2247,6 +2326,29 @@ function HistoryCardInner({
               {edCoverOn ? <Check className="w-3.5 h-3.5" strokeWidth={3} /> : "C"}
             </button>
           </div>
+        </>
+      )}
+      {/* Done Post mode — source-tab chip (top-left) + a single GREEN select
+          checkbox (top-right). View-only; selection drives bulk Undo Post. */}
+      {donePostMode && (
+        <>
+          <span
+            className="absolute top-2 left-2 z-30 px-2 py-1 rounded-full text-[10px] font-extrabold text-white shadow-lg"
+            style={{ background: "linear-gradient(135deg,#8b5cf6,#a78bfa)" }}
+            title="Dari tab ini"
+          >
+            {sourceTabLabel(item)}
+          </span>
+          <button
+            onClick={(e) => { e.stopPropagation(); onDpToggle?.(); }}
+            title="Pilih untuk Undo Post"
+            className="absolute top-2 right-2 z-30 w-6 h-6 rounded-md flex items-center justify-center shadow-lg border-2 text-[9px] font-extrabold"
+            style={dpOn
+              ? { background: "#16a34a", borderColor: "#16a34a", color: "#fff" }
+              : { background: "rgba(0,0,0,0.6)", borderColor: "#22c55e", color: "#22c55e" }}
+          >
+            {dpOn ? <Check className="w-3.5 h-3.5" strokeWidth={3} /> : ""}
+          </button>
         </>
       )}
       {/* Editor — view/edit generated Text (caption + cover title/subtitle). */}
@@ -3518,7 +3620,7 @@ function HistoryCardInner({
             </>
           )}
           {/* DONE — clone prompt: Copy + Delete only (no media, no extend) */}
-          {!editorMode && item.status === "done" && isClonePrompt && (
+          {!editorMode && !donePostMode && item.status === "done" && isClonePrompt && (
             <>
               <button
                 onClick={async () => {
@@ -3613,7 +3715,7 @@ function HistoryCardInner({
 
           {/* DONE — video: Extend (UGC/Auto) + Combine (UGC/Auto/Cinema)
               + Improve + Download + Delete */}
-          {!editorMode && item.status === "done" && isVideo && (
+          {!editorMode && !donePostMode && item.status === "done" && isVideo && (
             <>
               {/* Transfer to Editor — all video tabs EXCEPT Auto Content. */}
               {allowTransfer && (
@@ -3721,7 +3823,7 @@ function HistoryCardInner({
           {/* FAILED — manual Resubmit (re-enabled per user direction
               2026-06-30) + Delete. Storytelling merged videos skip
               Resubmit (expensive Modal re-render; use the recheck icon). */}
-          {!editorMode && item.status === "failed" && (
+          {!editorMode && !donePostMode && item.status === "failed" && (
             <>
               {item.type !== "fairytale" && (
                 <button
@@ -3871,7 +3973,9 @@ const HistoryCard = memo(HistoryCardInner, (prev, next) => {
     prev.dupSimilar?.sig === next.dupSimilar?.sig &&
     prev.editorMode === next.editorMode &&
     prev.edTextOn === next.edTextOn &&
-    prev.edCoverOn === next.edCoverOn
+    prev.edCoverOn === next.edCoverOn &&
+    prev.donePostMode === next.donePostMode &&
+    prev.dpOn === next.dpOn
     // Intentionally NOT comparing onToggleMerge — the parent passes an
     // inline lambda that's a new ref every render, but it always closes
     // over the same `item.id` and a stable setState, so the old ref is
