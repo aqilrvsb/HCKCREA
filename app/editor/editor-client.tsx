@@ -23,7 +23,8 @@ function seedFromId(id: string) {
   return h;
 }
 
-export default function EditorClient() {
+export default function EditorClient({ projectId, embedded }: { projectId?: string; embedded?: boolean }) {
+  const listUrl = `/api/editor/list${projectId ? `?p=${encodeURIComponent(projectId)}` : ""}`;
   const [videos, setVideos] = useState<EdVideo[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [productId, setProductId] = useState("");
@@ -39,7 +40,7 @@ export default function EditorClient() {
 
   async function refreshVideos() {
     try {
-      const r = await fetch("/api/editor/list", { cache: "no-store" });
+      const r = await fetch(listUrl, { cache: "no-store" });
       const d = await r.json();
       setVideos((d?.rows || []) as EdVideo[]);
     } catch { /* ignore */ }
@@ -48,7 +49,7 @@ export default function EditorClient() {
     setLoading(true);
     try {
       const [v, p] = await Promise.all([
-        fetch("/api/editor/list", { cache: "no-store" }).then((r) => r.json()),
+        fetch(listUrl, { cache: "no-store" }).then((r) => r.json()),
         fetch("/api/auto-content/saved-products", { cache: "no-store" }).then((r) => r.json()),
       ]);
       setVideos((v?.rows || []) as EdVideo[]);
@@ -163,8 +164,8 @@ export default function EditorClient() {
   const busy = busyText || busyCover;
 
   return (
-    <div className="min-h-screen p-5 md:p-8" style={{ background: "var(--color-bg)", color: "var(--color-text-primary)" }}>
-      <div className="max-w-5xl mx-auto">
+    <div className={embedded ? "" : "min-h-screen p-5 md:p-8"} style={embedded ? { color: "var(--color-text-primary)" } : { background: "var(--color-bg)", color: "var(--color-text-primary)" }}>
+      <div className={embedded ? "" : "max-w-5xl mx-auto"}>
         {/* Header */}
         <div className="flex items-center gap-3 mb-6">
           <div className="w-11 h-11 rounded-2xl flex items-center justify-center" style={{ background: "rgba(139,92,246,0.14)", border: "1px solid rgba(139,92,246,0.35)" }}>

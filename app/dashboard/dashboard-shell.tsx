@@ -26,6 +26,7 @@ import SeedanceTab from "./tabs/seedance";
 import CloneTab from "./tabs/clone";
 import AutoContentTab from "./tabs/auto-content";
 import AutoUgcTab from "./tabs/auto-ugc";
+import EditorClient from "../editor/editor-client";
 import FairytaleTab from "./tabs/fairytale";
 import HistoryGrid from "./sections/history-grid";
 import BillingSection from "./sections/billing";
@@ -286,14 +287,6 @@ export default function DashboardShell({
           tabs={visibleTabs}
           activeTab={activeTab}
           onTabChange={(k) => {
-            // Editor opens in a NEW browser tab (dedicated /editor page), it's
-            // not an in-page tab body. Carry the current project so the Editor
-            // scope matches. Don't switch the active tab.
-            if (k === "editor") {
-              const url = view.kind === "project" ? `/editor?p=${encodeURIComponent(view.projectId)}` : "/editor";
-              window.open(url, "_blank");
-              return;
-            }
             // If subscription is inactive, route ALL tab clicks to billing
             // — same gate the old top-pill bar enforced.
             if (!planActive) {
@@ -724,6 +717,11 @@ function ProjectView({
               </div>
               <HistoryGrid tab="fairytale" title={`Storytelling — ${project.name}`} projectId={project.id} />
             </>
+          )}
+          {activeTab === "editor" && (
+            <div className="max-w-6xl mx-auto w-full">
+              <EditorClient projectId={project.id} embedded />
+            </div>
           )}
         </div>
       )}

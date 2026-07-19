@@ -8,20 +8,24 @@ export const dynamic = "force-dynamic";
 // GET /api/editor/list — the user's finished videos flagged in_editor, newest
 // first. Feeds the /editor page. caption is a column; cover_* / product_* live
 // in metadata.
-export async function GET() {
+export async function GET(req: Request) {
   const sb = await createClient();
   const { data: { user } } = await sb.auth.getUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
+  // Optional project scope (?p=<projectId>) — the in-page Editor tab passes the
+  // current project so it only shows that project's transferred videos.
+  const projectId = new URL(req.url).searchParams.get("p");
+
   const admin = createAdminClient();
-  const { data } = await admin
+  let q = admin
     .from("history")
     .select("id, type, tab, status, output_url, thumbnail_url, reference_url, duration, caption, metadata, created_at")
     .eq("user_id", user.id)
     .eq("type", "video")
-    .filter("metadata->>in_editor", "eq", "true")
-    .order("created_at", { ascending: false })
-    .limit(500);
+    .filter("metadata->>in_editor", "eq", "true");
+  if (projectId) q = q.eq("project_id", projectId);
+  const { data } = await q.order("created_at", { ascending: false }).limit(500);
 
   const rows = (data || []).map((r: any) => {
     const m = (r.metadata || {}) as Record<string, any>;
