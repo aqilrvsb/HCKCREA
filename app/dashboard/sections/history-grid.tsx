@@ -2760,7 +2760,7 @@ function HistoryCardInner({
               {item.metadata?.mode ? ` · ${item.metadata.mode}` : ""}
             </div>
             <div
-              className="text-[10px] leading-snug font-mono line-clamp-[10] flex-1 text-white/85"
+              className="text-[10px] leading-snug font-mono line-clamp-2 flex-1 text-white/85"
             >
               {item.prompt}
             </div>
