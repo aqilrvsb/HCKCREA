@@ -594,6 +594,24 @@ export default function HistoryGrid({
     n.has(id) ? n.delete(id) : n.add(id);
     setSet(n);
   };
+  // Cover can only be picked if the video's Text is ALSO picked this run, OR it
+  // already has text generated (cover is built from the text). This is the
+  // canonical rule enforced at the checkbox — see edCoverPickable().
+  const edCoverPickable = (id: string) => edText.has(id) || edHasText(id);
+  // Toggle Text. When UN-ticking Text on a video that has no generated text
+  // yet, drop its Cover too (a cover with neither ticked-text nor stored-text
+  // could never run).
+  const edToggleText = (id: string) => {
+    setEdText((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
+    if (edText.has(id) && !edHasText(id)) {
+      setEdCover((c) => { if (!c.has(id)) return c; const n = new Set(c); n.delete(id); return n; });
+    }
+  };
+  // Toggle Cover — no-op unless pickable (rule above).
+  const edToggleCover = (id: string) => {
+    if (!edCover.has(id) && !edCoverPickable(id)) return; // block picking, allow un-picking
+    setEdCover((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  };
   const edSeed = (id: string) => { let h = 0; for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0; return h; };
   const edReload = () => window.dispatchEvent(new CustomEvent("history:refresh"));
 
@@ -869,8 +887,10 @@ export default function HistoryGrid({
             <label className="flex items-center gap-1.5 text-xs font-extrabold cursor-pointer" style={{ color: "#f59e0b" }}>
               <input
                 type="checkbox"
-                checked={pageItems.length > 0 && pageItems.every((v) => edCover.has(v.id))}
-                onChange={() => { const ids = pageItems.map((v) => v.id); const allOn = ids.length > 0 && ids.every((i) => edCover.has(i)); const n = new Set(edCover); ids.forEach((i) => allOn ? n.delete(i) : n.add(i)); setEdCover(n); }}
+                // Only videos whose Cover is pickable (Text ticked OR already
+                // has text) count toward Select All Cover.
+                checked={(() => { const ids = pageItems.filter((v) => edCoverPickable(v.id)).map((v) => v.id); return ids.length > 0 && ids.every((i) => edCover.has(i)); })()}
+                onChange={() => { const ids = pageItems.filter((v) => edCoverPickable(v.id)).map((v) => v.id); const allOn = ids.length > 0 && ids.every((i) => edCover.has(i)); const n = new Set(edCover); ids.forEach((i) => allOn ? n.delete(i) : n.add(i)); setEdCover(n); }}
                 style={{ accentColor: "#f59e0b", width: 15, height: 15 }}
               />
               Select All Cover
@@ -1194,8 +1214,9 @@ export default function HistoryGrid({
                 editorMode={editorMode}
                 edTextOn={edText.has(it.id)}
                 edCoverOn={edCover.has(it.id)}
-                onEdText={() => edToggle(edText, setEdText, it.id)}
-                onEdCover={() => edToggle(edCover, setEdCover, it.id)}
+                edCoverPickable={edCoverPickable(it.id)}
+                onEdText={() => edToggleText(it.id)}
+                onEdCover={() => edToggleCover(it.id)}
                 onEdRemove={() => void edRemove(it.id)}
                 donePostMode={donePostMode}
                 dpOn={dpSel.has(it.id)}
@@ -1395,6 +1416,7 @@ function HistoryCardInner({
   editorMode,
   edTextOn,
   edCoverOn,
+  edCoverPickable,
   onEdText,
   onEdCover,
   onEdRemove,
@@ -1414,6 +1436,7 @@ function HistoryCardInner({
   editorMode?: boolean;
   edTextOn?: boolean;
   edCoverOn?: boolean;
+  edCoverPickable?: boolean;
   onEdText?: () => void;
   onEdCover?: () => void;
   onEdRemove?: () => void;
@@ -2314,12 +2337,15 @@ function HistoryCardInner({
               {edTextOn ? <Check className="w-3.5 h-3.5" strokeWidth={3} /> : "T"}
             </button>
             <button
-              onClick={(e) => { e.stopPropagation(); onEdCover?.(); }}
-              title="Pilih untuk Generate Cover"
+              onClick={(e) => { e.stopPropagation(); if (edCoverOn || edCoverPickable) onEdCover?.(); }}
+              disabled={!edCoverOn && !edCoverPickable}
+              title={(edCoverOn || edCoverPickable) ? "Pilih untuk Generate Cover" : "Tick Text dulu (atau jana Text) — Cover perlu Text"}
               className="w-6 h-6 rounded-md flex items-center justify-center shadow-lg border-2 text-[9px] font-extrabold"
               style={edCoverOn
                 ? { background: "#f59e0b", borderColor: "#f59e0b", color: "#fff" }
-                : { background: "rgba(0,0,0,0.6)", borderColor: "#f59e0b", color: "#f59e0b" }}
+                : edCoverPickable
+                  ? { background: "rgba(0,0,0,0.6)", borderColor: "#f59e0b", color: "#f59e0b" }
+                  : { background: "rgba(0,0,0,0.55)", borderColor: "rgba(148,163,184,0.5)", color: "rgba(148,163,184,0.8)", cursor: "not-allowed" }}
             >
               {edCoverOn ? <Check className="w-3.5 h-3.5" strokeWidth={3} /> : "C"}
             </button>
@@ -3972,6 +3998,7 @@ const HistoryCard = memo(HistoryCardInner, (prev, next) => {
     prev.editorMode === next.editorMode &&
     prev.edTextOn === next.edTextOn &&
     prev.edCoverOn === next.edCoverOn &&
+    prev.edCoverPickable === next.edCoverPickable &&
     prev.donePostMode === next.donePostMode &&
     prev.dpOn === next.dpOn
     // Intentionally NOT comparing onToggleMerge — the parent passes an
