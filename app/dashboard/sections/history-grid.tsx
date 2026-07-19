@@ -628,6 +628,17 @@ export default function HistoryGrid({
     const m = (v?.metadata as any) || {};
     return !!m.cover_thumbnail_url && !m.framed_from;
   };
+  // "Already done" predicates — a stage's Select-All skips videos where it's
+  // already generated (matching the per-card checkbox that hides when done).
+  const edTextDone = (id: string) => {
+    const v = visibleParents.find((x) => x.id === id);
+    const m = (v?.metadata as any) || {};
+    return !!(v?.caption || m.caption || m.cover_title);
+  };
+  const edCoverDone = (id: string) => {
+    const v = visibleParents.find((x) => x.id === id);
+    return !!(v?.metadata as any)?.cover_thumbnail_url;
+  };
   const edToggleFrame = (id: string) => {
     if (!edFrame.has(id) && !edFramePickable(id)) return;
     setEdFrame((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
@@ -960,8 +971,8 @@ export default function HistoryGrid({
             <label className="flex items-center gap-1.5 text-xs font-extrabold cursor-pointer" style={{ color: "#60a5fa" }}>
               <input
                 type="checkbox"
-                checked={pageItems.length > 0 && pageItems.every((v) => edText.has(v.id))}
-                onChange={() => { const ids = pageItems.map((v) => v.id); const allOn = ids.length > 0 && ids.every((i) => edText.has(i)); const n = new Set(edText); ids.forEach((i) => allOn ? n.delete(i) : n.add(i)); setEdText(n); }}
+                checked={(() => { const ids = pageItems.filter((v) => !edTextDone(v.id)).map((v) => v.id); return ids.length > 0 && ids.every((i) => edText.has(i)); })()}
+                onChange={() => { const ids = pageItems.filter((v) => !edTextDone(v.id)).map((v) => v.id); const allOn = ids.length > 0 && ids.every((i) => edText.has(i)); const n = new Set(edText); ids.forEach((i) => allOn ? n.delete(i) : n.add(i)); setEdText(n); }}
                 style={{ accentColor: "#3b82f6", width: 15, height: 15 }}
               />
               Select All Text
@@ -971,8 +982,8 @@ export default function HistoryGrid({
                 type="checkbox"
                 // Only videos whose Cover is pickable (Text ticked OR already
                 // has text) count toward Select All Cover.
-                checked={(() => { const ids = pageItems.filter((v) => edCoverPickable(v.id)).map((v) => v.id); return ids.length > 0 && ids.every((i) => edCover.has(i)); })()}
-                onChange={() => { const ids = pageItems.filter((v) => edCoverPickable(v.id)).map((v) => v.id); const allOn = ids.length > 0 && ids.every((i) => edCover.has(i)); const n = new Set(edCover); ids.forEach((i) => allOn ? n.delete(i) : n.add(i)); setEdCover(n); }}
+                checked={(() => { const ids = pageItems.filter((v) => edCoverPickable(v.id) && !edCoverDone(v.id)).map((v) => v.id); return ids.length > 0 && ids.every((i) => edCover.has(i)); })()}
+                onChange={() => { const ids = pageItems.filter((v) => edCoverPickable(v.id) && !edCoverDone(v.id)).map((v) => v.id); const allOn = ids.length > 0 && ids.every((i) => edCover.has(i)); const n = new Set(edCover); ids.forEach((i) => allOn ? n.delete(i) : n.add(i)); setEdCover(n); }}
                 style={{ accentColor: "#f59e0b", width: 15, height: 15 }}
               />
               Select All Cover
@@ -2422,55 +2433,70 @@ function HistoryCardInner({
     >
       {/* Editor mode — source-tab chip (top-left) + two select checkboxes
           (top-right): BLUE = Text, ORANGE = Cover. */}
-      {editorMode && (
-        <>
-          <span
-            className="absolute top-2 left-2 z-30 px-2 py-1 rounded-full text-[10px] font-extrabold text-white shadow-lg"
-            style={{ background: "linear-gradient(135deg,#8b5cf6,#a78bfa)" }}
-            title="Dari tab ini"
-          >
-            {sourceTabLabel(item)}
-          </span>
-          <div className="absolute top-2 right-2 z-30 flex gap-1">
-            <button
-              onClick={(e) => { e.stopPropagation(); onEdText?.(); }}
-              title="Pilih untuk Generate Text"
-              className="w-6 h-6 rounded-md flex items-center justify-center shadow-lg border-2 text-[9px] font-extrabold"
-              style={edTextOn
-                ? { background: "#3b82f6", borderColor: "#3b82f6", color: "#fff" }
-                : { background: "rgba(0,0,0,0.6)", borderColor: "#3b82f6", color: "#60a5fa" }}
+      {editorMode && (() => {
+        // A checkbox disappears once its stage is already done for this video
+        // (the matching 📝 / 🎨 / 🎞️ icon is what shows instead). So a fully
+        // prepped / framed card shows NO checkboxes — just its view icons.
+        const mHint = (item.metadata as any) || {};
+        const textDone = !!(item.caption || mHint.caption || mHint.cover_title);
+        const coverDone = !!mHint.cover_thumbnail_url;
+        const frameDone = !!mHint.framed_from;
+        return (
+          <>
+            <span
+              className="absolute top-2 left-2 z-30 px-2 py-1 rounded-full text-[10px] font-extrabold text-white shadow-lg"
+              style={{ background: "linear-gradient(135deg,#8b5cf6,#a78bfa)" }}
+              title="Dari tab ini"
             >
-              {edTextOn ? <Check className="w-3.5 h-3.5" strokeWidth={3} /> : "T"}
-            </button>
-            <button
-              onClick={(e) => { e.stopPropagation(); if (edCoverOn || edCoverPickable) onEdCover?.(); }}
-              disabled={!edCoverOn && !edCoverPickable}
-              title={(edCoverOn || edCoverPickable) ? "Pilih untuk Generate Cover" : "Tick Text dulu (atau jana Text) — Cover perlu Text"}
-              className="w-6 h-6 rounded-md flex items-center justify-center shadow-lg border-2 text-[9px] font-extrabold"
-              style={edCoverOn
-                ? { background: "#f59e0b", borderColor: "#f59e0b", color: "#fff" }
-                : edCoverPickable
-                  ? { background: "rgba(0,0,0,0.6)", borderColor: "#f59e0b", color: "#f59e0b" }
-                  : { background: "rgba(0,0,0,0.55)", borderColor: "rgba(148,163,184,0.5)", color: "rgba(148,163,184,0.8)", cursor: "not-allowed" }}
-            >
-              {edCoverOn ? <Check className="w-3.5 h-3.5" strokeWidth={3} /> : "C"}
-            </button>
-            <button
-              onClick={(e) => { e.stopPropagation(); if (edFrameOn || edFramePickable) onEdFrame?.(); }}
-              disabled={!edFrameOn && !edFramePickable}
-              title={(edFrameOn || edFramePickable) ? "Pilih untuk Frame (cover → intro 3s)" : "Jana Cover dulu — Frame perlu Cover"}
-              className="w-6 h-6 rounded-md flex items-center justify-center shadow-lg border-2 text-[9px] font-extrabold"
-              style={edFrameOn
-                ? { background: "#8b5cf6", borderColor: "#8b5cf6", color: "#fff" }
-                : edFramePickable
-                  ? { background: "rgba(0,0,0,0.6)", borderColor: "#a78bfa", color: "#a78bfa" }
-                  : { background: "rgba(0,0,0,0.55)", borderColor: "rgba(148,163,184,0.5)", color: "rgba(148,163,184,0.8)", cursor: "not-allowed" }}
-            >
-              {edFrameOn ? <Check className="w-3.5 h-3.5" strokeWidth={3} /> : "F"}
-            </button>
-          </div>
-        </>
-      )}
+              {sourceTabLabel(item)}
+            </span>
+            <div className="absolute top-2 right-2 z-30 flex gap-1">
+              {!textDone && (
+                <button
+                  onClick={(e) => { e.stopPropagation(); onEdText?.(); }}
+                  title="Pilih untuk Generate Text"
+                  className="w-6 h-6 rounded-md flex items-center justify-center shadow-lg border-2 text-[9px] font-extrabold"
+                  style={edTextOn
+                    ? { background: "#3b82f6", borderColor: "#3b82f6", color: "#fff" }
+                    : { background: "rgba(0,0,0,0.6)", borderColor: "#3b82f6", color: "#60a5fa" }}
+                >
+                  {edTextOn ? <Check className="w-3.5 h-3.5" strokeWidth={3} /> : "T"}
+                </button>
+              )}
+              {!coverDone && (
+                <button
+                  onClick={(e) => { e.stopPropagation(); if (edCoverOn || edCoverPickable) onEdCover?.(); }}
+                  disabled={!edCoverOn && !edCoverPickable}
+                  title={(edCoverOn || edCoverPickable) ? "Pilih untuk Generate Cover" : "Tick Text dulu (atau jana Text) — Cover perlu Text"}
+                  className="w-6 h-6 rounded-md flex items-center justify-center shadow-lg border-2 text-[9px] font-extrabold"
+                  style={edCoverOn
+                    ? { background: "#f59e0b", borderColor: "#f59e0b", color: "#fff" }
+                    : edCoverPickable
+                      ? { background: "rgba(0,0,0,0.6)", borderColor: "#f59e0b", color: "#f59e0b" }
+                      : { background: "rgba(0,0,0,0.55)", borderColor: "rgba(148,163,184,0.5)", color: "rgba(148,163,184,0.8)", cursor: "not-allowed" }}
+                >
+                  {edCoverOn ? <Check className="w-3.5 h-3.5" strokeWidth={3} /> : "C"}
+                </button>
+              )}
+              {!frameDone && (
+                <button
+                  onClick={(e) => { e.stopPropagation(); if (edFrameOn || edFramePickable) onEdFrame?.(); }}
+                  disabled={!edFrameOn && !edFramePickable}
+                  title={(edFrameOn || edFramePickable) ? "Pilih untuk Frame (cover → intro 3s)" : "Jana Cover dulu — Frame perlu Cover"}
+                  className="w-6 h-6 rounded-md flex items-center justify-center shadow-lg border-2 text-[9px] font-extrabold"
+                  style={edFrameOn
+                    ? { background: "#8b5cf6", borderColor: "#8b5cf6", color: "#fff" }
+                    : edFramePickable
+                      ? { background: "rgba(0,0,0,0.6)", borderColor: "#a78bfa", color: "#a78bfa" }
+                      : { background: "rgba(0,0,0,0.55)", borderColor: "rgba(148,163,184,0.5)", color: "rgba(148,163,184,0.8)", cursor: "not-allowed" }}
+                >
+                  {edFrameOn ? <Check className="w-3.5 h-3.5" strokeWidth={3} /> : "F"}
+                </button>
+              )}
+            </div>
+          </>
+        );
+      })()}
       {/* Done Post mode — source-tab chip (top-left) + a single GREEN select
           checkbox (top-right). View-only; selection drives bulk Undo Post. */}
       {donePostMode && (
@@ -4131,6 +4157,10 @@ const HistoryCard = memo(HistoryCardInner, (prev, next) => {
     prev.edCoverPickable === next.edCoverPickable &&
     prev.edFrameOn === next.edFrameOn &&
     prev.edFramePickable === next.edFramePickable &&
+    // Done-stage signals — drive whether the T/C/F checkboxes render.
+    (prev.item.metadata as any)?.cover_title === (next.item.metadata as any)?.cover_title &&
+    (prev.item.metadata as any)?.cover_thumbnail_url === (next.item.metadata as any)?.cover_thumbnail_url &&
+    (prev.item.metadata as any)?.framed_from === (next.item.metadata as any)?.framed_from &&
     prev.donePostMode === next.donePostMode &&
     prev.dpOn === next.dpOn
     // Intentionally NOT comparing onToggleMerge — the parent passes an
