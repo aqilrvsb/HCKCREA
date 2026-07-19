@@ -235,8 +235,8 @@ export default function HistoryGrid({
   const [edBusyCover, setEdBusyCover] = useState(false);
   const [edLog, setEdLog] = useState<string[]>([]);
   const edAddLog = (m: string) => setEdLog((l) => [m, ...l].slice(0, 40));
-  // Editor grid = 5 columns × 4 rows = 20 per page. Normal grids = 12.
-  const PAGE_SIZE = editorMode ? 20 : 12;
+  // Editor grid = 6 columns × 4 rows = 24 per page. Normal grids = 12.
+  const PAGE_SIZE = editorMode ? 24 : 12;
 
   // Storytelling has TWO kinds of artifacts the user wants visible:
   //   • merged final videos (type='fairytale')        ← the deliverable
@@ -976,7 +976,7 @@ export default function HistoryGrid({
               each at 393px viewport) per user direction. Action row uses
               flex-wrap so 30d/Download/Delete wrap to a second row when
               they don't fit — no overflow. Larger screens scale up. */}
-          <div className={editorMode ? "grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3" : "grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3"}>
+          <div className={editorMode ? "grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3" : "grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3"}>
             {pageItems.map((it) => (
               <HistoryCard
                 key={it.id}
@@ -1415,6 +1415,8 @@ function HistoryCardInner({
     !isClonePrompt &&
     !isSora2Row &&
     !isSeedanceRow &&
+    // Extend hidden on the Original Video tab per user direction.
+    item.tab !== "original-video" &&
     (grokExtendOk || omniExtendOk || veoExtendOk) &&
     item.status === "done" &&
     item.output_url;
