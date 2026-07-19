@@ -26,7 +26,6 @@ import SeedanceTab from "./tabs/seedance";
 import CloneTab from "./tabs/clone";
 import AutoContentTab from "./tabs/auto-content";
 import AutoUgcTab from "./tabs/auto-ugc";
-import EditorClient from "../editor/editor-client";
 import FairytaleTab from "./tabs/fairytale";
 import HistoryGrid from "./sections/history-grid";
 import BillingSection from "./sections/billing";
@@ -719,9 +718,7 @@ function ProjectView({
             </>
           )}
           {activeTab === "editor" && (
-            <div className="max-w-6xl mx-auto w-full">
-              <EditorClient projectId={project.id} embedded />
-            </div>
+            <HistoryGrid tab="original-video" editorMode title="Editor" projectId={project.id} />
           )}
         </div>
       )}

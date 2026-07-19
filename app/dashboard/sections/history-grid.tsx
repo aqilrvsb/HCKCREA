@@ -198,6 +198,7 @@ export default function HistoryGrid({
   title,
   projectId,
   hideViralSubTabs,
+  editorMode,
 }: {
   tab:
     | "image"
@@ -218,8 +219,22 @@ export default function HistoryGrid({
    *  has its own tab='original-video' DB tag so this prop is rarely
    *  needed. Kept for back-compat in case other callers set it. */
   hideViralSubTabs?: boolean;
+  /** Editor mode — reuse the exact history card, but: show only the videos
+   *  transferred to the Editor (metadata.in_editor across ALL tabs of the
+   *  project), and swap the action row for Text/Cover generate toggles. */
+  editorMode?: boolean;
 }) {
   const [page, setPage] = useState(0);
+  // Editor-mode state (only used when editorMode) — which videos are ticked
+  // for Text / Cover generation, the chosen product, and busy flags.
+  const [edText, setEdText] = useState<Set<string>>(new Set());
+  const [edCover, setEdCover] = useState<Set<string>>(new Set());
+  const [edProduct, setEdProduct] = useState("");
+  const [edProducts, setEdProducts] = useState<Array<{ product_id: string; product_name: string; detail?: string }>>([]);
+  const [edBusyText, setEdBusyText] = useState(false);
+  const [edBusyCover, setEdBusyCover] = useState(false);
+  const [edLog, setEdLog] = useState<string[]>([]);
+  const edAddLog = (m: string) => setEdLog((l) => [m, ...l].slice(0, 40));
   const PAGE_SIZE = 12;
 
   // Storytelling has TWO kinds of artifacts the user wants visible:
@@ -313,8 +328,8 @@ export default function HistoryGrid({
   // is pending AND when the tab is hidden — same behaviour as the old
   // interval, just expressed declaratively.
   const swrKey = useMemo(
-    () => ["history", tab, projectId || "", storytellingSubTab, viralSubTab, viralFeature] as const,
-    [tab, projectId, storytellingSubTab, viralSubTab, viralFeature]
+    () => ["history", editorMode ? "editor" : tab, projectId || "", storytellingSubTab, viralSubTab, viralFeature] as const,
+    [tab, projectId, storytellingSubTab, viralSubTab, viralFeature, editorMode]
   );
   const { data: items = [], isLoading: loading, mutate: mutateItems } = useSWR<HistoryItem[]>(
     swrKey,
@@ -328,8 +343,15 @@ export default function HistoryGrid({
       let q = sb
         .from("history")
         .select("*")
-        .eq("tab", dbTab)
-        .order("created_at", { ascending: false })
+        .order("created_at", { ascending: false });
+      if (editorMode) {
+        // Editor grid — the videos transferred here from ANY tab.
+        q = q.eq("type", "video").filter("metadata->>in_editor", "eq", "true");
+      } else {
+        q = q.eq("tab", dbTab);
+      }
+      q = q
+
         // Was 60 → only ever surfaced the latest 5 pages (60 / PAGE_SIZE 12).
         // 1000 is PostgREST's default max-rows, so this shows every row a
         // project realistically holds. The client-side filters (model filter,
@@ -502,9 +524,9 @@ export default function HistoryGrid({
   const visibleParents = useMemo(() => {
     const now = Date.now();
     return parents.filter((p) => {
-      // Moved to the Editor (⇄ Pindah ke Editor) — the video leaves the tab
-      // grid and lives in the /editor page until removed there.
-      if ((p.metadata as any)?.in_editor) return false;
+      // Moved to the Editor (⇄) — the video leaves the normal tab grids. In
+      // editorMode this IS the editor grid, so we KEEP them instead.
+      if (!editorMode && (p.metadata as any)?.in_editor) return false;
       // Cover thumbnails (extension "🎨 Cover") + biometric-grid overlays
       // (Seedance real-person bypass) are byproducts of a video, not
       // user-requested images — never list them in the Images grid.
@@ -517,9 +539,11 @@ export default function HistoryGrid({
         if (imgSubTab === "image" && isSb) return false;
       }
       // Original Video sub-filter: show only rows from the picked model.
-      if (tab === "original-video" && vidModelTab !== "all") {
+      if (!editorMode && tab === "original-video" && vidModelTab !== "all") {
         if (rowModelFamily(p) !== vidModelTab) return false;
       }
+      // Editor grid never expires rows out of view — they stay until removed.
+      if (editorMode) return true;
       if (!p.created_at) return true; // unknown age — keep
       const ageMs = now - new Date(p.created_at).getTime();
       const saved = !!saveStatus[p.id]?.saved;
@@ -529,7 +553,91 @@ export default function HistoryGrid({
       if (!past) return true;
       return saved;
     });
-  }, [parents, saveStatus, tab, imgSubTab, vidModelTab]);
+  }, [parents, saveStatus, tab, imgSubTab, vidModelTab, editorMode]);
+
+  // ── Editor mode: load products + Text/Cover bulk generation ──────────────
+  useEffect(() => {
+    if (!editorMode) return;
+    void (async () => {
+      try {
+        const r = await fetch("/api/auto-content/saved-products", { cache: "no-store" });
+        const d = await r.json();
+        setEdProducts(d?.items || []);
+      } catch { /* ignore */ }
+    })();
+  }, [editorMode]);
+
+  const edToggle = (set: Set<string>, setSet: (s: Set<string>) => void, id: string) => {
+    const n = new Set(set);
+    n.has(id) ? n.delete(id) : n.add(id);
+    setSet(n);
+  };
+  const edSeed = (id: string) => { let h = 0; for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0; return h; };
+  const edReload = () => window.dispatchEvent(new CustomEvent("history:refresh"));
+
+  async function edGenerateText() {
+    const product = edProducts.find((p) => String(p.product_id) === edProduct);
+    if (!product) { edAddLog("⚠ Pilih produk dulu."); return; }
+    const ids = [...edText].filter((id) => visibleParents.some((v) => v.id === id));
+    if (!ids.length) { edAddLog("⚠ Tick 📝 pada video dulu."); return; }
+    const productUrl = "https://www.tiktok.com/shop/my/pdp/product/" + product.product_id;
+    setEdBusyText(true);
+    edAddLog(`Generate Text "${product.product_name}" untuk ${ids.length} video…`);
+    let ok = 0, idx = 0;
+    const worker = async () => {
+      while (idx < ids.length) {
+        const id = ids[idx++];
+        try {
+          const r = await fetch("/api/ugc/generate-post-meta", {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ history_id: id, product_url: productUrl, product_name: product.product_name, product_detail: product.detail || "", variant_seed: edSeed(id) }),
+          });
+          const d = await r.json();
+          if (r.ok && (d.caption || d.cover_title)) ok++;
+          else edAddLog(`  ✗ ${id.slice(0, 6)}: ${d.error || "tak lengkap"}`);
+        } catch (e: any) { edAddLog(`  ✗ ${id.slice(0, 6)}: ${e?.message || "error"}`); }
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(4, ids.length) }, worker));
+    edReload();
+    edAddLog(`✓ Text siap — ${ok}/${ids.length} lengkap.`);
+    setEdBusyText(false);
+  }
+
+  async function edGenerateCover() {
+    const ids = [...edCover].filter((id) => visibleParents.some((v) => v.id === id));
+    if (!ids.length) { edAddLog("⚠ Tick 🎨 pada video dulu."); return; }
+    setEdBusyCover(true);
+    edAddLog(`Generate Cover untuk ${ids.length} video…`);
+    let ok = 0, skip = 0, idx = 0;
+    const worker = async () => {
+      while (idx < ids.length) {
+        const id = ids[idx++];
+        const v = visibleParents.find((x) => x.id === id);
+        const title = String((v?.metadata as any)?.cover_title || "").trim();
+        const sub = String((v?.metadata as any)?.cover_subtitle || "").trim();
+        if (!title || !sub) { skip++; edAddLog(`  ✗ ${id.slice(0, 6)}: cover title/subtitle kosong — Generate Text dulu`); continue; }
+        try {
+          const r = await fetch("/api/extension/generate-cover", {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ history_id: id, cover_title: title, cover_subtitle: sub }),
+          });
+          const d = await r.json();
+          if (r.ok && (d.cover_thumbnail_url || d.url)) ok++;
+          else edAddLog(`  ✗ ${id.slice(0, 6)}: ${d.error || "cover gagal"}`);
+        } catch (e: any) { edAddLog(`  ✗ ${id.slice(0, 6)}: ${e?.message || "error"}`); }
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(3, ids.length) }, worker));
+    edReload();
+    edAddLog(`✓ Cover siap — ${ok}/${ids.length}${skip ? `, ${skip} skip` : ""}.`);
+    setEdBusyCover(false);
+  }
+
+  async function edRemove(id: string) {
+    await fetch("/api/editor/toggle", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ history_id: id, in_editor: false }) });
+    edReload();
+  }
 
   // Per-model counts for the Original Video filter chips. Counted off the raw
   // parent list so a chip's number doesn't change when a filter is applied.
@@ -561,6 +669,26 @@ export default function HistoryGrid({
           {counts.total} items
         </span>
       </div>
+
+      {/* Editor controls — product picker + bulk Text/Cover generation. */}
+      {editorMode && (
+        <div className="mb-4 rounded-xl p-3" style={{ background: "var(--color-bg-card)", border: "1px solid var(--color-border)" }}>
+          <label className="block text-[10px] uppercase tracking-wider font-bold text-[var(--color-text-muted)] mb-1.5">Produk (untuk Generate Text)</label>
+          <select value={edProduct} onChange={(e) => setEdProduct(e.target.value)} className="w-full mb-2 px-3 py-2 rounded-lg text-sm" style={{ background: "var(--color-bg)", border: "1px solid var(--color-border)", color: "var(--color-text-primary)" }}>
+            <option value="">— Pilih produk —</option>
+            {edProducts.map((p) => <option key={p.product_id} value={p.product_id}>{p.product_name || "Unnamed"}</option>)}
+          </select>
+          <div className="flex flex-wrap gap-2">
+            <button onClick={() => { const ids = visibleParents.map((v) => v.id); const on = ids.length > 0 && ids.every((i) => edText.has(i)); setEdText(on ? new Set() : new Set(ids)); }} className="text-xs font-extrabold px-3 py-1.5 rounded-lg" style={{ background: "rgba(96,165,250,0.14)", color: "#60a5fa", border: "1px solid #60a5fa" }}>📝 All Text</button>
+            <button onClick={() => { const ids = visibleParents.map((v) => v.id); const on = ids.length > 0 && ids.every((i) => edCover.has(i)); setEdCover(on ? new Set() : new Set(ids)); }} className="text-xs font-extrabold px-3 py-1.5 rounded-lg" style={{ background: "rgba(245,158,11,0.14)", color: "#f59e0b", border: "1px solid #f59e0b" }}>🎨 All Cover</button>
+            <div className="flex-1" />
+            <button onClick={() => void edGenerateText()} disabled={edBusyText || edBusyCover} className="text-xs font-extrabold px-4 py-1.5 rounded-lg text-white disabled:opacity-50 inline-flex items-center gap-1.5" style={{ background: "linear-gradient(135deg,#3b82f6,#60a5fa)" }}>{edBusyText ? <Loader2 className="w-4 h-4 animate-spin" /> : <span>📝</span>} Generate Text</button>
+            <button onClick={() => void edGenerateCover()} disabled={edBusyText || edBusyCover} className="text-xs font-extrabold px-4 py-1.5 rounded-lg text-white disabled:opacity-50 inline-flex items-center gap-1.5" style={{ background: "linear-gradient(135deg,#f59e0b,#ea580c)" }}>{edBusyCover ? <Loader2 className="w-4 h-4 animate-spin" /> : <span>🎨</span>} Generate Cover</button>
+          </div>
+          <p className="text-[10px] text-[var(--color-text-muted)] mt-1.5">Generate Text dulu (isi caption + cover title/subtitle), kemudian Generate Cover.</p>
+          {edLog.length > 0 && <div className="mt-2 font-mono text-[10px] max-h-24 overflow-y-auto text-[var(--color-text-secondary)]">{edLog.map((l, i) => <div key={i}>{l}</div>)}</div>}
+        </div>
+      )}
 
       {/* Images tab: toggle between plain images and storyboard grids. */}
       {tab === "image" && (
@@ -850,6 +978,12 @@ export default function HistoryGrid({
                 }
                 dupSimilar={dupMap.get(it.id)}
                 allowTransfer={tab !== "auto"}
+                editorMode={editorMode}
+                edTextOn={edText.has(it.id)}
+                edCoverOn={edCover.has(it.id)}
+                onEdText={() => edToggle(edText, setEdText, it.id)}
+                onEdCover={() => edToggle(edCover, setEdCover, it.id)}
+                onEdRemove={() => void edRemove(it.id)}
               />
             ))}
           </div>
@@ -1029,6 +1163,12 @@ function HistoryCardInner({
   onToggleMerge,
   dupSimilar,
   allowTransfer,
+  editorMode,
+  edTextOn,
+  edCoverOn,
+  onEdText,
+  onEdCover,
+  onEdRemove,
 }: {
   item: HistoryItem;
   segChildren?: HistoryItem[];
@@ -1039,6 +1179,12 @@ function HistoryCardInner({
   onToggleMerge?: () => void;
   dupSimilar?: DupInfo;
   allowTransfer?: boolean;
+  editorMode?: boolean;
+  edTextOn?: boolean;
+  edCoverOn?: boolean;
+  onEdText?: () => void;
+  onEdCover?: () => void;
+  onEdRemove?: () => void;
 }) {
   const [compareOpen, setCompareOpen] = useState(false);
   // Editor transfer — flag/unflag this video for the /editor page.
@@ -3093,8 +3239,31 @@ function HistoryCardInner({
             wrap, 30d/Download/Delete used to overflow off the card edge
             and become untappable. */}
         <div className="flex flex-wrap items-center gap-1 mt-1.5">
+          {/* EDITOR MODE — Text toggle · Cover toggle · Remove (replaces the
+              normal video action row). */}
+          {editorMode && (
+            <>
+              <ActionBtn
+                title={edTextOn ? "Text dipilih — akan Generate Text" : "Tick untuk Generate Text"}
+                onClick={() => onEdText?.()}
+                bg={edTextOn ? "linear-gradient(135deg,#3b82f6,#60a5fa)" : "linear-gradient(135deg,#334155,#475569)"}
+              >
+                <span className="text-[11px] font-extrabold leading-none">{edTextOn ? "✓" : ""}📝</span>
+              </ActionBtn>
+              <ActionBtn
+                title={edCoverOn ? "Cover dipilih — akan Generate Cover" : "Tick untuk Generate Cover"}
+                onClick={() => onEdCover?.()}
+                bg={edCoverOn ? "linear-gradient(135deg,#f59e0b,#ea580c)" : "linear-gradient(135deg,#334155,#475569)"}
+              >
+                <span className="text-[11px] font-extrabold leading-none">{edCoverOn ? "✓" : ""}🎨</span>
+              </ActionBtn>
+              <ActionBtn title="Buang dari Editor" onClick={() => onEdRemove?.()} bg={ACTION.delete}>
+                <Trash2 className="w-3.5 h-3.5" strokeWidth={2.4} />
+              </ActionBtn>
+            </>
+          )}
           {/* DONE — clone prompt: Copy + Delete only (no media, no extend) */}
-          {item.status === "done" && isClonePrompt && (
+          {!editorMode && item.status === "done" && isClonePrompt && (
             <>
               <button
                 onClick={async () => {
@@ -3189,7 +3358,7 @@ function HistoryCardInner({
 
           {/* DONE — video: Extend (UGC/Auto) + Combine (UGC/Auto/Cinema)
               + Improve + Download + Delete */}
-          {item.status === "done" && isVideo && (
+          {!editorMode && item.status === "done" && isVideo && (
             <>
               {/* Transfer to Editor — all video tabs EXCEPT Auto Content. */}
               {allowTransfer && (
@@ -3297,7 +3466,7 @@ function HistoryCardInner({
           {/* FAILED — manual Resubmit (re-enabled per user direction
               2026-06-30) + Delete. Storytelling merged videos skip
               Resubmit (expensive Modal re-render; use the recheck icon). */}
-          {item.status === "failed" && (
+          {!editorMode && item.status === "failed" && (
             <>
               {item.type !== "fairytale" && (
                 <button
@@ -3444,7 +3613,10 @@ const HistoryCard = memo(HistoryCardInner, (prev, next) => {
     prev.transferred === next.transferred &&
     prev.mergeSupported === next.mergeSupported &&
     prev.mergeSelectedIdx === next.mergeSelectedIdx &&
-    prev.dupSimilar?.sig === next.dupSimilar?.sig
+    prev.dupSimilar?.sig === next.dupSimilar?.sig &&
+    prev.editorMode === next.editorMode &&
+    prev.edTextOn === next.edTextOn &&
+    prev.edCoverOn === next.edCoverOn
     // Intentionally NOT comparing onToggleMerge — the parent passes an
     // inline lambda that's a new ref every render, but it always closes
     // over the same `item.id` and a stable setState, so the old ref is
