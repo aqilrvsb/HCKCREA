@@ -574,13 +574,6 @@ export default function HistoryGrid({
     setSet(n);
   };
   const edSeed = (id: string) => { let h = 0; for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0; return h; };
-  // Corner checkbox = select the whole video (both Text + Cover) at once.
-  const edToggleBoth = (id: string) => {
-    const both = edText.has(id) && edCover.has(id);
-    const nt = new Set(edText); const nc = new Set(edCover);
-    if (both) { nt.delete(id); nc.delete(id); } else { nt.add(id); nc.add(id); }
-    setEdText(nt); setEdCover(nc);
-  };
   const edReload = () => window.dispatchEvent(new CustomEvent("history:refresh"));
 
   async function edGenerateText() {
@@ -687,8 +680,8 @@ export default function HistoryGrid({
             {edProducts.map((p) => <option key={p.product_id} value={p.product_id}>{p.product_name || "Unnamed"}</option>)}
           </select>
           <div className="flex flex-wrap gap-2">
-            <button onClick={() => { const ids = visibleParents.map((v) => v.id); const on = ids.length > 0 && ids.every((i) => edText.has(i)); setEdText(on ? new Set() : new Set(ids)); }} className="text-xs font-extrabold px-3 py-1.5 rounded-lg" style={{ background: "rgba(96,165,250,0.14)", color: "#60a5fa", border: "1px solid #60a5fa" }}>📝 All Text</button>
-            <button onClick={() => { const ids = visibleParents.map((v) => v.id); const on = ids.length > 0 && ids.every((i) => edCover.has(i)); setEdCover(on ? new Set() : new Set(ids)); }} className="text-xs font-extrabold px-3 py-1.5 rounded-lg" style={{ background: "rgba(245,158,11,0.14)", color: "#f59e0b", border: "1px solid #f59e0b" }}>🎨 All Cover</button>
+            <button onClick={() => { const ids = pageItems.map((v) => v.id); const allOn = ids.length > 0 && ids.every((i) => edText.has(i)); const n = new Set(edText); ids.forEach((i) => allOn ? n.delete(i) : n.add(i)); setEdText(n); }} className="text-xs font-extrabold px-3 py-1.5 rounded-lg" style={{ background: "rgba(96,165,250,0.14)", color: "#60a5fa", border: "1px solid #60a5fa" }}>📝 All Text</button>
+            <button onClick={() => { const ids = pageItems.map((v) => v.id); const allOn = ids.length > 0 && ids.every((i) => edCover.has(i)); const n = new Set(edCover); ids.forEach((i) => allOn ? n.delete(i) : n.add(i)); setEdCover(n); }} className="text-xs font-extrabold px-3 py-1.5 rounded-lg" style={{ background: "rgba(245,158,11,0.14)", color: "#f59e0b", border: "1px solid #f59e0b" }}>🎨 All Cover</button>
             <div className="flex-1" />
             <button onClick={() => void edGenerateText()} disabled={edBusyText || edBusyCover} className="text-xs font-extrabold px-4 py-1.5 rounded-lg text-white disabled:opacity-50 inline-flex items-center gap-1.5" style={{ background: "linear-gradient(135deg,#3b82f6,#60a5fa)" }}>{edBusyText ? <Loader2 className="w-4 h-4 animate-spin" /> : <span>📝</span>} Generate Text</button>
             <button onClick={() => void edGenerateCover()} disabled={edBusyText || edBusyCover} className="text-xs font-extrabold px-4 py-1.5 rounded-lg text-white disabled:opacity-50 inline-flex items-center gap-1.5" style={{ background: "linear-gradient(135deg,#f59e0b,#ea580c)" }}>{edBusyCover ? <Loader2 className="w-4 h-4 animate-spin" /> : <span>🎨</span>} Generate Cover</button>
@@ -989,10 +982,8 @@ export default function HistoryGrid({
                 editorMode={editorMode}
                 edTextOn={edText.has(it.id)}
                 edCoverOn={edCover.has(it.id)}
-                edBothOn={edText.has(it.id) && edCover.has(it.id)}
                 onEdText={() => edToggle(edText, setEdText, it.id)}
                 onEdCover={() => edToggle(edCover, setEdCover, it.id)}
-                onEdSelectBoth={() => edToggleBoth(it.id)}
                 onEdRemove={() => void edRemove(it.id)}
               />
             ))}
@@ -1189,10 +1180,8 @@ function HistoryCardInner({
   editorMode,
   edTextOn,
   edCoverOn,
-  edBothOn,
   onEdText,
   onEdCover,
-  onEdSelectBoth,
   onEdRemove,
 }: {
   item: HistoryItem;
@@ -1207,10 +1196,8 @@ function HistoryCardInner({
   editorMode?: boolean;
   edTextOn?: boolean;
   edCoverOn?: boolean;
-  edBothOn?: boolean;
   onEdText?: () => void;
   onEdCover?: () => void;
-  onEdSelectBoth?: () => void;
   onEdRemove?: () => void;
 }) {
   const [compareOpen, setCompareOpen] = useState(false);
@@ -2047,27 +2034,16 @@ function HistoryCardInner({
         position: "relative",
       }}
     >
-      {/* Editor mode — source-tab chip (top-left) + remove-from-Editor (×). */}
+      {/* Editor mode — source-tab chip (top-left). Selection is via the two
+          in-row checkboxes (📝 Text · 🎨 Cover). */}
       {editorMode && (
-        <>
-          <span
-            className="absolute top-2 left-2 z-30 px-2 py-1 rounded-full text-[10px] font-extrabold text-white shadow-lg"
-            style={{ background: "linear-gradient(135deg,#8b5cf6,#a78bfa)" }}
-            title="Dari tab ini"
-          >
-            {sourceTabLabel(item)}
-          </span>
-          <button
-            onClick={(e) => { e.stopPropagation(); onEdSelectBoth?.(); }}
-            title="Tick untuk pilih video ni"
-            className="absolute top-2 right-2 z-30 w-6 h-6 rounded-md flex items-center justify-center shadow-lg border-2"
-            style={edBothOn
-              ? { background: "#c8f53e", borderColor: "#c8f53e", color: "#1a1a1a" }
-              : { background: "rgba(0,0,0,0.6)", borderColor: "#aaa", color: "#fff" }}
-          >
-            {edBothOn ? <Check className="w-3.5 h-3.5" strokeWidth={3} /> : null}
-          </button>
-        </>
+        <span
+          className="absolute top-2 left-2 z-30 px-2 py-1 rounded-full text-[10px] font-extrabold text-white shadow-lg"
+          style={{ background: "linear-gradient(135deg,#8b5cf6,#a78bfa)" }}
+          title="Dari tab ini"
+        >
+          {sourceTabLabel(item)}
+        </span>
       )}
       {/* Duplicate-content warning badge (top-left). Tap to compare which
           other cards this one is ~the same as. */}
