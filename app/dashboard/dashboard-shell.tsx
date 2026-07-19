@@ -13,6 +13,7 @@ import {
   BookOpen,
   Zap,
   Sparkles,
+  Scissors,
 } from "lucide-react";
 import ImageTab from "./tabs/image";
 import ImageTabWithMode from "./tabs/image-with-mode";
@@ -53,6 +54,7 @@ type TabKey =
   | "clone"
   | "auto"
   | "auto-ugc"
+  | "editor"
   | "fairytale"
   | "original-video";
 
@@ -82,6 +84,10 @@ const TABS: { key: TabKey; label: string; icon: any; tag: string }[] = [
   // Auto UGC — Grok-Imagine avatar UGC with 30s split into Seg 1/Seg 2.
   // Open to everyone (canSeeAutoUgc gate kept for easy re-restriction).
   { key: "auto-ugc",  label: "Auto UGC",     icon: Sparkles,  tag: "4b" },
+  // Editor — collect transferred videos, bulk-generate caption + cover.
+  // Special: clicking it opens the /editor page in a NEW browser tab (handled
+  // in onTabChange), it is NOT an in-page tab body.
+  { key: "editor",    label: "Editor",       icon: Scissors,  tag: "4c" },
   // Viral + Seedance tabs hidden per user direction. Routes + imports kept
   // so existing history rows still render; re-enable by uncommenting.
   // { key: "seedance",  label: "Cinema",       icon: Film,      tag: "--" },
@@ -280,6 +286,14 @@ export default function DashboardShell({
           tabs={visibleTabs}
           activeTab={activeTab}
           onTabChange={(k) => {
+            // Editor opens in a NEW browser tab (dedicated /editor page), it's
+            // not an in-page tab body. Carry the current project so the Editor
+            // scope matches. Don't switch the active tab.
+            if (k === "editor") {
+              const url = view.kind === "project" ? `/editor?p=${encodeURIComponent(view.projectId)}` : "/editor";
+              window.open(url, "_blank");
+              return;
+            }
             // If subscription is inactive, route ALL tab clicks to billing
             // — same gate the old top-pill bar enforced.
             if (!planActive) {
@@ -457,6 +471,8 @@ function resolveActiveSop(view: SidebarView, activeTab: TabKey) {
       video: "ugc",
       auto: "auto-content",
       "auto-ugc": "auto-content",
+      editor: "auto-content", // never used — Editor opens its own /editor page
+
       cinema: "story",
       grok: "story",
       sora2: "story", // Sora 2 reuses Story SOP content

@@ -17,6 +17,7 @@ import {
   Copy,
   GitCompare,
   AlertTriangle,
+  Scissors,
   Palette,
   ChevronLeft,
   ChevronRight,
@@ -845,6 +846,7 @@ export default function HistoryGrid({
                   supportsMerge ? () => toggleMergeSelection(it.id) : undefined
                 }
                 dupSimilar={dupMap.get(it.id)}
+                allowTransfer={tab !== "auto"}
               />
             ))}
           </div>
@@ -1023,6 +1025,7 @@ function HistoryCardInner({
   mergeSelectedIdx,
   onToggleMerge,
   dupSimilar,
+  allowTransfer,
 }: {
   item: HistoryItem;
   segChildren?: HistoryItem[];
@@ -1032,8 +1035,30 @@ function HistoryCardInner({
   mergeSelectedIdx?: number;
   onToggleMerge?: () => void;
   dupSimilar?: DupInfo;
+  allowTransfer?: boolean;
 }) {
   const [compareOpen, setCompareOpen] = useState(false);
+  // Editor transfer — flag/unflag this video for the /editor page.
+  const [inEditor, setInEditor] = useState(!!item.metadata?.in_editor);
+  const [togglingEditor, setTogglingEditor] = useState(false);
+  async function toggleEditor() {
+    const next = !inEditor;
+    setTogglingEditor(true);
+    setInEditor(next); // optimistic
+    try {
+      const r = await fetch("/api/editor/toggle", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ history_id: item.id, in_editor: next }),
+      });
+      if (!r.ok) { setInEditor(!next); }
+      else if (item.metadata) item.metadata.in_editor = next;
+    } catch {
+      setInEditor(!next);
+    } finally {
+      setTogglingEditor(false);
+    }
+  }
   // All extension/16s segments (sorted Seg 2, Seg 3, …). seg2 = the first
   // child, kept for the legacy 16s-pipeline code paths below.
   const children = segChildren || [];
@@ -3158,6 +3183,25 @@ function HistoryCardInner({
               + Improve + Download + Delete */}
           {item.status === "done" && isVideo && (
             <>
+              {/* Transfer to Editor — all video tabs EXCEPT Auto Content. */}
+              {allowTransfer && (
+                <ActionBtn
+                  title={inEditor ? "Buang dari Editor" : "Pindah ke Editor"}
+                  onClick={() => void toggleEditor()}
+                  bg={inEditor
+                    ? "linear-gradient(135deg, #22c55e, #4ade80)"
+                    : "linear-gradient(135deg, #8b5cf6, #a78bfa)"}
+                  disabled={togglingEditor}
+                >
+                  {togglingEditor ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  ) : inEditor ? (
+                    <Check className="w-3.5 h-3.5" strokeWidth={2.4} />
+                  ) : (
+                    <Scissors className="w-3.5 h-3.5" strokeWidth={2.4} />
+                  )}
+                </ActionBtn>
+              )}
               {canExtend && (
                 <button
                   onClick={() => setShowExtendModal(true)}
