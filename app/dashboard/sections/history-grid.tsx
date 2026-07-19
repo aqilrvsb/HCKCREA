@@ -502,6 +502,9 @@ export default function HistoryGrid({
   const visibleParents = useMemo(() => {
     const now = Date.now();
     return parents.filter((p) => {
+      // Moved to the Editor (⇄ Pindah ke Editor) — the video leaves the tab
+      // grid and lives in the /editor page until removed there.
+      if ((p.metadata as any)?.in_editor) return false;
       // Cover thumbnails (extension "🎨 Cover") + biometric-grid overlays
       // (Seedance real-person bypass) are byproducts of a video, not
       // user-requested images — never list them in the Images grid.
@@ -1052,7 +1055,12 @@ function HistoryCardInner({
         body: JSON.stringify({ history_id: item.id, in_editor: next }),
       });
       if (!r.ok) { setInEditor(!next); }
-      else if (item.metadata) item.metadata.in_editor = next;
+      else {
+        if (item.metadata) item.metadata.in_editor = next;
+        // Moved to (or out of) the Editor → reload the grid so the card
+        // leaves this tab (or comes back). It now lives on the /editor page.
+        window.dispatchEvent(new CustomEvent("history:refresh"));
+      }
     } catch {
       setInEditor(!next);
     } finally {
