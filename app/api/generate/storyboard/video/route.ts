@@ -58,6 +58,15 @@ export async function POST(req: Request) {
 
   const sub = String(meta.sub || "");
   const main = String(meta.main || "ugc");
+  // Carry the "No subtitle" choice from the storyboard image → the video must
+  // then render WITHOUT any on-screen captions/subtitles too. Stored on the
+  // storyboard row as metadata.no_subtitle (see app/api/generate/storyboard).
+  const noSubtitle = meta.no_subtitle === true;
+  // The caption clause that gets injected into the provider prompt. When the
+  // storyboard was made with "No subtitle", replace it with a hard no-text rule.
+  const captionRule = noSubtitle
+    ? "ABSOLUTELY NO on-screen captions, subtitles, or any text overlay anywhere in the video — pure imagery only (the ONLY text allowed is the product's own real packaging label)"
+    : "on-screen captions short and correctly spelled";
   const productName = String(meta.product_name || "");
   const productDetail = String(meta.product_detail || "");
   const productImage = (Array.isArray(meta.image_urls) ? meta.image_urls : []).filter((u: any) => typeof u === "string" && u.trim())[0] || "";
@@ -80,8 +89,8 @@ export async function POST(req: Request) {
   // OR English, dynamic). Omni keeps its original forced-Malay line untouched.
   const tail =
     videoProvider === "seedance"
-      ? `Malaysian presenter, on-screen captions short and correctly spelled, vertical 9:16, about ${duration} seconds. ${SEEDANCE_NO_INDON} No on-screen medical or whitening claims.`
-      : `Malaysian presenter, natural Bahasa Melayu voiceover (no Indonesian slang), on-screen captions short and correctly spelled, vertical 9:16, about ${duration} seconds. No on-screen medical or whitening claims.`;
+      ? `Malaysian presenter, ${captionRule}, vertical 9:16, about ${duration} seconds. ${SEEDANCE_NO_INDON} No on-screen medical or whitening claims.`
+      : `Malaysian presenter, natural Bahasa Melayu voiceover (no Indonesian slang), ${captionRule}, vertical 9:16, about ${duration} seconds. No on-screen medical or whitening claims.`;
   // Storyboard blueprint (image 1) + separate product ref (image 2). Both Omni
   // AND Seedance use this SAME two-image flow now — Seedance runs through p7
   // (PixelByte) which has no face filter, so no special-casing.
@@ -126,6 +135,9 @@ export async function POST(req: Request) {
         image_urls: imageUrls,
         sub,
         main,
+        // Carried from the storyboard so Resubmit + settle keep the no-subtitle
+        // choice (the prompt above already reflects it).
+        no_subtitle: noSubtitle || null,
         upload_status: "queued",
       },
     })

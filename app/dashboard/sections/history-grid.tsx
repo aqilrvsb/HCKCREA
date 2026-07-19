@@ -244,8 +244,12 @@ export default function HistoryGrid({
   const [edBusyCover, setEdBusyCover] = useState(false);
   const [edLog, setEdLog] = useState<string[]>([]);
   const edAddLog = (m: string) => setEdLog((l) => [m, ...l].slice(0, 40));
-  // Editor / Done-Post grids = 6 columns × 4 rows = 24 per page. Normal = 12.
-  const PAGE_SIZE = editorMode || donePostMode ? 24 : 12;
+  // Video tabs share the Editor's denser layout (6 per row). Image / Clone /
+  // Storytelling keep the roomier 4-per-row grid.
+  const isVideoTab = ["video", "original-video", "auto", "auto-ugc", "cinema", "grok", "seedance", "sora2"].includes(tab);
+  const sixPerRow = editorMode || donePostMode || isVideoTab;
+  // 6-per-row grids = 6 columns × 4 rows = 24 per page. 4-per-row grids = 12.
+  const PAGE_SIZE = sixPerRow ? 24 : 12;
 
   // Storytelling has TWO kinds of artifacts the user wants visible:
   //   • merged final videos (type='fairytale')        ← the deliverable
@@ -1192,7 +1196,7 @@ export default function HistoryGrid({
               each at 393px viewport) per user direction. Action row uses
               flex-wrap so 30d/Download/Delete wrap to a second row when
               they don't fit — no overflow. Larger screens scale up. */}
-          <div className={(editorMode || donePostMode) ? "grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3" : "grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3"}>
+          <div className={sixPerRow ? "grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3" : "grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3"}>
             {pageItems.map((it) => (
               <HistoryCard
                 key={it.id}
