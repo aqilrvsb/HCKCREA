@@ -697,8 +697,9 @@ export default function HistoryGrid({
   // params, ONE retry). `fresh` carries text results generated moments ago so a
   // just-texted video uses its fresh title/subtitle. A video with NO text
   // (title/subtitle empty) is skipped — a cover cannot exist without text.
-  async function edRunCover(ids: string[], fresh?: Map<string, any>): Promise<{ ok: number; skip: number }> {
+  async function edRunCover(ids: string[], fresh?: Map<string, any>): Promise<{ ok: number; skip: number; doneIds: Set<string> }> {
     const COVER_RETRIES = 1;
+    const doneIds = new Set<string>();
     let ok = 0, skip = 0, idx = 0;
     const worker = async () => {
       while (idx < ids.length) {
@@ -712,7 +713,7 @@ export default function HistoryGrid({
         for (let attempt = 0; attempt <= COVER_RETRIES && !d0; attempt++) {
           try {
             const { ok: rok, d } = await edFetchJson("/api/extension/generate-cover", { history_id: id, cover_title: title, cover_subtitle: sub }, 300000);
-            if (rok && (d.cover_thumbnail_url || d.url)) { ok++; d0 = true; }
+            if (rok && (d.cover_thumbnail_url || d.url)) { ok++; d0 = true; doneIds.add(id); }
             else if (attempt < COVER_RETRIES) { edAddLog(`  … ${id.slice(0, 6)}: cuba lagi (${d?.error || "gagal"})`); }
             else edAddLog(`  ✗ ${id.slice(0, 6)}: ${d?.error || "cover gagal"}`);
           } catch (e: any) {
@@ -723,7 +724,7 @@ export default function HistoryGrid({
       }
     };
     await Promise.all(Array.from({ length: Math.min(3, ids.length) }, worker));
-    return { ok, skip };
+    return { ok, skip, doneIds };
   }
 
   // Does a video already have text (caption + cover title/subtitle stamped)?
@@ -742,8 +743,11 @@ export default function HistoryGrid({
     try {
       edAddLog(`Generate Text "${product.product_name || product.name}" untuk ${ids.length} video…`);
       const res = await edRunText(ids, product);
+      // Keep ONLY the failed ones ticked → re-press Generate retries just those.
+      const failed = ids.filter((id) => !res.has(id));
+      setEdText(new Set(failed));
       edReload();
-      edAddLog(`✓ Text siap — ${res.size}/${ids.length} lengkap.`);
+      edAddLog(`✓ Text siap — ${res.size}/${ids.length} lengkap.${failed.length ? ` ${failed.length} gagal — masih bertanda, tekan Generate untuk cuba lagi.` : ""}`);
     } finally { setEdBusyText(false); }
   }
 
@@ -769,9 +773,12 @@ export default function HistoryGrid({
     setEdBusyCover(true);
     try {
       edAddLog(`Generate Cover untuk ${ids.length} video…${already ? ` (${already} dah ada cover)` : ""}`);
-      const { ok, skip } = await edRunCover(ids);
+      const { ok, skip, doneIds } = await edRunCover(ids);
+      // Keep ONLY the failed ones ticked → re-press retries just those.
+      const failed = ids.filter((id) => !doneIds.has(id));
+      setEdCover(new Set(failed));
       edReload();
-      edAddLog(`✓ Cover siap — ${ok}/${ids.length}${skip ? `, ${skip} skip` : ""}.`);
+      edAddLog(`✓ Cover siap — ${ok}/${ids.length}${skip ? `, ${skip} skip` : ""}${failed.length ? ` · ${failed.length} gagal — masih bertanda, tekan Generate untuk cuba lagi` : ""}.`);
     } finally { setEdBusyCover(false); }
   }
 
@@ -791,8 +798,10 @@ export default function HistoryGrid({
         if (!product) { edAddLog("⚠ Pilih produk dulu untuk Generate Text."); return; }
         edAddLog(`① Text "${product.product_name || product.name}" untuk ${textIds.length} video…`);
         fresh = await edRunText(textIds, product);
+        const failedText = textIds.filter((id) => !fresh!.has(id));
+        setEdText(new Set(failedText)); // keep only failures ticked
         edReload();
-        edAddLog(`✓ Text siap — ${fresh.size}/${textIds.length} lengkap.`);
+        edAddLog(`✓ Text siap — ${fresh.size}/${textIds.length} lengkap.${failedText.length ? ` ${failedText.length} gagal.` : ""}`);
       }
       // ── PHASE 2: COVER (parallel) — only AFTER text is fully done ──
       if (coverIds.length) {
@@ -808,9 +817,13 @@ export default function HistoryGrid({
         if (blocked) edAddLog(`⚠ ${blocked} video takde text — cover di-skip (cover perlu text).`);
         if (eligible.length) {
           edAddLog(`② Cover untuk ${eligible.length} video…${already ? ` (${already} dah ada cover)` : ""}`);
-          const { ok, skip } = await edRunCover(eligible, fresh);
+          const { ok, skip, doneIds } = await edRunCover(eligible, fresh);
+          // Keep only the covers that were ATTEMPTED and failed ticked (un-tick
+          // succeeded + already-covered) → re-press retries just those.
+          const failedCover = eligible.filter((id) => !doneIds.has(id));
+          setEdCover(new Set(failedCover));
           edReload();
-          edAddLog(`✓ Cover siap — ${ok}/${eligible.length}${skip ? `, ${skip} skip` : ""}.`);
+          edAddLog(`✓ Cover siap — ${ok}/${eligible.length}${skip ? `, ${skip} skip` : ""}${failedCover.length ? ` · ${failedCover.length} belum siap — masih bertanda` : ""}.`);
         } else if (!blocked) {
           edAddLog(`ℹ Tiada cover baru untuk dijana${already ? ` (${already} dah ada cover)` : ""}.`);
         }
@@ -836,24 +849,33 @@ export default function HistoryGrid({
     try {
       edAddLog(`🎞️ Frame untuk ${ids.length} video — intro 3s + gabung (percuma, tiada kredit)…`);
       const LIMIT = 3; // frame is heavier than text/cover → fewer in flight
-      let done = 0, idx = 0;
-      const worker = async () => {
-        while (idx < ids.length) {
-          const id = ids[idx++];
-          try {
-            // Generous timeout — clip+merge+rehost can take ~30–60s per video.
-            const { ok, d } = await edFetchJson("/api/editor/frame", { history_ids: [id] }, 240000);
-            const r = d?.results?.[0];
-            if (ok && r?.status === "done") { done++; edAddLog(`  ✓ ${id.slice(0, 6)} framed`); }
-            else edAddLog(`  ✗ ${id.slice(0, 6)}: ${r?.reason || d?.error || "gagal"}`);
-          } catch (e: any) { edAddLog(`  ✗ ${id.slice(0, 6)}: ${e?.message || "error"}`); }
-          edReload(); // refresh grid as each one lands
-        }
+      const doneSet = new Set<string>();
+      const runPass = async (list: string[]) => {
+        let idx = 0;
+        const worker = async () => {
+          while (idx < list.length) {
+            const id = list[idx++];
+            try {
+              // Generous timeout — clip+merge+rehost can take ~30–60s per video.
+              const { ok, d } = await edFetchJson("/api/editor/frame", { history_ids: [id] }, 240000);
+              const r = d?.results?.[0];
+              if (ok && r?.status === "done") { doneSet.add(id); edAddLog(`  ✓ ${id.slice(0, 6)} framed`); }
+              else edAddLog(`  ✗ ${id.slice(0, 6)}: ${r?.reason || d?.error || "gagal"}`);
+            } catch (e: any) { edAddLog(`  ✗ ${id.slice(0, 6)}: ${e?.message || "error"}`); }
+            edReload(); // refresh grid as each one lands
+          }
+        };
+        await Promise.all(Array.from({ length: Math.min(LIMIT, list.length) }, worker));
       };
-      await Promise.all(Array.from({ length: Math.min(LIMIT, ids.length) }, worker));
-      setEdFrame(new Set());
+      await runPass(ids);
+      // One automatic retry for the ones that failed (transient fal errors).
+      const missing = ids.filter((id) => !doneSet.has(id));
+      if (missing.length) { edAddLog(`Cuba semula ${missing.length} frame yang gagal…`); await runPass(missing); }
+      // Keep ONLY the failed ones ticked → re-press Frame retries just those.
+      const failed = ids.filter((id) => !doneSet.has(id));
+      setEdFrame(new Set(failed));
       edReload();
-      edAddLog(`✓ Frame siap — ${done}/${ids.length}.`);
+      edAddLog(`✓ Frame siap — ${doneSet.size}/${ids.length}.${failed.length ? ` ${failed.length} gagal — masih bertanda, tekan Frame untuk cuba lagi.` : ""}`);
     } finally { setEdBusyFrame(false); }
   }
 
