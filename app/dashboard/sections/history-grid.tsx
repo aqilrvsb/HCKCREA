@@ -235,7 +235,8 @@ export default function HistoryGrid({
   const [edBusyCover, setEdBusyCover] = useState(false);
   const [edLog, setEdLog] = useState<string[]>([]);
   const edAddLog = (m: string) => setEdLog((l) => [m, ...l].slice(0, 40));
-  const PAGE_SIZE = 12;
+  // Editor grid = 5 columns × 4 rows = 20 per page. Normal grids = 12.
+  const PAGE_SIZE = editorMode ? 20 : 12;
 
   // Storytelling has TWO kinds of artifacts the user wants visible:
   //   • merged final videos (type='fairytale')        ← the deliverable
@@ -573,6 +574,13 @@ export default function HistoryGrid({
     setSet(n);
   };
   const edSeed = (id: string) => { let h = 0; for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0; return h; };
+  // Corner checkbox = select the whole video (both Text + Cover) at once.
+  const edToggleBoth = (id: string) => {
+    const both = edText.has(id) && edCover.has(id);
+    const nt = new Set(edText); const nc = new Set(edCover);
+    if (both) { nt.delete(id); nc.delete(id); } else { nt.add(id); nc.add(id); }
+    setEdText(nt); setEdCover(nc);
+  };
   const edReload = () => window.dispatchEvent(new CustomEvent("history:refresh"));
 
   async function edGenerateText() {
@@ -959,7 +967,7 @@ export default function HistoryGrid({
               each at 393px viewport) per user direction. Action row uses
               flex-wrap so 30d/Download/Delete wrap to a second row when
               they don't fit — no overflow. Larger screens scale up. */}
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+          <div className={editorMode ? "grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3" : "grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3"}>
             {pageItems.map((it) => (
               <HistoryCard
                 key={it.id}
@@ -981,8 +989,10 @@ export default function HistoryGrid({
                 editorMode={editorMode}
                 edTextOn={edText.has(it.id)}
                 edCoverOn={edCover.has(it.id)}
+                edBothOn={edText.has(it.id) && edCover.has(it.id)}
                 onEdText={() => edToggle(edText, setEdText, it.id)}
                 onEdCover={() => edToggle(edCover, setEdCover, it.id)}
+                onEdSelectBoth={() => edToggleBoth(it.id)}
                 onEdRemove={() => void edRemove(it.id)}
               />
             ))}
@@ -1179,8 +1189,10 @@ function HistoryCardInner({
   editorMode,
   edTextOn,
   edCoverOn,
+  edBothOn,
   onEdText,
   onEdCover,
+  onEdSelectBoth,
   onEdRemove,
 }: {
   item: HistoryItem;
@@ -1195,8 +1207,10 @@ function HistoryCardInner({
   editorMode?: boolean;
   edTextOn?: boolean;
   edCoverOn?: boolean;
+  edBothOn?: boolean;
   onEdText?: () => void;
   onEdCover?: () => void;
+  onEdSelectBoth?: () => void;
   onEdRemove?: () => void;
 }) {
   const [compareOpen, setCompareOpen] = useState(false);
@@ -2044,12 +2058,14 @@ function HistoryCardInner({
             {sourceTabLabel(item)}
           </span>
           <button
-            onClick={(e) => { e.stopPropagation(); onEdRemove?.(); }}
-            title="Buang dari Editor (balik ke tab asal)"
-            className="absolute top-2 right-2 z-30 w-6 h-6 rounded-md flex items-center justify-center text-white shadow-lg"
-            style={{ background: "rgba(239,68,68,0.9)" }}
+            onClick={(e) => { e.stopPropagation(); onEdSelectBoth?.(); }}
+            title="Tick untuk pilih video ni"
+            className="absolute top-2 right-2 z-30 w-6 h-6 rounded-md flex items-center justify-center shadow-lg border-2"
+            style={edBothOn
+              ? { background: "#c8f53e", borderColor: "#c8f53e", color: "#1a1a1a" }
+              : { background: "rgba(0,0,0,0.6)", borderColor: "#aaa", color: "#fff" }}
           >
-            <X className="w-3.5 h-3.5" />
+            {edBothOn ? <Check className="w-3.5 h-3.5" strokeWidth={3} /> : null}
           </button>
         </>
       )}
@@ -3290,7 +3306,9 @@ function HistoryCardInner({
               >
                 <span className="text-[11px] font-extrabold leading-none">{edCoverOn ? "✓" : ""}🎨</span>
               </ActionBtn>
-              {/* Remove-from-Editor moved to the × overlay on the card media. */}
+              <ActionBtn title="Buang dari Editor (balik ke tab asal)" onClick={() => onEdRemove?.()} bg={ACTION.delete}>
+                <Trash2 className="w-3.5 h-3.5" strokeWidth={2.4} />
+              </ActionBtn>
             </>
           )}
           {/* DONE — clone prompt: Copy + Delete only (no media, no extend) */}
