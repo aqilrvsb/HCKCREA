@@ -223,7 +223,18 @@ export default function EditorClient({ projectId, embedded }: { projectId?: stri
                 <div key={v.id} className="rounded-xl overflow-hidden relative" style={{ background: "var(--color-bg-card)", border: "1px solid var(--color-border)" }}>
                   <div className="relative bg-black" style={{ aspectRatio: "9/16" }}>
                     {v.output_url ? (
-                      <video src={v.output_url} className="w-full h-full object-cover" muted playsInline preload="metadata" poster={v.thumbnail_url || undefined} />
+                      // #t=0.5 makes the browser seek to 0.5s and render that
+                      // frame as the poster (otherwise a preload="metadata"
+                      // video is just black). controls lets the user preview.
+                      <video
+                        src={v.output_url + "#t=0.5"}
+                        className="w-full h-full object-cover"
+                        muted
+                        playsInline
+                        controls
+                        preload="metadata"
+                        poster={v.thumbnail_url || undefined}
+                      />
                     ) : v.thumbnail_url ? (
                       <img src={v.thumbnail_url} alt="" className="w-full h-full object-cover" />
                     ) : (
