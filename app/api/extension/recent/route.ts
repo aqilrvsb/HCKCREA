@@ -23,6 +23,12 @@ export async function GET(req: Request) {
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const url = new URL(req.url);
+  const source = (url.searchParams.get("source") || "").trim();
+  // v3.9: source=editor — the Auto Post grid pulls ONLY videos prepared in the
+  // web Editor (metadata.in_editor=true) that already have text generated
+  // (caption stamped). Cover is optional — the TikTok flow falls back to a
+  // video frame when there's no cover thumbnail. Spans every source tab.
+  const isEditorSource = source === "editor";
   const tabParam = url.searchParams.get("tab") || "ugc";
   const tab = ["auto", "original-video", "auto-ugc", "ugc"].includes(tabParam)
     ? tabParam
@@ -46,7 +52,10 @@ export async function GET(req: Request) {
     .order("created_at", { ascending: false })
     .limit(limit);
 
-  if (tab === "auto") {
+  if (isEditorSource) {
+    // Editor videos across ALL tabs — filter by the in_editor flag, not tab.
+    q = q.eq("type", "video").filter("metadata->>in_editor", "eq", "true");
+  } else if (tab === "auto") {
     q = q.eq("tab", "auto");
   } else if (tab === "original-video") {
     q = q.eq("tab", "original-video");
@@ -73,6 +82,13 @@ export async function GET(req: Request) {
     );
   }
 
+  // Editor source: keep only rows that have TEXT done (non-empty caption) and
+  // aren't a framed-original that's been hidden (its framed replacement carries
+  // the caption instead). Done in JS to avoid the PostgREST NULL-filter gotcha.
+  const filtered = isEditorSource
+    ? (data || []).filter((r: any) => String(r.caption || "").trim().length > 0 && !r.metadata?.hidden_by_frame)
+    : (data || []);
+
   // Strip down to the fields the extension actually uses to render
   // cards. Includes everything needed for auto-post (videoUrl,
   // caption, coverTitle, coverSubtitle, productId, productName).
@@ -85,7 +101,7 @@ export async function GET(req: Request) {
   // metadata.poster_url; the extension falls back to <video preload=
   // none> + IntersectionObserver to render the first frame in-place
   // for those rows.
-  const rows = (data || []).map((r: any) => ({
+  const rows = filtered.map((r: any) => ({
     id: r.id,
     type: r.type,
     tab: r.tab,
