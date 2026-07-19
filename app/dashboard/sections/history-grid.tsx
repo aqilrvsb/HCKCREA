@@ -1217,6 +1217,40 @@ function HistoryCardInner({
   onEdRemove?: () => void;
 }) {
   const [compareOpen, setCompareOpen] = useState(false);
+  // Editor: view/edit generated Text (caption + cover title/subtitle) + view cover.
+  const [edEditOpen, setEdEditOpen] = useState(false);
+  const [edCoverView, setEdCoverView] = useState<string | null>(null);
+  const [edCap, setEdCap] = useState("");
+  const [edCT, setEdCT] = useState("");
+  const [edCS, setEdCS] = useState("");
+  const [edSaving, setEdSaving] = useState(false);
+  function openEdEdit() {
+    setEdCap(String(item.caption || (item.metadata as any)?.caption || ""));
+    setEdCT(String((item.metadata as any)?.cover_title || ""));
+    setEdCS(String((item.metadata as any)?.cover_subtitle || ""));
+    setEdEditOpen(true);
+  }
+  async function saveEdEdit() {
+    setEdSaving(true);
+    try {
+      const r = await fetch("/api/extension/update-meta", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ history_id: item.id, caption: edCap, cover_title: edCT, cover_subtitle: edCS }),
+      });
+      if (r.ok) {
+        (item as any).caption = edCap;
+        if (item.metadata) { item.metadata.cover_title = edCT.toUpperCase(); item.metadata.cover_subtitle = edCS.toUpperCase(); }
+        setEdEditOpen(false);
+        window.dispatchEvent(new CustomEvent("history:refresh"));
+      } else {
+        const d = await r.json().catch(() => ({}));
+        alert(d?.error || "Save gagal");
+      }
+    } finally {
+      setEdSaving(false);
+    }
+  }
   // Editor transfer — flag/unflag this video for the /editor page.
   const [inEditor, setInEditor] = useState(!!item.metadata?.in_editor);
   const [togglingEditor, setTogglingEditor] = useState(false);
@@ -2086,6 +2120,33 @@ function HistoryCardInner({
             </button>
           </div>
         </>
+      )}
+      {/* Editor — view/edit generated Text (caption + cover title/subtitle). */}
+      {edEditOpen && (
+        <Portal>
+          <div className="fixed inset-0 z-[210] flex items-center justify-center p-4" style={{ background: "rgba(0,0,0,0.75)" }} onClick={() => setEdEditOpen(false)}>
+            <div className="w-full max-w-md rounded-2xl p-5 max-h-[90vh] overflow-y-auto" style={{ background: "var(--color-bg-card)", border: "1px solid var(--color-border)" }} onClick={(e) => e.stopPropagation()}>
+              <div className="text-[13px] font-extrabold text-[var(--color-text-primary)] mb-3">✏ Edit Text</div>
+              <label className="block text-[10px] uppercase tracking-wider font-bold text-[var(--color-text-muted)] mb-1">Caption (with hashtags)</label>
+              <textarea value={edCap} onChange={(e) => setEdCap(e.target.value)} rows={5} maxLength={4000} className="w-full mb-3 px-3 py-2 rounded-lg text-[12px]" style={{ background: "var(--color-bg)", border: "1px solid var(--color-border)", color: "var(--color-text-primary)", resize: "vertical" }} />
+              <label className="block text-[10px] uppercase tracking-wider font-bold text-[var(--color-text-muted)] mb-1">Cover Title (2 words, CAPS)</label>
+              <input value={edCT} onChange={(e) => setEdCT(e.target.value)} maxLength={80} className="w-full mb-3 px-3 py-2 rounded-lg text-[12px] font-extrabold uppercase" style={{ background: "var(--color-bg)", border: "1px solid var(--color-border)", color: "var(--color-text-primary)" }} />
+              <label className="block text-[10px] uppercase tracking-wider font-bold text-[var(--color-text-muted)] mb-1">Cover Subtitle</label>
+              <input value={edCS} onChange={(e) => setEdCS(e.target.value)} maxLength={200} className="w-full mb-4 px-3 py-2 rounded-lg text-[12px] font-bold uppercase" style={{ background: "var(--color-bg)", border: "1px solid var(--color-border)", color: "var(--color-text-primary)" }} />
+              <div className="flex gap-2">
+                <button onClick={saveEdEdit} disabled={edSaving} className="flex-1 py-2 rounded-xl text-[12px] font-extrabold text-white disabled:opacity-50 inline-flex items-center justify-center gap-1.5" style={{ background: "linear-gradient(135deg,#f59e0b,#ea580c)" }}>{edSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : null} Simpan</button>
+                <button onClick={() => setEdEditOpen(false)} className="px-4 py-2 rounded-xl text-[12px] font-bold" style={{ background: "var(--color-bg)", border: "1px solid var(--color-border)" }}>Tutup</button>
+              </div>
+            </div>
+          </div>
+        </Portal>
+      )}
+      {edCoverView && (
+        <Portal>
+          <div className="fixed inset-0 z-[210] flex items-center justify-center p-6" style={{ background: "rgba(0,0,0,0.88)" }} onClick={() => setEdCoverView(null)}>
+            <img src={edCoverView} alt="cover" className="max-w-full max-h-full object-contain rounded-lg" />
+          </div>
+        </Portal>
       )}
       {/* Duplicate-content warning badge (top-left). Tap to compare which
           other cards this one is ~the same as. */}
@@ -3310,8 +3371,19 @@ function HistoryCardInner({
               normal video action row). */}
           {editorMode && (
             <>
-              {/* Selection is via the blue (Text) + orange (Cover) checkboxes
-                  on the card. The row keeps just remove-from-Editor. */}
+              {/* View/edit generated Text (caption + cover title/subtitle) —
+                  shown once text exists. Like the extension's edit dialog. */}
+              {!!(item.caption || (item.metadata as any)?.caption || (item.metadata as any)?.cover_title) && (
+                <ActionBtn title="Lihat / edit Text (caption + cover title/subtitle)" onClick={openEdEdit} bg="linear-gradient(135deg,#3b82f6,#60a5fa)">
+                  <span className="text-[11px] font-extrabold leading-none">📝</span>
+                </ActionBtn>
+              )}
+              {/* View the generated cover thumbnail. */}
+              {!!(item.metadata as any)?.cover_thumbnail_url && (
+                <ActionBtn title="Lihat cover" onClick={() => setEdCoverView(String((item.metadata as any).cover_thumbnail_url))} bg="linear-gradient(135deg,#f59e0b,#ea580c)">
+                  <span className="text-[11px] font-extrabold leading-none">🎨</span>
+                </ActionBtn>
+              )}
               <ActionBtn title="Buang dari Editor (balik ke tab asal)" onClick={() => onEdRemove?.()} bg={ACTION.delete}>
                 <Trash2 className="w-3.5 h-3.5" strokeWidth={2.4} />
               </ActionBtn>
