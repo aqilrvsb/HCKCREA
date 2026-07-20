@@ -2334,6 +2334,22 @@ function HistoryCardInner({
     }
   }
 
+  // Framed card delete — removes BOTH the framed video and its (hidden)
+  // original, so nothing is orphaned. (Undo Frame is the "keep original" path.)
+  async function handleDeleteFramed() {
+    const originalId = String((item.metadata as any)?.framed_from || "");
+    if (!confirm("Padam video framed ni (dan video asal)? Tak boleh undo.")) return;
+    setDeleting(true);
+    try {
+      await fetch(`/api/history/delete?id=${item.id}`, { method: "DELETE" });
+      if (originalId) await fetch(`/api/history/delete?id=${originalId}`, { method: "DELETE" });
+    } catch { /* refresh below pulls the truth */ }
+    finally {
+      window.dispatchEvent(new CustomEvent("history:refresh"));
+      setDeleting(false);
+    }
+  }
+
   function handleDownload() {
     if (!item.output_url) return;
     const safeName = (name || `${item.type}-${item.id.substring(0, 8)}`)
@@ -2422,7 +2438,7 @@ function HistoryCardInner({
 
   return (
     <div
-      className="rounded-xl overflow-hidden border"
+      className="rounded-xl overflow-hidden border flex flex-col h-full"
       style={{
         background: "var(--color-bg-card)",
         // Near-duplicate cards get a RED border so they stand out in the grid.
@@ -2688,7 +2704,7 @@ function HistoryCardInner({
         }
       `}</style>
       <div
-        className={`bg-black relative ${
+        className={`bg-black relative flex-shrink-0 ${
           isClonePrompt ? "aspect-[1/1]" : "aspect-[9/16]"
         }`}
       >
@@ -3507,7 +3523,7 @@ function HistoryCardInner({
         </div>
       )}
 
-      <div className="p-2.5">
+      <div className="p-2.5 flex-1 flex flex-col">
         {/* Status + mode + model badges */}
         <div className="flex items-center gap-1.5 mb-1.5">
           {item.status === "done" && <CheckCircle2 className="w-3 h-3" style={{ color: "var(--color-lime)" }} />}
@@ -3765,7 +3781,7 @@ function HistoryCardInner({
             (2-col grid at 393px viewport ≈ 180px card width). Without
             wrap, 30d/Download/Delete used to overflow off the card edge
             and become untappable. */}
-        <div className="flex flex-wrap items-center gap-1 mt-1.5">
+        <div className="flex flex-wrap items-center gap-1 mt-auto pt-1.5">
           {/* EDITOR MODE — Text toggle · Cover toggle · Remove (replaces the
               normal video action row). */}
           {editorMode && (
@@ -3790,6 +3806,9 @@ function HistoryCardInner({
                   <span className="inline-flex items-center h-6 px-2 rounded-md text-[10px] font-extrabold text-white" style={{ background: "linear-gradient(135deg,#7c3aed,#a78bfa)" }} title="Video ada intro cover 3s">🎞️ Framed</span>
                   <ActionBtn title="Undo Frame — buang intro, pulihkan video asal" onClick={() => onEdUnframe?.()} bg="linear-gradient(135deg,#7c3aed,#a78bfa)">
                     <Undo2 className="w-3.5 h-3.5" strokeWidth={2.4} />
+                  </ActionBtn>
+                  <ActionBtn title="Padam (framed + video asal)" onClick={handleDeleteFramed} bg={ACTION.delete} disabled={deleting}>
+                    <Trash2 className="w-3.5 h-3.5" strokeWidth={2.4} />
                   </ActionBtn>
                 </>
               ) : (
