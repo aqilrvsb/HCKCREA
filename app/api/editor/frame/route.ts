@@ -6,6 +6,7 @@ import { rehostToContent, type StorageType } from "@/lib/b2";
 import { hasEnoughCredits, deduct } from "@/lib/deduct";
 import { generateGrokIntro } from "@/lib/grok-intro";
 import { getGrokRate } from "@/lib/settings";
+import { withNoIndon } from "@/lib/seedance-lang";
 
 // POST /api/editor/frame
 //   { history_ids: string[], mode?: "static"|"animate", duration?: 1..5, animation?: string }
@@ -157,8 +158,11 @@ export async function POST(req: Request) {
         // video (Modal normalizes both to 9:16). Charged per-second on success.
         const headline = String(meta.cover_title || "").trim();
         const subtext = String(meta.cover_subtitle || "").trim();
-        const prompt = [headline, subtext].filter(Boolean).join(". ") ||
-          "Cinematic Malaysian UGC product intro, natural motion, vertical 9:16.";
+        const dialog = [headline, subtext].filter(Boolean).join(". ") || "Intro produk UGC.";
+        // Malaysian presenter + Bahasa Melayu Malaysia, NEVER Indonesian slang.
+        const prompt = withNoIndon(
+          `${dialog}. Malaysian presenter and setting, natural Bahasa Melayu Malaysia delivery, vertical 9:16 cinematic UGC intro.`
+        );
         const intro = await generateGrokIntro({ coverUrl, prompt, durationSec: duration, userId: user.id });
         if (!intro.ok || !intro.url) {
           await markFailed(intro.error || "Grok gagal");
