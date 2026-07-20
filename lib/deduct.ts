@@ -25,6 +25,7 @@ export type DeductReason =
   | "template_body"
   | "gpu_session"
   | "animate"
+  | "grok"
   | "scrape";
 
 // Optional model hint to pick a per-model rate. Pass when the caller

@@ -33,13 +33,27 @@ export async function POST(req: Request) {
     const originalId = String(meta.framed_from || "").trim();
     if (!originalId) continue; // not a framed row — skip
 
-    // Restore the original: un-hide + put it back in the Editor.
+    // Restore the original: un-hide + put it back in the Editor. IMPORTANT —
+    // the original's Text + Cover are KEPT (cover_thumbnail_url, cover_title,
+    // cover_subtitle stay in metadata; caption is its own column and is never
+    // touched here). We only strip the two frame-bookkeeping flags, so Undo
+    // Frame never makes the user re-generate Text/Cover — only the Frame itself
+    // needs redoing.
     const { data: orig } = await admin.from("history").select("metadata").eq("id", originalId).eq("user_id", user.id).maybeSingle();
     if (orig) {
       const om = (orig.metadata || {}) as Record<string, any>;
       delete om.hidden_by_frame;
       delete om.framed_child;
-      await admin.from("history").update({ metadata: { ...om, in_editor: true } }).eq("id", originalId).eq("user_id", user.id);
+      // Explicitly carry Text/Cover forward (defensive — they're already in om).
+      await admin.from("history").update({
+        metadata: {
+          ...om,
+          in_editor: true,
+          cover_thumbnail_url: om.cover_thumbnail_url ?? null,
+          cover_title: om.cover_title ?? null,
+          cover_subtitle: om.cover_subtitle ?? null,
+        },
+      }).eq("id", originalId).eq("user_id", user.id);
     }
     // Remove the framed row entirely (it's a derived artifact).
     await admin.from("history").delete().eq("id", framed.id).eq("user_id", user.id);

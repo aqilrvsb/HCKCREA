@@ -4,6 +4,8 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { falImageToVideo, falMergeVideos } from "@/lib/fal";
 import { rehostToContent, type StorageType } from "@/lib/b2";
 import { hasEnoughCredits, deduct } from "@/lib/deduct";
+import { generateGrokIntro } from "@/lib/grok-intro";
+import { getGrokRate } from "@/lib/settings";
 
 // POST /api/editor/frame
 //   { history_ids: string[], mode?: "static"|"animate", duration?: 1..5, animation?: string }
@@ -29,6 +31,9 @@ const ANIMATE_COST = 0.10; // fixed RM, any duration
 const MODAL_ANIMATE_ENDPOINT =
   process.env.MODAL_ANIMATE_ENDPOINT ||
   "https://aqilrvsb--peninglab-animate-animate-and-merge.modal.run";
+const MODAL_MERGE_ENDPOINT =
+  process.env.MODAL_MERGE_ENDPOINT ||
+  "https://aqilrvsb--peninglab-animate-merge-intro.modal.run";
 const MOTIONS = new Set(["zoom-in", "zoom-out", "pan-left", "pan-right", "pan-up", "pan-down"]);
 
 export async function POST(req: Request) {
@@ -43,9 +48,16 @@ export async function POST(req: Request) {
   if (!ids.length) return NextResponse.json({ error: "history_ids required" }, { status: 400 });
   ids = ids.slice(0, MAX_BATCH);
 
-  const animate = body?.mode === "animate";
-  const duration = Math.max(1, Math.min(5, Math.round(Number(body?.duration) || 1)));
+  const mode: "static" | "animate" | "grok" =
+    body?.mode === "animate" ? "animate" : body?.mode === "grok" ? "grok" : "static";
+  const animate = mode === "animate";
+  const grok = mode === "grok";
+  // Grok clips can run longer; static/animate cap at 5s.
+  const duration = Math.max(1, Math.min(grok ? 10 : 5, Math.round(Number(body?.duration) || 1)));
   const animation = MOTIONS.has(String(body?.animation)) ? String(body.animation) : "zoom-in";
+  // Grok is per-second billed; resolve the rate once for the whole batch.
+  const grokRate = grok ? await getGrokRate() : 0;
+  const grokCost = grok ? Number((grokRate * duration).toFixed(4)) : 0;
 
   const admin = createAdminClient();
   const { data: sources } = await admin
@@ -68,10 +80,11 @@ export async function POST(req: Request) {
     if (!coverUrl) { results.push({ id, status: "skip", reason: "tiada cover — jana Cover dulu" }); continue; }
     if (meta.framed_child) { results.push({ id, status: "skip", reason: "sudah di-frame" }); continue; }
 
-    // Animate is paid — check credits BEFORE we touch anything (so we never hide
-    // the original then fail on money).
-    if (animate && !(await hasEnoughCredits(user.id, ANIMATE_COST))) {
-      results.push({ id, status: "skip", reason: `kredit tak cukup (perlu RM ${ANIMATE_COST.toFixed(2)})` });
+    // Paid modes — check credits BEFORE we touch anything (so we never hide the
+    // original then fail on money).
+    const paidCost = grok ? grokCost : animate ? ANIMATE_COST : 0;
+    if (paidCost > 0 && !(await hasEnoughCredits(user.id, paidCost))) {
+      results.push({ id, status: "skip", reason: `kredit tak cukup (perlu RM ${paidCost.toFixed(2)})` });
       continue;
     }
 
@@ -79,7 +92,7 @@ export async function POST(req: Request) {
       feature: "framed",
       framed_from: src.id,
       in_editor: true,
-      frame_mode: animate ? "animate" : "static",
+      frame_mode: mode,
       frame_animation: animate ? animation : null,
       frame_duration: duration,
       cover_thumbnail_url: coverUrl,
@@ -102,7 +115,7 @@ export async function POST(req: Request) {
         reference_url: null,
         task_id: null,
         duration: (Number(src.duration) || 8) + duration,
-        cost: animate ? ANIMATE_COST : 0,
+        cost: paidCost,
         metadata: { ...baseMeta, frame_status: "queued" },
       })
       .select("id")
@@ -138,7 +151,34 @@ export async function POST(req: Request) {
     };
 
     try {
-      if (animate) {
+      if (grok) {
+        // ── GROK — Grok Imagine 1.5 i2v from the cover (start frame), with a
+        // prompt built from the headline + subtext, then merge in front of the
+        // video (Modal normalizes both to 9:16). Charged per-second on success.
+        const headline = String(meta.cover_title || "").trim();
+        const subtext = String(meta.cover_subtitle || "").trim();
+        const prompt = [headline, subtext].filter(Boolean).join(". ") ||
+          "Cinematic Malaysian UGC product intro, natural motion, vertical 9:16.";
+        const intro = await generateGrokIntro({ coverUrl, prompt, durationSec: duration, userId: user.id });
+        if (!intro.ok || !intro.url) {
+          await markFailed(intro.error || "Grok gagal");
+          results.push({ id, status: "failed", reason: intro.error || "grok gagal" });
+          continue;
+        }
+        const mr = await fetch(MODAL_MERGE_ENDPOINT, {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ intro_url: intro.url, video_url: videoUrl, user_id: user.id, history_id: framedId }),
+        });
+        const md = await mr.json().catch(() => ({} as any));
+        if (!mr.ok || !md?.ok || !md?.url) {
+          await markFailed(md?.error || `Merge gagal (${mr.status})`);
+          results.push({ id, status: "failed", reason: md?.error || "merge gagal" });
+          continue;
+        }
+        await deduct(user.id, "grok", grokCost, framedId);
+        await finishDone(String(md.url));
+        results.push({ id, status: "done", framed_id: framedId });
+      } else if (animate) {
         // ── ANIMATE — Modal Ken Burns + merge (one call, guaranteed 9:16) ──
         const r = await fetch(MODAL_ANIMATE_ENDPOINT, {
           method: "POST", headers: { "Content-Type": "application/json" },

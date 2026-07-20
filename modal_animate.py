@@ -168,6 +168,58 @@ def _render_intro(cover: Path, animation: str, duration: float, out: Path) -> Pa
     return out
 
 
+def _concat_to_b2(clips: list[Path], user_id: str, history_id: str, workdir: Path) -> str:
+    """Concat already-normalized clips (identical params) → upload → public URL."""
+    listf = workdir / "list.txt"
+    listf.write_text("".join(f"file '{c}'\n" for c in clips))
+    out = workdir / "out.mp4"
+    r = subprocess.run(
+        ["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", str(listf),
+         "-c:v", "libx264", "-preset", "ultrafast", "-crf", "23", "-pix_fmt", "yuv420p",
+         "-c:a", "aac", "-b:a", "128k", "-ar", "44100", "-ac", "2", str(out)],
+        capture_output=True, text=True, errors="replace",
+    )
+    if r.returncode != 0:
+        raise RuntimeError(f"concat failed (rc={r.returncode}): {r.stderr[-800:]}")
+    b2_key = f"users/{user_id}/ugc/{history_id}.mp4"
+    _upload_b2(out, b2_key, "video/mp4")
+    return _b2_public_url(b2_key)
+
+
+@app.function(
+    image=image,
+    timeout=300,
+    secrets=[
+        modal.Secret.from_name("fairytale-secrets"),
+        modal.Secret.from_name("b2-content-secrets"),
+    ],
+)
+@modal.fastapi_endpoint(method="POST")
+def merge_intro(payload: dict):
+    """POST { intro_url, video_url, user_id, history_id }
+    → normalize BOTH videos to 1080x1920 (9:16) and concat [intro, video],
+    upload one merged MP4. Used by the Editor's Frame → Grok mode, where the
+    intro is an already-rendered Grok i2v clip. Returns { ok, url }.
+    """
+    intro_url = str(payload.get("intro_url") or "").strip()
+    video_url = str(payload.get("video_url") or "").strip()
+    user_id = str(payload.get("user_id") or "").strip()
+    history_id = str(payload.get("history_id") or "").strip()
+    if not (intro_url and video_url and user_id and history_id):
+        return {"ok": False, "error": "intro_url, video_url, user_id, history_id required"}
+    try:
+        with tempfile.TemporaryDirectory() as td:
+            d = Path(td)
+            intro = _download(intro_url, d / "intro.mp4")
+            video = _download(video_url, d / "video.mp4")
+            intro_n = _normalize(intro, d / "intro_n.mp4")
+            video_n = _normalize(video, d / "video_n.mp4")
+            url = _concat_to_b2([intro_n, video_n], user_id, history_id, d)
+            return {"ok": True, "url": url}
+    except Exception as e:
+        return {"ok": False, "error": str(e)[:400]}
+
+
 @app.function(
     image=image,
     timeout=300,

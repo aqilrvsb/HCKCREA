@@ -242,7 +242,7 @@ export default function HistoryGrid({
   const [edBusyFrame, setEdBusyFrame] = useState(false);
   // Frame options popup: Static (free) / Animate (RM0.10), duration 1-5, motion.
   const [edFrameModal, setEdFrameModal] = useState(false);
-  const [edFrameMode, setEdFrameMode] = useState<"static" | "animate">("static");
+  const [edFrameMode, setEdFrameMode] = useState<"static" | "animate" | "grok">("static");
   const [edFrameDur, setEdFrameDur] = useState(1);
   const [edFrameMotion, setEdFrameMotion] = useState("zoom-in");
   const [edProduct, setEdProduct] = useState("");
@@ -858,17 +858,21 @@ export default function HistoryGrid({
   // fal job inside its own server budget, at most `LIMIT` in flight — instead of
   // one giant request spawning N background jobs that hammer fal / time out. The
   // grid refreshes as each finishes.
-  async function edGenerateFrame(opts?: { mode?: "static" | "animate"; duration?: number; animation?: string }) {
+  async function edGenerateFrame(opts?: { mode?: "static" | "animate" | "grok"; duration?: number; animation?: string }) {
     const ids = [...edFrame].filter((id) => visibleParents.some((v) => v.id === id) && edFramePickable(id));
     if (!ids.length) { edAddLog("⚠ Tick Frame (ungu) pada video yang dah ada Cover dulu."); return; }
-    const mode = opts?.mode === "animate" ? "animate" : "static";
-    const duration = Math.max(1, Math.min(5, Math.round(opts?.duration || 1)));
+    const mode = opts?.mode === "animate" ? "animate" : opts?.mode === "grok" ? "grok" : "static";
+    const duration = Math.max(1, Math.min(mode === "grok" ? 10 : 5, Math.round(opts?.duration || 1)));
     const animation = opts?.animation || "zoom-in";
+    // Grok generates a real i2v clip (can take 1–3 min) → longer request budget.
+    const reqTimeout = mode === "grok" ? 290000 : 240000;
     setEdBusyFrame(true);
     try {
-      edAddLog(mode === "animate"
-        ? `🎞️ Animate Frame ${ids.length} video — ${animation} ${duration}s (RM0.10/video, bila berjaya)…`
-        : `🎞️ Static Frame ${ids.length} video — intro ${duration}s + gabung (percuma)…`);
+      edAddLog(mode === "grok"
+        ? `🎞️ Grok Frame ${ids.length} video — animasi cover ${duration}s (ikut kadar Grok, bila berjaya)…`
+        : mode === "animate"
+          ? `🎞️ Animate Frame ${ids.length} video — ${animation} ${duration}s (RM0.10/video, bila berjaya)…`
+          : `🎞️ Static Frame ${ids.length} video — intro ${duration}s + gabung (percuma)…`);
       const LIMIT = 3; // frame is heavier than text/cover → fewer in flight
       const doneSet = new Set<string>();
       const runPass = async (list: string[]) => {
@@ -877,8 +881,8 @@ export default function HistoryGrid({
           while (idx < list.length) {
             const id = list[idx++];
             try {
-              // Generous timeout — clip+merge+(rehost/modal) can take ~30–60s per video.
-              const { ok, d } = await edFetchJson("/api/editor/frame", { history_ids: [id], mode, duration, animation }, 240000);
+              // Generous timeout — grok i2v can take 1–3 min; static/animate ~30–60s.
+              const { ok, d } = await edFetchJson("/api/editor/frame", { history_ids: [id], mode, duration, animation }, reqTimeout);
               const r = d?.results?.[0];
               if (ok && r?.status === "done") { doneSet.add(id); edAddLog(`  ✓ ${id.slice(0, 6)} framed`); }
               else edAddLog(`  ✗ ${id.slice(0, 6)}: ${r?.reason || d?.error || "gagal"}`);
@@ -1026,22 +1030,26 @@ export default function HistoryGrid({
               <div className="text-[14px] font-extrabold text-[var(--color-text-primary)] mb-1">🎞️ Frame — {edFrame.size} video</div>
               <div className="text-[10px] text-[var(--color-text-muted)] mb-3">Cover jadi intro di depan video (output 9:16).</div>
 
-              {/* Static / Animate */}
-              <div className="grid grid-cols-2 gap-2 mb-3">
+              {/* Static / Animate / Grok */}
+              <div className="grid grid-cols-3 gap-2 mb-3">
                 <button onClick={() => setEdFrameMode("static")} className="rounded-xl p-2.5 text-left border-2 transition" style={edFrameMode === "static" ? { borderColor: "#a78bfa", background: "rgba(167,139,250,0.12)" } : { borderColor: "var(--color-border)", background: "var(--color-bg)" }}>
                   <div className="text-[12px] font-extrabold text-[var(--color-text-primary)]">Static</div>
-                  <div className="text-[9px] text-[var(--color-text-muted)]">Cover diam · <b style={{ color: "#22c55e" }}>Percuma</b></div>
+                  <div className="text-[9px] text-[var(--color-text-muted)]">Diam · <b style={{ color: "#22c55e" }}>Percuma</b></div>
                 </button>
                 <button onClick={() => setEdFrameMode("animate")} className="rounded-xl p-2.5 text-left border-2 transition" style={edFrameMode === "animate" ? { borderColor: "#a78bfa", background: "rgba(167,139,250,0.12)" } : { borderColor: "var(--color-border)", background: "var(--color-bg)" }}>
                   <div className="text-[12px] font-extrabold text-[var(--color-text-primary)]">Animate</div>
                   <div className="text-[9px] text-[var(--color-text-muted)]">Zoom/Pan · <b style={{ color: "#f59e0b" }}>RM0.10</b></div>
+                </button>
+                <button onClick={() => setEdFrameMode("grok")} className="rounded-xl p-2.5 text-left border-2 transition" style={edFrameMode === "grok" ? { borderColor: "#a78bfa", background: "rgba(167,139,250,0.12)" } : { borderColor: "var(--color-border)", background: "var(--color-bg)" }}>
+                  <div className="text-[12px] font-extrabold text-[var(--color-text-primary)]">Grok</div>
+                  <div className="text-[9px] text-[var(--color-text-muted)]">AI 1.5 · <b style={{ color: "#60a5fa" }}>ikut saat</b></div>
                 </button>
               </div>
 
               {/* Duration */}
               <label className="block text-[10px] uppercase tracking-wider font-bold text-[var(--color-text-muted)] mb-1">Duration intro</label>
               <select value={edFrameDur} onChange={(e) => setEdFrameDur(Number(e.target.value))} className="w-full mb-3 px-3 py-2 rounded-lg text-sm" style={{ background: "var(--color-bg)", border: "1px solid var(--color-border)", color: "var(--color-text-primary)" }}>
-                {[1, 2, 3, 4, 5].map((s) => <option key={s} value={s}>{s} saat</option>)}
+                {(edFrameMode === "grok" ? [3, 4, 5, 6, 7, 8, 9, 10] : [1, 2, 3, 4, 5]).map((s) => <option key={s} value={s}>{s} saat</option>)}
               </select>
 
               {/* Motion — animate only */}
@@ -1057,9 +1065,16 @@ export default function HistoryGrid({
                 </>
               )}
 
+              {/* Grok note */}
+              {edFrameMode === "grok" && (
+                <div className="text-[9px] text-[var(--color-text-muted)] mb-3 rounded-lg p-2" style={{ background: "rgba(96,165,250,0.08)", border: "1px solid rgba(96,165,250,0.25)" }}>
+                  Grok Imagine 1.5 animasikan cover (start frame) mengikut <b>headline + sub-text</b> cover. Dicaj ikut kadar Grok per saat, hanya bila berjaya.
+                </div>
+              )}
+
               <div className="flex gap-2">
                 <button onClick={() => setEdFrameModal(false)} disabled={edBusyFrame} className="flex-1 py-2 rounded-xl text-[12px] font-bold disabled:opacity-50" style={{ background: "var(--color-bg)", border: "1px solid var(--color-border)", color: "var(--color-text-secondary)" }}>Batal</button>
-                <button onClick={() => { setEdFrameModal(false); void edGenerateFrame({ mode: edFrameMode, duration: edFrameDur, animation: edFrameMotion }); }} disabled={edBusyFrame} className="flex-1 py-2 rounded-xl text-[12px] font-extrabold text-white disabled:opacity-50 inline-flex items-center justify-center gap-1.5" style={{ background: "linear-gradient(135deg,#7c3aed,#a78bfa)" }}>{edBusyFrame ? <Loader2 className="w-4 h-4 animate-spin" /> : "🎞️"} {edFrameMode === "animate" ? "Animate" : "Static"} Frame</button>
+                <button onClick={() => { setEdFrameModal(false); void edGenerateFrame({ mode: edFrameMode, duration: edFrameDur, animation: edFrameMotion }); }} disabled={edBusyFrame} className="flex-1 py-2 rounded-xl text-[12px] font-extrabold text-white disabled:opacity-50 inline-flex items-center justify-center gap-1.5" style={{ background: "linear-gradient(135deg,#7c3aed,#a78bfa)" }}>{edBusyFrame ? <Loader2 className="w-4 h-4 animate-spin" /> : "🎞️"} {edFrameMode === "grok" ? "Grok" : edFrameMode === "animate" ? "Animate" : "Static"} Frame</button>
               </div>
             </div>
           </div>
