@@ -2,10 +2,15 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 
-// POST /api/editor/unframe  { history_ids: string[] }  (framed row ids)
+// POST /api/editor/unframe  { history_ids: string[], to_tab?: boolean }  (framed row ids)
 //
-// Undo Frame — removes the framed (intro+video) row and brings the ORIGINAL
-// video back into the Editor. Owner only, session-authed.
+// Removes the framed (intro+video) row and restores the ORIGINAL video:
+//   • to_tab=false (default, "Undo Frame") → original back in the Editor
+//     (in_editor=true), Text/Cover intact, ready to re-frame.
+//   • to_tab=true   ("Delete" on a framed card) → original back to its
+//     ORIGINAL tab (in_editor=false) — NOT hard-deleted, so the paid video is
+//     never lost; it just leaves the Editor like a normal "Buang dari Editor".
+// Owner only, session-authed.
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
@@ -19,6 +24,8 @@ export async function POST(req: Request) {
     ? body.history_ids.map((x: any) => String(x || "").trim()).filter(Boolean)
     : body?.history_id ? [String(body.history_id).trim()] : [];
   if (!ids.length) return NextResponse.json({ error: "history_ids required" }, { status: 400 });
+  // to_tab=true → original leaves the Editor (back to its tab) instead of staying.
+  const toTab = body?.to_tab === true;
 
   const admin = createAdminClient();
   const { data: framedRows } = await admin
@@ -45,10 +52,11 @@ export async function POST(req: Request) {
       delete om.hidden_by_frame;
       delete om.framed_child;
       // Explicitly carry Text/Cover forward (defensive — they're already in om).
+      // in_editor: false (to_tab) → back to original tab; true → stays in Editor.
       await admin.from("history").update({
         metadata: {
           ...om,
-          in_editor: true,
+          in_editor: !toTab,
           cover_thumbnail_url: om.cover_thumbnail_url ?? null,
           cover_title: om.cover_title ?? null,
           cover_subtitle: om.cover_subtitle ?? null,

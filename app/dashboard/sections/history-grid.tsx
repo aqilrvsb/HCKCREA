@@ -13,6 +13,7 @@ import {
   Trash2,
   Pencil,
   RotateCw,
+  RotateCcw,
   X,
   Copy,
   GitCompare,
@@ -926,6 +927,16 @@ export default function HistoryGrid({
     edReload();
   }
 
+  // Reset — clear a video's Text + Cover so the 3 checkboxes (T/C/F) reappear.
+  async function edReset(id: string) {
+    if (!confirm("Reset video ni? Text + Cover akan dibuang — 3 checkbox (Text/Cover/Frame) muncul semula.")) return;
+    await fetch("/api/editor/reset", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ history_id: id }) });
+    setEdText((s) => { const n = new Set(s); n.delete(id); return n; });
+    setEdCover((s) => { const n = new Set(s); n.delete(id); return n; });
+    setEdFrame((s) => { const n = new Set(s); n.delete(id); return n; });
+    edReload();
+  }
+
   // Per-model counts for the Original Video filter chips. Counted off the raw
   // parent list so a chip's number doesn't change when a filter is applied.
   const modelCounts = useMemo(() => {
@@ -1416,6 +1427,7 @@ export default function HistoryGrid({
                 onEdFrame={() => edToggleFrame(it.id)}
                 onEdRemove={() => void edRemove(it.id)}
                 onEdUnframe={() => void edUnframe(it.id)}
+                onEdReset={() => void edReset(it.id)}
                 edProcOn={editorMode && edProc.has(it.id)}
                 edDoneOn={editorMode && edOk.has(it.id)}
                 donePostMode={donePostMode}
@@ -1626,6 +1638,7 @@ function HistoryCardInner({
   onEdFrame,
   onEdRemove,
   onEdUnframe,
+  onEdReset,
   edProcOn,
   edDoneOn,
   donePostMode,
@@ -1652,6 +1665,7 @@ function HistoryCardInner({
   onEdFrame?: () => void;
   onEdRemove?: () => void;
   onEdUnframe?: () => void;
+  onEdReset?: () => void;
   edProcOn?: boolean;
   edDoneOn?: boolean;
   donePostMode?: boolean;
@@ -2433,13 +2447,13 @@ function HistoryCardInner({
 
   // Framed card delete — removes BOTH the framed video and its (hidden)
   // original, so nothing is orphaned. (Undo Frame is the "keep original" path.)
+  // Delete on a framed card → remove the frame + send the ORIGINAL back to its
+  // tab (in_editor=false). The paid original video is NOT hard-deleted.
   async function handleDeleteFramed() {
-    const originalId = String((item.metadata as any)?.framed_from || "");
-    if (!confirm("Padam video framed ni (dan video asal)? Tak boleh undo.")) return;
+    if (!confirm("Buang frame ni? Video asal balik ke tab asal (tak hilang).")) return;
     setDeleting(true);
     try {
-      await fetch(`/api/history/delete?id=${item.id}`, { method: "DELETE" });
-      if (originalId) await fetch(`/api/history/delete?id=${originalId}`, { method: "DELETE" });
+      await fetch("/api/editor/unframe", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ history_ids: [item.id], to_tab: true }) });
     } catch { /* refresh below pulls the truth */ }
     finally {
       window.dispatchEvent(new CustomEvent("history:refresh"));
@@ -3918,14 +3932,22 @@ function HistoryCardInner({
                   <ActionBtn title="Undo Frame — buang intro, pulihkan video asal" onClick={() => onEdUnframe?.()} bg="linear-gradient(135deg,#7c3aed,#a78bfa)">
                     <Undo2 className="w-3.5 h-3.5" strokeWidth={2.4} />
                   </ActionBtn>
-                  <ActionBtn title="Padam (framed + video asal)" onClick={handleDeleteFramed} bg={ACTION.delete} disabled={deleting}>
+                  <ActionBtn title="Buang frame — video asal balik ke tab asal (tak hilang)" onClick={handleDeleteFramed} bg={ACTION.delete} disabled={deleting}>
                     <Trash2 className="w-3.5 h-3.5" strokeWidth={2.4} />
                   </ActionBtn>
                 </>
               ) : (
-                <ActionBtn title="Buang dari Editor (balik ke tab asal)" onClick={() => onEdRemove?.()} bg={ACTION.delete}>
-                  <Trash2 className="w-3.5 h-3.5" strokeWidth={2.4} />
-                </ActionBtn>
+                <>
+                  {/* Reset — clears Text + Cover so all 3 checkboxes come back. */}
+                  {!!(item.caption || (item.metadata as any)?.cover_title || (item.metadata as any)?.cover_thumbnail_url) && (
+                    <ActionBtn title="Reset — buang Text + Cover (checkbox T/C/F muncul balik)" onClick={() => onEdReset?.()} bg="linear-gradient(135deg,#475569,#94a3b8)">
+                      <RotateCcw className="w-3.5 h-3.5" strokeWidth={2.4} />
+                    </ActionBtn>
+                  )}
+                  <ActionBtn title="Buang dari Editor (balik ke tab asal)" onClick={() => onEdRemove?.()} bg={ACTION.delete}>
+                    <Trash2 className="w-3.5 h-3.5" strokeWidth={2.4} />
+                  </ActionBtn>
+                </>
               )}
             </>
           )}
