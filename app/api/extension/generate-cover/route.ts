@@ -4,6 +4,7 @@ import { authExtensionUser } from "@/lib/extension-auth";
 import { priceFor, hasEnoughCredits } from "@/lib/deduct";
 import { generateImageWithCascade } from "@/lib/image-cascade";
 import { settleHistoryRow } from "@/lib/settle";
+import { rehostToContent } from "@/lib/b2";
 
 // POST /api/extension/generate-cover  { history_id, cover_title?, cover_subtitle? }
 //
@@ -192,6 +193,15 @@ export async function POST(req: Request) {
     // frame-middle flow. The cover row keeps settling via cron; if it lands
     // later it just sits unused (harmless — already paid for as an image).
     return NextResponse.json({ ok: false, error: "Cover not ready in time", pending: true });
+  }
+
+  // Ensure the cover lives on OUR public B2 (peninglab-content). The raw image
+  // provider URL (aitohumanize/…) is hotlink-blocked, so it renders BLANK in the
+  // dashboard's 🎨 view. Rehost so the cover displays everywhere and is stable.
+  if (!/peninglab-content/.test(coverUrl)) {
+    try {
+      coverUrl = await rehostToContent({ url: coverUrl, userId: user.id, historyId: coverId, type: "ugc", fallbackExt: "png" });
+    } catch { /* keep provider URL as a fallback */ }
   }
 
   // Stamp the cover on the SOURCE video so the post job and a re-opened picker

@@ -240,6 +240,16 @@ export default function HistoryGrid({
   const [edCover, setEdCover] = useState<Set<string>>(new Set());
   const [edFrame, setEdFrame] = useState<Set<string>>(new Set());
   const [edBusyFrame, setEdBusyFrame] = useState(false);
+  // Per-card live status so parallel work is VISIBLE on each card: which video
+  // is currently generating (spinner/glow) and which JUST finished (green flash).
+  const [edProc, setEdProc] = useState<Set<string>>(new Set());
+  const [edOk, setEdOk] = useState<Set<string>>(new Set());
+  const edMarkProc = (id: string, on: boolean) =>
+    setEdProc((s) => { const n = new Set(s); on ? n.add(id) : n.delete(id); return n; });
+  const edMarkDone = (id: string) => {
+    setEdOk((s) => { const n = new Set(s); n.add(id); return n; });
+    setTimeout(() => setEdOk((s) => { const n = new Set(s); n.delete(id); return n; }), 1800);
+  };
   // Frame options popup: Static (free) / Animate (RM0.10), duration 1-5, motion.
   const [edFrameModal, setEdFrameModal] = useState(false);
   const [edFrameMode, setEdFrameMode] = useState<"static" | "animate" | "grok">("static");
@@ -694,11 +704,13 @@ export default function HistoryGrid({
       const worker = async () => {
         while (idx < list.length) {
           const id = list[idx++];
+          edMarkProc(id, true);
           try {
             const { ok, d } = await edFetchJson("/api/ugc/generate-post-meta", { history_id: id, product_url: productUrl, product_name: productName, product_detail: productDetail, variant_seed: edSeed(id) });
-            if (ok && metaOk(d)) { done.add(id); results.set(id, d); }
+            if (ok && metaOk(d)) { done.add(id); results.set(id, d); edMarkDone(id); }
             else edAddLog(`  ✗ ${id.slice(0, 6)}: ${d?.error || "tak lengkap"}`);
           } catch (e: any) { edAddLog(`  ✗ ${id.slice(0, 6)}: ${e?.message || "error"}`); }
+          finally { edMarkProc(id, false); }
         }
       };
       await Promise.all(Array.from({ length: Math.min(4, list.length) }, worker));
@@ -725,11 +737,12 @@ export default function HistoryGrid({
         const title = String(fm?.cover_title || (v?.metadata as any)?.cover_title || "").trim();
         const sub = String(fm?.cover_subtitle || (v?.metadata as any)?.cover_subtitle || "").trim();
         if (!title || !sub) { skip++; edAddLog(`  ✗ ${id.slice(0, 6)}: tiada text — Generate Text dulu`); continue; }
+        edMarkProc(id, true);
         let d0 = false;
         for (let attempt = 0; attempt <= COVER_RETRIES && !d0; attempt++) {
           try {
             const { ok: rok, d } = await edFetchJson("/api/extension/generate-cover", { history_id: id, cover_title: title, cover_subtitle: sub }, 300000);
-            if (rok && (d.cover_thumbnail_url || d.url)) { ok++; d0 = true; doneIds.add(id); }
+            if (rok && (d.cover_thumbnail_url || d.url)) { ok++; d0 = true; doneIds.add(id); edMarkDone(id); }
             else if (attempt < COVER_RETRIES) { edAddLog(`  … ${id.slice(0, 6)}: cuba lagi (${d?.error || "gagal"})`); }
             else edAddLog(`  ✗ ${id.slice(0, 6)}: ${d?.error || "cover gagal"}`);
           } catch (e: any) {
@@ -737,6 +750,7 @@ export default function HistoryGrid({
             else edAddLog(`  ✗ ${id.slice(0, 6)}: ${e?.message || "error"}`);
           }
         }
+        edMarkProc(id, false);
       }
     };
     await Promise.all(Array.from({ length: Math.min(3, ids.length) }, worker));
@@ -880,13 +894,15 @@ export default function HistoryGrid({
         const worker = async () => {
           while (idx < list.length) {
             const id = list[idx++];
+            edMarkProc(id, true);
             try {
               // Generous timeout — grok i2v can take 1–3 min; static/animate ~30–60s.
               const { ok, d } = await edFetchJson("/api/editor/frame", { history_ids: [id], mode, duration, animation }, reqTimeout);
               const r = d?.results?.[0];
-              if (ok && r?.status === "done") { doneSet.add(id); edAddLog(`  ✓ ${id.slice(0, 6)} framed`); }
+              if (ok && r?.status === "done") { doneSet.add(id); edMarkDone(id); edAddLog(`  ✓ ${id.slice(0, 6)} framed`); }
               else edAddLog(`  ✗ ${id.slice(0, 6)}: ${r?.reason || d?.error || "gagal"}`);
             } catch (e: any) { edAddLog(`  ✗ ${id.slice(0, 6)}: ${e?.message || "error"}`); }
+            finally { edMarkProc(id, false); }
             edReload(); // refresh grid as each one lands
           }
         };
@@ -977,8 +993,8 @@ export default function HistoryGrid({
       {editorMode && (
         <div className="mb-4 rounded-xl p-3" style={{ background: "var(--color-bg-card)", border: "1px solid var(--color-border)" }}>
           <label className="block text-[10px] uppercase tracking-wider font-bold text-[var(--color-text-muted)] mb-1.5">Produk (untuk Generate Text)</label>
-          <select value={edProduct} onChange={(e) => setEdProduct(e.target.value)} className="w-full mb-2 px-3 py-2 rounded-lg text-sm" style={{ background: "var(--color-bg)", border: "1px solid var(--color-border)", color: "var(--color-text-primary)" }}>
-            <option value="">— Pilih produk —</option>
+          <select value={edProduct} onChange={(e) => setEdProduct(e.target.value)} className="w-full mb-2 px-3 py-2 rounded-lg text-sm" style={{ background: "var(--color-bg)", border: `1px solid ${edText.size > 0 && !edProduct ? "#ef4444" : "var(--color-border)"}`, color: "var(--color-text-primary)" }}>
+            <option value="">{edText.size > 0 && !edProduct ? "⚠ Pilih produk dulu (wajib untuk Text)" : "— Pilih produk —"}</option>
             {edProducts.map((p) => <option key={p.product_id} value={p.product_id}>{p.product_name || "Unnamed"}</option>)}
           </select>
           <div className="flex flex-wrap gap-3 items-center">
@@ -1014,7 +1030,7 @@ export default function HistoryGrid({
               Select All Frame
             </label>
             <div className="flex-1" />
-            <button onClick={() => void edGenerateBoth()} disabled={edBusyText || edBusyCover || edBusyFrame} className="text-xs font-extrabold px-5 py-1.5 rounded-lg text-white disabled:opacity-50 inline-flex items-center gap-1.5" style={{ background: "linear-gradient(135deg,#16a34a,#22c55e)" }}>{(edBusyText || edBusyCover) ? <Loader2 className="w-4 h-4 animate-spin" /> : <span>📝🎨</span>} Generate</button>
+            <button onClick={() => void edGenerateBoth()} disabled={edBusyText || edBusyCover || edBusyFrame || (edText.size > 0 && !edProduct)} title={edText.size > 0 && !edProduct ? "Pilih produk dulu untuk Generate Text" : ""} className="text-xs font-extrabold px-5 py-1.5 rounded-lg text-white disabled:opacity-50 inline-flex items-center gap-1.5" style={{ background: "linear-gradient(135deg,#16a34a,#22c55e)" }}>{(edBusyText || edBusyCover) ? <Loader2 className="w-4 h-4 animate-spin" /> : <span>📝🎨</span>} Generate</button>
             <button onClick={() => setEdFrameModal(true)} disabled={edBusyText || edBusyCover || edBusyFrame} className="text-xs font-extrabold px-5 py-1.5 rounded-lg text-white disabled:opacity-50 inline-flex items-center gap-1.5" style={{ background: "linear-gradient(135deg,#7c3aed,#a78bfa)" }}>{edBusyFrame ? <Loader2 className="w-4 h-4 animate-spin" /> : <span>🎞️</span>} Frame</button>
           </div>
           <p className="text-[10px] text-[var(--color-text-muted)] mt-1.5">Satu butang uruskan semua: video yang tick <b style={{ color: "#60a5fa" }}>Text</b> je → jana Text; tick <b style={{ color: "#f59e0b" }}>Cover</b> je → jana Cover (perlu Text dulu); tick dua-dua → Text dulu, lepas siap Cover. <b style={{ color: "#a78bfa" }}>Frame</b> (perlu Cover dulu) → cover jadi intro depan video (9:16): <b>Static</b> (diam, percuma) atau <b>Animate</b> (zoom/pan, RM0.10) — pilih durasi 1–5s. Video baru gantikan yang asal.</p>
@@ -1400,6 +1416,8 @@ export default function HistoryGrid({
                 onEdFrame={() => edToggleFrame(it.id)}
                 onEdRemove={() => void edRemove(it.id)}
                 onEdUnframe={() => void edUnframe(it.id)}
+                edProcOn={editorMode && edProc.has(it.id)}
+                edDoneOn={editorMode && edOk.has(it.id)}
                 donePostMode={donePostMode}
                 dpOn={dpSel.has(it.id)}
                 onDpToggle={() => dpToggle(it.id)}
@@ -1608,6 +1626,8 @@ function HistoryCardInner({
   onEdFrame,
   onEdRemove,
   onEdUnframe,
+  edProcOn,
+  edDoneOn,
   donePostMode,
   dpOn,
   onDpToggle,
@@ -1632,6 +1652,8 @@ function HistoryCardInner({
   onEdFrame?: () => void;
   onEdRemove?: () => void;
   onEdUnframe?: () => void;
+  edProcOn?: boolean;
+  edDoneOn?: boolean;
   donePostMode?: boolean;
   dpOn?: boolean;
   onDpToggle?: () => void;
@@ -2588,6 +2610,20 @@ function HistoryCardInner({
           </>
         );
       })()}
+      {/* Live per-card status — a purple pulsing ring + spinner WHILE this video
+          is generating (Text/Cover/Frame), and a green ring + check the moment
+          it finishes. Because work runs in parallel, several cards animate at
+          once, so you can watch them all progress. */}
+      {edProcOn && (
+        <div className="absolute inset-0 z-40 flex items-center justify-center pointer-events-none rounded-xl animate-pulse" style={{ background: "rgba(124,58,237,0.28)", boxShadow: "inset 0 0 0 3px #a78bfa" }}>
+          <Loader2 className="w-9 h-9 animate-spin text-white drop-shadow-lg" />
+        </div>
+      )}
+      {edDoneOn && !edProcOn && (
+        <div className="absolute inset-0 z-40 flex items-center justify-center pointer-events-none rounded-xl" style={{ background: "rgba(34,197,94,0.16)", boxShadow: "inset 0 0 0 3px #22c55e", animation: "fadeInUp 0.35s ease-out" }}>
+          <Check className="w-12 h-12 text-green-300 drop-shadow-lg" strokeWidth={3} />
+        </div>
+      )}
       {/* Done Post mode — source-tab chip (top-left) + a single GREEN select
           checkbox (top-right). View-only; selection drives bulk Undo Post. */}
       {donePostMode && (
@@ -4251,6 +4287,8 @@ const HistoryCard = memo(HistoryCardInner, (prev, next) => {
     prev.edCoverPickable === next.edCoverPickable &&
     prev.edFrameOn === next.edFrameOn &&
     prev.edFramePickable === next.edFramePickable &&
+    prev.edProcOn === next.edProcOn &&
+    prev.edDoneOn === next.edDoneOn &&
     // Done-stage signals — drive whether the T/C/F checkboxes render.
     (prev.item.metadata as any)?.cover_title === (next.item.metadata as any)?.cover_title &&
     (prev.item.metadata as any)?.cover_thumbnail_url === (next.item.metadata as any)?.cover_thumbnail_url &&
