@@ -1021,10 +1021,12 @@ export default function HistoryGrid({
             <label className="flex items-center gap-1.5 text-xs font-extrabold cursor-pointer" style={{ color: "#f59e0b" }}>
               <input
                 type="checkbox"
-                // Only videos whose Cover is pickable (Text ticked OR already
-                // has text) count toward Select All Cover.
-                checked={(() => { const ids = pageItems.filter((v) => edCoverPickable(v.id) && !edCoverDone(v.id)).map((v) => v.id); return ids.length > 0 && ids.every((i) => edCover.has(i)); })()}
-                onChange={() => { const ids = pageItems.filter((v) => edCoverPickable(v.id) && !edCoverDone(v.id)).map((v) => v.id); const allOn = ids.length > 0 && ids.every((i) => edCover.has(i)); const n = new Set(edCover); ids.forEach((i) => allOn ? n.delete(i) : n.add(i)); setEdCover(n); }}
+                // Ticks EVERY not-yet-covered video (order-independent) so you
+                // can Select All Text + Select All Cover and Generate does both
+                // in ONE click — the combined flow makes Text first, then Cover
+                // for these (a video that still has no text is skipped safely).
+                checked={(() => { const ids = pageItems.filter((v) => !edCoverDone(v.id) && !(v.metadata as any)?.framed_from).map((v) => v.id); return ids.length > 0 && ids.every((i) => edCover.has(i)); })()}
+                onChange={() => { const ids = pageItems.filter((v) => !edCoverDone(v.id) && !(v.metadata as any)?.framed_from).map((v) => v.id); const allOn = ids.length > 0 && ids.every((i) => edCover.has(i)); const n = new Set(edCover); ids.forEach((i) => allOn ? n.delete(i) : n.add(i)); setEdCover(n); }}
                 style={{ accentColor: "#f59e0b", width: 15, height: 15 }}
               />
               Select All Cover
