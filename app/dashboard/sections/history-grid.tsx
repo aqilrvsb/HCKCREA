@@ -240,6 +240,11 @@ export default function HistoryGrid({
   const [edCover, setEdCover] = useState<Set<string>>(new Set());
   const [edFrame, setEdFrame] = useState<Set<string>>(new Set());
   const [edBusyFrame, setEdBusyFrame] = useState(false);
+  // Frame options popup: Static (free) / Animate (RM0.10), duration 1-5, motion.
+  const [edFrameModal, setEdFrameModal] = useState(false);
+  const [edFrameMode, setEdFrameMode] = useState<"static" | "animate">("static");
+  const [edFrameDur, setEdFrameDur] = useState(1);
+  const [edFrameMotion, setEdFrameMotion] = useState("zoom-in");
   const [edProduct, setEdProduct] = useState("");
   const [edProducts, setEdProducts] = useState<Array<{ product_id: string; product_name?: string; name?: string; raw_url?: string; description?: string; detail?: string }>>([]);
   const [edBusyText, setEdBusyText] = useState(false);
@@ -853,12 +858,17 @@ export default function HistoryGrid({
   // fal job inside its own server budget, at most `LIMIT` in flight — instead of
   // one giant request spawning N background jobs that hammer fal / time out. The
   // grid refreshes as each finishes.
-  async function edGenerateFrame() {
+  async function edGenerateFrame(opts?: { mode?: "static" | "animate"; duration?: number; animation?: string }) {
     const ids = [...edFrame].filter((id) => visibleParents.some((v) => v.id === id) && edFramePickable(id));
     if (!ids.length) { edAddLog("⚠ Tick Frame (ungu) pada video yang dah ada Cover dulu."); return; }
+    const mode = opts?.mode === "animate" ? "animate" : "static";
+    const duration = Math.max(1, Math.min(5, Math.round(opts?.duration || 1)));
+    const animation = opts?.animation || "zoom-in";
     setEdBusyFrame(true);
     try {
-      edAddLog(`🎞️ Frame untuk ${ids.length} video — intro 1s + gabung (percuma, tiada kredit)…`);
+      edAddLog(mode === "animate"
+        ? `🎞️ Animate Frame ${ids.length} video — ${animation} ${duration}s (RM0.10/video, bila berjaya)…`
+        : `🎞️ Static Frame ${ids.length} video — intro ${duration}s + gabung (percuma)…`);
       const LIMIT = 3; // frame is heavier than text/cover → fewer in flight
       const doneSet = new Set<string>();
       const runPass = async (list: string[]) => {
@@ -867,8 +877,8 @@ export default function HistoryGrid({
           while (idx < list.length) {
             const id = list[idx++];
             try {
-              // Generous timeout — clip+merge+rehost can take ~30–60s per video.
-              const { ok, d } = await edFetchJson("/api/editor/frame", { history_ids: [id] }, 240000);
+              // Generous timeout — clip+merge+(rehost/modal) can take ~30–60s per video.
+              const { ok, d } = await edFetchJson("/api/editor/frame", { history_ids: [id], mode, duration, animation }, 240000);
               const r = d?.results?.[0];
               if (ok && r?.status === "done") { doneSet.add(id); edAddLog(`  ✓ ${id.slice(0, 6)} framed`); }
               else edAddLog(`  ✗ ${id.slice(0, 6)}: ${r?.reason || d?.error || "gagal"}`);
@@ -1001,11 +1011,59 @@ export default function HistoryGrid({
             </label>
             <div className="flex-1" />
             <button onClick={() => void edGenerateBoth()} disabled={edBusyText || edBusyCover || edBusyFrame} className="text-xs font-extrabold px-5 py-1.5 rounded-lg text-white disabled:opacity-50 inline-flex items-center gap-1.5" style={{ background: "linear-gradient(135deg,#16a34a,#22c55e)" }}>{(edBusyText || edBusyCover) ? <Loader2 className="w-4 h-4 animate-spin" /> : <span>📝🎨</span>} Generate</button>
-            <button onClick={() => void edGenerateFrame()} disabled={edBusyText || edBusyCover || edBusyFrame} className="text-xs font-extrabold px-5 py-1.5 rounded-lg text-white disabled:opacity-50 inline-flex items-center gap-1.5" style={{ background: "linear-gradient(135deg,#7c3aed,#a78bfa)" }}>{edBusyFrame ? <Loader2 className="w-4 h-4 animate-spin" /> : <span>🎞️</span>} Frame</button>
+            <button onClick={() => setEdFrameModal(true)} disabled={edBusyText || edBusyCover || edBusyFrame} className="text-xs font-extrabold px-5 py-1.5 rounded-lg text-white disabled:opacity-50 inline-flex items-center gap-1.5" style={{ background: "linear-gradient(135deg,#7c3aed,#a78bfa)" }}>{edBusyFrame ? <Loader2 className="w-4 h-4 animate-spin" /> : <span>🎞️</span>} Frame</button>
           </div>
-          <p className="text-[10px] text-[var(--color-text-muted)] mt-1.5">Satu butang uruskan semua: video yang tick <b style={{ color: "#60a5fa" }}>Text</b> je → jana Text; tick <b style={{ color: "#f59e0b" }}>Cover</b> je → jana Cover (perlu Text dulu); tick dua-dua → Text dulu, lepas siap Cover. <b style={{ color: "#a78bfa" }}>Frame</b> (perlu Cover dulu) → jadikan cover sebagai intro 1 saat, gabung depan video (percuma, tiada kredit) — video baru gantikan yang asal.</p>
+          <p className="text-[10px] text-[var(--color-text-muted)] mt-1.5">Satu butang uruskan semua: video yang tick <b style={{ color: "#60a5fa" }}>Text</b> je → jana Text; tick <b style={{ color: "#f59e0b" }}>Cover</b> je → jana Cover (perlu Text dulu); tick dua-dua → Text dulu, lepas siap Cover. <b style={{ color: "#a78bfa" }}>Frame</b> (perlu Cover dulu) → cover jadi intro depan video (9:16): <b>Static</b> (diam, percuma) atau <b>Animate</b> (zoom/pan, RM0.10) — pilih durasi 1–5s. Video baru gantikan yang asal.</p>
           {edLog.length > 0 && <div className="mt-2 font-mono text-[10px] max-h-24 overflow-y-auto text-[var(--color-text-secondary)]">{edLog.map((l, i) => <div key={i}>{l}</div>)}</div>}
         </div>
+      )}
+
+      {/* Frame options popup — Static (free) / Animate (RM0.10) · duration · motion */}
+      {editorMode && edFrameModal && (
+        <Portal>
+          <div className="fixed inset-0 z-[210] flex items-center justify-center p-4" style={{ background: "rgba(0,0,0,0.75)" }} onClick={() => !edBusyFrame && setEdFrameModal(false)}>
+            <div className="w-full max-w-sm rounded-2xl p-5" style={{ background: "var(--color-bg-card)", border: "1px solid var(--color-border)" }} onClick={(e) => e.stopPropagation()}>
+              <div className="text-[14px] font-extrabold text-[var(--color-text-primary)] mb-1">🎞️ Frame — {edFrame.size} video</div>
+              <div className="text-[10px] text-[var(--color-text-muted)] mb-3">Cover jadi intro di depan video (output 9:16).</div>
+
+              {/* Static / Animate */}
+              <div className="grid grid-cols-2 gap-2 mb-3">
+                <button onClick={() => setEdFrameMode("static")} className="rounded-xl p-2.5 text-left border-2 transition" style={edFrameMode === "static" ? { borderColor: "#a78bfa", background: "rgba(167,139,250,0.12)" } : { borderColor: "var(--color-border)", background: "var(--color-bg)" }}>
+                  <div className="text-[12px] font-extrabold text-[var(--color-text-primary)]">Static</div>
+                  <div className="text-[9px] text-[var(--color-text-muted)]">Cover diam · <b style={{ color: "#22c55e" }}>Percuma</b></div>
+                </button>
+                <button onClick={() => setEdFrameMode("animate")} className="rounded-xl p-2.5 text-left border-2 transition" style={edFrameMode === "animate" ? { borderColor: "#a78bfa", background: "rgba(167,139,250,0.12)" } : { borderColor: "var(--color-border)", background: "var(--color-bg)" }}>
+                  <div className="text-[12px] font-extrabold text-[var(--color-text-primary)]">Animate</div>
+                  <div className="text-[9px] text-[var(--color-text-muted)]">Zoom/Pan · <b style={{ color: "#f59e0b" }}>RM0.10</b></div>
+                </button>
+              </div>
+
+              {/* Duration */}
+              <label className="block text-[10px] uppercase tracking-wider font-bold text-[var(--color-text-muted)] mb-1">Duration intro</label>
+              <select value={edFrameDur} onChange={(e) => setEdFrameDur(Number(e.target.value))} className="w-full mb-3 px-3 py-2 rounded-lg text-sm" style={{ background: "var(--color-bg)", border: "1px solid var(--color-border)", color: "var(--color-text-primary)" }}>
+                {[1, 2, 3, 4, 5].map((s) => <option key={s} value={s}>{s} saat</option>)}
+              </select>
+
+              {/* Motion — animate only */}
+              {edFrameMode === "animate" && (
+                <>
+                  <label className="block text-[10px] uppercase tracking-wider font-bold text-[var(--color-text-muted)] mb-1">Gerakan</label>
+                  <div className="grid grid-cols-2 gap-2 mb-3">
+                    {[["zoom-in", "🔍 Zoom In"], ["zoom-out", "🔎 Zoom Out"], ["pan-right", "➡️ Pan L→R"], ["pan-down", "⬇️ Pan Atas→Bawah"]].map(([val, label]) => (
+                      <button key={val} onClick={() => setEdFrameMotion(val)} className="rounded-lg py-1.5 text-[11px] font-bold border-2 transition" style={edFrameMotion === val ? { borderColor: "#f59e0b", background: "rgba(245,158,11,0.12)", color: "var(--color-text-primary)" } : { borderColor: "var(--color-border)", background: "var(--color-bg)", color: "var(--color-text-secondary)" }}>{label}</button>
+                    ))}
+                  </div>
+                  <div className="text-[9px] text-[var(--color-text-muted)] mb-3">RM0.10 setiap video, dicaj hanya bila berjaya. {edFrame.size} video = RM{(edFrame.size * 0.10).toFixed(2)}.</div>
+                </>
+              )}
+
+              <div className="flex gap-2">
+                <button onClick={() => setEdFrameModal(false)} disabled={edBusyFrame} className="flex-1 py-2 rounded-xl text-[12px] font-bold disabled:opacity-50" style={{ background: "var(--color-bg)", border: "1px solid var(--color-border)", color: "var(--color-text-secondary)" }}>Batal</button>
+                <button onClick={() => { setEdFrameModal(false); void edGenerateFrame({ mode: edFrameMode, duration: edFrameDur, animation: edFrameMotion }); }} disabled={edBusyFrame} className="flex-1 py-2 rounded-xl text-[12px] font-extrabold text-white disabled:opacity-50 inline-flex items-center justify-center gap-1.5" style={{ background: "linear-gradient(135deg,#7c3aed,#a78bfa)" }}>{edBusyFrame ? <Loader2 className="w-4 h-4 animate-spin" /> : "🎞️"} {edFrameMode === "animate" ? "Animate" : "Static"} Frame</button>
+              </div>
+            </div>
+          </div>
+        </Portal>
       )}
 
       {donePostMode && (

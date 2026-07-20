@@ -3,27 +3,33 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { falImageToVideo, falMergeVideos } from "@/lib/fal";
 import { rehostToContent, type StorageType } from "@/lib/b2";
+import { hasEnoughCredits, deduct } from "@/lib/deduct";
 
-// POST /api/editor/frame  { history_ids: string[] }
+// POST /api/editor/frame
+//   { history_ids: string[], mode?: "static"|"animate", duration?: 1..5, animation?: string }
 //
 // "Frame" — take each video's generated cover (metadata.cover_thumbnail_url),
-// turn it into a 3-second STATIC clip (fal ffmpeg, no AI, no client credit),
-// and MERGE it as an intro at the START of the video. The result is a NEW
-// "framed" video row that REPLACES the original in the Editor (original hidden;
-// Undo Frame → /api/editor/unframe brings it back). cost:0 — billed to our fal
-// usage, never the client.
+// turn it into an intro clip, and MERGE it at the START of the video. The result
+// is a NEW "framed" row that REPLACES the original in the Editor (Undo Frame →
+// /api/editor/unframe restores it).
 //
-// PROCESSED SYNCHRONOUSLY (not in after()) so bulk stays bounded: the CLIENT
-// fires per-video with a small concurrency cap, so at most a few fal jobs run
-// at once and each request lives inside its own maxDuration budget — instead of
-// one request spawning N unbounded background jobs that hammer fal / time out.
+//   • STATIC  — cover held for `duration`s via fal ffmpeg. FREE (billed to fal).
+//   • ANIMATE — cover gets a Ken Burns camera move (zoom/pan) + merge, all in
+//               ONE Modal call that returns a guaranteed 9:16 merged video.
+//               Fixed RM0.10, charged ONLY on success.
+//
+// Processed synchronously (client fires per-video with a small concurrency cap).
 
 export const runtime = "nodejs";
 export const maxDuration = 300; // Vercel clamps to the plan's max.
 export const dynamic = "force-dynamic";
 
-const INTRO_SECONDS = 1;
-const MAX_BATCH = 8; // safety cap per request (client normally sends 1)
+const MAX_BATCH = 8;
+const ANIMATE_COST = 0.10; // fixed RM, any duration
+const MODAL_ANIMATE_ENDPOINT =
+  process.env.MODAL_ANIMATE_ENDPOINT ||
+  "https://aqilrvsb--peninglab-animate-animate-and-merge.modal.run";
+const MOTIONS = new Set(["zoom-in", "zoom-out", "pan-left", "pan-right", "pan-up", "pan-down"]);
 
 export async function POST(req: Request) {
   const sb = await createClient();
@@ -37,6 +43,10 @@ export async function POST(req: Request) {
   if (!ids.length) return NextResponse.json({ error: "history_ids required" }, { status: 400 });
   ids = ids.slice(0, MAX_BATCH);
 
+  const animate = body?.mode === "animate";
+  const duration = Math.max(1, Math.min(5, Math.round(Number(body?.duration) || 1)));
+  const animation = MOTIONS.has(String(body?.animation)) ? String(body.animation) : "zoom-in";
+
   const admin = createAdminClient();
   const { data: sources } = await admin
     .from("history")
@@ -47,7 +57,6 @@ export async function POST(req: Request) {
 
   const results: { id: string; status: "done" | "failed" | "skip"; framed_id?: string; reason?: string }[] = [];
 
-  // Sequential within a request — parallelism is the client's job (bounded).
   for (const id of ids) {
     const src = rows.find((r) => r.id === id);
     if (!src) { results.push({ id, status: "skip", reason: "tak dijumpai" }); continue; }
@@ -59,8 +68,27 @@ export async function POST(req: Request) {
     if (!coverUrl) { results.push({ id, status: "skip", reason: "tiada cover — jana Cover dulu" }); continue; }
     if (meta.framed_child) { results.push({ id, status: "skip", reason: "sudah di-frame" }); continue; }
 
-    // New framed row — inherits tab/project/caption + the auto-post payload so
-    // the framed video is post-ready, and shows in the Editor (in_editor=true).
+    // Animate is paid — check credits BEFORE we touch anything (so we never hide
+    // the original then fail on money).
+    if (animate && !(await hasEnoughCredits(user.id, ANIMATE_COST))) {
+      results.push({ id, status: "skip", reason: `kredit tak cukup (perlu RM ${ANIMATE_COST.toFixed(2)})` });
+      continue;
+    }
+
+    const baseMeta = {
+      feature: "framed",
+      framed_from: src.id,
+      in_editor: true,
+      frame_mode: animate ? "animate" : "static",
+      frame_animation: animate ? animation : null,
+      frame_duration: duration,
+      cover_thumbnail_url: coverUrl,
+      cover_title: meta.cover_title || null,
+      cover_subtitle: meta.cover_subtitle || null,
+      tiktok_product_id: meta.tiktok_product_id || null,
+      product_name: meta.product_name || null,
+    };
+
     const { data: framed } = await admin
       .from("history")
       .insert({
@@ -73,19 +101,9 @@ export async function POST(req: Request) {
         caption: src.caption || null,
         reference_url: null,
         task_id: null,
-        duration: (Number(src.duration) || 8) + INTRO_SECONDS,
-        cost: 0,
-        metadata: {
-          feature: "framed",
-          framed_from: src.id,
-          frame_status: "queued",
-          in_editor: true,
-          cover_thumbnail_url: coverUrl,
-          cover_title: meta.cover_title || null,
-          cover_subtitle: meta.cover_subtitle || null,
-          tiktok_product_id: meta.tiktok_product_id || null,
-          product_name: meta.product_name || null,
-        },
+        duration: (Number(src.duration) || 8) + duration,
+        cost: animate ? ANIMATE_COST : 0,
+        metadata: { ...baseMeta, frame_status: "queued" },
       })
       .select("id")
       .single();
@@ -108,34 +126,48 @@ export async function POST(req: Request) {
     const markFailed = async (msg: string) => {
       await admin.from("history").update({
         status: "failed", error_message: msg,
-        metadata: { feature: "framed", framed_from: src.id, frame_status: "failed", in_editor: false },
+        metadata: { ...baseMeta, in_editor: false, frame_status: "failed" },
       }).eq("id", framedId);
       await restoreOriginal();
     };
+    const finishDone = async (outputUrl: string) => {
+      await admin.from("history").update({
+        status: "done", output_url: outputUrl, merged_url: outputUrl, thumbnail_url: outputUrl,
+        metadata: { ...baseMeta, frame_status: "done", framed_at: new Date().toISOString() },
+      }).eq("id", framedId);
+    };
 
     try {
-      // 1) cover image → 3s static clip (ffmpeg, no AI).
-      const clip = await falImageToVideo(coverUrl, INTRO_SECONDS);
-      if (!clip.ok || !clip.url) { await markFailed(clip.error || "Intro clip gagal"); results.push({ id, status: "failed", reason: clip.error || "intro gagal" }); continue; }
-      // 2) merge [intro, video] → one video (intro plays first).
-      const merged = await falMergeVideos([clip.url, videoUrl]);
-      if (!merged.ok || !merged.url) { await markFailed(merged.error || "Merge gagal"); results.push({ id, status: "failed", reason: merged.error || "merge gagal" }); continue; }
-      // 3) rehost the merged result to our B2.
-      const rehosted = await rehostToContent({ url: merged.url, userId: user.id, historyId: framedId, type: sType, fallbackExt: "mp4" });
-      // 4) framed row done.
-      await admin.from("history").update({
-        status: "done", output_url: rehosted, merged_url: rehosted, thumbnail_url: rehosted,
-        metadata: {
-          feature: "framed", framed_from: src.id, frame_status: "done", framed_at: new Date().toISOString(),
-          in_editor: true,
-          cover_thumbnail_url: coverUrl,
-          cover_title: meta.cover_title || null,
-          cover_subtitle: meta.cover_subtitle || null,
-          tiktok_product_id: meta.tiktok_product_id || null,
-          product_name: meta.product_name || null,
-        },
-      }).eq("id", framedId);
-      results.push({ id, status: "done", framed_id: framedId });
+      if (animate) {
+        // ── ANIMATE — Modal Ken Burns + merge (one call, guaranteed 9:16) ──
+        const r = await fetch(MODAL_ANIMATE_ENDPOINT, {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            cover_url: coverUrl, video_url: videoUrl,
+            animation, duration_sec: duration,
+            user_id: user.id, history_id: framedId,
+          }),
+        });
+        const d = await r.json().catch(() => ({} as any));
+        if (!r.ok || !d?.ok || !d?.url) {
+          await markFailed(d?.error || `Animate gagal (${r.status})`);
+          results.push({ id, status: "failed", reason: d?.error || "animate gagal" });
+          continue;
+        }
+        // Charge ONLY on success.
+        await deduct(user.id, "animate", ANIMATE_COST, framedId);
+        await finishDone(String(d.url)); // Modal already uploaded to our B2.
+        results.push({ id, status: "done", framed_id: framedId });
+      } else {
+        // ── STATIC — cover held via fal, then fal merge (free) ──
+        const clip = await falImageToVideo(coverUrl, duration);
+        if (!clip.ok || !clip.url) { await markFailed(clip.error || "Intro clip gagal"); results.push({ id, status: "failed", reason: clip.error || "intro gagal" }); continue; }
+        const merged = await falMergeVideos([clip.url, videoUrl]);
+        if (!merged.ok || !merged.url) { await markFailed(merged.error || "Merge gagal"); results.push({ id, status: "failed", reason: merged.error || "merge gagal" }); continue; }
+        const rehosted = await rehostToContent({ url: merged.url, userId: user.id, historyId: framedId, type: sType, fallbackExt: "mp4" });
+        await finishDone(rehosted);
+        results.push({ id, status: "done", framed_id: framedId });
+      }
     } catch (e: any) {
       await markFailed(e?.message || "Frame error");
       results.push({ id, status: "failed", reason: e?.message || "error" });
