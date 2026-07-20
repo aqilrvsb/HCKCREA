@@ -1427,7 +1427,9 @@ const DUP_STOP = new Set(
   "the a an and or of for with to in on at is are be this that your you our from into video image grid panel frame malaysian talent product presenter storyboard scene shot single only show shows shown same exact label face person people human clean neutral text caption subtitle rule hard must never each every panels vertical seconds"
     .split(/\s+/)
 );
-const DUP_THRESHOLD = 0.6; // distinctive-token Jaccard cutoff (~"90% same flow")
+// Only flag NEAR-IDENTICAL prompts — distinctive-token Jaccard ≥ 0.95, i.e. the
+// match score shown (jac×100) is 95%+. Per user: detect 95%-and-above only.
+const DUP_THRESHOLD = 0.95;
 
 function dupTokens(prompt: string | null): string[] {
   if (!prompt) return [];
