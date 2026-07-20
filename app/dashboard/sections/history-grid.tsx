@@ -858,7 +858,7 @@ export default function HistoryGrid({
     if (!ids.length) { edAddLog("⚠ Tick Frame (ungu) pada video yang dah ada Cover dulu."); return; }
     setEdBusyFrame(true);
     try {
-      edAddLog(`🎞️ Frame untuk ${ids.length} video — intro 3s + gabung (percuma, tiada kredit)…`);
+      edAddLog(`🎞️ Frame untuk ${ids.length} video — intro 1s + gabung (percuma, tiada kredit)…`);
       const LIMIT = 3; // frame is heavier than text/cover → fewer in flight
       const doneSet = new Set<string>();
       const runPass = async (list: string[]) => {
@@ -1003,7 +1003,7 @@ export default function HistoryGrid({
             <button onClick={() => void edGenerateBoth()} disabled={edBusyText || edBusyCover || edBusyFrame} className="text-xs font-extrabold px-5 py-1.5 rounded-lg text-white disabled:opacity-50 inline-flex items-center gap-1.5" style={{ background: "linear-gradient(135deg,#16a34a,#22c55e)" }}>{(edBusyText || edBusyCover) ? <Loader2 className="w-4 h-4 animate-spin" /> : <span>📝🎨</span>} Generate</button>
             <button onClick={() => void edGenerateFrame()} disabled={edBusyText || edBusyCover || edBusyFrame} className="text-xs font-extrabold px-5 py-1.5 rounded-lg text-white disabled:opacity-50 inline-flex items-center gap-1.5" style={{ background: "linear-gradient(135deg,#7c3aed,#a78bfa)" }}>{edBusyFrame ? <Loader2 className="w-4 h-4 animate-spin" /> : <span>🎞️</span>} Frame</button>
           </div>
-          <p className="text-[10px] text-[var(--color-text-muted)] mt-1.5">Satu butang uruskan semua: video yang tick <b style={{ color: "#60a5fa" }}>Text</b> je → jana Text; tick <b style={{ color: "#f59e0b" }}>Cover</b> je → jana Cover (perlu Text dulu); tick dua-dua → Text dulu, lepas siap Cover. <b style={{ color: "#a78bfa" }}>Frame</b> (perlu Cover dulu) → jadikan cover sebagai intro 3 saat, gabung depan video (percuma, tiada kredit) — video baru gantikan yang asal.</p>
+          <p className="text-[10px] text-[var(--color-text-muted)] mt-1.5">Satu butang uruskan semua: video yang tick <b style={{ color: "#60a5fa" }}>Text</b> je → jana Text; tick <b style={{ color: "#f59e0b" }}>Cover</b> je → jana Cover (perlu Text dulu); tick dua-dua → Text dulu, lepas siap Cover. <b style={{ color: "#a78bfa" }}>Frame</b> (perlu Cover dulu) → jadikan cover sebagai intro 1 saat, gabung depan video (percuma, tiada kredit) — video baru gantikan yang asal.</p>
           {edLog.length > 0 && <div className="mt-2 font-mono text-[10px] max-h-24 overflow-y-auto text-[var(--color-text-secondary)]">{edLog.map((l, i) => <div key={i}>{l}</div>)}</div>}
         </div>
       )}
@@ -2500,7 +2500,7 @@ function HistoryCardInner({
                 <button
                   onClick={(e) => { e.stopPropagation(); if (edFrameOn || edFramePickable) onEdFrame?.(); }}
                   disabled={!edFrameOn && !edFramePickable}
-                  title={(edFrameOn || edFramePickable) ? "Pilih untuk Frame (cover → intro 3s)" : "Jana Cover dulu — Frame perlu Cover"}
+                  title={(edFrameOn || edFramePickable) ? "Pilih untuk Frame (cover → intro 1s)" : "Jana Cover dulu — Frame perlu Cover"}
                   className="w-6 h-6 rounded-md flex items-center justify-center shadow-lg border-2 text-[9px] font-extrabold"
                   style={edFrameOn
                     ? { background: "#8b5cf6", borderColor: "#8b5cf6", color: "#fff" }
@@ -3805,7 +3805,7 @@ function HistoryCardInner({
                   the original). Otherwise the normal Remove-from-Editor. */}
               {(item.metadata as any)?.framed_from ? (
                 <>
-                  <span className="inline-flex items-center h-6 px-2 rounded-md text-[10px] font-extrabold text-white" style={{ background: "linear-gradient(135deg,#7c3aed,#a78bfa)" }} title="Video ada intro cover 3s">🎞️ Framed</span>
+                  <span className="inline-flex items-center h-6 px-2 rounded-md text-[10px] font-extrabold text-white" style={{ background: "linear-gradient(135deg,#7c3aed,#a78bfa)" }} title="Video ada intro cover 1s">🎞️ Framed</span>
                   <ActionBtn title="Undo Frame — buang intro, pulihkan video asal" onClick={() => onEdUnframe?.()} bg="linear-gradient(135deg,#7c3aed,#a78bfa)">
                     <Undo2 className="w-3.5 h-3.5" strokeWidth={2.4} />
                   </ActionBtn>

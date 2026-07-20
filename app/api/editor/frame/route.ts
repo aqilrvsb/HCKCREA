@@ -22,7 +22,7 @@ export const runtime = "nodejs";
 export const maxDuration = 300; // Vercel clamps to the plan's max.
 export const dynamic = "force-dynamic";
 
-const INTRO_SECONDS = 3;
+const INTRO_SECONDS = 1;
 const MAX_BATCH = 8; // safety cap per request (client normally sends 1)
 
 export async function POST(req: Request) {
