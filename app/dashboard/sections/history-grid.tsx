@@ -245,8 +245,13 @@ export default function HistoryGrid({
   // is currently generating (spinner/glow) and which JUST finished (green flash).
   const [edProc, setEdProc] = useState<Set<string>>(new Set());
   const [edOk, setEdOk] = useState<Set<string>>(new Set());
-  const edMarkProc = (id: string, on: boolean) =>
-    setEdProc((s) => { const n = new Set(s); on ? n.add(id) : n.delete(id); return n; });
+  // Ref mirrors edProc so a NEW action fired while another runs can skip videos
+  // already in-flight (no double-processing), without waiting on React state.
+  const edProcRef = useRef<Set<string>>(new Set());
+  const edMarkProc = (id: string, on: boolean) => {
+    const n = new Set(edProcRef.current); on ? n.add(id) : n.delete(id); edProcRef.current = n;
+    setEdProc(n);
+  };
   const edMarkDone = (id: string) => {
     setEdOk((s) => { const n = new Set(s); n.add(id); return n; });
     setTimeout(() => setEdOk((s) => { const n = new Set(s); n.delete(id); return n; }), 1800);
@@ -768,7 +773,7 @@ export default function HistoryGrid({
   async function edGenerateText() {
     const product: any = edProducts.find((p) => String(p.product_id) === edProduct);
     if (!product) { edAddLog("⚠ Pilih produk dulu."); return; }
-    const ids = edCapBatch([...edText].filter((id) => visibleParents.some((v) => v.id === id)));
+    const ids = edCapBatch([...edText].filter((id) => visibleParents.some((v) => v.id === id) && !edProcRef.current.has(id)));
     if (!ids.length) { edAddLog("⚠ Tick Text (biru) pada video dulu."); return; }
     setEdBusyText(true);
     try {
@@ -783,7 +788,7 @@ export default function HistoryGrid({
   }
 
   async function edGenerateCover() {
-    const selected = [...edCover].filter((id) => visibleParents.some((v) => v.id === id));
+    const selected = [...edCover].filter((id) => visibleParents.some((v) => v.id === id) && !edProcRef.current.has(id));
     if (!selected.length) { edAddLog("⚠ Tick Cover (oren) pada video dulu."); return; }
     // GATE — a cover needs text. Videos without text are not allowed here; tell
     // the user to Generate Text first (or use Text + Cover to do both).
@@ -818,8 +823,8 @@ export default function HistoryGrid({
   // wasn't generated (and didn't already exist) is skipped — cover needs text.
   async function edGenerateBoth() {
     const product: any = edProducts.find((p) => String(p.product_id) === edProduct);
-    const textIds = edCapBatch([...edText].filter((id) => visibleParents.some((v) => v.id === id)));
-    const coverIds = [...edCover].filter((id) => visibleParents.some((v) => v.id === id));
+    const textIds = edCapBatch([...edText].filter((id) => visibleParents.some((v) => v.id === id) && !edProcRef.current.has(id)));
+    const coverIds = [...edCover].filter((id) => visibleParents.some((v) => v.id === id) && !edProcRef.current.has(id));
     if (!textIds.length && !coverIds.length) { edAddLog("⚠ Tick Text / Cover pada video dulu."); return; }
     setEdBusyText(true); setEdBusyCover(true);
     try {
@@ -874,7 +879,7 @@ export default function HistoryGrid({
   // one giant request spawning N background jobs that hammer fal / time out. The
   // grid refreshes as each finishes.
   async function edGenerateFrame(opts?: { mode?: "static" | "animate" | "grok"; duration?: number; animation?: string }) {
-    const ids = [...edFrame].filter((id) => visibleParents.some((v) => v.id === id) && edFramePickable(id));
+    const ids = [...edFrame].filter((id) => visibleParents.some((v) => v.id === id) && edFramePickable(id) && !edProcRef.current.has(id));
     if (!ids.length) { edAddLog("⚠ Tick Frame (ungu) pada video yang dah ada Cover dulu."); return; }
     const mode = opts?.mode === "animate" ? "animate" : opts?.mode === "grok" ? "grok" : "static";
     const duration = Math.max(1, Math.min(mode === "grok" ? 10 : 5, Math.round(opts?.duration || 1)));
@@ -1043,8 +1048,11 @@ export default function HistoryGrid({
               Select All Frame
             </label>
             <div className="flex-1" />
-            <button onClick={() => void edGenerateBoth()} disabled={edBusyText || edBusyCover || edBusyFrame || (edText.size > 0 && !edProduct)} title={edText.size > 0 && !edProduct ? "Pilih produk dulu untuk Generate Text" : ""} className="text-xs font-extrabold px-5 py-1.5 rounded-lg text-white disabled:opacity-50 inline-flex items-center gap-1.5" style={{ background: "linear-gradient(135deg,#16a34a,#22c55e)" }}>{(edBusyText || edBusyCover) ? <Loader2 className="w-4 h-4 animate-spin" /> : <span>📝🎨</span>} Generate</button>
-            <button onClick={() => setEdFrameModal(true)} disabled={edBusyText || edBusyCover || edBusyFrame} className="text-xs font-extrabold px-5 py-1.5 rounded-lg text-white disabled:opacity-50 inline-flex items-center gap-1.5" style={{ background: "linear-gradient(135deg,#7c3aed,#a78bfa)" }}>{edBusyFrame ? <Loader2 className="w-4 h-4 animate-spin" /> : <span>🎞️</span>} Frame</button>
+            {/* Buttons stay ENABLED while work runs — the progress shows on the
+                cards (spinner/ring), so you can fire the next action right away.
+                Only guard: Generate needs a product for Text. */}
+            <button onClick={() => void edGenerateBoth()} disabled={edText.size > 0 && !edProduct} title={edText.size > 0 && !edProduct ? "Pilih produk dulu untuk Generate Text" : ""} className="text-xs font-extrabold px-5 py-1.5 rounded-lg text-white disabled:opacity-50 inline-flex items-center gap-1.5" style={{ background: "linear-gradient(135deg,#16a34a,#22c55e)" }}><span>📝🎨</span> Generate</button>
+            <button onClick={() => setEdFrameModal(true)} className="text-xs font-extrabold px-5 py-1.5 rounded-lg text-white inline-flex items-center gap-1.5" style={{ background: "linear-gradient(135deg,#7c3aed,#a78bfa)" }}><span>🎞️</span> Frame</button>
           </div>
           <p className="text-[10px] text-[var(--color-text-muted)] mt-1.5">Satu butang uruskan semua: video yang tick <b style={{ color: "#60a5fa" }}>Text</b> je → jana Text; tick <b style={{ color: "#f59e0b" }}>Cover</b> je → jana Cover (perlu Text dulu); tick dua-dua → Text dulu, lepas siap Cover. <b style={{ color: "#a78bfa" }}>Frame</b> (perlu Cover dulu) → cover jadi intro depan video (9:16): <b>Static</b> (diam, percuma) atau <b>Animate</b> (zoom/pan, RM0.10) — pilih durasi 1–5s. Video baru gantikan yang asal.</p>
           {edLog.length > 0 && <div className="mt-2 font-mono text-[10px] max-h-24 overflow-y-auto text-[var(--color-text-secondary)]">{edLog.map((l, i) => <div key={i}>{l}</div>)}</div>}
@@ -1102,8 +1110,8 @@ export default function HistoryGrid({
               )}
 
               <div className="flex gap-2">
-                <button onClick={() => setEdFrameModal(false)} disabled={edBusyFrame} className="flex-1 py-2 rounded-xl text-[12px] font-bold disabled:opacity-50" style={{ background: "var(--color-bg)", border: "1px solid var(--color-border)", color: "var(--color-text-secondary)" }}>Batal</button>
-                <button onClick={() => { setEdFrameModal(false); void edGenerateFrame({ mode: edFrameMode, duration: edFrameDur, animation: edFrameMotion }); }} disabled={edBusyFrame} className="flex-1 py-2 rounded-xl text-[12px] font-extrabold text-white disabled:opacity-50 inline-flex items-center justify-center gap-1.5" style={{ background: "linear-gradient(135deg,#7c3aed,#a78bfa)" }}>{edBusyFrame ? <Loader2 className="w-4 h-4 animate-spin" /> : "🎞️"} {edFrameMode === "grok" ? "Grok" : edFrameMode === "animate" ? "Animate" : "Static"} Frame</button>
+                <button onClick={() => setEdFrameModal(false)} className="flex-1 py-2 rounded-xl text-[12px] font-bold" style={{ background: "var(--color-bg)", border: "1px solid var(--color-border)", color: "var(--color-text-secondary)" }}>Batal</button>
+                <button onClick={() => { setEdFrameModal(false); void edGenerateFrame({ mode: edFrameMode, duration: edFrameDur, animation: edFrameMotion }); }} className="flex-1 py-2 rounded-xl text-[12px] font-extrabold text-white inline-flex items-center justify-center gap-1.5" style={{ background: "linear-gradient(135deg,#7c3aed,#a78bfa)" }}>🎞️ {edFrameMode === "grok" ? "Grok" : edFrameMode === "animate" ? "Animate" : "Static"} Frame</button>
               </div>
             </div>
           </div>
