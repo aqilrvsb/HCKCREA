@@ -66,6 +66,7 @@ export default function AffiliateReport({ projectId }: { projectId?: string | nu
   const [from, setFrom] = useState(monthAgo);
   const [to, setTo] = useState(today);
   const [openEmail, setOpenEmail] = useState<string | null>(null);
+  const [openRow, setOpenRow] = useState<Row | null>(null);
   const [resending, setResending] = useState<Set<string>>(new Set());
 
   const { data: rows = [], isLoading, mutate } = useSWR<Row[]>(
@@ -254,16 +255,43 @@ export default function AffiliateReport({ projectId }: { projectId?: string | nu
                       const m = r.metadata || {};
                       const ok = m.affiliate_ingest_ok;
                       return (
-                        <div key={r.id} className="flex items-center gap-3 border-b border-white/5 px-4 py-2.5 last:border-b-0">
+                        <div key={r.id} onClick={() => setOpenRow(r)}
+                          className="flex cursor-pointer items-center gap-3 border-b border-white/5 px-4 py-2.5 last:border-b-0 hover:bg-white/5">
                           <span className="w-[86px] shrink-0 text-[11px] text-white/45">{rowDate(r)}</span>
-                          <Thumb url={m.cover_thumbnail_url} />
+                          <span className="relative shrink-0">
+                            <Thumb url={m.cover_thumbnail_url} />
+                            {r.output_url && (
+                              <span className="pointer-events-none absolute inset-0 grid place-items-center text-[13px] text-white drop-shadow">▶</span>
+                            )}
+                          </span>
                           <span className="min-w-0 flex-1">
-                            <span className="block truncate text-xs text-white/80">
-                              {m.cover_title || r.caption || m.caption || "—"}
+                            {/* Main + Sub text (the cover copy), then the caption. */}
+                            <span className="block truncate text-xs font-medium text-white/85">
+                              {m.cover_title || <span className="text-white/35">tiada Main Text</span>}
                             </span>
-                            <span className="block truncate text-[10px] text-white/40">
-                              {m.cover_subtitle || r.id.slice(0, 8)}
+                            <span className="block truncate text-[10px] text-white/45">
+                              {m.cover_subtitle || <span className="text-white/25">tiada Sub Text</span>}
                             </span>
+                            <span className="block truncate text-[10px] text-white/35">
+                              {r.caption || m.caption
+                                ? `📝 ${r.caption || m.caption}`
+                                : "📝 tiada caption"}
+                            </span>
+                          </span>
+                          {/* Which pieces this video actually carries. */}
+                          <span className="hidden shrink-0 gap-1 sm:flex">
+                            {[
+                              { k: "T", on: !!(r.caption || m.caption || m.cover_title), t: "Text" },
+                              { k: "C", on: !!m.cover_thumbnail_url, t: "Cover" },
+                              { k: "F", on: !!m.framed_from, t: "Frame" },
+                            ].map((b) => (
+                              <span key={b.k} title={`${b.t}: ${b.on ? "ada" : "tiada"}`}
+                                className={`grid h-5 w-5 place-items-center rounded text-[9px] font-bold ${
+                                  b.on ? "bg-emerald-500/20 text-emerald-300" : "bg-white/5 text-white/25"
+                                }`}>
+                                {b.k}
+                              </span>
+                            ))}
                           </span>
                           {ok === true ? (
                             <span className="shrink-0 rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] text-emerald-300">
@@ -275,7 +303,7 @@ export default function AffiliateReport({ projectId }: { projectId?: string | nu
                                 title={String(m.affiliate_ingest_error || "")}>
                                 ✗ {String(m.affiliate_ingest_error || "gagal")}
                               </span>
-                              <button onClick={() => void resend(r)} disabled={resending.has(r.id)}
+                              <button onClick={(e) => { e.stopPropagation(); void resend(r); }} disabled={resending.has(r.id)}
                                 className="shrink-0 rounded-lg border border-white/10 bg-white/5 px-2 py-1 text-[10px] text-white/70 hover:bg-white/10 disabled:opacity-40">
                                 {resending.has(r.id) ? "…" : "Hantar semula"}
                               </button>
@@ -286,8 +314,8 @@ export default function AffiliateReport({ projectId }: { projectId?: string | nu
                             </span>
                           )}
                           {r.output_url && (
-                            <a href={r.output_url} target="_blank" rel="noreferrer"
-                              className="shrink-0 text-[11px] text-sky-300 hover:underline">video ↗</a>
+                            <a href={r.output_url} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()}
+                              className="shrink-0 text-[11px] text-sky-300 hover:underline">↗</a>
                           )}
                         </div>
                       );
@@ -299,6 +327,94 @@ export default function AffiliateReport({ projectId }: { projectId?: string | nu
           })}
         </div>
       )}
+
+      {/* Detail — plays the exact video the affiliate received, beside the
+          exact cover + text that went with it. */}
+      {openRow && (() => {
+        const m = openRow.metadata || {};
+        return (
+          <div className="fixed inset-0 z-[200] flex items-center justify-center p-4"
+            style={{ background: "rgba(0,0,0,0.8)" }} onClick={() => setOpenRow(null)}>
+            <div className="max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-2xl border border-white/10 bg-[#111] p-5"
+              onClick={(e) => e.stopPropagation()}>
+              <div className="mb-3 flex items-start gap-3">
+                <div className="min-w-0 flex-1">
+                  <div className="text-sm font-semibold text-white">
+                    {m.affiliate_name || m.affiliate_email || "—"}
+                  </div>
+                  <div className="text-[11px] text-white/45">
+                    {m.affiliate_email} · {rowDate(openRow)}
+                  </div>
+                </div>
+                <button onClick={() => setOpenRow(null)}
+                  className="shrink-0 rounded-lg border border-white/10 bg-white/5 px-2.5 py-1 text-xs text-white/60 hover:bg-white/10">
+                  ✕
+                </button>
+              </div>
+
+              <div className="grid gap-4 sm:grid-cols-[1fr_180px]">
+                <div>
+                  {openRow.output_url ? (
+                    <video src={openRow.output_url} controls playsInline
+                      className="max-h-[60vh] w-full rounded-xl bg-black" />
+                  ) : (
+                    <div className="grid h-40 place-items-center rounded-xl bg-white/5 text-xs text-white/40">
+                      Tiada video
+                    </div>
+                  )}
+                </div>
+                <div className="space-y-3">
+                  <div>
+                    <div className="mb-1 text-[10px] uppercase tracking-wide text-white/35">Cover</div>
+                    {m.cover_thumbnail_url ? (
+                      <img src={m.cover_thumbnail_url} alt="cover"
+                        className="w-full rounded-lg border border-white/10" />
+                    ) : (
+                      <div className="grid h-28 place-items-center rounded-lg bg-white/5 text-[11px] text-white/35">
+                        Tiada cover
+                      </div>
+                    )}
+                  </div>
+                  <div>
+                    <div className="mb-1 text-[10px] uppercase tracking-wide text-white/35">Main Text</div>
+                    <div className="text-xs text-white/85">{m.cover_title || <span className="text-white/30">—</span>}</div>
+                  </div>
+                  <div>
+                    <div className="mb-1 text-[10px] uppercase tracking-wide text-white/35">Sub Text</div>
+                    <div className="text-xs text-white/70">{m.cover_subtitle || <span className="text-white/30">—</span>}</div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="mt-4">
+                <div className="mb-1 text-[10px] uppercase tracking-wide text-white/35">Caption</div>
+                <div className="whitespace-pre-wrap rounded-lg bg-white/5 p-3 text-xs text-white/75">
+                  {openRow.caption || m.caption || <span className="text-white/30">Tiada caption</span>}
+                </div>
+              </div>
+
+              <div className="mt-3 flex flex-wrap items-center gap-2 text-[11px]">
+                {m.affiliate_ingest_ok === true ? (
+                  <span className="rounded-full bg-emerald-500/15 px-2 py-0.5 text-emerald-300">
+                    ✓ dihantar{m.affiliate_ingest_id ? ` #${m.affiliate_ingest_id}` : ""}
+                  </span>
+                ) : m.affiliate_ingest_ok === false ? (
+                  <span className="rounded-full bg-rose-500/15 px-2 py-0.5 text-rose-300">
+                    ✗ {String(m.affiliate_ingest_error || "gagal")}
+                  </span>
+                ) : (
+                  <span className="rounded-full bg-white/5 px-2 py-0.5 text-white/40">tiada rekod hantar</span>
+                )}
+                {openRow.output_url && (
+                  <a href={openRow.output_url} target="_blank" rel="noreferrer"
+                    className="text-sky-300 hover:underline">Buka video ↗</a>
+                )}
+                <span className="ml-auto font-mono text-[10px] text-white/25">{openRow.id}</span>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }
