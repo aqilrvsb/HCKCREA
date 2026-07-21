@@ -20,6 +20,7 @@ import {
   AlertTriangle,
   Scissors,
   Undo2,
+  Users,
   Palette,
   ChevronLeft,
   ChevronRight,
@@ -261,6 +262,28 @@ export default function HistoryGrid({
     setEdOk((s) => { const n = new Set(s); n.add(id); return n; });
     setTimeout(() => setEdOk((s) => { const n = new Set(s); n.delete(id); return n; }), 1800);
   };
+  // Affiliate mode (Settings toggle) — when on, the Editor gets a per-card
+  // affiliate checkbox + an affiliate picker + a Transfer Affiliate button.
+  const [edAffEnabled, setEdAffEnabled] = useState(false);
+  const [edAffContacts, setEdAffContacts] = useState<{ name: string; email: string }[]>([]);
+  const [edAffSel, setEdAffSel] = useState<Set<string>>(new Set());
+  const [edAffPick, setEdAffPick] = useState("");
+  const [edAffBusy, setEdAffBusy] = useState(false);
+  useEffect(() => {
+    if (!editorMode) return;
+    void (async () => {
+      try {
+        const sb = createClient();
+        const { data: { user } } = await sb.auth.getUser();
+        if (!user) return;
+        const { data } = await sb.from("profiles").select("settings").eq("id", user.id).maybeSingle();
+        const s = (data?.settings || {}) as any;
+        setEdAffEnabled(!!s.affiliate_enabled);
+        setEdAffContacts(Array.isArray(s.affiliate_contacts) ? s.affiliate_contacts : []);
+      } catch { /* affiliate stays off */ }
+    })();
+  }, [editorMode]);
+
   // Frame options popup: Static (free) / Animate (RM0.10), duration 1-5, motion.
   const [edFrameModal, setEdFrameModal] = useState(false);
   const [edFrameMode, setEdFrameMode] = useState<"static" | "animate" | "grok">("static");
@@ -945,6 +968,30 @@ export default function HistoryGrid({
     edReload();
   }
 
+  // ── Transfer Affiliate (Editor) ────────────────────────────────────────────
+  const edAffToggle = (id: string) =>
+    setEdAffSel((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  async function edTransferAffiliate() {
+    const ids = [...edAffSel].filter((id) => visibleParents.some((v) => v.id === id));
+    if (!ids.length) { edAddLog("⚠ Tick checkbox affiliate (hijau) pada video dulu."); return; }
+    const contact = edAffContacts.find((c) => c.email === edAffPick);
+    if (!contact) { edAddLog("⚠ Pilih affiliate dulu."); return; }
+    if (!confirm(`Transfer ${ids.length} video ke ${contact.name} (${contact.email})? Video akan keluar dari Editor.`)) return;
+    setEdAffBusy(true);
+    try {
+      const r = await fetch("/api/editor/transfer-affiliate", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ history_ids: ids, email: contact.email, name: contact.name }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) { edAddLog(`✗ Transfer gagal: ${d?.error || r.status}`); return; }
+      setEdAffSel(new Set());
+      edReload();
+      edAddLog(`✓ ${d.transferred || 0} video di-transfer ke ${contact.name} — lihat tab Transfer Affiliate.`);
+    } catch (e: any) { edAddLog(`✗ Transfer error: ${e?.message || "error"}`); }
+    finally { setEdAffBusy(false); }
+  }
+
   // ── Per-video re-generate (from the 📝 / 🎨 modals) ───────────────────────
   // Same engines as the bulk flow, just scoped to one video, so the card
   // animation + edProc guard behave identically.
@@ -1109,6 +1156,28 @@ export default function HistoryGrid({
             <button onClick={() => setEdFrameModal(true)} className="text-xs font-extrabold px-5 py-1.5 rounded-lg text-white inline-flex items-center gap-1.5" style={{ background: "linear-gradient(135deg,#7c3aed,#a78bfa)" }}><span>🎞️</span> Frame</button>
           </div>
           <p className="text-[10px] text-[var(--color-text-muted)] mt-1.5">Satu butang uruskan semua: video yang tick <b style={{ color: "#60a5fa" }}>Text</b> je → jana Text; tick <b style={{ color: "#f59e0b" }}>Cover</b> je → jana Cover (perlu Text dulu); tick dua-dua → Text dulu, lepas siap Cover. <b style={{ color: "#a78bfa" }}>Frame</b> (perlu Cover dulu) → cover jadi intro depan video (9:16): <b>Static</b> (diam, percuma) atau <b>Animate</b> (zoom/pan, RM0.10) — pilih durasi 1–5s. Video baru gantikan yang asal.</p>
+          {/* Transfer Affiliate — only when Affiliate mode is ON in Settings. */}
+          {edAffEnabled && (
+            <div className="mt-3 pt-3 flex flex-wrap gap-2 items-center" style={{ borderTop: "1px solid var(--color-border)" }}>
+              <label className="flex items-center gap-1.5 text-xs font-extrabold cursor-pointer" style={{ color: "#22c55e" }}>
+                <input
+                  type="checkbox"
+                  checked={(() => { const ids = pageItems.map((v) => v.id); return ids.length > 0 && ids.every((i) => edAffSel.has(i)); })()}
+                  onChange={() => { const ids = pageItems.map((v) => v.id); const allOn = ids.length > 0 && ids.every((i) => edAffSel.has(i)); const n = new Set(edAffSel); ids.forEach((i) => allOn ? n.delete(i) : n.add(i)); setEdAffSel(n); }}
+                  style={{ accentColor: "#22c55e", width: 15, height: 15 }}
+                />
+                Select All Affiliate
+              </label>
+              <span className="text-[11px] text-[var(--color-text-muted)] font-mono">{edAffSel.size} dipilih</span>
+              <select value={edAffPick} onChange={(e) => setEdAffPick(e.target.value)} className="px-3 py-1.5 rounded-lg text-xs" style={{ background: "var(--color-bg)", border: "1px solid var(--color-border)", color: "var(--color-text-primary)" }}>
+                <option value="">— Pilih affiliate —</option>
+                {edAffContacts.map((c) => <option key={c.email} value={c.email}>{c.name} — {c.email}</option>)}
+              </select>
+              <div className="flex-1" />
+              <button onClick={() => void edTransferAffiliate()} disabled={edAffBusy || !edAffPick || edAffSel.size === 0} className="text-xs font-extrabold px-4 py-1.5 rounded-lg text-white disabled:opacity-50 inline-flex items-center gap-1.5" style={{ background: "linear-gradient(135deg,#16a34a,#4ade80)" }}>{edAffBusy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Users className="w-4 h-4" />} Transfer Affiliate</button>
+              {edAffContacts.length === 0 && <span className="text-[10px] text-[var(--color-text-muted)] w-full">Tiada affiliate lagi — tambah di Settings → Affiliate.</span>}
+            </div>
+          )}
           {edLog.length > 0 && <div className="mt-2 font-mono text-[10px] max-h-24 overflow-y-auto text-[var(--color-text-secondary)]">{edLog.map((l, i) => <div key={i}>{l}</div>)}</div>}
         </div>
       )}
@@ -1509,6 +1578,9 @@ export default function HistoryGrid({
                 onEdReset={() => void edReset(it.id)}
                 onEdRegenText={() => void edRegenText(it.id)}
                 onEdRegenCover={() => void edRegenCover(it.id)}
+                edAffShow={editorMode && edAffEnabled}
+                edAffOn={edAffSel.has(it.id)}
+                onEdAff={() => edAffToggle(it.id)}
                 edProcOn={editorMode && edProc.has(it.id)}
                 edDoneOn={editorMode && edOk.has(it.id)}
                 donePostMode={donePostMode || transferAffiliateMode}
@@ -1722,6 +1794,9 @@ function HistoryCardInner({
   onEdReset,
   onEdRegenText,
   onEdRegenCover,
+  edAffShow,
+  edAffOn,
+  onEdAff,
   edProcOn,
   edDoneOn,
   donePostMode,
@@ -1751,6 +1826,9 @@ function HistoryCardInner({
   onEdReset?: () => void;
   onEdRegenText?: () => void;
   onEdRegenCover?: () => void;
+  edAffShow?: boolean;
+  edAffOn?: boolean;
+  onEdAff?: () => void;
   edProcOn?: boolean;
   edDoneOn?: boolean;
   donePostMode?: boolean;
@@ -2706,6 +2784,19 @@ function HistoryCardInner({
                   {edFrameOn ? <Check className="w-3.5 h-3.5" strokeWidth={3} /> : "F"}
                 </button>
               )}
+              {/* Affiliate select — only when Affiliate mode is ON in Settings. */}
+              {edAffShow && (
+                <button
+                  onClick={(e) => { e.stopPropagation(); onEdAff?.(); }}
+                  title="Pilih untuk Transfer Affiliate"
+                  className="w-6 h-6 rounded-md flex items-center justify-center shadow-lg border-2 text-[9px] font-extrabold"
+                  style={edAffOn
+                    ? { background: "#16a34a", borderColor: "#16a34a", color: "#fff" }
+                    : { background: "rgba(0,0,0,0.6)", borderColor: "#4ade80", color: "#4ade80" }}
+                >
+                  {edAffOn ? <Check className="w-3.5 h-3.5" strokeWidth={3} /> : "A"}
+                </button>
+              )}
             </div>
           </>
         );
@@ -2735,6 +2826,16 @@ function HistoryCardInner({
           >
             {sourceTabLabel(item)}
           </span>
+          {/* Which affiliate this video was transferred to (Transfer Affiliate tab). */}
+          {!!(item.metadata as any)?.affiliate_email && (
+            <span
+              className="absolute bottom-2 left-2 right-2 z-30 px-2 py-1 rounded-md text-[9px] font-extrabold text-white shadow-lg truncate"
+              style={{ background: "linear-gradient(135deg,#16a34a,#4ade80)" }}
+              title={`Transfer ke ${(item.metadata as any).affiliate_name || ""} — ${(item.metadata as any).affiliate_email}`}
+            >
+              👤 {(item.metadata as any).affiliate_name || (item.metadata as any).affiliate_email}
+            </span>
+          )}
           <button
             onClick={(e) => { e.stopPropagation(); onDpToggle?.(); }}
             title="Pilih untuk Undo Post"
@@ -4443,7 +4544,10 @@ const HistoryCard = memo(HistoryCardInner, (prev, next) => {
     (prev.item.metadata as any)?.cover_thumbnail_url === (next.item.metadata as any)?.cover_thumbnail_url &&
     (prev.item.metadata as any)?.framed_from === (next.item.metadata as any)?.framed_from &&
     prev.donePostMode === next.donePostMode &&
-    prev.dpOn === next.dpOn
+    prev.dpOn === next.dpOn &&
+    prev.edAffShow === next.edAffShow &&
+    prev.edAffOn === next.edAffOn &&
+    (prev.item.metadata as any)?.affiliate_email === (next.item.metadata as any)?.affiliate_email
     // Intentionally NOT comparing onToggleMerge — the parent passes an
     // inline lambda that's a new ref every render, but it always closes
     // over the same `item.id` and a stable setState, so the old ref is
