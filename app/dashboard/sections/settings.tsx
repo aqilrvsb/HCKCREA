@@ -145,6 +145,30 @@ export default function SettingsSection({
     void saveAffiliate(affEnabled, next);
   };
   const removeAffContact = (em: string) => void saveAffiliate(affEnabled, affContacts.filter((c) => c.email !== em));
+  // Pull the roster from NL Affiliate Army. Typing emails by hand is the one
+  // way a transfer can fail late (their ingest 404s on an unknown email), so
+  // importing the real list removes that whole failure mode.
+  const [importingAff, setImportingAff] = useState(false);
+  async function importAffRoster() {
+    setImportingAff(true);
+    try {
+      const res = await fetch("/api/affiliate/roster");
+      const d = await res.json().catch(() => null);
+      if (!res.ok || !d?.ok) { setAffMsg({ ok: false, text: d?.error || "Gagal ambil senarai affiliate." }); return; }
+      const incoming: { name: string; email: string }[] = (d.affiliates || [])
+        .map((a: any) => ({ name: String(a.name || a.email.split("@")[0]), email: String(a.email).toLowerCase() }))
+        .filter((a: any) => a.email.includes("@"));
+      if (!incoming.length) { setAffMsg({ ok: false, text: "Senarai affiliate kosong." }); return; }
+      // Merge — keep any manual entries that aren't on their roster.
+      const byEmail = new Map(affContacts.map((c) => [c.email, c]));
+      for (const a of incoming) byEmail.set(a.email, a);
+      const merged = [...byEmail.values()];
+      await saveAffiliate(affEnabled, merged);
+      setAffMsg({ ok: true, text: `Import ${incoming.length} affiliate dari NL Affiliate Army.` });
+    } catch (e: any) {
+      setAffMsg({ ok: false, text: e?.message || "Import gagal" });
+    } finally { setImportingAff(false); }
+  }
 
   async function saveWhatsapp() {
     setSavingWA(true);
@@ -312,6 +336,14 @@ export default function SettingsSection({
               <input className="input flex-1" placeholder="Nama affiliate" value={affName} onChange={(e) => setAffName(e.target.value)} />
               <input className="input flex-1" placeholder="email@affiliate.com" value={affEmail} onChange={(e) => setAffEmail(e.target.value)} onKeyDown={(e) => e.key === "Enter" && addAffContact()} />
               <button onClick={addAffContact} disabled={savingAff} className="btn-primary disabled:opacity-60 whitespace-nowrap">{savingAff ? <Loader2 className="w-4 h-4 animate-spin" /> : "Add"}</button>
+            </div>
+            <div className="flex items-center gap-2">
+              <button onClick={() => void importAffRoster()} disabled={importingAff || savingAff}
+                className="text-xs px-3 py-1.5 rounded-lg disabled:opacity-60 whitespace-nowrap"
+                style={{ background: "var(--color-bg)", border: "1px solid var(--color-border)", color: "var(--color-text-secondary)" }}>
+                {importingAff ? <Loader2 className="w-3.5 h-3.5 animate-spin inline" /> : "⤓ Import dari NL Affiliate Army"}
+              </button>
+              <span className="text-[11px] text-[var(--color-text-muted)]">Email mesti sama macam sistem diorang, kalau tak transfer akan gagal.</span>
             </div>
             {affMsg && <Notice ok={affMsg.ok} text={affMsg.text} />}
             {affContacts.length === 0 ? (

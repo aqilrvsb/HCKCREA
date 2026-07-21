@@ -16,6 +16,7 @@ import {
   Scissors,
   Send,
   Users,
+  BarChart3,
 } from "lucide-react";
 import ImageTab from "./tabs/image";
 import ImageTabWithMode from "./tabs/image-with-mode";
@@ -37,6 +38,7 @@ import UsageSection from "./sections/usage";
 import SettingsSection from "./sections/settings";
 import DashboardOverview from "./sections/dashboard-overview";
 import SavedPromptsSection from "./sections/saved-prompts";
+import AffiliateReport from "./sections/affiliate-report";
 import StorageSection from "./sections/storage";
 import AttachmentsSection from "./sections/attachments";
 import ActivityFeed from "./sections/activity-feed";
@@ -60,6 +62,7 @@ type TabKey =
   | "editor"
   | "done-post"
   | "transfer-affiliate"
+  | "affiliate-report"
   | "fairytale"
   | "original-video";
 
@@ -100,6 +103,9 @@ const TABS: { key: TabKey; label: string; icon: any; tag: string }[] = [
   // from every other grid; shows here with the affiliate email. Nav entry only
   // appears when Affiliate mode is toggled on in Settings.
   { key: "transfer-affiliate", label: "Transfer Affiliate", icon: Users, tag: "4e" },
+  // Reporting Affiliate — per-email breakdown + date filter over the same
+  // transferred rows. Read-only accounting view; same Affiliate-mode gate.
+  { key: "affiliate-report", label: "Reporting Affiliate", icon: BarChart3, tag: "4f" },
   // Viral + Seedance tabs hidden per user direction. Routes + imports kept
   // so existing history rows still render; re-enable by uncommenting.
   // { key: "seedance",  label: "Cinema",       icon: Film,      tag: "--" },
@@ -173,7 +179,7 @@ export default function DashboardShell({
     })();
   }, []);
   const visibleTabs = (canAutoUgc ? TABS : TABS.filter((t) => t.key !== "auto-ugc"))
-    .filter((t) => affEnabled || t.key !== "transfer-affiliate");
+    .filter((t) => affEnabled || (t.key !== "transfer-affiliate" && t.key !== "affiliate-report"));
 
   // Live credit balance — initialised from the server-rendered prop, then
   // refreshed via /api/me/credits. Triggers:
@@ -496,6 +502,7 @@ function resolveActiveSop(view: SidebarView, activeTab: TabKey) {
       editor: "auto-content", // never used — Editor opens its own /editor page
       "done-post": "auto-content",
       "transfer-affiliate": "auto-content",
+      "affiliate-report": "auto-content",
 
       cinema: "story",
       grok: "story",
@@ -757,6 +764,15 @@ function ProjectView({
           )}
           {activeTab === "transfer-affiliate" && (
             <HistoryGrid tab="original-video" transferAffiliateMode title="Transfer Affiliate" projectId={project.id} />
+          )}
+          {activeTab === "affiliate-report" && (
+            <>
+              <div className="mb-4">
+                <h2 className="text-lg font-semibold text-white">Reporting Affiliate — {project.name}</h2>
+                <p className="text-xs text-white/45">Pecahan per email affiliate, ikut julat tarikh transfer.</p>
+              </div>
+              <AffiliateReport projectId={project.id} />
+            </>
           )}
         </div>
       )}
