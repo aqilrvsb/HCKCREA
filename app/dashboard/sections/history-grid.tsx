@@ -709,7 +709,7 @@ export default function HistoryGrid({
   // automatic retry, metaComplete gate). Returns a Map id→result so a following
   // cover pass can use the JUST-generated cover_title/subtitle directly, without
   // waiting for a DB reload.
-  async function edRunText(ids: string[], product: any): Promise<Map<string, any>> {
+  async function edRunText(ids: string[], product: any, force = false): Promise<Map<string, any>> {
     const productUrl = product.raw_url || (product.product_id ? "https://www.tiktok.com/shop/my/pdp/product/" + product.product_id : "");
     const productName = product.product_name || product.name || "";
     const productDetail = product.description || product.detail || "";
@@ -725,7 +725,7 @@ export default function HistoryGrid({
           const id = list[idx++];
           edMarkProc(id, true);
           try {
-            const { ok, d } = await edFetchJson("/api/ugc/generate-post-meta", { history_id: id, product_url: productUrl, product_name: productName, product_detail: productDetail, variant_seed: edSeed(id) });
+            const { ok, d } = await edFetchJson("/api/ugc/generate-post-meta", { history_id: id, product_url: productUrl, product_name: productName, product_detail: productDetail, variant_seed: edSeed(id), ...(force ? { fill_only_empty: false } : {}) });
             if (ok && metaOk(d)) { done.add(id); results.set(id, d); edMarkDone(id); }
             else edAddLog(`  ✗ ${id.slice(0, 6)}: ${d?.error || "tak lengkap"}`);
           } catch (e: any) { edAddLog(`  ✗ ${id.slice(0, 6)}: ${e?.message || "error"}`); }
@@ -744,7 +744,7 @@ export default function HistoryGrid({
   // params, ONE retry). `fresh` carries text results generated moments ago so a
   // just-texted video uses its fresh title/subtitle. A video with NO text
   // (title/subtitle empty) is skipped — a cover cannot exist without text.
-  async function edRunCover(ids: string[], fresh?: Map<string, any>): Promise<{ ok: number; skip: number; doneIds: Set<string> }> {
+  async function edRunCover(ids: string[], fresh?: Map<string, any>, force = false): Promise<{ ok: number; skip: number; doneIds: Set<string> }> {
     const COVER_RETRIES = 1;
     const doneIds = new Set<string>();
     let ok = 0, skip = 0, idx = 0;
@@ -760,7 +760,7 @@ export default function HistoryGrid({
         let d0 = false;
         for (let attempt = 0; attempt <= COVER_RETRIES && !d0; attempt++) {
           try {
-            const { ok: rok, d } = await edFetchJson("/api/extension/generate-cover", { history_id: id, cover_title: title, cover_subtitle: sub }, 300000);
+            const { ok: rok, d } = await edFetchJson("/api/extension/generate-cover", { history_id: id, cover_title: title, cover_subtitle: sub, force }, 300000);
             if (rok && (d.cover_thumbnail_url || d.url)) { ok++; d0 = true; doneIds.add(id); edMarkDone(id); }
             else if (attempt < COVER_RETRIES) { edAddLog(`  … ${id.slice(0, 6)}: cuba lagi (${d?.error || "gagal"})`); }
             else edAddLog(`  ✗ ${id.slice(0, 6)}: ${d?.error || "cover gagal"}`);
@@ -943,6 +943,27 @@ export default function HistoryGrid({
   async function edUnframe(framedId: string) {
     await fetch("/api/editor/unframe", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ history_ids: [framedId] }) });
     edReload();
+  }
+
+  // ── Per-video re-generate (from the 📝 / 🎨 modals) ───────────────────────
+  // Same engines as the bulk flow, just scoped to one video, so the card
+  // animation + edProc guard behave identically.
+  async function edRegenText(id: string) {
+    const product: any = edProducts.find((p) => String(p.product_id) === edProduct);
+    if (!product) { edAddLog("⚠ Pilih produk dulu (header Editor) untuk jana Text."); return; }
+    if (edProcRef.current.has(id)) return;
+    edAddLog(`📝 Jana semula Text untuk ${id.slice(0, 6)}…`);
+    const res = await edRunText([id], product, true); // force = overwrite existing
+    edReload();
+    edAddLog(res.has(id) ? `  ✓ ${id.slice(0, 6)} Text siap` : `  ✗ ${id.slice(0, 6)} Text gagal`);
+  }
+  async function edRegenCover(id: string) {
+    if (edProcRef.current.has(id)) return;
+    if (!edHasText(id)) { edAddLog("⚠ Perlu Text dulu sebelum jana Cover."); return; }
+    edAddLog(`🎨 Jana semula Cover untuk ${id.slice(0, 6)}…`);
+    const { ok } = await edRunCover([id], undefined, true); // force = new cover
+    edReload();
+    edAddLog(ok ? `  ✓ ${id.slice(0, 6)} Cover siap` : `  ✗ ${id.slice(0, 6)} Cover gagal`);
   }
 
   // Reset — clear a video's Text + Cover so the 3 checkboxes (T/C/F) reappear.
@@ -1486,6 +1507,8 @@ export default function HistoryGrid({
                 onEdRemove={() => void edRemove(it.id)}
                 onEdUnframe={() => void edUnframe(it.id)}
                 onEdReset={() => void edReset(it.id)}
+                onEdRegenText={() => void edRegenText(it.id)}
+                onEdRegenCover={() => void edRegenCover(it.id)}
                 edProcOn={editorMode && edProc.has(it.id)}
                 edDoneOn={editorMode && edOk.has(it.id)}
                 donePostMode={donePostMode || transferAffiliateMode}
@@ -1697,6 +1720,8 @@ function HistoryCardInner({
   onEdRemove,
   onEdUnframe,
   onEdReset,
+  onEdRegenText,
+  onEdRegenCover,
   edProcOn,
   edDoneOn,
   donePostMode,
@@ -1724,6 +1749,8 @@ function HistoryCardInner({
   onEdRemove?: () => void;
   onEdUnframe?: () => void;
   onEdReset?: () => void;
+  onEdRegenText?: () => void;
+  onEdRegenCover?: () => void;
   edProcOn?: boolean;
   edDoneOn?: boolean;
   donePostMode?: boolean;
@@ -1734,6 +1761,7 @@ function HistoryCardInner({
   // Editor: view/edit generated Text (caption + cover title/subtitle) + view cover.
   const [edEditOpen, setEdEditOpen] = useState(false);
   const [edCoverView, setEdCoverView] = useState<string | null>(null);
+  const [edFrameInfo, setEdFrameInfo] = useState(false);
   const [edCap, setEdCap] = useState("");
   const [edCT, setEdCT] = useState("");
   const [edCS, setEdCS] = useState("");
@@ -2731,10 +2759,13 @@ function HistoryCardInner({
               <input value={edCT} onChange={(e) => setEdCT(e.target.value)} maxLength={80} className="w-full mb-3 px-3 py-2 rounded-lg text-[12px] font-extrabold uppercase" style={{ background: "var(--color-bg)", border: "1px solid var(--color-border)", color: "var(--color-text-primary)" }} />
               <label className="block text-[10px] uppercase tracking-wider font-bold text-[var(--color-text-muted)] mb-1">Cover Subtitle</label>
               <input value={edCS} onChange={(e) => setEdCS(e.target.value)} maxLength={200} className="w-full mb-4 px-3 py-2 rounded-lg text-[12px] font-bold uppercase" style={{ background: "var(--color-bg)", border: "1px solid var(--color-border)", color: "var(--color-text-primary)" }} />
-              <div className="flex gap-2">
+              <div className="flex gap-2 mb-2">
                 <button onClick={saveEdEdit} disabled={edSaving} className="flex-1 py-2 rounded-xl text-[12px] font-extrabold text-white disabled:opacity-50 inline-flex items-center justify-center gap-1.5" style={{ background: "linear-gradient(135deg,#f59e0b,#ea580c)" }}>{edSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : null} Simpan</button>
                 <button onClick={() => setEdEditOpen(false)} className="px-4 py-2 rounded-xl text-[12px] font-bold" style={{ background: "var(--color-bg)", border: "1px solid var(--color-border)" }}>Tutup</button>
               </div>
+              {/* Re-generate JUST the Text for this video (uses the product
+                  picked in the Editor header). Runs in background — close it. */}
+              <button onClick={() => { setEdEditOpen(false); onEdRegenText?.(); }} className="w-full py-2 rounded-xl text-[12px] font-extrabold text-white inline-flex items-center justify-center gap-1.5" style={{ background: "linear-gradient(135deg,#3b82f6,#60a5fa)" }}>📝 Jana Semula Text</button>
             </div>
           </div>
         </Portal>
@@ -2742,7 +2773,45 @@ function HistoryCardInner({
       {edCoverView && (
         <Portal>
           <div className="fixed inset-0 z-[210] flex items-center justify-center p-6" style={{ background: "rgba(0,0,0,0.88)" }} onClick={() => setEdCoverView(null)}>
-            <img src={edCoverView} alt="cover" className="max-w-full max-h-full object-contain rounded-lg" />
+            <div className="flex flex-col items-center gap-3 max-h-full" onClick={(e) => e.stopPropagation()}>
+              <img src={edCoverView} alt="cover" className="max-w-full flex-1 min-h-0 object-contain rounded-lg" />
+              {editorMode && (
+                <div className="flex gap-2 flex-shrink-0">
+                  {/* Re-generate JUST the Cover (force → new image, re-charges). */}
+                  <button onClick={() => { setEdCoverView(null); onEdRegenCover?.(); }} className="px-4 py-2 rounded-xl text-[12px] font-extrabold text-white inline-flex items-center gap-1.5" style={{ background: "linear-gradient(135deg,#f59e0b,#ea580c)" }}>🎨 Jana Semula Cover</button>
+                  <button onClick={() => setEdCoverView(null)} className="px-4 py-2 rounded-xl text-[12px] font-bold text-white" style={{ background: "rgba(255,255,255,0.12)" }}>Tutup</button>
+                </div>
+              )}
+            </div>
+          </div>
+        </Portal>
+      )}
+      {/* Frame details — 🎞️ Framed badge opens this. "Jana Semula Frame" undoes
+          the frame (original returns to the Editor with its Text + Cover intact)
+          so you can re-frame with different options. */}
+      {edFrameInfo && (
+        <Portal>
+          <div className="fixed inset-0 z-[210] flex items-center justify-center p-4" style={{ background: "rgba(0,0,0,0.75)" }} onClick={() => setEdFrameInfo(false)}>
+            <div className="w-full max-w-xs rounded-2xl p-5" style={{ background: "var(--color-bg-card)", border: "1px solid var(--color-border)" }} onClick={(e) => e.stopPropagation()}>
+              <div className="text-[13px] font-extrabold text-[var(--color-text-primary)] mb-3">🎞️ Frame</div>
+              <div className="space-y-1.5 mb-4 text-[11px]">
+                {([
+                  ["Jenis", String((item.metadata as any)?.frame_mode || "static")],
+                  ["Durasi intro", `${(item.metadata as any)?.frame_duration || 1} saat`],
+                  ...((item.metadata as any)?.frame_animation ? [["Gerakan", String((item.metadata as any).frame_animation)]] : []),
+                ] as [string, string][]).map(([k, v]) => (
+                  <div key={k} className="flex justify-between gap-2">
+                    <span className="text-[var(--color-text-muted)]">{k}</span>
+                    <span className="font-bold text-[var(--color-text-primary)]">{v}</span>
+                  </div>
+                ))}
+              </div>
+              <button onClick={() => { setEdFrameInfo(false); onEdUnframe?.(); }} className="w-full py-2 mb-2 rounded-xl text-[12px] font-extrabold text-white inline-flex items-center justify-center gap-1.5" style={{ background: "linear-gradient(135deg,#7c3aed,#a78bfa)" }}>
+                <Undo2 className="w-4 h-4" /> Jana Semula Frame
+              </button>
+              <p className="text-[9px] text-[var(--color-text-muted)] mb-2">Frame dibuang, video asal balik ke Editor (Text + Cover kekal) — tick <b>F</b> dan tekan Frame untuk jana yang baru.</p>
+              <button onClick={() => setEdFrameInfo(false)} className="w-full py-2 rounded-xl text-[12px] font-bold" style={{ background: "var(--color-bg)", border: "1px solid var(--color-border)", color: "var(--color-text-secondary)" }}>Tutup</button>
+            </div>
           </div>
         </Portal>
       )}
@@ -3986,7 +4055,7 @@ function HistoryCardInner({
                   the original). Otherwise the normal Remove-from-Editor. */}
               {(item.metadata as any)?.framed_from ? (
                 <>
-                  <span className="inline-flex items-center h-6 px-2 rounded-md text-[10px] font-extrabold text-white" style={{ background: "linear-gradient(135deg,#7c3aed,#a78bfa)" }} title="Video ada intro cover 1s">🎞️ Framed</span>
+                  <button onClick={() => setEdFrameInfo(true)} className="inline-flex items-center h-6 px-2 rounded-md text-[10px] font-extrabold text-white" style={{ background: "linear-gradient(135deg,#7c3aed,#a78bfa)" }} title="Lihat detail frame / jana semula">🎞️ Framed</button>
                   <ActionBtn title="Undo Frame — buang intro, pulihkan video asal" onClick={() => onEdUnframe?.()} bg="linear-gradient(135deg,#7c3aed,#a78bfa)">
                     <Undo2 className="w-3.5 h-3.5" strokeWidth={2.4} />
                   </ActionBtn>

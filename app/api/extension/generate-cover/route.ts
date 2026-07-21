@@ -78,7 +78,9 @@ export async function POST(req: Request) {
   const meta = (src.metadata as Record<string, any>) || {};
   // Idempotent — a cover already generated for this video is reused, so a retry
   // or a re-opened picker never re-charges or re-generates.
-  if (meta.cover_thumbnail_url) {
+  // `force: true` (Editor "Jana Semula Cover") deliberately bypasses the cache
+  // to produce a NEW cover — it re-charges, so only the Editor sends it.
+  if (meta.cover_thumbnail_url && body?.force !== true) {
     return NextResponse.json({ ok: true, cover_thumbnail_url: meta.cover_thumbnail_url, cached: true });
   }
 
