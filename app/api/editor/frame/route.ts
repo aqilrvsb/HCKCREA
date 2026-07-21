@@ -68,7 +68,7 @@ export async function POST(req: Request) {
     .eq("user_id", user.id);
   const rows = sources || [];
 
-  const results: { id: string; status: "done" | "failed" | "skip"; framed_id?: string; reason?: string }[] = [];
+  const results: { id: string; status: "done" | "failed" | "skip"; framed_id?: string; reason?: string; need_cover?: boolean }[] = [];
 
   for (const id of ids) {
     const src = rows.find((r) => r.id === id);
@@ -81,19 +81,40 @@ export async function POST(req: Request) {
     if (!coverUrl) { results.push({ id, status: "skip", reason: "tiada cover — jana Cover dulu" }); continue; }
     if (meta.framed_child) { results.push({ id, status: "skip", reason: "sudah di-frame" }); continue; }
 
-    // Covers generated before the B2 rehost live on a provider CDN that EXPIRES
-    // (aitohumanize). A dead cover makes fal/Modal/Grok fail with a cryptic
-    // "failed to parse input_reference". Check it's actually fetchable first and
-    // fail with an actionable message instead — and never create a placeholder.
-    try {
-      const head = await fetch(coverUrl, { method: "HEAD" });
-      if (!head.ok) {
-        results.push({ id, status: "skip", reason: "cover dah expired — tekan Reset lalu jana Cover semula" });
+    // ── Heal non-B2 covers ────────────────────────────────────────────────
+    // Covers made before the B2 rehost live on a provider CDN that EXPIRES,
+    // which made fal/Modal/Grok fail with a cryptic "failed to parse
+    // input_reference". So before framing:
+    //   • not on our B2 but still alive → REHOST it to B2 (free, same image)
+    //   • not on our B2 and dead        → CLEAR it (Cover checkbox comes back)
+    //                                     and tell the user to re-generate
+    let coverForFrame = coverUrl;
+    if (!coverUrl.includes("peninglab-content")) {
+      let alive = false;
+      try { alive = (await fetch(coverUrl, { method: "HEAD" })).ok; } catch { alive = false; }
+      if (alive) {
+        try {
+          const rehosted = await rehostToContent({
+            url: coverUrl, userId: user.id, historyId: `${src.id}-cover`,
+            type: "image", fallbackExt: "png",
+          });
+          if (rehosted && rehosted.includes("peninglab-content")) {
+            coverForFrame = rehosted;
+            await admin.from("history")
+              .update({ metadata: { ...meta, cover_thumbnail_url: rehosted } })
+              .eq("id", src.id).eq("user_id", user.id);
+            meta.cover_thumbnail_url = rehosted;
+          }
+        } catch { /* fall through — try the original URL */ }
+      } else {
+        // Dead cover → clear it so the Cover checkbox reappears.
+        const cleared = { ...meta };
+        delete cleared.cover_thumbnail_url;
+        delete cleared.cover_thumbnail_row;
+        await admin.from("history").update({ metadata: cleared }).eq("id", src.id).eq("user_id", user.id);
+        results.push({ id, status: "skip", need_cover: true, reason: "cover dah expired — dah dibuang, jana Cover semula" });
         continue;
       }
-    } catch {
-      results.push({ id, status: "skip", reason: "cover tak boleh diakses — jana Cover semula" });
-      continue;
     }
 
     // Paid modes — check credits BEFORE we touch anything (so we never hide the
@@ -111,7 +132,7 @@ export async function POST(req: Request) {
       frame_mode: mode,
       frame_animation: animate ? animation : null,
       frame_duration: duration,
-      cover_thumbnail_url: coverUrl,
+      cover_thumbnail_url: coverForFrame,
       cover_title: meta.cover_title || null,
       cover_subtitle: meta.cover_subtitle || null,
       tiktok_product_id: meta.tiktok_product_id || null,
@@ -181,7 +202,7 @@ export async function POST(req: Request) {
         const prompt = withNoIndon(
           `${dialog}. Malaysian presenter and setting, natural Bahasa Melayu Malaysia delivery, vertical 9:16 cinematic UGC intro.`
         );
-        const intro = await generateGrokIntro({ coverUrl, prompt, durationSec: duration, userId: user.id });
+        const intro = await generateGrokIntro({ coverUrl: coverForFrame, prompt, durationSec: duration, userId: user.id });
         if (!intro.ok || !intro.url) {
           await markFailed(intro.error || "Grok gagal");
           results.push({ id, status: "failed", reason: intro.error || "grok gagal" });
@@ -205,7 +226,7 @@ export async function POST(req: Request) {
         const r = await fetch(MODAL_ANIMATE_ENDPOINT, {
           method: "POST", headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            cover_url: coverUrl, video_url: videoUrl,
+            cover_url: coverForFrame, video_url: videoUrl,
             animation, duration_sec: duration,
             user_id: user.id, history_id: framedId,
           }),
@@ -222,7 +243,7 @@ export async function POST(req: Request) {
         results.push({ id, status: "done", framed_id: framedId });
       } else {
         // ── STATIC — cover held via fal, then fal merge (free) ──
-        const clip = await falImageToVideo(coverUrl, duration);
+        const clip = await falImageToVideo(coverForFrame, duration);
         if (!clip.ok || !clip.url) { await markFailed(clip.error || "Intro clip gagal"); results.push({ id, status: "failed", reason: clip.error || "intro gagal" }); continue; }
         const merged = await falMergeVideos([clip.url, videoUrl]);
         if (!merged.ok || !merged.url) { await markFailed(merged.error || "Merge gagal"); results.push({ id, status: "failed", reason: merged.error || "merge gagal" }); continue; }

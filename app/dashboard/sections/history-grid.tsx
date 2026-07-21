@@ -942,6 +942,19 @@ export default function HistoryGrid({
               const { ok, d } = await edFetchJson("/api/editor/frame", { history_ids: [id], mode, duration, animation }, reqTimeout);
               const r = d?.results?.[0];
               if (ok && r?.status === "done") { doneSet.add(id); edMarkDone(id); edAddLog(`  ✓ ${id.slice(0, 6)} framed`); }
+              else if (r?.need_cover) {
+                // Cover sat on an expiring provider URL (not our B2) and is dead.
+                // Server already cleared it — regenerate a fresh B2 cover, then frame.
+                edAddLog(`  ⟳ ${id.slice(0, 6)}: cover lama dah expired — jana cover baru dulu…`);
+                const c = await edRunCover([id], undefined, true);
+                edMarkProc(id, true); // edRunCover clears it on exit; we're still framing
+                if (c.doneIds.has(id)) {
+                  const { ok: ok2, d: d2 } = await edFetchJson("/api/editor/frame", { history_ids: [id], mode, duration, animation }, reqTimeout);
+                  const r2 = d2?.results?.[0];
+                  if (ok2 && r2?.status === "done") { doneSet.add(id); edMarkDone(id); edAddLog(`  ✓ ${id.slice(0, 6)} framed (cover baru)`); }
+                  else edAddLog(`  ✗ ${id.slice(0, 6)}: ${r2?.reason || d2?.error || "gagal"}`);
+                } else edAddLog(`  ✗ ${id.slice(0, 6)}: cover baru gagal — jana Cover manual`);
+              }
               else edAddLog(`  ✗ ${id.slice(0, 6)}: ${r?.reason || d?.error || "gagal"}`);
             } catch (e: any) { edAddLog(`  ✗ ${id.slice(0, 6)}: ${e?.message || "error"}`); }
             finally { edMarkProc(id, false); }
