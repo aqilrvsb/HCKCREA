@@ -40,6 +40,25 @@ function rowDate(r: Row): string {
   return isNaN(d.getTime()) ? "" : klDate(d);
 }
 
+/** Cover thumbnail. Deliberately does NOT fall back to history.thumbnail_url —
+ *  that column holds the .mp4 itself, so an <img> on it always renders broken.
+ *  A dead cover URL (old covers sat on an expiring provider CDN) falls back to
+ *  a placeholder instead of the browser's broken-image icon. */
+function Thumb({ url }: { url?: string | null }) {
+  const [broken, setBroken] = useState(false);
+  if (!url || broken) {
+    return (
+      <span className="grid h-11 w-[26px] shrink-0 place-items-center rounded bg-white/5 text-[10px] text-white/30">
+        🎬
+      </span>
+    );
+  }
+  return (
+    <img src={url} alt="" onError={() => setBroken(true)}
+      className="h-11 w-[26px] shrink-0 rounded object-cover" />
+  );
+}
+
 export default function AffiliateReport({ projectId }: { projectId?: string | null }) {
   // Default window: the last 30 days, inclusive.
   const today = klDate(new Date());
@@ -237,12 +256,7 @@ export default function AffiliateReport({ projectId }: { projectId?: string | nu
                       return (
                         <div key={r.id} className="flex items-center gap-3 border-b border-white/5 px-4 py-2.5 last:border-b-0">
                           <span className="w-[86px] shrink-0 text-[11px] text-white/45">{rowDate(r)}</span>
-                          {m.cover_thumbnail_url || r.thumbnail_url ? (
-                            <img src={m.cover_thumbnail_url || r.thumbnail_url} alt=""
-                              className="h-11 w-[26px] shrink-0 rounded object-cover" />
-                          ) : (
-                            <span className="h-11 w-[26px] shrink-0 rounded bg-white/5" />
-                          )}
+                          <Thumb url={m.cover_thumbnail_url} />
                           <span className="min-w-0 flex-1">
                             <span className="block truncate text-xs text-white/80">
                               {m.cover_title || r.caption || m.caption || "—"}

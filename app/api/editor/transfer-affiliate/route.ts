@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { pushToNlAffiliate, nlAffiliateConfigured, klToday } from "@/lib/nl-affiliate";
+import { rehostToContent } from "@/lib/b2";
 
 // POST /api/editor/transfer-affiliate
 //   { history_ids: string[], email?, name?, undo?: boolean }
@@ -63,6 +64,31 @@ export async function POST(req: Request) {
       m.affiliate_transfer_date = today; // KL date — what Reporting groups by
       m.in_editor = false; // leaves the Editor
 
+      // Cover check — older covers live on a provider CDN that EXPIRES, and
+      // sending a dead link means the affiliate sees a broken thumbnail on
+      // their side (which we can't fix remotely afterwards). So verify it, and
+      // rather than ship a 404, send no thumbnail at all.
+      let coverUrl: string | null = m.cover_thumbnail_url ?? null;
+      if (coverUrl && !coverUrl.includes("peninglab-content")) {
+        let alive = false;
+        try { alive = (await fetch(coverUrl, { method: "HEAD" })).ok; } catch { alive = false; }
+        if (alive) {
+          try {
+            const hosted = await rehostToContent({
+              url: coverUrl, userId: user.id, historyId: `${row.id}-cover`,
+              type: "image", fallbackExt: "png",
+            });
+            if (hosted?.includes("peninglab-content")) { coverUrl = hosted; m.cover_thumbnail_url = hosted; }
+          } catch { /* keep the original — it responded to HEAD */ }
+        } else {
+          // Dead. Drop it locally too so the Cover checkbox comes back.
+          coverUrl = null;
+          delete m.cover_thumbnail_url;
+          delete m.cover_thumbnail_row;
+          m.affiliate_cover_missing = true;
+        }
+      }
+
       // Push to the affiliate's platform. source_id makes retries safe, so a
       // failure here never blocks the transfer — it's recorded and retryable.
       if (nlAffiliateConfigured()) {
@@ -72,7 +98,7 @@ export async function POST(req: Request) {
           caption: row.caption ?? m.caption ?? null,
           coverTitle: m.cover_title ?? null,
           coverSubtitle: m.cover_subtitle ?? null,
-          coverThumbnailUrl: m.cover_thumbnail_url ?? null,
+          coverThumbnailUrl: coverUrl,
           date: today,
           sourceId: `peninglab-history-${row.id}`,
         });
