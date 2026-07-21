@@ -91,9 +91,8 @@ export async function p4CreateNanoBanana(input: {
 }
 
 // GPT Image 2. Different endpoint than Nano Banana (Grsai routes them
-// separately). aspectRatio takes pixel strings (e.g. "1024x1024"), not
-// "16:9" — the cascade caller is responsible for translating if needed.
-// We default to 1024x1024 which matches the cascade's text-only Storytelling fallback.
+// separately). aspectRatio accepts a RATIO ("9:16") or a 1K pixel string
+// ("1024x1024") — see gptImageAspect below, which normalises per model.
 export async function p4CreateGptImage(input: {
   prompt: string;
   model?: string;
@@ -140,21 +139,40 @@ export async function p4CreateImage(input: {
     return p4CreateGptImage({
       prompt: input.prompt,
       model: input.model,
-      aspectRatio: aspectRatioToPixels(input.aspectRatio),
+      aspectRatio: gptImageAspect(input.aspectRatio, input.model || "gpt-image-2"),
       imageUrls: input.imageUrls,
     });
   }
   return p4CreateNanoBanana(input);
 }
 
-// "9:16" / "16:9" / "1:1" → closest gpt-image-2 pixel size. Grsai's
-// gpt-image endpoint demands pixel strings, not ratios, so we map here.
-function aspectRatioToPixels(ratio?: string): string {
-  switch ((ratio || "").trim()) {
-    case "16:9": return "1536x1024";
-    case "9:16": return "1024x1536";
-    case "1:1":  return "1024x1024";
-    default:     return "1024x1024";
+// Aspect ratio for Grsai's gpt-image endpoint.
+//
+// Per Grsai's docs, `gpt-image-2` accepts a RATIO directly ("9:16" → 941x1672)
+// as well as 1K pixel strings. Only `gpt-image-2-vip` is pixel-only.
+//
+// This used to map every ratio to pixels, and mapped "9:16" → "1024x1536" —
+// which is Grsai's own 2:3 size (0.667), not 9:16 (0.5625). Every 9:16 image
+// (covers, storyboards, references) silently came back 2:3. Passing the ratio
+// through fixes all of them at once.
+function gptImageAspect(ratio: string | undefined, model: string): string {
+  const r = (ratio || "").trim();
+  if (!model.toLowerCase().includes("vip")) {
+    // Ratios AND explicit pixel strings both pass through untouched.
+    return r || "1:1";
+  }
+  // gpt-image-2-vip does NOT accept ratios — pixel values only (2K tier).
+  switch (r) {
+    case "16:9": return "2048x1152";
+    case "9:16": return "1152x2048";
+    case "1:1":  return "2048x2048";
+    case "4:3":  return "2304x1728";
+    case "3:4":  return "1728x2304";
+    case "3:2":  return "2048x1360";
+    case "2:3":  return "1360x2048";
+    case "4:5":  return "1792x2240";
+    case "5:4":  return "2240x1792";
+    default:     return /^\d+x\d+$/.test(r) ? r : "2048x2048";
   }
 }
 
