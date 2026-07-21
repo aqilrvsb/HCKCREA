@@ -824,9 +824,10 @@ export default function HistoryGrid({
     try {
       edAddLog(`Generate Text "${product.product_name || product.name}" untuk ${ids.length} video…`);
       const res = await edRunText(ids, product);
-      // Keep ONLY the failed ones ticked → re-press Generate retries just those.
+      // Untick only what THIS batch finished — a second batch ticked while this
+      // one was running keeps its ticks (parallel runs must not clobber them).
       const failed = ids.filter((id) => !res.has(id));
-      setEdText(new Set(failed));
+      setEdText((prev) => { const n = new Set(prev); ids.forEach((id) => { if (res.has(id)) n.delete(id); }); return n; });
       edReload();
       edAddLog(`✓ Text siap — ${res.size}/${ids.length} lengkap.${failed.length ? ` ${failed.length} gagal — masih bertanda, tekan Generate untuk cuba lagi.` : ""}`);
     } finally { setEdBusyText(false); }
@@ -855,9 +856,9 @@ export default function HistoryGrid({
     try {
       edAddLog(`Generate Cover untuk ${ids.length} video…${already ? ` (${already} dah ada cover)` : ""}`);
       const { ok, skip, doneIds } = await edRunCover(ids);
-      // Keep ONLY the failed ones ticked → re-press retries just those.
+      // Untick only what THIS batch finished — see edRunText note above.
       const failed = ids.filter((id) => !doneIds.has(id));
-      setEdCover(new Set(failed));
+      setEdCover((prev) => { const n = new Set(prev); ids.forEach((id) => { if (doneIds.has(id)) n.delete(id); }); return n; });
       edReload();
       edAddLog(`✓ Cover siap — ${ok}/${ids.length}${skip ? `, ${skip} skip` : ""}${failed.length ? ` · ${failed.length} gagal — masih bertanda, tekan Generate untuk cuba lagi` : ""}.`);
     } finally { setEdBusyCover(false); }
@@ -880,7 +881,8 @@ export default function HistoryGrid({
         edAddLog(`① Text "${product.product_name || product.name}" untuk ${textIds.length} video…`);
         fresh = await edRunText(textIds, product);
         const failedText = textIds.filter((id) => !fresh!.has(id));
-        setEdText(new Set(failedText)); // keep only failures ticked
+        // Untick only this batch's successes; ticks added mid-run survive.
+        setEdText((prev) => { const n = new Set(prev); textIds.forEach((id) => { if (fresh!.has(id)) n.delete(id); }); return n; });
         edReload();
         edAddLog(`✓ Text siap — ${fresh.size}/${textIds.length} lengkap.${failedText.length ? ` ${failedText.length} gagal.` : ""}`);
       }
@@ -902,7 +904,7 @@ export default function HistoryGrid({
           // Keep only the covers that were ATTEMPTED and failed ticked (un-tick
           // succeeded + already-covered) → re-press retries just those.
           const failedCover = eligible.filter((id) => !doneIds.has(id));
-          setEdCover(new Set(failedCover));
+          setEdCover((prev) => { const n = new Set(prev); eligible.forEach((id) => { if (doneIds.has(id)) n.delete(id); }); return n; });
           edReload();
           edAddLog(`✓ Cover siap — ${ok}/${eligible.length}${skip ? `, ${skip} skip` : ""}${failedCover.length ? ` · ${failedCover.length} belum siap — masih bertanda` : ""}.`);
         } else if (!blocked) {
@@ -976,9 +978,9 @@ export default function HistoryGrid({
       // One automatic retry for the ones that failed (transient fal errors).
       const missing = ids.filter((id) => !doneSet.has(id));
       if (missing.length) { edAddLog(`Cuba semula ${missing.length} frame yang gagal…`); await runPass(missing); }
-      // Keep ONLY the failed ones ticked → re-press Frame retries just those.
+      // Untick only this batch's successes; ticks added mid-run survive.
       const failed = ids.filter((id) => !doneSet.has(id));
-      setEdFrame(new Set(failed));
+      setEdFrame((prev) => { const n = new Set(prev); ids.forEach((id) => { if (doneSet.has(id)) n.delete(id); }); return n; });
       edReload();
       edAddLog(`✓ Frame siap — ${doneSet.size}/${ids.length}.${failed.length ? ` ${failed.length} gagal — masih bertanda, tekan Frame untuk cuba lagi.` : ""}`);
     } finally { setEdBusyFrame(false); }
