@@ -15,6 +15,7 @@ import {
   Sparkles,
   Scissors,
   Send,
+  Users,
 } from "lucide-react";
 import ImageTab from "./tabs/image";
 import ImageTabWithMode from "./tabs/image-with-mode";
@@ -44,6 +45,7 @@ import LivechatPanel from "./sections/livechat-panel";
 import { SopButton } from "./sections/sop-modal";
 import { SOP_CONTENT } from "@/lib/sop-content";
 import Sidebar, { type Project, type SidebarView } from "./sidebar";
+import { createClient } from "@/lib/supabase/client";
 
 type TabKey =
   | "image"
@@ -57,6 +59,7 @@ type TabKey =
   | "auto-ugc"
   | "editor"
   | "done-post"
+  | "transfer-affiliate"
   | "fairytale"
   | "original-video";
 
@@ -93,6 +96,10 @@ const TABS: { key: TabKey; label: string; icon: any; tag: string }[] = [
   // Done Post — read-only grid of videos already auto-posted to TikTok by the
   // extension; select + bulk "Undo Post" sends them back to the Editor.
   { key: "done-post", label: "Done Post",    icon: Send,      tag: "4d" },
+  // Transfer Affiliate — videos assigned to an affiliate (tag + record). Hidden
+  // from every other grid; shows here with the affiliate email. Nav entry only
+  // appears when Affiliate mode is toggled on in Settings.
+  { key: "transfer-affiliate", label: "Transfer Affiliate", icon: Users, tag: "4e" },
   // Viral + Seedance tabs hidden per user direction. Routes + imports kept
   // so existing history rows still render; re-enable by uncommenting.
   // { key: "seedance",  label: "Cinema",       icon: Film,      tag: "--" },
@@ -148,7 +155,25 @@ export default function DashboardShell({
   // Restricted-tab gate. Auto UGC only shows for the allowlisted accounts;
   // everyone else never sees it in the nav or the body. Server enforces too.
   const canAutoUgc = canSeeAutoUgc(email);
-  const visibleTabs = canAutoUgc ? TABS : TABS.filter((t) => t.key !== "auto-ugc");
+  // Affiliate mode toggle (Settings) → controls whether the Transfer Affiliate
+  // tab shows + whether the Editor exposes its Transfer Affiliate controls.
+  const [affEnabled, setAffEnabled] = useState(false);
+  const [affContacts, setAffContacts] = useState<{ name: string; email: string }[]>([]);
+  useEffect(() => {
+    (async () => {
+      try {
+        const sb = createClient();
+        const { data: { user } } = await sb.auth.getUser();
+        if (!user) return;
+        const { data } = await sb.from("profiles").select("settings").eq("id", user.id).maybeSingle();
+        const s = (data?.settings || {}) as any;
+        setAffEnabled(!!s.affiliate_enabled);
+        setAffContacts(Array.isArray(s.affiliate_contacts) ? s.affiliate_contacts : []);
+      } catch { /* keep defaults */ }
+    })();
+  }, []);
+  const visibleTabs = (canAutoUgc ? TABS : TABS.filter((t) => t.key !== "auto-ugc"))
+    .filter((t) => affEnabled || t.key !== "transfer-affiliate");
 
   // Live credit balance — initialised from the server-rendered prop, then
   // refreshed via /api/me/credits. Triggers:
@@ -470,6 +495,7 @@ function resolveActiveSop(view: SidebarView, activeTab: TabKey) {
       "auto-ugc": "auto-content",
       editor: "auto-content", // never used — Editor opens its own /editor page
       "done-post": "auto-content",
+      "transfer-affiliate": "auto-content",
 
       cinema: "story",
       grok: "story",
@@ -728,6 +754,9 @@ function ProjectView({
           )}
           {activeTab === "done-post" && (
             <HistoryGrid tab="original-video" donePostMode title="Done Post" projectId={project.id} />
+          )}
+          {activeTab === "transfer-affiliate" && (
+            <HistoryGrid tab="original-video" transferAffiliateMode title="Transfer Affiliate" projectId={project.id} />
           )}
         </div>
       )}

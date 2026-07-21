@@ -81,6 +81,21 @@ export async function POST(req: Request) {
     if (!coverUrl) { results.push({ id, status: "skip", reason: "tiada cover — jana Cover dulu" }); continue; }
     if (meta.framed_child) { results.push({ id, status: "skip", reason: "sudah di-frame" }); continue; }
 
+    // Covers generated before the B2 rehost live on a provider CDN that EXPIRES
+    // (aitohumanize). A dead cover makes fal/Modal/Grok fail with a cryptic
+    // "failed to parse input_reference". Check it's actually fetchable first and
+    // fail with an actionable message instead — and never create a placeholder.
+    try {
+      const head = await fetch(coverUrl, { method: "HEAD" });
+      if (!head.ok) {
+        results.push({ id, status: "skip", reason: "cover dah expired — tekan Reset lalu jana Cover semula" });
+        continue;
+      }
+    } catch {
+      results.push({ id, status: "skip", reason: "cover tak boleh diakses — jana Cover semula" });
+      continue;
+    }
+
     // Paid modes — check credits BEFORE we touch anything (so we never hide the
     // original then fail on money).
     const paidCost = grok ? grokCost : animate ? ANIMATE_COST : 0;
@@ -137,11 +152,14 @@ export async function POST(req: Request) {
       delete om.hidden_by_frame; delete om.framed_child;
       await admin.from("history").update({ metadata: { ...om, in_editor: true } }).eq("id", src.id).eq("user_id", user.id);
     };
-    const markFailed = async (msg: string) => {
-      await admin.from("history").update({
-        status: "failed", error_message: msg,
-        metadata: { ...baseMeta, in_editor: false, frame_status: "failed" },
-      }).eq("id", framedId);
+    // On failure DELETE the placeholder row entirely. Leaving it as a failed row
+    // leaked it into the normal tabs with a Resubmit button — but a framed row
+    // isn't a normal generation (no task_id / reference_url), so Resubmit re-ran
+    // it as a plain video gen and produced cryptic provider errors
+    // ("failed to parse input_reference"). The original is restored instead and
+    // the reason is surfaced in the Editor log.
+    const markFailed = async (_msg: string) => {
+      await admin.from("history").delete().eq("id", framedId).eq("user_id", user.id);
       await restoreOriginal();
     };
     const finishDone = async (outputUrl: string) => {

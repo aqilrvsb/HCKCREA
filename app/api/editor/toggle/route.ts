@@ -29,11 +29,23 @@ export async function POST(req: Request) {
   if (!row || row.user_id !== user.id) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
-  const meta = (row.metadata || {}) as Record<string, any>;
+  const meta = { ...((row.metadata || {}) as Record<string, any>) };
+  const patch: Record<string, any> = {};
+  if (inEditor) {
+    // Transferring INTO the Editor = fresh start. Clear any previously
+    // generated Text / Cover (and the product stamp) so the T / C / F
+    // checkboxes all come back and nothing stale is carried over.
+    for (const k of ["cover_thumbnail_url", "cover_thumbnail_row", "cover_title", "cover_subtitle", "tiktok_product_id", "product_name", "caption"]) {
+      delete meta[k];
+    }
+    patch.caption = null;
+  }
+  meta.in_editor = inEditor;
   await admin
     .from("history")
-    .update({ metadata: { ...meta, in_editor: inEditor } })
-    .eq("id", historyId);
+    .update({ ...patch, metadata: meta })
+    .eq("id", historyId)
+    .eq("user_id", user.id);
 
   return NextResponse.json({ ok: true, in_editor: inEditor });
 }

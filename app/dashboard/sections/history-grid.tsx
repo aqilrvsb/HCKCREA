@@ -202,6 +202,7 @@ export default function HistoryGrid({
   hideViralSubTabs,
   editorMode,
   donePostMode,
+  transferAffiliateMode,
 }: {
   tab:
     | "image"
@@ -230,6 +231,10 @@ export default function HistoryGrid({
    *  the extension (posted_to_tiktok=true). Each card is view-only + a select
    *  checkbox; a bulk "Undo Post" sends the picked videos back to the Editor. */
   donePostMode?: boolean;
+  /** Transfer Affiliate mode — videos assigned to an affiliate (tag + record).
+   *  Hidden from every other grid; shown here with the affiliate email + a bulk
+   *  "Undo Transfer" that sends them back to the Editor. */
+  transferAffiliateMode?: boolean;
 }) {
   const [page, setPage] = useState(0);
   // Done-Post selection (only used when donePostMode) + busy flag.
@@ -270,7 +275,7 @@ export default function HistoryGrid({
   // Video tabs share the Editor's denser layout (6 per row). Image / Clone /
   // Storytelling keep the roomier 4-per-row grid.
   const isVideoTab = ["video", "original-video", "auto", "auto-ugc", "cinema", "grok", "seedance", "sora2"].includes(tab);
-  const sixPerRow = editorMode || donePostMode || isVideoTab;
+  const sixPerRow = editorMode || donePostMode || transferAffiliateMode || isVideoTab;
   // 6-per-row grids = 6 columns × 4 rows = 24 per page. 4-per-row grids = 12.
   const PAGE_SIZE = sixPerRow ? 24 : 12;
 
@@ -365,8 +370,8 @@ export default function HistoryGrid({
   // is pending AND when the tab is hidden — same behaviour as the old
   // interval, just expressed declaratively.
   const swrKey = useMemo(
-    () => ["history", donePostMode ? "doneposted" : editorMode ? "editor" : tab, projectId || "", storytellingSubTab, viralSubTab, viralFeature] as const,
-    [tab, projectId, storytellingSubTab, viralSubTab, viralFeature, editorMode, donePostMode]
+    () => ["history", transferAffiliateMode ? "affiliate" : donePostMode ? "doneposted" : editorMode ? "editor" : tab, projectId || "", storytellingSubTab, viralSubTab, viralFeature] as const,
+    [tab, projectId, storytellingSubTab, viralSubTab, viralFeature, editorMode, donePostMode, transferAffiliateMode]
   );
   const { data: items = [], isLoading: loading, mutate: mutateItems } = useSWR<HistoryItem[]>(
     swrKey,
@@ -381,7 +386,10 @@ export default function HistoryGrid({
         .from("history")
         .select("*")
         .order("created_at", { ascending: false });
-      if (donePostMode) {
+      if (transferAffiliateMode) {
+        // Transfer Affiliate grid — videos assigned to an affiliate (any tab).
+        q = q.eq("type", "video").filter("metadata->>affiliate_transferred", "eq", "true");
+      } else if (donePostMode) {
         // Done Post grid — videos already auto-posted to TikTok (any tab).
         q = q.eq("type", "video").eq("posted_to_tiktok", true);
       } else if (editorMode) {
@@ -566,6 +574,11 @@ export default function HistoryGrid({
     return parents.filter((p) => {
       // Done Post grid — every video already auto-posted (fetcher already
       // scoped posted_to_tiktok=true); no TTL, no editor/image sub-filters.
+      // Transfer Affiliate grid — fetcher already scoped it; show everything.
+      if (transferAffiliateMode) return true;
+      // Assigned to an affiliate → hidden from EVERY other grid (Editor, normal
+      // tabs, Done Post) until Undo Transfer sends it back.
+      if ((p.metadata as any)?.affiliate_transferred) return false;
       if (donePostMode) return true;
       // Framed original — replaced by its framed (intro+video) row; hidden from
       // every grid until Undo Frame restores it.
@@ -602,7 +615,7 @@ export default function HistoryGrid({
       if (!past) return true;
       return saved;
     });
-  }, [parents, saveStatus, tab, imgSubTab, vidModelTab, editorMode, donePostMode]);
+  }, [parents, saveStatus, tab, imgSubTab, vidModelTab, editorMode, donePostMode, transferAffiliateMode]);
 
   // ── Editor mode: load products + Text/Cover bulk generation ──────────────
   useEffect(() => {
@@ -971,6 +984,26 @@ export default function HistoryGrid({
       else pageItems.forEach((v) => n.add(v.id));
       return n;
     });
+  // Transfer Affiliate tab — send the picked videos back to the Editor.
+  async function affUndo() {
+    const ids = [...dpSel].filter((id) => visibleParents.some((v) => v.id === id));
+    if (!ids.length) return;
+    if (!confirm(`Undo Transfer ${ids.length} video? Ia akan kembali ke tab Editor.`)) return;
+    setDpBusy(true);
+    try {
+      const r = await fetch("/api/editor/transfer-affiliate", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ history_ids: ids, undo: true }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) { alert(d?.error || "Undo gagal"); return; }
+      setDpSel(new Set());
+      window.dispatchEvent(new CustomEvent("history:refresh"));
+      void mutateItems();
+    } catch (e: any) { alert(e?.message || "Undo gagal"); }
+    finally { setDpBusy(false); }
+  }
+
   async function dpUndo() {
     const ids = [...dpSel].filter((id) => visibleParents.some((v) => v.id === id));
     if (!ids.length) return;
@@ -1116,6 +1149,21 @@ export default function HistoryGrid({
             </div>
           </div>
         </Portal>
+      )}
+
+      {transferAffiliateMode && (
+        <div className="mb-4 rounded-xl p-3" style={{ background: "var(--color-bg-card)", border: "1px solid var(--color-border)" }}>
+          <div className="flex flex-wrap gap-3 items-center">
+            <label className="flex items-center gap-1.5 text-xs font-extrabold cursor-pointer" style={{ color: "var(--color-text-primary)" }}>
+              <input type="checkbox" checked={dpAllOnPage} onChange={dpToggleAll} style={{ accentColor: "#8b5cf6", width: 15, height: 15 }} />
+              Select All
+            </label>
+            <span className="text-[11px] text-[var(--color-text-muted)] font-mono">{dpSel.size} dipilih</span>
+            <div className="flex-1" />
+            <button onClick={() => void affUndo()} disabled={dpBusy || dpSel.size === 0} className="text-xs font-extrabold px-4 py-1.5 rounded-lg text-white disabled:opacity-50 inline-flex items-center gap-1.5" style={{ background: "linear-gradient(135deg,#7c3aed,#a78bfa)" }}>{dpBusy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Undo2 className="w-4 h-4" />} Undo Transfer</button>
+          </div>
+          <p className="text-[10px] text-[var(--color-text-muted)] mt-1.5">Video yang dah di-transfer ke affiliate. <b>Lihat sahaja.</b> Tick + <b>Undo Transfer</b> untuk hantar balik ke Editor.</p>
+        </div>
       )}
 
       {donePostMode && (
@@ -1440,7 +1488,7 @@ export default function HistoryGrid({
                 onEdReset={() => void edReset(it.id)}
                 edProcOn={editorMode && edProc.has(it.id)}
                 edDoneOn={editorMode && edOk.has(it.id)}
-                donePostMode={donePostMode}
+                donePostMode={donePostMode || transferAffiliateMode}
                 dpOn={dpSel.has(it.id)}
                 onDpToggle={() => dpToggle(it.id)}
               />

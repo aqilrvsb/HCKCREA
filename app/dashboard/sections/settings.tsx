@@ -9,6 +9,8 @@ import {
   AlertCircle,
   User,
   Video,
+  Users,
+  X,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 
@@ -92,6 +94,57 @@ export default function SettingsSection({
       setSavingVp(false);
     }
   }
+
+  // ── Affiliate mode (tag + record) ──────────────────────────────────────────
+  // A toggle (default OFF) + a list of {name,email} affiliate contacts. When ON,
+  // the Editor shows a Transfer Affiliate flow that tags videos with one of
+  // these emails. Stored in profiles.settings jsonb (client-side, like WhatsApp).
+  const [affEnabled, setAffEnabled] = useState(false);
+  const [affContacts, setAffContacts] = useState<{ name: string; email: string }[]>([]);
+  const [affName, setAffName] = useState("");
+  const [affEmail, setAffEmail] = useState("");
+  const [savingAff, setSavingAff] = useState(false);
+  const [affMsg, setAffMsg] = useState<{ ok: boolean; text: string } | null>(null);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const sb = createClient();
+        const { data: { user } } = await sb.auth.getUser();
+        if (!user) return;
+        const { data } = await sb.from("profiles").select("settings").eq("id", user.id).maybeSingle();
+        const s = (data?.settings || {}) as any;
+        setAffEnabled(!!s.affiliate_enabled);
+        setAffContacts(Array.isArray(s.affiliate_contacts) ? s.affiliate_contacts : []);
+      } catch { /* keep defaults */ }
+    })();
+  }, []);
+
+  async function saveAffiliate(nextEnabled: boolean, nextContacts: { name: string; email: string }[]) {
+    setSavingAff(true); setAffMsg(null);
+    try {
+      const sb = createClient();
+      const { data: { user } } = await sb.auth.getUser();
+      if (!user) throw new Error("Not signed in");
+      const { data: cur } = await sb.from("profiles").select("settings").eq("id", user.id).maybeSingle();
+      const merged = { ...(((cur?.settings as any)) || {}), affiliate_enabled: nextEnabled, affiliate_contacts: nextContacts };
+      const { error } = await sb.from("profiles").update({ settings: merged }).eq("id", user.id);
+      if (error) throw error;
+      setAffEnabled(nextEnabled); setAffContacts(nextContacts);
+      setAffMsg({ ok: true, text: "Affiliate settings dah update." });
+    } catch (e: any) {
+      setAffMsg({ ok: false, text: e?.message || "Update failed" });
+    } finally { setSavingAff(false); }
+  }
+  const addAffContact = () => {
+    const nm = affName.trim(); const em = affEmail.trim().toLowerCase();
+    if (!em || !em.includes("@")) { setAffMsg({ ok: false, text: "Masukkan email affiliate yang sah." }); return; }
+    if (affContacts.some((c) => c.email === em)) { setAffMsg({ ok: false, text: "Email tu dah ada." }); return; }
+    const next = [...affContacts, { name: nm || em.split("@")[0], email: em }];
+    setAffName(""); setAffEmail("");
+    void saveAffiliate(affEnabled, next);
+  };
+  const removeAffContact = (em: string) => void saveAffiliate(affEnabled, affContacts.filter((c) => c.email !== em));
 
   async function saveWhatsapp() {
     setSavingWA(true);
@@ -233,6 +286,53 @@ export default function SettingsSection({
             )}
           </button>
         </div>
+      </section>
+
+      {/* Affiliate mode — toggle + name/email contacts. Powers the Editor's
+          Transfer Affiliate flow + the Transfer Affiliate tab. */}
+      <section className="card">
+        <div className="flex items-center justify-between gap-3 mb-5 pb-4 border-b border-[var(--color-border)]">
+          <div className="flex items-center gap-3">
+            <div className="w-11 h-11 rounded-2xl flex items-center justify-center" style={{ background: "rgba(139,92,246,0.1)", border: "1px solid rgba(139,92,246,0.3)" }}>
+              <Users className="w-5 h-5" style={{ color: "#a78bfa" }} />
+            </div>
+            <div>
+              <h2 className="font-display font-bold text-xl text-[var(--color-text-primary)]">Affiliate</h2>
+              <p className="text-xs text-[var(--color-text-muted)]">Transfer video ke affiliate (tag + rekod)</p>
+            </div>
+          </div>
+          <button onClick={() => void saveAffiliate(!affEnabled, affContacts)} disabled={savingAff} className="relative w-12 h-7 rounded-full transition-colors disabled:opacity-60 flex-shrink-0" style={{ background: affEnabled ? "#8b5cf6" : "var(--color-border)" }} title={affEnabled ? "Affiliate mode ON" : "Affiliate mode OFF"}>
+            <span className="absolute top-1 left-1 w-5 h-5 rounded-full bg-white transition-transform" style={{ transform: affEnabled ? "translateX(20px)" : "translateX(0)" }} />
+          </button>
+        </div>
+
+        {affEnabled ? (
+          <div className="space-y-3">
+            <div className="flex flex-col sm:flex-row gap-2">
+              <input className="input flex-1" placeholder="Nama affiliate" value={affName} onChange={(e) => setAffName(e.target.value)} />
+              <input className="input flex-1" placeholder="email@affiliate.com" value={affEmail} onChange={(e) => setAffEmail(e.target.value)} onKeyDown={(e) => e.key === "Enter" && addAffContact()} />
+              <button onClick={addAffContact} disabled={savingAff} className="btn-primary disabled:opacity-60 whitespace-nowrap">{savingAff ? <Loader2 className="w-4 h-4 animate-spin" /> : "Add"}</button>
+            </div>
+            {affMsg && <Notice ok={affMsg.ok} text={affMsg.text} />}
+            {affContacts.length === 0 ? (
+              <p className="text-xs text-[var(--color-text-muted)]">Belum ada affiliate. Tambah nama + email di atas.</p>
+            ) : (
+              <div className="space-y-2">
+                {affContacts.map((c) => (
+                  <div key={c.email} className="flex items-center justify-between gap-2 rounded-lg px-3 py-2" style={{ background: "var(--color-bg)", border: "1px solid var(--color-border)" }}>
+                    <div className="min-w-0">
+                      <div className="text-[13px] font-bold text-[var(--color-text-primary)] truncate">{c.name}</div>
+                      <div className="text-[11px] text-[var(--color-text-muted)] truncate">{c.email}</div>
+                    </div>
+                    <button onClick={() => removeAffContact(c.email)} disabled={savingAff} className="text-red-400 hover:text-red-300 disabled:opacity-50 flex-shrink-0" title="Buang affiliate"><X className="w-4 h-4" /></button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        ) : (
+          <p className="text-xs text-[var(--color-text-muted)]">Toggle ON untuk aktifkan mode Affiliate — Editor akan ada butang <b>Transfer Affiliate</b>.</p>
+        )}
       </section>
 
       {/* Video Provider card hidden — the 3-tier video cascade (p2 → p1
