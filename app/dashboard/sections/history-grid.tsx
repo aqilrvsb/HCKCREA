@@ -655,6 +655,15 @@ export default function HistoryGrid({
     })();
   }, [editorMode]);
 
+  // A video may only go to an affiliate once Text + Cover + Frame are ALL done
+  // — same three conditions the per-card "A" checkbox uses. Mirrors the card's
+  // textDone / coverDone / frameDone so Select All and the button can't pick up
+  // anything the checkbox itself would refuse.
+  const edAffReady = (v: HistoryItem) => {
+    const m = (v.metadata || {}) as any;
+    return !!(v.caption || m.caption || m.cover_title) && !!m.cover_thumbnail_url && !!m.framed_from;
+  };
+
   const edToggle = (set: Set<string>, setSet: (s: Set<string>) => void, id: string) => {
     const n = new Set(set);
     n.has(id) ? n.delete(id) : n.add(id);
@@ -985,8 +994,13 @@ export default function HistoryGrid({
   const edAffToggle = (id: string) =>
     setEdAffSel((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
   async function edTransferAffiliate() {
-    const ids = [...edAffSel].filter((id) => visibleParents.some((v) => v.id === id));
-    if (!ids.length) { edAddLog("⚠ Tick checkbox affiliate (hijau) pada video dulu."); return; }
+    // Final guard — a stale tick (e.g. Undo Frame after ticking) must never
+    // slip a half-finished video through to an affiliate.
+    const picked = [...edAffSel].filter((id) => visibleParents.some((v) => v.id === id));
+    const ids = picked.filter((id) => { const v = visibleParents.find((x) => x.id === id); return v && edAffReady(v); });
+    const blocked = picked.length - ids.length;
+    if (blocked > 0) edAddLog(`⚠ ${blocked} video dilangkau — Text + Cover + Frame kena siap dulu.`);
+    if (!ids.length) { edAddLog("⚠ Tick checkbox affiliate (hijau) pada video yang dah siap Text + Cover + Frame."); return; }
     const contact = edAffContacts.find((c) => c.email === edAffPick);
     if (!contact) { edAddLog("⚠ Pilih affiliate dulu."); return; }
     if (!confirm(`Transfer ${ids.length} video ke ${contact.name} (${contact.email})? Video akan keluar dari Editor.`)) return;
@@ -1175,8 +1189,8 @@ export default function HistoryGrid({
               <label className="flex items-center gap-1.5 text-xs font-extrabold cursor-pointer" style={{ color: "#22c55e" }}>
                 <input
                   type="checkbox"
-                  checked={(() => { const ids = pageItems.map((v) => v.id); return ids.length > 0 && ids.every((i) => edAffSel.has(i)); })()}
-                  onChange={() => { const ids = pageItems.map((v) => v.id); const allOn = ids.length > 0 && ids.every((i) => edAffSel.has(i)); const n = new Set(edAffSel); ids.forEach((i) => allOn ? n.delete(i) : n.add(i)); setEdAffSel(n); }}
+                  checked={(() => { const ids = pageItems.filter(edAffReady).map((v) => v.id); return ids.length > 0 && ids.every((i) => edAffSel.has(i)); })()}
+                  onChange={() => { const ids = pageItems.filter(edAffReady).map((v) => v.id); const allOn = ids.length > 0 && ids.every((i) => edAffSel.has(i)); const n = new Set(edAffSel); ids.forEach((i) => allOn ? n.delete(i) : n.add(i)); setEdAffSel(n); }}
                   style={{ accentColor: "#22c55e", width: 15, height: 15 }}
                 />
                 Select All Affiliate
@@ -1188,6 +1202,7 @@ export default function HistoryGrid({
               </select>
               <div className="flex-1" />
               <button onClick={() => void edTransferAffiliate()} disabled={edAffBusy || !edAffPick || edAffSel.size === 0} className="text-xs font-extrabold px-4 py-1.5 rounded-lg text-white disabled:opacity-50 inline-flex items-center gap-1.5" style={{ background: "linear-gradient(135deg,#16a34a,#4ade80)" }}>{edAffBusy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Users className="w-4 h-4" />} Transfer Affiliate</button>
+              <span className="text-[10px] text-[var(--color-text-muted)] w-full">Checkbox <b style={{ color: "#4ade80" }}>A</b> hanya terbuka bila video dah siap <b>Text + Cover + Frame</b> — affiliate tak patut terima video separuh siap.</span>
               {edAffContacts.length === 0 && <span className="text-[10px] text-[var(--color-text-muted)] w-full">Tiada affiliate lagi — tambah di Settings → Affiliate.</span>}
             </div>
           )}
@@ -2797,19 +2812,29 @@ function HistoryCardInner({
                   {edFrameOn ? <Check className="w-3.5 h-3.5" strokeWidth={3} /> : "F"}
                 </button>
               )}
-              {/* Affiliate select — only when Affiliate mode is ON in Settings. */}
-              {edAffShow && (
-                <button
-                  onClick={(e) => { e.stopPropagation(); onEdAff?.(); }}
-                  title="Pilih untuk Transfer Affiliate"
-                  className="w-6 h-6 rounded-md flex items-center justify-center shadow-lg border-2 text-[9px] font-extrabold"
-                  style={edAffOn
-                    ? { background: "#16a34a", borderColor: "#16a34a", color: "#fff" }
-                    : { background: "rgba(0,0,0,0.6)", borderColor: "#4ade80", color: "#4ade80" }}
-                >
-                  {edAffOn ? <Check className="w-3.5 h-3.5" strokeWidth={3} /> : "A"}
-                </button>
-              )}
+              {/* Affiliate select — only when Affiliate mode is ON in Settings,
+                  and ONLY once Text + Cover + Frame are all done. An affiliate
+                  should never receive a half-finished video (no caption, dead
+                  cover, no intro), so the checkbox stays locked until then. */}
+              {edAffShow && (() => {
+                const affReady = textDone && coverDone && frameDone;
+                const missing = [!textDone && "Text", !coverDone && "Cover", !frameDone && "Frame"].filter(Boolean).join(" + ");
+                return (
+                  <button
+                    onClick={(e) => { e.stopPropagation(); if (affReady) onEdAff?.(); }}
+                    disabled={!affReady}
+                    title={affReady ? "Pilih untuk Transfer Affiliate" : `Kena jana ${missing} dulu sebelum hantar ke affiliate`}
+                    className="w-6 h-6 rounded-md flex items-center justify-center shadow-lg border-2 text-[9px] font-extrabold"
+                    style={!affReady
+                      ? { background: "rgba(0,0,0,0.55)", borderColor: "rgba(148,163,184,0.5)", color: "rgba(148,163,184,0.8)", cursor: "not-allowed" }
+                      : edAffOn
+                        ? { background: "#16a34a", borderColor: "#16a34a", color: "#fff" }
+                        : { background: "rgba(0,0,0,0.6)", borderColor: "#4ade80", color: "#4ade80" }}
+                  >
+                    {affReady && edAffOn ? <Check className="w-3.5 h-3.5" strokeWidth={3} /> : "A"}
+                  </button>
+                );
+              })()}
             </div>
           </>
         );

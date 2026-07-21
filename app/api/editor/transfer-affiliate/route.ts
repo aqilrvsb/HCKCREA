@@ -45,9 +45,20 @@ export async function POST(req: Request) {
   let pushed = 0;
   let pushFailed = 0;
   const pushErrors: { id: string; error: string }[] = [];
+  const notReady: string[] = [];
 
   for (const row of rows || []) {
     const m = { ...((row.metadata as Record<string, any>) || {}) };
+
+    // Text + Cover + Frame must ALL be done before a video reaches an affiliate.
+    // Already-transferred rows are exempt so Reporting's "Hantar semula" can
+    // still retry a failed push.
+    if (!undo && !m.affiliate_transferred) {
+      const hasText = !!(row.caption || m.caption || m.cover_title);
+      const ready = hasText && !!m.cover_thumbnail_url && !!m.framed_from;
+      if (!ready) { notReady.push(row.id); continue; }
+    }
+
     if (undo) {
       // Back to the Editor. Ingest record is kept — their side already has the
       // post, and source_id keeps a re-transfer idempotent.
@@ -126,6 +137,10 @@ export async function POST(req: Request) {
   return NextResponse.json({
     ok: true,
     [undo ? "undone" : "transferred"]: done,
-    ...(undo ? {} : { pushed, push_failed: pushFailed, push_errors: pushErrors, push_enabled: nlAffiliateConfigured() }),
+    ...(undo ? {} : {
+      pushed, push_failed: pushFailed, push_errors: pushErrors,
+      push_enabled: nlAffiliateConfigured(),
+      not_ready: notReady,
+    }),
   });
 }
