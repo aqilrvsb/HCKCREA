@@ -17,6 +17,7 @@ import {
   CreditCard,
   Users,
   Activity,
+  BarChart3,
   Bookmark,
   MessageCircle,
   ArrowUpRight,
@@ -42,6 +43,9 @@ export type SidebarView =
   | { kind: "billing" }
   | { kind: "credit" }
   | { kind: "affiliate" }
+  // Reporting Affiliate lives under ACCOUNT, not the project tabs: transfers
+  // are recorded per USER, so the report spans every project.
+  | { kind: "affiliate-report" }
   | { kind: "usage" }
   | { kind: "saved-prompts" }
   | { kind: "storage" }
@@ -72,6 +76,7 @@ export default function Sidebar({
   mobileOpen,
   onMobileClose,
   isAffiliate = false,
+  affiliateMode = false,
 }: {
   email: string;
   name: string;
@@ -90,6 +95,8 @@ export default function Sidebar({
   /** True for users with an approved affiliate_applications row. Routes
    *  them to the affiliate-only WhatsApp group instead of the public one. */
   isAffiliate?: boolean;
+  /** Affiliate MODE (Settings toggle) — shows the Reporting Affiliate nav. */
+  affiliateMode?: boolean;
   // Project tabs (Image / UGC / Auto Content / etc.) — rendered inside the
   // sidebar when a project is active. Replaces the top tab pills so mobile
   // users can navigate from the same drawer they use for everything else.
@@ -627,6 +634,12 @@ export default function Sidebar({
             // boundary unnecessarily.
             ...(planActive && (plan === "pro" || plan === "premium")
               ? [{ kind: "affiliate" as const, label: "Affiliate", Icon: Users }]
+              : []),
+            // Reporting Affiliate — only when Affiliate mode is toggled on in
+            // Settings. Account-level (not per project) because a transfer is
+            // recorded against the USER, so the report covers all projects.
+            ...(affiliateMode
+              ? [{ kind: "affiliate-report" as const, label: "Reporting Affiliate", Icon: BarChart3 }]
               : []),
             { kind: "usage" as const, label: "Usage", Icon: Activity },
             // Saved Prompts hidden — per-tab agents now persist their

@@ -41,8 +41,11 @@ const ROW_SELECT =
 // a verbatim title/subtitle is the whole point of a cover.
 function buildCoverPrompt(title: string, subtitle: string, hasProduct: boolean): string {
   const productLine = hasProduct
-    ? `Reference image 2 is the PRODUCT — show it clearly and reproduce its packaging, label text, logo and colours EXACTLY (never restyle, recolour or invent). `
-    : ``;
+    ? `Reference image 2 is the PRODUCT — show it clearly and reproduce its packaging, label text, logo and colours EXACTLY (never restyle, recolour or invent). ` +
+      `The product MUST be the one in reference image 2 — do not substitute a different item even if the presenter is holding something else. `
+    // No product reference available — without this the model cheerfully
+    // invents a random bottle/box, which reads as a real (wrong) product.
+    : `Do NOT add, draw or invent any product, packaging, bottle, box or branded item — none is provided. Show ONLY the presenter, the text and the doodle accents. `;
   const headline = title ? `Add a bold headline reading EXACTLY "${title}"` : `Add a short bold headline`;
   const sub = subtitle ? ` and a smaller subheadline reading EXACTLY "${subtitle}"` : ``;
   return (
@@ -92,14 +95,54 @@ export async function POST(req: Request) {
   if (!firstFrame) {
     return NextResponse.json({ error: "No first-frame poster available for this video" }, { status: 422 });
   }
-  // Product image selection (per user direction): take the SECOND attachment
-  // when there is one (usually the cleaner packshot), else the FIRST. Only a
-  // single product photo is sent — the cover just needs one clean reference,
-  // not the whole set.
+  // ── Product reference ───────────────────────────────────────────────────
+  // The video's own first frame often shows ONLY the avatar/presenter (the
+  // product never appears on camera), so metadata.image_urls is not a reliable
+  // product source — with no product reference the model happily invents a
+  // random one. So take the photo of the ACTUAL assigned product first, looked
+  // up from the product cache by the row's tiktok_product_id, and only fall
+  // back to the generation's own attachments.
+  //   1. metadata.product_image_url  — explicitly stamped on the row
+  //   2. tiktok_product_cache        — the assigned product's real packshot
+  //   3. metadata.image_urls[1]||[0] — legacy: the video's own attachments
   const prodList = (Array.isArray(meta.image_urls) ? meta.image_urls : []).filter(
     (u: any) => typeof u === "string" && u.trim()
   );
-  const productImg = prodList[1] || prodList[0] || "";
+  let productImg = String(meta.product_image_url || "").trim();
+  if (!productImg && meta.tiktok_product_id) {
+    const pid = String(meta.tiktok_product_id);
+    const { data: prod } = await admin
+      .from("tiktok_product_cache")
+      .select("hosted_image_url, product_image_url")
+      .eq("product_id", pid)
+      .maybeSingle();
+    // product_image_url (TikTok's own CDN) FIRST — hosted_image_url is the RH
+    // mirror and expires after 24h, so it's only a fallback.
+    const raw = String(prod?.product_image_url || prod?.hosted_image_url || "").trim();
+    if (raw) {
+      // Both sources carry expiring token params. Rehost once onto our B2 and
+      // remember it on THIS row, so the generator always gets a stable image
+      // and later covers/frames skip the round trip. (Stamped on the row, not
+      // the shared product cache — that column means something else.)
+      try {
+        const hosted = await rehostToContent({
+          url: raw, userId: user.id, historyId: `product-${pid}`,
+          type: "image", fallbackExt: "webp",
+        });
+        productImg = hosted && hosted.includes("peninglab-content") ? hosted : raw;
+      } catch {
+        productImg = raw; // rehost failed — the raw CDN URL usually still works
+      }
+      if (productImg) {
+        await admin
+          .from("history")
+          .update({ metadata: { ...meta, product_image_url: productImg } })
+          .eq("id", src.id);
+        meta.product_image_url = productImg;
+      }
+    }
+  }
+  if (!productImg) productImg = prodList[1] || prodList[0] || "";
   const refImages = [firstFrame, ...(productImg ? [productImg] : [])];
   const prompt = buildCoverPrompt(coverTitle, coverSubtitle, !!productImg);
 
