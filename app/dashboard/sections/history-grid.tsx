@@ -655,13 +655,13 @@ export default function HistoryGrid({
     })();
   }, [editorMode]);
 
-  // A video may only go to an affiliate once Text + Cover + Frame are ALL done
-  // — same three conditions the per-card "A" checkbox uses. Mirrors the card's
-  // textDone / coverDone / frameDone so Select All and the button can't pick up
-  // anything the checkbox itself would refuse.
+  // A video may only go to an affiliate once Text + Cover are done. Frame is
+  // OPTIONAL (per user direction 2026-07-22) — an unframed video is still a
+  // complete post. Mirrors the card's textDone / coverDone so Select All and
+  // the button can't pick up anything the checkbox itself would refuse.
   const edAffReady = (v: HistoryItem) => {
     const m = (v.metadata || {}) as any;
-    return !!(v.caption || m.caption || m.cover_title) && !!m.cover_thumbnail_url && !!m.framed_from;
+    return !!(v.caption || m.caption || m.cover_title) && !!m.cover_thumbnail_url;
   };
 
   const edToggle = (set: Set<string>, setSet: (s: Set<string>) => void, id: string) => {
@@ -999,8 +999,8 @@ export default function HistoryGrid({
     const picked = [...edAffSel].filter((id) => visibleParents.some((v) => v.id === id));
     const ids = picked.filter((id) => { const v = visibleParents.find((x) => x.id === id); return v && edAffReady(v); });
     const blocked = picked.length - ids.length;
-    if (blocked > 0) edAddLog(`⚠ ${blocked} video dilangkau — Text + Cover + Frame kena siap dulu.`);
-    if (!ids.length) { edAddLog("⚠ Tick checkbox affiliate (hijau) pada video yang dah siap Text + Cover + Frame."); return; }
+    if (blocked > 0) edAddLog(`⚠ ${blocked} video dilangkau — Text + Cover kena siap dulu.`);
+    if (!ids.length) { edAddLog("⚠ Tick checkbox affiliate (hijau) pada video yang dah siap Text + Cover."); return; }
     const contact = edAffContacts.find((c) => c.email === edAffPick);
     if (!contact) { edAddLog("⚠ Pilih affiliate dulu."); return; }
     if (!confirm(`Transfer ${ids.length} video ke ${contact.name} (${contact.email})? Video akan keluar dari Editor.`)) return;
@@ -1202,7 +1202,7 @@ export default function HistoryGrid({
               </select>
               <div className="flex-1" />
               <button onClick={() => void edTransferAffiliate()} disabled={edAffBusy || !edAffPick || edAffSel.size === 0} className="text-xs font-extrabold px-4 py-1.5 rounded-lg text-white disabled:opacity-50 inline-flex items-center gap-1.5" style={{ background: "linear-gradient(135deg,#16a34a,#4ade80)" }}>{edAffBusy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Users className="w-4 h-4" />} Transfer Affiliate</button>
-              <span className="text-[10px] text-[var(--color-text-muted)] w-full">Checkbox <b style={{ color: "#4ade80" }}>A</b> hanya terbuka bila video dah siap <b>Text + Cover + Frame</b> — affiliate tak patut terima video separuh siap.</span>
+              <span className="text-[10px] text-[var(--color-text-muted)] w-full">Checkbox <b style={{ color: "#4ade80" }}>A</b> hanya terbuka bila video dah siap <b>Text + Cover</b>. Frame tak wajib — video tanpa frame pun boleh hantar.</span>
               {edAffContacts.length === 0 && <span className="text-[10px] text-[var(--color-text-muted)] w-full">Tiada affiliate lagi — tambah di Settings → Affiliate.</span>}
             </div>
           )}
@@ -2813,12 +2813,12 @@ function HistoryCardInner({
                 </button>
               )}
               {/* Affiliate select — only when Affiliate mode is ON in Settings,
-                  and ONLY once Text + Cover + Frame are all done. An affiliate
-                  should never receive a half-finished video (no caption, dead
-                  cover, no intro), so the checkbox stays locked until then. */}
+                  and ONLY once Text + Cover are done (Frame is optional). An
+                  affiliate should never receive a video with no caption or no
+                  cover, so the checkbox stays locked until both exist. */}
               {edAffShow && (() => {
-                const affReady = textDone && coverDone && frameDone;
-                const missing = [!textDone && "Text", !coverDone && "Cover", !frameDone && "Frame"].filter(Boolean).join(" + ");
+                const affReady = textDone && coverDone;
+                const missing = [!textDone && "Text", !coverDone && "Cover"].filter(Boolean).join(" + ");
                 return (
                   <button
                     onClick={(e) => { e.stopPropagation(); if (affReady) onEdAff?.(); }}

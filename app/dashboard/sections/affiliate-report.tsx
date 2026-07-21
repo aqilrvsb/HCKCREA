@@ -68,6 +68,7 @@ export default function AffiliateReport({ projectId }: { projectId?: string | nu
   const [openEmail, setOpenEmail] = useState<string | null>(null);
   const [openRow, setOpenRow] = useState<Row | null>(null);
   const [resending, setResending] = useState<Set<string>>(new Set());
+  const [undoing, setUndoing] = useState<Set<string>>(new Set());
 
   const { data: rows = [], isLoading, mutate } = useSWR<Row[]>(
     ["affiliate-report", projectId || "-"],
@@ -136,6 +137,27 @@ export default function AffiliateReport({ projectId }: { projectId?: string | nu
       await mutate();
     } finally {
       setResending((s) => { const n = new Set(s); n.delete(r.id); return n; });
+    }
+  }
+
+  // Undo Transfer — send the video back to the Editor. The endpoint's undo path
+  // only strips the affiliate_* flags and flips in_editor back on, so Text,
+  // Cover and Frame all survive untouched. The affiliate's own copy is NOT
+  // withdrawn (their API has no delete) — this is a local move.
+  async function undoTransfer(r: Row) {
+    if (!confirm("Hantar balik video ni ke Editor?\n\nText / Cover / Frame semua kekal. Nota: video yang dah masuk Pending Post affiliate tak boleh ditarik balik dari sistem diorang.")) return;
+    setUndoing((s) => new Set(s).add(r.id));
+    try {
+      const res = await fetch("/api/editor/transfer-affiliate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ history_ids: [r.id], undo: true }),
+      });
+      if (!res.ok) { alert("Undo gagal."); return; }
+      setOpenRow(null);
+      await mutate();
+    } finally {
+      setUndoing((s) => { const n = new Set(s); n.delete(r.id); return n; });
     }
   }
 
@@ -317,6 +339,13 @@ export default function AffiliateReport({ projectId }: { projectId?: string | nu
                             <a href={r.output_url} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()}
                               className="shrink-0 text-[11px] text-sky-300 hover:underline">↗</a>
                           )}
+                          {/* Undo Transfer — back to the Editor, Text/Cover/Frame intact. */}
+                          <button onClick={(e) => { e.stopPropagation(); void undoTransfer(r); }}
+                            disabled={undoing.has(r.id)}
+                            title="Undo Transfer — hantar balik ke Editor (Text/Cover/Frame kekal)"
+                            className="shrink-0 rounded-lg border border-violet-400/30 bg-violet-400/10 px-2 py-1 text-[11px] text-violet-200 hover:bg-violet-400/20 disabled:opacity-40">
+                            {undoing.has(r.id) ? "…" : "↩"}
+                          </button>
                         </div>
                       );
                     })}
@@ -409,6 +438,10 @@ export default function AffiliateReport({ projectId }: { projectId?: string | nu
                   <a href={openRow.output_url} target="_blank" rel="noreferrer"
                     className="text-sky-300 hover:underline">Buka video ↗</a>
                 )}
+                <button onClick={() => void undoTransfer(openRow)} disabled={undoing.has(openRow.id)}
+                  className="rounded-lg border border-violet-400/30 bg-violet-400/10 px-2.5 py-1 text-[11px] text-violet-200 hover:bg-violet-400/20 disabled:opacity-40">
+                  {undoing.has(openRow.id) ? "…" : "↩ Undo Transfer"}
+                </button>
                 <span className="ml-auto font-mono text-[10px] text-white/25">{openRow.id}</span>
               </div>
             </div>

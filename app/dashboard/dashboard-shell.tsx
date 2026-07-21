@@ -15,7 +15,6 @@ import {
   Sparkles,
   Scissors,
   Send,
-  Users,
 } from "lucide-react";
 import ImageTab from "./tabs/image";
 import ImageTabWithMode from "./tabs/image-with-mode";
@@ -97,10 +96,11 @@ const TABS: { key: TabKey; label: string; icon: any; tag: string }[] = [
   // Done Post — read-only grid of videos already auto-posted to TikTok by the
   // extension; select + bulk "Undo Post" sends them back to the Editor.
   { key: "done-post", label: "Done Post",    icon: Send,      tag: "4d" },
-  // Transfer Affiliate — videos assigned to an affiliate (tag + record). Hidden
-  // from every other grid; shows here with the affiliate email. Nav entry only
-  // appears when Affiliate mode is toggled on in Settings.
-  { key: "transfer-affiliate", label: "Transfer Affiliate", icon: Users, tag: "4e" },
+  // Transfer Affiliate tab hidden per user direction 2026-07-22 — the transfer
+  // list + per-video Undo Transfer now live in Reporting Affiliate (ACCOUNT),
+  // which is user-scoped rather than per-project. The grid mode still exists in
+  // HistoryGrid; re-enable by uncommenting this line.
+  // { key: "transfer-affiliate", label: "Transfer Affiliate", icon: Users, tag: "4e" },
   // NOTE: Reporting Affiliate is NOT a project tab — it lives under ACCOUNT in
   // the sidebar, because transfers are recorded per USER and the report spans
   // every project.
@@ -176,8 +176,7 @@ export default function DashboardShell({
       } catch { /* keep defaults */ }
     })();
   }, []);
-  const visibleTabs = (canAutoUgc ? TABS : TABS.filter((t) => t.key !== "auto-ugc"))
-    .filter((t) => affEnabled || t.key !== "transfer-affiliate");
+  const visibleTabs = canAutoUgc ? TABS : TABS.filter((t) => t.key !== "auto-ugc");
 
   // Live credit balance — initialised from the server-rendered prop, then
   // refreshed via /api/me/credits. Triggers:

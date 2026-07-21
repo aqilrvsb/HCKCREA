@@ -50,12 +50,13 @@ export async function POST(req: Request) {
   for (const row of rows || []) {
     const m = { ...((row.metadata as Record<string, any>) || {}) };
 
-    // Text + Cover + Frame must ALL be done before a video reaches an affiliate.
-    // Already-transferred rows are exempt so Reporting's "Hantar semula" can
-    // still retry a failed push.
+    // Text + Cover must be done before a video reaches an affiliate. Frame is
+    // OPTIONAL (per user direction 2026-07-22) — an unframed video is still a
+    // complete post. Already-transferred rows are exempt so Reporting's
+    // "Hantar semula" can still retry a failed push.
     if (!undo && !m.affiliate_transferred) {
       const hasText = !!(row.caption || m.caption || m.cover_title);
-      const ready = hasText && !!m.cover_thumbnail_url && !!m.framed_from;
+      const ready = hasText && !!m.cover_thumbnail_url;
       if (!ready) { notReady.push(row.id); continue; }
     }
 
