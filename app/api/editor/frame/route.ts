@@ -58,7 +58,6 @@ export async function POST(req: Request) {
   const animation = MOTIONS.has(String(body?.animation)) ? String(body.animation) : "zoom-in";
   // Grok is per-second billed; resolve the rate once for the whole batch.
   const grokRate = grok ? await getGrokRate() : 0;
-  const grokCost = grok ? Number((grokRate * duration).toFixed(4)) : 0;
 
   const admin = createAdminClient();
   const { data: sources } = await admin
