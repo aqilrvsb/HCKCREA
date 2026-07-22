@@ -53,8 +53,8 @@ export async function POST(req: Request) {
     body?.mode === "animate" ? "animate" : body?.mode === "grok" ? "grok" : "static";
   const animate = mode === "animate";
   const grok = mode === "grok";
-  // Grok clips can run longer; static/animate cap at 5s.
-  const duration = Math.max(1, Math.min(grok ? 10 : 5, Math.round(Number(body?.duration) || 1)));
+  // Grok 1-4s (user direction 2026-07-23); static/animate 1-5s.
+  const duration = Math.max(1, Math.min(grok ? 4 : 5, Math.round(Number(body?.duration) || 1)));
   const animation = MOTIONS.has(String(body?.animation)) ? String(body.animation) : "zoom-in";
   // Grok is per-second billed; resolve the rate once for the whole batch.
   const grokRate = grok ? await getGrokRate() : 0;

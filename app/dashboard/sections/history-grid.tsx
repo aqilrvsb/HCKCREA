@@ -1230,8 +1230,8 @@ export default function HistoryGrid({
                   <div className="text-[12px] font-extrabold text-[var(--color-text-primary)]">Animate</div>
                   <div className="text-[9px] text-[var(--color-text-muted)]">Zoom/Pan · <b style={{ color: "#f59e0b" }}>RM0.10</b></div>
                 </button>
-                {/* Grok's list starts at 3s, so lift the 1s default into range. */}
-                <button onClick={() => { setEdFrameMode("grok"); setEdFrameDur((d) => Math.max(3, d)); }} className="rounded-xl p-2.5 text-left border-2 transition" style={edFrameMode === "grok" ? { borderColor: "#a78bfa", background: "rgba(167,139,250,0.12)" } : { borderColor: "var(--color-border)", background: "var(--color-bg)" }}>
+                {/* Grok is 1-4s — pull a 5s selection back into range. */}
+                <button onClick={() => { setEdFrameMode("grok"); setEdFrameDur((d) => Math.min(4, Math.max(1, d))); }} className="rounded-xl p-2.5 text-left border-2 transition" style={edFrameMode === "grok" ? { borderColor: "#a78bfa", background: "rgba(167,139,250,0.12)" } : { borderColor: "var(--color-border)", background: "var(--color-bg)" }}>
                   <div className="text-[12px] font-extrabold text-[var(--color-text-primary)]">Grok</div>
                   <div className="text-[9px] text-[var(--color-text-muted)]">AI 1.5 · <b style={{ color: "#60a5fa" }}>ikut saat</b></div>
                 </button>
@@ -1240,10 +1240,10 @@ export default function HistoryGrid({
               {/* Duration */}
               <label className="block text-[10px] uppercase tracking-wider font-bold text-[var(--color-text-muted)] mb-1">Duration intro</label>
               <select value={edFrameDur} onChange={(e) => setEdFrameDur(Number(e.target.value))} className="w-full mb-3 px-3 py-2 rounded-lg text-sm" style={{ background: "var(--color-bg)", border: "1px solid var(--color-border)", color: "var(--color-text-primary)" }}>
-                {/* Crun's grok-imagine-video-1.5-preview accepts 1-15s (verified:
-                    4s in → 4.04s out, 720x1280). If a slot reroutes to APIPod's
-                    -fast backend (6-30 only), the server retries at 6s. */}
-                {(edFrameMode === "grok" ? [3, 4, 5, 6, 7, 8, 9, 10] : [1, 2, 3, 4, 5]).map((s) => <option key={s} value={s}>{s} saat</option>)}
+                {/* Grok 1-4s per user direction. All four verified live on Crun
+                    p2-b: 1/2/3/4s in → 1.04/2.04/3.04/4.04s out, all 720x1280,
+                    3 credits per second. */}
+                {(edFrameMode === "grok" ? [1, 2, 3, 4] : [1, 2, 3, 4, 5]).map((s) => <option key={s} value={s}>{s} saat</option>)}
               </select>
 
               {/* Motion — animate only */}
