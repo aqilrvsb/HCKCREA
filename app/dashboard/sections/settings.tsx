@@ -100,9 +100,12 @@ export default function SettingsSection({
   // the Editor shows a Transfer Affiliate flow that tags videos with one of
   // these emails. Stored in profiles.settings jsonb (client-side, like WhatsApp).
   const [affEnabled, setAffEnabled] = useState(false);
-  const [affContacts, setAffContacts] = useState<{ name: string; email: string }[]>([]);
+  const [affContacts, setAffContacts] = useState<{ name: string; email: string; whatsapp?: string }[]>([]);
   const [affName, setAffName] = useState("");
   const [affEmail, setAffEmail] = useState("");
+  // WhatsApp is what the Reporting → 📱 button messages. Malaysian format;
+  // sendWhatsApp() normalises 01x… → 601x…, so either entry works.
+  const [affWa, setAffWa] = useState("");
   const [savingAff, setSavingAff] = useState(false);
   const [affMsg, setAffMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
@@ -120,7 +123,7 @@ export default function SettingsSection({
     })();
   }, []);
 
-  async function saveAffiliate(nextEnabled: boolean, nextContacts: { name: string; email: string }[]) {
+  async function saveAffiliate(nextEnabled: boolean, nextContacts: { name: string; email: string; whatsapp?: string }[]) {
     setSavingAff(true); setAffMsg(null);
     try {
       const sb = createClient();
@@ -138,12 +141,20 @@ export default function SettingsSection({
   }
   const addAffContact = () => {
     const nm = affName.trim(); const em = affEmail.trim().toLowerCase();
+    const wa = affWa.replace(/\D/g, "");
     if (!em || !em.includes("@")) { setAffMsg({ ok: false, text: "Masukkan email affiliate yang sah." }); return; }
     if (affContacts.some((c) => c.email === em)) { setAffMsg({ ok: false, text: "Email tu dah ada." }); return; }
-    const next = [...affContacts, { name: nm || em.split("@")[0], email: em }];
-    setAffName(""); setAffEmail("");
+    const next = [...affContacts, { name: nm || em.split("@")[0], email: em, whatsapp: wa }];
+    setAffName(""); setAffEmail(""); setAffWa("");
     void saveAffiliate(affEnabled, next);
   };
+  /** Set/replace the WhatsApp number on an existing contact (imported rows
+   *  have no number — the roster API only returns id/name/email). */
+  const setAffContactWa = (em: string, wa: string) =>
+    void saveAffiliate(
+      affEnabled,
+      affContacts.map((c) => (c.email === em ? { ...c, whatsapp: wa.replace(/\D/g, "") } : c))
+    );
   const removeAffContact = (em: string) => void saveAffiliate(affEnabled, affContacts.filter((c) => c.email !== em));
   // Pull the roster from NL Affiliate Army. Typing emails by hand is the one
   // way a transfer can fail late (their ingest 404s on an unknown email), so
@@ -155,7 +166,7 @@ export default function SettingsSection({
       const res = await fetch("/api/affiliate/roster");
       const d = await res.json().catch(() => null);
       if (!res.ok || !d?.ok) { setAffMsg({ ok: false, text: d?.error || "Gagal ambil senarai affiliate." }); return; }
-      const incoming: { name: string; email: string }[] = (d.affiliates || [])
+      const incoming: { name: string; email: string; whatsapp?: string }[] = (d.affiliates || [])
         .map((a: any) => ({ name: String(a.name || a.email.split("@")[0]), email: String(a.email).toLowerCase() }))
         .filter((a: any) => a.email.includes("@"));
       if (!incoming.length) { setAffMsg({ ok: false, text: "Senarai affiliate kosong." }); return; }
@@ -335,6 +346,7 @@ export default function SettingsSection({
             <div className="flex flex-col sm:flex-row gap-2">
               <input className="input flex-1" placeholder="Nama affiliate" value={affName} onChange={(e) => setAffName(e.target.value)} />
               <input className="input flex-1" placeholder="email@affiliate.com" value={affEmail} onChange={(e) => setAffEmail(e.target.value)} onKeyDown={(e) => e.key === "Enter" && addAffContact()} />
+              <input className="input flex-1" placeholder="No WhatsApp (0123456789)" value={affWa} onChange={(e) => setAffWa(e.target.value)} onKeyDown={(e) => e.key === "Enter" && addAffContact()} />
               <button onClick={addAffContact} disabled={savingAff} className="btn-primary disabled:opacity-60 whitespace-nowrap">{savingAff ? <Loader2 className="w-4 h-4 animate-spin" /> : "Add"}</button>
             </div>
             <div className="flex items-center gap-2">
@@ -352,9 +364,19 @@ export default function SettingsSection({
               <div className="space-y-2">
                 {affContacts.map((c) => (
                   <div key={c.email} className="flex items-center justify-between gap-2 rounded-lg px-3 py-2" style={{ background: "var(--color-bg)", border: "1px solid var(--color-border)" }}>
-                    <div className="min-w-0">
+                    <div className="min-w-0 flex-1">
                       <div className="text-[13px] font-bold text-[var(--color-text-primary)] truncate">{c.name}</div>
                       <div className="text-[11px] text-[var(--color-text-muted)] truncate">{c.email}</div>
+                      {/* Editable inline — roster-imported contacts arrive with
+                          no number, and without one the 📱 notify button can't
+                          reach them. */}
+                      <input
+                        className="input mt-1 text-[11px] py-1"
+                        placeholder="No WhatsApp — wajib untuk notifikasi"
+                        defaultValue={c.whatsapp || ""}
+                        onBlur={(e) => { const v = e.target.value.replace(/\D/g, ""); if (v !== (c.whatsapp || "")) setAffContactWa(c.email, v); }}
+                        disabled={savingAff}
+                      />
                     </div>
                     <button onClick={() => removeAffContact(c.email)} disabled={savingAff} className="text-red-400 hover:text-red-300 disabled:opacity-50 flex-shrink-0" title="Buang affiliate"><X className="w-4 h-4" /></button>
                   </div>

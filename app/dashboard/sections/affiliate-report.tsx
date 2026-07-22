@@ -69,6 +69,9 @@ export default function AffiliateReport({ projectId }: { projectId?: string | nu
   const [openRow, setOpenRow] = useState<Row | null>(null);
   const [resending, setResending] = useState<Set<string>>(new Set());
   const [undoing, setUndoing] = useState<Set<string>>(new Set());
+  // Per-affiliate WhatsApp notify: which date to report, and who's sending.
+  const [notifyDate, setNotifyDate] = useState<Record<string, string>>({});
+  const [notifying, setNotifying] = useState<Set<string>>(new Set());
 
   const { data: rows = [], isLoading, mutate } = useSWR<Row[]>(
     ["affiliate-report", projectId || "-"],
@@ -161,6 +164,27 @@ export default function AffiliateReport({ projectId }: { projectId?: string | nu
     }
   }
 
+  // WhatsApp the affiliate a "your videos have landed" notice for one date.
+  // The server counts the videos itself, so the total can't be spoofed here.
+  async function notifyAffiliate(email: string, date: string) {
+    if (!date) return;
+    setNotifying((s) => new Set(s).add(email));
+    try {
+      const res = await fetch("/api/affiliate/notify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, date }),
+      });
+      const d = await res.json().catch(() => null);
+      if (!res.ok || !d?.ok) { alert(d?.error || "Notifikasi gagal."); return; }
+      alert(`✅ WhatsApp dihantar ke ${d.sent_to}\n${d.total} video · ${d.date}`);
+    } catch (e: any) {
+      alert(e?.message || "Notifikasi gagal.");
+    } finally {
+      setNotifying((s) => { const n = new Set(s); n.delete(email); return n; });
+    }
+  }
+
   function exportCsv() {
     const head = ["date", "affiliate_name", "affiliate_email", "history_id", "caption", "cover_title", "cover_subtitle", "video_url", "ingest"];
     const lines = [head.join(",")];
@@ -250,26 +274,46 @@ export default function AffiliateReport({ projectId }: { projectId?: string | nu
             const open = openEmail === g.email;
             return (
               <div key={g.email} className="overflow-hidden rounded-xl border border-white/10 bg-white/5">
-                <button onClick={() => setOpenEmail(open ? null : g.email)}
-                  className="flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-white/5">
-                  <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-emerald-400/15 text-sm text-emerald-300">
-                    {g.name.slice(0, 1).toUpperCase()}
-                  </span>
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate text-sm font-medium text-white">{g.name}</span>
-                    <span className="block truncate text-[11px] text-white/45">{g.email}</span>
-                  </span>
-                  <span className="shrink-0 text-right">
-                    <span className="block text-lg font-semibold text-white">{g.rows.length}</span>
-                    <span className="block text-[10px] text-white/45">video</span>
-                  </span>
-                  {g.failed > 0 && (
-                    <span className="shrink-0 rounded-full bg-rose-500/15 px-2 py-0.5 text-[10px] text-rose-300">
-                      {g.failed} gagal
+                <div className="flex w-full flex-wrap items-center gap-3 px-4 py-3">
+                  {/* Toggle area — kept as its own button so the date input and
+                      notify button aren't nested inside a <button>. */}
+                  <button onClick={() => setOpenEmail(open ? null : g.email)}
+                    className="flex min-w-0 flex-1 items-center gap-3 text-left hover:opacity-80">
+                    <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-emerald-400/15 text-sm text-emerald-300">
+                      {g.name.slice(0, 1).toUpperCase()}
                     </span>
-                  )}
-                  <span className="shrink-0 text-white/30">{open ? "▲" : "▼"}</span>
-                </button>
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-sm font-medium text-white">{g.name}</span>
+                      <span className="block truncate text-[11px] text-white/45">{g.email}</span>
+                    </span>
+                    <span className="shrink-0 text-right">
+                      <span className="block text-lg font-semibold text-white">{g.rows.length}</span>
+                      <span className="block text-[10px] text-white/45">video</span>
+                    </span>
+                    {g.failed > 0 && (
+                      <span className="shrink-0 rounded-full bg-rose-500/15 px-2 py-0.5 text-[10px] text-rose-300">
+                        {g.failed} gagal
+                      </span>
+                    )}
+                  </button>
+
+                  {/* Notify — pick a date, WhatsApp the affiliate how many
+                      videos landed that day. Defaults to their latest transfer. */}
+                  <input type="date"
+                    value={notifyDate[g.email] ?? (g.rows.length ? rowDate(g.rows[0]) : to)}
+                    onChange={(e) => setNotifyDate((m) => ({ ...m, [g.email]: e.target.value }))}
+                    title="Tarikh untuk notifikasi"
+                    className="shrink-0 rounded-lg border border-white/10 bg-black/40 px-2 py-1 text-xs text-white" />
+                  <button
+                    onClick={() => void notifyAffiliate(g.email, notifyDate[g.email] ?? (g.rows.length ? rowDate(g.rows[0]) : to))}
+                    disabled={notifying.has(g.email)}
+                    title={`WhatsApp ${g.name} — beritahu video untuk tarikh ni dah masuk`}
+                    className="shrink-0 rounded-lg border border-emerald-400/30 bg-emerald-400/10 px-2.5 py-1 text-xs text-emerald-200 hover:bg-emerald-400/20 disabled:opacity-40">
+                    {notifying.has(g.email) ? "…" : "📱 WhatsApp"}
+                  </button>
+                  <button onClick={() => setOpenEmail(open ? null : g.email)}
+                    className="shrink-0 px-1 text-white/30 hover:text-white/60">{open ? "▲" : "▼"}</button>
+                </div>
 
                 {open && (
                   <div className="border-t border-white/10">
