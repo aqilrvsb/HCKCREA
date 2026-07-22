@@ -193,11 +193,10 @@ export async function POST(req: Request) {
 
     try {
       if (grok) {
-        // ── AI INTRO (Wan 2.7 i2v) — animate the cover with a prompt built
-        // from the headline + subtext, then merge in front of the video (Modal
-        // normalizes both to 9:16). Charged per-second on success.
-        // Replaced Grok Imagine 2026-07-22: Grok's rerouted backend rejects
-        // clips under 6s, wan2.7 does 3s and returns native 9:16.
+        // ── GROK — Grok Imagine 1.5 i2v from the cover (start frame), with a
+        // prompt built from the headline + subtext, then merge in front of the
+        // video (Modal normalizes both to 9:16). Charged per-second on success.
+        // Walks the admin's Grok cascade (MAIN → FALLBACK) in lib/intro-video.
         const headline = String(meta.cover_title || "").trim();
         const subtext = String(meta.cover_subtitle || "").trim();
         const dialog = [headline, subtext].filter(Boolean).join(". ") || "Intro produk UGC.";

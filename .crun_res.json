@@ -1,0 +1,35 @@
+﻿{
+    "code":  200,
+    "message":  "success",
+    "data":  {
+                 "task_id":  "ad82c3f0-e485-4246-866d-120837aec226",
+                 "provider":  "Grok",
+                 "model_version":  "grok-imagine-video-1.5-preview",
+                 "status":  "success",
+                 "param":  {
+                               "model":  "grok-imagine-video-1.5-preview",
+                               "callback_url":  null,
+                               "input":  {
+                                             "prompt":  "gentle slow zoom, cinematic vertical UGC intro",
+                                             "img_urls":  [
+                                                              "https://peninglab-content.s3.us-east-005.backblazeb2.com/users/f0fd6781-ed5f-4aa8-a5b9-eec943229092/ugc/910fa728-a695-4946-8042-a77a16bebace.png"
+                                                          ],
+                                             "aspect_ratio":  "9:16",
+                                             "resolution":  "720p",
+                                             "duration":  4
+                                         }
+                           },
+                 "create_at":  1784722077,
+                 "credits":  12.0,
+                 "result":  {
+                                "code":  200,
+                                "message":  "generation success",
+                                "media_urls":  [
+                                                   "https://tempfile.mediaoss.bar/ggg/users/6eac67db-12b1-43fa-b5db-69f51856d5a7/generated/46ff17e8-cb46-4a69-8520-f114c958581c/generated_video.mp4"
+                                               ]
+                            },
+                 "duration_s":  41,
+                 "complete_at":  1784722118,
+                 "source":  "api"
+             }
+}
