@@ -1222,15 +1222,16 @@ export default function HistoryGrid({
 
               {/* Static / Animate / Grok */}
               <div className="grid grid-cols-3 gap-2 mb-3">
-                <button onClick={() => setEdFrameMode("static")} className="rounded-xl p-2.5 text-left border-2 transition" style={edFrameMode === "static" ? { borderColor: "#a78bfa", background: "rgba(167,139,250,0.12)" } : { borderColor: "var(--color-border)", background: "var(--color-bg)" }}>
+                <button onClick={() => { setEdFrameMode("static"); setEdFrameDur((d) => Math.min(5, d)); }} className="rounded-xl p-2.5 text-left border-2 transition" style={edFrameMode === "static" ? { borderColor: "#a78bfa", background: "rgba(167,139,250,0.12)" } : { borderColor: "var(--color-border)", background: "var(--color-bg)" }}>
                   <div className="text-[12px] font-extrabold text-[var(--color-text-primary)]">Static</div>
                   <div className="text-[9px] text-[var(--color-text-muted)]">Diam · <b style={{ color: "#22c55e" }}>Percuma</b></div>
                 </button>
-                <button onClick={() => setEdFrameMode("animate")} className="rounded-xl p-2.5 text-left border-2 transition" style={edFrameMode === "animate" ? { borderColor: "#a78bfa", background: "rgba(167,139,250,0.12)" } : { borderColor: "var(--color-border)", background: "var(--color-bg)" }}>
+                <button onClick={() => { setEdFrameMode("animate"); setEdFrameDur((d) => Math.min(5, d)); }} className="rounded-xl p-2.5 text-left border-2 transition" style={edFrameMode === "animate" ? { borderColor: "#a78bfa", background: "rgba(167,139,250,0.12)" } : { borderColor: "var(--color-border)", background: "var(--color-bg)" }}>
                   <div className="text-[12px] font-extrabold text-[var(--color-text-primary)]">Animate</div>
                   <div className="text-[9px] text-[var(--color-text-muted)]">Zoom/Pan · <b style={{ color: "#f59e0b" }}>RM0.10</b></div>
                 </button>
-                <button onClick={() => setEdFrameMode("grok")} className="rounded-xl p-2.5 text-left border-2 transition" style={edFrameMode === "grok" ? { borderColor: "#a78bfa", background: "rgba(167,139,250,0.12)" } : { borderColor: "var(--color-border)", background: "var(--color-bg)" }}>
+                {/* Grok's list starts at 3s, so lift the 1s default into range. */}
+                <button onClick={() => { setEdFrameMode("grok"); setEdFrameDur((d) => Math.max(3, d)); }} className="rounded-xl p-2.5 text-left border-2 transition" style={edFrameMode === "grok" ? { borderColor: "#a78bfa", background: "rgba(167,139,250,0.12)" } : { borderColor: "var(--color-border)", background: "var(--color-bg)" }}>
                   <div className="text-[12px] font-extrabold text-[var(--color-text-primary)]">Grok</div>
                   <div className="text-[9px] text-[var(--color-text-muted)]">AI 1.5 · <b style={{ color: "#60a5fa" }}>ikut saat</b></div>
                 </button>
@@ -1239,6 +1240,9 @@ export default function HistoryGrid({
               {/* Duration */}
               <label className="block text-[10px] uppercase tracking-wider font-bold text-[var(--color-text-muted)] mb-1">Duration intro</label>
               <select value={edFrameDur} onChange={(e) => setEdFrameDur(Number(e.target.value))} className="w-full mb-3 px-3 py-2 rounded-lg text-sm" style={{ background: "var(--color-bg)", border: "1px solid var(--color-border)", color: "var(--color-text-primary)" }}>
+                {/* 3-5s Grok works when APIPod serves grok-imagine-1.5-preview.
+                    If they reroute to the -video-1.5-fast backend (6-30 only),
+                    the server auto-retries at 6s — so short stays selectable. */}
                 {(edFrameMode === "grok" ? [3, 4, 5, 6, 7, 8, 9, 10] : [1, 2, 3, 4, 5]).map((s) => <option key={s} value={s}>{s} saat</option>)}
               </select>
 

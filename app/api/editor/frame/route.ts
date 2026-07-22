@@ -119,7 +119,11 @@ export async function POST(req: Request) {
 
     // Paid modes — check credits BEFORE we touch anything (so we never hide the
     // original then fail on money).
-    const paidCost = grok ? grokCost : animate ? ANIMATE_COST : 0;
+    // Pre-flight at the 6s floor for grok — an under-6s request can be retried
+    // at 6s upstream, so check they can afford that worst case, not the 3s ask.
+    const paidCost = grok
+      ? Number((grokRate * Math.max(6, duration)).toFixed(4))
+      : animate ? ANIMATE_COST : 0;
     if (paidCost > 0 && !(await hasEnoughCredits(user.id, paidCost))) {
       results.push({ id, status: "skip", reason: `kredit tak cukup (perlu RM ${paidCost.toFixed(2)})` });
       continue;
@@ -218,7 +222,11 @@ export async function POST(req: Request) {
           results.push({ id, status: "failed", reason: md?.error || "merge gagal" });
           continue;
         }
-        await deduct(user.id, "grok", grokCost, framedId);
+        // Bill the duration ACTUALLY produced. If APIPod rerouted us to their
+        // 6-30s backend, generateGrokIntro retried at 6s — charging the 3s the
+        // user picked would undercharge for a 6s clip.
+        const billedSecs = intro.usedDurationSec || duration;
+        await deduct(user.id, "grok", Number((grokRate * billedSecs).toFixed(4)), framedId);
         await finishDone(String(md.url));
         results.push({ id, status: "done", framed_id: framedId });
       } else if (animate) {

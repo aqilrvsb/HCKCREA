@@ -303,6 +303,12 @@ export async function p6CreateVideo(input: {
       };
     }
     body.image_url = refs[0]; // singular field per APIPod spec
+    // Duration 1-15. Short clips (3-5s) DO work when APIPod serves this via
+    // grok-imagine-1.5-preview. But when their primary Grok backend is out of
+    // funds they reroute to "grok-imagine-video-1.5-fast", which rejects
+    // anything under 6s with 400 '"video_length" must be between 6 and 30'.
+    // We keep sending the short duration (cheaper, and it usually works) and
+    // let lib/grok-intro.ts retry at 6s on that specific error.
     const reqDur = Number(input.durationMode);
     body.duration =
       Number.isFinite(reqDur) && reqDur >= 1 && reqDur <= 15
