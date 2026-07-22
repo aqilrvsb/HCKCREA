@@ -110,6 +110,10 @@ export async function generateUgcPostMeta(
     // filled (caption / cover_title / cover_subtitle) and only write the
     // ones that are still empty. Default off (full regenerate).
     fillOnlyEmpty?: boolean;
+    /** Editor tab → "model_editor_text", so tuning the Editor's copywriting
+     *  model never disturbs the extension / Auto UGC / Auto Content, which
+     *  all share model_custom_idea. Unset = previous behaviour. */
+    modelKey?: "model_custom_idea" | "model_editor_text";
   } = {}
 ): Promise<UgcPostMetaResult> {
   if (!historyId) return { ok: false, error: "history_id required" };
@@ -226,10 +230,11 @@ Return JSON only. No markdown, no prose. Start with { and end with }.`;
   const LLM_TIMEOUT_MS = 45_000;
   const llm = await Promise.race([
     orChat({
-      // Same model slot as the Auto UGC / Auto Content master plan
+      // Default: the same slot as Auto UGC / Auto Content master plan
       // (model_custom_idea) so caption copywriting matches the on-platform
-      // dialog voice. Falls back to model_auto when admin hasn't set it.
-      modelKey: "model_custom_idea",
+      // dialog voice. The Editor passes model_editor_text instead, which
+      // falls through to model_custom_idea → model_auto when unset.
+      modelKey: opts.modelKey || "model_custom_idea",
       systemPrompt,
       userPrompt,
       temperature: 0.85,

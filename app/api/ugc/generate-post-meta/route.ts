@@ -31,6 +31,11 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "history_id required" }, { status: 400 });
   }
 
+  // The Editor tab sends source:"editor" so it uses its OWN model slot
+  // (model_editor_text). Everything else — the extension, settle.ts — keeps
+  // model_custom_idea, so tuning the Editor can't disturb them.
+  const isEditor = String(body?.source || "").trim() === "editor";
+
   const result = await generateUgcPostMeta(historyId, {
     productUrl,
     productName,
@@ -39,6 +44,7 @@ export async function POST(req: Request) {
     userIdGuard: user.id,
     force: true,
     fillOnlyEmpty,
+    ...(isEditor ? { modelKey: "model_editor_text" as const } : {}),
   });
 
   if (!result.ok) {

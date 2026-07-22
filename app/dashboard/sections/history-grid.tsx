@@ -757,7 +757,7 @@ export default function HistoryGrid({
           const id = list[idx++];
           edMarkProc(id, true);
           try {
-            const { ok, d } = await edFetchJson("/api/ugc/generate-post-meta", { history_id: id, product_url: productUrl, product_name: productName, product_detail: productDetail, variant_seed: edSeed(id), ...(force ? { fill_only_empty: false } : {}) });
+            const { ok, d } = await edFetchJson("/api/ugc/generate-post-meta", { history_id: id, product_url: productUrl, product_name: productName, product_detail: productDetail, variant_seed: edSeed(id), source: "editor", ...(force ? { fill_only_empty: false } : {}) });
             if (ok && metaOk(d)) { done.add(id); results.set(id, d); edMarkDone(id); }
             else edAddLog(`  ✗ ${id.slice(0, 6)}: ${d?.error || "tak lengkap"}`);
           } catch (e: any) { edAddLog(`  ✗ ${id.slice(0, 6)}: ${e?.message || "error"}`); }

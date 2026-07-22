@@ -275,6 +275,11 @@ export async function orChat(opts: {
     | "model_product_ocr"
     | "model_qa"
     | "model_custom_idea"
+    // Editor tab's Generate Text ONLY. Deliberately its own slot so tuning
+    // the Editor's copywriting model can't disturb Auto UGC / Auto Content,
+    // which share model_custom_idea. Falls back to model_custom_idea when
+    // admin hasn't set it.
+    | "model_editor_text"
     | "model_viral";
   /** Bypass app_settings entirely and use this exact model id.
    *  Callers with a specific model in mind (e.g. Storytelling script
@@ -297,6 +302,10 @@ export async function orChat(opts: {
   // fallback in ONE round-trip. getSettings batches these via cache.
   const fetchKeys = ["or_base", "or_key", "p4_key", requestedKey];
   if (requestedKey !== "model_auto") fetchKeys.push("model_auto");
+  // model_editor_text is an OPT-IN override. When admin hasn't set it the
+  // Editor must behave exactly as before — i.e. fall through to
+  // model_custom_idea, not straight to model_auto.
+  if (requestedKey === "model_editor_text") fetchKeys.push("model_custom_idea");
   const s = await getSettings(fetchKeys);
 
   // modelOverride bypasses cascade entirely (legacy callers).
@@ -320,6 +329,12 @@ export async function orChat(opts: {
   const layers: ParsedModel[] = [];
   const primary = parseModelSetting(s[requestedKey]);
   if (primary) layers.push(primary);
+  // Editor slot unset (or set and every attempt failed) → fall through to the
+  // shared copywriting slot before the universal model_auto.
+  if (requestedKey === "model_editor_text") {
+    const shared = parseModelSetting(s["model_custom_idea"]);
+    if (shared) layers.push(shared);
+  }
   if (requestedKey !== "model_auto") {
     const auto = parseModelSetting(s["model_auto"]);
     if (auto) layers.push(auto);

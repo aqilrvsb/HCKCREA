@@ -235,6 +235,12 @@ export default function AdminSettings() {
   const [customIdeaKnob, setCustomIdeaKnob] = useState<ModelKnobState>(emptyKnob(CUSTOM_IDEA_MAX_FB));
   const [savingCustomIdea, setSavingCustomIdea] = useState(false);
   const [customIdeaMsg, setCustomIdeaMsg] = useState<string | null>(null);
+  // Editor tab's Generate Text — its own slot so tuning it can't disturb
+  // Auto UGC / Auto Content / the extension (all on model_custom_idea).
+  const EDITOR_TEXT_MAX_FB = 3;
+  const [editorTextKnob, setEditorTextKnob] = useState<ModelKnobState>(emptyKnob(EDITOR_TEXT_MAX_FB));
+  const [savingEditorText, setSavingEditorText] = useState(false);
+  const [editorTextMsg, setEditorTextMsg] = useState<string | null>(null);
   const [viralKnob, setViralKnob] = useState<ModelKnobState>(emptyKnob(VIRAL_MAX_FB));
   const [savingViralModel, setSavingViralModel] = useState(false);
   const [viralModelMsg, setViralModelMsg] = useState<string | null>(null);
@@ -402,6 +408,7 @@ export default function AdminSettings() {
         };
         if (row.key === "model_qa") setQaKnob(parseKnob(row.value, QA_MAX_FB));
         if (row.key === "model_custom_idea") setCustomIdeaKnob(parseKnob(row.value, CUSTOM_IDEA_MAX_FB));
+        if (row.key === "model_editor_text") setEditorTextKnob(parseKnob(row.value, EDITOR_TEXT_MAX_FB));
         if (row.key === "model_viral") setViralKnob(parseKnob(row.value, VIRAL_MAX_FB));
         if (row.key === "model_clone") setCloneKnob(parseKnob(row.value, CLONE_MAX_FB));
         if (row.key === "model_auto") setAutoKnob(parseKnob(row.value, AUTO_MAX_FB));
@@ -1130,6 +1137,15 @@ export default function AdminSettings() {
       setMsg: setCustomIdeaMsg,
     });
   }
+  function saveEditorTextModel() {
+    return saveCascadeKnob({
+      key: "model_editor_text",
+      knob: editorTextKnob,
+      label: "Editor Text",
+      setSaving: setSavingEditorText,
+      setMsg: setEditorTextMsg,
+    });
+  }
   function saveViralModel() {
     return saveCascadeKnob({
       key: "model_viral",
@@ -1220,6 +1236,7 @@ export default function AdminSettings() {
     // Hidden from raw JSON to prevent two-place conflicting edits.
     "model_qa",
     "model_custom_idea",
+    "model_editor_text",
     "model_viral",
     "model_clone",
     "model_auto",
@@ -2451,6 +2468,16 @@ export default function AdminSettings() {
             msg={customIdeaMsg}
             usedBy="UGC tab Custom Idea expansion + Auto Content master plan (the heavy-lifting prompt generators)"
             recommendation="Strong model — drives prompt quality across batches"
+          />
+          <ModelKnob
+            label="Editor Generate Text Model"
+            value={editorTextKnob}
+            onChange={setEditorTextKnob}
+            onSave={saveEditorTextModel}
+            saving={savingEditorText}
+            msg={editorTextMsg}
+            usedBy="Editor tab → Generate Text ONLY (caption + Main Text + Sub Text). Leave empty to reuse Custom Idea Model."
+            recommendation="Isolated on purpose — changing this cannot affect Auto UGC / Auto Content / the extension. Fast model is fine; it writes short hooks in Malaysian Malay."
           />
           <ModelKnob
             label="Viral Talking Object Model"
