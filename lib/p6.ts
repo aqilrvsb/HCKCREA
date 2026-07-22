@@ -157,6 +157,13 @@ function apipodVideoModel(input: {
     return "grok-imagine-1.5-preview";
   }
 
+  // Wan 2.7 — i2v (cover as the source image) or t2v. Used by the Editor's
+  // Frame intro: honours short durations (3s) and inherits the input image's
+  // aspect ratio, so a 9:16 cover yields a native 9:16 clip.
+  if (m.includes("wan")) {
+    return refs > 0 && mode !== "text" ? "wan2.7-i2v" : "wan2.7-t2v";
+  }
+
   if (m.includes("seedance")) {
     if (refs === 0 || mode === "text") return "seedance-2.0-fast-t2v";
     if (mode === "frame") return "seedance-2.0-fast-i2v";
@@ -307,14 +314,29 @@ export async function p6CreateVideo(input: {
     // grok-imagine-1.5-preview. But when their primary Grok backend is out of
     // funds they reroute to "grok-imagine-video-1.5-fast", which rejects
     // anything under 6s with 400 '"video_length" must be between 6 and 30'.
-    // We keep sending the short duration (cheaper, and it usually works) and
-    // let lib/grok-intro.ts retry at 6s on that specific error.
+    // Kept as-is for any remaining Grok caller; the Editor's Frame intro moved
+    // to wan2.7-i2v (lib/intro-video.ts), which has no such floor.
     const reqDur = Number(input.durationMode);
     body.duration =
       Number.isFinite(reqDur) && reqDur >= 1 && reqDur <= 15
         ? Math.round(reqDur)
         : 10;
     body.resolution = "720p";
+  } else if (resolvedModel.startsWith("wan2.7")) {
+    // Wan 2.7 — accepts exactly: audio_url, duration, image_urls[], prompt,
+    // negative_prompt, prompt_extend, resolution (720P|1080P), video_url,
+    // watermark. NO aspect_ratio — the output follows the input image, so a
+    // 9:16 cover gives a 9:16 clip (verified: 720x1280 from a 1440x2560 cover).
+    delete body.aspect_ratio;
+    if (refs.length > 0) body.image_urls = refs.slice(0, 1);
+    const reqDur = Number(input.durationMode);
+    body.duration =
+      Number.isFinite(reqDur) && reqDur >= 1 && reqDur <= 10 ? Math.round(reqDur) : 5;
+    body.resolution = "720P"; // note the CAPITAL P — 720p is rejected
+    body.negative_prompt =
+      "low resolution, errors, worst quality, poor quality, incomplete, extra fingers, poor aspect ratio.";
+    body.prompt_extend = false;
+    body.watermark = false;
   } else if (resolvedModel === "gemini-omni-extend") {
     // GeminiOmni Video Reference — source/reference VIDEO + optional product
     // reference images (1-5) so the output replicates the reference video

@@ -4,7 +4,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { falImageToVideo, falMergeVideos } from "@/lib/fal";
 import { rehostToContent, type StorageType } from "@/lib/b2";
 import { hasEnoughCredits, deduct } from "@/lib/deduct";
-import { generateGrokIntro } from "@/lib/grok-intro";
+import { generateIntroVideo } from "@/lib/intro-video";
 import { getGrokRate } from "@/lib/settings";
 import { withNoIndon } from "@/lib/seedance-lang";
 
@@ -118,10 +118,8 @@ export async function POST(req: Request) {
 
     // Paid modes — check credits BEFORE we touch anything (so we never hide the
     // original then fail on money).
-    // Pre-flight at the 6s floor for grok — an under-6s request can be retried
-    // at 6s upstream, so check they can afford that worst case, not the 3s ask.
     const paidCost = grok
-      ? Number((grokRate * Math.max(6, duration)).toFixed(4))
+      ? Number((grokRate * duration).toFixed(4))
       : animate ? ANIMATE_COST : 0;
     if (paidCost > 0 && !(await hasEnoughCredits(user.id, paidCost))) {
       results.push({ id, status: "skip", reason: `kredit tak cukup (perlu RM ${paidCost.toFixed(2)})` });
@@ -195,9 +193,11 @@ export async function POST(req: Request) {
 
     try {
       if (grok) {
-        // ── GROK — Grok Imagine 1.5 i2v from the cover (start frame), with a
-        // prompt built from the headline + subtext, then merge in front of the
-        // video (Modal normalizes both to 9:16). Charged per-second on success.
+        // ── AI INTRO (Wan 2.7 i2v) — animate the cover with a prompt built
+        // from the headline + subtext, then merge in front of the video (Modal
+        // normalizes both to 9:16). Charged per-second on success.
+        // Replaced Grok Imagine 2026-07-22: Grok's rerouted backend rejects
+        // clips under 6s, wan2.7 does 3s and returns native 9:16.
         const headline = String(meta.cover_title || "").trim();
         const subtext = String(meta.cover_subtitle || "").trim();
         const dialog = [headline, subtext].filter(Boolean).join(". ") || "Intro produk UGC.";
@@ -205,10 +205,10 @@ export async function POST(req: Request) {
         const prompt = withNoIndon(
           `${dialog}. Malaysian presenter and setting, natural Bahasa Melayu Malaysia delivery, vertical 9:16 cinematic UGC intro.`
         );
-        const intro = await generateGrokIntro({ coverUrl: coverForFrame, prompt, durationSec: duration, userId: user.id });
+        const intro = await generateIntroVideo({ coverUrl: coverForFrame, prompt, durationSec: duration, userId: user.id });
         if (!intro.ok || !intro.url) {
-          await markFailed(intro.error || "Grok gagal");
-          results.push({ id, status: "failed", reason: intro.error || "grok gagal" });
+          await markFailed(intro.error || "Intro gagal");
+          results.push({ id, status: "failed", reason: intro.error || "intro gagal" });
           continue;
         }
         const mr = await fetch(MODAL_MERGE_ENDPOINT, {
@@ -221,9 +221,7 @@ export async function POST(req: Request) {
           results.push({ id, status: "failed", reason: md?.error || "merge gagal" });
           continue;
         }
-        // Bill the duration ACTUALLY produced. If APIPod rerouted us to their
-        // 6-30s backend, generateGrokIntro retried at 6s — charging the 3s the
-        // user picked would undercharge for a 6s clip.
+        // Bill the duration ACTUALLY produced, not the one requested.
         const billedSecs = intro.usedDurationSec || duration;
         await deduct(user.id, "grok", Number((grokRate * billedSecs).toFixed(4)), framedId);
         await finishDone(String(md.url));

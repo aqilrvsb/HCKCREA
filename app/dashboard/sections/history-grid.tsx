@@ -936,7 +936,7 @@ export default function HistoryGrid({
     setEdBusyFrame(true);
     try {
       edAddLog(mode === "grok"
-        ? `🎞️ Grok Frame ${ids.length} video — animasi cover ${duration}s (ikut kadar Grok, bila berjaya)…`
+        ? `🎞️ Wan 2.7 Frame ${ids.length} video — animasi cover ${duration}s (ikut kadar per saat, bila berjaya)…`
         : mode === "animate"
           ? `🎞️ Animate Frame ${ids.length} video — ${animation} ${duration}s (RM0.10/video, bila berjaya)…`
           : `🎞️ Static Frame ${ids.length} video — intro ${duration}s + gabung (percuma)…`);
@@ -1232,17 +1232,15 @@ export default function HistoryGrid({
                 </button>
                 {/* Grok's list starts at 3s, so lift the 1s default into range. */}
                 <button onClick={() => { setEdFrameMode("grok"); setEdFrameDur((d) => Math.max(3, d)); }} className="rounded-xl p-2.5 text-left border-2 transition" style={edFrameMode === "grok" ? { borderColor: "#a78bfa", background: "rgba(167,139,250,0.12)" } : { borderColor: "var(--color-border)", background: "var(--color-bg)" }}>
-                  <div className="text-[12px] font-extrabold text-[var(--color-text-primary)]">Grok</div>
-                  <div className="text-[9px] text-[var(--color-text-muted)]">AI 1.5 · <b style={{ color: "#60a5fa" }}>ikut saat</b></div>
+                  <div className="text-[12px] font-extrabold text-[var(--color-text-primary)]">Wan 2.7</div>
+                  <div className="text-[9px] text-[var(--color-text-muted)]">AI i2v · <b style={{ color: "#60a5fa" }}>ikut saat</b></div>
                 </button>
               </div>
 
               {/* Duration */}
               <label className="block text-[10px] uppercase tracking-wider font-bold text-[var(--color-text-muted)] mb-1">Duration intro</label>
               <select value={edFrameDur} onChange={(e) => setEdFrameDur(Number(e.target.value))} className="w-full mb-3 px-3 py-2 rounded-lg text-sm" style={{ background: "var(--color-bg)", border: "1px solid var(--color-border)", color: "var(--color-text-primary)" }}>
-                {/* 3-5s Grok works when APIPod serves grok-imagine-1.5-preview.
-                    If they reroute to the -video-1.5-fast backend (6-30 only),
-                    the server auto-retries at 6s — so short stays selectable. */}
+                {/* Wan 2.7 honours short durations — verified 3s in, 3.00s out. */}
                 {(edFrameMode === "grok" ? [3, 4, 5, 6, 7, 8, 9, 10] : [1, 2, 3, 4, 5]).map((s) => <option key={s} value={s}>{s} saat</option>)}
               </select>
 
@@ -1262,13 +1260,13 @@ export default function HistoryGrid({
               {/* Grok note */}
               {edFrameMode === "grok" && (
                 <div className="text-[9px] text-[var(--color-text-muted)] mb-3 rounded-lg p-2" style={{ background: "rgba(96,165,250,0.08)", border: "1px solid rgba(96,165,250,0.25)" }}>
-                  Grok Imagine 1.5 animasikan cover (start frame) mengikut <b>headline + sub-text</b> cover. Dicaj ikut kadar Grok per saat, hanya bila berjaya.
+                  Wan 2.7 animasikan cover (source image) mengikut <b>headline + sub-text</b> cover. Output ikut nisbah cover — cover 9:16 → klip 9:16. Dicaj per saat, hanya bila berjaya.
                 </div>
               )}
 
               <div className="flex gap-2">
                 <button onClick={() => setEdFrameModal(false)} className="flex-1 py-2 rounded-xl text-[12px] font-bold" style={{ background: "var(--color-bg)", border: "1px solid var(--color-border)", color: "var(--color-text-secondary)" }}>Batal</button>
-                <button onClick={() => { setEdFrameModal(false); void edGenerateFrame({ mode: edFrameMode, duration: edFrameDur, animation: edFrameMotion }); }} className="flex-1 py-2 rounded-xl text-[12px] font-extrabold text-white inline-flex items-center justify-center gap-1.5" style={{ background: "linear-gradient(135deg,#7c3aed,#a78bfa)" }}>🎞️ {edFrameMode === "grok" ? "Grok" : edFrameMode === "animate" ? "Animate" : "Static"} Frame</button>
+                <button onClick={() => { setEdFrameModal(false); void edGenerateFrame({ mode: edFrameMode, duration: edFrameDur, animation: edFrameMotion }); }} className="flex-1 py-2 rounded-xl text-[12px] font-extrabold text-white inline-flex items-center justify-center gap-1.5" style={{ background: "linear-gradient(135deg,#7c3aed,#a78bfa)" }}>🎞️ {edFrameMode === "grok" ? "Wan 2.7" : edFrameMode === "animate" ? "Animate" : "Static"} Frame</button>
               </div>
             </div>
           </div>
