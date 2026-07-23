@@ -265,7 +265,7 @@ export default function HistoryGrid({
   // Affiliate mode (Settings toggle) — when on, the Editor gets a per-card
   // affiliate checkbox + an affiliate picker + a Transfer Affiliate button.
   const [edAffEnabled, setEdAffEnabled] = useState(false);
-  const [edAffContacts, setEdAffContacts] = useState<{ name: string; email: string }[]>([]);
+  const [edAffContacts, setEdAffContacts] = useState<{ name: string; staff_id: string; affiliate_id?: number | string | null; whatsapp?: string }[]>([]);
   const [edAffSel, setEdAffSel] = useState<Set<string>>(new Set());
   const [edAffPick, setEdAffPick] = useState("");
   const [edAffBusy, setEdAffBusy] = useState(false);
@@ -1003,14 +1003,14 @@ export default function HistoryGrid({
     const blocked = picked.length - ids.length;
     if (blocked > 0) edAddLog(`⚠ ${blocked} video dilangkau — Text + Cover kena siap dulu.`);
     if (!ids.length) { edAddLog("⚠ Tick checkbox affiliate (hijau) pada video yang dah siap Text + Cover."); return; }
-    const contact = edAffContacts.find((c) => c.email === edAffPick);
+    const contact = edAffContacts.find((c) => c.staff_id === edAffPick);
     if (!contact) { edAddLog("⚠ Pilih affiliate dulu."); return; }
-    if (!confirm(`Transfer ${ids.length} video ke ${contact.name} (${contact.email})? Video akan keluar dari Editor.`)) return;
+    if (!confirm(`Transfer ${ids.length} video ke ${contact.name} (${contact.staff_id})? Video akan keluar dari Editor.`)) return;
     setEdAffBusy(true);
     try {
       const r = await fetch("/api/editor/transfer-affiliate", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ history_ids: ids, email: contact.email, name: contact.name }),
+        body: JSON.stringify({ history_ids: ids, staff_id: contact.staff_id, affiliate_id: contact.affiliate_id ?? null, name: contact.name, phone: contact.whatsapp || "" }),
       });
       const d = await r.json().catch(() => ({}));
       if (!r.ok) { edAddLog(`✗ Transfer gagal: ${d?.error || r.status}`); return; }
@@ -1200,7 +1200,7 @@ export default function HistoryGrid({
               <span className="text-[11px] text-[var(--color-text-muted)] font-mono">{edAffSel.size} dipilih</span>
               <select value={edAffPick} onChange={(e) => setEdAffPick(e.target.value)} className="px-3 py-1.5 rounded-lg text-xs" style={{ background: "var(--color-bg)", border: "1px solid var(--color-border)", color: "var(--color-text-primary)" }}>
                 <option value="">— Pilih affiliate —</option>
-                {edAffContacts.map((c) => <option key={c.email} value={c.email}>{c.name} — {c.email}</option>)}
+                {edAffContacts.filter((c) => c.staff_id).map((c) => <option key={c.staff_id} value={c.staff_id}>{c.name} — {c.staff_id}</option>)}
               </select>
               <div className="flex-1" />
               <button onClick={() => void edTransferAffiliate()} disabled={edAffBusy || !edAffPick || edAffSel.size === 0} className="text-xs font-extrabold px-4 py-1.5 rounded-lg text-white disabled:opacity-50 inline-flex items-center gap-1.5" style={{ background: "linear-gradient(135deg,#16a34a,#4ade80)" }}>{edAffBusy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Users className="w-4 h-4" />} Transfer Affiliate</button>
@@ -2871,13 +2871,13 @@ function HistoryCardInner({
             {sourceTabLabel(item)}
           </span>
           {/* Which affiliate this video was transferred to (Transfer Affiliate tab). */}
-          {!!(item.metadata as any)?.affiliate_email && (
+          {!!(item.metadata as any)?.affiliate_staff_id && (
             <span
               className="absolute bottom-2 left-2 right-2 z-30 px-2 py-1 rounded-md text-[9px] font-extrabold text-white shadow-lg truncate"
               style={{ background: "linear-gradient(135deg,#16a34a,#4ade80)" }}
-              title={`Transfer ke ${(item.metadata as any).affiliate_name || ""} — ${(item.metadata as any).affiliate_email}`}
+              title={`Transfer ke ${(item.metadata as any).affiliate_name || ""} — ${(item.metadata as any).affiliate_staff_id}`}
             >
-              👤 {(item.metadata as any).affiliate_name || (item.metadata as any).affiliate_email}
+              👤 {(item.metadata as any).affiliate_name || (item.metadata as any).affiliate_staff_id}
             </span>
           )}
           <button
@@ -4591,7 +4591,7 @@ const HistoryCard = memo(HistoryCardInner, (prev, next) => {
     prev.dpOn === next.dpOn &&
     prev.edAffShow === next.edAffShow &&
     prev.edAffOn === next.edAffOn &&
-    (prev.item.metadata as any)?.affiliate_email === (next.item.metadata as any)?.affiliate_email
+    (prev.item.metadata as any)?.affiliate_staff_id === (next.item.metadata as any)?.affiliate_staff_id
     // Intentionally NOT comparing onToggleMerge — the parent passes an
     // inline lambda that's a new ref every render, but it always closes
     // over the same `item.id` and a stable setState, so the old ref is

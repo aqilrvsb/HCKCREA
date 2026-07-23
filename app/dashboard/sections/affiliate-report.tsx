@@ -1,12 +1,12 @@
 "use client";
 
-// Reporting Affiliate — per-email breakdown of every video transferred to an
+// Reporting Affiliate — per-affiliate breakdown of every video transferred to an
 // affiliate, with a date filter. Read-only: this is the accounting view of the
 // Transfer Affiliate tab, not another place to move videos.
 //
-// Grouping key is metadata.affiliate_email; the date is
-// metadata.affiliate_transfer_date (KL, YYYY-MM-DD) with a fallback to
-// affiliate_transferred_at for rows transferred before that field existed.
+// Grouping key is metadata.affiliate_staff_id (NL Staff ID, email retired
+// 2026-07-23); the date is metadata.affiliate_transfer_date (KL, YYYY-MM-DD)
+// with a fallback to affiliate_transferred_at for older rows.
 
 import { useMemo, useState } from "react";
 import useSWR from "swr";
@@ -100,14 +100,14 @@ export default function AffiliateReport({ projectId }: { projectId?: string | nu
       if (to && d > to) return false;
       return true;
     });
-    const map = new Map<string, { email: string; name: string; rows: Row[]; sent: number; failed: number }>();
+    const map = new Map<string, { staff: string; name: string; rows: Row[]; sent: number; failed: number }>();
     for (const r of inRange) {
       const m = r.metadata || {};
-      const email = String(m.affiliate_email || "—").toLowerCase();
-      if (!map.has(email)) {
-        map.set(email, { email, name: String(m.affiliate_name || email.split("@")[0]), rows: [], sent: 0, failed: 0 });
+      const staff = String(m.affiliate_staff_id || "—");
+      if (!map.has(staff)) {
+        map.set(staff, { staff, name: String(m.affiliate_name || staff), rows: [], sent: 0, failed: 0 });
       }
-      const g = map.get(email)!;
+      const g = map.get(staff)!;
       g.rows.push(r);
       if (m.affiliate_ingest_ok === true) g.sent++;
       else if (m.affiliate_ingest_ok === false) g.failed++;
@@ -128,14 +128,14 @@ export default function AffiliateReport({ projectId }: { projectId?: string | nu
   // is idempotent on source_id, so this can never create a duplicate there.
   async function resend(r: Row) {
     const m = r.metadata || {};
-    const email = String(m.affiliate_email || "");
-    if (!email) return;
+    const staff = String(m.affiliate_staff_id || "");
+    if (!staff && m.affiliate_id == null) return;
     setResending((s) => new Set(s).add(r.id));
     try {
       await fetch("/api/editor/transfer-affiliate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ history_ids: [r.id], email, name: m.affiliate_name || "" }),
+        body: JSON.stringify({ history_ids: [r.id], staff_id: staff, affiliate_id: m.affiliate_id ?? null, name: m.affiliate_name || "", phone: m.affiliate_phone || "" }),
       });
       await mutate();
     } finally {
@@ -166,14 +166,14 @@ export default function AffiliateReport({ projectId }: { projectId?: string | nu
 
   // WhatsApp the affiliate a "your videos have landed" notice for one date.
   // The server counts the videos itself, so the total can't be spoofed here.
-  async function notifyAffiliate(email: string, date: string) {
+  async function notifyAffiliate(staff: string, date: string) {
     if (!date) return;
-    setNotifying((s) => new Set(s).add(email));
+    setNotifying((s) => new Set(s).add(staff));
     try {
       const res = await fetch("/api/affiliate/notify", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, date }),
+        body: JSON.stringify({ staff_id: staff, date }),
       });
       const d = await res.json().catch(() => null);
       if (!res.ok || !d?.ok) { alert(d?.error || "Notifikasi gagal."); return; }
@@ -181,19 +181,19 @@ export default function AffiliateReport({ projectId }: { projectId?: string | nu
     } catch (e: any) {
       alert(e?.message || "Notifikasi gagal.");
     } finally {
-      setNotifying((s) => { const n = new Set(s); n.delete(email); return n; });
+      setNotifying((s) => { const n = new Set(s); n.delete(staff); return n; });
     }
   }
 
   function exportCsv() {
-    const head = ["date", "affiliate_name", "affiliate_email", "history_id", "caption", "cover_title", "cover_subtitle", "video_url", "ingest"];
+    const head = ["date", "affiliate_name", "staff_id", "history_id", "caption", "cover_title", "cover_subtitle", "video_url", "ingest"];
     const lines = [head.join(",")];
     for (const g of groups) {
       for (const r of g.rows) {
         const m = r.metadata || {};
         const cell = (v: any) => `"${String(v ?? "").replace(/"/g, '""').replace(/\r?\n/g, " ")}"`;
         lines.push([
-          rowDate(r), g.name, g.email, r.id, r.caption ?? m.caption ?? "",
+          rowDate(r), g.name, g.staff, r.id, r.caption ?? m.caption ?? "",
           m.cover_title ?? "", m.cover_subtitle ?? "", r.output_url ?? "",
           m.affiliate_ingest_ok === true ? "sent" : m.affiliate_ingest_ok === false ? "failed" : "—",
         ].map(cell).join(","));
@@ -271,20 +271,20 @@ export default function AffiliateReport({ projectId }: { projectId?: string | nu
       ) : (
         <div className="space-y-2">
           {groups.map((g) => {
-            const open = openEmail === g.email;
+            const open = openEmail === g.staff;
             return (
-              <div key={g.email} className="overflow-hidden rounded-xl border border-white/10 bg-white/5">
+              <div key={g.staff} className="overflow-hidden rounded-xl border border-white/10 bg-white/5">
                 <div className="flex w-full flex-wrap items-center gap-3 px-4 py-3">
                   {/* Toggle area — kept as its own button so the date input and
                       notify button aren't nested inside a <button>. */}
-                  <button onClick={() => setOpenEmail(open ? null : g.email)}
+                  <button onClick={() => setOpenEmail(open ? null : g.staff)}
                     className="flex min-w-0 flex-1 items-center gap-3 text-left hover:opacity-80">
                     <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-emerald-400/15 text-sm text-emerald-300">
                       {g.name.slice(0, 1).toUpperCase()}
                     </span>
                     <span className="min-w-0 flex-1">
                       <span className="block truncate text-sm font-medium text-white">{g.name}</span>
-                      <span className="block truncate text-[11px] text-white/45">{g.email}</span>
+                      <span className="block truncate text-[11px] text-white/45">{g.staff}</span>
                     </span>
                     <span className="shrink-0 text-right">
                       <span className="block text-lg font-semibold text-white">{g.rows.length}</span>
@@ -300,18 +300,18 @@ export default function AffiliateReport({ projectId }: { projectId?: string | nu
                   {/* Notify — pick a date, WhatsApp the affiliate how many
                       videos landed that day. Defaults to their latest transfer. */}
                   <input type="date"
-                    value={notifyDate[g.email] ?? (g.rows.length ? rowDate(g.rows[0]) : to)}
-                    onChange={(e) => setNotifyDate((m) => ({ ...m, [g.email]: e.target.value }))}
+                    value={notifyDate[g.staff] ?? (g.rows.length ? rowDate(g.rows[0]) : to)}
+                    onChange={(e) => setNotifyDate((m) => ({ ...m, [g.staff]: e.target.value }))}
                     title="Tarikh untuk notifikasi"
                     className="shrink-0 rounded-lg border border-white/10 bg-black/40 px-2 py-1 text-xs text-white" />
                   <button
-                    onClick={() => void notifyAffiliate(g.email, notifyDate[g.email] ?? (g.rows.length ? rowDate(g.rows[0]) : to))}
-                    disabled={notifying.has(g.email)}
+                    onClick={() => void notifyAffiliate(g.staff, notifyDate[g.staff] ?? (g.rows.length ? rowDate(g.rows[0]) : to))}
+                    disabled={notifying.has(g.staff)}
                     title={`WhatsApp ${g.name} — beritahu video untuk tarikh ni dah masuk`}
                     className="shrink-0 rounded-lg border border-emerald-400/30 bg-emerald-400/10 px-2.5 py-1 text-xs text-emerald-200 hover:bg-emerald-400/20 disabled:opacity-40">
-                    {notifying.has(g.email) ? "…" : "📱 WhatsApp"}
+                    {notifying.has(g.staff) ? "…" : "📱 WhatsApp"}
                   </button>
-                  <button onClick={() => setOpenEmail(open ? null : g.email)}
+                  <button onClick={() => setOpenEmail(open ? null : g.staff)}
                     className="shrink-0 px-1 text-white/30 hover:text-white/60">{open ? "▲" : "▼"}</button>
                 </div>
 
@@ -413,10 +413,10 @@ export default function AffiliateReport({ projectId }: { projectId?: string | nu
               <div className="mb-3 flex items-start gap-3">
                 <div className="min-w-0 flex-1">
                   <div className="text-sm font-semibold text-white">
-                    {m.affiliate_name || m.affiliate_email || "—"}
+                    {m.affiliate_name || m.affiliate_staff_id || "—"}
                   </div>
                   <div className="text-[11px] text-white/45">
-                    {m.affiliate_email} · {rowDate(openRow)}
+                    {m.affiliate_staff_id} · {rowDate(openRow)}
                   </div>
                 </div>
                 <button onClick={() => setOpenRow(null)}

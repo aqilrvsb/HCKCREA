@@ -27,7 +27,11 @@ export type NlIngestResult = {
 };
 
 export type NlIngestInput = {
-  email: string;
+  // Identity is now a Staff ID (AFL-###) or the NL internal affiliate id —
+  // email was retired 2026-07-23. Prefer affiliateId when present (immune to
+  // typos); staffId is the fallback for manually-typed entries.
+  affiliateId?: number | string | null;
+  staffId?: string | null;
   outputUrl: string;
   caption?: string | null;
   coverTitle?: string | null;
@@ -37,6 +41,13 @@ export type NlIngestInput = {
   date?: string | null;
   /** Stable id — makes retries idempotent. Always send it. */
   sourceId: string;
+};
+
+export type NlAffiliate = {
+  id: number | string;
+  name: string;
+  staffId: string;
+  phone: string;
 };
 
 /** Today in Asia/Kuala_Lumpur as YYYY-MM-DD (their platform is KL-based). */
@@ -54,7 +65,9 @@ export async function pushToNlAffiliate(
   opts: { retries?: number; timeoutMs?: number } = {}
 ): Promise<NlIngestResult> {
   if (!INGEST_TOKEN) return { ok: false, error: "NL_AFFILIATE_INGEST_TOKEN tak diset" };
-  if (!input.email) return { ok: false, error: "email affiliate kosong" };
+  const affiliateId = input.affiliateId != null && String(input.affiliateId).trim() ? input.affiliateId : null;
+  const staffId = String(input.staffId || "").trim();
+  if (affiliateId == null && !staffId) return { ok: false, error: "ID Staff / affiliate_id kosong" };
   if (!input.outputUrl) return { ok: false, error: "video link tiada" };
 
   const metadata: Record<string, string> = {};
@@ -63,7 +76,8 @@ export async function pushToNlAffiliate(
   if (input.coverThumbnailUrl) metadata.cover_thumbnail_url = input.coverThumbnailUrl;
 
   const body = {
-    email: input.email,
+    // affiliate_id preferred (typo-proof); staff_id when we only have that.
+    ...(affiliateId != null ? { affiliate_id: affiliateId } : { staff_id: staffId }),
     output_url: input.outputUrl,
     ...(input.caption ? { caption: input.caption } : {}),
     ...(Object.keys(metadata).length ? { metadata } : {}),
@@ -115,9 +129,9 @@ export async function pushToNlAffiliate(
   return last;
 }
 
-/** GET the ingest URL with the key → the affiliate roster (id, name, email). */
+/** GET the ingest URL with the key → the roster (id, name, staff_id, phone). */
 export async function fetchNlAffiliateRoster(): Promise<
-  { ok: true; affiliates: { id: number | string; name: string; email: string }[] } | { ok: false; error: string }
+  { ok: true; affiliates: NlAffiliate[] } | { ok: false; error: string }
 > {
   if (!INGEST_TOKEN) return { ok: false, error: "NL_AFFILIATE_INGEST_TOKEN tak diset" };
   try {
@@ -131,8 +145,37 @@ export async function fetchNlAffiliateRoster(): Promise<
     return {
       ok: true,
       affiliates: list
-        .map((a: any) => ({ id: a?.id, name: String(a?.name || ""), email: String(a?.email || "").toLowerCase() }))
-        .filter((a: any) => a.email),
+        .map((a: any) => ({ id: a?.id, name: String(a?.name || ""), staffId: String(a?.staff_id || "").trim(), phone: String(a?.phone || "").trim() }))
+        // Only affiliates with a Staff ID are transferable (some roster rows,
+        // e.g. "Inhouse", have staff_id:null).
+        .filter((a: NlAffiliate) => !!a.staffId),
+    };
+  } catch (e: any) {
+    return { ok: false, error: e?.message || "network error" };
+  }
+}
+
+/** GET ?staff_id=AFL-### → the single affiliate's {id, name, staff_id, phone}.
+ *  Lets PeningLab take ONLY a Staff ID and get the name + WhatsApp back. */
+export async function lookupNlAffiliate(
+  staffId: string
+): Promise<{ ok: true; affiliate: NlAffiliate } | { ok: false; error: string; status?: number }> {
+  if (!INGEST_TOKEN) return { ok: false, error: "NL_AFFILIATE_INGEST_TOKEN tak diset" };
+  const id = String(staffId || "").trim();
+  if (!id) return { ok: false, error: "ID Staff kosong" };
+  try {
+    const res = await fetch(`${INGEST_URL}?staff_id=${encodeURIComponent(id)}`, {
+      headers: { Authorization: `Bearer ${INGEST_TOKEN}` },
+      cache: "no-store",
+    });
+    const json = await res.json().catch(() => null);
+    if (!res.ok || !json?.ok || !json?.affiliate) {
+      return { ok: false, status: res.status, error: json?.error || `HTTP ${res.status}` };
+    }
+    const a = json.affiliate;
+    return {
+      ok: true,
+      affiliate: { id: a.id, name: String(a.name || ""), staffId: String(a.staff_id || id).trim(), phone: String(a.phone || "").trim() },
     };
   } catch (e: any) {
     return { ok: false, error: e?.message || "network error" };

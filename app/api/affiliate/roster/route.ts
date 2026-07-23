@@ -3,10 +3,10 @@ import { createClient } from "@/lib/supabase/server";
 import { fetchNlAffiliateRoster, nlAffiliateConfigured } from "@/lib/nl-affiliate";
 
 // GET /api/affiliate/roster
-// The affiliate roster straight from NL Affiliate Army. Settings uses it to
-// import contacts, so the emails we transfer to are guaranteed to exist on
-// their side — a typo'd email would otherwise fail the ingest with a 404 only
-// after the transfer had already happened.
+// The affiliate roster straight from NL Affiliate Army: {id, name, staff_id,
+// phone}. Settings uses it to import contacts, so the Staff IDs we transfer to
+// are guaranteed to exist on their side, and it fills name + WhatsApp in one
+// shot. (Email was retired 2026-07-23.)
 // Session-authed; the ingest key never leaves the server.
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";

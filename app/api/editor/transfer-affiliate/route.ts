@@ -5,13 +5,13 @@ import { pushToNlAffiliate, nlAffiliateConfigured, klToday } from "@/lib/nl-affi
 import { rehostToContent } from "@/lib/b2";
 
 // POST /api/editor/transfer-affiliate
-//   { history_ids: string[], email?, name?, undo?: boolean }
+//   { history_ids: string[], staff_id?, affiliate_id?, name?, phone?, undo? }
 //
 // Tag + record (like Done Post): assign the picked Editor videos to an affiliate
-// (by email/name), which removes them from the Editor and lands them in the
+// (by NL Staff ID), which removes them from the Editor and lands them in the
 // "Transfer Affiliate" tab. undo=true reverses it (untags + back to Editor).
 // Nothing is copied to another account — purely the operator's own tracking.
-// Owner only, session-authed.
+// Identity is Staff ID (AFL-###); email was retired 2026-07-23. Owner only.
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
@@ -27,10 +27,12 @@ export async function POST(req: Request) {
   if (!ids.length) return NextResponse.json({ error: "history_ids required" }, { status: 400 });
 
   const undo = body?.undo === true;
-  const email = String(body?.email || "").trim().toLowerCase();
+  const staffId = String(body?.staff_id || "").trim().toUpperCase();
+  const affiliateId = body?.affiliate_id != null && String(body.affiliate_id).trim() ? body.affiliate_id : null;
   const name = String(body?.name || "").trim();
-  if (!undo && (!email || !email.includes("@"))) {
-    return NextResponse.json({ error: "email affiliate diperlukan" }, { status: 400 });
+  const phone = String(body?.phone || "").replace(/\D/g, "");
+  if (!undo && !staffId && affiliateId == null) {
+    return NextResponse.json({ error: "ID Staff affiliate diperlukan" }, { status: 400 });
   }
 
   const admin = createAdminClient();
@@ -64,14 +66,18 @@ export async function POST(req: Request) {
       // Back to the Editor. Ingest record is kept — their side already has the
       // post, and source_id keeps a re-transfer idempotent.
       delete m.affiliate_transferred;
-      delete m.affiliate_email;
+      delete m.affiliate_staff_id;
+      delete m.affiliate_id;
+      delete m.affiliate_phone;
       delete m.affiliate_name;
       delete m.affiliate_transferred_at;
       m.in_editor = true;
     } else {
       m.affiliate_transferred = true;
-      m.affiliate_email = email;
-      m.affiliate_name = name || email.split("@")[0];
+      m.affiliate_staff_id = staffId || (m.affiliate_staff_id ?? null);
+      m.affiliate_id = affiliateId ?? (m.affiliate_id ?? null);
+      m.affiliate_phone = phone || (m.affiliate_phone ?? null);
+      m.affiliate_name = name || m.affiliate_name || staffId;
       m.affiliate_transferred_at = new Date().toISOString();
       m.affiliate_transfer_date = today; // KL date — what Reporting groups by
       m.in_editor = false; // leaves the Editor
@@ -105,7 +111,8 @@ export async function POST(req: Request) {
       // failure here never blocks the transfer — it's recorded and retryable.
       if (nlAffiliateConfigured()) {
         const r = await pushToNlAffiliate({
-          email,
+          affiliateId: m.affiliate_id ?? affiliateId,
+          staffId: m.affiliate_staff_id ?? staffId,
           outputUrl: String(row.output_url || ""),
           caption: row.caption ?? m.caption ?? null,
           coverTitle: m.cover_title ?? null,

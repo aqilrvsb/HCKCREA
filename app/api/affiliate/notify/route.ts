@@ -21,24 +21,24 @@ export async function POST(req: Request) {
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const body = await req.json().catch(() => ({}));
-  const email = String(body?.email || "").trim().toLowerCase();
+  const staffId = String(body?.staff_id || "").trim().toUpperCase();
   const date = String(body?.date || "").trim(); // YYYY-MM-DD
-  if (!email) return NextResponse.json({ error: "email diperlukan" }, { status: 400 });
+  if (!staffId) return NextResponse.json({ error: "staff_id diperlukan" }, { status: 400 });
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
     return NextResponse.json({ error: "date perlu format YYYY-MM-DD" }, { status: 400 });
   }
 
-  // Resolve the affiliate's WhatsApp from the owner's own contact list.
+  // Resolve the affiliate's WhatsApp from the owner's own contact list (by Staff ID).
   const { data: prof } = await sb.from("profiles").select("settings").eq("id", user.id).maybeSingle();
   const contacts = Array.isArray((prof?.settings as any)?.affiliate_contacts)
-    ? ((prof!.settings as any).affiliate_contacts as Array<{ name?: string; email?: string; whatsapp?: string }>)
+    ? ((prof!.settings as any).affiliate_contacts as Array<{ name?: string; staff_id?: string; whatsapp?: string }>)
     : [];
-  const contact = contacts.find((c) => String(c.email || "").toLowerCase() === email);
+  const contact = contacts.find((c) => String(c.staff_id || "").toUpperCase() === staffId);
   if (!contact) return NextResponse.json({ error: "Affiliate tak dijumpai dalam Settings" }, { status: 404 });
   const phone = String(contact.whatsapp || "").trim();
   if (!phone) {
     return NextResponse.json(
-      { error: "Affiliate ni tiada no WhatsApp — isi di Settings → Affiliate dulu" },
+      { error: "Affiliate ni tiada no WhatsApp — Import semula dari NL Affiliate Army" },
       { status: 422 }
     );
   }
@@ -52,13 +52,13 @@ export async function POST(req: Request) {
     .eq("user_id", user.id)
     .eq("type", "video")
     .filter("metadata->>affiliate_transferred", "eq", "true")
-    .filter("metadata->>affiliate_email", "eq", email)
+    .filter("metadata->>affiliate_staff_id", "eq", staffId)
     .filter("metadata->>affiliate_transfer_date", "eq", date);
 
   const total = (rows || []).length;
   if (total === 0) {
     return NextResponse.json(
-      { error: `Tiada video untuk ${email} pada ${date} — tak hantar notifikasi.` },
+      { error: `Tiada video untuk ${staffId} pada ${date} — tak hantar notifikasi.` },
       { status: 409 }
     );
   }
@@ -66,7 +66,7 @@ export async function POST(req: Request) {
   // DD-MM-YYYY reads more naturally in the message than the ISO date.
   const [y, m, d] = date.split("-");
   const pretty = `${d}-${m}-${y}`;
-  const name = String(contact.name || email.split("@")[0]);
+  const name = String(contact.name || staffId);
 
   const message = [
     "*Notification NLAffliate*",

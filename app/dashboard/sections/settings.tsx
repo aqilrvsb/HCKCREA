@@ -22,6 +22,11 @@ const VIDEO_PROVIDER_LABEL: Record<"p1" | "p2", string> = {
   p1: "P1",
 };
 
+// Affiliate contact — keyed by NL "Staff ID" (AFL-###). name + whatsapp come
+// from NL Affiliate Army (read-only); affiliate_id is NL's internal id, sent on
+// transfer when present (typo-proof). Email was retired 2026-07-23.
+type AffContact = { staff_id: string; affiliate_id?: number | string | null; name: string; whatsapp?: string };
+
 export default function SettingsSection({
   email,
   name,
@@ -96,16 +101,13 @@ export default function SettingsSection({
   }
 
   // ── Affiliate mode (tag + record) ──────────────────────────────────────────
-  // A toggle (default OFF) + a list of {name,email} affiliate contacts. When ON,
-  // the Editor shows a Transfer Affiliate flow that tags videos with one of
-  // these emails. Stored in profiles.settings jsonb (client-side, like WhatsApp).
+  // A toggle (default OFF) + a list of affiliate contacts keyed by NL "Staff ID"
+  // (AFL-###). The user types ONLY the Staff ID; name + WhatsApp are fetched from
+  // NL Affiliate Army and stored read-only. Email was retired 2026-07-23.
   const [affEnabled, setAffEnabled] = useState(false);
-  const [affContacts, setAffContacts] = useState<{ name: string; email: string; whatsapp?: string }[]>([]);
-  const [affName, setAffName] = useState("");
-  const [affEmail, setAffEmail] = useState("");
-  // WhatsApp is what the Reporting → 📱 button messages. Malaysian format;
-  // sendWhatsApp() normalises 01x… → 601x…, so either entry works.
-  const [affWa, setAffWa] = useState("");
+  const [affContacts, setAffContacts] = useState<AffContact[]>([]);
+  const [affStaffId, setAffStaffId] = useState("");
+  const [affLooking, setAffLooking] = useState(false);
   const [savingAff, setSavingAff] = useState(false);
   const [affMsg, setAffMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
@@ -123,7 +125,7 @@ export default function SettingsSection({
     })();
   }, []);
 
-  async function saveAffiliate(nextEnabled: boolean, nextContacts: { name: string; email: string; whatsapp?: string }[]) {
+  async function saveAffiliate(nextEnabled: boolean, nextContacts: AffContact[]) {
     setSavingAff(true); setAffMsg(null);
     try {
       const sb = createClient();
@@ -139,26 +141,31 @@ export default function SettingsSection({
       setAffMsg({ ok: false, text: e?.message || "Update failed" });
     } finally { setSavingAff(false); }
   }
-  const addAffContact = () => {
-    const nm = affName.trim(); const em = affEmail.trim().toLowerCase();
-    const wa = affWa.replace(/\D/g, "");
-    if (!em || !em.includes("@")) { setAffMsg({ ok: false, text: "Masukkan email affiliate yang sah." }); return; }
-    if (affContacts.some((c) => c.email === em)) { setAffMsg({ ok: false, text: "Email tu dah ada." }); return; }
-    const next = [...affContacts, { name: nm || em.split("@")[0], email: em, whatsapp: wa }];
-    setAffName(""); setAffEmail(""); setAffWa("");
-    void saveAffiliate(affEnabled, next);
+  // Add by Staff ID only: look it up in NL Affiliate Army → auto-fill name +
+  // WhatsApp. On 404 we refuse to save (an unknown ID would fail the transfer).
+  const addAffContact = async () => {
+    const sid = affStaffId.trim().toUpperCase();
+    if (!sid) { setAffMsg({ ok: false, text: "Masukkan ID Staff (cth AFL-009)." }); return; }
+    if (affContacts.some((c) => (c.staff_id || "").toUpperCase() === sid)) { setAffMsg({ ok: false, text: "ID Staff tu dah ada." }); return; }
+    setAffLooking(true); setAffMsg(null);
+    try {
+      const res = await fetch(`/api/affiliate/lookup?staff_id=${encodeURIComponent(sid)}`);
+      const d = await res.json().catch(() => null);
+      if (res.status === 404) { setAffMsg({ ok: false, text: "ID Staff tak dijumpai dalam NL Affiliate Army." }); return; }
+      if (!res.ok || !d?.ok || !d?.affiliate) { setAffMsg({ ok: false, text: d?.error || "Lookup gagal." }); return; }
+      const a = d.affiliate;
+      const next = [...affContacts, { staff_id: String(a.staff_id || sid), affiliate_id: a.id ?? null, name: String(a.name || sid), whatsapp: String(a.phone || "") }];
+      setAffStaffId("");
+      await saveAffiliate(affEnabled, next);
+      setAffMsg({ ok: true, text: `Ditambah: ${a.name} (${a.staff_id}) · ${a.phone || "tiada no"}` });
+    } catch (e: any) {
+      setAffMsg({ ok: false, text: e?.message || "Lookup gagal." });
+    } finally { setAffLooking(false); }
   };
-  /** Set/replace the WhatsApp number on an existing contact (imported rows
-   *  have no number — the roster API only returns id/name/email). */
-  const setAffContactWa = (em: string, wa: string) =>
-    void saveAffiliate(
-      affEnabled,
-      affContacts.map((c) => (c.email === em ? { ...c, whatsapp: wa.replace(/\D/g, "") } : c))
-    );
-  const removeAffContact = (em: string) => void saveAffiliate(affEnabled, affContacts.filter((c) => c.email !== em));
-  // Pull the roster from NL Affiliate Army. Typing emails by hand is the one
-  // way a transfer can fail late (their ingest 404s on an unknown email), so
-  // importing the real list removes that whole failure mode.
+  const removeAffContact = (sid: string) => void saveAffiliate(affEnabled, affContacts.filter((c) => (c.staff_id || "") !== sid));
+  // Pull the whole roster from NL Affiliate Army → fills Staff ID + name +
+  // WhatsApp for everyone in one shot. Replaces the list (the identity key
+  // changed from email to Staff ID, so old email-only rows are superseded).
   const [importingAff, setImportingAff] = useState(false);
   async function importAffRoster() {
     setImportingAff(true);
@@ -166,14 +173,14 @@ export default function SettingsSection({
       const res = await fetch("/api/affiliate/roster");
       const d = await res.json().catch(() => null);
       if (!res.ok || !d?.ok) { setAffMsg({ ok: false, text: d?.error || "Gagal ambil senarai affiliate." }); return; }
-      const incoming: { name: string; email: string; whatsapp?: string }[] = (d.affiliates || [])
-        .map((a: any) => ({ name: String(a.name || a.email.split("@")[0]), email: String(a.email).toLowerCase() }))
-        .filter((a: any) => a.email.includes("@"));
+      const incoming: AffContact[] = (d.affiliates || [])
+        .map((a: any) => ({ staff_id: String(a.staffId || "").trim(), affiliate_id: a.id ?? null, name: String(a.name || ""), whatsapp: String(a.phone || "") }))
+        .filter((a: AffContact) => !!a.staff_id);
       if (!incoming.length) { setAffMsg({ ok: false, text: "Senarai affiliate kosong." }); return; }
-      // Merge — keep any manual entries that aren't on their roster.
-      const byEmail = new Map(affContacts.map((c) => [c.email, c]));
-      for (const a of incoming) byEmail.set(a.email, a);
-      const merged = [...byEmail.values()];
+      // Merge by Staff ID — refresh existing, keep any manual ones not on roster.
+      const byId = new Map(affContacts.filter((c) => c.staff_id).map((c) => [c.staff_id, c]));
+      for (const a of incoming) byId.set(a.staff_id, a);
+      const merged = [...byId.values()];
       await saveAffiliate(affEnabled, merged);
       setAffMsg({ ok: true, text: `Import ${incoming.length} affiliate dari NL Affiliate Army.` });
     } catch (e: any) {
@@ -343,42 +350,36 @@ export default function SettingsSection({
 
         {affEnabled ? (
           <div className="space-y-3">
+            {/* Add by Staff ID ONLY — name + WhatsApp are fetched from NL. */}
             <div className="flex flex-col sm:flex-row gap-2">
-              <input className="input flex-1" placeholder="Nama affiliate" value={affName} onChange={(e) => setAffName(e.target.value)} />
-              <input className="input flex-1" placeholder="email@affiliate.com" value={affEmail} onChange={(e) => setAffEmail(e.target.value)} onKeyDown={(e) => e.key === "Enter" && addAffContact()} />
-              <input className="input flex-1" placeholder="No WhatsApp (0123456789)" value={affWa} onChange={(e) => setAffWa(e.target.value)} onKeyDown={(e) => e.key === "Enter" && addAffContact()} />
-              <button onClick={addAffContact} disabled={savingAff} className="btn-primary disabled:opacity-60 whitespace-nowrap">{savingAff ? <Loader2 className="w-4 h-4 animate-spin" /> : "Add"}</button>
+              <input className="input flex-1" placeholder="ID Staff (AFL-###)" value={affStaffId}
+                onChange={(e) => setAffStaffId(e.target.value.toUpperCase())}
+                onKeyDown={(e) => e.key === "Enter" && !affLooking && addAffContact()} />
+              <button onClick={() => void addAffContact()} disabled={savingAff || affLooking} className="btn-primary disabled:opacity-60 whitespace-nowrap">{(savingAff || affLooking) ? <Loader2 className="w-4 h-4 animate-spin" /> : "Add"}</button>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
               <button onClick={() => void importAffRoster()} disabled={importingAff || savingAff}
                 className="text-xs px-3 py-1.5 rounded-lg disabled:opacity-60 whitespace-nowrap"
                 style={{ background: "var(--color-bg)", border: "1px solid var(--color-border)", color: "var(--color-text-secondary)" }}>
                 {importingAff ? <Loader2 className="w-3.5 h-3.5 animate-spin inline" /> : "⤓ Import dari NL Affiliate Army"}
               </button>
-              <span className="text-[11px] text-[var(--color-text-muted)]">Email mesti sama macam sistem diorang, kalau tak transfer akan gagal.</span>
+              <span className="text-[11px] text-[var(--color-text-muted)]">ID Staff mesti sama macam sistem diorang, kalau tak transfer akan gagal. Nama &amp; WhatsApp diambil automatik.</span>
             </div>
             {affMsg && <Notice ok={affMsg.ok} text={affMsg.text} />}
             {affContacts.length === 0 ? (
-              <p className="text-xs text-[var(--color-text-muted)]">Belum ada affiliate. Tambah nama + email di atas.</p>
+              <p className="text-xs text-[var(--color-text-muted)]">Belum ada affiliate. Masukkan ID Staff (AFL-###) di atas, atau Import.</p>
             ) : (
               <div className="space-y-2">
                 {affContacts.map((c) => (
-                  <div key={c.email} className="flex items-center justify-between gap-2 rounded-lg px-3 py-2" style={{ background: "var(--color-bg)", border: "1px solid var(--color-border)" }}>
+                  <div key={c.staff_id || c.name} className="flex items-center justify-between gap-2 rounded-lg px-3 py-2" style={{ background: "var(--color-bg)", border: "1px solid var(--color-border)" }}>
                     <div className="min-w-0 flex-1">
                       <div className="text-[13px] font-bold text-[var(--color-text-primary)] truncate">{c.name}</div>
-                      <div className="text-[11px] text-[var(--color-text-muted)] truncate">{c.email}</div>
-                      {/* Editable inline — roster-imported contacts arrive with
-                          no number, and without one the 📱 notify button can't
-                          reach them. */}
-                      <input
-                        className="input mt-1 text-[11px] py-1"
-                        placeholder="No WhatsApp — wajib untuk notifikasi"
-                        defaultValue={c.whatsapp || ""}
-                        onBlur={(e) => { const v = e.target.value.replace(/\D/g, ""); if (v !== (c.whatsapp || "")) setAffContactWa(c.email, v); }}
-                        disabled={savingAff}
-                      />
+                      <div className="text-[11px] text-[var(--color-text-muted)] truncate">
+                        <span style={{ color: "#8b5cf6", fontWeight: 700 }}>{c.staff_id || "— tiada ID —"}</span>
+                        {c.whatsapp ? <span> · 📱 {c.whatsapp}</span> : <span className="text-red-400"> · tiada no WhatsApp</span>}
+                      </div>
                     </div>
-                    <button onClick={() => removeAffContact(c.email)} disabled={savingAff} className="text-red-400 hover:text-red-300 disabled:opacity-50 flex-shrink-0" title="Buang affiliate"><X className="w-4 h-4" /></button>
+                    <button onClick={() => removeAffContact(c.staff_id || "")} disabled={savingAff} className="text-red-400 hover:text-red-300 disabled:opacity-50 flex-shrink-0" title="Buang affiliate"><X className="w-4 h-4" /></button>
                   </div>
                 ))}
               </div>
