@@ -6,9 +6,21 @@
 
 import { getSettings } from "@/lib/settings";
 
-export async function loadSubCards(): Promise<string> {
-  const s = await getSettings(["storyboard_subcards"]);
-  const text = s.storyboard_subcards?.text;
+// Page-aware spec loader. Page 1 (default) is the PROVEN spec in
+// `storyboard_subcards` — its key, content and behaviour are never touched.
+// Pages 2 & 3 are EXTRA variety sets stored in separate keys, so page 1 is
+// impossible to disturb. An unset page-2/3 key returns "" → the route falls
+// back to its generic prompt for that sub, exactly like a missing card today.
+export type SubPage = 1 | 2 | 3;
+
+export function subcardsKey(page: SubPage): string {
+  return page === 2 ? "storyboard_subcards_p2" : page === 3 ? "storyboard_subcards_p3" : "storyboard_subcards";
+}
+
+export async function loadSubCards(page: SubPage = 1): Promise<string> {
+  const key = subcardsKey(page);
+  const s = await getSettings([key]);
+  const text = (s as Record<string, { text?: string } | undefined>)[key]?.text;
   return typeof text === "string" ? text : "";
 }
 

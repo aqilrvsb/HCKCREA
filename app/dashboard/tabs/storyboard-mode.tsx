@@ -26,10 +26,25 @@ const MAIN_OPTIONS = [
   { value: "pc" as const, label: "Product Commercial", desc: "Premium · sinematik" },
   { value: "custom" as const, label: "Custom Idea", desc: "Tulis idea sendiri" },
 ];
-const SUBS: Record<"ugc" | "pc", string[]> = {
-  ugc: ["UGC Review", "Unboxing", "Unboxing ASMR", "Unboxing Try-On", "Virtual Try-On", "Before/After", "Tutorial", "UGC Addiction", "Giant Figure", "Testimoni Selfie", "Talking Head", "Secret Tips/Hack", "Lifestyle", "Masalah→Solusi"],
-  pc: ["TV Spot", "Cinematic", "Crush Test", "Hyper Motion", "Mystery Box", "Reboxing", "Pro Virtual Try-On", "Product Studio", "Pix Story", "Stop Motion", "Motion Graphics", "Wild Card"],
+// SUB-STYLE PAGES. Page 1 = the PROVEN set (unchanged, verbatim). Pages 2 & 3 =
+// extra variety sets — every style distinct from page 1 and from each other,
+// each backed by a full execution card in app_settings.storyboard_subcards_p2/_p3.
+// The route loads the matching page spec by the `page` field we send below.
+const SUBS_PAGES: Record<1 | 2 | 3, Record<"ugc" | "pc", string[]>> = {
+  1: {
+    ugc: ["UGC Review", "Unboxing", "Unboxing ASMR", "Unboxing Try-On", "Virtual Try-On", "Before/After", "Tutorial", "UGC Addiction", "Giant Figure", "Testimoni Selfie", "Talking Head", "Secret Tips/Hack", "Lifestyle", "Masalah→Solusi"],
+    pc: ["TV Spot", "Cinematic", "Crush Test", "Hyper Motion", "Mystery Box", "Reboxing", "Pro Virtual Try-On", "Product Studio", "Pix Story", "Stop Motion", "Motion Graphics", "Wild Card"],
+  },
+  2: {
+    ugc: ["Countdown Clock", "Macro Tap ASMR", "Mirror Selfie", "WhatsApp Chat", "Walk-and-Talk", "Palm-Wipe Swap", "Tier-List Drag", "Caught Startle", "Voice-Memo Waveform", "Camera-Roll Dump", "Drive-Home Monologue", "Empty-Chair Address", "Screenshot React", "Then-Now Split"],
+    pc: ["Liquid Gold Pour", "Ink Bloom", "Ferrofluid Spikes", "Frozen Splash Crown", "Glass-Block Shatter", "Bullet-Time Orbit", "Zero-G Float", "Macro-to-Cosmos", "Origami Fold", "Cross-Section Slice", "Infinite Recursion", "Liquid Typography"],
+  },
+  3: {
+    ugc: ["Top-Down Restock", "Overhead Journal", "Notes-App Manifesto", "Ring-Light Off", "Held-Object Trigger", "Receipt Rip", "Basket Avalanche", "Trolley Cam", "Mystery Blind-Pull", "Empties Tower", "Barcode Beep", "Palm-Squeeze Test", "Bag-Weight Hang", "Ceiling-Fan Strobe"],
+    pc: ["Botanical Bloom", "Chrome-Liquid Morph", "Product Colossus", "Escher Architecture", "Thermal False-Colour", "Particle Assembly", "Molten Wax Reveal", "Silk Wind Wrap", "Colored Gel Duel", "Prism Spectrum", "Volumetric Godrays", "Tilt-Shift Miniature"],
+  },
 };
+const SUB_PAGES: Array<1 | 2 | 3> = [1, 2, 3];
 
 export default function StoryboardMode({ projectId }: { projectId?: string }) {
   const [affiliate, setAffiliate] = useState<SavedProduct[]>([]);
@@ -49,6 +64,9 @@ export default function StoryboardMode({ projectId }: { projectId?: string }) {
   // 2+ subs → connected campaign storyline (one storyboard per sub, in order);
   // subs may come from BOTH categories — main is just a filter for the list.
   const [subs, setSubs] = useState<{ main: "ugc" | "pc"; sub: string }[]>([]);
+  // Sub-style PAGE (1 proven / 2 / 3 extra variety). Switching pages clears the
+  // selection — a campaign's subs must all belong to ONE page's spec.
+  const [subPage, setSubPage] = useState<1 | 2 | 3>(1);
   // Custom Idea (3rd category) — client's own concept.
   const [customIdea, setCustomIdea] = useState("");
   const [qty, setQty] = useState(1);
@@ -205,6 +223,9 @@ export default function StoryboardMode({ projectId }: { projectId?: string }) {
           project_id: projectId || null,
           main: isCustom ? "custom" : main,
           subs: isCustom ? [] : subs,
+          // Which sub-style page the picked subs belong to (1 proven / 2 / 3).
+          // Custom Idea ignores it. Absent/1 → proven spec.
+          page: isCustom ? undefined : subPage,
           custom_idea: isCustom ? customIdea.trim() : undefined,
           // Custom Idea + non-campaign both use quantity (1–10).
           quantity: isCustom || subs.length === 1 ? qty : undefined,
@@ -389,14 +410,28 @@ export default function StoryboardMode({ projectId }: { projectId?: string }) {
       {/* 3. SUB — multi-select (ugc/pc only) */}
       {productReady && main && !isCustom && (
         <div className="rounded-2xl p-4" style={box}>
-          <div className="flex items-center justify-between mb-2">
+          <div className="flex items-center justify-between mb-2 gap-2 flex-wrap">
             <span className="text-[11px] font-bold uppercase tracking-wider" style={{ color: THEME }}>3 · Sub-style</span>
-            <span className="text-[10px] text-[var(--color-text-muted)]">
+            {/* Page 1 = proven set · Pages 2-3 = extra variety (all distinct). */}
+            <div className="flex items-center gap-1">
+              {SUB_PAGES.map((p) => (
+                <button
+                  key={p}
+                  onClick={() => { if (p !== subPage) { setSubPage(p); setSubs([]); } }}
+                  title={p === 1 ? "Set asal (proven)" : `Set variasi ${p} — sub-style lain`}
+                  className="text-[10px] font-bold px-2.5 py-1 rounded-md"
+                  style={{ border: `1px solid ${subPage === p ? THEME : "var(--color-border)"}`, background: subPage === p ? `${THEME}22` : "var(--color-bg)", color: subPage === p ? THEME : "var(--color-text-muted)" }}
+                >
+                  Page {p}{p === 1 ? " ✓" : ""}
+                </button>
+              ))}
+            </div>
+            <span className="text-[10px] text-[var(--color-text-muted)] w-full sm:w-auto">
               {subs.length >= 2 ? `${subs.length} sub · campaign (boleh silang kategori)` : "pilih 1 (kuantiti) atau 2+ (campaign)"}
             </span>
           </div>
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5">
-            {SUBS[main].map((s) => {
+            {SUBS_PAGES[subPage][main].map((s) => {
               const on = subs.some((x) => x.sub === s);
               const order = subs.findIndex((x) => x.sub === s) + 1;
               return (

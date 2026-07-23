@@ -65,6 +65,10 @@ export async function POST(req: Request) {
   const noCta = body?.no_cta === true;
   // No-subtitle — when ticked, the storyboard image must be 100% text-free.
   const noSubtitle = body?.no_subtitle === true;
+  // Sub-style PAGE (1 proven / 2 / 3 extra variety). Absent or 1 → the proven
+  // spec, so all existing traffic is byte-identical.
+  const subPageRaw = Number(body?.page);
+  const subPage: 1 | 2 | 3 = subPageRaw === 2 ? 2 : subPageRaw === 3 ? 3 : 1;
   // Caption instruction fed to the planner, flipped by the No-subtitle toggle.
   const captionClause = noSubtitle
     ? "NO captions/subtitles/on-screen text anywhere (pure visuals only)"
@@ -188,6 +192,7 @@ export async function POST(req: Request) {
           avatar_urls: avatarUrls,
           no_cta: noCta || null,
           no_subtitle: noSubtitle || null,
+          sub_page: subPage, // which sub-style page this job used (1/2/3)
           upload_status: "queued",
         },
       })
@@ -197,8 +202,9 @@ export async function POST(req: Request) {
   }
   if (historyIds.length === 0) return NextResponse.json({ error: "DB insert gagal" }, { status: 500 });
 
-  // Load the 26-card execution spec once; global rules apply to every job.
-  const subCardsDoc = await loadSubCards();
+  // Load the execution spec for the chosen page once; global rules apply to
+  // every job. Page 1 = proven spec (default); pages 2/3 = extra variety sets.
+  const subCardsDoc = await loadSubCards(subPage);
   const globalRules = extractGlobalRules(subCardsDoc);
 
   after(async () => {

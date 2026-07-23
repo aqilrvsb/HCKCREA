@@ -3021,7 +3021,7 @@ function HistoryCardInner({
         </Portal>
       )}
       {tukarOpen && isStoryboard && (
-        <StoryboardReplaceModal historyId={item.id} onClose={() => setTukarOpen(false)} />
+        <StoryboardReplaceModal historyId={item.id} subPage={((item.metadata as any)?.sub_page === 2 ? 2 : (item.metadata as any)?.sub_page === 3 ? 3 : 1)} onClose={() => setTukarOpen(false)} />
       )}
       {/* Generate Video — pick the provider first. Defaults: Omni, 10s, 1 video. */}
       {vidPickOpen && isStoryboard && (

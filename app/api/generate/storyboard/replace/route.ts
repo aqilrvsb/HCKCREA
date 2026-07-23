@@ -31,6 +31,7 @@ export async function POST(req: Request) {
   const historyId = String(body?.history_id || "").trim();
   const main: "ugc" | "pc" = body?.main === "pc" ? "pc" : "ugc";
   const sub = String(body?.sub || "").trim();
+  const bodyPage = Number(body?.page);
   if (!historyId || !sub) return NextResponse.json({ error: "history_id + sub diperlukan" }, { status: 400 });
 
   const admin = createAdminClient();
@@ -74,7 +75,11 @@ export async function POST(req: Request) {
   await admin.from("history").delete().eq("id", historyId).eq("user_id", user.id);
 
   after(async () => {
-    const doc = await loadSubCards();
+    // Rebuild from the SAME sub-style page (1/2/3), so replacing a page-2/3
+    // storyboard keeps its variety set. Prefer the page the modal sent (which
+    // reflects the sub the user just picked), else the row's stored page.
+    const pick = bodyPage === 2 ? 2 : bodyPage === 3 ? 3 : bodyPage === 1 ? 1 : (meta.sub_page === 2 ? 2 : meta.sub_page === 3 ? 3 : 1);
+    const doc = await loadSubCards(pick as 1 | 2 | 3);
     const globalRules = extractGlobalRules(doc);
     const card = extractSubCard(doc, sub);
     const mainLabel = mainLabelOf(main);
@@ -142,7 +147,7 @@ export async function POST(req: Request) {
     const r = await generateImageWithCascade({ primaryModel: STORYBOARD_MODEL, prompt, aspectRatio: "9:16", imageUrls: refImages.length > 0 ? refImages : undefined });
     if (r.ok) {
       const { data: cur } = await admin.from("history").select("metadata").eq("id", targetId).single();
-      await admin.from("history").update({ task_id: r.taskId, prompt, metadata: { ...(cur?.metadata || {}), provider: r.actualProvider, slot: r.actualSlot, model: r.actualModel } }).eq("id", targetId);
+      await admin.from("history").update({ task_id: r.taskId, prompt, metadata: { ...(cur?.metadata || {}), provider: r.actualProvider, slot: r.actualSlot, model: r.actualModel, sub_page: pick } }).eq("id", targetId);
     } else {
       await admin.from("history").update({ status: "failed", error_message: r.error }).eq("id", targetId);
     }

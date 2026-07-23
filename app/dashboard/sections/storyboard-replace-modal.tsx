@@ -12,12 +12,25 @@ const MAIN_OPTIONS = [
   { value: "ugc" as const, label: "UGC", desc: "Realistik · TikTok/Reels" },
   { value: "pc" as const, label: "Product Commercial", desc: "Premium · sinematik" },
 ];
-const SUBS: Record<"ugc" | "pc", string[]> = {
-  ugc: ["UGC Review", "Unboxing", "Unboxing ASMR", "Unboxing Try-On", "Virtual Try-On", "Before/After", "Tutorial", "UGC Addiction", "Giant Figure", "Testimoni Selfie", "Talking Head", "Secret Tips/Hack", "Lifestyle", "Masalah→Solusi"],
-  pc: ["TV Spot", "Cinematic", "Crush Test", "Hyper Motion", "Mystery Box", "Reboxing", "Pro Virtual Try-On", "Product Studio", "Pix Story", "Stop Motion", "Motion Graphics", "Wild Card"],
+// Must mirror the SUBS_PAGES in tabs/storyboard-mode.tsx so a page-2/3 row is
+// offered its OWN sub-styles when swapping. Page 1 verbatim = proven set.
+const SUBS_PAGES: Record<1 | 2 | 3, Record<"ugc" | "pc", string[]>> = {
+  1: {
+    ugc: ["UGC Review", "Unboxing", "Unboxing ASMR", "Unboxing Try-On", "Virtual Try-On", "Before/After", "Tutorial", "UGC Addiction", "Giant Figure", "Testimoni Selfie", "Talking Head", "Secret Tips/Hack", "Lifestyle", "Masalah→Solusi"],
+    pc: ["TV Spot", "Cinematic", "Crush Test", "Hyper Motion", "Mystery Box", "Reboxing", "Pro Virtual Try-On", "Product Studio", "Pix Story", "Stop Motion", "Motion Graphics", "Wild Card"],
+  },
+  2: {
+    ugc: ["Countdown Clock", "Macro Tap ASMR", "Mirror Selfie", "WhatsApp Chat", "Walk-and-Talk", "Palm-Wipe Swap", "Tier-List Drag", "Caught Startle", "Voice-Memo Waveform", "Camera-Roll Dump", "Drive-Home Monologue", "Empty-Chair Address", "Screenshot React", "Then-Now Split"],
+    pc: ["Liquid Gold Pour", "Ink Bloom", "Ferrofluid Spikes", "Frozen Splash Crown", "Glass-Block Shatter", "Bullet-Time Orbit", "Zero-G Float", "Macro-to-Cosmos", "Origami Fold", "Cross-Section Slice", "Infinite Recursion", "Liquid Typography"],
+  },
+  3: {
+    ugc: ["Top-Down Restock", "Overhead Journal", "Notes-App Manifesto", "Ring-Light Off", "Held-Object Trigger", "Receipt Rip", "Basket Avalanche", "Trolley Cam", "Mystery Blind-Pull", "Empties Tower", "Barcode Beep", "Palm-Squeeze Test", "Bag-Weight Hang", "Ceiling-Fan Strobe"],
+    pc: ["Botanical Bloom", "Chrome-Liquid Morph", "Product Colossus", "Escher Architecture", "Thermal False-Colour", "Particle Assembly", "Molten Wax Reveal", "Silk Wind Wrap", "Colored Gel Duel", "Prism Spectrum", "Volumetric Godrays", "Tilt-Shift Miniature"],
+  },
 };
 
-export default function StoryboardReplaceModal({ historyId, onClose }: { historyId: string; onClose: () => void }) {
+export default function StoryboardReplaceModal({ historyId, subPage = 1, onClose }: { historyId: string; subPage?: 1 | 2 | 3; onClose: () => void }) {
+  const SUBS = SUBS_PAGES[subPage] || SUBS_PAGES[1];
   const [main, setMain] = useState<"ugc" | "pc" | null>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -30,7 +43,7 @@ export default function StoryboardReplaceModal({ historyId, onClose }: { history
       const r = await fetch("/api/generate/storyboard/replace", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ history_id: historyId, main, sub }),
+        body: JSON.stringify({ history_id: historyId, main, sub, page: subPage }),
       });
       const t = await r.text();
       let d: any = {};
