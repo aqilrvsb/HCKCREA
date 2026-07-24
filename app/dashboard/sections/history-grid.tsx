@@ -246,6 +246,9 @@ export default function HistoryGrid({
   const [edText, setEdText] = useState<Set<string>>(new Set());
   const [edCover, setEdCover] = useState<Set<string>>(new Set());
   const [edFrame, setEdFrame] = useState<Set<string>>(new Set());
+  // Bulk Undo Frame — framed videos ticked for a batch un-frame.
+  const [edUndoSel, setEdUndoSel] = useState<Set<string>>(new Set());
+  const [edBusyUndo, setEdBusyUndo] = useState(false);
   const [edBusyFrame, setEdBusyFrame] = useState(false);
   // Per-card live status so parallel work is VISIBLE on each card: which video
   // is currently generating (spinner/glow) and which JUST finished (green flash).
@@ -291,6 +294,9 @@ export default function HistoryGrid({
   const [edFrameMotion, setEdFrameMotion] = useState("zoom-in");
   const [edProduct, setEdProduct] = useState("");
   const [edProducts, setEdProducts] = useState<Array<{ product_id: string; product_name?: string; name?: string; raw_url?: string; description?: string; detail?: string }>>([]);
+  // Bulk "Guna Detail Product sahaja" — when on, bulk Generate writes captions
+  // purely from the product Name + Detail, ignoring each video's own scene.
+  const [edGenDetailOnly, setEdGenDetailOnly] = useState(false);
   // Latest picked product, mirrored into refs so per-card regen handlers read
   // the CURRENT selection even if the memoized card holds a stale closure.
   const edProductRef = useRef("");
@@ -763,7 +769,7 @@ export default function HistoryGrid({
           const id = list[idx++];
           edMarkProc(id, true);
           try {
-            const { ok, d } = await edFetchJson("/api/ugc/generate-post-meta", { history_id: id, product_url: productUrl, product_name: productName, product_detail: productDetail, variant_seed: edSeed(id), source: "editor", ...(force ? { fill_only_empty: false } : {}) });
+            const { ok, d } = await edFetchJson("/api/ugc/generate-post-meta", { history_id: id, product_url: productUrl, product_name: productName, product_detail: productDetail, variant_seed: edSeed(id), source: "editor", detail_only: edGenDetailOnly, ...(force ? { fill_only_empty: false } : {}) });
             if (ok && metaOk(d)) { done.add(id); results.set(id, d); edMarkDone(id); }
             else edAddLog(`  ✗ ${id.slice(0, 6)}: ${d?.error || "tak lengkap"}`);
           } catch (e: any) { edAddLog(`  ✗ ${id.slice(0, 6)}: ${e?.message || "error"}`); }
@@ -997,6 +1003,22 @@ export default function HistoryGrid({
     await fetch("/api/editor/unframe", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ history_ids: [framedId] }) });
     edReload();
   }
+  // Bulk Undo Frame — un-frame every ticked framed video at once.
+  const edUndoToggle = (id: string) =>
+    setEdUndoSel((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  async function edBulkUnframe() {
+    const ids = [...edUndoSel].filter((id) => visibleParents.some((v) => v.id === id));
+    if (!ids.length) { edAddLog("⚠ Tick checkbox Undo (ungu) pada video framed dulu."); return; }
+    if (!confirm(`Undo Frame untuk ${ids.length} video? Intro dibuang, video asal dipulihkan (Text & Cover kekal).`)) return;
+    setEdBusyUndo(true);
+    try {
+      await fetch("/api/editor/unframe", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ history_ids: ids }) });
+      edAddLog(`✓ Undo Frame ${ids.length} video.`);
+      setEdUndoSel(new Set());
+      edReload();
+    } catch (e: any) { edAddLog(`✗ Undo Frame gagal: ${e?.message || "error"}`); }
+    finally { setEdBusyUndo(false); }
+  }
 
   // ── Transfer Affiliate (Editor) ────────────────────────────────────────────
   const edAffToggle = (id: string) =>
@@ -1209,11 +1231,31 @@ export default function HistoryGrid({
               Select All Frame
             </label>
             <div className="flex-1" />
+            {/* Bulk caption from product info only (ignore each video's scene). */}
+            <label className="flex items-center gap-1.5 text-[11px] font-bold cursor-pointer" style={{ color: "#60a5fa" }} title="Caption ikut Detail Product je, abaikan scene video">
+              <input type="checkbox" checked={edGenDetailOnly} onChange={(e) => setEdGenDetailOnly(e.target.checked)} style={{ accentColor: "#3b82f6", width: 14, height: 14 }} />
+              Guna Info Product sahaja
+            </label>
             {/* Buttons stay ENABLED while work runs — the progress shows on the
                 cards (spinner/ring), so you can fire the next action right away.
                 Only guard: Generate needs a product for Text. */}
             <button onClick={() => void edGenerateBoth()} disabled={edText.size > 0 && !edProduct} title={edText.size > 0 && !edProduct ? "Pilih produk dulu untuk Generate Text" : ""} className="text-xs font-extrabold px-5 py-1.5 rounded-lg text-white disabled:opacity-50 inline-flex items-center gap-1.5" style={{ background: "linear-gradient(135deg,#16a34a,#22c55e)" }}><span>📝🎨</span> Generate</button>
             <button onClick={() => setEdFrameModal(true)} className="text-xs font-extrabold px-5 py-1.5 rounded-lg text-white inline-flex items-center gap-1.5" style={{ background: "linear-gradient(135deg,#7c3aed,#a78bfa)" }}><span>🎞️</span> Frame</button>
+            {/* Bulk Undo Frame — appears once there are framed videos on the page. */}
+            {pageItems.some((v) => (v.metadata as any)?.framed_from) && (
+              <>
+                <label className="flex items-center gap-1.5 text-[11px] font-bold cursor-pointer" style={{ color: "#a78bfa" }} title="Tick semua framed untuk Undo">
+                  <input
+                    type="checkbox"
+                    checked={(() => { const ids = pageItems.filter((v) => (v.metadata as any)?.framed_from).map((v) => v.id); return ids.length > 0 && ids.every((i) => edUndoSel.has(i)); })()}
+                    onChange={() => { const ids = pageItems.filter((v) => (v.metadata as any)?.framed_from).map((v) => v.id); const allOn = ids.length > 0 && ids.every((i) => edUndoSel.has(i)); const n = new Set(edUndoSel); ids.forEach((i) => allOn ? n.delete(i) : n.add(i)); setEdUndoSel(n); }}
+                    style={{ accentColor: "#a78bfa", width: 14, height: 14 }}
+                  />
+                  Select All Undo
+                </label>
+                <button onClick={() => void edBulkUnframe()} disabled={edBusyUndo || edUndoSel.size === 0} className="text-xs font-extrabold px-4 py-1.5 rounded-lg text-white disabled:opacity-50 inline-flex items-center gap-1.5" style={{ background: "linear-gradient(135deg,#7c3aed,#a78bfa)" }}>{edBusyUndo ? <Loader2 className="w-4 h-4 animate-spin" /> : <Undo2 className="w-4 h-4" />} Undo Frame ({edUndoSel.size})</button>
+              </>
+            )}
           </div>
           <p className="text-[10px] text-[var(--color-text-muted)] mt-1.5">Satu butang uruskan semua: video yang tick <b style={{ color: "#60a5fa" }}>Text</b> je → jana Text; tick <b style={{ color: "#f59e0b" }}>Cover</b> je → jana Cover (perlu Text dulu); tick dua-dua → Text dulu, lepas siap Cover. <b style={{ color: "#a78bfa" }}>Frame</b> (perlu Cover dulu) → cover jadi intro depan video (9:16): <b>Static</b> (diam, percuma) atau <b>Animate</b> (zoom/pan, RM0.10) — pilih durasi 1–5s. Video baru gantikan yang asal.</p>
           {/* Transfer Affiliate — only when Affiliate mode is ON in Settings. */}
@@ -1640,6 +1682,8 @@ export default function HistoryGrid({
                 onEdFrame={() => edToggleFrame(it.id)}
                 onEdRemove={() => void edRemove(it.id)}
                 onEdUnframe={() => void edUnframe(it.id)}
+                edUndoOn={edUndoSel.has(it.id)}
+                onEdUndoToggle={() => edUndoToggle(it.id)}
                 onEdReset={() => void edReset(it.id)}
                 onEdRegenText={(opts) => edRegenText(it.id, opts?.detailOnly)}
                 onEdRegenCover={() => edRegenCover(it.id)}
@@ -1859,6 +1903,8 @@ function HistoryCardInner({
   onEdReset,
   onEdRegenText,
   onEdRegenCover,
+  edUndoOn,
+  onEdUndoToggle,
   edAffShow,
   edAffOn,
   onEdAff,
@@ -1891,6 +1937,8 @@ function HistoryCardInner({
   onEdReset?: () => void;
   onEdRegenText?: (opts?: { detailOnly?: boolean }) => Promise<{ ok: boolean; msg: string }> | void;
   onEdRegenCover?: () => Promise<{ ok: boolean; msg: string }> | void;
+  edUndoOn?: boolean;
+  onEdUndoToggle?: () => void;
   edAffShow?: boolean;
   edAffOn?: boolean;
   onEdAff?: () => void;
@@ -2949,20 +2997,11 @@ function HistoryCardInner({
               <input value={edCT} onChange={(e) => setEdCT(e.target.value)} maxLength={80} className="w-full mb-3 px-3 py-2 rounded-lg text-[12px] font-extrabold uppercase" style={{ background: "var(--color-bg)", border: "1px solid var(--color-border)", color: "var(--color-text-primary)" }} />
               <label className="block text-[10px] uppercase tracking-wider font-bold text-[var(--color-text-muted)] mb-1">Cover Subtitle</label>
               <input value={edCS} onChange={(e) => setEdCS(e.target.value)} maxLength={200} className="w-full mb-4 px-3 py-2 rounded-lg text-[12px] font-bold uppercase" style={{ background: "var(--color-bg)", border: "1px solid var(--color-border)", color: "var(--color-text-primary)" }} />
-              <div className="flex gap-2 mb-2">
+              {/* Manual edit only — regenerate is done via bulk Generate. */}
+              <div className="flex gap-2">
                 <button onClick={saveEdEdit} disabled={edSaving} className="flex-1 py-2 rounded-xl text-[12px] font-extrabold text-white disabled:opacity-50 inline-flex items-center justify-center gap-1.5" style={{ background: "linear-gradient(135deg,#f59e0b,#ea580c)" }}>{edSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : null} Simpan</button>
                 <button onClick={() => setEdEditOpen(false)} className="px-4 py-2 rounded-xl text-[12px] font-bold" style={{ background: "var(--color-bg)", border: "1px solid var(--color-border)" }}>Tutup</button>
               </div>
-              {/* Re-generate JUST the Text for this video (uses the product
-                  picked in the Editor header). Runs in background — close it. */}
-              {/* Detail-Product-only toggle: caption written purely from the
-                  product info, ignoring the video scene (stops e.g. "kulit"
-                  leaking from a skincare video prompt). */}
-              <label className="flex items-center gap-2 mb-2 text-[11px] font-semibold cursor-pointer text-[var(--color-text-secondary)]">
-                <input type="checkbox" checked={edRegenDetailOnly} onChange={(e) => setEdRegenDetailOnly(e.target.checked)} style={{ accentColor: "#3b82f6", width: 14, height: 14 }} />
-                Guna <b>Detail Product</b> sahaja — abaikan prompt video
-              </label>
-              <button onClick={async () => { const detailOnly = edRegenDetailOnly; setEdEditOpen(false); showToast(`📝 Jana semula Caption${detailOnly ? " (Detail Product sahaja)" : ""}…`); const r = await onEdRegenText?.({ detailOnly }); if (r) showToast(r.msg); }} className="w-full py-2 rounded-xl text-[12px] font-extrabold text-white inline-flex items-center justify-center gap-1.5" style={{ background: "linear-gradient(135deg,#3b82f6,#60a5fa)" }}>📝 Jana Semula Text</button>
             </div>
           </div>
         </Portal>
@@ -4230,6 +4269,22 @@ function HistoryCardInner({
           );
         })()}
 
+        {/* EDITOR — show the generated text inline (Main + Sub + Caption) so the
+            client reads it straight off the card, no icon click needed. */}
+        {editorMode && (item.caption || (item.metadata as any)?.caption || (item.metadata as any)?.cover_title) && (
+          <div className="mb-2 space-y-0.5">
+            {!!(item.metadata as any)?.cover_title && (
+              <div className="text-[11px] font-extrabold uppercase leading-tight text-[var(--color-text-primary)]">{(item.metadata as any).cover_title}</div>
+            )}
+            {!!(item.metadata as any)?.cover_subtitle && (
+              <div className="text-[10px] font-bold uppercase leading-tight text-[var(--color-text-secondary)]">{(item.metadata as any).cover_subtitle}</div>
+            )}
+            {!!(item.caption || (item.metadata as any)?.caption) && (
+              <div className="text-[10px] leading-snug text-[var(--color-text-muted)] whitespace-pre-wrap max-h-24 overflow-y-auto pt-0.5">{item.caption || (item.metadata as any)?.caption}</div>
+            )}
+          </div>
+        )}
+
         {/* Action row — extension's exact icon flow.
             flex-wrap lets the 6-button row (Extend/Combine/Improve/30d/
             Download/Delete) break to a second row on narrow mobile cards
@@ -4241,23 +4296,21 @@ function HistoryCardInner({
               normal video action row). */}
           {editorMode && (
             <>
-              {/* View/edit generated Text (caption + cover title/subtitle) —
-                  shown once text exists. Like the extension's edit dialog. */}
+              {/* One small manual-edit pencil (caption + main + sub). Regenerate
+                  is handled by bulk Generate, so no per-icon regen here. The
+                  cover-view icon is dropped — the cover shows as the card poster
+                  and the text shows inline above. */}
               {!!(item.caption || (item.metadata as any)?.caption || (item.metadata as any)?.cover_title) && (
-                <ActionBtn title="Lihat / edit Text (caption + cover title/subtitle)" onClick={openEdEdit} bg="linear-gradient(135deg,#3b82f6,#60a5fa)">
-                  <span className="text-[11px] font-extrabold leading-none">📝</span>
-                </ActionBtn>
-              )}
-              {/* View the generated cover thumbnail. */}
-              {!!(item.metadata as any)?.cover_thumbnail_url && (
-                <ActionBtn title="Lihat cover" onClick={() => setEdCoverView(String((item.metadata as any).cover_thumbnail_url))} bg="linear-gradient(135deg,#f59e0b,#ea580c)">
-                  <span className="text-[11px] font-extrabold leading-none">🎨</span>
+                <ActionBtn title="Edit Text (caption + main + sub) — manual" onClick={openEdEdit} bg="linear-gradient(135deg,#3b82f6,#60a5fa)">
+                  <Pencil className="w-3.5 h-3.5" strokeWidth={2.4} />
                 </ActionBtn>
               )}
               {/* Framed video (intro + video) — 🎞️ badge + Undo Frame (restores
                   the original). Otherwise the normal Remove-from-Editor. */}
               {(item.metadata as any)?.framed_from ? (
                 <>
+                  {/* Bulk Undo tick — select this framed video for a batch Undo Frame. */}
+                  <button onClick={() => onEdUndoToggle?.()} title="Pilih untuk Undo Frame (bulk)" className="w-6 h-6 rounded-md flex items-center justify-center border-2 text-[9px] font-extrabold" style={edUndoOn ? { background: "#7c3aed", borderColor: "#7c3aed", color: "#fff" } : { background: "rgba(0,0,0,0.5)", borderColor: "#a78bfa", color: "#a78bfa" }}>{edUndoOn ? <Check className="w-3.5 h-3.5" strokeWidth={3} /> : "U"}</button>
                   <button onClick={() => setEdFrameInfo(true)} className="inline-flex items-center h-6 px-2 rounded-md text-[10px] font-extrabold text-white" style={{ background: "linear-gradient(135deg,#7c3aed,#a78bfa)" }} title="Lihat detail frame / jana semula">🎞️ Framed</button>
                   <ActionBtn title="Undo Frame — buang intro, pulihkan video asal" onClick={() => onEdUnframe?.()} bg="linear-gradient(135deg,#7c3aed,#a78bfa)">
                     <Undo2 className="w-3.5 h-3.5" strokeWidth={2.4} />
@@ -4649,6 +4702,7 @@ const HistoryCard = memo(HistoryCardInner, (prev, next) => {
     prev.dpOn === next.dpOn &&
     prev.edAffShow === next.edAffShow &&
     prev.edAffOn === next.edAffOn &&
+    prev.edUndoOn === next.edUndoOn &&
     (prev.item.metadata as any)?.affiliate_staff_id === (next.item.metadata as any)?.affiliate_staff_id
     // Intentionally NOT comparing onToggleMerge — the parent passes an
     // inline lambda that's a new ref every render, but it always closes
