@@ -891,7 +891,8 @@ export default function HistoryGrid({
       if (textIds.length) {
         if (!product) { edAddLog("⚠ Pilih produk dulu untuk Generate Text."); return; }
         edAddLog(`① Text "${product.product_name || product.name}" untuk ${textIds.length} video…`);
-        fresh = await edRunText(textIds, product);
+        // force=true → Generate always OVERWRITES (re-tick a done video = regenerate).
+        fresh = await edRunText(textIds, product, true);
         const failedText = textIds.filter((id) => !fresh!.has(id));
         // Untick only this batch's successes; ticks added mid-run survive.
         setEdText((prev) => { const n = new Set(prev); textIds.forEach((id) => { if (fresh!.has(id)) n.delete(id); }); return n; });
@@ -900,27 +901,23 @@ export default function HistoryGrid({
       }
       // ── PHASE 2: COVER (parallel) — only AFTER text is fully done ──
       if (coverIds.length) {
-        let blocked = 0, already = 0;
+        let blocked = 0;
         const eligible: string[] = [];
         for (const id of coverIds) {
           const hasText = fresh?.has(id) || edHasText(id); // just-generated OR pre-existing
           if (!hasText) { blocked++; continue; }            // cover needs text → not allowed
-          const v = visibleParents.find((x) => x.id === id);
-          if ((v?.metadata as any)?.cover_thumbnail_url && !fresh?.has(id)) { already++; continue; }
+          // Generate = REGENERATE: include already-covered videos too (forced below).
           eligible.push(id);
         }
         if (blocked) edAddLog(`⚠ ${blocked} video takde text — cover di-skip (cover perlu text).`);
         if (eligible.length) {
-          edAddLog(`② Cover untuk ${eligible.length} video…${already ? ` (${already} dah ada cover)` : ""}`);
-          const { ok, skip, doneIds } = await edRunCover(eligible, fresh);
-          // Keep only the covers that were ATTEMPTED and failed ticked (un-tick
-          // succeeded + already-covered) → re-press retries just those.
+          edAddLog(`② Cover untuk ${eligible.length} video…`);
+          // force=true → re-render even an existing cover (Generate = regenerate).
+          const { ok, skip, doneIds } = await edRunCover(eligible, fresh, true);
           const failedCover = eligible.filter((id) => !doneIds.has(id));
           setEdCover((prev) => { const n = new Set(prev); eligible.forEach((id) => { if (doneIds.has(id)) n.delete(id); }); return n; });
           edReload();
           edAddLog(`✓ Cover siap — ${ok}/${eligible.length}${skip ? `, ${skip} skip` : ""}${failedCover.length ? ` · ${failedCover.length} belum siap — masih bertanda` : ""}.`);
-        } else if (!blocked) {
-          edAddLog(`ℹ Tiada cover baru untuk dijana${already ? ` (${already} dah ada cover)` : ""}.`);
         }
       }
     } finally { setEdBusyText(false); setEdBusyCover(false); }
@@ -2869,10 +2866,13 @@ function HistoryCardInner({
               {sourceTabLabel(item)}
             </span>
             <div className="absolute top-2 right-2 z-30 flex gap-1">
-              {!textDone && (
+              {/* T + C ALWAYS shown (even when done) so a video can be re-ticked
+                  for bulk re-generate — the current text/cover is visible inline
+                  + as the poster, so hiding them is no longer needed. */}
+              {!frameDone && (
                 <button
                   onClick={(e) => { e.stopPropagation(); onEdText?.(); }}
-                  title="Pilih untuk Generate Text"
+                  title={textDone ? "Pilih untuk Jana Semula Text" : "Pilih untuk Generate Text"}
                   className="w-6 h-6 rounded-md flex items-center justify-center shadow-lg border-2 text-[9px] font-extrabold"
                   style={edTextOn
                     ? { background: "#3b82f6", borderColor: "#3b82f6", color: "#fff" }
@@ -2881,11 +2881,11 @@ function HistoryCardInner({
                   {edTextOn ? <Check className="w-3.5 h-3.5" strokeWidth={3} /> : "T"}
                 </button>
               )}
-              {!coverDone && (
+              {!frameDone && (
                 <button
                   onClick={(e) => { e.stopPropagation(); if (edCoverOn || edCoverPickable) onEdCover?.(); }}
                   disabled={!edCoverOn && !edCoverPickable}
-                  title={(edCoverOn || edCoverPickable) ? "Pilih untuk Generate Cover" : "Tick Text dulu (atau jana Text) — Cover perlu Text"}
+                  title={(edCoverOn || edCoverPickable) ? (coverDone ? "Pilih untuk Jana Semula Cover" : "Pilih untuk Generate Cover") : "Tick Text dulu (atau jana Text) — Cover perlu Text"}
                   className="w-6 h-6 rounded-md flex items-center justify-center shadow-lg border-2 text-[9px] font-extrabold"
                   style={edCoverOn
                     ? { background: "#f59e0b", borderColor: "#f59e0b", color: "#fff" }
@@ -4296,15 +4296,8 @@ function HistoryCardInner({
               normal video action row). */}
           {editorMode && (
             <>
-              {/* One small manual-edit pencil (caption + main + sub). Regenerate
-                  is handled by bulk Generate, so no per-icon regen here. The
-                  cover-view icon is dropped — the cover shows as the card poster
-                  and the text shows inline above. */}
-              {!!(item.caption || (item.metadata as any)?.caption || (item.metadata as any)?.cover_title) && (
-                <ActionBtn title="Edit Text (caption + main + sub) — manual" onClick={openEdEdit} bg="linear-gradient(135deg,#3b82f6,#60a5fa)">
-                  <Pencil className="w-3.5 h-3.5" strokeWidth={2.4} />
-                </ActionBtn>
-              )}
+              {/* No caption/cover icons at all — text shows inline, cover shows
+                  as the poster, and (re)generate is done via bulk Generate. */}
               {/* Framed video (intro + video) — 🎞️ badge + Undo Frame (restores
                   the original). Otherwise the normal Remove-from-Editor. */}
               {(item.metadata as any)?.framed_from ? (
