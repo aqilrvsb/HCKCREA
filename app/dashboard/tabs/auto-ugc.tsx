@@ -2198,7 +2198,7 @@ function ManualProductCard({
           </label>
           <textarea
             rows={3}
-            maxLength={1000}
+            maxLength={3000}
             value={product.detail || ""}
             onChange={(e) => onDetailChange(e.target.value)}
             placeholder="Price, USP, ingredients, benefits…"
