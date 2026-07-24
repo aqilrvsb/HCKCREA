@@ -246,6 +246,12 @@ export default function HistoryGrid({
   const [edText, setEdText] = useState<Set<string>>(new Set());
   const [edCover, setEdCover] = useState<Set<string>>(new Set());
   const [edFrame, setEdFrame] = useState<Set<string>>(new Set());
+  // Regenerate selections — videos that already HAVE text/cover, ticked to be
+  // re-generated (force overwrite) by the same Generate button.
+  const [edRegTextSel, setEdRegTextSel] = useState<Set<string>>(new Set());
+  const [edRegCoverSel, setEdRegCoverSel] = useState<Set<string>>(new Set());
+  const edRegTextToggle = (id: string) => setEdRegTextSel((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  const edRegCoverToggle = (id: string) => setEdRegCoverSel((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
   // Bulk Undo Frame — framed videos ticked for a batch un-frame.
   const [edUndoSel, setEdUndoSel] = useState<Set<string>>(new Set());
   const [edBusyUndo, setEdBusyUndo] = useState(false);
@@ -754,9 +760,11 @@ export default function HistoryGrid({
   // cover pass can use the JUST-generated cover_title/subtitle directly, without
   // waiting for a DB reload.
   async function edRunText(ids: string[], product: any, force = false): Promise<Map<string, any>> {
-    const productUrl = product.raw_url || (product.product_id ? "https://www.tiktok.com/shop/my/pdp/product/" + product.product_id : "");
-    const productName = product.product_name || product.name || "";
-    const productDetail = product.description || product.detail || "";
+    // product may be undefined (regenerate with no header product picked) — send
+    // empty fields so the server falls back to each row's own stored product.
+    const productUrl = product?.raw_url || (product?.product_id ? "https://www.tiktok.com/shop/my/pdp/product/" + product.product_id : "");
+    const productName = product?.product_name || product?.name || "";
+    const productDetail = product?.description || product?.detail || "";
     const results = new Map<string, any>();
     const done = new Set<string>();
     const metaOk = (d: any) =>
@@ -881,21 +889,25 @@ export default function HistoryGrid({
   // wasn't generated (and didn't already exist) is skipped — cover needs text.
   async function edGenerateBoth() {
     const product: any = edProducts.find((p) => String(p.product_id) === edProduct);
-    const textIds = edCapBatch([...edText].filter((id) => visibleParents.some((v) => v.id === id) && !edProcRef.current.has(id)));
-    const coverIds = [...edCover].filter((id) => visibleParents.some((v) => v.id === id) && !edProcRef.current.has(id));
-    if (!textIds.length && !coverIds.length) { edAddLog("⚠ Tick Text / Cover pada video dulu."); return; }
+    // Text = first-gen (edText) + regenerate (edRegTextSel). Cover likewise.
+    const textIds = edCapBatch([...new Set([...edText, ...edRegTextSel])].filter((id) => visibleParents.some((v) => v.id === id) && !edProcRef.current.has(id)));
+    const coverIds = [...new Set([...edCover, ...edRegCoverSel])].filter((id) => visibleParents.some((v) => v.id === id) && !edProcRef.current.has(id));
+    if (!textIds.length && !coverIds.length) { edAddLog("⚠ Tick Text / Cover / Regenerate pada video dulu."); return; }
     setEdBusyText(true); setEdBusyCover(true);
     try {
       let fresh: Map<string, any> | undefined;
       // ── PHASE 1: TEXT (parallel) ──
       if (textIds.length) {
-        if (!product) { edAddLog("⚠ Pilih produk dulu untuk Generate Text."); return; }
-        edAddLog(`① Text "${product.product_name || product.name}" untuk ${textIds.length} video…`);
-        // force=true → Generate always OVERWRITES (re-tick a done video = regenerate).
+        // First-gen (edText) needs a product; regenerate falls back to the row's
+        // own stored product, so a product is only required when edText has items.
+        if (edText.size > 0 && !product) { edAddLog("⚠ Pilih produk dulu untuk Generate Text."); return; }
+        edAddLog(`① Text untuk ${textIds.length} video…`);
+        // force=true → always OVERWRITE (Generate + Regenerate both regenerate).
         fresh = await edRunText(textIds, product, true);
         const failedText = textIds.filter((id) => !fresh!.has(id));
-        // Untick only this batch's successes; ticks added mid-run survive.
+        // Untick this batch's successes from BOTH the gen + regen sets.
         setEdText((prev) => { const n = new Set(prev); textIds.forEach((id) => { if (fresh!.has(id)) n.delete(id); }); return n; });
+        setEdRegTextSel((prev) => { const n = new Set(prev); textIds.forEach((id) => { if (fresh!.has(id)) n.delete(id); }); return n; });
         edReload();
         edAddLog(`✓ Text siap — ${fresh.size}/${textIds.length} lengkap.${failedText.length ? ` ${failedText.length} gagal.` : ""}`);
       }
@@ -916,6 +928,7 @@ export default function HistoryGrid({
           const { ok, skip, doneIds } = await edRunCover(eligible, fresh, true);
           const failedCover = eligible.filter((id) => !doneIds.has(id));
           setEdCover((prev) => { const n = new Set(prev); eligible.forEach((id) => { if (doneIds.has(id)) n.delete(id); }); return n; });
+          setEdRegCoverSel((prev) => { const n = new Set(prev); eligible.forEach((id) => { if (doneIds.has(id)) n.delete(id); }); return n; });
           edReload();
           edAddLog(`✓ Cover siap — ${ok}/${eligible.length}${skip ? `, ${skip} skip` : ""}${failedCover.length ? ` · ${failedCover.length} belum siap — masih bertanda` : ""}.`);
         }
@@ -1197,8 +1210,8 @@ export default function HistoryGrid({
             <label className="flex items-center gap-1.5 text-xs font-extrabold cursor-pointer" style={{ color: "#60a5fa" }}>
               <input
                 type="checkbox"
-                checked={(() => { const ids = pageItems.map((v) => v.id); return ids.length > 0 && ids.every((i) => edText.has(i)); })()}
-                onChange={() => { const ids = pageItems.map((v) => v.id); const allOn = ids.length > 0 && ids.every((i) => edText.has(i)); const n = new Set(edText); ids.forEach((i) => allOn ? n.delete(i) : n.add(i)); setEdText(n); }}
+                checked={(() => { const ids = pageItems.filter((v) => !edTextDone(v.id)).map((v) => v.id); return ids.length > 0 && ids.every((i) => edText.has(i)); })()}
+                onChange={() => { const ids = pageItems.filter((v) => !edTextDone(v.id)).map((v) => v.id); const allOn = ids.length > 0 && ids.every((i) => edText.has(i)); const n = new Set(edText); ids.forEach((i) => allOn ? n.delete(i) : n.add(i)); setEdText(n); }}
                 style={{ accentColor: "#3b82f6", width: 15, height: 15 }}
               />
               Select All Text
@@ -1210,8 +1223,8 @@ export default function HistoryGrid({
                 // can Select All Text + Select All Cover and Generate does both
                 // in ONE click — the combined flow makes Text first, then Cover
                 // for these (a video that still has no text is skipped safely).
-                checked={(() => { const ids = pageItems.filter((v) => edCoverPickable(v.id) || edCover.has(v.id)).map((v) => v.id); return ids.length > 0 && ids.every((i) => edCover.has(i)); })()}
-                onChange={() => { const ids = pageItems.filter((v) => edCoverPickable(v.id) || edCover.has(v.id)).map((v) => v.id); const allOn = ids.length > 0 && ids.every((i) => edCover.has(i)); const n = new Set(edCover); ids.forEach((i) => allOn ? n.delete(i) : n.add(i)); setEdCover(n); }}
+                checked={(() => { const ids = pageItems.filter((v) => !edCoverDone(v.id) && !(v.metadata as any)?.framed_from).map((v) => v.id); return ids.length > 0 && ids.every((i) => edCover.has(i)); })()}
+                onChange={() => { const ids = pageItems.filter((v) => !edCoverDone(v.id) && !(v.metadata as any)?.framed_from).map((v) => v.id); const allOn = ids.length > 0 && ids.every((i) => edCover.has(i)); const n = new Set(edCover); ids.forEach((i) => allOn ? n.delete(i) : n.add(i)); setEdCover(n); }}
                 style={{ accentColor: "#f59e0b", width: 15, height: 15 }}
               />
               Select All Cover
@@ -1226,6 +1239,26 @@ export default function HistoryGrid({
                 style={{ accentColor: "#8b5cf6", width: 15, height: 15 }}
               />
               Select All Frame
+            </label>
+            {/* Regenerate — tick videos that ALREADY have text/cover for a
+                forced re-generate via the same Generate button. */}
+            <label className="flex items-center gap-1.5 text-xs font-extrabold cursor-pointer" style={{ color: "#14b8a6" }} title="Tick semua yang dah ada Caption untuk jana semula">
+              <input
+                type="checkbox"
+                checked={(() => { const ids = pageItems.filter((v) => edTextDone(v.id)).map((v) => v.id); return ids.length > 0 && ids.every((i) => edRegTextSel.has(i)); })()}
+                onChange={() => { const ids = pageItems.filter((v) => edTextDone(v.id)).map((v) => v.id); const allOn = ids.length > 0 && ids.every((i) => edRegTextSel.has(i)); const n = new Set(edRegTextSel); ids.forEach((i) => allOn ? n.delete(i) : n.add(i)); setEdRegTextSel(n); }}
+                style={{ accentColor: "#14b8a6", width: 15, height: 15 }}
+              />
+              Regenerate Caption
+            </label>
+            <label className="flex items-center gap-1.5 text-xs font-extrabold cursor-pointer" style={{ color: "#ec4899" }} title="Tick semua yang dah ada Cover untuk jana semula">
+              <input
+                type="checkbox"
+                checked={(() => { const ids = pageItems.filter((v) => edCoverDone(v.id)).map((v) => v.id); return ids.length > 0 && ids.every((i) => edRegCoverSel.has(i)); })()}
+                onChange={() => { const ids = pageItems.filter((v) => edCoverDone(v.id)).map((v) => v.id); const allOn = ids.length > 0 && ids.every((i) => edRegCoverSel.has(i)); const n = new Set(edRegCoverSel); ids.forEach((i) => allOn ? n.delete(i) : n.add(i)); setEdRegCoverSel(n); }}
+                style={{ accentColor: "#ec4899", width: 15, height: 15 }}
+              />
+              Regenerate Cover
             </label>
             <div className="flex-1" />
             {/* Bulk caption from product info only (ignore each video's scene). */}
@@ -1681,6 +1714,10 @@ export default function HistoryGrid({
                 onEdUnframe={() => void edUnframe(it.id)}
                 edUndoOn={edUndoSel.has(it.id)}
                 onEdUndoToggle={() => edUndoToggle(it.id)}
+                edRegTextOn={edRegTextSel.has(it.id)}
+                edRegCoverOn={edRegCoverSel.has(it.id)}
+                onEdRegTextToggle={() => edRegTextToggle(it.id)}
+                onEdRegCoverToggle={() => edRegCoverToggle(it.id)}
                 onEdReset={() => void edReset(it.id)}
                 onEdRegenText={(opts) => edRegenText(it.id, opts?.detailOnly)}
                 onEdRegenCover={() => edRegenCover(it.id)}
@@ -1902,6 +1939,10 @@ function HistoryCardInner({
   onEdRegenCover,
   edUndoOn,
   onEdUndoToggle,
+  edRegTextOn,
+  edRegCoverOn,
+  onEdRegTextToggle,
+  onEdRegCoverToggle,
   edAffShow,
   edAffOn,
   onEdAff,
@@ -1936,6 +1977,10 @@ function HistoryCardInner({
   onEdRegenCover?: () => Promise<{ ok: boolean; msg: string }> | void;
   edUndoOn?: boolean;
   onEdUndoToggle?: () => void;
+  edRegTextOn?: boolean;
+  edRegCoverOn?: boolean;
+  onEdRegTextToggle?: () => void;
+  onEdRegCoverToggle?: () => void;
   edAffShow?: boolean;
   edAffOn?: boolean;
   onEdAff?: () => void;
@@ -2869,10 +2914,12 @@ function HistoryCardInner({
               {/* T + C ALWAYS shown (even when done OR framed) so a video can be
                   re-ticked for bulk re-generate — current text shows inline and
                   the cover as the poster, so hiding them is pointless. */}
-              {(
+              {/* No text yet → T (Generate). Text exists → RC (Regenerate
+                  Caption). Both feed the same Generate button. */}
+              {!textDone ? (
                 <button
                   onClick={(e) => { e.stopPropagation(); onEdText?.(); }}
-                  title={textDone ? "Pilih untuk Jana Semula Text" : "Pilih untuk Generate Text"}
+                  title="Pilih untuk Generate Text"
                   className="w-6 h-6 rounded-md flex items-center justify-center shadow-lg border-2 text-[9px] font-extrabold"
                   style={edTextOn
                     ? { background: "#3b82f6", borderColor: "#3b82f6", color: "#fff" }
@@ -2880,12 +2927,24 @@ function HistoryCardInner({
                 >
                   {edTextOn ? <Check className="w-3.5 h-3.5" strokeWidth={3} /> : "T"}
                 </button>
+              ) : (
+                <button
+                  onClick={(e) => { e.stopPropagation(); onEdRegTextToggle?.(); }}
+                  title="Regenerate Caption"
+                  className="w-6 h-6 rounded-md flex items-center justify-center shadow-lg border-2 text-[8px] font-extrabold"
+                  style={edRegTextOn
+                    ? { background: "#14b8a6", borderColor: "#14b8a6", color: "#fff" }
+                    : { background: "rgba(0,0,0,0.6)", borderColor: "#14b8a6", color: "#2dd4bf" }}
+                >
+                  {edRegTextOn ? <Check className="w-3.5 h-3.5" strokeWidth={3} /> : "RC"}
+                </button>
               )}
-              {(
+              {/* No cover yet → C (Generate). Cover exists → RV (Regenerate Cover). */}
+              {!coverDone ? (
                 <button
                   onClick={(e) => { e.stopPropagation(); if (edCoverOn || edCoverPickable) onEdCover?.(); }}
                   disabled={!edCoverOn && !edCoverPickable}
-                  title={(edCoverOn || edCoverPickable) ? (coverDone ? "Pilih untuk Jana Semula Cover" : "Pilih untuk Generate Cover") : "Tick Text dulu (atau jana Text) — Cover perlu Text"}
+                  title={(edCoverOn || edCoverPickable) ? "Pilih untuk Generate Cover" : "Tick Text dulu (atau jana Text) — Cover perlu Text"}
                   className="w-6 h-6 rounded-md flex items-center justify-center shadow-lg border-2 text-[9px] font-extrabold"
                   style={edCoverOn
                     ? { background: "#f59e0b", borderColor: "#f59e0b", color: "#fff" }
@@ -2894,6 +2953,17 @@ function HistoryCardInner({
                       : { background: "rgba(0,0,0,0.55)", borderColor: "rgba(148,163,184,0.5)", color: "rgba(148,163,184,0.8)", cursor: "not-allowed" }}
                 >
                   {edCoverOn ? <Check className="w-3.5 h-3.5" strokeWidth={3} /> : "C"}
+                </button>
+              ) : (
+                <button
+                  onClick={(e) => { e.stopPropagation(); onEdRegCoverToggle?.(); }}
+                  title="Regenerate Cover"
+                  className="w-6 h-6 rounded-md flex items-center justify-center shadow-lg border-2 text-[8px] font-extrabold"
+                  style={edRegCoverOn
+                    ? { background: "#ec4899", borderColor: "#ec4899", color: "#fff" }
+                    : { background: "rgba(0,0,0,0.6)", borderColor: "#ec4899", color: "#f472b6" }}
+                >
+                  {edRegCoverOn ? <Check className="w-3.5 h-3.5" strokeWidth={3} /> : "RV"}
                 </button>
               )}
               {!frameDone && (
@@ -4708,6 +4778,8 @@ const HistoryCard = memo(HistoryCardInner, (prev, next) => {
     prev.edAffShow === next.edAffShow &&
     prev.edAffOn === next.edAffOn &&
     prev.edUndoOn === next.edUndoOn &&
+    prev.edRegTextOn === next.edRegTextOn &&
+    prev.edRegCoverOn === next.edRegCoverOn &&
     (prev.item.metadata as any)?.affiliate_staff_id === (next.item.metadata as any)?.affiliate_staff_id
     // Intentionally NOT comparing onToggleMerge — the parent passes an
     // inline lambda that's a new ref every render, but it always closes
