@@ -1048,7 +1048,12 @@ export default function HistoryGrid({
     edMarkProc(id, true);
     edAddLog(`📝 Jana semula Caption untuk ${id.slice(0, 6)}…`);
     try {
-      const { ok, d } = await edFetchJson("/api/ugc/generate-post-meta", { history_id: id, variant_seed: edSeed(id), source: "editor", fill_only_empty: false, ...override });
+      // FRESH random seed each regen (not the deterministic per-video edSeed) —
+      // the seed picks the cover ANGLE, so reusing it made cover_title repeat
+      // even when caption/subtitle changed. A new seed rotates the angle → a
+      // genuinely different title each time you press Jana Semula.
+      const regenSeed = Math.floor(Math.random() * 1e9) + 1;
+      const { ok, d } = await edFetchJson("/api/ugc/generate-post-meta", { history_id: id, variant_seed: regenSeed, source: "editor", fill_only_empty: false, ...override });
       edReload();
       const good = !!(ok && (d?.caption || d?.cover_title));
       edAddLog(good ? `  ✓ ${id.slice(0, 6)} Caption siap` : `  ✗ ${id.slice(0, 6)}: ${d?.error || "gagal"}`);
