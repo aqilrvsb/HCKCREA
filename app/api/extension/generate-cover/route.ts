@@ -91,7 +91,19 @@ export async function POST(req: Request) {
   const coverSubtitle = String(body?.cover_subtitle ?? meta.cover_subtitle ?? "").trim();
 
   // First frame (poster) = the subject; ONE product photo = 2nd reference.
-  const firstFrame = String(meta.poster_url || src.reference_url || "").trim();
+  let firstFrame = String(meta.poster_url || src.reference_url || "").trim();
+  // A FRAMED row has no poster/reference of its own (its first frame is the cover
+  // intro, not the presenter). Use the ORIGINAL video's first frame instead, so
+  // regenerating a cover on a framed video works.
+  if (!firstFrame && meta.framed_from) {
+    const { data: orig } = await admin
+      .from("history")
+      .select("reference_url, output_url, metadata")
+      .eq("id", String(meta.framed_from))
+      .maybeSingle();
+    const om = (orig?.metadata || {}) as Record<string, any>;
+    firstFrame = String(om.poster_url || orig?.reference_url || "").trim();
+  }
   if (!firstFrame) {
     return NextResponse.json({ error: "No first-frame poster available for this video" }, { status: 422 });
   }
