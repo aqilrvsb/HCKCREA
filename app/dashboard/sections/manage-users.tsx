@@ -66,7 +66,7 @@ function UsageReport() {
         {[[1, "Hari ni"], [7, "7 hari"], [30, "30 hari"]].map(([d, l]) => (
           <button key={String(d)} onClick={() => preset(d as number)} className="text-[11px] px-2 py-1 rounded-lg self-end" style={{ border: "1px solid var(--color-border)", color: "var(--color-text-secondary)" }}>{l as string}</button>
         ))}
-        <button onClick={() => void run()} disabled={loading} className="btn-primary text-xs px-3 py-1.5 self-end disabled:opacity-60 inline-flex items-center gap-1.5">{loading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : "↻"} Jana</button>
+        <button onClick={() => void run()} disabled={loading} className="btn-primary text-xs px-3 py-1.5 self-end disabled:opacity-60 inline-flex items-center gap-1.5">{loading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : "🔎"} Filter</button>
       </div>
       {err && <div className="text-[12px] mb-2 font-semibold text-red-500">{err}</div>}
       <div className="overflow-x-auto">
