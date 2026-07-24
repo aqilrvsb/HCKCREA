@@ -139,6 +139,28 @@ export async function generateUgcPostMeta(
   }
 
   const meta = (row.metadata || {}) as Record<string, any>;
+  // A FRAMED row's own prompt is just "Framed intro + video" and it has no
+  // product_detail — so regenerating a caption on it would be thin/nonsense.
+  // Pull the ORIGINAL video's prompt + product_detail so the caption is written
+  // from the real scene + product, exactly like regenerating on the original.
+  if (meta.framed_from) {
+    const { data: orig } = await admin
+      .from("history")
+      .select("prompt, metadata")
+      .eq("id", String(meta.framed_from))
+      .maybeSingle();
+    if (orig) {
+      const om = (orig.metadata || {}) as Record<string, any>;
+      if (!String(meta.product_detail || meta.detail || "").trim()) {
+        meta.product_detail = om.product_detail || om.detail || meta.product_detail;
+      }
+      if (!String(meta.product_name || "").trim()) meta.product_name = om.product_name || meta.product_name;
+      // Swap the placeholder framed prompt for the original scene prompt.
+      if (orig.prompt && /framed intro/i.test(String(row.prompt || ""))) {
+        (row as any).prompt = orig.prompt;
+      }
+    }
+  }
   const existingCaption = String(row.caption || "").trim();
   const existingHashCount = (existingCaption.match(/#\w+/g) || []).length;
   const hasCover = !!meta.cover_title && !!meta.cover_subtitle;
