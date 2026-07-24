@@ -114,6 +114,12 @@ export async function generateUgcPostMeta(
      *  model never disturbs the extension / Auto UGC / Auto Content, which
      *  all share model_custom_idea. Unset = previous behaviour. */
     modelKey?: "model_custom_idea" | "model_editor_text";
+    /** When true, write the caption ONLY from the product info (name + Detail
+     *  Product), IGNORING the video's own prompt/scene. Editor "Jana Semula →
+     *  Detail Product sahaja" uses this so on-screen context (e.g. a skincare
+     *  scene) can't leak into a caption for a product the user has since
+     *  re-described. Default false = previous behaviour (scene is context). */
+    detailOnly?: boolean;
   } = {}
 ): Promise<UgcPostMetaResult> {
   if (!historyId) return { ok: false, error: "history_id required" };
@@ -188,8 +194,14 @@ export async function generateUgcPostMeta(
   const seed =
     Math.abs(Number(opts.variantSeed) || 0) ||
     Array.from(historyId).reduce((h, c) => (h * 31 + c.charCodeAt(0)) >>> 0, 7);
+  // detailOnly → infer the hook category from the PRODUCT info only, so a
+  // skincare video prompt can't drag the hooks toward skin for a product the
+  // user has re-described.
+  const categorySource = opts.detailOnly
+    ? `${productName} ${productDetail}`
+    : `${productName} ${productDetail} ${(row.prompt || "").slice(0, 300)}`;
   const { category: hookCategory, hooks: seedHooks } = hooksForProduct(
-    `${productName} ${productDetail} ${(row.prompt || "").slice(0, 300)}`,
+    categorySource,
     5,
     seed
   );
@@ -208,12 +220,19 @@ Required keys:
 
 Tone: real Malaysian friend sharing, never an ad. The cover text + caption together should make a viewer who's scrolling stop and feel "eh, ni pasal masalah aku".${hookBlock}`;
 
-  const userPrompt = `Video prompt body (for context only — describes the scene/subject):
+  // detailOnly → OMIT the video prompt entirely and write purely from the
+  // product info, so the scene can never leak into the caption.
+  const sceneBlock = opts.detailOnly
+    ? `Write the caption based ONLY on the Product info below. Do NOT reference or infer anything from any video scene — describe THIS product and its benefits, nothing else.`
+    : `Video prompt body (for context only — describes the scene/subject):
 """
 ${(row.prompt || "").substring(0, 2000)}
-"""
+"""`;
 
-${productName ? `Product: ${productName}` : "Product: (unknown — derive a generic Malay-friendly UGC angle from the prompt body)"}
+  const userPrompt = `${sceneBlock}
+
+${productName ? `Product: ${productName}` : "Product: (unknown — derive a generic Malay-friendly UGC angle from the product detail)"}
+${productDetail ? `Product detail: ${productDetail}` : ""}
 ${productUrl ? `Product URL: ${productUrl}` : ""}
 
 Existing caption (rewrite if weak/empty): ${existingCaption || "(none)"}

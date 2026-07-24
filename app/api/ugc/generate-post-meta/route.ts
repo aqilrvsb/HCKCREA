@@ -35,6 +35,9 @@ export async function POST(req: Request) {
   // (model_editor_text). Everything else — the extension, settle.ts — keeps
   // model_custom_idea, so tuning the Editor can't disturb them.
   const isEditor = String(body?.source || "").trim() === "editor";
+  // Editor "Jana Semula → Detail Product sahaja": write the caption purely from
+  // the product info, ignoring the video's own prompt/scene.
+  const detailOnly = body?.detail_only === true;
 
   const result = await generateUgcPostMeta(historyId, {
     productUrl,
@@ -43,6 +46,7 @@ export async function POST(req: Request) {
     variantSeed,
     userIdGuard: user.id,
     force: true,
+    detailOnly,
     fillOnlyEmpty,
     ...(isEditor ? { modelKey: "model_editor_text" as const } : {}),
   });

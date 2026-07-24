@@ -1030,7 +1030,7 @@ export default function HistoryGrid({
   // ── Per-video re-generate (from the 📝 / 🎨 modals) ───────────────────────
   // Same engines as the bulk flow, just scoped to one video, so the card
   // animation + edProc guard behave identically.
-  async function edRegenText(id: string): Promise<{ ok: boolean; msg: string }> {
+  async function edRegenText(id: string, detailOnly = false): Promise<{ ok: boolean; msg: string }> {
     if (edProcRef.current.has(id)) return { ok: false, msg: "Sedang diproses…" };
     // No product picker needed — the row already stores its product
     // (tiktok_product_id / product_name / product_detail) and the server falls
@@ -1053,7 +1053,7 @@ export default function HistoryGrid({
       // even when caption/subtitle changed. A new seed rotates the angle → a
       // genuinely different title each time you press Jana Semula.
       const regenSeed = Math.floor(Math.random() * 1e9) + 1;
-      const { ok, d } = await edFetchJson("/api/ugc/generate-post-meta", { history_id: id, variant_seed: regenSeed, source: "editor", fill_only_empty: false, ...override });
+      const { ok, d } = await edFetchJson("/api/ugc/generate-post-meta", { history_id: id, variant_seed: regenSeed, source: "editor", fill_only_empty: false, detail_only: detailOnly, ...override });
       edReload();
       const good = !!(ok && (d?.caption || d?.cover_title));
       edAddLog(good ? `  ✓ ${id.slice(0, 6)} Caption siap` : `  ✗ ${id.slice(0, 6)}: ${d?.error || "gagal"}`);
@@ -1641,7 +1641,7 @@ export default function HistoryGrid({
                 onEdRemove={() => void edRemove(it.id)}
                 onEdUnframe={() => void edUnframe(it.id)}
                 onEdReset={() => void edReset(it.id)}
-                onEdRegenText={() => edRegenText(it.id)}
+                onEdRegenText={(opts) => edRegenText(it.id, opts?.detailOnly)}
                 onEdRegenCover={() => edRegenCover(it.id)}
                 edAffShow={editorMode && edAffEnabled}
                 edAffOn={edAffSel.has(it.id)}
@@ -1889,7 +1889,7 @@ function HistoryCardInner({
   onEdRemove?: () => void;
   onEdUnframe?: () => void;
   onEdReset?: () => void;
-  onEdRegenText?: () => Promise<{ ok: boolean; msg: string }> | void;
+  onEdRegenText?: (opts?: { detailOnly?: boolean }) => Promise<{ ok: boolean; msg: string }> | void;
   onEdRegenCover?: () => Promise<{ ok: boolean; msg: string }> | void;
   edAffShow?: boolean;
   edAffOn?: boolean;
@@ -1909,6 +1909,9 @@ function HistoryCardInner({
   const [edCT, setEdCT] = useState("");
   const [edCS, setEdCS] = useState("");
   const [edSaving, setEdSaving] = useState(false);
+  // "Detail Product sahaja" for Jana Semula Text — write the caption purely
+  // from the product info, ignoring the video's own scene/prompt.
+  const [edRegenDetailOnly, setEdRegenDetailOnly] = useState(false);
   function openEdEdit() {
     setEdCap(String(item.caption || (item.metadata as any)?.caption || ""));
     setEdCT(String((item.metadata as any)?.cover_title || ""));
@@ -2952,7 +2955,14 @@ function HistoryCardInner({
               </div>
               {/* Re-generate JUST the Text for this video (uses the product
                   picked in the Editor header). Runs in background — close it. */}
-              <button onClick={async () => { setEdEditOpen(false); showToast("📝 Jana semula Caption…"); const r = await onEdRegenText?.(); if (r) showToast(r.msg); }} className="w-full py-2 rounded-xl text-[12px] font-extrabold text-white inline-flex items-center justify-center gap-1.5" style={{ background: "linear-gradient(135deg,#3b82f6,#60a5fa)" }}>📝 Jana Semula Text</button>
+              {/* Detail-Product-only toggle: caption written purely from the
+                  product info, ignoring the video scene (stops e.g. "kulit"
+                  leaking from a skincare video prompt). */}
+              <label className="flex items-center gap-2 mb-2 text-[11px] font-semibold cursor-pointer text-[var(--color-text-secondary)]">
+                <input type="checkbox" checked={edRegenDetailOnly} onChange={(e) => setEdRegenDetailOnly(e.target.checked)} style={{ accentColor: "#3b82f6", width: 14, height: 14 }} />
+                Guna <b>Detail Product</b> sahaja — abaikan prompt video
+              </label>
+              <button onClick={async () => { const detailOnly = edRegenDetailOnly; setEdEditOpen(false); showToast(`📝 Jana semula Caption${detailOnly ? " (Detail Product sahaja)" : ""}…`); const r = await onEdRegenText?.({ detailOnly }); if (r) showToast(r.msg); }} className="w-full py-2 rounded-xl text-[12px] font-extrabold text-white inline-flex items-center justify-center gap-1.5" style={{ background: "linear-gradient(135deg,#3b82f6,#60a5fa)" }}>📝 Jana Semula Text</button>
             </div>
           </div>
         </Portal>
