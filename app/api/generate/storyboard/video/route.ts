@@ -6,6 +6,7 @@ import { generateVideoWithCascade } from "@/lib/video-cascade";
 import { getGeminiRate, getSeedanceRate } from "@/lib/settings";
 import { hasEnoughCredits } from "@/lib/deduct";
 import { SEEDANCE_NO_INDON } from "@/lib/seedance-lang";
+import { rehostToContent } from "@/lib/b2";
 
 export const runtime = "nodejs";
 // 300s so the after() background block (creative LLM + up to two cascade CREATE
@@ -69,7 +70,34 @@ export async function POST(req: Request) {
     : "on-screen captions short and correctly spelled";
   const productName = String(meta.product_name || "");
   const productDetail = String(meta.product_detail || "");
-  const productImage = (Array.isArray(meta.image_urls) ? meta.image_urls : []).filter((u: any) => typeof u === "string" && u.trim())[0] || "";
+  let productImage = (Array.isArray(meta.image_urls) ? meta.image_urls : []).filter((u: any) => typeof u === "string" && u.trim())[0] || "";
+  // The product reference (image 2) can be a TEMPORARY provider URL — e.g. a
+  // Grsai/Crun Tencent COS link (24h signed) — when the storyboard was made
+  // before saves rehosted images to B2. Those expire and 403, and the video
+  // provider then throws repeated internal-server errors until every retry is
+  // burned (the video just fails). Heal it up front: rehost a live non-B2 URL
+  // to our own B2 (permanent); if it's ALREADY dead, DROP it and generate from
+  // the storyboard grid (image 1) alone rather than failing the whole video on
+  // a broken link. B2 / data: URLs pass through untouched.
+  if (
+    productImage &&
+    !productImage.startsWith("data:") &&
+    !productImage.includes("peninglab-content") &&
+    !productImage.includes("peninglab-storage")
+  ) {
+    try {
+      const hosted = await rehostToContent({
+        url: productImage,
+        userId: user.id,
+        historyId: `sbvid-prodref-${historyId}`,
+        type: "image",
+        fallbackExt: "webp",
+      });
+      productImage = hosted && hosted.includes("peninglab-content") ? hosted : "";
+    } catch {
+      productImage = ""; // dead/expired link — drop image 2, keep image 1 only
+    }
+  }
 
   // Omni = flat per-10s-video rate; Seedance = live per-second rate × duration
   // (settle re-reads the same live rate, so admin price changes apply).
