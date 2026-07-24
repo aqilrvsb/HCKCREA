@@ -133,12 +133,10 @@ export function extractTikTokProductId(url: string): string | null {
 // .../view/product/{id} URL that carries the numeric id in its path — free,
 // fast, and reliable. (TikHub's fetch_product_id_by_share_link helper now 404s,
 // so it's only a last-ditch fallback.)
-async function resolveShareLinkToProductId(
-  shareUrl: string,
-  base: string,
-  token: string
-): Promise<string | null> {
-  // 1) Follow up to a few hops, extracting the id from each Location header.
+// Follow a share-link redirect chain and extract the product_id from the
+// .../view/product/{id} URL it lands on. No API key needed. Exported so the
+// save-product route can resolve a short link the user pastes into Beg Kuning.
+export async function followShareLinkToProductId(shareUrl: string): Promise<string | null> {
   try {
     let url = shareUrl;
     for (let hop = 0; hop < 5; hop++) {
@@ -160,8 +158,19 @@ async function resolveShareLinkToProductId(
       return extractTikTokProductId(url);
     }
   } catch {
-    /* fall through to the legacy helper */
+    /* fall through */
   }
+  return null;
+}
+
+async function resolveShareLinkToProductId(
+  shareUrl: string,
+  base: string,
+  token: string
+): Promise<string | null> {
+  // 1) Follow the redirect chain ourselves.
+  const followed = await followShareLinkToProductId(shareUrl);
+  if (followed) return followed;
 
   // 2) Legacy TikHub helper — kept in case the endpoint is restored.
   try {

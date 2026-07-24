@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { rehostToContent } from "@/lib/b2";
+import { followShareLinkToProductId } from "@/lib/scraper";
 
 // Product images that come from scraping live on hosts that BLOCK browser
 // hotlinking (RH mirror on Tencent COS → 403; TikTok CDN ibyteimg → 405), so
@@ -61,6 +62,11 @@ export async function POST(req: Request) {
       begKuningUrl.match(/\/(\d{13,20})(?:[/?#]|$)/) ||
       begKuningUrl.match(/(\d{13,20})/);
     productId = m ? m[1] : null;
+    // Short link (vt.tiktok.com / vm.tiktok.com) carries no id in the URL —
+    // follow the redirect to the /view/product/{id} it resolves to.
+    if (!productId && /^https?:\/\/(vt|vm)\.tiktok\.com\//i.test(begKuningUrl)) {
+      productId = await followShareLinkToProductId(begKuningUrl);
+    }
   }
   const kind: "affiliate" | "manual" =
     body?.kind === "affiliate" || productId ? "affiliate" : "manual";
