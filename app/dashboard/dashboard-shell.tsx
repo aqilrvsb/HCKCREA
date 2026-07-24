@@ -98,11 +98,10 @@ const TABS: { key: TabKey; label: string; icon: any; tag: string }[] = [
   // Done Post — read-only grid of videos already auto-posted to TikTok by the
   // extension; select + bulk "Undo Post" sends them back to the Editor.
   { key: "done-post", label: "Done Post",    icon: Send,      tag: "4d" },
-  // Transfer Affiliate tab hidden per user direction 2026-07-22 — the transfer
-  // list + per-video Undo Transfer now live in Reporting Affiliate (ACCOUNT),
-  // which is user-scoped rather than per-project. The grid mode still exists in
-  // HistoryGrid; re-enable by uncommenting this line.
-  // { key: "transfer-affiliate", label: "Transfer Affiliate", icon: Users, tag: "4e" },
+  // Ready Affiliate — videos assigned to an affiliate but NOT yet submitted to
+  // NL. Tick + Submit here to actually post; then they move to Reporting
+  // Affiliate. Shows only when Affiliate mode is on.
+  { key: "transfer-affiliate", label: "Ready Affiliate", icon: Send, tag: "4e" },
   // NOTE: Reporting Affiliate is NOT a project tab — it lives under ACCOUNT in
   // the sidebar, because transfers are recorded per USER and the report spans
   // every project.
@@ -784,7 +783,7 @@ function ProjectView({
             <HistoryGrid tab="original-video" donePostMode title="Done Post" projectId={project.id} />
           )}
           {activeTab === "transfer-affiliate" && (
-            <HistoryGrid tab="original-video" transferAffiliateMode title="Transfer Affiliate" projectId={project.id} />
+            <HistoryGrid tab="original-video" transferAffiliateMode title="Ready Affiliate" projectId={project.id} />
           )}
         </div>
       )}

@@ -34,6 +34,7 @@ import {
   Check,
   Hash,
   Clapperboard,
+  Send,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import Portal from "./portal";
@@ -428,8 +429,11 @@ export default function HistoryGrid({
         .select("*")
         .order("created_at", { ascending: false });
       if (transferAffiliateMode) {
-        // Transfer Affiliate grid — videos assigned to an affiliate (any tab).
-        q = q.eq("type", "video").filter("metadata->>affiliate_transferred", "eq", "true");
+        // Ready Affiliate grid — assigned to an affiliate but NOT yet submitted
+        // to NL. Once submitted they leave here and show in Reporting Affiliate.
+        q = q.eq("type", "video")
+          .filter("metadata->>affiliate_transferred", "eq", "true")
+          .not("metadata->>affiliate_submitted", "eq", "true");
       } else if (donePostMode) {
         // Done Post grid — videos already auto-posted to TikTok (any tab).
         q = q.eq("type", "video").eq("posted_to_tiktok", true);
@@ -1145,6 +1149,26 @@ export default function HistoryGrid({
       return n;
     });
   // Transfer Affiliate tab — send the picked videos back to the Editor.
+  // Ready Affiliate → SUBMIT: push the ticked videos to NL (bulk, parallel).
+  async function affSubmit() {
+    const ids = [...dpSel].filter((id) => visibleParents.some((v) => v.id === id));
+    if (!ids.length) { alert("Tick video dulu untuk Submit."); return; }
+    if (!confirm(`Submit ${ids.length} video ke affiliate sekarang? Ia akan dihantar ke akaun affiliate dan pindah ke Reporting Affiliate.`)) return;
+    setDpBusy(true);
+    try {
+      const r = await fetch("/api/editor/affiliate-submit", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ history_ids: ids }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) { alert(d?.error || "Submit gagal"); return; }
+      alert(`✅ ${d.submitted || 0} video dihantar${d.failed ? ` · ${d.failed} gagal (masih di sini, cuba lagi)` : ""}.`);
+      setDpSel(new Set());
+      window.dispatchEvent(new CustomEvent("history:refresh"));
+      void mutateItems();
+    } catch (e: any) { alert(e?.message || "Submit gagal"); }
+    finally { setDpBusy(false); }
+  }
   async function affUndo() {
     const ids = [...dpSel].filter((id) => visibleParents.some((v) => v.id === id));
     if (!ids.length) return;
@@ -1389,9 +1413,10 @@ export default function HistoryGrid({
             </label>
             <span className="text-[11px] text-[var(--color-text-muted)] font-mono">{dpSel.size} dipilih</span>
             <div className="flex-1" />
+            <button onClick={() => void affSubmit()} disabled={dpBusy || dpSel.size === 0} className="text-xs font-extrabold px-4 py-1.5 rounded-lg text-white disabled:opacity-50 inline-flex items-center gap-1.5" style={{ background: "linear-gradient(135deg,#16a34a,#22c55e)" }}>{dpBusy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />} Submit ({dpSel.size})</button>
             <button onClick={() => void affUndo()} disabled={dpBusy || dpSel.size === 0} className="text-xs font-extrabold px-4 py-1.5 rounded-lg text-white disabled:opacity-50 inline-flex items-center gap-1.5" style={{ background: "linear-gradient(135deg,#7c3aed,#a78bfa)" }}>{dpBusy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Undo2 className="w-4 h-4" />} Undo Transfer</button>
           </div>
-          <p className="text-[10px] text-[var(--color-text-muted)] mt-1.5">Video yang dah di-transfer ke affiliate. <b>Lihat sahaja.</b> Tick + <b>Undo Transfer</b> untuk hantar balik ke Editor.</p>
+          <p className="text-[10px] text-[var(--color-text-muted)] mt-1.5">Video dah di-assign ke affiliate tapi <b>belum dihantar</b>. Tick + <b>Submit</b> untuk hantar ke akaun affiliate (bulk). Lepas submit ia pindah ke <b>Reporting Affiliate</b>. Atau <b>Undo Transfer</b> balik ke Editor.</p>
         </div>
       )}
 

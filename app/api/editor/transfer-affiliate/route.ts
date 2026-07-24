@@ -1,17 +1,16 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { pushToNlAffiliate, nlAffiliateConfigured, klToday } from "@/lib/nl-affiliate";
-import { rehostToContent } from "@/lib/b2";
+import { klToday } from "@/lib/nl-affiliate";
 
 // POST /api/editor/transfer-affiliate
 //   { history_ids: string[], staff_id?, affiliate_id?, name?, phone?, undo? }
 //
-// Tag + record (like Done Post): assign the picked Editor videos to an affiliate
-// (by NL Staff ID), which removes them from the Editor and lands them in the
-// "Transfer Affiliate" tab. undo=true reverses it (untags + back to Editor).
-// Nothing is copied to another account — purely the operator's own tracking.
-// Identity is Staff ID (AFL-###); email was retired 2026-07-23. Owner only.
+// STAGE 1 of the affiliate flow: ASSIGN an affiliate to the picked Editor videos
+// and mark them READY. This does NOT push to NL — the videos leave the Editor
+// and wait in the "Ready Affiliate" tab, where the user ticks + Submit to
+// actually post (STAGE 2 = /api/editor/affiliate-submit). undo=true reverses it
+// (untags + back to Editor). Identity is Staff ID (AFL-###). Owner only.
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
@@ -44,9 +43,6 @@ export async function POST(req: Request) {
 
   const today = klToday();
   let done = 0;
-  let pushed = 0;
-  let pushFailed = 0;
-  const pushErrors: { id: string; error: string }[] = [];
   const notReady: string[] = [];
 
   for (const row of rows || []) {
@@ -66,6 +62,7 @@ export async function POST(req: Request) {
       // Back to the Editor. Ingest record is kept — their side already has the
       // post, and source_id keeps a re-transfer idempotent.
       delete m.affiliate_transferred;
+      delete m.affiliate_submitted;
       delete m.affiliate_staff_id;
       delete m.affiliate_id;
       delete m.affiliate_phone;
@@ -73,7 +70,11 @@ export async function POST(req: Request) {
       delete m.affiliate_transferred_at;
       m.in_editor = true;
     } else {
+      // ASSIGN ONLY — tag the affiliate and mark it READY. It does NOT push to
+      // NL yet; it waits in the "Ready Affiliate" tab where the user ticks +
+      // Submit to actually post (see /api/editor/affiliate-submit).
       m.affiliate_transferred = true;
+      m.affiliate_submitted = false; // not pushed to NL yet
       m.affiliate_staff_id = staffId || (m.affiliate_staff_id ?? null);
       m.affiliate_id = affiliateId ?? (m.affiliate_id ?? null);
       m.affiliate_phone = phone || (m.affiliate_phone ?? null);
@@ -81,62 +82,6 @@ export async function POST(req: Request) {
       m.affiliate_transferred_at = new Date().toISOString();
       m.affiliate_transfer_date = today; // KL date — what Reporting groups by
       m.in_editor = false; // leaves the Editor
-
-      // Cover check — older covers live on a provider CDN that EXPIRES, and
-      // sending a dead link means the affiliate sees a broken thumbnail on
-      // their side (which we can't fix remotely afterwards). So verify it, and
-      // rather than ship a 404, send no thumbnail at all.
-      let coverUrl: string | null = m.cover_thumbnail_url ?? null;
-      if (coverUrl && !coverUrl.includes("peninglab-content")) {
-        let alive = false;
-        try { alive = (await fetch(coverUrl, { method: "HEAD" })).ok; } catch { alive = false; }
-        if (alive) {
-          try {
-            const hosted = await rehostToContent({
-              url: coverUrl, userId: user.id, historyId: `${row.id}-cover`,
-              type: "image", fallbackExt: "png",
-            });
-            if (hosted?.includes("peninglab-content")) { coverUrl = hosted; m.cover_thumbnail_url = hosted; }
-          } catch { /* keep the original — it responded to HEAD */ }
-        } else {
-          // Dead. Drop it locally too so the Cover checkbox comes back.
-          coverUrl = null;
-          delete m.cover_thumbnail_url;
-          delete m.cover_thumbnail_row;
-          m.affiliate_cover_missing = true;
-        }
-      }
-
-      // Push to the affiliate's platform. source_id makes retries safe, so a
-      // failure here never blocks the transfer — it's recorded and retryable.
-      if (nlAffiliateConfigured()) {
-        const r = await pushToNlAffiliate({
-          affiliateId: m.affiliate_id ?? affiliateId,
-          staffId: m.affiliate_staff_id ?? staffId,
-          outputUrl: String(row.output_url || ""),
-          caption: row.caption ?? m.caption ?? null,
-          coverTitle: m.cover_title ?? null,
-          coverSubtitle: m.cover_subtitle ?? null,
-          coverThumbnailUrl: coverUrl,
-          date: today,
-          sourceId: `peninglab-history-${row.id}`,
-        });
-        m.affiliate_ingest_ok = r.ok;
-        m.affiliate_ingest_at = new Date().toISOString();
-        if (r.ok) {
-          pushed++;
-          m.affiliate_ingest_id = r.id ?? null;
-          m.affiliate_ingest_duplicate = !!r.duplicate;
-          delete m.affiliate_ingest_error;
-        } else {
-          pushFailed++;
-          m.affiliate_ingest_error = r.error || "gagal";
-          m.affiliate_ingest_status = r.status ?? null;
-          pushErrors.push({ id: row.id, error: r.error || "gagal" });
-        }
-      } else {
-        m.affiliate_ingest_ok = null; // push disabled — token not set
-      }
     }
     const { error } = await admin.from("history").update({ metadata: m }).eq("id", row.id).eq("user_id", user.id);
     if (!error) done++;
@@ -145,10 +90,6 @@ export async function POST(req: Request) {
   return NextResponse.json({
     ok: true,
     [undo ? "undone" : "transferred"]: done,
-    ...(undo ? {} : {
-      pushed, push_failed: pushFailed, push_errors: pushErrors,
-      push_enabled: nlAffiliateConfigured(),
-      not_ready: notReady,
-    }),
+    ...(undo ? {} : { not_ready: notReady }),
   });
 }

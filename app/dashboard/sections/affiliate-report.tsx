@@ -82,6 +82,9 @@ export default function AffiliateReport({ projectId }: { projectId?: string | nu
         .select("id, output_url, thumbnail_url, caption, created_at, metadata")
         .eq("type", "video")
         .filter("metadata->>affiliate_transferred", "eq", "true")
+        // Reporting shows only SUBMITTED videos (pushed to NL). Ready-but-not-
+        // submitted ones live in the Ready Affiliate tab.
+        .filter("metadata->>affiliate_submitted", "eq", "true")
         .order("created_at", { ascending: false })
         .limit(1000);
       if (projectId) q = q.eq("project_id", projectId);
