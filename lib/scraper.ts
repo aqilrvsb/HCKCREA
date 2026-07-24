@@ -126,17 +126,46 @@ export function extractTikTokProductId(url: string): string | null {
   return null;
 }
 
-// Resolve a TikTok share link (vt.tiktok.com / vm.tiktok.com / any
-// affiliate redirect URL) directly via TikHub's helper endpoint instead
-// of following HTTP redirects ourselves. TikHub does the unfurling
-// server-side and returns the product_id directly.
+// Resolve a TikTok share link (vt.tiktok.com / vm.tiktok.com / any affiliate
+// redirect URL) to a product_id.
+//
+// PRIMARY: follow the redirect chain ourselves. A share link 30x's to a
+// .../view/product/{id} URL that carries the numeric id in its path — free,
+// fast, and reliable. (TikHub's fetch_product_id_by_share_link helper now 404s,
+// so it's only a last-ditch fallback.)
 async function resolveShareLinkToProductId(
   shareUrl: string,
   base: string,
   token: string
 ): Promise<string | null> {
-  const endpoint = `${base}/api/v1/tiktok/app/v3/fetch_product_id_by_share_link?share_link=${encodeURIComponent(shareUrl)}`;
+  // 1) Follow up to a few hops, extracting the id from each Location header.
   try {
+    let url = shareUrl;
+    for (let hop = 0; hop < 5; hop++) {
+      const res = await fetch(url, {
+        method: "GET",
+        redirect: "manual", // read the Location header ourselves (Node runtime)
+        headers: { "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15" },
+        signal: AbortSignal.timeout(15_000),
+      });
+      const loc = res.headers.get("location");
+      if (loc) {
+        const abs = new URL(loc, url).toString();
+        const pid = extractTikTokProductId(abs);
+        if (pid) return pid;
+        url = abs; // keep following
+        continue;
+      }
+      // No more redirects — final URL might already carry the id.
+      return extractTikTokProductId(url);
+    }
+  } catch {
+    /* fall through to the legacy helper */
+  }
+
+  // 2) Legacy TikHub helper — kept in case the endpoint is restored.
+  try {
+    const endpoint = `${base}/api/v1/tiktok/app/v3/fetch_product_id_by_share_link?share_link=${encodeURIComponent(shareUrl)}`;
     const res = await fetch(endpoint, {
       method: "GET",
       headers: { Authorization: `Bearer ${token}` },
@@ -144,11 +173,7 @@ async function resolveShareLinkToProductId(
     });
     if (!res.ok) return null;
     const json = await res.json().catch(() => null);
-    const pid =
-      json?.data?.product_id ||
-      json?.data?.id ||
-      json?.product_id ||
-      null;
+    const pid = json?.data?.product_id || json?.data?.id || json?.product_id || null;
     return pid ? String(pid) : null;
   } catch {
     return null;
