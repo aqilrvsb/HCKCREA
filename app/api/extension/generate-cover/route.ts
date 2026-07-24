@@ -5,6 +5,7 @@ import { priceFor, hasEnoughCredits } from "@/lib/deduct";
 import { generateImageWithCascade } from "@/lib/image-cascade";
 import { settleHistoryRow } from "@/lib/settle";
 import { rehostToContent } from "@/lib/b2";
+import { falExtractFrame } from "@/lib/fal";
 
 // POST /api/extension/generate-cover  { history_id, cover_title?, cover_subtitle? }
 //
@@ -103,6 +104,14 @@ export async function POST(req: Request) {
       .maybeSingle();
     const om = (orig?.metadata || {}) as Record<string, any>;
     firstFrame = String(om.poster_url || orig?.reference_url || "").trim();
+    // Last resort: extract the FIRST frame from the original video itself (the
+    // presenter), not the framed one (whose first frame is the cover intro).
+    if (!firstFrame && orig?.output_url) {
+      try {
+        const ex = await falExtractFrame(String(orig.output_url), "first");
+        if (ex.ok && ex.url) firstFrame = ex.url;
+      } catch { /* fall through to the 422 below */ }
+    }
   }
   if (!firstFrame) {
     return NextResponse.json({ error: "No first-frame poster available for this video" }, { status: 422 });
