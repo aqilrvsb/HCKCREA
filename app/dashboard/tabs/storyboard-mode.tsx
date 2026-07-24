@@ -140,6 +140,21 @@ export default function StoryboardMode({ projectId }: { projectId?: string }) {
     });
   }
 
+  // A loaded attachment that fails to render (dead/expired/hotlink-blocked URL —
+  // e.g. an old scraped image that 403s) is CLEARED so the slot goes back to an
+  // empty uploader. The product's images are the gpt-image-2 visual reference,
+  // so a dead image would produce a broken storyboard/video — better to force a
+  // fresh upload. Guarded so a genuinely-empty slot doesn't loop.
+  function clearInvalidSlot(i: number) {
+    setPImgs((prev) => {
+      if (!prev[i]) return prev;
+      const a = [...prev];
+      a[i] = "";
+      return a;
+    });
+    setSavedMsg(`⚠ Attachment ${i + 1} tak sah / dah expired — dah dibuang. Upload gambar baru untuk slot tu.`);
+  }
+
   // Save the current form as a reusable preset. Beg Kuning link present →
   // Beg Kuning Product; empty → Tiada Link Product. Needs name+detail+3 imgs.
   async function saveProduct() {
@@ -286,7 +301,7 @@ export default function StoryboardMode({ projectId }: { projectId?: string }) {
               <div className="grid grid-cols-1 gap-1.5">
                 {savedList.map((p) => (
                   <button key={p.id} onClick={() => pickProduct(p)} className="flex items-center gap-2.5 text-left px-2 py-1.5 rounded-lg" style={box}>
-                    {p.attachments?.[0] ? <img src={p.attachments[0]} className="w-9 h-9 rounded-md object-cover flex-shrink-0" alt="" /> : <span className="w-9 h-9 rounded-md flex-shrink-0" style={{ background: "var(--color-bg-card)" }} />}
+                    {p.attachments?.[0] ? <img src={p.attachments[0]} className="w-9 h-9 rounded-md object-cover flex-shrink-0" alt="" onError={(e) => { (e.currentTarget as HTMLImageElement).style.visibility = "hidden"; }} /> : <span className="w-9 h-9 rounded-md flex-shrink-0" style={{ background: "var(--color-bg-card)" }} />}
                     <div className="flex-1 min-w-0">
                       <div className="text-[13px] font-semibold truncate text-[var(--color-text-primary)]">{p.product_name}</div>
                       <div className="text-[10px] mt-0.5 text-[var(--color-text-muted)]">
@@ -318,7 +333,7 @@ export default function StoryboardMode({ projectId }: { projectId?: string }) {
                 <div key={i} className="relative w-[52px] h-[52px] rounded-lg overflow-hidden flex-shrink-0" style={{ border: `2px dashed ${url ? "transparent" : `${THEME}88`}`, background: url ? "#000" : "var(--color-bg)" }}>
                   <label className="w-full h-full flex items-center justify-center cursor-pointer">
                     <input type="file" accept="image/*" className="hidden" disabled={slotUploading === i} onChange={(e) => { const f = e.target.files?.[0]; e.currentTarget.value = ""; if (f) void uploadSlot(i, f); }} />
-                    {slotUploading === i ? <Loader2 className="w-4 h-4 animate-spin" style={{ color: THEME }} /> : url ? <img src={url} className="w-full h-full object-cover" alt="" /> : <span className="text-[11px] font-bold" style={{ color: THEME }}>{i + 1}</span>}
+                    {slotUploading === i ? <Loader2 className="w-4 h-4 animate-spin" style={{ color: THEME }} /> : url ? <img src={url} className="w-full h-full object-cover" alt="" onError={() => clearInvalidSlot(i)} /> : <span className="text-[11px] font-bold" style={{ color: THEME }}>{i + 1}</span>}
                   </label>
                   {url && (
                     <button type="button" onClick={() => removeSlot(i)} className="absolute top-0 right-0 w-4 h-4 rounded-bl bg-black/70 text-white text-[10px] flex items-center justify-center" title="Buang gambar ni">×</button>
