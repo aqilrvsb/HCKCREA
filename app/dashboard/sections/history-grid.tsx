@@ -433,7 +433,11 @@ export default function HistoryGrid({
         .select("*")
         // Editor is a FIFO queue — oldest first (ascending), so transferred
         // videos line up at the BACK. Every other grid stays newest-first.
-        .order("created_at", { ascending: editorMode });
+        // NOTE: coerce to a real boolean — supabase-js .order() defaults
+        // ascending to TRUE when the value is `undefined` (which editorMode is
+        // on every non-editor grid), so a bare `editorMode` would silently make
+        // ALL tabs ascending. `=== true` forces false → desc everywhere but Editor.
+        .order("created_at", { ascending: editorMode === true });
       if (transferAffiliateMode) {
         // Ready Affiliate grid — assigned to an affiliate but NOT yet submitted
         // to NL. Once submitted they leave here and show in Reporting Affiliate.
