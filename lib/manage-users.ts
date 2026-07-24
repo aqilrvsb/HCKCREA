@@ -3,11 +3,12 @@
 // ONLY the users they created; they never touch credits, admin clients, or
 // anyone else's accounts. Created users get a fixed premium plan.
 
-// Manager accounts, grouped into TEAMS. Everyone in a team shares ONE managed
-// user list — a user created by any team member is visible to all of them.
-// (nl@gmail.com, nl2@gmail.com, madnl@gmail.com are one team.)
+// MANAGER accounts, grouped into TEAMS. Managers can open "Manage Users" and
+// see every user tagged with their team's group (settings.managed_group).
+// nl@gmail.com is the manager; nl2@gmail.com and madnl@gmail.com are USERS it
+// manages (tagged managed_group="nl-team"), not managers themselves.
 export const MANAGE_USERS_TEAMS: Record<string, string[]> = {
-  "nl-team": ["nl@gmail.com", "nl2@gmail.com", "madnl@gmail.com"],
+  "nl-team": ["nl@gmail.com"],
 };
 
 const norm = (e?: string | null) => String(e || "").trim().toLowerCase();

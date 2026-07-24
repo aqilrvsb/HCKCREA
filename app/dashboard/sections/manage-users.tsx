@@ -99,7 +99,6 @@ export default function ManageUsersSection() {
         <div className="flex items-center gap-2 mb-3">
           <UserPlus className="w-4 h-4" style={{ color: "#8b5cf6" }} />
           <span className="font-display font-bold text-[15px] text-[var(--color-text-primary)]">Tambah User</span>
-          <span className="text-[10px] px-2 py-0.5 rounded-full" style={{ background: "rgba(139,92,246,0.15)", color: "#a78bfa" }}>Auto: Premium · 1 tahun</span>
         </div>
         <div className="grid gap-2 sm:grid-cols-3">
           <input className="input" placeholder="Nama user" value={name} onChange={(e) => setName(e.target.value)} />
