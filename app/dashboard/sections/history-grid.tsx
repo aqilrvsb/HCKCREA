@@ -3525,11 +3525,17 @@ function HistoryCardInner({
                 key={playerUrl}
                 src={playerUrl + "#t=1"}
                 posterUrl={
-                  activeChildRow
-                    ? ((activeChildRow.metadata as any)?.poster_url ||
-                        activeChildRow.reference_url ||
-                        null)
-                    : item.metadata?.poster_url || null
+                  // In the Editor, once a cover is generated show IT as the
+                  // card's still preview (instead of the raw video first frame),
+                  // so the client sees the cover straight away without opening
+                  // the 🎨 icon. Clicking still plays the actual video.
+                  (editorMode && (item.metadata as any)?.cover_thumbnail_url)
+                    ? String((item.metadata as any).cover_thumbnail_url)
+                    : activeChildRow
+                      ? ((activeChildRow.metadata as any)?.poster_url ||
+                          activeChildRow.reference_url ||
+                          null)
+                      : item.metadata?.poster_url || null
                 }
                 historyId={activeChildRow?.id || item.id}
                 muted
