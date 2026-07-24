@@ -239,6 +239,9 @@ export default function HistoryGrid({
   transferAffiliateMode?: boolean;
 }) {
   const [page, setPage] = useState(0);
+  // Editor page size — client-chosen (10/20/30/40/50/100). Other grids use the
+  // fixed size below.
+  const [edPageSize, setEdPageSize] = useState(20);
   // Done-Post selection (only used when donePostMode) + busy flag.
   const [dpSel, setDpSel] = useState<Set<string>>(new Set());
   const [dpBusy, setDpBusy] = useState(false);
@@ -319,7 +322,7 @@ export default function HistoryGrid({
   const isVideoTab = ["video", "original-video", "auto", "auto-ugc", "cinema", "grok", "seedance", "sora2"].includes(tab);
   const sixPerRow = editorMode || donePostMode || transferAffiliateMode || isVideoTab;
   // 6-per-row grids = 6 columns × 4 rows = 24 per page. 4-per-row grids = 12.
-  const PAGE_SIZE = sixPerRow ? 24 : 12;
+  const PAGE_SIZE = editorMode ? edPageSize : sixPerRow ? 24 : 12;
 
   // Storytelling has TWO kinds of artifacts the user wants visible:
   //   • merged final videos (type='fairytale')        ← the deliverable
@@ -427,7 +430,9 @@ export default function HistoryGrid({
       let q = sb
         .from("history")
         .select("*")
-        .order("created_at", { ascending: false });
+        // Editor is a FIFO queue — oldest first (ascending), so transferred
+        // videos line up at the BACK. Every other grid stays newest-first.
+        .order("created_at", { ascending: editorMode });
       if (transferAffiliateMode) {
         // Ready Affiliate grid — assigned to an affiliate but NOT yet submitted
         // to NL. Once submitted they leave here and show in Reporting Affiliate.
@@ -1217,8 +1222,16 @@ export default function HistoryGrid({
             History — {title}
           </h2>
         </div>
-        <span className="text-xs text-[var(--color-text-muted)] font-mono">
+        <span className="text-xs text-[var(--color-text-muted)] font-mono flex items-center gap-2">
           {counts.total} items
+          {editorMode && (
+            <>
+              <span>·</span>
+              <select value={edPageSize} onChange={(e) => { setEdPageSize(Number(e.target.value)); setPage(0); }} className="px-2 py-1 rounded-md text-[11px]" style={{ background: "var(--color-bg)", border: "1px solid var(--color-border)", color: "var(--color-text-primary)" }} title="Berapa video per page">
+                {[10, 20, 30, 40, 50, 100].map((n) => <option key={n} value={n}>{n}/page</option>)}
+              </select>
+            </>
+          )}
         </span>
       </div>
 
