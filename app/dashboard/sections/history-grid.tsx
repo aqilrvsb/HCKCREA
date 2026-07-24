@@ -2866,10 +2866,10 @@ function HistoryCardInner({
               {sourceTabLabel(item)}
             </span>
             <div className="absolute top-2 right-2 z-30 flex gap-1">
-              {/* T + C ALWAYS shown (even when done) so a video can be re-ticked
-                  for bulk re-generate — the current text/cover is visible inline
-                  + as the poster, so hiding them is no longer needed. */}
-              {!frameDone && (
+              {/* T + C ALWAYS shown (even when done OR framed) so a video can be
+                  re-ticked for bulk re-generate — current text shows inline and
+                  the cover as the poster, so hiding them is pointless. */}
+              {(
                 <button
                   onClick={(e) => { e.stopPropagation(); onEdText?.(); }}
                   title={textDone ? "Pilih untuk Jana Semula Text" : "Pilih untuk Generate Text"}
@@ -2881,7 +2881,7 @@ function HistoryCardInner({
                   {edTextOn ? <Check className="w-3.5 h-3.5" strokeWidth={3} /> : "T"}
                 </button>
               )}
-              {!frameDone && (
+              {(
                 <button
                   onClick={(e) => { e.stopPropagation(); if (edCoverOn || edCoverPickable) onEdCover?.(); }}
                   disabled={!edCoverOn && !edCoverPickable}
@@ -2909,6 +2909,20 @@ function HistoryCardInner({
                       : { background: "rgba(0,0,0,0.55)", borderColor: "rgba(148,163,184,0.5)", color: "rgba(148,163,184,0.8)", cursor: "not-allowed" }}
                 >
                   {edFrameOn ? <Check className="w-3.5 h-3.5" strokeWidth={3} /> : "F"}
+                </button>
+              )}
+              {/* Framed video → U checkbox for bulk Undo Frame (top cluster, in
+                  place of F). Text/Cover can still be re-generated via T/C. */}
+              {frameDone && (
+                <button
+                  onClick={(e) => { e.stopPropagation(); onEdUndoToggle?.(); }}
+                  title="Pilih untuk Undo Frame (bulk)"
+                  className="w-6 h-6 rounded-md flex items-center justify-center shadow-lg border-2 text-[9px] font-extrabold"
+                  style={edUndoOn
+                    ? { background: "#7c3aed", borderColor: "#7c3aed", color: "#fff" }
+                    : { background: "rgba(0,0,0,0.6)", borderColor: "#a78bfa", color: "#a78bfa" }}
+                >
+                  {edUndoOn ? <Check className="w-3.5 h-3.5" strokeWidth={3} /> : "U"}
                 </button>
               )}
               {/* Affiliate select — only when Affiliate mode is ON in Settings,
@@ -4302,8 +4316,6 @@ function HistoryCardInner({
                   the original). Otherwise the normal Remove-from-Editor. */}
               {(item.metadata as any)?.framed_from ? (
                 <>
-                  {/* Bulk Undo tick — select this framed video for a batch Undo Frame. */}
-                  <button onClick={() => onEdUndoToggle?.()} title="Pilih untuk Undo Frame (bulk)" className="w-6 h-6 rounded-md flex items-center justify-center border-2 text-[9px] font-extrabold" style={edUndoOn ? { background: "#7c3aed", borderColor: "#7c3aed", color: "#fff" } : { background: "rgba(0,0,0,0.5)", borderColor: "#a78bfa", color: "#a78bfa" }}>{edUndoOn ? <Check className="w-3.5 h-3.5" strokeWidth={3} /> : "U"}</button>
                   <button onClick={() => setEdFrameInfo(true)} className="inline-flex items-center h-6 px-2 rounded-md text-[10px] font-extrabold text-white" style={{ background: "linear-gradient(135deg,#7c3aed,#a78bfa)" }} title="Lihat detail frame / jana semula">🎞️ Framed</button>
                   <ActionBtn title="Undo Frame — buang intro, pulihkan video asal" onClick={() => onEdUnframe?.()} bg="linear-gradient(135deg,#7c3aed,#a78bfa)">
                     <Undo2 className="w-3.5 h-3.5" strokeWidth={2.4} />
