@@ -1,6 +1,30 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { rehostToContent } from "@/lib/b2";
+
+// Product images that come from scraping live on hosts that BLOCK browser
+// hotlinking (RH mirror on Tencent COS → 403; TikTok CDN ibyteimg → 405), so
+// they render as broken thumbnails. Copy any such URL onto our own B2 (which
+// serves them 200) so the saved product always shows its image. Already-B2 and
+// data: URLs pass through untouched.
+async function rehostAttachments(urls: string[], userId: string): Promise<string[]> {
+  const out: string[] = [];
+  for (const u of urls) {
+    if (!u || u.startsWith("data:") || u.includes("peninglab-content") || u.includes("peninglab-storage")) {
+      out.push(u);
+      continue;
+    }
+    try {
+      const key = `product-att-${userId}-${Math.abs(Array.from(u).reduce((h, c) => (h * 31 + c.charCodeAt(0)) >>> 0, 7))}`;
+      const hosted = await rehostToContent({ url: u, userId, historyId: key, type: "image", fallbackExt: "webp" });
+      out.push(hosted && hosted.includes("peninglab-content") ? hosted : u);
+    } catch {
+      out.push(u); // keep the original — better a maybe-broken image than none
+    }
+  }
+  return out;
+}
 
 // POST /api/auto-content/save-product
 // Saves (upserts) a reusable product preset so the client never re-picks/
@@ -57,6 +81,10 @@ export async function POST(req: Request) {
 
   const admin = createAdminClient();
 
+  // Copy any hotlink-protected scraped image (RH mirror / TikTok CDN) onto our
+  // own B2 so the saved product's thumbnail actually renders in the browser.
+  const hostedAttachments = await rehostAttachments(attachments, user.id);
+
   // ONE product name = ONE row (per user), regardless of bucket. Look up
   // EVERY existing row with this name: update the first, delete the rest.
   // This guarantees no duplicates by name and makes bucket moves (link
@@ -75,7 +103,7 @@ export async function POST(req: Request) {
     product_id: productId,
     product_name: productName,
     detail,
-    attachments,
+    attachments: hostedAttachments,
     updated_at: new Date().toISOString(),
   };
 

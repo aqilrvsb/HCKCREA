@@ -205,7 +205,10 @@ export async function generateUgcPostMeta(
     5,
     seed
   );
-  const hookBlock = seedHooks.length
+  // detailOnly drops the category hook examples — if the categoriser tags a
+  // "patch penjagaan" product as skincare, those example hooks drag the caption
+  // toward skin. Without them the caption leans purely on the product detail.
+  const hookBlock = (seedHooks.length && !opts.detailOnly)
     ? `\n\nTRENDING HOOK EXAMPLES (real viral ${hookCategory} affiliate hooks — open the caption with ONE line in THIS energy/style, then adapt it to THIS product; do not copy verbatim):\n${seedHooks
         .map((h) => `- ${h}`)
         .join("\n")}`
@@ -223,7 +226,7 @@ Tone: real Malaysian friend sharing, never an ad. The cover text + caption toget
   // detailOnly → OMIT the video prompt entirely and write purely from the
   // product info, so the scene can never leak into the caption.
   const sceneBlock = opts.detailOnly
-    ? `Write the caption based ONLY on the Product info below. Do NOT reference or infer anything from any video scene — describe THIS product and its benefits, nothing else.`
+    ? `STRICT GROUNDING — write the caption using ONLY the Product name + Product detail below. Do NOT reference any video scene, and do NOT invent benefits, ingredients, or problems that are NOT explicitly written in the Product detail. If the detail is about (e.g.) blood-sugar/diabetic care, the caption, cover_title and cover_subtitle MUST be about THAT — never skincare/glowing/scars/whitening or any unrelated angle. Match the product's real purpose exactly.`
     : `Video prompt body (for context only — describes the scene/subject):
 """
 ${(row.prompt || "").substring(0, 2000)}
@@ -235,7 +238,7 @@ ${productName ? `Product: ${productName}` : "Product: (unknown — derive a gene
 ${productDetail ? `Product detail: ${productDetail}` : ""}
 ${productUrl ? `Product URL: ${productUrl}` : ""}
 
-Existing caption (rewrite if weak/empty): ${existingCaption || "(none)"}
+Existing caption (rewrite if weak/empty): ${opts.detailOnly ? "(none — write fresh from the product detail; do NOT reuse the old caption's theme)" : (existingCaption || "(none)")}
 
 IMPORTANT — this is video #${(seed % 1000)} of MANY for the SAME product. Make the caption, cover_title, and cover_subtitle UNIQUE to this video. Lead with the "${COVER_ANGLES[seed % COVER_ANGLES.length]}" angle so it does NOT read like the other videos for this product. Vary the wording, emotion, and hook — no repeated cover lines.
 
