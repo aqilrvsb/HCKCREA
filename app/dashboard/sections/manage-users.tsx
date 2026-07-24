@@ -5,7 +5,106 @@
 // and edit name/email/password of users the team created. No credit controls.
 
 import { useEffect, useState } from "react";
-import { Loader2, UserPlus, Pencil, X, Check } from "lucide-react";
+import { Loader2, UserPlus, Pencil, Check } from "lucide-react";
+
+// KL today as YYYY-MM-DD.
+function klToday(): string {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kuala_Lumpur", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
+}
+
+type RCounts = {
+  totalStoryboard: number; totalVideo: number; originalVideo: number;
+  dialogUgc: number; autoUgc: number; editor: number; donePost: number; donePostAff: number;
+};
+type ReportUser = { id: string; name: string; email: string; counts: RCounts };
+
+// Per-user usage report — success-only counts by create date.
+function UsageReport() {
+  const today = klToday();
+  const [from, setFrom] = useState(today);
+  const [to, setTo] = useState(today);
+  const [rows, setRows] = useState<ReportUser[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  async function run() {
+    setLoading(true); setErr(null);
+    try {
+      const r = await fetch(`/api/manage-users/report?from=${from}&to=${to}`, { cache: "no-store" });
+      const d = await r.json().catch(() => null);
+      if (!r.ok || !d?.ok) { setErr(d?.error || "Gagal muat laporan."); return; }
+      setRows(d.users || []);
+    } finally { setLoading(false); }
+  }
+  useEffect(() => { void run(); /* eslint-disable-next-line */ }, []);
+
+  const cols: { key: keyof RCounts; label: string }[] = [
+    { key: "totalStoryboard", label: "Total Storyboard" },
+    { key: "totalVideo", label: "Total Video" },
+    { key: "originalVideo", label: "Original Video" },
+    { key: "dialogUgc", label: "Dialog UGC" },
+    { key: "autoUgc", label: "Auto UGC" },
+    { key: "editor", label: "Editor" },
+    { key: "donePost", label: "Done Post" },
+    { key: "donePostAff", label: "Done Post Affiliate" },
+  ];
+  const totals = cols.reduce((acc, c) => { acc[c.key] = rows.reduce((s, u) => s + (u.counts[c.key] || 0), 0); return acc; }, {} as Record<string, number>);
+  const preset = (days: number) => { const t = klToday(); setTo(t); setFrom(new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kuala_Lumpur", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(Date.now() - (days - 1) * 86400000))); };
+
+  return (
+    <div className="rounded-2xl p-4" style={{ background: "var(--color-bg-card)", border: "1px solid var(--color-border)" }}>
+      <div className="flex items-end gap-2 flex-wrap mb-3">
+        <span className="font-display font-bold text-[15px] text-[var(--color-text-primary)] mr-2">Laporan Penggunaan</span>
+        <div>
+          <label className="block text-[10px] text-[var(--color-text-muted)] mb-0.5">Dari</label>
+          <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className="input py-1 text-xs" />
+        </div>
+        <div>
+          <label className="block text-[10px] text-[var(--color-text-muted)] mb-0.5">Hingga</label>
+          <input type="date" value={to} onChange={(e) => setTo(e.target.value)} className="input py-1 text-xs" />
+        </div>
+        {[[1, "Hari ni"], [7, "7 hari"], [30, "30 hari"]].map(([d, l]) => (
+          <button key={String(d)} onClick={() => preset(d as number)} className="text-[11px] px-2 py-1 rounded-lg self-end" style={{ border: "1px solid var(--color-border)", color: "var(--color-text-secondary)" }}>{l as string}</button>
+        ))}
+        <button onClick={() => void run()} disabled={loading} className="btn-primary text-xs px-3 py-1.5 self-end disabled:opacity-60 inline-flex items-center gap-1.5">{loading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : "↻"} Jana</button>
+      </div>
+      {err && <div className="text-[12px] mb-2 font-semibold text-red-500">{err}</div>}
+      <div className="overflow-x-auto">
+        <table className="w-full text-[11px] border-collapse">
+          <thead>
+            <tr className="text-[var(--color-text-muted)]">
+              <th className="text-left font-bold py-1.5 pr-3 sticky left-0" style={{ background: "var(--color-bg-card)" }}>User</th>
+              {cols.map((c) => <th key={c.key} className="text-right font-bold py-1.5 px-2 whitespace-nowrap">{c.label}</th>)}
+            </tr>
+          </thead>
+          <tbody>
+            {rows.length === 0 ? (
+              <tr><td colSpan={cols.length + 1} className="py-6 text-center text-[var(--color-text-muted)]">{loading ? "Memuatkan…" : "Tiada data untuk julat ni."}</td></tr>
+            ) : rows.map((u) => (
+              <tr key={u.id} style={{ borderTop: "1px solid var(--color-border)" }}>
+                <td className="py-1.5 pr-3 sticky left-0" style={{ background: "var(--color-bg-card)" }}>
+                  <div className="font-bold text-[var(--color-text-primary)] truncate max-w-[160px]">{u.name || "—"}</div>
+                  <div className="text-[9px] text-[var(--color-text-muted)] truncate max-w-[160px]">{u.email}</div>
+                </td>
+                {cols.map((c) => (
+                  <td key={c.key} className={`text-right py-1.5 px-2 tabular-nums ${c.key === "totalStoryboard" || c.key === "totalVideo" ? "font-extrabold text-[var(--color-text-primary)]" : "text-[var(--color-text-secondary)]"}`}>{u.counts[c.key] || 0}</td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+          {rows.length > 0 && (
+            <tfoot>
+              <tr style={{ borderTop: "2px solid var(--color-border)" }}>
+                <td className="py-1.5 pr-3 font-extrabold text-[var(--color-text-primary)] sticky left-0" style={{ background: "var(--color-bg-card)" }}>JUMLAH</td>
+                {cols.map((c) => <td key={c.key} className="text-right py-1.5 px-2 font-extrabold tabular-nums text-[var(--color-text-primary)]">{totals[c.key] || 0}</td>)}
+              </tr>
+            </tfoot>
+          )}
+        </table>
+      </div>
+    </div>
+  );
+}
 
 type ManagedUser = {
   id: string;
@@ -158,6 +257,9 @@ export default function ManageUsersSection() {
           </div>
         )}
       </div>
+
+      {/* Usage report — per-user success counts by create date. */}
+      <UsageReport />
     </div>
   );
 }
