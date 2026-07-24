@@ -11,7 +11,7 @@
 
 import { createAdminClient } from "@/lib/supabase/admin";
 import { orChat } from "@/lib/openrouter";
-import { hooksForProduct } from "@/lib/hook-bank";
+import { pickHooks, inferHookCategory } from "@/lib/hook-bank";
 
 export type UgcPostMetaResult = {
   ok: boolean;
@@ -39,6 +39,14 @@ const COVER_ANGLES = [
   "curiosity/rahsia",
   "empati/aku pun sama",
   "cabaran/berani try",
+  "penyesalan/kenapa tak beli awal",
+  "perbandingan/dulu vs sekarang",
+  "soalan direct pada viewer",
+  "cerita pengalaman sendiri (mini story)",
+  "amaran/jangan buat silap ni",
+  "kejutan/tak sangka",
+  "tip/cara betul guna",
+  "FOMO/stok tinggal sikit",
 ];
 
 // Parse the caption JSON an LLM returns, tolerating the mistakes models
@@ -222,16 +230,21 @@ export async function generateUgcPostMeta(
   const categorySource = opts.detailOnly
     ? `${productName} ${productDetail}`
     : `${productName} ${productDetail} ${(row.prompt || "").slice(0, 300)}`;
-  const { category: hookCategory, hooks: seedHooks } = hooksForProduct(
-    categorySource,
-    5,
-    seed
-  );
-  // detailOnly drops the category hook examples — if the categoriser tags a
-  // "patch penjagaan" product as skincare, those example hooks drag the caption
-  // toward skin. Without them the caption leans purely on the product detail.
-  const hookBlock = (seedHooks.length && !opts.detailOnly)
-    ? `\n\nTRENDING HOOK EXAMPLES (real viral ${hookCategory} affiliate hooks — open the caption with ONE line in THIS energy/style, then adapt it to THIS product; do not copy verbatim):\n${seedHooks
+  // Hook category:
+  //  - normal mode → the product's actual niche (skincare/makanan/…), so the
+  //    opener speaks that niche's viral energy.
+  //  - detailOnly → the NEUTRAL "trending" bank. Those hooks are about the
+  //    deal itself (price / urgency / stock / social proof) and mention NO
+  //    niche, so they add a fresh viral opener WITHOUT ever dragging a
+  //    re-described product (e.g. a diabetic patch) toward the wrong angle.
+  //    This is the "detail product + variant hook" combo — grounding stays on
+  //    the product detail, the hook just rotates per video.
+  const hookCategory = opts.detailOnly ? "trending" : inferHookCategory(categorySource);
+  // 6 candidate hooks, seeded per-video, so each video in a bulk assign opens
+  // with a DIFFERENT proven line instead of all sounding the same.
+  const seedHooks = pickHooks(hookCategory, 6, seed);
+  const hookBlock = seedHooks.length
+    ? `\n\nTRENDING HOOK EXAMPLES (real viral Malay affiliate hooks — open the caption with ONE line in THIS energy/style, then adapt it to THIS product; do NOT copy verbatim, and do NOT add any benefit/ingredient/problem that isn't in the product detail):\n${seedHooks
         .map((h) => `- ${h}`)
         .join("\n")}`
     : "";
