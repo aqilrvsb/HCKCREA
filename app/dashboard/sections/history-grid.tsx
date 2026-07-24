@@ -291,6 +291,12 @@ export default function HistoryGrid({
   const [edFrameMotion, setEdFrameMotion] = useState("zoom-in");
   const [edProduct, setEdProduct] = useState("");
   const [edProducts, setEdProducts] = useState<Array<{ product_id: string; product_name?: string; name?: string; raw_url?: string; description?: string; detail?: string }>>([]);
+  // Latest picked product, mirrored into refs so per-card regen handlers read
+  // the CURRENT selection even if the memoized card holds a stale closure.
+  const edProductRef = useRef("");
+  const edProductsRef = useRef<typeof edProducts>([]);
+  edProductRef.current = edProduct;
+  edProductsRef.current = edProducts;
   const [edBusyText, setEdBusyText] = useState(false);
   const [edBusyCover, setEdBusyCover] = useState(false);
   const [edLog, setEdLog] = useState<string[]>([]);
@@ -1024,22 +1030,27 @@ export default function HistoryGrid({
   // ── Per-video re-generate (from the 📝 / 🎨 modals) ───────────────────────
   // Same engines as the bulk flow, just scoped to one video, so the card
   // animation + edProc guard behave identically.
-  async function edRegenText(id: string) {
-    const product: any = edProducts.find((p) => String(p.product_id) === edProduct);
-    if (!product) { edAddLog("⚠ Pilih produk dulu (header Editor) untuk jana Text."); return; }
-    if (edProcRef.current.has(id)) return;
+  async function edRegenText(id: string): Promise<{ ok: boolean; msg: string }> {
+    // Read via refs so a picked product is honoured even from a stale card closure.
+    const product: any = edProductsRef.current.find((p) => String(p.product_id) === edProductRef.current);
+    if (!product) { const msg = "⚠ Pilih produk dulu di header Editor untuk jana Text."; edAddLog(msg); return { ok: false, msg }; }
+    if (edProcRef.current.has(id)) return { ok: false, msg: "Sedang diproses…" };
     edAddLog(`📝 Jana semula Text untuk ${id.slice(0, 6)}…`);
     const res = await edRunText([id], product, true); // force = overwrite existing
     edReload();
-    edAddLog(res.has(id) ? `  ✓ ${id.slice(0, 6)} Text siap` : `  ✗ ${id.slice(0, 6)} Text gagal`);
+    const ok = res.has(id);
+    edAddLog(ok ? `  ✓ ${id.slice(0, 6)} Text siap` : `  ✗ ${id.slice(0, 6)} Text gagal`);
+    return { ok, msg: ok ? "✓ Caption dijana semula" : "✗ Jana Caption gagal — cuba lagi" };
   }
-  async function edRegenCover(id: string) {
-    if (edProcRef.current.has(id)) return;
-    if (!edHasText(id)) { edAddLog("⚠ Perlu Text dulu sebelum jana Cover."); return; }
+  async function edRegenCover(id: string): Promise<{ ok: boolean; msg: string }> {
+    if (edProcRef.current.has(id)) return { ok: false, msg: "Sedang diproses…" };
+    if (!edHasText(id)) { const msg = "⚠ Perlu Caption dulu sebelum jana Cover."; edAddLog(msg); return { ok: false, msg }; }
     edAddLog(`🎨 Jana semula Cover untuk ${id.slice(0, 6)}…`);
-    const { ok } = await edRunCover([id], undefined, true); // force = new cover
+    const { ok: okCount } = await edRunCover([id], undefined, true); // force = new cover
     edReload();
+    const ok = okCount > 0;
     edAddLog(ok ? `  ✓ ${id.slice(0, 6)} Cover siap` : `  ✗ ${id.slice(0, 6)} Cover gagal`);
+    return { ok, msg: ok ? "✓ Cover dijana semula" : "✗ Jana Cover gagal — cuba lagi" };
   }
 
   // Reset — clear a video's Text + Cover so the 3 checkboxes (T/C/F) reappear.
@@ -1610,8 +1621,8 @@ export default function HistoryGrid({
                 onEdRemove={() => void edRemove(it.id)}
                 onEdUnframe={() => void edUnframe(it.id)}
                 onEdReset={() => void edReset(it.id)}
-                onEdRegenText={() => void edRegenText(it.id)}
-                onEdRegenCover={() => void edRegenCover(it.id)}
+                onEdRegenText={() => edRegenText(it.id)}
+                onEdRegenCover={() => edRegenCover(it.id)}
                 edAffShow={editorMode && edAffEnabled}
                 edAffOn={edAffSel.has(it.id)}
                 onEdAff={() => edAffToggle(it.id)}
@@ -1858,8 +1869,8 @@ function HistoryCardInner({
   onEdRemove?: () => void;
   onEdUnframe?: () => void;
   onEdReset?: () => void;
-  onEdRegenText?: () => void;
-  onEdRegenCover?: () => void;
+  onEdRegenText?: () => Promise<{ ok: boolean; msg: string }> | void;
+  onEdRegenCover?: () => Promise<{ ok: boolean; msg: string }> | void;
   edAffShow?: boolean;
   edAffOn?: boolean;
   onEdAff?: () => void;
@@ -1896,11 +1907,14 @@ function HistoryCardInner({
         (item as any).caption = edCap;
         if (item.metadata) { item.metadata.cover_title = edCT.toUpperCase(); item.metadata.cover_subtitle = edCS.toUpperCase(); }
         setEdEditOpen(false);
+        showToast("✓ Caption & Cover text disimpan");
         window.dispatchEvent(new CustomEvent("history:refresh"));
       } else {
         const d = await r.json().catch(() => ({}));
-        alert(d?.error || "Save gagal");
+        showToast(`✗ Simpan gagal: ${d?.error || r.status}`);
       }
+    } catch (e: any) {
+      showToast(`✗ Simpan gagal: ${e?.message || "network error"}`);
     } finally {
       setEdSaving(false);
     }
@@ -1954,6 +1968,14 @@ function HistoryCardInner({
   const [vidPickOpen, setVidPickOpen] = useState(false);
   // Bottom-right "submitted" toast after firing a storyboard→video job.
   const [submitToast, setSubmitToast] = useState<string | null>(null);
+  // Show a brief bottom-right toast (auto-dismiss) — used for Save + regen so
+  // the client always gets visible feedback, never a silent "nothing happens".
+  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const showToast = (msg: string, ms = 4500) => {
+    setSubmitToast(msg);
+    if (toastTimer.current) clearTimeout(toastTimer.current);
+    toastTimer.current = setTimeout(() => setSubmitToast(null), ms);
+  };
   const isStoryboard = (item.metadata as any)?.feature === "storyboard";
 
   // Generate a video FROM this storyboard (image1=storyboard blueprint,
@@ -2910,7 +2932,7 @@ function HistoryCardInner({
               </div>
               {/* Re-generate JUST the Text for this video (uses the product
                   picked in the Editor header). Runs in background — close it. */}
-              <button onClick={() => { setEdEditOpen(false); onEdRegenText?.(); }} className="w-full py-2 rounded-xl text-[12px] font-extrabold text-white inline-flex items-center justify-center gap-1.5" style={{ background: "linear-gradient(135deg,#3b82f6,#60a5fa)" }}>📝 Jana Semula Text</button>
+              <button onClick={async () => { setEdEditOpen(false); showToast("📝 Jana semula Caption…"); const r = await onEdRegenText?.(); if (r) showToast(r.msg); }} className="w-full py-2 rounded-xl text-[12px] font-extrabold text-white inline-flex items-center justify-center gap-1.5" style={{ background: "linear-gradient(135deg,#3b82f6,#60a5fa)" }}>📝 Jana Semula Text</button>
             </div>
           </div>
         </Portal>
@@ -2923,7 +2945,7 @@ function HistoryCardInner({
               {editorMode && (
                 <div className="flex gap-2 flex-shrink-0">
                   {/* Re-generate JUST the Cover (force → new image, re-charges). */}
-                  <button onClick={() => { setEdCoverView(null); onEdRegenCover?.(); }} className="px-4 py-2 rounded-xl text-[12px] font-extrabold text-white inline-flex items-center gap-1.5" style={{ background: "linear-gradient(135deg,#f59e0b,#ea580c)" }}>🎨 Jana Semula Cover</button>
+                  <button onClick={async () => { setEdCoverView(null); showToast("🎨 Jana semula Cover…"); const r = await onEdRegenCover?.(); if (r) showToast(r.msg); }} className="px-4 py-2 rounded-xl text-[12px] font-extrabold text-white inline-flex items-center gap-1.5" style={{ background: "linear-gradient(135deg,#f59e0b,#ea580c)" }}>🎨 Jana Semula Cover</button>
                   <button onClick={() => setEdCoverView(null)} className="px-4 py-2 rounded-xl text-[12px] font-bold text-white" style={{ background: "rgba(255,255,255,0.12)" }}>Tutup</button>
                 </div>
               )}
