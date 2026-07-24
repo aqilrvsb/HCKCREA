@@ -1207,6 +1207,9 @@ export default function HistoryGrid({
             {edProducts.map((p) => <option key={p.product_id} value={p.product_id}>{p.product_name || "Unnamed"}</option>)}
           </select>
           <div className="flex flex-wrap gap-3 items-center">
+            {/* Each Select-All hides when there's nothing left for it to do, so
+                the client never clicks a control that can't act. */}
+            {pageItems.some((v) => !edTextDone(v.id)) && (
             <label className="flex items-center gap-1.5 text-xs font-extrabold cursor-pointer" style={{ color: "#60a5fa" }}>
               <input
                 type="checkbox"
@@ -1215,33 +1218,31 @@ export default function HistoryGrid({
                 style={{ accentColor: "#3b82f6", width: 15, height: 15 }}
               />
               Select All Text
-            </label>
+            </label>)}
+            {pageItems.some((v) => !edCoverDone(v.id) && !(v.metadata as any)?.framed_from) && (
             <label className="flex items-center gap-1.5 text-xs font-extrabold cursor-pointer" style={{ color: "#f59e0b" }}>
               <input
                 type="checkbox"
-                // Ticks EVERY not-yet-covered video (order-independent) so you
-                // can Select All Text + Select All Cover and Generate does both
-                // in ONE click — the combined flow makes Text first, then Cover
-                // for these (a video that still has no text is skipped safely).
                 checked={(() => { const ids = pageItems.filter((v) => !edCoverDone(v.id) && !(v.metadata as any)?.framed_from).map((v) => v.id); return ids.length > 0 && ids.every((i) => edCover.has(i)); })()}
                 onChange={() => { const ids = pageItems.filter((v) => !edCoverDone(v.id) && !(v.metadata as any)?.framed_from).map((v) => v.id); const allOn = ids.length > 0 && ids.every((i) => edCover.has(i)); const n = new Set(edCover); ids.forEach((i) => allOn ? n.delete(i) : n.add(i)); setEdCover(n); }}
                 style={{ accentColor: "#f59e0b", width: 15, height: 15 }}
               />
               Select All Cover
-            </label>
+            </label>)}
+            {pageItems.some((v) => edFramePickable(v.id)) && (
             <label className="flex items-center gap-1.5 text-xs font-extrabold cursor-pointer" style={{ color: "#a78bfa" }}>
               <input
                 type="checkbox"
-                // Only videos whose Frame is pickable (already have a Cover)
-                // count toward Select All Frame.
                 checked={(() => { const ids = pageItems.filter((v) => edFramePickable(v.id)).map((v) => v.id); return ids.length > 0 && ids.every((i) => edFrame.has(i)); })()}
                 onChange={() => { const ids = pageItems.filter((v) => edFramePickable(v.id)).map((v) => v.id); const allOn = ids.length > 0 && ids.every((i) => edFrame.has(i)); const n = new Set(edFrame); ids.forEach((i) => allOn ? n.delete(i) : n.add(i)); setEdFrame(n); }}
                 style={{ accentColor: "#8b5cf6", width: 15, height: 15 }}
               />
               Select All Frame
-            </label>
+            </label>)}
             {/* Regenerate — tick videos that ALREADY have text/cover for a
-                forced re-generate via the same Generate button. */}
+                forced re-generate via the same Generate button. Hidden when none
+                have text/cover yet. */}
+            {pageItems.some((v) => edTextDone(v.id)) && (
             <label className="flex items-center gap-1.5 text-xs font-extrabold cursor-pointer" style={{ color: "#14b8a6" }} title="Tick semua yang dah ada Caption untuk jana semula">
               <input
                 type="checkbox"
@@ -1250,7 +1251,8 @@ export default function HistoryGrid({
                 style={{ accentColor: "#14b8a6", width: 15, height: 15 }}
               />
               Regenerate Caption
-            </label>
+            </label>)}
+            {pageItems.some((v) => edCoverDone(v.id)) && (
             <label className="flex items-center gap-1.5 text-xs font-extrabold cursor-pointer" style={{ color: "#ec4899" }} title="Tick semua yang dah ada Cover untuk jana semula">
               <input
                 type="checkbox"
@@ -1259,7 +1261,7 @@ export default function HistoryGrid({
                 style={{ accentColor: "#ec4899", width: 15, height: 15 }}
               />
               Regenerate Cover
-            </label>
+            </label>)}
             <div className="flex-1" />
             {/* Bulk caption from product info only (ignore each video's scene). */}
             <label className="flex items-center gap-1.5 text-[11px] font-bold cursor-pointer" style={{ color: "#60a5fa" }} title="Caption ikut Detail Product je, abaikan scene video">
