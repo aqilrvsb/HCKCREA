@@ -1031,16 +1031,31 @@ export default function HistoryGrid({
   // Same engines as the bulk flow, just scoped to one video, so the card
   // animation + edProc guard behave identically.
   async function edRegenText(id: string): Promise<{ ok: boolean; msg: string }> {
-    // Read via refs so a picked product is honoured even from a stale card closure.
-    const product: any = edProductsRef.current.find((p) => String(p.product_id) === edProductRef.current);
-    if (!product) { const msg = "⚠ Pilih produk dulu di header Editor untuk jana Text."; edAddLog(msg); return { ok: false, msg }; }
     if (edProcRef.current.has(id)) return { ok: false, msg: "Sedang diproses…" };
-    edAddLog(`📝 Jana semula Text untuk ${id.slice(0, 6)}…`);
-    const res = await edRunText([id], product, true); // force = overwrite existing
-    edReload();
-    const ok = res.has(id);
-    edAddLog(ok ? `  ✓ ${id.slice(0, 6)} Text siap` : `  ✗ ${id.slice(0, 6)} Text gagal`);
-    return { ok, msg: ok ? "✓ Caption dijana semula" : "✗ Jana Caption gagal — cuba lagi" };
+    // No product picker needed — the row already stores its product
+    // (tiktok_product_id / product_name / product_detail) and the server falls
+    // back to those. If a product IS picked in the header we pass it as an
+    // override (lets you re-generate against a DIFFERENT product); otherwise we
+    // send just the id and the server reuses the video's own product.
+    const product: any = edProductsRef.current.find((p) => String(p.product_id) === edProductRef.current);
+    const override = product
+      ? {
+          product_url: product.raw_url || (product.product_id ? `https://www.tiktok.com/shop/my/pdp/product/${product.product_id}` : ""),
+          product_name: product.product_name || product.name || "",
+          product_detail: product.description || product.detail || "",
+        }
+      : {};
+    edMarkProc(id, true);
+    edAddLog(`📝 Jana semula Caption untuk ${id.slice(0, 6)}…`);
+    try {
+      const { ok, d } = await edFetchJson("/api/ugc/generate-post-meta", { history_id: id, variant_seed: edSeed(id), source: "editor", fill_only_empty: false, ...override });
+      edReload();
+      const good = !!(ok && (d?.caption || d?.cover_title));
+      edAddLog(good ? `  ✓ ${id.slice(0, 6)} Caption siap` : `  ✗ ${id.slice(0, 6)}: ${d?.error || "gagal"}`);
+      return { ok: good, msg: good ? "✓ Caption dijana semula" : `✗ Jana Caption gagal: ${d?.error || "cuba lagi"}` };
+    } catch (e: any) {
+      return { ok: false, msg: `✗ Jana Caption gagal: ${e?.message || "error"}` };
+    } finally { edMarkProc(id, false); }
   }
   async function edRegenCover(id: string): Promise<{ ok: boolean; msg: string }> {
     if (edProcRef.current.has(id)) return { ok: false, msg: "Sedang diproses…" };
