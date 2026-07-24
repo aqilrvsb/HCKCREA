@@ -37,6 +37,8 @@ import SettingsSection from "./sections/settings";
 import DashboardOverview from "./sections/dashboard-overview";
 import SavedPromptsSection from "./sections/saved-prompts";
 import AffiliateReport from "./sections/affiliate-report";
+import ManageUsersSection from "./sections/manage-users";
+import { canManageUsers } from "@/lib/manage-users";
 import StorageSection from "./sections/storage";
 import AttachmentsSection from "./sections/attachments";
 import ActivityFeed from "./sections/activity-feed";
@@ -312,6 +314,7 @@ export default function DashboardShell({
           planExpiresAt={planExpiresAt}
           isAffiliate={isAffiliate}
           affiliateMode={affEnabled}
+          canManageUsers={canManageUsers(email)}
           projects={projects}
           projectLimit={projectLimit}
           onProjectsChange={setProjects}
@@ -463,6 +466,15 @@ export default function DashboardShell({
               </div>
               {/* No projectId → the report covers every project for this user. */}
               <AffiliateReport />
+            </SectionWrap>
+          )}
+          {view.kind === "manage-users" && canManageUsers(email) && (
+            <SectionWrap>
+              <div className="mb-4">
+                <h2 className="text-lg font-semibold text-white">Manage Users</h2>
+                <p className="text-xs text-white/45">Tambah &amp; edit user (Premium 1 tahun). Senarai dikongsi antara team anda.</p>
+              </div>
+              <ManageUsersSection />
             </SectionWrap>
           )}
           {view.kind === "usage" && (

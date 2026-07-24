@@ -46,6 +46,8 @@ export type SidebarView =
   // Reporting Affiliate lives under ACCOUNT, not the project tabs: transfers
   // are recorded per USER, so the report spans every project.
   | { kind: "affiliate-report" }
+  // Manage Users — scoped reseller "Add/Edit User" for the allowlisted team.
+  | { kind: "manage-users" }
   | { kind: "usage" }
   | { kind: "saved-prompts" }
   | { kind: "storage" }
@@ -77,6 +79,7 @@ export default function Sidebar({
   onMobileClose,
   isAffiliate = false,
   affiliateMode = false,
+  canManageUsers: canMngUsers = false,
 }: {
   email: string;
   name: string;
@@ -97,6 +100,8 @@ export default function Sidebar({
   isAffiliate?: boolean;
   /** Affiliate MODE (Settings toggle) — shows the Reporting Affiliate nav. */
   affiliateMode?: boolean;
+  /** Allowlisted reseller — shows the Manage Users nav. */
+  canManageUsers?: boolean;
   // Project tabs (Image / UGC / Auto Content / etc.) — rendered inside the
   // sidebar when a project is active. Replaces the top tab pills so mobile
   // users can navigate from the same drawer they use for everything else.
@@ -640,6 +645,10 @@ export default function Sidebar({
             // recorded against the USER, so the report covers all projects.
             ...(affiliateMode
               ? [{ kind: "affiliate-report" as const, label: "Reporting Affiliate", Icon: BarChart3 }]
+              : []),
+            // Manage Users — only for allowlisted reseller accounts (nl team).
+            ...(canMngUsers
+              ? [{ kind: "manage-users" as const, label: "Manage Users", Icon: Users }]
               : []),
             { kind: "usage" as const, label: "Usage", Icon: Activity },
             // Saved Prompts hidden — per-tab agents now persist their
