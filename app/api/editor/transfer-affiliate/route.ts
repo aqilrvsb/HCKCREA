@@ -26,13 +26,8 @@ export async function POST(req: Request) {
   if (!ids.length) return NextResponse.json({ error: "history_ids required" }, { status: 400 });
 
   const undo = body?.undo === true;
-  const staffId = String(body?.staff_id || "").trim().toUpperCase();
-  const affiliateId = body?.affiliate_id != null && String(body.affiliate_id).trim() ? body.affiliate_id : null;
-  const name = String(body?.name || "").trim();
-  const phone = String(body?.phone || "").replace(/\D/g, "");
-  if (!undo && !staffId && affiliateId == null) {
-    return NextResponse.json({ error: "ID Staff affiliate diperlukan" }, { status: 400 });
-  }
+  // Editor just marks videos READY — the affiliate is chosen later in the Ready
+  // Affiliate tab at Submit time. So no affiliate is required here.
 
   const admin = createAdminClient();
   const { data: rows } = await admin
@@ -70,15 +65,12 @@ export async function POST(req: Request) {
       delete m.affiliate_transferred_at;
       m.in_editor = true;
     } else {
-      // ASSIGN ONLY — tag the affiliate and mark it READY. It does NOT push to
-      // NL yet; it waits in the "Ready Affiliate" tab where the user ticks +
-      // Submit to actually post (see /api/editor/affiliate-submit).
+      // MARK READY only — NO affiliate is chosen here. The video leaves the
+      // Editor and waits in the "Ready Affiliate" tab, where the user picks an
+      // affiliate from the dropdown, ticks + Submit to assign + push to NL
+      // (see /api/editor/affiliate-submit).
       m.affiliate_transferred = true;
-      m.affiliate_submitted = false; // not pushed to NL yet
-      m.affiliate_staff_id = staffId || (m.affiliate_staff_id ?? null);
-      m.affiliate_id = affiliateId ?? (m.affiliate_id ?? null);
-      m.affiliate_phone = phone || (m.affiliate_phone ?? null);
-      m.affiliate_name = name || m.affiliate_name || staffId;
+      m.affiliate_submitted = false; // not pushed to NL yet, no affiliate yet
       m.affiliate_transferred_at = new Date().toISOString();
       m.affiliate_transfer_date = today; // KL date — what Reporting groups by
       m.in_editor = false; // leaves the Editor

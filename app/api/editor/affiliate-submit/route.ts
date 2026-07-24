@@ -4,13 +4,15 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { pushToNlAffiliate, nlAffiliateConfigured, klToday } from "@/lib/nl-affiliate";
 import { rehostToContent } from "@/lib/b2";
 
-// POST /api/editor/affiliate-submit   { history_ids: string[] }
+// POST /api/editor/affiliate-submit
+//   { history_ids: string[], staff_id?, affiliate_id?, name?, phone? }
 //
-// STAGE 2 of the affiliate flow: PUSH the ticked "Ready Affiliate" videos to NL
-// Affiliate Army (bulk, in parallel). On success each row is marked
-// affiliate_submitted=true → it leaves the Ready Affiliate tab and shows in
-// Reporting Affiliate. source_id makes the push idempotent, so a failed one can
-// be re-submitted safely. Owner only.
+// STAGE 2 of the affiliate flow: the user picks an affiliate in the "Ready
+// Affiliate" tab, ticks videos, and Submits. This ASSIGNS that affiliate to the
+// ticked rows and PUSHES them to NL Affiliate Army (bulk, in parallel). On
+// success each row is marked affiliate_submitted=true → it leaves the Ready
+// Affiliate tab and shows in Reporting Affiliate. source_id makes the push
+// idempotent, so a failed one can be re-submitted safely. Owner only.
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
@@ -24,6 +26,16 @@ export async function POST(req: Request) {
     ? body.history_ids.map((x: any) => String(x || "").trim()).filter(Boolean)
     : [];
   if (!ids.length) return NextResponse.json({ error: "history_ids required" }, { status: 400 });
+
+  // The affiliate is picked in the Ready Affiliate tab and applies to every
+  // ticked video in this Submit.
+  const staffId = String(body?.staff_id || "").trim().toUpperCase();
+  const affiliateId = body?.affiliate_id != null && String(body.affiliate_id).trim() ? body.affiliate_id : null;
+  const name = String(body?.name || "").trim();
+  const phone = String(body?.phone || "").replace(/\D/g, "");
+  if (!staffId && affiliateId == null) {
+    return NextResponse.json({ error: "Pilih affiliate dulu" }, { status: 400 });
+  }
   if (!nlAffiliateConfigured()) {
     return NextResponse.json({ error: "NL ingest key tak diset pada server" }, { status: 503 });
   }
@@ -45,6 +57,12 @@ export async function POST(req: Request) {
   await Promise.all((rows || []).map(async (row: any) => {
     const m = { ...((row.metadata as Record<string, any>) || {}) };
     if (m.affiliate_submitted === true) { pushed++; return; } // already done
+
+    // ASSIGN the affiliate picked in the Ready Affiliate tab to this row.
+    m.affiliate_staff_id = staffId || m.affiliate_staff_id || null;
+    m.affiliate_id = affiliateId ?? m.affiliate_id ?? null;
+    m.affiliate_phone = phone || m.affiliate_phone || null;
+    m.affiliate_name = name || m.affiliate_name || staffId;
 
     // Cover check — dead provider covers 404 on the affiliate side, so rehost
     // an alive non-B2 cover, drop a dead one rather than ship a broken link.

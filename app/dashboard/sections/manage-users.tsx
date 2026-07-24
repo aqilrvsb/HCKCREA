@@ -14,7 +14,7 @@ function klToday(): string {
 
 type RCounts = {
   totalStoryboard: number; totalVideo: number; originalVideo: number;
-  dialogUgc: number; autoUgc: number; editor: number; donePost: number; donePostAff: number;
+  dialogUgc: number; autoUgc: number; editor: number; readyAffiliate: number; donePost: number; donePostAff: number;
 };
 type ReportUser = { id: string; name: string; email: string; counts: RCounts };
 
@@ -45,6 +45,7 @@ function UsageReport() {
     { key: "dialogUgc", label: "Dialog UGC" },
     { key: "autoUgc", label: "Auto UGC" },
     { key: "editor", label: "Editor" },
+    { key: "readyAffiliate", label: "Ready Affiliate" },
     { key: "donePost", label: "Done Post" },
     { key: "donePostAff", label: "Done Post Affiliate" },
   ];

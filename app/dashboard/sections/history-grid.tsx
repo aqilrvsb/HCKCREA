@@ -20,7 +20,6 @@ import {
   AlertTriangle,
   Scissors,
   Undo2,
-  Users,
   Palette,
   ChevronLeft,
   ChevronRight,
@@ -283,7 +282,9 @@ export default function HistoryGrid({
   const [edAffPick, setEdAffPick] = useState("");
   const [edAffBusy, setEdAffBusy] = useState(false);
   useEffect(() => {
-    if (!editorMode) return;
+    // Editor needs the affiliate contacts to enable the A checkbox; the Ready
+    // Affiliate tab needs them for its affiliate dropdown at Submit time.
+    if (!editorMode && !transferAffiliateMode) return;
     void (async () => {
       try {
         const sb = createClient();
@@ -295,7 +296,7 @@ export default function HistoryGrid({
         setEdAffContacts(Array.isArray(s.affiliate_contacts) ? s.affiliate_contacts : []);
       } catch { /* affiliate stays off */ }
     })();
-  }, [editorMode]);
+  }, [editorMode, transferAffiliateMode]);
 
   // Frame options popup: Static (free) / Animate (RM0.10), duration 1-5, motion.
   const [edFrameModal, setEdFrameModal] = useState(false);
@@ -1044,27 +1045,27 @@ export default function HistoryGrid({
     setEdAffSel((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
   async function edTransferAffiliate() {
     // Final guard — a stale tick (e.g. Undo Frame after ticking) must never
-    // slip a half-finished video through to an affiliate.
+    // slip a half-finished video through. NO affiliate is chosen here — the
+    // Editor just marks videos READY. The affiliate is picked in the Ready
+    // Affiliate tab at Submit time.
     const picked = [...edAffSel].filter((id) => visibleParents.some((v) => v.id === id));
     const ids = picked.filter((id) => { const v = visibleParents.find((x) => x.id === id); return v && edAffReady(v); });
     const blocked = picked.length - ids.length;
     if (blocked > 0) edAddLog(`⚠ ${blocked} video dilangkau — Text + Cover kena siap dulu.`);
     if (!ids.length) { edAddLog("⚠ Tick checkbox affiliate (hijau) pada video yang dah siap Text + Cover."); return; }
-    const contact = edAffContacts.find((c) => c.staff_id === edAffPick);
-    if (!contact) { edAddLog("⚠ Pilih affiliate dulu."); return; }
-    if (!confirm(`Transfer ${ids.length} video ke ${contact.name} (${contact.staff_id})? Video akan keluar dari Editor.`)) return;
+    if (!confirm(`Hantar ${ids.length} video ke Ready Affiliate? Video akan keluar dari Editor.`)) return;
     setEdAffBusy(true);
     try {
       const r = await fetch("/api/editor/transfer-affiliate", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ history_ids: ids, staff_id: contact.staff_id, affiliate_id: contact.affiliate_id ?? null, name: contact.name, phone: contact.whatsapp || "" }),
+        body: JSON.stringify({ history_ids: ids }),
       });
       const d = await r.json().catch(() => ({}));
-      if (!r.ok) { edAddLog(`✗ Transfer gagal: ${d?.error || r.status}`); return; }
+      if (!r.ok) { edAddLog(`✗ Gagal: ${d?.error || r.status}`); return; }
       setEdAffSel(new Set());
       edReload();
-      edAddLog(`✓ ${d.transferred || 0} video di-transfer ke ${contact.name} — lihat tab Transfer Affiliate.`);
-    } catch (e: any) { edAddLog(`✗ Transfer error: ${e?.message || "error"}`); }
+      edAddLog(`✓ ${d.transferred || 0} video dihantar ke Ready Affiliate — pilih affiliate & Submit di sana.`);
+    } catch (e: any) { edAddLog(`✗ Error: ${e?.message || "error"}`); }
     finally { setEdAffBusy(false); }
   }
 
@@ -1158,16 +1159,18 @@ export default function HistoryGrid({
   async function affSubmit() {
     const ids = [...dpSel].filter((id) => visibleParents.some((v) => v.id === id));
     if (!ids.length) { alert("Tick video dulu untuk Submit."); return; }
-    if (!confirm(`Submit ${ids.length} video ke affiliate sekarang? Ia akan dihantar ke akaun affiliate dan pindah ke Reporting Affiliate.`)) return;
+    const contact = edAffContacts.find((c) => c.staff_id === edAffPick);
+    if (!contact) { alert("Pilih affiliate dari dropdown dulu."); return; }
+    if (!confirm(`Submit ${ids.length} video ke ${contact.name} (${contact.staff_id})? Ia akan dihantar ke akaun affiliate dan pindah ke Reporting Affiliate.`)) return;
     setDpBusy(true);
     try {
       const r = await fetch("/api/editor/affiliate-submit", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ history_ids: ids }),
+        body: JSON.stringify({ history_ids: ids, staff_id: contact.staff_id, affiliate_id: contact.affiliate_id ?? null, name: contact.name, phone: contact.whatsapp || "" }),
       });
       const d = await r.json().catch(() => ({}));
       if (!r.ok) { alert(d?.error || "Submit gagal"); return; }
-      alert(`✅ ${d.submitted || 0} video dihantar${d.failed ? ` · ${d.failed} gagal (masih di sini, cuba lagi)` : ""}.`);
+      alert(`✅ ${d.submitted || 0} video dihantar ke ${contact.name}${d.failed ? ` · ${d.failed} gagal (masih di sini, cuba lagi)` : ""}.`);
       setDpSel(new Set());
       window.dispatchEvent(new CustomEvent("history:refresh"));
       void mutateItems();
@@ -1340,14 +1343,9 @@ export default function HistoryGrid({
                 Select All Affiliate
               </label>
               <span className="text-[11px] text-[var(--color-text-muted)] font-mono">{edAffSel.size} dipilih</span>
-              <select value={edAffPick} onChange={(e) => setEdAffPick(e.target.value)} className="px-3 py-1.5 rounded-lg text-xs" style={{ background: "var(--color-bg)", border: "1px solid var(--color-border)", color: "var(--color-text-primary)" }}>
-                <option value="">— Pilih affiliate —</option>
-                {edAffContacts.filter((c) => c.staff_id).map((c) => <option key={c.staff_id} value={c.staff_id}>{c.name} — {c.staff_id}</option>)}
-              </select>
               <div className="flex-1" />
-              <button onClick={() => void edTransferAffiliate()} disabled={edAffBusy || !edAffPick || edAffSel.size === 0} className="text-xs font-extrabold px-4 py-1.5 rounded-lg text-white disabled:opacity-50 inline-flex items-center gap-1.5" style={{ background: "linear-gradient(135deg,#16a34a,#4ade80)" }}>{edAffBusy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Users className="w-4 h-4" />} Transfer Affiliate</button>
-              <span className="text-[10px] text-[var(--color-text-muted)] w-full">Checkbox <b style={{ color: "#4ade80" }}>A</b> hanya terbuka bila video dah siap <b>Text + Cover</b>. Frame tak wajib — video tanpa frame pun boleh hantar.</span>
-              {edAffContacts.length === 0 && <span className="text-[10px] text-[var(--color-text-muted)] w-full">Tiada affiliate lagi — tambah di Settings → Affiliate.</span>}
+              <button onClick={() => void edTransferAffiliate()} disabled={edAffBusy || edAffSel.size === 0} className="text-xs font-extrabold px-4 py-1.5 rounded-lg text-white disabled:opacity-50 inline-flex items-center gap-1.5" style={{ background: "linear-gradient(135deg,#16a34a,#4ade80)" }}>{edAffBusy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />} Hantar ke Ready Affiliate</button>
+              <span className="text-[10px] text-[var(--color-text-muted)] w-full">Tick <b style={{ color: "#4ade80" }}>A</b> (terbuka bila video siap <b>Text + Cover</b>) → hantar ke <b>Ready Affiliate</b>. Affiliate dipilih di sana masa Submit. Frame tak wajib.</span>
             </div>
           )}
           {edLog.length > 0 && <div className="mt-2 font-mono text-[10px] max-h-24 overflow-y-auto text-[var(--color-text-secondary)]">{edLog.map((l, i) => <div key={i}>{l}</div>)}</div>}
@@ -1425,11 +1423,15 @@ export default function HistoryGrid({
               Select All
             </label>
             <span className="text-[11px] text-[var(--color-text-muted)] font-mono">{dpSel.size} dipilih</span>
+            <select value={edAffPick} onChange={(e) => setEdAffPick(e.target.value)} className="px-3 py-1.5 rounded-lg text-xs" style={{ background: "var(--color-bg)", border: "1px solid var(--color-border)", color: "var(--color-text-primary)" }}>
+              <option value="">— Pilih affiliate —</option>
+              {edAffContacts.filter((c) => c.staff_id).map((c) => <option key={c.staff_id} value={c.staff_id}>{c.name} — {c.staff_id}</option>)}
+            </select>
             <div className="flex-1" />
-            <button onClick={() => void affSubmit()} disabled={dpBusy || dpSel.size === 0} className="text-xs font-extrabold px-4 py-1.5 rounded-lg text-white disabled:opacity-50 inline-flex items-center gap-1.5" style={{ background: "linear-gradient(135deg,#16a34a,#22c55e)" }}>{dpBusy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />} Submit ({dpSel.size})</button>
+            <button onClick={() => void affSubmit()} disabled={dpBusy || dpSel.size === 0 || !edAffPick} className="text-xs font-extrabold px-4 py-1.5 rounded-lg text-white disabled:opacity-50 inline-flex items-center gap-1.5" style={{ background: "linear-gradient(135deg,#16a34a,#22c55e)" }}>{dpBusy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />} Submit ({dpSel.size})</button>
             <button onClick={() => void affUndo()} disabled={dpBusy || dpSel.size === 0} className="text-xs font-extrabold px-4 py-1.5 rounded-lg text-white disabled:opacity-50 inline-flex items-center gap-1.5" style={{ background: "linear-gradient(135deg,#7c3aed,#a78bfa)" }}>{dpBusy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Undo2 className="w-4 h-4" />} Undo Transfer</button>
           </div>
-          <p className="text-[10px] text-[var(--color-text-muted)] mt-1.5">Video dah di-assign ke affiliate tapi <b>belum dihantar</b>. Tick + <b>Submit</b> untuk hantar ke akaun affiliate (bulk). Lepas submit ia pindah ke <b>Reporting Affiliate</b>. Atau <b>Undo Transfer</b> balik ke Editor.</p>
+          <p className="text-[10px] text-[var(--color-text-muted)] mt-1.5"><b>Pilih affiliate</b> dari dropdown → tick video → <b>Submit</b> untuk hantar ke akaun affiliate itu (bulk). Lepas submit ia pindah ke <b>Reporting Affiliate</b>. Atau <b>Undo Transfer</b> balik ke Editor.{edAffContacts.length === 0 && " (Tiada affiliate lagi — tambah di Settings → Affiliate.)"}</p>
         </div>
       )}
 

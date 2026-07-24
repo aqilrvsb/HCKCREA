@@ -13,9 +13,13 @@ import { canManageUsers, manageUsersGroup } from "@/lib/manage-users";
 //   dialogUgc       = tab "video"
 //   autoUgc         = tab "auto-ugc"
 //   editor          = in_editor (currently in the Editor)
+//   readyAffiliate  = affiliate_transferred but NOT yet submitted (in Ready Affiliate)
 //   donePost        = posted_to_tiktok
-//   donePostAff     = affiliate_transferred
+//   donePostAff     = affiliate_submitted (actually pushed to the affiliate)
 //   totalVideo      = originalVideo + dialogUgc + autoUgc
+//
+// EVERY column is filtered by the video's CREATE date (history.created_at) within
+// the range — not by when it was posted / transferred / submitted.
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
@@ -26,10 +30,11 @@ type Counts = {
   dialogUgc: number;
   autoUgc: number;
   editor: number;
+  readyAffiliate: number;
   donePost: number;
   donePostAff: number;
 };
-const zero = (): Counts => ({ totalStoryboard: 0, totalVideo: 0, originalVideo: 0, dialogUgc: 0, autoUgc: 0, editor: 0, donePost: 0, donePostAff: 0 });
+const zero = (): Counts => ({ totalStoryboard: 0, totalVideo: 0, originalVideo: 0, dialogUgc: 0, autoUgc: 0, editor: 0, readyAffiliate: 0, donePost: 0, donePostAff: 0 });
 
 export async function GET(req: Request) {
   const sb = await createClient();
@@ -94,8 +99,11 @@ export async function GET(req: Request) {
       else if (r.tab === "video") { c.dialogUgc++; c.totalVideo++; }
       else if (r.tab === "auto-ugc") { c.autoUgc++; c.totalVideo++; }
       if (m.in_editor === true) c.editor++;
+      // Two-stage affiliate: transferred-but-not-submitted = Ready Affiliate;
+      // submitted = Done Post Affiliate (actually pushed to the affiliate).
+      if (m.affiliate_transferred === true && m.affiliate_submitted !== true) c.readyAffiliate++;
       if (r.posted_to_tiktok === true) c.donePost++;
-      if (m.affiliate_transferred === true) c.donePostAff++;
+      if (m.affiliate_submitted === true) c.donePostAff++;
     }
     if (batch.length < PAGE) break;
   }
