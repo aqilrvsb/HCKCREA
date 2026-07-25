@@ -304,7 +304,7 @@ export default function HistoryGrid({
   const [edFrameDur, setEdFrameDur] = useState(1);
   const [edFrameMotion, setEdFrameMotion] = useState("zoom-in");
   const [edProduct, setEdProduct] = useState("");
-  const [edProducts, setEdProducts] = useState<Array<{ product_id: string; product_name?: string; name?: string; raw_url?: string; description?: string; detail?: string }>>([]);
+  const [edProducts, setEdProducts] = useState<Array<{ product_id: string; product_name?: string; name?: string; raw_url?: string; description?: string; detail?: string; manual?: boolean }>>([]);
   // Bulk "Guna Detail Product sahaja" — when on, bulk Generate writes captions
   // purely from the product Name + Detail, ignoring each video's own scene.
   const [edGenDetailOnly, setEdGenDetailOnly] = useState(false);
@@ -677,12 +677,30 @@ export default function HistoryGrid({
     if (!editorMode) return;
     void (async () => {
       try {
-        // SAME product source as the extension's Non Saved ID (Beg Kuning
-        // affiliate list) — carries raw_url + description so Generate Text is
-        // byte-identical to the extension.
-        const r = await fetch("/api/extension/affiliate/list", { cache: "no-store" });
-        const d = await r.json();
-        setEdProducts(d?.products || d?.items || []);
+        // TWO sources, merged into ONE dropdown:
+        //  1. Beg Kuning affiliate list (extension's Non Saved ID) — carries
+        //     raw_url + description so Generate Text is byte-identical to the
+        //     extension.
+        //  2. Manual saved products (Tiada Link Product) — name + detail only,
+        //     no TikTok link. So the client can generate Text/Cover for a
+        //     product that was saved WITHOUT a Beg Kuning link too.
+        const [begRes, manRes] = await Promise.all([
+          fetch("/api/extension/affiliate/list", { cache: "no-store" }),
+          fetch("/api/auto-content/saved-products?kind=manual", { cache: "no-store" }),
+        ]);
+        const beg = (await begRes.json().catch(() => ({})))?.products || [];
+        const manRaw = (await manRes.json().catch(() => ({})))?.items || [];
+        const manual = manRaw.map((m: any) => ({
+          // Manual products have NO product_id → synthetic key so they're
+          // selectable and never collide. The URL builders below treat a
+          // non-numeric id as "no link" (detail-only generation).
+          product_id: m.product_id || `manual:${m.id}`,
+          product_name: m.product_name,
+          description: m.detail || "",
+          detail: m.detail || "",
+          manual: true,
+        }));
+        setEdProducts([...beg, ...manual]);
       } catch { /* ignore */ }
     })();
   }, [editorMode]);
@@ -776,7 +794,9 @@ export default function HistoryGrid({
   async function edRunText(ids: string[], product: any, force = false): Promise<Map<string, any>> {
     // product may be undefined (regenerate with no header product picked) — send
     // empty fields so the server falls back to each row's own stored product.
-    const productUrl = product?.raw_url || (product?.product_id ? "https://www.tiktok.com/shop/my/pdp/product/" + product.product_id : "");
+    // Only a REAL numeric TikTok id makes a pdp link — a manual product's
+    // synthetic "manual:<uuid>" id must stay link-less (detail-only generation).
+    const productUrl = product?.raw_url || (/^\d{13,20}$/.test(String(product?.product_id || "")) ? "https://www.tiktok.com/shop/my/pdp/product/" + product.product_id : "");
     const productName = product?.product_name || product?.name || "";
     const productDetail = product?.description || product?.detail || "";
     const results = new Map<string, any>();
@@ -1086,7 +1106,7 @@ export default function HistoryGrid({
     const product: any = edProductsRef.current.find((p) => String(p.product_id) === edProductRef.current);
     const override = product
       ? {
-          product_url: product.raw_url || (product.product_id ? `https://www.tiktok.com/shop/my/pdp/product/${product.product_id}` : ""),
+          product_url: product.raw_url || (/^\d{13,20}$/.test(String(product.product_id || "")) ? `https://www.tiktok.com/shop/my/pdp/product/${product.product_id}` : ""),
           product_name: product.product_name || product.name || "",
           product_detail: product.description || product.detail || "",
         }
@@ -1248,7 +1268,7 @@ export default function HistoryGrid({
           <label className="block text-[10px] uppercase tracking-wider font-bold text-[var(--color-text-muted)] mb-1.5">Produk (untuk Generate Text)</label>
           <select value={edProduct} onChange={(e) => setEdProduct(e.target.value)} className="w-full mb-2 px-3 py-2 rounded-lg text-sm" style={{ background: "var(--color-bg)", border: `1px solid ${edText.size > 0 && !edProduct ? "#ef4444" : "var(--color-border)"}`, color: "var(--color-text-primary)" }}>
             <option value="">{edText.size > 0 && !edProduct ? "⚠ Pilih produk dulu (wajib untuk Text)" : "— Pilih produk —"}</option>
-            {edProducts.map((p) => <option key={p.product_id} value={p.product_id}>{p.product_name || "Unnamed"}</option>)}
+            {edProducts.map((p) => <option key={p.product_id} value={p.product_id}>{p.manual ? "📝 " : "🛍️ "}{p.product_name || "Unnamed"}{p.manual ? " · (tiada link)" : ""}</option>)}
           </select>
           <div className="flex flex-wrap gap-3 items-center">
             {/* Each Select-All hides when there's nothing left for it to do, so
