@@ -39,6 +39,7 @@ export default function CreditSection({ credits }: { credits: number }) {
   const [uploading, setUploading] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const [showPay, setShowPay] = useState(false);
+  const [qrZoom, setQrZoom] = useState(false); // enlarged QR modal
 
   const pick = PACKAGES.find((p) => p.credits === selected) || PACKAGES[0];
 
@@ -379,13 +380,43 @@ export default function CreditSection({ credits }: { credits: number }) {
                     <div className="text-[11px] text-[var(--color-text-muted)] mt-1">Guna app Touch &apos;n Go / DuitNow QR di sebelah.</div>
                   </div>
                   {tng.qr_url && (
-                    <img src={tng.qr_url} alt="TnG QR" className="w-28 h-28 object-contain rounded-lg bg-white border border-[var(--color-border)] flex-shrink-0" />
+                    <button
+                      type="button"
+                      onClick={() => setQrZoom(true)}
+                      title="Tekan untuk besarkan QR"
+                      className="flex-shrink-0 group relative"
+                    >
+                      <img src={tng.qr_url} alt="TnG QR" className="w-28 h-28 object-contain rounded-lg bg-white border border-[var(--color-border)] cursor-zoom-in transition-transform group-hover:scale-105" />
+                      <span className="absolute bottom-1 right-1 text-[9px] font-bold text-white bg-black/60 rounded px-1 py-0.5 pointer-events-none">🔍 Besar</span>
+                    </button>
                   )}
                 </div>
               ) : (
                 <div className="text-sm text-[var(--color-text-muted)]">Admin belum set akaun Touch &apos;n Go. Sila hubungi admin.</div>
               )}
             </div>
+
+            {/* Enlarged QR modal — tap the QR to scan it comfortably. */}
+            {qrZoom && tng?.qr_url && (
+              <div
+                className="fixed inset-0 z-[100] flex items-center justify-center p-4"
+                style={{ background: "rgba(0,0,0,0.8)", backdropFilter: "blur(6px)" }}
+                onClick={() => setQrZoom(false)}
+              >
+                <div className="relative bg-white rounded-2xl p-4 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+                  <button
+                    type="button"
+                    onClick={() => setQrZoom(false)}
+                    aria-label="Tutup"
+                    className="absolute -top-3 -right-3 w-8 h-8 rounded-full bg-black text-white text-lg font-bold flex items-center justify-center shadow-lg"
+                  >
+                    ×
+                  </button>
+                  <img src={tng.qr_url} alt="TnG QR besar" className="w-[min(80vw,380px)] h-[min(80vw,380px)] object-contain" />
+                  <div className="text-center text-xs font-semibold text-gray-700 mt-2">Scan guna app Touch &apos;n Go / DuitNow</div>
+                </div>
+              </div>
+            )}
 
             {/* Total amount — so the client is crystal-clear on what to pay */}
             <div className="rounded-2xl p-4 mb-4 flex items-center justify-between" style={{ background: "linear-gradient(135deg, rgba(245,158,11,0.12), rgba(255,87,34,0.08))", border: "1px solid rgba(245,158,11,0.4)" }}>
