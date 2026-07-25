@@ -15,7 +15,27 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { orChat } from "@/lib/openrouter";
 import { HOOK_BANK, pickHooks, inferHookCategory } from "@/lib/hook-bank";
+import { FM_HOOKS } from "@/lib/hook-bank-fm";
 import { COVER_ANGLES } from "@/lib/ugc-post-meta";
+
+// Pick n distinct items from an array by seed (stride 7), no global RNG.
+function pickN(arr: string[], n: number, seed: number): string[] {
+  if (!arr.length) return [];
+  const start = Math.abs(Math.floor(seed)) % arr.length;
+  const out: string[] = [];
+  for (let k = 0; k < n; k++) out.push(arr[(start + k * 7) % arr.length]);
+  return Array.from(new Set(out));
+}
+
+// Run thunks with a bounded concurrency so a 100-video batch (many chunks) never
+// fires dozens of LLM calls at once and trips provider rate limits.
+async function runPool(tasks: Array<() => Promise<void>>, limit: number): Promise<void> {
+  let i = 0;
+  const workers = Array.from({ length: Math.max(1, Math.min(limit, tasks.length)) }, async () => {
+    while (i < tasks.length) { const t = tasks[i++]; await t(); }
+  });
+  await Promise.all(workers);
+}
 
 export type BatchMetaOut = {
   caption: string;
@@ -165,6 +185,7 @@ export async function generateUgcPostMetaBatch(
     productName?: string;
     productDetail?: string;
     detailOnly?: boolean;
+    fmMode?: boolean; // detail-only: use the Fendi Mohd hook bank instead of trending
     modelKey?: "model_custom_idea" | "model_editor_text";
     userIdGuard?: string;
     chunkSize?: number;
@@ -222,17 +243,19 @@ export async function generateUgcPostMetaBatch(
     } catch { /* fall back to seed below */ }
   }
 
-  const trending = HOOK_BANK.trending;
+  // Detail-mode round-robin pool: Fendi Mohd bank when FM mode is ON, else the
+  // neutral trending bank.
+  const detailPool = opts.fmMode && FM_HOOKS.length ? FM_HOOKS : HOOK_BANK.trending;
   items.forEach((it, i) => {
     const seed = Array.from(it.row.id as string).reduce((h, c) => (h * 31 + c.charCodeAt(0)) >>> 0, 7);
     if (opts.detailOnly) {
       const idx = rrBase + i + 1; // 1-based sequential
-      it.mainHook = trending[(idx - 1) % trending.length];
+      it.mainHook = detailPool[(idx - 1) % detailPool.length];
       it.angle = COVER_ANGLES[(idx - 1) % COVER_ANGLES.length];
-      it.refHooks = pickHooks("trending", 4, seed).filter((h) => h !== it.mainHook).slice(0, 3);
+      it.refHooks = pickN(detailPool, 4, seed).filter((h) => h !== it.mainHook).slice(0, 3);
     } else {
       const cat = inferHookCategory(`${it.pName} ${it.pDetail} ${it.prompt.slice(0, 300)}`);
-      it.mainHook = pickHooks(cat, 1, seed)[0] || trending[seed % trending.length];
+      it.mainHook = pickHooks(cat, 1, seed)[0] || HOOK_BANK.trending[seed % HOOK_BANK.trending.length];
       it.angle = COVER_ANGLES[seed % COVER_ANGLES.length];
       it.refHooks = pickHooks(cat, 4, seed).slice(0, 3);
     }
@@ -247,39 +270,35 @@ export async function generateUgcPostMetaBatch(
   }
 
   const CHUNK = Math.max(1, Math.min(12, opts.chunkSize || 8));
+  const CONCURRENCY = 6; // at most 6 master calls in flight, whatever the batch size
   const runChunk = async (chunk: Item[]) => {
     let parsed: any[] | null = null;
     try { parsed = await runMasterChunk(chunk, { detailOnly: opts.detailOnly, modelKey: opts.modelKey }); } catch { parsed = null; }
     for (let j = 0; j < chunk.length; j++) {
       const it = chunk[j];
       const out = parsed ? await persistOne(admin, it, parsed[j]) : null;
-      if (out) results[it.row.id] = out;
+      if (out) { results[it.row.id] = out; delete errors[it.row.id]; }
       else errors[it.row.id] = "incomplete";
     }
   };
+  const chunkify = (arr: Item[]): Item[][] => {
+    const out: Item[][] = [];
+    for (let i = 0; i < arr.length; i += CHUNK) out.push(arr.slice(i, i + CHUNK));
+    return out;
+  };
 
-  // Fire all chunks (across all product groups) in parallel — but each chunk is
-  // ONE LLM call, so a 40-video batch is ~5 calls, not 40.
-  const allChunks: Item[][] = [];
-  for (const g of groups.values()) for (let i = 0; i < g.length; i += CHUNK) allChunks.push(g.slice(i, i + CHUNK));
-  await Promise.all(allChunks.map(runChunk));
+  // Round 0: all chunks across all product groups, bounded concurrency (each
+  // chunk = ONE LLM call, so 100 videos ≈ 13 calls, 6 at a time — never 100).
+  const firstChunks: Item[][] = [];
+  for (const g of groups.values()) firstChunks.push(...chunkify(g));
+  await runPool(firstChunks.map((c) => () => runChunk(c)), CONCURRENCY);
 
-  // One retry pass for anything the first pass missed (re-plan just the misses).
-  const missing = items.filter((it) => !results[it.row.id]);
-  if (missing.length) {
-    const retryChunks: Item[][] = [];
-    for (let i = 0; i < missing.length; i += CHUNK) retryChunks.push(missing.slice(i, i + CHUNK));
-    await Promise.all(
-      retryChunks.map(async (chunk) => {
-        let parsed: any[] | null = null;
-        try { parsed = await runMasterChunk(chunk, { detailOnly: opts.detailOnly, modelKey: opts.modelKey }); } catch { parsed = null; }
-        for (let j = 0; j < chunk.length; j++) {
-          const it = chunk[j];
-          const out = parsed ? await persistOne(admin, it, parsed[j]) : null;
-          if (out) { results[it.row.id] = out; delete errors[it.row.id]; }
-        }
-      })
-    );
+  // Retry rounds: re-plan ONLY the misses. Up to 3 more rounds so a big batch
+  // ends with everything complete (no silent skips) rather than partial.
+  for (let round = 0; round < 3; round++) {
+    const missing = items.filter((it) => !results[it.row.id]);
+    if (!missing.length) break;
+    await runPool(chunkify(missing).map((c) => () => runChunk(c)), CONCURRENCY);
   }
 
   return { ok: Object.keys(results).length > 0, results, errors };

@@ -309,6 +309,9 @@ export default function HistoryGrid({
   // Bulk "Guna Detail Product sahaja" — when on, bulk Generate writes captions
   // purely from the product Name + Detail, ignoring each video's own scene.
   const [edGenDetailOnly, setEdGenDetailOnly] = useState(false);
+  // Detail-only hook source: "trendy" (neutral trending bank, default) or "fm"
+  // (Fendi Mohd 1001-Hook bank). Only relevant when edGenDetailOnly is on.
+  const [edHookSource, setEdHookSource] = useState<"trendy" | "fm">("trendy");
   // Latest picked product, mirrored into refs so per-card regen handlers read
   // the CURRENT selection even if the memoized card holds a stale closure.
   const edProductRef = useRef("");
@@ -792,7 +795,10 @@ export default function HistoryGrid({
 
   // Same safety cap as the extension (MAX_ASSIGN_BATCH) — first 50 per batch.
   function edCapBatch(ids: string[]): string[] {
-    const MAX = 50;
+    // Master-plan batching means the server plans ~8 videos per LLM call (6
+    // calls in flight), so big selections are fine. Cap kept high enough for
+    // 100+ while staying inside the batch route's 300s budget.
+    const MAX = 200;
     if (ids.length > MAX) { edAddLog(`ℹ️ Had ${MAX}/batch — ${ids.length - MAX} video lagi, buat batch seterusnya lepas ni.`); return ids.slice(0, MAX); }
     return ids;
   }
@@ -817,7 +823,7 @@ export default function HistoryGrid({
     try {
       const r = await fetch("/api/ugc/generate-post-meta-batch", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ history_ids: ids, product_url: productUrl, product_name: productName, product_detail: productDetail, source: "editor", detail_only: edGenDetailOnly }),
+        body: JSON.stringify({ history_ids: ids, product_url: productUrl, product_name: productName, product_detail: productDetail, source: "editor", detail_only: edGenDetailOnly, fm_mode: edGenDetailOnly && edHookSource === "fm" }),
       });
       const d = await r.json().catch(() => ({}));
       if (!r.ok) { edAddLog(`✗ Batch gagal: ${d?.error || r.status}`); return results; }
@@ -1157,7 +1163,7 @@ export default function HistoryGrid({
       // even when caption/subtitle changed. A new seed rotates the angle → a
       // genuinely different title each time you press Jana Semula.
       const regenSeed = Math.floor(Math.random() * 1e9) + 1;
-      const { ok, d } = await edFetchJson("/api/ugc/generate-post-meta", { history_id: id, variant_seed: regenSeed, source: "editor", fill_only_empty: false, detail_only: detailOnly, ...override });
+      const { ok, d } = await edFetchJson("/api/ugc/generate-post-meta", { history_id: id, variant_seed: regenSeed, source: "editor", fill_only_empty: false, detail_only: detailOnly, fm_mode: detailOnly && edHookSource === "fm", ...override });
       edReload();
       const good = !!(ok && (d?.caption || d?.cover_title));
       edAddLog(good ? `  ✓ ${id.slice(0, 6)} Caption siap` : `  ✗ ${id.slice(0, 6)}: ${d?.error || "gagal"}`);
@@ -1370,6 +1376,20 @@ export default function HistoryGrid({
               <input type="checkbox" checked={edGenDetailOnly} onChange={(e) => setEdGenDetailOnly(e.target.checked)} style={{ accentColor: "#3b82f6", width: 14, height: 14 }} />
               Guna Info Product sahaja
             </label>
+            {/* Hook source — only when Detail Product is on. Trendy (default) vs
+                Fendi Mohd 1001-Hook bank. Both round-robin per video. */}
+            {edGenDetailOnly && (
+              <div className="flex items-center gap-2 pl-2 ml-1" style={{ borderLeft: "1px solid var(--color-border)" }}>
+                <label className="flex items-center gap-1 text-[11px] font-bold cursor-pointer" style={{ color: edHookSource === "trendy" ? "#22c55e" : "var(--color-text-muted)" }}>
+                  <input type="radio" name="edHookSource" checked={edHookSource === "trendy"} onChange={() => setEdHookSource("trendy")} style={{ accentColor: "#22c55e", width: 13, height: 13 }} />
+                  Trendy Hook
+                </label>
+                <label className="flex items-center gap-1 text-[11px] font-bold cursor-pointer" style={{ color: edHookSource === "fm" ? "#f59e0b" : "var(--color-text-muted)" }}>
+                  <input type="radio" name="edHookSource" checked={edHookSource === "fm"} onChange={() => setEdHookSource("fm")} style={{ accentColor: "#f59e0b", width: 13, height: 13 }} />
+                  Fendi Mohd Hook
+                </label>
+              </div>
+            )}
             {/* Buttons stay ENABLED while work runs — the progress shows on the
                 cards (spinner/ring), so you can fire the next action right away.
                 Only guard: Generate needs a product for Text. */}

@@ -29,6 +29,7 @@ export async function POST(req: Request) {
     productName: String(body?.product_name || "").trim(),
     productDetail: String(body?.product_detail || "").trim(),
     detailOnly: body?.detail_only === true,
+    fmMode: body?.fm_mode === true,
     userIdGuard: user.id,
     ...(isEditor ? { modelKey: "model_editor_text" as const } : {}),
   });

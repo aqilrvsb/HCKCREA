@@ -38,6 +38,7 @@ export async function POST(req: Request) {
   // Editor "Jana Semula → Detail Product sahaja": write the caption purely from
   // the product info, ignoring the video's own prompt/scene.
   const detailOnly = body?.detail_only === true;
+  const fmMode = body?.fm_mode === true;
 
   const result = await generateUgcPostMeta(historyId, {
     productUrl,
@@ -47,6 +48,7 @@ export async function POST(req: Request) {
     userIdGuard: user.id,
     force: true,
     detailOnly,
+    fmMode,
     fillOnlyEmpty,
     ...(isEditor ? { modelKey: "model_editor_text" as const } : {}),
   });

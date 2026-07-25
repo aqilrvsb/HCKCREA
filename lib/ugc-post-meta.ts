@@ -12,6 +12,7 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { orChat } from "@/lib/openrouter";
 import { HOOK_BANK, pickHooks, inferHookCategory } from "@/lib/hook-bank";
+import { FM_HOOKS } from "@/lib/hook-bank-fm";
 
 export type UgcPostMetaResult = {
   ok: boolean;
@@ -142,6 +143,9 @@ export async function generateUgcPostMeta(
      *  scene) can't leak into a caption for a product the user has since
      *  re-described. Default false = previous behaviour (scene is context). */
     detailOnly?: boolean;
+    /** Detail-only mode: use the Fendi Mohd hook bank instead of the neutral
+     *  trending bank for the round-robin main hook. */
+    fmMode?: boolean;
   } = {}
 ): Promise<UgcPostMetaResult> {
   if (!historyId) return { ok: false, error: "history_id required" };
@@ -254,7 +258,10 @@ export async function generateUgcPostMeta(
   //    This is the "detail product + variant hook" combo — grounding stays on
   //    the product detail, the hook just rotates per video.
   const hookCategory = opts.detailOnly ? "trending" : inferHookCategory(categorySource);
-  const hookPool = (HOOK_BANK as any)[hookCategory]?.length ? (HOOK_BANK as any)[hookCategory] as string[] : HOOK_BANK.trending;
+  // Detail-only + FM mode → Fendi Mohd bank; otherwise the category/trending bank.
+  const hookPool = (opts.detailOnly && opts.fmMode && FM_HOOKS.length)
+    ? FM_HOOKS
+    : ((HOOK_BANK as any)[hookCategory]?.length ? (HOOK_BANK as any)[hookCategory] as string[] : HOOK_BANK.trending);
 
   let hookBlock = "";
   let rrN = 0; // round-robin index (detail mode) — also rotates the cover angle
