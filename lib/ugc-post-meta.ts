@@ -261,9 +261,9 @@ export async function generateUgcPostMeta(
 
     const refHooks = pickHooks(hookCategory, 6, seed).filter((h) => h !== mainHook).slice(0, 5);
     hookBlock = mainHook
-      ? `\n\nMAIN HOOK — this is the caption's opening line (the main point). Keep THIS hook's exact structure + energy + angle, but ADAPT its wording so it clearly connects to THIS product's real niche/purpose (from the Product detail) — the finished opener must feel like it's about THIS product, not a generic line. Do NOT replace it with a reference hook, and do NOT invent any benefit/ingredient/problem that isn't in the Product detail (if the product is diabetic care, the opener is about THAT; if it's a hair tonic, about THAT — never an unrelated niche):\n"${mainHook}"${
+      ? `\n\nMAIN HOOK — use THIS as the caption's opening line, kept PUNCHY and close to the original (it's a proven viral scroll-stopper — light touch only, do NOT weaken it, do NOT force the product name into it). It is niche-neutral on purpose. The PRODUCT and its niche come through in the NEXT line (the value line), grounded on the Product detail — NOT in this opener:\n"${mainHook}"\n\nSo the shape is: line 1 = this hook (curiosity/deal/emotion), line 2 = the product + its real benefit from the detail. Do NOT invent any benefit/ingredient/problem that isn't in the Product detail.${
           refHooks.length
-            ? `\n\nREFERENCE HOOKS — for TWIST/flavour only. You MAY borrow a word or emotion from these for the value line, but the OPENING must follow the MAIN HOOK above, never these:\n${refHooks.map((h) => `- ${h}`).join("\n")}`
+            ? `\n\nREFERENCE HOOKS — for TWIST/flavour only. You MAY borrow a word or emotion for the value line, but the OPENING must be the MAIN HOOK above, never these:\n${refHooks.map((h) => `- ${h}`).join("\n")}`
             : ""
         }`
       : "";
@@ -282,7 +282,7 @@ export async function generateUgcPostMeta(
   const systemPrompt = `You write TikTok post metadata for Malaysian UGC creators. Output ONLY a JSON object — no markdown, no commentary.
 
 Required keys:
-- caption: 2-3 sentences in informal Bahasa Melayu (korang, aku, ni, tu, memang, gila), 50-280 chars. OPEN with a scroll-stopping hook following the HOOK guidance below (if a MAIN HOOK is given, use THAT as the opener — adapt wording to THIS product but keep its exact angle/energy), then 1 line of value, ending with EXACTLY 5 viral hashtags. The 5 hashtags MUST be different categories: product category, benefit, problem/solution, Malaysian trending, buying intent. NO duplicate tags.
+- caption: 2-3 sentences in informal Bahasa Melayu (korang, aku, ni, tu, memang, gila), 50-280 chars. OPEN with a scroll-stopping hook following the HOOK guidance below (if a MAIN HOOK is given, use THAT as the opener — kept punchy; the product comes in the next line), then 1 line of value about the product, ending with EXACTLY 5 viral hashtags. The 5 hashtags MUST be different categories: product category, benefit, problem/solution, Malaysian trending, buying intent. NO duplicate tags.
 - cover_title: EXACTLY 2 words, ALL CAPS, ends with "?" or "!". Pain question / interrupt / bold claim — NEVER the product name. Examples: "GATAL BAU?", "ASYIK SEMPIT?", "STOP!", "MAHAL KAN?"
 - cover_subtitle: 3-6 words, ALL CAPS, completes the hook from cover_title. Patterns: urgency / result-timeline / instruction / empathy. Examples: "JANGAN BIAR LAMA!", "30 HARI BOLEH GLOW", "TENGOK NI DULU".
 
