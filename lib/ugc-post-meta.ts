@@ -47,6 +47,20 @@ const COVER_ANGLES = [
   "kejutan/tak sangka",
   "tip/cara betul guna",
   "FOMO/stok tinggal sikit",
+  "manfaat utama (benefit terus)",
+  "statistik/nombor (contoh: 80% berjaya)",
+  "testimoni/orang lain cakap",
+  "jaminan/berani cuba",
+  "myth-buster/mitos ke betul",
+  "quick win/cepat nampak kesan",
+  "target audience/awak pun sama ke",
+  "kos kalau tak buat apa-apa",
+  "lega/relief akhirnya selesai",
+  "keraguan/betul ke ni",
+  "stop scroll/berhenti dulu",
+  "transformasi diri/aku dah berubah",
+  "eksklusif/bukan semua tau",
+  "simple/senang je sebenarnya",
 ];
 
 // Parse the caption JSON an LLM returns, tolerating the mistakes models
@@ -243,6 +257,7 @@ export async function generateUgcPostMeta(
   const hookPool = (HOOK_BANK as any)[hookCategory]?.length ? (HOOK_BANK as any)[hookCategory] as string[] : HOOK_BANK.trending;
 
   let hookBlock = "";
+  let rrN = 0; // round-robin index (detail mode) — also rotates the cover angle
   if (opts.detailOnly) {
     // ── DETAIL-PRODUCT MODE ONLY: ROUND-ROBIN MAIN HOOK (per profile) ──
     // Each caption pulls the NEXT hook in the bank in order — video 1 → hook[0],
@@ -255,7 +270,7 @@ export async function generateUgcPostMeta(
     try {
       const { data: rr } = await admin.rpc("next_hook_index", { uid: row.user_id });
       const n = Number(rr);
-      if (Number.isFinite(n) && n > 0) mainHook = hookPool[(n - 1) % hookPool.length]; // n starts at 1 → hook[0]
+      if (Number.isFinite(n) && n > 0) { rrN = n; mainHook = hookPool[(n - 1) % hookPool.length]; } // n starts at 1 → hook[0]
     } catch { /* fall back to seed below */ }
     if (!mainHook) mainHook = hookPool[seed % hookPool.length] || "";
 
@@ -279,12 +294,18 @@ export async function generateUgcPostMeta(
       : "";
   }
 
+  // Per-video COVER ANGLE. In detail mode it rotates off the round-robin counter
+  // (so 30 videos for the same product cycle through DIFFERENT title angles
+  // instead of all defaulting to the product's #1 pain, e.g. "KERAP KENCING?");
+  // otherwise it's seed-based. This drives cover_title + cover_subtitle.
+  const coverAngle = COVER_ANGLES[(((rrN > 0 ? rrN - 1 : seed) % COVER_ANGLES.length) + COVER_ANGLES.length) % COVER_ANGLES.length];
+
   const systemPrompt = `You write TikTok post metadata for Malaysian UGC creators. Output ONLY a JSON object — no markdown, no commentary.
 
 Required keys:
 - caption: 2-3 sentences in informal Bahasa Melayu (korang, aku, ni, tu, memang, gila), 50-280 chars. OPEN with a scroll-stopping hook following the HOOK guidance below (if a MAIN HOOK is given, use THAT as the opener — kept punchy; the product comes in the next line), then 1 line of value about the product, ending with EXACTLY 5 viral hashtags. The 5 hashtags MUST be different categories: product category, benefit, problem/solution, Malaysian trending, buying intent. NO duplicate tags.
-- cover_title: EXACTLY 2 words, ALL CAPS, ends with "?" or "!". Pain question / interrupt / bold claim — NEVER the product name. Examples: "GATAL BAU?", "ASYIK SEMPIT?", "STOP!", "MAHAL KAN?"
-- cover_subtitle: 3-6 words, ALL CAPS, completes the hook from cover_title. Patterns: urgency / result-timeline / instruction / empathy. Examples: "JANGAN BIAR LAMA!", "30 HARI BOLEH GLOW", "TENGOK NI DULU".
+- cover_title: EXACTLY 2 words, ALL CAPS, ends with "?" or "!". It MUST express the COVER ANGLE given below (NOT always the product's main pain) — NEVER the product name. Because MANY videos share the same product, the title MUST change with the angle: a "pain" angle → a pain question ("KERAP KENCING?"), a "result/after" angle → a result claim ("GULA STABIL!"), "urgency" → "JANGAN TUNGGU!", "curiosity" → "RAHSIA DIA?", "harga" → "MURAH GILA?", "social proof" → "RAMAI DAH!". Do NOT output the same 2 words you'd use for a different angle.
+- cover_subtitle: 3-6 words, ALL CAPS, completes the title in the SAME angle. Patterns: urgency / result-timeline / instruction / empathy. Examples: "JANGAN BIAR LAMA!", "30 HARI BOLEH GLOW", "TENGOK NI DULU".
 
 Tone: real Malaysian friend sharing, never an ad. The cover text + caption together should make a viewer who's scrolling stop and feel "eh, ni pasal masalah aku".${hookBlock}`;
 
@@ -305,7 +326,8 @@ ${productUrl ? `Product URL: ${productUrl}` : ""}
 
 Existing caption (rewrite if weak/empty): ${opts.detailOnly ? "(none — write fresh from the product detail; do NOT reuse the old caption's theme)" : (existingCaption || "(none)")}
 
-IMPORTANT — this is video #${(seed % 1000)} of MANY for the SAME product. Make the caption, cover_title, and cover_subtitle UNIQUE to this video. Lead with the "${COVER_ANGLES[seed % COVER_ANGLES.length]}" angle so it does NOT read like the other videos for this product. Vary the wording, emotion, and hook — no repeated cover lines.
+IMPORTANT — this is one of MANY videos for the SAME product, so all 3 fields MUST be UNIQUE to this video.
+COVER ANGLE for THIS video: "${coverAngle}". The cover_title (2 words) AND cover_subtitle MUST express THIS angle — do NOT fall back to the product's default pain title if the angle is something else. Across the batch the titles have to ROTATE (pain → result → urgency → curiosity → price → social proof → …), never the same 2-word title twice. Also vary the caption's wording and emotion.
 
 Return JSON only. No markdown, no prose. Start with { and end with }.`;
 
