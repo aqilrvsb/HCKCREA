@@ -261,7 +261,7 @@ export async function generateUgcPostMeta(
 
     const refHooks = pickHooks(hookCategory, 6, seed).filter((h) => h !== mainHook).slice(0, 5);
     hookBlock = mainHook
-      ? `\n\nMAIN HOOK — this is the caption's opening line (the main point). Use THIS hook's exact energy + angle; adapt ONLY the wording so it fits THIS product. Do NOT replace it with a reference hook, and do NOT add any benefit/ingredient/problem that isn't in the product detail:\n"${mainHook}"${
+      ? `\n\nMAIN HOOK — this is the caption's opening line (the main point). Keep THIS hook's exact structure + energy + angle, but ADAPT its wording so it clearly connects to THIS product's real niche/purpose (from the Product detail) — the finished opener must feel like it's about THIS product, not a generic line. Do NOT replace it with a reference hook, and do NOT invent any benefit/ingredient/problem that isn't in the Product detail (if the product is diabetic care, the opener is about THAT; if it's a hair tonic, about THAT — never an unrelated niche):\n"${mainHook}"${
           refHooks.length
             ? `\n\nREFERENCE HOOKS — for TWIST/flavour only. You MAY borrow a word or emotion from these for the value line, but the OPENING must follow the MAIN HOOK above, never these:\n${refHooks.map((h) => `- ${h}`).join("\n")}`
             : ""
