@@ -20,6 +20,7 @@ import {
   AlertTriangle,
   Scissors,
   Undo2,
+  Link2 as LinkIcon,
   Palette,
   ChevronLeft,
   ChevronRight,
@@ -684,26 +685,33 @@ export default function HistoryGrid({
         //  1. Beg Kuning affiliate list (extension's Non Saved ID) — carries
         //     raw_url + description so Generate Text is byte-identical to the
         //     extension.
-        //  2. Manual saved products (Tiada Link Product) — name + detail only,
-        //     no TikTok link. So the client can generate Text/Cover for a
-        //     product that was saved WITHOUT a Beg Kuning link too.
-        const [begRes, manRes] = await Promise.all([
+        //  2. ALL saved products (both kinds) + extension fold-in — so MANUAL
+        //     (Tiada Link) products show too, AND a product just flipped
+        //     manual->affiliate (via "add link") still shows as Beg Kuning
+        //     instead of vanishing.
+        const [begRes, allRes] = await Promise.all([
           fetch("/api/extension/affiliate/list", { cache: "no-store" }),
-          fetch("/api/auto-content/saved-products?kind=manual", { cache: "no-store" }),
+          fetch("/api/auto-content/saved-products", { cache: "no-store" }),
         ]);
         const beg = (await begRes.json().catch(() => ({})))?.products || [];
-        const manRaw = (await manRes.json().catch(() => ({})))?.items || [];
-        const manual = manRaw.map((m: any) => ({
-          // Manual products have NO product_id → synthetic key so they're
-          // selectable and never collide. The URL builders below treat a
-          // non-numeric id as "no link" (detail-only generation).
-          product_id: m.product_id || `manual:${m.id}`,
-          product_name: m.product_name,
-          description: m.detail || "",
-          detail: m.detail || "",
-          manual: true,
-        }));
-        setEdProducts([...beg, ...manual]);
+        const all = (await allRes.json().catch(() => ({})))?.items || [];
+        // Beg Kuning entries (with raw_url) win — index them by real product_id.
+        const byId = new Map<string, any>(beg.map((p: any) => [String(p.product_id), p]));
+        const merged: any[] = [...beg];
+        for (const it of all) {
+          const pid = it?.product_id ? String(it.product_id) : "";
+          const hasLink = /^\d{13,20}$/.test(pid);
+          if (!hasLink) {
+            // Manual (Tiada Link) — synthetic key so it's selectable; URL
+            // builders treat a non-numeric id as "no link" (detail-only).
+            merged.push({ product_id: `manual:${it.id}`, product_name: it.product_name, description: it.detail || "", detail: it.detail || "", manual: true });
+          } else if (!byId.has(pid)) {
+            // Beg Kuning saved-product not already in the extension list (e.g.
+            // one just flipped from manual via "add link").
+            merged.push({ product_id: pid, product_name: it.product_name, description: it.detail || "", detail: it.detail || "", manual: false });
+          }
+        }
+        setEdProducts(merged);
       } catch { /* ignore */ }
     })();
   }, [editorMode]);
@@ -1065,6 +1073,27 @@ export default function HistoryGrid({
       edReload();
     } catch (e: any) { edAddLog(`✗ Undo Frame gagal: ${e?.message || "error"}`); }
     finally { setEdBusyUndo(false); }
+  }
+
+  // ── Attach Beg Kuning link to a manual (no-link) product ───────────────────
+  // Paste a link once → it stamps onto EVERY of the user's videos for that same
+  // product (matched by name) AND flips the saved product manual -> Beg Kuning.
+  async function edAttachLink(productName: string) {
+    const name = String(productName || "").trim();
+    if (!name) { edAddLog("⚠ Video ni takde nama produk — tak boleh set link."); return; }
+    const url = window.prompt(`Paste link Beg Kuning untuk produk:\n"${name}"\n\n(Semua video no-link produk ni akan diupdate)`);
+    if (!url || !url.trim()) return;
+    edAddLog(`🔗 Set link Beg Kuning untuk "${name.slice(0, 40)}"…`);
+    try {
+      const r = await fetch("/api/editor/attach-product-link", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ product_name: name, beg_kuning_url: url.trim() }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) { edAddLog(`✗ Gagal: ${d?.error || r.status}`); alert(d?.error || "Gagal set link"); return; }
+      edAddLog(`✓ Link disetkan — ${d.updated || 0} video updated. Produk dah jadi Beg Kuning.`);
+      edReload();
+    } catch (e: any) { edAddLog(`✗ Error: ${e?.message || "error"}`); alert(e?.message || "Gagal set link"); }
   }
 
   // ── Transfer Affiliate (Editor) ────────────────────────────────────────────
@@ -1790,6 +1819,7 @@ export default function HistoryGrid({
                 onEdReset={() => void edReset(it.id)}
                 onEdRegenText={(opts) => edRegenText(it.id, opts?.detailOnly)}
                 onEdRegenCover={() => edRegenCover(it.id)}
+                onEdAttachLink={() => void edAttachLink(String((it.metadata as any)?.product_name || ""))}
                 edAffShow={editorMode && edAffEnabled}
                 edAffOn={edAffSel.has(it.id)}
                 onEdAff={() => edAffToggle(it.id)}
@@ -2006,6 +2036,7 @@ function HistoryCardInner({
   onEdReset,
   onEdRegenText,
   onEdRegenCover,
+  onEdAttachLink,
   edUndoOn,
   onEdUndoToggle,
   edRegTextOn,
@@ -2044,6 +2075,7 @@ function HistoryCardInner({
   onEdReset?: () => void;
   onEdRegenText?: (opts?: { detailOnly?: boolean }) => Promise<{ ok: boolean; msg: string }> | void;
   onEdRegenCover?: () => Promise<{ ok: boolean; msg: string }> | void;
+  onEdAttachLink?: () => void;
   edUndoOn?: boolean;
   onEdUndoToggle?: () => void;
   edRegTextOn?: boolean;
@@ -4454,6 +4486,26 @@ function HistoryCardInner({
             <>
               {/* No caption/cover icons at all — text shows inline, cover shows
                   as the poster, and (re)generate is done via bulk Generate. */}
+              {/* Beg Kuning link status — green "Ada Link" when the video carries
+                  a real TikTok product_id, else amber "Tiada Link" + a set-link
+                  button (updates every video of the same product at once). */}
+              {(() => {
+                const pid = String((item.metadata as any)?.tiktok_product_id || "");
+                const hasLink = /^\d{13,20}$/.test(pid);
+                const pname = String((item.metadata as any)?.product_name || "");
+                return hasLink ? (
+                  <span className="inline-flex items-center h-6 px-2 rounded-md text-[10px] font-extrabold text-white" style={{ background: "linear-gradient(135deg,#16a34a,#22c55e)" }} title={`Beg Kuning: ${pid}`}>🔗 Ada Link</span>
+                ) : (
+                  <>
+                    <span className="inline-flex items-center h-6 px-2 rounded-md text-[10px] font-extrabold text-white" style={{ background: "linear-gradient(135deg,#d97706,#f59e0b)" }} title="Video ni takde link Beg Kuning">⚠️ Tiada Link</span>
+                    {!!pname && (
+                      <ActionBtn title="Set link Beg Kuning — update semua video produk ni sekali" onClick={() => onEdAttachLink?.()} bg="linear-gradient(135deg,#0ea5e9,#38bdf8)">
+                        <LinkIcon className="w-3.5 h-3.5" strokeWidth={2.4} />
+                      </ActionBtn>
+                    )}
+                  </>
+                );
+              })()}
               {/* Framed video (intro + video) — 🎞️ badge + Undo Frame (restores
                   the original). Otherwise the normal Remove-from-Editor. */}
               {(item.metadata as any)?.framed_from ? (
@@ -4852,7 +4904,9 @@ const HistoryCard = memo(HistoryCardInner, (prev, next) => {
     prev.edUndoOn === next.edUndoOn &&
     prev.edRegTextOn === next.edRegTextOn &&
     prev.edRegCoverOn === next.edRegCoverOn &&
-    (prev.item.metadata as any)?.affiliate_staff_id === (next.item.metadata as any)?.affiliate_staff_id
+    (prev.item.metadata as any)?.affiliate_staff_id === (next.item.metadata as any)?.affiliate_staff_id &&
+    // Beg Kuning link badge — flips Tiada Link -> Ada Link after attach.
+    (prev.item.metadata as any)?.tiktok_product_id === (next.item.metadata as any)?.tiktok_product_id
     // Intentionally NOT comparing onToggleMerge — the parent passes an
     // inline lambda that's a new ref every render, but it always closes
     // over the same `item.id` and a stable setState, so the old ref is
