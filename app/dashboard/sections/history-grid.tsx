@@ -323,7 +323,10 @@ export default function HistoryGrid({
   const isVideoTab = ["video", "original-video", "auto", "auto-ugc", "cinema", "grok", "seedance", "sora2"].includes(tab);
   const sixPerRow = editorMode || donePostMode || transferAffiliateMode || isVideoTab;
   // 6-per-row grids = 6 columns × 4 rows = 24 per page. 4-per-row grids = 12.
-  const PAGE_SIZE = editorMode ? edPageSize : sixPerRow ? 24 : 12;
+  // Editor, Ready Affiliate AND Done Post all use the client-chosen page size
+  // (10-100). Every other grid keeps its fixed size.
+  const usePageSizeSelector = editorMode || transferAffiliateMode || donePostMode;
+  const PAGE_SIZE = usePageSizeSelector ? edPageSize : sixPerRow ? 24 : 12;
 
   // Storytelling has TWO kinds of artifacts the user wants visible:
   //   • merged final videos (type='fairytale')        ← the deliverable
@@ -1251,7 +1254,7 @@ export default function HistoryGrid({
         </div>
         <span className="text-xs text-[var(--color-text-muted)] font-mono flex items-center gap-2">
           {counts.total} items
-          {editorMode && (
+          {usePageSizeSelector && (
             <>
               <span>·</span>
               <select value={edPageSize} onChange={(e) => { setEdPageSize(Number(e.target.value)); setPage(0); }} className="px-2 py-1 rounded-md text-[11px]" style={{ background: "var(--color-bg)", border: "1px solid var(--color-border)", color: "var(--color-text-primary)" }} title="Berapa video per page">
@@ -3714,11 +3717,13 @@ function HistoryCardInner({
                 key={playerUrl}
                 src={playerUrl + "#t=1"}
                 posterUrl={
-                  // In the Editor, once a cover is generated show IT as the
-                  // card's still preview (instead of the raw video first frame),
-                  // so the client sees the cover straight away without opening
-                  // the 🎨 icon. Clicking still plays the actual video.
-                  (editorMode && (item.metadata as any)?.cover_thumbnail_url)
+                  // In the Editor / Done Post / Ready Affiliate grids, once a
+                  // cover is generated show IT as the card's still preview
+                  // (instead of the raw video first frame), so the client sees
+                  // the cover straight away without opening the 🎨 icon.
+                  // Clicking still plays the actual video. (donePostMode here is
+                  // true for BOTH Done Post and Ready Affiliate — see parent.)
+                  ((editorMode || donePostMode) && (item.metadata as any)?.cover_thumbnail_url)
                     ? String((item.metadata as any).cover_thumbnail_url)
                     : activeChildRow
                       ? ((activeChildRow.metadata as any)?.poster_url ||
@@ -4419,9 +4424,10 @@ function HistoryCardInner({
           );
         })()}
 
-        {/* EDITOR — show the generated text inline (Main + Sub + Caption) so the
-            client reads it straight off the card, no icon click needed. */}
-        {editorMode && (item.caption || (item.metadata as any)?.caption || (item.metadata as any)?.cover_title) && (
+        {/* EDITOR / DONE POST / READY AFFILIATE — show the generated text inline
+            (Main + Sub + Caption) so the client reads it straight off the card,
+            no icon click needed. (donePostMode = Done Post OR Ready Affiliate.) */}
+        {(editorMode || donePostMode) && (item.caption || (item.metadata as any)?.caption || (item.metadata as any)?.cover_title) && (
           <div className="mb-2 space-y-0.5">
             {!!(item.metadata as any)?.cover_title && (
               <div className="text-[11px] font-extrabold uppercase leading-tight text-[var(--color-text-primary)]">{(item.metadata as any).cover_title}</div>
