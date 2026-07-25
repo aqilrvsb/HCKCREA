@@ -2,6 +2,9 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { invalidateSettingsCache } from "@/lib/settings";
+import { rehostToContent } from "@/lib/b2";
+
+export const runtime = "nodejs";
 
 async function adminGate() {
   const sb = await createClient();
@@ -32,8 +35,22 @@ export async function POST(req: Request) {
   const body = await req.json().catch(() => ({}));
   const key = String(body?.key || "");
   if (!key) return NextResponse.json({ error: "Missing key" }, { status: 400 });
-  const value = body?.value;
+  let value = body?.value;
   if (value === undefined) return NextResponse.json({ error: "Missing value" }, { status: 400 });
+
+  // TnG QR — the uploader forwards to RunningHub, which returns a TEMPORARY
+  // Tencent COS URL (24h signed) that expires and 404s (breaks the QR on the
+  // top-up page). Rehost it to our own B2 (permanent) before saving. data: URLs
+  // and already-B2 URLs pass through untouched.
+  if (key === "tng_qr_url" && value && typeof value === "object") {
+    const u = String((value as any).url || "");
+    if (u && !u.startsWith("data:") && !u.includes("peninglab-content") && !u.includes("peninglab-storage")) {
+      try {
+        const hosted = await rehostToContent({ url: u, userId: user.id, historyId: `tng-qr-${Date.now()}`, type: "image", fallbackExt: "png" });
+        if (hosted && hosted.includes("peninglab-content")) value = { ...(value as any), url: hosted };
+      } catch { /* keep original — better a maybe-temp URL than a failed save */ }
+    }
+  }
 
   const admin = createAdminClient();
   // UPSERT (not just UPDATE) — when a key has never been written before
