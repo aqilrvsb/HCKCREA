@@ -30,7 +30,7 @@ export type UgcPostMetaResult = {
 // Distinct copy angles rotated per-video (by seed) so bulk-assigned
 // videos for the SAME product each lead with a different emotional hook
 // instead of all sounding identical.
-const COVER_ANGLES = [
+export const COVER_ANGLES = [
   "pain/masalah (before)",
   "hasil/transformation (after)",
   "urgency/takut terlepas",

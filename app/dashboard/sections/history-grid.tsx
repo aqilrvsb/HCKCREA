@@ -802,38 +802,44 @@ export default function HistoryGrid({
   // automatic retry, metaComplete gate). Returns a Map id→result so a following
   // cover pass can use the JUST-generated cover_title/subtitle directly, without
   // waiting for a DB reload.
-  async function edRunText(ids: string[], product: any, force = false): Promise<Map<string, any>> {
-    // product may be undefined (regenerate with no header product picked) — send
-    // empty fields so the server falls back to each row's own stored product.
-    // Only a REAL numeric TikTok id makes a pdp link — a manual product's
-    // synthetic "manual:<uuid>" id must stay link-less (detail-only generation).
+  async function edRunText(ids: string[], product: any, _force = false): Promise<Map<string, any>> {
+    // MASTER-PLAN bulk: ONE LLM call plans a chunk of videos (server chunks at
+    // ~8), instead of one call per video — so 40 videos = a handful of reliable
+    // calls, not 40 that time out. product may be undefined (regen with no
+    // header product) → server falls back to each row's own product. Only a REAL
+    // numeric TikTok id makes a pdp link (manual products stay link-less).
     const productUrl = product?.raw_url || (/^\d{13,20}$/.test(String(product?.product_id || "")) ? "https://www.tiktok.com/shop/my/pdp/product/" + product.product_id : "");
     const productName = product?.product_name || product?.name || "";
     const productDetail = product?.description || product?.detail || "";
     const results = new Map<string, any>();
-    const done = new Set<string>();
-    const metaOk = (d: any) =>
-      !!d && String(d.caption || "").trim().length >= 20 && String(d.caption || "").includes("#") &&
-      !!d.cover_title && !!d.cover_subtitle && !!d.tiktok_product_id;
-    const runPass = async (list: string[]) => {
-      let idx = 0;
-      const worker = async () => {
-        while (idx < list.length) {
-          const id = list[idx++];
-          edMarkProc(id, true);
-          try {
-            const { ok, d } = await edFetchJson("/api/ugc/generate-post-meta", { history_id: id, product_url: productUrl, product_name: productName, product_detail: productDetail, variant_seed: edSeed(id), source: "editor", detail_only: edGenDetailOnly, ...(force ? { fill_only_empty: false } : {}) });
-            if (ok && metaOk(d)) { done.add(id); results.set(id, d); edMarkDone(id); }
-            else edAddLog(`  ✗ ${id.slice(0, 6)}: ${d?.error || "tak lengkap"}`);
-          } catch (e: any) { edAddLog(`  ✗ ${id.slice(0, 6)}: ${e?.message || "error"}`); }
-          finally { edMarkProc(id, false); }
+    if (!ids.length) return results;
+    ids.forEach((id) => edMarkProc(id, true));
+    try {
+      const r = await fetch("/api/ugc/generate-post-meta-batch", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ history_ids: ids, product_url: productUrl, product_name: productName, product_detail: productDetail, source: "editor", detail_only: edGenDetailOnly }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) { edAddLog(`✗ Batch gagal: ${d?.error || r.status}`); return results; }
+      const map = d?.results || {};
+      const errs = d?.errors || {};
+      for (const id of ids) {
+        const res = map[id];
+        // A returned result means caption + cover text are complete (the server
+        // only returns persisted rows). tiktok_product_id is NOT required — a
+        // manual (no-link) product is still a valid caption.
+        if (res && String(res.caption || "").trim().length >= 20 && res.cover_title && res.cover_subtitle) {
+          results.set(id, res); edMarkDone(id);
+        } else {
+          edAddLog(`  ✗ ${id.slice(0, 6)}: ${errs[id] || "tak lengkap"}`);
         }
-      };
-      await Promise.all(Array.from({ length: Math.min(4, list.length) }, worker));
-    };
-    await runPass(ids);
-    const missing = ids.filter((id) => !done.has(id));
-    if (missing.length) { edAddLog(`Cuba semula ${missing.length} video yang gagal…`); await runPass(missing); }
+      }
+      edAddLog(`✓ Master plan siap — ${results.size}/${ids.length} caption + cover.`);
+    } catch (e: any) {
+      edAddLog(`✗ Batch error: ${e?.message || "error"}`);
+    } finally {
+      ids.forEach((id) => edMarkProc(id, false));
+    }
     return results;
   }
 
