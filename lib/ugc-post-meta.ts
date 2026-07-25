@@ -11,7 +11,7 @@
 
 import { createAdminClient } from "@/lib/supabase/admin";
 import { orChat } from "@/lib/openrouter";
-import { pickHooks, inferHookCategory } from "@/lib/hook-bank";
+import { HOOK_BANK, pickHooks, inferHookCategory } from "@/lib/hook-bank";
 
 export type UgcPostMetaResult = {
   ok: boolean;
@@ -240,19 +240,49 @@ export async function generateUgcPostMeta(
   //    This is the "detail product + variant hook" combo — grounding stays on
   //    the product detail, the hook just rotates per video.
   const hookCategory = opts.detailOnly ? "trending" : inferHookCategory(categorySource);
-  // 6 candidate hooks, seeded per-video, so each video in a bulk assign opens
-  // with a DIFFERENT proven line instead of all sounding the same.
-  const seedHooks = pickHooks(hookCategory, 6, seed);
-  const hookBlock = seedHooks.length
-    ? `\n\nTRENDING HOOK EXAMPLES (real viral Malay affiliate hooks — open the caption with ONE line in THIS energy/style, then adapt it to THIS product; do NOT copy verbatim, and do NOT add any benefit/ingredient/problem that isn't in the product detail):\n${seedHooks
-        .map((h) => `- ${h}`)
-        .join("\n")}`
-    : "";
+  const hookPool = (HOOK_BANK as any)[hookCategory]?.length ? (HOOK_BANK as any)[hookCategory] as string[] : HOOK_BANK.trending;
+
+  let hookBlock = "";
+  if (opts.detailOnly) {
+    // ── DETAIL-PRODUCT MODE ONLY: ROUND-ROBIN MAIN HOOK (per profile) ──
+    // Each caption pulls the NEXT hook in the bank in order — video 1 → hook[0],
+    // video 2 → hook[1], … cycling the whole bank — tracked on
+    // profiles.settings.hook_rr_index via an ATOMIC counter, so bulk parallel
+    // generations never hand two videos the same hook. This one hook is the
+    // caption's MAIN opening (mandatory); the seeded others are reference/twist.
+    // Falls back to the per-video seed if the counter is unavailable.
+    let mainHook = "";
+    try {
+      const { data: rr } = await admin.rpc("next_hook_index", { uid: row.user_id });
+      const n = Number(rr);
+      if (Number.isFinite(n) && n > 0) mainHook = hookPool[(n - 1) % hookPool.length]; // n starts at 1 → hook[0]
+    } catch { /* fall back to seed below */ }
+    if (!mainHook) mainHook = hookPool[seed % hookPool.length] || "";
+
+    const refHooks = pickHooks(hookCategory, 6, seed).filter((h) => h !== mainHook).slice(0, 5);
+    hookBlock = mainHook
+      ? `\n\nMAIN HOOK — this is the caption's opening line (the main point). Use THIS hook's exact energy + angle; adapt ONLY the wording so it fits THIS product. Do NOT replace it with a reference hook, and do NOT add any benefit/ingredient/problem that isn't in the product detail:\n"${mainHook}"${
+          refHooks.length
+            ? `\n\nREFERENCE HOOKS — for TWIST/flavour only. You MAY borrow a word or emotion from these for the value line, but the OPENING must follow the MAIN HOOK above, never these:\n${refHooks.map((h) => `- ${h}`).join("\n")}`
+            : ""
+        }`
+      : "";
+  } else {
+    // ── NORMAL MODE (unchanged): category-matched hooks as loose EXAMPLES ──
+    // 6 seeded candidates; the model opens with ONE line in that energy and
+    // adapts it. No round-robin, no mandatory main hook.
+    const seedHooks = pickHooks(hookCategory, 6, seed);
+    hookBlock = seedHooks.length
+      ? `\n\nTRENDING HOOK EXAMPLES (real viral ${hookCategory} affiliate hooks — open the caption with ONE line in THIS energy/style, then adapt it to THIS product; do NOT copy verbatim):\n${seedHooks
+          .map((h) => `- ${h}`)
+          .join("\n")}`
+      : "";
+  }
 
   const systemPrompt = `You write TikTok post metadata for Malaysian UGC creators. Output ONLY a JSON object — no markdown, no commentary.
 
 Required keys:
-- caption: 2-3 sentences in informal Bahasa Melayu (korang, aku, ni, tu, memang, gila), 50-280 chars. OPEN with a scroll-stopping trending hook (see the hook examples below), then 1 line of value, ending with EXACTLY 5 viral hashtags. The 5 hashtags MUST be different categories: product category, benefit, problem/solution, Malaysian trending, buying intent. NO duplicate tags.
+- caption: 2-3 sentences in informal Bahasa Melayu (korang, aku, ni, tu, memang, gila), 50-280 chars. OPEN with a scroll-stopping hook following the HOOK guidance below (if a MAIN HOOK is given, use THAT as the opener — adapt wording to THIS product but keep its exact angle/energy), then 1 line of value, ending with EXACTLY 5 viral hashtags. The 5 hashtags MUST be different categories: product category, benefit, problem/solution, Malaysian trending, buying intent. NO duplicate tags.
 - cover_title: EXACTLY 2 words, ALL CAPS, ends with "?" or "!". Pain question / interrupt / bold claim — NEVER the product name. Examples: "GATAL BAU?", "ASYIK SEMPIT?", "STOP!", "MAHAL KAN?"
 - cover_subtitle: 3-6 words, ALL CAPS, completes the hook from cover_title. Patterns: urgency / result-timeline / instruction / empathy. Examples: "JANGAN BIAR LAMA!", "30 HARI BOLEH GLOW", "TENGOK NI DULU".
 
