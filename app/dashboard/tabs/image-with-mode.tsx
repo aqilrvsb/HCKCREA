@@ -24,7 +24,7 @@ export default function ImageTabWithMode({ projectId }: { projectId?: string }) 
               border: "1px solid var(--color-border)",
             }}
           >
-            {m === "image" ? "🖼️ Image Mode" : "🎬 Storyboard Mode"}
+            {m === "image" ? "🖼️ Image Mode" : "🎬 BOFU"}
           </button>
         ))}
       </div>

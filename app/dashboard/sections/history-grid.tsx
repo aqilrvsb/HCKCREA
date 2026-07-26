@@ -1543,7 +1543,7 @@ export default function HistoryGrid({
           {([
             ["all", "Semua"],
             ["image", "🖼️ Image"],
-            ["storyboard", "🎬 Storyboard"],
+            ["storyboard", "🎬 BOFU"],
           ] as const).map(([t, label]) => {
             const active = imgSubTab === t;
             return (
