@@ -19,10 +19,13 @@ export async function GET(req: Request) {
   const status = new URL(req.url).searchParams.get("status") || "pending";
 
   const admin = createAdminClient();
+  // Manual Touch 'n Go requests come in two flavours: credit_topup (wallet
+  // credits) AND subscription (plan purchase). Both are approved on the same
+  // admin screen, so list both here.
   const { data: pays } = await admin
     .from("payments")
-    .select("id, user_id, credits, amount, status, metadata, created_at, paid_at")
-    .eq("type", "credit_topup")
+    .select("id, user_id, type, plan, credits, amount, status, metadata, created_at, paid_at")
+    .in("type", ["credit_topup", "subscription"])
     .eq("status", status)
     .order("created_at", { ascending: false })
     .limit(200);
@@ -50,7 +53,12 @@ export async function GET(req: Request) {
       user_id: r.user_id,
       email: emailById.get(r.user_id) || "—",
       name: nameById.get(r.user_id) || "",
-      credits: Number(r.credits || 0),
+      // Distinguish a plan purchase from a wallet top-up so the admin UI can
+      // label it ("Pro Plan" vs "+50 credits").
+      kind: r.type === "subscription" ? "subscription" : "credit_topup",
+      plan: String(r.plan || r.metadata?.plan || ""),
+      days: Number(r.metadata?.days || 0),
+      credits: Number(r.credits || r.metadata?.credits || 0),
       amount: Number(r.amount || 0),
       status: r.status,
       proof_url: String(r.metadata?.proof_url || ""),

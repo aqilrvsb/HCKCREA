@@ -1,12 +1,14 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Sparkles, Calendar, Receipt } from "lucide-react";
+import { Sparkles, Calendar, Receipt, Loader2, Zap, ArrowRight, X } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import CheckStatusButton from "./check-status-button";
 import PricingTiersGrid from "@/components/pricing-tiers-grid";
 import LivehostCard from "@/components/livehost-card";
 import { PLAN_DEFAULTS, isPlanKey, isLivehost, LIVEHOST, type PlanKey } from "@/lib/plans";
+
+type TngInfo = { number: string; name: string; qr_url: string; configured: boolean };
 
 type Payment = {
   id: string;
@@ -29,9 +31,26 @@ export default function BillingSection({ initialPlan }: { initialPlan?: string }
   const [payments, setPayments] = useState<Payment[]>([]);
   const [loading, setLoading] = useState<PlanKey | null>(null);
 
+  // Manual Touch 'n Go plan-purchase flow (no FPX). Picking a plan opens this
+  // modal: transfer the price to the admin's TnG, upload the screenshot, submit
+  // → creates a pending subscription payment the admin approves.
+  const [payPlan, setPayPlan] = useState<PlanKey | null>(null);
+  const [tng, setTng] = useState<TngInfo | null>(null);
+  const [proofUrl, setProofUrl] = useState("");
+  const [uploading, setUploading] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [submitted, setSubmitted] = useState(false);
+  const [qrZoom, setQrZoom] = useState(false);
+
   useEffect(() => {
     void loadProfile();
     void loadPayments();
+    void (async () => {
+      try {
+        const r = await fetch("/api/credit/tng-info", { cache: "no-store" });
+        if (r.ok) setTng(await r.json());
+      } catch { /* ignore */ }
+    })();
   }, []);
 
   async function loadProfile() {
@@ -80,24 +99,58 @@ export default function BillingSection({ initialPlan }: { initialPlan?: string }
     setPayments((data as Payment[]) || []);
   }
 
-  async function handleSelect(plan: PlanKey) {
-    setLoading(plan);
+  // Picking a plan opens the Touch 'n Go payment modal (no FPX redirect).
+  function handleSelect(plan: PlanKey) {
+    setPayPlan(plan);
+    setProofUrl("");
+    setSubmitted(false);
+  }
+
+  function closePayModal() {
+    setPayPlan(null);
+    setProofUrl("");
+    setSubmitted(false);
+    setQrZoom(false);
+  }
+
+  async function uploadProof(file: File) {
+    setUploading(true);
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      const r = await fetch("/api/upload/image", { method: "POST", body: fd });
+      const d = await r.json();
+      if (r.ok && d?.url) setProofUrl(String(d.url));
+      else alert(d?.error || "Upload gagal");
+    } catch (e: any) {
+      alert(e?.message || "Upload gagal");
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  async function submitPlanPurchase() {
+    if (!payPlan) return;
+    if (!proofUrl) { alert("Upload screenshot transfer dulu."); return; }
+    setSubmitting(true);
     try {
       const res = await fetch("/api/billing/subscribe", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ plan }),
+        body: JSON.stringify({ plan: payPlan, proof_url: proofUrl }),
       });
       const data = await res.json();
-      if (data?.checkout_url) {
-        window.location.href = data.checkout_url;
+      if (data?.ok) {
+        setSubmitted(true);
+        setProofUrl("");
+        void loadPayments();
       } else {
-        alert(data?.error || "Failed to start subscription");
-        setLoading(null);
+        alert(data?.error || "Gagal submit langganan");
       }
     } catch (e: any) {
       alert(e?.message || "Network error");
-      setLoading(null);
+    } finally {
+      setSubmitting(false);
     }
   }
 
@@ -231,9 +284,21 @@ export default function BillingSection({ initialPlan }: { initialPlan?: string }
                         }}
                       />
                     ) : (
-                      <span className="text-xs text-[var(--color-text-muted)] italic">
-                        no purchase id
-                      </span>
+                      (() => {
+                        // Manual Touch 'n Go payment — no Chip id. Show its
+                        // approval status straight from the row.
+                        const st =
+                          p.status === "paid"
+                            ? { t: "✓ Approved", c: "#16a34a", b: "rgba(16,163,74,0.12)" }
+                            : p.status === "failed"
+                              ? { t: "✗ Rejected", c: "#ef4444", b: "rgba(239,68,68,0.12)" }
+                              : { t: "⏳ Pending approval", c: "#f59e0b", b: "rgba(245,158,11,0.12)" };
+                        return (
+                          <span className="text-[11px] font-bold px-3 py-1 rounded-full" style={{ color: st.c, background: st.b }}>
+                            {st.t}
+                          </span>
+                        );
+                      })()
                     )}
                   </div>
                 </li>
@@ -242,6 +307,136 @@ export default function BillingSection({ initialPlan }: { initialPlan?: string }
           )}
         </div>
       </div>
+
+      {/* ── Touch 'n Go plan-purchase modal (no FPX) ───────────────────── */}
+      {payPlan && isPlanKey(payPlan) && (
+        <div
+          className="fixed inset-0 z-[90] flex items-center justify-center p-4 overflow-y-auto"
+          style={{ background: "rgba(0,0,0,0.75)", backdropFilter: "blur(6px)" }}
+          onClick={closePayModal}
+        >
+          <div
+            className="relative w-full max-w-lg my-8 rounded-3xl p-6 md:p-7"
+            style={{ background: "var(--color-bg-elev)", border: "1px solid var(--color-border)" }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button
+              type="button"
+              onClick={closePayModal}
+              aria-label="Tutup"
+              className="absolute top-4 right-4 w-8 h-8 rounded-full flex items-center justify-center"
+              style={{ background: "var(--color-bg)", border: "1px solid var(--color-border)" }}
+            >
+              <X className="w-4 h-4" />
+            </button>
+
+            <div className="mb-5">
+              <div className="text-xs uppercase tracking-wider font-bold text-[var(--color-text-muted)] mb-1">
+                Langgan plan
+              </div>
+              <div className="font-display font-extrabold text-2xl tracking-tight">
+                {PLAN_DEFAULTS[payPlan].label} Plan
+              </div>
+              <div className="text-sm text-[var(--color-text-secondary)]">
+                RM{PLAN_DEFAULTS[payPlan].price} / {PLAN_DEFAULTS[payPlan].days} hari · + RM{PLAN_DEFAULTS[payPlan].credits} credits
+              </div>
+            </div>
+
+            {submitted ? (
+              <div className="rounded-2xl p-5 text-center" style={{ background: "rgba(16,185,129,0.08)", border: "1px solid rgba(16,185,129,0.35)" }}>
+                <div className="font-display font-extrabold text-lg text-emerald-600 mb-1">✓ Permohonan dihantar!</div>
+                <p className="text-sm text-[var(--color-text-secondary)]">
+                  Langganan <b>{PLAN_DEFAULTS[payPlan].label}</b> anda sedang <b>menunggu approval admin</b>. Plan akan aktif sebaik admin sahkan screenshot transfer. Terima kasih!
+                </p>
+                <button onClick={closePayModal} className="mt-3 text-xs font-bold text-amber-600 underline">Tutup</button>
+              </div>
+            ) : (
+              <>
+                {/* Step 1 — transfer to Touch 'n Go */}
+                <div className="rounded-2xl p-4 mb-4" style={{ background: "var(--color-bg)", border: "1px solid var(--color-border)" }}>
+                  <div className="text-xs uppercase tracking-wider font-bold text-[var(--color-text-muted)] mb-2">
+                    Langkah 1 — Transfer RM{PLAN_DEFAULTS[payPlan].price} ke Touch &apos;n Go
+                  </div>
+                  {tng && tng.configured ? (
+                    <div className="flex items-center gap-4">
+                      <div className="flex-1 min-w-0">
+                        <div className="font-display font-extrabold text-2xl text-[var(--color-text-primary)] tracking-tight break-all">{tng.number || "—"}</div>
+                        {tng.name && <div className="text-sm text-[var(--color-text-secondary)] font-semibold">{tng.name}</div>}
+                        <div className="text-[11px] text-[var(--color-text-muted)] mt-1">Guna app Touch &apos;n Go / DuitNow QR di sebelah.</div>
+                      </div>
+                      {tng.qr_url && (
+                        <button type="button" onClick={() => setQrZoom(true)} title="Tekan untuk besarkan QR" className="flex-shrink-0 group relative">
+                          <img src={tng.qr_url} alt="TnG QR" className="w-28 h-28 object-contain rounded-lg bg-white border border-[var(--color-border)] cursor-zoom-in transition-transform group-hover:scale-105" />
+                          <span className="absolute bottom-1 right-1 text-[9px] font-bold text-white bg-black/60 rounded px-1 py-0.5 pointer-events-none">🔍 Besar</span>
+                        </button>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="text-sm text-[var(--color-text-muted)]">Admin belum set akaun Touch &apos;n Go. Sila hubungi admin.</div>
+                  )}
+                </div>
+
+                {/* Amount callout */}
+                <div className="rounded-2xl p-4 mb-4 flex items-center justify-between" style={{ background: "linear-gradient(135deg, rgba(245,158,11,0.12), rgba(255,87,34,0.08))", border: "1px solid rgba(245,158,11,0.4)" }}>
+                  <div>
+                    <div className="text-[11px] uppercase tracking-wider font-bold text-[var(--color-text-muted)]">Jumlah untuk transfer</div>
+                    <div className="text-xs text-[var(--color-text-secondary)]">{PLAN_DEFAULTS[payPlan].label} · {PLAN_DEFAULTS[payPlan].days} hari</div>
+                  </div>
+                  <div className="font-display font-extrabold text-3xl text-amber-500">RM{PLAN_DEFAULTS[payPlan].price}</div>
+                </div>
+
+                {/* Step 2 — screenshot upload */}
+                <div className="mb-4">
+                  <div className="text-xs uppercase tracking-wider font-bold text-[var(--color-text-muted)] mb-2">
+                    Langkah 2 — Upload screenshot transfer
+                  </div>
+                  <label className="flex items-center justify-center gap-2 w-full py-4 rounded-2xl border-2 border-dashed cursor-pointer transition-colors"
+                    style={{ borderColor: proofUrl ? "#16a34a" : "var(--color-border)", background: proofUrl ? "rgba(16,185,129,0.06)" : "var(--color-bg-card)" }}>
+                    {uploading ? (
+                      <><Loader2 className="w-4 h-4 animate-spin" /> Uploading…</>
+                    ) : proofUrl ? (
+                      <span className="text-sm font-bold text-emerald-600">✓ Screenshot dimuat naik — tekan tukar untuk ganti</span>
+                    ) : (
+                      <span className="text-sm font-semibold text-[var(--color-text-secondary)]">📷 Pilih screenshot resit transfer</span>
+                    )}
+                    <input type="file" accept="image/*" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) void uploadProof(f); }} />
+                  </label>
+                  {proofUrl && <img src={proofUrl} alt="proof" className="mt-2 max-h-40 rounded-lg border border-[var(--color-border)]" />}
+                </div>
+
+                <button
+                  onClick={submitPlanPurchase}
+                  disabled={submitting || !proofUrl || !(tng && tng.configured)}
+                  className="w-full py-4 rounded-2xl font-bold text-base text-white shadow-xl shadow-amber-500/30 hover:scale-[1.01] transition-transform disabled:opacity-50 disabled:scale-100"
+                  style={{ background: "linear-gradient(135deg, #f59e0b 0%, #ea580c 100%)" }}
+                >
+                  <span className="flex items-center justify-center gap-2">
+                    {submitting ? (<><Loader2 className="w-5 h-5 animate-spin" /> Menghantar…</>) : (<><Zap className="w-5 h-5" /> Submit langganan RM{PLAN_DEFAULTS[payPlan].price} <ArrowRight className="w-4 h-4" /></>)}
+                  </span>
+                </button>
+                <p className="text-center text-xs text-[var(--color-text-muted)] mt-3">
+                  Plan aktif selepas admin approve screenshot anda (biasanya cepat).
+                </p>
+              </>
+            )}
+          </div>
+
+          {/* Enlarged QR */}
+          {qrZoom && tng?.qr_url && (
+            <div
+              className="fixed inset-0 z-[100] flex items-center justify-center p-4"
+              style={{ background: "rgba(0,0,0,0.85)", backdropFilter: "blur(6px)" }}
+              onClick={(e) => { e.stopPropagation(); setQrZoom(false); }}
+            >
+              <div className="relative bg-white rounded-2xl p-4 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+                <button type="button" onClick={() => setQrZoom(false)} aria-label="Tutup" className="absolute -top-3 -right-3 w-8 h-8 rounded-full bg-black text-white text-lg font-bold flex items-center justify-center shadow-lg">×</button>
+                <img src={tng.qr_url} alt="TnG QR besar" className="w-[min(80vw,380px)] h-[min(80vw,380px)] object-contain" />
+                <div className="text-center text-xs font-semibold text-gray-700 mt-2">Scan guna app Touch &apos;n Go / DuitNow</div>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

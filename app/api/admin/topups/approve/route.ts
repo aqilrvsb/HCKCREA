@@ -1,17 +1,22 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { applySubscription } from "@/lib/apply-subscription";
 
 // POST /api/admin/topups/approve  { payment_id, action: "approve" | "reject" }
 //
-// Admin decision on a manual Touch 'n Go top-up. APPROVE credits the client's
-// wallet (profiles.credits += amount) and logs a credit_transactions row —
-// mirrors applyCreditTopup() in the CHIP webhook. REJECT just marks it failed.
+// Admin decision on a manual Touch 'n Go request — handles BOTH kinds:
+//   • credit_topup  → APPROVE credits the wallet (profiles.credits += amount)
+//     and logs a credit_transactions row (mirrors applyCreditTopup in the
+//     Chip webhook).
+//   • subscription  → APPROVE grants the plan + a fresh expiry + plan credits
+//     via the shared applySubscription() (same logic the Chip webhook used).
+// REJECT just marks the payment failed.
 //
-// Double-credit safe: the status flip pending → paid is done FIRST with an
+// Double-apply safe: the status flip pending → paid is done FIRST with an
 // atomic guard (.eq("status","pending")). Only the request that wins the flip
-// proceeds to credit, so a double-click / concurrent admin can never add the
-// balance twice.
+// proceeds to grant, so a double-click / concurrent admin can never grant
+// twice.
 export const dynamic = "force-dynamic";
 
 async function adminGate() {
@@ -38,7 +43,7 @@ export async function POST(req: Request) {
       .from("payments")
       .update({ status: "failed" })
       .eq("id", paymentId)
-      .eq("type", "credit_topup")
+      .in("type", ["credit_topup", "subscription"])
       .eq("status", "pending")
       .select("id");
     if (!rejected?.length) {
@@ -48,21 +53,31 @@ export async function POST(req: Request) {
   }
 
   // ── APPROVE ──
-  // Atomic claim: pending → paid. Only the winner credits the wallet.
+  // Atomic claim: pending → paid. Only the winner grants (wallet OR plan).
   const { data: claimed } = await admin
     .from("payments")
     .update({ status: "paid", paid_at: new Date().toISOString() })
     .eq("id", paymentId)
-    .eq("type", "credit_topup")
+    .in("type", ["credit_topup", "subscription"])
     .eq("status", "pending")
-    .select("id, user_id, credits, amount, metadata");
+    .select("id, user_id, type, plan, credits, amount, metadata");
   if (!claimed?.length) {
     return NextResponse.json({ error: "Already processed or not found" }, { status: 409 });
   }
   const payment = claimed[0] as any;
   const userId = payment.user_id as string;
-  const credits = Number(payment.credits || payment.metadata?.credits || 0);
 
+  // ── Subscription approval → grant plan + expiry + credits (shared logic). ──
+  if (payment.type === "subscription") {
+    if (!userId || !payment.plan) {
+      return NextResponse.json({ ok: true, action: "approve", note: "no plan to apply" });
+    }
+    await applySubscription(admin, payment);
+    return NextResponse.json({ ok: true, action: "approve", kind: "subscription", plan: payment.plan });
+  }
+
+  // ── Credit top-up approval → credit the wallet. ──
+  const credits = Number(payment.credits || payment.metadata?.credits || 0);
   if (!userId || !credits) {
     return NextResponse.json({ ok: true, action: "approve", note: "no credits to add" });
   }

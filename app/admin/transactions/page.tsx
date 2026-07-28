@@ -176,11 +176,27 @@ export default function AdminTransactions() {
     }
   }
 
-  // Manual Touch 'n Go top-up decision — approve credits the wallet, reject
-  // marks it failed. Runs through the double-credit-safe approve endpoint.
+  // Manual Touch 'n Go decision — handles BOTH kinds: a credit_topup approve
+  // credits the wallet; a subscription approve activates the plan + expiry +
+  // plan credits. Reject marks it failed. Runs through the double-apply-safe
+  // approve endpoint (/api/admin/topups/approve branches by payment type).
   async function approveTopup(p: Payment, action: "approve" | "reject") {
-    if (action === "approve" && !confirm(`Approve RM${Number(p.amount).toFixed(0)} top-up and credit the wallet?`)) return;
-    if (action === "reject" && !confirm("Reject this top-up? No credits added.")) return;
+    const isSub = p.type === "subscription";
+    const amt = Number(p.amount).toFixed(0);
+    if (
+      action === "approve" &&
+      !confirm(
+        isSub
+          ? `Approve RM${amt} — activate ${String(p.plan || "plan").toUpperCase()} plan (+ ${p.credits ?? p.metadata?.credits ?? 0} credits) for this client?`
+          : `Approve RM${amt} top-up and credit the wallet?`
+      )
+    )
+      return;
+    if (
+      action === "reject" &&
+      !confirm(isSub ? "Reject this subscription? Plan will NOT be activated." : "Reject this top-up? No credits added.")
+    )
+      return;
     setBusy(p.id);
     try {
       const r = await fetch("/api/admin/topups/approve", {
