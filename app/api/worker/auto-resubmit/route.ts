@@ -157,6 +157,17 @@ export async function GET(req: Request) {
     const estCost = Number(row.cost || 0);
     if (estCost > 0 && !(await hasEnoughCredits(row.user_id, estCost))) {
       summary.insufficient_credit += 1;
+      // MARK the row so the client sees WHY it stopped (top up to resume). This
+      // message isn't retryable, so the cron also stops re-scanning it each tick
+      // until the client tops up + Resubmits (which re-fires any failed row).
+      await admin
+        .from("history")
+        .update({
+          error_message: "Baki kredit tak cukup untuk jana semula video ni. Top up untuk sambung.",
+          metadata: { ...meta, blocked_insufficient_credit: true, blocked_credit_at: new Date().toISOString() },
+        })
+        .eq("id", row.id)
+        .eq("status", "failed");
       continue;
     }
 

@@ -11,7 +11,7 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { p2GetStatus, p2CreateTask } from "@/lib/p2";
 import { getP2Config } from "@/lib/settings";
-import { deduct, priceFor, type PriceModelHint } from "@/lib/deduct";
+import { deduct, priceFor, hasEnoughCredits, type PriceModelHint } from "@/lib/deduct";
 import { onSegmentSettled } from "@/lib/segment-chain";
 import { generateUgcPostMeta } from "@/lib/ugc-post-meta";
 import { uploadFromUrlToContent, buildKey, type StorageType } from "@/lib/b2";
@@ -486,6 +486,23 @@ async function tryAutoRetry(
   }
   const dynamicCap = await getDynamicRetryCap(cascadeAsset);
   if (retryCount >= dynamicCap) return false;
+
+  // CREDIT GATE — a fallback retry that succeeds deducts the row's cost at
+  // settle. Don't re-fire when the client can no longer afford it; mark the row
+  // so they see why (top up to resume). Mirrors the auto-resubmit cron + the
+  // manual/bulk Resubmit route. No-op when cost is unknown (0).
+  const retryCost = Number(hist.cost || 0);
+  if (retryCost > 0 && !(await hasEnoughCredits(hist.user_id, retryCost))) {
+    await admin
+      .from("history")
+      .update({
+        error_message: "Baki kredit tak cukup untuk jana semula video ni. Top up untuk sambung.",
+        metadata: { ...meta, blocked_insufficient_credit: true, blocked_credit_at: new Date().toISOString() },
+      })
+      .eq("id", hist.id)
+      .eq("status", "failed");
+    return false;
+  }
 
   // ATOMIC CLAIM — flip status from "failed" → "pending" before firing
   // the cascade. Guarantees only ONE retry path (event-driven settle,

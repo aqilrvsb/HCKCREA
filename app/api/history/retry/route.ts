@@ -93,6 +93,14 @@ export async function POST(req: Request) {
   // No-op when the row's cost is unknown (0) so legacy rows still retry.
   const estCost = Number(row.cost || 0);
   if (estCost > 0 && !(await hasEnoughCredits(row.user_id, estCost))) {
+    // MARK the row so the reason is visible on the card / admin feed.
+    await admin
+      .from("history")
+      .update({
+        error_message: "Baki kredit tak cukup untuk jana semula video ni. Top up untuk sambung.",
+        metadata: { ...((row.metadata || {}) as Record<string, any>), blocked_insufficient_credit: true, blocked_credit_at: new Date().toISOString() },
+      })
+      .eq("id", row.id);
     return NextResponse.json(
       { error: "Baki kredit client tak cukup untuk jana semula video ni." },
       { status: 402 }
