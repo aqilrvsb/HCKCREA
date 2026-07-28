@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { Copy, Check } from "lucide-react";
 
 type KeyRow = {
   id: string;
@@ -33,6 +34,18 @@ export default function McpKeysCard({ email }: { email: string }) {
   const [busy, setBusy] = useState(false);
   const [created, setCreated] = useState<CreatedKey | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Which value was just copied — drives the ✓ feedback on the copy buttons.
+  const [copied, setCopied] = useState<string | null>(null);
+
+  async function copyText(label: string, text: string) {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(label);
+      setTimeout(() => setCopied((c) => (c === label ? null : c)), 1500);
+    } catch {
+      alert("Copy failed — select and copy manually.");
+    }
+  }
 
   async function load() {
     setLoading(true);
@@ -97,16 +110,6 @@ export default function McpKeysCard({ email }: { email: string }) {
     }
   }
 
-  async function copyPlaintext() {
-    if (!created) return;
-    try {
-      await navigator.clipboard.writeText(created.plaintext);
-      alert("Copied to clipboard");
-    } catch {
-      alert("Copy failed — select and copy manually from the box");
-    }
-  }
-
   return (
     <div className="space-y-6">
       {error && (
@@ -129,10 +132,11 @@ export default function McpKeysCard({ email }: { email: string }) {
           </code>
           <div className="flex gap-2 mt-3">
             <button
-              onClick={() => void copyPlaintext()}
-              className="px-3 py-1.5 rounded bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold"
+              onClick={() => void copyText("created", created.plaintext)}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold"
             >
-              Copy to clipboard
+              {copied === "created" ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+              {copied === "created" ? "Copied!" : "Copy to clipboard"}
             </button>
             <button
               onClick={() => setCreated(null)}
@@ -193,8 +197,18 @@ export default function McpKeysCard({ email }: { email: string }) {
               >
                 <div className="flex-1 min-w-0">
                   <div className="font-bold text-sm truncate">{k.name}</div>
-                  <div className="text-xs font-mono text-[var(--color-text-muted)] mt-0.5">
-                    {k.prefix}…
+                  <div className="flex items-center gap-1.5 mt-0.5">
+                    <span className="text-xs font-mono text-[var(--color-text-muted)]">
+                      {k.prefix}…
+                    </span>
+                    <button
+                      onClick={() => void copyText(k.id, k.prefix)}
+                      title="Copy key prefix (the full key is shown only once at creation)"
+                      aria-label="Copy key prefix"
+                      className="inline-flex items-center justify-center w-6 h-6 rounded border border-[var(--color-border)] text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] hover:border-[var(--color-text-muted)] transition-colors"
+                    >
+                      {copied === k.id ? <Check className="w-3 h-3 text-emerald-500" /> : <Copy className="w-3 h-3" />}
+                    </button>
                   </div>
                   <div className="flex gap-4 text-[11px] text-[var(--color-text-muted)] mt-2">
                     <span>Created: {fmtMY(k.created_at)}</span>
