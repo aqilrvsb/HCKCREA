@@ -7,6 +7,9 @@ type KeyRow = {
   id: string;
   name: string;
   prefix: string;
+  // Present for keys minted after the full_key column landed (0052) — lets the
+  // copy button copy the complete working key. Older keys have only the prefix.
+  full_key?: string | null;
   created_at: string;
   last_used_at: string | null;
 };
@@ -202,9 +205,9 @@ export default function McpKeysCard({ email }: { email: string }) {
                       {k.prefix}…
                     </span>
                     <button
-                      onClick={() => void copyText(k.id, k.prefix)}
-                      title="Copy key prefix (the full key is shown only once at creation)"
-                      aria-label="Copy key prefix"
+                      onClick={() => void copyText(k.id, k.full_key || k.prefix)}
+                      title={k.full_key ? "Copy full key" : "Copy key prefix (this key predates full-key storage — regenerate to get a copyable full key)"}
+                      aria-label="Copy key"
                       className="inline-flex items-center justify-center w-6 h-6 rounded border border-[var(--color-border)] text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] hover:border-[var(--color-text-muted)] transition-colors"
                     >
                       {copied === k.id ? <Check className="w-3 h-3 text-emerald-500" /> : <Copy className="w-3 h-3" />}

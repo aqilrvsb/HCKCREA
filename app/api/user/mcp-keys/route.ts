@@ -19,14 +19,29 @@ export async function GET() {
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const admin = createAdminClient();
-  const { data: keys } = await admin
+  // Prefer selecting full_key (so the dashboard can copy the complete key).
+  // Fall back to the metadata-only select if the column isn't migrated yet
+  // (0052) so the list never breaks mid-rollout.
+  let keys: any[] | null = null;
+  const withFull = await admin
     .from("user_mcp_keys")
-    .select("id, name, prefix, created_at, last_used_at")
+    .select("id, name, prefix, full_key, created_at, last_used_at")
     .eq("user_id", user.id)
     .is("revoked_at", null)
     .order("created_at", { ascending: false });
+  if (withFull.error && /full_key/.test(withFull.error.message || "")) {
+    const basic = await admin
+      .from("user_mcp_keys")
+      .select("id, name, prefix, created_at, last_used_at")
+      .eq("user_id", user.id)
+      .is("revoked_at", null)
+      .order("created_at", { ascending: false });
+    keys = basic.data || [];
+  } else {
+    keys = withFull.data || [];
+  }
 
-  return NextResponse.json({ ok: true, keys: keys || [] });
+  return NextResponse.json({ ok: true, keys });
 }
 
 export async function POST(req: Request) {
@@ -63,16 +78,30 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Failed to mint a unique key — try again" }, { status: 500 });
   }
 
-  const { data: row, error: insErr } = await admin
-    .from("user_mcp_keys")
-    .insert({
-      user_id: user.id,
-      name,
-      hash,
-      prefix,
-    })
-    .select("id, name, prefix, created_at")
-    .single();
+  // Store the full plaintext (full_key) so the dashboard copy button can copy
+  // the complete working key later. Falls back to the hash-only insert if the
+  // full_key column isn't migrated yet (0052) so key generation never breaks.
+  let row: any = null;
+  let insErr: any = null;
+  {
+    const withFull = await admin
+      .from("user_mcp_keys")
+      .insert({ user_id: user.id, name, hash, prefix, full_key: plaintext })
+      .select("id, name, prefix, created_at")
+      .single();
+    if (withFull.error && /full_key/.test(withFull.error.message || "")) {
+      const basic = await admin
+        .from("user_mcp_keys")
+        .insert({ user_id: user.id, name, hash, prefix })
+        .select("id, name, prefix, created_at")
+        .single();
+      row = basic.data;
+      insErr = basic.error;
+    } else {
+      row = withFull.data;
+      insErr = withFull.error;
+    }
+  }
 
   if (insErr || !row) {
     return NextResponse.json({ error: "DB insert failed", detail: insErr?.message }, { status: 500 });
