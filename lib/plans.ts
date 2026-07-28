@@ -22,6 +22,12 @@ export type PlanKey = (typeof PLAN_KEYS)[number];
 export const MARKETING_TIERS = ["starter", "standard", "pro", "premium"] as const;
 export type MarketingTier = (typeof MARKETING_TIERS)[number];
 
+// Tiers currently OFFERED for purchase in the pricing grid. Starter + Standard
+// are RETIRED from sale per user direction 2026-07-28 — existing Starter/
+// Standard subscribers keep their plan + features (PLAN_DEFAULTS still has
+// them); only the purchase grid is limited to Pro/Premium.
+export const OFFERED_TIERS: readonly MarketingTier[] = ["pro", "premium"];
+
 export const LIVEHOST: PlanKey = "livehost";
 
 export type PlanConfig = {

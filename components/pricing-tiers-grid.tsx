@@ -2,7 +2,7 @@
 
 import { CheckCircle2, Sparkles, ArrowRight, Loader2 } from "lucide-react";
 import {
-  MARKETING_TIERS,
+  OFFERED_TIERS,
   PLAN_DEFAULTS,
   BEST_SELLER,
   MCP_TIERS,
@@ -143,8 +143,8 @@ export default function PricingTiersGrid({
   const planActiveNow = !!currentPlan && expiryMs > now;
 
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
-      {MARKETING_TIERS.map((key) => {
+    <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+      {OFFERED_TIERS.map((key) => {
         const cfg: PlanConfig = PLAN_DEFAULTS[key];
         const accent = tierAccent(key);
         const isCurrent = planActiveNow && currentPlan === key;

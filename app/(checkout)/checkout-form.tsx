@@ -170,8 +170,10 @@ export default function CheckoutForm() {
           <label className="block text-sm font-semibold mb-3">
             Pilih plan
           </label>
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
-            {PLAN_KEYS.map((key) => {
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+            {/* Starter + Standard retired from sale (2026-07-28) — only
+                Pro / Premium / Livehost are purchasable. */}
+            {PLAN_KEYS.filter((k) => k !== "starter" && k !== "standard").map((key) => {
               const p = PLAN_DEFAULTS[key];
               const active = selectedPlan === key;
               const highlight = key === BEST_SELLER;
