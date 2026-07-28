@@ -7,7 +7,7 @@
     },
     {
       "path": "/api/worker/auto-resubmit",
-      "schedule": "*/8 * * * *"
+      "schedule": "*/4 * * * *"
     },
     {
       "path": "/api/worker/auto-ugc-recover",
