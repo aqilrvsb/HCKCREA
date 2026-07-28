@@ -994,11 +994,14 @@ export async function settleHistoryRow(hist: HistoryRow): Promise<SettleResult> 
       if (liveRate > 0) chargeAmount = liveRate;
     }
 
-    if (chargeAmount > 0) {
-      await deduct(hist.user_id, reason as any, chargeAmount, hist.id);
-    }
-
-    await admin
+    // IDEMPOTENT SETTLE — atomically claim the pending→done transition BEFORE
+    // deducting. Two settle passes can race the SAME completed task (the 2-min
+    // poll-pending cron + the resubmit / webhook path). The old order — deduct
+    // THEN mark done, with no guard — let BOTH passes deduct → DOUBLE-CHARGE
+    // (seen under bulk "Resubmit all"). The .eq("status","pending") gate means
+    // only the FIRST pass flips the row + charges; the loser matches 0 rows and
+    // returns without deducting.
+    const { data: claimedDone } = await admin
       .from("history")
       .update({
         status: "done",
@@ -1011,7 +1014,20 @@ export async function settleHistoryRow(hist: HistoryRow): Promise<SettleResult> 
         // (e.g. "Stale — exceeded 10m without resolution").
         error_message: null,
       })
-      .eq("id", hist.id);
+      .eq("id", hist.id)
+      .eq("status", "pending") // ← atomic race gate: only the first settle wins
+      .select("id");
+
+    if (!claimedDone || claimedDone.length === 0) {
+      // Another settle pass already finalized + charged this row. Skip the
+      // deduct AND the post-processing (rehost / segment chain / meta) so we
+      // never double-charge or double-fire the chain.
+      return { state: "settled", status: "done", outputUrl: r.outputUrl };
+    }
+
+    if (chargeAmount > 0) {
+      await deduct(hist.user_id, reason as any, chargeAmount, hist.id);
+    }
 
     // Auto-rehost the freshly-produced output to our peninglab-content B2
     // bucket. Replaces output_url with the S3 URL so the file lives on
