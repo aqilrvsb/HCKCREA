@@ -1824,7 +1824,7 @@ export default function HistoryGrid({
                   supportsMerge ? () => toggleMergeSelection(it.id) : undefined
                 }
                 dupSimilar={dupMap.get(it.id)}
-                allowTransfer={tab !== "auto"}
+                allowTransfer
                 editorMode={editorMode}
                 edTextOn={edText.has(it.id)}
                 edCoverOn={edCover.has(it.id)}
@@ -4657,7 +4657,8 @@ function HistoryCardInner({
               + Improve + Download + Delete */}
           {!editorMode && !donePostMode && item.status === "done" && isVideo && (
             <>
-              {/* Transfer to Editor — all video tabs EXCEPT Auto Content. */}
+              {/* Transfer to Editor — every video tab (Dialog UGC, Auto
+                  Content, Auto UGC, Viral, Grok, Sora 2, Cinema, Clone…). */}
               {allowTransfer && (
                 <ActionBtn
                   title={inEditor ? "Buang dari Editor" : "Pindah ke Editor"}
