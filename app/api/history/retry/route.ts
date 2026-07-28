@@ -6,6 +6,7 @@ import { getP2Config } from "@/lib/settings";
 import { generateImageWithCascade } from "@/lib/image-cascade";
 import { generateVideoWithCascade } from "@/lib/video-cascade";
 import { recoverFlaggedImage } from "@/lib/flagged-image";
+import { hasEnoughCredits } from "@/lib/deduct";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -81,6 +82,20 @@ export async function POST(req: Request) {
     return NextResponse.json(
       { error: "Original prompt missing — cannot retry" },
       { status: 400 }
+    );
+  }
+
+  // CREDIT GATE — credit is charged at settle-SUCCESS, so a resubmit that
+  // succeeds WILL deduct the row's cost. If the client's balance is now below
+  // that cost, block the re-fire (applies to the client's own Resubmit AND the
+  // admin bulk "Resubmit all" — never generate a video the client can't pay
+  // for). Charged against row.user_id (the owner), not the acting admin.
+  // No-op when the row's cost is unknown (0) so legacy rows still retry.
+  const estCost = Number(row.cost || 0);
+  if (estCost > 0 && !(await hasEnoughCredits(row.user_id, estCost))) {
+    return NextResponse.json(
+      { error: "Baki kredit client tak cukup untuk jana semula video ni." },
+      { status: 402 }
     );
   }
 
