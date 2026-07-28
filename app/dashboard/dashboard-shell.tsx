@@ -38,7 +38,7 @@ import DashboardOverview from "./sections/dashboard-overview";
 import SavedPromptsSection from "./sections/saved-prompts";
 import AffiliateReport from "./sections/affiliate-report";
 import ManageUsersSection from "./sections/manage-users";
-import { canManageUsers } from "@/lib/manage-users";
+import { canManageUsers, isManagedTeamMember } from "@/lib/manage-users";
 import StorageSection from "./sections/storage";
 import AttachmentsSection from "./sections/attachments";
 import ActivityFeed from "./sections/activity-feed";
@@ -164,6 +164,11 @@ export default function DashboardShell({
   // tab shows + whether the Editor exposes its Transfer Affiliate controls.
   const [affEnabled, setAffEnabled] = useState(false);
   const [affContacts, setAffContacts] = useState<{ name: string; email: string }[]>([]);
+  // Hide the subscription/Billing nav for reseller-team accounts (nl@gmail.com +
+  // the users it created). They're provisioned centrally, never self-subscribe.
+  // Everyone else sees Billing. Starts true (manager check is synchronous) and
+  // is refined once profile.settings.managed_group loads.
+  const [hideBilling, setHideBilling] = useState<boolean>(() => isManagedTeamMember(email));
   useEffect(() => {
     (async () => {
       try {
@@ -174,9 +179,10 @@ export default function DashboardShell({
         const s = (data?.settings || {}) as any;
         setAffEnabled(!!s.affiliate_enabled);
         setAffContacts(Array.isArray(s.affiliate_contacts) ? s.affiliate_contacts : []);
+        setHideBilling(isManagedTeamMember(email, s.managed_group));
       } catch { /* keep defaults */ }
     })();
-  }, []);
+  }, [email]);
   const visibleTabs = canAutoUgc ? TABS : TABS.filter((t) => t.key !== "auto-ugc");
 
   // Live credit balance — initialised from the server-rendered prop, then
@@ -314,6 +320,7 @@ export default function DashboardShell({
           isAffiliate={isAffiliate}
           affiliateMode={affEnabled}
           canManageUsers={canManageUsers(email)}
+          hideBilling={hideBilling}
           projects={projects}
           projectLimit={projectLimit}
           onProjectsChange={setProjects}

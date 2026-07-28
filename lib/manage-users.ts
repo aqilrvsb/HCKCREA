@@ -28,6 +28,17 @@ export function manageUsersGroup(email?: string | null): string | null {
   return null;
 }
 
+/** True if the user belongs to a Manage-Users TEAM — either a MANAGER
+ *  (e.g. nl@gmail.com) or a USER it created (profiles.settings.managed_group
+ *  set to a known team like "nl-team"). Used to HIDE the subscription/Billing
+ *  nav from reseller teams: their users are provisioned centrally (premium 1yr),
+ *  they never self-subscribe. */
+export function isManagedTeamMember(email?: string | null, managedGroup?: string | null): boolean {
+  if (canManageUsers(email)) return true;
+  const g = String(managedGroup || "").trim();
+  return g.length > 0 && Object.prototype.hasOwnProperty.call(MANAGE_USERS_TEAMS, g);
+}
+
 // Fixed plan applied to every user created through this feature.
 export const MANAGED_PLAN = "premium";
 export const MANAGED_PLAN_DAYS = 365;

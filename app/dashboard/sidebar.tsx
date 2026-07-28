@@ -80,6 +80,7 @@ export default function Sidebar({
   isAffiliate = false,
   affiliateMode = false,
   canManageUsers: canMngUsers = false,
+  hideBilling = false,
 }: {
   email: string;
   name: string;
@@ -102,6 +103,9 @@ export default function Sidebar({
   affiliateMode?: boolean;
   /** Allowlisted reseller — shows the Manage Users nav. */
   canManageUsers?: boolean;
+  /** Hide the subscription/Billing nav (reseller-team accounts: nl@gmail.com +
+   *  the users it created). Everyone else sees it. */
+  hideBilling?: boolean;
   // Project tabs (Image / UGC / Auto Content / etc.) — rendered inside the
   // sidebar when a project is active. Replaces the top tab pills so mobile
   // users can navigate from the same drawer they use for everything else.
@@ -622,10 +626,12 @@ export default function Sidebar({
             // Attachments nav hidden per user direction 2026-06-28 (still
             // reachable via pickers; re-enable by uncommenting).
             // { kind: "attachments" as const, label: "Attachments", Icon: ImageIcon },
-            // Billing nav hidden per user direction — subscriptions are being
-            // wound down (no new subscribe / resubscribe from the menu). Top Up
-            // Credit stays. Re-enable by uncommenting this line.
-            // { kind: "billing" as const, label: "Billing", Icon: CreditCard },
+            // Billing / subscription nav — re-opened, but HIDDEN for reseller
+            // teams (nl@gmail.com + users it created) who are provisioned
+            // centrally and never self-subscribe. Everyone else sees it.
+            ...(hideBilling
+              ? []
+              : [{ kind: "billing" as const, label: "Billing", Icon: CreditCard }]),
             // Top Up Credit nav — visible ONLY for Pro + Premium plan
             // holders (the tiers that include the perk per the pricing
             // grid's "Access Top Up Credit" highlighted line). Free /
