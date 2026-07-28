@@ -4,7 +4,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { isPlanKey, isLivehost } from "@/lib/plans";
 import DashboardShell from "./dashboard-shell";
 import LivehostDashboard from "./livehost-dashboard";
-import ExpiredLock from "./expired-lock";
+import ExpiredBilling from "./expired-billing";
 
 export default async function DashboardPage() {
   const supabase = await createClient();
@@ -52,11 +52,12 @@ export default async function DashboardPage() {
     new Date(planExpiresAt) > new Date();
 
   // ACCESS GATE — per admin direction, a client with NO active plan (expired
-  // or never subscribed) is fully locked out until an admin re-activates them.
-  // Admins are exempt. Session stays alive; they just hit the lock screen.
+  // or never subscribed) can log in but reaches ONLY the Billing surface so they
+  // can self-renew (Pro/Premium) — no projects / generation tabs (per user
+  // direction 2026-07-28). Admins are exempt. Session stays alive.
   const isAdmin = !!profile?.is_admin;
   if (!planActive && !isAdmin) {
-    return <ExpiredLock name={name} planExpiresAt={planExpiresAt} />;
+    return <ExpiredBilling name={name} plan={plan} planExpiresAt={planExpiresAt} />;
   }
 
   // Livehost is a SEPARATE package — render its own (blank) dashboard
