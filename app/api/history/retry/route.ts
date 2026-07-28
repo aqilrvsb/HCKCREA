@@ -6,7 +6,7 @@ import { getP2Config } from "@/lib/settings";
 import { generateImageWithCascade } from "@/lib/image-cascade";
 import { generateVideoWithCascade } from "@/lib/video-cascade";
 import { recoverFlaggedImage } from "@/lib/flagged-image";
-import { hasEnoughCredits } from "@/lib/deduct";
+import { reserveCredit, refundReserved, reasonForRow } from "@/lib/deduct";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -85,27 +85,12 @@ export async function POST(req: Request) {
     );
   }
 
-  // CREDIT GATE — credit is charged at settle-SUCCESS, so a resubmit that
-  // succeeds WILL deduct the row's cost. If the client's balance is now below
-  // that cost, block the re-fire (applies to the client's own Resubmit AND the
-  // admin bulk "Resubmit all" — never generate a video the client can't pay
-  // for). Charged against row.user_id (the owner), not the acting admin.
-  // No-op when the row's cost is unknown (0) so legacy rows still retry.
-  const estCost = Number(row.cost || 0);
-  if (estCost > 0 && !(await hasEnoughCredits(row.user_id, estCost))) {
-    // MARK the row so the reason is visible on the card / admin feed.
-    await admin
-      .from("history")
-      .update({
-        error_message: "Baki kredit tak cukup untuk jana semula video ni. Top up untuk sambung.",
-        metadata: { ...((row.metadata || {}) as Record<string, any>), blocked_insufficient_credit: true, blocked_credit_at: new Date().toISOString() },
-      })
-      .eq("id", row.id);
-    return NextResponse.json(
-      { error: "Baki kredit client tak cukup untuk jana semula video ni." },
-      { status: 402 }
-    );
-  }
+  // CREDIT LOCK — enforced at FIRE time (reserve-at-fire), not here. The
+  // reserve happens just before the cascade call below (after the auto-ugc
+  // early return) so it atomically HOLDS the row's cost the instant it fires.
+  // That's what stops a bulk "Resubmit all" of 70 rows — each an independent
+  // HTTP call to this route — from all reading the same balance and overspending
+  // it: the first ~N reserve successfully, the rest get blocked. See below.
 
   // Effective prompt for this retry. promptOverride wins if provided.
   const effectivePrompt = promptOverride || row.prompt;
@@ -301,6 +286,42 @@ export async function POST(req: Request) {
   const isImageRow =
     row.tab === "image" || row.type === "image" || row.type === "fairytale-scene";
 
+  // ---- RESERVE-AT-FIRE (the credit lock) -------------------------------
+  // Atomically HOLD the row's cost right now, before firing the cascade. If
+  // the client can't afford it, the reserve returns false → revert the row to
+  // failed (the atomic claim above flipped it to pending) and stop. Because
+  // the hold is a no-overdraw DB update, a batch of independent resubmit calls
+  // can never collectively fire more than the balance covers — once it runs
+  // out, further reserves fail. The held amount is stamped as
+  // metadata.credit_reserved and carried across retry attempts; settle skips
+  // its deduct on success (the reserve IS the charge) and refunds on terminal
+  // failure. Reserve ONCE — if a prior retry cycle already holds it, reuse it.
+  const estCost = Number(row.cost || 0);
+  const priorReserved = Number(meta.credit_reserved || 0);
+  let reservedThisCall = 0;
+  if (priorReserved <= 0 && estCost > 0) {
+    const rsn = reasonForRow(row);
+    const reserved = await reserveCredit(row.user_id, rsn, estCost, row.id);
+    if (!reserved) {
+      await admin
+        .from("history")
+        .update({
+          status: "failed",
+          error_message: "Baki kredit tak cukup untuk jana semula video ni. Top up untuk sambung.",
+          metadata: { ...meta, blocked_insufficient_credit: true, blocked_credit_at: new Date().toISOString() },
+        })
+        .eq("id", row.id);
+      return NextResponse.json(
+        { error: "Baki kredit client tak cukup untuk jana semula video ni." },
+        { status: 402 }
+      );
+    }
+    reservedThisCall = estCost;
+  }
+  // The amount now held against this row (whether reserved just now or carried
+  // from a prior cycle). Stamped on the row so settle can resolve it.
+  const heldReserve = reservedThisCall || priorReserved;
+
   let newTaskId: string | null = null;
   let newProvider: "p1" | "p2" | "p3" | "p4" | "p5" | "p6" | "p7" = "p2";
   let newSlot: string | undefined = undefined;
@@ -450,8 +471,13 @@ export async function POST(req: Request) {
   }
 
   if (!newTaskId) {
-    // All cascade tiers failed (or Grok create failed). Stamp the latest
-    // error onto the row so the user sees why retry didn't take.
+    // All cascade tiers failed (or Grok create failed) — no task was created,
+    // so no video will ever settle against this fire. Release the credit we
+    // held (a reserve with no settle coming would otherwise be stranded) and
+    // clear the flag so a later retry reserves fresh.
+    if (heldReserve > 0) {
+      await refundReserved(row.user_id, reasonForRow(row), heldReserve, row.id);
+    }
     await admin
       .from("history")
       .update({
@@ -459,6 +485,7 @@ export async function POST(req: Request) {
         error_message: retryError || "Retry failed",
         metadata: {
           ...meta,
+          credit_reserved: undefined,
           last_retry_error: retryError || "Retry failed",
           last_retry_at: new Date().toISOString(),
           tier_log: tierLog,
@@ -496,6 +523,11 @@ export async function POST(req: Request) {
         model: newModel,
         fallback_used: fallbackUsed,
         tier_log: tierLog,
+        // Carry the held reserve so settle skips its deduct (reserve IS the
+        // charge) on success and refunds it on terminal failure.
+        credit_reserved: heldReserve > 0 ? heldReserve : undefined,
+        // A prior insufficient-credit block is now cleared (we successfully held).
+        blocked_insufficient_credit: undefined,
         retried_at: new Date().toISOString(),
         retry_count: Number(meta.retry_count || 0) + 1,
         // Reset auto-resubmit counter so the row gets a fresh full

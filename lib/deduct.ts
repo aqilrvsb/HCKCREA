@@ -158,6 +158,107 @@ export async function priceAndCheck(
   return { rate, hasFunds: credits >= rate, plan, credits };
 }
 
+// Best-effort DeductReason for a history row (tab / type / duration). Mirrors
+// the mapping settle.ts uses at deduct time so a reserve ledgers under the same
+// reason the eventual charge would. Only used for the credit_transactions
+// label — the money moved is `amount`, which is authoritative.
+export function reasonForRow(row: {
+  tab?: string | null;
+  type?: string | null;
+  duration?: number | string | null;
+}): DeductReason {
+  const tab = String(row.tab || "");
+  const type = String(row.type || "");
+  if (tab === "image" || type === "image" || type === "fairytale-scene") return "image_generate";
+  if (tab === "template-body") return "template_body";
+  if (tab === "cinema" || tab === "original-video") return "cinema";
+  if (tab === "seedance") return "seedance";
+  if (Number(row.duration) === 16) return "video_16s";
+  return "video_8s";
+}
+
+// RESERVE credit at FIRE time (atomic, no-overdraw). Returns true when the
+// amount was successfully held (balance was >= amount), false when the client
+// can't afford it. This is the LOCK that stops a bulk "Resubmit all" from
+// firing more videos than the balance covers: each row reserves its own cost
+// atomically, so once the balance runs out further reserves return false and
+// those rows are blocked — even across independent HTTP calls / cron ticks /
+// settle events (the atomicity is in the DB, not in-process).
+//
+// Lifecycle: reserve once per row (lazily, on the first retry), hold it across
+// retry attempts, then resolve at the terminal state —
+//   • terminal SUCCESS → the reserve IS the charge (settle skips its deduct)
+//   • terminal FAILURE → refundReserved() releases it
+// Net: exactly one charge on eventual success, zero on eventual failure.
+export async function reserveCredit(
+  userId: string,
+  reason: DeductReason,
+  amount: number,
+  historyId?: string
+): Promise<boolean> {
+  if (!(amount > 0)) return true; // nothing to charge → treat as reserved
+  const admin = createAdminClient();
+  const { data: ok, error } = await admin.rpc("try_charge_credit", {
+    p_user_id: userId,
+    p_amount: amount,
+  });
+  if (error) {
+    // Fail CLOSED — if we can't confirm the reserve, don't fire (better to
+    // block a retry than risk an uncharged generation). Surface for logs.
+    console.error("[reserveCredit] try_charge_credit RPC failed:", error.message);
+    return false;
+  }
+  if (!ok) return false; // insufficient balance → blocked
+
+  // Ledger the reserve as a charge. Read-after for balance_after (best-effort).
+  const { data: prof } = await admin
+    .from("profiles")
+    .select("credits")
+    .eq("id", userId)
+    .maybeSingle();
+  const after = Number(prof?.credits ?? 0);
+  await admin.from("credit_transactions").insert({
+    user_id: userId,
+    amount: -amount,
+    balance_after: after,
+    reason,
+    history_id: historyId || null,
+    metadata: { rate: amount, reserved: true },
+  });
+  return true;
+}
+
+// REFUND a held reserve when a reserved retry ultimately fails (no video
+// produced). Adds the credit back and ledgers a positive txn so the row's
+// reserve nets to zero. reason mirrors the original charge; the positive
+// amount + metadata.refund flag distinguish it in reports.
+export async function refundReserved(
+  userId: string,
+  reason: DeductReason,
+  amount: number,
+  historyId?: string
+): Promise<void> {
+  if (!(amount > 0)) return;
+  const admin = createAdminClient();
+  const { data: newBalance, error } = await admin.rpc("refund_credit", {
+    p_user_id: userId,
+    p_amount: amount,
+  });
+  if (error) {
+    console.error("[refundReserved] refund_credit RPC failed:", error.message);
+    return;
+  }
+  const after = Number(newBalance ?? 0);
+  await admin.from("credit_transactions").insert({
+    user_id: userId,
+    amount: amount,
+    balance_after: after,
+    reason,
+    history_id: historyId || null,
+    metadata: { rate: amount, refund: true, reserved_release: true },
+  });
+}
+
 export async function deduct(
   userId: string,
   reason: DeductReason,

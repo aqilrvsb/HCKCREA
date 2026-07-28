@@ -11,7 +11,7 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { p2GetStatus, p2CreateTask } from "@/lib/p2";
 import { getP2Config } from "@/lib/settings";
-import { deduct, priceFor, hasEnoughCredits, type PriceModelHint } from "@/lib/deduct";
+import { deduct, priceFor, reserveCredit, refundReserved, reasonForRow, type PriceModelHint } from "@/lib/deduct";
 import { onSegmentSettled } from "@/lib/segment-chain";
 import { generateUgcPostMeta } from "@/lib/ugc-post-meta";
 import { uploadFromUrlToContent, buildKey, type StorageType } from "@/lib/b2";
@@ -487,22 +487,34 @@ async function tryAutoRetry(
   const dynamicCap = await getDynamicRetryCap(cascadeAsset);
   if (retryCount >= dynamicCap) return false;
 
-  // CREDIT GATE — a fallback retry that succeeds deducts the row's cost at
-  // settle. Don't re-fire when the client can no longer afford it; mark the row
-  // so they see why (top up to resume). Mirrors the auto-resubmit cron + the
-  // manual/bulk Resubmit route. No-op when cost is unknown (0).
+  // RESERVE-AT-FIRE (the credit lock) — a fallback retry that succeeds is paid
+  // by the reserve held here, NOT a settle deduct. Atomically HOLD the row's
+  // cost before firing; if the client can't afford it, mark the row (top up to
+  // resume) and don't fire. The caller (settle failure branch) has already
+  // refunded + cleared any reserve from the just-failed attempt, so we reserve
+  // fresh here (per-attempt lifecycle). Mirrors the cron + manual route. No-op
+  // when cost is unknown (0).
   const retryCost = Number(hist.cost || 0);
-  if (retryCost > 0 && !(await hasEnoughCredits(hist.user_id, retryCost))) {
-    await admin
-      .from("history")
-      .update({
-        error_message: "Baki kredit tak cukup untuk jana semula video ni. Top up untuk sambung.",
-        metadata: { ...meta, blocked_insufficient_credit: true, blocked_credit_at: new Date().toISOString() },
-      })
-      .eq("id", hist.id)
-      .eq("status", "failed");
-    return false;
+  const priorReserved = Number(meta.credit_reserved || 0);
+  let reservedNow = 0;
+  if (priorReserved <= 0 && retryCost > 0) {
+    const reserved = await reserveCredit(hist.user_id, reasonForRow(hist), retryCost, hist.id);
+    if (!reserved) {
+      await admin
+        .from("history")
+        .update({
+          error_message: "Baki kredit tak cukup untuk jana semula video ni. Top up untuk sambung.",
+          metadata: { ...meta, credit_reserved: undefined, blocked_insufficient_credit: true, blocked_credit_at: new Date().toISOString() },
+        })
+        .eq("id", hist.id)
+        .eq("status", "failed");
+      return false;
+    }
+    reservedNow = retryCost;
   }
+  // Amount now held against this row; settle resolves it (skip-deduct on
+  // success, refund on failure). Stamped into every metadata write below.
+  const heldReserve = reservedNow || priorReserved;
 
   // ATOMIC CLAIM — flip status from "failed" → "pending" before firing
   // the cascade. Guarantees only ONE retry path (event-driven settle,
@@ -518,6 +530,9 @@ async function tryAutoRetry(
       error_message: null,
       metadata: {
         ...meta,
+        // Carry the held reserve so settle resolves it (skip-deduct on
+        // success / refund on failure).
+        credit_reserved: heldReserve > 0 ? heldReserve : undefined,
         // Stamp who claimed (audit trail). Real metadata update happens
         // at the bottom once the cascade returns.
         last_retry_kind: "settle-claim",
@@ -667,10 +682,12 @@ async function tryAutoRetry(
     });
     tierLog = r.tierLog;
     if (!r.ok) {
-      // Cascade exhausted all tiers. Revert status to "failed" (was set
-      // to "pending" by the atomic claim above) + stamp tier_log so the
-      // user can see "tried p2, p1, p3 — all failed" instead of seeing
-      // an infinite pending spinner.
+      // Cascade exhausted all tiers. No task created → no settle coming, so
+      // release the reserve we held for this fire and clear the flag. Revert
+      // status to "failed" (was set to "pending" by the atomic claim above) +
+      // stamp tier_log so the user can see "tried p2, p1, p3 — all failed"
+      // instead of an infinite pending spinner.
+      if (heldReserve > 0) await refundReserved(hist.user_id, reasonForRow(hist), heldReserve, hist.id);
       await admin
         .from("history")
         .update({
@@ -678,6 +695,7 @@ async function tryAutoRetry(
           error_message: r.error.slice(0, 300),
           metadata: {
             ...meta,
+            credit_reserved: undefined,
             tier_log: tierLog,
             last_retry_error: r.error.slice(0, 300),
             last_retry_at: new Date().toISOString(),
@@ -746,10 +764,12 @@ async function tryAutoRetry(
     });
     tierLog = r.tierLog;
     if (!r.ok) {
-      // Cascade exhausted all fallback tiers. Revert status from "pending"
-      // (set by the atomic claim above) back to "failed" so the row shows
-      // as failed in the UI — otherwise the user would see a spinner
-      // forever. Also stamp tier_log + error_message for diagnostics.
+      // Cascade exhausted all fallback tiers. No task created → no settle
+      // coming, so release the reserve we held for this fire and clear the
+      // flag. Revert status from "pending" (set by the atomic claim above)
+      // back to "failed" so the row shows as failed in the UI — otherwise the
+      // user would see a spinner forever. Stamp tier_log + error for diagnostics.
+      if (heldReserve > 0) await refundReserved(hist.user_id, reasonForRow(hist), heldReserve, hist.id);
       await admin
         .from("history")
         .update({
@@ -757,6 +777,7 @@ async function tryAutoRetry(
           error_message: r.error.slice(0, 300),
           metadata: {
             ...meta,
+            credit_reserved: undefined,
             tier_log: tierLog,
             last_retry_error: r.error.slice(0, 300),
             last_retry_at: new Date().toISOString(),
@@ -797,6 +818,8 @@ async function tryAutoRetry(
         model: newModel,
         fallback_used: fallbackUsed,
         tier_log: tierLog,
+        // Carry the held reserve into the pending row; settle resolves it.
+        credit_reserved: heldReserve > 0 ? heldReserve : undefined,
         retried_at: new Date().toISOString(),
         retry_count: retryCount + 1,
         last_retry_error: errMsg.slice(0, 200),
@@ -1001,6 +1024,17 @@ export async function settleHistoryRow(hist: HistoryRow): Promise<SettleResult> 
     // (seen under bulk "Resubmit all"). The .eq("status","pending") gate means
     // only the FIRST pass flips the row + charges; the loser matches 0 rows and
     // returns without deducting.
+    // If this row was RESERVED at fire time (a retry through the reserve-at-fire
+    // lock), the credit was ALREADY charged when the reserve was held — the
+    // settle must NOT deduct again, or it would double-charge. Use the reserved
+    // amount as the row's recorded cost, skip the deduct, and clear the flag.
+    const reservedHold = Number((hist.metadata as any)?.credit_reserved || 0);
+    const finalCost = reservedHold > 0 ? reservedHold : chargeAmount;
+    const clearedMeta =
+      reservedHold > 0
+        ? (() => { const m = { ...((hist.metadata as any) || {}) }; delete m.credit_reserved; return m; })()
+        : undefined;
+
     const { data: claimedDone } = await admin
       .from("history")
       .update({
@@ -1009,7 +1043,9 @@ export async function settleHistoryRow(hist: HistoryRow): Promise<SettleResult> 
         thumbnail_url: hist.type === "video" ? r.outputUrl : null,
         // Persist the actual charged amount so admin reports show what
         // the user was billed (not the stale insert-time estimate).
-        cost: chargeAmount,
+        cost: finalCost,
+        // Clear the reserve flag on a reserved row now that it's charged.
+        ...(clearedMeta ? { metadata: clearedMeta } : {}),
         // Wipe any stale error text the row picked up before recovery
         // (e.g. "Stale — exceeded 10m without resolution").
         error_message: null,
@@ -1025,7 +1061,9 @@ export async function settleHistoryRow(hist: HistoryRow): Promise<SettleResult> 
       return { state: "settled", status: "done", outputUrl: r.outputUrl };
     }
 
-    if (chargeAmount > 0) {
+    // Reserved rows were already paid at fire time — skip the deduct. Only
+    // charge-at-settle rows (first-attempt generations) deduct here.
+    if (reservedHold <= 0 && chargeAmount > 0) {
       await deduct(hist.user_id, reason as any, chargeAmount, hist.id);
     }
 
@@ -1085,6 +1123,22 @@ export async function settleHistoryRow(hist: HistoryRow): Promise<SettleResult> 
       .eq("id", hist.id);
     hist.status = "failed";
     hist.error_message = errMsg;
+
+    // RESERVE RELEASE — this attempt failed, so refund the credit reserved for
+    // it and clear the flag (both DB and in-memory hist, so tryAutoRetry below
+    // reserves FRESH for the next attempt rather than seeing a stale hold).
+    // Per-attempt lifecycle: every reserve is released at its own attempt's
+    // failure and re-held for the next, so a reserve is never stranded — and if
+    // the row is NOT auto-retryable (permanent error, no tryAutoRetry), this is
+    // the terminal release that makes the client whole.
+    const failReserved = Number((hist.metadata as any)?.credit_reserved || 0);
+    if (failReserved > 0) {
+      await refundReserved(hist.user_id, reasonForRow(hist), failReserved, hist.id);
+      const m = { ...((hist.metadata as any) || {}) };
+      delete m.credit_reserved;
+      hist.metadata = m as any;
+      await admin.from("history").update({ metadata: m }).eq("id", hist.id);
+    }
 
     // EVENT-DRIVEN AUTO-RETRY: when a task fails, immediately fire a
     // fresh retry through the FALLBACK cascade pool — no waiting for the

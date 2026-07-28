@@ -14,7 +14,7 @@ import {
 } from "@/lib/cascade-rotation";
 import { isInternalError } from "@/lib/retry-eligibility";
 import { recoverFlaggedImage } from "@/lib/flagged-image";
-import { hasEnoughCredits } from "@/lib/deduct";
+import { reserveCredit, refundReserved, reasonForRow } from "@/lib/deduct";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -148,27 +148,22 @@ export async function GET(req: Request) {
     const meta = (row.metadata || {}) as Record<string, any>;
     const autoCount = Number(meta.auto_resubmit_count || 0);
 
-    // CREDIT GATE — credit is charged at settle-SUCCESS (a failed row was never
-    // charged). So a retry that succeeds WILL deduct the row's cost. If the
-    // client's balance is now below that cost, DON'T re-fire: leave it failed
-    // rather than generate a video they can't pay for (per user direction). Uses
-    // the per-row cost stamped at insert; when cost is unknown (0) the gate is a
-    // no-op so legacy rows still retry.
+    // CREDIT LOCK — enforced at FIRE time (reserve-at-fire), not here. Each
+    // branch below atomically HOLDS the row's cost right before it fires the
+    // cascade; if the client can't afford it the reserve fails and the row is
+    // left failed + marked. Reserving at fire (not a read-only pre-check) is
+    // what caps a batch: 30 rows scanned in one tick can't collectively fire
+    // more than the balance covers. Shared helper for both branches:
     const estCost = Number(row.cost || 0);
-    if (estCost > 0 && !(await hasEnoughCredits(row.user_id, estCost))) {
-      summary.insufficient_credit += 1;
-      // MARK the row so the client sees WHY it stopped (top up to resume). This
-      // message isn't retryable, so the cron also stops re-scanning it each tick
-      // until the client tops up + Resubmits (which re-fires any failed row).
-      await admin
-        .from("history")
-        .update({
-          error_message: "Baki kredit tak cukup untuk jana semula video ni. Top up untuk sambung.",
-          metadata: { ...meta, blocked_insufficient_credit: true, blocked_credit_at: new Date().toISOString() },
-        })
-        .eq("id", row.id)
-        .eq("status", "failed");
-      continue;
+    const priorReserved = Number(meta.credit_reserved || 0);
+    // Returns { ok, held } — ok=false means insufficient (caller reverts +
+    // marks). Reserves ONCE; a reserve carried from a prior cycle is reused.
+    async function holdReserve(): Promise<{ ok: boolean; held: number; reservedNow: number }> {
+      if (priorReserved > 0) return { ok: true, held: priorReserved, reservedNow: 0 };
+      if (estCost <= 0) return { ok: true, held: 0, reservedNow: 0 };
+      const reserved = await reserveCredit(row.user_id, reasonForRow(row), estCost, row.id);
+      if (!reserved) return { ok: false, held: 0, reservedNow: 0 };
+      return { ok: true, held: estCost, reservedNow: estCost };
     }
 
     // ---- Template Body (Kling motion-control) ----------------------------
@@ -201,16 +196,30 @@ export async function GET(req: Request) {
       if (kClaimErr || !kClaimed || kClaimed.length === 0) { summary.ineligible += 1; continue; }
       summary.eligible += 1;
 
+      // RESERVE-AT-FIRE — hold the cost before the Kling fire.
+      const kHold = await holdReserve();
+      if (!kHold.ok) {
+        summary.insufficient_credit += 1;
+        await admin.from("history").update({
+          status: "failed",
+          error_message: "Baki kredit tak cukup untuk jana semula video ni. Top up untuk sambung.",
+          metadata: { ...meta, auto_resubmit_count: autoCount, blocked_insufficient_credit: true, blocked_credit_at: new Date().toISOString() },
+        }).eq("id", row.id);
+        continue;
+      }
+
       // Prefer the green-screened avatar we built at first generation so the
       // retry keeps the clean chroma-key background.
       const imageUrl = (meta.green_image_url as string) || (meta.image_url as string) || row.reference_url || "";
       const videoUrl = (meta.motion_url as string) || "";
       if (!imageUrl || !videoUrl) {
-        // The original refs are gone (e.g. B2 TTL) — can't re-fire. Revert.
+        // The original refs are gone (e.g. B2 TTL) — can't re-fire. Release the
+        // held reserve and revert.
+        if (kHold.held > 0) await refundReserved(row.user_id, reasonForRow(row), kHold.held, row.id);
         await admin.from("history").update({
           status: "failed",
           error_message: "Auto-resubmit skipped: motion/avatar reference missing",
-          metadata: { ...meta, auto_resubmit_count: autoCount + 1 },
+          metadata: { ...meta, credit_reserved: undefined, auto_resubmit_count: autoCount + 1 },
         }).eq("id", row.id);
         continue;
       }
@@ -226,11 +235,15 @@ export async function GET(req: Request) {
       });
 
       if (!kr.ok) {
+        // Create failed — no task, no settle will come. Release the held
+        // reserve so it isn't stranded, and clear the flag.
+        if (kHold.held > 0) await refundReserved(row.user_id, reasonForRow(row), kHold.held, row.id);
         await admin.from("history").update({
           status: "failed",
           error_message: kr.error || "Auto-resubmit failed",
           metadata: {
             ...meta,
+            credit_reserved: undefined,
             auto_resubmit_count: autoCount + 1,
             auto_resubmit_last_attempt_at: new Date().toISOString(),
             auto_resubmit_last_error: kr.error?.slice(0, 200),
@@ -246,6 +259,8 @@ export async function GET(req: Request) {
           provider: "kling",
           slot: kr.slot,
           tier_log: kr.tierLog,
+          // Carry the held reserve; settle resolves it (skip-deduct / refund).
+          credit_reserved: kHold.held > 0 ? kHold.held : undefined,
           retried_at: new Date().toISOString(),
           task_started_at: new Date().toISOString(),
           auto_resubmit_count: autoCount + 1,
@@ -328,6 +343,19 @@ export async function GET(req: Request) {
     }
     summary.eligible += 1;
 
+    // RESERVE-AT-FIRE — hold the cost before the video cascade fires. If the
+    // client can't afford it, revert the claim to failed + mark blocked.
+    const vHold = await holdReserve();
+    if (!vHold.ok) {
+      summary.insufficient_credit += 1;
+      await admin.from("history").update({
+        status: "failed",
+        error_message: "Baki kredit tak cukup untuk jana semula video ni. Top up untuk sambung.",
+        metadata: { ...meta, auto_resubmit_count: autoCount, blocked_insufficient_credit: true, blocked_credit_at: new Date().toISOString() },
+      }).eq("id", row.id);
+      continue;
+    }
+
     const refImage = row.reference_url || "";
     let allImageUrls: string[] = Array.isArray(meta.image_urls) && meta.image_urls.length > 0
       ? meta.image_urls.filter((u: any) => typeof u === "string" && u.trim())
@@ -403,9 +431,10 @@ export async function GET(req: Request) {
     });
 
     if (!r.ok) {
-      // Cascade failed — revert status back to failed so the user
-      // sees the Resubmit button again. Stamp the auto-error so we
-      // don't loop forever on the same broken upstream.
+      // Cascade failed — no task was created, so no settle will come. Release
+      // the held reserve so it isn't stranded, and clear the flag. Revert
+      // status back to failed so the user sees the Resubmit button again.
+      if (vHold.held > 0) await refundReserved(row.user_id, reasonForRow(row), vHold.held, row.id);
       await admin
         .from("history")
         .update({
@@ -413,6 +442,7 @@ export async function GET(req: Request) {
           error_message: r.error || "Auto-resubmit failed",
           metadata: {
             ...meta,
+            credit_reserved: undefined,
             auto_resubmit_count: autoCount + 1,
             auto_resubmit_last_attempt_at: new Date().toISOString(),
             auto_resubmit_last_error: r.error?.slice(0, 200),
@@ -437,6 +467,8 @@ export async function GET(req: Request) {
           model: r.actualModel,
           fallback_used: r.fallbackUsed,
           tier_log: r.tierLog,
+          // Carry the held reserve; settle resolves it (skip-deduct / refund).
+          credit_reserved: vHold.held > 0 ? vHold.held : undefined,
           retried_at: new Date().toISOString(),
           task_started_at: new Date().toISOString(),
           auto_resubmit_count: autoCount + 1,
