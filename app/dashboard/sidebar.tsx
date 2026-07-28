@@ -639,13 +639,12 @@ export default function Sidebar({
             ...(planActive && (plan === "pro" || plan === "premium")
               ? [{ kind: "credit" as const, label: "Top Up Credit", Icon: Wallet }]
               : []),
-            // Affiliate nav — same Pro/Premium gate. AFFILIATE_TIERS
-            // in lib/plans.ts is the source of truth; sidebar mirrors
-            // it inline to avoid pulling the constant into a server
-            // boundary unnecessarily.
-            ...(planActive && (plan === "pro" || plan === "premium")
-              ? [{ kind: "affiliate" as const, label: "Affiliate", Icon: Users }]
-              : []),
+            // Affiliate nav HIDDEN for ALL users (incl. the NL team, whose
+            // managed users are on premium and would otherwise see it) per user
+            // direction. Re-enable by restoring the Pro/Premium gate below.
+            // ...(planActive && (plan === "pro" || plan === "premium")
+            //   ? [{ kind: "affiliate" as const, label: "Affiliate", Icon: Users }]
+            //   : []),
             // Reporting Affiliate — only when Affiliate mode is toggled on in
             // Settings. Account-level (not per project) because a transfer is
             // recorded against the USER, so the report covers all projects.
@@ -670,13 +669,9 @@ export default function Sidebar({
           ]
         ).map(({ kind, label, Icon }) => {
           const isActive = view.kind === kind;
-          // Affiliate row gets a soft pulse glow to draw attention to the
-          // referral program. Pauses on hover (via CSS) so user interaction
-          // state stays visible. Pause also when the row is the active
-          // view — the orange active highlight + the gold pulse would
-          // fight each other visually.
-          const isAffiliate = kind === "affiliate";
-          const shineClass = isAffiliate && !isActive ? "sidebar-affiliate-shine" : "";
+          // (Affiliate row's pulse-glow removed with the Affiliate nav — no
+          // account row currently needs the shine.)
+          const shineClass = "";
           return (
             <button
               key={kind}
