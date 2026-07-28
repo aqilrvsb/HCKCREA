@@ -171,9 +171,9 @@ export default function CheckoutForm() {
             Pilih plan
           </label>
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-            {/* Starter + Standard retired from sale (2026-07-28) — only
-                Pro / Premium / Livehost are purchasable. */}
-            {PLAN_KEYS.filter((k) => k !== "starter" && k !== "standard").map((key) => {
+            {/* Starter + Standard + Livehost retired from the public plan
+                selector (2026-07-28) — only Pro / Premium are purchasable here. */}
+            {PLAN_KEYS.filter((k) => k === "pro" || k === "premium").map((key) => {
               const p = PLAN_DEFAULTS[key];
               const active = selectedPlan === key;
               const highlight = key === BEST_SELLER;

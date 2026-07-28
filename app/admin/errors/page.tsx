@@ -75,16 +75,18 @@ export default function AdminErrors() {
   const [cron, setCron] = useState<CronInfo>(null);
   const [loading, setLoading] = useState(true);
   const [fetchedAt, setFetchedAt] = useState<string>("");
+  // Default to ALL TIME (empty range) — an errors feed should surface every
+  // failed row, not just today's. Admin can still narrow with the presets.
   const [activeRange, setActiveRange] = useState<{ start: string; end: string }>({
-    start: localDateStr(),
-    end: localDateStr(),
+    start: "",
+    end: "",
   });
   // Bulk delete state — set of selected row ids.
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [deleting, setDeleting] = useState(false);
 
-  const [start, setStart] = useState(localDateStr());
-  const [end, setEnd] = useState(localDateStr());
+  const [start, setStart] = useState("");
+  const [end, setEnd] = useState("");
   const [search, setSearch] = useState("");
   const [kindFilter, setKindFilter] = useState<"all" | "video" | "image">("all");
   // Per-row resubmit state: "idle" | "loading" | "done" | error message.
@@ -545,6 +547,7 @@ export default function AdminErrors() {
         {/* Quick preset buttons */}
         <div className="flex gap-1">
           {[
+            { label: "All", days: -3 }, // sentinel: clear range → all-time
             { label: "Today", days: 0 },
             { label: "Yesterday", days: -2 }, // sentinel: special handling below
             { label: "7d", days: 6 },
@@ -554,7 +557,11 @@ export default function AdminErrors() {
               key={p.label}
               onClick={() => {
                 const today = localDateStr();
-                if (p.days === -1) {
+                if (p.days === -3) {
+                  // All time — clear the range so the API returns every error.
+                  setStart("");
+                  setEnd("");
+                } else if (p.days === -1) {
                   // Month-to-date — first of current month → today
                   setStart(startOfMonthLocal());
                   setEnd(today);
@@ -638,12 +645,16 @@ export default function AdminErrors() {
           <b style={{ color: "var(--color-text-primary)" }}> {rows.length}</b> rows
         </span>
         <span>·</span>
-        <span>
-          From <b style={{ color: "var(--color-text-primary)" }}>{activeRange.start}</b>
-          {" → "}
-          <b style={{ color: "var(--color-text-primary)" }}>{activeRange.end}</b>{" "}
-          (MYT)
-        </span>
+        {activeRange.start || activeRange.end ? (
+          <span>
+            From <b style={{ color: "var(--color-text-primary)" }}>{activeRange.start || "…"}</b>
+            {" → "}
+            <b style={{ color: "var(--color-text-primary)" }}>{activeRange.end || "…"}</b>{" "}
+            (MYT)
+          </span>
+        ) : (
+          <span><b style={{ color: "var(--color-text-primary)" }}>All time</b></span>
+        )}
         {fetchedAt && (
           <>
             <span>·</span>

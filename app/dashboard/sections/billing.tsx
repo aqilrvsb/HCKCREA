@@ -151,7 +151,8 @@ export default function BillingSection({ initialPlan }: { initialPlan?: string }
             />
           </div>
 
-          {/* Livehost — separate package option */}
+          {/* Livehost card hidden from Billing per user direction 2026-07-28
+              (separate package, sold elsewhere). Re-enable by uncommenting.
           <div>
             <h3 className="font-display font-extrabold text-2xl tracking-tight mb-5">
               Or go Livehost
@@ -164,6 +165,7 @@ export default function BillingSection({ initialPlan }: { initialPlan?: string }
               onSelect={() => handleSelect(LIVEHOST)}
             />
           </div>
+          */}
         </>
       )}
 
