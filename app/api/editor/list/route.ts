@@ -22,7 +22,10 @@ export async function GET(req: Request) {
     .from("history")
     .select("id, type, tab, status, output_url, thumbnail_url, reference_url, duration, caption, metadata, created_at")
     .eq("user_id", user.id)
-    .eq("type", "video")
+    // All transferable video types — Auto Content / Auto UGC are
+    // type="auto-content", Clone is "clone", Storytelling is "fairytale".
+    // The old type="video" filter hid every non-Dialog-UGC clip from the Editor.
+    .in("type", ["video", "auto-content", "clone", "fairytale"])
     .filter("metadata->>in_editor", "eq", "true");
   if (projectId) q = q.eq("project_id", projectId);
   const { data } = await q.order("created_at", { ascending: false }).limit(500);

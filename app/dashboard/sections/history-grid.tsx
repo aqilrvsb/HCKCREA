@@ -453,10 +453,17 @@ export default function HistoryGrid({
           .not("metadata->>affiliate_submitted", "eq", "true");
       } else if (donePostMode) {
         // Done Post grid — videos already auto-posted to TikTok (any tab).
-        q = q.eq("type", "video").eq("posted_to_tiktok", true);
+        // Match ALL video-producing types (not just "video"): Auto Content +
+        // Auto UGC rows are type="auto-content", Clone is "clone", Storytelling
+        // is "fairytale" — the same set the card's isVideo gate + Transfer
+        // button use. Filtering to only "video" hid every non-Dialog-UGC clip.
+        q = q.in("type", ["video", "auto-content", "clone", "fairytale"]).eq("posted_to_tiktok", true);
       } else if (editorMode) {
-        // Editor grid — the videos transferred here from ANY tab.
-        q = q.eq("type", "video").filter("metadata->>in_editor", "eq", "true");
+        // Editor grid — the videos transferred here from ANY tab. Must accept
+        // every transferable video type, not just "video": Auto Content /
+        // Auto UGC rows are type="auto-content", so the old type="video" filter
+        // dropped them and the Editor looked empty after transferring one.
+        q = q.in("type", ["video", "auto-content", "clone", "fairytale"]).filter("metadata->>in_editor", "eq", "true");
       } else {
         q = q.eq("tab", dbTab);
       }
