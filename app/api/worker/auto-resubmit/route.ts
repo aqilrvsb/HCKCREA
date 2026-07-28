@@ -14,6 +14,7 @@ import {
 } from "@/lib/cascade-rotation";
 import { isInternalError } from "@/lib/retry-eligibility";
 import { recoverFlaggedImage } from "@/lib/flagged-image";
+import { hasEnoughCredits } from "@/lib/deduct";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -124,6 +125,7 @@ export async function GET(req: Request) {
     resubmitted: 0,
     exhausted: 0,
     ineligible: 0,
+    insufficient_credit: 0,
     hidden_skipped: hiddenSkipped,
   };
 
@@ -145,6 +147,18 @@ export async function GET(req: Request) {
     }
     const meta = (row.metadata || {}) as Record<string, any>;
     const autoCount = Number(meta.auto_resubmit_count || 0);
+
+    // CREDIT GATE — credit is charged at settle-SUCCESS (a failed row was never
+    // charged). So a retry that succeeds WILL deduct the row's cost. If the
+    // client's balance is now below that cost, DON'T re-fire: leave it failed
+    // rather than generate a video they can't pay for (per user direction). Uses
+    // the per-row cost stamped at insert; when cost is unknown (0) the gate is a
+    // no-op so legacy rows still retry.
+    const estCost = Number(row.cost || 0);
+    if (estCost > 0 && !(await hasEnoughCredits(row.user_id, estCost))) {
+      summary.insufficient_credit += 1;
+      continue;
+    }
 
     // ---- Template Body (Kling motion-control) ----------------------------
     // Kling rows re-fire through their OWN cascade (klingCreateWithCascade),
