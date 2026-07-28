@@ -66,15 +66,20 @@ const RETRYABLE_ERROR_PATTERNS: RegExp[] = [
   /cue validator/i,
   /#\/validators\./i,
   /validation failed.*invalid value/i,
-  // 5. (REMOVED 2026-06-30 per user direction) Safety / content-filter
-  //    rejections — e.g. "attempt1: Detected explicit content in the
-  //    prompt. Please modify your prompt and try again." — are NO LONGER
-  //    retryable. This is a PROMPT-content problem: re-firing the same
-  //    prompt (even on another slot) won't fix it, the user must edit the
-  //    prompt. So it is excluded from auto-resubmit, event-driven retry,
-  //    the fallback cascade, AND the admin Errors feed. (Patterns removed:
-  //    /detected explicit content/, /content filter|moderation/,
-  //    /safety classifier blocked/.)
+  // 5. Safety / content-filter rejections — "Detected explicit content in the
+  //    prompt" + "NSFW moderation service is unavailable". RE-ENABLED
+  //    2026-07-28. These were removed 2026-06-30 as "permanent prompt problems"
+  //    (user must edit the prompt), but that was WRONG for Veo/APIPod: the
+  //    classifier is FLAKY per request/key. Verified empirically — the EXACT
+  //    rows that failed with "Detected explicit content" (incl. the detailed
+  //    hijab/woman prompts) COMPLETE fine on a direct retry of the identical
+  //    prompt, and the service also emits "NSFW moderation service is
+  //    unavailable" (a transient outage, not a content verdict). So re-firing /
+  //    rotating slots reliably recovers — matching the ORIGINAL 2026-06-08
+  //    rationale. Retryable again across the fallback cascade, event-driven
+  //    retry, and the auto-resubmit cron.
+  /detected explicit content/i,
+  /nsfw moderation service is unavailable/i,
   // 6. Generic provider transient failure — the task WAS accepted (a
   //    task_id was created) then the provider failed the generation
   //    DOWNSTREAM and returned a "... please try again later" message that
