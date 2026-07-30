@@ -156,10 +156,11 @@ export default function StoryboardMode({ projectId }: { projectId?: string }) {
   }
 
   // Save the current form as a reusable preset. Beg Kuning link present →
-  // Beg Kuning Product; empty → Tiada Link Product. Needs name+detail+3 imgs.
+  // Beg Kuning Product; empty → Tiada Link Product. Needs name+detail+≥1 img
+  // (only the FIRST attachment is required; the other two slots are optional).
   async function saveProduct() {
     const imgs = pImgs.filter(Boolean);
-    if (imgs.length < 3) { setSavedMsg("Upload 3 attachment dulu."); return; }
+    if (imgs.length < 1) { setSavedMsg("Upload sekurang-kurangnya 1 attachment dulu."); return; }
     if (!pName.trim() || !pDetail.trim()) { setSavedMsg("Isi Product Name + Detail Product dulu."); return; }
     setSaving(true);
     setSavedMsg(null);
@@ -324,7 +325,7 @@ export default function StoryboardMode({ projectId }: { projectId?: string }) {
         <label className="block text-[9px] font-bold uppercase tracking-wider mb-1 text-[var(--color-text-muted)]">Link Beg Kuning <span style={{ color: "var(--color-text-muted)" }}>(optional)</span></label>
         <input type="url" value={pLink} onChange={(e) => setPLink(e.target.value)} placeholder="https://www.tiktok.com/... (kosongkan = Tiada Link Product)" className="w-full p-2 rounded text-xs outline-none mb-2 text-[var(--color-text-primary)]" style={{ background: "var(--color-bg)", border: "1px solid var(--color-border)" }} />
 
-        {/* 3 attachment slots + Save Info Product */}
+        {/* Attachment slots — only slot 1 is required; slots 2 & 3 optional. */}
         <div className="flex items-stretch gap-2 mt-1">
           <div className="flex gap-1.5">
             {[0, 1, 2].map((i) => {
@@ -333,7 +334,7 @@ export default function StoryboardMode({ projectId }: { projectId?: string }) {
                 <div key={i} className="relative w-[52px] h-[52px] rounded-lg overflow-hidden flex-shrink-0" style={{ border: `2px dashed ${url ? "transparent" : `${THEME}88`}`, background: url ? "#000" : "var(--color-bg)" }}>
                   <label className="w-full h-full flex items-center justify-center cursor-pointer">
                     <input type="file" accept="image/*" className="hidden" disabled={slotUploading === i} onChange={(e) => { const f = e.target.files?.[0]; e.currentTarget.value = ""; if (f) void uploadSlot(i, f); }} />
-                    {slotUploading === i ? <Loader2 className="w-4 h-4 animate-spin" style={{ color: THEME }} /> : url ? <img src={url} className="w-full h-full object-cover" alt="" onError={() => clearInvalidSlot(i)} /> : <span className="text-[11px] font-bold" style={{ color: THEME }}>{i + 1}</span>}
+                    {slotUploading === i ? <Loader2 className="w-4 h-4 animate-spin" style={{ color: THEME }} /> : url ? <img src={url} className="w-full h-full object-cover" alt="" onError={() => clearInvalidSlot(i)} /> : <span className="text-[10px] font-bold leading-tight text-center" style={{ color: THEME }}>{i === 0 ? "1" : "opt"}</span>}
                   </label>
                   {url && (
                     <button type="button" onClick={() => removeSlot(i)} className="absolute top-0 right-0 w-4 h-4 rounded-bl bg-black/70 text-white text-[10px] flex items-center justify-center" title="Buang gambar ni">×</button>
@@ -349,7 +350,7 @@ export default function StoryboardMode({ projectId }: { projectId?: string }) {
         {savedMsg && (
           <div className="text-[11px] mt-1.5 font-semibold" style={{ color: savedMsg.startsWith("✓") ? "#16a34a" : "#dc2626" }}>{savedMsg}</div>
         )}
-        <p className="text-[10px] text-[var(--color-text-muted)] mt-1.5">Upload 3 attachment produk (dijadikan rujukan visual gpt-image-2). Isi Link Beg Kuning → simpan sebagai Beg Kuning Product; kosongkan → Tiada Link Product.</p>
+        <p className="text-[10px] text-[var(--color-text-muted)] mt-1.5">Upload minimum 1 attachment produk (wajib) — 2 lagi optional (lagi banyak angle = rujukan visual gpt-image-2 lebih tepat). Isi Link Beg Kuning → simpan sebagai Beg Kuning Product; kosongkan → Tiada Link Product.</p>
         {/* Make the reference budget visible BEFORE generating. Products loaded
             from the extension arrive with only 1 photo, and 1 angle is a much
             weaker identity lock than 3 — the client should see that and can
