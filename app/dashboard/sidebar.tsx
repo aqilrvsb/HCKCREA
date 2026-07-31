@@ -16,6 +16,7 @@ import {
   Loader2,
   CreditCard,
   Users,
+  UserPlus,
   Activity,
   BarChart3,
   Bookmark,
@@ -43,6 +44,9 @@ export type SidebarView =
   | { kind: "billing" }
   | { kind: "credit" }
   | { kind: "affiliate" }
+  // List Affiliate — manage the affiliate roster (add by NL Staff ID / import).
+  // Sibling of Reporting Affiliate; both under ACCOUNT, gated by Affiliate mode.
+  | { kind: "affiliate-list" }
   // Reporting Affiliate lives under ACCOUNT, not the project tabs: transfers
   // are recorded per USER, so the report spans every project.
   | { kind: "affiliate-report" }
@@ -645,11 +649,15 @@ export default function Sidebar({
             // ...(planActive && (plan === "pro" || plan === "premium")
             //   ? [{ kind: "affiliate" as const, label: "Affiliate", Icon: Users }]
             //   : []),
-            // Reporting Affiliate — only when Affiliate mode is toggled on in
-            // Settings. Account-level (not per project) because a transfer is
-            // recorded against the USER, so the report covers all projects.
+            // List Affiliate + Reporting Affiliate — only when Affiliate mode is
+            // toggled on in Settings. Account-level (not per project) because a
+            // transfer is recorded against the USER, so both span all projects.
+            // List = manage the roster; Reporting = the transfer accounting view.
             ...(affiliateMode
-              ? [{ kind: "affiliate-report" as const, label: "Reporting Affiliate", Icon: BarChart3 }]
+              ? [
+                  { kind: "affiliate-list" as const, label: "List Affiliate", Icon: UserPlus },
+                  { kind: "affiliate-report" as const, label: "Reporting Affiliate", Icon: BarChart3 },
+                ]
               : []),
             // Manage Users — only for allowlisted reseller accounts (nl team).
             ...(canMngUsers

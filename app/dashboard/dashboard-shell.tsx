@@ -37,6 +37,7 @@ import SettingsSection from "./sections/settings";
 import DashboardOverview from "./sections/dashboard-overview";
 import SavedPromptsSection from "./sections/saved-prompts";
 import AffiliateReport from "./sections/affiliate-report";
+import AffiliateRoster from "./sections/affiliate-roster";
 import ManageUsersSection from "./sections/manage-users";
 import { canManageUsers, isManagedTeamMember } from "@/lib/manage-users";
 import StorageSection from "./sections/storage";
@@ -460,6 +461,17 @@ export default function DashboardShell({
                   onGotoBilling={() => setView({ kind: "billing" })}
                 />
               )}
+            </SectionWrap>
+          )}
+          {view.kind === "affiliate-list" && (
+            <SectionWrap>
+              <div className="mb-4">
+                <h2 className="text-lg font-semibold text-white">List Affiliate</h2>
+                <p className="text-xs text-white/45">
+                  Urus senarai affiliate — tambah ikut ID Staff (AFL-###) atau import dari NL Affiliate Army.
+                </p>
+              </div>
+              <AffiliateRoster />
             </SectionWrap>
           )}
           {view.kind === "affiliate-report" && (

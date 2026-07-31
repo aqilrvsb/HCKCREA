@@ -1520,7 +1520,7 @@ export default function HistoryGrid({
             <button onClick={() => void affSubmit()} disabled={dpBusy || dpSel.size === 0 || !edAffPick} className="text-xs font-extrabold px-4 py-1.5 rounded-lg text-white disabled:opacity-50 inline-flex items-center gap-1.5" style={{ background: "linear-gradient(135deg,#16a34a,#22c55e)" }}>{dpBusy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />} Submit ({dpSel.size})</button>
             <button onClick={() => void affUndo()} disabled={dpBusy || dpSel.size === 0} className="text-xs font-extrabold px-4 py-1.5 rounded-lg text-white disabled:opacity-50 inline-flex items-center gap-1.5" style={{ background: "linear-gradient(135deg,#7c3aed,#a78bfa)" }}>{dpBusy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Undo2 className="w-4 h-4" />} Undo Transfer</button>
           </div>
-          <p className="text-[10px] text-[var(--color-text-muted)] mt-1.5"><b>Pilih affiliate</b> dari dropdown → tick video → <b>Submit</b> untuk hantar ke akaun affiliate itu (bulk). Lepas submit ia pindah ke <b>Reporting Affiliate</b>. Atau <b>Undo Transfer</b> balik ke Editor.{edAffContacts.length === 0 && " (Tiada affiliate lagi — tambah di Settings → Affiliate.)"}</p>
+          <p className="text-[10px] text-[var(--color-text-muted)] mt-1.5"><b>Pilih affiliate</b> dari dropdown → tick video → <b>Submit</b> untuk hantar ke akaun affiliate itu (bulk). Lepas submit ia pindah ke <b>Reporting Affiliate</b>. Atau <b>Undo Transfer</b> balik ke Editor.{edAffContacts.length === 0 && " (Tiada affiliate lagi — tambah di tab List Affiliate.)"}</p>
         </div>
       )}
 
