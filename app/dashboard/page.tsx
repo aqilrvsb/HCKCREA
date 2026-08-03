@@ -3,7 +3,8 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { isPlanKey, isLivehost } from "@/lib/plans";
 import { canManageUsers } from "@/lib/manage-users";
-import { partnerGroupForClient, partnerSettingsKey, type PartnerConfig } from "@/lib/partners";
+import { partnerGroupForClient, partnerSettingsKey, isPartnerManager, type PartnerConfig } from "@/lib/partners";
+import PartnerConsole from "./partner-console";
 import DashboardShell from "./dashboard-shell";
 import LivehostDashboard from "./livehost-dashboard";
 import ExpiredBilling from "./expired-billing";
@@ -66,6 +67,14 @@ export default async function DashboardPage() {
   const isManager = canManageUsers(user.email);
   if (!planActive && !isAdmin && !isManager) {
     return <ExpiredBilling name={name} plan={plan} planExpiresAt={planExpiresAt} />;
+  }
+
+  // PARTNER MANAGER (e.g. HQNL) — a management-only account. Bypass the client
+  // generation dashboard entirely: no projects, no generation tabs, no Billing.
+  // They land on Partner Settings and can also open Manage Users. Only partner
+  // teams (not plain resellers like nl@gmail.com) get this restricted console.
+  if (isPartnerManager(user.email)) {
+    return <PartnerConsole name={name} />;
   }
 
   // PARTNER tab gate — if this client belongs to a partner (e.g. HQNL), load
