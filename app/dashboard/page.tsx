@@ -74,7 +74,7 @@ export default async function DashboardPage() {
   // They land on Partner Settings and can also open Manage Users. Only partner
   // teams (not plain resellers like nl@gmail.com) get this restricted console.
   if (isPartnerManager(user.email)) {
-    return <PartnerConsole name={name} />;
+    return <PartnerConsole name={name} email={user.email || ""} />;
   }
 
   // PARTNER tab gate — if this client belongs to a partner (e.g. HQNL), load
