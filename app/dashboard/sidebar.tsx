@@ -17,6 +17,7 @@ import {
   CreditCard,
   Users,
   UserPlus,
+  SlidersHorizontal,
   Activity,
   BarChart3,
   Bookmark,
@@ -52,6 +53,9 @@ export type SidebarView =
   | { kind: "affiliate-report" }
   // Manage Users — scoped reseller "Add/Edit User" for the allowlisted team.
   | { kind: "manage-users" }
+  // Partner Settings — a PARTNER manager (e.g. HQNL) controls its clients'
+  // visible tabs + per-model pricing (floored at the admin base rate).
+  | { kind: "partner-settings" }
   | { kind: "usage" }
   | { kind: "saved-prompts" }
   | { kind: "storage" }
@@ -84,6 +88,7 @@ export default function Sidebar({
   isAffiliate = false,
   affiliateMode = false,
   canManageUsers: canMngUsers = false,
+  isPartner = false,
   hideBilling = false,
 }: {
   email: string;
@@ -107,6 +112,8 @@ export default function Sidebar({
   affiliateMode?: boolean;
   /** Allowlisted reseller — shows the Manage Users nav. */
   canManageUsers?: boolean;
+  /** Partner MANAGER (e.g. HQNL) — shows the Partner Settings nav. */
+  isPartner?: boolean;
   /** Hide the subscription/Billing nav (reseller-team accounts: nl@gmail.com +
    *  the users it created). Everyone else sees it. */
   hideBilling?: boolean;
@@ -662,6 +669,11 @@ export default function Sidebar({
             // Manage Users — only for allowlisted reseller accounts (nl team).
             ...(canMngUsers
               ? [{ kind: "manage-users" as const, label: "Manage Users", Icon: Users }]
+              : []),
+            // Partner Settings — only for a PARTNER manager (e.g. HQNL): control
+            // its clients' visible tabs + per-model pricing.
+            ...(isPartner
+              ? [{ kind: "partner-settings" as const, label: "Partner Settings", Icon: SlidersHorizontal }]
               : []),
             { kind: "usage" as const, label: "Usage", Icon: Activity },
             // Saved Prompts hidden — per-tab agents now persist their

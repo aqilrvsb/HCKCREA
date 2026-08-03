@@ -40,6 +40,8 @@ import AffiliateReport from "./sections/affiliate-report";
 import AffiliateRoster from "./sections/affiliate-roster";
 import ManageUsersSection from "./sections/manage-users";
 import { canManageUsers, isManagedTeamMember } from "@/lib/manage-users";
+import { isPartnerManager } from "@/lib/partners";
+import PartnerSettings from "./sections/partner-settings";
 import StorageSection from "./sections/storage";
 import AttachmentsSection from "./sections/attachments";
 import ActivityFeed from "./sections/activity-feed";
@@ -134,6 +136,7 @@ export default function DashboardShell({
   planActive,
   planExpiresAt,
   isAffiliate = false,
+  partnerVisibleTabs = null,
 }: {
   email: string;
   name: string;
@@ -148,6 +151,9 @@ export default function DashboardShell({
    *  Used to swap the sidebar's WhatsApp join link to the affiliate-only
    *  group. */
   isAffiliate?: boolean;
+  /** For a PARTNER's client (e.g. HQNL's): the project-tab keys the partner
+   *  allows. null = no restriction (show all). Server-resolved in page.tsx. */
+  partnerVisibleTabs?: string[] | null;
 }) {
   const [projects, setProjects] = useState<Project[]>([]);
   const [projectLimit, setProjectLimit] = useState(4);
@@ -184,7 +190,15 @@ export default function DashboardShell({
       } catch { /* keep defaults */ }
     })();
   }, [email]);
-  const visibleTabs = canAutoUgc ? TABS : TABS.filter((t) => t.key !== "auto-ugc");
+  // Base gate (Auto UGC), then the PARTNER allow-list (HQNL clients only see the
+  // project tabs their partner ticked). null/empty = no restriction.
+  const visibleTabs = (() => {
+    const base = canAutoUgc ? TABS : TABS.filter((t) => t.key !== "auto-ugc");
+    if (partnerVisibleTabs && partnerVisibleTabs.length > 0) {
+      return base.filter((t) => partnerVisibleTabs.includes(t.key));
+    }
+    return base;
+  })();
 
   // Live credit balance — initialised from the server-rendered prop, then
   // refreshed via /api/me/credits. Triggers:
@@ -321,6 +335,7 @@ export default function DashboardShell({
           isAffiliate={isAffiliate}
           affiliateMode={affEnabled}
           canManageUsers={canManageUsers(email)}
+          isPartner={isPartnerManager(email)}
           hideBilling={hideBilling}
           projects={projects}
           projectLimit={projectLimit}
@@ -493,6 +508,17 @@ export default function DashboardShell({
                 <p className="text-xs text-white/45">Tambah &amp; edit user (Premium 1 tahun). Senarai dikongsi antara team anda.</p>
               </div>
               <ManageUsersSection />
+            </SectionWrap>
+          )}
+          {view.kind === "partner-settings" && isPartnerManager(email) && (
+            <SectionWrap>
+              <div className="mb-4">
+                <h2 className="text-lg font-semibold text-white">Partner Settings</h2>
+                <p className="text-xs text-white/45">
+                  Kawal tab yang client anda nampak + harga per-model (tak boleh lebih rendah dari harga asas admin).
+                </p>
+              </div>
+              <PartnerSettings />
             </SectionWrap>
           )}
           {view.kind === "usage" && (

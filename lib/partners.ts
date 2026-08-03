@@ -37,6 +37,22 @@ export type PartnerConfig = {
   rates?: Partial<Record<PartnerRateModel, number>>;
 };
 
+// The PROJECT tabs a partner may show/hide for its clients (mirrors the TABS
+// array in app/dashboard/dashboard-shell.tsx — keys must match TabKey). Only
+// these project tabs are partner-gated; ACCOUNT nav (Usage, etc.) is not, and
+// Billing stays hidden for partner clients regardless. Keep in sync with TABS.
+export const PARTNER_TABS: { key: string; label: string }[] = [
+  { key: "image", label: "Image" },
+  { key: "video", label: "Dialog UGC" },
+  { key: "original-video", label: "Original Video" },
+  { key: "auto", label: "Auto Content" },
+  { key: "auto-ugc", label: "Auto UGC" },
+  { key: "editor", label: "Editor" },
+  { key: "done-post", label: "Done Post" },
+  { key: "transfer-affiliate", label: "Ready Affiliate" },
+];
+export const PARTNER_TAB_KEYS = PARTNER_TABS.map((t) => t.key);
+
 export function isPartnerGroup(group?: string | null): group is PartnerGroup {
   return !!group && (PARTNER_TEAMS as readonly string[]).includes(group);
 }
