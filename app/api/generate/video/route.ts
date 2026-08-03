@@ -1,4 +1,5 @@
 import { NextResponse, after } from "next/server";
+import { isTabAllowedForUser } from "@/lib/partner-tab-gate";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { priceFor } from "@/lib/deduct";
@@ -21,6 +22,9 @@ export async function POST(req: Request) {
   const { data: { session } } = await sb.auth.getSession();
   const user = session?.user;
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (!(await isTabAllowedForUser(user.id, "video"))) {
+    return NextResponse.json({ error: "Tab ini tidak tersedia untuk akaun anda." }, { status: 403 });
+  }
 
   const body = await req.json().catch(() => ({}));
   // UGC tab is DIALOG-ONLY: the client writes just the spoken line; the

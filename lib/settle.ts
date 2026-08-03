@@ -1029,7 +1029,20 @@ export async function settleHistoryRow(hist: HistoryRow): Promise<SettleResult> 
     // settle must NOT deduct again, or it would double-charge. Use the reserved
     // amount as the row's recorded cost, skip the deduct, and clear the flag.
     const reservedHold = Number((hist.metadata as any)?.credit_reserved || 0);
-    const finalCost = reservedHold > 0 ? reservedHold : chargeAmount;
+    let finalCost = reservedHold > 0 ? reservedHold : chargeAmount;
+    // PARTNER top-up — a reserved retry held the base insert-estimate, so its
+    // markup wasn't captured at reserve time. If this client is a PARTNER's
+    // client and the partner (settle) rate is higher than what was reserved,
+    // charge the delta below so the full partner rate is billed. Non-partner
+    // reserved rows are untouched (they keep charging exactly what was held).
+    let partnerTopUp = 0;
+    if (reservedHold > 0 && chargeAmount > reservedHold) {
+      const { clientPartnerGroup } = await import("@/lib/partner-rates");
+      if (await clientPartnerGroup(hist.user_id)) {
+        partnerTopUp = Number((chargeAmount - reservedHold).toFixed(4));
+        finalCost = chargeAmount;
+      }
+    }
     const clearedMeta =
       reservedHold > 0
         ? (() => { const m = { ...((hist.metadata as any) || {}) }; delete m.credit_reserved; return m; })()
@@ -1062,9 +1075,12 @@ export async function settleHistoryRow(hist: HistoryRow): Promise<SettleResult> 
     }
 
     // Reserved rows were already paid at fire time — skip the deduct. Only
-    // charge-at-settle rows (first-attempt generations) deduct here.
+    // charge-at-settle rows (first-attempt generations) deduct the full amount;
+    // reserved PARTNER rows deduct just the markup delta (partnerTopUp).
     if (reservedHold <= 0 && chargeAmount > 0) {
       await deduct(hist.user_id, reason as any, chargeAmount, hist.id);
+    } else if (partnerTopUp > 0) {
+      await deduct(hist.user_id, reason as any, partnerTopUp, hist.id);
     }
 
     // Auto-rehost the freshly-produced output to our peninglab-content B2

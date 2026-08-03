@@ -1,4 +1,5 @@
 import { NextResponse, after } from "next/server";
+import { isTabAllowedForUser } from "@/lib/partner-tab-gate";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { orChat, orChatVision } from "@/lib/openrouter";
@@ -43,6 +44,9 @@ export async function POST(req: Request) {
   const { data: { session } } = await sb.auth.getSession();
   const user = session?.user;
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (!(await isTabAllowedForUser(user.id, "auto-ugc"))) {
+    return NextResponse.json({ error: "Tab ini tidak tersedia untuk akaun anda." }, { status: 403 });
+  }
   // Auto UGC opened to every signed-in account per user direction
   // 2026-07-06 (pilot allowlist removed). Plan/credit gating below still
   // applies as usual.

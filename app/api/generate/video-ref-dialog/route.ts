@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { isTabAllowedForUser } from "@/lib/partner-tab-gate";
 import { createClient } from "@/lib/supabase/server";
 import { orChat } from "@/lib/openrouter";
 
@@ -20,6 +21,9 @@ export async function POST(req: Request) {
     data: { user },
   } = await sb.auth.getUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (!(await isTabAllowedForUser(user.id, "video"))) {
+    return NextResponse.json({ error: "Tab ini tidak tersedia untuk akaun anda." }, { status: 403 });
+  }
 
   const body = await req.json().catch(() => ({}));
   const productName = String(body?.product_name || "").trim();
