@@ -36,7 +36,17 @@ export async function GET() {
     .eq("key", partnerSettingsKey(group))
     .maybeSingle();
   const cfg = (data?.value || {}) as PartnerConfig;
-  return NextResponse.json({ ok: true, group, config: cfg, tabKeys: PARTNER_TAB_KEYS });
+  // baseRates = the admin floor per model, so the UI can show + enforce it.
+  const { adminBaseRates } = await import("@/lib/partner-rates");
+  const baseRates = await adminBaseRates();
+  return NextResponse.json({
+    ok: true,
+    group,
+    config: cfg,
+    tabKeys: PARTNER_TAB_KEYS,
+    rateModels: PARTNER_RATE_MODELS,
+    baseRates,
+  });
 }
 
 export async function POST(req: Request) {

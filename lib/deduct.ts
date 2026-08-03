@@ -45,7 +45,27 @@ export type PriceModelHint =
 // (rate_banana_pro / rate_gpt_image / rate_veo / rate_grok / rate_seedance)
 // take priority when the caller passes a model hint. Without a hint,
 // falls back to plan-tier rates so existing call sites stay correct.
+//
+// PARTNER pricing: if the user is a partner's client (e.g. HQNL's) AND a model
+// hint is known, the partner's per-model rate applies — clamped to never go
+// below this base rate (applyPartnerRate does the Math.max). This is the single
+// choke point for the authoritative settle charge, so a partner client always
+// deducts at the partner's marked-up rate, never below the platform floor.
 export async function priceFor(
+  userId: string,
+  reason: DeductReason,
+  modelHint?: PriceModelHint
+): Promise<number> {
+  const base = await basePriceFor(userId, reason, modelHint);
+  // Only per-model-hinted charges can carry a partner markup (rates are per
+  // model). No hint (plan-tier path) → returns base unchanged.
+  if (!modelHint) return base;
+  const { clientPartnerGroup, applyPartnerRate } = await import("@/lib/partner-rates");
+  const group = await clientPartnerGroup(userId);
+  return applyPartnerRate(group, modelHint as any, base);
+}
+
+async function basePriceFor(
   userId: string,
   reason: DeductReason,
   modelHint?: PriceModelHint

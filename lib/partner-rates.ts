@@ -17,12 +17,22 @@ import {
   getGeminiRate,
   getSetting,
 } from "@/lib/settings";
+import { createAdminClient } from "@/lib/supabase/admin";
 import {
   isPartnerGroup,
   partnerSettingsKey,
   type PartnerConfig,
   type PartnerRateModel,
 } from "@/lib/partners";
+
+/** The partner group a CLIENT belongs to (from profiles.settings.managed_group),
+ *  or null. One small profile read; used by priceFor to apply partner pricing. */
+export async function clientPartnerGroup(userId: string): Promise<string | null> {
+  const admin = createAdminClient();
+  const { data } = await admin.from("profiles").select("settings").eq("id", userId).maybeSingle();
+  const g = (data?.settings as any)?.managed_group as string | undefined;
+  return isPartnerGroup(g) ? (g as string) : null;
+}
 
 /** The platform BASE rate per model — the floor. */
 export async function adminBaseRates(): Promise<Record<PartnerRateModel, number>> {
