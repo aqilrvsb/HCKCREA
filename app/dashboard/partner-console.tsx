@@ -13,7 +13,7 @@ import { createClient } from "@/lib/supabase/client";
 import { Sparkles, SlidersHorizontal, Users, Activity, LogOut } from "lucide-react";
 import PartnerSettings from "./sections/partner-settings";
 import ManageUsersSection from "./sections/manage-users";
-import UsageSection from "./sections/usage";
+import PartnerUsage from "./sections/partner-usage";
 
 type Tab = "partner-settings" | "manage-users" | "usage";
 
@@ -143,9 +143,9 @@ export default function PartnerConsole({ name, email }: { name: string; email: s
             <div className="mx-auto w-full max-w-5xl">
               <div className="mb-4">
                 <h2 className="text-lg font-semibold text-white">Usage</h2>
-                <p className="text-xs text-white/45">Penggunaan &amp; kos generation.</p>
+                <p className="text-xs text-white/45">Penggunaan &amp; kos generation — semua client anda.</p>
               </div>
-              <UsageSection email={email} />
+              <PartnerUsage />
             </div>
           )}
         </main>
