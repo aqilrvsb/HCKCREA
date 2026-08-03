@@ -20,7 +20,6 @@ const RATE_META: { key: string; label: string; unit: string }[] = [
   { key: "veo", label: "Veo (video)", unit: "/ 8s" },
   { key: "grok", label: "Grok Imagine (video)", unit: "/ saat" },
   { key: "seedance", label: "Seedance (video)", unit: "/ saat" },
-  { key: "sora2", label: "Sora 2 (video)", unit: "/ saat" },
   { key: "gemini", label: "GeminiOmni (video)", unit: "/ 10s" },
 ];
 
