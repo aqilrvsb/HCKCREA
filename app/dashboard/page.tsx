@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { isPlanKey, isLivehost } from "@/lib/plans";
+import { canManageUsers } from "@/lib/manage-users";
 import DashboardShell from "./dashboard-shell";
 import LivehostDashboard from "./livehost-dashboard";
 import ExpiredBilling from "./expired-billing";
@@ -55,8 +56,14 @@ export default async function DashboardPage() {
   // or never subscribed) can log in but reaches ONLY the Billing surface so they
   // can self-renew (Pro/Premium) — no projects / generation tabs (per user
   // direction 2026-07-28). Admins are exempt. Session stays alive.
+  //
+  // MANAGERS/PARTNERS (nl@gmail.com, hqnl@gmail.com — canManageUsers) are also
+  // exempt: they're provisioned as management accounts, not self-subscribing
+  // clients, so they must always reach their Manage Users / Partner console even
+  // without an active plan of their own.
   const isAdmin = !!profile?.is_admin;
-  if (!planActive && !isAdmin) {
+  const isManager = canManageUsers(user.email);
+  if (!planActive && !isAdmin && !isManager) {
     return <ExpiredBilling name={name} plan={plan} planExpiresAt={planExpiresAt} />;
   }
 

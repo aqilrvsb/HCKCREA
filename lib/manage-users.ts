@@ -7,8 +7,13 @@
 // see every user tagged with their team's group (settings.managed_group).
 // nl@gmail.com is the manager; nl2@gmail.com and madnl@gmail.com are USERS it
 // manages (tagged managed_group="nl-team"), not managers themselves.
+//
+// hqnl-team is a PARTNER team (see lib/partners.ts) — a superset of a plain
+// reseller: on top of creating 1-year billing-less clients, HQNL also controls
+// its clients' visible tabs + per-model pricing (floored at the admin base).
 export const MANAGE_USERS_TEAMS: Record<string, string[]> = {
   "nl-team": ["nl@gmail.com"],
+  "hqnl-team": ["hqnl@gmail.com"],
 };
 
 const norm = (e?: string | null) => String(e || "").trim().toLowerCase();
