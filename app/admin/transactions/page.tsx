@@ -11,6 +11,7 @@ import {
   Loader2,
   MessageCircle,
   FileText,
+  Receipt,
   Phone,
   Mail,
   Send,
@@ -489,6 +490,20 @@ export default function AdminTransactions() {
                     </td>
                     <td className="px-4 py-3 text-right">
                       <div className="inline-flex items-center gap-1.5 justify-end">
+                        {/* Invoice (PDF) — only for PAID transactions. Opens a clean
+                            printable invoice the admin can Save-as-PDF + send to the client. */}
+                        {p.status === "paid" && (
+                          <a
+                            href={`/invoice/${p.id}`}
+                            target="_blank"
+                            rel="noreferrer"
+                            title="Invois (lihat / muat turun PDF)"
+                            aria-label="Invois"
+                            className="inline-flex items-center justify-center w-8 h-8 rounded-lg bg-white border border-[var(--color-border)] hover:border-amber-300 text-[var(--color-text-secondary)]"
+                          >
+                            <Receipt className="w-4 h-4" />
+                          </a>
+                        )}
                         {/* Recheck — for any non-paid txn with a Chip purchase id (covers pending + failed) */}
                         {p.chip_purchase_id && p.status !== "paid" && (
                           <button
