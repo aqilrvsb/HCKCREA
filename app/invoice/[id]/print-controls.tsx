@@ -2,9 +2,16 @@
 
 // Print / download controls for the invoice page. "Download PDF" opens the
 // browser print dialog → the admin picks "Save as PDF". Hidden when printing.
+// Also sets document.title so the Save-as-PDF filename is the invoice no. +
+// client name (browsers derive the default filename from the page title).
+import { useEffect } from "react";
 import { Printer, ArrowLeft } from "lucide-react";
 
-export default function PrintControls() {
+export default function PrintControls({ docTitle }: { docTitle?: string }) {
+  useEffect(() => {
+    if (docTitle) document.title = docTitle;
+  }, [docTitle]);
+
   return (
     <div className="no-print" style={{ display: "flex", gap: 10, justifyContent: "center", margin: "22px 0 8px" }}>
       <button

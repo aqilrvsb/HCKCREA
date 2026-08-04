@@ -163,9 +163,6 @@ export default async function InvoicePage({ params }: { params: Promise<{ id: st
             <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, color: "#6b7280", padding: "4px 0" }}>
               <span>Subtotal</span><span style={{ fontVariantNumeric: "tabular-nums" }}>{fmtMoney(amount)}</span>
             </div>
-            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, color: "#6b7280", padding: "4px 0" }}>
-              <span>Cukai (SST)</span><span>RM 0.00</span>
-            </div>
             <div style={{ height: 1, background: "#e5e7eb", margin: "8px 0" }} />
             <div style={{ display: "flex", justifyContent: "space-between", fontSize: 17, fontWeight: 800, padding: "2px 0" }}>
               <span>JUMLAH</span><span style={{ fontVariantNumeric: "tabular-nums" }}>{fmtMoney(amount)}</span>
@@ -183,7 +180,7 @@ export default async function InvoicePage({ params }: { params: Promise<{ id: st
         </div>
       </div>
 
-      <PrintControls />
+      <PrintControls docTitle={`Invois ${invNo} - ${buyerName}`} />
     </div>
   );
 }
