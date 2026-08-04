@@ -1,4 +1,5 @@
 import { NextResponse, after } from "next/server";
+import { isTabAllowedForUser } from "@/lib/partner-tab-gate";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { orChat } from "@/lib/openrouter";
@@ -31,6 +32,9 @@ export async function POST(req: Request) {
   const sb = await createClient();
   const { data: { user } } = await sb.auth.getUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (!(await isTabAllowedForUser(user.id, "storyboard"))) {
+    return NextResponse.json({ error: "Tab ini tidak tersedia untuk akaun anda." }, { status: 403 });
+  }
 
   const body = await req.json().catch(() => ({}));
   const historyId = String(body?.history_id || "").trim();

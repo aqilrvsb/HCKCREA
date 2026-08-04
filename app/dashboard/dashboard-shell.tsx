@@ -190,12 +190,23 @@ export default function DashboardShell({
       } catch { /* keep defaults */ }
     })();
   }, [email]);
+  // Partner sub-mode gating for the Image tab (image vs storyboard). null/empty
+  // partner list = no restriction → both allowed.
+  const partnerRestricted = !!(partnerVisibleTabs && partnerVisibleTabs.length > 0);
+  const allowImageMode = !partnerRestricted || partnerVisibleTabs!.includes("image");
+  const allowStoryboardMode = !partnerRestricted || partnerVisibleTabs!.includes("storyboard");
+
   // Base gate (Auto UGC), then the PARTNER allow-list (HQNL clients only see the
-  // project tabs their partner ticked). null/empty = no restriction.
+  // project tabs their partner ticked). The "image" tab row is shown when EITHER
+  // its Image or Storyboard sub-mode is allowed. null/empty = no restriction.
   const visibleTabs = (() => {
     const base = canAutoUgc ? TABS : TABS.filter((t) => t.key !== "auto-ugc");
-    if (partnerVisibleTabs && partnerVisibleTabs.length > 0) {
-      return base.filter((t) => partnerVisibleTabs.includes(t.key));
+    if (partnerRestricted) {
+      return base.filter((t) =>
+        t.key === "image"
+          ? allowImageMode || allowStoryboardMode
+          : partnerVisibleTabs!.includes(t.key)
+      );
     }
     return base;
   })();
@@ -422,6 +433,8 @@ export default function DashboardShell({
               onTabChange={setActiveTab}
               tabs={visibleTabs}
               canAutoUgc={canAutoUgc}
+              allowImageMode={allowImageMode}
+              allowStoryboardMode={allowStoryboardMode}
               planActive={planActive}
               planExpiresAt={planExpiresAt}
               onGotoBilling={() => setView({ kind: "billing" })}
@@ -594,6 +607,8 @@ function ProjectView({
   onTabChange,
   tabs,
   canAutoUgc,
+  allowImageMode = true,
+  allowStoryboardMode = true,
   planActive,
   planExpiresAt,
   onGotoBilling,
@@ -603,6 +618,8 @@ function ProjectView({
   onTabChange: (t: TabKey) => void;
   tabs: { key: TabKey; label: string; icon: any; tag: string }[];
   canAutoUgc: boolean;
+  allowImageMode?: boolean;
+  allowStoryboardMode?: boolean;
   planActive: boolean;
   planExpiresAt: string | null;
   onGotoBilling: () => void;
@@ -719,7 +736,7 @@ function ProjectView({
           {activeTab === "image" && (
             <>
               <div className="max-w-5xl mx-auto w-full">
-                <ImageTabWithMode projectId={project.id} />
+                <ImageTabWithMode projectId={project.id} allowImage={allowImageMode} allowStoryboard={allowStoryboardMode} />
               </div>
               <HistoryGrid tab="image" title={`Image — ${project.name}`} projectId={project.id} />
             </>

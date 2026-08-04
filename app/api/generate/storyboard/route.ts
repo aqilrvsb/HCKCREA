@@ -56,7 +56,7 @@ export async function POST(req: Request) {
   const sb = await createClient();
   const { data: { user } } = await sb.auth.getUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  if (!(await isTabAllowedForUser(user.id, "image"))) {
+  if (!(await isTabAllowedForUser(user.id, "storyboard"))) {
     return NextResponse.json({ error: "Tab ini tidak tersedia untuk akaun anda." }, { status: 403 });
   }
 

@@ -42,7 +42,11 @@ export type PartnerConfig = {
 // these project tabs are partner-gated; ACCOUNT nav (Usage, etc.) is not, and
 // Billing stays hidden for partner clients regardless. Keep in sync with TABS.
 export const PARTNER_TABS: { key: string; label: string }[] = [
-  { key: "image", label: "Image" },
+  { key: "image", label: "Image (biasa)" },
+  // "storyboard" is a SUB-MODE of the Image tab, not its own tab row. It's gated
+  // independently: the Image tab appears if image OR storyboard is allowed, and
+  // the in-tab Image/Storyboard toggle only shows the allowed modes.
+  { key: "storyboard", label: "Storyboard (Image)" },
   { key: "video", label: "Dialog UGC" },
   { key: "original-video", label: "Original Video" },
   { key: "auto", label: "Auto Content" },
