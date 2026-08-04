@@ -63,3 +63,6 @@ NL_LAB_UPGRADED_INSTRUCTIONS.md
 NL_LAB_vs_EXAMPLE_BENCHMARK.md
 PENINGLAB_GPT_INSTRUCTIONS.md
 __pycache__/
+
+# Confidential storyboard spec export (do NOT commit)
+storyboard-cards-export/
