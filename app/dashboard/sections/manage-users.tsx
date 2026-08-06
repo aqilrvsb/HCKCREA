@@ -5,7 +5,8 @@
 // and edit name/email/password of users the team created. No credit controls.
 
 import { useEffect, useState } from "react";
-import { Loader2, UserPlus, Pencil, Check } from "lucide-react";
+import { Loader2, UserPlus, Pencil, Check, LayoutGrid } from "lucide-react";
+import { PARTNER_TABS } from "@/lib/partners";
 
 // KL today as YYYY-MM-DD.
 function klToday(): string {
@@ -116,6 +117,7 @@ type ManagedUser = {
   is_active: boolean;
   created_at: string;
   created_by_email: string;
+  visible_tabs: string[] | null;
 };
 
 export default function ManageUsersSection() {
@@ -135,6 +137,36 @@ export default function ManageUsersSection() {
   const [eEmail, setEEmail] = useState("");
   const [ePass, setEPass] = useState("");
   const [savingEdit, setSavingEdit] = useState(false);
+
+  // Per-client tab picker
+  const [tabsId, setTabsId] = useState<string | null>(null);
+  const [tabsChecked, setTabsChecked] = useState<Set<string>>(new Set());
+  const [savingTabs, setSavingTabs] = useState(false);
+
+  function startTabs(u: ManagedUser) {
+    setTabsId(u.id);
+    // Default: current list if set, else ALL tabs (new clients see everything).
+    setTabsChecked(new Set(u.visible_tabs && u.visible_tabs.length > 0 ? u.visible_tabs : PARTNER_TABS.map((t) => t.key)));
+    setEditId(null); setMsg(null);
+  }
+  const toggleTab = (key: string) =>
+    setTabsChecked((s) => { const n = new Set(s); n.has(key) ? n.delete(key) : n.add(key); return n; });
+  async function saveTabs(id: string) {
+    if (tabsChecked.size === 0) { setMsg({ ok: false, text: "Pilih sekurang-kurangnya 1 tab." }); return; }
+    setSavingTabs(true); setMsg(null);
+    try {
+      const visible_tabs = PARTNER_TABS.map((t) => t.key).filter((k) => tabsChecked.has(k));
+      const r = await fetch("/api/manage-users/tabs", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ user_id: id, visible_tabs }),
+      });
+      const d = await r.json().catch(() => null);
+      if (!r.ok || !d?.ok) { setMsg({ ok: false, text: d?.error || "Gagal simpan tab." }); return; }
+      setMsg({ ok: true, text: "Tab client dikemaskini." });
+      setTabsId(null);
+      await load();
+    } finally { setSavingTabs(false); }
+  }
 
   async function load() {
     setLoading(true);
@@ -239,6 +271,26 @@ export default function ManageUsersSection() {
                       <button onClick={() => setEditId(null)} className="text-xs px-3 py-1.5 rounded-lg" style={{ border: "1px solid var(--color-border)", color: "var(--color-text-secondary)" }}>Batal</button>
                     </div>
                   </div>
+                ) : tabsId === u.id ? (
+                  <div className="space-y-2">
+                    <div className="text-[11px] font-bold text-[var(--color-text-secondary)]">Tab yang client ni boleh nampak</div>
+                    <div className="grid gap-1.5 sm:grid-cols-2">
+                      {PARTNER_TABS.map((t) => {
+                        const on = tabsChecked.has(t.key);
+                        return (
+                          <button key={t.key} onClick={() => toggleTab(t.key)} className="flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-left"
+                            style={{ border: `1px solid ${on ? "#8b5cf6" : "var(--color-border)"}`, background: on ? "rgba(139,92,246,0.10)" : "var(--color-bg-card)" }}>
+                            <span className="grid h-4 w-4 shrink-0 place-items-center rounded" style={{ background: on ? "#8b5cf6" : "transparent", border: on ? "none" : "1px solid var(--color-border)" }}>{on && <Check className="w-3 h-3 text-white" strokeWidth={3} />}</span>
+                            <span className={`text-[12px] font-semibold ${on ? "text-[var(--color-text-primary)]" : "text-[var(--color-text-muted)]"}`}>{t.label}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                    <div className="flex gap-2">
+                      <button onClick={() => void saveTabs(u.id)} disabled={savingTabs} className="btn-primary disabled:opacity-60 inline-flex items-center gap-1.5 text-xs px-3 py-1.5">{savingTabs ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />} Simpan Tab</button>
+                      <button onClick={() => setTabsId(null)} className="text-xs px-3 py-1.5 rounded-lg" style={{ border: "1px solid var(--color-border)", color: "var(--color-text-secondary)" }}>Batal</button>
+                    </div>
+                  </div>
                 ) : (
                   <div className="flex items-center gap-3">
                     <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full text-sm" style={{ background: "rgba(139,92,246,0.15)", color: "#a78bfa" }}>{(u.name || u.email || "?").slice(0, 1).toUpperCase()}</span>
@@ -250,6 +302,15 @@ export default function ManageUsersSection() {
                       <div className="text-[10px] font-bold px-2 py-0.5 rounded-full inline-block" style={{ background: u.is_active ? "rgba(34,197,94,0.15)" : "rgba(148,163,184,0.15)", color: u.is_active ? "#22c55e" : "#94a3b8" }}>{u.plan?.toUpperCase() || "—"}</div>
                       <div className="text-[10px] text-[var(--color-text-muted)] mt-0.5">Sah: {fmtDate(u.plan_expires_at)}</div>
                     </div>
+                    <button
+                      onClick={() => startTabs(u)}
+                      title={`Tab client — ${u.visible_tabs && u.visible_tabs.length > 0 ? `${u.visible_tabs.length} dibenarkan` : "semua tab"}`}
+                      className="shrink-0 inline-flex items-center gap-1 rounded-lg px-2 py-2 text-[10px] font-bold"
+                      style={{ border: "1px solid var(--color-border)", color: "#a78bfa" }}
+                    >
+                      <LayoutGrid className="w-3.5 h-3.5" />
+                      {u.visible_tabs && u.visible_tabs.length > 0 ? u.visible_tabs.length : "semua"}
+                    </button>
                     <button onClick={() => startEdit(u)} title="Edit" className="shrink-0 rounded-lg p-2" style={{ border: "1px solid var(--color-border)", color: "var(--color-text-secondary)" }}><Pencil className="w-3.5 h-3.5" /></button>
                   </div>
                 )}

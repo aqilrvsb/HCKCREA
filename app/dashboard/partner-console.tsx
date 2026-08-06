@@ -122,7 +122,7 @@ export default function PartnerConsole({ name, email }: { name: string; email: s
               <div className="mb-4">
                 <h2 className="text-lg font-semibold text-white">Partner Settings</h2>
                 <p className="text-xs text-white/45">
-                  Kawal tab yang client anda nampak + harga per-model (tak boleh lebih rendah dari harga asas admin).
+                  Harga per-model untuk client anda (tak boleh lebih rendah dari harga asas admin). Tab pula diset per-client di Manage Users.
                 </p>
               </div>
               <PartnerSettings />

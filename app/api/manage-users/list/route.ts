@@ -36,6 +36,9 @@ export async function GET() {
     is_active: p.is_active,
     created_at: p.created_at,
     created_by_email: p.settings?.created_by_email || "",
+    // Per-client visible project-tabs (null/[] = all tabs). Set via
+    // /api/manage-users/tabs; read by the client dashboard + the API gate.
+    visible_tabs: Array.isArray(p.settings?.visible_tabs) ? p.settings.visible_tabs : null,
   }));
   return NextResponse.json({ ok: true, users });
 }

@@ -3,7 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { isPlanKey, isLivehost } from "@/lib/plans";
 import { canManageUsers } from "@/lib/manage-users";
-import { partnerGroupForClient, partnerSettingsKey, isPartnerManager, type PartnerConfig } from "@/lib/partners";
+import { isPartnerManager } from "@/lib/partners";
 import PartnerConsole from "./partner-console";
 import DashboardShell from "./dashboard-shell";
 import LivehostDashboard from "./livehost-dashboard";
@@ -77,24 +77,13 @@ export default async function DashboardPage() {
     return <PartnerConsole name={name} email={user.email || ""} />;
   }
 
-  // PARTNER tab gate — if this client belongs to a partner (e.g. HQNL), load
-  // that partner's chosen visible project-tabs. Passed to the shell so the
-  // sidebar + body only show the allowed tabs. null = no restriction (partner
-  // hasn't configured, or the user isn't a partner's client) → all tabs.
-  let partnerVisibleTabs: string[] | null = null;
-  const managedGroup = (profile?.settings as any)?.managed_group as string | undefined;
-  const partnerGroup = partnerGroupForClient(managedGroup);
-  if (partnerGroup) {
-    const { data: pcfg } = await admin
-      .from("app_settings")
-      .select("value")
-      .eq("key", partnerSettingsKey(partnerGroup))
-      .maybeSingle();
-    const cfg = (pcfg?.value || {}) as PartnerConfig;
-    if (Array.isArray(cfg.visible_tabs) && cfg.visible_tabs.length > 0) {
-      partnerVisibleTabs = cfg.visible_tabs;
-    }
-  }
+  // PER-CLIENT tab gate — a client's own profiles.settings.visible_tabs (set by
+  // their partner/reseller in Manage Users) restricts which project-tabs they
+  // see. Passed to the shell so the sidebar + body honor it. null/empty = no
+  // restriction → all tabs (the default for a brand-new client).
+  const ownTabs = (profile?.settings as any)?.visible_tabs;
+  const partnerVisibleTabs: string[] | null =
+    Array.isArray(ownTabs) && ownTabs.length > 0 ? ownTabs : null;
 
   // Livehost is a SEPARATE package — render its own (blank) dashboard
   // instead of the generation studio. Billing inside it shows only the
