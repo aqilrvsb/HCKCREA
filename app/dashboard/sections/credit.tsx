@@ -70,7 +70,8 @@ export default function CreditSection({ credits }: { credits: number }) {
     try {
       const fd = new FormData();
       fd.append("file", file);
-      const r = await fetch("/api/upload/image", { method: "POST", body: fd });
+      // /api/upload/proof stores to B2 and accepts image OR PDF receipts.
+      const r = await fetch("/api/upload/proof", { method: "POST", body: fd });
       const d = await r.json();
       if (r.ok && d?.url) setProofUrl(String(d.url));
       else alert(d?.error || "Upload gagal");
@@ -437,13 +438,15 @@ export default function CreditSection({ credits }: { credits: number }) {
                 {uploading ? (
                   <><Loader2 className="w-4 h-4 animate-spin" /> Uploading…</>
                 ) : proofUrl ? (
-                  <span className="text-sm font-bold text-emerald-600">✓ Screenshot dimuat naik — tekan tukar untuk ganti</span>
+                  <span className="text-sm font-bold text-emerald-600">✓ Resit dimuat naik — tekan tukar untuk ganti</span>
                 ) : (
-                  <span className="text-sm font-semibold text-[var(--color-text-secondary)]">📷 Pilih screenshot resit transfer</span>
+                  <span className="text-sm font-semibold text-[var(--color-text-secondary)]">📷 Pilih screenshot / PDF resit transfer</span>
                 )}
-                <input type="file" accept="image/*" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) void uploadProof(f); }} />
+                <input type="file" accept="image/*,application/pdf" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) void uploadProof(f); }} />
               </label>
-              {proofUrl && <img src={proofUrl} alt="proof" className="mt-2 max-h-40 rounded-lg border border-[var(--color-border)]" />}
+              {proofUrl && (/\.pdf($|\?)/i.test(proofUrl)
+                ? <a href={proofUrl} target="_blank" rel="noreferrer" className="mt-2 inline-flex items-center gap-1.5 text-sm font-bold text-emerald-600 underline">📄 Lihat PDF resit</a>
+                : <img src={proofUrl} alt="proof" className="mt-2 max-h-40 rounded-lg border border-[var(--color-border)]" />)}
             </div>
 
             <button

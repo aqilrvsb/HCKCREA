@@ -219,7 +219,11 @@ export default function AdminTransactions() {
     <div>
       {proofZoom && (
         <div className="fixed inset-0 z-[200] flex items-center justify-center p-6" style={{ background: "rgba(0,0,0,0.85)" }} onClick={() => setProofZoom(null)}>
-          <img src={proofZoom} alt="proof" className="max-w-full max-h-full object-contain rounded-lg" />
+          {/\.pdf($|\?)/i.test(proofZoom) ? (
+            <iframe src={proofZoom} title="Resit PDF" className="w-[90vw] h-[90vh] rounded-lg bg-white" onClick={(e) => e.stopPropagation()} />
+          ) : (
+            <img src={proofZoom} alt="proof" className="max-w-full max-h-full object-contain rounded-lg" onClick={(e) => e.stopPropagation()} />
+          )}
         </div>
       )}
       <div className="mb-8">
