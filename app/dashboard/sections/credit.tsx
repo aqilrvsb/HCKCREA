@@ -10,6 +10,7 @@ import {
   Loader2,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
+import { manageUsersGroup } from "@/lib/manage-users";
 
 const PACKAGES = [
   { credits: 10, price: 10, label: "Starter pack" },
@@ -40,6 +41,8 @@ export default function CreditSection({ credits }: { credits: number }) {
   const [submitted, setSubmitted] = useState(false);
   const [showPay, setShowPay] = useState(false);
   const [qrZoom, setQrZoom] = useState(false); // enlarged QR modal
+  // Hide the invoice icon for the nl-team (nl@gmail.com + its managed clients).
+  const [hideInvoice, setHideInvoice] = useState(false);
 
   const pick = PACKAGES.find((p) => p.credits === selected) || PACKAGES[0];
 
@@ -112,6 +115,10 @@ export default function CreditSection({ credits }: { credits: number }) {
       data: { user },
     } = await sb.auth.getUser();
     if (!user) return;
+    // Hide the invoice icon for the nl-team (manager + managed clients).
+    const { data: prof } = await sb.from("profiles").select("settings").eq("id", user.id).maybeSingle();
+    const mg = (prof?.settings as any)?.managed_group;
+    setHideInvoice(manageUsersGroup(user.email) === "nl-team" || mg === "nl-team");
     const { data } = await sb
       .from("payments")
       .select("id,credits,amount,status,chip_purchase_id,created_at")
@@ -514,6 +521,20 @@ export default function CreditSection({ credits }: { credits: number }) {
                     );
                   })()}
                 </div>
+                {/* Invoice (PDF) — paid top-ups only, hidden for the nl-team. */}
+                {t.status === "paid" && !hideInvoice && (
+                  <a
+                    href={`/invoice/${t.id}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    title="Invois (lihat / muat turun PDF)"
+                    aria-label="Invois"
+                    className="inline-flex w-8 h-8 items-center justify-center rounded-lg flex-shrink-0"
+                    style={{ border: "1px solid var(--color-border)", color: "var(--color-text-secondary)" }}
+                  >
+                    <Receipt className="w-4 h-4" />
+                  </a>
+                )}
               </li>
             ))}
           </ul>

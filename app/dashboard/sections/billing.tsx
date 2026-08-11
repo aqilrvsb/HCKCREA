@@ -7,6 +7,7 @@ import CheckStatusButton from "./check-status-button";
 import PricingTiersGrid from "@/components/pricing-tiers-grid";
 import LivehostCard from "@/components/livehost-card";
 import { PLAN_DEFAULTS, isPlanKey, isLivehost, LIVEHOST, type PlanKey } from "@/lib/plans";
+import { manageUsersGroup } from "@/lib/manage-users";
 
 type TngInfo = { number: string; name: string; qr_url: string; configured: boolean };
 
@@ -41,6 +42,9 @@ export default function BillingSection({ initialPlan }: { initialPlan?: string }
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const [qrZoom, setQrZoom] = useState(false);
+  // Hide the client-facing invoice icon for the nl-team (nl@gmail.com + the
+  // clients it manages) — per user direction. Everyone else sees it.
+  const [hideInvoice, setHideInvoice] = useState(false);
 
   useEffect(() => {
     void loadProfile();
@@ -61,10 +65,12 @@ export default function BillingSection({ initialPlan }: { initialPlan?: string }
     if (!user) return;
     const { data } = await sb
       .from("profiles")
-      .select("plan, plan_expires_at")
+      .select("plan, plan_expires_at, settings")
       .eq("id", user.id)
       .single();
     if (data) {
+      const mg = (data.settings as any)?.managed_group;
+      setHideInvoice(manageUsersGroup(user.email) === "nl-team" || mg === "nl-team");
       setCurrentPlan(data.plan || "free");
       if (data.plan_expires_at) {
         setRenewalRaw(data.plan_expires_at);
@@ -302,6 +308,20 @@ export default function BillingSection({ initialPlan }: { initialPlan?: string }
                       })()
                     )}
                   </div>
+                  {/* Invoice (PDF) — paid rows only, hidden for the nl-team. */}
+                  {p.status === "paid" && !hideInvoice && (
+                    <a
+                      href={`/invoice/${p.id}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      title="Invois (lihat / muat turun PDF)"
+                      aria-label="Invois"
+                      className="inline-flex w-8 h-8 items-center justify-center rounded-lg flex-shrink-0"
+                      style={{ border: "1px solid var(--color-border)", color: "var(--color-text-secondary)" }}
+                    >
+                      <Receipt className="w-4 h-4" />
+                    </a>
+                  )}
                 </li>
               ))}
             </ul>

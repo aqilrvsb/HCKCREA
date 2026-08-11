@@ -38,14 +38,16 @@ export default async function InvoicePage({ params }: { params: Promise<{ id: st
   if (!user) redirect("/login");
   const admin = createAdminClient();
   const { data: me } = await admin.from("profiles").select("is_admin").eq("id", user.id).maybeSingle();
-  if (!me?.is_admin) redirect("/dashboard");
+  const isAdmin = !!me?.is_admin;
 
   const { data: payment } = await admin
     .from("payments")
     .select("id, user_id, type, plan, credits, amount, status, paid_at, created_at, metadata")
     .eq("id", id)
     .maybeSingle();
-  if (!payment) redirect("/admin/transactions");
+  if (!payment) redirect(isAdmin ? "/admin/transactions" : "/dashboard");
+  // The admin can view any invoice; a client may view ONLY their own.
+  if (!isAdmin && payment.user_id !== user.id) redirect("/dashboard");
 
   // Buyer details — profile + auth email (best-effort).
   let buyerName = "", buyerPhone = "", buyerEmail = "";
