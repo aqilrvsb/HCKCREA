@@ -192,6 +192,11 @@ const RETRYABLE_ERROR_PATTERNS: RegExp[] = [
   //     the admin Errors feed. Added per user direction 2026-06-30.
   /timed out after polling/i,
   /generation timed out/i,
+  // 13b. Auto UGC START-FRAME timeout — the pre-Grok image step ("Start-frame
+  //      gagal: p4 still pending after 90000ms") stalled on the image provider.
+  //      Transient (provider slow/stuck); a fresh fire regenerates the start
+  //      frame and continues. Added per user direction 2026-08-13.
+  /still pending after \d+\s*ms/i,
   // 14. Hard task timeout — the row exceeded the max wait window without
   //     the provider ever returning a result ("Task timeout after 1h0m0s").
   //     Same class as the poll timeout above: abandon the stuck task and
