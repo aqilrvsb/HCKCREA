@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { generateUgcStartFrame } from "@/lib/ugc-startframe";
+import { rehostToContent } from "@/lib/b2";
 import { generateVideoWithCascade } from "@/lib/video-cascade";
 import { getP2Config } from "@/lib/settings";
 
@@ -193,6 +194,16 @@ export async function GET(req: Request) {
         continue;
       }
 
+      // Rehost the regenerated frame to B2 so it never 404s on a later retry
+      // (the provider's host is ephemeral — see the generate route).
+      const frameUrl = await rehostToContent({
+        url: frame.url,
+        userId: row.user_id,
+        historyId: row.id,
+        type: "ugc",
+        fallbackExt: "png",
+      });
+
       const videoPrompt =
         (meta.dialog
           ? `${meta.video_prompt || ""}\nSpoken dialog (Malay): "${meta.dialog}"`
@@ -204,7 +215,7 @@ export async function GET(req: Request) {
         primaryModel: grokModel,
         prompt: videoPrompt,
         userId: row.user_id,
-        imageUrls: [frame.url],
+        imageUrls: [frameUrl],
         durationMode: String(row.duration || 15),
         aspectRatio,
         imageMode: "frame",
@@ -216,15 +227,15 @@ export async function GET(req: Request) {
           .from("history")
           .update({
             task_id: result.taskId,
-            reference_url: frame.url,
+            reference_url: frameUrl,
             status: "pending",
             error_message: null,
             metadata: {
               ...meta,
               startframe_attempts: attempts + 1,
               ugc_phase: "grok_firing",
-              image_urls: [frame.url],
-              startframe_url: frame.url,
+              image_urls: [frameUrl],
+              startframe_url: frameUrl,
               startframe_provider: frame.provider,
               model: result.actualModel || grokModel,
               provider: result.actualProvider,
@@ -240,14 +251,14 @@ export async function GET(req: Request) {
           .from("history")
           .update({
             status: "failed",
-            reference_url: frame.url,
+            reference_url: frameUrl,
             error_message: result.error,
             metadata: {
               ...meta,
               startframe_attempts: attempts + 1,
               ugc_phase: "grok_failed",
-              image_urls: [frame.url],
-              startframe_url: frame.url,
+              image_urls: [frameUrl],
+              startframe_url: frameUrl,
               tier_log: result.tierLog,
             },
           })

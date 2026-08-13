@@ -7,6 +7,7 @@ import { hasEnoughCredits } from "@/lib/deduct";
 import { getP2Config, getGrokRate } from "@/lib/settings";
 import { generateVideoWithCascade } from "@/lib/video-cascade";
 import { generateUgcStartFrame } from "@/lib/ugc-startframe";
+import { rehostToContent } from "@/lib/b2";
 import { splitDuration } from "@/lib/auto-ugc-segments";
 import { buildAutoUgcMasterPlan, type UgcPlan } from "@/lib/auto-ugc-master-plan";
 import { FRAMEWORKS } from "@/lib/auto-content-frameworks";
@@ -352,13 +353,22 @@ export async function POST(req: Request) {
           perTierTimeoutMs: 90_000,
         });
         if (base.ok) {
-          baseAvatarUrl = base.url;
+          // Rehost the base avatar to B2 too — it's persisted as the anchor for
+          // seg-1 frames + the recover worker, so it must outlive the provider's
+          // ephemeral host (same reason as the per-segment frame below).
+          baseAvatarUrl = await rehostToContent({
+            url: base.url,
+            userId: user.id,
+            historyId: `${jobs[0]?.rowId || user.id}-base`,
+            type: "ugc",
+            fallbackExt: "png",
+          });
           // Persist onto every row so the auto-ugc-recover worker can anchor
           // seg-1 frames if this after() dies before firing them.
           for (const j of jobs) {
             await admin
               .from("history")
-              .update({ metadata: await mergeMeta(admin, j.rowId, { base_avatar_url: base.url }) })
+              .update({ metadata: await mergeMeta(admin, j.rowId, { base_avatar_url: baseAvatarUrl }) })
               .eq("id", j.rowId);
           }
         } else {
@@ -410,6 +420,20 @@ export async function POST(req: Request) {
             return null;
           }
 
+          // Persist the start frame to OUR B2 bucket (like every other
+          // generation asset). The provider hands back an EPHEMERAL host URL
+          // (e.g. file8.aitohumanize.com) that 404s after a day or two — so a
+          // retry days later would send Grok a dead link ("Image URL could not
+          // be fetched"). Rehost immediately: Grok fires with the permanent B2
+          // URL, and it's the URL we store as reference_url for future retries.
+          const frameUrl = await rehostToContent({
+            url: frame.url,
+            userId: user.id,
+            historyId: job.rowId,
+            type: "ugc",
+            fallbackExt: "png",
+          });
+
           const videoPrompt =
             (job.dialog
               ? `${job.videoPrompt}\nSpoken dialog (Malay): "${job.dialog}"`
@@ -420,7 +444,7 @@ export async function POST(req: Request) {
             primaryModel: grokModel,
             prompt: videoPrompt,
             userId: user.id,
-            imageUrls: [frame.url],
+            imageUrls: [frameUrl],
             durationMode: String(job.segLen),
             aspectRatio,
             imageMode: "frame",
@@ -432,13 +456,13 @@ export async function POST(req: Request) {
               .from("history")
               .update({
                 task_id: result.taskId,
-                reference_url: frame.url,
+                reference_url: frameUrl,
                 status: "pending",
                 error_message: null,
                 metadata: await mergeMeta(admin, job.rowId, {
                   ugc_phase: "grok_firing",
-                  image_urls: [frame.url],
-                  startframe_url: frame.url,
+                  image_urls: [frameUrl],
+                  startframe_url: frameUrl,
                   startframe_provider: frame.provider,
                   model: result.actualModel || grokModel,
                   provider: result.actualProvider,
@@ -452,18 +476,18 @@ export async function POST(req: Request) {
               .from("history")
               .update({
                 status: "failed",
-                reference_url: frame.url,
+                reference_url: frameUrl,
                 error_message: result.error,
                 metadata: await mergeMeta(admin, job.rowId, {
                   ugc_phase: "grok_failed",
-                  image_urls: [frame.url],
-                  startframe_url: frame.url,
+                  image_urls: [frameUrl],
+                  startframe_url: frameUrl,
                   tier_log: result.tierLog,
                 }),
               })
               .eq("id", job.rowId);
           }
-          return frame.url;
+          return frameUrl;
         } catch (e: any) {
           await admin
             .from("history")
