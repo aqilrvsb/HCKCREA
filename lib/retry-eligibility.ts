@@ -102,6 +102,13 @@ const RETRYABLE_ERROR_PATTERNS: RegExp[] = [
   //     Added per user direction 2026-08-13.
   /upload failed[^\n]{0,40}internal error/i,
   /\bserver internal error\b/i,
+  // 6c. APIPod "Image URL could not be fetched" — the provider transiently
+  //     failed to pull the reference image (CDN/network hiccup, or a stale
+  //     request shape). The stored reference_url is valid, so a fresh fire
+  //     retrieves it. Without this the row sits failed forever. Added per user
+  //     direction 2026-08-13.
+  /image url could not be fetched/i,
+  /could not be fetched/i,
   // 7. PROVIDER-slot "Insufficient Credits" — the slot's UPSTREAM account
   //    (APIPod/Crun key) ran out of credits, so it rejects pre-queue (no
   //    task created). Each slot/key has its OWN balance, so rotating to a
