@@ -147,12 +147,16 @@ function apipodVideoModel(input: {
     return "sora-2-vip";
   }
 
-  // Grok Imagine 1.5 FAST — the fast route (per user direction 2026-08-13,
-  // switched from grok-imagine-1.5-preview). image_urls is an OPTIONAL array
-  // (up to 7); duration 6-30 (default 10); resolution 480p/720p (default 720p);
-  // aspect_ratio enum 1:1 / 9:16 / 16:9 / 3:2 / 2:3 (default 16:9). Any input
-  // model string matching "grok" maps here so all Grok callers stay wired.
+  // Grok Imagine 1.5. Default route is FAST (per user direction 2026-08-13):
+  // image_urls[] OPTIONAL (up to 7); duration 6-30 (default 10); 480p/720p.
+  // EXCEPTION — the Editor Frame-intro passes the explicit "…preview" id
+  // because it needs SHORT clips (1-4s) which fast rejects (<6s); that route
+  // keeps the singular mandatory image_url and duration 1-15.
   if (m.includes("grok")) {
+    // Editor's Frame-intro passes the explicit "…preview" id because it needs
+    // SHORT clips (1-4s), which the fast route rejects (<6s). Everything else
+    // (Auto UGC, Dialog UGC, etc.) uses fast.
+    if (m.includes("preview")) return "grok-imagine-1.5-preview";
     return "grok-imagine-1.5-fast";
   }
 
@@ -292,23 +296,32 @@ export async function p6CreateVideo(input: {
     // technically accepts 4 but we never send it.
     const reqDur = Number(input.durationMode);
     body.duration = reqDur === 12 ? 12 : 8;
-  } else if (resolvedModel === "grok-imagine-1.5-fast") {
-    // Grok Imagine 1.5 FAST — image_urls is an OPTIONAL array (up to 7); NOT
-    // the singular image_url the preview route used. Aspect_ratio enum
-    // 1:1 / 9:16 / 16:9 / 3:2 / 2:3 — clamp anything else to 16:9. Duration
-    // 6-30 (default 10) — the fast route HARD-rejects <6s with a 400
-    // '"video_length" must be between 6 and 30', so we floor at 6. Resolution
-    // 480p / 720p (default 720p).
+  } else if (resolvedModel === "grok-imagine-1.5-fast" || resolvedModel === "grok-imagine-1.5-preview") {
+    // Grok Imagine 1.5 — two routes share the aspect enum
+    // (1:1 / 9:16 / 16:9 / 3:2 / 2:3, clamp anything else to 16:9) but differ
+    // on image field + duration:
+    //   • PREVIEW (Editor Frame-intro only) — singular image_url MANDATORY,
+    //     duration 1-15, so short 1-4s intro clips are accepted.
+    //   • FAST (everything else) — image_urls[] OPTIONAL (up to 7), duration
+    //     6-30; fast HARD-rejects <6s with a 400 '"video_length" must be
+    //     between 6 and 30', so we floor at 6. Reference image not required.
     const allowedAspects = new Set(["1:1", "9:16", "16:9", "3:2", "2:3"]);
     if (!allowedAspects.has(String(body.aspect_ratio))) {
       body.aspect_ratio = "16:9";
     }
-    delete body.image_url; // fast uses image_urls[], not the singular field
-    if (refs.length > 0) body.image_urls = refs.slice(0, 7);
     const reqDur = Number(input.durationMode);
-    body.duration = Number.isFinite(reqDur)
-      ? Math.min(30, Math.max(6, Math.round(reqDur)))
-      : 10;
+    if (resolvedModel === "grok-imagine-1.5-preview") {
+      if (refs.length === 0) {
+        return { ok: false, error: "grok-imagine-1.5-preview requires a reference image", provider: "p6" };
+      }
+      delete body.image_urls;
+      body.image_url = refs[0]; // singular field per the preview spec
+      body.duration = Number.isFinite(reqDur) && reqDur >= 1 && reqDur <= 15 ? Math.round(reqDur) : 10;
+    } else {
+      delete body.image_url; // fast uses image_urls[], not the singular field
+      if (refs.length > 0) body.image_urls = refs.slice(0, 7);
+      body.duration = Number.isFinite(reqDur) ? Math.min(30, Math.max(6, Math.round(reqDur))) : 10;
+    }
     body.resolution = "720p";
   } else if (resolvedModel.startsWith("wan2.7")) {
     // Wan 2.7 — accepts exactly: audio_url, duration, image_urls[], prompt,
@@ -355,8 +368,9 @@ export async function p6CreateVideo(input: {
 
   // Per-model optional fields per APIPod docs:
   //   • seedance-* : duration 4-15 (required)
-  //   • grok-imagine-1.5-fast : duration 6-30 (default 10), 480p/720p,
-  //     image_urls[] up to 7 — handled fully in its own branch above.
+  //   • grok-imagine-1.5-fast : duration 6-30, image_urls[] up to 7;
+  //     grok-imagine-1.5-preview : duration 1-15, singular image_url (Editor
+  //     Frame-intro only) — both handled fully in their branch above.
   //   • veo3-1-fast / -ref : no duration / no resolution accepted — we
   //     do NOT pass either field. APIPod was empirically returning 6s
   //     files for Veo, but the duration:8/resolution:720p attempt was

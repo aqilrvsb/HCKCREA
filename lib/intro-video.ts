@@ -37,7 +37,10 @@ export async function generateIntroVideo(opts: {
   if (!coverUrl) return { ok: false, error: "Missing cover" };
 
   const cfg = await getP2Config();
-  const grokModel = cfg.grokI2V || "grok";
+  // The Frame-intro makes SHORT clips (1-4s), so it must ride the Grok Imagine
+  // PREVIEW route — the fast route (used everywhere else) hard-rejects <6s.
+  // Pass the explicit id so apipodVideoModel() picks preview, not fast.
+  const grokModel = "grok-imagine-1.5-preview";
 
   // MAIN slots then FALLBACK slots, in the admin's configured order, deduped
   // and with "none" stripped.
