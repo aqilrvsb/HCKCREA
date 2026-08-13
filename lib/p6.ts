@@ -147,14 +147,13 @@ function apipodVideoModel(input: {
     return "sora-2-vip";
   }
 
-  // Grok Imagine 1.5 Preview — frame-only i2v. Replaces the legacy
-  // grok-imagine-t2v / -i2v variants entirely (per user direction
-  // 2026-06-08). Single image_url (string, NOT array) is MANDATORY per
-  // APIPod spec. Aspect_ratio enum: 1:1 / 2:3 / 3:2 / 9:16 / 16:9.
-  // Duration: 1-15 (default 10), resolution fixed at 720p. Any input
-  // model string matching "grok" maps here so legacy callers stay wired.
+  // Grok Imagine 1.5 FAST — the fast route (per user direction 2026-08-13,
+  // switched from grok-imagine-1.5-preview). image_urls is an OPTIONAL array
+  // (up to 7); duration 6-30 (default 10); resolution 480p/720p (default 720p);
+  // aspect_ratio enum 1:1 / 9:16 / 16:9 / 3:2 / 2:3 (default 16:9). Any input
+  // model string matching "grok" maps here so all Grok callers stay wired.
   if (m.includes("grok")) {
-    return "grok-imagine-1.5-preview";
+    return "grok-imagine-1.5-fast";
   }
 
   // Wan 2.7 — i2v (cover as the source image) or t2v. Used by the Editor's
@@ -293,34 +292,23 @@ export async function p6CreateVideo(input: {
     // technically accepts 4 but we never send it.
     const reqDur = Number(input.durationMode);
     body.duration = reqDur === 12 ? 12 : 8;
-  } else if (resolvedModel === "grok-imagine-1.5-preview") {
-    // Grok Imagine 1.5 Preview — image_url is MANDATORY (singular string,
-    // not array). Aspect_ratio enum: 1:1 / 2:3 / 3:2 / 9:16 / 16:9 — clamp
-    // anything else to 16:9 (the APIPod default). Duration 1-15 default 10.
-    // Resolution fixed at 720p.
-    const allowedAspects = new Set(["1:1", "2:3", "3:2", "9:16", "16:9"]);
+  } else if (resolvedModel === "grok-imagine-1.5-fast") {
+    // Grok Imagine 1.5 FAST — image_urls is an OPTIONAL array (up to 7); NOT
+    // the singular image_url the preview route used. Aspect_ratio enum
+    // 1:1 / 9:16 / 16:9 / 3:2 / 2:3 — clamp anything else to 16:9. Duration
+    // 6-30 (default 10) — the fast route HARD-rejects <6s with a 400
+    // '"video_length" must be between 6 and 30', so we floor at 6. Resolution
+    // 480p / 720p (default 720p).
+    const allowedAspects = new Set(["1:1", "9:16", "16:9", "3:2", "2:3"]);
     if (!allowedAspects.has(String(body.aspect_ratio))) {
       body.aspect_ratio = "16:9";
     }
-    if (refs.length === 0) {
-      return {
-        ok: false,
-        error: "grok-imagine-1.5-preview requires a reference image",
-        provider: "p6",
-      };
-    }
-    body.image_url = refs[0]; // singular field per APIPod spec
-    // Duration 1-15. Short clips (3-5s) DO work when APIPod serves this via
-    // grok-imagine-1.5-preview. But when their primary Grok backend is out of
-    // funds they reroute to "grok-imagine-video-1.5-fast", which rejects
-    // anything under 6s with 400 '"video_length" must be between 6 and 30'.
-    // Kept as-is for any remaining Grok caller; the Editor's Frame intro moved
-    // to wan2.7-i2v (lib/intro-video.ts), which has no such floor.
+    delete body.image_url; // fast uses image_urls[], not the singular field
+    if (refs.length > 0) body.image_urls = refs.slice(0, 7);
     const reqDur = Number(input.durationMode);
-    body.duration =
-      Number.isFinite(reqDur) && reqDur >= 1 && reqDur <= 15
-        ? Math.round(reqDur)
-        : 10;
+    body.duration = Number.isFinite(reqDur)
+      ? Math.min(30, Math.max(6, Math.round(reqDur)))
+      : 10;
     body.resolution = "720p";
   } else if (resolvedModel.startsWith("wan2.7")) {
     // Wan 2.7 — accepts exactly: audio_url, duration, image_urls[], prompt,
@@ -367,8 +355,8 @@ export async function p6CreateVideo(input: {
 
   // Per-model optional fields per APIPod docs:
   //   • seedance-* : duration 4-15 (required)
-  //   • grok-imagine-1.5-preview : duration 1-15 (default 10), 720p only —
-  //     handled fully in its own branch above (image_url mandatory).
+  //   • grok-imagine-1.5-fast : duration 6-30 (default 10), 480p/720p,
+  //     image_urls[] up to 7 — handled fully in its own branch above.
   //   • veo3-1-fast / -ref : no duration / no resolution accepted — we
   //     do NOT pass either field. APIPod was empirically returning 6s
   //     files for Veo, but the duration:8/resolution:720p attempt was
