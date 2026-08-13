@@ -147,17 +147,12 @@ function apipodVideoModel(input: {
     return "sora-2-vip";
   }
 
-  // Grok Imagine 1.5. Default route is FAST (per user direction 2026-08-13):
-  // image_urls[] OPTIONAL (up to 7); duration 6-30 (default 10); 480p/720p.
-  // EXCEPTION — the Editor Frame-intro passes the explicit "…preview" id
-  // because it needs SHORT clips (1-4s) which fast rejects (<6s); that route
-  // keeps the singular mandatory image_url and duration 1-15.
+  // Grok Imagine 1.5 — PREVIEW everywhere. We briefly switched to fast
+  // (2026-08-13) but reverted the same day: fast was unstable. Preview takes a
+  // singular mandatory image_url and duration 1-15 (covers the Editor's 1-4s
+  // intro and the UGC 6-15s clips alike).
   if (m.includes("grok")) {
-    // Editor's Frame-intro passes the explicit "…preview" id because it needs
-    // SHORT clips (1-4s), which the fast route rejects (<6s). Everything else
-    // (Auto UGC, Dialog UGC, etc.) uses fast.
-    if (m.includes("preview")) return "grok-imagine-1.5-preview";
-    return "grok-imagine-1.5-fast";
+    return "grok-imagine-1.5-preview";
   }
 
   // Wan 2.7 — i2v (cover as the source image) or t2v. Used by the Editor's

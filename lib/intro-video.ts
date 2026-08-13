@@ -37,9 +37,9 @@ export async function generateIntroVideo(opts: {
   if (!coverUrl) return { ok: false, error: "Missing cover" };
 
   const cfg = await getP2Config();
-  // The Frame-intro makes SHORT clips (1-4s), so it must ride the Grok Imagine
-  // PREVIEW route — the fast route (used everywhere else) hard-rejects <6s.
-  // Pass the explicit id so apipodVideoModel() picks preview, not fast.
+  // Grok Imagine PREVIEW (1-15s) — the whole app is on preview (fast was
+  // reverted 2026-08-13, unstable). Passing the explicit id keeps this correct
+  // even if the mapper's default ever changes.
   const grokModel = "grok-imagine-1.5-preview";
 
   // MAIN slots then FALLBACK slots, in the admin's configured order, deduped
