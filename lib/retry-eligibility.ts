@@ -93,6 +93,15 @@ const RETRYABLE_ERROR_PATTERNS: RegExp[] = [
   //    Added per user direction 2026-06-11.
   /job failed[^\n]{0,30}please try again/i,
   /server exception[^\n]{0,30}please try again/i,
+  // 6b. APIPod / Grok "Upload failed: Server internal error." — a TRANSIENT
+  //     upstream failure on the Grok Imagine i2v upload step (flaky per
+  //     request/key), NOT a permanent content/prompt problem. Verified: the
+  //     SAME Auto UGC rows complete on a fresh fire (p6-a ↔ p6-b rotation), and
+  //     other rows in the same batch succeeded. Without this the rows sit failed
+  //     forever — never reaching the cron, event-driven retry, or admin Errors.
+  //     Added per user direction 2026-08-13.
+  /upload failed[^\n]{0,40}internal error/i,
+  /\bserver internal error\b/i,
   // 7. PROVIDER-slot "Insufficient Credits" — the slot's UPSTREAM account
   //    (APIPod/Crun key) ran out of credits, so it rejects pre-queue (no
   //    task created). Each slot/key has its OWN balance, so rotating to a
