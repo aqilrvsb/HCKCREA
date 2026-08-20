@@ -53,8 +53,13 @@ export async function GET(req: Request) {
     .limit(limit);
 
   if (isEditorSource) {
-    // Editor videos across ALL tabs — filter by the in_editor flag, not tab.
-    q = q.eq("type", "video").filter("metadata->>in_editor", "eq", "true");
+    // Editor videos across ALL tabs/types — key off the in_editor flag, NOT a
+    // single type. The old `type='video'` filter silently dropped Auto Content
+    // videos framed in the Editor (they carry type='auto-content'), so they
+    // showed in the in-app Editor tab but never in the extension. in_editor is
+    // only ever set by the video Editor, so excluding images is enough to keep
+    // out non-video rows while letting every framed video through.
+    q = q.neq("type", "image").filter("metadata->>in_editor", "eq", "true");
   } else if (tab === "auto") {
     q = q.eq("tab", "auto");
   } else if (tab === "original-video") {
