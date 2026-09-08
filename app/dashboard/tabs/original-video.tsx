@@ -804,7 +804,7 @@ export default function OriginalVideoTab({
 
         {/* === Veo + Seedance Start + End Frame layout ===
             Both providers support i2v with start+end frame (Veo
-            cfg.videoI2V / Seedance seedance-2.0-fast-i2v). Identical
+            cfg.videoI2V / Seedance seedance-2.0-mini-lite-i2v). Identical
             2-slot UI — slot 0 = start (required), slot 1 = end (optional). */}
         {(provider === "veo" || provider === "seedance") &&
           imageMode === "frame" && (

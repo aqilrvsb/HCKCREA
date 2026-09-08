@@ -125,11 +125,12 @@ function transformPromptForSora2(prompt: string): string {
 //   • Grok Imagine
 //       - grok-imagine-t2v  : no image_urls
 //       - grok-imagine-i2v  : 1-7 image_urls
-//   • Seedance 2.0 Fast
-//       - seedance-2.0-fast-t2v : text only
-//       - seedance-2.0-fast-i2v : single start-frame image (frame)
-//       - seedance-2.0-mini-r2v : 1-3 reference images (ingredient) — the
-//         variant used by Storyboard→Video + Original Video (2026-07-17)
+//   • Seedance 2.0 Mini Lite (special-price full-capability route, 720p only,
+//     duration 4-15 — per user direction 2026-09-09, switched off the fast/mini
+//     mix so every Seedance route uses the mini-lite family)
+//       - seedance-2.0-mini-lite-t2v : text only
+//       - seedance-2.0-mini-lite-i2v : required first-frame image (frame)
+//       - seedance-2.0-mini-lite-r2v : reference images/video/audio (ingredient)
 function apipodVideoModel(input: {
   model?: string;
   imageMode?: "frame" | "ingredient" | "text";
@@ -163,12 +164,12 @@ function apipodVideoModel(input: {
   }
 
   if (m.includes("seedance")) {
-    if (refs === 0 || mode === "text") return "seedance-2.0-fast-t2v";
-    if (mode === "frame") return "seedance-2.0-fast-i2v";
-    // Reference-to-video (ingredient) uses the MINI model per user direction
-    // 2026-07-17. This is the variant Storyboard→Video and Original Video both
-    // hit (both send ingredient-mode refs).
-    return "seedance-2.0-mini-r2v";
+    // All Seedance routes use the mini-lite family (720p only, duration 4-15)
+    // per user direction 2026-09-09.
+    if (refs === 0 || mode === "text") return "seedance-2.0-mini-lite-t2v";
+    if (mode === "frame") return "seedance-2.0-mini-lite-i2v";
+    // Reference-to-video (ingredient) — Storyboard→Video + Original Video.
+    return "seedance-2.0-mini-lite-r2v";
   }
 
   // Gemini Omni — APIPod splits into:
@@ -345,15 +346,15 @@ export async function p6CreateVideo(input: {
     if (refs.length > 0) body.image_urls = refs.slice(0, 5);
   } else if (refs.length > 0) {
     // Per-model image_urls cap per APIPod docs:
-    //   • veo3-1-fast             → up to 2 (start + end frame)
-    //   • veo3-1-fast-ref         → up to 3 (reference images)
-    //   • seedance-2.0-fast-i2v   → 1-2  (start + end frame)
-    //   • seedance-2.0-*-r2v      → 0-9  (reference images; fast or mini)
-    //   • gemini-omni-i2v         → 1-2 (first frame + optional last frame,
+    //   • veo3-1-fast               → up to 2 (start + end frame)
+    //   • veo3-1-fast-ref           → up to 3 (reference images)
+    //   • seedance-2.0-mini-lite-i2v → 1-2  (first + optional last frame)
+    //   • seedance-2.0-*-r2v        → 0-9  (reference images)
+    //   • gemini-omni-i2v           → 1-2 (first frame + optional last frame,
     //     per the current APIPod Gemini Omni Image-to-Video doc)
     let cap = 2;
-    if (resolvedModel === "seedance-2.0-fast-i2v") cap = 2;
-    else if (resolvedModel.endsWith("-r2v")) cap = 9; // fast OR mini r2v
+    if (resolvedModel === "seedance-2.0-mini-lite-i2v") cap = 2;
+    else if (resolvedModel.endsWith("-r2v")) cap = 9; // seedance r2v (up to 9 refs)
     else if (resolvedModel === "veo3-1-fast-ref") cap = 3;
     else if (resolvedModel === "veo3-1-fast") cap = 2;
     else if (resolvedModel === "gemini-omni-i2v") cap = 2;
@@ -361,7 +362,7 @@ export async function p6CreateVideo(input: {
   }
 
   // Per-model optional fields per APIPod docs:
-  //   • seedance-* : duration 4-15 (required)
+  //   • seedance-2.0-mini-lite-* : duration 4-15, resolution 720p ONLY
   //   • grok-imagine-1.5-fast / -preview : singular image_url (ref REQUIRED),
   //     duration fast 6-30 / preview 1-15 — both handled fully above.
   //   • veo3-1-fast / -ref : no duration / no resolution accepted — we
@@ -377,6 +378,9 @@ export async function p6CreateVideo(input: {
       Number.isFinite(reqDur) && reqDur >= 4 && reqDur <= 15
         ? Math.round(reqDur)
         : 5;
+    // Mini-lite only accepts 720p (the fast variants also took 480p). Pin it
+    // explicitly so an inherited/other resolution can't trip a rejection.
+    body.resolution = "720p";
   } else if (resolvedModel === "gemini-omni-extend") {
     // Video Reference / extend — NO duration field (output follows the
     // source, capped 10s). Resolution fixed 1080p per user direction;

@@ -133,7 +133,7 @@ export async function POST(req: Request) {
       // 2026-07-15) so admin can rotate Seedance slots independently in
       // /admin/settings → Cascade → seedance. Each slot's CreateVideo
       // handles the model id mapping internally (p6CreateVideo →
-      // seedance-2.0-fast-t2v / -i2v / -r2v; p1CreateTask → seedance-2-omni).
+      // seedance-2.0-mini-lite-t2v / -i2v / -r2v; p1CreateTask → seedance-2-omni).
       const imgMode: "frame" | "ingredient" | "text" =
         hasRefs ? "ingredient" : "text";
       const result = await generateVideoWithCascade({
