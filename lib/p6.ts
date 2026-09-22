@@ -178,6 +178,19 @@ function apipodVideoModel(input: {
   //     and "ingredient" mode (refs ride the same endpoint).
   //   • gemini-omni-t2v : pure text prompt, no image_urls
   // Duration fixed at 10s, aspect 9:16 | 16:9.
+  // Gemini Omni Flash 1.1 — lightweight fast model. APIPod routes:
+  //   • gemini-omni-flash-1.1-t2v : text only
+  //   • gemini-omni-flash-1.1-i2v : first-frame image required (+ optional last)
+  //   • gemini-omni-flash-1.1-r2v : 1-7 reference images (ingredient)
+  // Duration 4/6/8/10, resolution 360p/720p/1080p/4k, aspect 16:9|9:16.
+  // MUST be checked BEFORE the generic gemini branch so the flash id isn't
+  // swallowed by m.includes("gemini").
+  if (m.includes("gemini-omni-flash") || m.includes("gemini-flash")) {
+    if (mode === "frame") return "gemini-omni-flash-1.1-i2v";
+    if (refs > 0 && mode !== "text") return "gemini-omni-flash-1.1-r2v";
+    return "gemini-omni-flash-1.1-t2v";
+  }
+
   if (m.includes("gemini")) {
     // Video Reference → gemini-omni-extend (source video_url, no images).
     if (input.refVideoUrl) return "gemini-omni-extend";
@@ -353,7 +366,8 @@ export async function p6CreateVideo(input: {
     //   • gemini-omni-i2v           → 1-2 (first frame + optional last frame,
     //     per the current APIPod Gemini Omni Image-to-Video doc)
     let cap = 2;
-    if (resolvedModel === "seedance-2.0-mini-lite-i2v") cap = 2;
+    if (resolvedModel === "gemini-omni-flash-1.1-r2v") cap = 7; // flash r2v: 1-7 refs
+    else if (resolvedModel === "seedance-2.0-mini-lite-i2v") cap = 2;
     else if (resolvedModel.endsWith("-r2v")) cap = 9; // seedance r2v (up to 9 refs)
     else if (resolvedModel === "veo3-1-fast-ref") cap = 3;
     else if (resolvedModel === "veo3-1-fast") cap = 2;
@@ -386,6 +400,16 @@ export async function p6CreateVideo(input: {
     // source, capped 10s). Resolution fixed 1080p per user direction;
     // aspect enum 16:9 | 9:16.
     body.resolution = "1080p";
+    if (body.aspect_ratio !== "9:16" && body.aspect_ratio !== "16:9") {
+      body.aspect_ratio = "9:16";
+    }
+  } else if (resolvedModel.startsWith("gemini-omni-flash")) {
+    // Gemini Omni Flash 1.1 — duration enum 4/6/8/10 (default 10), resolution
+    // 720p, aspect enum 16:9 | 9:16. Checked BEFORE the generic gemini-omni
+    // branch below (flash ids also startWith "gemini-omni").
+    const reqDur = Math.round(Number(input.durationMode));
+    body.duration = [4, 6, 8, 10].includes(reqDur) ? reqDur : 10;
+    body.resolution = "720p";
     if (body.aspect_ratio !== "9:16" && body.aspect_ratio !== "16:9") {
       body.aspect_ratio = "9:16";
     }

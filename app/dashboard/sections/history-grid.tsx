@@ -137,6 +137,9 @@ function modelLabel(item: HistoryItem): string {
   // GeminiOmni — model id "google/gemini-omni". Check BEFORE veo because
   // the string doesn't overlap (gemini-omni vs veo) but ordering here
   // matches the videoBreakdown detection order in /admin/usage.
+  // Gemini Omni Flash 1.1 — checked BEFORE plain gemini-omni (its id also
+  // contains "gemini-omni").
+  if (m.includes("gemini-omni-flash")) return "Gemini Flash" + providerSuffix;
   if (m.includes("gemini-omni")) return "GeminiOmni" + providerSuffix;
   if (m.includes("veo")) return "Veo 3.1" + providerSuffix;
   return item.type;
@@ -183,13 +186,15 @@ function videoModeLabel(item: HistoryItem): string | null {
 // mirrors inferModelHint() in lib/settle.ts: sora → seedance → grok →
 // gemini-omni → veo, so "google/gemini-omni" can't be claimed by the broader
 // veo match.
-type ModelFamily = "gemini" | "grok" | "seedance" | "veo" | "sora2" | "other";
+type ModelFamily = "gemini" | "gemini-flash" | "grok" | "seedance" | "veo" | "sora2" | "other";
 function rowModelFamily(item: HistoryItem): ModelFamily {
   const mc = String((item.metadata as any)?.modelChoice || "").toLowerCase();
   const m = String((item.metadata as any)?.model || "").toLowerCase();
   if (mc === "sora2" || m.includes("sora")) return "sora2";
   if (mc === "seedance" || m.includes("seedance")) return "seedance";
   if (mc === "grok" || m.includes("grok")) return "grok";
+  // Flash checked BEFORE plain gemini (its id also contains "gemini-omni").
+  if (mc === "gemini-flash" || m.includes("gemini-omni-flash")) return "gemini-flash";
   if (mc === "gemini" || m.includes("gemini-omni")) return "gemini";
   if (mc === "veo" || m.includes("veo")) return "veo";
   return "other";
@@ -341,7 +346,7 @@ export default function HistoryGrid({
   // Images tab: filter between plain images and storyboard-mode grids.
   const [imgSubTab, setImgSubTab] = useState<"all" | "image" | "storyboard">("all");
   // Original Video: filter history by which model produced the row.
-  const [vidModelTab, setVidModelTab] = useState<"all" | "gemini" | "grok" | "seedance" | "veo" | "sora2">("all");
+  const [vidModelTab, setVidModelTab] = useState<"all" | "gemini" | "gemini-flash" | "grok" | "seedance" | "veo" | "sora2">("all");
   // Viral tab sub-tab — Talking Object AI generates BOTH a banana-pro
   // image AND a Veo video; users want to browse them as separate lists,
   // same UX as Storytelling. "videos" = the final mp4s (type=video).
@@ -1578,6 +1583,7 @@ export default function HistoryGrid({
           {([
             ["all", "Semua", "#f5b100"],
             ["gemini", "🔷 Omni", "#06b6d4"],
+            ["gemini-flash", "⚡ Omni Flash", "#22d3ee"],
             ["grok", "⚡ Grok", "#f97316"],
             ["seedance", "🌸 Seedance 2.0", "#ec4899"],
             ["veo", "🎬 Veo", "#facc15"],
@@ -2342,9 +2348,16 @@ function HistoryCardInner({
   // Grok / Sora 2 — extend pipeline is hard-wired to Veo i2v + Banana
   // refine. Chaining a Veo seg-2 onto a Gemini seg-1 produces a visible
   // style cut.
+  // Gemini Omni Flash 1.1 rows — excluded from Extend entirely (flash-extend
+  // isn't wired; the extend pipeline is Veo/Omni only). Checked BEFORE the
+  // plain gemini match, whose regex would otherwise claim the flash id.
+  const isFlashRow =
+    modelChoiceLower === "gemini-flash" ||
+    /gemini-omni-flash/i.test(rawModelLower);
   const isGeminiRow =
-    modelChoiceLower === "gemini" ||
-    /gemini-omni/i.test(rawModelLower);
+    !isFlashRow &&
+    (modelChoiceLower === "gemini" ||
+      /gemini-omni/i.test(rawModelLower));
   // Seedance rows are excluded from Extend for the same reason as Grok /
   // Sora 2 / Omni — the extend pipeline is hard-wired to Veo i2v + Banana
   // refine, so a Veo seg-2 onto a Seedance seg-1 is a visible style cut.
@@ -2365,7 +2378,7 @@ function HistoryCardInner({
   const grokExtendOk =
     isGrokRow && (item.tab === "video" || item.tab === "original-video");
   const omniExtendOk = isGeminiRow && item.tab === "original-video";
-  const veoExtendOk = !isGrokRow && !isGeminiRow && !isSeedanceRow;
+  const veoExtendOk = !isGrokRow && !isGeminiRow && !isFlashRow && !isSeedanceRow;
   const canExtend =
     isVideo &&
     !isCinema &&

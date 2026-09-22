@@ -9,6 +9,7 @@ import {
   getCinemaFallbackSlots,
   getSora2FallbackSlots,
   getGeminiFallbackSlots,
+  getGeminiFlashFallbackSlots,
   getSeedanceFallbackSlots,
   type CascadeAsset,
 } from "@/lib/cascade-rotation";
@@ -54,6 +55,7 @@ async function getAutoRetryCap(asset: CascadeAsset): Promise<number> {
   else if (asset === "cinema") slots = await getCinemaFallbackSlots();
   else if (asset === "sora2") slots = await getSora2FallbackSlots();
   else if (asset === "gemini") slots = await getGeminiFallbackSlots();
+  else if (asset === "gemini-flash") slots = await getGeminiFlashFallbackSlots();
   else if (asset === "seedance") slots = await getSeedanceFallbackSlots();
   else slots = await getVideoFallbackSlots();
   // Count active slots only — "none" entries are placeholders, not
@@ -282,6 +284,11 @@ export async function GET(req: Request) {
       // also route through the sora2 pool for retries.
       rowAsset = "sora2";
     }
+    else if (meta.modelChoice === "gemini-flash" || /gemini-omni-flash|gemini-flash/i.test(rowModel)) {
+      // Gemini Omni Flash 1.1 → its own APIPod pool. Checked BEFORE plain
+      // gemini (the flash model id also matches /gemini-omni/).
+      rowAsset = "gemini-flash";
+    }
     else if (meta.modelChoice === "gemini" || /gemini-omni/i.test(rowModel)) {
       // GeminiOmni rows (Original Video / Auto Content Omni) route through
       // the dedicated gemini cascade pool — NOT the generic video pool,
@@ -396,7 +403,8 @@ export async function GET(req: Request) {
     // lib/settle.ts. Fixed 2026-06-29.
     let model = String(meta.model || "");
     if (!model) {
-      if (meta.modelChoice === "gemini") model = "google/gemini-omni";
+      if (meta.modelChoice === "gemini-flash") model = "gemini-omni-flash-1.1";
+      else if (meta.modelChoice === "gemini") model = "google/gemini-omni";
       else if (meta.modelChoice === "sora2") model = "sora2";
       else if (meta.modelChoice === "seedance") model = "seedance";
       else if (meta.modelChoice === "grok") model = refImage ? cfg.grokI2V : cfg.grokT2V;

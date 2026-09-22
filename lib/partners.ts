@@ -24,6 +24,7 @@ export const PARTNER_RATE_MODELS = [
   "seedance",
   "sora2",
   "gemini",
+  "gemini-flash",
 ] as const;
 export type PartnerRateModel = (typeof PARTNER_RATE_MODELS)[number];
 

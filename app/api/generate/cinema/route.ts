@@ -4,7 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { generateVideoWithCascade } from "@/lib/video-cascade";
 import { freshMd5Images } from "@/lib/flagged-image";
-import { getCinemaRate, getGeminiRate, getP2Config, getSeedanceRate, getSetting, getVeoRate } from "@/lib/settings";
+import { getCinemaRate, getGeminiRate, getGeminiFlashRate, getP2Config, getSeedanceRate, getSetting, getVeoRate } from "@/lib/settings";
 
 // POST /api/generate/cinema — Original Video tab + legacy Viral. Three
 // provider options:
@@ -51,16 +51,18 @@ export async function POST(req: Request) {
   // Gemini fixes resolution at 1080p; other providers honour the request
   // body (or default to 720p). Sora 2 / Veo / Grok still go through their
   // existing 720/480p validation.
-  const modelChoice: "grok" | "veo" | "sora2" | "gemini" | "seedance" =
+  const modelChoice: "grok" | "veo" | "sora2" | "gemini" | "gemini-flash" | "seedance" =
     body?.model === "veo"
       ? "veo"
       : body?.model === "sora2"
         ? "sora2"
         : body?.model === "gemini"
           ? "gemini"
-          : body?.model === "seedance"
-            ? "seedance"
-            : "grok";
+          : body?.model === "gemini-flash"
+            ? "gemini-flash"
+            : body?.model === "seedance"
+              ? "seedance"
+              : "grok";
   const resolution =
     modelChoice === "gemini"
       ? "1080p"
@@ -85,9 +87,11 @@ export async function POST(req: Request) {
           : 8
         : modelChoice === "gemini"
           ? 10
-          : modelChoice === "seedance"
-            ? Math.min(15, Math.max(4, Math.round(Number(body?.duration || 5))))
-            : Math.min(15, Math.max(1, Math.round(Number(body?.duration || 6))));
+          : modelChoice === "gemini-flash"
+            ? ([4, 6, 8, 10].includes(Math.round(Number(body?.duration))) ? Math.round(Number(body?.duration)) : 10)
+            : modelChoice === "seedance"
+              ? Math.min(15, Math.max(4, Math.round(Number(body?.duration || 5))))
+              : Math.min(15, Math.max(1, Math.round(Number(body?.duration || 6))));
   // Three image modes (richer than the old image/text split):
   //   • "text"       → no reference images
   //   • "frame"      → single first-frame image (i2v, all 3 providers)
@@ -108,6 +112,7 @@ export async function POST(req: Request) {
     imageModeRaw === "ingredient" &&
     modelChoice !== "veo" &&
     modelChoice !== "gemini" &&
+    modelChoice !== "gemini-flash" &&
     modelChoice !== "seedance"
   ) {
     imageModeRaw = "frame";
@@ -249,6 +254,13 @@ export async function POST(req: Request) {
               model: "google/gemini-omni",
             }
           : {}),
+        // Gemini Omni Flash 1.1 — stamp its canonical id so settle/retry/history
+        // detect the flash family (its own p6 pool + per-second pricing).
+        ...(modelChoice === "gemini-flash"
+          ? {
+              model: "gemini-omni-flash-1.1",
+            }
+          : {}),
       },
     })
     .select("id")
@@ -293,6 +305,10 @@ export async function POST(req: Request) {
         // server-side so we don't multiply.
         const geminiFlat = await getGeminiRate("10");
         cost = Number(geminiFlat.toFixed(4));
+      } else if (modelChoice === "gemini-flash") {
+        // Gemini Omni Flash 1.1 — per-second rate × duration (4/6/8/10).
+        const geminiFlashRate = await getGeminiFlashRate();
+        cost = Number((geminiFlashRate * duration).toFixed(4));
       } else if (modelChoice === "seedance") {
         // Seedance 2.0 Fast — per-second rate × duration (4-15s range).
         const seedanceRate = await getSeedanceRate();
@@ -322,6 +338,10 @@ export async function POST(req: Request) {
         // (text + ingredient both go to the same endpoint; p2.ts handles
         // the conditional img_urls payload).
         model = "google/gemini-omni";
+      } else if (modelChoice === "gemini-flash") {
+        // Gemini Omni Flash 1.1 — bare id; p6.ts apipodVideoModel resolves the
+        // -t2v/-i2v/-r2v variant from imageMode + refs.
+        model = "gemini-omni-flash-1.1";
       } else if (modelChoice === "seedance") {
         // Seedance 2.0 Fast — pass the bare "seedance" keyword. Both
         // adapters auto-resolve to the right variant based on refs:
@@ -431,9 +451,11 @@ export async function POST(req: Request) {
               ? "sora2"
               : modelChoice === "gemini"
                 ? "gemini"
-                : modelChoice === "seedance"
-                  ? "seedance"
-                  : "video",
+                : modelChoice === "gemini-flash"
+                  ? "gemini-flash"
+                  : modelChoice === "seedance"
+                    ? "seedance"
+                    : "video",
       });
       if (result.ok) {
         createdOk = true;

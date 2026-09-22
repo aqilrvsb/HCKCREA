@@ -85,6 +85,10 @@ export default function AdminSettings() {
   // app_settings.rate_gemini = { per_video_10s: number }. /api/gemini/rate
   // serves this to the Original Video tab's GeminiOmni cost preview.
   const [rateGemini, setRateGemini] = useState("");
+  // Gemini Omni Flash 1.1 — PER-SECOND rate. Stored as
+  // app_settings.rate_gemini_flash = { per_second: number }.
+  // /api/gemini-flash/rate serves it to the Original Video "Omni Flash" chip.
+  const [rateGeminiFlash, setRateGeminiFlash] = useState("");
   const [savingRates, setSavingRates] = useState(false);
   const [ratesMsg, setRatesMsg] = useState<string | null>(null);
 
@@ -188,12 +192,17 @@ export default function AdminSettings() {
   const [geminiFallbackCount, setGeminiFallbackCount] = useState(10);
   const [geminiMainSlots, setGeminiMainSlots] = useState<SlotV[]>([]);
   const [geminiFallbackSlots, setGeminiFallbackSlots] = useState<SlotV[]>([]);
+  // Gemini Omni Flash 1.1 cascade — APIPod (p6) only, its own pool.
+  const [geminiFlashMainCount, setGeminiFlashMainCount] = useState(10);
+  const [geminiFlashFallbackCount, setGeminiFlashFallbackCount] = useState(10);
+  const [geminiFlashMainSlots, setGeminiFlashMainSlots] = useState<SlotV[]>([]);
+  const [geminiFlashFallbackSlots, setGeminiFlashFallbackSlots] = useState<SlotV[]>([]);
   // Seedance 2.0 — own cascade pool (split out of `cinema` 2026-07-15).
   const [seedanceMainCount, setSeedanceMainCount] = useState(10);
   const [seedanceFallbackCount, setSeedanceFallbackCount] = useState(10);
   const [seedanceMainSlots, setSeedanceMainSlots] = useState<SlotV[]>([]);
   const [seedanceFallbackSlots, setSeedanceFallbackSlots] = useState<SlotV[]>([]);
-  const [savingMfSlots, setSavingMfSlots] = useState<"video" | "image" | "grok" | "cinema" | "sora2" | "gemini" | "seedance" | null>(null);
+  const [savingMfSlots, setSavingMfSlots] = useState<"video" | "image" | "grok" | "cinema" | "sora2" | "gemini" | "gemini-flash" | "seedance" | null>(null);
   const [mfSlotsMsg, setMfSlotsMsg] = useState<string | null>(null);
 
   // Per-feature model overrides — cascade with main + fallback. Admin
@@ -322,6 +331,7 @@ export default function AdminSettings() {
         if (row.key === "rate_grok") setRateGrok(fmt(row.value?.per_second));
         if (row.key === "sora2_rate") setRateSora2(fmt(row.value?.rate));
         if (row.key === "rate_gemini") setRateGemini(fmt(row.value?.per_video_10s));
+        if (row.key === "rate_gemini_flash") setRateGeminiFlash(fmt(row.value?.per_second));
         if (row.key === "rate_seedance") setRateSeedance(fmt(row.value?.per_second));
         if (row.key === "fairytale_image_model") {
           setStorytellingModel(String(row.value?.model || ""));
@@ -545,6 +555,25 @@ export default function AdminSettings() {
           const cnt = (list.find((r) => r.key === "gemini_fallback_count")?.value?.count) || 10;
           setGeminiFallbackSlots(fitArr<SlotV>(arr, cnt, allowedV));
         }
+        // Gemini Omni Flash 1.1 cascade (hyphenated keys — match the asset name)
+        if (row.key === "gemini-flash_main_count") {
+          const n = Number(row.value?.count);
+          if (Number.isFinite(n) && n >= 1) setGeminiFlashMainCount(Math.floor(n));
+        }
+        if (row.key === "gemini-flash_fallback_count") {
+          const n = Number(row.value?.count);
+          if (Number.isFinite(n) && n >= 1) setGeminiFlashFallbackCount(Math.floor(n));
+        }
+        if (row.key === "gemini-flash_main_slots") {
+          const arr = Array.isArray(row.value?.slots) ? row.value.slots : [];
+          const cnt = (list.find((r) => r.key === "gemini-flash_main_count")?.value?.count) || 10;
+          setGeminiFlashMainSlots(fitArr<SlotV>(arr, cnt, allowedV));
+        }
+        if (row.key === "gemini-flash_fallback_slots") {
+          const arr = Array.isArray(row.value?.slots) ? row.value.slots : [];
+          const cnt = (list.find((r) => r.key === "gemini-flash_fallback_count")?.value?.count) || 10;
+          setGeminiFlashFallbackSlots(fitArr<SlotV>(arr, cnt, allowedV));
+        }
         // Seedance 2.0 cascade
         if (row.key === "seedance_main_count") {
           const n = Number(row.value?.count);
@@ -570,7 +599,7 @@ export default function AdminSettings() {
     }
   }
 
-  async function saveMainFallback(asset: "video" | "image" | "grok" | "cinema" | "sora2" | "gemini" | "seedance") {
+  async function saveMainFallback(asset: "video" | "image" | "grok" | "cinema" | "sora2" | "gemini" | "gemini-flash" | "seedance") {
     setSavingMfSlots(asset);
     setMfSlotsMsg(null);
     try {
@@ -580,6 +609,7 @@ export default function AdminSettings() {
         : asset === "grok" ? grokMainCount
         : asset === "sora2" ? sora2MainCount
         : asset === "gemini" ? geminiMainCount
+        : asset === "gemini-flash" ? geminiFlashMainCount
         : asset === "seedance" ? seedanceMainCount
         : cinemaMainCount;
       const fbCount =
@@ -588,6 +618,7 @@ export default function AdminSettings() {
         : asset === "grok" ? grokFallbackCount
         : asset === "sora2" ? sora2FallbackCount
         : asset === "gemini" ? geminiFallbackCount
+        : asset === "gemini-flash" ? geminiFlashFallbackCount
         : asset === "seedance" ? seedanceFallbackCount
         : cinemaFallbackCount;
       const main =
@@ -596,6 +627,7 @@ export default function AdminSettings() {
         : asset === "grok" ? grokMainSlots
         : asset === "sora2" ? sora2MainSlots
         : asset === "gemini" ? geminiMainSlots
+        : asset === "gemini-flash" ? geminiFlashMainSlots
         : asset === "seedance" ? seedanceMainSlots
         : cinemaMainSlots;
       const fb =
@@ -604,6 +636,7 @@ export default function AdminSettings() {
         : asset === "grok" ? grokFallbackSlots
         : asset === "sora2" ? sora2FallbackSlots
         : asset === "gemini" ? geminiFallbackSlots
+        : asset === "gemini-flash" ? geminiFlashFallbackSlots
         : asset === "seedance" ? seedanceFallbackSlots
         : cinemaFallbackSlots;
       const calls = [
@@ -690,6 +723,14 @@ export default function AdminSettings() {
           body: JSON.stringify({
             key: "rate_gemini",
             value: { per_video_10s: num(rateGemini, 0.40) },
+          }),
+        }),
+        fetch("/api/admin/settings", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            key: "rate_gemini_flash",
+            value: { per_second: num(rateGeminiFlash, 0.05) },
           }),
         }),
         fetch("/api/admin/settings", {
@@ -1228,6 +1269,7 @@ export default function AdminSettings() {
     // Sora 2 rate — exposed via the dedicated "Model Pricing" card above.
     "sora2_rate",
     "rate_gemini",
+    "rate_gemini_flash",
     // FB CAPI — exposed via the dedicated "Facebook Conversions API"
     // card above. Hiding the raw JSON because the access_token field is
     // a secret and shouldn't be visible in plain text in the generic list.
@@ -1259,6 +1301,8 @@ export default function AdminSettings() {
     "sora2_fallback_counter",
     "gemini_rotation_counter",
     "gemini_fallback_counter",
+    "gemini-flash_rotation_counter",
+    "gemini-flash_fallback_counter",
     "seedance_rotation_counter",
     "seedance_fallback_counter",
     "image_rotation_counter",
@@ -1338,6 +1382,10 @@ export default function AdminSettings() {
     "gemini_main_slots",
     "gemini_fallback_count",
     "gemini_fallback_slots",
+    "gemini-flash_main_count",
+    "gemini-flash_main_slots",
+    "gemini-flash_fallback_count",
+    "gemini-flash_fallback_slots",
     "seedance_main_count",
     "seedance_main_slots",
     "seedance_fallback_count",
@@ -1376,7 +1424,7 @@ export default function AdminSettings() {
           Admin can grow / shrink each list with + / - buttons. */}
       {(() => {
         const assets: Array<{
-          asset: "video" | "image" | "grok" | "cinema" | "sora2" | "gemini" | "seedance";
+          asset: "video" | "image" | "grok" | "cinema" | "sora2" | "gemini" | "gemini-flash" | "seedance";
           color: string;
           options: { value: string; label: string }[];
           mainCount: number;
@@ -1560,6 +1608,31 @@ export default function AdminSettings() {
             setMainSlots: (s) => setGeminiMainSlots(s as SlotV[]),
             fbSlots: geminiFallbackSlots,
             setFbSlots: (s) => setGeminiFallbackSlots(s as SlotV[]),
+          },
+          {
+            // Gemini Omni Flash 1.1 cascade — APIPod (p6) only, its own pool so
+            // admin rotates it independently of the (Crun-based) GeminiOmni pool.
+            asset: "gemini-flash",
+            color: "#22d3ee", // cyan — matches the Omni Flash chip theme
+            options: [
+              { value: "p6-a", label: "P6 — APIPod (A)" },
+              { value: "p6-b", label: "P6 — APIPod (B)" },
+              { value: "p6-c", label: "P6 — APIPod (C)" },
+              { value: "p6-d", label: "P6 — APIPod (D)" },
+              { value: "p6-e", label: "P6 — APIPod (E)" },
+              { value: "p6-f", label: "P6 — APIPod (F)" },
+              { value: "p6-g", label: "P6 — APIPod (G)" },
+              { value: "p6-h", label: "P6 — APIPod (H)" },
+              { value: "none", label: "— None —" },
+            ],
+            mainCount: geminiFlashMainCount,
+            setMainCount: setGeminiFlashMainCount,
+            fbCount: geminiFlashFallbackCount,
+            setFbCount: setGeminiFlashFallbackCount,
+            mainSlots: geminiFlashMainSlots,
+            setMainSlots: (s) => setGeminiFlashMainSlots(s as SlotV[]),
+            fbSlots: geminiFlashFallbackSlots,
+            setFbSlots: (s) => setGeminiFlashFallbackSlots(s as SlotV[]),
           },
           {
             // Seedance 2.0 cascade — split out of `cinema` (2026-07-15) so
@@ -1875,6 +1948,25 @@ export default function AdminSettings() {
                 onChange={(e) => setRateGemini(e.target.value)}
                 className="input !pl-10"
                 placeholder="0.40"
+              />
+            </div>
+          </div>
+          {/* Gemini Omni Flash 1.1 (APIPod p6) — PER-SECOND rate (duration is
+              selectable 4/6/8/10, so cost = rate × duration). */}
+          <div>
+            <label className="block text-xs font-mono uppercase tracking-wider text-[var(--color-text-muted)] font-bold mb-1.5 flex items-center gap-1.5">
+              <Film className="w-3.5 h-3.5" /> Omni Flash <span className="text-[10px] font-normal text-[var(--color-text-muted)]">(Gemini 1.1) / second</span>
+            </label>
+            <div className="relative">
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs font-bold text-[var(--color-text-muted)]">RM</span>
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                value={rateGeminiFlash}
+                onChange={(e) => setRateGeminiFlash(e.target.value)}
+                className="input !pl-10"
+                placeholder="0.05"
               />
             </div>
           </div>

@@ -230,6 +230,7 @@ export default function AdminUsage() {
     let story = 0;
     let image = 0;
     let gemini = 0;
+    let geminiFlash = 0;
     for (const r of generationRows) {
       const isImg =
         r.type === "image" ||
@@ -271,6 +272,13 @@ export default function AdminUsage() {
         // rows that picked Grok as the provider.
         grok++;
       } else if (
+        modelChoice === "gemini-flash" ||
+        modelStr.includes("gemini-omni-flash")
+      ) {
+        // Gemini Omni Flash 1.1 — checked BEFORE plain GeminiOmni (the flash
+        // model id also contains "gemini-omni").
+        geminiFlash++;
+      } else if (
         modelChoice === "gemini" ||
         modelStr.includes("gemini-omni")
       ) {
@@ -295,7 +303,7 @@ export default function AdminUsage() {
         veo++;
       }
     }
-    return { veo, grok, sora, seedance, story, image, gemini };
+    return { veo, grok, sora, seedance, story, image, gemini, geminiFlash };
   }, [generationRows]);
 
   return (
@@ -652,6 +660,7 @@ export default function AdminUsage() {
                   { label: "Veo Videos", value: videoBreakdown.veo,   tone: "rgba(34,197,94,0.18)",  fg: "#16a34a", sub: "Dialog UGC (Veo) + Auto Content + Viral" },
                   { label: "Grok Videos", value: videoBreakdown.grok, tone: "rgba(99,102,241,0.18)", fg: "#6366f1", sub: "Grok (latest) — Original Video + Auto/Dialog UGC + Cinema" },
                   { label: "GeminiOmni", value: videoBreakdown.gemini, tone: "rgba(6,182,212,0.18)", fg: "#06b6d4", sub: "Original Video (Gemini) + Auto Content Gemini" },
+                  { label: "Omni Flash", value: videoBreakdown.geminiFlash, tone: "rgba(34,211,238,0.18)", fg: "#22d3ee", sub: "Original Video (Gemini Omni Flash 1.1)" },
                   { label: "Seedance", value: videoBreakdown.seedance, tone: "rgba(244,114,182,0.18)", fg: "#ec4899", sub: "Original Video / Cinema Seedance + Auto Content" },
                 ].map((b) => (
                   <div

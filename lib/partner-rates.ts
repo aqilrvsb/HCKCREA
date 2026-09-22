@@ -3,7 +3,7 @@
 //
 // Units mirror lib/deduct.ts priceFor EXACTLY so the clamp is apples-to-apples:
 //   • veo        → flat per-8s
-//   • grok/seedance/sora2 → per-SECOND (settle multiplies by duration)
+//   • grok/seedance/sora2/gemini-flash → per-SECOND (settle multiplies by duration)
 //   • gemini     → flat per-10s
 //   • banana_pro/gpt_image → flat per-image
 // A partner override is stored + compared in these same units.
@@ -15,6 +15,7 @@ import {
   getGrokRate,
   getSeedanceRate,
   getGeminiRate,
+  getGeminiFlashRate,
   getSetting,
 } from "@/lib/settings";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -36,18 +37,19 @@ export async function clientPartnerGroup(userId: string): Promise<string | null>
 
 /** The platform BASE rate per model — the floor. */
 export async function adminBaseRates(): Promise<Record<PartnerRateModel, number>> {
-  const [banana, gpt, veo8, grok, seedance, gemini] = await Promise.all([
+  const [banana, gpt, veo8, grok, seedance, gemini, geminiFlash] = await Promise.all([
     getBananaProRate(),
     getGptImageRate(),
     getVeoRate("8"),
     getGrokRate(),
     getSeedanceRate(),
     getGeminiRate("10"),
+    getGeminiFlashRate(),
   ]);
   // sora2 base mirrors priceFor: sora2_rate.rate, else grok/second × 2.
   const sora2cfg = await getSetting<{ rate: number }>("sora2_rate");
   const sora2 = typeof sora2cfg?.rate === "number" ? sora2cfg.rate : grok * 2;
-  return { banana_pro: banana, gpt_image: gpt, veo: veo8, grok, seedance, sora2, gemini };
+  return { banana_pro: banana, gpt_image: gpt, veo: veo8, grok, seedance, sora2, gemini, "gemini-flash": geminiFlash };
 }
 
 /** Load a partner's config (cached via getSetting's 60s cache). */

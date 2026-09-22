@@ -87,6 +87,11 @@ const DEFAULT_SEEDANCE_MAIN: SlotProvider[] = ["p7", "p6-a", "none", "none", "no
 // on p6 (face filter → fails on AI-face storyboards). p6-c stays as the
 // second-line for the rare case p7 itself is down.
 const DEFAULT_SEEDANCE_FALLBACK: SlotProvider[] = ["p7", "p6-c", "none", "none", "none", "none", "none", "none", "none", "none"];
+// Gemini Omni Flash 1.1 — APIPod-only (p6). Its OWN pool so admin can rotate it
+// independently of the (Crun-based) GeminiOmni pool above. Main rotates two p6
+// keys for throughput; fallback covers another key for retries.
+const DEFAULT_GEMINI_FLASH_MAIN: SlotProvider[] = ["p6-a", "p6-b", "none", "none", "none", "none", "none", "none", "none", "none"];
+const DEFAULT_GEMINI_FLASH_FALLBACK: SlotProvider[] = ["p6-c", "none", "none", "none", "none", "none", "none", "none", "none", "none"];
 
 function sanitizeSlotList(
   raw: unknown,
@@ -215,6 +220,27 @@ export async function getGeminiFallbackSlots(): Promise<SlotProvider[]> {
   return sanitizeSlotList(raw?.slots, count, VIDEO_ALLOWED, DEFAULT_GEMINI_FALLBACK);
 }
 
+// Gemini Omni Flash 1.1 cascade — its own APIPod (p6) pool, separate from the
+// Crun-based GeminiOmni pool above so admin rotates them independently.
+export async function getGeminiFlashMainSlots(): Promise<SlotProvider[]> {
+  // Keys use the hyphenated asset name ("gemini-flash") so they match the
+  // admin cascade save path (`${asset}_main_count`) and the round-robin
+  // counters ("gemini-flash_rotation_counter").
+  const [count, raw] = await Promise.all([
+    getSlotCount("gemini-flash_main_count"),
+    getSetting<{ slots: SlotProvider[] }>("gemini-flash_main_slots"),
+  ]);
+  return sanitizeSlotList(raw?.slots, count, VIDEO_ALLOWED, DEFAULT_GEMINI_FLASH_MAIN);
+}
+
+export async function getGeminiFlashFallbackSlots(): Promise<SlotProvider[]> {
+  const [count, raw] = await Promise.all([
+    getSlotCount("gemini-flash_fallback_count"),
+    getSetting<{ slots: SlotProvider[] }>("gemini-flash_fallback_slots"),
+  ]);
+  return sanitizeSlotList(raw?.slots, count, VIDEO_ALLOWED, DEFAULT_GEMINI_FLASH_FALLBACK);
+}
+
 // Seedance 2.0 cascade — its own pool so admin can rotate Seedance slots
 // independently of the Cinema tab (split out 2026-07-15). VIDEO_ALLOWED, so
 // any video-capable slot can be picked; p6/p1/p2 all resolve a Seedance model.
@@ -234,7 +260,7 @@ export async function getSeedanceFallbackSlots(): Promise<SlotProvider[]> {
   return sanitizeSlotList(raw?.slots, count, VIDEO_ALLOWED, DEFAULT_SEEDANCE_FALLBACK);
 }
 
-export type CascadeAsset = "video" | "image" | "grok" | "cinema" | "sora2" | "gemini" | "seedance";
+export type CascadeAsset = "video" | "image" | "grok" | "cinema" | "sora2" | "gemini" | "gemini-flash" | "seedance";
 
 // Atomic round-robin counter for either MAIN or FALLBACK slot list.
 // Two separate counters per asset so main/fallback rotation are

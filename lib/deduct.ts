@@ -39,7 +39,8 @@ export type PriceModelHint =
   | "grok"
   | "seedance"
   | "sora2"
-  | "gemini";
+  | "gemini"
+  | "gemini-flash";
 
 // What rate applies for the given user + reason. Per-model rates
 // (rate_banana_pro / rate_gpt_image / rate_veo / rate_grok / rate_seedance)
@@ -93,6 +94,11 @@ async function basePriceFor(
     // missing (rough proxy — Gemini's compute footprint is similar).
     const { getGeminiRate } = await import("@/lib/settings");
     return await getGeminiRate("10");
+  }
+  if (modelHint === "gemini-flash") {
+    // Gemini Omni Flash 1.1 — PER-SECOND rate (settle multiplies × duration).
+    const { getGeminiFlashRate } = await import("@/lib/settings");
+    return await getGeminiFlashRate();
   }
 
   // Reason-based fallback paths preserved for backward compat.

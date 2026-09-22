@@ -26,6 +26,7 @@ import {
   getImageFallbackSlots,
   getSeedanceFallbackSlots,
   getGeminiFallbackSlots,
+  getGeminiFlashFallbackSlots,
   type CascadeAsset,
 } from "@/lib/cascade-rotation";
 import { isInternalError } from "@/lib/retry-eligibility";
@@ -46,6 +47,8 @@ function inferModelHint(model?: string | null): PriceModelHint | undefined {
   // "google/gemini-omni" — substring matches neither "sora" nor "grok"
   // but we want to claim it BEFORE the broader "veo" includes pattern
   // in case a future google/veo3-1 string contains a substring overlap.
+  // Flash checked BEFORE plain gemini-omni (its id also contains "gemini-omni").
+  if (m.includes("gemini-omni-flash") || m.includes("gemini-flash")) return "gemini-flash";
   if (m.includes("gemini-omni")) return "gemini";
   if (m.includes("veo")) return "veo";
   if (m.includes("nano-banana") || m.includes("banana")) return "banana_pro";
@@ -360,6 +363,7 @@ async function getDynamicRetryCap(
   // gemini had no branch and silently fell through to the video pool, so its
   // retry cap was computed from the wrong slot list. Fixed 2026-07-15.
   else if (asset === "gemini") slots = await getGeminiFallbackSlots();
+  else if (asset === "gemini-flash") slots = await getGeminiFlashFallbackSlots();
   else slots = await getVideoFallbackSlots();
   const count = slots.filter((s) => s !== "none").length;
   const cap = Math.max(
@@ -454,6 +458,14 @@ async function tryAutoRetry(
     // Auto Content Sora 2 rows (tab='auto', metadata.modelChoice='sora2')
     // also route through the sora2 cascade.
     cascadeAsset = "sora2";
+  }
+  else if (
+    meta.modelChoice === "gemini-flash" ||
+    /gemini-omni-flash|gemini-flash/i.test(rowModel)
+  ) {
+    // Gemini Omni Flash 1.1 → its own APIPod (p6) pool. Checked BEFORE the
+    // plain gemini branch (the flash model id also matches /gemini-omni/).
+    cascadeAsset = "gemini-flash";
   }
   else if (
     meta.modelChoice === "gemini" ||
@@ -616,6 +628,8 @@ async function tryAutoRetry(
         model = "sora2";
       } else if (meta.modelChoice === "veo") {
         model = refImage ? cfg.videoR2V : cfg.videoT2V;
+      } else if (meta.modelChoice === "gemini-flash") {
+        model = "gemini-omni-flash-1.1";
       } else if (meta.modelChoice === "gemini") {
         model = "google/gemini-omni";
       } else if (meta.modelChoice === "seedance") {
@@ -745,7 +759,7 @@ async function tryAutoRetry(
     // detected at the top of this function; here it's narrowed to
     // non-image values (image rows take the dedicated image branch
     // above and never reach this point).
-    const videoAsset: "video" | "grok" | "cinema" | "sora2" | "gemini" | "seedance" =
+    const videoAsset: "video" | "grok" | "cinema" | "sora2" | "gemini" | "gemini-flash" | "seedance" =
       cascadeAsset === "image" ? "video" : cascadeAsset;
     const r = await generateVideoWithCascade({
       primaryModel: model,
@@ -1001,13 +1015,13 @@ export async function settleHistoryRow(hist: HistoryRow): Promise<SettleResult> 
     if (modelHint) {
       const baseRate = await priceFor(hist.user_id, reason as any, modelHint);
       const durationSec = Number(hist.duration) || 8;
-      // Grok / Seedance / Sora 2 bill per second; Veo + image models
-      // are flat. Sora 2 added per-second billing when Original Video
-      // and Sora 2 standalone tab were wired through cinema settle.
+      // Grok / Seedance / Sora 2 / Gemini Flash bill per second; Veo + image
+      // models + (fixed-10s) GeminiOmni are flat.
       const liveRate =
         modelHint === "grok" ||
         modelHint === "seedance" ||
-        modelHint === "sora2"
+        modelHint === "sora2" ||
+        modelHint === "gemini-flash"
           ? Number((baseRate * durationSec).toFixed(4))
           : Number(baseRate.toFixed(4));
       // Only override the row's stored cost when we got a positive rate

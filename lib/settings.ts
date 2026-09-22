@@ -370,6 +370,18 @@ export async function getGeminiRate(durationMode: "10" = "10"): Promise<number> 
   return await getVeoRate("8");
 }
 
+// Gemini Omni Flash 1.1 — PER-SECOND rate. Unlike the (fixed-10s, flat)
+// GeminiOmni above, Flash duration is selectable (4/6/8/10), so cost =
+// per_second × duration, recomputed at settle. Admin sets
+// rate_gemini_flash.per_second in /admin/settings.
+export async function getGeminiFlashRate(): Promise<number> {
+  const v = await getSetting<any>("rate_gemini_flash");
+  const n = Number(v?.per_second);
+  if (Number.isFinite(n) && n > 0) return n;
+  // Sane default (~0.05/sec) until admin configures it.
+  return 0.05;
+}
+
 export async function getGrokRate(): Promise<number> {
   const v = await getSetting<any>("rate_grok");
   const n = Number(v?.per_second);

@@ -257,6 +257,9 @@ export async function POST(req: Request) {
         // p6.ts apipodVideoModel maps "sora2" → "sora-2-vip" regardless
         // of refs (sora-2-vip is a single endpoint).
         model = "sora2";
+      } else if (meta.modelChoice === "gemini-flash") {
+        // Gemini Omni Flash 1.1 — bare id; p6.ts resolves -t2v/-i2v/-r2v.
+        model = "gemini-omni-flash-1.1";
       } else if (meta.modelChoice === "gemini") {
         // GeminiOmni — single Crun model id; p2.ts builds the body
         // shape (img_urls + duration + 1080p) based on imageMode.
@@ -402,10 +405,15 @@ export async function POST(req: Request) {
     //   • Grok rows     → tab='cinema' or 'original-video' or 'grok' +
     //                     modelChoice='grok' (or model has 'grok') → grok cascade
     //   • Everything else (UGC, Auto, Veo viral, clone) → video cascade
-    let asset: "video" | "grok" | "cinema" | "sora2" | "gemini" | "seedance" = "video";
+    let asset: "video" | "grok" | "cinema" | "sora2" | "gemini" | "gemini-flash" | "seedance" = "video";
     if (row.tab === "sora2") asset = "sora2";
     else if (meta.modelChoice === "sora2" || /sora/i.test(model)) {
       asset = "sora2";
+    }
+    else if (meta.modelChoice === "gemini-flash" || /gemini-omni-flash|gemini-flash/i.test(model)) {
+      // Gemini Omni Flash 1.1 → its own APIPod pool. Checked BEFORE plain
+      // gemini (the flash id also matches /gemini-omni/).
+      asset = "gemini-flash";
     }
     else if (meta.modelChoice === "gemini" || /gemini-omni/i.test(model)) {
       // GeminiOmni rows route through the dedicated gemini cascade pool
