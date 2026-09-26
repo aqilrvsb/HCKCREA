@@ -2215,9 +2215,9 @@ function HistoryCardInner({
   // "Tukar sub" replace picker (storyboard rows only).
   const [tukarOpen, setTukarOpen] = useState(false);
   const [videoing, setVideoing] = useState(false);
-  // "Generate Video" provider popup (storyboard rows) — Omni or Seedance 2.0.
-  // FIXED 10s / 1 video for both per user direction — no duration picker here
-  // (the 4-15s Seedance slider lives on the Original Video tab instead).
+  // "Generate Video" provider popup (storyboard rows) — Omni or Omni Flash
+  // (Seedance was replaced by Omni Flash per user direction). FIXED 10s / 1
+  // video here — the duration picker lives on the Original Video tab instead.
   const [vidPickOpen, setVidPickOpen] = useState(false);
   // Bottom-right "submitted" toast after firing a storyboard→video job.
   const [submitToast, setSubmitToast] = useState<string | null>(null);
@@ -2239,7 +2239,7 @@ function HistoryCardInner({
   // in Original Video as "Generating…". Only a genuine failure surfaces (an
   // alert), so a silent no-op can't happen. Optimistic close means clicking a
   // provider feels instant even though the fetch is still in flight.
-  async function handleGenVideoFromStoryboard(provider: "gemini" | "seedance") {
+  async function handleGenVideoFromStoryboard(provider: "gemini" | "gemini-flash") {
     if (videoing) return;
     setVidPickOpen(false); // close all the modal right away
     setVideoing(true);
@@ -2256,7 +2256,7 @@ function HistoryCardInner({
         // Small bottom-right toast so the client knows it was submitted.
         // Auto-dismisses after 4.5s.
         setSubmitToast(
-          `🎬 Video ${provider === "seedance" ? "Seedance 2.0" : "Omni"} dihantar — akan muncul di tab Original Video.`
+          `🎬 Video ${provider === "gemini-flash" ? "Omni Flash" : "Omni"} dihantar — akan muncul di tab Original Video.`
         );
         window.setTimeout(() => setSubmitToast(null), 4500);
         window.dispatchEvent(new CustomEvent("history:refresh"));
@@ -3365,7 +3365,7 @@ function HistoryCardInner({
             <div className="grid grid-cols-2 gap-2 mb-3">
               {([
                 { v: "gemini" as const, label: "🔷 Omni", desc: "10s · 1080p" },
-                { v: "seedance" as const, label: "🌸 Seedance 2.0", desc: "10s · 480p" },
+                { v: "gemini-flash" as const, label: "⚡ Omni Flash", desc: "10s · 720p" },
               ]).map((o) => (
                 <button
                   key={o.v}

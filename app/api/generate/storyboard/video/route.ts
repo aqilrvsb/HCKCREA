@@ -4,9 +4,8 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { orChat } from "@/lib/openrouter";
 import { generateVideoWithCascade } from "@/lib/video-cascade";
-import { getGeminiRate, getSeedanceRate } from "@/lib/settings";
+import { getGeminiRate, getGeminiFlashRate } from "@/lib/settings";
 import { hasEnoughCredits } from "@/lib/deduct";
-import { SEEDANCE_NO_INDON } from "@/lib/seedance-lang";
 import { rehostToContent } from "@/lib/b2";
 
 export const runtime = "nodejs";
@@ -40,12 +39,16 @@ export async function POST(req: Request) {
   const historyId = String(body?.history_id || "").trim();
   if (!historyId) return NextResponse.json({ error: "history_id diperlukan" }, { status: 400 });
   // Provider picked in the storyboard "Generate Video" popup. Default gemini
-  // (Omni) so older clients / retries keep the original behaviour.
-  const videoProvider: "gemini" | "seedance" = body?.provider === "seedance" ? "seedance" : "gemini";
-  // Seedance bills per second and takes 4-15s; Omni is fixed 10s. Popup
-  // defaults to 10s for both.
+  // (Omni) so older clients / retries keep the original behaviour. Seedance
+  // was replaced by Omni Flash (Gemini Omni Flash 1.1) per user direction.
+  const videoProvider: "gemini" | "gemini-flash" =
+    body?.provider === "gemini-flash" ? "gemini-flash" : "gemini";
+  // Omni Flash duration enum 4/6/8/10; Omni is fixed 10s. Popup defaults 10s.
   const reqDur = Math.round(Number(body?.duration) || 10);
-  const duration = videoProvider === "seedance" ? Math.max(4, Math.min(15, reqDur)) : 10;
+  const duration =
+    videoProvider === "gemini-flash"
+      ? ([4, 6, 8, 10].includes(reqDur) ? reqDur : 10)
+      : 10;
 
   const admin = createAdminClient();
   const { data: row } = await admin
@@ -103,11 +106,11 @@ export async function POST(req: Request) {
     }
   }
 
-  // Omni = flat per-10s-video rate; Seedance = live per-second rate × duration
-  // (settle re-reads the same live rate, so admin price changes apply).
+  // Omni = flat per-10s-video rate; Omni Flash = live per-second rate ×
+  // duration (settle re-reads the same live rate, so admin price changes apply).
   const cost =
-    videoProvider === "seedance"
-      ? Number(((await getSeedanceRate()) * duration).toFixed(4))
+    videoProvider === "gemini-flash"
+      ? Number(((await getGeminiFlashRate()) * duration).toFixed(4))
       : Number((await getGeminiRate("10")).toFixed(4));
   if (!(await hasEnoughCredits(user.id, cost))) {
     return NextResponse.json({ error: `Kredit tak cukup untuk video (perlu RM ${cost.toFixed(2)}). Top up dulu.` }, { status: 402 });
@@ -119,10 +122,7 @@ export async function POST(req: Request) {
   // the cascade fires (so the slow orChat call never blocks the response).
   // Seedance drifts into Indonesian, so it gets the STRICT no-Indon rule (Malay
   // OR English, dynamic). Omni keeps its original forced-Malay line untouched.
-  const tail =
-    videoProvider === "seedance"
-      ? `Malaysian presenter, ${captionRule}, vertical 9:16, about ${duration} seconds. ${SEEDANCE_NO_INDON} No on-screen medical or whitening claims.`
-      : `Malaysian presenter, natural Bahasa Melayu voiceover (no Indonesian slang), ${captionRule}, vertical 9:16, about ${duration} seconds. No on-screen medical or whitening claims.`;
+  const tail = `Malaysian presenter, natural Bahasa Melayu voiceover (no Indonesian slang), ${captionRule}, vertical 9:16, about ${duration} seconds. No on-screen medical or whitening claims.`;
   // Storyboard blueprint (image 1) + separate product ref (image 2). Both Omni
   // AND Seedance use this SAME two-image flow now — Seedance runs through p7
   // (PixelByte) which has no face filter, so no special-casing.
@@ -158,11 +158,11 @@ export async function POST(req: Request) {
         campaign_total: meta.campaign_total || null,
         // Provider picked in the storyboard popup. model/modelChoice drive the
         // cascade pool + rate lookup on Resubmit and at settle.
-        model: videoProvider === "seedance" ? "seedance" : "google/gemini-omni",
+        model: videoProvider === "gemini-flash" ? "gemini-omni-flash-1.1" : "google/gemini-omni",
         modelChoice: videoProvider,
-        ...(videoProvider === "gemini" ? { cinemaProvider: "crun" } : {}),
+        cinemaProvider: videoProvider === "gemini-flash" ? "apipod" : "crun",
         imageMode: "ingredient",
-        resolution: videoProvider === "seedance" ? "480p" : "1080p",
+        resolution: videoProvider === "gemini-flash" ? "720p" : "1080p",
         aspectRatio: null,
         image_urls: imageUrls,
         sub,
@@ -203,13 +203,12 @@ export async function POST(req: Request) {
       /* keep the default creative line */
     }
 
-    const asset = videoProvider === "seedance" ? "seedance" : "gemini";
-    const primaryModel = videoProvider === "seedance" ? "seedance" : "google/gemini-omni";
+    const asset = videoProvider === "gemini-flash" ? "gemini-flash" : "gemini";
+    const primaryModel = videoProvider === "gemini-flash" ? "gemini-omni-flash-1.1" : "google/gemini-omni";
 
-    // Seedance and Omni now use the EXACT SAME flow — both send [storyboard,
-    // product] with the two-image prompt. Seedance runs through the seedance
-    // cascade pool whose primary slot is p7 (PixelByte, no face filter), so
-    // AI-face storyboards pass. Nothing provider-specific here anymore.
+    // Omni and Omni Flash use the EXACT SAME flow — both send [storyboard,
+    // product] with the two-image prompt (ingredient/r2v). Each runs through
+    // its own admin-configured cascade pool. Nothing provider-specific here.
     const refs = imageUrls;
     const prompt = buildPrompt(creative);
     const baseMeta = { ...(hist.metadata || {}), image_urls: refs };
