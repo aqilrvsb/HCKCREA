@@ -64,7 +64,7 @@ export async function POST(req: Request) {
               ? "seedance"
               : "grok";
   const resolution =
-    modelChoice === "gemini"
+    modelChoice === "gemini" || modelChoice === "gemini-flash"
       ? "1080p"
       : body?.resolution === "480p"
         ? "480p"

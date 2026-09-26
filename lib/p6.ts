@@ -405,11 +405,12 @@ export async function p6CreateVideo(input: {
     }
   } else if (resolvedModel.startsWith("gemini-omni-flash")) {
     // Gemini Omni Flash 1.1 — duration enum 4/6/8/10 (default 10), resolution
-    // 720p, aspect enum 16:9 | 9:16. Checked BEFORE the generic gemini-omni
-    // branch below (flash ids also startWith "gemini-omni").
+    // 1080p (API supports 360p/720p/1080p/4k; matches GeminiOmni), aspect enum
+    // 16:9 | 9:16. Checked BEFORE the generic gemini-omni branch below (flash
+    // ids also startWith "gemini-omni").
     const reqDur = Math.round(Number(input.durationMode));
     body.duration = [4, 6, 8, 10].includes(reqDur) ? reqDur : 10;
-    body.resolution = "720p";
+    body.resolution = "1080p";
     if (body.aspect_ratio !== "9:16" && body.aspect_ratio !== "16:9") {
       body.aspect_ratio = "9:16";
     }

@@ -648,7 +648,7 @@ export default function OriginalVideoTab({
           // Gemini forces 1080p server-side; we still send the right
           // value here so the optimistic UI cost preview matches what
           // /api/generate/cinema will actually compute.
-          resolution: provider === "gemini" ? "1080p" : provider === "seedance" ? "480p" : "720p",
+          resolution: provider === "gemini" || provider === "gemini-flash" ? "1080p" : provider === "seedance" ? "480p" : "720p",
           aspect_ratio: aspect,
           // Cinema route uses "text" / "frame" / "ingredient" directly.
           image_mode: imageMode,

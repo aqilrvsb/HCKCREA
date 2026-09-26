@@ -162,7 +162,7 @@ export async function POST(req: Request) {
         modelChoice: videoProvider,
         cinemaProvider: videoProvider === "gemini-flash" ? "apipod" : "crun",
         imageMode: "ingredient",
-        resolution: videoProvider === "gemini-flash" ? "720p" : "1080p",
+        resolution: "1080p",
         aspectRatio: null,
         image_urls: imageUrls,
         sub,
