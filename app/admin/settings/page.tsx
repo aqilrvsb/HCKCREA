@@ -2761,11 +2761,12 @@ export default function AdminSettings() {
       <div className="card p-6 mb-6 border-2 border-emerald-100 bg-emerald-50/40">
         <div className="flex items-center gap-2 mb-4">
           <MessageCircle className="w-5 h-5 text-emerald-600" />
-          <h2 className="font-display font-bold text-lg">WhatsApp Center Device</h2>
+          <h2 className="font-display font-bold text-lg">WhatsApp Gateway Device</h2>
         </div>
         <p className="text-sm text-[var(--color-text-secondary)] mb-4">
-          Instance UUID dari Whacenter (whacenter.com). Outbound WhatsApp messages
-          (login info, password reset) gunakan device ini.
+          Device ID dari PeningBot gateway (Baileys). Outbound WhatsApp messages
+          (admin alerts, login info, password reset) gunakan device ini.
+          Jangan tekan &quot;Refresh Device&quot; pada device admin.
         </p>
         <div className="grid md:grid-cols-3 gap-3">
           <input

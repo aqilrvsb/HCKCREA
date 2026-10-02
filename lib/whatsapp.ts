@@ -1,9 +1,17 @@
-// WhatsApp Center (whacenter.com) sender — uses the admin's device instance
-// to send messages to user phones. Server-side only.
+// PeningBot WhatsApp gateway sender — self-hosted Baileys gateway (on Railway)
+// that speaks the SAME API as the old Whacenter (identical routes, params and
+// response shape), so this stayed a one-line domain swap. Whacenter expired, so
+// every outbound WhatsApp (admin alerts + client messages) now goes here. Uses
+// the admin's device instance (admin_device.instance) as the sender. The device
+// id is the "password": NEVER call this from the browser. Server-side only.
+//
+// Overridable via env (WA_GATEWAY_URL) so a future host move needs no code
+// deploy — just set the env to the new base URL.
 
 import { createAdminClient } from "@/lib/supabase/admin";
 
-const WHACENTER_API_URL = "https://api.whacenter.com";
+const WA_GATEWAY_URL =
+  process.env.WA_GATEWAY_URL || "https://dev-muse-automaton-production.up.railway.app";
 
 // WhatsApp group invite URLs. Keep all literals here so the message
 // builder can pick the right one by KIND and call sites can NEVER
@@ -64,21 +72,31 @@ export async function sendWhatsApp(toPhone: string, message: string): Promise<bo
   form.append("number", number);
   form.append("message", message);
 
+  // The gateway can wait up to ~25s while the device reconnects (and media
+  // longer), so give it a generous 60s timeout per the gateway contract —
+  // never trust the default which may cut a reconnecting send short.
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 60_000);
   try {
-    const res = await fetch(`${WHACENTER_API_URL}/api/send`, {
+    const res = await fetch(`${WA_GATEWAY_URL}/api/send`, {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body: form.toString(),
+      signal: ctrl.signal,
     });
-    if (!res.ok) {
-      const txt = await res.text().catch(() => "");
-      console.warn("[WA] send failed:", res.status, txt.substring(0, 200));
+    // The gateway ALWAYS returns HTTP 200 — success/failure is in the JSON
+    // `status` field, so parse it rather than trusting res.ok.
+    const data = await res.json().catch(() => null as any);
+    if (!res.ok || !data?.status) {
+      console.warn("[WA] send failed:", res.status, data?.message || "(no body)");
       return false;
     }
     return true;
   } catch (e: any) {
     console.warn("[WA] network error:", e?.message);
     return false;
+  } finally {
+    clearTimeout(timer);
   }
 }
 
