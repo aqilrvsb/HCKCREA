@@ -6,8 +6,12 @@ import { uploadBufferToContent } from "@/lib/b2";
 // AI/agent). The caller just sends a script; we synthesize it via MiniMax using
 // OUR server-side key (never exposed) and return a hosted MP3 URL + duration.
 //
-// Auth: Authorization: Bearer <TTS_API_KEY>  (set TTS_API_KEY in Vercel env).
-//   The MiniMax key (MINIMAX_API_KEY) stays private — callers never see it.
+// Auth: OPTIONAL. If TTS_API_KEY is set in env, callers must send
+//   `Authorization: Bearer <TTS_API_KEY>`. If TTS_API_KEY is NOT set, the
+//   endpoint is OPEN (no token needed) — convenient, but anyone who knows the
+//   URL can spend your MiniMax quota, so set TTS_API_KEY to lock it down.
+//   Either way the MiniMax key (MINIMAX_API_KEY) stays private server-side —
+//   callers never see it.
 //
 // Body (JSON):
 //   text      string   REQUIRED — the script to speak (≤ 5000 chars)
@@ -46,14 +50,15 @@ function resolveVoice(input: string): string {
 }
 
 export async function POST(req: Request) {
-  // ── Auth ──────────────────────────────────────────────────────────────
+  // ── Auth (OPTIONAL) ──────────────────────────────────────────────────
+  // If TTS_API_KEY is set, require it. If not set, the endpoint is OPEN so it
+  // works directly with no setup (uses the server's MINIMAX_API_KEY from env).
   const expected = (process.env.TTS_API_KEY || "").trim();
-  if (!expected) {
-    return NextResponse.json({ ok: false, error: "TTS_API_KEY not configured on server" }, { status: 500 });
-  }
-  const token = (req.headers.get("authorization") || "").replace(/^Bearer\s+/i, "").trim();
-  if (token !== expected) {
-    return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
+  if (expected) {
+    const token = (req.headers.get("authorization") || "").replace(/^Bearer\s+/i, "").trim();
+    if (token !== expected) {
+      return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
+    }
   }
 
   const apiKey = (process.env.MINIMAX_API_KEY || "").trim();
