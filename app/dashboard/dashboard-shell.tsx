@@ -27,7 +27,6 @@ import SeedanceTab from "./tabs/seedance";
 import CloneTab from "./tabs/clone";
 import AutoContentTab from "./tabs/auto-content";
 import AutoUgcTab from "./tabs/auto-ugc";
-import FairytaleTab from "./tabs/fairytale";
 import HistoryGrid from "./sections/history-grid";
 import BillingSection from "./sections/billing";
 import CreditSection from "./sections/credit";
@@ -830,14 +829,8 @@ function ProjectView({
               <HistoryGrid tab="auto-ugc" title={`Auto UGC — ${project.name}`} projectId={project.id} />
             </>
           )}
-          {activeTab === "fairytale" && (
-            <>
-              <div className="max-w-6xl mx-auto w-full">
-                <FairytaleTab projectId={project.id} />
-              </div>
-              <HistoryGrid tab="fairytale" title={`Storytelling — ${project.name}`} projectId={project.id} />
-            </>
-          )}
+          {/* Storytelling (fairytale) removed per user direction 2026-10-11 —
+              feature retired; Modal backend (peninglab-fairytale) stopped. */}
           {activeTab === "editor" && (
             <HistoryGrid tab="original-video" editorMode title="Editor" projectId={project.id} />
           )}
