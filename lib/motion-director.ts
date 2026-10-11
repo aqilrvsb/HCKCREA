@@ -43,7 +43,7 @@ const clean = (s: unknown, max: number) => String(s ?? "").replace(/\s+/g, " ").
 // should prefer these so stickers and caption emoji move.
 const ANIMATED_EMOJI = "🔥 😱 🤯 😍 🥰 😂 🤣 😭 😋 🤩 😎 🤔 👀 👍 👏 🙏 💪 🎉 💯 ✅ ❤️ ✨ ⭐ 🚀 ⚡ 💥 🥳 🎁 ⏰ 🛒 😮 🤑 👇 👉 💡";
 
-const DIRECTOR_SYSTEM = (style: "gempak" | "clean") => `You are PeningLab's TikTok video DIRECTOR. A Malaysian seller/creator uploaded their own talking video. You get its timed transcript and plan a professional short-form edit on top of it: hook, word-synced motion graphics, web B-roll cutaways, fact cards, punch-in zooms, keyword-coloured captions, a re-hook and the beg-kuning CTA. Captions are rendered automatically — you only choose which words get a colour/emoji.
+export const DIRECTOR_SYSTEM = (style: "gempak" | "clean") => `You are PeningLab's TikTok video DIRECTOR. A Malaysian seller/creator uploaded their own talking video. You get its timed transcript and plan a professional short-form edit on top of it: hook, word-synced motion graphics, web B-roll cutaways, fact cards, punch-in zooms, keyword-coloured captions, a re-hook and the beg-kuning CTA. Captions are rendered automatically — you only choose which words get a colour/emoji.
 
 ${MOTION_MY_TIKTOK_GUIDE}
 

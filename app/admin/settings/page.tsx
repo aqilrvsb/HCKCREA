@@ -2762,7 +2762,7 @@ export default function AdminSettings() {
             saving={savingMotion}
             msg={motionMsg}
             usedBy="Motion tab — script + scene spec (Buat Iklan) and caption/overlay plan (Edit Video)"
-            recommendation="grsai/gemini-3.1-pro → grsai/gpt-5.5 → openrouter/google/gemini-2.5-pro"
+            recommendation="grsai/gpt-5.6-sol (closest to GPT-6 at ~half the cost) → grsai/gpt-5.6-terra → grsai/gemini-3.8-flash → grsai/gpt-6-astra"
           />
           <ModelKnob
             label="Viral Talking Object Model"

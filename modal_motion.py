@@ -187,8 +187,8 @@ def _probe(path: Path) -> dict:
 JOBS = modal.Volume.from_name("peninglab-motion-jobs", create_if_missing=True)
 JOBS_ROOT = "/jobs"
 SERVE_PORT = 8765
-CHUNK_FRAMES = 420  # ≈14 s per chunk container
-MAX_CHUNKS = 8
+CHUNK_FRAMES = 200  # ≈6.7 s of video per chunk container
+MAX_CHUNKS = 16
 
 
 class _Serve:
