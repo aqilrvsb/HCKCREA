@@ -81,6 +81,16 @@ function modelLabel(item: HistoryItem): string {
   // Storytelling — return early before any model-string parsing.
   if (item.type === "fairytale") return "Storytelling";
 
+  // Motion tab (AI motion-graphics). metadata.model may carry the planner LLM
+  // id (e.g. a gemini model), so claim these rows BEFORE any model-string
+  // matching below. metadata.feature distinguishes the two flows.
+  if (item.tab === "motion") {
+    const feature = (item.metadata as any)?.feature;
+    if (feature === "motion-ad") return "Motion · Iklan";
+    if (feature === "motion-edit") return "Motion · Edit";
+    return "Motion";
+  }
+
   // Provider tag — prefer metadata.slot (e.g. "p2-a"/"p2-b"/"p4"/"p5")
   // so the chip distinguishes Crun key A vs B. For rows fired before
   // the slot field was stamped, fall back to extracting the slot from
@@ -152,6 +162,9 @@ function modelLabel(item: HistoryItem): string {
 function videoModeLabel(item: HistoryItem): string | null {
   if (!(item.type === "video" || item.type === "auto-content" || item.type === "clone"))
     return null;
+  // Motion rows aren't t2v/i2v generations — the badge from modelLabel()
+  // ("Motion · Iklan" / "Motion · Edit") already says what they are.
+  if (item.tab === "motion") return null;
   const meta = item.metadata?.imageMode;
   // Video generated FROM a storyboard (🎬 Generate Video) — carry the sub
   // (and campaign position) label over from the storyboard so the Original
@@ -223,7 +236,8 @@ export default function HistoryGrid({
     | "auto"
     | "auto-ugc"
     | "fairytale"
-    | "original-video";
+    | "original-video"
+    | "motion";
   title: string;
   projectId?: string;
   /** Legacy flag — Original Video used to share the cinema grid and
@@ -330,7 +344,7 @@ export default function HistoryGrid({
   const edAddLog = (m: string) => setEdLog((l) => [m, ...l].slice(0, 40));
   // Video tabs share the Editor's denser layout (6 per row). Image / Clone /
   // Storytelling keep the roomier 4-per-row grid.
-  const isVideoTab = ["video", "original-video", "auto", "auto-ugc", "cinema", "grok", "seedance", "sora2"].includes(tab);
+  const isVideoTab = ["video", "original-video", "auto", "auto-ugc", "cinema", "grok", "seedance", "sora2", "motion"].includes(tab);
   const sixPerRow = editorMode || donePostMode || transferAffiliateMode || isVideoTab;
   // 6-per-row grids = 6 columns × 4 rows = 24 per page. 4-per-row grids = 12.
   // Editor, Ready Affiliate AND Done Post all use the client-chosen page size
@@ -2049,6 +2063,7 @@ function sourceTabLabel(item: HistoryItem): string {
   if (t === "seedance") return "Cinema";
   if (t === "grok") return "Grok";
   if (t === "auto") return "Auto Content";
+  if (t === "motion") return "Motion";
   return t ? t.replace(/(^|[-_])(\w)/g, (_m, _s, c) => " " + c.toUpperCase()).trim() : "Video";
 }
 
@@ -2323,6 +2338,11 @@ function HistoryCardInner({
   // can use Extend just like UGC tab Veo (Veo-only — Grok/Sora 2 excluded
   // below).
   const isCinema = item.tab === "cinema";
+  // Motion rows (Buat Iklan / Edit Video) are rendered by the Motion pipeline,
+  // not a video model — none of the model-based actions apply. Extend, Improve,
+  // Pindah ke Editor and Resubmit are all hidden for them (Resubmit for Motion
+  // will be wired separately). Play / Save / Download / Delete stay.
+  const isMotionRow = item.tab === "motion";
   // Extend + Improve are available on every completed Veo video — fal.ai
   // extracts the last frame from the output URL and feeds it to Veo i2v
   // for the continuation. Cinema (Viral) cards get a Merge action
@@ -2383,6 +2403,7 @@ function HistoryCardInner({
   const canExtend =
     isVideo &&
     !isCinema &&
+    !isMotionRow &&
     !isClonePrompt &&
     !isSora2Row &&
     !isSeedanceRow &&
@@ -4680,7 +4701,7 @@ function HistoryCardInner({
             <>
               {/* Transfer to Editor — every video tab (Dialog UGC, Auto
                   Content, Auto UGC, Viral, Grok, Sora 2, Cinema, Clone…). */}
-              {allowTransfer && (
+              {allowTransfer && !isMotionRow && (
                 <ActionBtn
                   title={inEditor ? "Buang dari Editor" : "Pindah ke Editor"}
                   onClick={() => void toggleEditor()}
@@ -4750,7 +4771,7 @@ function HistoryCardInner({
                   "improve this specific clip", so the Extend / Combine
                   buttons cover the use case. Kept for Cinema / Story /
                   Clone where users do iterate on a single result. */}
-              {item.tab !== "video" && item.tab !== "auto" && item.tab !== "original-video" && (
+              {item.tab !== "video" && item.tab !== "auto" && item.tab !== "original-video" && !isMotionRow && (
                 <ActionBtn title="Improve Video" onClick={() => setShowEditModal(true)} bg={ACTION.edit}>
                   <Pencil className="w-3.5 h-3.5" strokeWidth={2.4} />
                 </ActionBtn>
@@ -4787,7 +4808,7 @@ function HistoryCardInner({
               Resubmit (expensive Modal re-render; use the recheck icon). */}
           {!editorMode && !donePostMode && item.status === "failed" && (
             <>
-              {item.type !== "fairytale" && (
+              {item.type !== "fairytale" && !isMotionRow && (
                 <button
                   onClick={handleRetry}
                   disabled={checking}

@@ -26,7 +26,8 @@ export type DeductReason =
   | "gpu_session"
   | "animate"
   | "grok"
-  | "scrape";
+  | "scrape"
+  | "motion";
 
 // Optional model hint to pick a per-model rate. Pass when the caller
 // knows which provider/model the generation used so priceFor can read
@@ -40,7 +41,8 @@ export type PriceModelHint =
   | "seedance"
   | "sora2"
   | "gemini"
-  | "gemini-flash";
+  | "gemini-flash"
+  | "motion";
 
 // What rate applies for the given user + reason. Per-model rates
 // (rate_banana_pro / rate_gpt_image / rate_veo / rate_grok / rate_seedance)
@@ -99,6 +101,12 @@ async function basePriceFor(
     // Gemini Omni Flash 1.1 — PER-SECOND rate (settle multiplies × duration).
     const { getGeminiFlashRate } = await import("@/lib/settings");
     return await getGeminiFlashRate();
+  }
+  if (modelHint === "motion") {
+    // Motion (Buat Iklan + Edit Video) — PER-SECOND rate of the output video
+    // (settle multiplies × duration).
+    const { getMotionRate } = await import("@/lib/settings");
+    return await getMotionRate();
   }
 
   // Reason-based fallback paths preserved for backward compat.
@@ -197,6 +205,7 @@ export function reasonForRow(row: {
   const type = String(row.type || "");
   if (tab === "image" || type === "image" || type === "fairytale-scene") return "image_generate";
   if (tab === "template-body") return "template_body";
+  if (tab === "motion") return "motion";
   if (tab === "cinema" || tab === "original-video") return "cinema";
   if (tab === "seedance") return "seedance";
   if (Number(row.duration) === 16) return "video_16s";

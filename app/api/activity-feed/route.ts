@@ -31,8 +31,11 @@ type FeedRow = {
 
 // Friendly model name from the row's metadata (modelChoice/model) so the feed
 // shows "Grok" / "Veo" / "Seedance" etc. Empty when we can't tell.
-function friendlyModel(meta: any, type: string): string {
+function friendlyModel(meta: any, type: string, tab?: string | null): string {
   if (type === "fairytale") return "Storytelling";
+  // Motion rows carry the planner LLM id in metadata (e.g. a gemini model) —
+  // claim them by tab first so they aren't mislabelled as a video model.
+  if (tab === "motion") return "Motion";
   const s = String(meta?.modelChoice || meta?.model || "").toLowerCase();
   if (s.includes("grok")) return "Grok";
   if (s.includes("sora")) return "Sora 2";
@@ -100,7 +103,7 @@ export async function GET(req: Request) {
     display_name: emailById.get(r.user_id) || "(unknown)",
     tab: r.tab || r.type || "—",
     type: r.type,
-    model: friendlyModel((r as any).metadata, r.type),
+    model: friendlyModel((r as any).metadata, r.type, r.tab),
     duration: typeof (r as any).duration === "number" ? (r as any).duration : null,
     output_url: r.output_url,
     thumbnail_url: r.thumbnail_url,

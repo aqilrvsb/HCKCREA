@@ -231,6 +231,7 @@ export default function AdminUsage() {
     let image = 0;
     let gemini = 0;
     let geminiFlash = 0;
+    let motion = 0;
     for (const r of generationRows) {
       const isImg =
         r.type === "image" ||
@@ -245,7 +246,12 @@ export default function AdminUsage() {
       const modelStr = String((r.metadata as any)?.model || "").toLowerCase();
       const modelChoice = String((r.metadata as any)?.modelChoice || "").toLowerCase();
       const provider = String((r.metadata as any)?.provider || "").toLowerCase();
-      if (rawTab === "sora2" || modelChoice === "sora2" || modelStr.includes("sora")) {
+      if (rawTab === "motion" || r.reason === "motion") {
+        // Motion (Buat Iklan + Edit Video) — checked FIRST: its metadata may
+        // carry the planner LLM id (e.g. a gemini model), which the model-
+        // substring branches below would otherwise misclassify.
+        motion++;
+      } else if (rawTab === "sora2" || modelChoice === "sora2" || modelStr.includes("sora")) {
         sora++;
       } else if (
         rawTab === "fairytale" ||
@@ -303,7 +309,7 @@ export default function AdminUsage() {
         veo++;
       }
     }
-    return { veo, grok, sora, seedance, story, image, gemini, geminiFlash };
+    return { veo, grok, sora, seedance, story, image, gemini, geminiFlash, motion };
   }, [generationRows]);
 
   return (
@@ -662,6 +668,7 @@ export default function AdminUsage() {
                   { label: "GeminiOmni", value: videoBreakdown.gemini, tone: "rgba(6,182,212,0.18)", fg: "#06b6d4", sub: "Original Video (Gemini) + Auto Content Gemini" },
                   { label: "Omni Flash", value: videoBreakdown.geminiFlash, tone: "rgba(34,211,238,0.18)", fg: "#22d3ee", sub: "Original Video (Gemini Omni Flash 1.1)" },
                   { label: "Seedance", value: videoBreakdown.seedance, tone: "rgba(244,114,182,0.18)", fg: "#ec4899", sub: "Original Video / Cinema Seedance + Auto Content" },
+                  { label: "Motion", value: videoBreakdown.motion, tone: "rgba(167,139,250,0.18)", fg: "#a78bfa", sub: "Motion tab — Buat Iklan + Edit Video" },
                 ].map((b) => (
                   <div
                     key={b.label}
@@ -872,6 +879,10 @@ export default function AdminUsage() {
                               } else {
                                 style = { label: "IMAGE",    bg: "rgba(250,204,21,0.12)", fg: "#eab308", bd: "rgba(250,204,21,0.3)" };
                               }
+                            } else if (rawTabM === "motion" || reasonM === "motion") {
+                              // Motion — before the model-substring checks
+                              // (metadata.model may be the planner LLM id).
+                              style = { label: "MOTION",   bg: "rgba(167,139,250,0.12)", fg: "#a78bfa", bd: "rgba(167,139,250,0.3)" };
                             } else if (
                               modelChoice === "sora2" ||
                               rawTabM === "sora2" ||
@@ -931,6 +942,7 @@ export default function AdminUsage() {
                               image:     { label: "IMAGE",      bg: "rgba(250,204,21,0.12)", fg: "#eab308", bd: "rgba(250,204,21,0.3)" },
                               fairytale: { label: "STORY",      bg: "rgba(139,92,246,0.12)", fg: "#8b5cf6", bd: "rgba(139,92,246,0.3)" },
                               "original-video": { label: "ORIGINAL", bg: "rgba(250,204,21,0.12)", fg: "#facc15", bd: "rgba(250,204,21,0.35)" },
+                              motion:    { label: "MOTION",     bg: "rgba(167,139,250,0.12)", fg: "#a78bfa", bd: "rgba(167,139,250,0.3)" },
                             };
                             const TYPE_FALLBACK: Record<string, string> = {
                               "auto-content":      "auto",

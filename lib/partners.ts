@@ -25,6 +25,7 @@ export const PARTNER_RATE_MODELS = [
   "sora2",
   "gemini",
   "gemini-flash",
+  "motion",
 ] as const;
 export type PartnerRateModel = (typeof PARTNER_RATE_MODELS)[number];
 
@@ -50,6 +51,7 @@ export const PARTNER_TABS: { key: string; label: string }[] = [
   { key: "storyboard", label: "Storyboard (Image)" },
   { key: "video", label: "Dialog UGC" },
   { key: "original-video", label: "Original Video" },
+  { key: "motion", label: "Motion" },
   { key: "auto", label: "Auto Content" },
   { key: "auto-ugc", label: "Auto UGC" },
   { key: "editor", label: "Editor" },

@@ -89,6 +89,9 @@ export default function AdminSettings() {
   // app_settings.rate_gemini_flash = { per_second: number }.
   // /api/gemini-flash/rate serves it to the Original Video "Omni Flash" chip.
   const [rateGeminiFlash, setRateGeminiFlash] = useState("");
+  // Motion (Buat Iklan + Edit Video) — PER-SECOND rate of the output video.
+  // Stored as app_settings.rate_motion = { per_second: number }.
+  const [rateMotion, setRateMotion] = useState("");
   const [savingRates, setSavingRates] = useState(false);
   const [ratesMsg, setRatesMsg] = useState<string | null>(null);
 
@@ -214,6 +217,7 @@ export default function AdminSettings() {
   //   - model_custom_idea → UGC Custom Idea + Auto Content master plan
   //   - model_viral       → Viral Talking Object scene + prompt builder
   //   - model_clone       → Clone tab text generation
+  //   - model_motion      → Motion tab (Buat Iklan scene spec + Edit Video overlay plan)
   //   - model_auto        → universal fallback (last layer of every cascade)
   //   - storytelling_script_model → Storytelling 12-scene JSON (separate card)
   type ModelSlotProvider = "openrouter" | "grsai";
@@ -250,6 +254,12 @@ export default function AdminSettings() {
   const [editorTextKnob, setEditorTextKnob] = useState<ModelKnobState>(emptyKnob(EDITOR_TEXT_MAX_FB));
   const [savingEditorText, setSavingEditorText] = useState(false);
   const [editorTextMsg, setEditorTextMsg] = useState<string | null>(null);
+  // Motion tab — script + scene spec (Buat Iklan) and caption/overlay plan
+  // (Edit Video). Its own slot; empty falls through to model_auto.
+  const MOTION_MAX_FB = 3;
+  const [motionKnob, setMotionKnob] = useState<ModelKnobState>(emptyKnob(MOTION_MAX_FB));
+  const [savingMotion, setSavingMotion] = useState(false);
+  const [motionMsg, setMotionMsg] = useState<string | null>(null);
   const [viralKnob, setViralKnob] = useState<ModelKnobState>(emptyKnob(VIRAL_MAX_FB));
   const [savingViralModel, setSavingViralModel] = useState(false);
   const [viralModelMsg, setViralModelMsg] = useState<string | null>(null);
@@ -332,6 +342,7 @@ export default function AdminSettings() {
         if (row.key === "sora2_rate") setRateSora2(fmt(row.value?.rate));
         if (row.key === "rate_gemini") setRateGemini(fmt(row.value?.per_video_10s));
         if (row.key === "rate_gemini_flash") setRateGeminiFlash(fmt(row.value?.per_second));
+        if (row.key === "rate_motion") setRateMotion(fmt(row.value?.per_second));
         if (row.key === "rate_seedance") setRateSeedance(fmt(row.value?.per_second));
         if (row.key === "fairytale_image_model") {
           setStorytellingModel(String(row.value?.model || ""));
@@ -419,6 +430,7 @@ export default function AdminSettings() {
         if (row.key === "model_qa") setQaKnob(parseKnob(row.value, QA_MAX_FB));
         if (row.key === "model_custom_idea") setCustomIdeaKnob(parseKnob(row.value, CUSTOM_IDEA_MAX_FB));
         if (row.key === "model_editor_text") setEditorTextKnob(parseKnob(row.value, EDITOR_TEXT_MAX_FB));
+        if (row.key === "model_motion") setMotionKnob(parseKnob(row.value, MOTION_MAX_FB));
         if (row.key === "model_viral") setViralKnob(parseKnob(row.value, VIRAL_MAX_FB));
         if (row.key === "model_clone") setCloneKnob(parseKnob(row.value, CLONE_MAX_FB));
         if (row.key === "model_auto") setAutoKnob(parseKnob(row.value, AUTO_MAX_FB));
@@ -731,6 +743,14 @@ export default function AdminSettings() {
           body: JSON.stringify({
             key: "rate_gemini_flash",
             value: { per_second: num(rateGeminiFlash, 0.05) },
+          }),
+        }),
+        fetch("/api/admin/settings", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            key: "rate_motion",
+            value: { per_second: num(rateMotion, 0.05) },
           }),
         }),
         fetch("/api/admin/settings", {
@@ -1187,6 +1207,15 @@ export default function AdminSettings() {
       setMsg: setEditorTextMsg,
     });
   }
+  function saveMotionModel() {
+    return saveCascadeKnob({
+      key: "model_motion",
+      knob: motionKnob,
+      label: "Motion",
+      setSaving: setSavingMotion,
+      setMsg: setMotionMsg,
+    });
+  }
   function saveViralModel() {
     return saveCascadeKnob({
       key: "model_viral",
@@ -1255,6 +1284,8 @@ export default function AdminSettings() {
   //   rate_seedance / rate_grok keys; admin shouldn't need to touch them
   //   directly anymore.
   const HIDDEN_KEYS = new Set<string>([
+    // Motion renderer endpoint + shared secret (modal_motion.py) — server-only.
+    "motion_modal",
     // Manual Touch 'n Go top-up — edited via the dedicated card above.
     "tng_account",
     "tng_qr_url",
@@ -1270,6 +1301,7 @@ export default function AdminSettings() {
     "sora2_rate",
     "rate_gemini",
     "rate_gemini_flash",
+    "rate_motion",
     // FB CAPI — exposed via the dedicated "Facebook Conversions API"
     // card above. Hiding the raw JSON because the access_token field is
     // a secret and shouldn't be visible in plain text in the generic list.
@@ -1279,6 +1311,7 @@ export default function AdminSettings() {
     "model_qa",
     "model_custom_idea",
     "model_editor_text",
+    "model_motion",
     "model_viral",
     "model_clone",
     "model_auto",
@@ -1987,6 +2020,25 @@ export default function AdminSettings() {
               />
             </div>
           </div>
+          {/* Motion (Buat Iklan + Edit Video) — PER-SECOND rate of the output
+              video, so cost = rate × duration (recomputed at settle). */}
+          <div>
+            <label className="block text-xs font-mono uppercase tracking-wider text-[var(--color-text-muted)] font-bold mb-1.5 flex items-center gap-1.5">
+              <Film className="w-3.5 h-3.5" /> Motion — RM per saat video
+            </label>
+            <div className="relative">
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs font-bold text-[var(--color-text-muted)]">RM</span>
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                value={rateMotion}
+                onChange={(e) => setRateMotion(e.target.value)}
+                className="input !pl-10"
+                placeholder="0.05"
+              />
+            </div>
+          </div>
         </div>
         <div className="flex items-center gap-3 mt-5">
           <button
@@ -2571,6 +2623,16 @@ export default function AdminSettings() {
             msg={editorTextMsg}
             usedBy="Editor tab → Generate Text ONLY (caption + Main Text + Sub Text). Leave empty to reuse Custom Idea Model."
             recommendation="Isolated on purpose — changing this cannot affect Auto UGC / Auto Content / the extension. Fast model is fine; it writes short hooks in Malaysian Malay."
+          />
+          <ModelKnob
+            label="Motion Model (Buat Iklan + Edit Video)"
+            value={motionKnob}
+            onChange={setMotionKnob}
+            onSave={saveMotionModel}
+            saving={savingMotion}
+            msg={motionMsg}
+            usedBy="Motion tab — script + scene spec (Buat Iklan) and caption/overlay plan (Edit Video)"
+            recommendation="grsai/gemini-3.1-pro → grsai/gpt-5.5 → openrouter/google/gemini-2.5-pro"
           />
           <ModelKnob
             label="Viral Talking Object Model"

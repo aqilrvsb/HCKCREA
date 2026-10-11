@@ -382,6 +382,17 @@ export async function getGeminiFlashRate(): Promise<number> {
   return 0.05;
 }
 
+// Motion (AI motion-graphics: Buat Iklan + Edit Video) — PER-SECOND rate of
+// the OUTPUT video, so cost = per_second × duration, recomputed at settle.
+// Admin sets rate_motion.per_second in /admin/settings.
+export async function getMotionRate(): Promise<number> {
+  const v = await getSetting<any>("rate_motion");
+  const n = Number(v?.per_second);
+  if (Number.isFinite(n) && n > 0) return n;
+  // Sane default (~0.05/sec) until admin configures it.
+  return 0.05;
+}
+
 export async function getGrokRate(): Promise<number> {
   const v = await getSetting<any>("rate_grok");
   const n = Number(v?.per_second);

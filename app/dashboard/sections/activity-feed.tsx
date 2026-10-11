@@ -61,6 +61,9 @@ function inferKind(item: FeedItem): "image" | "video" | "other" {
 // Friendly badge label so users see "Storytelling" instead of the raw
 // DB type "fairytale" (and "Cinema" instead of "seedance" etc).
 function tabLabel(item: FeedItem): string {
+  // Motion rows are type "video" — claim them by tab before the type map
+  // below labels them "UGC".
+  if (String(item.tab || "").toLowerCase() === "motion") return "Motion";
   const key = String(item.type || item.tab || "").toLowerCase();
   if (key === "fairytale") return "Storytelling";
   if (key === "seedance") return "Cinema";

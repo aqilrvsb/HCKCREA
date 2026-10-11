@@ -873,6 +873,15 @@ export async function settleHistoryRow(hist: HistoryRow): Promise<SettleResult> 
     // Fall through — re-query upstream and recover if it succeeded.
   }
 
+  // Motion rows are rendered by Modal (modal_motion.py), polled via its
+  // /check endpoint, and billed by their own reserve → true-up logic. Checked
+  // before the task_id guard: a Buat Iklan row has no task_id while its
+  // script + voice are still being made.
+  if (hist.tab === "motion") {
+    const { settleMotionRow } = await import("@/lib/motion");
+    return settleMotionRow(hist);
+  }
+
   if (!hist.task_id) {
     return { state: "skipped", reason: "no task_id" };
   }

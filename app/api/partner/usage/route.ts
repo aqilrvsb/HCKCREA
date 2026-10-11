@@ -15,7 +15,7 @@ export const dynamic = "force-dynamic";
 
 function categoryFor(reason: string): "image" | "video" | "auto" | "other" {
   if (reason === "image_generate") return "image";
-  if (["video_8s", "video_16s", "cinema", "seedance", "grok", "template_body", "animate", "gpu_session"].includes(reason)) return "video";
+  if (["video_8s", "video_16s", "cinema", "seedance", "grok", "template_body", "animate", "gpu_session", "motion"].includes(reason)) return "video";
   if (["auto_plan", "clone_plan"].includes(reason)) return "auto";
   return "other";
 }

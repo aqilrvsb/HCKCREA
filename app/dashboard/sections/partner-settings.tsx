@@ -11,8 +11,8 @@ import { useEffect, useState } from "react";
 import { Loader2, Check } from "lucide-react";
 
 // Per-model rate display metadata (label + unit). Units mirror priceFor:
-// image models = per image; veo = per 8s; grok/seedance/sora2 = per second;
-// gemini = per 10s.
+// image models = per image; veo = per 8s; grok/seedance/sora2/motion = per
+// second; gemini = per 10s.
 const RATE_META: { key: string; label: string; unit: string }[] = [
   { key: "banana_pro", label: "Nano Banana Pro (image)", unit: "/ gambar" },
   { key: "gpt_image", label: "GPT Image (image)", unit: "/ gambar" },
@@ -20,6 +20,8 @@ const RATE_META: { key: string; label: string; unit: string }[] = [
   { key: "grok", label: "Grok Imagine (video)", unit: "/ saat" },
   { key: "seedance", label: "Seedance (video)", unit: "/ saat" },
   { key: "gemini", label: "GeminiOmni (video)", unit: "/ 10s" },
+  // Motion (Buat Iklan + Edit Video) — per SECOND of output video.
+  { key: "motion", label: "Motion (video)", unit: "/ saat" },
 ];
 
 export default function PartnerSettings() {

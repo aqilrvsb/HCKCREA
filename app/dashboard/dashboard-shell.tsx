@@ -15,6 +15,7 @@ import {
   Sparkles,
   Scissors,
   Send,
+  Clapperboard,
 } from "lucide-react";
 import ImageTab from "./tabs/image";
 import ImageTabWithMode from "./tabs/image-with-mode";
@@ -23,6 +24,7 @@ import CinemaTab from "./tabs/cinema";
 import GrokTab from "./tabs/grok";
 import Sora2Tab from "./tabs/sora2";
 import OriginalVideoTab from "./tabs/original-video";
+import MotionTab from "./tabs/motion";
 import SeedanceTab from "./tabs/seedance";
 import CloneTab from "./tabs/clone";
 import AutoContentTab from "./tabs/auto-content";
@@ -65,7 +67,8 @@ type TabKey =
   | "done-post"
   | "transfer-affiliate"
   | "fairytale"
-  | "original-video";
+  | "original-video"
+  | "motion";
 
 // Auto UGC — opened to EVERYONE per user direction 2026-07-06 (was gated
 // to nl@/admin@ during the pilot). Gate machinery kept so it can be
@@ -89,7 +92,10 @@ const TABS: { key: TabKey; label: string; icon: any; tag: string }[] = [
   // input; exposes Grok Imagine 1.5 (default) · Veo 3.1.
   { key: "video",     label: "Dialog UGC",   icon: Video,     tag: "02" },
   { key: "original-video", label: "Original Video", icon: Film, tag: "03" },
-  { key: "auto",      label: "Auto Content", icon: Wand2,     tag: "04" },
+  // Motion — AI motion-graphics video: "Buat Iklan" (ad from scratch) +
+  // "Edit Video" (animated captions/overlays on an uploaded clip).
+  { key: "motion",    label: "Motion",       icon: Clapperboard, tag: "03b" },
+  { key: "auto",     label: "Auto Content", icon: Wand2,     tag: "04" },
   // Auto UGC — Grok-Imagine avatar UGC with 30s split into Seg 1/Seg 2.
   // Open to everyone (canSeeAutoUgc gate kept for easy re-restriction).
   { key: "auto-ugc",  label: "Auto UGC",     icon: Sparkles,  tag: "4b" },
@@ -589,6 +595,8 @@ function resolveActiveSop(view: SidebarView, activeTab: TabKey) {
       fairytale: "fairytale",
       // Original Video reuses Story SOP for now (no dedicated SOP yet).
       "original-video": "story",
+      // Motion reuses Story SOP for now (no dedicated SOP yet).
+      motion: "story",
     };
     key = map[activeTab];
   } else if (view.kind === "billing") key = "billing";
@@ -784,6 +792,14 @@ function ProjectView({
                 title={`Original Video — ${project.name}`}
                 projectId={project.id}
               />
+            </>
+          )}
+          {activeTab === "motion" && (
+            <>
+              <div className="max-w-5xl mx-auto w-full">
+                <MotionTab projectId={project.id} />
+              </div>
+              <HistoryGrid tab="motion" title={`Motion — ${project.name}`} projectId={project.id} />
             </>
           )}
           {activeTab === "sora2" && (

@@ -1,0 +1,3 @@
+# Remotion renderer for the Motion tab — runs on Modal (modal_motion.py),
+# never on Vercel.
+motion/

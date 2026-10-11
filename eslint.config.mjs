@@ -12,6 +12,8 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Remotion renderer — own package, built into the Modal image.
+    "motion/**",
   ]),
 ]);
 

@@ -261,6 +261,7 @@ export async function orChat(opts: {
   //   model_custom_idea → UGC Custom Idea expansion + Auto Content master plan
   //   model_viral       → Viral Talking Object scene + prompt builder
   //   model_clone       → Clone tab text generation
+  //   model_motion      → Motion tab (Buat Iklan scene spec + Edit Video overlay plan)
   //   storytelling_script_model → Storytelling 12-scene JSON (uses modelOverride, not modelKey)
   // Plus internal keys that don't need admin UI:
   //   model_auto        → universal fallback when a specific key is empty
@@ -280,7 +281,10 @@ export async function orChat(opts: {
     // which share model_custom_idea. Falls back to model_custom_idea when
     // admin hasn't set it.
     | "model_editor_text"
-    | "model_viral";
+    | "model_viral"
+    // Motion tab — script + scene spec (Buat Iklan) and caption/overlay plan
+    // (Edit Video). Falls back to model_auto when admin hasn't set it.
+    | "model_motion";
   /** Bypass app_settings entirely and use this exact model id.
    *  Callers with a specific model in mind (e.g. Storytelling script
    *  gen using its own storytelling_script_model setting) pass this
@@ -406,7 +410,7 @@ export async function orChat(opts: {
 // caller has a specific model in mind (e.g. scrape-rank pins Gemini
 // Flash Lite regardless of what's set in admin).
 export async function orChatVision(opts: {
-  modelKey?: "model_clone" | "model_vision" | "model_product_ocr" | "model_auto";
+  modelKey?: "model_clone" | "model_vision" | "model_product_ocr" | "model_auto" | "model_motion";
   modelOverride?: string;
   systemPrompt: string;
   textPrompt: string;
