@@ -1,11 +1,13 @@
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { planEdit, tokenMatches, type EditInput } from "@/lib/motion";
+import { tokenMatches, type EditInput } from "@/lib/motion";
+import { directEdit } from "@/lib/motion-director";
 
 // POST /api/motion/plan — called BY the Modal Edit Video job once it has the
-// transcript. Auth = the per-row plan_token minted at submit (only Modal has
-// it). Runs the model_motion LLM cascade here, so admin's provider + fallback
-// settings apply, and returns the caption/overlay plan for the render.
+// (jump-cut) transcript. Auth = the per-row plan_token minted at submit (only
+// Modal has it). Runs the director (model_motion cascade) + Serper Google
+// image/fact grounding here, so admin's provider/fallback/search settings
+// apply, and returns the full edit plan for the render.
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -29,8 +31,9 @@ export async function POST(req: Request) {
     .map((w: any, i: number) => ({ i, w: String(w?.w ?? "").slice(0, 40), t: Number(w?.t) || 0, e: Number(w?.e) || undefined }))
     .filter((w: any) => w.w);
 
+  const t0 = Date.now();
   try {
-    const plan = await planEdit({ words, duration, input: row.metadata?.input as EditInput });
+    const plan = await directEdit({ words, duration, input: row.metadata?.input as EditInput, hasFace: b?.has_face !== false });
     const { data: cur } = await admin.from("history").select("metadata").eq("id", id).maybeSingle();
     await admin
       .from("history")
@@ -38,7 +41,11 @@ export async function POST(req: Request) {
         metadata: {
           ...(cur?.metadata || {}),
           stage: "render",
-          plan: { hook: plan.hook, overlays: plan.overlays.length, zooms: plan.zooms.length, words: words.length },
+          plan: {
+            hook: plan.hook, overlays: plan.overlays.length, zooms: plan.zooms.length, broll: plan.broll.length,
+            facts: plan.facts.map((f) => `${f.text} (${f.source})`), keywords: plan.keywords.length,
+            rehook: plan.rehook?.text ?? null, cta: plan.cta?.text ?? null, words: words.length, ms: Date.now() - t0,
+          },
           transcript: words.map((w: any) => w.w).join(" ").slice(0, 4000),
         },
       })

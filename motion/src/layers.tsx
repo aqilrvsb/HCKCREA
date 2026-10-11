@@ -1,8 +1,10 @@
 import React from 'react';
-import { AbsoluteFill, Audio, Img, Sequence, interpolate, staticFile, useCurrentFrame, useVideoConfig } from 'remotion';
+import { AbsoluteFill, Audio, Img, Sequence, interpolate, useCurrentFrame, useVideoConfig } from 'remotion';
 import { RENDER } from './elements';
-import { EXIT, F, SAFE_X, W, clamp, fitSize, highlight, inkOn, popS, shade, type Row, type SfxEvent } from './lib';
-import type { Bg, CaptionStyle, Word, Zone } from './types';
+import { LottieEmoji } from './emoji';
+import { EXIT, F, SAFE_X, W, clamp, fitSize, highlight, inkOn, popS, shade, type Row } from './lib';
+import type { SfxEvent } from './sfx';
+import type { Bg, CaptionKey, CaptionStyle, KeyColor, LottieMap, Style, Word, Zone } from './types';
 
 // ── zones ─────────────────────────────────────────────────────────────────────
 export type ZoneBoxes = Record<Zone, { top: number; height: number; justify: 'flex-start' | 'center' | 'flex-end' }>;
@@ -10,7 +12,9 @@ export type ZoneBoxes = Record<Zone, { top: number; height: number; justify: 'fl
 // Renders every zone as a column of rows. Each row is a 1×1 grid: all of its
 // items sit in the same cell (sized to the biggest), inactive ones hidden — so
 // positions are fixed for the whole scene and nothing jumps.
-export const ZoneStack: React.FC<{ rows: Record<Zone, Row[]>; boxes: ZoneBoxes; ink: string; accent: string; surface: 'dark' | 'light' | 'accent' }> = ({ rows, boxes, ink, accent, surface }) => {
+export const ZoneStack: React.FC<{
+  rows: Record<Zone, Row[]>; boxes: ZoneBoxes; ink: string; accent: string; surface: 'dark' | 'light' | 'accent'; style?: Style; lottie?: LottieMap;
+}> = ({ rows, boxes, ink, accent, surface, style, lottie }) => {
   const frame = useCurrentFrame();
   const maxW = W - SAFE_X * 2;
   return (
@@ -30,7 +34,7 @@ export const ZoneStack: React.FC<{ rows: Record<Zone, Row[]>; boxes: ZoneBoxes; 
                   const out = active ? interpolate(frame, [p.e - EXIT, p.e], [1, 0], clamp) : 1;
                   return (
                     <div key={p.key} style={{ gridArea: '1 / 1', visibility: active ? 'visible' : 'hidden' }}>
-                      <R it={p.it} f={active ? frame - p.s : 0} out={out} i={p.key} ink={ink} accent={accent} maxW={maxW} surface={surface} />
+                      <R it={p.it} f={active ? frame - p.s : 0} out={out} i={p.key} ink={ink} accent={accent} maxW={maxW} surface={surface} style={style} lottie={lottie} />
                     </div>
                   );
                 })}
@@ -48,26 +52,28 @@ export const SfxTrack: React.FC<{ events: SfxEvent[] }> = ({ events }) => (
   <>
     {events.map((ev, k) => (
       <Sequence key={k} from={Math.max(0, ev.frame)} durationInFrames={ev.len} layout="none">
-        <Audio src={staticFile(`sfx/${ev.name}.wav`)} volume={ev.vol} />
+        <Audio src={ev.src} volume={ev.vol} />
       </Sequence>
     ))}
   </>
 );
 
 // ── captions ──────────────────────────────────────────────────────────────────
-type Page = { words: Word[]; start: number; end: number };
+/** `gi` = index of the word in the full transcript (for keyword colours). */
+type PWord = Word & { gi: number };
+type Page = { words: PWord[]; start: number; end: number };
 
 // Split timed words into short caption pages: max `maxWords`, and break early
 // on sentence punctuation or a pause, never across `breaks` (line boundaries).
 export const toPages = (words: Word[], maxWords: number, breaks: Set<number> = new Set()): Page[] => {
   const pages: Page[] = [];
-  let cur: Word[] = [];
+  let cur: PWord[] = [];
   const flush = () => { if (cur.length) { pages.push({ words: cur, start: cur[0].t, end: 0 }); cur = []; } };
   words.forEach((w, k) => {
     if (breaks.has(k)) flush();
     const prev = words[k - 1];
     if (cur.length && prev && w.t - (prev.e ?? prev.t + 0.3) > 0.55) flush();
-    cur.push(w);
+    cur.push({ ...w, gi: k });
     if (cur.length >= maxWords || /[.!?…,;:]$/.test(w.w)) flush();
   });
   flush();
@@ -79,9 +85,12 @@ export const toPages = (words: Word[], maxWords: number, breaks: Set<number> = n
   return pages;
 };
 
+const KEY_COLOR: Record<KeyColor, string> = { benefit: '#4ade80', price: '#FFD93B', pain: '#f87171', brand: '#ffffff', accent: '#ffffff' };
+
 export const Captions: React.FC<{
   pages: Page[]; style: CaptionStyle; accent: string; centerY: number; hideFrom?: number; hiOverride?: string;
-}> = ({ pages, style, accent, centerY, hideFrom, hiOverride }) => {
+  keywords?: CaptionKey[]; lottie?: LottieMap; gempak?: boolean;
+}> = ({ pages, style, accent, centerY, hideFrom, hiOverride, keywords, lottie, gempak }) => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
   if (hideFrom !== undefined && frame >= hideFrom) return null;
@@ -89,6 +98,7 @@ export const Captions: React.FC<{
   const page = pages.find((p) => t >= p.start - 0.06 && t < p.end);
   if (!page) return null;
   const hi = hiOverride ?? highlight(accent);
+  const keyOf = new Map<number, CaptionKey>((keywords ?? []).map((k) => [k.i, k]));
   const text = page.words.map((w) => w.w).join(' ');
   const size = fitSize(text.toUpperCase(), 92, W - 150, 2, 0.7, 40);
   const pf = Math.round((t - page.start) * fps);
@@ -102,21 +112,29 @@ export const Captions: React.FC<{
         {page.words.map((w, k) => {
           const spoken = k <= cur;
           const isCur = k === cur;
-          const ws = popS(Math.round((t - w.t) * fps), fps, 380, 14);
+          const ws = popS(Math.round((t - w.t) * fps), fps, gempak ? 420 : 380, gempak ? 11 : 14);
+          const key = keyOf.get(w.gi);
+          const keyCol = key ? (key.color === 'brand' || key.color === 'accent' ? hi : KEY_COLOR[key.color]) : null;
+          const emoji = key?.emoji && spoken ? (
+            <span style={{ display: 'inline-block', marginLeft: size * 0.12, verticalAlign: 'middle', transform: `scale(${ws})` }}>
+              <LottieEmoji char={key.emoji} size={size * 1.05} lottie={lottie} />
+            </span>
+          ) : null;
           const base: React.CSSProperties = {
             display: 'inline-block', fontFamily: F.caption, fontWeight: 900, fontSize: size, lineHeight: 1.08, textTransform: 'uppercase',
             letterSpacing: -0.5, WebkitTextStroke: `${Math.max(8, Math.round(size / 7))}px #000`, paintOrder: 'stroke fill',
           } as React.CSSProperties;
           if (style === 'box') {
             return (
-              <span key={k} style={{ ...base, WebkitTextStroke: isCur ? '0px' : base.WebkitTextStroke, color: isCur ? '#111' : '#fff',
-                background: isCur ? hi : 'transparent', borderRadius: 14, padding: '0 14px',
-                transform: `scale(${isCur ? 1 + 0.08 * ws : 1}) rotate(${isCur ? -2 : 0}deg)` } as React.CSSProperties}>{w.w}</span>
+              <span key={k} style={{ ...base, WebkitTextStroke: isCur ? '0px' : base.WebkitTextStroke, color: isCur ? '#111' : keyCol ?? '#fff',
+                background: isCur ? (keyCol ?? hi) : 'transparent', borderRadius: 14, padding: '0 14px',
+                transform: `scale(${isCur ? 1 + 0.08 * ws : 1}) rotate(${isCur ? -2 : 0}deg)` } as React.CSSProperties}>{w.w}{emoji}</span>
             );
           }
           return (
-            <span key={k} style={{ ...base, color: isCur ? hi : '#fff', opacity: style === 'karaoke' && !spoken ? 0.38 : 1,
-              transform: `translateY(${spoken ? (1 - ws) * 10 : 0}px) scale(${isCur ? 1 + 0.06 * ws : 1})`, transformOrigin: 'center bottom' }}>{w.w}</span>
+            <span key={k} style={{ ...base, color: keyCol && spoken ? keyCol : isCur ? hi : '#fff', opacity: style === 'karaoke' && !spoken ? 0.38 : 1,
+              transform: `translateY(${spoken ? (1 - ws) * 10 : 0}px) scale(${isCur ? 1 + (gempak ? 0.09 : 0.06) * ws : 1}) rotate(${isCur && gempak ? -2 : 0}deg)`,
+              transformOrigin: 'center bottom' }}>{w.w}{emoji}</span>
           );
         })}
       </div>

@@ -12,7 +12,9 @@
     "@remotion/bundler": "4.0.527",
     "@remotion/cli": "4.0.527",
     "@remotion/google-fonts": "4.0.527",
+    "@remotion/lottie": "4.0.527",
     "@remotion/renderer": "4.0.527",
+    "lottie-web": "5.12.2",
     "react": "18.3.1",
     "react-dom": "18.3.1",
     "remotion": "4.0.527"

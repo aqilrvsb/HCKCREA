@@ -4,7 +4,7 @@ import { loadFont as loadHand } from '@remotion/google-fonts/PatrickHand';
 import { loadFont as loadBlack } from '@remotion/google-fonts/ArchivoBlack';
 import { loadFont as loadInter } from '@remotion/google-fonts/Inter';
 import { loadFont as loadMont } from '@remotion/google-fonts/Montserrat';
-import type { AdLine, Item, ItemType, Tone, Word, Zone } from './types';
+import type { AdLine, Item, Tone, Word, Zone } from './types';
 
 export const F = {
   marker: loadMarker('normal', { weights: ['400'], subsets: ['latin'] }).fontFamily,
@@ -141,21 +141,7 @@ export const packRows = (placed: Placed[]): Record<Zone, Row[]> => {
   return out;
 };
 
-export const SFX_FOR: Record<ItemType, { name: string; vol: number; len?: number }> = {
-  headline: { name: 'thump', vol: 0.45 },
-  note: { name: 'pop', vol: 0.32 },
-  tag: { name: 'stamp', vol: 0.3 },
-  stamp: { name: 'stamp', vol: 0.55 },
-  chip: { name: 'pop', vol: 0.24 },
-  tape: { name: 'paper', vol: 0.3 },
-  scribble: { name: 'marker', vol: 0.2, len: 40 },
-  price: { name: 'sparkle', vol: 0.42 },
-  check: { name: 'tick', vol: 0.3 },
-  emoji: { name: 'pop', vol: 0.35 },
-  counter: { name: 'tick', vol: 0.26 },
-};
 
-export type SfxEvent = { frame: number; name: string; vol: number; len: number };
 
 // Deterministic small rotation per element so a scene looks hand-placed.
 export const tilt = (i: number, amp = 2.2) => [-1, 0.7, -0.4, 1, -0.8, 0.5][i % 6] * amp;

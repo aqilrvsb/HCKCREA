@@ -1,0 +1,293 @@
+{
+  "generated": "2026-10-12",
+  "files": [
+    {
+      "name": "whoosh_1",
+      "file": "whoosh_1.mp3",
+      "category": "whoosh",
+      "duration_sec": 0.65,
+      "source": "Freesound #332003 'whoosh.wav' by LloydEvans09",
+      "source_url": "https://freesound.org/s/332003/",
+      "license": "CC0 1.0"
+    },
+    {
+      "name": "whoosh_2",
+      "file": "whoosh_2.mp3",
+      "category": "whoosh",
+      "duration_sec": 0.37,
+      "source": "Freesound #427823 'Whoosh #1' by Kinoton",
+      "source_url": "https://freesound.org/s/427823/",
+      "license": "CC0 1.0"
+    },
+    {
+      "name": "whoosh_3",
+      "file": "whoosh_3.mp3",
+      "category": "whoosh",
+      "duration_sec": 0.8,
+      "source": "Freesound #179779 'wipe2.wav' by Sclolex",
+      "source_url": "https://freesound.org/s/179779/",
+      "license": "CC0 1.0"
+    },
+    {
+      "name": "swipe_1",
+      "file": "swipe_1.mp3",
+      "category": "swipe",
+      "duration_sec": 0.18,
+      "source": "Freesound #389590 'Swing Woosh' by Jofae",
+      "source_url": "https://freesound.org/s/389590/",
+      "license": "CC0 1.0"
+    },
+    {
+      "name": "swipe_2",
+      "file": "swipe_2.mp3",
+      "category": "swipe",
+      "duration_sec": 0.28,
+      "source": "Freesound #59988 'SWOSH-01 44.1kHz' by qubodup",
+      "source_url": "https://freesound.org/s/59988/",
+      "license": "CC0 1.0"
+    },
+    {
+      "name": "pop_1",
+      "file": "pop_1.mp3",
+      "category": "pop",
+      "duration_sec": 0.28,
+      "source": "Freesound #258269 'Mouth pop' by jcallison",
+      "source_url": "https://freesound.org/s/258269/",
+      "license": "CC0 1.0"
+    },
+    {
+      "name": "pop_2",
+      "file": "pop_2.mp3",
+      "category": "pop",
+      "duration_sec": 0.1,
+      "source": "Freesound #439186 'Pop 5.ogg' by FourthWoods",
+      "source_url": "https://freesound.org/s/439186/",
+      "license": "CC0 1.0"
+    },
+    {
+      "name": "pop_3",
+      "file": "pop_3.mp3",
+      "category": "pop",
+      "duration_sec": 0.22,
+      "source": "Freesound #447910 'Plop!' by Breviceps",
+      "source_url": "https://freesound.org/s/447910/",
+      "license": "CC0 1.0"
+    },
+    {
+      "name": "pop_4",
+      "file": "pop_4.mp3",
+      "category": "pop",
+      "duration_sec": 0.09,
+      "source": "Freesound #506546 'Pop 01' by LilMati",
+      "source_url": "https://freesound.org/s/506546/",
+      "license": "CC0 1.0"
+    },
+    {
+      "name": "click_1",
+      "file": "click_1.mp3",
+      "category": "click",
+      "duration_sec": 0.08,
+      "source": "Kenney 'UI Audio' pack — click3.ogg",
+      "source_url": "https://kenney.nl/assets/ui-audio",
+      "license": "CC0 1.0"
+    },
+    {
+      "name": "click_2",
+      "file": "click_2.mp3",
+      "category": "click",
+      "duration_sec": 0.1,
+      "source": "Kenney 'Interface Sounds' pack — click_001.ogg",
+      "source_url": "https://kenney.nl/assets/interface-sounds",
+      "license": "CC0 1.0"
+    },
+    {
+      "name": "ding_1",
+      "file": "ding_1.mp3",
+      "category": "ding",
+      "duration_sec": 1.32,
+      "source": "Freesound #611113 'bell ding 1.wav' by 5ro4",
+      "source_url": "https://freesound.org/s/611113/",
+      "license": "CC0 1.0"
+    },
+    {
+      "name": "ding_2",
+      "file": "ding_2.mp3",
+      "category": "ding",
+      "duration_sec": 0.77,
+      "source": "Freesound #625174 '[UI Sound] Approval - High Pitched Bell Synth' by GabFitzgerald",
+      "source_url": "https://freesound.org/s/625174/",
+      "license": "CC0 1.0"
+    },
+    {
+      "name": "cash_1",
+      "file": "cash_1.mp3",
+      "category": "cash",
+      "duration_sec": 1.43,
+      "source": "Freesound #184438 'Cash Register Fake.wav' by CapsLok",
+      "source_url": "https://freesound.org/s/184438/",
+      "license": "CC0 1.0"
+    },
+    {
+      "name": "coins_1",
+      "file": "coins_1.mp3",
+      "category": "coins",
+      "duration_sec": 1.54,
+      "source": "Freesound #443334 'MONEY_001.wav' by rolandseer",
+      "source_url": "https://freesound.org/s/443334/",
+      "license": "CC0 1.0"
+    },
+    {
+      "name": "riser_1",
+      "file": "riser_1.mp3",
+      "category": "riser",
+      "duration_sec": 1.76,
+      "source": "Freesound #561207 'Riser' by Rizzard",
+      "source_url": "https://freesound.org/s/561207/",
+      "license": "CC0 1.0"
+    },
+    {
+      "name": "riser_2",
+      "file": "riser_2.mp3",
+      "category": "riser",
+      "duration_sec": 2.45,
+      "source": "Freesound #685256 'Riser sound effect short.wav' by syntheffects",
+      "source_url": "https://freesound.org/s/685256/",
+      "license": "CC0 1.0"
+    },
+    {
+      "name": "impact_1",
+      "file": "impact_1.mp3",
+      "category": "impact",
+      "duration_sec": 0.51,
+      "source": "Kenney 'Impact Sounds' pack — impactPunch_heavy_000.ogg",
+      "source_url": "https://kenney.nl/assets/impact-sounds",
+      "license": "CC0 1.0"
+    },
+    {
+      "name": "impact_2",
+      "file": "impact_2.mp3",
+      "category": "impact",
+      "duration_sec": 1.85,
+      "source": "Freesound #558238 'Distorted Impact Short.wav' by Rizzard",
+      "source_url": "https://freesound.org/s/558238/",
+      "license": "CC0 1.0"
+    },
+    {
+      "name": "boom_1",
+      "file": "boom_1.mp3",
+      "category": "boom",
+      "duration_sec": 1.99,
+      "source": "Kenney 'Sci-fi Sounds' pack — lowFrequency_explosion_000.ogg",
+      "source_url": "https://kenney.nl/assets/sci-fi-sounds",
+      "license": "CC0 1.0"
+    },
+    {
+      "name": "bass_drop_1",
+      "file": "bass_drop_1.mp3",
+      "category": "bass_drop",
+      "duration_sec": 2,
+      "source": "Freesound #428073 'Sub Drop Smooth.wav' by newagesoup",
+      "source_url": "https://freesound.org/s/428073/",
+      "license": "CC0 1.0"
+    },
+    {
+      "name": "glitch_1",
+      "file": "glitch_1.mp3",
+      "category": "glitch",
+      "duration_sec": 0.48,
+      "source": "Freesound #458065 'Digital Glitch_v1.wav' by tadaizm",
+      "source_url": "https://freesound.org/s/458065/",
+      "license": "CC0 1.0"
+    },
+    {
+      "name": "glitch_2",
+      "file": "glitch_2.mp3",
+      "category": "glitch",
+      "duration_sec": 1.21,
+      "source": "Freesound #264935 'VHS Glitch' by Sassaby",
+      "source_url": "https://freesound.org/s/264935/",
+      "license": "CC0 1.0"
+    },
+    {
+      "name": "shutter_1",
+      "file": "shutter_1.mp3",
+      "category": "shutter",
+      "duration_sec": 0.28,
+      "source": "Freesound #170229 'Camera Shutter' by roachpowder",
+      "source_url": "https://freesound.org/s/170229/",
+      "license": "CC0 1.0"
+    },
+    {
+      "name": "typing_1",
+      "file": "typing_1.mp3",
+      "category": "typing",
+      "duration_sec": 1.16,
+      "source": "Freesound #447909 'Keyboard typing' by Breviceps",
+      "source_url": "https://freesound.org/s/447909/",
+      "license": "CC0 1.0"
+    },
+    {
+      "name": "sparkle_1",
+      "file": "sparkle_1.mp3",
+      "category": "sparkle",
+      "duration_sec": 0.91,
+      "source": "Freesound #511485 'cartoon_wink_magic_sparkle.wav' by MLaudio",
+      "source_url": "https://freesound.org/s/511485/",
+      "license": "CC0 1.0"
+    },
+    {
+      "name": "tick_1",
+      "file": "tick_1.mp3",
+      "category": "tick",
+      "duration_sec": 0.09,
+      "source": "Freesound #171697 'Menu Selection Click' by NenadSimic",
+      "source_url": "https://freesound.org/s/171697/",
+      "license": "CC0 1.0"
+    },
+    {
+      "name": "stamp_1",
+      "file": "stamp_1.mp3",
+      "category": "stamp",
+      "duration_sec": 0.45,
+      "source": "Freesound #470710 'traditional stamp.wav' by I.fekry",
+      "source_url": "https://freesound.org/s/470710/",
+      "license": "CC0 1.0"
+    },
+    {
+      "name": "paper_1",
+      "file": "paper_1.mp3",
+      "category": "paper",
+      "duration_sec": 0.4,
+      "source": "Freesound #342541 'Fast Paper Rip' by sgrowe",
+      "source_url": "https://freesound.org/s/342541/",
+      "license": "CC0 1.0"
+    },
+    {
+      "name": "scratch_1",
+      "file": "scratch_1.mp3",
+      "category": "scratch",
+      "duration_sec": 0.45,
+      "source": "Freesound #71853 'record_scratch.wav' by ludvique",
+      "source_url": "https://freesound.org/s/71853/",
+      "license": "CC0 1.0"
+    },
+    {
+      "name": "boing_1",
+      "file": "boing_1.mp3",
+      "category": "boing",
+      "duration_sec": 1.06,
+      "source": "Freesound #540790 'Boing 2' by magnuswaker",
+      "source_url": "https://freesound.org/s/540790/",
+      "license": "CC0 1.0"
+    },
+    {
+      "name": "notify_1",
+      "file": "notify_1.mp3",
+      "category": "notify",
+      "duration_sec": 0.32,
+      "source": "Freesound #380482 'Chime Notification' by Jofae",
+      "source_url": "https://freesound.org/s/380482/",
+      "license": "CC0 1.0"
+    }
+  ]
+}

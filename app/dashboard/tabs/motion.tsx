@@ -1,14 +1,17 @@
 "use client";
 
 // Motion tab — AI motion-graphics videos (Remotion on Modal).
-//   🎬 Buat Iklan  — product brief → AI script + storyboard → voice → animated ad
-//   ✂️ Edit Video  — client's own video → captions, word-synced stickers, zooms
-// Jobs are tracked live here (/api/motion/status) and land in the Motion
-// history grid below when done.
+//   🎬 Buat Iklan  — product brief → AI script + storyboard → voice → animated ad (1–3 variations)
+//   ✂️ Edit Video  — client's own videos (up to 5 at once) → jump cuts, hook, word-synced
+//                    stickers, Google B-roll + fact cards, face zooms, captions, SFX
+// Every job runs on the server in the background (closing the tab is fine);
+// the Jobs panel tracks them live (/api/motion/status) and finished videos
+// land in the Motion history grid below.
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Clapperboard, Loader2, Upload, X, Download, Sparkles, Scissors, CheckCircle2, AlertTriangle } from "lucide-react";
+import { Clapperboard, Loader2, Upload, X, Download, Sparkles, Scissors, CheckCircle2, AlertTriangle, Brain, Wand2 } from "lucide-react";
 import { uploadImage } from "@/lib/upload-image";
+import { MOTION_AD_PRESETS, MOTION_EDIT_PRESETS, type MotionPreset } from "@/lib/motion-prompts";
 
 type Mode = "ad" | "edit";
 type CaptionStyle = "pop" | "karaoke" | "box";
@@ -22,9 +25,13 @@ type Job = {
   poster_url?: string | null;
   cost?: number;
   error?: string | null;
+  label?: string;
 };
+type VideoPick = { key: string; file: File; dur: number; preview: string; uploadedUrl?: string; pct?: number | null; error?: string | null };
 
 const THEME = { primary: "#a855f7", soft: "rgba(168,85,247,0.35)", faint: "rgba(168,85,247,0.08)", gradient: "linear-gradient(135deg,#a855f7,#ec4899)" };
+const MAX_VIDEOS = 5;
+const MAX_SEC = 180;
 
 const VOICES = [
   { key: "mira", label: "Mira", g: "♀" },
@@ -43,10 +50,13 @@ const STAGE_LABEL: Record<string, string> = {
   music: "Gubah muzik",
   images: "Potong gambar produk",
   download: "Muat turun video",
-  normalise: "Sediakan video",
   transcribe: "Transkrip suara",
-  plan: "AI rancang animasi",
-  render: "Render animasi",
+  normalise: "Potong senyap & sediakan video",
+  faces: "Kesan muka",
+  plan: "AI director + cari gambar Google",
+  assets: "Muat turun B-roll & emoji",
+  qa: "AI semak hasil (QA)",
+  render: "Render animasi (selari)",
   upload: "Upload video siap",
   done: "Siap",
   failed: "Gagal",
@@ -56,13 +66,13 @@ const label = "block text-[10px] uppercase tracking-widest text-[var(--color-tex
 const inputCls = "w-full px-3 py-2 rounded-lg text-sm bg-[var(--color-bg)] outline-none";
 const inputStyle = { border: `1px solid ${THEME.soft}`, color: "var(--color-text)" } as const;
 
-function Chip({ active, onClick, children, disabled }: { active: boolean; onClick: () => void; children: React.ReactNode; disabled?: boolean }) {
+function Chip({ active, onClick, children, disabled, small }: { active: boolean; onClick: () => void; children: React.ReactNode; disabled?: boolean; small?: boolean }) {
   return (
     <button
       type="button"
       disabled={disabled}
       onClick={onClick}
-      className="px-3 py-2 rounded-xl text-xs font-extrabold transition-all disabled:opacity-50"
+      className={`${small ? "px-2.5 py-1.5 text-[11px]" : "px-3 py-2 text-xs"} rounded-xl font-extrabold transition-all disabled:opacity-50`}
       style={
         active
           ? { background: THEME.gradient, color: "white", boxShadow: `0 4px 12px ${THEME.soft}`, border: "1px solid transparent" }
@@ -90,25 +100,65 @@ function Toggle({ on, onChange, children }: { on: boolean; onChange: (v: boolean
   );
 }
 
+function PromptBox({ value, onChange, presets, placeholder }: { value: string; onChange: (v: string) => void; presets: MotionPreset[]; placeholder: string }) {
+  const [showAll, setShowAll] = useState(false);
+  const shown = showAll ? presets : presets.slice(0, 8);
+  return (
+    <div>
+      <label className={label}>Prompt (arahan untuk AI director)</label>
+      <textarea className={`${inputCls} resize-y`} style={inputStyle} rows={3} maxLength={900} value={value}
+        onChange={(e) => onChange(e.target.value)} placeholder={placeholder} />
+      <div className="flex flex-wrap gap-1.5 mt-2">
+        {shown.map((p) => (
+          <button key={p.id} type="button" title={p.prompt} onClick={() => onChange(p.prompt)}
+            className="px-2.5 py-1 rounded-full text-[11px] font-bold transition hover:scale-105"
+            style={{ background: value === p.prompt ? THEME.gradient : THEME.faint, color: value === p.prompt ? "white" : "var(--color-text-primary)",
+              border: `1px solid ${THEME.soft}` }}>
+            {p.label}
+          </button>
+        ))}
+        {presets.length > 8 && (
+          <button type="button" onClick={() => setShowAll((s) => !s)} className="px-2.5 py-1 rounded-full text-[11px] font-bold underline"
+            style={{ color: "var(--color-text-secondary)" }}>{showAll ? "Kurang" : `+${presets.length - 8} lagi`}</button>
+        )}
+      </div>
+      <p className="text-[10px] text-[var(--color-text-muted)] mt-1">Tekan cadangan (trend beg kuning Malaysia) atau tulis sendiri. AI tak akan reka harga, rating atau stok.</p>
+    </div>
+  );
+}
+
 const jobsKey = (projectId?: string) => `motion-jobs:${projectId || "none"}`;
 const loadJobIds = (projectId?: string): string[] => {
-  try { return JSON.parse(localStorage.getItem(jobsKey(projectId)) || "[]").slice(0, 8); } catch { return []; }
+  try { return JSON.parse(localStorage.getItem(jobsKey(projectId)) || "[]").slice(0, 12); } catch { return []; }
 };
 const saveJobIds = (projectId: string | undefined, ids: string[]) => {
-  try { localStorage.setItem(jobsKey(projectId), JSON.stringify(ids.slice(0, 8))); } catch { /* storage blocked */ }
+  try { localStorage.setItem(jobsKey(projectId), JSON.stringify(ids.slice(0, 12))); } catch { /* storage blocked */ }
 };
 
+const readDuration = (url: string) =>
+  new Promise<number>((resolve) => {
+    const v = document.createElement("video");
+    v.preload = "metadata";
+    v.onloadedmetadata = () => resolve(v.duration || 0);
+    v.onerror = () => resolve(0);
+    v.src = url;
+  });
+
 export default function MotionTab({ projectId }: { projectId?: string }) {
-  const [mode, setMode] = useState<Mode>("ad");
+  const [mode, setMode] = useState<Mode>("edit");
   const [rate, setRate] = useState<number | null>(null);
+  const [brain, setBrain] = useState<string | null>(null);
 
   // shared
   const [captions, setCaptions] = useState(true);
   const [captionStyle, setCaptionStyle] = useState<CaptionStyle>("pop");
+  const [style, setStyle] = useState<"gempak" | "clean">("gempak");
+  const [resolution, setResolution] = useState<"1080" | "720">("1080");
   const [sfx, setSfx] = useState(true);
   const [accent, setAccent] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
 
   // Buat Iklan
   const [product, setProduct] = useState("");
@@ -117,38 +167,38 @@ export default function MotionTab({ projectId }: { projectId?: string }) {
   const [oldPrice, setOldPrice] = useState("");
   const [cta, setCta] = useState("");
   const [handle, setHandle] = useState("");
-  const [vibe, setVibe] = useState("");
-  const [extra, setExtra] = useState("");
+  const [adPrompt, setAdPrompt] = useState("");
   const [seconds, setSeconds] = useState(30);
   const [voice, setVoice] = useState("mira");
   const [language, setLanguage] = useState<"ms" | "en">("ms");
   const [music, setMusic] = useState(true);
+  const [variations, setVariations] = useState(1);
   const [images, setImages] = useState<{ url: string; role: "product" | "presenter" }[]>([]);
   const [imgBusy, setImgBusy] = useState(false);
 
   // Edit Video
-  const [videoFile, setVideoFile] = useState<File | null>(null);
-  const [videoUrl, setVideoUrl] = useState<string | null>(null);
-  const [videoDur, setVideoDur] = useState(0);
-  const [uploadPct, setUploadPct] = useState<number | null>(null);
+  const [videos, setVideos] = useState<VideoPick[]>([]);
   const [editLang, setEditLang] = useState<"ms" | "en" | "auto">("ms");
   const [captionPos, setCaptionPos] = useState<"low" | "mid">("low");
   const [editMusic, setEditMusic] = useState(false);
-  const [instructions, setInstructions] = useState("");
+  const [jumpcut, setJumpcut] = useState(true);
+  const [broll, setBroll] = useState(true);
+  const [facts, setFacts] = useState(true);
+  const [editPrompt, setEditPrompt] = useState(MOTION_EDIT_PRESETS[0]?.prompt ?? "");
   const [context, setContext] = useState("");
-  const previewRef = useRef<string | null>(null);
 
   // jobs
   const [jobIds, setJobIds] = useState<string[]>([]);
   const [jobs, setJobs] = useState<Record<string, Job>>({});
   const lastStatus = useRef<Record<string, string>>({});
+  const jobLabels = useRef<Record<string, string>>({});
 
   useEffect(() => {
-    fetch("/api/motion/rate").then((r) => r.json()).then((d) => setRate(Number(d?.rate) || 0)).catch(() => setRate(0));
+    fetch("/api/motion/rate").then((r) => r.json()).then((d) => { setRate(Number(d?.rate) || 0); setBrain(d?.brain || null); }).catch(() => setRate(0));
     setJobIds(loadJobIds(projectId));
   }, [projectId]);
 
-  // live job polling
+  // live job polling (all jobs in parallel)
   useEffect(() => {
     if (jobIds.length === 0) return;
     let stop = false;
@@ -161,14 +211,13 @@ export default function MotionTab({ projectId }: { projectId?: string }) {
         const next: Record<string, Job> = {};
         let justFinished = false;
         for (const j of (d?.jobs || []) as Job[]) {
-          next[j.id] = j;
+          next[j.id] = { ...j, label: jobLabels.current[j.id] };
           if (j.status !== "pending" && lastStatus.current[j.id] === "pending") justFinished = true;
           lastStatus.current[j.id] = j.status;
         }
         setJobs(next);
         if (justFinished) window.dispatchEvent(new CustomEvent("history:refresh"));
-        const anyPending = Object.values(next).some((j) => j.status === "pending");
-        if (anyPending) timer = setTimeout(tick, 5000);
+        if (Object.values(next).some((j) => j.status === "pending")) timer = setTimeout(tick, 5000);
       } catch {
         if (!stop) timer = setTimeout(tick, 8000);
       }
@@ -177,21 +226,22 @@ export default function MotionTab({ projectId }: { projectId?: string }) {
     return () => { stop = true; clearTimeout(timer); };
   }, [jobIds]);
 
-  const addJob = (id: string) => {
-    const ids = [id, ...jobIds.filter((x) => x !== id)].slice(0, 8);
-    setJobIds(ids);
-    saveJobIds(projectId, ids);
-    lastStatus.current[id] = "pending";
-    setJobs((j) => ({ ...j, [id]: { id, status: "pending", stage: "queued" } }));
+  const addJobs = (ids: string[], labels: string[]) => {
+    ids.forEach((id, k) => { jobLabels.current[id] = labels[k]; lastStatus.current[id] = "pending"; });
+    setJobIds((cur) => {
+      const next = [...ids, ...cur.filter((x) => !ids.includes(x))].slice(0, 12);
+      saveJobIds(projectId, next);
+      return next;
+    });
+    setJobs((j) => ({ ...j, ...Object.fromEntries(ids.map((id, k) => [id, { id, status: "pending", stage: "queued", label: labels[k] }])) }));
   };
   const dismissJob = (id: string) => {
-    const ids = jobIds.filter((x) => x !== id);
-    setJobIds(ids);
-    saveJobIds(projectId, ids);
+    setJobIds((cur) => { const next = cur.filter((x) => x !== id); saveJobIds(projectId, next); return next; });
   };
 
-  const adCost = rate !== null ? Math.ceil(seconds + 2) * rate : null;
-  const editCost = rate !== null && videoDur > 0 ? Math.ceil(Math.min(videoDur, 180)) * rate : null;
+  const adCost = rate !== null ? Math.ceil(seconds + 2) * rate * variations : null;
+  const editSec = videos.reduce((s, v) => s + Math.ceil(Math.min(v.dur || 0, MAX_SEC)), 0);
+  const editCost = rate !== null && editSec > 0 ? editSec * rate : null;
 
   // ── images ──
   async function addImages(files: FileList | null, role: "product" | "presenter") {
@@ -214,39 +264,42 @@ export default function MotionTab({ projectId }: { projectId?: string }) {
     }
   }
 
-  // ── video ──
-  function pickVideo(f: File | null) {
+  // ── videos ──
+  async function addVideos(list: FileList | null) {
+    if (!list || list.length === 0) return;
     setError(null);
-    setVideoUrl(null);
-    setUploadPct(null);
-    setVideoDur(0);
-    if (previewRef.current) URL.revokeObjectURL(previewRef.current);
-    previewRef.current = null;
-    setVideoFile(f);
-    if (!f) return;
-    if (f.size > 300 * 1024 * 1024) { setError("Video terlalu besar (maks 300MB)."); setVideoFile(null); return; }
-    const url = URL.createObjectURL(f);
-    previewRef.current = url;
-    const v = document.createElement("video");
-    v.preload = "metadata";
-    v.onloadedmetadata = () => setVideoDur(v.duration || 0);
-    v.onerror = () => setError("Video tidak boleh dibaca — cuba MP4.");
-    v.src = url;
+    const room = MAX_VIDEOS - videos.length;
+    const picked: VideoPick[] = [];
+    for (const f of Array.from(list).slice(0, room)) {
+      if (f.size > 300 * 1024 * 1024) { setError(`${f.name}: terlalu besar (maks 300MB).`); continue; }
+      const preview = URL.createObjectURL(f);
+      const dur = await readDuration(preview);
+      if (!(dur > 0.5)) { setError(`${f.name}: video tidak boleh dibaca — cuba MP4.`); URL.revokeObjectURL(preview); continue; }
+      picked.push({ key: `${f.name}-${f.size}-${Math.random()}`, file: f, dur, preview });
+    }
+    setVideos((cur) => [...cur, ...picked].slice(0, MAX_VIDEOS));
+    if (Array.from(list).length > room) setNotice(`Maksimum ${MAX_VIDEOS} video sekali hantar.`);
   }
+  const removeVideo = (key: string) => setVideos((cur) => {
+    const v = cur.find((x) => x.key === key);
+    if (v) URL.revokeObjectURL(v.preview);
+    return cur.filter((x) => x.key !== key);
+  });
+  const patchVideo = (key: string, patch: Partial<VideoPick>) => setVideos((cur) => cur.map((v) => (v.key === key ? { ...v, ...patch } : v)));
 
-  async function uploadVideo(f: File): Promise<string> {
+  async function uploadVideo(v: VideoPick): Promise<string> {
     const r = await fetch("/api/motion/upload-url", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name: f.name, size: f.size }),
+      body: JSON.stringify({ name: v.file.name, size: v.file.size }),
     });
     const d = await r.json();
     if (!r.ok || !d?.upload_url) throw new Error(d?.error || "Tak dapat link upload");
     return await new Promise<string>((resolve, reject) => {
       const xhr = new XMLHttpRequest();
       xhr.open("POST", d.upload_url);
-      xhr.setRequestHeader("Content-Type", f.type || "video/mp4");
-      xhr.upload.onprogress = (e) => { if (e.lengthComputable) setUploadPct(Math.round((e.loaded / e.total) * 100)); };
+      xhr.setRequestHeader("Content-Type", v.file.type || "video/mp4");
+      xhr.upload.onprogress = (e) => { if (e.lengthComputable) patchVideo(v.key, { pct: Math.round((e.loaded / e.total) * 100) }); };
       xhr.onload = () => {
         try {
           const j = JSON.parse(xhr.responseText || "{}");
@@ -255,13 +308,14 @@ export default function MotionTab({ projectId }: { projectId?: string }) {
         } catch { reject(new Error(`Upload gagal (${xhr.status})`)); }
       };
       xhr.onerror = () => reject(new Error("Upload gagal — semak sambungan internet."));
-      xhr.send(f);
+      xhr.send(v.file);
     });
   }
 
   // ── submit ──
   async function submitAd() {
     setError(null);
+    setNotice(null);
     if (!product.trim()) return setError("Isi nama produk.");
     if (description.trim().length < 10) return setError("Terangkan produk sekurang-kurangnya satu ayat.");
     setSubmitting(true);
@@ -270,13 +324,16 @@ export default function MotionTab({ projectId }: { projectId?: string }) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          product, description, price, old_price: oldPrice, cta, handle, vibe, extra, seconds, voice, language,
+          product, description, price, old_price: oldPrice, cta, handle, prompt: adPrompt, seconds, voice, language,
           captions, caption_style: captionStyle, music, sfx, accent: accent || undefined, images, project_id: projectId,
+          style, resolution, variations,
         }),
       });
       const d = await r.json();
       if (!r.ok || !d?.ok) throw new Error(d?.error || "Gagal hantar");
-      addJob(d.id);
+      const ids: string[] = d.ids || [d.id];
+      addJobs(ids, ids.map((_, k) => (ids.length > 1 ? `Iklan · variasi ${k + 1}` : "Iklan")));
+      if (d.warning) setNotice(d.warning);
       window.dispatchEvent(new CustomEvent("history:refresh"));
     } catch (e: any) {
       setError(e?.message || "Network error");
@@ -287,56 +344,124 @@ export default function MotionTab({ projectId }: { projectId?: string }) {
 
   async function submitEdit() {
     setError(null);
-    if (!videoFile) return setError("Pilih video dahulu.");
-    if (!(videoDur > 0.5)) return setError("Tempoh video belum dibaca — tunggu sekejap.");
+    setNotice(null);
+    if (videos.length === 0) return setError("Pilih sekurang-kurangnya satu video.");
     setSubmitting(true);
-    try {
-      let url = videoUrl;
-      if (!url) {
-        url = await uploadVideo(videoFile);
-        setVideoUrl(url);
+    let started = 0;
+    const failed: string[] = [];
+    // Two uploads at a time; every video becomes its own background job.
+    const queue = [...videos];
+    const worker = async () => {
+      while (queue.length) {
+        const v = queue.shift()!;
+        try {
+          patchVideo(v.key, { error: null, pct: 0 });
+          const url = v.uploadedUrl || (await uploadVideo(v));
+          patchVideo(v.key, { uploadedUrl: url, pct: 100 });
+          const r = await fetch("/api/motion/edit", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              video_url: url, duration_sec: v.dur, language: editLang, prompt: editPrompt, product: context,
+              captions, caption_style: captionStyle, caption_pos: captionPos, music: editMusic, sfx,
+              accent: accent || undefined, project_id: projectId, style, resolution, jumpcut, broll, facts,
+            }),
+          });
+          const d = await r.json();
+          if (!r.ok || !d?.ok) throw new Error(d?.error || "Gagal hantar");
+          addJobs([d.id], [`Edit · ${v.file.name.slice(0, 28)}`]);
+          started++;
+          removeVideo(v.key);
+          if (r.status === 402) break;
+        } catch (e: any) {
+          patchVideo(v.key, { error: e?.message || "Gagal" });
+          failed.push(`${v.file.name}: ${e?.message || "gagal"}`);
+          if (String(e?.message || "").startsWith("Kredit")) { queue.length = 0; }
+        }
       }
-      const r = await fetch("/api/motion/edit", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          video_url: url, duration_sec: videoDur, language: editLang, instructions, product: context,
-          captions, caption_style: captionStyle, caption_pos: captionPos, music: editMusic, sfx,
-          accent: accent || undefined, project_id: projectId,
-        }),
-      });
-      const d = await r.json();
-      if (!r.ok || !d?.ok) throw new Error(d?.error || "Gagal hantar");
-      addJob(d.id);
-      window.dispatchEvent(new CustomEvent("history:refresh"));
-    } catch (e: any) {
-      setError(e?.message || "Network error");
-    } finally {
-      setSubmitting(false);
-      setUploadPct(null);
-    }
+    };
+    await Promise.all([worker(), worker()]);
+    window.dispatchEvent(new CustomEvent("history:refresh"));
+    if (failed.length) setError(failed.join(" · "));
+    if (started) setNotice(`${started} video sedang diedit di belakang tabir — boleh tutup tab, hasil masuk History.`);
+    setSubmitting(false);
   }
 
   const visibleJobs = useMemo(() => jobIds.map((id) => jobs[id]).filter(Boolean) as Job[], [jobIds, jobs]);
+  const presets = mode === "ad" ? MOTION_AD_PRESETS : MOTION_EDIT_PRESETS;
 
   return (
     <div className="space-y-5">
       <div className="rounded-2xl p-5 border" style={{ background: `linear-gradient(135deg, ${THEME.faint}, transparent)`, borderColor: THEME.soft }}>
-        <div className="flex items-center gap-2 mb-1">
+        <div className="flex items-center gap-2 mb-1 flex-wrap">
           <Clapperboard className="w-5 h-5" style={{ color: THEME.primary }} strokeWidth={2.4} />
           <h2 className="font-display font-extrabold text-lg text-[var(--color-text-primary)]">Motion</h2>
+          {brain && (
+            <span className="ml-auto inline-flex items-center gap-1 px-2 py-1 rounded-full text-[10px] font-bold"
+              style={{ background: THEME.faint, border: `1px solid ${THEME.soft}`, color: "var(--color-text-secondary)" }}>
+              <Brain className="w-3 h-3" /> AI: {brain}
+            </span>
+          )}
         </div>
         <p className="text-xs text-[var(--color-text-secondary)] mb-4">
-          Video motion-graphic macam editor pro — AI tulis skrip, susun animasi, sticker, caption & muzik yang
-          sync dengan setiap perkataan. Buat iklan dari kosong, atau upload video anda untuk diedit.
+          Edit macam editor pro TikTok — AI director potong senyap, tambah hook, sticker, gambar Google, fakta, zoom ke muka,
+          caption berwarna, sound effect & CTA beg kuning yang sync dengan setiap perkataan. Boleh hantar banyak sekali; semua jalan di belakang tabir.
         </p>
 
         <div className="grid grid-cols-2 gap-2 mb-5">
-          <Chip active={mode === "ad"} onClick={() => setMode("ad")}><Sparkles className="inline w-3.5 h-3.5 mr-1" />Buat Iklan</Chip>
           <Chip active={mode === "edit"} onClick={() => setMode("edit")}><Scissors className="inline w-3.5 h-3.5 mr-1" />Edit Video</Chip>
+          <Chip active={mode === "ad"} onClick={() => setMode("ad")}><Sparkles className="inline w-3.5 h-3.5 mr-1" />Buat Iklan</Chip>
         </div>
 
-        {mode === "ad" ? (
+        {mode === "edit" ? (
+          <div className="space-y-4">
+            <div>
+              <label className={label}>Video anda * (sehingga {MAX_VIDEOS} video · maks 3 minit · 300MB setiap satu)</label>
+              <div className="flex flex-wrap gap-3">
+                {videos.map((v) => (
+                  <div key={v.key} className="relative w-28">
+                    <video src={v.preview} className="w-28 rounded-lg bg-black" style={{ aspectRatio: "9/16", objectFit: "cover" }} muted playsInline />
+                    <button type="button" onClick={() => removeVideo(v.key)} disabled={submitting} className="absolute top-1 right-1 bg-black/70 rounded-full p-0.5">
+                      <X className="w-3 h-3 text-white" />
+                    </button>
+                    <div className="text-[10px] mt-1 text-[var(--color-text-secondary)] truncate">{v.file.name}</div>
+                    <div className="text-[10px] text-[var(--color-text-muted)]">{v.dur.toFixed(1)}s{v.dur > MAX_SEC ? " (3 min pertama)" : ""}{typeof v.pct === "number" && v.pct < 100 ? ` · ${v.pct}%` : ""}</div>
+                    {v.error && <div className="text-[10px] text-red-400 line-clamp-2">{v.error}</div>}
+                  </div>
+                ))}
+                {videos.length < MAX_VIDEOS && (
+                  <label className="w-28 flex flex-col items-center justify-center gap-1 rounded-lg border border-dashed cursor-pointer text-[11px] font-bold text-center px-2"
+                    style={{ borderColor: THEME.soft, color: "var(--color-text-secondary)", aspectRatio: "9/16" }}>
+                    <Upload className="w-5 h-5" style={{ color: THEME.primary }} />
+                    {videos.length ? "Tambah video" : "Pilih video (boleh banyak)"}
+                    <input type="file" multiple accept="video/mp4,video/quicktime,video/webm,.mp4,.mov,.m4v" className="hidden"
+                      onChange={(e) => { addVideos(e.target.files); e.target.value = ""; }} />
+                  </label>
+                )}
+              </div>
+            </div>
+            <PromptBox value={editPrompt} onChange={setEditPrompt} presets={presets} placeholder="cth. Jadikan video jualan beg kuning: hook kuat, tick setiap kelebihan, tutup dengan CTA tekan beg kuning." />
+            <div className="grid sm:grid-cols-2 gap-3">
+              <div>
+                <label className={label}>Produk / konteks (optional)</label>
+                <input className={inputCls} style={inputStyle} value={context} maxLength={300} onChange={(e) => setContext(e.target.value)} placeholder="cth. Gluvera patch, RM39, beg kuning" />
+              </div>
+              <div>
+                <label className={label}>Bahasa dalam video</label>
+                <div className="flex gap-2">
+                  <Chip active={editLang === "ms"} onClick={() => setEditLang("ms")}>Melayu</Chip>
+                  <Chip active={editLang === "en"} onClick={() => setEditLang("en")}>English</Chip>
+                  <Chip active={editLang === "auto"} onClick={() => setEditLang("auto")}>Auto</Chip>
+                </div>
+              </div>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Toggle on={jumpcut} onChange={setJumpcut}>✂️ Buang senyap & &quot;erm&quot;</Toggle>
+              <Toggle on={broll} onChange={setBroll}>🖼️ Gambar Google (B-roll)</Toggle>
+              <Toggle on={facts} onChange={setFacts}>💡 Fakta Google</Toggle>
+            </div>
+          </div>
+        ) : (
           <div className="space-y-4">
             <div className="grid sm:grid-cols-2 gap-3">
               <div>
@@ -364,9 +489,10 @@ export default function MotionTab({ projectId }: { projectId?: string }) {
               </div>
               <div className="col-span-2 sm:col-span-1">
                 <label className={label}>Call to action</label>
-                <input className={inputCls} style={inputStyle} value={cta} maxLength={40} onChange={(e) => setCta(e.target.value)} placeholder="Order di TikTok Shop" />
+                <input className={inputCls} style={inputStyle} value={cta} maxLength={40} onChange={(e) => setCta(e.target.value)} placeholder="Tekan beg kuning" />
               </div>
             </div>
+            <PromptBox value={adPrompt} onChange={setAdPrompt} presets={presets} placeholder="cth. Iklan beg kuning gaya hype, fokus price reveal & free shipping (jika ada)." />
 
             <div>
               <label className={label}>Gambar produk (1–3) · presenter (optional)</label>
@@ -401,12 +527,14 @@ export default function MotionTab({ projectId }: { projectId?: string }) {
               <p className="text-[10px] text-[var(--color-text-muted)] mt-1">Background gambar dibuang automatik jadi sticker. Tanpa gambar pun boleh — iklan jadi typography penuh.</p>
             </div>
 
-            <div className="grid sm:grid-cols-2 gap-4">
+            <div className="grid sm:grid-cols-3 gap-4">
               <div>
                 <label className={label}>Tempoh</label>
-                <div className="flex gap-2">
-                  {[15, 30, 45].map((s) => <Chip key={s} active={seconds === s} onClick={() => setSeconds(s)}>{s}s</Chip>)}
-                </div>
+                <div className="flex gap-2">{[15, 30, 45].map((s) => <Chip key={s} active={seconds === s} onClick={() => setSeconds(s)}>{s}s</Chip>)}</div>
+              </div>
+              <div>
+                <label className={label}>Variasi (serentak)</label>
+                <div className="flex gap-2">{[1, 2, 3].map((n) => <Chip key={n} active={variations === n} onClick={() => setVariations(n)}>{n}</Chip>)}</div>
               </div>
               <div>
                 <label className={label}>Bahasa</label>
@@ -418,70 +546,7 @@ export default function MotionTab({ projectId }: { projectId?: string }) {
             </div>
             <div>
               <label className={label}>Suara</label>
-              <div className="flex flex-wrap gap-2">
-                {VOICES.map((v) => <Chip key={v.key} active={voice === v.key} onClick={() => setVoice(v.key)}>{v.g} {v.label}</Chip>)}
-              </div>
-            </div>
-            <div className="grid sm:grid-cols-2 gap-3">
-              <div>
-                <label className={label}>Gaya / mood (optional)</label>
-                <input className={inputCls} style={inputStyle} value={vibe} maxLength={80} onChange={(e) => setVibe(e.target.value)} placeholder="cth. kelakar, mewah, urgent promo" />
-              </div>
-              <div>
-                <label className={label}>Arahan tambahan (optional)</label>
-                <input className={inputCls} style={inputStyle} value={extra} maxLength={500} onChange={(e) => setExtra(e.target.value)} placeholder="cth. tekankan free postage" />
-              </div>
-            </div>
-          </div>
-        ) : (
-          <div className="space-y-4">
-            <div>
-              <label className={label}>Video anda * (maks 3 minit · 300MB)</label>
-              {!videoFile ? (
-                <label className="flex flex-col items-center justify-center gap-2 rounded-xl border border-dashed py-8 cursor-pointer text-xs font-bold" style={{ borderColor: THEME.soft, color: "var(--color-text-secondary)" }}>
-                  <Upload className="w-6 h-6" style={{ color: THEME.primary }} />
-                  Klik untuk pilih video (MP4 / MOV)
-                  <input type="file" accept="video/mp4,video/quicktime,video/webm,.mp4,.mov,.m4v" className="hidden" onChange={(e) => pickVideo(e.target.files?.[0] || null)} />
-                </label>
-              ) : (
-                <div className="flex gap-3 items-start">
-                  <video src={previewRef.current || undefined} className="w-28 rounded-lg bg-black" style={{ aspectRatio: "9/16", objectFit: "cover" }} muted playsInline controls />
-                  <div className="text-xs space-y-1 text-[var(--color-text-secondary)]">
-                    <div className="font-bold text-[var(--color-text-primary)] break-all">{videoFile.name}</div>
-                    <div>{(videoFile.size / 1024 / 1024).toFixed(1)} MB · {videoDur > 0 ? `${videoDur.toFixed(1)}s` : "membaca…"}</div>
-                    {videoDur > 180 && <div style={{ color: "#f59e0b" }}>Hanya 3 minit pertama akan diedit.</div>}
-                    {uploadPct !== null && <div>Upload {uploadPct}%</div>}
-                    <button type="button" onClick={() => pickVideo(null)} className="underline">Tukar video</button>
-                  </div>
-                </div>
-              )}
-            </div>
-            <div className="grid sm:grid-cols-2 gap-4">
-              <div>
-                <label className={label}>Bahasa dalam video</label>
-                <div className="flex gap-2">
-                  <Chip active={editLang === "ms"} onClick={() => setEditLang("ms")}>Melayu</Chip>
-                  <Chip active={editLang === "en"} onClick={() => setEditLang("en")}>English</Chip>
-                  <Chip active={editLang === "auto"} onClick={() => setEditLang("auto")}>Auto</Chip>
-                </div>
-              </div>
-              <div>
-                <label className={label}>Kedudukan caption</label>
-                <div className="flex gap-2">
-                  <Chip active={captionPos === "low"} onClick={() => setCaptionPos("low")}>Bawah</Chip>
-                  <Chip active={captionPos === "mid"} onClick={() => setCaptionPos("mid")}>Tengah</Chip>
-                </div>
-              </div>
-            </div>
-            <div className="grid sm:grid-cols-2 gap-3">
-              <div>
-                <label className={label}>Produk / konteks (optional)</label>
-                <input className={inputCls} style={inputStyle} value={context} maxLength={300} onChange={(e) => setContext(e.target.value)} placeholder="cth. Serum vitamin C, RM39" />
-              </div>
-              <div>
-                <label className={label}>Arahan edit (optional)</label>
-                <input className={inputCls} style={inputStyle} value={instructions} maxLength={600} onChange={(e) => setInstructions(e.target.value)} placeholder="cth. highlight harga & 3 kelebihan" />
-              </div>
+              <div className="flex flex-wrap gap-2">{VOICES.map((v) => <Chip key={v.key} active={voice === v.key} onClick={() => setVoice(v.key)}>{v.g} {v.label}</Chip>)}</div>
             </div>
           </div>
         )}
@@ -489,11 +554,29 @@ export default function MotionTab({ projectId }: { projectId?: string }) {
         {/* shared style controls */}
         <div className="mt-5 pt-4 border-t space-y-3" style={{ borderColor: "var(--color-border)" }}>
           <div className="flex flex-wrap gap-2 items-center">
-            <span className={`${label} !mb-0 mr-1`}>Caption</span>
-            <Chip active={captions && captionStyle === "pop"} onClick={() => { setCaptions(true); setCaptionStyle("pop"); }}>Pop</Chip>
-            <Chip active={captions && captionStyle === "karaoke"} onClick={() => { setCaptions(true); setCaptionStyle("karaoke"); }}>Karaoke</Chip>
-            <Chip active={captions && captionStyle === "box"} onClick={() => { setCaptions(true); setCaptionStyle("box"); }}>Box</Chip>
-            <Chip active={!captions} onClick={() => setCaptions(false)}>Tiada</Chip>
+            <span className={`${label} !mb-0 mr-1`}>Gaya</span>
+            <Chip active={style === "gempak"} onClick={() => setStyle("gempak")}>🔥 Gempak</Chip>
+            <Chip active={style === "clean"} onClick={() => setStyle("clean")}>✨ Clean</Chip>
+            <span className={`${label} !mb-0 ml-3 mr-1`}>Resolusi</span>
+            <Chip active={resolution === "1080"} onClick={() => setResolution("1080")}>HD 1080p</Chip>
+            <Chip active={resolution === "720"} onClick={() => setResolution("720")}>720p laju</Chip>
+          </div>
+          <div className="flex flex-wrap gap-2 items-center">
+            <Toggle on={captions} onChange={setCaptions}>Caption</Toggle>
+            {captions && (
+              <>
+                <Chip small active={captionStyle === "pop"} onClick={() => setCaptionStyle("pop")}>Pop</Chip>
+                <Chip small active={captionStyle === "karaoke"} onClick={() => setCaptionStyle("karaoke")}>Karaoke</Chip>
+                <Chip small active={captionStyle === "box"} onClick={() => setCaptionStyle("box")}>Box</Chip>
+                {mode === "edit" && (
+                  <>
+                    <span className="text-[10px] font-bold text-[var(--color-text-muted)] ml-2">Kedudukan</span>
+                    <Chip small active={captionPos === "low"} onClick={() => setCaptionPos("low")}>Bawah</Chip>
+                    <Chip small active={captionPos === "mid"} onClick={() => setCaptionPos("mid")}>Tengah</Chip>
+                  </>
+                )}
+              </>
+            )}
           </div>
           <div className="flex flex-wrap gap-2 items-center">
             {mode === "ad"
@@ -509,29 +592,30 @@ export default function MotionTab({ projectId }: { projectId?: string }) {
         </div>
 
         {error && (
-          <div className="mt-4 text-xs font-bold px-3 py-2 rounded-lg" style={{ background: "rgba(239,68,68,0.12)", color: "#f87171", border: "1px solid rgba(239,68,68,0.35)" }}>
-            {error}
-          </div>
+          <div className="mt-4 text-xs font-bold px-3 py-2 rounded-lg" style={{ background: "rgba(239,68,68,0.12)", color: "#f87171", border: "1px solid rgba(239,68,68,0.35)" }}>{error}</div>
+        )}
+        {notice && !error && (
+          <div className="mt-4 text-xs font-bold px-3 py-2 rounded-lg" style={{ background: THEME.faint, color: "var(--color-text-primary)", border: `1px solid ${THEME.soft}` }}>{notice}</div>
         )}
 
         <div className="mt-5 flex flex-wrap items-center gap-3">
           <button
             type="button"
-            disabled={submitting || imgBusy || (mode === "edit" && (!videoFile || !(videoDur > 0.5)))}
+            disabled={submitting || imgBusy || (mode === "edit" && videos.length === 0)}
             onClick={mode === "ad" ? submitAd : submitEdit}
             className="px-5 py-3 rounded-xl text-sm font-extrabold text-white disabled:opacity-50 inline-flex items-center gap-2"
             style={{ background: THEME.gradient, boxShadow: `0 6px 18px ${THEME.soft}` }}
           >
-            {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Clapperboard className="w-4 h-4" />}
-            {submitting ? (mode === "edit" && uploadPct !== null ? `Upload ${uploadPct}%…` : "Menghantar…") : mode === "ad" ? "Jana Iklan" : "Edit Video"}
+            {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Wand2 className="w-4 h-4" />}
+            {submitting ? "Menghantar…" : mode === "ad" ? (variations > 1 ? `Jana ${variations} Iklan` : "Jana Iklan") : videos.length > 1 ? `Edit ${videos.length} Video` : "Edit Video"}
           </button>
           <span className="text-xs text-[var(--color-text-secondary)]">
             {rate === null
               ? "…"
               : mode === "ad"
-                ? `Anggaran RM${(adCost ?? 0).toFixed(2)} (~${seconds + 2}s × RM${rate.toFixed(2)}/s). Caj ikut tempoh sebenar.`
+                ? `Anggaran RM${(adCost ?? 0).toFixed(2)} (${variations} × ~${seconds + 2}s × RM${rate.toFixed(2)}/s). Caj ikut tempoh sebenar.`
                 : editCost !== null
-                  ? `Anggaran RM${editCost.toFixed(2)} (${Math.ceil(Math.min(videoDur, 180))}s × RM${rate.toFixed(2)}/s)`
+                  ? `Anggaran RM${editCost.toFixed(2)} (${editSec}s × RM${rate.toFixed(2)}/s). Caj ikut tempoh selepas potong senyap.`
                   : `RM${rate.toFixed(2)} sesaat video`}
           </span>
         </div>
@@ -539,7 +623,7 @@ export default function MotionTab({ projectId }: { projectId?: string }) {
 
       {visibleJobs.length > 0 && (
         <div className="rounded-2xl p-4 border space-y-3" style={{ borderColor: "var(--color-border)", background: "var(--color-bg-card)" }}>
-          <div className={label}>Kerja terkini</div>
+          <div className={label}>Kerja berjalan &amp; terkini ({visibleJobs.filter((j) => j.status === "pending").length} berjalan)</div>
           {visibleJobs.map((j) => {
             const pending = j.status === "pending";
             const done = j.status === "done";
@@ -559,7 +643,8 @@ export default function MotionTab({ projectId }: { projectId?: string }) {
                 <div className="flex-1 min-w-0">
                   <div className="text-xs font-extrabold text-[var(--color-text-primary)] flex items-center gap-1.5">
                     {done ? <CheckCircle2 className="w-3.5 h-3.5 text-green-500" /> : null}
-                    {j.feature === "motion-edit" ? "Edit Video" : "Iklan"} · {done ? `Siap · RM${(j.cost || 0).toFixed(2)}` : pending ? stage : "Gagal (kredit dipulangkan)"}
+                    <span className="truncate">{j.label || (j.feature === "motion-edit" ? "Edit Video" : "Iklan")}</span>
+                    <span className="font-bold text-[var(--color-text-secondary)]">· {done ? `Siap · RM${(j.cost || 0).toFixed(2)}` : pending ? stage : "Gagal (kredit dipulangkan)"}</span>
                   </div>
                   {pending && (
                     <div className="mt-1.5 h-1.5 rounded-full overflow-hidden" style={{ background: "var(--color-border)" }}>
@@ -583,6 +668,7 @@ export default function MotionTab({ projectId }: { projectId?: string }) {
           })}
         </div>
       )}
+      <p className="text-[10px] text-[var(--color-text-muted)] text-center">Animated emoji: Google Noto Emoji Animation (CC BY 4.0). Sound effects: Kenney &amp; Freesound (CC0).</p>
     </div>
   );
 }

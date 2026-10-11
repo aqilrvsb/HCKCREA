@@ -48,7 +48,7 @@ export async function POST(req: Request) {
     handle: str(b?.handle, 40) || undefined,
     audience: str(b?.audience, 120) || undefined,
     vibe: str(b?.vibe, 80) || undefined,
-    extra: str(b?.extra, 500) || undefined,
+    extra: str(b?.prompt ?? b?.extra, 900) || undefined,
     language: b?.language === "en" ? "en" : "ms",
     seconds,
     voice: MOTION_VOICES.some((v) => v.key === voiceKey) ? voiceKey : "mira",
@@ -59,52 +59,61 @@ export async function POST(req: Request) {
     sfx: b?.sfx !== false,
     accent: /^#[0-9a-f]{6}$/i.test(String(b?.accent || "")) ? String(b.accent) : undefined,
     images: images as AdInput["images"],
+    style: b?.style === "clean" ? "clean" : "gempak",
+    resolution: b?.resolution === "720" ? "720" : "1080",
   };
+  const variations = Math.max(1, Math.min(3, Math.round(Number(b?.variations) || 1)));
   const projectId = b?.project_id ? String(b.project_id) : null;
 
   const rate = await priceFor(user.id, "motion", "motion");
   const estimate = costFor(adEstimateSec(seconds), rate);
 
   const admin = createAdminClient();
-  const { data: hist, error: insErr } = await admin
-    .from("history")
-    .insert({
-      user_id: user.id,
-      project_id: projectId,
-      type: "video",
-      tab: "motion",
-      status: "pending",
-      prompt: `${product} — ${description}`.slice(0, 2000),
-      reference_url: images[0]?.url || null,
-      task_id: MOTION_PLANNING_TASK,
-      cost: estimate,
-      duration: seconds,
-      metadata: {
-        feature: "motion-ad",
-        model: "motion",
-        stage: "queued",
-        rate,
-        reserved: estimate,
-        input,
-        aspectRatio: "9:16",
-      },
-    })
-    .select("id")
-    .single();
-  if (insErr || !hist) {
-    return NextResponse.json({ error: "DB insert failed", detail: insErr?.message }, { status: 500 });
+  const ids: string[] = [];
+  let stopError: string | null = null;
+  for (let v = 0; v < variations; v++) {
+    const vInput: AdInput = variations > 1 ? { ...input, variant: { index: v, total: variations } } : input;
+    const { data: hist, error: insErr } = await admin
+      .from("history")
+      .insert({
+        user_id: user.id,
+        project_id: projectId,
+        type: "video",
+        tab: "motion",
+        status: "pending",
+        prompt: `${product} — ${description}`.slice(0, 2000),
+        reference_url: images[0]?.url || null,
+        task_id: MOTION_PLANNING_TASK,
+        cost: estimate,
+        duration: seconds,
+        metadata: {
+          feature: "motion-ad",
+          model: "motion",
+          stage: "queued",
+          rate,
+          reserved: estimate,
+          input: vInput,
+          aspectRatio: "9:16",
+          ...(variations > 1 ? { variation: `${v + 1}/${variations}` } : {}),
+        },
+      })
+      .select("id")
+      .single();
+    if (insErr || !hist) { stopError = insErr?.message || "DB insert failed"; break; }
+    const ok = await reserveCredit(user.id, "motion", estimate, hist.id);
+    if (!ok) {
+      await admin.from("history").delete().eq("id", hist.id);
+      stopError = `Kredit tidak mencukupi — perlu RM${estimate.toFixed(2)} setiap iklan ${seconds}s.`;
+      break;
+    }
+    ids.push(hist.id);
+  }
+  if (!ids.length) {
+    return NextResponse.json({ error: stopError || "Gagal mula", needed: estimate }, { status: stopError?.startsWith("Kredit") ? 402 : 500 });
   }
 
-  const ok = await reserveCredit(user.id, "motion", estimate, hist.id);
-  if (!ok) {
-    await admin.from("history").delete().eq("id", hist.id);
-    return NextResponse.json(
-      { error: `Kredit tidak mencukupi — perlu RM${estimate.toFixed(2)} untuk iklan ${seconds}s.`, needed: estimate },
-      { status: 402 }
-    );
-  }
+  // Each variation writes its own script + voice in parallel, in the background.
+  after(() => Promise.all(ids.map((id) => runAdJob(id))).then(() => undefined));
 
-  after(() => runAdJob(hist.id));
-
-  return NextResponse.json({ ok: true, id: hist.id, estimate, rate });
+  return NextResponse.json({ ok: true, id: ids[0], ids, estimate, rate, ...(stopError ? { warning: stopError } : {}) });
 }

@@ -16,6 +16,7 @@ import {
   Film,
   Puzzle,
   Megaphone,
+  Search,
 } from "lucide-react";
 
 type Setting = { key: string; value: any; description: string | null; category: string };
@@ -29,6 +30,61 @@ const CATEGORY_INFO: Record<string, { label: string; icon: any; color: string }>
   pricing:  { label: "Pricing",              icon: Package,  color: "text-violet-600" },
   general:  { label: "General",              icon: Cpu,      color: "text-gray-600" },
 };
+
+// ── Motion Search (Google) card helpers ──────────────────────────────
+// app_settings.motion_search = { providers: [{ provider, key }] } — ordered,
+// first = main. Read by lib/motion-search.ts. The UI keeps the saved key
+// per row (masked) and only overwrites it when the admin types a new one.
+type MotionSearchProvider = "serper" | "brave" | "tavily";
+type MotionSearchRow = {
+  provider: MotionSearchProvider | "none"; // "none" = unused fallback row
+  newKey: string; // what the admin typed (blank = keep saved key)
+  savedProvider: MotionSearchProvider | null;
+  savedKey: string;
+};
+type MotionSearchTestResult = {
+  ok?: boolean;
+  query?: string;
+  images?: {
+    provider: string | null;
+    count: number;
+    cached?: boolean;
+    first?: { url: string; thumb?: string; width?: number; height?: number; domain?: string };
+  };
+  web?: {
+    provider: string | null;
+    count: number;
+    cached?: boolean;
+    first?: { title: string; url: string; snippet: string; domain: string };
+  };
+  errors?: string[];
+  error?: string;
+};
+const MOTION_SEARCH_LABEL: Record<MotionSearchProvider, string> = {
+  serper: "Serper",
+  brave: "Brave",
+  tavily: "Tavily",
+};
+const MOTION_SEARCH_ROWS = 3; // main + up to 2 fallbacks
+function parseMotionSearchRows(val: any): MotionSearchRow[] {
+  const list: any[] = Array.isArray(val?.providers) ? val.providers : [];
+  const rows: MotionSearchRow[] = [];
+  for (const p of list) {
+    const prov = String(p?.provider || "").toLowerCase();
+    if (prov !== "serper" && prov !== "brave" && prov !== "tavily") continue;
+    const key = typeof p?.key === "string" ? p.key : "";
+    rows.push({ provider: prov, newKey: "", savedProvider: prov, savedKey: key });
+    if (rows.length >= MOTION_SEARCH_ROWS) break;
+  }
+  // Default when unset: one Serper row with an empty key.
+  if (rows.length === 0) {
+    rows.push({ provider: "serper", newKey: "", savedProvider: null, savedKey: "" });
+  }
+  while (rows.length < MOTION_SEARCH_ROWS) {
+    rows.push({ provider: "none", newKey: "", savedProvider: null, savedKey: "" });
+  }
+  return rows;
+}
 
 export default function AdminSettings() {
   const [rows, setRows] = useState<Setting[]>([]);
@@ -260,6 +316,17 @@ export default function AdminSettings() {
   const [motionKnob, setMotionKnob] = useState<ModelKnobState>(emptyKnob(MOTION_MAX_FB));
   const [savingMotion, setSavingMotion] = useState(false);
   const [motionMsg, setMotionMsg] = useState<string | null>(null);
+  // Motion Search (Google) — app_settings.motion_search =
+  //   { providers: [{ provider: "serper"|"brave"|"tavily", key }] }
+  // Ordered main → fallbacks; read by lib/motion-search.ts.
+  const [motionSearchRows, setMotionSearchRows] = useState<MotionSearchRow[]>(() =>
+    parseMotionSearchRows(null)
+  );
+  const [savingMotionSearch, setSavingMotionSearch] = useState(false);
+  const [motionSearchMsg, setMotionSearchMsg] = useState<string | null>(null);
+  const [motionSearchQuery, setMotionSearchQuery] = useState("");
+  const [testingMotionSearch, setTestingMotionSearch] = useState(false);
+  const [motionSearchTest, setMotionSearchTest] = useState<MotionSearchTestResult | null>(null);
   const [viralKnob, setViralKnob] = useState<ModelKnobState>(emptyKnob(VIRAL_MAX_FB));
   const [savingViralModel, setSavingViralModel] = useState(false);
   const [viralModelMsg, setViralModelMsg] = useState<string | null>(null);
@@ -431,6 +498,7 @@ export default function AdminSettings() {
         if (row.key === "model_custom_idea") setCustomIdeaKnob(parseKnob(row.value, CUSTOM_IDEA_MAX_FB));
         if (row.key === "model_editor_text") setEditorTextKnob(parseKnob(row.value, EDITOR_TEXT_MAX_FB));
         if (row.key === "model_motion") setMotionKnob(parseKnob(row.value, MOTION_MAX_FB));
+        if (row.key === "motion_search") setMotionSearchRows(parseMotionSearchRows(row.value));
         if (row.key === "model_viral") setViralKnob(parseKnob(row.value, VIRAL_MAX_FB));
         if (row.key === "model_clone") setCloneKnob(parseKnob(row.value, CLONE_MAX_FB));
         if (row.key === "model_auto") setAutoKnob(parseKnob(row.value, AUTO_MAX_FB));
@@ -1216,6 +1284,66 @@ export default function AdminSettings() {
       setMsg: setMotionMsg,
     });
   }
+
+  // Motion Search (Google) — serialise rows to { providers: [...] }.
+  // A row's key is only overwritten when the admin typed a new one; else
+  // the saved key is kept (if the row still uses the same provider).
+  async function saveMotionSearch() {
+    setSavingMotionSearch(true);
+    setMotionSearchMsg(null);
+    try {
+      const providers = motionSearchRows
+        .filter((r, i) => i === 0 || r.provider !== "none")
+        .map((r) => ({
+          provider: r.provider === "none" ? "serper" : r.provider,
+          key:
+            r.newKey.trim() ||
+            (r.savedKey && r.savedProvider === r.provider ? r.savedKey : ""),
+        }));
+      const res = await fetch("/api/admin/settings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ key: "motion_search", value: { providers } }),
+      });
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        throw new Error(d?.error || `HTTP ${res.status}`);
+      }
+      const chain = providers
+        .map((p) => `${MOTION_SEARCH_LABEL[p.provider]}${p.key ? "" : " (tiada kunci — skip)"}`)
+        .join(" → ");
+      setMotionSearchMsg(`✓ Saved. ${chain}.`);
+      await load();
+      setTimeout(() => setMotionSearchMsg(null), 6000);
+    } catch (e: any) {
+      setMotionSearchMsg(`✗ Save failed: ${e?.message || "unknown"}`);
+    } finally {
+      setSavingMotionSearch(false);
+    }
+  }
+
+  // Runs the saved config live via /api/admin/motion-search-test.
+  async function testMotionSearch() {
+    setTestingMotionSearch(true);
+    setMotionSearchTest(null);
+    try {
+      const r = await fetch("/api/admin/motion-search-test", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ query: motionSearchQuery.trim() || undefined }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        setMotionSearchTest({ error: d?.error || `HTTP ${r.status}` });
+        return;
+      }
+      setMotionSearchTest(d as MotionSearchTestResult);
+    } catch (e: any) {
+      setMotionSearchTest({ error: e?.message || "Request failed" });
+    } finally {
+      setTestingMotionSearch(false);
+    }
+  }
   function saveViralModel() {
     return saveCascadeKnob({
       key: "model_viral",
@@ -1286,6 +1414,8 @@ export default function AdminSettings() {
   const HIDDEN_KEYS = new Set<string>([
     // Motion renderer endpoint + shared secret (modal_motion.py) — server-only.
     "motion_modal",
+    // Motion Search provider keys — dedicated "Motion Search (Google)" card.
+    "motion_search",
     // Manual Touch 'n Go top-up — edited via the dedicated card above.
     "tng_account",
     "tng_qr_url",
@@ -2692,6 +2822,229 @@ export default function AdminSettings() {
             }`}
           >
             {qaMsg}
+          </div>
+        )}
+      </div>
+
+      {/* Motion Search (Google) — B-roll images + fact-card snippets for
+          the Motion director (lib/motion-search.ts). Ordered cascade:
+          main → fallback 1 → fallback 2; a row with no key is skipped. */}
+      <div
+        className="card p-6 mb-6 border-2"
+        style={{
+          borderColor: "rgba(139,92,246,0.3)",
+          boxShadow: "inset 0 0 80px rgba(139,92,246,0.06)",
+        }}
+      >
+        <div className="flex items-center gap-2 mb-1">
+          <Search className="w-5 h-5" style={{ color: "#a78bfa" }} />
+          <h2 className="font-display font-bold text-lg text-[var(--color-text-primary)]">
+            Motion Search (Google)
+          </h2>
+        </div>
+        <p className="text-sm text-[var(--color-text-secondary)] mb-1">
+          Motion tab cari gambar B-roll (Google Images) + fakta (Google Search)
+          untuk perkataan dalam video klien. Main dulu, kalau gagal / tiada
+          hasil → fallback ikut turutan.
+        </p>
+        <p className="text-xs text-[var(--color-text-muted)] mb-4">
+          Serper.dev = Google Images + Google Search (~USD0.30–1 / 1,000 carian).
+          Kunci disimpan di server sahaja.
+        </p>
+        <div className="space-y-3">
+          {motionSearchRows.map((row, i) => {
+            const hasSaved =
+              !!row.savedKey && row.provider !== "none" && row.savedProvider === row.provider;
+            const update = (next: Partial<MotionSearchRow>) =>
+              setMotionSearchRows((rs) => rs.map((r, j) => (j === i ? { ...r, ...next } : r)));
+            return (
+              <div key={i}>
+                <div
+                  className="text-[10px] font-mono uppercase tracking-widest font-bold mb-1.5 flex items-center gap-2"
+                  style={{ color: "var(--color-text-muted)" }}
+                >
+                  {i === 0 ? "🎯 Main" : `🛟 Fallback ${i} (optional)`}
+                  {hasSaved && (
+                    <span
+                      className="normal-case tracking-normal px-1.5 py-0.5 rounded"
+                      style={{ background: "rgba(34,197,94,0.12)", color: "#16a34a" }}
+                    >
+                      •••• set
+                    </span>
+                  )}
+                </div>
+                <div className="grid grid-cols-[120px_1fr] gap-2">
+                  <select
+                    value={row.provider}
+                    onChange={(e) =>
+                      update({ provider: e.target.value as MotionSearchRow["provider"], newKey: "" })
+                    }
+                    className="px-2 py-2 rounded-lg text-xs font-bold cursor-pointer outline-none"
+                    style={{
+                      background: "rgba(139,92,246,0.12)",
+                      color: "#a78bfa",
+                      border: "1px solid rgba(139,92,246,0.4)",
+                    }}
+                  >
+                    {i > 0 && (
+                      <option value="none" style={{ background: "#1a1a1a", color: "#ffffff" }}>
+                        — Tiada —
+                      </option>
+                    )}
+                    <option value="serper" style={{ background: "#1a1a1a", color: "#ffffff" }}>Serper</option>
+                    <option value="brave" style={{ background: "#1a1a1a", color: "#ffffff" }}>Brave</option>
+                    <option value="tavily" style={{ background: "#1a1a1a", color: "#ffffff" }}>Tavily</option>
+                  </select>
+                  <input
+                    type="password"
+                    value={row.newKey}
+                    onChange={(e) => update({ newKey: e.target.value })}
+                    disabled={row.provider === "none"}
+                    placeholder={
+                      row.provider === "none"
+                        ? "Tiada fallback"
+                        : hasSaved
+                        ? "•••• set — taip kunci baru untuk tukar"
+                        : `${MOTION_SEARCH_LABEL[row.provider]} API key`
+                    }
+                    className="input w-full disabled:opacity-50"
+                    autoComplete="off"
+                    style={{ color: "var(--color-text-primary)" }}
+                  />
+                </div>
+              </div>
+            );
+          })}
+        </div>
+        <div className="flex flex-wrap items-center gap-2 mt-4">
+          <button
+            onClick={saveMotionSearch}
+            disabled={savingMotionSearch}
+            className="btn-primary disabled:opacity-50 text-xs"
+          >
+            {savingMotionSearch ? (
+              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+            ) : (
+              <Save className="w-3.5 h-3.5" />
+            )}
+            Save
+          </button>
+          <input
+            type="text"
+            value={motionSearchQuery}
+            onChange={(e) => setMotionSearchQuery(e.target.value)}
+            placeholder="Query ujian (default: kopi pracampur arabica)"
+            className="input flex-1 min-w-[200px] text-xs"
+            style={{ color: "var(--color-text-primary)" }}
+          />
+          <button
+            onClick={testMotionSearch}
+            disabled={testingMotionSearch}
+            className="btn-secondary disabled:opacity-50 text-xs inline-flex items-center gap-1.5"
+          >
+            {testingMotionSearch ? (
+              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+            ) : (
+              <Search className="w-3.5 h-3.5" />
+            )}
+            Test
+          </button>
+        </div>
+        <p className="text-[10px] text-[var(--color-text-muted)] mt-1">
+          Test guna tetapan yang sudah disimpan. Query yang pernah dicari dalam
+          30 hari dijawab dari cache — tukar query untuk uji provider secara live.
+        </p>
+        {motionSearchMsg && (
+          <div
+            className="text-xs mt-2"
+            style={{ color: motionSearchMsg.startsWith("✓") ? "#a78bfa" : "#ef4444" }}
+          >
+            {motionSearchMsg}
+          </div>
+        )}
+        {motionSearchTest && (
+          <div
+            className="mt-3 rounded-xl p-3 border text-xs space-y-1.5"
+            style={{
+              background: "var(--color-bg-card)",
+              borderColor: "var(--color-border)",
+              color: "var(--color-text-secondary)",
+            }}
+          >
+            {motionSearchTest.error ? (
+              <div style={{ color: "#ef4444" }}>✗ {motionSearchTest.error}</div>
+            ) : (
+              <>
+                <div style={{ color: motionSearchTest.ok ? "#16a34a" : "#ef4444" }}>
+                  {motionSearchTest.ok ? "✓ OK" : "✗ Sebahagian / semua gagal"}
+                  {motionSearchTest.query ? ` — “${motionSearchTest.query}”` : ""}
+                </div>
+                {(["images", "web"] as const).map((k) => {
+                  const s = motionSearchTest[k];
+                  if (!s) return null;
+                  return (
+                    <div key={k}>
+                      <strong style={{ color: "var(--color-text-primary)" }}>
+                        {k === "images" ? "Images" : "Web"}:
+                      </strong>{" "}
+                      {s.provider ? (
+                        <code style={{ color: "#a78bfa" }}>{s.provider}</code>
+                      ) : (
+                        <span style={{ color: "#ef4444" }}>tiada provider berjaya</span>
+                      )}{" "}
+                      · {s.count} hasil{s.cached ? " · dari cache" : ""}
+                    </div>
+                  );
+                })}
+                {motionSearchTest.images?.first && (
+                  <a
+                    href={motionSearchTest.images.first.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center gap-2 hover:underline"
+                  >
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={motionSearchTest.images.first.thumb || motionSearchTest.images.first.url}
+                      alt=""
+                      className="w-12 h-12 object-cover rounded"
+                    />
+                    <span>
+                      {motionSearchTest.images.first.domain || "image"}
+                      {motionSearchTest.images.first.width
+                        ? ` · ${motionSearchTest.images.first.width}×${motionSearchTest.images.first.height ?? "?"}`
+                        : ""}
+                    </span>
+                  </a>
+                )}
+                {motionSearchTest.web?.first && (
+                  <div>
+                    <a
+                      href={motionSearchTest.web.first.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="hover:underline"
+                      style={{ color: "var(--color-text-primary)" }}
+                    >
+                      {motionSearchTest.web.first.title || motionSearchTest.web.first.url}
+                    </a>{" "}
+                    <span style={{ color: "var(--color-text-muted)" }}>
+                      ({motionSearchTest.web.first.domain})
+                    </span>
+                    {motionSearchTest.web.first.snippet && (
+                      <div className="line-clamp-2">{motionSearchTest.web.first.snippet}</div>
+                    )}
+                  </div>
+                )}
+                {(motionSearchTest.errors?.length ?? 0) > 0 && (
+                  <ul className="list-disc pl-4" style={{ color: "#ef4444" }}>
+                    {motionSearchTest.errors!.map((e, i) => (
+                      <li key={i}>{e}</li>
+                    ))}
+                  </ul>
+                )}
+              </>
+            )}
           </div>
         )}
       </div>

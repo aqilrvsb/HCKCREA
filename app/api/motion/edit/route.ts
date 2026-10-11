@@ -40,7 +40,7 @@ export async function POST(req: Request) {
     videoUrl,
     durationSec,
     language: b?.language === "en" ? "en" : b?.language === "auto" ? "auto" : "ms",
-    instructions: str(b?.instructions, 600) || undefined,
+    instructions: str(b?.prompt ?? b?.instructions, 900) || undefined,
     product: str(b?.product, 300) || undefined,
     captions: b?.captions !== false,
     captionStyle: style,
@@ -48,6 +48,11 @@ export async function POST(req: Request) {
     music: !!b?.music,
     sfx: b?.sfx !== false,
     accent: /^#[0-9a-f]{6}$/i.test(String(b?.accent || "")) ? String(b.accent) : undefined,
+    style: b?.style === "clean" ? "clean" : "gempak",
+    resolution: b?.resolution === "720" ? "720" : "1080",
+    jumpcut: b?.jumpcut !== false,
+    broll: b?.broll !== false,
+    facts: b?.facts !== false,
   };
   const projectId = b?.project_id ? String(b.project_id) : null;
 
@@ -101,7 +106,11 @@ export async function POST(req: Request) {
     user_id: user.id,
     video_url: videoUrl,
     plan_url: `${siteUrl()}/api/motion/plan`,
+    qa_url: `${siteUrl()}/api/motion/qa`,
     plan_token: planToken,
+    style: input.style,
+    resolution: input.resolution,
+    jumpcut: input.jumpcut,
     language: input.language,
     music: input.music,
     sfx: input.sfx,

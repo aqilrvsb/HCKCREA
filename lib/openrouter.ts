@@ -165,6 +165,11 @@ async function callProvider(opts: {
   textPrompt?: string;
   base: string;
   key: string;
+  /** Abort this one attempt after N ms so the cascade can move on (opt-in). */
+  timeoutMs?: number;
+  /** SSE streaming (opt-in). Long generations through Grsai's gateway get a
+   *  502 after ~60 s when not streamed; streaming keeps the connection alive. */
+  stream?: boolean;
 }): Promise<{ ok: boolean; content?: string; finishReason?: string; error?: string }> {
   if (!opts.base || !opts.key || !opts.model) {
     return { ok: false, error: `${opts.provider} not configured` };
@@ -193,8 +198,9 @@ async function callProvider(opts: {
         messages,
         temperature: opts.temperature ?? 0.8,
         max_tokens: opts.maxTokens ?? 4000,
-        stream: false,
+        stream: !!opts.stream,
       }),
+      ...(opts.timeoutMs ? { signal: AbortSignal.timeout(opts.timeoutMs) } : {}),
     });
   } catch (e: any) {
     return { ok: false, error: `${opts.provider} network error: ${e?.message || "fetch failed"}` };
@@ -202,6 +208,27 @@ async function callProvider(opts: {
   const text = await res.text().catch(() => "");
   let json: any = null;
   try { json = JSON.parse(text); } catch {}
+  // Streamed reply: rebuild one completion from the SSE "data:" deltas.
+  if (!json && opts.stream && res.ok && text.includes("data:")) {
+    let content = "";
+    let finish: string | undefined;
+    let errMsg = "";
+    for (const line of text.split("\n")) {
+      const t = line.trim();
+      if (!t.startsWith("data:")) continue;
+      const data = t.slice(5).trim();
+      if (!data || data === "[DONE]") continue;
+      try {
+        const j = JSON.parse(data);
+        if (j?.error?.message) errMsg = String(j.error.message);
+        content += j?.choices?.[0]?.delta?.content ?? j?.choices?.[0]?.message?.content ?? "";
+        finish = j?.choices?.[0]?.finish_reason ?? finish;
+      } catch { /* keep-alive / partial line */ }
+    }
+    if (errMsg && !content) return { ok: false, error: errMsg };
+    if (!content) return { ok: false, error: `${opts.provider} empty stream (finish_reason=${finish || "unknown"})` };
+    return { ok: true, content, finishReason: finish };
+  }
   if (!res.ok || !json) {
     return { ok: false, error: json?.error?.message || `${opts.provider} HTTP ${res.status}` };
   }
@@ -295,6 +322,10 @@ export async function orChat(opts: {
   userPrompt: string;
   temperature?: number;
   maxTokens?: number;
+  /** Per-attempt timeout (ms) — a slow model falls through to the next one. */
+  timeoutMs?: number;
+  /** Stream the completion (see callProvider). */
+  stream?: boolean;
   /** Tag for the admin Usage Chat log. When set, every cascade attempt
    *  is captured and written to chat_usage so admin can see how often
    *  each fallback layer is being hit. */
@@ -364,6 +395,8 @@ export async function orChat(opts: {
         userPrompt: opts.userPrompt,
         temperature: opts.temperature,
         maxTokens: opts.maxTokens,
+        timeoutMs: opts.timeoutMs,
+        stream: opts.stream,
         base, key,
       });
       trace.push({
@@ -417,6 +450,8 @@ export async function orChatVision(opts: {
   images: string[]; // data: URLs or https URLs
   temperature?: number;
   maxTokens?: number;
+  timeoutMs?: number;
+  stream?: boolean;
 }): Promise<{ ok: boolean; content?: string; finishReason?: string; error?: string }> {
   const requestedKey = opts.modelKey || "model_clone";
   const fetchKeys = ["or_base", "or_key", "p4_key", requestedKey];
@@ -463,6 +498,8 @@ export async function orChatVision(opts: {
         textPrompt: opts.textPrompt,
         temperature: opts.temperature ?? 0.5,
         maxTokens: opts.maxTokens ?? 4000,
+        timeoutMs: opts.timeoutMs,
+        stream: opts.stream,
         base, key,
       });
       if (r.ok) return r;

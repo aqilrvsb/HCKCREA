@@ -5,7 +5,9 @@
 import React, { useMemo } from 'react';
 import { AbsoluteFill, Audio, Img, interpolate, useCurrentFrame, useVideoConfig } from 'remotion';
 import { Background, Captions, SfxTrack, ZoneStack, inkForBg, toPages, type ZoneBoxes } from './layers';
-import { F, SFX_FOR, clamp, fitSize, inkOn, lum, makeAdCue, packRows, popS, rgba, safeAccent, type Placed, type SfxEvent } from './lib';
+import { F, clamp, fitSize, inkOn, lum, makeAdCue, packRows, popS, rgba, safeAccent, type Placed } from './lib';
+import { Flash, LightSweep, shakeOffset, type Impact } from './effects';
+import { sfxFor, type SfxEvent, type SfxEventName } from './sfx';
 import type { AdProps, AdScene, Brand, Hero, ImageAsset, Word, Zone } from './types';
 
 const boxesFor = (captions: boolean): ZoneBoxes => ({
@@ -38,11 +40,11 @@ const ProductHero: React.FC<{ img: ImageAsset; side: 'L' | 'C' | 'R'; f: number;
   }
   return (
     <div style={wrap}>
-      <div style={{ background: '#fff', padding: 18, paddingBottom: 54, borderRadius: 10, boxShadow: '0 26px 44px rgba(0,0,0,0.45)' }}>
+      <div style={{ background: '#fff', padding: 18, paddingBottom: 54, borderRadius: 10, boxShadow: '12px 14px 0 rgba(0,0,0,0.4)' }}>
         <Img src={img.url} style={{ maxWidth: 660, maxHeight: 640, objectFit: 'contain', display: 'block', borderRadius: 4 }} />
       </div>
       <div style={{ position: 'absolute', top: -18, left: '50%', marginLeft: -70, width: 140, height: 38, background: 'rgba(238,232,214,0.88)',
-        transform: 'rotate(-4deg)', boxShadow: '0 2px 4px rgba(0,0,0,0.15)' }} />
+        transform: 'rotate(-4deg)' }} />
     </div>
   );
 };
@@ -79,7 +81,7 @@ const EndCard: React.FC<{ f: number; brand: Brand; accent: string; img?: ImageAs
       <div style={{ transform: `scale(${0.82 + 0.18 * s})`, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 26, padding: '0 70px', textAlign: 'center' }}>
         {img && (
           <Img src={img.cutout || img.url} style={{ maxWidth: 640, maxHeight: img.cutout ? 620 : 520, objectFit: 'contain',
-            borderRadius: img.cutout ? 0 : 18, boxShadow: img.cutout ? 'none' : '0 18px 36px rgba(0,0,0,0.22)' }} />
+            borderRadius: img.cutout ? 0 : 18, boxShadow: img.cutout ? 'none' : '10px 12px 0 rgba(0,0,0,0.18)' }} />
         )}
         <div style={{ fontFamily: F.black, fontSize: nameSize, color: '#0c1f15', letterSpacing: -2, lineHeight: 1.02 }}>{name}</div>
         {brand.tagline && (
@@ -98,7 +100,7 @@ const EndCard: React.FC<{ f: number; brand: Brand; accent: string; img?: ImageAs
         )}
         {brand.cta && (
           <div style={{ marginTop: 8, background: accent, color: ctaInk, fontFamily: F.inter, fontWeight: 900, fontSize: fitSize(brand.cta, 54, 820, 1, 0.58),
-            borderRadius: 999, padding: '20px 56px', transform: `scale(${0.6 + 0.4 * s3})`, boxShadow: '0 12px 24px rgba(0,0,0,0.2)' }}>{brand.cta}</div>
+            borderRadius: 999, padding: '20px 56px', transform: `scale(${0.6 + 0.4 * s3})`, boxShadow: '8px 10px 0 rgba(0,0,0,0.25)' }}>{brand.cta}</div>
         )}
         {brand.handle && <div style={{ fontFamily: F.inter, fontWeight: 800, fontSize: 40, color: '#3d4a44', opacity: s3 }}>{brand.handle}</div>}
       </div>
@@ -114,7 +116,10 @@ export const MotionAd: React.FC<AdProps> = (p) => {
   const images = p.images ?? [];
   const boxes = boxesFor(!!p.captions);
 
-  const { scenes, sfx, pages, endStart } = useMemo(() => {
+  const style = p.style ?? 'gempak';
+  const gempak = style === 'gempak';
+
+  const { scenes, sfx, pages, endStart, impacts, sweeps } = useMemo(() => {
     const cue = makeAdCue(p.lines ?? []);
     const fr = (sec: number) => Math.max(0, Math.round(sec * fps));
     const list = (p.scenes ?? []).map((sc, k) => ({
@@ -139,13 +144,22 @@ export const MotionAd: React.FC<AdProps> = (p) => {
     });
 
     const events: SfxEvent[] = [];
+    const impacts: Impact[] = [{ frame: 2, power: 0.8 }];
+    const sweeps: number[] = [];
+    let n = 0;
     built.forEach((sc, k) => {
-      if (k > 0) events.push({ frame: sc.start - 4, name: 'whoosh', vol: 0.22, len: 30 });
-      if (sc.endcard) { events.push({ frame: sc.start + 10, name: 'sparkle', vol: 0.32, len: 45 }); return; }
-      if (sc.hero && sc.hero.kind !== 'none' && !sc.carryHero) events.push({ frame: sc.start, name: 'swoosh', vol: 0.2, len: 30 });
+      if (k > 0) events.push(...sfxFor('scene', sc.start, style, k));
+      if (sc.endcard) { events.push(...sfxFor('stars', sc.start + 10, style, k)); sweeps.push(sc.start); return; }
+      if (k === 0) events.push(...sfxFor('hook', 1, style, 0));
+      if (sc.hero && sc.hero.kind !== 'none' && !sc.carryHero) events.push(...sfxFor('hero', sc.start, style, k));
+      const act = (p.lines ?? []).find((l) => l.id === String(sc.from).split(/[@$+-]/)[0])?.act;
+      if (act === 'reveal' || act === 'cta') { sweeps.push(sc.start); impacts.push({ frame: sc.start, power: 0.6 }); }
       for (const z of Object.values(sc.rows)) for (const row of z) for (const pl of row) {
-        const m = SFX_FOR[pl.it.t];
-        if (m) events.push({ frame: pl.s, name: m.name, vol: m.vol, len: m.len ?? 40 });
+        const ev = pl.it.t as SfxEventName;
+        events.push(...sfxFor(ev, pl.s, style, n++));
+        if (pl.it.t === 'bigword' || pl.it.t === 'stamp' || pl.it.t === 'price' || pl.it.t === 'cta') {
+          impacts.push({ frame: pl.s + (pl.it.t === 'price' && pl.it.sub ? 9 : 0), power: 0.9 });
+        }
       }
     });
 
@@ -160,8 +174,9 @@ export const MotionAd: React.FC<AdProps> = (p) => {
       });
     }
     const end = built.find((s) => s.endcard);
-    return { scenes: built, sfx: events, pages: toPages(words, 4, breaks), endStart: end ? end.start : undefined };
-  }, [p.scenes, p.lines, fps, durationInFrames]);
+    return { scenes: built, sfx: events, pages: toPages(words, 4, breaks), endStart: end ? end.start : undefined, impacts, sweeps };
+  }, [p.scenes, p.lines, fps, durationInFrames, style]);
+  const shake = gempak ? shakeOffset(frame, impacts, 16) : { x: 0, y: 0, r: 0 };
 
   const sc = scenes.find((s) => frame >= s.start && frame < s.end) ?? scenes[scenes.length - 1];
   const heroImg = (h?: Hero) => (h && h.kind !== 'none' ? images[Math.min(images.length - 1, Math.max(0, h.image ?? 0))] : undefined);
@@ -184,7 +199,7 @@ export const MotionAd: React.FC<AdProps> = (p) => {
           <AbsoluteFill style={{ transform: `scale(${zoom * enter})` }}>
             {img && sc.hero?.kind === 'presenter' && <PresenterHero img={img} side={side} f={f} carry={sc.carryHero} />}
             {img && sc.hero?.kind === 'product' && <ProductHero img={img} side={side} f={f} carry={sc.carryHero} tiltDeg={(scenes.indexOf(sc) % 2 ? 2 : -2)} />}
-            <ZoneStack rows={sc.rows} boxes={boxes} ink={ink} accent={accent} surface={bg === 'paper' ? 'light' : bg === 'accent' ? 'accent' : 'dark'} />
+            <ZoneStack rows={sc.rows} boxes={boxes} ink={ink} accent={accent} surface={bg === 'paper' ? 'light' : bg === 'accent' ? 'accent' : 'dark'} style={style} lottie={p.lottie} />
           </AbsoluteFill>
         </AbsoluteFill>
       );
@@ -193,11 +208,15 @@ export const MotionAd: React.FC<AdProps> = (p) => {
 
   return (
     <AbsoluteFill style={{ background: '#111' }}>
-      {body}
-      {p.captions && (
-        <Captions pages={pages} style={p.captionStyle ?? 'pop'} accent={accent} centerY={CAPTION_Y} hideFrom={endStart}
-          hiOverride={sc?.bg === 'accent' ? (lum(accent) > 0.5 ? '#111111' : '#FFD93B') : undefined} />
-      )}
+      <AbsoluteFill style={{ transform: `translate(${shake.x}px, ${shake.y}px) rotate(${shake.r}deg)` }}>
+        {body}
+        {gempak && <LightSweep at={sweeps} />}
+        {p.captions && (
+          <Captions pages={pages} style={p.captionStyle ?? 'pop'} accent={accent} centerY={CAPTION_Y} hideFrom={endStart}
+            hiOverride={sc?.bg === 'accent' ? (lum(accent) > 0.5 ? '#111111' : '#FFD93B') : undefined} lottie={p.lottie} gempak={gempak} />
+        )}
+      </AbsoluteFill>
+      {gempak && <Flash impacts={impacts.filter((im) => im.power >= 0.8)} />}
       {p.sfx && <SfxTrack events={sfx} />}
       {p.audio && <Audio src={p.audio} />}
     </AbsoluteFill>

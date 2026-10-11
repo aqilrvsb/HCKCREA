@@ -7,6 +7,9 @@ export type Word = { w: string; t: number; e?: number };
 
 export type Zone = 'top' | 'middle' | 'bottom';
 
+/** gempak = dense, shake/flash/particles, louder SFX · clean = calmer. */
+export type Style = 'gempak' | 'clean';
+
 export type ItemType =
   | 'headline' // big slab of text on a colour block
   | 'note' // sticky note (optional strike-through sub + check/cross mark)
@@ -17,8 +20,14 @@ export type ItemType =
   | 'scribble' // hand-written marker text, typed on
   | 'price' // big price with optional struck-out old price (sub)
   | 'check' // checklist row with a drawn tick
-  | 'emoji' // one big bouncing emoji
-  | 'counter'; // number that counts up (text) with a label (sub)
+  | 'emoji' // one big bouncing (animated) emoji
+  | 'counter' // number that counts up (text) with a label (sub)
+  | 'bigword' // huge kinetic 1–2 words punched in the middle
+  | 'callout' // speech bubble
+  | 'arrow' // hand-drawn arrow drawing on, with a label (text)
+  | 'stars' // 5-star rating row; text = label (only real numbers)
+  | 'cta' // "Tekan beg kuning" pill with a bouncing arrow
+  | 'fact'; // web fact card: text + sub = "Sumber: domain" (built from EditProps.facts)
 
 export type Tone = 'yellow' | 'white' | 'red' | 'green' | 'accent' | 'dark';
 
@@ -34,6 +43,15 @@ export type Item = {
   tone?: Tone;
   mark?: 'check' | 'cross';
 };
+
+/** Keyword colouring for captions (word index into `words`). */
+export type KeyColor = 'benefit' | 'price' | 'pain' | 'brand' | 'accent';
+export type CaptionKey = { i: number; color: KeyColor; emoji?: string };
+
+export type CaptionStyle = 'pop' | 'karaoke' | 'box';
+
+/** Map of emoji character → local Lottie JSON URL (Google Noto animated). */
+export type LottieMap = Record<string, string>;
 
 // ── Buat Iklan ────────────────────────────────────────────────────────────────
 export type Act = 'hook' | 'pain' | 'reveal' | 'benefit' | 'proof' | 'price' | 'cta' | 'end';
@@ -86,19 +104,36 @@ export type AdProps = {
   captions: boolean;
   captionStyle?: CaptionStyle;
   sfx: boolean;
+  style?: Style;
+  lottie?: LottieMap;
 };
 
 // ── Edit Video ────────────────────────────────────────────────────────────────
-export type CaptionStyle = 'pop' | 'karaoke' | 'box';
-
 export type Zoom = { at: string | number; to?: string | number; scale?: number };
+
+/** Face box sample, normalised 0..1 of the frame, at time t (s). */
+export type Face = { t: number; x: number; y: number; w: number; h: number };
+
+export type BRoll = {
+  at: string | number;
+  to?: string | number;
+  /** Local URL of the prepared image (≤1080 wide). */
+  src: string;
+  /** Local URL of the blurred 1080x1920 fill (fullscreen layout). */
+  blur?: string;
+  layout: 'full' | 'pip';
+  /** Optional small label on the card (≤ 4 words). */
+  label?: string;
+};
+
+export type FactCard = { at: string | number; to?: string | number; text: string; source: string; icon?: string };
 
 export type EditProps = {
   fps: number;
   durationInFrames: number;
-  /** Normalised 1080x1920 30fps H.264 of the client's video. */
+  /** Normalised 1080x1920 30fps H.264 of the client's video (jump-cut if enabled). */
   video: string;
-  /** Absolute seconds. */
+  /** Absolute seconds (after jump cuts). */
   words: Word[];
   captions: { on: boolean; style: CaptionStyle; pos: 'low' | 'mid'; maxWords: number };
   accent: string;
@@ -108,4 +143,14 @@ export type EditProps = {
   sfx: boolean;
   music?: string;
   musicVolume?: number;
+  style?: Style;
+  faces?: Face[];
+  broll?: BRoll[];
+  facts?: FactCard[];
+  keywords?: CaptionKey[];
+  rehook?: { at: string | number; text: string };
+  cta?: { at: string | number; text: string; sub?: string };
+  lottie?: LottieMap;
+  /** Thin progress bar at the top (gempak default). */
+  progress?: boolean;
 };

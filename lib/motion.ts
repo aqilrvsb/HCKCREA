@@ -20,6 +20,7 @@ import { orChat } from "@/lib/openrouter";
 import { synthesizeSpeech } from "@/lib/tts";
 import { deduct, refundReserved } from "@/lib/deduct";
 import type { HistoryRow, SettleResult } from "@/lib/settle";
+import { MOTION_MY_TIKTOK_GUIDE } from "@/lib/motion-prompts";
 
 export const MOTION_AD_DURATIONS = [15, 30, 45] as const;
 export const MOTION_EDIT_MAX_SEC = 180;
@@ -91,6 +92,10 @@ export type AdInput = {
   sfx: boolean;
   accent?: string;
   images: { url: string; role: "product" | "presenter" }[];
+  style?: "gempak" | "clean";
+  resolution?: "1080" | "720";
+  /** Variation k of n — the writer takes a different angle per variation. */
+  variant?: { index: number; total: number };
 };
 
 export type EditInput = {
@@ -105,6 +110,11 @@ export type EditInput = {
   music: boolean;
   sfx: boolean;
   accent?: string;
+  style?: "gempak" | "clean";
+  resolution?: "1080" | "720";
+  jumpcut?: boolean;
+  broll?: boolean;
+  facts?: boolean;
 };
 
 // ── config + Modal client ─────────────────────────────────────────────────────
@@ -193,7 +203,7 @@ export const costFor = (seconds: number, rate: number) => round2(Math.ceil(Math.
 export const adEstimateSec = (target: number) => Math.round(target + 2);
 
 // ── LLM helpers ───────────────────────────────────────────────────────────────
-function extractJson(s: string): any {
+export function extractJson(s: string): any {
   const t = String(s || "").replace(/^﻿/, "").replace(/```(?:json)?/gi, "").trim();
   const a = t.indexOf("{");
   const b = t.lastIndexOf("}");
@@ -209,7 +219,7 @@ function extractJson(s: string): any {
 
 const clean = (s: unknown, max: number) => String(s ?? "").replace(/\s+/g, " ").trim().slice(0, max);
 const HEX = /^#[0-9a-f]{6}$/i;
-const ITEM_TYPES = new Set(["headline", "note", "tag", "stamp", "chip", "tape", "scribble", "price", "check", "emoji", "counter"]);
+const ITEM_TYPES = new Set(["headline", "note", "tag", "stamp", "chip", "tape", "scribble", "price", "check", "emoji", "counter", "bigword", "callout", "arrow", "stars", "cta"]);
 const ZONES = new Set(["top", "middle", "bottom"]);
 const TONES = new Set(["yellow", "white", "red", "green", "accent", "dark"]);
 const BGS = new Set(["mat", "paper", "dark", "accent", "blur"]);
@@ -217,6 +227,7 @@ const ACTS = new Set(["hook", "pain", "reveal", "benefit", "proof", "price", "ct
 const MOODS = new Set(["chill", "upbeat", "hype"]);
 const TEXT_MAX: Record<string, number> = {
   headline: 34, note: 48, tag: 22, stamp: 16, chip: 30, tape: 30, scribble: 44, price: 14, check: 32, emoji: 8, counter: 12,
+  bigword: 16, callout: 44, arrow: 24, stars: 28, cta: 30,
 };
 
 const AD_CUE = /^[a-z0-9_]+(?:@[^\s#$+-]{1,30}(?:#\d{1,2})?)?(?:\$)?(?:[+-]\d{0,2}(?:\.\d+)?)?$/i;
@@ -242,11 +253,16 @@ function cleanItem(raw: any, re: RegExp): MotionItem | null {
   const to = cleanCue(raw.to, re);
   if (to !== undefined) it.to = to;
   if (raw.sub) it.sub = clean(raw.sub, 28);
-  it.zone = ZONES.has(raw.zone) ? raw.zone : t === "headline" || t === "tag" ? "top" : t === "check" || t === "chip" ? "bottom" : "middle";
+  it.zone = ZONES.has(raw.zone) ? raw.zone
+    : t === "headline" || t === "tag" || t === "callout" || t === "arrow" ? "top"
+    : t === "check" || t === "chip" || t === "cta" || t === "stars" ? "bottom" : "middle";
   if (TONES.has(raw.tone)) it.tone = raw.tone;
   if (raw.mark === "check" || raw.mark === "cross") it.mark = raw.mark;
   return it;
 }
+
+/** Shared item cleaner (used by the Edit Video director). */
+export const cleanItemPublic = (raw: any, re: RegExp) => cleanItem(raw, re);
 
 // Keep at most `max` items per zone that are on screen at the same time
 // (the renderer packs rows, but a crowded zone still reads badly).
@@ -302,6 +318,11 @@ TYPE:
   check    — checklist row ≤ 4 words (benefits; "mark": "cross" for the old way / pain)
   emoji    — a single emoji
   counter  — a real number FROM THE BRIEF only ("text": "1,200+", "sub": label)
+  bigword  — the 1–2 strongest words of the line, huge, punched in (zone middle, ~1 s)
+  callout  — speech bubble ≤ 6 words (a reaction / aside)
+  arrow    — hand-drawn arrow pointing down at the product + ≤ 3-word label
+  stars    — 5-star rating row ONLY if the brief gives a real rating ("text": "4.9 · 2k terjual")
+  cta      — yellow "Tekan beg kuning" pill with a bouncing arrow (zone bottom, on the cta line)
 TONE ∈ yellow, white, red, green, accent, dark (optional).
 - With a product hero on screen prefer zones top and bottom; middle only for stamp / emoji / price (they may overlap the product).
 - On-screen text is SHORT and highlights the key idea — it is NOT a transcript (captions already show every word).
@@ -310,7 +331,9 @@ CUES — when an item pops in:
 - "l3" = start of line l3's scene; "l3@pekat" = the moment the first word of line l3's TEXT that starts with "pekat" is spoken (the word must really be in that line's "text"; lowercase, first 4+ letters); "l3@pekat#2" = second occurrence; "l3$" = end of the scene; add offsets like "+0.3" or "-0.2".
 - Time each item to the word it illustrates. "to" is optional (default: until the scene ends).
 
-Example item: {"t":"price","text":"RM19","sub":"RM29","at":"l5@rm19","zone":"middle"}`;
+Example item: {"t":"price","text":"RM19","sub":"RM29","at":"l5@rm19","zone":"middle"}
+
+${MOTION_MY_TIKTOK_GUIDE}`;
 
 export async function planAd(input: AdInput): Promise<AdPlan> {
   const speakSec = Math.max(8, input.seconds - AD_OVERHEAD_SEC);
@@ -330,7 +353,15 @@ export async function planAd(input: AdInput): Promise<AdPlan> {
     images: input.images.map((im, i) => ({ index: i, role: im.role })),
   };
   const userPrompt = `BRIEF (JSON):\n${JSON.stringify(brief, null, 1)}\n\nWORD_BUDGET = ${budget}. Write the ad now. JSON only.`;
-  const system = AD_SYSTEM.replace("WORD_BUDGET", String(budget));
+  const style = input.style === "clean" ? "clean" : "gempak";
+  const angles = ["pain-point hook (relatable problem first)", "bold benefit / result hook", "curiosity question hook", "price / promo-first hook", "POV / storytelling hook"];
+  const variantNote = input.variant && input.variant.total > 1
+    ? `\n\nVARIATION ${input.variant.index + 1} of ${input.variant.total}: use a ${angles[input.variant.index % angles.length]} and a different structure/wording than other variations.`
+    : "";
+  const styleNote = style === "gempak"
+    ? "\n\nSTYLE = GEMPAK: 2–3 items per scene, at least 3 bigwords in the ad, emoji on ~1 in 3 scenes, use callout/arrow, cta item on the cta line."
+    : "\n\nSTYLE = CLEAN: 1–2 items per scene, at most 1 bigword, minimal emoji, cta item on the cta line.";
+  const system = AD_SYSTEM.replace("WORD_BUDGET", String(budget)) + styleNote + variantNote;
 
   let lastErr = "";
   for (let attempt = 0; attempt < 2; attempt++) {
@@ -338,8 +369,10 @@ export async function planAd(input: AdInput): Promise<AdPlan> {
       modelKey: "model_motion",
       systemPrompt: system,
       userPrompt: attempt === 0 ? userPrompt : `${userPrompt}\n\nYour previous answer was not valid JSON for the schema (${lastErr}). Return ONLY the JSON object.`,
-      temperature: 0.8,
+      temperature: input.variant && input.variant.total > 1 ? 0.95 : 0.8,
       maxTokens: 6000,
+      timeoutMs: 120_000,
+      stream: true,
     });
     if (!r.ok || !r.content) { lastErr = r.error || "empty"; continue; }
     try {
@@ -589,6 +622,8 @@ export async function runAdJob(historyId: string): Promise<void> {
       sfx: input.sfx,
       music: input.music,
       mood: plan.mood,
+      style: input.style ?? "gempak",
+      resolution: input.resolution ?? "1080",
     });
     if (!start.ok) throw new Error(start.error);
     await patchMeta(historyId, { stage: "render", provider: "modal-motion", call_started_at: new Date().toISOString() }, { task_id: start.callId });
