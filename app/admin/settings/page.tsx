@@ -2540,6 +2540,7 @@ export default function AdminSettings() {
           berbeza — example: Q&A pakai cheap fast model, Custom Idea pakai
           stronger model untuk quality prompt generation.
         </p>
+        <GrsaiModelOptions />
         <div className="space-y-4">
           <ModelKnob
             label="Q&A Chat Model"
@@ -2885,6 +2886,34 @@ type ModelKnobValue = {
   main: ModelKnobSlot;
   fallbacks: ModelKnobSlot[];
 };
+// Grsai text models verified against /v1/chat/completions (2026-10-11).
+// Suggestions only — the input stays free text, so any new Grsai model
+// name works without a code change. Grsai has no /v1/models endpoint.
+const GRSAI_TEXT_MODELS = [
+  "gpt-6-astra",
+  "gpt-5.6-sol",
+  "gpt-5.6-terra",
+  "gpt-5.5",
+  "gemini-3.1-pro",
+  "gemini-3-pro",
+  "gemini-3.8-flash",
+  "gemini-3.7-flash",
+  "gemini-3.5-flash",
+  "gemini-3.5-flash-lite",
+  "gemini-3-flash",
+  "gemini-3.1-flash-lite",
+];
+
+function GrsaiModelOptions() {
+  return (
+    <datalist id="grsai-text-models">
+      {GRSAI_TEXT_MODELS.map((m) => (
+        <option key={m} value={m} />
+      ))}
+    </datalist>
+  );
+}
+
 function ModelKnob({
   label,
   value,
@@ -2972,6 +3001,7 @@ function ModelKnob({
           <input
             type="text"
             value={value.main.model}
+            list={value.main.provider === "grsai" ? "grsai-text-models" : undefined}
             onChange={(e) => updateMain({ model: e.target.value })}
             placeholder={
               value.main.provider === "grsai"
@@ -3014,6 +3044,7 @@ function ModelKnob({
             <input
               type="text"
               value={fb.model}
+              list={fb.provider === "grsai" ? "grsai-text-models" : undefined}
               onChange={(e) => updateFallback(i, { model: e.target.value })}
               placeholder={
                 i === 0

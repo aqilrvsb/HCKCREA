@@ -78,6 +78,14 @@ export async function GET(req: Request) {
       },
     },
     {
+      // Grsai-only; cascade pins P4 first, other slots fall back to gpt-image-2.
+      name: "gpt-image-2.5", type: "image", rate: gptImage, unit: "per_image",
+      constraints: {
+        image_urls: { max: 4 },
+        aspect_ratios: IMAGE_ASPECTS,
+      },
+    },
+    {
       name: "veo", type: "video", rate: veo, unit: "per_video_8s",
       constraints: {
         duration: { fixed: 8 },

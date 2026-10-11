@@ -149,7 +149,8 @@ export async function p4CreateImage(input: {
 // Aspect ratio for Grsai's gpt-image endpoint.
 //
 // Per Grsai's docs, `gpt-image-2` accepts a RATIO directly ("9:16" → 941x1672)
-// as well as 1K pixel strings. Only `gpt-image-2-vip` is pixel-only.
+// as well as 1K pixel strings. `gpt-image-2.5` behaves the same (verified:
+// "9:16" → 940x1672). Only `gpt-image-2-vip` is pixel-only.
 //
 // This used to map every ratio to pixels, and mapped "9:16" → "1024x1536" —
 // which is Grsai's own 2:3 size (0.667), not 9:16 (0.5625). Every 9:16 image

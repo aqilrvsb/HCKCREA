@@ -84,6 +84,14 @@ export type CascadeResult =
       tierLog: CascadeTierLog[];
     };
 
+// Models only Grsai (p4) serves → the nearest model every other slot has.
+// generateImageWithCascade pins p4 as tier 1 for these; when p4 fails the
+// remaining slots run the mapped model, so tierLog / actualModel record
+// what really rendered instead of an id the slot would reject.
+const GRSAI_ONLY_MODELS: Record<string, string> = {
+  "gpt-image-2.5": "gpt-image-2",
+};
+
 function toP2Model(bareModel: string, hint?: string): string {
   if (hint && !hint.toLowerCase().includes("nano-banana-fast")) return hint;
   const m = bareModel.toLowerCase();
@@ -250,9 +258,18 @@ export async function generateImageWithCascade(
     order = slots[startIdx] === "none" ? [] : [slots[startIdx]];
   }
 
+  // Grsai-only model → p4 always goes first, whatever the rotation picked.
+  // A resubmit that explicitly skips p4 keeps the rotated order (and runs
+  // the mapped fallback model).
+  const grsaiOnlyFallback = GRSAI_ONLY_MODELS[bare.toLowerCase()];
+  if (grsaiOnlyFallback && skipSlot !== "p4") {
+    order = ["p4", ...order.filter((s) => s !== "p4")];
+  }
+
   for (let i = 0; i < order.length; i++) {
     const slot = order[i];
-    const t = await tryImageSlot(slot, bare, prompt, aspectRatio, imageUrls);
+    const slotModel = grsaiOnlyFallback && slot !== "p4" ? grsaiOnlyFallback : bare;
+    const t = await tryImageSlot(slot, slotModel, prompt, aspectRatio, imageUrls);
     tierLog.push({
       tier: `${i + 1}:${slot}:${t.model}`,
       ok: t.ok,

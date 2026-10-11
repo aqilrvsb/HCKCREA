@@ -27,11 +27,12 @@ import {
 type Status = "idle" | "submitting" | "polling" | "done" | "failed";
 type Mode = "create" | "virtualize";
 type PromptCat = "avatar" | "product" | "sales";
-type ImageModel = "nano-banana-pro" | "gpt-image-2";
+type ImageModel = "nano-banana-pro" | "gpt-image-2" | "gpt-image-2.5";
 
 const MODEL_OPTIONS: { key: ImageModel; label: string }[] = [
   { key: "nano-banana-pro", label: "Banana Pro" },
   { key: "gpt-image-2", label: "GPT Image 2" },
+  { key: "gpt-image-2.5", label: "GPT Image 2.5" },
 ];
 
 const ORANGE = "#facc15";
