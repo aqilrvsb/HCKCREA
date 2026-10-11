@@ -78,6 +78,14 @@ export const MotionEdit: React.FC<EditProps> = (p) => {
       broll.push({ s, e, src: b.src, blur: b.blur, layout: b.layout, label: b.label, k });
     }
 
+    // A PiP card covers the upper half: anything else up there during it
+    // drops to the bottom zone so the two never collide.
+    const pips = broll.filter((b) => b.layout === 'pip');
+    for (const pl of placed) {
+      if (pl.it.zone === 'bottom' || pl.it.t === 'cta') continue;
+      if (pips.some((b) => pl.s < b.e && pl.e > b.s)) pl.it = { ...pl.it, zone: 'bottom' };
+    }
+
     const zooms = (p.zooms ?? []).slice(0, 40).map((z) => {
       const s = fr(cue(z.at, 0));
       const e = z.to !== undefined ? fr(cue(z.to, s / fps + 1.6)) : s + fr(1.6);

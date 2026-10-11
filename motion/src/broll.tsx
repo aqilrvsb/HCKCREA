@@ -38,10 +38,10 @@ const Pip: React.FC<{ b: PlacedBRoll; frame: number }> = ({ b, frame }) => {
   const from = b.k % 2 ? 1 : -1;
   return (
     <AbsoluteFill style={{ pointerEvents: 'none' }}>
-      <div style={{ position: 'absolute', left: '50%', top: 250, width: 800,
+      <div style={{ position: 'absolute', left: '50%', top: 210, width: 720,
         transform: `translateX(-50%) translateX(${(1 - s) * from * 900}px) rotate(${from * -3 + (1 - s) * from * 8}deg)`, opacity: outP }}>
         <div style={{ background: '#fff', padding: 14, borderRadius: 30, boxShadow: '10px 12px 0 rgba(0,0,0,0.4)', overflow: 'hidden' }}>
-          <div style={{ width: '100%', height: 640, borderRadius: 18, overflow: 'hidden', background: '#111' }}>
+          <div style={{ width: '100%', height: 540, borderRadius: 18, overflow: 'hidden', background: '#111' }}>
             <Img src={b.src} style={{ width: '100%', height: '100%', objectFit: 'cover', transform: `scale(${kb})` }} />
           </div>
           {b.label && (

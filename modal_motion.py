@@ -298,23 +298,11 @@ def _render_parallel(comp: str, props: dict, d: Path, out: Path, scale: float, p
     job = d.name
     tmp = Path(tempfile.mkdtemp(prefix="chunks_"))
 
-    audio = tmp / "audio.wav"
-    audio_err = []
-
-    def _audio():
-        try:
-            _node_render(comp, pp, audio, ["--audio-only"], 1.0, conc="2")
-        except Exception as e:  # noqa: BLE001
-            audio_err.append(str(e))
-
-    th = threading.Thread(target=_audio, daemon=True)
-    th.start()
-
     got = {}
     for res in render_chunk.map([job] * len(ranges), [comp] * len(ranges), [r[1] for r in ranges], [r[2] for r in ranges],
                                 [r[0] for r in ranges], [scale] * len(ranges), order_outputs=False, return_exceptions=True):
-        if isinstance(res, dict) and res.get("ok") and res.get("data"):
-            got[res["idx"]] = res["data"]
+        if isinstance(res, dict) and res.get("ok") and res.get("data") and res.get("audio"):
+            got[res["idx"]] = res
             _progress("render", pct_from + (pct_to - pct_from) * len(got) // (len(ranges) + 1))
         else:
             print("chunk failed:", str(res)[:300])
@@ -323,22 +311,26 @@ def _render_parallel(comp: str, props: dict, d: Path, out: Path, scale: float, p
             continue
         try:
             res = render_chunk.remote(job, comp, s, e, idx, scale)
-            if res.get("ok") and res.get("data"):
-                got[idx] = res["data"]
+            if res.get("ok") and res.get("data") and res.get("audio"):
+                got[idx] = res
         except Exception as ex:  # noqa: BLE001
             print("chunk retry failed:", idx, str(ex)[:200])
-    th.join(timeout=900)
     missing = [idx for idx, _s, _e in ranges if idx not in got]
-    if missing or audio_err or not audio.exists():
-        print("parallel render incomplete → single render", missing, audio_err[:1])
+    if missing:
+        print("parallel render incomplete → single render", missing)
         _render_single(comp, props, d, out, scale, pct_from, pct_to)
         return {"chunks": len(ranges), "mode": "fallback-single", "missing": missing}
 
     for idx, _s, _e in ranges:
-        (tmp / f"chunk_{idx:02d}.mp4").write_bytes(got[idx])
-    lst = tmp / "chunks.txt"
-    lst.write_text("".join(f"file '{tmp / f'chunk_{idx:02d}.mp4'}'\n" for idx, _s, _e in ranges))
-    _run(["ffmpeg", "-v", "error", "-y", "-f", "concat", "-safe", "0", "-i", str(lst), "-i", str(audio),
+        (tmp / f"chunk_{idx:02d}.mp4").write_bytes(got[idx]["data"])
+        (tmp / f"chunk_{idx:02d}.wav").write_bytes(got[idx]["audio"])
+    vlst = tmp / "chunks.txt"
+    vlst.write_text("".join(f"file '{tmp / f'chunk_{idx:02d}.mp4'}'\n" for idx, _s, _e in ranges))
+    alst = tmp / "audio.txt"
+    alst.write_text("".join(f"file '{tmp / f'chunk_{idx:02d}.wav'}'\n" for idx, _s, _e in ranges))
+    audio = tmp / "audio.wav"
+    _run(["ffmpeg", "-v", "error", "-y", "-f", "concat", "-safe", "0", "-i", str(alst), "-c", "copy", str(audio)], "audio join", 300)
+    _run(["ffmpeg", "-v", "error", "-y", "-f", "concat", "-safe", "0", "-i", str(vlst), "-i", str(audio),
           "-map", "0:v", "-map", "1:a", "-c:v", "copy", "-c:a", "aac", "-b:a", "192k", "-shortest",
           "-movflags", "+faststart", str(out)], "stitch", 600)
     got_sec = _probe(out)["duration"]
@@ -353,15 +345,31 @@ def _render_parallel(comp: str, props: dict, d: Path, out: Path, scale: float, p
 
 @app.function(image=render_image, cpu=8.0, memory=16384, timeout=1500, volumes={JOBS_ROOT: JOBS})
 def render_chunk(job: str, comp: str, start: int, end: int, idx: int, scale: float) -> dict:
-    """Render frames [start, end] of a prepared job (muted); return the MP4 bytes."""
+    """Render frames [start, end] of a prepared job: muted video + the same
+    range's audio (WAV) in parallel; return both as bytes."""
     t0 = time.time()
     JOBS.reload()
     d = Path(JOBS_ROOT) / job
     srv = _Serve(d)
     try:
+        rng = ["--from", str(start), "--to", str(end)]
         out = Path(tempfile.gettempdir()) / f"{job}_chunk_{idx:02d}.mp4"
-        _node_render(comp, d / "props.json", out, ["--from", str(start), "--to", str(end), "--muted"], scale)
-        return {"ok": True, "idx": idx, "sec": round(time.time() - t0, 1), "data": out.read_bytes()}
+        wav = Path(tempfile.gettempdir()) / f"{job}_chunk_{idx:02d}.wav"
+        err = []
+
+        def _aud():
+            try:
+                _node_render(comp, d / "props.json", wav, rng + ["--audio-only"], 1.0, conc="3")
+            except Exception as e:  # noqa: BLE001
+                err.append(str(e))
+
+        th = threading.Thread(target=_aud, daemon=True)
+        th.start()
+        _node_render(comp, d / "props.json", out, rng + ["--muted"], scale, conc="6")
+        th.join(timeout=1200)
+        if err or not wav.exists():
+            raise RuntimeError("chunk audio failed: " + (err[0][:300] if err else "missing"))
+        return {"ok": True, "idx": idx, "sec": round(time.time() - t0, 1), "data": out.read_bytes(), "audio": wav.read_bytes()}
     finally:
         srv.close()
 
@@ -689,7 +697,7 @@ def _qa(props: dict, d: Path, p: dict) -> tuple:
     sd = Path(tempfile.mkdtemp(prefix="qa_"))
     pp = d / "props.json"
     pp.write_text(json.dumps(props, ensure_ascii=False), encoding="utf-8")
-    _run(["node", "scripts/stills.mjs", f"{MOTION_DIR}/build", "MotionEdit", str(pp), str(sd), ",".join(map(str, frames)), "0.45"],
+    _run(["node", f"{MOTION_DIR}/scripts/stills.mjs", f"{MOTION_DIR}/build", "MotionEdit", str(pp), str(sd), ",".join(map(str, frames)), "0.45"],
          "qa stills", 400)
     shots = []
     for fr in frames:
