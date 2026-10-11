@@ -1,3 +1,4 @@
 # Remotion renderer for the Motion tab — runs on Modal (modal_motion.py),
-# never on Vercel.
-motion/
+# never on Vercel. Root-anchored: an unanchored "motion/" also matches
+# app/api/motion/ and drops the Motion API routes from the deployment.
+/motion
