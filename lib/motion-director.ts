@@ -96,6 +96,7 @@ RULES
 - Every overlay sits on the word it illustrates. Max 2 overlays on screen at once. Zones: top = headline/tag/tape/callout/arrow/fact area; bottom = chips/checks/cta (just above captions); middle = bigword/emoji/stamp/price only, briefly (don't cover the face for long).
 - B-ROLL: pick moments where the speaker names something visual — the product, an ingredient, a place, a body part, an object, a brand, a problem. "query" = what to search on Google Images (English or Malay, specific). For shots of the product itself (box, packshot, the item in use) START the query with the brand name (e.g. "Gluvera patch box") — those come from the brand's own website first; for generic shots (a body part, an object, a place) leave the brand out. 1 B-roll every 6–10 s, each 1.5–3 s; "full" for the product / big reveals, "pip" (card over the upper half) otherwise. Never during the first 1.5 s or the CTA. "kind": "photo" for the product itself (its own website photos), "video" for a moving stock clip of a generic action or scene (someone sticking a patch on an arm, drinking water, walking, cooking) — the query for a video is plain English ("woman applying patch on arm"), never a brand.
 - Mix the tools — a pro edit uses variety: circle / underline the key words, a point toward the product or the beg kuning, 0–2 gif reactions, 0–2 confetti, not the same sticker type twice in a row.
+- SPREAD the edit over the WHOLE runtime: the middle and the last third get as many overlays as the opening — never more than ${style === "gempak" ? "6" : "10"} s without a new overlay or B-roll (zooms alone don't count). Viewers drop off in the middle; that's where a callout, circle, check or re-hook keeps them.
 - FACTS: 0–2 per video, only for checkable, non-medical background facts the speaker mentions (what an ingredient is, how something works in general, a brand/origin fact). "query" = a Google search that would confirm it. NEVER health/medical/cure/efficacy, price or "best/No.1" claims.
 - KEYWORDS: 1 per caption page at most; colour product/brand names (brand), benefits (benefit), prices/numbers (price), problems (pain); add an emoji on ≤ 1 in 3.
 - RE-HOOK: one, around 40–60 % of the runtime, only if the video is > 25 s ("Tapi tunggu…", "Ni paling penting…").
@@ -385,7 +386,7 @@ async function enrichBroll(moments: BRollPlan[], guard = false, brand?: string, 
   // (24 images) per call, all batches in parallel.
   const batches: (typeof withHits)[] = [];
   for (let i = 0; i < withHits.length; i += 8) batches.push(withHits.slice(i, i + 8));
-  const picked = await Promise.all(batches.map((b) => visionPick(b, guard).catch(() => null)));
+  const picked = await Promise.all(batches.map((b) => visionPick(b, guard, brandName || undefined).catch(() => null)));
   const picks: (number | undefined)[] = batches.flatMap((b, i) => b.map((_, k) => picked[i]?.[k]));
   return withHits
     .map(({ m, hits }, k) => {
@@ -405,7 +406,7 @@ function goodImage(h: ImageHit): boolean {
   return true;
 }
 
-async function visionPick(items: { m: BRollPlan; hits: ImageHit[] }[], guard = false): Promise<number[] | null> {
+async function visionPick(items: { m: BRollPlan; hits: ImageHit[] }[], guard = false, brand?: string): Promise<number[] | null> {
   const images: string[] = [];
   const lines: string[] = [];
   items.forEach(({ m, hits }, k) => {
@@ -417,6 +418,7 @@ async function visionPick(items: { m: BRollPlan; hits: ImageHit[] }[], guard = f
   const r = await orChatVision({
     modelKey: "model_motion",
     systemPrompt: "You pick B-roll images for a TikTok edit. For each moment choose the image that best and most literally matches the query (real product/object, clean, no big watermark, not a meme, not text-heavy, safe for ads)." +
+      ` The video sells ${brand ? `"${brand}"` : "the seller's own product"}: never pick an image showing ANOTHER brand's name, logo, packaging or ad copy (a competitor's product shot) — generic unbranded shots of a body part, object or scene are fine; answer -1 when every option is another brand's ad.` +
       (guard ? " TIKTOK GUIDELINE MODE (TikTok Shop Malaysia 2026): never pick an image showing doctors / white coats / stethoscopes, hospitals, syringes or injections, glucometers, blood, wounds or graphic skin close-ups, pills, before/after bodies or skin, or a poster full of health claims / disease names — prefer clean product or lifestyle shots; answer -1 when every option is like that." : "") +
       " Answer ONLY JSON: {\"picks\":[n0,n1,...]} where n is the 0-based position WITHIN that moment's own images (0..2), or -1 if none fits.",
     textPrompt: lines.join("\n") + "\nImages are attached in order #0, #1, …",
