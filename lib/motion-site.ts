@@ -4,8 +4,9 @@
 //   • B-roll photos come ONLY from it (never another brand's product shot)
 //   • product names / ingredients / how-to-use come from its text (director +
 //     caption spelling fixes), fact cards are written from its paragraphs
-//   • STRICT: no Google search at all — a page that can't be read (JS-only
-//     site) simply gives no photos, and the edit runs without B-roll.
+//   • no Google search while the link has photos; a link that gives none
+//     (JS-only / blocked page) → the director falls back to Google as if no
+//     link was given (lib/motion-director.ts).
 // Marketplace / social links (admin's excluded sites) are refused unless the
 // admin allows that platform (motion_search.link_platforms, default TikTok —
 // a TikTok Shop page gives its own product photos, a video its caption).

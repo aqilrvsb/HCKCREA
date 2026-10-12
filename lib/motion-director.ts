@@ -120,20 +120,20 @@ export async function directEdit(opts: {
 }): Promise<EditPlanV2> {
   const { words, duration, input } = opts;
   const site = opts.site?.ok ? opts.site : null;
-  // Link given → 100 % that link: B-roll + facts never fall back to Google, even
-  // when the page couldn't be read (then there's just no B-roll / fact card).
-  // No link → 100 % Google, as before.
-  const source: SiteInfo | null = input.website
-    ? site ?? { ok: false, url: input.website, host: "", name: "", title: "", description: "", text: "", images: [], pages: 0, via: "none" }
-    : null;
+  // The seller's link has photos → B-roll is 100 % those photos; the link gave
+  // no photos (unreadable / none) or no link → 100 % Google. Same for facts:
+  // the link's own text when it has some, else Google.
+  const brollSource: SiteInfo | null = site?.images.length ? site : null;
+  const factSource: SiteInfo | null = (site?.text.length ?? 0) >= 200 ? site : null;
   const style = input.style === "clean" ? "clean" : "gempak";
   const transcript = words.slice(0, 1400).map((w) => `${w.i}@${w.t.toFixed(2)} ${w.w}`).join("\n");
   const userPrompt =
     `VIDEO: ${duration.toFixed(1)} s, ${words.length} words, language ${input.language}. Face on screen: ${opts.hasFace === false ? "no" : "yes"}.\n` +
     (input.product ? `PRODUCT / CONTEXT: ${clean(input.product, 300)}\n` : "") +
-    (site ? `PRODUCT WEBSITE (the seller's own sales page — the source of truth for the brand / product name, ingredients and how to use; B-roll photos come ONLY from it, so write B-roll queries that match its photos; still never put a price, claim or number on screen that the speaker doesn't say):\n${siteBrief(site)}\n` +
-      `B-ROLL: the link has ${site.images.length} photo${site.images.length === 1 ? "" : "s"} — plan at most ${site.images.length} B-roll moment${site.images.length === 1 ? "" : "s"}${site.images.length ? "" : " (return \"broll\": [])"}.\n` : "") +
-    (source && !site ? "B-ROLL: the seller's link couldn't be read — return \"broll\": [] and \"facts\": [].\n" : "") +
+    (site ? `PRODUCT WEBSITE (the seller's own sales page — the source of truth for the brand / product name, ingredients and how to use; still never put a price, claim or number on screen that the speaker doesn't say):\n${siteBrief(site)}\n` +
+      (brollSource
+        ? `B-ROLL: photos come ONLY from this link — it has ${site.images.length} photo${site.images.length === 1 ? "" : "s"}: plan at most ${site.images.length} B-roll moment${site.images.length === 1 ? "" : "s"}, with queries that match those photos.\n`
+        : "") : "") +
     (input.instructions ? `CLIENT PROMPT (follow it): ${clean(input.instructions, 900)}\n` : "") +
     (input.accent ? `PREFERRED ACCENT: ${input.accent}\n` : "") +
     (input.broll === false ? "B-ROLL: disabled — return \"broll\": [].\n" : "") +
@@ -179,8 +179,8 @@ export async function directEdit(opts: {
     .map((f) => (guard ? { ...f, query: guardStripQuery(f.query) } : f))
     .filter((f) => !guard || (f.query.length >= 3 && guardHits(f.topic).length === 0));
   const [broll, facts] = await Promise.all([
-    input.broll === false ? Promise.resolve([] as BRollPlan[]) : byDeadline(enrichBroll(plan.broll, guard, plan.brand, input.product, source), [] as BRollPlan[]),
-    input.facts === false ? Promise.resolve([] as FactPlan[]) : byDeadline(writeFacts(factMoments, words, source), [] as FactPlan[]),
+    input.broll === false ? Promise.resolve([] as BRollPlan[]) : byDeadline(enrichBroll(plan.broll, guard, plan.brand, input.product, brollSource), [] as BRollPlan[]),
+    input.facts === false ? Promise.resolve([] as FactPlan[]) : byDeadline(writeFacts(factMoments, words, factSource), [] as FactPlan[]),
     byDeadline(resolveStickers(plan.overlays, guard), undefined),
   ]);
   // A B-roll card label that repeats a sticker ("Cara guna" twice) is dropped.
@@ -346,11 +346,11 @@ function rawFacts(raw: any, nWords: number, duration: number) {
 // Product shots come from the brand's own sales websites first (found with
 // Google web + image search that skip marketplaces / social sites), then a
 // general Google Images search — still without those sites (admin: Motion Search).
-// Link given → 100 % that link (no Google, no stock clips — that's where other
-// brands' product shots come from): every moment draws from the link's own
-// photos only; a link with few photos just means fewer B-roll moments (each
+// A link with photos → 100 % that link (no Google, no stock clips — that's
+// where other brands' product shots come from): every moment draws from the
+// link's own photos only; few photos just means fewer B-roll moments (each
 // photo leads one moment at most), and vision answering -1 → no B-roll there.
-// No link → 100 % Google, as below.
+// No link, or a link that gave no photos → 100 % Google, as below.
 async function enrichBroll(moments: BRollPlan[], guard = false, brand?: string, product?: string, site?: SiteInfo | null): Promise<BRollPlan[]> {
   if (!moments.length) return [];
   const prefs = await getSitePrefs();
@@ -474,7 +474,7 @@ async function visionPick(items: { m: BRollPlan; hits: ImageHit[] }[], guard = f
 // ── fact cards: Google web search (or the seller's website) + strict summariser ─
 async function writeFacts(moments: { at: Cue; to?: Cue; query: string; topic: string }[], words: DirectorWord[], site?: SiteInfo | null): Promise<FactPlan[]> {
   if (!moments.length) return [];
-  // With the seller's link: its own text only (nothing there → no fact card), never Google.
+  // The seller's link text when it has some (the caller passes it only then), else Google.
   const res: ({ hits: WebHit[] } | null)[] = site
     ? moments.map((m) => ({ hits: siteSnippets(site, `${m.query} ${m.topic}`) }))
     : await (async () => {

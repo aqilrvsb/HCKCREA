@@ -406,7 +406,7 @@ export default function MotionTab({ projectId }: { projectId?: string }) {
                 onChange={(e) => setWebsite(e.target.value)} placeholder="cth. gluverahq.com atau link TikTok Shop" />
               <p className="text-[11px] mt-1 text-[var(--color-text-muted)]">
                 {website.trim()
-                  ? "Gambar B-roll & fakta diambil dari link ini sahaja — tiada gambar jenama lain, tiada carian Google."
+                  ? "Gambar B-roll & fakta diambil dari link ini sahaja — tiada gambar jenama lain, tiada carian Google. (Kalau link tiada gambar, baru guna Google.)"
                   : "Isi website jualan anda sendiri atau link TikTok (bukan Shopee / Facebook) — gambar & fakta diambil dari situ sahaja."}
               </p>
             </div>
