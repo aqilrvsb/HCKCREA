@@ -259,11 +259,16 @@ export default function UsageSection({ email: _email }: { email: string }) {
                 h?.type === "clone" ||
                 h?.tab === "cinema";
               const promptShort = (h?.prompt || "").trim().substring(0, 60);
-              // Which backend fulfilled this generation. Stamped at create
-              // time on history.metadata.provider — "p1" (GeminiGen) or
-              // "p2" (Crun.ai). Older rows without the stamp are p2.
-              const provider: "p1" | "p2" =
-                h?.metadata?.provider === "p1" ? "p1" : "p2";
+              // Which engine slot fulfilled this generation, stamped at create
+              // time on history.metadata.provider ("p1", "p2", "p6-a", …).
+              // Older rows without the stamp were P2. Rows that don't run on a
+              // provider slot at all (Motion renders on our own Modal
+              // pipeline, provider "modal-motion") get no engine badge.
+              const rawProvider = String(h?.metadata?.provider || "").toLowerCase();
+              const provider: string | null =
+                h?.tab === "motion" || (rawProvider && !/^p\d/.test(rawProvider))
+                  ? null
+                  : rawProvider || "p2";
               return (
                 <li
                   key={t.id}
@@ -271,7 +276,7 @@ export default function UsageSection({ email: _email }: { email: string }) {
                 >
                   <span className="w-44 font-semibold text-[var(--color-text-primary)] truncate flex items-center gap-1.5">
                     {label}
-                    {!isPositive && (
+                    {!isPositive && provider && (
                       <span
                         className="font-mono text-[9px] uppercase tracking-wider px-1.5 py-0.5 rounded"
                         style={
@@ -287,9 +292,9 @@ export default function UsageSection({ email: _email }: { email: string }) {
                                 border: "1px solid rgba(245,158,11,0.3)",
                               }
                         }
-                        title={provider === "p1" ? "Engine P1" : "Engine P2"}
+                        title={`Engine ${provider.toUpperCase()}`}
                       >
-                        {provider}
+                        {provider.replace(/-/, " ")}
                       </span>
                     )}
                   </span>
