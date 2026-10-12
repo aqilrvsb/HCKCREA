@@ -6,6 +6,7 @@ import { hiddenModesForUser, isTabAllowedForUser } from "@/lib/partner-tab-gate"
 import {
   MOTION_AD_DURATIONS, MOTION_PLANNING_TASK, MOTION_VOICES, adEstimateSec, costFor, newPlanToken, runAdJob, type AdInput,
 } from "@/lib/motion";
+import { isMotionStyle } from "@/lib/motion-styles";
 
 // POST /api/motion/create — Motion "Buat Iklan": generate a motion-graphics ad
 // from a product brief. Reserves the estimated cost, inserts a pending row,
@@ -62,7 +63,7 @@ export async function POST(req: Request) {
     sfx: b?.sfx !== false,
     accent: /^#[0-9a-f]{6}$/i.test(String(b?.accent || "")) ? String(b.accent) : undefined,
     images: images as AdInput["images"],
-    style: b?.style === "clean" ? "clean" : "gempak",
+    style: isMotionStyle(b?.style) ? b.style : "gempak",
     resolution: b?.resolution === "720" ? "720" : "1080",
     guard: b?.guard === true,
   };

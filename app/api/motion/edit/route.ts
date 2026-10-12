@@ -4,6 +4,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { priceFor, refundReserved, reserveCredit } from "@/lib/deduct";
 import { isTabAllowedForUser } from "@/lib/partner-tab-gate";
 import { MOTION_EDIT_MAX_SEC, costFor, motionStart, newPlanToken, siteUrl, type EditInput } from "@/lib/motion";
+import { isMotionStyle, styleEnergy } from "@/lib/motion-styles";
 
 // POST /api/motion/edit — Motion "Edit Video": animate the client's own video
 // (captions, word-synced stickers, zooms, optional music). The video was
@@ -59,7 +60,7 @@ export async function POST(req: Request) {
     music: !!b?.music,
     sfx: b?.sfx !== false,
     accent: /^#[0-9a-f]{6}$/i.test(String(b?.accent || "")) ? String(b.accent) : undefined,
-    style: b?.style === "clean" ? "clean" : "gempak",
+    style: isMotionStyle(b?.style) ? b.style : "gempak",
     resolution: b?.resolution === "720" ? "720" : "1080",
     jumpcut: b?.jumpcut !== false,
     broll: b?.broll !== false,
@@ -122,7 +123,8 @@ export async function POST(req: Request) {
     guard_url: `${siteUrl()}/api/motion/guard`,
     guard: !!input.guard,
     plan_token: planToken,
-    style: input.style,
+    style: styleEnergy(input.style), // render energy of the chosen look
+    look: input.style,
     resolution: input.resolution,
     jumpcut: input.jumpcut,
     language: input.language,

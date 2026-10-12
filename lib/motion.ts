@@ -21,6 +21,7 @@ import { synthesizeSpeech } from "@/lib/tts";
 import { deduct, refundReserved } from "@/lib/deduct";
 import type { HistoryRow, SettleResult } from "@/lib/settle";
 import { MOTION_MY_TIKTOK_GUIDE } from "@/lib/motion-prompts";
+import { motionStyle, styleEnergy, type MotionStyleId } from "@/lib/motion-styles";
 import { GUARD_RULES, guardFixSlots, guardHits, guardProductRisk, guardStripQuery } from "@/lib/motion-guard";
 
 export const MOTION_AD_DURATIONS = [15, 30, 45] as const;
@@ -95,7 +96,7 @@ export type AdInput = {
   sfx: boolean;
   accent?: string;
   images: { url: string; role: "product" | "presenter" }[];
-  style?: "gempak" | "clean";
+  style?: MotionStyleId;
   resolution?: "1080" | "720";
   /** Variation k of n — the writer takes a different angle per variation. */
   variant?: { index: number; total: number };
@@ -117,7 +118,7 @@ export type EditInput = {
   music: boolean;
   sfx: boolean;
   accent?: string;
-  style?: "gempak" | "clean";
+  style?: MotionStyleId;
   resolution?: "1080" | "720";
   jumpcut?: boolean;
   broll?: boolean;
@@ -364,14 +365,12 @@ export async function planAd(input: AdInput): Promise<AdPlan> {
     images: input.images.map((im, i) => ({ index: i, role: im.role })),
   };
   const userPrompt = `BRIEF (JSON):\n${JSON.stringify(brief, null, 1)}\n\nWORD_BUDGET = ${budget}. Write the ad now. JSON only.`;
-  const style = input.style === "clean" ? "clean" : "gempak";
+  const look = motionStyle(input.style);
   const angles = ["pain-point hook (relatable problem first)", "bold benefit / result hook", "curiosity question hook", "price / promo-first hook", "POV / storytelling hook"];
   const variantNote = input.variant && input.variant.total > 1
     ? `\n\nVARIATION ${input.variant.index + 1} of ${input.variant.total}: use a ${angles[input.variant.index % angles.length]} and a different structure/wording than other variations.`
     : "";
-  const styleNote = style === "gempak"
-    ? "\n\nSTYLE = GEMPAK: 2–3 items per scene, at least 3 bigwords in the ad, emoji on ~1 in 3 scenes, use callout/arrow, cta item on the cta line."
-    : "\n\nSTYLE = CLEAN: 1–2 items per scene, at most 1 bigword, minimal emoji, cta item on the cta line.";
+  const styleNote = `\n\nSTYLE = ${look.label.toUpperCase()}: ${look.ad} Colour palette: ${look.palette}.`;
   const guardNote = input.guard ? `\n\n${GUARD_RULES}\nThe "tts" voice-over follows the same rules. Use the brand name without medical words.` : "";
   const system = AD_SYSTEM.replace("WORD_BUDGET", String(budget)) + styleNote + variantNote + guardNote;
 
@@ -668,7 +667,8 @@ export async function runAdJob(historyId: string): Promise<void> {
       sfx: input.sfx,
       music: input.music,
       mood: plan.mood,
-      style: input.style ?? "gempak",
+      style: styleEnergy(input.style), // render energy of the chosen look
+      look: motionStyle(input.style).id,
       resolution: input.resolution ?? "1080",
       guard: !!input.guard,
       ...(input.guard && row.metadata?.plan_token

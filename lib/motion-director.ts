@@ -19,6 +19,7 @@ import {
 } from "@/lib/motion-search";
 import { searchClips, searchStickers } from "@/lib/motion-media";
 import { MOTION_MY_TIKTOK_GUIDE } from "@/lib/motion-prompts";
+import { motionStyle, type MotionStyleId } from "@/lib/motion-styles";
 import { extractJson, cleanItemPublic, type EditInput, type MotionItem } from "@/lib/motion";
 import { GUARD_RULES, guardCensorWords, guardFixSlots, guardHits, guardStripQuery } from "@/lib/motion-guard";
 
@@ -59,13 +60,14 @@ const clean = (s: unknown, max: number) => String(s ?? "").replace(/\s+/g, " ").
 // should prefer these so stickers and caption emoji move.
 const ANIMATED_EMOJI = "🔥 😱 🤯 😍 🥰 😂 🤣 😭 😋 🤩 😎 🤔 👀 👍 👏 🙏 💪 🎉 💯 ✅ ❤️ ✨ ⭐ 🚀 ⚡ 💥 🥳 🎁 ⏰ 🛒 😮 🤑 👇 👉 💡";
 
-export const DIRECTOR_SYSTEM = (style: "gempak" | "clean", guard = false) => `You are PeningLab's TikTok video DIRECTOR. A Malaysian seller/creator uploaded their own talking video. You get its timed transcript and plan a professional short-form edit on top of it: hook, word-synced motion graphics, web B-roll cutaways, fact cards, punch-in zooms, keyword-coloured captions, a re-hook and the beg-kuning CTA. Captions are rendered automatically — you only choose which words get a colour/emoji.
+export const DIRECTOR_SYSTEM = (style: MotionStyleId, guard = false) => {
+  const look = motionStyle(style);
+  return `You are PeningLab's TikTok video DIRECTOR. A Malaysian seller/creator uploaded their own talking video. You get its timed transcript and plan a professional short-form edit on top of it: hook, word-synced motion graphics, web B-roll cutaways, fact cards, punch-in zooms, keyword-coloured captions, a re-hook and the beg-kuning CTA. Captions are rendered automatically — you only choose which words get a colour/emoji.
 
 ${MOTION_MY_TIKTOK_GUIDE}
 
-STYLE = ${style.toUpperCase()} — ${style === "gempak"
-  ? "dense and punchy: something new on screen every 2–4 s (overlay, B-roll, zoom or bigword); 1 zoom every 3–5 s; 3–6 bigword punches on the strongest words; emoji often; at least one callout or arrow."
-  : "calm and premium: a change every 4–6 s; 1 zoom every 6–8 s; at most 2 bigwords; few emoji."}
+STYLE = ${look.label.toUpperCase()} — ${look.edit}
+Colour palette for this style: ${look.palette} — choose "accent" from it. Music "mood": usually "${look.mood}".
 
 Return ONLY one JSON object:
 {
@@ -98,8 +100,8 @@ RULES
 - Hook covers 0–2.5 s: the video's promise in ≤5 punchy words. null if the video is under 5 s.
 - Every overlay sits on the word it illustrates. Max 2 overlays on screen at once. Zones: top = headline/tag/tape/callout/arrow/fact area; bottom = chips/checks/cta (just above captions); middle = bigword/emoji/stamp/price only, briefly (don't cover the face for long).
 - B-ROLL: pick moments where the speaker names something visual — the product, an ingredient, a place, a body part, an object, a brand, a problem. "query" = what to search on Google Images (English or Malay, specific). For shots of the product itself (box, packshot, the item in use) START the query with the brand name (e.g. "Gluvera patch box") — those come from the brand's own website first; for generic shots (a body part, an object, a place) leave the brand out. 1 B-roll every 6–10 s, each 1.5–3 s; "full" for the product / big reveals, "pip" (card over the upper half) otherwise. Never during the first 1.5 s or the CTA. "kind": "photo" for the product itself (its own website photos), "video" for a moving stock clip of a generic action or scene (someone sticking a patch on an arm, drinking water, walking, cooking) — the query for a video is plain English ("woman applying patch on arm"), never a brand.
-- Mix the tools — a pro edit uses variety: circle / underline the key words, a point toward the product or the beg kuning, 0–2 gif reactions, 0–2 confetti, not the same sticker type twice in a row.
-- SPREAD the edit over the WHOLE runtime: the middle and the last third get as many overlays as the opening — never more than ${style === "gempak" ? "6" : "10"} s without a new overlay or B-roll (zooms alone don't count). Viewers drop off in the middle; that's where a callout, circle, check or re-hook keeps them.
+- Mix the tools — a pro edit uses variety: circle / underline the key words, a point toward the product or the beg kuning, 0–2 gif reactions, 0–2 confetti, not the same sticker type twice in a row. The STYLE line wins over these defaults (a style that says "no emoji" / "no confetti" means none).
+- SPREAD the edit over the WHOLE runtime: the middle and the last third get as many overlays as the opening — never more than ${look.maxGap} s without a new overlay or B-roll (zooms alone don't count). Viewers drop off in the middle; that's where a callout, circle, check or re-hook keeps them.
 - FACTS: 0–2 per video, only for checkable, non-medical background facts the speaker mentions (what an ingredient is, how something works in general, a brand/origin fact). "query" = a Google search that would confirm it. NEVER health/medical/cure/efficacy, price or "best/No.1" claims.
 - KEYWORDS: 1 per caption page at most; colour product/brand names (brand), benefits (benefit), prices/numbers (price), problems (pain); add an emoji on ≤ 1 in 3.
 - RE-HOOK: one, around 40–60 % of the runtime, only if the video is > 25 s ("Tapi tunggu…", "Ni paling penting…").
@@ -108,18 +110,19 @@ RULES
 
 ${GUARD_RULES}
 Risky spoken words are muted and taped in the captions automatically — never quote them on screen, never colour them as keywords, and steer the hook / stickers / re-hook to safe angles (how to use, convenience, routine, personal experience, price, beg kuning).` : ""}`;
+};
 
 export async function directEdit(opts: {
   words: DirectorWord[];
   duration: number;
-  input: EditInput & { style?: "gempak" | "clean"; broll?: boolean; facts?: boolean };
+  input: EditInput;
   hasFace?: boolean;
 }): Promise<EditPlanV2> {
   const { words, duration, input } = opts;
   // The seller's own product photos (uploaded with the video): product shots
   // come ONLY from them; generic shots still come from Google (brand-free).
   const uploads = (input.productImages ?? []).filter((u) => /^https:\/\//.test(u)).slice(0, 5);
-  const style = input.style === "clean" ? "clean" : "gempak";
+  const style = motionStyle(input.style).id;
   const transcript = words.slice(0, 1400).map((w) => `${w.i}@${w.t.toFixed(2)} ${w.w}`).join("\n");
   const userPrompt =
     `VIDEO: ${duration.toFixed(1)} s, ${words.length} words, language ${input.language}. Face on screen: ${opts.hasFace === false ? "no" : "yes"}.\n` +
@@ -263,8 +266,9 @@ const capPerType = (caps: Record<string, number>) => {
   };
 };
 
-export function validateDirectorPlan(raw: any, nWords: number, duration: number, input: EditInput, style: "gempak" | "clean"): EditPlanV2 & { broll: BRollPlan[] } {
-  const maxOverlays = Math.max(3, Math.ceil(duration / (style === "gempak" ? 2.2 : 3.5)));
+export function validateDirectorPlan(raw: any, nWords: number, duration: number, input: EditInput, style: MotionStyleId): EditPlanV2 & { broll: BRollPlan[] } {
+  const look = motionStyle(style);
+  const maxOverlays = Math.max(3, Math.ceil(duration / look.overlayEvery));
   const overlays = (Array.isArray(raw?.overlays) ? raw.overlays : [])
     .map((it: any) => cleanItemPublic(it, EDIT_CUE))
     .filter((it: MotionItem | null): it is MotionItem => !!it && cueIn(it.at, nWords, duration) !== undefined)
@@ -279,7 +283,7 @@ export function validateDirectorPlan(raw: any, nWords: number, duration: number,
       return { at, ...(to !== undefined ? { to } : {}), scale: Math.min(1.25, Math.max(1.05, Number(z?.scale) || 1.14)) };
     })
     .filter(Boolean)
-    .slice(0, Math.max(2, Math.ceil(duration / (style === "gempak" ? 3 : 6)))) as EditPlanV2["zooms"];
+    .slice(0, Math.max(2, Math.ceil(duration / look.zoomEvery))) as EditPlanV2["zooms"];
   const broll: BRollPlan[] = (Array.isArray(raw?.broll) ? raw.broll : [])
     .map((b: any) => {
       const at = cueIn(b?.at, nWords, duration);
@@ -309,7 +313,7 @@ export function validateDirectorPlan(raw: any, nWords: number, duration: number,
     ...(brand ? { brand } : {}),
     hook: hookText && duration >= 5 ? { text: hookText, ...(raw?.hook?.sub ? { sub: clean(raw.hook.sub, 40) } : {}) } : null,
     accent,
-    mood: MOODS.has(raw?.mood) ? raw.mood : style === "gempak" ? "upbeat" : "chill",
+    mood: MOODS.has(raw?.mood) ? raw.mood : look.mood,
     captions: { on: input.captions, style: input.captionStyle, pos: input.captionPos, maxWords: input.captionStyle === "karaoke" ? 4 : 3 },
     overlays,
     zooms,

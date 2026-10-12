@@ -13,6 +13,7 @@ import { useEffect, useState } from "react";
 import { Clapperboard, Loader2, Upload, X, Sparkles, Scissors, Brain, Wand2, ShieldCheck } from "lucide-react";
 import { uploadImage } from "@/lib/upload-image";
 import { MOTION_AD_PRESETS, MOTION_EDIT_PRESETS, type MotionPreset } from "@/lib/motion-prompts";
+import { MOTION_STYLES, type MotionStyleId } from "@/lib/motion-styles";
 
 type Mode = "ad" | "edit";
 type CaptionStyle = "pop" | "karaoke" | "box" | "tiktok";
@@ -161,7 +162,7 @@ export default function MotionTab({ projectId }: { projectId?: string }) {
   // shared
   const [captions, setCaptions] = useState(true);
   const [captionStyle, setCaptionStyle] = useState<CaptionStyle>("pop");
-  const [style, setStyle] = useState<"gempak" | "clean">("gempak");
+  const [style, setStyle] = useState<MotionStyleId>("gempak");
   const [resolution, setResolution] = useState<"1080" | "720">("1080");
   const [sfx, setSfx] = useState(true);
   const [accent, setAccent] = useState("");
@@ -580,11 +581,26 @@ export default function MotionTab({ projectId }: { projectId?: string }) {
 
         {/* shared style controls */}
         <div className="mt-5 pt-4 border-t space-y-3" style={{ borderColor: "var(--color-border)" }}>
+          <div>
+            <span className={label}>Gaya edit</span>
+            <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+              {MOTION_STYLES.map((s) => {
+                const on = style === s.id;
+                return (
+                  <button key={s.id} type="button" onClick={() => setStyle(s.id)} title={s.desc}
+                    className="text-left px-2.5 py-2 rounded-xl transition-all"
+                    style={on
+                      ? { background: THEME.gradient, color: "white", boxShadow: `0 4px 12px ${THEME.soft}`, border: "1px solid transparent" }
+                      : { background: "var(--color-bg)", border: "1px solid var(--color-border)", color: "var(--color-text-primary)" }}>
+                    <span className="block text-xs font-extrabold">{s.emoji} {s.label}</span>
+                    <span className="block text-[10px] leading-tight mt-0.5" style={{ color: on ? "rgba(255,255,255,0.85)" : "var(--color-text-muted)" }}>{s.desc}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
           <div className="flex flex-wrap gap-2 items-center">
-            <span className={`${label} !mb-0 mr-1`}>Gaya</span>
-            <Chip active={style === "gempak"} onClick={() => setStyle("gempak")}>🔥 Gempak</Chip>
-            <Chip active={style === "clean"} onClick={() => setStyle("clean")}>✨ Clean</Chip>
-            <span className={`${label} !mb-0 ml-3 mr-1`}>Resolusi</span>
+            <span className={`${label} !mb-0 mr-1`}>Resolusi</span>
             <Chip active={resolution === "1080"} onClick={() => setResolution("1080")}>HD 1080p</Chip>
             <Chip active={resolution === "720"} onClick={() => setResolution("720")}>720p laju</Chip>
           </div>
