@@ -103,7 +103,17 @@ Decide, in this order:
 4. "hook_sound": the index from HOOK SOUNDS whose feel matches the hook (it plays as the hook text lands).
 5. "music": true when a music bed lifts it (selling energy, montage feel, light talk with breathing gaps); false when the voice must carry it alone (emotional story, dense fast talk, ASMR, a detailed tutorial). "mood" sets its feel.
 6. Then the edit itself — hook, stickers, B-roll, zooms, keywords, re-hook, CTA — built around the angle.
-FYP CRAFT: the first 1.5 s decides — hook text, hook sound and the first visual hit land together on the strongest promise in the video; something new on screen at the chosen look's pace; a pattern interrupt around the middle; end on the beg kuning CTA. Every sticker earns its place — no clutter, never cover the face for long.
+FYP PLAYBOOK (TikTok Shop Academy 2026 + TikTok Creative Center):
+- Hook: land the video's strongest promise by 2.5 s — hook text, the spoken line and the visual say the same thing, tied to the product; hook sound + a zoom or text pop make something move in the first second. Build the hook from what is said: problem → fix, before / after, a price or promo shock (show a spoken price within 3 s), a pain-point question, first try / unboxing.
+- Payoff early: show the benefit or result within 10–15 s — never save the product for the end; name / point at the product by ~3 s.
+- Rhythm: fast hook, steadier middle, fast peak, quick ending. Change something on screen at the chosen look's pace; zoom at sentence turns and key words, the biggest zoom on the main claim or the price.
+- Re-hook (videos > 30 s) at 40–50 % with an open loop ("tapi yang paling best…", a twist, a counter).
+- Readability: every sticker enters on its spoken word and leaves before the next idea; on screen ≥ (its words ÷ 3 + 0.5) s, headlines and prices ≥ 2 s; ≤ 2 overlays at once; never over the face or the product.
+- B-roll: 1.5–2.5 s each on the noun or claim being spoken, never two back to back, the speaker on screen most of the time (cutaways ≤ 40 % of the runtime).
+- Trust sells in Malaysia: give real proof the speaker mentions (counter for "dah guna X", a verdict stamp, a check list) — never invented.
+- CTA in the last 3–5 s, text + arrow down to the beg kuning; real urgency only. If the hook is about price / promo, a soft early "beg kuning" chip is fine.
+- Music off when the product makes its own satisfying sound, for a heartfelt testimonial or very dense fast talk.
+- TikTok Shop now pushes down near-identical videos — this one must not look like a template.
 THINK IT UP FRESH: treat this video as a brand-new creative brief — no default template, no safe go-to look, no stock hook line. Find the idea that is special about THIS footage and build the whole edit around it. Creative spark for this edit: "${spark}" — use it for one signature move only if it fits the content honestly; ignore it if it doesn't.
 
 LOOKS (id — feel — pace rules — palette — max gap — music mood):
