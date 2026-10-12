@@ -5,8 +5,8 @@
 // and failed, with what the pipeline did — AI plan, guideline check, render.
 // /admin/usage only lists credit deductions; this shows the jobs themselves.
 
-import { useEffect, useMemo, useState } from "react";
-import { Clapperboard, Loader2, RefreshCcw, Search, ExternalLink } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Clapperboard, Loader2, RefreshCcw, Search, ExternalLink, Volume2, VolumeX } from "lucide-react";
 import { localDateStr } from "@/lib/date-util";
 import { MOTION_STAGE_LABEL } from "@/app/dashboard/sections/motion-progress";
 import { motionStyle } from "@/lib/motion-styles";
@@ -58,6 +58,37 @@ function Card({ label, value, sub, tone }: { label: string; value: string | numb
   );
 }
 
+type Peek = { src: string; poster: string | null; label: string; top: number; left: number; w: number; h: number };
+
+/** Large 9:16 preview of a finished video, playing while the output thumbnail
+ *  (or the preview itself) is hovered — one shared player, so sweeping the
+ *  pointer down the column flips straight from video to video. Starts with
+ *  sound when the viewer turned it on (falls back to muted if the browser
+ *  blocks it). */
+function PeekVideo({ peek, sound, onSound, onEnter, onLeave }: {
+  peek: Peek; sound: boolean; onSound: () => void; onEnter: () => void; onLeave: () => void;
+}) {
+  const ref = useRef<HTMLVideoElement | null>(null);
+  useEffect(() => {
+    const v = ref.current;
+    if (!v) return;
+    v.muted = !sound;
+    v.play().catch(() => { v.muted = true; void v.play().catch(() => undefined); });
+  }, [peek.src, sound]);
+  return (
+    <div className="fixed z-[300] rounded-2xl overflow-hidden"
+      style={{ top: peek.top, left: peek.left, width: peek.w, height: peek.h, background: "#000", border: "1px solid rgba(167,139,250,0.55)", boxShadow: "0 18px 50px rgba(0,0,0,0.6)" }}
+      onMouseEnter={onEnter} onMouseLeave={onLeave}>
+      <video ref={ref} src={peek.src} poster={peek.poster ?? undefined} playsInline loop preload="auto" className="w-full h-full object-contain" />
+      <span className="absolute top-2 left-2 right-12 truncate text-[10px] font-bold text-white px-2 py-1 rounded-md" style={{ background: "rgba(0,0,0,0.55)" }}>{peek.label}</span>
+      <button type="button" onClick={onSound} title={sound ? "Tutup bunyi" : "Buka bunyi"}
+        className="absolute top-2 right-2 w-8 h-8 rounded-full flex items-center justify-center text-white" style={{ background: "rgba(0,0,0,0.6)" }}>
+        {sound ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4" />}
+      </button>
+    </div>
+  );
+}
+
 export default function AdminMotionPage() {
   // default range: the last 7 Malaysia days
   const [start, setStart] = useState(() => localDateStr(new Date(new Date().getTime() - 6 * 86_400_000)));
@@ -66,6 +97,37 @@ export default function AdminMotionPage() {
   const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState<"all" | "pending" | "done" | "failed">("all");
+
+  // hover preview of the output video (desktop); the thumbnail still opens it in a new tab
+  const [peek, setPeek] = useState<Peek | null>(null);
+  const [sound, setSound] = useState(() => {
+    try { return typeof window !== "undefined" && localStorage.getItem("motion-monitor:sound") === "1"; } catch { return false; }
+  });
+  const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const keepPeek = () => { if (hideTimer.current) clearTimeout(hideTimer.current); };
+  const hidePeek = () => { keepPeek(); hideTimer.current = setTimeout(() => setPeek(null), 150); };
+  function showPeek(r: MotionRow, el: HTMLElement) {
+    if (!r.output) return;
+    keepPeek();
+    const b = el.getBoundingClientRect();
+    const h = Math.min(560, window.innerHeight - 24);
+    const w = Math.round((h * 9) / 16);
+    // left of the thumbnail (it sits in the last column); right of it if there's no room
+    const left = b.left - w - 16 >= 8 ? b.left - w - 16 : Math.min(b.right + 16, window.innerWidth - w - 8);
+    const top = Math.max(12, Math.min(b.top + b.height / 2 - h / 2, window.innerHeight - h - 12));
+    setPeek({ src: r.output, poster: r.poster, label: `${r.email} · ${r.duration === null ? "" : `${Math.round(r.duration)}s`}`, top, left, w, h });
+  }
+  const toggleSound = () => setSound((s) => {
+    try { localStorage.setItem("motion-monitor:sound", s ? "0" : "1"); } catch { /* storage blocked */ }
+    return !s;
+  });
+  // a fixed preview would drift from its row on scroll — close it
+  useEffect(() => {
+    if (!peek) return;
+    const close = () => setPeek(null);
+    window.addEventListener("scroll", close, { passive: true, capture: true });
+    return () => window.removeEventListener("scroll", close, { capture: true });
+  }, [peek]);
 
   async function load() {
     setLoading(true);
@@ -210,7 +272,8 @@ export default function AdminMotionPage() {
                   <td className="px-3 py-2 whitespace-nowrap text-[var(--color-text-secondary)]">{r.account ?? "—"}</td>
                   <td className="px-3 py-2">
                     {r.output ? (
-                      <a href={r.output} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 font-bold" style={{ color: "#a78bfa" }}>
+                      <a href={r.output} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 font-bold" style={{ color: "#a78bfa" }}
+                        onMouseEnter={(e) => showPeek(r, e.currentTarget)} onMouseLeave={hidePeek}>
                         {r.poster && (
                           // eslint-disable-next-line @next/next/no-img-element
                           <img src={r.poster} alt="" className="w-8 h-12 object-cover rounded" />
@@ -228,6 +291,7 @@ export default function AdminMotionPage() {
           </tbody>
         </table>
       </div>
+      {peek && <PeekVideo peek={peek} sound={sound} onSound={toggleSound} onEnter={keepPeek} onLeave={hidePeek} />}
     </div>
   );
 }
