@@ -120,7 +120,9 @@ export default function MotionTapeEditor({ src, onClose, onSave }: {
   const onDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
     if (!img || saving) return;
     e.preventDefault();
-    e.currentTarget.setPointerCapture(e.pointerId);
+    // keeps the drag alive past the canvas edge; some browsers refuse it for a
+    // pointer they don't track — drawing must work without it
+    try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* no capture */ }
     const p = point(e);
     setDrag({ a: p, b: p });
   };
