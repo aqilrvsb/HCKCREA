@@ -42,6 +42,7 @@ import StoryboardReplaceModal from "./storyboard-replace-modal";
 import ExtendDialog from "./extend-dialog";
 import AttachmentPicker from "./attachment-picker";
 import { CategoryPickModal } from "./attachments";
+import { MotionProgress } from "./motion-progress";
 import LazyVideo from "@/app/components/lazy-video";
 
 export type HistoryItem = {
@@ -3460,7 +3461,12 @@ function HistoryCardInner({
         {(item.status === "pending" ||
           (item.type === "fairytale" && item.status === "failed")) && (
           <>
-            <div className="absolute inset-0 flex flex-col items-center justify-center text-amber-400 text-xs font-bold gap-2 px-2 text-center">
+            {/* Motion jobs: live stage + progress over a preview of the source. */}
+            {isMotionRow && item.status === "pending" && (
+              <MotionProgress id={item.id} preview={item.reference_url}
+                isVideo={(item.metadata as any)?.feature === "motion-edit"} />
+            )}
+            {!isMotionRow && <div className="absolute inset-0 flex flex-col items-center justify-center text-amber-400 text-xs font-bold gap-2 px-2 text-center">
               <Loader2 className="w-5 h-5 animate-spin" />
               <span>
                 {item.type === "fairytale" ? "Rendering story…" : "Generating…"}
@@ -3485,7 +3491,7 @@ function HistoryCardInner({
                   <br />~ 2–5 minit
                 </span>
               )}
-            </div>
+            </div>}
             {/* Recheck icon hidden for storytelling — Modal is the
                 authoritative writer, manual recheck added no value and
                 surfaced confusing intermediate states. The row will

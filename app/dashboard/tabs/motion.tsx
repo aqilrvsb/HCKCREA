@@ -12,6 +12,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Clapperboard, Loader2, Upload, X, Download, Sparkles, Scissors, CheckCircle2, AlertTriangle, Brain, Wand2, ShieldCheck } from "lucide-react";
 import { uploadImage } from "@/lib/upload-image";
 import { MOTION_AD_PRESETS, MOTION_EDIT_PRESETS, type MotionPreset } from "@/lib/motion-prompts";
+import { MOTION_STAGE_LABEL } from "../sections/motion-progress";
 
 type Mode = "ad" | "edit";
 type CaptionStyle = "pop" | "karaoke" | "box";
@@ -43,26 +44,7 @@ const VOICES = [
   { key: "aqil", label: "Aqil", g: "♂" },
 ];
 
-const STAGE_LABEL: Record<string, string> = {
-  queued: "Dalam giliran",
-  script: "AI tulis skrip & storyboard",
-  voice: "Jana suara",
-  align: "Selaraskan suara & teks",
-  music: "Gubah muzik",
-  images: "Potong gambar produk",
-  download: "Muat turun video",
-  transcribe: "Transkrip suara",
-  normalise: "Potong senyap & sediakan video",
-  faces: "Kesan muka",
-  guard: "Semak guideline TikTok",
-  plan: "AI director + cari gambar Google",
-  assets: "Muat turun B-roll & emoji",
-  qa: "AI semak hasil (QA)",
-  render: "Render animasi (selari)",
-  upload: "Upload video siap",
-  done: "Siap",
-  failed: "Gagal",
-};
+const STAGE_LABEL = MOTION_STAGE_LABEL;
 
 const label = "block text-[10px] uppercase tracking-widest text-[var(--color-text-secondary)] font-bold mb-2";
 const inputCls = "w-full px-3 py-2 rounded-lg text-sm bg-[var(--color-bg)] outline-none";
@@ -383,7 +365,6 @@ export default function MotionTab({ projectId }: { projectId?: string }) {
     setNotice(null);
     if (videos.length === 0) return setError("Pilih sekurang-kurangnya satu video.");
     setSubmitting(true);
-    let started = 0;
     const failed: string[] = [];
     // Two uploads at a time; every video becomes its own background job.
     const queue = [...videos];
@@ -406,8 +387,9 @@ export default function MotionTab({ projectId }: { projectId?: string }) {
           const d = await r.json();
           if (!r.ok || !d?.ok) throw new Error(d?.error || "Gagal hantar");
           addJobs([d.id], [`Edit · ${v.file.name.slice(0, 28)}`]);
-          started++;
           removeVideo(v.key);
+          // its placeholder (live progress) shows up in History right away
+          window.dispatchEvent(new CustomEvent("history:refresh"));
           if (r.status === 402) break;
         } catch (e: any) {
           patchVideo(v.key, { error: e?.message || "Gagal" });
@@ -419,7 +401,6 @@ export default function MotionTab({ projectId }: { projectId?: string }) {
     await Promise.all([worker(), worker()]);
     window.dispatchEvent(new CustomEvent("history:refresh"));
     if (failed.length) setError(failed.join(" · "));
-    if (started) setNotice(`${started} video sedang diedit di belakang tabir — boleh tutup tab, hasil masuk History.`);
     setSubmitting(false);
   }
 
