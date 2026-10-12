@@ -15,7 +15,7 @@ import { TapeLayer } from './guard';
 import { layoutEdit } from './layout';
 import { Captions, SfxTrack, SlotStack, toPages } from './layers';
 import { clamp, makeEditCue, safeAccent, type Placed } from './lib';
-import { sfxFor, type SfxEvent, type SfxEventName } from './sfx';
+import { seedFrom, sfxFor, type SfxEvent, type SfxEventName } from './sfx';
 import type { EditProps, Item, ItemType } from './types';
 
 const DEFAULT_DUR = 2.6; // seconds an overlay stays when the plan gives no `to`
@@ -103,17 +103,20 @@ export const MotionEdit: React.FC<EditProps> = (p) => {
     // confetti: explicit confetti items + (gempak) the price reveal and the CTA
     const confetti = placed.filter((pl) => pl.it.t === 'confetti' || (gempak && (pl.it.t === 'price' || pl.it.t === 'cta'))).map((pl) => pl.s);
 
-    // sound design
+    // sound design — seeded per video (its hook + opening words + length), so
+    // each video gets its own hook opener and variant pattern, and every
+    // render chunk of the same video agrees
+    const vseed = seedFrom(`${p.hook?.text ?? ''}|${(p.words ?? []).slice(0, 60).map((w) => w.w).join(' ')}|${durationInFrames}`);
     const events: SfxEvent[] = [];
-    if (p.hook?.text) events.push(...sfxFor('hook', 1, style, 0));
+    if (p.hook?.text) events.push(...sfxFor('hook', 1, style, vseed));
     placed.forEach((pl, k) => {
       const isRehook = p.rehook?.text && pl.it.t === 'tape' && pl.it.text === p.rehook.text;
       const ev: SfxEventName | undefined = isRehook ? 'rehook' : EVENT_FOR[pl.it.t];
-      if (ev) events.push(...sfxFor(ev, pl.s, style, k));
+      if (ev) events.push(...sfxFor(ev, pl.s, style, vseed + k));
     });
-    broll.forEach((b, k) => events.push(...sfxFor(b.layout === 'full' ? 'broll_full' : 'broll_pip', b.s - (b.layout === 'full' ? 9 : 0), style, k)));
-    if (gempak) zooms.forEach((z, k) => events.push(...sfxFor('zoom', z.s, style, k)));
-    cutFrames.forEach((c, k) => { if (k % 2 === 0) events.push(...sfxFor('cut', c, style, k)); });
+    broll.forEach((b, k) => events.push(...sfxFor(b.layout === 'full' ? 'broll_full' : 'broll_pip', b.s - (b.layout === 'full' ? 9 : 0), style, vseed + k)));
+    if (gempak) zooms.forEach((z, k) => events.push(...sfxFor('zoom', z.s, style, vseed + k)));
+    cutFrames.forEach((c, k) => { if (k % 2 === 0) events.push(...sfxFor('cut', c, style, vseed + k)); });
 
     return {
       placed, slots, zooms, broll, impacts, sweeps, confetti, cutFrames, sfx: events, hookEnd,

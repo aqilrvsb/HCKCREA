@@ -7,7 +7,7 @@ import { AbsoluteFill, Audio, Img, interpolate, useCurrentFrame, useVideoConfig 
 import { Background, Captions, SfxTrack, ZoneStack, inkForBg, toPages, type ZoneBoxes } from './layers';
 import { F, clamp, fitSize, inkOn, lum, makeAdCue, packRows, popS, rgba, safeAccent, type Placed } from './lib';
 import { Flash, LightSweep, shakeOffset, type Impact } from './effects';
-import { sfxFor, type SfxEvent, type SfxEventName } from './sfx';
+import { seedFrom, sfxFor, type SfxEvent, type SfxEventName } from './sfx';
 import type { AdProps, AdScene, Brand, Hero, ImageAsset, Word, Zone } from './types';
 
 const boxesFor = (captions: boolean): ZoneBoxes => ({
@@ -143,20 +143,22 @@ export const MotionAd: React.FC<AdProps> = (p) => {
       return { ...sc, start, end, rows: packRows(placed), carryHero };
     });
 
+    // seeded per ad (its script + length): its own hook opener and variant pattern
+    const vseed = seedFrom(`${JSON.stringify(p.lines ?? []).slice(0, 4000)}|${durationInFrames}`);
     const events: SfxEvent[] = [];
     const impacts: Impact[] = [{ frame: 2, power: 0.8 }];
     const sweeps: number[] = [];
     let n = 0;
     built.forEach((sc, k) => {
-      if (k > 0) events.push(...sfxFor('scene', sc.start, style, k));
-      if (sc.endcard) { events.push(...sfxFor('stars', sc.start + 10, style, k)); sweeps.push(sc.start); return; }
-      if (k === 0) events.push(...sfxFor('hook', 1, style, 0));
-      if (sc.hero && sc.hero.kind !== 'none' && !sc.carryHero) events.push(...sfxFor('hero', sc.start, style, k));
+      if (k > 0) events.push(...sfxFor('scene', sc.start, style, vseed + k));
+      if (sc.endcard) { events.push(...sfxFor('stars', sc.start + 10, style, vseed + k)); sweeps.push(sc.start); return; }
+      if (k === 0) events.push(...sfxFor('hook', 1, style, vseed));
+      if (sc.hero && sc.hero.kind !== 'none' && !sc.carryHero) events.push(...sfxFor('hero', sc.start, style, vseed + k));
       const act = (p.lines ?? []).find((l) => l.id === String(sc.from).split(/[@$+-]/)[0])?.act;
       if (act === 'reveal' || act === 'cta') { sweeps.push(sc.start); impacts.push({ frame: sc.start, power: 0.6 }); }
       for (const z of Object.values(sc.rows)) for (const row of z) for (const pl of row) {
         const ev = pl.it.t as SfxEventName;
-        events.push(...sfxFor(ev, pl.s, style, n++));
+        events.push(...sfxFor(ev, pl.s, style, vseed + n++));
         if (pl.it.t === 'bigword' || pl.it.t === 'stamp' || pl.it.t === 'price' || pl.it.t === 'cta') {
           impacts.push({ frame: pl.s + (pl.it.t === 'price' && pl.it.sub ? 9 : 0), power: 0.9 });
         }
