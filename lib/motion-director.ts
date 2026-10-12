@@ -14,6 +14,7 @@ import { orChat, orChatVision } from "@/lib/openrouter";
 import {
   brandImagePool, dropExcluded, excludeOperators, findBrandSites, getSitePrefs, searchImages, searchWeb, type ImageHit, type WebHit,
 } from "@/lib/motion-search";
+import { searchClips, searchStickers } from "@/lib/motion-media";
 import { MOTION_MY_TIKTOK_GUIDE } from "@/lib/motion-prompts";
 import { extractJson, cleanItemPublic, type EditInput, type MotionItem } from "@/lib/motion";
 import { GUARD_RULES, guardCensorWords, guardFixSlots, guardHits, guardStripQuery } from "@/lib/motion-guard";
@@ -21,7 +22,11 @@ import { GUARD_RULES, guardCensorWords, guardFixSlots, guardHits, guardStripQuer
 type Cue = string | number;
 export type DirectorWord = { i: number; w: string; t: number; e?: number };
 
-export type BRollPlan = { at: Cue; to?: Cue; layout: "full" | "pip"; label?: string; query: string; candidates: string[] };
+export type BRollPlan = {
+  at: Cue; to?: Cue; layout: "full" | "pip"; label?: string; query: string; candidates: string[];
+  /** video = stock clip (candidates are MP4 links); photo otherwise. */
+  kind?: "photo" | "video";
+};
 export type FactPlan = { at: Cue; to?: Cue; text: string; source: string };
 export type EditPlanV2 = {
   /** Product / brand name (finds the brand's own website for B-roll). */
@@ -29,7 +34,7 @@ export type EditPlanV2 = {
   hook: { text: string; sub?: string } | null;
   accent: string;
   mood: "chill" | "upbeat" | "hype";
-  captions: { on: boolean; style: "pop" | "karaoke" | "box"; pos: "low" | "mid"; maxWords: number };
+  captions: { on: boolean; style: "pop" | "karaoke" | "box" | "tiktok"; pos: "low" | "mid"; maxWords: number };
   overlays: MotionItem[];
   zooms: { at: Cue; to?: Cue; scale?: number }[];
   broll: BRollPlan[];
@@ -67,7 +72,7 @@ Return ONLY one JSON object:
   "mood": "chill" | "upbeat" | "hype",
   "overlays": [ITEM],
   "zooms": [{"at": CUE, "to": CUE, "scale": 1.08–1.25}],
-  "broll": [{"at": CUE, "to": CUE, "layout": "full" | "pip", "query": string, "label"?: string (≤4 words)}],
+  "broll": [{"at": CUE, "to": CUE, "layout": "full" | "pip", "kind": "photo" | "video", "query": string, "label"?: string (≤4 words)}],
   "facts": [{"at": CUE, "to": CUE, "query": string, "topic": string}],
   "keywords": [{"i": word index, "color": "benefit" | "price" | "pain" | "brand", "emoji"?: one emoji}],
   "rehook"?: {"at": CUE, "text": string (≤4 words)},
@@ -81,12 +86,16 @@ TYPE (on-screen text is SHORT, never a transcript):
   emoji = ONE emoji (prefer these animated ones: ${ANIMATED_EMOJI})
   bigword = the 1–2 strongest words, huge, ~1 s (zone middle) · callout = speech bubble ≤6 words (a reaction / aside)
   arrow = hand-drawn arrow pointing down at the speaker/product + ≤3-word label · stars = rating row, ONLY if a rating/review count is spoken (text = e.g. "4.9 · 2k terjual")
+  circle = 1–3 words circled with a red marker loop — the key number / benefit ("8–12 JAM", "JIMAT") · underline = 1–3 words with a scribbled double underline (emphasis)
+  point = bouncing pointing hand + ≤3-word label ("Tengok sini", "Ni dia") — sub = "👇" or "👉" · confetti = full-screen confetti (no text) for a real celebration moment: price reveal, free gift, the final CTA — max 2
+  gif = animated reaction sticker — text = an ENGLISH search phrase ("mind blown", "thumbs up", "money rain", "shocked face"), sub = ONE fallback emoji; max 2, only on emotional beats
 CUE: "w12" = when transcript word #12 starts, "w12$" = when it ends, "w12+0.3" offsets; plain seconds also OK.
 
 RULES
 - Hook covers 0–2.5 s: the video's promise in ≤5 punchy words. null if the video is under 5 s.
 - Every overlay sits on the word it illustrates. Max 2 overlays on screen at once. Zones: top = headline/tag/tape/callout/arrow/fact area; bottom = chips/checks/cta (just above captions); middle = bigword/emoji/stamp/price only, briefly (don't cover the face for long).
-- B-ROLL: pick moments where the speaker names something visual — the product, an ingredient, a place, a body part, an object, a brand, a problem. "query" = what to search on Google Images (English or Malay, specific). For shots of the product itself (box, packshot, the item in use) START the query with the brand name (e.g. "Gluvera patch box") — those come from the brand's own website first; for generic shots (a body part, an object, a place) leave the brand out. 1 B-roll every 6–10 s, each 1.5–3 s; "full" for the product / big reveals, "pip" (card over the upper half) otherwise. Never during the first 1.5 s or the CTA.
+- B-ROLL: pick moments where the speaker names something visual — the product, an ingredient, a place, a body part, an object, a brand, a problem. "query" = what to search on Google Images (English or Malay, specific). For shots of the product itself (box, packshot, the item in use) START the query with the brand name (e.g. "Gluvera patch box") — those come from the brand's own website first; for generic shots (a body part, an object, a place) leave the brand out. 1 B-roll every 6–10 s, each 1.5–3 s; "full" for the product / big reveals, "pip" (card over the upper half) otherwise. Never during the first 1.5 s or the CTA. "kind": "photo" for the product itself (its own website photos), "video" for a moving stock clip of a generic action or scene (someone sticking a patch on an arm, drinking water, walking, cooking) — the query for a video is plain English ("woman applying patch on arm"), never a brand.
+- Mix the tools — a pro edit uses variety: circle / underline the key words, a point toward the product or the beg kuning, 0–2 gif reactions, 0–2 confetti, not the same sticker type twice in a row.
 - FACTS: 0–2 per video, only for checkable, non-medical background facts the speaker mentions (what an ingredient is, how something works in general, a brand/origin fact). "query" = a Google search that would confirm it. NEVER health/medical/cure/efficacy, price or "best/No.1" claims.
 - KEYWORDS: 1 per caption page at most; colour product/brand names (brand), benefits (benefit), prices/numbers (price), problems (pain); add an emoji on ≤ 1 in 3.
 - RE-HOOK: one, around 40–60 % of the runtime, only if the video is > 25 s ("Tapi tunggu…", "Ni paling penting…").
@@ -142,11 +151,25 @@ export async function directEdit(opts: {
   const [broll, facts] = await Promise.all([
     input.broll === false ? Promise.resolve([] as BRollPlan[]) : enrichBroll(plan.broll, guard, plan.brand, input.product).catch(() => [] as BRollPlan[]),
     input.facts === false ? Promise.resolve([] as FactPlan[]) : writeFacts(factMoments, words).catch(() => [] as FactPlan[]),
+    resolveStickers(plan.overlays, guard).catch(() => undefined),
   ]);
   // A B-roll card label that repeats a sticker ("Cara guna" twice) is dropped.
   const said = new Set(plan.overlays.map((o) => String(o.text || "").toLowerCase().replace(/[^a-z0-9]/g, "")).filter(Boolean));
   const dedupedBroll = broll.map((b) => (b.label && said.has(b.label.toLowerCase().replace(/[^a-z0-9]/g, "")) ? { ...b, label: undefined } : b));
   return { ...plan, broll: dedupedBroll, facts: guard ? facts.filter((f) => guardHits(f.text).length === 0) : facts };
+}
+
+// ── animated stickers ────────────────────────────────────────────────────────
+// gif items carry an English search phrase; the sticker search (admin opt-in)
+// gives the animation. No source → the job shows the item's fallback emoji.
+async function resolveStickers(overlays: MotionItem[], guard: boolean): Promise<void> {
+  const gifs = overlays.filter((o) => o.t === "gif");
+  await Promise.all(gifs.map(async (o, k) => {
+    const q = guard ? guardStripQuery(o.text || "") : String(o.text || "");
+    if (q.length < 2) return;
+    const hits = await searchStickers(q).catch(() => []);
+    if (hits.length) o.src = hits[k % Math.min(3, hits.length)].url;
+  }));
 }
 
 // ── TikTok guard on the director's own copy ──────────────────────────────────
@@ -197,12 +220,23 @@ function cueIn(c: unknown, nWords: number, duration: number): Cue | undefined {
   return m && Number(m[1]) < nWords ? s : undefined;
 }
 
+/** filter() predicate keeping at most `caps[type]` items of each capped type. */
+const capPerType = (caps: Record<string, number>) => {
+  const seen: Record<string, number> = {};
+  return (it: MotionItem) => {
+    if (!(it.t in caps)) return true;
+    seen[it.t] = (seen[it.t] ?? 0) + 1;
+    return seen[it.t] <= caps[it.t];
+  };
+};
+
 export function validateDirectorPlan(raw: any, nWords: number, duration: number, input: EditInput, style: "gempak" | "clean"): EditPlanV2 & { broll: BRollPlan[] } {
   const maxOverlays = Math.max(3, Math.ceil(duration / (style === "gempak" ? 2.2 : 3.5)));
   const overlays = (Array.isArray(raw?.overlays) ? raw.overlays : [])
     .map((it: any) => cleanItemPublic(it, EDIT_CUE))
     .filter((it: MotionItem | null): it is MotionItem => !!it && cueIn(it.at, nWords, duration) !== undefined)
     .map((it: MotionItem) => (it.to !== undefined && cueIn(it.to, nWords, duration) === undefined ? { ...it, to: undefined } : it))
+    .filter(capPerType({ gif: 2, confetti: 2 }))
     .slice(0, maxOverlays);
   const zooms = (Array.isArray(raw?.zooms) ? raw.zooms : [])
     .map((z: any) => {
@@ -219,7 +253,8 @@ export function validateDirectorPlan(raw: any, nWords: number, duration: number,
       const query = clean(b?.query, 100);
       if (at === undefined || !query) return null;
       const to = cueIn(b?.to, nWords, duration);
-      return { at, ...(to !== undefined ? { to } : {}), layout: b?.layout === "full" ? "full" : "pip", label: clean(b?.label, 30) || undefined, query, candidates: [] };
+      return { at, ...(to !== undefined ? { to } : {}), layout: b?.layout === "full" ? "full" : "pip", label: clean(b?.label, 30) || undefined, query, candidates: [],
+        kind: b?.kind === "video" ? "video" : "photo" };
     })
     .filter(Boolean)
     .slice(0, Math.max(1, Math.ceil(duration / 5))) as BRollPlan[];
@@ -303,16 +338,23 @@ async function enrichBroll(moments: BRollPlan[], guard = false, brand?: string, 
     return ranked;
   });
   const results = await Promise.all(moments.map(async (m, k) => {
+    // Moving cutaway: stock clips (vision sees their thumbnails); none → photos.
+    if (m.kind === "video") {
+      const clips = await searchClips(m.query).catch(() => []);
+      if (clips.length) {
+        return { kind: "video" as const, hits: clips.map((c) => ({ url: c.url, thumb: c.thumb, width: c.width, height: c.height, title: m.query })) };
+      }
+    }
     let hits = fromPool[k];
     if (hits.length < 3) {
       const more = usable((await searchImages(`${m.query} ${noSites}`, { num: 10 }).catch(() => null))?.hits);
       const seen = new Set(hits.map((h) => h.url));
       hits = [...hits, ...more.filter((h) => !seen.has(h.url))];
     }
-    return hits;
+    return { kind: "photo" as const, hits };
   }));
   const withHits = moments
-    .map((m, k) => ({ m, hits: results[k] }))
+    .map((m, k) => ({ m: { ...m, kind: results[k].kind }, hits: results[k].hits }))
     .filter((x) => x.hits.length > 0);
   if (!withHits.length) return [];
 

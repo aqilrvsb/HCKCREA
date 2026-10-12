@@ -3,7 +3,10 @@ import { AbsoluteFill, Audio, Img, Sequence, interpolate, useCurrentFrame, useVi
 import { RENDER } from './elements';
 import { LottieEmoji } from './emoji';
 import { TapeStrip } from './guard';
-import { EXIT, F, SAFE_X, W, clamp, fitSize, highlight, inkOn, popS, shade, type Row } from './lib';
+import { noise2D } from '@remotion/noise';
+import { createRoundedTextBox } from '@remotion/rounded-text-box';
+import { EXIT, F, SAFE_X, W, clamp, fitSize, highlight, inkOn, popS, shade, type Placed, type Row } from './lib';
+import type { Slot } from './layout';
 import type { SfxEvent } from './sfx';
 import type { Bg, CaptionKey, CaptionStyle, KeyColor, LottieMap, Style, Word, Zone } from './types';
 
@@ -17,6 +20,7 @@ export const ZoneStack: React.FC<{
   rows: Record<Zone, Row[]>; boxes: ZoneBoxes; ink: string; accent: string; surface: 'dark' | 'light' | 'accent'; style?: Style; lottie?: LottieMap;
 }> = ({ rows, boxes, ink, accent, surface, style, lottie }) => {
   const frame = useCurrentFrame();
+  const { fps } = useVideoConfig();
   const maxW = W - SAFE_X * 2;
   return (
     <>
@@ -33,14 +37,54 @@ export const ZoneStack: React.FC<{
                   const active = frame >= p.s && frame < p.e;
                   const R = RENDER[p.it.t] ?? RENDER.headline;
                   const out = active ? interpolate(frame, [p.e - EXIT, p.e], [1, 0], clamp) : 1;
+                  const idle = active ? breathe(frame, frame - p.s, p.key, (p.e - p.s) / fps) : '';
                   return (
-                    <div key={p.key} style={{ gridArea: '1 / 1', visibility: active ? 'visible' : 'hidden' }}>
+                    <div key={p.key} style={{ gridArea: '1 / 1', visibility: active ? 'visible' : 'hidden', transform: idle || undefined }}>
                       <R it={p.it} f={active ? frame - p.s : 0} out={out} i={p.key} ink={ink} accent={accent} maxW={maxW} surface={surface} style={style} lottie={lottie} />
                     </div>
                   );
                 })}
               </div>
             ))}
+          </div>
+        );
+      })}
+    </>
+  );
+};
+
+// Gentle organic idle motion (@remotion/noise) for stickers that stay on screen
+// a while, so nothing sits frozen — eases in after the entry animation.
+export const breathe = (frame: number, f: number, key: number, lifeSec: number) => {
+  const k = lifeSec > 1.2 ? interpolate(f, [12, 26], [0, 1], clamp) : 0;
+  if (k <= 0) return '';
+  const s = 1 + 0.022 * k * noise2D(`s${key}`, frame / 42, 0);
+  const r = 1.5 * k * noise2D(`r${key}`, frame / 58, 1);
+  const y = 7 * k * noise2D(`y${key}`, frame / 50, 2);
+  return `translateY(${y.toFixed(2)}px) scale(${s.toFixed(4)}) rotate(${r.toFixed(3)}deg)`;
+};
+
+// ── Edit Video: one fixed, face-aware slot per sticker (layout.ts) ──────────
+export const SlotStack: React.FC<{
+  placed: Placed[]; slots: Map<number, Slot>; ink: string; accent: string; style?: Style; lottie?: LottieMap;
+}> = ({ placed, slots, ink, accent, style, lottie }) => {
+  const frame = useCurrentFrame();
+  const { fps } = useVideoConfig();
+  const maxW = W - SAFE_X * 2;
+  return (
+    <>
+      {placed.map((p) => {
+        if (frame < p.s || frame >= p.e) return null;
+        const slot = slots.get(p.key);
+        if (!slot) return null;
+        const R = RENDER[p.it.t] ?? RENDER.headline;
+        const f = frame - p.s;
+        const out = interpolate(frame, [p.e - EXIT, p.e], [1, 0], clamp);
+        return (
+          <div key={p.key} style={{ position: 'absolute', left: SAFE_X, right: SAFE_X, top: slot.y, display: 'flex', justifyContent: 'center' }}>
+            <div style={{ transform: `scale(${slot.scale}) ${breathe(frame, f, p.key, (p.e - p.s) / fps)}`, transformOrigin: 'top center' }}>
+              <R it={p.it} f={f} out={out} i={p.key} ink={ink} accent={accent} maxW={maxW} surface="dark" style={style} lottie={lottie} />
+            </div>
           </div>
         );
       })}
@@ -88,6 +132,61 @@ export const toPages = (words: Word[], maxWords: number, breaks: Set<number> = n
 
 const KEY_COLOR: Record<KeyColor, string> = { benefit: '#4ade80', price: '#FFD93B', pain: '#f87171', brand: '#ffffff', accent: '#ffffff' };
 
+// TikTok's own text style: black words on a white box that hugs each line
+// with rounded corners (@remotion/layout-utils measures the real font,
+// @remotion/rounded-text-box draws the outline). Current word in the accent.
+const TT_FONT = 64;
+const TT_PAD = 26;
+const TT_LINE = Math.round(TT_FONT * 1.18);
+// Canvas text metrics with the font as loaded right now (measureText from
+// @remotion/layout-utils caches its first answer, which can predate the
+// Google font finishing loading → a box narrower than the text).
+let ttCtx: CanvasRenderingContext2D | null = null;
+const ttWidth = (text: string) => {
+  if (!ttCtx && typeof document !== 'undefined') ttCtx = document.createElement('canvas').getContext('2d');
+  if (!ttCtx) return text.length * TT_FONT * 0.6;
+  ttCtx.font = `800 ${TT_FONT}px ${F.caption}`;
+  return ttCtx.measureText(text).width;
+};
+const TikTokCaption: React.FC<{ page: Page; cur: number; centerY: number; hi: string; inS: number; taped: Set<number> }> = ({ page, cur, centerY, hi, inS, taped }) => {
+  const shown = page.words.map((w) => (taped.has(w.gi) ? '▇▇▇' : w.w));
+  const maxLine = W - 220;
+  const lines: number[][] = [[]];
+  let width = 0;
+  const spaceW = ttWidth(' ');
+  shown.forEach((txt, k) => {
+    const ww = ttWidth(txt);
+    const add = (lines[lines.length - 1].length ? spaceW : 0) + ww;
+    if (lines[lines.length - 1].length && width + add > maxLine) { lines.push([k]); width = ww; } else { lines[lines.length - 1].push(k); width += add; }
+  });
+  const dims = lines.map((ln) => ({ width: ttWidth(ln.map((k) => shown[k]).join(' ')), height: TT_LINE }));
+  const box = createRoundedTextBox({ textMeasurements: dims, textAlign: 'center', horizontalPadding: TT_PAD, borderRadius: 22 });
+  const bw = box.boundingBox.width;
+  const bh = box.boundingBox.height;
+  return (
+    <AbsoluteFill style={{ pointerEvents: 'none' }}>
+      <div style={{ position: 'absolute', left: (W - bw) / 2, top: centerY - bh / 2, width: bw, height: bh,
+        transform: `scale(${0.9 + 0.1 * inS})`, transformOrigin: 'center' }}>
+        <svg width={bw} height={bh} viewBox={box.boundingBox.viewBox} style={{ position: 'absolute', inset: 0, overflow: 'visible' }}>
+          <path d={box.d} fill="#ffffff" />
+        </svg>
+        <div style={{ position: 'relative', width: bw, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+          {lines.map((ln, li) => (
+            <div key={li} style={{ height: dims[li].height, width: dims[li].width + TT_PAD * 2, textAlign: 'center', fontFamily: F.caption, fontWeight: 800,
+              fontSize: TT_FONT, lineHeight: `${dims[li].height}px`, whiteSpace: 'pre' }}>
+              {ln.map((k, j) => (
+                <span key={k} style={{ color: taped.has(page.words[k].gi) ? '#d9ccaa' : k === cur ? hi : '#111111' }}>
+                  {(j ? ' ' : '') + shown[k]}
+                </span>
+              ))}
+            </div>
+          ))}
+        </div>
+      </div>
+    </AbsoluteFill>
+  );
+};
+
 export const Captions: React.FC<{
   pages: Page[]; style: CaptionStyle; accent: string; centerY: number; hideFrom?: number; hiOverride?: string;
   keywords?: CaptionKey[]; lottie?: LottieMap; gempak?: boolean;
@@ -109,6 +208,7 @@ export const Captions: React.FC<{
   const inS = popS(pf + 2, fps, 320, 16);
   let cur = -1;
   page.words.forEach((w, k) => { if (t >= w.t - 0.02) cur = k; });
+  if (style === 'tiktok') return <TikTokCaption page={page} cur={cur} centerY={centerY} hi={hi} inS={inS} taped={taped} />;
   return (
     <AbsoluteFill style={{ pointerEvents: 'none' }}>
       <div style={{ position: 'absolute', left: 60, right: 60, top: centerY, transform: `translateY(-50%) scale(${0.88 + 0.12 * inS})`,

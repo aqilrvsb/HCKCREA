@@ -51,6 +51,8 @@ type Cue = string | number;
 export type MotionItem = {
   t: string; text?: string; sub?: string; at: Cue; to?: Cue;
   zone?: "top" | "middle" | "bottom"; tone?: string; mark?: "check" | "cross";
+  /** gif: sticker URL — set server-side from the sticker search, never by the model. */
+  src?: string;
 };
 export type AdLinePlan = { id: string; act: string; text: string; tts: string; pause: number };
 export type AdScenePlan = {
@@ -68,7 +70,7 @@ export type EditPlan = {
   hook: { text: string; sub?: string } | null;
   accent: string;
   mood: "chill" | "upbeat" | "hype";
-  captions: { on: boolean; style: "pop" | "karaoke" | "box"; pos: "low" | "mid"; maxWords: number };
+  captions: { on: boolean; style: "pop" | "karaoke" | "box" | "tiktok"; pos: "low" | "mid"; maxWords: number };
   overlays: MotionItem[];
   zooms: { at: Cue; to?: Cue; scale?: number }[];
 };
@@ -88,7 +90,7 @@ export type AdInput = {
   voice: string;
   speed: number;
   captions: boolean;
-  captionStyle: "pop" | "karaoke" | "box";
+  captionStyle: "pop" | "karaoke" | "box" | "tiktok";
   music: boolean;
   sfx: boolean;
   accent?: string;
@@ -108,7 +110,7 @@ export type EditInput = {
   instructions?: string;
   product?: string;
   captions: boolean;
-  captionStyle: "pop" | "karaoke" | "box";
+  captionStyle: "pop" | "karaoke" | "box" | "tiktok";
   captionPos: "low" | "mid";
   music: boolean;
   sfx: boolean;
@@ -224,7 +226,8 @@ export function extractJson(s: string): any {
 
 const clean = (s: unknown, max: number) => String(s ?? "").replace(/\s+/g, " ").trim().slice(0, max);
 const HEX = /^#[0-9a-f]{6}$/i;
-const ITEM_TYPES = new Set(["headline", "note", "tag", "stamp", "chip", "tape", "scribble", "price", "check", "emoji", "counter", "bigword", "callout", "arrow", "stars", "cta"]);
+const ITEM_TYPES = new Set(["headline", "note", "tag", "stamp", "chip", "tape", "scribble", "price", "check", "emoji", "counter", "bigword", "callout", "arrow", "stars", "cta",
+  "circle", "underline", "point", "gif", "confetti"]);
 const ZONES = new Set(["top", "middle", "bottom"]);
 const TONES = new Set(["yellow", "white", "red", "green", "accent", "dark"]);
 const BGS = new Set(["mat", "paper", "dark", "accent", "blur"]);
@@ -233,6 +236,7 @@ const MOODS = new Set(["chill", "upbeat", "hype"]);
 const TEXT_MAX: Record<string, number> = {
   headline: 34, note: 48, tag: 22, stamp: 16, chip: 30, tape: 30, scribble: 44, price: 14, check: 32, emoji: 8, counter: 12,
   bigword: 16, callout: 44, arrow: 24, stars: 28, cta: 30,
+  circle: 18, underline: 22, point: 20, gif: 40, confetti: 20,
 };
 
 const AD_CUE = /^[a-z0-9_]+(?:@[^\s#$+-]{1,30}(?:#\d{1,2})?)?(?:\$)?(?:[+-]\d{0,2}(?:\.\d+)?)?$/i;
@@ -253,14 +257,14 @@ function cleanItem(raw: any, re: RegExp): MotionItem | null {
   const at = cleanCue(raw.at, re);
   if (at === undefined) return null;
   const text = clean(raw.text, TEXT_MAX[t] ?? 30);
-  if (!text && t !== "emoji") return null;
-  const it: MotionItem = { t, text: text || "✨", at };
+  if (!text && t !== "emoji" && t !== "confetti") return null;
+  const it: MotionItem = { t, text: text || (t === "emoji" ? "✨" : ""), at };
   const to = cleanCue(raw.to, re);
   if (to !== undefined) it.to = to;
   if (raw.sub) it.sub = clean(raw.sub, 28);
   it.zone = ZONES.has(raw.zone) ? raw.zone
-    : t === "headline" || t === "tag" || t === "callout" || t === "arrow" ? "top"
-    : t === "check" || t === "chip" || t === "cta" || t === "stars" ? "bottom" : "middle";
+    : t === "headline" || t === "tag" || t === "callout" || t === "arrow" || t === "underline" ? "top"
+    : t === "check" || t === "chip" || t === "cta" || t === "stars" || t === "point" ? "bottom" : "middle";
   if (TONES.has(raw.tone)) it.tone = raw.tone;
   if (raw.mark === "check" || raw.mark === "cross") it.mark = raw.mark;
   return it;

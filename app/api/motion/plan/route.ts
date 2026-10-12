@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { tokenMatches, type EditInput } from "@/lib/motion";
 import { directEdit } from "@/lib/motion-director";
+import { fixTranscript } from "@/lib/motion-captions";
 
 // POST /api/motion/plan — called BY the Modal Edit Video job once it has the
 // (jump-cut) transcript. Auth = the per-row plan_token minted at submit (only
@@ -33,7 +34,12 @@ export async function POST(req: Request) {
 
   const t0 = Date.now();
   try {
-    const plan = await directEdit({ words, duration, input: row.metadata?.input as EditInput, hasFace: b?.has_face !== false });
+    const input = row.metadata?.input as EditInput;
+    // Director + caption spelling clean-up run side by side (no added wait).
+    const [plan, fixes] = await Promise.all([
+      directEdit({ words, duration, input, hasFace: b?.has_face !== false }),
+      fixTranscript(words.map((w: any) => ({ i: w.i, w: w.w })), input?.product).catch(() => [] as [number, string][]),
+    ]);
     const { data: cur } = await admin.from("history").select("metadata").eq("id", id).maybeSingle();
     await admin
       .from("history")
@@ -48,12 +54,15 @@ export async function POST(req: Request) {
             ...(plan.guard ? { guard: plan.guard } : {}),
             brand: plan.brand ?? null,
             broll_src: plan.broll.map((b) => { try { return new URL(b.candidates[0]).hostname; } catch { return null; } }),
+            broll_kinds: plan.broll.map((b) => b.kind ?? "photo"),
+            stickers: plan.overlays.filter((o) => o.t === "gif").map((o) => (o.src ? "giphy" : "emoji-fallback")),
+            caption_fixes: fixes.slice(0, 40),
           },
           transcript: words.map((w: any) => w.w).join(" ").slice(0, 4000),
         },
       })
       .eq("id", id);
-    return NextResponse.json({ ok: true, plan });
+    return NextResponse.json({ ok: true, plan: { ...plan, fixes } });
   } catch (e: any) {
     // Modal falls back to captions-only when the plan fails.
     return NextResponse.json({ ok: false, error: e?.message || "plan failed" }, { status: 502 });

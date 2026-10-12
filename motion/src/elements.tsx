@@ -3,7 +3,7 @@
 // HARD offsets (no blur): blurred shadows are the slowest thing to paint on a
 // CPU renderer and the hard look is the scrapbook / TikTok-sticker style anyway.
 import React from 'react';
-import { interpolate, useCurrentFrame, useVideoConfig, Easing } from 'remotion';
+import { AnimatedImage, interpolate, useCurrentFrame, useVideoConfig, Easing } from 'remotion';
 import { Burst } from './effects';
 import { LottieEmoji } from './emoji';
 import { F, TONE, clamp, fitSize, inkOn, lum, popS, tilt } from './lib';
@@ -433,8 +433,104 @@ const Fact: React.FC<ElProps> = ({ it, f, out, accent, maxW }) => {
   );
 };
 
+// Deterministic hand-drawn loop: an ellipse with a wobbly radius that overshoots
+// its start, like a marker circle drawn in one go.
+const loopPath = (w: number, h: number, seed: number) => {
+  const cx = w / 2;
+  const cy = h / 2;
+  const rx = w / 2 - 12;
+  const ry = h / 2 - 12;
+  const pts: string[] = [];
+  const n = 44;
+  for (let k = 0; k <= n; k++) {
+    const a = -2.6 + (k / n) * (Math.PI * 2 + 0.55);
+    const wob = 1 + Math.sin(k * 0.9 + seed) * 0.035 + (k / n) * 0.05;
+    pts.push(`${(cx + Math.cos(a) * rx * wob).toFixed(1)} ${(cy + Math.sin(a) * ry * wob).toFixed(1)}`);
+  }
+  return `M ${pts.join(' L ')}`;
+};
+
+// Word circled with a marker (key benefit, number, "JIMAT").
+const Circle: React.FC<ElProps> = ({ it, f, out, i, ink, accent, maxW }) => {
+  const p = interpolate(f, [3, 16], [0, 1], { ...clamp, easing: Easing.out(Easing.cubic) });
+  const text = it.text ?? '';
+  const size = fitSize(text, 78, maxW - 140, 1, 0.62);
+  const w = Math.min(maxW, Math.max(260, text.length * size * 0.62 + 150));
+  const h = size * 1.2 + 80;
+  const col = it.tone ? TONE(it.tone, accent, 'red').bg : '#ef4444';
+  return (
+    <div style={{ position: 'relative', width: w, height: h, display: 'flex', alignItems: 'center', justifyContent: 'center',
+      opacity: Math.min(1, f / 2) * out, transform: `rotate(${tilt(i, 2)}deg)` }}>
+      <svg width={w} height={h} viewBox={`0 0 ${w} ${h}`} style={{ position: 'absolute', inset: 0, overflow: 'visible' }}>
+        <path d={loopPath(w, h, i)} fill="none" stroke={col} strokeWidth={11} strokeLinecap="round" strokeLinejoin="round"
+          pathLength={1} strokeDasharray={1} strokeDashoffset={1 - p} />
+      </svg>
+      <div style={{ position: 'relative', fontFamily: F.black, fontSize: size, color: ink, whiteSpace: 'nowrap',
+        textShadow: ink === '#ffffff' ? '4px 5px 0 rgba(0,0,0,0.6)' : 'none' }}>{text}</div>
+    </div>
+  );
+};
+
+// Bold word with a double marker underline scribbled under it.
+const Underline: React.FC<ElProps> = ({ it, f, out, i, ink, accent, maxW }) => {
+  const p1 = interpolate(f, [4, 12], [0, 1], { ...clamp, easing: Easing.out(Easing.cubic) });
+  const p2 = interpolate(f, [9, 16], [0, 1], { ...clamp, easing: Easing.out(Easing.cubic) });
+  const text = it.text ?? '';
+  const size = fitSize(text, 80, maxW - 60, 1, 0.66);
+  const w = Math.min(maxW, text.length * size * 0.66 + 40);
+  const col = it.tone ? TONE(it.tone, accent, 'yellow').bg : '#FFD93B';
+  const wave = (y: number, amp: number) => `M 6 ${y} C ${w * 0.25} ${y - amp}, ${w * 0.5} ${y + amp}, ${w * 0.75} ${y - amp * 0.6} S ${w - 4} ${y + amp * 0.4}, ${w - 6} ${y - amp * 0.2}`;
+  return (
+    <div style={{ position: 'relative', display: 'flex', flexDirection: 'column', alignItems: 'center', opacity: Math.min(1, f / 2) * out,
+      transform: `rotate(${tilt(i, 1.5) - 1}deg) scale(${0.9 + 0.1 * Math.min(1, f / 6)})` }}>
+      <div style={{ fontFamily: F.black, fontSize: size, color: ink, lineHeight: 1.05, whiteSpace: 'nowrap',
+        textShadow: ink === '#ffffff' ? '4px 5px 0 rgba(0,0,0,0.6)' : 'none' }}>{text}</div>
+      <svg width={w} height={44} viewBox={`0 0 ${w} 44`} style={{ overflow: 'visible', marginTop: -4 }}>
+        <path d={wave(14, 7)} fill="none" stroke={col} strokeWidth={10} strokeLinecap="round" pathLength={1} strokeDasharray={1} strokeDashoffset={1 - p1} />
+        <path d={wave(32, 5)} fill="none" stroke={col} strokeWidth={8} strokeLinecap="round" pathLength={1} strokeDasharray={1} strokeDashoffset={1 - p2} opacity={0.9} />
+      </svg>
+    </div>
+  );
+};
+
+// Bouncing pointing hand (animated Noto emoji) with a label — "tengok sini", the product, the beg kuning.
+const Point: React.FC<ElProps> = ({ it, f, out, i, ink, accent, lottie }) => {
+  const frame = useCurrentFrame();
+  const { fps } = useVideoConfig();
+  const s = popS(f, fps, 280, 9);
+  const bob = Math.sin((frame + i * 9) / 4) * 14;
+  const char = Array.from(it.sub && /\p{Extended_Pictographic}/u.test(it.sub) ? it.sub : '👇').slice(0, 2).join('');
+  const text = it.text ?? '';
+  const col = ink === '#ffffff' ? '#FFD93B' : accent;
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, opacity: Math.min(1, f / 2) * out,
+      transform: `scale(${(0.3 + 0.7 * s) * (0.88 + 0.12 * out)})` }}>
+      {text && <div style={{ fontFamily: F.marker, fontSize: 60, color: col, textShadow: '3px 4px 0 rgba(0,0,0,0.6)', whiteSpace: 'nowrap',
+        transform: `rotate(${tilt(i, 3)}deg)` }}>{text}</div>}
+      <div style={{ transform: `translateY(${bob}px)` }}><LottieEmoji char={char} size={130} lottie={lottie} /></div>
+    </div>
+  );
+};
+
+// Animated GIF / sticker (downloaded by the job; frame-accurate via AnimatedImage).
+const Gif: React.FC<ElProps> = ({ it, f, out, i }) => {
+  const { fps } = useVideoConfig();
+  const s = popS(f, fps, 260, 10);
+  if (!it.src) return null;
+  return (
+    <div style={{ width: 360, height: 360, opacity: Math.min(1, f / 2) * out,
+      transform: `scale(${(0.3 + 0.7 * s) * (0.85 + 0.15 * out)}) rotate(${tilt(i, 4)}deg)` }}>
+      <AnimatedImage src={it.src} width={360} height={360} fit="contain" />
+    </div>
+  );
+};
+
+// Confetti is a full-frame effect (effects.tsx ConfettiRain), not a sticker.
+const Nothing: React.FC<ElProps> = () => null;
+
 export const RENDER: Record<ItemType, React.FC<ElProps>> = {
   headline: Headline, note: Note, tag: Tag, stamp: Stamp, chip: Chip, tape: Tape, scribble: Scribble,
   price: Price, check: Check, emoji: Emoji, counter: Counter,
   bigword: BigWord, callout: Callout, arrow: Arrow, stars: Stars, cta: Cta, fact: Fact,
+  circle: Circle, underline: Underline, point: Point, gif: Gif, confetti: Nothing,
 };

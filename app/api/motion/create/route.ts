@@ -37,7 +37,7 @@ export async function POST(req: Request) {
     .filter((im: any) => typeof im?.url === "string" && /^https:\/\//.test(im.url))
     .slice(0, 4)
     .map((im: any) => ({ url: String(im.url), role: im.role === "presenter" ? "presenter" : "product" }));
-  const style = ["pop", "karaoke", "box"].includes(b?.caption_style) ? b.caption_style : "pop";
+  const style = ["pop", "karaoke", "box", "tiktok"].includes(b?.caption_style) ? b.caption_style : "pop";
 
   const input: AdInput = {
     product,

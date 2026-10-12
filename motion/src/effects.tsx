@@ -82,6 +82,37 @@ export const LightSweep: React.FC<{ at: number[]; dur?: number }> = ({ at, dur =
   );
 };
 
+/** Confetti raining over the whole frame from each start frame (~2 s):
+ *  celebratory moments — price reveal, free gift, CTA. */
+export const ConfettiRain: React.FC<{ at: number[]; colors: string[]; n?: number; dur?: number }> = ({ at, colors, n = 70, dur = 60 }) => {
+  const frame = useCurrentFrame();
+  const start = at.filter((s) => frame >= s && frame < s + dur).pop();
+  if (start === undefined) return null;
+  const f = frame - start;
+  const fade = interpolate(f, [dur - 14, dur], [1, 0], clamp);
+  return (
+    <AbsoluteFill style={{ pointerEvents: 'none', overflow: 'hidden' }}>
+      {Array.from({ length: n }, (_, i) => {
+        const seed = start * 7 + i;
+        const x0 = rnd(seed, 1) * 1080;
+        const delay = rnd(seed, 2) * 14;
+        const t = Math.max(0, f - delay);
+        const speed = 22 + rnd(seed, 3) * 16;
+        const y = -60 + t * speed + 0.18 * t * t;
+        const sway = Math.sin((t + seed) / (5 + rnd(seed, 4) * 5)) * (30 + rnd(seed, 5) * 40);
+        const w = 14 + rnd(seed, 6) * 12;
+        const flip = Math.abs(Math.cos((t + seed) / 4));
+        if (t <= 0 || y > 1980) return null;
+        return (
+          <div key={i} style={{ position: 'absolute', left: x0 + sway, top: y, width: w, height: w * 0.5 * (0.3 + flip),
+            background: colors[i % colors.length], borderRadius: i % 4 === 0 ? 99 : 2, opacity: fade,
+            transform: `rotate(${(rnd(seed, 7) * 360 + t * 14) % 360}deg)` }} />
+        );
+      })}
+    </AbsoluteFill>
+  );
+};
+
 /** Thin progress bar along the top edge. */
 export const ProgressBar: React.FC<{ color: string }> = ({ color }) => {
   const frame = useCurrentFrame();

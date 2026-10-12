@@ -331,6 +331,10 @@ export default function AdminSettings() {
   // B-roll sources: brand's own sales site first; never these sites.
   const [motionExcludeSites, setMotionExcludeSites] = useState("shopee, facebook, tiktok, lazada, mudah.my, youtube");
   const [motionBrandFirst, setMotionBrandFirst] = useState(true);
+  // Moving media keys (lib/motion-media.ts): stock clips + animated stickers.
+  // saved* = what's stored (kept unless a new key is typed).
+  const [mediaKeys, setMediaKeys] = useState({ pexels: "", pixabay: "", giphy: "" });
+  const [savedMediaKeys, setSavedMediaKeys] = useState({ pexels: "", pixabay: "", giphy: "" });
   const [motionSearchMsg, setMotionSearchMsg] = useState<string | null>(null);
   const [motionSearchQuery, setMotionSearchQuery] = useState("");
   const [testingMotionSearch, setTestingMotionSearch] = useState(false);
@@ -511,6 +515,13 @@ export default function AdminSettings() {
           setMotionSearchRows(parseMotionSearchRows(row.value));
           if (Array.isArray(row.value?.exclude_sites)) setMotionExcludeSites(row.value.exclude_sites.join(", "));
           setMotionBrandFirst(row.value?.brand_site_first !== false);
+          const keyOf = (list: any, p: string) =>
+            String((Array.isArray(list) ? list : []).find((x: any) => x?.provider === p)?.key || "");
+          setSavedMediaKeys({
+            pexels: keyOf(row.value?.video_providers, "pexels"),
+            pixabay: keyOf(row.value?.video_providers, "pixabay"),
+            giphy: keyOf(row.value?.sticker_providers, "giphy"),
+          });
         }
         if (row.key === "model_viral") setViralKnob(parseKnob(row.value, VIRAL_MAX_FB));
         if (row.key === "model_clone") setCloneKnob(parseKnob(row.value, CLONE_MAX_FB));
@@ -1331,6 +1342,10 @@ export default function AdminSettings() {
             providers,
             exclude_sites: motionExcludeSites.split(/[\s,]+/).map((s) => s.trim().toLowerCase()).filter(Boolean),
             brand_site_first: motionBrandFirst,
+            video_providers: (["pexels", "pixabay"] as const)
+              .map((p) => ({ provider: p, key: mediaKeys[p].trim() || savedMediaKeys[p] }))
+              .filter((x) => x.key),
+            sticker_providers: [{ provider: "giphy", key: mediaKeys.giphy.trim() || savedMediaKeys.giphy }].filter((x) => x.key),
           },
         }),
       });
@@ -2978,6 +2993,29 @@ export default function AdminSettings() {
             <p className="text-[10px] mt-1" style={{ color: "var(--color-text-muted)" }}>
               Pisahkan dengan koma. Nama (shopee) atau domain (mudah.my) — CDN gambar laman itu juga dikecualikan.
             </p>
+          </div>
+          <div className="pt-2 space-y-2">
+            <div className="text-[10px] font-mono uppercase tracking-widest font-bold" style={{ color: "var(--color-text-muted)" }}>
+              B-roll video bergerak + sticker animasi
+            </div>
+            {([
+              ["pexels", "Pexels API key — klip video stok (utama). Percuma: pexels.com/api — lesen OK untuk iklan, tiada kredit diperlukan."],
+              ["pixabay", "Pixabay API key — klip video stok (fallback). Percuma: pixabay.com/api/docs"],
+              ["giphy", "GIPHY API key — sticker / GIF reaksi (pilihan). Nota: terma API GIPHY tak meliputi simpan fail di server / video komersial — guna atas risiko sendiri. Kosong = guna emoji animasi."],
+            ] as const).map(([k, hint]) => (
+              <div key={k}>
+                <input
+                  type="password"
+                  value={mediaKeys[k]}
+                  onChange={(e) => setMediaKeys((m) => ({ ...m, [k]: e.target.value }))}
+                  placeholder={savedMediaKeys[k] ? `•••• ${k} key set — taip kunci baru untuk tukar` : `${k[0].toUpperCase()}${k.slice(1)} API key`}
+                  className="input w-full text-xs"
+                  autoComplete="off"
+                  style={{ color: "var(--color-text-primary)" }}
+                />
+                <p className="text-[10px] mt-0.5" style={{ color: "var(--color-text-muted)" }}>{hint}</p>
+              </div>
+            ))}
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2 mt-4">

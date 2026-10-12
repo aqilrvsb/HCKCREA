@@ -34,7 +34,7 @@ export async function POST(req: Request) {
   const declared = Number(b?.duration_sec) || 0;
   if (!(declared > 0.5)) return NextResponse.json({ error: "Tempoh video tidak sah." }, { status: 400 });
   const durationSec = Math.min(declared, MOTION_EDIT_MAX_SEC);
-  const style = ["pop", "karaoke", "box"].includes(b?.caption_style) ? b.caption_style : "pop";
+  const style = ["pop", "karaoke", "box", "tiktok"].includes(b?.caption_style) ? b.caption_style : "pop";
 
   const input: EditInput = {
     videoUrl,

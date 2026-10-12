@@ -288,6 +288,384 @@
       "source": "Freesound #380482 'Chime Notification' by Jofae",
       "source_url": "https://freesound.org/s/380482/",
       "license": "CC0 1.0"
+    },
+    {
+      "name": "confetti_1",
+      "file": "confetti_1.mp3",
+      "category": "confetti",
+      "duration_sec": 0.35,
+      "source": "Freesound #458398 'Balloon Pop / Christmas cracker / Confetti Cannon' by Breviceps",
+      "source_url": "https://freesound.org/s/458398/",
+      "license": "CC0 1.0"
+    },
+    {
+      "name": "confetti_2",
+      "file": "confetti_2.mp3",
+      "category": "confetti",
+      "duration_sec": 0.54,
+      "source": "Freesound #26349 'partypopper.flac' by Streety",
+      "source_url": "https://freesound.org/s/26349/",
+      "license": "CC0 1.0"
+    },
+    {
+      "name": "confetti_3",
+      "file": "confetti_3.mp3",
+      "category": "confetti",
+      "duration_sec": 1.2,
+      "source": "Freesound #706118 'echopop.mp3' by RandomWizKid",
+      "source_url": "https://freesound.org/s/706118/",
+      "license": "CC0 1.0"
+    },
+    {
+      "name": "circle_1",
+      "file": "circle_1.mp3",
+      "category": "circle",
+      "duration_sec": 0.76,
+      "source": "Freesound #321137 'Sharpie marker drawing circle 01.wav' by elliott.klein",
+      "source_url": "https://freesound.org/s/321137/",
+      "license": "CC0 1.0"
+    },
+    {
+      "name": "circle_2",
+      "file": "circle_2.mp3",
+      "category": "circle",
+      "duration_sec": 0.8,
+      "source": "Freesound #321138 'Felt tip pen drawing spiral 01.wav' by elliott.klein",
+      "source_url": "https://freesound.org/s/321138/",
+      "license": "CC0 1.0"
+    },
+    {
+      "name": "circle_3",
+      "file": "circle_3.mp3",
+      "category": "circle",
+      "duration_sec": 0.49,
+      "source": "Freesound #667399 'scribble' by MasterSuite",
+      "source_url": "https://freesound.org/s/667399/",
+      "license": "CC0 1.0"
+    },
+    {
+      "name": "underline_1",
+      "file": "underline_1.mp3",
+      "category": "underline",
+      "duration_sec": 0.24,
+      "source": "Freesound #428338 'Underlining Stroke on Paper' by zembacraftworks",
+      "source_url": "https://freesound.org/s/428338/",
+      "license": "CC0 1.0"
+    },
+    {
+      "name": "underline_2",
+      "file": "underline_2.mp3",
+      "category": "underline",
+      "duration_sec": 0.38,
+      "source": "Freesound #351145 'fast and slow marker strokes' by MBPiM",
+      "source_url": "https://freesound.org/s/351145/",
+      "license": "CC0 1.0"
+    },
+    {
+      "name": "underline_3",
+      "file": "underline_3.mp3",
+      "category": "underline",
+      "duration_sec": 0.5,
+      "source": "Freesound #46629 'quick lines with marker on paper.wav' by 123jorre456",
+      "source_url": "https://freesound.org/s/46629/",
+      "license": "CC0 1.0"
+    },
+    {
+      "name": "point_1",
+      "file": "point_1.mp3",
+      "category": "point",
+      "duration_sec": 0.12,
+      "source": "Kenney 'Interface Sounds' pack — bong_001.ogg",
+      "source_url": "https://kenney.nl/assets/interface-sounds",
+      "license": "CC0 1.0"
+    },
+    {
+      "name": "point_2",
+      "file": "point_2.mp3",
+      "category": "point",
+      "duration_sec": 0.28,
+      "source": "Freesound #388043 'Blop.wav' by Sami_Kullström",
+      "source_url": "https://freesound.org/s/388043/",
+      "license": "CC0 1.0"
+    },
+    {
+      "name": "point_3",
+      "file": "point_3.mp3",
+      "category": "point",
+      "duration_sec": 0.15,
+      "source": "Freesound #566685 'Tap on Shoulder' by njjjjjjjjjjjjjjjjjjjjjjjj",
+      "source_url": "https://freesound.org/s/566685/",
+      "license": "CC0 1.0"
+    },
+    {
+      "name": "twinkle_1",
+      "file": "twinkle_1.mp3",
+      "category": "twinkle",
+      "duration_sec": 0.65,
+      "source": "Freesound #759840 'ShiningRinging' by NoisyRedFox",
+      "source_url": "https://freesound.org/s/759840/",
+      "license": "CC0 1.0"
+    },
+    {
+      "name": "twinkle_2",
+      "file": "twinkle_2.mp3",
+      "category": "twinkle",
+      "duration_sec": 0.94,
+      "source": "Freesound #789599 'Chimes 2 - Short' by 13712885766",
+      "source_url": "https://freesound.org/s/789599/",
+      "license": "CC0 1.0"
+    },
+    {
+      "name": "twinkle_3",
+      "file": "twinkle_3.mp3",
+      "category": "twinkle",
+      "duration_sec": 1.2,
+      "source": "Freesound #715067 'achievement-sparkle' by SkySpeira",
+      "source_url": "https://freesound.org/s/715067/",
+      "license": "CC0 1.0"
+    },
+    {
+      "name": "transition_1",
+      "file": "transition_1.mp3",
+      "category": "transition",
+      "duration_sec": 0.25,
+      "source": "Freesound #264591 'swoosh.wav' by vacuumfan7072",
+      "source_url": "https://freesound.org/s/264591/",
+      "license": "CC0 1.0"
+    },
+    {
+      "name": "transition_2",
+      "file": "transition_2.mp3",
+      "category": "transition",
+      "duration_sec": 0.33,
+      "source": "Freesound #585257 'swoosh-1.mp3' by lesaucisson",
+      "source_url": "https://freesound.org/s/585257/",
+      "license": "CC0 1.0"
+    },
+    {
+      "name": "transition_3",
+      "file": "transition_3.mp3",
+      "category": "transition",
+      "duration_sec": 0.21,
+      "source": "Kenney 'Interface Sounds' pack — maximize_003.ogg",
+      "source_url": "https://kenney.nl/assets/interface-sounds",
+      "license": "CC0 1.0"
+    },
+    {
+      "name": "pop_5",
+      "file": "pop_5.mp3",
+      "category": "pop",
+      "duration_sec": 0.18,
+      "source": "Freesound #669918 'The Best Bubble Pop Sound For Game and UI' by el_boss",
+      "source_url": "https://freesound.org/s/669918/",
+      "license": "CC0 1.0"
+    },
+    {
+      "name": "pop_6",
+      "file": "pop_6.mp3",
+      "category": "pop",
+      "duration_sec": 0.19,
+      "source": "Freesound #411462 'Bubble Pop' by TheBuilder15",
+      "source_url": "https://freesound.org/s/411462/",
+      "license": "CC0 1.0"
+    },
+    {
+      "name": "whoosh_4",
+      "file": "whoosh_4.mp3",
+      "category": "whoosh",
+      "duration_sec": 0.43,
+      "source": "Freesound #60013 'Whoosh' by qubodup",
+      "source_url": "https://freesound.org/s/60013/",
+      "license": "CC0 1.0"
+    },
+    {
+      "name": "whoosh_5",
+      "file": "whoosh_5.mp3",
+      "category": "whoosh",
+      "duration_sec": 0.48,
+      "source": "Freesound #352719 'Woosh (stick swung in the air)' by Dalesome",
+      "source_url": "https://freesound.org/s/352719/",
+      "license": "CC0 1.0"
+    },
+    {
+      "name": "ding_3",
+      "file": "ding_3.mp3",
+      "category": "ding",
+      "duration_sec": 0.85,
+      "source": "Freesound #421002 'Correct.wav' by CogFireStudios",
+      "source_url": "https://freesound.org/s/421002/",
+      "license": "CC0 1.0"
+    },
+    {
+      "name": "ding_4",
+      "file": "ding_4.mp3",
+      "category": "ding",
+      "duration_sec": 0.31,
+      "source": "Freesound #243701 'correct' by ertfelda",
+      "source_url": "https://freesound.org/s/243701/",
+      "license": "CC0 1.0"
+    },
+    {
+      "name": "cash_2",
+      "file": "cash_2.mp3",
+      "category": "cash",
+      "duration_sec": 1.4,
+      "source": "Freesound #351304 'Cha Ching.wav' by deleted_user_96253",
+      "source_url": "https://freesound.org/s/351304/",
+      "license": "CC0 1.0"
+    },
+    {
+      "name": "cash_3",
+      "file": "cash_3.mp3",
+      "category": "cash",
+      "duration_sec": 1.38,
+      "source": "Freesound #794903 'Cash Register (imitation with toaster and bells)' by modusmogulus",
+      "source_url": "https://freesound.org/s/794903/",
+      "license": "CC0 1.0"
+    },
+    {
+      "name": "boing_2",
+      "file": "boing_2.mp3",
+      "category": "boing",
+      "duration_sec": 0.57,
+      "source": "Freesound #383240 'Bounce' by Jofae",
+      "source_url": "https://freesound.org/s/383240/",
+      "license": "CC0 1.0"
+    },
+    {
+      "name": "boing_3",
+      "file": "boing_3.mp3",
+      "category": "boing",
+      "duration_sec": 0.2,
+      "source": "Freesound #88451 'Boing.wav' by davidou",
+      "source_url": "https://freesound.org/s/88451/",
+      "license": "CC0 1.0"
+    },
+    {
+      "name": "slide_1",
+      "file": "slide_1.mp3",
+      "category": "slide",
+      "duration_sec": 0.46,
+      "source": "Kenney 'Casino Audio' pack — card-slide-4.ogg",
+      "source_url": "https://kenney.nl/assets/casino-audio",
+      "license": "CC0 1.0"
+    },
+    {
+      "name": "slide_2",
+      "file": "slide_2.mp3",
+      "category": "slide",
+      "duration_sec": 0.27,
+      "source": "Freesound #571581 'Playing Card Slide Right' by el_boss",
+      "source_url": "https://freesound.org/s/571581/",
+      "license": "CC0 1.0"
+    },
+    {
+      "name": "thud_1",
+      "file": "thud_1.mp3",
+      "category": "thud",
+      "duration_sec": 0.18,
+      "source": "Kenney 'Impact Sounds' pack — impactSoft_medium_001.ogg",
+      "source_url": "https://kenney.nl/assets/impact-sounds",
+      "license": "CC0 1.0"
+    },
+    {
+      "name": "thud_2",
+      "file": "thud_2.mp3",
+      "category": "thud",
+      "duration_sec": 0.17,
+      "source": "Freesound #215162 'thud.wav' by OtisJames",
+      "source_url": "https://freesound.org/s/215162/",
+      "license": "CC0 1.0"
+    },
+    {
+      "name": "notify_2",
+      "file": "notify_2.mp3",
+      "category": "notify",
+      "duration_sec": 0.45,
+      "source": "Freesound #235911 'Notification Sound' by yfjesse",
+      "source_url": "https://freesound.org/s/235911/",
+      "license": "CC0 1.0"
+    },
+    {
+      "name": "notify_3",
+      "file": "notify_3.mp3",
+      "category": "notify",
+      "duration_sec": 0.31,
+      "source": "Freesound #740423 'Message Notification 4' by AnthonyRox",
+      "source_url": "https://freesound.org/s/740423/",
+      "license": "CC0 1.0"
+    },
+    {
+      "name": "camera_1",
+      "file": "camera_1.mp3",
+      "category": "camera",
+      "duration_sec": 0.41,
+      "source": "Freesound #61059 '350d shutter.wav' by xef6",
+      "source_url": "https://freesound.org/s/61059/",
+      "license": "CC0 1.0"
+    },
+    {
+      "name": "camera_2",
+      "file": "camera_2.mp3",
+      "category": "camera",
+      "duration_sec": 0.26,
+      "source": "Freesound #231286 '5DMkII shutter sound.wav' by ulose2piranha",
+      "source_url": "https://freesound.org/s/231286/",
+      "license": "CC0 1.0"
+    },
+    {
+      "name": "drumroll_1",
+      "file": "drumroll_1.mp3",
+      "category": "drumroll",
+      "duration_sec": 1.5,
+      "source": "Freesound #667762 'mapex snare roll 105BPM.wav' by laffik",
+      "source_url": "https://freesound.org/s/667762/",
+      "license": "CC0 1.0"
+    },
+    {
+      "name": "drumroll_2",
+      "file": "drumroll_2.mp3",
+      "category": "drumroll",
+      "duration_sec": 1.5,
+      "source": "Freesound #77305 'buzz roll.wav' by bigjoedrummer",
+      "source_url": "https://freesound.org/s/77305/",
+      "license": "CC0 1.0"
+    },
+    {
+      "name": "scratch_2",
+      "file": "scratch_2.mp3",
+      "category": "scratch",
+      "duration_sec": 0.49,
+      "source": "Freesound #431779 'Record Scratch #6' by musicvision31",
+      "source_url": "https://freesound.org/s/431779/",
+      "license": "CC0 1.0"
+    },
+    {
+      "name": "scratch_3",
+      "file": "scratch_3.mp3",
+      "category": "scratch",
+      "duration_sec": 0.64,
+      "source": "Freesound #668909 'Vinyl Scratch' by ChuckChuckGoof",
+      "source_url": "https://freesound.org/s/668909/",
+      "license": "CC0 1.0"
+    },
+    {
+      "name": "glitch_3",
+      "file": "glitch_3.mp3",
+      "category": "glitch",
+      "duration_sec": 0.57,
+      "source": "Freesound #58929 'interference.aif' by electrosnail",
+      "source_url": "https://freesound.org/s/58929/",
+      "license": "CC0 1.0"
+    },
+    {
+      "name": "glitch_4",
+      "file": "glitch_4.mp3",
+      "category": "glitch",
+      "duration_sec": 0.69,
+      "source": "Freesound #332711 'Glitch' by AmicaSys",
+      "source_url": "https://freesound.org/s/332711/",
+      "license": "CC0 1.0"
     }
   ]
 }

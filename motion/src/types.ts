@@ -27,7 +27,12 @@ export type ItemType =
   | 'arrow' // hand-drawn arrow drawing on, with a label (text)
   | 'stars' // 5-star rating row; text = label (only real numbers)
   | 'cta' // "Tekan beg kuning" pill with a bouncing arrow
-  | 'fact'; // web fact card: text + sub = "Sumber: domain" (built from EditProps.facts)
+  | 'fact' // web fact card: text + sub = "Sumber: domain" (built from EditProps.facts)
+  | 'circle' // word circled with a hand-drawn marker loop
+  | 'underline' // bold word with a double scribbled underline
+  | 'point' // bouncing pointing-hand emoji (sub = which hand) + label
+  | 'gif' // animated GIF / sticker (src = local URL)
+  | 'confetti'; // full-frame confetti rain (no slot)
 
 export type Tone = 'yellow' | 'white' | 'red' | 'green' | 'accent' | 'dark';
 
@@ -42,13 +47,16 @@ export type Item = {
   zone?: Zone;
   tone?: Tone;
   mark?: 'check' | 'cross';
+  /** gif: local URL of the downloaded animation. */
+  src?: string;
 };
 
 /** Keyword colouring for captions (word index into `words`). */
 export type KeyColor = 'benefit' | 'price' | 'pain' | 'brand' | 'accent';
 export type CaptionKey = { i: number; color: KeyColor; emoji?: string };
 
-export type CaptionStyle = 'pop' | 'karaoke' | 'box';
+/** tiktok = TikTok's own white rounded text box (rounded-text-box). */
+export type CaptionStyle = 'pop' | 'karaoke' | 'box' | 'tiktok';
 
 /** Map of emoji character → local Lottie JSON URL (Google Noto animated). */
 export type LottieMap = Record<string, string>;
@@ -117,8 +125,10 @@ export type Face = { t: number; x: number; y: number; w: number; h: number };
 export type BRoll = {
   at: string | number;
   to?: string | number;
-  /** Local URL of the prepared image (≤1080 wide). */
+  /** Local URL of the prepared image (≤1080 wide) — the poster frame for a video clip. */
   src: string;
+  /** Local URL of a short stock video clip (muted), when this cutaway moves. */
+  video?: string;
   /** Local URL of the blurred 1080x1920 fill (fullscreen layout). */
   blur?: string;
   layout: 'full' | 'pip';
@@ -162,4 +172,8 @@ export type EditProps = {
   tapes?: TapeTrack[];
   /** TikTok guard: indices into `words` that were muted — captions show tape. */
   censor?: number[];
+  /** Jump-cut points (s) — the frame alternates a punch-in on each cut so jumps read as camera changes. */
+  cuts?: number[];
+  /** Final-QA tape patches in SCREEN space (found by OCR on the rendered video). */
+  patchTapes?: TapeTrack[];
 };

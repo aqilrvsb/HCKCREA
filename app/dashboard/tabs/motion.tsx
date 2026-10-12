@@ -15,7 +15,7 @@ import { MOTION_AD_PRESETS, MOTION_EDIT_PRESETS, type MotionPreset } from "@/lib
 import { MOTION_STAGE_LABEL } from "../sections/motion-progress";
 
 type Mode = "ad" | "edit";
-type CaptionStyle = "pop" | "karaoke" | "box";
+type CaptionStyle = "pop" | "karaoke" | "box" | "tiktok";
 type Job = {
   id: string;
   status: string;
@@ -587,6 +587,7 @@ export default function MotionTab({ projectId }: { projectId?: string }) {
                 <Chip small active={captionStyle === "pop"} onClick={() => setCaptionStyle("pop")}>Pop</Chip>
                 <Chip small active={captionStyle === "karaoke"} onClick={() => setCaptionStyle("karaoke")}>Karaoke</Chip>
                 <Chip small active={captionStyle === "box"} onClick={() => setCaptionStyle("box")}>Box</Chip>
+                <Chip small active={captionStyle === "tiktok"} onClick={() => setCaptionStyle("tiktok")}>TikTok</Chip>
                 {mode === "edit" && (
                   <>
                     <span className="text-[10px] font-bold text-[var(--color-text-muted)] ml-2">Kedudukan</span>

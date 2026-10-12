@@ -600,7 +600,7 @@ export function dropExcluded(hits: ImageHit[], exclude: string[]): ImageHit[] {
 }
 
 // Not the product's own sales page (social / marketplace / reference / parked-domain noise).
-const NOT_SALES_SITE = /(^|\.)(instagram|threads|x|twitter|pinterest|reddit|quora|wikipedia|linkedin|unscramble|atom|ebay|amazon|aliexpress|alibaba|carousell|temu|zalora|webmd)\./;
+const NOT_SALES_SITE = /(^|\.)(instagram|threads|x|twitter|pinterest|reddit|quora|wikipedia|linkedin|unscramble|atom|ebay|amazon|aliexpress|alibaba|carousell|temu|zalora|webmd|pexels|pixabay|giphy)\./;
 
 /** The product-type word of a product name ("Gluvera Diabetic Patch" → "patch"). */
 export function productTypeWord(product: string, brandToken: string): string {

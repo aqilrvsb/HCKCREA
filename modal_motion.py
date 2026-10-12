@@ -275,10 +275,25 @@ def _node_render(comp: str, props_path: Path, out: Path, extra: list, scale: flo
         raise RuntimeError("render failed: " + " | ".join(tail[-12:])[-1500:])
 
 
+LOUDNORM = "loudnorm=I=-14:TP=-1.5:LRA=11"  # TikTok / Reels loudness target
+
+
+def _loudnorm_inplace(out: Path) -> None:
+    """Normalise the finished mix (voice + SFX + music) to -14 LUFS."""
+    tmp = out.with_name(out.stem + "_ln.mp4")
+    try:
+        _run(["ffmpeg", "-v", "error", "-y", "-i", str(out), "-map", "0:v", "-map", "0:a", "-c:v", "copy", "-af", LOUDNORM,
+              "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart", str(tmp)], "loudnorm", 300)
+        tmp.replace(out)
+    except Exception as e:  # noqa: BLE001
+        print("loudnorm skipped:", str(e)[:160])
+
+
 def _render_single(comp: str, props: dict, d: Path, out: Path, scale: float, pct_from: int, pct_to: int):
     pp = d / "props.json"
     pp.write_text(json.dumps(props, ensure_ascii=False), encoding="utf-8")
     _node_render(comp, pp, out, [], scale, on_pct=lambda p: _progress("render", pct_from + (pct_to - pct_from) * p // 100))
+    _loudnorm_inplace(out)
 
 
 def _render_parallel(comp: str, props: dict, d: Path, out: Path, scale: float, pct_from: int, pct_to: int) -> dict:
@@ -331,7 +346,7 @@ def _render_parallel(comp: str, props: dict, d: Path, out: Path, scale: float, p
     audio = tmp / "audio.wav"
     _run(["ffmpeg", "-v", "error", "-y", "-f", "concat", "-safe", "0", "-i", str(alst), "-c", "copy", str(audio)], "audio join", 300)
     _run(["ffmpeg", "-v", "error", "-y", "-f", "concat", "-safe", "0", "-i", str(vlst), "-i", str(audio),
-          "-map", "0:v", "-map", "1:a", "-c:v", "copy", "-c:a", "aac", "-b:a", "192k", "-shortest",
+          "-map", "0:v", "-map", "1:a", "-c:v", "copy", "-af", LOUDNORM, "-c:a", "aac", "-b:a", "192k", "-shortest",
           "-movflags", "+faststart", str(out)], "stitch", 600)
     got_sec = _probe(out)["duration"]
     want = total / float(props.get("fps") or 30)
@@ -634,6 +649,21 @@ def _fetch_image(url: str, dest: Path):
     return dest
 
 
+def _fetch_clip(url: str, d: Path, k: int, ci: int, layout: str):
+    """Stock clip → ≤4.5 s muted H.264 cropped for its layout + a poster JPEG
+    (the poster is what the guard OCR and the vision QA look at)."""
+    raw = _download(url, d / f"brv{k}_{ci}.src", 90 * 1024 * 1024)
+    clip = d / f"broll_{k}_{ci}.mp4"
+    vf = ("scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920" if layout == "full"
+          else "scale=720:540:force_original_aspect_ratio=increase,crop=720:540")
+    _run(["ffmpeg", "-v", "error", "-y", "-ss", "0.3", "-t", "4.5", "-i", str(raw), "-an", "-vf", f"{vf},fps=30",
+          "-c:v", "libx264", "-preset", "veryfast", "-crf", "21", "-pix_fmt", "yuv420p", str(clip)], "broll clip", 240)
+    poster = d / f"broll_{k}_{ci}.jpg"
+    _run(["ffmpeg", "-v", "error", "-y", "-ss", "0.6", "-i", str(clip), "-frames:v", "1", "-q:v", "3", str(poster)], "clip poster", 60)
+    raw.unlink(missing_ok=True)
+    return clip, poster
+
+
 def _fetch_broll(items: list, d: Path, srv: _Serve, p: dict = None) -> tuple:
     """First decodable, big-enough candidate per moment (moments fetched in
     parallel); none → moment dropped. With the TikTok guard: two candidates
@@ -643,17 +673,26 @@ def _fetch_broll(items: list, d: Path, srv: _Serve, p: dict = None) -> tuple:
     guard = bool(p and p.get("guard"))
     want = 2 if guard else 1
 
+    clips = {}  # poster path → clip path (video cutaways)
+
     def moment(kb):
         k, b = kb
         got = []
+        is_video = b.get("kind") == "video"
+        layout = b.get("layout") if b.get("layout") in ("full", "pip") else "pip"
         for ci, url in enumerate((b.get("candidates") or [])[:5]):
             try:
-                x = _fetch_image(url, d / f"broll_{k}_{ci}.jpg")
-                if x:
-                    got.append(x)
+                if is_video:
+                    clip, poster = _fetch_clip(url, d, k, ci, layout)
+                    clips[str(poster)] = clip
+                    got.append(poster)
+                else:
+                    x = _fetch_image(url, d / f"broll_{k}_{ci}.jpg")
+                    if x:
+                        got.append(x)
             except Exception as e:  # noqa: BLE001
                 print("broll candidate failed", k, ci, str(e)[:120])
-            if len(got) >= want:
+            if len(got) >= (1 if is_video else want):
                 break
         return k, b, got
 
@@ -683,10 +722,41 @@ def _fetch_broll(items: list, d: Path, srv: _Serve, p: dict = None) -> tuple:
             entry["to"] = b["to"]
         if b.get("label"):
             entry["label"] = str(b["label"])[:40]
-        if layout == "full":
+        if str(src) in clips:
+            entry["video"] = srv.url(clips[str(src)])
+        elif layout == "full":
             entry["blur"] = srv.url(_blur_bg(src, d / f"broll_{k}_blur.jpg"))
         out.append(entry)
+    info["clips"] = sum(1 for e in out if e.get("video"))
     return out, info
+
+
+def _fetch_gifs(overlays: list, d: Path, srv: _Serve) -> int:
+    """Animated sticker overlays (src = remote GIF/WebP) → local files. A
+    sticker that can't be fetched becomes its fallback animated emoji."""
+    import requests
+    n = 0
+    for i, o in enumerate(overlays):
+        if o.get("t") != "gif":
+            continue
+        url = str(o.get("src") or "")
+        try:
+            if not url.startswith("https://"):
+                raise ValueError("no source")
+            r = requests.get(url, timeout=15, headers={"User-Agent": UA})
+            ct = (r.headers.get("content-type") or "").lower()
+            if not r.ok or len(r.content) > 12 * 1024 * 1024 or not any(x in ct for x in ("gif", "webp", "png")):
+                raise ValueError(f"HTTP {r.status_code} {ct}")
+            ext = "webp" if "webp" in ct else "png" if "png" in ct else "gif"
+            f = d / f"sticker_{i}.{ext}"
+            f.write_bytes(r.content)
+            o["src"] = srv.url(f)
+            n += 1
+        except Exception as e:  # noqa: BLE001
+            print("sticker fallback → emoji:", str(e)[:120])
+            o["t"], o["text"] = "emoji", (o.get("sub") or "✨")
+            o.pop("src", None)
+    return n
 
 
 def _emoji_cps(ch: str) -> list:
@@ -786,12 +856,12 @@ def _ocr_lines(eng, img) -> list:
 
 
 @app.function(image=guard_image, cpu=4.0, memory=4096, timeout=600, volumes={JOBS_ROOT: JOBS})
-def guard_scan(job: str, start: float, length: float, fps: float, j0: int) -> dict:
+def guard_scan(job: str, start: float, length: float, fps: float, j0: int, name: str = "video.mp4") -> dict:
     """OCR the sampled frames of [start, start+length) of the job's video.
     Each detection: j (global sample index), t, box (1080x1920 px), text, score."""
     import numpy as np
     JOBS.reload()
-    video = Path(JOBS_ROOT) / job / "video.mp4"
+    video = Path(JOBS_ROOT) / job / name
     eng = _ocr()
     W, H = 720, 1280
     proc = subprocess.Popen(["ffmpeg", "-v", "error", "-ss", f"{start:.3f}", "-t", f"{length:.3f}", "-i", str(video),
@@ -1307,18 +1377,26 @@ def _normalise(src: Path, out: Path, info: dict, max_sec: float, segs=None) -> P
         vpre = f"fps=30,select='{expr}',setpts=N/(30*TB),"
     else:
         vpre = "fps=30,"
+    # mild "phone footage" lift: a touch more contrast + saturation
+    grade = ",eq=contrast=1.04:saturation=1.1:gamma=1.02"
     if 0.53 <= ar <= 0.6:
         fc = (f"[0:v]{vpre}scale=1080:1920:force_original_aspect_ratio=increase:flags=lanczos,crop=1080:1920"
-              f"{sharpen},setsar=1,format=yuv420p[v]")
+              f"{sharpen}{grade},setsar=1,format=yuv420p[v]")
     else:
         fc = (f"[0:v]{vpre}split[a][b];"
               "[a]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,boxblur=28:6,eq=brightness=-0.08[bg];"
-              f"[b]scale=1080:1920:force_original_aspect_ratio=decrease:flags=lanczos{sharpen}[fg];"
+              f"[b]scale=1080:1920:force_original_aspect_ratio=decrease:flags=lanczos{sharpen}{grade}[fg];"
               "[bg][fg]overlay=(W-w)/2:(H-h)/2,setsar=1,format=yuv420p[v]")
     amap = "0:a:0" if info["audio"] else "1:a"
+    # Voice clean-up: rumble cut, FFT denoise, gentle compression, peak limit
+    # (the final mix is loudness-normalised to -14 LUFS after the render).
+    voice = "highpass=f=75,afftdn=nr=10:nf=-32,acompressor=threshold=-20dB:ratio=2.5:attack=8:release=160:makeup=1.6,alimiter=limit=0.95"
     if segs and info["audio"]:
         expr = "+".join(f"between(t,{s:.3f},{e:.3f})" for s, e in segs)
-        fc += f";[0:a]aselect='{expr}',asetpts=N/SR/TB[aout]"
+        fc += f";[0:a]aselect='{expr}',asetpts=N/SR/TB,{voice}[aout]"
+        amap = "[aout]"
+    elif info["audio"]:
+        fc += f";[0:a]{voice}[aout]"
         amap = "[aout]"
     script = out.with_suffix(".filter.txt")
     script.write_text(fc, encoding="utf-8")
@@ -1436,6 +1514,17 @@ def _flow_edit(p: dict, d: Path, srv: _Serve) -> dict:
     if not plan:
         plan, plan_fallback = _fallback_plan(), True
 
+    # AI-corrected spelling for the captions (timing untouched, 1:1 by index)
+    fixed = 0
+    for fx in plan.get("fixes") or []:
+        try:
+            i, w = int(fx[0]), str(fx[1]).strip()
+            if 0 <= i < len(words) and w and len(w) <= 40:
+                words[i]["w"] = w
+                fixed += 1
+        except Exception:  # noqa: BLE001
+            continue
+
     _progress("assets", 40)
     broll_guard = {}
     try:
@@ -1443,7 +1532,9 @@ def _flow_edit(p: dict, d: Path, srv: _Serve) -> dict:
     except Exception as e:  # noqa: BLE001
         print("broll failed:", str(e)[:200])
         broll = []
+    stickers = _fetch_gifs(plan.get("overlays") or [], d, srv)
     chars = [o.get("text") for o in (plan.get("overlays") or []) if o.get("t") == "emoji"]
+    chars += [o.get("sub") or "👇" for o in (plan.get("overlays") or []) if o.get("t") == "point"]
     chars += [k.get("emoji") for k in (plan.get("keywords") or []) if k.get("emoji")]
     lottie = _fetch_lottie(chars, d, srv)
 
@@ -1454,6 +1545,7 @@ def _flow_edit(p: dict, d: Path, srv: _Serve) -> dict:
         "sfx": bool(p.get("sfx", True)), "style": style, "faces": faces, "broll": broll,
         "facts": plan.get("facts") or [], "keywords": plan.get("keywords") or [], "rehook": plan.get("rehook"),
         "cta": plan.get("cta"), "lottie": lottie, "progress": style == "gempak",
+        "cuts": cut_marks,
     }
     guard_dbg = None
     if guard:
@@ -1509,11 +1601,62 @@ def _flow_edit(p: dict, d: Path, srv: _Serve) -> dict:
 
     out = d / "out.mp4"
     _progress("render", 50)
-    rinfo = _render_parallel("MotionEdit", props, d, out, _scale_for(p), 50, 95)
+    rinfo = _render_parallel("MotionEdit", props, d, out, _scale_for(p), 50, 92)
+
+    # Second QA on the FINISHED video (guideline mode): OCR the output; any
+    # claim text that still shows (a box the tracker lost, a sticker) gets a
+    # screen-space tape patch and the video is rendered once more.
+    final_qa = None
+    if guard:
+        _progress("qa", 92)
+        try:
+            final_qa = _final_check(d, out, dur, p, props)
+            if final_qa.get("patched"):
+                _progress("render", 93)
+                rinfo = _render_parallel("MotionEdit", props, d, out, _scale_for(p), 93, 95)
+        except Exception as e:  # noqa: BLE001
+            final_qa = {"error": str(e)[:200]}
+            print("final check failed:", e)
+    if guard_dbg is not None:
+        guard_dbg["final_qa"] = final_qa
     return {"out": out, "duration": dur, "poster_at": min(1.5, dur / 3),
             "debug": {"words": len(words), "overlays": len(props["overlays"]), "broll": len(broll), "facts": len(props["facts"]),
                       "faces": len(faces), "jumpcut": cut, "plan_fallback": plan_fallback, "qa": qa, "render": rinfo,
+                      "caption_fixes": fixed, "stickers": stickers, "broll_clips": broll_guard.get("clips", 0) if broll_guard else 0,
                       **({"guard": guard_dbg} if guard_dbg else {})}}
+
+
+def _final_check(d: Path, out: Path, dur: float, p: dict, props: dict) -> dict:
+    """OCR the rendered video at 2 fps; risky lines still visible → patch tapes."""
+    fps = 2.0
+    JOBS.commit()
+    total = int(dur * fps)
+    n = max(1, min(12, math.ceil(dur / 8)))
+    cf = math.ceil(total / n) if total else 0
+    jobs = [(i * cf, min(cf, total - i * cf)) for i in range(n) if cf and i * cf < total]
+    dets = []
+    for res in guard_scan.map([d.name] * len(jobs), [a / fps for a, _ in jobs], [c / fps for _, c in jobs], [fps] * len(jobs),
+                              [a for a, _ in jobs], [out.name] * len(jobs), order_outputs=False, return_exceptions=True):
+        if isinstance(res, dict) and res.get("ok"):
+            dets += res["dets"]
+    keys, texts = {}, []
+    for x in dets:
+        k = _tkey(x["x"])
+        if len(k) >= 3 and x["s"] >= 0.5 and k not in keys:
+            keys[k] = len(texts)
+            texts.append(x["x"])
+    if not texts:
+        return {"texts": 0, "leaks": 0}
+    cls = _guard_classify(p, "final", texts[:200])
+    risky = {_tkey(texts[i]) for i in cls["risky"]}
+    if not risky:
+        return {"texts": len(texts), "leaks": 0}
+    tracks = _guard_tracks(dets, risky, fps, [])
+    for tr in tracks:  # 2 fps samples: hold a little longer either side
+        tr["pre"], tr["post"] = 0.45, 0.45
+    props["patchTapes"] = tracks
+    return {"texts": len(texts), "leaks": len(tracks), "leak_texts": sorted({texts[keys[k]] for k in risky if k in keys})[:12],
+            "patched": bool(tracks)}
 
 
 # ── job + endpoints ───────────────────────────────────────────────────────────
