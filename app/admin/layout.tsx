@@ -15,6 +15,7 @@ import {
   Megaphone,
   MessageSquare,
   Radio,
+  Clapperboard,
 } from "lucide-react";
 
 export default async function AdminLayout({
@@ -70,6 +71,7 @@ export default async function AdminLayout({
     { href: "/admin/clients", label: "Clients", icon: Users },
     { href: "/admin/usage", label: "Usage", icon: Activity },
     { href: "/admin/usage-chat", label: "Usage Chat", icon: MessageSquare },
+    { href: "/admin/motion", label: "Motion", icon: Clapperboard },
     { href: "/admin/errors", label: "Errors", icon: AlertTriangle },
     { href: "/admin/livehost", label: "Livehost", icon: Radio },
     { href: "/admin/settings", label: "Settings", icon: Settings },
