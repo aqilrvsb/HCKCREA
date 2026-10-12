@@ -241,10 +241,12 @@ def _pcm16k(src: Path):
 
 
 # Whisper drops "erm/aah" unless the prompt shows them — the jump cut needs them.
-FILLER_PROMPT = "Erm, okay jadi… aah, macam ni, kan? Emm, korang tahu tak, uhh, ni produk dia."
+# Both also carry a few English terms the way Malaysians mix them in, so Whisper
+# keeps those in English spelling instead of writing them the Malay way.
+FILLER_PROMPT = "Erm, okay jadi… aah, macam ni, kan? Emm, korang tahu tak, uhh, ni produk dia, memang best untuk skincare routine."
 # Without fillers a Malay video still gets a Malay context, so unclear audio is
 # decoded toward Malay words rather than sound-alikes.
-MALAY_PROMPT = "Okey korang, hari ni saya nak share produk ni. Senang je nak guna, jom tengok sampai habis."
+MALAY_PROMPT = "Okey korang, hari ni saya nak share review produk ni. Senang je nak guna, kulit terus glowing, jom tengok sampai habis."
 
 
 def _asr_prompt(language, keep_fillers: bool, hint) -> str | None:

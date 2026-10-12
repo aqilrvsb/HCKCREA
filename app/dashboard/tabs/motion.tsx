@@ -124,6 +124,18 @@ function GuardBox({ on, onChange }: { on: boolean; onChange: (v: boolean) => voi
   );
 }
 
+/** Up to 3 tries, 1.5 s / 3 s apart, for errors marked `retry` (network drop, 5xx). */
+async function withRetry<T>(fn: () => Promise<T>, tries = 3): Promise<T> {
+  for (let k = 1; ; k++) {
+    try {
+      return await fn();
+    } catch (e: unknown) {
+      if (k >= tries || !(e as { retry?: boolean })?.retry) throw e;
+      await new Promise((r) => setTimeout(r, 1500 * k));
+    }
+  }
+}
+
 // iOS Safari never loads metadata for a detached <video> (and ignores
 // preload): attach it off-screen, muted + inline, call load(), accept
 // whichever of loadedmetadata / durationchange brings a real duration, and
@@ -198,7 +210,9 @@ export default function MotionTab({ projectId }: { projectId?: string }) {
 
   // Edit Video
   const [videos, setVideos] = useState<VideoPick[]>([]);
-  const [editLang, setEditLang] = useState<"ms" | "en" | "auto">("ms");
+  // Speech language: always Malay (no picker) — the English terms Malaysians mix
+  // in are kept as English by the transcriber and the caption fixer.
+  const editLang = "ms";
   const [captionPos, setCaptionPos] = useState<"low" | "mid">("low");
   const [editMusic, setEditMusic] = useState(false);
   // Jump cut, B-roll and fact cards: always on (no toggles in the form).
@@ -278,10 +292,13 @@ export default function MotionTab({ projectId }: { projectId?: string }) {
     });
     const d = await r.json().catch(() => ({}));
     if (!r.ok || !d?.upload_url) throw new Error(d?.error || "Tak dapat link upload");
-    const up = await fetch(d.upload_url, { method: "POST", headers: { "Content-Type": file.type || "image/jpeg" }, body: file });
-    const j = await up.json().catch(() => ({}));
-    if (!up.ok || !j?.url) throw new Error(j?.error || `Upload gagal (${up.status})`);
-    return String(j.url);
+    return withRetry(async () => {
+      const up = await fetch(d.upload_url, { method: "POST", headers: { "Content-Type": file.type || "image/jpeg" }, body: file })
+        .catch(() => { throw Object.assign(new Error("Upload gagal — semak sambungan internet."), { retry: true }); });
+      const j = await up.json().catch(() => ({}));
+      if (!up.ok || !j?.url) throw Object.assign(new Error(j?.error || `Upload gagal (${up.status})`), { retry: up.status >= 500 });
+      return String(j.url);
+    });
   }
   const rememberPhoto = (url: string) =>
     fetch("/api/motion/photos", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ url }) })
@@ -350,7 +367,7 @@ export default function MotionTab({ projectId }: { projectId?: string }) {
     });
     const d = await r.json();
     if (!r.ok || !d?.upload_url) throw new Error(d?.error || "Tak dapat link upload");
-    return await new Promise<string>((resolve, reject) => {
+    const send = () => new Promise<string>((resolve, reject) => {
       const xhr = new XMLHttpRequest();
       xhr.open("POST", d.upload_url);
       xhr.setRequestHeader("Content-Type", v.file.type || "video/mp4");
@@ -359,12 +376,14 @@ export default function MotionTab({ projectId }: { projectId?: string }) {
         try {
           const j = JSON.parse(xhr.responseText || "{}");
           if (xhr.status >= 200 && xhr.status < 300 && j?.url) resolve(j.url);
-          else reject(new Error(j?.error || `Upload gagal (${xhr.status})`));
-        } catch { reject(new Error(`Upload gagal (${xhr.status})`)); }
+          else reject(Object.assign(new Error(j?.error || `Upload gagal (${xhr.status})`), { retry: xhr.status >= 500 }));
+        } catch { reject(Object.assign(new Error(`Upload gagal (${xhr.status})`), { retry: xhr.status >= 500 })); }
       };
-      xhr.onerror = () => reject(new Error("Upload gagal — semak sambungan internet."));
+      xhr.onerror = () => reject(Object.assign(new Error("Upload gagal — semak sambungan internet."), { retry: true }));
       xhr.send(v.file);
     });
+    // a dropped connection (SSL reset, flaky mobile data) or a 5xx is retried
+    return withRetry(send);
   }
 
   // ── submit ──
@@ -498,14 +517,6 @@ export default function MotionTab({ projectId }: { projectId?: string }) {
             </div>
             <PromptBox value={editPrompt} onChange={setEditPrompt} presets={presets} placeholder="cth. Jadikan video jualan beg kuning: hook kuat, tick setiap kelebihan, tutup dengan CTA tekan beg kuning." />
             <GuardBox on={guard} onChange={setGuard} />
-            <div>
-              <label className={label}>Bahasa dalam video</label>
-              <div className="flex gap-2">
-                <Chip active={editLang === "ms"} onClick={() => setEditLang("ms")}>Melayu</Chip>
-                <Chip active={editLang === "en"} onClick={() => setEditLang("en")}>English</Chip>
-                <Chip active={editLang === "auto"} onClick={() => setEditLang("auto")}>Auto</Chip>
-              </div>
-            </div>
             <div>
               <label className={label}>Nama produk *</label>
               <input className={inputCls} style={inputStyle} value={editProduct} maxLength={80} onChange={(e) => setEditProduct(e.target.value)} placeholder="cth. Kopi Pening" />
