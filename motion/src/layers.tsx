@@ -2,6 +2,7 @@ import React from 'react';
 import { AbsoluteFill, Audio, Img, Sequence, interpolate, useCurrentFrame, useVideoConfig } from 'remotion';
 import { RENDER } from './elements';
 import { LottieEmoji } from './emoji';
+import { TapeStrip } from './guard';
 import { EXIT, F, SAFE_X, W, clamp, fitSize, highlight, inkOn, popS, shade, type Row } from './lib';
 import type { SfxEvent } from './sfx';
 import type { Bg, CaptionKey, CaptionStyle, KeyColor, LottieMap, Style, Word, Zone } from './types';
@@ -90,7 +91,9 @@ const KEY_COLOR: Record<KeyColor, string> = { benefit: '#4ade80', price: '#FFD93
 export const Captions: React.FC<{
   pages: Page[]; style: CaptionStyle; accent: string; centerY: number; hideFrom?: number; hiOverride?: string;
   keywords?: CaptionKey[]; lottie?: LottieMap; gempak?: boolean;
-}> = ({ pages, style, accent, centerY, hideFrom, hiOverride, keywords, lottie, gempak }) => {
+  /** Word indices muted by the TikTok guard — shown as a strip of tape. */
+  censor?: number[];
+}> = ({ pages, style, accent, centerY, hideFrom, hiOverride, keywords, lottie, gempak, censor }) => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
   if (hideFrom !== undefined && frame >= hideFrom) return null;
@@ -99,6 +102,7 @@ export const Captions: React.FC<{
   if (!page) return null;
   const hi = hiOverride ?? highlight(accent);
   const keyOf = new Map<number, CaptionKey>((keywords ?? []).map((k) => [k.i, k]));
+  const taped = new Set(censor ?? []);
   const text = page.words.map((w) => w.w).join(' ');
   const size = fitSize(text.toUpperCase(), 92, W - 150, 2, 0.7, 40);
   const pf = Math.round((t - page.start) * fps);
@@ -113,6 +117,17 @@ export const Captions: React.FC<{
           const spoken = k <= cur;
           const isCur = k === cur;
           const ws = popS(Math.round((t - w.t) * fps), fps, gempak ? 420 : 380, gempak ? 11 : 14);
+          if (taped.has(w.gi)) {
+            // Same footprint as the word, so the line doesn't reflow — the
+            // word itself never reaches the frame.
+            const tw = Math.max(size * 1.4, w.w.length * size * 0.62);
+            return (
+              <span key={k} style={{ display: 'inline-block', width: tw, height: size * 0.95, verticalAlign: 'middle',
+                transform: `rotate(${(w.gi % 3) - 1.5}deg) scale(${spoken ? 0.9 + 0.1 * ws : 0.9})` }}>
+                <TapeStrip w={tw} h={size * 0.95} seed={w.gi + 3} />
+              </span>
+            );
+          }
           const key = keyOf.get(w.gi);
           const keyCol = key ? (key.color === 'brand' || key.color === 'accent' ? hi : KEY_COLOR[key.color]) : null;
           const emoji = key?.emoji && spoken ? (

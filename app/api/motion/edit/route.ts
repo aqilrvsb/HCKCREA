@@ -53,6 +53,7 @@ export async function POST(req: Request) {
     jumpcut: b?.jumpcut !== false,
     broll: b?.broll !== false,
     facts: b?.facts !== false,
+    guard: b?.guard === true,
   };
   const projectId = b?.project_id ? String(b.project_id) : null;
 
@@ -107,6 +108,8 @@ export async function POST(req: Request) {
     video_url: videoUrl,
     plan_url: `${siteUrl()}/api/motion/plan`,
     qa_url: `${siteUrl()}/api/motion/qa`,
+    guard_url: `${siteUrl()}/api/motion/guard`,
+    guard: !!input.guard,
     plan_token: planToken,
     style: input.style,
     resolution: input.resolution,

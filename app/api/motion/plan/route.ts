@@ -45,6 +45,7 @@ export async function POST(req: Request) {
             hook: plan.hook, overlays: plan.overlays.length, zooms: plan.zooms.length, broll: plan.broll.length,
             facts: plan.facts.map((f) => `${f.text} (${f.source})`), keywords: plan.keywords.length,
             rehook: plan.rehook?.text ?? null, cta: plan.cta?.text ?? null, words: words.length, ms: Date.now() - t0,
+            ...(plan.guard ? { guard: plan.guard } : {}),
           },
           transcript: words.map((w: any) => w.w).join(" ").slice(0, 4000),
         },

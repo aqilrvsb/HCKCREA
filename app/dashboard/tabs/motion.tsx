@@ -9,7 +9,7 @@
 // land in the Motion history grid below.
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Clapperboard, Loader2, Upload, X, Download, Sparkles, Scissors, CheckCircle2, AlertTriangle, Brain, Wand2 } from "lucide-react";
+import { Clapperboard, Loader2, Upload, X, Download, Sparkles, Scissors, CheckCircle2, AlertTriangle, Brain, Wand2, ShieldCheck } from "lucide-react";
 import { uploadImage } from "@/lib/upload-image";
 import { MOTION_AD_PRESETS, MOTION_EDIT_PRESETS, type MotionPreset } from "@/lib/motion-prompts";
 
@@ -26,6 +26,7 @@ type Job = {
   cost?: number;
   error?: string | null;
   label?: string;
+  guard?: { taped: number; cut: number; muted: number; risk: { level: string; reason: string } | null } | null;
 };
 type VideoPick = { key: string; file: File; dur: number; preview: string; uploadedUrl?: string; pct?: number | null; error?: string | null };
 
@@ -53,6 +54,7 @@ const STAGE_LABEL: Record<string, string> = {
   transcribe: "Transkrip suara",
   normalise: "Potong senyap & sediakan video",
   faces: "Kesan muka",
+  guard: "Semak guideline TikTok",
   plan: "AI director + cari gambar Google",
   assets: "Muat turun B-roll & emoji",
   qa: "AI semak hasil (QA)",
@@ -127,6 +129,31 @@ function PromptBox({ value, onChange, presets, placeholder }: { value: string; o
   );
 }
 
+// "Check Guideline TikTok" — sits right before the product field in both modes.
+function GuardBox({ on, onChange }: { on: boolean; onChange: (v: boolean) => void }) {
+  return (
+    <label className="flex gap-3 items-start p-3 rounded-xl cursor-pointer"
+      style={{ background: on ? "rgba(34,197,94,0.08)" : "var(--color-bg)", border: `1px solid ${on ? "rgba(34,197,94,0.55)" : "var(--color-border)"}` }}>
+      <input type="checkbox" checked={on} onChange={(e) => onChange(e.target.checked)} className="mt-0.5 w-4 h-4 accent-green-500 cursor-pointer" />
+      <span className="min-w-0">
+        <span className="flex items-center gap-1.5 text-xs font-extrabold text-[var(--color-text-primary)]">
+          <ShieldCheck className="w-3.5 h-3.5 text-green-500" /> Check Guideline TikTok
+        </span>
+        <span className="block text-[10px] text-[var(--color-text-secondary)] mt-0.5 leading-snug">
+          AI buang claim yang langgar polisi TikTok Shop Malaysia 2026 &amp; Akta Iklan Ubat: istilah penyakit / perubatan pada kotak ditampal
+          (macam salotape), ayat claim dipotong, perkataan berisiko di-mute &amp; caption ditutup, sticker / gambar B-roll disemak.
+        </span>
+        {on && (
+          <span className="block text-[10px] mt-1 leading-snug" style={{ color: "#f59e0b" }}>
+            Ini membuang claim — bukan menyorok produk. Alat perubatan / patch, produk untuk penyakit (cth. diabetes) &amp; produk kurus memang
+            &quot;unsupported / prohibited&quot; di TikTok Shop MY walaupun videonya bersih — AI akan beri amaran jika produk anda berisiko.
+          </span>
+        )}
+      </span>
+    </label>
+  );
+}
+
 const jobsKey = (projectId?: string) => `motion-jobs:${projectId || "none"}`;
 const loadJobIds = (projectId?: string): string[] => {
   try { return JSON.parse(localStorage.getItem(jobsKey(projectId)) || "[]").slice(0, 12); } catch { return []; }
@@ -156,6 +183,15 @@ export default function MotionTab({ projectId }: { projectId?: string }) {
   const [resolution, setResolution] = useState<"1080" | "720">("1080");
   const [sfx, setSfx] = useState(true);
   const [accent, setAccent] = useState("");
+  // TikTok guideline check — on by default, the client's choice is remembered.
+  const [guard, setGuardState] = useState(true);
+  useEffect(() => {
+    try { const v = localStorage.getItem("motion:guard"); if (v !== null) setGuardState(v === "1"); } catch { /* storage blocked */ }
+  }, []);
+  const setGuard = (v: boolean) => {
+    setGuardState(v);
+    try { localStorage.setItem("motion:guard", v ? "1" : "0"); } catch { /* storage blocked */ }
+  };
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -326,7 +362,7 @@ export default function MotionTab({ projectId }: { projectId?: string }) {
         body: JSON.stringify({
           product, description, price, old_price: oldPrice, cta, handle, prompt: adPrompt, seconds, voice, language,
           captions, caption_style: captionStyle, music, sfx, accent: accent || undefined, images, project_id: projectId,
-          style, resolution, variations,
+          style, resolution, variations, guard,
         }),
       });
       const d = await r.json();
@@ -364,7 +400,7 @@ export default function MotionTab({ projectId }: { projectId?: string }) {
             body: JSON.stringify({
               video_url: url, duration_sec: v.dur, language: editLang, prompt: editPrompt, product: context,
               captions, caption_style: captionStyle, caption_pos: captionPos, music: editMusic, sfx,
-              accent: accent || undefined, project_id: projectId, style, resolution, jumpcut, broll, facts,
+              accent: accent || undefined, project_id: projectId, style, resolution, jumpcut, broll, facts, guard,
             }),
           });
           const d = await r.json();
@@ -441,6 +477,7 @@ export default function MotionTab({ projectId }: { projectId?: string }) {
               </div>
             </div>
             <PromptBox value={editPrompt} onChange={setEditPrompt} presets={presets} placeholder="cth. Jadikan video jualan beg kuning: hook kuat, tick setiap kelebihan, tutup dengan CTA tekan beg kuning." />
+            <GuardBox on={guard} onChange={setGuard} />
             <div className="grid sm:grid-cols-2 gap-3">
               <div>
                 <label className={label}>Produk / konteks (optional)</label>
@@ -463,6 +500,7 @@ export default function MotionTab({ projectId }: { projectId?: string }) {
           </div>
         ) : (
           <div className="space-y-4">
+            <GuardBox on={guard} onChange={setGuard} />
             <div className="grid sm:grid-cols-2 gap-3">
               <div>
                 <label className={label}>Nama produk *</label>
@@ -652,6 +690,25 @@ export default function MotionTab({ projectId }: { projectId?: string }) {
                     </div>
                   )}
                   {!pending && !done && j.error && <div className="text-[10px] text-red-400 mt-1 line-clamp-2">{j.error}</div>}
+                  {done && j.guard && (
+                    <div className="text-[10px] mt-1 leading-snug">
+                      <span className="inline-flex items-center gap-1 font-bold text-green-500">
+                        <ShieldCheck className="w-3 h-3" />
+                        {j.guard.taped + j.guard.cut + j.guard.muted === 0
+                          ? "Guideline TikTok: tiada claim berisiko dijumpai"
+                          : [
+                            j.guard.taped ? `${j.guard.taped} tulisan ditampal` : "",
+                            j.guard.cut ? `${j.guard.cut} perkataan claim dipotong` : "",
+                            j.guard.muted ? `${j.guard.muted} perkataan di-mute` : "",
+                          ].filter(Boolean).join(" · ")}
+                      </span>
+                      {j.guard.risk && j.guard.risk.level !== "low" && j.guard.risk.reason && (
+                        <span className="block mt-0.5" style={{ color: j.guard.risk.level === "high" ? "#f59e0b" : "var(--color-text-secondary)" }}>
+                          {j.guard.risk.level === "high" ? "⚠️ Produk berisiko: " : "Nota: "}{j.guard.risk.reason}
+                        </span>
+                      )}
+                    </div>
+                  )}
                   {done && j.output_url && (
                     <a href={j.output_url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-[11px] font-bold mt-1" style={{ color: THEME.primary }}>
                       <Download className="w-3 h-3" /> Buka / muat turun

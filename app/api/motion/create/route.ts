@@ -4,7 +4,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { priceFor, reserveCredit } from "@/lib/deduct";
 import { isTabAllowedForUser } from "@/lib/partner-tab-gate";
 import {
-  MOTION_AD_DURATIONS, MOTION_PLANNING_TASK, MOTION_VOICES, adEstimateSec, costFor, runAdJob, type AdInput,
+  MOTION_AD_DURATIONS, MOTION_PLANNING_TASK, MOTION_VOICES, adEstimateSec, costFor, newPlanToken, runAdJob, type AdInput,
 } from "@/lib/motion";
 
 // POST /api/motion/create — Motion "Buat Iklan": generate a motion-graphics ad
@@ -61,6 +61,7 @@ export async function POST(req: Request) {
     images: images as AdInput["images"],
     style: b?.style === "clean" ? "clean" : "gempak",
     resolution: b?.resolution === "720" ? "720" : "1080",
+    guard: b?.guard === true,
   };
   const variations = Math.max(1, Math.min(3, Math.round(Number(b?.variations) || 1)));
   const projectId = b?.project_id ? String(b.project_id) : null;
@@ -93,6 +94,8 @@ export async function POST(req: Request) {
           rate,
           reserved: estimate,
           input: vInput,
+          // Modal calls /api/motion/guard with it (product-photo OCR) when the guard is on.
+          plan_token: newPlanToken(),
           aspectRatio: "9:16",
           ...(variations > 1 ? { variation: `${v + 1}/${variations}` } : {}),
         },

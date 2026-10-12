@@ -128,6 +128,11 @@ export type BRoll = {
 
 export type FactCard = { at: string | number; to?: string | number; text: string; source: string; icon?: string };
 
+/** "Check Guideline TikTok": one printed line to cover with tape. Keyframes
+ *  are [t (s), cx, cy, w, h (px of the 1080x1920 frame), angle (deg)];
+ *  `pre`/`post` hold the tape a little before the first / after the last. */
+export type TapeTrack = { k: [number, number, number, number, number, number][]; pre?: number; post?: number };
+
 export type EditProps = {
   fps: number;
   durationInFrames: number;
@@ -153,4 +158,8 @@ export type EditProps = {
   lottie?: LottieMap;
   /** Thin progress bar at the top (gempak default). */
   progress?: boolean;
+  /** TikTok guard: tracked tape over risky printed text in the video. */
+  tapes?: TapeTrack[];
+  /** TikTok guard: indices into `words` that were muted — captions show tape. */
+  censor?: number[];
 };

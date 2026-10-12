@@ -21,6 +21,7 @@ import { synthesizeSpeech } from "@/lib/tts";
 import { deduct, refundReserved } from "@/lib/deduct";
 import type { HistoryRow, SettleResult } from "@/lib/settle";
 import { MOTION_MY_TIKTOK_GUIDE } from "@/lib/motion-prompts";
+import { GUARD_RULES, guardFixSlots, guardHits, guardProductRisk, guardStripQuery } from "@/lib/motion-guard";
 
 export const MOTION_AD_DURATIONS = [15, 30, 45] as const;
 export const MOTION_EDIT_MAX_SEC = 180;
@@ -96,6 +97,8 @@ export type AdInput = {
   resolution?: "1080" | "720";
   /** Variation k of n — the writer takes a different angle per variation. */
   variant?: { index: number; total: number };
+  /** "Check Guideline TikTok" — compliant script, tape over risky text on product photos. */
+  guard?: boolean;
 };
 
 export type EditInput = {
@@ -115,6 +118,8 @@ export type EditInput = {
   jumpcut?: boolean;
   broll?: boolean;
   facts?: boolean;
+  /** "Check Guideline TikTok" — compliant copy, tape over risky printed text, mute risky words. */
+  guard?: boolean;
 };
 
 // ── config + Modal client ─────────────────────────────────────────────────────
@@ -361,7 +366,8 @@ export async function planAd(input: AdInput): Promise<AdPlan> {
   const styleNote = style === "gempak"
     ? "\n\nSTYLE = GEMPAK: 2–3 items per scene, at least 3 bigwords in the ad, emoji on ~1 in 3 scenes, use callout/arrow, cta item on the cta line."
     : "\n\nSTYLE = CLEAN: 1–2 items per scene, at most 1 bigword, minimal emoji, cta item on the cta line.";
-  const system = AD_SYSTEM.replace("WORD_BUDGET", String(budget)) + styleNote + variantNote;
+  const guardNote = input.guard ? `\n\n${GUARD_RULES}\nThe "tts" voice-over follows the same rules. Use the brand name without medical words.` : "";
+  const system = AD_SYSTEM.replace("WORD_BUDGET", String(budget)) + styleNote + variantNote + guardNote;
 
   let lastErr = "";
   for (let attempt = 0; attempt < 2; attempt++) {
@@ -375,13 +381,41 @@ export async function planAd(input: AdInput): Promise<AdPlan> {
       stream: true,
     });
     if (!r.ok || !r.content) { lastErr = r.error || "empty"; continue; }
+    let plan: AdPlan;
     try {
-      return validateAdPlan(extractJson(r.content), input);
+      plan = validateAdPlan(extractJson(r.content), input);
     } catch (e: any) {
       lastErr = e?.message || "invalid";
+      continue;
     }
+    if (input.guard) await guardAdPlan(plan, input).catch(() => undefined);
+    return plan;
   }
   throw new Error(`Script generation failed: ${lastErr}`);
+}
+
+/** TikTok guard safety net on the written ad: anything that still hits a
+ *  rule is rewritten in one LLM call; what can't be saved loses the phrase
+ *  (lines) or is dropped (stickers). The brand loses its medical words. */
+async function guardAdPlan(plan: AdPlan, input: AdInput): Promise<void> {
+  const name = guardStripQuery(plan.brand.name);
+  if (name && name !== plan.brand.name) plan.brand.name = name;
+  const slots: { text: string; set: (v: string | null) => void }[] = [];
+  const brand = plan.brand;
+  if (brand.tagline) slots.push({ text: brand.tagline, set: (v) => { brand.tagline = v ?? undefined; } });
+  for (const l of plan.lines) {
+    slots.push({ text: l.text, set: (v) => { l.text = v ?? guardStripQuery(l.text); } });
+    slots.push({ text: l.tts, set: (v) => { l.tts = v ?? guardStripQuery(l.tts); } });
+  }
+  for (const sc of plan.scenes) {
+    for (const it of sc.items) {
+      if (it.text) slots.push({ text: it.text, set: (v) => { it.text = v ?? ""; } });
+      if (it.sub) slots.push({ text: it.sub, set: (v) => { it.sub = v ?? undefined; } });
+    }
+  }
+  await guardFixSlots(slots, input.product);
+  for (const sc of plan.scenes) sc.items = sc.items.filter((it) => it.t === "emoji" || (!!it.text && guardHits(it.text).length === 0));
+  for (const l of plan.lines) if (!l.tts.trim()) l.tts = l.text;
 }
 
 export function validateAdPlan(raw: any, input: AdInput): AdPlan {
@@ -590,10 +624,16 @@ export async function runAdJob(historyId: string): Promise<void> {
   const input = row.metadata?.input as AdInput;
   try {
     await patchMeta(historyId, { stage: "script" });
-    const plan = await planAd(input);
+    const [plan, risk] = await Promise.all([
+      planAd(input),
+      input.guard
+        ? guardProductRisk(`${input.product}\n${input.description}${input.extra ? `\n${input.extra}` : ""}`).catch(() => null)
+        : Promise.resolve(null),
+    ]);
     await patchMeta(historyId, {
       stage: "voice",
       plan: { brand: plan.brand, mood: plan.mood, lines: plan.lines.map((l) => ({ id: l.id, act: l.act, text: l.text })) },
+      ...(input.guard ? { guard: { risk } } : {}),
     }, { prompt: plan.lines.map((l) => l.text).join(" ").slice(0, 2000) });
 
     const audio = await mapLimit(plan.lines, 4, async (l) => {
@@ -624,6 +664,10 @@ export async function runAdJob(historyId: string): Promise<void> {
       mood: plan.mood,
       style: input.style ?? "gempak",
       resolution: input.resolution ?? "1080",
+      guard: !!input.guard,
+      ...(input.guard && row.metadata?.plan_token
+        ? { guard_url: `${siteUrl()}/api/motion/guard`, plan_token: row.metadata.plan_token }
+        : {}),
     });
     if (!start.ok) throw new Error(start.error);
     await patchMeta(historyId, { stage: "render", provider: "modal-motion", call_started_at: new Date().toISOString() }, { task_id: start.callId });
@@ -697,6 +741,7 @@ export async function settleMotionRow(hist: HistoryRow, pre?: MotionCheck): Prom
         stage: "done",
         poster_url: res.poster_url || meta.poster_url || null,
         render: { duration_sec: dur, render_sec: res.render_sec ?? null, plan_fallback: !!res.plan_fallback },
+        ...(res.guard || meta.guard ? { guard: { ...(meta.guard || {}), ...(res.guard || {}) } } : {}),
         settled_at: new Date().toISOString(),
       },
     })

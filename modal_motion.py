@@ -436,14 +436,25 @@ def _blur_bg(src: Path, out: Path) -> Path:
     return out
 
 
-def _prepare_images(images: list, d: Path, srv: "_Serve") -> list:
-    out = []
+def _prepare_images(images: list, d: Path, srv: "_Serve", p: dict = None) -> tuple:
+    raws = []
     for k, im in enumerate(images[:4]):
         url = str((im or {}).get("url") or "").strip()
         if not url:
             continue
         ext = ".png" if url.lower().split("?")[0].endswith(".png") else ".jpg"
-        raw = _download(url, d / f"img{k}{ext}", 40 * 1024 * 1024)
+        raws.append((k, im, _download(url, d / f"img{k}{ext}", 40 * 1024 * 1024)))
+    info = {}
+    if p and p.get("guard") and raws:
+        # The client's own product photo is never dropped — only taped.
+        try:
+            st = _guard_images([r for _k, _im, r in raws], p, "product", max_lines=99, max_area=1.0)
+            info = {"taped": sum(1 for v in st.values() if v == "taped")}
+        except Exception as e:  # noqa: BLE001
+            print("guard product images failed:", str(e)[:200])
+            info = {"error": str(e)[:160]}
+    out = []
+    for k, im, raw in raws:
         asset = {"url": srv.url(raw)}
         if im.get("cutout", True):
             try:
@@ -457,7 +468,7 @@ def _prepare_images(images: list, d: Path, srv: "_Serve") -> list:
         except Exception as e:
             print("blur failed", k, e)
         out.append(asset)
-    return out
+    return out, info
 
 
 # ── Flow A: Buat Iklan ────────────────────────────────────────────────────────
@@ -500,12 +511,14 @@ def _is_filler(w: str) -> bool:
     return bool(n) and bool(_FILLER_RE.match(n))
 
 
-def _keep_segments(words: list, dur: float, max_gap: float = 0.35, pad_in: float = 0.08, pad_out: float = 0.14):
-    """Speech segments to keep: drop non-lexical fillers + immediate repeats,
-    merge words closer than max_gap, trim every longer silence."""
+def _keep_segments(words: list, dur: float, max_gap: float = 0.35, pad_in: float = 0.08, pad_out: float = 0.14,
+                   drop: set = None):
+    """Speech segments to keep: drop non-lexical fillers + immediate repeats
+    (+ the TikTok-guard claim words in `drop`, by raw index "ri"), merge words
+    closer than max_gap, trim every longer silence."""
     kept = []
     for w in words:
-        if _is_filler(w["w"]):
+        if _is_filler(w["w"]) or (drop and w.get("ri") in drop):
             continue
         if kept and len(_wnorm(w["w"])) > 1 and _wnorm(kept[-1]["w"]) == _wnorm(w["w"]) and w["t"] - kept[-1]["e"] < 0.5:
             kept[-1] = w  # stutter: keep the later take
@@ -538,9 +551,30 @@ def _remap_words(kept: list, segs: list):
             if s - 1e-3 <= w["t"] <= e + 1e-3:
                 nt = starts[i] + (w["t"] - s)
                 ne = starts[i] + (min(w["e"], e) - s)
-                out.append({"w": w["w"], "t": round(nt, 3), "e": round(max(ne, nt + 0.05), 3)})
+                out.append({"w": w["w"], "t": round(nt, 3), "e": round(max(ne, nt + 0.05), 3),
+                            **({"ri": w["ri"]} if "ri" in w else {})})
                 break
     return out, acc
+
+
+def _claim_segments(words: list, dur: float, drop: set):
+    """Jump cut OFF but guard ON: keep everything except the claim words."""
+    holes = []
+    for w in words:
+        if w.get("ri") in drop:
+            s, e = max(0.0, w["t"] - 0.06), min(dur, w["e"] + 0.08)
+            if holes and s - holes[-1][1] < 0.35:
+                holes[-1][1] = max(holes[-1][1], e)
+            else:
+                holes.append([s, e])
+    segs, cur = [], 0.0
+    for s, e in holes:
+        if s - cur > 0.05:
+            segs.append([cur, s])
+        cur = max(cur, e)
+    if dur - cur > 0.05:
+        segs.append([cur, dur])
+    return segs, [w for w in words if w.get("ri") not in drop]
 
 
 # ── faces ─────────────────────────────────────────────────────────────────────
@@ -578,43 +612,81 @@ def _faces(video: Path, fps_s: int = 4) -> list:
 UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36"
 
 
-def _fetch_broll(items: list, d: Path, srv: _Serve) -> list:
-    """First decodable, big-enough candidate per moment; none → moment dropped."""
+def _fetch_image(url: str, dest: Path):
+    """Download + decode one web image (≥360 px) → JPEG at `dest`, or None."""
     import requests
     from PIL import Image
-    out = []
-    for k, b in enumerate(items[:16]):
+    r = requests.get(url, timeout=12, stream=True, headers={"User-Agent": UA, "Accept": "image/*,*/*;q=0.8"})
+    if not r.ok:
+        return None
+    data = r.raw.read(12 * 1024 * 1024 + 1, decode_content=True)
+    if len(data) > 12 * 1024 * 1024 or len(data) < 4000:
+        return None
+    raw = dest.with_suffix(".bin")
+    raw.write_bytes(data)
+    im = Image.open(raw)
+    im.load()
+    if min(im.size) < 360:
+        return None
+    im = im.convert("RGB")
+    im.thumbnail((1080, 1350))
+    im.save(dest, quality=88)
+    return dest
+
+
+def _fetch_broll(items: list, d: Path, srv: _Serve, p: dict = None) -> tuple:
+    """First decodable, big-enough candidate per moment (moments fetched in
+    parallel); none → moment dropped. With the TikTok guard: two candidates
+    per moment are OCR'd, risky printed lines taped, poster-like images
+    (too many claims) skipped."""
+    from concurrent.futures import ThreadPoolExecutor
+    guard = bool(p and p.get("guard"))
+    want = 2 if guard else 1
+
+    def moment(kb):
+        k, b = kb
+        got = []
         for ci, url in enumerate((b.get("candidates") or [])[:5]):
             try:
-                r = requests.get(url, timeout=12, stream=True, headers={"User-Agent": UA, "Accept": "image/*,*/*;q=0.8"})
-                if not r.ok:
-                    continue
-                data = r.raw.read(12 * 1024 * 1024 + 1, decode_content=True)
-                if len(data) > 12 * 1024 * 1024 or len(data) < 4000:
-                    continue
-                raw = d / f"br{k}_{ci}.bin"
-                raw.write_bytes(data)
-                im = Image.open(raw)
-                im.load()
-                if min(im.size) < 360:
-                    continue
-                im = im.convert("RGB")
-                im.thumbnail((1080, 1350))
-                src = d / f"broll_{k}.jpg"
-                im.save(src, quality=88)
-                layout = b.get("layout") if b.get("layout") in ("full", "pip") else "pip"
-                entry = {"at": b.get("at"), "src": srv.url(src), "layout": layout}
-                if b.get("to") is not None:
-                    entry["to"] = b["to"]
-                if b.get("label"):
-                    entry["label"] = str(b["label"])[:40]
-                if layout == "full":
-                    entry["blur"] = srv.url(_blur_bg(src, d / f"broll_{k}_blur.jpg"))
-                out.append(entry)
-                break
+                x = _fetch_image(url, d / f"broll_{k}_{ci}.jpg")
+                if x:
+                    got.append(x)
             except Exception as e:  # noqa: BLE001
                 print("broll candidate failed", k, ci, str(e)[:120])
-    return out
+            if len(got) >= want:
+                break
+        return k, b, got
+
+    with ThreadPoolExecutor(8) as ex:
+        picks = list(ex.map(moment, list(enumerate(items[:16]))))
+    info = {}
+    if guard:
+        allp = [x for _k, _b, got in picks for x in got]
+        st = {}
+        if allp:
+            try:
+                st = _guard_images(allp, p, "broll")
+            except Exception as e:  # noqa: BLE001
+                print("guard broll failed — dropping unchecked images:", str(e)[:200])
+                st = {str(x): "drop" for x in allp}
+        picks = [(k, b, [x for x in got if st.get(str(x)) != "drop"]) for k, b, got in picks]
+        used = [st.get(str(got[0])) for _k, _b, got in picks if got]
+        info = {"taped": used.count("taped"), "dropped": sum(1 for v in st.values() if v == "drop")}
+    out = []
+    for k, b, got in picks:
+        if not got:
+            continue
+        src = got[0]
+        layout = b.get("layout") if b.get("layout") in ("full", "pip") else "pip"
+        entry = {"at": b.get("at"), "src": srv.url(src), "layout": layout}
+        if b.get("to") is not None:
+            entry["to"] = b["to"]
+        if b.get("label"):
+            entry["label"] = str(b["label"])[:40]
+        if layout == "full":
+            entry["blur"] = srv.url(_blur_bg(src, d / f"broll_{k}_blur.jpg"))
+        out.append(entry)
+    return out, info
 
 
 def _emoji_cps(ch: str) -> list:
@@ -643,6 +715,367 @@ def _fetch_lottie(chars: list, d: Path, srv: _Serve) -> dict:
             except Exception:  # noqa: BLE001
                 continue
     return out
+
+
+
+# ── TikTok guard ("Check Guideline TikTok") ───────────────────────────────────
+# Malaysian sellers cover the medical / claim words printed on a product box
+# with sellotape before filming so TikTok Shop's review doesn't flag the video.
+# Digital version: RapidOCR (PP-OCR ONNX, CPU) reads every printed line in the
+# video frames (fanned out over guard_scan containers), the B-roll and the
+# product photos; PeningLab's /api/motion/guard (LLM with the 2026 TikTok Shop
+# + Malaysian ad rules, plus a hard-term safety net) says which lines and which
+# spoken words are risky; we tape the lines (tracked in video, baked into
+# images) and mute the words (captions show tape). Fail-safe: when the LLM is
+# unreachable the rule safety net still applies; unreadable B-roll is dropped.
+
+def _preload_ocr():
+    import numpy as np
+    from rapidocr import RapidOCR
+    RapidOCR()(np.zeros((64, 64, 3), np.uint8))
+
+
+guard_image = (
+    modal.Image.debian_slim(python_version="3.11")
+    .apt_install("ffmpeg", "libgl1", "libglib2.0-0")
+    .pip_install("rapidocr==3.4.5", "onnxruntime==1.20.1", "numpy<2", "pillow==10.4.0")
+    .run_function(_preload_ocr)
+)
+
+GUARD_FPS = 3.0
+# Safety net on OCR lines (keys are lowercase alphanumerics, no spaces).
+_GUARD_HARD = re.compile(
+    r"diabet|kencingmanis|guladarah|bloodsugar|bloodglucose|antiblood|antisugar|insulin|pancrea|darahtinggi|hypertens|"
+    r"bloodpressure|kolesterol|cholesterol|kanser|cancer|tumou?r|buahpinggang|kidney|jantung|stroke|gout|asma|asthma|"
+    r"arthrit|ubat|medicine|medical|perubatan|rawat|treatment|sembuh|cure|penyakit|disease|antiinflam|inflammat|doctor|doktor|"
+    r"clinical|klinikal|terbukti|proven|dijamin|guarantee|slimming|kuruskan|turunberat|weightloss|fatburn|detox|barah|glukosa|"
+    r"parasgula|sugarlevel|tekanandarah|mujarab|ajaib|miracle|toprated|pertamadimalaysia|terbaik|termurah|bestselling|"
+    r"nosideeffect|tiadakesansampingan|matipucuk|lemahbatin|ozempic|glp1")
+# Safety net on single spoken words (whole-word, after normalising).
+_GUARD_WORD = re.compile(r"^(diabetes|diabetik|diabetic|kanser|cancer|tumor|sembuh|ubat|penyakit|cure|"
+                         r"hipertensi|kolesterol|insulin|strok|stroke|gout|asma)$")
+
+_OCR = None
+
+
+def _ocr():
+    global _OCR
+    if _OCR is None:
+        from rapidocr import RapidOCR
+        _OCR = RapidOCR()
+    return _OCR
+
+
+def _tkey(s) -> str:
+    return re.sub(r"[^a-z0-9]", "", str(s or "").lower())
+
+
+def _quad(b, sx: float = 1.0, sy: float = 1.0) -> dict:
+    (x0, y0), (x1, y1), (x2, y2), (x3, y3) = [(float(x) * sx, float(y) * sy) for x, y in b]
+    w = (math.hypot(x1 - x0, y1 - y0) + math.hypot(x2 - x3, y2 - y3)) / 2
+    h = (math.hypot(x3 - x0, y3 - y0) + math.hypot(x2 - x1, y2 - y1)) / 2
+    return {"cx": round((x0 + x1 + x2 + x3) / 4, 1), "cy": round((y0 + y1 + y2 + y3) / 4, 1), "w": round(w, 1),
+            "h": round(h, 1), "a": round(math.degrees(math.atan2(y1 - y0, x1 - x0)), 1)}
+
+
+def _ocr_lines(eng, img) -> list:
+    r = eng(img)
+    if r is None or getattr(r, "boxes", None) is None or not getattr(r, "txts", None):
+        return []
+    return [(b, str(t), float(s)) for b, t, s in zip(r.boxes.tolist(), r.txts, r.scores)]
+
+
+@app.function(image=guard_image, cpu=4.0, memory=4096, timeout=600, volumes={JOBS_ROOT: JOBS})
+def guard_scan(job: str, start: float, length: float, fps: float, j0: int) -> dict:
+    """OCR the sampled frames of [start, start+length) of the job's video.
+    Each detection: j (global sample index), t, box (1080x1920 px), text, score."""
+    import numpy as np
+    JOBS.reload()
+    video = Path(JOBS_ROOT) / job / "video.mp4"
+    eng = _ocr()
+    W, H = 720, 1280
+    proc = subprocess.Popen(["ffmpeg", "-v", "error", "-ss", f"{start:.3f}", "-t", f"{length:.3f}", "-i", str(video),
+                             "-vf", f"fps={fps},scale={W}:{H}", "-f", "rawvideo", "-pix_fmt", "bgr24", "-"],
+                            stdout=subprocess.PIPE)
+    dets, k, size = [], 0, W * H * 3
+    while True:
+        buf = proc.stdout.read(size)
+        if not buf or len(buf) < size:
+            break
+        frame = np.frombuffer(buf, np.uint8).reshape(H, W, 3)
+        j = j0 + k
+        for b, txt, sc in _ocr_lines(eng, frame):
+            dets.append({"j": j, "t": round(j / fps, 3), **_quad(b, 1080 / W, 1920 / H), "x": txt[:120], "s": round(sc, 3)})
+        k += 1
+    proc.wait(timeout=60)
+    return {"ok": True, "dets": dets, "frames": k}
+
+
+@app.function(image=guard_image, cpu=4.0, memory=4096, timeout=300)
+def guard_ocr_images(images: list) -> dict:
+    """[(name, bytes)] → {name: [{"q": quad in image px, "x": text, "s": score}]}."""
+    import io
+    import numpy as np
+    from PIL import Image
+    eng = _ocr()
+    out = {}
+    for name, data in images:
+        try:
+            im = Image.open(io.BytesIO(data)).convert("RGB")
+            k = min(1.0, 1280 / max(im.size))
+            small = im.resize((max(1, int(im.width * k)), max(1, int(im.height * k)))) if k < 1 else im
+            arr = np.array(small)[:, :, ::-1].copy()
+            out[name] = [{"q": [[round(px / k, 1), round(py / k, 1)] for px, py in b], "x": txt[:120], "s": round(sc, 3)}
+                         for b, txt, sc in _ocr_lines(eng, arr)]
+        except Exception as e:  # noqa: BLE001
+            print("ocr image failed", name, str(e)[:120])
+            out[name] = []
+    return out
+
+
+def _guard_classify(p: dict, kind: str, texts: list, words: list = None) -> dict:
+    """PeningLab /api/motion/guard → risky text indices + word indices to mute.
+    The rule safety net is always added on top (union)."""
+    import requests
+    out = {"risky": set(), "censor": set(), "via": "rules"}
+    if p.get("guard_url") and (texts or words):
+        try:
+            body = {"history_id": p["history_id"], "token": p["plan_token"], "kind": kind, "texts": texts[:200]}
+            if words is not None:
+                body["words"] = [{"i": i, "w": w["w"]} for i, w in enumerate(words)]
+            r = requests.post(p["guard_url"], json=body, timeout=150)
+            j = r.json()
+            if r.ok and j.get("ok"):
+                out["risky"] = {int(i) for i in j.get("risky") or [] if str(i).isdigit() and int(i) < len(texts)}
+                out["censor"] = {int(i) for i in j.get("censor") or [] if str(i).isdigit() and (words is None or int(i) < len(words))}
+                out["via"] = "llm"
+            else:
+                print("guard rejected:", str(j)[:300])
+        except Exception as e:  # noqa: BLE001
+            print("guard call failed:", str(e)[:200])
+    for i, t in enumerate(texts):
+        if _GUARD_HARD.search(_tkey(t)):
+            out["risky"].add(i)
+    for i, w in enumerate(words or []):
+        a = re.sub(r"[^a-z]", "", str(w.get("w", "")).lower())
+        b = re.sub(r"[^a-z]", "", str(words[i + 1].get("w", "")).lower()) if i + 1 < len(words) else ""
+        if _GUARD_WORD.match(a):
+            out["censor"].add(i)
+        if (a, b) in (("kencing", "manis"), ("darah", "tinggi"), ("gula", "darah"), ("buah", "pinggang")):
+            out["censor"].update((i, i + 1))
+    return out
+
+
+def _guard_tracks(dets: list, risky: set, fps: float) -> list:
+    """Group risky OCR lines into tracks across samples; extend each track
+    through blurred / misread frames where a box sits in the same place."""
+    by_j = {}
+    for x in dets:
+        by_j.setdefault(x["j"], []).append(x)
+
+    def near(a, b):
+        if not (0.5 < (b["w"] + 1) / (a["w"] + 1) < 2.0 and 0.45 < (b["h"] + 1) / (a["h"] + 1) < 2.2):
+            return False
+        return math.hypot(a["cx"] - b["cx"], a["cy"] - b["cy"]) < max(40.0, 0.6 * max(a["w"], a["h"] * 3))
+
+    gap = int(1.6 * fps)
+    tracks = []
+    for j in sorted(by_j):
+        for x in by_j[j]:
+            if x["s"] < 0.5 or _tkey(x["x"]) not in risky:
+                continue
+            best, bd = None, 1e9
+            for tr in tracks:
+                last = tr[-1]
+                if last["j"] >= j or j - last["j"] > gap or not near(last, x):
+                    continue
+                dd = math.hypot(last["cx"] - x["cx"], last["cy"] - x["cy"])
+                if dd < bd:
+                    best, bd = tr, dd
+            if best is not None:
+                best.append(x)
+            else:
+                tracks.append([x])
+    for tr in tracks:
+        for step in (1, -1):
+            for _ in range(int(1.2 * fps)):
+                edge = tr[-1] if step > 0 else tr[0]
+                cand = [x for x in by_j.get(edge["j"] + step, []) if near(edge, x)]
+                if not cand:
+                    break
+                c = min(cand, key=lambda x: math.hypot(x["cx"] - edge["cx"], x["cy"] - edge["cy"]))
+                if step > 0:
+                    tr.append(c)
+                else:
+                    tr.insert(0, c)
+    out = []
+    for tr in tracks[:60]:
+        keys = []
+        for n, x in enumerate(tr):  # light smoothing of the OCR jitter
+            win = tr[max(0, n - 1): n + 2]
+            keys.append([round(x["j"] / fps, 3)] + [round(sum(y[q] for y in win) / len(win), 1) for q in ("cx", "cy", "w", "h")]
+                        + [round(sorted(y["a"] for y in win)[len(win) // 2], 1)])
+        out.append({"k": keys, "pre": 0.35, "post": 0.35})
+    return out
+
+
+def _guard_speech(words: list, p: dict) -> dict:
+    """Before the jump cut: which whole claim statements to CUT (an implied
+    claim survives a single bleep), which isolated words to MUTE, and how risky
+    the product itself is (some can't be sold on TikTok Shop MY whatever the
+    edit). Word indices are raw (pre-cut). Rules always added on top."""
+    import requests
+    out = {"cut": set(), "censor": set(), "risk": None, "via": "rules"}
+    if p.get("guard_url") and words:
+        try:
+            r = requests.post(p["guard_url"], json={"history_id": p["history_id"], "token": p["plan_token"], "kind": "speech",
+                                                   "words": [{"i": i, "w": w["w"]} for i, w in enumerate(words)]}, timeout=150)
+            j = r.json()
+            if r.ok and j.get("ok"):
+                for a, b in (j.get("cut") or []):
+                    a, b = int(a), int(b)
+                    if 0 <= a <= b < len(words) and b - a < 60:
+                        out["cut"].update(range(a, b + 1))
+                out["censor"] = {int(i) for i in j.get("censor") or [] if str(i).isdigit() and int(i) < len(words)}
+                out["risk"] = j.get("risk") if isinstance(j.get("risk"), dict) else None
+                out["via"] = j.get("via") or "llm"
+            else:
+                print("guard speech rejected:", str(j)[:300])
+        except Exception as e:  # noqa: BLE001
+            print("guard speech failed:", str(e)[:200])
+    out["censor"] |= _guard_classify({}, "speech", [], words)["censor"]
+    out["censor"] -= out["cut"]
+    return out
+
+
+def _guard_video(d: Path, dur: float, p: dict) -> dict:
+    """OCR the whole (jump-cut) video in parallel containers, classify the
+    unique printed lines in one call, build the tape tracks."""
+    t0 = time.time()
+    total = int(dur * GUARD_FPS)
+    n = max(1, min(12, math.ceil(dur / 8)))
+    cf = math.ceil(total / n) if total else 0
+    jobs = [(i * cf, min(cf, total - i * cf)) for i in range(n) if cf and i * cf < total]
+    dets, failed = [], 0
+    if jobs:
+        for res in guard_scan.map([d.name] * len(jobs), [a / GUARD_FPS for a, _ in jobs], [c / GUARD_FPS for _, c in jobs],
+                                  [GUARD_FPS] * len(jobs), [a for a, _ in jobs], order_outputs=False, return_exceptions=True):
+            if isinstance(res, dict) and res.get("ok"):
+                dets += res["dets"]
+            else:
+                failed += 1
+                print("guard chunk failed:", str(res)[:200])
+    freq, best = {}, {}
+    for x in dets:
+        k = _tkey(x["x"])
+        if len(k) < 3 or x["s"] < 0.5:
+            continue
+        freq[k] = freq.get(k, 0) + 1
+        if k not in best or x["s"] > best[k]["s"]:
+            best[k] = x
+    keys = sorted(freq, key=lambda k: -freq[k])[:160]
+    texts = [best[k]["x"] for k in keys]
+    cls = _guard_classify(p, "video", texts)
+    risky = {keys[i] for i in cls["risky"]}
+    tracks = _guard_tracks(dets, risky, GUARD_FPS)
+    return {"tracks": tracks, "texts": len(texts),
+            "risky_texts": [texts[i] for i in sorted(cls["risky"])][:24], "via": cls["via"],
+            "chunks": len(jobs), "failed_chunks": failed, "sec": round(time.time() - t0, 1)}
+
+
+def _mute_words(vid: Path, words: list, idx: list, out: Path) -> Path:
+    """Silence the audio under the given words (video stream copied)."""
+    rng = []
+    for i in sorted(set(idx)):
+        if not 0 <= i < len(words):
+            continue
+        w = words[i]
+        s, e = max(0.0, w["t"] - 0.04), (w.get("e") or w["t"] + 0.35) + 0.05
+        if rng and s <= rng[-1][1] + 0.06:
+            rng[-1][1] = max(rng[-1][1], e)
+        else:
+            rng.append([s, e])
+    if not rng:
+        return vid
+    expr = "+".join(f"between(t,{s:.3f},{e:.3f})" for s, e in rng)
+    script = out.with_suffix(".filter.txt")
+    script.write_text(f"[0:a]volume=0:enable='{expr}'[a]", encoding="utf-8")
+    _run(["ffmpeg", "-v", "error", "-y", "-i", str(vid), "-filter_complex_script", str(script), "-map", "0:v", "-map", "[a]",
+          "-c:v", "copy", "-c:a", "aac", "-b:a", "192k", "-ar", "48000", "-ac", "2", str(out)], "guard mute", 300)
+    return out
+
+
+def _tape_poly(g: dict, n: int) -> list:
+    """A masking-tape strip over one text line: padded, a little crooked,
+    torn (zig-zag) ends."""
+    import random
+    rnd = random.Random(n * 7919 + 13)
+    w = g["w"] * 1.03 + max(14.0, g["h"] * 0.6)
+    h = max(14.0, g["h"] * 1.55 + 6)
+    a = math.radians(g["a"] + rnd.uniform(-1.6, 1.6))
+    pts = [(-w / 2, -h / 2), (w / 2, -h / 2)]
+    for k in range(1, 6):
+        pts.append((w / 2 - rnd.uniform(0, 0.16) * h, -h / 2 + h * k / 6))
+    pts += [(w / 2, h / 2), (-w / 2, h / 2)]
+    for k in range(5, 0, -1):
+        pts.append((-w / 2 + rnd.uniform(0, 0.16) * h, -h / 2 + h * k / 6))
+    ca, sa = math.cos(a), math.sin(a)
+    return [(g["cx"] + x * ca - y * sa, g["cy"] + x * sa + y * ca) for x, y in pts]
+
+
+def _bake_tape(path: Path, quads: list) -> None:
+    """Draw tape over the given text quads, in place (keeps transparency)."""
+    from PIL import Image, ImageDraw, ImageFilter
+    src = Image.open(path)
+    fmt = src.format or ("PNG" if path.suffix.lower() == ".png" else "JPEG")
+    alpha = src.mode in ("RGBA", "LA") or "transparency" in src.info
+    im = src.convert("RGBA")
+    shadow = Image.new("RGBA", im.size, (0, 0, 0, 0))
+    tape = Image.new("RGBA", im.size, (0, 0, 0, 0))
+    ds, dt = ImageDraw.Draw(shadow), ImageDraw.Draw(tape)
+    for n, q in enumerate(quads):
+        g = _quad(q)
+        poly = _tape_poly(g, n)
+        ds.polygon([(x + 2, y + 3) for x, y in poly], fill=(0, 0, 0, 85))
+        dt.polygon(poly, fill=(233, 223, 198, 255))
+        dt.line([poly[7], poly[8]], fill=(217, 204, 170, 255), width=max(2, int(g["h"] * 0.12)))  # lower edge
+    im.alpha_composite(shadow.filter(ImageFilter.GaussianBlur(2.5)))
+    im.alpha_composite(tape)
+    if fmt == "PNG" and alpha:
+        im.save(path, format="PNG")
+    else:
+        im.convert("RGB").save(path, format="JPEG" if fmt != "PNG" else "PNG", quality=90)
+
+
+def _guard_images(paths: list, p: dict, kind: str, max_lines: int = 6, max_area: float = 0.22) -> dict:
+    """OCR + classify + tape images in place → {path: clean | taped | drop}.
+    Images with too much risky text (a claims poster) are dropped instead."""
+    from PIL import Image
+    res = guard_ocr_images.remote([(str(x), Path(x).read_bytes()) for x in paths])
+    keys, texts = {}, []
+    for lines in res.values():
+        for ln in lines:
+            k = _tkey(ln["x"])
+            if len(k) >= 3 and ln["s"] >= 0.5 and k not in keys:
+                keys[k] = len(texts)
+                texts.append(ln["x"])
+    cls = _guard_classify(p, kind, texts) if texts else {"risky": set()}
+    risky = {_tkey(texts[i]) for i in cls["risky"]}
+    status = {}
+    for x in paths:
+        lines = [ln for ln in res.get(str(x), []) if ln["s"] >= 0.5 and _tkey(ln["x"]) in risky]
+        if not lines:
+            status[str(x)] = "clean"
+            continue
+        with Image.open(x) as im:
+            area_img = float(im.width * im.height) or 1.0
+        area = sum(_quad(ln["q"])["w"] * _quad(ln["q"])["h"] * 1.7 for ln in lines) / area_img
+        if len(lines) > max_lines or area > max_area:
+            status[str(x)] = "drop"
+            continue
+        _bake_tape(Path(x), [ln["q"] for ln in lines])
+        status[str(x)] = "taped"
+    return status
 
 
 # ── visual QA (stills → vision LLM → plan patch) ─────────────────────────────
@@ -796,7 +1229,7 @@ def _flow_ad(p: dict, d: Path, srv: _Serve) -> dict:
     _run(["node", f"{MOTION_DIR}/scripts/music.mjs", str(d / "music.json")], "music", 600)
 
     _progress("images", 38)
-    images = _prepare_images(p.get("images") or [], d, srv)
+    images, guard_info = _prepare_images(p.get("images") or [], d, srv, p)
     chars = [it.get("text") for sc in (p.get("scenes") or []) for it in (sc.get("items") or []) if it.get("t") == "emoji"]
     lottie = _fetch_lottie(chars, d, srv)
 
@@ -812,7 +1245,8 @@ def _flow_ad(p: dict, d: Path, srv: _Serve) -> dict:
     _progress("render", 42)
     rinfo = _render_parallel("MotionAd", props, d, out, _scale_for(p), 42, 95)
     return {"out": out, "duration": total, "poster_at": min(2.0, total / 3),
-            "debug": {"lines": len(lines_out), "images": len(images), "render": rinfo}}
+            "debug": {"lines": len(lines_out), "images": len(images), "render": rinfo,
+                      **({"guard": guard_info} if p.get("guard") else {})}}
 
 
 # ── Flow B: Edit Video ────────────────────────────────────────────────────────
@@ -877,16 +1311,32 @@ def _flow_edit(p: dict, d: Path, srv: _Serve) -> dict:
     raw_words = _transcribe(src, None if lang == "auto" else lang, vad=True, keep_fillers=jump) if info["audio"] else []
     raw_words = [w for w in raw_words if w["t"] < span]
 
+    for i, w in enumerate(raw_words):
+        w["ri"] = i
+    guard = bool(p.get("guard"))
+    gspeech = {"cut": set(), "censor": set(), "risk": None}
+    if guard and raw_words:
+        _progress("guard", 12)
+        gspeech = _guard_speech(raw_words, p)
+        if len(gspeech["cut"]) > 0.4 * len(raw_words):
+            # mostly claims — cutting would gut the video: mute them instead
+            gspeech["censor"] |= gspeech["cut"]
+            gspeech["cut"], gspeech["cut_skipped"] = set(), True
+    claims = gspeech["cut"]
+
     words, segs, cut = raw_words, None, {}
-    if jump and raw_words:
-        sg, kept = _keep_segments(raw_words, span)
+    if (jump or claims) and raw_words:
+        sg, kept = _keep_segments(raw_words, span, drop=claims) if jump else _claim_segments(raw_words, span, claims)
         kept_len = sum(e - s for s, e in sg)
         if sg and 0.5 * span <= kept_len < span - 0.3:
             segs = sg
             words, _ = _remap_words(kept, sg)
             cut = {"removed_sec": round(span - kept_len, 2), "segments": len(sg)}
+        elif claims:
+            gspeech["censor"] |= claims  # couldn't cut → mute
+            claims = set()
     if not jump:
-        words = [w for w in raw_words if not _is_filler(w["w"])] or raw_words
+        words = [w for w in words if not _is_filler(w["w"])] or words
 
     _progress("normalise", 16)
     try:
@@ -894,8 +1344,24 @@ def _flow_edit(p: dict, d: Path, srv: _Serve) -> dict:
     except Exception as e:  # noqa: BLE001
         print("cut/normalise failed, retrying without cuts:", str(e)[:300])
         segs, words, cut = None, raw_words, {"error": "jumpcut skipped"}
+        gspeech["censor"] |= claims  # claims weren't cut → mute them
+        claims = set()
         vid = _normalise(src, d / "video.mp4", info, max_sec, None)
     dur = _probe(vid)["duration"] or span
+
+    gres, gthread = {}, None
+    if guard:
+        JOBS.commit()  # guard_scan containers read video.mp4 from the Volume
+
+        def _g():
+            try:
+                gres.update(_guard_video(d, dur, p))
+            except Exception as e:  # noqa: BLE001
+                gres["error"] = str(e)[:300]
+                print("guard video failed:", e)
+
+        gthread = threading.Thread(target=_g, daemon=True)
+        gthread.start()
 
     _progress("faces", 24)
     try:
@@ -921,8 +1387,9 @@ def _flow_edit(p: dict, d: Path, srv: _Serve) -> dict:
         plan, plan_fallback = _fallback_plan(), True
 
     _progress("assets", 40)
+    broll_guard = {}
     try:
-        broll = _fetch_broll(plan.get("broll") or [], d, srv)
+        broll, broll_guard = _fetch_broll(plan.get("broll") or [], d, srv, p)
     except Exception as e:  # noqa: BLE001
         print("broll failed:", str(e)[:200])
         broll = []
@@ -938,6 +1405,29 @@ def _flow_edit(p: dict, d: Path, srv: _Serve) -> dict:
         "facts": plan.get("facts") or [], "keywords": plan.get("keywords") or [], "rehook": plan.get("rehook"),
         "cta": plan.get("cta"), "lottie": lottie, "progress": style == "gempak",
     }
+    guard_dbg = None
+    if guard:
+        _progress("guard", 44)
+        if gthread:
+            gthread.join(timeout=300)
+        # mute risky spoken words: speech pass (raw indices → post-cut) ∪ /plan rules
+        pos = {w.get("ri"): k for k, w in enumerate(words) if "ri" in w}
+        censor = sorted({pos[ri] for ri in gspeech["censor"] if ri in pos}
+                        | {int(i) for i in (plan.get("censor") or []) if str(i).isdigit() and int(i) < len(words)})
+        if censor:
+            try:
+                props["video"] = srv.url(_mute_words(vid, words, censor, d / "video_guard.mp4"))
+                props["censor"] = censor
+            except Exception as e:  # noqa: BLE001
+                print("guard mute failed:", e)
+        props["tapes"] = gres.get("tracks") or []
+        guard_dbg = {"tapes": len(props["tapes"]), "muted_words": len(props.get("censor") or []),
+                     "muted": [words[i]["w"] for i in (props.get("censor") or [])][:30],
+                     "cut_words": len(claims), "cut": " ".join(w["w"] for w in raw_words if w["ri"] in claims)[:400],
+                     "risk": gspeech.get("risk"), "speech_via": gspeech.get("via"),
+                     **({"cut_skipped": True} if gspeech.get("cut_skipped") else {}),
+                     "risky_texts": gres.get("risky_texts") or [], "texts": gres.get("texts"), "via": gres.get("via"),
+                     "sec": gres.get("sec"), "broll": broll_guard, **({"error": gres["error"]} if gres.get("error") else {})}
     if p.get("music") and words:
         _progress("music", 44)
         spans, cur = [], None
@@ -972,7 +1462,8 @@ def _flow_edit(p: dict, d: Path, srv: _Serve) -> dict:
     rinfo = _render_parallel("MotionEdit", props, d, out, _scale_for(p), 50, 95)
     return {"out": out, "duration": dur, "poster_at": min(1.5, dur / 3),
             "debug": {"words": len(words), "overlays": len(props["overlays"]), "broll": len(broll), "facts": len(props["facts"]),
-                      "faces": len(faces), "jumpcut": cut, "plan_fallback": plan_fallback, "qa": qa, "render": rinfo}}
+                      "faces": len(faces), "jumpcut": cut, "plan_fallback": plan_fallback, "qa": qa, "render": rinfo,
+                      **({"guard": guard_dbg} if guard_dbg else {})}}
 
 
 # ── job + endpoints ───────────────────────────────────────────────────────────

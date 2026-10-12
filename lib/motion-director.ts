@@ -14,6 +14,7 @@ import { orChat, orChatVision } from "@/lib/openrouter";
 import { searchImages, searchWeb, type ImageHit, type WebHit } from "@/lib/motion-search";
 import { MOTION_MY_TIKTOK_GUIDE } from "@/lib/motion-prompts";
 import { extractJson, cleanItemPublic, type EditInput, type MotionItem } from "@/lib/motion";
+import { GUARD_RULES, guardCensorWords, guardFixSlots, guardHits, guardStripQuery } from "@/lib/motion-guard";
 
 type Cue = string | number;
 export type DirectorWord = { i: number; w: string; t: number; e?: number };
@@ -32,6 +33,9 @@ export type EditPlanV2 = {
   keywords: { i: number; color: "benefit" | "price" | "pain" | "brand" | "accent"; emoji?: string }[];
   rehook?: { at: Cue; text: string };
   cta?: { at: Cue; text: string; sub?: string };
+  /** TikTok guard: word indices the rules always mute (Modal adds the LLM's). */
+  censor?: number[];
+  guard?: { fixed: number; dropped: number };
 };
 
 const HEX = /^#[0-9a-f]{6}$/i;
@@ -43,7 +47,7 @@ const clean = (s: unknown, max: number) => String(s ?? "").replace(/\s+/g, " ").
 // should prefer these so stickers and caption emoji move.
 const ANIMATED_EMOJI = "🔥 😱 🤯 😍 🥰 😂 🤣 😭 😋 🤩 😎 🤔 👀 👍 👏 🙏 💪 🎉 💯 ✅ ❤️ ✨ ⭐ 🚀 ⚡ 💥 🥳 🎁 ⏰ 🛒 😮 🤑 👇 👉 💡";
 
-export const DIRECTOR_SYSTEM = (style: "gempak" | "clean") => `You are PeningLab's TikTok video DIRECTOR. A Malaysian seller/creator uploaded their own talking video. You get its timed transcript and plan a professional short-form edit on top of it: hook, word-synced motion graphics, web B-roll cutaways, fact cards, punch-in zooms, keyword-coloured captions, a re-hook and the beg-kuning CTA. Captions are rendered automatically — you only choose which words get a colour/emoji.
+export const DIRECTOR_SYSTEM = (style: "gempak" | "clean", guard = false) => `You are PeningLab's TikTok video DIRECTOR. A Malaysian seller/creator uploaded their own talking video. You get its timed transcript and plan a professional short-form edit on top of it: hook, word-synced motion graphics, web B-roll cutaways, fact cards, punch-in zooms, keyword-coloured captions, a re-hook and the beg-kuning CTA. Captions are rendered automatically — you only choose which words get a colour/emoji.
 
 ${MOTION_MY_TIKTOK_GUIDE}
 
@@ -82,7 +86,10 @@ RULES
 - KEYWORDS: 1 per caption page at most; colour product/brand names (brand), benefits (benefit), prices/numbers (price), problems (pain); add an emoji on ≤ 1 in 3.
 - RE-HOOK: one, around 40–60 % of the runtime, only if the video is > 25 s ("Tapi tunggu…", "Ni paling penting…").
 - CTA: only if the video sells something; place it on the last sentence (final 3–5 s). Use "Tekan beg kuning" unless the speaker says another CTA.
-- Never invent prices, ratings, sales numbers, stock levels, claims or facts. Follow the CLIENT PROMPT (it overrides style choices, never the honesty rules).`;
+- Never invent prices, ratings, sales numbers, stock levels, claims or facts. Follow the CLIENT PROMPT (it overrides style choices, never the honesty rules).${guard ? `
+
+${GUARD_RULES}
+Risky spoken words are muted and taped in the captions automatically — never quote them on screen, never colour them as keywords, and steer the hook / stickers / re-hook to safe angles (how to use, convenience, routine, personal experience, price, beg kuning).` : ""}`;
 
 export async function directEdit(opts: {
   words: DirectorWord[];
@@ -107,7 +114,7 @@ export async function directEdit(opts: {
   for (let attempt = 0; attempt < 2 && !raw; attempt++) {
     const r = await orChat({
       modelKey: "model_motion",
-      systemPrompt: DIRECTOR_SYSTEM(style),
+      systemPrompt: DIRECTOR_SYSTEM(style, !!input.guard),
       userPrompt: attempt === 0 ? userPrompt : `${userPrompt}\n\nYour previous answer was not valid JSON (${lastErr}). Return ONLY the JSON object.`,
       temperature: 0.7,
       maxTokens: 7000,
@@ -120,13 +127,55 @@ export async function directEdit(opts: {
   if (!raw) throw new Error(`Director failed: ${lastErr}`);
 
   const plan = validateDirectorPlan(raw, words.length, duration, input, style);
+  const guard = !!input.guard;
+  if (guard) await guardEditPlan(plan, words, input).catch(() => undefined);
 
   // Ground it: images + facts in parallel (each fail-soft).
+  const factMoments = rawFacts(raw, words.length, duration)
+    .map((f) => (guard ? { ...f, query: guardStripQuery(f.query) } : f))
+    .filter((f) => !guard || (f.query.length >= 3 && guardHits(f.topic).length === 0));
   const [broll, facts] = await Promise.all([
-    input.broll === false ? Promise.resolve([] as BRollPlan[]) : enrichBroll(plan.broll).catch(() => [] as BRollPlan[]),
-    input.facts === false ? Promise.resolve([] as FactPlan[]) : writeFacts(rawFacts(raw, words.length, duration), words).catch(() => [] as FactPlan[]),
+    input.broll === false ? Promise.resolve([] as BRollPlan[]) : enrichBroll(plan.broll, guard).catch(() => [] as BRollPlan[]),
+    input.facts === false ? Promise.resolve([] as FactPlan[]) : writeFacts(factMoments, words).catch(() => [] as FactPlan[]),
   ]);
-  return { ...plan, broll, facts };
+  return { ...plan, broll, facts: guard ? facts.filter((f) => guardHits(f.text).length === 0) : facts };
+}
+
+// ── TikTok guard on the director's own copy ──────────────────────────────────
+// The director already got GUARD_RULES; this is the safety net: every string
+// it wrote that still hits a rule is rewritten (one LLM call) or dropped,
+// B-roll searches lose their medical words, and the rule-muted words never
+// get a keyword colour.
+async function guardEditPlan(plan: EditPlanV2, words: DirectorWord[], input: EditInput): Promise<void> {
+  const slots: { text: string; set: (v: string | null) => void }[] = [];
+  const hook = plan.hook;
+  if (hook) {
+    slots.push({ text: hook.text, set: (v) => { if (v) hook.text = v; else plan.hook = null; } });
+    if (hook.sub) slots.push({ text: hook.sub, set: (v) => { hook.sub = v ?? undefined; } });
+  }
+  for (const it of plan.overlays) {
+    if (it.text) slots.push({ text: it.text, set: (v) => { it.text = v ?? ""; } });
+    if (it.sub) slots.push({ text: it.sub, set: (v) => { it.sub = v ?? undefined; } });
+  }
+  const rehook = plan.rehook;
+  if (rehook) slots.push({ text: rehook.text, set: (v) => { if (v) rehook.text = v; else delete plan.rehook; } });
+  const cta = plan.cta;
+  if (cta) {
+    slots.push({ text: cta.text, set: (v) => { cta.text = v ?? "Tekan beg kuning"; } });
+    if (cta.sub) slots.push({ text: cta.sub, set: (v) => { cta.sub = v ?? undefined; } });
+  }
+  for (const b of plan.broll) if (b.label) slots.push({ text: b.label, set: (v) => { b.label = v ?? undefined; } });
+  const fixed = await guardFixSlots(slots, input.product);
+
+  const before = plan.overlays.length;
+  plan.overlays = plan.overlays.filter((it) => it.t === "emoji" || (!!it.text && guardHits(it.text).length === 0));
+  plan.broll = plan.broll
+    .map((b) => ({ ...b, query: guardStripQuery(b.query) }))
+    .filter((b) => b.query.length >= 3);
+  plan.censor = guardCensorWords(words);
+  const muted = new Set(plan.censor);
+  plan.keywords = plan.keywords.filter((k) => !muted.has(k.i));
+  plan.guard = { fixed, dropped: before - plan.overlays.length };
 }
 
 // ── validation ────────────────────────────────────────────────────────────────
@@ -208,7 +257,7 @@ function rawFacts(raw: any, nWords: number, duration: number) {
 }
 
 // ── B-roll: Google Images + vision pick ──────────────────────────────────────
-async function enrichBroll(moments: BRollPlan[]): Promise<BRollPlan[]> {
+async function enrichBroll(moments: BRollPlan[], guard = false): Promise<BRollPlan[]> {
   if (!moments.length) return [];
   const results = await Promise.all(moments.map((m) => searchImages(m.query, { num: 8 }).catch(() => null)));
   const withHits = moments
@@ -217,7 +266,7 @@ async function enrichBroll(moments: BRollPlan[]): Promise<BRollPlan[]> {
   if (!withHits.length) return [];
 
   // One vision call: for each moment show up to 3 thumbnails, ask which fits.
-  const picks = await visionPick(withHits).catch(() => null);
+  const picks = await visionPick(withHits, guard).catch(() => null);
   return withHits
     .map(({ m, hits }, k) => {
       const choice = picks?.[k];
@@ -236,7 +285,7 @@ function goodImage(h: ImageHit): boolean {
   return true;
 }
 
-async function visionPick(items: { m: BRollPlan; hits: ImageHit[] }[]): Promise<number[] | null> {
+async function visionPick(items: { m: BRollPlan; hits: ImageHit[] }[], guard = false): Promise<number[] | null> {
   const images: string[] = [];
   const lines: string[] = [];
   items.forEach(({ m, hits }, k) => {
@@ -247,7 +296,9 @@ async function visionPick(items: { m: BRollPlan; hits: ImageHit[] }[]): Promise<
   if (images.length > 24) return null;
   const r = await orChatVision({
     modelKey: "model_motion",
-    systemPrompt: "You pick B-roll images for a TikTok edit. For each moment choose the image that best and most literally matches the query (real product/object, clean, no big watermark, not a meme, not text-heavy, safe for ads). Answer ONLY JSON: {\"picks\":[n0,n1,...]} where n is the 0-based position WITHIN that moment's own images (0..2), or -1 if none fits.",
+    systemPrompt: "You pick B-roll images for a TikTok edit. For each moment choose the image that best and most literally matches the query (real product/object, clean, no big watermark, not a meme, not text-heavy, safe for ads)." +
+      (guard ? " TIKTOK GUIDELINE MODE (TikTok Shop Malaysia 2026): never pick an image showing doctors / white coats / stethoscopes, hospitals, syringes or injections, glucometers, blood, wounds or graphic skin close-ups, pills, before/after bodies or skin, or a poster full of health claims / disease names — prefer clean product or lifestyle shots; answer -1 when every option is like that." : "") +
+      " Answer ONLY JSON: {\"picks\":[n0,n1,...]} where n is the 0-based position WITHIN that moment's own images (0..2), or -1 if none fits.",
     textPrompt: lines.join("\n") + "\nImages are attached in order #0, #1, …",
     images,
     temperature: 0.2,

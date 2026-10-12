@@ -9,6 +9,7 @@ import { AbsoluteFill, Audio, Easing, OffthreadVideo, interpolate, useCurrentFra
 import { BRollLayer, type PlacedBRoll } from './broll';
 import { RENDER } from './elements';
 import { Flash, LightSweep, ProgressBar, shakeOffset, type Impact } from './effects';
+import { TapeLayer } from './guard';
 import { Captions, SfxTrack, ZoneStack, toPages, type ZoneBoxes } from './layers';
 import { clamp, makeEditCue, packRows, safeAccent, type Placed } from './lib';
 import { sfxFor, type SfxEvent, type SfxEventName } from './sfx';
@@ -149,6 +150,7 @@ export const MotionEdit: React.FC<EditProps> = (p) => {
       <AbsoluteFill style={{ transform: `translate(${shake.x}px, ${shake.y}px) rotate(${shake.r}deg)` }}>
         <AbsoluteFill style={{ transform: `scale(${z})`, transformOrigin: origin }}>
           <OffthreadVideo src={p.video} toneMapped={false} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+          <TapeLayer tracks={p.tapes} />
         </AbsoluteFill>
 
         <BRollLayer items={plan.broll} layer="full" />
@@ -171,7 +173,7 @@ export const MotionEdit: React.FC<EditProps> = (p) => {
 
         {cap.on && (
           <Captions pages={plan.pages} style={cap.style} accent={accent} centerY={cap.pos === 'mid' ? 1180 : 1470}
-            keywords={p.keywords} lottie={p.lottie} gempak={gempak} />
+            keywords={p.keywords} lottie={p.lottie} gempak={gempak} censor={p.censor} />
         )}
       </AbsoluteFill>
 

@@ -11,6 +11,18 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
+// What the TikTok guard did on a finished job (+ the product-risk warning).
+function guardSummary(g: any) {
+  if (!g || typeof g !== "object") return null;
+  const n = (v: any) => (Number.isFinite(Number(v)) ? Number(v) : 0);
+  return {
+    taped: n(g.tapes) + n(g.broll?.taped) + n(g.taped),
+    cut: n(g.cut_words),
+    muted: n(g.muted_words),
+    risk: g.risk && typeof g.risk === "object" ? { level: String(g.risk.level || ""), reason: String(g.risk.reason || "").slice(0, 220) } : null,
+  };
+}
+
 export async function GET(req: Request) {
   const sb = await createClient();
   const { data: { user } } = await sb.auth.getUser();
@@ -57,6 +69,7 @@ export async function GET(req: Request) {
       cost: Number(cur.cost) || 0,
       error: cur.error_message || null,
       script: cur.metadata?.plan?.lines || null,
+      guard: guardSummary(cur.metadata?.guard),
     };
   }));
   return NextResponse.json({ jobs });
