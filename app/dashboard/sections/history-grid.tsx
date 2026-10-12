@@ -43,6 +43,7 @@ import ExtendDialog from "./extend-dialog";
 import AttachmentPicker from "./attachment-picker";
 import { CategoryPickModal } from "./attachments";
 import { MotionGuardNote, MotionProgress } from "./motion-progress";
+import MotionPhotoPicker from "../tabs/motion-photo-picker";
 import LazyVideo from "@/app/components/lazy-video";
 
 export type HistoryItem = {
@@ -2251,23 +2252,26 @@ function HistoryCardInner({
   };
   const isStoryboard = (item.metadata as any)?.feature === "storyboard";
   // Motion Edit Video: in-place re-render of any finished job, charged like a
-  // new edit. The product name is asked first.
+  // new edit. The product name and product photos (1–5; ones no longer in
+  // storage drop out, so they're uploaded again — tape too) are asked first.
   const [resubOpen, setResubOpen] = useState(false);
   const [resubProduct, setResubProduct] = useState("");
+  const [resubImages, setResubImages] = useState<string[]>([]);
+  const [resubImgBusy, setResubImgBusy] = useState(false);
   const [resubBusy, setResubBusy] = useState(false);
-  const motionMeta = item.metadata as { feature?: string; resubmits?: unknown; input?: { product?: string; videoUrl?: string } } | null | undefined;
+  const motionMeta = item.metadata as { feature?: string; resubmits?: unknown; input?: { product?: string; videoUrl?: string; productImages?: string[] } } | null | undefined;
   const canMotionResubmit = item.tab === "motion" && item.status === "done"
     && motionMeta?.feature === "motion-edit" && !!motionMeta?.input?.videoUrl;
 
   async function handleMotionResubmit() {
     const product = resubProduct.replace(/\s+/g, " ").trim();
-    if (!product || resubBusy) return;
+    if (!product || !resubImages.length || resubImgBusy || resubBusy) return;
     setResubBusy(true);
     try {
       const r = await fetch("/api/motion/resubmit", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: item.id, product }),
+        body: JSON.stringify({ id: item.id, product, product_images: resubImages }),
       });
       const d = await r.json().catch(() => ({}));
       if (!r.ok || !d?.ok) {
@@ -3457,7 +3461,7 @@ function HistoryCardInner({
           onClick={() => !resubBusy && setResubOpen(false)}
         >
           <div
-            className="w-full max-w-sm rounded-2xl p-5"
+            className="w-full max-w-sm rounded-2xl p-5 max-h-[92vh] overflow-y-auto"
             style={{ background: "var(--color-bg-card)", border: "1px solid var(--color-border)" }}
             onClick={(e) => e.stopPropagation()}
           >
@@ -3481,6 +3485,12 @@ function HistoryCardInner({
               style={{ border: "1px solid var(--color-border)", background: "var(--color-bg)", color: "var(--color-text-primary)" }}
             />
             <div className="text-[10px] text-[var(--color-text-muted)] mb-3">Ejaan betul nama produk — AI guna untuk caption & skrip.</div>
+            <label className="block text-[11px] font-bold text-[var(--color-text-primary)] mb-1">
+              Gambar produk <span style={{ color: "#ef4444" }}>*</span> <span className="font-normal text-[var(--color-text-muted)]">(1–5)</span>
+            </label>
+            <div className="mb-3">
+              <MotionPhotoPicker value={resubImages} onChange={setResubImages} disabled={resubBusy} onBusyChange={setResubImgBusy} />
+            </div>
             <div className="grid grid-cols-2 gap-2">
               <button
                 onClick={() => setResubOpen(false)}
@@ -3492,7 +3502,7 @@ function HistoryCardInner({
               </button>
               <button
                 onClick={() => void handleMotionResubmit()}
-                disabled={resubBusy || !resubProduct.trim()}
+                disabled={resubBusy || resubImgBusy || !resubProduct.trim() || !resubImages.length}
                 className="py-2 rounded-xl text-[12px] font-extrabold text-white flex items-center justify-center gap-1 disabled:opacity-40"
                 style={{ background: ACTION.retry }}
               >
@@ -4880,6 +4890,7 @@ function HistoryCardInner({
                   title="Render semula (dicaj ikut tempoh)"
                   onClick={() => {
                     setResubProduct(String(motionMeta?.input?.product || "").slice(0, 80));
+                    setResubImages((motionMeta?.input?.productImages ?? []).filter((u) => /^https:\/\//.test(String(u))).slice(0, 5));
                     setResubOpen(true);
                   }}
                   bg={ACTION.retry}

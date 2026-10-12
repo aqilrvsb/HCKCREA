@@ -36,7 +36,14 @@ export async function POST(req: Request) {
   // caption fixer and the transcriber all lean on it.
   const product = String(b?.product ?? oldInput.product ?? "").replace(/\s+/g, " ").trim().slice(0, 80);
   if (!product) return NextResponse.json({ error: "Sila isi nama produk dulu." }, { status: 400 });
-  const input: EditInput = { ...oldInput, product };
+  // Product photos (1–5): the ones sent from the Resubmit box (old ones whose
+  // file is gone were dropped there and new ones uploaded / taped).
+  const productImages = (Array.isArray(b?.product_images) ? b.product_images : oldInput.productImages ?? [])
+    .map((u: unknown) => String(u ?? "").trim())
+    .filter((u: string) => /^https:\/\/[^\s]+$/.test(u) && u.length <= 1000)
+    .slice(0, 5);
+  if (!productImages.length) return NextResponse.json({ error: "Upload sekurang-kurangnya 1 gambar produk." }, { status: 400 });
+  const input: EditInput = { ...oldInput, product, productImages };
   if (row.status !== "done") return NextResponse.json({ error: "Video ini belum siap." }, { status: 409 });
   const done = Number(meta.resubmits) || 0;
   const rate = await priceFor(row.user_id, "motion", "motion");

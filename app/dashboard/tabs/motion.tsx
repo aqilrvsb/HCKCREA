@@ -10,12 +10,11 @@
 // finished video with its guideline summary.
 
 import { useEffect, useState } from "react";
-import { Clapperboard, Loader2, Upload, X, Sparkles, Scissors, Brain, Wand2, ShieldCheck, Trash2 } from "lucide-react";
+import { Clapperboard, Loader2, Upload, X, Sparkles, Scissors, Brain, Wand2, ShieldCheck } from "lucide-react";
 import { uploadImage } from "@/lib/upload-image";
-import { compressImageIfNeeded } from "@/lib/compress-image";
 import { MOTION_AD_PRESETS, MOTION_EDIT_PRESETS, type MotionPreset } from "@/lib/motion-prompts";
 import { MOTION_STYLES, type MotionStyleId } from "@/lib/motion-styles";
-import MotionTapeEditor from "./motion-tape-editor";
+import MotionPhotoPicker, { MAX_PRODUCT_PHOTOS, withRetry } from "./motion-photo-picker";
 
 type Mode = "ad" | "edit";
 type CaptionStyle = "pop" | "karaoke" | "box" | "tiktok";
@@ -23,7 +22,6 @@ type VideoPick = { key: string; file: File; dur: number; preview: string; upload
 
 const THEME = { primary: "#a855f7", soft: "rgba(168,85,247,0.35)", faint: "rgba(168,85,247,0.08)", gradient: "linear-gradient(135deg,#a855f7,#ec4899)" };
 const MAX_VIDEOS = 5;
-const MAX_EDIT_IMAGES = 5;
 const MAX_SEC = 180;
 
 const VOICES = [
@@ -124,18 +122,6 @@ function GuardBox({ on, onChange }: { on: boolean; onChange: (v: boolean) => voi
   );
 }
 
-/** Up to 3 tries, 1.5 s / 3 s apart, for errors marked `retry` (network drop, 5xx). */
-async function withRetry<T>(fn: () => Promise<T>, tries = 3): Promise<T> {
-  for (let k = 1; ; k++) {
-    try {
-      return await fn();
-    } catch (e: unknown) {
-      if (k >= tries || !(e as { retry?: boolean })?.retry) throw e;
-      await new Promise((r) => setTimeout(r, 1500 * k));
-    }
-  }
-}
-
 // iOS Safari never loads metadata for a detached <video> (and ignores
 // preload): attach it off-screen, muted + inline, call load(), accept
 // whichever of loadedmetadata / durationchange brings a real duration, and
@@ -224,22 +210,7 @@ export default function MotionTab({ projectId }: { projectId?: string }) {
   // product name as it should be spelt — required; the AI uses it for captions
   const [editProduct, setEditProduct] = useState("");
   const [readingVideos, setReadingVideos] = useState(false);
-  const [editImgError, setEditImgError] = useState<string | null>(null);
-  // product photo open in the tape editor (its URL), or null
-  const [tapeSrc, setTapeSrc] = useState<string | null>(null);
-  // the client's product photo gallery (/api/motion/photos) — reuse or delete
-  const [gallery, setGallery] = useState<{ id: string; url: string }[]>([]);
-  const [showGallery, setShowGallery] = useState(false);
-  useEffect(() => {
-    fetch("/api/motion/photos").then((r) => r.json()).then((d) => setGallery(Array.isArray(d?.photos) ? d.photos : [])).catch(() => undefined);
-  }, []);
-  const toggleFromGallery = (url: string) => setEditImages((cur) =>
-    cur.includes(url) ? cur.filter((x) => x !== url) : cur.length >= MAX_EDIT_IMAGES ? cur : [...cur, url]);
-  async function deleteFromGallery(id: string, url: string) {
-    setGallery((g) => g.filter((p) => p.id !== id));
-    setEditImages((cur) => cur.filter((x) => x !== url));
-    await fetch(`/api/motion/photos?id=${encodeURIComponent(id)}`, { method: "DELETE" }).catch(() => undefined);
-  }
+  const [editImgBusy, setEditImgBusy] = useState(false);
 
   // Running jobs live in the History grid (placeholder cards poll their own status).
   // "Buat Iklan" can be switched off for everyone (motion_features.ad) or per
@@ -276,55 +247,6 @@ export default function MotionTab({ projectId }: { projectId?: string }) {
       }
     } catch (e: any) {
       setError(e?.message || "Upload gambar gagal");
-    } finally {
-      setImgBusy(false);
-    }
-  }
-  // Edit Video: the seller's own product photos — every product B-roll shot comes
-  // from these. Same browser → Modal → B2 path as the video (signed URL), so it
-  // doesn't depend on a third-party image host.
-  async function uploadProductPhoto(input: File): Promise<string> {
-    const { file } = await compressImageIfNeeded(input);
-    const r = await fetch("/api/motion/upload-url", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name: file.name, size: file.size, kind: "image" }),
-    });
-    const d = await r.json().catch(() => ({}));
-    if (!r.ok || !d?.upload_url) throw new Error(d?.error || "Tak dapat link upload");
-    return withRetry(async () => {
-      const up = await fetch(d.upload_url, { method: "POST", headers: { "Content-Type": file.type || "image/jpeg" }, body: file })
-        .catch(() => { throw Object.assign(new Error("Upload gagal — semak sambungan internet."), { retry: true }); });
-      const j = await up.json().catch(() => ({}));
-      if (!up.ok || !j?.url) throw Object.assign(new Error(j?.error || `Upload gagal (${up.status})`), { retry: up.status >= 500 });
-      return String(j.url);
-    });
-  }
-  const rememberPhoto = (url: string) =>
-    fetch("/api/motion/photos", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ url }) })
-      .then((r) => r.json()).then((d) => { if (d?.photo) setGallery((g) => [d.photo, ...g.filter((p) => p.url !== url)]); })
-      .catch(() => undefined);
-  // taped photo → uploaded as a new photo that takes the original's place
-  async function saveTapedPhoto(original: string, file: File) {
-    const url = await uploadProductPhoto(file);
-    setEditImages((cur) => cur.map((u) => (u === original ? url : u)));
-    void rememberPhoto(url);
-    setTapeSrc(null);
-  }
-  async function addEditImages(files: FileList | null) {
-    if (!files || files.length === 0) return;
-    const picked = Array.from(files); // copy now — the input is cleared right after
-    setEditImgError(null);
-    setImgBusy(true);
-    try {
-      for (const f of picked.slice(0, Math.max(0, MAX_EDIT_IMAGES - editImages.length))) {
-        const url = await uploadProductPhoto(f);
-        setEditImages((cur) => (cur.includes(url) ? cur : [...cur, url].slice(0, MAX_EDIT_IMAGES)));
-        // remember it in the client's gallery for the next video (best-effort)
-        void rememberPhoto(url);
-      }
-    } catch (e: unknown) {
-      setEditImgError(e instanceof Error && e.message ? `Upload gambar gagal: ${e.message}` : "Upload gambar gagal");
     } finally {
       setImgBusy(false);
     }
@@ -523,68 +445,8 @@ export default function MotionTab({ projectId }: { projectId?: string }) {
               <p className="text-[10px] text-[var(--color-text-muted)] mt-1">Tulis ejaan yang betul — AI guna untuk caption &amp; skrip.</p>
             </div>
             <div>
-              <label className={label}>Gambar produk * (1–{MAX_EDIT_IMAGES})</label>
-              <div className="flex flex-wrap gap-2 items-center">
-                {editImages.map((url, i) => (
-                  <div key={url} className="relative w-20 h-20 rounded-lg overflow-hidden border" style={{ borderColor: THEME.soft, background: "#000" }}>
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={url} alt="" className="w-full h-full object-cover" />
-                    <span className="absolute bottom-0 left-0 right-0 text-[9px] text-center font-bold text-white" style={{ background: "rgba(0,0,0,0.6)" }}>Produk {i + 1}</span>
-                    <button type="button" onClick={() => setEditImages((cur) => cur.filter((x) => x !== url))} className="absolute top-0.5 right-0.5 bg-black/70 rounded-full p-0.5">
-                      <X className="w-3 h-3 text-white" />
-                    </button>
-                    <button type="button" onClick={() => setTapeSrc(url)} disabled={submitting} title="Tampal tulisan pada gambar" aria-label="Tampal"
-                      className="absolute top-0.5 left-0.5 w-5 h-5 rounded-full flex items-center justify-center text-[10px] leading-none disabled:opacity-40"
-                      style={{ background: "rgba(168,85,247,0.9)" }}>
-                      🩹
-                    </button>
-                  </div>
-                ))}
-                {editImages.length < MAX_EDIT_IMAGES && (
-                  <label className="relative overflow-hidden w-20 h-20 rounded-lg border border-dashed flex flex-col items-center justify-center text-[10px] font-bold cursor-pointer" style={{ borderColor: THEME.soft, color: "var(--color-text-secondary)" }}>
-                    {imgBusy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
-                    Produk
-                    <input type="file" accept="image/*" multiple className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" onChange={(e) => { addEditImages(e.target.files); e.target.value = ""; }} />
-                  </label>
-                )}
-              </div>
-              {editImgError && <p className="text-[11px] mt-1 font-bold text-red-400">{editImgError}</p>}
-              {editImages.length > 0 && (
-                <p className="text-[10px] text-[var(--color-text-muted)] mt-1">Tekan 🩹 pada gambar untuk tampal tulisan (cth. claim) sebelum edit.</p>
-              )}
-              {tapeSrc && (
-                <MotionTapeEditor src={tapeSrc} onClose={() => setTapeSrc(null)} onSave={(f) => saveTapedPhoto(tapeSrc, f)} />
-              )}
-              {gallery.length > 0 && (
-                <div className="mt-2">
-                  <button type="button" onClick={() => setShowGallery((s) => !s)}
-                    className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-[11px] font-bold"
-                    style={{ background: THEME.faint, border: `1px solid ${THEME.soft}`, color: "var(--color-text-primary)" }}>
-                    🖼️ Guna gambar lama ({gallery.length}) {showGallery ? "▲" : "▼"}
-                  </button>
-                  {showGallery && (
-                    <div className="mt-2 p-2 rounded-xl grid grid-cols-4 sm:grid-cols-6 gap-2" style={{ background: "var(--color-bg)", border: "1px solid var(--color-border)" }}>
-                      {gallery.map((p) => {
-                        const on = editImages.includes(p.url);
-                        return (
-                          <div key={p.id} className="relative aspect-square rounded-lg overflow-hidden border-2 cursor-pointer"
-                            style={{ borderColor: on ? THEME.primary : "transparent", background: "#000" }}
-                            onClick={() => toggleFromGallery(p.url)} title={on ? "Buang dari video ni" : "Guna dalam video ni"}>
-                            {/* eslint-disable-next-line @next/next/no-img-element */}
-                            <img src={p.url} alt="" className="w-full h-full object-cover" loading="lazy" />
-                            {on && <span className="absolute top-0.5 left-0.5 rounded-full px-1 text-[10px] font-extrabold text-white" style={{ background: THEME.primary }}>✓</span>}
-                            <button type="button" aria-label="Padam gambar"
-                              onClick={(e) => { e.stopPropagation(); deleteFromGallery(p.id, p.url); }}
-                              className="absolute top-0.5 right-0.5 bg-black/70 rounded-full p-1">
-                              <Trash2 className="w-3 h-3 text-white" />
-                            </button>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
-                </div>
-              )}
+              <label className={label}>Gambar produk * (1–{MAX_PRODUCT_PHOTOS})</label>
+              <MotionPhotoPicker value={editImages} onChange={setEditImages} disabled={submitting} onBusyChange={setEditImgBusy} />
               <p className="text-[11px] mt-1 text-[var(--color-text-muted)]">
                 Wajib — gambar produk anda sendiri (kotak, produk, cara guna). Gambar kotak / produk dalam video diambil dari sini sahaja, tiada gambar jenama lain. Gambar umum (cth. tampal di bahu) auto cari Google tanpa jenama.
               </p>
@@ -754,7 +616,7 @@ export default function MotionTab({ projectId }: { projectId?: string }) {
         <div className="mt-5 flex flex-wrap items-center gap-3">
           <button
             type="button"
-            disabled={submitting || imgBusy || (mode === "edit" && videos.length === 0)}
+            disabled={submitting || imgBusy || (mode === "edit" && (videos.length === 0 || editImgBusy))}
             onClick={mode === "ad" ? submitAd : submitEdit}
             className="px-5 py-3 rounded-xl text-sm font-extrabold text-white disabled:opacity-50 inline-flex items-center gap-2"
             style={{ background: THEME.gradient, boxShadow: `0 6px 18px ${THEME.soft}` }}
