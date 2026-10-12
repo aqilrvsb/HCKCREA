@@ -73,32 +73,47 @@ function watch(id: string, fn: (p: Prog) => void): () => void {
 const PLANNING_PCT: Record<string, number> = { queued: 3, script: 8, voice: 18 };
 
 const quoted = (items: string[], max: number) => {
-  const shown = items.slice(0, max).map((t) => `"${t.length > 40 ? `${t.slice(0, 40)}…` : t}"`).join(", ");
+  const shown = items.slice(0, max).map((t) => `"${t.length > 40 && max < Infinity ? `${t.slice(0, 40)}…` : t}"`).join(", ");
   return items.length > max ? `${shown} +${items.length - max} lagi` : shown;
 };
 
-/** Finished Motion card: exactly what "Check Guideline TikTok" taped, cut and muted. */
+/** Finished Motion card: exactly what "Check Guideline TikTok" taped, cut and
+ *  muted — a short summary; tap it to read everything. */
 export function MotionGuardNote({ guard }: { guard: unknown }) {
+  const [full, setFull] = useState(false);
   const g = motionGuardSummary(guard);
   if (!g) return null;
+  const many = full ? Infinity : 0;
   const rows: [string, string][] = [];
-  if (g.tapedTexts.length) rows.push(["Tulisan ditampal", quoted(g.tapedTexts, 8)]);
+  if (g.tapedTexts.length) rows.push(["Tulisan ditampal", quoted(g.tapedTexts, full ? many : 8)]);
   if (g.tapedImagesUnlisted) rows.push(["Gambar B-roll ditampal", `${g.tapedImagesUnlisted} gambar`]);
-  if (g.cutText) rows.push(["Ayat claim dipotong", `"${g.cutText.length > 160 ? `${g.cutText.slice(0, 160)}…` : g.cutText}"`]);
+  if (g.cutText) rows.push(["Ayat claim dipotong", `"${!full && g.cutText.length > 160 ? `${g.cutText.slice(0, 160)}…` : g.cutText}"`]);
   else if (g.cut) rows.push(["Ayat claim dipotong", `${g.cut} perkataan`]);
-  if (g.mutedWords.length) rows.push(["Di-mute & ditutup dalam caption", quoted(g.mutedWords, 10)]);
+  if (g.mutedWords.length) rows.push(["Di-mute & ditutup dalam caption", quoted(g.mutedWords, full ? many : 10)]);
   else if (g.muted) rows.push(["Di-mute & ditutup dalam caption", `${g.muted} perkataan`]);
+  const truncated = g.tapedTexts.length > 8 || g.cutText.length > 160 || g.mutedWords.length > 10;
   return (
-    <div className="text-[10px] mb-2 leading-snug">
+    <div
+      className={`text-[10px] mb-2 leading-snug ${truncated ? "cursor-pointer" : ""}`}
+      onClick={truncated ? (e) => { e.stopPropagation(); setFull((f) => !f); } : undefined}
+      title={truncated ? (full ? "Tekan untuk ringkaskan" : "Tekan untuk baca penuh") : undefined}
+    >
       <span className="inline-flex items-center gap-1 font-bold text-green-500">
         <ShieldCheck className="w-3 h-3 flex-shrink-0" />
         {rows.length ? "Guideline TikTok" : "Guideline TikTok: tiada claim berisiko dijumpai"}
       </span>
-      {rows.map(([k, v]) => (
-        <span key={k} className="block mt-0.5 text-[var(--color-text-secondary)]">
-          <span className="font-bold text-[var(--color-text-primary)]">{k}:</span> {v}
+      <div className={full ? "max-h-56 overflow-y-auto pr-1" : ""}>
+        {rows.map(([k, v]) => (
+          <span key={k} className="block mt-0.5 text-[var(--color-text-secondary)]">
+            <span className="font-bold text-[var(--color-text-primary)]">{k}:</span> {v}
+          </span>
+        ))}
+      </div>
+      {truncated && (
+        <span className="block mt-1 font-bold underline" style={{ color: "#a78bfa" }}>
+          {full ? "Tutup ▲" : "Baca penuh ▼"}
         </span>
-      ))}
+      )}
     </div>
   );
 }

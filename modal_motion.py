@@ -1047,9 +1047,22 @@ def _guard_speech(words: list, p: dict) -> dict:
                 print("guard speech rejected:", str(j)[:300])
         except Exception as e:  # noqa: BLE001
             print("guard speech failed:", str(e)[:200])
-    out["censor"] |= _guard_classify({}, "speech", [], words)["censor"]
+    # the hard rule hits (disease / medical terms) — kept apart so an
+    # over-flagging model can be trimmed back to them (_cap_censor)
+    out["rules"] = set(_guard_classify({}, "speech", [], words)["censor"])
+    out["censor"] |= out["rules"]
     out["censor"] -= out["cut"]
     return out
+
+
+def _cap_censor(g: dict, n_words: int) -> None:
+    """Muting is for a few risky words. When far more are flagged the model
+    over-flagged (an everyday cosmetic benefit read as a claim): keep only the
+    hard rule hits — a soundtrack full of holes is worse than the edit."""
+    cap = max(6, int(0.08 * n_words))
+    if len(g["censor"]) > cap:
+        g["censor"] = set(g["censor"]) & set(g.get("rules") or set())
+        g["censor_capped"] = True
 
 
 def _scene_cuts(video: Path, thr: float = 0.1) -> list:
@@ -1462,9 +1475,12 @@ def _flow_edit(p: dict, d: Path, srv: _Serve) -> dict:
         _progress("guard", 12)
         gspeech = _guard_speech(raw_words, p)
         if len(gspeech["cut"]) > 0.4 * len(raw_words):
-            # mostly claims — cutting would gut the video: mute them instead
-            gspeech["censor"] |= gspeech["cut"]
+            # "mostly claims" = the model over-flagged; cutting would gut the
+            # video and muting every word of those sentences breaks the voice —
+            # mute only the hard rule hits inside them
+            gspeech["censor"] |= gspeech["cut"] & gspeech.get("rules", set())
             gspeech["cut"], gspeech["cut_skipped"] = set(), True
+        _cap_censor(gspeech, len(raw_words))
     claims = gspeech["cut"]
 
     words, segs, cut = raw_words, None, {}
@@ -1476,7 +1492,9 @@ def _flow_edit(p: dict, d: Path, srv: _Serve) -> dict:
             words, _ = _remap_words(kept, sg)
             cut = {"removed_sec": round(span - kept_len, 2), "segments": len(sg)}
         elif claims:
-            gspeech["censor"] |= claims  # couldn't cut → mute
+            # couldn't cut → mute the hard rule hits inside the claims (not every word)
+            gspeech["censor"] |= claims & gspeech.get("rules", set())
+            _cap_censor(gspeech, len(raw_words))
             claims = set()
     if not jump:
         words = [w for w in words if not _is_filler(w["w"])] or words
@@ -1589,6 +1607,7 @@ def _flow_edit(p: dict, d: Path, srv: _Serve) -> dict:
                      "cut_words": len(claims), "cut": " ".join(w["w"] for w in raw_words if w["ri"] in claims)[:400],
                      "risk": gspeech.get("risk"), "speech_via": gspeech.get("via"),
                      **({"cut_skipped": True} if gspeech.get("cut_skipped") else {}),
+                     **({"censor_capped": True} if gspeech.get("censor_capped") else {}),
                      "risky_texts": gres.get("risky_texts") or [], "texts": gres.get("texts"), "via": gres.get("via"),
                      "sec": gres.get("sec"), "broll": broll_guard, **({"error": gres["error"]} if gres.get("error") else {})}
     if p.get("music") and words:

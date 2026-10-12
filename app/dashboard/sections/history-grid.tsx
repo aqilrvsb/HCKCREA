@@ -1993,6 +1993,9 @@ function dupTokens(prompt: string | null): string[] {
   return [...seen];
 }
 function dupKind(it: HistoryItem): "sb" | "vid" | null {
+  // Motion edits each start from the client's own video — their "prompt" is the
+  // shared edit preset, so comparing it would flag every one as a copy.
+  if (it.tab === "motion") return null;
   if (it.metadata?.feature === "storyboard") return "sb";
   if (it.type === "video") return "vid";
   return null;
