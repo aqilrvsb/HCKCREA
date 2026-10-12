@@ -224,13 +224,17 @@ export default function MotionTab({ projectId }: { projectId?: string }) {
   }
 
   // Running jobs live in the History grid (placeholder cards poll their own status).
-  // A client may have "Buat Iklan" switched off (profiles.settings.hidden_modes).
-  const [adAllowed, setAdAllowed] = useState(true);
+  // "Buat Iklan" can be switched off for everyone (motion_features.ad) or per
+  // client (profiles.settings.hidden_modes). Hidden until the server says it's
+  // allowed — starting visible made it flash on every tab open.
+  const [adAllowed, setAdAllowed] = useState(false);
   useEffect(() => {
     fetch("/api/motion/rate").then((r) => r.json()).then((d) => {
       setRate(Number(d?.rate) || 0);
       setBrain(d?.brain || null);
-      if (d?.modes?.ad === false) { setAdAllowed(false); setMode("edit"); }
+      const ok = d?.modes?.ad === true;
+      setAdAllowed(ok);
+      if (!ok) setMode("edit");
     }).catch(() => setRate(0));
   }, [projectId]);
 
