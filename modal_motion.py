@@ -713,16 +713,18 @@ def _fetch_broll(items: list, d: Path, srv: _Serve, p: dict = None) -> tuple:
     info = {}
     if guard:
         allp = [x for _k, _b, got in picks for x in got]
-        st = {}
+        st, taped_lines = {}, {}
         if allp:
             try:
-                st = _guard_images(allp, p, "broll")
+                st = _guard_images(allp, p, "broll", taped_out=taped_lines)
             except Exception as e:  # noqa: BLE001
                 print("guard broll failed — dropping unchecked images:", str(e)[:200])
                 st = {str(x): "drop" for x in allp}
         picks = [(k, b, [x for x in got if st.get(str(x)) != "drop"]) for k, b, got in picks]
-        used = [st.get(str(got[0])) for _k, _b, got in picks if got]
-        info = {"taped": used.count("taped"), "dropped": sum(1 for v in st.values() if v == "drop")}
+        used = [str(got[0]) for _k, _b, got in picks if got]
+        shown_texts = list(dict.fromkeys(t for x in used for t in taped_lines.get(x, [])))
+        info = {"taped": sum(1 for x in used if st.get(x) == "taped"), "dropped": sum(1 for v in st.values() if v == "drop"),
+                "texts": shown_texts[:24]}
     out = []
     for k, b, got in picks:
         if not got:
@@ -1175,9 +1177,11 @@ def _bake_tape(path: Path, quads: list) -> None:
         im.convert("RGB").save(path, format="JPEG" if fmt != "PNG" else "PNG", quality=90)
 
 
-def _guard_images(paths: list, p: dict, kind: str, max_lines: int = 12, max_area: float = 0.25) -> dict:
+def _guard_images(paths: list, p: dict, kind: str, max_lines: int = 12, max_area: float = 0.25,
+                  taped_out: dict | None = None) -> dict:
     """OCR + classify + tape images in place → {path: clean | taped | drop}.
-    Images with too much risky text (a claims poster) are dropped instead."""
+    Images with too much risky text (a claims poster) are dropped instead.
+    `taped_out` (optional) gets {path: [the lines taped]} for the job summary."""
     from PIL import Image
     res = guard_ocr_images.remote([(str(x), Path(x).read_bytes()) for x in paths])
     keys, texts = {}, []
@@ -1203,6 +1207,8 @@ def _guard_images(paths: list, p: dict, kind: str, max_lines: int = 12, max_area
             continue
         _bake_tape(Path(x), [ln["q"] for ln in lines])
         status[str(x)] = "taped"
+        if taped_out is not None:
+            taped_out[str(x)] = [ln["x"] for ln in lines]
     return status
 
 

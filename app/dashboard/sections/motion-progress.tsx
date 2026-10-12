@@ -72,26 +72,33 @@ function watch(id: string, fn: (p: Prog) => void): () => void {
 
 const PLANNING_PCT: Record<string, number> = { queued: 3, script: 8, voice: 18 };
 
-/** Finished Motion card: what "Check Guideline TikTok" did + the product-risk warning. */
+const quoted = (items: string[], max: number) => {
+  const shown = items.slice(0, max).map((t) => `"${t.length > 40 ? `${t.slice(0, 40)}…` : t}"`).join(", ");
+  return items.length > max ? `${shown} +${items.length - max} lagi` : shown;
+};
+
+/** Finished Motion card: exactly what "Check Guideline TikTok" taped, cut and muted. */
 export function MotionGuardNote({ guard }: { guard: unknown }) {
   const g = motionGuardSummary(guard);
   if (!g) return null;
-  const did = [
-    g.taped ? `${g.taped} tulisan ditampal` : "",
-    g.cut ? `${g.cut} perkataan claim dipotong` : "",
-    g.muted ? `${g.muted} perkataan di-mute` : "",
-  ].filter(Boolean).join(" · ");
+  const rows: [string, string][] = [];
+  if (g.tapedTexts.length) rows.push(["Tulisan ditampal", quoted(g.tapedTexts, 8)]);
+  if (g.tapedImagesUnlisted) rows.push(["Gambar B-roll ditampal", `${g.tapedImagesUnlisted} gambar`]);
+  if (g.cutText) rows.push(["Ayat claim dipotong", `"${g.cutText.length > 160 ? `${g.cutText.slice(0, 160)}…` : g.cutText}"`]);
+  else if (g.cut) rows.push(["Ayat claim dipotong", `${g.cut} perkataan`]);
+  if (g.mutedWords.length) rows.push(["Di-mute & ditutup dalam caption", quoted(g.mutedWords, 10)]);
+  else if (g.muted) rows.push(["Di-mute & ditutup dalam caption", `${g.muted} perkataan`]);
   return (
     <div className="text-[10px] mb-2 leading-snug">
       <span className="inline-flex items-center gap-1 font-bold text-green-500">
         <ShieldCheck className="w-3 h-3 flex-shrink-0" />
-        {did || "Guideline TikTok: tiada claim berisiko dijumpai"}
+        {rows.length ? "Guideline TikTok" : "Guideline TikTok: tiada claim berisiko dijumpai"}
       </span>
-      {g.risk && g.risk.level !== "low" && g.risk.reason && (
-        <span className="block mt-0.5" style={{ color: g.risk.level === "high" ? "#f59e0b" : "var(--color-text-secondary)" }}>
-          {g.risk.level === "high" ? "⚠️ Produk berisiko: " : "Nota: "}{g.risk.reason}
+      {rows.map(([k, v]) => (
+        <span key={k} className="block mt-0.5 text-[var(--color-text-secondary)]">
+          <span className="font-bold text-[var(--color-text-primary)]">{k}:</span> {v}
         </span>
-      )}
+      ))}
     </div>
   );
 }
