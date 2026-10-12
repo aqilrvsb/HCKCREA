@@ -229,8 +229,8 @@ export default function MotionTab({ projectId }: { projectId?: string }) {
         const r = await uploadImage(f);
         setEditImages((cur) => (cur.includes(r.url) ? cur : [...cur, r.url].slice(0, MAX_EDIT_IMAGES)));
       }
-    } catch (e: any) {
-      setError(e?.message || "Upload gambar gagal");
+    } catch (e: unknown) {
+      setError(e instanceof Error && e.message ? e.message : "Upload gambar gagal");
     } finally {
       setImgBusy(false);
     }
