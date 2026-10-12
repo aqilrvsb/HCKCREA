@@ -316,6 +316,7 @@ export default function MotionTab({ projectId }: { projectId?: string }) {
     setError(null);
     setNotice(null);
     if (videos.length === 0) return setError("Pilih sekurang-kurangnya satu video.");
+    if (editImages.length === 0) return setError("Upload sekurang-kurangnya 1 gambar produk.");
     setSubmitting(true);
     const failed: string[] = [];
     // Two uploads at a time; every video becomes its own background job.
@@ -427,7 +428,7 @@ export default function MotionTab({ projectId }: { projectId?: string }) {
               </div>
             </div>
             <div>
-              <label className={label}>Gambar produk (optional, maks {MAX_EDIT_IMAGES})</label>
+              <label className={label}>Gambar produk * (1–{MAX_EDIT_IMAGES})</label>
               <div className="flex flex-wrap gap-2 items-center">
                 {editImages.map((url, i) => (
                   <div key={url} className="relative w-20 h-20 rounded-lg overflow-hidden border" style={{ borderColor: THEME.soft, background: "#000" }}>
@@ -448,9 +449,7 @@ export default function MotionTab({ projectId }: { projectId?: string }) {
                 )}
               </div>
               <p className="text-[11px] mt-1 text-[var(--color-text-muted)]">
-                {editImages.length
-                  ? "Gambar kotak / produk dalam video diambil dari gambar anda sahaja — tiada gambar jenama lain. Gambar umum (cth. tampal di bahu) auto cari Google tanpa jenama."
-                  : "Upload gambar produk anda sendiri (kotak, produk, cara guna) supaya B-roll produk 100% betul. Tanpa gambar — AI cari di Google."}
+                Wajib — gambar produk anda sendiri (kotak, produk, cara guna). Gambar kotak / produk dalam video diambil dari sini sahaja, tiada gambar jenama lain. Gambar umum (cth. tampal di bahu) auto cari Google tanpa jenama.
               </p>
             </div>
             <div className="flex flex-wrap gap-2">

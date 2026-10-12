@@ -36,12 +36,15 @@ export async function POST(req: Request) {
   const durationSec = Math.min(declared, MOTION_EDIT_MAX_SEC);
   const style = ["pop", "karaoke", "box", "tiktok"].includes(b?.caption_style) ? b.caption_style : "pop";
 
-  // Optional: the seller's own product photos (uploaded via /api/upload/image) —
-  // every product B-roll shot comes from these.
+  // Required: the seller's own product photos (1–5, uploaded via /api/upload/image)
+  // — every product B-roll shot comes from these, never another brand's box.
   const productImages = (Array.isArray(b?.product_images) ? b.product_images : [])
     .map((u: unknown) => String(u ?? "").trim())
     .filter((u: string) => /^https:\/\/[^\s]+$/.test(u) && u.length <= 1000)
     .slice(0, 5);
+  if (productImages.length === 0) {
+    return NextResponse.json({ error: "Upload sekurang-kurangnya 1 gambar produk." }, { status: 400 });
+  }
 
   const input: EditInput = {
     videoUrl,
@@ -49,7 +52,7 @@ export async function POST(req: Request) {
     language: b?.language === "en" ? "en" : b?.language === "auto" ? "auto" : "ms",
     instructions: str(b?.prompt ?? b?.instructions, 900) || undefined,
     product: str(b?.product, 300) || undefined,
-    ...(productImages.length ? { productImages } : {}),
+    productImages,
     captions: b?.captions !== false,
     captionStyle: style,
     captionPos: b?.caption_pos === "mid" ? "mid" : "low",
