@@ -64,10 +64,21 @@ export type EditPlanV2 = {
 
 // ── AI Auto ──────────────────────────────────────────────────────────────────
 // The client picks nothing: the director reads the video and decides the
-// angle, look, colour, captions, hook sound and music itself — thought up
-// fresh for every video. Each call gets the menus in a new random order and a
-// random creative spark (plus a higher temperature), so no two generations
-// come out the same.
+// angle, look, colour, captions, hook sound and music itself. Left to choose
+// from every option it lands on the same "best fit" each time (same video →
+// same look, same sound), so the CODE draws a random shortlist per call —
+// 3 of the 10 looks, 5 of the 30 hook sounds, 2 caption styles, 3 hook
+// formulas, 4 angles + a creative spark — and the AI picks the best of those
+// for this footage. Every generation differs; every pick still fits.
+
+const HOOK_FORMULAS = [
+  "problem → fix (name the pain, promise the fix)", "a question that hits the viewer's pain", "a bold verdict / hot take",
+  "\"Jangan … sebelum tengok ni\" warning", "a result or before→after tease (only what is shown or said)",
+  "a number list (\"3 sebab…\", \"2 cara…\")", "a secret / thing nobody tells you", "POV — the viewer in the situation",
+  "a price or promo shock (only a spoken price / promo)", "first try / first impression reaction", "myth vs fact",
+  "a challenge to the viewer (\"Cuba teka…\")",
+];
+const CAPTION_CHOICES = ["pop", "karaoke", "box", "tiktok"] as const;
 
 const SPARKS = [
   "myth vs fact", "POV — the viewer is the one with the problem", "a question the viewer can't scroll past",
@@ -88,21 +99,25 @@ const shuffle = <T,>(a: readonly T[]): T[] => {
 };
 const firstSentence = (s: string) => (s.split(/(?<=[.!?:])\s/)[0] || s).slice(0, 150);
 
-/** The AUTO section of the director prompt — menus shuffled, one random spark. */
+/** The AUTO section of the director prompt — a fresh random shortlist every call. */
 function autoBrief(): string {
-  const looks = shuffle(MOTION_STYLES).map((l) =>
+  const looks = shuffle(MOTION_STYLES).slice(0, 3).map((l) =>
     `- ${l.id} (${l.label}: ${l.desc}) — ${l.edit} Palette: ${l.palette}. Max gap ${l.maxGap} s. Music mood: ${l.mood}.`).join("\n");
-  const angles = shuffle(MOTION_EDIT_PRESETS).map((a) => `- ${a.label.replace(/^\P{L}+/u, "")}: ${firstSentence(a.prompt)}`).join("\n");
-  const sounds = shuffle(HOOK_SOUNDS.map((s, i) => `${i} = ${s}`)).join("\n");
+  const angles = shuffle(MOTION_EDIT_PRESETS).slice(0, 4).map((a) => `- ${a.label.replace(/^\P{L}+/u, "")}: ${firstSentence(a.prompt)}`).join("\n");
+  const sounds = shuffle(HOOK_SOUNDS.map((s, i) => `${i} = ${s}`)).slice(0, 5).join("\n");
+  const formulas = shuffle(HOOK_FORMULAS).slice(0, 3).map((f) => `- ${f}`).join("\n");
+  const caps = shuffle(CAPTION_CHOICES).slice(0, 2).map((c) => `"${c}"`).join(" or ");
   const spark = SPARKS[Math.floor(Math.random() * SPARKS.length)];
   return `AI AUTO — YOU ARE THE CREATIVE DIRECTOR AND THE EDITOR. The client chose nothing: read the WHOLE transcript first, understand the product, the speaker's energy and what actually happens in the video, then decide EVERYTHING yourself. Goal: stop the scroll, keep people watching to the end, push the beg kuning — and beat what a skilled human TikTok editor would make of this footage, so it has its best shot at the For You Page.
 Decide, in this order:
-1. "angle": the selling angle that fits what the speaker really does (pick from ANGLES or invent a better one) — ≤6 words.
-2. "look": the id from LOOKS that suits the product, the speaker's energy and the angle. Then follow that look's pace rules and choose "accent" from its palette.
-3. "captions": {"style": "pop" | "karaoke" | "box" | "tiktok", "pos": "low" | "mid"} — "mid" only when hands / the product fill the bottom of the frame (ignored when the client switched captions off).
-4. "hook_sound": the index from HOOK SOUNDS whose feel matches the hook (it plays as the hook text lands).
-5. "music": true when a music bed lifts it (selling energy, montage feel, light talk with breathing gaps); false when the voice must carry it alone (emotional story, dense fast talk, ASMR, a detailed tutorial). "mood" sets its feel.
-6. Then the edit itself — hook, stickers, B-roll, zooms, keywords, re-hook, CTA — built around the angle.
+This generation's options were drawn at random — choose ONLY from them, the best fit for this footage (another generation of the same video gets different options on purpose):
+1. "angle": one of the ANGLES below, or a fresher angle of your own that the footage supports — ≤6 words.
+2. "look": the id of ONE of the 3 LOOKS below. Follow its pace rules and pick "accent" from its palette — a confident colour of your choice, not always the first one named.
+3. "captions": {"style": ${caps}, "pos": "low" | "mid"} — "mid" only when hands / the product fill the bottom of the frame (ignored when the client switched captions off).
+4. "hook": write it with ONE of the HOOK FORMULAS below, from what is really said.
+5. "hook_sound": the index of ONE of the 5 HOOK SOUNDS below, the one whose feel matches your hook (it plays as the hook text lands).
+6. "music": true when a music bed lifts it (selling energy, montage feel, light talk with breathing gaps); false when the voice must carry it alone (emotional story, dense fast talk, ASMR, a detailed tutorial). "mood" sets its feel.
+7. Then the edit itself — stickers, B-roll, zooms, keywords, re-hook, CTA — built around the angle and the look.
 FYP PLAYBOOK (TikTok Shop Academy 2026 + TikTok Creative Center):
 - Hook: land the video's strongest promise by 2.5 s — hook text, the spoken line and the visual say the same thing, tied to the product; hook sound + a zoom or text pop make something move in the first second. Build the hook from what is said: problem → fix, before / after, a price or promo shock (show a spoken price within 3 s), a pain-point question, first try / unboxing.
 - Payoff early: show the benefit or result within 10–15 s — never save the product for the end; name / point at the product by ~3 s.
@@ -116,13 +131,16 @@ FYP PLAYBOOK (TikTok Shop Academy 2026 + TikTok Creative Center):
 - TikTok Shop now pushes down near-identical videos — this one must not look like a template.
 THINK IT UP FRESH: treat this video as a brand-new creative brief — no default template, no safe go-to look, no stock hook line. Find the idea that is special about THIS footage and build the whole edit around it. Creative spark for this edit: "${spark}" — use it for one signature move only if it fits the content honestly; ignore it if it doesn't.
 
-LOOKS (id — feel — pace rules — palette — max gap — music mood):
+LOOKS — pick one of these 3 (id — feel — pace rules — palette — max gap — music mood):
 ${looks}
 
 ANGLES:
 ${angles}
 
-HOOK SOUNDS (index = sound — suits):
+HOOK FORMULAS — pick one:
+${formulas}
+
+HOOK SOUNDS — pick one (index = sound — suits):
 ${sounds}`;
 }
 
@@ -148,8 +166,8 @@ Colour palette for this style: ${look.palette} — choose "accent" from it. Musi
 
 Return ONLY one JSON object:
 {${auto ? `
-  "angle": string (≤6 words), "look": LOOK id, "hook_sound": HOOK SOUND index, "music": true | false,
-  "captions": {"style": "pop" | "karaoke" | "box" | "tiktok", "pos": "low" | "mid"},` : ""}
+  "angle": string (≤6 words), "look": one of the 3 LOOK ids, "hook_sound": one of the 5 HOOK SOUND indices, "music": true | false,
+  "captions": {"style": one of the offered caption styles, "pos": "low" | "mid"},` : ""}
   "brand": string | null (the product / brand name as spoken or given, e.g. "Gluvera" — used to find the product's own website photos),
   "hook": {"text": string (≤5 words), "sub"?: string (≤5 words)} | null,
   "accent": "#RRGGBB",
