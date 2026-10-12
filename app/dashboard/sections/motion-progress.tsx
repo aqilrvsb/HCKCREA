@@ -9,7 +9,8 @@
 // the card turns into the finished video straight away.
 
 import { useEffect, useState } from "react";
-import { Loader2 } from "lucide-react";
+import { Loader2, ShieldCheck } from "lucide-react";
+import { motionGuardSummary } from "@/lib/motion-guard-summary";
 
 export const MOTION_STAGE_LABEL: Record<string, string> = {
   queued: "Dalam giliran",
@@ -70,6 +71,30 @@ function watch(id: string, fn: (p: Prog) => void): () => void {
 }
 
 const PLANNING_PCT: Record<string, number> = { queued: 3, script: 8, voice: 18 };
+
+/** Finished Motion card: what "Check Guideline TikTok" did + the product-risk warning. */
+export function MotionGuardNote({ guard }: { guard: unknown }) {
+  const g = motionGuardSummary(guard);
+  if (!g) return null;
+  const did = [
+    g.taped ? `${g.taped} tulisan ditampal` : "",
+    g.cut ? `${g.cut} perkataan claim dipotong` : "",
+    g.muted ? `${g.muted} perkataan di-mute` : "",
+  ].filter(Boolean).join(" · ");
+  return (
+    <div className="text-[10px] mb-2 leading-snug">
+      <span className="inline-flex items-center gap-1 font-bold text-green-500">
+        <ShieldCheck className="w-3 h-3 flex-shrink-0" />
+        {did || "Guideline TikTok: tiada claim berisiko dijumpai"}
+      </span>
+      {g.risk && g.risk.level !== "low" && g.risk.reason && (
+        <span className="block mt-0.5" style={{ color: g.risk.level === "high" ? "#f59e0b" : "var(--color-text-secondary)" }}>
+          {g.risk.level === "high" ? "⚠️ Produk berisiko: " : "Nota: "}{g.risk.reason}
+        </span>
+      )}
+    </div>
+  );
+}
 
 export function MotionProgress({ id, preview, isVideo }: { id: string; preview?: string | null; isVideo?: boolean }) {
   const [p, setP] = useState<Prog | null>(() => state.get(id) ?? null);

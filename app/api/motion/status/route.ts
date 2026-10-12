@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { MOTION_PLANNING_TASK, motionCheck, settleMotionRow } from "@/lib/motion";
+import { motionGuardSummary } from "@/lib/motion-guard-summary";
 
 // GET /api/motion/status?ids=a,b,c — live state of the caller's Motion jobs.
 // Pending rows are checked against Modal; finished ones are settled right here
@@ -11,17 +12,6 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
-// What the TikTok guard did on a finished job (+ the product-risk warning).
-function guardSummary(g: any) {
-  if (!g || typeof g !== "object") return null;
-  const n = (v: any) => (Number.isFinite(Number(v)) ? Number(v) : 0);
-  return {
-    taped: n(g.tapes) + n(g.broll?.taped) + n(g.taped),
-    cut: n(g.cut_words),
-    muted: n(g.muted_words),
-    risk: g.risk && typeof g.risk === "object" ? { level: String(g.risk.level || ""), reason: String(g.risk.reason || "").slice(0, 220) } : null,
-  };
-}
 
 export async function GET(req: Request) {
   const sb = await createClient();
@@ -69,7 +59,7 @@ export async function GET(req: Request) {
       cost: Number(cur.cost) || 0,
       error: cur.error_message || null,
       script: cur.metadata?.plan?.lines || null,
-      guard: guardSummary(cur.metadata?.guard),
+      guard: motionGuardSummary(cur.metadata?.guard),
     };
   }));
   return NextResponse.json({ jobs });

@@ -42,7 +42,7 @@ import StoryboardReplaceModal from "./storyboard-replace-modal";
 import ExtendDialog from "./extend-dialog";
 import AttachmentPicker from "./attachment-picker";
 import { CategoryPickModal } from "./attachments";
-import { MotionProgress } from "./motion-progress";
+import { MotionGuardNote, MotionProgress } from "./motion-progress";
 import LazyVideo from "@/app/components/lazy-video";
 
 export type HistoryItem = {
@@ -4529,6 +4529,9 @@ function HistoryCardInner({
             </button>
           );
         })()}
+
+        {/* Motion: what "Check Guideline TikTok" did (taped / cut / muted + product risk). */}
+        {isMotionRow && item.status === "done" && <MotionGuardNote guard={(item.metadata as any)?.guard} />}
 
         {/* EDITOR / DONE POST / READY AFFILIATE — show the generated text inline
             (Main + Sub + Caption) so the client reads it straight off the card,

@@ -5,30 +5,17 @@
 //   ✂️ Edit Video  — client's own videos (up to 5 at once) → jump cuts, hook, word-synced
 //                    stickers, Google B-roll + fact cards, face zooms, captions, SFX
 // Every job runs on the server in the background (closing the tab is fine);
-// the Jobs panel tracks them live (/api/motion/status) and finished videos
-// land in the Motion history grid below.
+// each running job shows as a live placeholder card in the Motion history grid
+// below (stage + progress, sections/motion-progress.tsx), which turns into the
+// finished video with its guideline summary.
 
-import { useEffect, useMemo, useRef, useState } from "react";
-import { Clapperboard, Loader2, Upload, X, Download, Sparkles, Scissors, CheckCircle2, AlertTriangle, Brain, Wand2, ShieldCheck } from "lucide-react";
+import { useEffect, useState } from "react";
+import { Clapperboard, Loader2, Upload, X, Sparkles, Scissors, Brain, Wand2, ShieldCheck } from "lucide-react";
 import { uploadImage } from "@/lib/upload-image";
 import { MOTION_AD_PRESETS, MOTION_EDIT_PRESETS, type MotionPreset } from "@/lib/motion-prompts";
-import { MOTION_STAGE_LABEL } from "../sections/motion-progress";
 
 type Mode = "ad" | "edit";
 type CaptionStyle = "pop" | "karaoke" | "box" | "tiktok";
-type Job = {
-  id: string;
-  status: string;
-  feature?: string;
-  stage?: string | null;
-  pct?: number | null;
-  output_url?: string | null;
-  poster_url?: string | null;
-  cost?: number;
-  error?: string | null;
-  label?: string;
-  guard?: { taped: number; cut: number; muted: number; risk: { level: string; reason: string } | null } | null;
-};
 type VideoPick = { key: string; file: File; dur: number; preview: string; uploadedUrl?: string; pct?: number | null; error?: string | null };
 
 const THEME = { primary: "#a855f7", soft: "rgba(168,85,247,0.35)", faint: "rgba(168,85,247,0.08)", gradient: "linear-gradient(135deg,#a855f7,#ec4899)" };
@@ -43,8 +30,6 @@ const VOICES = [
   { key: "jamal", label: "Jamal", g: "♂" },
   { key: "aqil", label: "Aqil", g: "♂" },
 ];
-
-const STAGE_LABEL = MOTION_STAGE_LABEL;
 
 const label = "block text-[10px] uppercase tracking-widest text-[var(--color-text-secondary)] font-bold mb-2";
 const inputCls = "w-full px-3 py-2 rounded-lg text-sm bg-[var(--color-bg)] outline-none";
@@ -136,14 +121,6 @@ function GuardBox({ on, onChange }: { on: boolean; onChange: (v: boolean) => voi
   );
 }
 
-const jobsKey = (projectId?: string) => `motion-jobs:${projectId || "none"}`;
-const loadJobIds = (projectId?: string): string[] => {
-  try { return JSON.parse(localStorage.getItem(jobsKey(projectId)) || "[]").slice(0, 12); } catch { return []; }
-};
-const saveJobIds = (projectId: string | undefined, ids: string[]) => {
-  try { localStorage.setItem(jobsKey(projectId), JSON.stringify(ids.slice(0, 12))); } catch { /* storage blocked */ }
-};
-
 const readDuration = (url: string) =>
   new Promise<number>((resolve) => {
     const v = document.createElement("video");
@@ -206,57 +183,10 @@ export default function MotionTab({ projectId }: { projectId?: string }) {
   const [context, setContext] = useState("");
   const [website, setWebsite] = useState("");
 
-  // jobs
-  const [jobIds, setJobIds] = useState<string[]>([]);
-  const [jobs, setJobs] = useState<Record<string, Job>>({});
-  const lastStatus = useRef<Record<string, string>>({});
-  const jobLabels = useRef<Record<string, string>>({});
-
+  // Running jobs live in the History grid (placeholder cards poll their own status).
   useEffect(() => {
     fetch("/api/motion/rate").then((r) => r.json()).then((d) => { setRate(Number(d?.rate) || 0); setBrain(d?.brain || null); }).catch(() => setRate(0));
-    setJobIds(loadJobIds(projectId));
   }, [projectId]);
-
-  // live job polling (all jobs in parallel)
-  useEffect(() => {
-    if (jobIds.length === 0) return;
-    let stop = false;
-    let timer: ReturnType<typeof setTimeout>;
-    const tick = async () => {
-      try {
-        const r = await fetch(`/api/motion/status?ids=${jobIds.join(",")}`, { cache: "no-store" });
-        const d = await r.json();
-        if (stop) return;
-        const next: Record<string, Job> = {};
-        let justFinished = false;
-        for (const j of (d?.jobs || []) as Job[]) {
-          next[j.id] = { ...j, label: jobLabels.current[j.id] };
-          if (j.status !== "pending" && lastStatus.current[j.id] === "pending") justFinished = true;
-          lastStatus.current[j.id] = j.status;
-        }
-        setJobs(next);
-        if (justFinished) window.dispatchEvent(new CustomEvent("history:refresh"));
-        if (Object.values(next).some((j) => j.status === "pending")) timer = setTimeout(tick, 5000);
-      } catch {
-        if (!stop) timer = setTimeout(tick, 8000);
-      }
-    };
-    tick();
-    return () => { stop = true; clearTimeout(timer); };
-  }, [jobIds]);
-
-  const addJobs = (ids: string[], labels: string[]) => {
-    ids.forEach((id, k) => { jobLabels.current[id] = labels[k]; lastStatus.current[id] = "pending"; });
-    setJobIds((cur) => {
-      const next = [...ids, ...cur.filter((x) => !ids.includes(x))].slice(0, 12);
-      saveJobIds(projectId, next);
-      return next;
-    });
-    setJobs((j) => ({ ...j, ...Object.fromEntries(ids.map((id, k) => [id, { id, status: "pending", stage: "queued", label: labels[k] }])) }));
-  };
-  const dismissJob = (id: string) => {
-    setJobIds((cur) => { const next = cur.filter((x) => x !== id); saveJobIds(projectId, next); return next; });
-  };
 
   const adCost = rate !== null ? Math.ceil(seconds + 2) * rate * variations : null;
   const editSec = videos.reduce((s, v) => s + Math.ceil(Math.min(v.dur || 0, MAX_SEC)), 0);
@@ -350,8 +280,6 @@ export default function MotionTab({ projectId }: { projectId?: string }) {
       });
       const d = await r.json();
       if (!r.ok || !d?.ok) throw new Error(d?.error || "Gagal hantar");
-      const ids: string[] = d.ids || [d.id];
-      addJobs(ids, ids.map((_, k) => (ids.length > 1 ? `Iklan · variasi ${k + 1}` : "Iklan")));
       if (d.warning) setNotice(d.warning);
       window.dispatchEvent(new CustomEvent("history:refresh"));
     } catch (e: any) {
@@ -387,7 +315,6 @@ export default function MotionTab({ projectId }: { projectId?: string }) {
           });
           const d = await r.json();
           if (!r.ok || !d?.ok) throw new Error(d?.error || "Gagal hantar");
-          addJobs([d.id], [`Edit · ${v.file.name.slice(0, 28)}`]);
           removeVideo(v.key);
           // its placeholder (live progress) shows up in History right away
           window.dispatchEvent(new CustomEvent("history:refresh"));
@@ -405,7 +332,6 @@ export default function MotionTab({ projectId }: { projectId?: string }) {
     setSubmitting(false);
   }
 
-  const visibleJobs = useMemo(() => jobIds.map((id) => jobs[id]).filter(Boolean) as Job[], [jobIds, jobs]);
   const presets = mode === "ad" ? MOTION_AD_PRESETS : MOTION_EDIT_PRESETS;
 
   return (
@@ -652,72 +578,6 @@ export default function MotionTab({ projectId }: { projectId?: string }) {
         </div>
       </div>
 
-      {visibleJobs.length > 0 && (
-        <div className="rounded-2xl p-4 border space-y-3" style={{ borderColor: "var(--color-border)", background: "var(--color-bg-card)" }}>
-          <div className={label}>Kerja berjalan &amp; terkini ({visibleJobs.filter((j) => j.status === "pending").length} berjalan)</div>
-          {visibleJobs.map((j) => {
-            const pending = j.status === "pending";
-            const done = j.status === "done";
-            const stage = STAGE_LABEL[String(j.stage || "queued")] || String(j.stage || "");
-            const pct = done ? 100 : Math.max(3, Math.min(99, Number(j.pct) || (j.stage === "script" ? 8 : j.stage === "voice" ? 18 : 3)));
-            return (
-              <div key={j.id} className="flex gap-3 items-center">
-                <div className="w-14 h-24 rounded-lg overflow-hidden bg-black flex-shrink-0 flex items-center justify-center">
-                  {done && j.output_url ? (
-                    <video src={j.output_url} poster={j.poster_url || undefined} className="w-full h-full object-cover" muted playsInline />
-                  ) : pending ? (
-                    <Loader2 className="w-5 h-5 animate-spin text-white/70" />
-                  ) : (
-                    <AlertTriangle className="w-5 h-5 text-red-400" />
-                  )}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="text-xs font-extrabold text-[var(--color-text-primary)] flex items-center gap-1.5">
-                    {done ? <CheckCircle2 className="w-3.5 h-3.5 text-green-500" /> : null}
-                    <span className="truncate">{j.label || (j.feature === "motion-edit" ? "Edit Video" : "Iklan")}</span>
-                    <span className="font-bold text-[var(--color-text-secondary)]">· {done ? `Siap · RM${(j.cost || 0).toFixed(2)}` : pending ? stage : "Gagal (kredit dipulangkan)"}</span>
-                  </div>
-                  {pending && (
-                    <div className="mt-1.5 h-1.5 rounded-full overflow-hidden" style={{ background: "var(--color-border)" }}>
-                      <div className="h-full transition-all duration-700" style={{ width: `${pct}%`, background: THEME.gradient }} />
-                    </div>
-                  )}
-                  {!pending && !done && j.error && <div className="text-[10px] text-red-400 mt-1 line-clamp-2">{j.error}</div>}
-                  {done && j.guard && (
-                    <div className="text-[10px] mt-1 leading-snug">
-                      <span className="inline-flex items-center gap-1 font-bold text-green-500">
-                        <ShieldCheck className="w-3 h-3" />
-                        {j.guard.taped + j.guard.cut + j.guard.muted === 0
-                          ? "Guideline TikTok: tiada claim berisiko dijumpai"
-                          : [
-                            j.guard.taped ? `${j.guard.taped} tulisan ditampal` : "",
-                            j.guard.cut ? `${j.guard.cut} perkataan claim dipotong` : "",
-                            j.guard.muted ? `${j.guard.muted} perkataan di-mute` : "",
-                          ].filter(Boolean).join(" · ")}
-                      </span>
-                      {j.guard.risk && j.guard.risk.level !== "low" && j.guard.risk.reason && (
-                        <span className="block mt-0.5" style={{ color: j.guard.risk.level === "high" ? "#f59e0b" : "var(--color-text-secondary)" }}>
-                          {j.guard.risk.level === "high" ? "⚠️ Produk berisiko: " : "Nota: "}{j.guard.risk.reason}
-                        </span>
-                      )}
-                    </div>
-                  )}
-                  {done && j.output_url && (
-                    <a href={j.output_url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-[11px] font-bold mt-1" style={{ color: THEME.primary }}>
-                      <Download className="w-3 h-3" /> Buka / muat turun
-                    </a>
-                  )}
-                </div>
-                {!pending && (
-                  <button type="button" onClick={() => dismissJob(j.id)} className="p-1 rounded hover:bg-black/10" aria-label="Tutup">
-                    <X className="w-3.5 h-3.5 text-[var(--color-text-muted)]" />
-                  </button>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      )}
       <p className="text-[10px] text-[var(--color-text-muted)] text-center">Animated emoji: Google Noto Emoji Animation (CC BY 4.0). Sound effects: Kenney &amp; Freesound (CC0).</p>
     </div>
   );
