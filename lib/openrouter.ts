@@ -14,8 +14,9 @@
 // Providers:
 //   • openrouter (https://openrouter.ai/api/v1)
 //   • grsai     (https://grsaiapi.com or https://grsai.dakka.com.cn)
-// Both expose the OpenAI-compatible POST /v1/chat/completions endpoint.
-// Add a new provider by extending callProvider() below.
+//   • dragon    (DragonAPI relay, https://newapi.dragon3api.com — key in app_settings.dragon_key)
+// All expose the OpenAI-compatible POST /v1/chat/completions endpoint.
+// Add a new provider by extending Provider, asProvider() and providerCreds().
 
 import { AsyncLocalStorage } from "node:async_hooks";
 import { getSettings } from "@/lib/settings";
@@ -40,7 +41,9 @@ const attemptBudget = (timeoutMs: number | undefined, end: number): number | und
   return timeoutMs ? Math.min(timeoutMs, left) : left;
 };
 
-export type Provider = "openrouter" | "grsai";
+export type Provider = "openrouter" | "grsai" | "dragon";
+/** A stored provider name → a known Provider (anything unknown = openrouter). */
+export const asProvider = (p: unknown): Provider => (p === "grsai" || p === "dragon" ? p : "openrouter");
 
 // Feature tag for chat_usage rows. Currently only the Custom Idea
 // cascade gets logged — add more buckets here as the admin Usage Chat
@@ -131,7 +134,7 @@ export function parseModelSetting(raw: any): ParsedModel | null {
   const toSlot = (s: any): ProviderSlot | null =>
     s && s.model
       ? {
-          provider: (s.provider === "grsai" ? "grsai" : "openrouter") as Provider,
+          provider: asProvider(s.provider),
           model: String(s.model),
         }
       : null;
@@ -139,7 +142,7 @@ export function parseModelSetting(raw: any): ParsedModel | null {
   // v3 / v2: main present
   if (v.main && v.main.model) {
     const main: ProviderSlot = {
-      provider: (v.main.provider === "grsai" ? "grsai" : "openrouter") as Provider,
+      provider: asProvider(v.main.provider),
       model: String(v.main.model),
     };
     const fallbacks: ProviderSlot[] = [];
@@ -159,7 +162,7 @@ export function parseModelSetting(raw: any): ParsedModel | null {
   if (v.model) {
     return {
       main: {
-        provider: (v.provider === "grsai" ? "grsai" : "openrouter") as Provider,
+        provider: asProvider(v.provider),
         model: String(v.model),
       },
       fallbacks: [],
@@ -302,10 +305,19 @@ export async function providerCreds(
       key: String(cache.p4_key?.key || ""),
     };
   }
+  if (provider === "dragon") {
+    // DragonAPI (new-api relay). Its claude-kiro channel prepends a hidden
+    // ~5k-token system prompt of its own — keep a GRSAI fallback after it.
+    return {
+      base: "https://newapi.dragon3api.com/v1",
+      key: String(cache.dragon_key?.key || ""),
+    };
+  }
   return { base: "", key: "" };
 }
 
-type ChatResult = { ok: boolean; content?: string; finishReason?: string; error?: string };
+/** `provider` / `model` = the slot that produced this result (which cascade slot won). */
+type ChatResult = { ok: boolean; content?: string; finishReason?: string; error?: string; provider?: Provider; model?: string };
 
 // Walk a cascade of model slots. Default: one after another. With
 // hedgeAfterMs (for providers whose latency swings): whenever no running
@@ -327,7 +339,7 @@ async function runCascade(
     attempt(slot, attemptBudget(o.timeoutMs, end), signal)
       .then((r): ChatResult => (r.ok && o.validate && !o.validate(r.content ?? "")
         ? { ok: false, error: `${slot.model}: unusable output (finish_reason=${r.finishReason || "unknown"})` }
-        : r))
+        : { ...r, provider: slot.provider, model: slot.model }))
       .catch((e: any): ChatResult => ({ ok: false, error: e?.message || "call failed" }));
 
   if (!o.hedgeAfterMs) {
@@ -449,11 +461,11 @@ export async function orChat(opts: {
    *  each fallback layer is being hit. */
   logFeature?: ChatUsageFeature;
   logUserId?: string | null;
-}): Promise<{ ok: boolean; content?: string; finishReason?: string; error?: string }> {
+}): Promise<{ ok: boolean; content?: string; finishReason?: string; error?: string; provider?: Provider; model?: string }> {
   const requestedKey = opts.modelKey || "model_auto";
   // Fetch all 4 credential keys + the requested model key + model_auto
   // fallback in ONE round-trip. getSettings batches these via cache.
-  const fetchKeys = ["or_base", "or_key", "p4_key", requestedKey];
+  const fetchKeys = ["or_base", "or_key", "p4_key", "dragon_key", requestedKey];
   if (requestedKey !== "model_auto") fetchKeys.push("model_auto");
   // model_editor_text is an OPT-IN override. When admin hasn't set it the
   // Editor must behave exactly as before — i.e. fall through to
@@ -574,7 +586,7 @@ export async function orChatVision(opts: {
   stream?: boolean;
 }): Promise<{ ok: boolean; content?: string; finishReason?: string; error?: string }> {
   const requestedKey = opts.modelKey || "model_clone";
-  const fetchKeys = ["or_base", "or_key", "p4_key", requestedKey];
+  const fetchKeys = ["or_base", "or_key", "p4_key", "dragon_key", requestedKey];
   if (requestedKey !== "model_auto") fetchKeys.push("model_auto");
   const s = await getSettings(fetchKeys);
 

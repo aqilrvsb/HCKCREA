@@ -520,6 +520,7 @@ export async function runAgentTurn(opts: LoopOpts): Promise<LoopResult> {
     "or_base",
     "or_key",
     "p4_key", // grsai chat key (for model settings routed to the grsai provider)
+    "dragon_key", // DragonAPI chat key (model settings routed to the dragon provider)
     modelKey,
     "model_agent_vision",
   ]);

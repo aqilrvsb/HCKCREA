@@ -276,7 +276,7 @@ export default function AdminSettings() {
   //   - model_motion      → Motion tab (Buat Iklan scene spec + Edit Video overlay plan)
   //   - model_auto        → universal fallback (last layer of every cascade)
   //   - storytelling_script_model → Storytelling 12-scene JSON (separate card)
-  type ModelSlotProvider = "openrouter" | "grsai";
+  type ModelSlotProvider = "openrouter" | "grsai" | "dragon";
   type ModelSlot = { provider: ModelSlotProvider; model: string };
   type ModelKnobState = {
     main: ModelSlot;
@@ -490,20 +490,20 @@ export default function AdminSettings() {
           const toSlot = (s: any): ModelSlot | null =>
             s && s.model
               ? {
-                  provider: s.provider === "grsai" ? "grsai" : "openrouter",
+                  provider: slotProvider(s.provider),
                   model: String(s.model),
                 }
               : null;
           // main
           if (val.main && val.main.model) {
             out.main = {
-              provider: val.main.provider === "grsai" ? "grsai" : "openrouter",
+              provider: slotProvider(val.main.provider),
               model: String(val.main.model),
             };
           } else if (val.model) {
             // v1 legacy
             out.main = {
-              provider: val.provider === "grsai" ? "grsai" : "openrouter",
+              provider: slotProvider(val.provider),
               model: String(val.model),
             };
           }
@@ -3432,7 +3432,11 @@ export default function AdminSettings() {
 // {main, fallbacks: []} cascade shape is written to app_settings.model_X.
 // Empty main = "no override, fall back to model_auto cascade".
 // Empty fallback rows are skipped at save time.
-type ModelKnobSlot = { provider: "openrouter" | "grsai"; model: string };
+type ModelKnobSlot = { provider: "openrouter" | "grsai" | "dragon"; model: string };
+/** A stored provider name → one the model knobs know (unknown = openrouter). */
+function slotProvider(p: unknown): "openrouter" | "grsai" | "dragon" {
+  return p === "grsai" || p === "dragon" ? p : "openrouter";
+}
 type ModelKnobValue = {
   main: ModelKnobSlot;
   fallbacks: ModelKnobSlot[];
@@ -3484,10 +3488,12 @@ function ModelKnob({
   usedBy: string;
   recommendation: string;
 }) {
-  const providerStyle = (p: "openrouter" | "grsai") =>
+  const providerStyle = (p: "openrouter" | "grsai" | "dragon") =>
     p === "openrouter"
       ? { bg: "rgba(139,92,246,0.12)", fg: "#a78bfa", bd: "rgba(139,92,246,0.4)" }
-      : { bg: "rgba(34,197,94,0.12)", fg: "#16a34a", bd: "rgba(34,197,94,0.4)" };
+      : p === "dragon"
+        ? { bg: "rgba(249,115,22,0.12)", fg: "#f97316", bd: "rgba(249,115,22,0.4)" }
+        : { bg: "rgba(34,197,94,0.12)", fg: "#16a34a", bd: "rgba(34,197,94,0.4)" };
   const summary = (() => {
     const parts: string[] = [];
     if (value.main.model.trim()) {
@@ -3537,7 +3543,7 @@ function ModelKnob({
           <select
             value={value.main.provider}
             onChange={(e) =>
-              updateMain({ provider: e.target.value as "openrouter" | "grsai" })
+              updateMain({ provider: e.target.value as "openrouter" | "grsai" | "dragon" })
             }
             className="px-2 py-2 rounded-lg text-xs font-bold cursor-pointer outline-none"
             style={{
@@ -3548,6 +3554,7 @@ function ModelKnob({
           >
             <option value="openrouter" style={{ background: "#1a1a1a", color: "#ffffff" }}>OpenRouter</option>
             <option value="grsai" style={{ background: "#1a1a1a", color: "#ffffff" }}>Grsai</option>
+            <option value="dragon" style={{ background: "#1a1a1a", color: "#ffffff" }}>DragonAPI</option>
           </select>
           <input
             type="text"
@@ -3579,7 +3586,7 @@ function ModelKnob({
               value={fb.provider}
               onChange={(e) =>
                 updateFallback(i, {
-                  provider: e.target.value as "openrouter" | "grsai",
+                  provider: e.target.value as "openrouter" | "grsai" | "dragon",
                 })
               }
               className="px-2 py-2 rounded-lg text-xs font-bold cursor-pointer outline-none"
@@ -3591,6 +3598,7 @@ function ModelKnob({
             >
               <option value="openrouter" style={{ background: "#1a1a1a", color: "#ffffff" }}>OpenRouter</option>
               <option value="grsai" style={{ background: "#1a1a1a", color: "#ffffff" }}>Grsai</option>
+            <option value="dragon" style={{ background: "#1a1a1a", color: "#ffffff" }}>DragonAPI</option>
             </select>
             <input
               type="text"

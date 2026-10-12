@@ -71,6 +71,7 @@ export async function POST(req: Request) {
             stickers: plan.overlays.filter((o) => o.t === "gif").map((o) => (o.src ? "giphy" : "emoji-fallback")),
             caption_fixes: fixes.slice(0, 40),
             uploads: input?.productImages?.length ?? 0,
+            director: plan.director ?? null, // which provider/model wrote the plan
             // AI Auto: what the director chose for this video (admin monitor)
             ...(plan.look ? {
               look: plan.look, angle: plan.angle ?? null, hook_sound: plan.hookSound ?? null, music: plan.music ?? null,

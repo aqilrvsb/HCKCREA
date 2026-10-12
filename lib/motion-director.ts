@@ -60,6 +60,8 @@ export type EditPlanV2 = {
   music?: boolean;
   /** Hook-opener sound: index into HOOK_SOUNDS / the Remotion HOOKS recipes. */
   hookSound?: number;
+  /** "<provider>/<model>" of the cascade slot that wrote this plan. */
+  director?: string;
 };
 
 // ── AI Auto ──────────────────────────────────────────────────────────────────
@@ -289,6 +291,7 @@ export async function directEdit(opts: {
   const end = currentDeadline();
   let raw: any = null;
   let lastErr = "";
+  let director = ""; // "<provider>/<model>" that wrote the plan
   for (let attempt = 0; attempt < 2 && !raw; attempt++) {
     const r = await orChat({
       modelKey: "model_motion",
@@ -309,7 +312,7 @@ export async function directEdit(opts: {
       stream: true,
     });
     if (!r.ok || !r.content) { lastErr = r.error || "empty"; continue; }
-    try { raw = extractJson(r.content); } catch (e: any) { lastErr = e?.message || "invalid"; }
+    try { raw = extractJson(r.content); director = `${r.provider ?? "?"}/${r.model ?? "?"}`; } catch (e: any) { lastErr = e?.message || "invalid"; }
   }
   if (!raw) throw new Error(`Director failed: ${lastErr}`);
 
@@ -329,7 +332,7 @@ export async function directEdit(opts: {
   // A B-roll card label that repeats a sticker ("Cara guna" twice) is dropped.
   const said = new Set(plan.overlays.map((o) => String(o.text || "").toLowerCase().replace(/[^a-z0-9]/g, "")).filter(Boolean));
   const dedupedBroll = broll.map((b) => (b.label && said.has(b.label.toLowerCase().replace(/[^a-z0-9]/g, "")) ? { ...b, label: undefined } : b));
-  return { ...plan, broll: dedupedBroll, facts: guard ? facts.filter((f) => guardHits(f.text).length === 0) : facts };
+  return { ...plan, director, broll: dedupedBroll, facts: guard ? facts.filter((f) => guardHits(f.text).length === 0) : facts };
 }
 
 /** Time kept for guard + B-roll + facts after the director answers. */
