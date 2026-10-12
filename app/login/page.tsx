@@ -17,10 +17,15 @@ export default function LoginPage() {
     setError(null);
 
     const supabase = createClient();
-    const { data, error: signInError } = await supabase.auth.signInWithPassword({
-      email: email.trim().toLowerCase(),
-      password,
-    });
+    const cleanEmail = email.trim().toLowerCase();
+    let { data, error: signInError } = await supabase.auth.signInWithPassword({ email: cleanEmail, password });
+    // A space copied in with the password (" abc@gmail.com") fails the login —
+    // retry once without the leading / trailing spaces. The exact password is
+    // tried first, so a password that really has spaces still works.
+    const trimmed = password.trim();
+    if (signInError && trimmed && trimmed !== password) {
+      ({ data, error: signInError } = await supabase.auth.signInWithPassword({ email: cleanEmail, password: trimmed }));
+    }
 
     if (signInError) {
       setError(signInError.message);
@@ -98,6 +103,9 @@ export default function LoginPage() {
                 type="email"
                 required
                 autoComplete="email"
+                autoCapitalize="none"
+                autoCorrect="off"
+                spellCheck={false}
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="aqil@example.com"
@@ -110,6 +118,9 @@ export default function LoginPage() {
                 type="password"
                 required
                 autoComplete="current-password"
+                autoCapitalize="none"
+                autoCorrect="off"
+                spellCheck={false}
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="••••••••"
