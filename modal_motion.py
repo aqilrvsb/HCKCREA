@@ -1654,10 +1654,22 @@ def _final_check(d: Path, out: Path, dur: float, p: dict, props: dict) -> dict:
                               [a for a, _ in jobs], [out.name] * len(jobs), order_outputs=False, return_exceptions=True):
         if isinstance(res, dict) and res.get("ok"):
             dets += res["dets"]
+    # The burned-in captions are the speaker's own words — the speech guard
+    # already cut / muted the claims there, so a usage word like "gatal" in a
+    # caption is never taped here. Caption text = runs of 1–4 spoken words.
+    spoken = [_tkey(w.get("w")) for w in props.get("words") or []]
+    caption_keys = {"".join(spoken[i:i + n]) for n in range(1, 5) for i in range(len(spoken))}
+    single = set(spoken)
+
+    def is_caption(text: str) -> bool:
+        toks = [_tkey(t) for t in str(text).split()]
+        toks = [t for t in toks if t]
+        return bool(toks) and (_tkey(text) in caption_keys or all(t in single for t in toks))
+
     keys, texts = {}, []
     for x in dets:
         k = _tkey(x["x"])
-        if len(k) >= 3 and x["s"] >= 0.5 and k not in keys:
+        if len(k) >= 3 and x["s"] >= 0.5 and k not in keys and not is_caption(x["x"]):
             keys[k] = len(texts)
             texts.append(x["x"])
     if not texts:

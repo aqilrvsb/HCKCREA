@@ -4,8 +4,8 @@
 //   • B-roll photos come ONLY from it (never another brand's product shot)
 //   • product names / ingredients / how-to-use come from its text (director +
 //     caption spelling fixes), fact cards are written from its paragraphs
-//   • no Google search — except a `site:<that domain>` image search when the
-//     page can't be read (JS-only site), still that site's photos only.
+//   • STRICT: no Google search at all — a page that can't be read (JS-only
+//     site) simply gives no photos, and the edit runs without B-roll.
 // Marketplace / social links (admin's excluded sites) are refused unless the
 // admin allows that platform (motion_search.link_platforms, default TikTok —
 // a TikTok Shop page gives its own product photos, a video its caption).
@@ -20,7 +20,7 @@ import { createHash } from "node:crypto";
 import { lookup } from "node:dns/promises";
 import { isIP } from "node:net";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { isExcludedHost, linkAllowed, searchImages, type ImageHit, type SitePrefs, type WebHit } from "@/lib/motion-search";
+import { isExcludedHost, linkAllowed, type ImageHit, type SitePrefs, type WebHit } from "@/lib/motion-search";
 
 export type SiteInfo = {
   ok: boolean;
@@ -34,7 +34,7 @@ export type SiteInfo = {
   text: string;
   images: ImageHit[];
   pages: number;
-  via: "scrape" | "site-search" | "none";
+  via: "scrape" | "none";
   error?: string;
 };
 
@@ -46,7 +46,7 @@ const EXTRA_PAGES = 3;
 const MAX_IMAGES = 60;
 const MAX_TEXT = 6000;
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
-const SITE_CACHE_VERSION = 2;
+const SITE_CACHE_VERSION = 3;
 
 // ── URL checks (pure) ─────────────────────────────────────────────────────────
 
@@ -309,10 +309,10 @@ export function tiktokVideoInfo(html: string): { desc: string; author: string } 
 
 /**
  * Read the seller's product site: the page itself + up to EXTRA_PAGES shop
- * pages on the same host. Too few photos (JS-rendered site) → a Google image
- * search locked to that domain. A link on an excluded platform is read only
- * when the admin allows that platform (default TikTok): just that one page and
- * its own photos — no crawl, no site search (it would bring other sellers).
+ * pages on the same host — nothing else (no search engine). A link on an
+ * excluded platform is read only when the admin allows that platform (default
+ * TikTok): just that one page and its own photos, no crawl (it would bring
+ * other sellers).
  */
 export async function readProductSite(raw: string, prefs: Pick<SitePrefs, "exclude" | "linkAllow"> = { exclude: [], linkAllow: [] }): Promise<SiteInfo> {
   const url = normalizeSiteUrl(raw);
@@ -340,7 +340,7 @@ export async function readProductSite(raw: string, prefs: Pick<SitePrefs, "exclu
   const seen = new Set<string>();
   // A platform page lists other sellers' items below its own gallery, and
   // buyers' review photos — keep the listing's own gallery only.
-  let images = pages.flatMap((p) => p.images).filter((h) => (seen.has(h.url) ? false : (seen.add(h.url), true)))
+  const images = pages.flatMap((p) => p.images).filter((h) => (seen.has(h.url) ? false : (seen.add(h.url), true)))
     .filter((h) => !platform || !/\breview\b/i.test(h.title ?? ""))
     .slice(0, platform ? 12 : MAX_IMAGES);
   const p0 = pages[0];
@@ -349,20 +349,7 @@ export async function readProductSite(raw: string, prefs: Pick<SitePrefs, "exclu
   const titleHead = (p0?.title ?? "").split(/\s[|–—-]\s/)[0];
   const name = (video?.author || (platform ? titleHead : p0?.siteName || titleHead) || host).trim().slice(0, 80);
   const text = [video?.desc ?? "", ...new Set(pages.flatMap((p) => p.text.split("\n")))].filter(Boolean).join("\n").slice(0, MAX_TEXT);
-  let via: SiteInfo["via"] = images.length ? "scrape" : "none";
-
-  if (images.length < 4 && !platform) {
-    // JS-rendered / blocked page — Google's copy of THIS site's photos only.
-    const r = await searchImages(`site:${host}`, { num: 20 }).catch(() => null);
-    const extra = (r?.hits ?? []).filter((h) => {
-      const d = stripWww(h.domain || "");
-      return (d === host || d.endsWith(`.${host}`)) && !seen.has(h.url);
-    });
-    if (extra.length) {
-      images = [...images, ...extra].slice(0, MAX_IMAGES);
-      via = pages.length ? "scrape" : "site-search";
-    }
-  }
+  const via: SiteInfo["via"] = images.length ? "scrape" : "none";
 
   const info: SiteInfo = {
     ok: images.length > 0 || text.length > (video ? 3 : 200),

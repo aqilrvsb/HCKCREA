@@ -120,12 +120,20 @@ export async function directEdit(opts: {
 }): Promise<EditPlanV2> {
   const { words, duration, input } = opts;
   const site = opts.site?.ok ? opts.site : null;
+  // Link given → 100 % that link: B-roll + facts never fall back to Google, even
+  // when the page couldn't be read (then there's just no B-roll / fact card).
+  // No link → 100 % Google, as before.
+  const source: SiteInfo | null = input.website
+    ? site ?? { ok: false, url: input.website, host: "", name: "", title: "", description: "", text: "", images: [], pages: 0, via: "none" }
+    : null;
   const style = input.style === "clean" ? "clean" : "gempak";
   const transcript = words.slice(0, 1400).map((w) => `${w.i}@${w.t.toFixed(2)} ${w.w}`).join("\n");
   const userPrompt =
     `VIDEO: ${duration.toFixed(1)} s, ${words.length} words, language ${input.language}. Face on screen: ${opts.hasFace === false ? "no" : "yes"}.\n` +
     (input.product ? `PRODUCT / CONTEXT: ${clean(input.product, 300)}\n` : "") +
-    (site ? `PRODUCT WEBSITE (the seller's own sales page — the source of truth for the brand / product name, ingredients and how to use; B-roll photos come ONLY from it, so write B-roll queries that match its photos; still never put a price, claim or number on screen that the speaker doesn't say):\n${siteBrief(site)}\n` : "") +
+    (site ? `PRODUCT WEBSITE (the seller's own sales page — the source of truth for the brand / product name, ingredients and how to use; B-roll photos come ONLY from it, so write B-roll queries that match its photos; still never put a price, claim or number on screen that the speaker doesn't say):\n${siteBrief(site)}\n` +
+      `B-ROLL: the link has ${site.images.length} photo${site.images.length === 1 ? "" : "s"} — plan at most ${site.images.length} B-roll moment${site.images.length === 1 ? "" : "s"}${site.images.length ? "" : " (return \"broll\": [])"}.\n` : "") +
+    (source && !site ? "B-ROLL: the seller's link couldn't be read — return \"broll\": [] and \"facts\": [].\n" : "") +
     (input.instructions ? `CLIENT PROMPT (follow it): ${clean(input.instructions, 900)}\n` : "") +
     (input.accent ? `PREFERRED ACCENT: ${input.accent}\n` : "") +
     (input.broll === false ? "B-ROLL: disabled — return \"broll\": [].\n" : "") +
@@ -171,8 +179,8 @@ export async function directEdit(opts: {
     .map((f) => (guard ? { ...f, query: guardStripQuery(f.query) } : f))
     .filter((f) => !guard || (f.query.length >= 3 && guardHits(f.topic).length === 0));
   const [broll, facts] = await Promise.all([
-    input.broll === false ? Promise.resolve([] as BRollPlan[]) : byDeadline(enrichBroll(plan.broll, guard, plan.brand, input.product, site), [] as BRollPlan[]),
-    input.facts === false ? Promise.resolve([] as FactPlan[]) : byDeadline(writeFacts(factMoments, words, site), [] as FactPlan[]),
+    input.broll === false ? Promise.resolve([] as BRollPlan[]) : byDeadline(enrichBroll(plan.broll, guard, plan.brand, input.product, source), [] as BRollPlan[]),
+    input.facts === false ? Promise.resolve([] as FactPlan[]) : byDeadline(writeFacts(factMoments, words, source), [] as FactPlan[]),
     byDeadline(resolveStickers(plan.overlays, guard), undefined),
   ]);
   // A B-roll card label that repeats a sticker ("Cara guna" twice) is dropped.
@@ -338,38 +346,35 @@ function rawFacts(raw: any, nWords: number, duration: number) {
 // Product shots come from the brand's own sales websites first (found with
 // Google web + image search that skip marketplaces / social sites), then a
 // general Google Images search — still without those sites (admin: Motion Search).
-// With the seller's website every photo comes from that site alone (vision
-// answers -1 → the moment is dropped, never filled from elsewhere). A link with
-// only a few photos (a TikTok listing) leads the brand-site pool instead, so
-// the edit doesn't repeat the same two shots.
-const SITE_ONLY_MIN_PHOTOS = 4;
+// Link given → 100 % that link (no Google, no stock clips — that's where other
+// brands' product shots come from): every moment draws from the link's own
+// photos only; a link with few photos just means fewer B-roll moments (each
+// photo leads one moment at most), and vision answering -1 → no B-roll there.
+// No link → 100 % Google, as below.
 async function enrichBroll(moments: BRollPlan[], guard = false, brand?: string, product?: string, site?: SiteInfo | null): Promise<BRollPlan[]> {
   if (!moments.length) return [];
   const prefs = await getSitePrefs();
-  const onlySite = (site?.images.length ?? 0) >= SITE_ONLY_MIN_PHOTOS;
+  const linked = !!site;
   // Finding the sales site uses the full product name (medical words included —
   // it's only a lookup; whatever is printed on its photos gets taped later).
   const brandName = String(brand || site?.name || "").trim();
   const token = brandName.toLowerCase().split(/\s+/)[0]?.replace(/[^a-z0-9]/g, "") || "";
   const productName = String(product || "").split(",")[0];
-  const sites = !onlySite && prefs.brandFirst && token.length >= 3
+  const sites = !linked && prefs.brandFirst && token.length >= 3
     ? await findBrandSites(brandName, prefs, productName).catch(() => [] as string[])
     : [];
   const noSites = excludeOperators(prefs.exclude);
   const usable = (hits: ImageHit[] | undefined) => dropExcluded((hits ?? []).filter(goodImage), prefs.exclude);
-  const pool = onlySite ? site!.images : [
-    ...(site?.images ?? []),
-    ...(sites.length ? usable(await brandImagePool(sites, brandName, productName, prefs.exclude).catch(() => [])) : []),
-  ];
+  const pool = linked ? site!.images
+    : sites.length ? usable(await brandImagePool(sites, brandName, productName, prefs.exclude).catch(() => [])) : [];
 
   // Product shots draw from the brand-site pool — the photos best matching the
   // moment's words first, each moment getting different ones — topped up by a
   // general search when the pool runs short; other shots search generally.
   const words = (s: string) => new Set(s.toLowerCase().split(/[^a-z0-9]+/).filter((w) => w.length >= 3));
   const used = new Map<string, number>();
-  const linkPhotos = new Set((site?.images ?? []).map((h) => h.url));
   const fromPool = moments.map((m) => {
-    if (onlySite) {
+    if (linked) {
       const ranked = rankSiteImages(pool, m.query, used);
       for (const h of ranked.slice(0, 3)) used.set(h.url, (used.get(h.url) ?? 0) + 1);
       return ranked;
@@ -377,23 +382,25 @@ async function enrichBroll(moments: BRollPlan[], guard = false, brand?: string, 
     const aboutProduct = !!token && m.query.toLowerCase().replace(/[^a-z0-9 ]/g, "").includes(token);
     if (!aboutProduct || !pool.length) return [] as ImageHit[];
     const q = words(m.query);
-    // The seller's own link photos (often hash-named) come before the brand-site top-up.
-    const score = (h: ImageHit) => [...words(`${h.title ?? ""} ${h.url}`)].filter((w) => q.has(w)).length
-      + (linkPhotos.has(h.url) ? 2 : 0) - (used.get(h.url) ?? 0) * 3;
-    const ranked = [...pool].sort((a, b) => score(b) - score(a)).slice(0, 4);
+    const ranked = [...pool].sort((a, b) => {
+      const sa = [...words(`${a.title ?? ""} ${a.url}`)].filter((w) => q.has(w)).length - (used.get(a.url) ?? 0) * 3;
+      const sb = [...words(`${b.title ?? ""} ${b.url}`)].filter((w) => q.has(w)).length - (used.get(b.url) ?? 0) * 3;
+      return sb - sa;
+    }).slice(0, 4);
     for (const h of ranked) used.set(h.url, (used.get(h.url) ?? 0) + 1);
     return ranked;
   });
   const results = await Promise.all(moments.map(async (m, k) => {
     // Moving cutaway: stock clips (vision sees their thumbnails); none → photos.
-    if (m.kind === "video") {
+    // With the seller's link everything comes from the link — no stock clips either.
+    if (m.kind === "video" && !linked) {
       const clips = await searchClips(m.query).catch(() => []);
       if (clips.length) {
         return { kind: "video" as const, hits: clips.map((c) => ({ url: c.url, thumb: c.thumb, width: c.width, height: c.height, title: m.query })) };
       }
     }
     let hits = fromPool[k];
-    if (!onlySite && hits.length < 3) {
+    if (!linked && hits.length < 3) {
       const more = usable((await searchImages(`${m.query} ${noSites}`, { num: 10 }).catch(() => null))?.hits);
       const seen = new Set(hits.map((h) => h.url));
       hits = [...hits, ...more.filter((h) => !seen.has(h.url))];
@@ -411,11 +418,18 @@ async function enrichBroll(moments: BRollPlan[], guard = false, brand?: string, 
   for (let i = 0; i < withHits.length; i += 8) batches.push(withHits.slice(i, i + 8));
   const picked = await Promise.all(batches.map((b) => visionPick(b, guard, brandName || undefined).catch(() => null)));
   const picks: (number | undefined)[] = batches.flatMap((b, i) => b.map((_, k) => picked[i]?.[k]));
+  const shown = new Set<string>();
   return withHits
     .map(({ m, hits }, k) => {
       const choice = picks?.[k];
       if (choice === -1) return null; // vision said none match
-      const order = typeof choice === "number" && choice >= 0 && choice < hits.length ? [hits[choice], ...hits.filter((_, j) => j !== choice)] : hits;
+      let order = typeof choice === "number" && choice >= 0 && choice < hits.length ? [hits[choice], ...hits.filter((_, j) => j !== choice)] : hits;
+      if (linked && m.kind !== "video") {
+        // a link's few photos: each one leads one moment at most — no repeats
+        order = order.filter((h) => !shown.has(h.url));
+        if (!order.length) return null;
+        shown.add(order[0].url);
+      }
       return { ...m, candidates: order.slice(0, 5).map((h) => h.url) };
     })
     .filter(Boolean) as BRollPlan[];
@@ -460,7 +474,8 @@ async function visionPick(items: { m: BRollPlan; hits: ImageHit[] }[], guard = f
 // ── fact cards: Google web search (or the seller's website) + strict summariser ─
 async function writeFacts(moments: { at: Cue; to?: Cue; query: string; topic: string }[], words: DirectorWord[], site?: SiteInfo | null): Promise<FactPlan[]> {
   if (!moments.length) return [];
-  const res: ({ hits: WebHit[] } | null)[] = site?.text
+  // With the seller's link: its own text only (nothing there → no fact card), never Google.
+  const res: ({ hits: WebHit[] } | null)[] = site
     ? moments.map((m) => ({ hits: siteSnippets(site, `${m.query} ${m.topic}`) }))
     : await (async () => {
       const noSites = excludeOperators((await getSitePrefs()).exclude);
