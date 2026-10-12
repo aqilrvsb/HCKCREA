@@ -122,13 +122,35 @@ function GuardBox({ on, onChange }: { on: boolean; onChange: (v: boolean) => voi
   );
 }
 
+// iOS Safari never loads metadata for a detached <video> (and ignores
+// preload): attach it off-screen, muted + inline, call load(), accept
+// whichever of loadedmetadata / durationchange brings a real duration, and
+// give up after 12 s instead of leaving the picker hanging.
 const readDuration = (url: string) =>
   new Promise<number>((resolve) => {
     const v = document.createElement("video");
+    let done = false;
+    const finish = (d: number) => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      v.remove();
+      resolve(Number.isFinite(d) && d > 0 ? d : 0);
+    };
+    const timer = setTimeout(() => finish(v.duration), 12_000);
+    const check = () => { if (Number.isFinite(v.duration) && v.duration > 0) finish(v.duration); };
     v.preload = "metadata";
-    v.onloadedmetadata = () => resolve(v.duration || 0);
-    v.onerror = () => resolve(0);
+    v.muted = true;
+    v.playsInline = true;
+    v.setAttribute("playsinline", "");
+    v.setAttribute("webkit-playsinline", "");
+    v.style.cssText = "position:fixed;left:-9999px;top:0;width:2px;height:2px;opacity:0;pointer-events:none";
+    v.onloadedmetadata = check;
+    v.ondurationchange = check;
+    v.onerror = () => finish(0);
+    document.body.appendChild(v);
     v.src = url;
+    v.load();
   });
 
 export default function MotionTab({ projectId }: { projectId?: string }) {
@@ -183,6 +205,7 @@ export default function MotionTab({ projectId }: { projectId?: string }) {
   const [editPrompt, setEditPrompt] = useState(MOTION_EDIT_PRESETS[0]?.prompt ?? "");
   const [context, setContext] = useState("");
   const [editImages, setEditImages] = useState<string[]>([]);
+  const [readingVideos, setReadingVideos] = useState(false);
 
   // Running jobs live in the History grid (placeholder cards poll their own status).
   // A client may have "Buat Iklan" switched off (profiles.settings.hidden_modes).
@@ -240,17 +263,23 @@ export default function MotionTab({ projectId }: { projectId?: string }) {
   async function addVideos(list: FileList | null) {
     if (!list || list.length === 0) return;
     setError(null);
+    const files = Array.from(list); // copy now — the input is cleared right after
     const room = MAX_VIDEOS - videos.length;
     const picked: VideoPick[] = [];
-    for (const f of Array.from(list).slice(0, room)) {
-      if (f.size > 300 * 1024 * 1024) { setError(`${f.name}: terlalu besar (maks 300MB).`); continue; }
-      const preview = URL.createObjectURL(f);
-      const dur = await readDuration(preview);
-      if (!(dur > 0.5)) { setError(`${f.name}: video tidak boleh dibaca — cuba MP4.`); URL.revokeObjectURL(preview); continue; }
-      picked.push({ key: `${f.name}-${f.size}-${Math.random()}`, file: f, dur, preview });
+    setReadingVideos(true);
+    try {
+      for (const f of files.slice(0, room)) {
+        if (f.size > 300 * 1024 * 1024) { setError(`${f.name}: terlalu besar (maks 300MB).`); continue; }
+        const preview = URL.createObjectURL(f);
+        const dur = await readDuration(preview);
+        if (!(dur > 0.5)) { setError(`${f.name}: video tidak boleh dibaca — cuba MP4.`); URL.revokeObjectURL(preview); continue; }
+        picked.push({ key: `${f.name}-${f.size}-${Math.random()}`, file: f, dur, preview });
+      }
+    } finally {
+      setReadingVideos(false);
     }
     setVideos((cur) => [...cur, ...picked].slice(0, MAX_VIDEOS));
-    if (Array.from(list).length > room) setNotice(`Maksimum ${MAX_VIDEOS} video sekali hantar.`);
+    if (files.length > room) setNotice(`Maksimum ${MAX_VIDEOS} video sekali hantar.`);
   }
   const removeVideo = (key: string) => setVideos((cur) => {
     const v = cur.find((x) => x.key === key);
@@ -401,11 +430,11 @@ export default function MotionTab({ projectId }: { projectId?: string }) {
                   </div>
                 ))}
                 {videos.length < MAX_VIDEOS && (
-                  <label className="w-28 flex flex-col items-center justify-center gap-1 rounded-lg border border-dashed cursor-pointer text-[11px] font-bold text-center px-2"
+                  <label className="relative overflow-hidden w-28 flex flex-col items-center justify-center gap-1 rounded-lg border border-dashed cursor-pointer text-[11px] font-bold text-center px-2"
                     style={{ borderColor: THEME.soft, color: "var(--color-text-secondary)", aspectRatio: "9/16" }}>
-                    <Upload className="w-5 h-5" style={{ color: THEME.primary }} />
-                    {videos.length ? "Tambah video" : "Pilih video (boleh banyak)"}
-                    <input type="file" multiple accept="video/mp4,video/quicktime,video/webm,.mp4,.mov,.m4v" className="hidden"
+                    {readingVideos ? <Loader2 className="w-5 h-5 animate-spin" style={{ color: THEME.primary }} /> : <Upload className="w-5 h-5" style={{ color: THEME.primary }} />}
+                    {readingVideos ? "Membaca video…" : videos.length ? "Tambah video" : "Pilih video (boleh banyak)"}
+                    <input type="file" multiple accept="video/mp4,video/quicktime,video/webm,.mp4,.mov,.m4v" className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
                       onChange={(e) => { addVideos(e.target.files); e.target.value = ""; }} />
                   </label>
                 )}
@@ -441,10 +470,10 @@ export default function MotionTab({ projectId }: { projectId?: string }) {
                   </div>
                 ))}
                 {editImages.length < MAX_EDIT_IMAGES && (
-                  <label className="w-20 h-20 rounded-lg border border-dashed flex flex-col items-center justify-center text-[10px] font-bold cursor-pointer" style={{ borderColor: THEME.soft, color: "var(--color-text-secondary)" }}>
+                  <label className="relative overflow-hidden w-20 h-20 rounded-lg border border-dashed flex flex-col items-center justify-center text-[10px] font-bold cursor-pointer" style={{ borderColor: THEME.soft, color: "var(--color-text-secondary)" }}>
                     {imgBusy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
                     Produk
-                    <input type="file" accept="image/*" multiple className="hidden" onChange={(e) => { addEditImages(e.target.files); e.target.value = ""; }} />
+                    <input type="file" accept="image/*" multiple className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" onChange={(e) => { addEditImages(e.target.files); e.target.value = ""; }} />
                   </label>
                 )}
               </div>
@@ -508,17 +537,17 @@ export default function MotionTab({ projectId }: { projectId?: string }) {
                   </div>
                 ))}
                 {images.filter((i) => i.role === "product").length < 3 && (
-                  <label className="w-20 h-20 rounded-lg border border-dashed flex flex-col items-center justify-center text-[10px] font-bold cursor-pointer" style={{ borderColor: THEME.soft, color: "var(--color-text-secondary)" }}>
+                  <label className="relative overflow-hidden w-20 h-20 rounded-lg border border-dashed flex flex-col items-center justify-center text-[10px] font-bold cursor-pointer" style={{ borderColor: THEME.soft, color: "var(--color-text-secondary)" }}>
                     {imgBusy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
                     Produk
-                    <input type="file" accept="image/*" multiple className="hidden" onChange={(e) => { addImages(e.target.files, "product"); e.target.value = ""; }} />
+                    <input type="file" accept="image/*" multiple className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" onChange={(e) => { addImages(e.target.files, "product"); e.target.value = ""; }} />
                   </label>
                 )}
                 {!images.some((i) => i.role === "presenter") && (
-                  <label className="w-20 h-20 rounded-lg border border-dashed flex flex-col items-center justify-center text-[10px] font-bold cursor-pointer" style={{ borderColor: "rgba(236,72,153,0.45)", color: "var(--color-text-secondary)" }}>
+                  <label className="relative overflow-hidden w-20 h-20 rounded-lg border border-dashed flex flex-col items-center justify-center text-[10px] font-bold cursor-pointer" style={{ borderColor: "rgba(236,72,153,0.45)", color: "var(--color-text-secondary)" }}>
                     {imgBusy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
                     Presenter
-                    <input type="file" accept="image/*" className="hidden" onChange={(e) => { addImages(e.target.files, "presenter"); e.target.value = ""; }} />
+                    <input type="file" accept="image/*" className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" onChange={(e) => { addImages(e.target.files, "presenter"); e.target.value = ""; }} />
                   </label>
                 )}
               </div>
@@ -582,10 +611,16 @@ export default function MotionTab({ projectId }: { projectId?: string }) {
               ? <Toggle on={music} onChange={setMusic}>Muzik latar</Toggle>
               : <Toggle on={editMusic} onChange={setEditMusic}>Tambah muzik latar</Toggle>}
             <Toggle on={sfx} onChange={setSfx}>Sound effect</Toggle>
-            <label className="inline-flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-bold" style={{ background: "var(--color-bg)", border: "1px solid var(--color-border)", color: "var(--color-text-primary)" }}>
-              Warna tema
-              <input type="color" value={accent || "#a855f7"} onChange={(e) => setAccent(e.target.value)} className="w-6 h-6 rounded cursor-pointer bg-transparent" />
-              {accent ? <button type="button" onClick={() => setAccent("")} className="underline text-[10px]">auto</button> : <span className="text-[10px] text-[var(--color-text-muted)]">auto (AI pilih)</span>}
+            <span className="text-[10px] font-bold uppercase tracking-widest text-[var(--color-text-secondary)] ml-1">Warna tema</span>
+            <Chip small active={!accent} onClick={() => setAccent("")}>✨ AI pilih</Chip>
+            {/* the native colour picker sits over the chip (works on phones too) */}
+            <label className="relative inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-[11px] font-bold cursor-pointer"
+              style={{ background: accent ? THEME.faint : "var(--color-bg)", border: `1px solid ${accent ? THEME.primary : "var(--color-border)"}`, color: "var(--color-text-primary)" }}>
+              <span className="w-4 h-4 rounded-full border border-white/40"
+                style={{ background: accent || "conic-gradient(#ef4444,#f59e0b,#22c55e,#3b82f6,#a855f7,#ef4444)" }} />
+              {accent ? accent.toUpperCase() : "Pilih warna"}
+              <input type="color" value={accent || "#a855f7"} onChange={(e) => setAccent(e.target.value)} aria-label="Pilih warna tema"
+                className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" />
             </label>
           </div>
         </div>
