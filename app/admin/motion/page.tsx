@@ -6,7 +6,8 @@
 // /admin/usage only lists credit deductions; this shows the jobs themselves.
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Clapperboard, Loader2, RefreshCcw, Search, ExternalLink, Volume2, VolumeX } from "lucide-react";
+import { Clapperboard, Loader2, RefreshCcw, Search, ExternalLink, Volume2, VolumeX, RotateCw, Trash2 } from "lucide-react";
+import MotionResubmitDialog from "@/app/dashboard/sections/motion-resubmit-dialog";
 import { localDateStr } from "@/lib/date-util";
 import { MOTION_STAGE_LABEL } from "@/app/dashboard/sections/motion-progress";
 import { motionStyle } from "@/lib/motion-styles";
@@ -39,6 +40,10 @@ type MotionRow = {
   guard: MotionGuardSummary | null;
   output: string | null;
   poster: string | null;
+  /** Resubmit action: pre-fill + whether this job can be re-rendered. */
+  productName?: string | null;
+  productImages?: string[];
+  canResubmit?: boolean;
 };
 
 const STUCK_MIN = 40;
@@ -130,6 +135,23 @@ export default function AdminMotionPage() {
   const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState<"all" | "pending" | "done" | "failed">("all");
+
+  // row actions: re-render (charged to the job's owner) / delete
+  const [resubFor, setResubFor] = useState<MotionRow | null>(null);
+  const [deleting, setDeleting] = useState<string | null>(null);
+  async function deleteJob(r: MotionRow) {
+    const running = r.status === "pending";
+    if (!confirm(`Padam job Motion ${r.email} (${formatMY(r.created_at)})?${running ? "\nJob masih berjalan — kredit yang ditahan akan dipulangkan kepada klien." : ""}`)) return;
+    setDeleting(r.id);
+    try {
+      const res = await fetch(`/api/history/delete?id=${encodeURIComponent(r.id)}`, { method: "DELETE" });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok || !d?.ok) { alert(d?.error || `Gagal padam (HTTP ${res.status})`); return; }
+      setRows((cur) => cur.filter((x) => x.id !== r.id));
+    } finally {
+      setDeleting(null);
+    }
+  }
 
   // hover preview of the output video (desktop); the thumbnail still opens it in a new tab
   const [peek, setPeek] = useState<Peek | null>(null);
@@ -254,7 +276,7 @@ export default function AdminMotionPage() {
         <table className="w-full text-xs">
           <thead>
             <tr className="text-left text-[10px] uppercase tracking-widest text-[var(--color-text-secondary)]" style={{ background: "var(--color-bg-card)" }}>
-              {["Masa", "Klien", "Mod", "Status", "Video", "Caj", "Gaya", "AI plan", "Guideline", "Render", "Akaun", "Output"].map((h) => (
+              {["Masa", "Klien", "Mod", "Status", "Video", "Caj", "Gaya", "AI plan", "Guideline", "Render", "Akaun", "Output", "Tindakan"].map((h) => (
                 <th key={h} className="px-3 py-2 font-bold whitespace-nowrap">{h}</th>
               ))}
             </tr>
@@ -320,16 +342,41 @@ export default function AdminMotionPage() {
                       </a>
                     ) : "—"}
                   </td>
+                  <td className="px-3 py-2 whitespace-nowrap">
+                    <div className="flex items-center gap-1.5">
+                      <button type="button" onClick={() => setResubFor(r)} disabled={!r.canResubmit}
+                        title={r.canResubmit ? "Render semula (dicaj kepada klien)" : r.mode === "ad" ? "Buat Iklan tak boleh dihantar semula" : "Hanya job siap / gagal"}
+                        className="w-7 h-7 rounded-lg flex items-center justify-center text-white disabled:opacity-30"
+                        style={{ background: "linear-gradient(135deg, #22c55e, #4ade80)" }}>
+                        <RotateCw className="w-3.5 h-3.5" strokeWidth={2.4} />
+                      </button>
+                      <button type="button" onClick={() => void deleteJob(r)} disabled={deleting === r.id} title="Padam job"
+                        className="w-7 h-7 rounded-lg flex items-center justify-center text-white disabled:opacity-50"
+                        style={{ background: "linear-gradient(135deg, #ef4444, #f87171)" }}>
+                        {deleting === r.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" strokeWidth={2.4} />}
+                      </button>
+                    </div>
+                  </td>
                 </tr>
               );
             })}
             {!shown.length && (
-              <tr><td colSpan={12} className="px-3 py-8 text-center text-[var(--color-text-muted)]">{loading ? "Memuatkan…" : "Tiada job Motion dalam julat ini."}</td></tr>
+              <tr><td colSpan={13} className="px-3 py-8 text-center text-[var(--color-text-muted)]">{loading ? "Memuatkan…" : "Tiada job Motion dalam julat ini."}</td></tr>
             )}
           </tbody>
         </table>
       </div>
       {peek && <PeekVideo peek={peek} sound={sound} onSound={toggleSound} onEnter={keepPeek} onLeave={hidePeek} />}
+      {resubFor && (
+        <MotionResubmitDialog
+          id={resubFor.id}
+          product={resubFor.productName ?? undefined}
+          images={resubFor.productImages}
+          note={`Caj ditolak daripada kredit ${resubFor.email}.`}
+          onClose={() => setResubFor(null)}
+          onDone={() => { setResubFor(null); void load(); }}
+        />
+      )}
     </div>
   );
 }

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { refundReserved } from "@/lib/deduct";
 
 // DELETE /api/history/delete?id=<history_id>
 //
@@ -40,7 +41,7 @@ export async function DELETE(req: Request) {
   // Fetch the target row first so we know whether to cascade.
   const { data: target, error: fetchErr } = await admin
     .from("history")
-    .select("id, user_id, parent_history_id, segment_index, created_at, metadata")
+    .select("id, user_id, tab, status, parent_history_id, segment_index, created_at, metadata")
     .eq("id", id)
     .single();
   if (fetchErr || !target) {
@@ -198,6 +199,13 @@ export async function DELETE(req: Request) {
     .eq("id", id)
     .eq("user_id", ownerId);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+  // A Motion job deleted while still running gives back the credit it held
+  // (it can't settle any more — its row is gone).
+  if (target.tab === "motion" && target.status === "pending") {
+    const held = Number((target.metadata as { reserved?: unknown } | null)?.reserved) || 0;
+    if (held > 0) await refundReserved(ownerId, "motion", held, id).catch(() => undefined);
+  }
 
   return NextResponse.json({
     ok: true,

@@ -43,7 +43,7 @@ import ExtendDialog from "./extend-dialog";
 import AttachmentPicker from "./attachment-picker";
 import { CategoryPickModal } from "./attachments";
 import { MotionGuardNote, MotionProgress } from "./motion-progress";
-import MotionPhotoPicker from "../tabs/motion-photo-picker";
+import MotionResubmitDialog from "./motion-resubmit-dialog";
 import LazyVideo from "@/app/components/lazy-video";
 
 export type HistoryItem = {
@@ -2255,36 +2255,9 @@ function HistoryCardInner({
   // new edit. The product name and product photos (1–5; ones no longer in
   // storage drop out, so they're uploaded again — tape too) are asked first.
   const [resubOpen, setResubOpen] = useState(false);
-  const [resubProduct, setResubProduct] = useState("");
-  const [resubImages, setResubImages] = useState<string[]>([]);
-  const [resubImgBusy, setResubImgBusy] = useState(false);
-  const [resubBusy, setResubBusy] = useState(false);
   const motionMeta = item.metadata as { feature?: string; resubmits?: unknown; input?: { product?: string; videoUrl?: string; productImages?: string[] } } | null | undefined;
   const canMotionResubmit = item.tab === "motion" && item.status === "done"
     && motionMeta?.feature === "motion-edit" && !!motionMeta?.input?.videoUrl;
-
-  async function handleMotionResubmit() {
-    const product = resubProduct.replace(/\s+/g, " ").trim();
-    if (!product || !resubImages.length || resubImgBusy || resubBusy) return;
-    setResubBusy(true);
-    try {
-      const r = await fetch("/api/motion/resubmit", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: item.id, product, product_images: resubImages }),
-      });
-      const d = await r.json().catch(() => ({}));
-      if (!r.ok || !d?.ok) {
-        alert(d?.error || `Gagal hantar semula (HTTP ${r.status})`);
-        return;
-      }
-      setResubOpen(false);
-      showToast("🔁 Video dihantar semula — kad ini akan diganti dengan video baru.");
-      window.dispatchEvent(new CustomEvent("history:refresh"));
-    } finally {
-      setResubBusy(false);
-    }
-  }
 
   // Generate a video FROM this storyboard (image1=storyboard blueprint,
   // image2=product ref). Lands in the Original Video history grid.
@@ -3452,67 +3425,19 @@ function HistoryCardInner({
         </div>
         </Portal>
       )}
-      {/* Motion Resubmit — product name (required) + free in-place re-render. */}
+      {/* Motion Resubmit — product name + photos, then an in-place re-render. */}
       {resubOpen && canMotionResubmit && (
-        <Portal>
-        <div
-          className="fixed inset-0 z-[200] flex items-center justify-center p-4"
-          style={{ background: "rgba(0,0,0,0.72)" }}
-          onClick={() => !resubBusy && setResubOpen(false)}
-        >
-          <div
-            className="w-full max-w-sm rounded-2xl p-5 max-h-[92vh] overflow-y-auto"
-            style={{ background: "var(--color-bg-card)", border: "1px solid var(--color-border)" }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="text-[13px] font-extrabold text-[var(--color-text-primary)] mb-1">🔁 Render semula</div>
-            <div className="text-[11px] text-[var(--color-text-muted)] mb-2 leading-snug">
-              Video ini akan diedit semula (tanpa tampal / mute / potong). Kad ini akan diganti dengan video baru.
-            </div>
-            <div className="text-[11px] font-bold mb-3" style={{ color: "#f59e0b" }}>
-              Dicaj ikut tempoh video (macam edit baru).
-            </div>
-            <label className="block text-[11px] font-bold text-[var(--color-text-primary)] mb-1">
-              Nama produk <span style={{ color: "#ef4444" }}>*</span>
-            </label>
-            <input
-              value={resubProduct}
-              onChange={(e) => setResubProduct(e.target.value.slice(0, 80))}
-              onKeyDown={(e) => { if (e.key === "Enter") void handleMotionResubmit(); }}
-              placeholder="Contoh: Minyak Herba Mak Dara"
-              autoFocus
-              className="w-full px-3 py-2 rounded-xl text-[12px] mb-1 outline-none"
-              style={{ border: "1px solid var(--color-border)", background: "var(--color-bg)", color: "var(--color-text-primary)" }}
-            />
-            <div className="text-[10px] text-[var(--color-text-muted)] mb-3">Ejaan betul nama produk — AI guna untuk caption & skrip.</div>
-            <label className="block text-[11px] font-bold text-[var(--color-text-primary)] mb-1">
-              Gambar produk <span style={{ color: "#ef4444" }}>*</span> <span className="font-normal text-[var(--color-text-muted)]">(1–5)</span>
-            </label>
-            <div className="mb-3">
-              <MotionPhotoPicker value={resubImages} onChange={setResubImages} disabled={resubBusy} onBusyChange={setResubImgBusy} />
-            </div>
-            <div className="grid grid-cols-2 gap-2">
-              <button
-                onClick={() => setResubOpen(false)}
-                disabled={resubBusy}
-                className="py-2 rounded-xl text-[12px] font-bold disabled:opacity-40"
-                style={{ border: "1px solid var(--color-border)", color: "var(--color-text-secondary)" }}
-              >
-                Batal
-              </button>
-              <button
-                onClick={() => void handleMotionResubmit()}
-                disabled={resubBusy || resubImgBusy || !resubProduct.trim() || !resubImages.length}
-                className="py-2 rounded-xl text-[12px] font-extrabold text-white flex items-center justify-center gap-1 disabled:opacity-40"
-                style={{ background: ACTION.retry }}
-              >
-                {resubBusy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RotateCw className="w-3.5 h-3.5" />}
-                Hantar semula
-              </button>
-            </div>
-          </div>
-        </div>
-        </Portal>
+        <MotionResubmitDialog
+          id={item.id}
+          product={motionMeta?.input?.product}
+          images={motionMeta?.input?.productImages}
+          onClose={() => setResubOpen(false)}
+          onDone={() => {
+            setResubOpen(false);
+            showToast("🔁 Video dihantar semula — kad ini akan diganti dengan video baru.");
+            window.dispatchEvent(new CustomEvent("history:refresh"));
+          }}
+        />
       )}
       {/* Bottom-right "submitted" toast — non-blocking, auto-dismisses. */}
       {submitToast && (
@@ -4888,13 +4813,8 @@ function HistoryCardInner({
               {canMotionResubmit && (
                 <ActionBtn
                   title="Render semula (dicaj ikut tempoh)"
-                  onClick={() => {
-                    setResubProduct(String(motionMeta?.input?.product || "").slice(0, 80));
-                    setResubImages((motionMeta?.input?.productImages ?? []).filter((u) => /^https:\/\//.test(String(u))).slice(0, 5));
-                    setResubOpen(true);
-                  }}
+                  onClick={() => setResubOpen(true)}
                   bg={ACTION.retry}
-                  disabled={resubBusy}
                 >
                   <RotateCw className="w-3.5 h-3.5" strokeWidth={2.4} />
                 </ActionBtn>

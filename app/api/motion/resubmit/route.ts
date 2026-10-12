@@ -27,7 +27,7 @@ export async function POST(req: Request) {
 
   const admin = createAdminClient();
   const [{ data: row }, { data: me }] = await Promise.all([
-    admin.from("history").select("id, user_id, tab, status, cost, output_url, task_id, metadata").eq("id", id).maybeSingle(),
+    admin.from("history").select("id, user_id, tab, status, cost, output_url, task_id, error_message, metadata").eq("id", id).maybeSingle(),
     admin.from("profiles").select("is_admin").eq("id", user.id).maybeSingle(),
   ]);
   if (!row || (row.user_id !== user.id && !me?.is_admin)) return NextResponse.json({ error: "Not found" }, { status: 404 });
@@ -48,7 +48,12 @@ export async function POST(req: Request) {
     .slice(0, 5);
   if (!productImages.length) return NextResponse.json({ error: "Upload sekurang-kurangnya 1 gambar produk." }, { status: 400 });
   const input: EditInput = { ...oldInput, product, productImages };
-  if (row.status !== "done") return NextResponse.json({ error: "Video ini belum siap." }, { status: 409 });
+  // a finished job re-renders in place (a failed re-render restores its video);
+  // a failed job just gets another go (a failed retry refunds and stays failed)
+  if (row.status !== "done" && row.status !== "failed") {
+    return NextResponse.json({ error: "Video ini masih diproses." }, { status: 409 });
+  }
+  const wasDone = row.status === "done";
   const done = Number(meta.resubmits) || 0;
   const rate = await priceFor(row.user_id, "motion", "motion");
   const estimate = costFor(Math.min(Number(oldInput.durationSec) || 0, MOTION_EDIT_MAX_SEC), rate);
@@ -83,11 +88,13 @@ export async function POST(req: Request) {
         plan_token: planToken,
         resubmits: n,
         resubmit_started_at: new Date().toISOString(),
-        resubmit_prev: { output_url: row.output_url, cost: row.cost, metadata: { guard: meta.guard, plan: meta.plan, render: meta.render, poster_url: _pu } },
+        resubmit_prev: wasDone && row.output_url
+          ? { output_url: row.output_url, cost: row.cost, metadata: { guard: meta.guard, plan: meta.plan, render: meta.render, poster_url: _pu } }
+          : null,
       },
     })
     .eq("id", id)
-    .eq("status", "done")
+    .eq("status", row.status)
     .select("id");
   if (!flipped?.length) {
     await refund();
@@ -118,7 +125,7 @@ export async function POST(req: Request) {
   });
   if (!start.ok) {
     // restore the card exactly as it was
-    await admin.from("history").update({ status: "done", task_id: row.task_id, metadata: meta }).eq("id", id);
+    await admin.from("history").update({ status: row.status, task_id: row.task_id, error_message: row.error_message, metadata: meta }).eq("id", id);
     await refund();
     return NextResponse.json({ error: `Gagal mula render: ${start.error}` }, { status: 502 });
   }

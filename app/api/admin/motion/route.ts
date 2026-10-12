@@ -87,6 +87,10 @@ export async function GET(req: Request) {
       guardOn: !!input.guard,
       uploads: Array.isArray(input.productImages) ? input.productImages.length : 0,
       product: ad ? str(input.product) : null,
+      // for the Resubmit action (Edit Video jobs that finished or failed)
+      productName: str(input.product),
+      productImages: Array.isArray(input.productImages) ? input.productImages.map(String) : [],
+      canResubmit: !ad && !!input.videoUrl && (h.status === "done" || h.status === "failed"),
       plan: plan
         ? {
           sec: num(plan.ms) !== null ? Math.round(Number(plan.ms) / 1000) : null,
