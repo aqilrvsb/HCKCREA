@@ -49,7 +49,8 @@ const SETTINGS_KEY = "motion_search";
 const CACHE_TABLE = "motion_search_cache";
 const CACHE_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
 const PROVIDER_TIMEOUT_MS = 8_000;
-const MAX_QUERY_CHARS = 120;
+// Room for Google operators (site: / -site:) after the words themselves.
+const MAX_QUERY_CHARS = 300;
 const MIN_IMAGE_SIDE = 400;
 const MAX_NUM = 20;
 
@@ -527,4 +528,150 @@ export async function searchWeb(
 /** True if any provider in app_settings.motion_search has a key. */
 export async function motionSearchConfigured(): Promise<boolean> {
   return (await getMotionSearchProviders()).length > 0;
+}
+
+// ────────────────────────────────────────────────────────────────────
+// Site preferences — product B-roll comes from the product's own sales /
+// brand website first (that's where the real box, packshots and usage photos
+// live), then a general Google search. Marketplaces and social networks are
+// excluded everywhere: listing collages, watermarks, expiring CDN links.
+// Admin-editable (Motion Search card):
+//   app_settings.motion_search.exclude_sites    string[] (keywords / domains)
+//   app_settings.motion_search.brand_site_first boolean (default true)
+// ────────────────────────────────────────────────────────────────────
+
+export const DEFAULT_EXCLUDE_SITES = ["shopee", "facebook", "tiktok", "lazada", "mudah.my", "youtube"];
+export type SitePrefs = { exclude: string[]; brandFirst: boolean };
+
+// The image CDNs of the excluded sites (a Shopee photo is served from susercontent.com …).
+const SITE_ALIASES: Record<string, string[]> = {
+  shopee: ["susercontent"],
+  facebook: ["fbcdn", "fbsbx", "fb.com", "fb.watch"],
+  tiktok: ["tiktokcdn", "ttwstatic", "byteimg", "ibytedtos"],
+  lazada: ["slatic", "lzd-img", "lazcdn"],
+  youtube: ["ytimg", "youtu.be", "ggpht"],
+};
+// Google -site: operators for keyword entries without a TLD.
+const SITE_DOMAINS: Record<string, string[]> = {
+  shopee: ["shopee.com.my", "shopee.com"],
+  facebook: ["facebook.com"],
+  tiktok: ["tiktok.com"],
+  lazada: ["lazada.com.my", "lazada.com"],
+  youtube: ["youtube.com"],
+};
+
+export function parseSitePrefs(raw: unknown): SitePrefs {
+  const r = raw as any;
+  const list = Array.isArray(r?.exclude_sites)
+    ? r.exclude_sites.map((s: unknown) => String(s ?? "").trim().toLowerCase().replace(/^https?:\/\//, "").replace(/^www\./, "").replace(/\/.*$/, ""))
+        .filter((s: string) => /^[a-z0-9.-]{2,60}$/.test(s))
+    : DEFAULT_EXCLUDE_SITES;
+  return { exclude: [...new Set<string>(list)].slice(0, 30), brandFirst: r?.brand_site_first !== false };
+}
+
+export async function getSitePrefs(): Promise<SitePrefs> {
+  try {
+    return parseSitePrefs(await getSetting(SETTINGS_KEY));
+  } catch {
+    return parseSitePrefs(null);
+  }
+}
+
+/** True when a host / domain belongs to an excluded site (or its image CDN). */
+export function isExcludedHost(host: string | undefined | null, exclude: string[]): boolean {
+  const h = stripWww(host);
+  if (!h) return false;
+  return exclude.some((kw) => {
+    const needles = [kw, ...(SITE_ALIASES[kw] ?? [])];
+    // "mudah.my" → that domain and its subdomains; "shopee" → any host containing it
+    return needles.some((n) => (n.includes(".") ? h === n || h.endsWith(`.${n}`) : h.includes(n)));
+  });
+}
+
+/** "-site:shopee.com.my -site:facebook.com …" for a Google query. */
+export function excludeOperators(exclude: string[]): string {
+  const doms = exclude.flatMap((kw) => SITE_DOMAINS[kw] ?? (kw.includes(".") ? [kw] : [`${kw}.com`]));
+  return [...new Set(doms)].map((d) => `-site:${d}`).join(" ");
+}
+
+/** Keep only hits whose page domain and image host aren't excluded. */
+export function dropExcluded(hits: ImageHit[], exclude: string[]): ImageHit[] {
+  return hits.filter((h) => !isExcludedHost(h.domain, exclude) && !isExcludedHost(hostOf(h.url), exclude));
+}
+
+// Not the product's own sales page (social / marketplace / reference / parked-domain noise).
+const NOT_SALES_SITE = /(^|\.)(instagram|threads|x|twitter|pinterest|reddit|quora|wikipedia|linkedin|unscramble|atom|ebay|amazon|aliexpress|alibaba|carousell|temu|zalora|webmd)\./;
+
+/** The product-type word of a product name ("Gluvera Diabetic Patch" → "patch"). */
+export function productTypeWord(product: string, brandToken: string): string {
+  const words = String(product || "").toLowerCase().split(/[^a-z0-9]+/).filter((w) => w.length >= 3 && w !== brandToken && !/^\d+$/.test(w));
+  return words[words.length - 1] || "";
+}
+const PARKED_PAGE = /(for sale|is registered at|premium domain|buy this domain|unscrambl)/;
+
+/**
+ * The product's own sales / brand websites. Google web search (full product
+ * name + brand alone, excluded sites removed); a result counts only when the
+ * brand is in its domain / title / URL AND it is about this product (the
+ * product-type words, e.g. "patch", appear) — or the domain itself carries the
+ * brand. Brand-named domains rank first. [] when nothing qualifies → the
+ * caller goes straight to the general search.
+ */
+export async function findBrandSites(brand: string, prefs: SitePrefs, product?: string, max = 3): Promise<string[]> {
+  const b = cleanQuery(brand).slice(0, 60);
+  const token = b.toLowerCase().split(/\s+/)[0]?.replace(/[^a-z0-9]/g, "") ?? "";
+  if (token.length < 3) return [];
+  // "Gluvera Diabetic Patch, RM39, beg kuning" → the product name is the part before the first comma
+  const full = cleanQuery(String(product || "").split(/[,|]/)[0]).slice(0, 80);
+  const ops = excludeOperators(prefs.exclude);
+  const queries = [...new Set([full.toLowerCase().includes(token) ? full : "", b].filter(Boolean))];
+  const kind = productTypeWord(full || b, token);
+  const [results, imgs] = await Promise.all([
+    Promise.all(queries.map((q) => searchWeb(`${q} ${ops}`, { num: 10 }).catch(() => null))),
+    // Image results surface brand sites the web results miss.
+    searchImages(`${token} ${kind} ${ops}`, { num: 10 }).catch(() => null),
+  ]);
+  const typeWords = `${full} ${b}`.toLowerCase().split(/[^a-z0-9]+/).filter((w) => w.length >= 4 && w !== token);
+  const score = new Map<string, number>();
+  for (const h of imgs?.hits ?? []) {
+    const d = stripWww(h.domain);
+    if (d && !isExcludedHost(d, prefs.exclude) && !NOT_SALES_SITE.test(d) && d.replace(/[^a-z0-9]/g, "").includes(token)) {
+      score.set(d, Math.max(score.get(d) ?? 0, 6)); // brand-named domain that really hosts product photos
+    }
+  }
+  for (const r of results) {
+    for (const h of r?.hits ?? []) {
+      const d = stripWww(h.domain);
+      if (!d || isExcludedHost(d, prefs.exclude) || NOT_SALES_SITE.test(d)) continue;
+      const text = `${h.title} ${h.snippet} ${h.url}`.toLowerCase();
+      if (PARKED_PAGE.test(text)) continue;
+      const inDomain = d.replace(/[^a-z0-9]/g, "").includes(token);
+      const inText = text.includes(token);
+      const typed = typeWords.some((w) => text.includes(w));
+      if (!((inDomain && (inText || typed)) || (inText && typed))) continue;
+      const s = (inDomain ? 3 : 0) + (inText ? 2 : 0) + (typed ? 2 : 0);
+      score.set(d, Math.max(score.get(d) ?? 0, s));
+    }
+  }
+  return [...score.entries()].sort((x, y) => y[1] - x[1]).map(([d]) => d).slice(0, max);
+}
+
+/**
+ * Product photo pool from the brand's own sites — one image search per site
+ * (Google drops `site:a OR site:b` image queries), deduped, excluded hosts out.
+ */
+export async function brandImagePool(sites: string[], brand: string, product: string, exclude: string[]): Promise<ImageHit[]> {
+  const token = cleanQuery(brand).toLowerCase().split(/\s+/)[0]?.replace(/[^a-z0-9]/g, "") ?? "";
+  const kind = productTypeWord(String(product || "").split(/[,|]/)[0] || brand, token);
+  const res = await Promise.all(sites.map((d) => searchImages(`${token} ${kind} site:${d}`.replace(/\s+/g, " "), { num: 10 }).catch(() => null)));
+  const seen = new Set<string>();
+  const out: ImageHit[] = [];
+  for (const r of res) {
+    for (const h of dropExcluded(r?.hits ?? [], exclude)) {
+      if (seen.has(h.url)) continue;
+      seen.add(h.url);
+      out.push(h);
+    }
+  }
+  return out;
 }

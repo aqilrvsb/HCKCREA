@@ -742,7 +742,7 @@ guard_image = (
     .run_function(_preload_ocr)
 )
 
-GUARD_FPS = 3.0
+GUARD_FPS = 5.0  # OCR samples per second (tape keyframes); runs in parallel with the plan call
 # Safety net on OCR lines (keys are lowercase alphanumerics, no spaces).
 _GUARD_HARD = re.compile(
     r"diabet|kencingmanis|guladarah|bloodsugar|bloodglucose|antiblood|antisugar|insulin|pancrea|darahtinggi|hypertens|"
@@ -866,9 +866,15 @@ def _guard_classify(p: dict, kind: str, texts: list, words: list = None) -> dict
     return out
 
 
-def _guard_tracks(dets: list, risky: set, fps: float) -> list:
+def _guard_tracks(dets: list, risky: set, fps: float, cuts: list = None) -> list:
     """Group risky OCR lines into tracks across samples; extend each track
-    through blurred / misread frames where a box sits in the same place."""
+    through blurred / misread frames where a box sits in the same place.
+    A track never spans a jump cut (`cuts`: boundary times of the cut video)
+    and its tape never lingers into the next shot."""
+    cuts = sorted(cuts or [])
+
+    def seg_of(t: float) -> int:
+        return sum(1 for c in cuts if c <= t)
     by_j = {}
     for x in dets:
         by_j.setdefault(x["j"], []).append(x)
@@ -878,7 +884,7 @@ def _guard_tracks(dets: list, risky: set, fps: float) -> list:
             return False
         return math.hypot(a["cx"] - b["cx"], a["cy"] - b["cy"]) < max(40.0, 0.6 * max(a["w"], a["h"] * 3))
 
-    gap = int(1.6 * fps)
+    gap = int(1.0 * fps)  # bridge OCR misses (blur) up to 1 s; longer = the box left the frame
     tracks = []
     for j in sorted(by_j):
         for x in by_j[j]:
@@ -887,7 +893,7 @@ def _guard_tracks(dets: list, risky: set, fps: float) -> list:
             best, bd = None, 1e9
             for tr in tracks:
                 last = tr[-1]
-                if last["j"] >= j or j - last["j"] > gap or not near(last, x):
+                if last["j"] >= j or j - last["j"] > gap or not near(last, x) or seg_of(last["t"]) != seg_of(x["t"]):
                     continue
                 dd = math.hypot(last["cx"] - x["cx"], last["cy"] - x["cy"])
                 if dd < bd:
@@ -900,7 +906,7 @@ def _guard_tracks(dets: list, risky: set, fps: float) -> list:
         for step in (1, -1):
             for _ in range(int(1.2 * fps)):
                 edge = tr[-1] if step > 0 else tr[0]
-                cand = [x for x in by_j.get(edge["j"] + step, []) if near(edge, x)]
+                cand = [x for x in by_j.get(edge["j"] + step, []) if near(edge, x) and seg_of(x["t"]) == seg_of(edge["t"])]
                 if not cand:
                     break
                 c = min(cand, key=lambda x: math.hypot(x["cx"] - edge["cx"], x["cy"] - edge["cy"]))
@@ -909,13 +915,27 @@ def _guard_tracks(dets: list, risky: set, fps: float) -> list:
                 else:
                     tr.insert(0, c)
     out = []
-    for tr in tracks[:60]:
+    hold = 0.5 / fps + 0.06  # cover the half-interval before/after the first/last sample
+    for tr in tracks[:80]:
         keys = []
-        for n, x in enumerate(tr):  # light smoothing of the OCR jitter
+        for n, x in enumerate(tr):
+            # Position is NOT smoothed (smoothing makes the tape lag a moving
+            # box); size / angle get a light 3-sample smoothing. Faster motion
+            # → a little extra padding so the tape still covers between samples.
             win = tr[max(0, n - 1): n + 2]
-            keys.append([round(x["j"] / fps, 3)] + [round(sum(y[q] for y in win) / len(win), 1) for q in ("cx", "cy", "w", "h")]
-                        + [round(sorted(y["a"] for y in win)[len(win) // 2], 1)])
-        out.append({"k": keys, "pre": 0.35, "post": 0.35})
+            a, b = tr[max(0, n - 1)], tr[min(len(tr) - 1, n + 1)]
+            dt = max(1e-3, (b["j"] - a["j"]) / fps)
+            v = math.hypot(b["cx"] - a["cx"], b["cy"] - a["cy"]) / dt if b is not a else 0.0
+            pad = min(40.0, v * 0.08)
+            keys.append([round(x["j"] / fps, 3), x["cx"], x["cy"],
+                         round(sum(y["w"] for y in win) / len(win) + pad, 1), round(sum(y["h"] for y in win) / len(win) + pad * 0.6, 1),
+                         round(sorted(y["a"] for y in win)[len(win) // 2], 1)])
+        t0, t1 = keys[0][0], keys[-1][0]
+        before = [c for c in cuts if c <= t0]
+        after = [c for c in cuts if c > t1]
+        pre = max(0.0, min(hold, t0 - before[-1] if before else hold))
+        post = max(0.0, min(hold, after[0] - t1 - 1 / 30 if after else hold))
+        out.append({"k": keys, "pre": round(pre, 3), "post": round(post, 3)})
     return out
 
 
@@ -948,7 +968,7 @@ def _guard_speech(words: list, p: dict) -> dict:
     return out
 
 
-def _guard_video(d: Path, dur: float, p: dict) -> dict:
+def _guard_video(d: Path, dur: float, p: dict, cuts: list = None) -> dict:
     """OCR the whole (jump-cut) video in parallel containers, classify the
     unique printed lines in one call, build the tape tracks."""
     t0 = time.time()
@@ -977,7 +997,7 @@ def _guard_video(d: Path, dur: float, p: dict) -> dict:
     texts = [best[k]["x"] for k in keys]
     cls = _guard_classify(p, "video", texts)
     risky = {keys[i] for i in cls["risky"]}
-    tracks = _guard_tracks(dets, risky, GUARD_FPS)
+    tracks = _guard_tracks(dets, risky, GUARD_FPS, cuts)
     return {"tracks": tracks, "texts": len(texts),
             "risky_texts": [texts[i] for i in sorted(cls["risky"])][:24], "via": cls["via"],
             "chunks": len(jobs), "failed_chunks": failed, "sec": round(time.time() - t0, 1)}
@@ -1047,7 +1067,7 @@ def _bake_tape(path: Path, quads: list) -> None:
         im.convert("RGB").save(path, format="JPEG" if fmt != "PNG" else "PNG", quality=90)
 
 
-def _guard_images(paths: list, p: dict, kind: str, max_lines: int = 6, max_area: float = 0.22) -> dict:
+def _guard_images(paths: list, p: dict, kind: str, max_lines: int = 12, max_area: float = 0.25) -> dict:
     """OCR + classify + tape images in place → {path: clean | taped | drop}.
     Images with too much risky text (a claims poster) are dropped instead."""
     from PIL import Image
@@ -1350,12 +1370,16 @@ def _flow_edit(p: dict, d: Path, srv: _Serve) -> dict:
     dur = _probe(vid)["duration"] or span
 
     gres, gthread = {}, None
+    cut_marks, acc = [], 0.0  # where one kept segment ends and the next begins
+    for s0, e0 in (segs or [])[:-1]:
+        acc += e0 - s0
+        cut_marks.append(round(acc, 3))
     if guard:
         JOBS.commit()  # guard_scan containers read video.mp4 from the Volume
 
         def _g():
             try:
-                gres.update(_guard_video(d, dur, p))
+                gres.update(_guard_video(d, dur, p, cut_marks))
             except Exception as e:  # noqa: BLE001
                 gres["error"] = str(e)[:300]
                 print("guard video failed:", e)

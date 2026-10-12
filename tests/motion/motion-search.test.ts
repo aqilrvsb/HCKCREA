@@ -12,6 +12,12 @@ import {
   searchWeb,
   motionSearchConfigured,
   __setMotionSearchDeps,
+  DEFAULT_EXCLUDE_SITES,
+  dropExcluded,
+  excludeOperators,
+  findBrandSites,
+  isExcludedHost,
+  parseSitePrefs,
   type FetchLike,
   type SearchProviderCfg,
 } from "@/lib/motion-search";
@@ -329,7 +335,7 @@ test("empty key is skipped (no request made, no error noise)", async () => {
 test("query normalisation + cache key", () => {
   assert.equal(cleanQuery("  Kopi \n  Arabica\t"), "Kopi Arabica");
   assert.equal(normalizeQuery("  Kopi   ARABICA "), "kopi arabica");
-  assert.equal(cleanQuery("x".repeat(500)).length, 120);
+  assert.equal(cleanQuery("x".repeat(500)).length, 300);
   const a = cacheKey("images", "Kopi  Arabica");
   assert.equal(a, cacheKey("images", " kopi arabica "));
   assert.match(a, /^[0-9a-f]{64}$/);
@@ -395,4 +401,53 @@ test("searchWeb wrapper: cache read/write + settings failures never break search
 
   __setMotionSearchDeps({ loadProviders: async () => [{ provider: "brave", key: "BK" }] });
   assert.equal(await motionSearchConfigured(), true);
+});
+
+// ── site preferences: brand site first, marketplaces / social excluded ────────
+test("site prefs: defaults, admin list cleaning", () => {
+  assert.deepEqual(parseSitePrefs(null), { exclude: DEFAULT_EXCLUDE_SITES, brandFirst: true });
+  const p = parseSitePrefs({ exclude_sites: ["https://www.Shopee.com.my/x", "mudah.my", "", "bad site!"], brand_site_first: false });
+  assert.deepEqual(p, { exclude: ["shopee.com.my", "mudah.my"], brandFirst: false });
+});
+
+test("excluded hosts include the sites' image CDNs; brand sites pass", () => {
+  const ex = DEFAULT_EXCLUDE_SITES;
+  for (const h of ["shopee.com.my", "down-my.img.susercontent.com", "m.facebook.com", "scontent.fbcdn.net", "www.tiktok.com",
+    "p16-sign.tiktokcdn.com", "lazada.com.my", "my-live.slatic.net", "www.mudah.my", "i.ytimg.com", "youtube.com"]) {
+    assert.ok(isExcludedHost(h, ex), h);
+  }
+  for (const h of ["gluverabiopatch.com", "gluverahq.com", "mudahmy.com.au", "en.wikipedia.org"]) assert.ok(!isExcludedHost(h, ex), h);
+  assert.equal(
+    excludeOperators(ex),
+    "-site:shopee.com.my -site:shopee.com -site:facebook.com -site:tiktok.com -site:lazada.com.my -site:lazada.com -site:mudah.my -site:youtube.com",
+  );
+  const kept = dropExcluded([
+    { url: "https://down-my.img.susercontent.com/file/a", domain: "shopee.com.my" },
+    { url: "https://gluverabiopatch.com/wp-content/uploads/box.jpg", domain: "gluverabiopatch.com" },
+  ], ex);
+  assert.deepEqual(kept.map((h) => h.domain), ["gluverabiopatch.com"]);
+});
+
+test("findBrandSites: brand-named domains first, excluded sites never", async () => {
+  const sent: string[] = [];
+  const { fn } = mockFetch({
+    "google.serper.dev": (c) => {
+      sent.push(JSON.parse(String(c.init?.body)).q);
+      return json({ organic: [
+        { title: "Gluvera Shopee", link: "https://shopee.sg/gluvera", snippet: "x" },
+        { title: "Review blog", link: "https://blogsihat.my/gluvera-review", snippet: "pengalaman pakai patch ni" },
+        { title: "Gluvera Official", link: "https://www.gluverabiopatch.com/", snippet: "x" },
+        { title: "Gluvera HQ", link: "https://gluverahq.com/order", snippet: "x" },
+        { title: "gluvera.com is registered at Namecheap", link: "https://gluvera.com/", snippet: "x" },
+        { title: "GluVera", link: "https://foracares.com/gluvera", snippet: "blood glucose meter" },
+        { title: "Gluvera Diabetic Patch", link: "https://www.instagram.com/p/x", snippet: "x" },
+      ] });
+    },
+  });
+  __setMotionSearchDeps({ loadProviders: async () => [{ provider: "serper", key: "SK" }], cacheGet: async () => null, cacheSet: async () => {}, fetchImpl: fn });
+  const sites = await findBrandSites("Gluvera", parseSitePrefs(null), "Gluvera Diabetic Patch, beg kuning");
+  // own domains first; review page about the patch kept; parked domain, other "GluVera" product, social + marketplace dropped
+  assert.deepEqual(sites, ["gluverabiopatch.com", "gluverahq.com", "blogsihat.my"]);
+  assert.ok(sent.includes("Gluvera Diabetic Patch -site:shopee.com.my -site:shopee.com -site:facebook.com -site:tiktok.com -site:lazada.com.my -site:lazada.com -site:mudah.my -site:youtube.com"), sent.join(" | "));
+  assert.ok(sent.some((q) => q.startsWith("gluvera patch -site:")), "image probe for brand domains");
 });

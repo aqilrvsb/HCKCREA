@@ -11,7 +11,9 @@
 // Every step is fail-soft: a failure drops that enrichment, never the job.
 
 import { orChat, orChatVision } from "@/lib/openrouter";
-import { searchImages, searchWeb, type ImageHit, type WebHit } from "@/lib/motion-search";
+import {
+  brandImagePool, dropExcluded, excludeOperators, findBrandSites, getSitePrefs, searchImages, searchWeb, type ImageHit, type WebHit,
+} from "@/lib/motion-search";
 import { MOTION_MY_TIKTOK_GUIDE } from "@/lib/motion-prompts";
 import { extractJson, cleanItemPublic, type EditInput, type MotionItem } from "@/lib/motion";
 import { GUARD_RULES, guardCensorWords, guardFixSlots, guardHits, guardStripQuery } from "@/lib/motion-guard";
@@ -22,6 +24,8 @@ export type DirectorWord = { i: number; w: string; t: number; e?: number };
 export type BRollPlan = { at: Cue; to?: Cue; layout: "full" | "pip"; label?: string; query: string; candidates: string[] };
 export type FactPlan = { at: Cue; to?: Cue; text: string; source: string };
 export type EditPlanV2 = {
+  /** Product / brand name (finds the brand's own website for B-roll). */
+  brand?: string;
   hook: { text: string; sub?: string } | null;
   accent: string;
   mood: "chill" | "upbeat" | "hype";
@@ -57,6 +61,7 @@ STYLE = ${style.toUpperCase()} — ${style === "gempak"
 
 Return ONLY one JSON object:
 {
+  "brand": string | null (the product / brand name as spoken or given, e.g. "Gluvera" — used to find the product's own website photos),
   "hook": {"text": string (≤5 words), "sub"?: string (≤5 words)} | null,
   "accent": "#RRGGBB",
   "mood": "chill" | "upbeat" | "hype",
@@ -81,7 +86,7 @@ CUE: "w12" = when transcript word #12 starts, "w12$" = when it ends, "w12+0.3" o
 RULES
 - Hook covers 0–2.5 s: the video's promise in ≤5 punchy words. null if the video is under 5 s.
 - Every overlay sits on the word it illustrates. Max 2 overlays on screen at once. Zones: top = headline/tag/tape/callout/arrow/fact area; bottom = chips/checks/cta (just above captions); middle = bigword/emoji/stamp/price only, briefly (don't cover the face for long).
-- B-ROLL: pick moments where the speaker names something visual — the product, an ingredient, a place, a body part, an object, a brand, a problem. "query" = what to search on Google Images (English or Malay, specific, add the product/brand name when relevant, e.g. "Gluvera diabetic patch box"). 1 B-roll every 6–10 s, each 1.5–3 s; "full" for the product / big reveals, "pip" (card over the upper half) otherwise. Never during the first 1.5 s or the CTA.
+- B-ROLL: pick moments where the speaker names something visual — the product, an ingredient, a place, a body part, an object, a brand, a problem. "query" = what to search on Google Images (English or Malay, specific). For shots of the product itself (box, packshot, the item in use) START the query with the brand name (e.g. "Gluvera patch box") — those come from the brand's own website first; for generic shots (a body part, an object, a place) leave the brand out. 1 B-roll every 6–10 s, each 1.5–3 s; "full" for the product / big reveals, "pip" (card over the upper half) otherwise. Never during the first 1.5 s or the CTA.
 - FACTS: 0–2 per video, only for checkable, non-medical background facts the speaker mentions (what an ingredient is, how something works in general, a brand/origin fact). "query" = a Google search that would confirm it. NEVER health/medical/cure/efficacy, price or "best/No.1" claims.
 - KEYWORDS: 1 per caption page at most; colour product/brand names (brand), benefits (benefit), prices/numbers (price), problems (pain); add an emoji on ≤ 1 in 3.
 - RE-HOOK: one, around 40–60 % of the runtime, only if the video is > 25 s ("Tapi tunggu…", "Ni paling penting…").
@@ -135,7 +140,7 @@ export async function directEdit(opts: {
     .map((f) => (guard ? { ...f, query: guardStripQuery(f.query) } : f))
     .filter((f) => !guard || (f.query.length >= 3 && guardHits(f.topic).length === 0));
   const [broll, facts] = await Promise.all([
-    input.broll === false ? Promise.resolve([] as BRollPlan[]) : enrichBroll(plan.broll, guard).catch(() => [] as BRollPlan[]),
+    input.broll === false ? Promise.resolve([] as BRollPlan[]) : enrichBroll(plan.broll, guard, plan.brand, input.product).catch(() => [] as BRollPlan[]),
     input.facts === false ? Promise.resolve([] as FactPlan[]) : writeFacts(factMoments, words).catch(() => [] as FactPlan[]),
   ]);
   return { ...plan, broll, facts: guard ? facts.filter((f) => guardHits(f.text).length === 0) : facts };
@@ -228,7 +233,9 @@ export function validateDirectorPlan(raw: any, nWords: number, duration: number,
   const accent = HEX.test(input.accent || "") ? input.accent! : HEX.test(raw?.accent) ? raw.accent : "#FFD93B";
   const rehookAt = cueIn(raw?.rehook?.at, nWords, duration);
   const ctaAt = cueIn(raw?.cta?.at, nWords, duration);
+  const brand = clean(raw?.brand, 40) || clean(String(input.product || "").split(/[,(|\-–]/)[0], 40);
   return {
+    ...(brand ? { brand } : {}),
     hook: hookText && duration >= 5 ? { text: hookText, ...(raw?.hook?.sub ? { sub: clean(raw.hook.sub, 40) } : {}) } : null,
     accent,
     mood: MOODS.has(raw?.mood) ? raw.mood : style === "gempak" ? "upbeat" : "chill",
@@ -257,16 +264,61 @@ function rawFacts(raw: any, nWords: number, duration: number) {
 }
 
 // ── B-roll: Google Images + vision pick ──────────────────────────────────────
-async function enrichBroll(moments: BRollPlan[], guard = false): Promise<BRollPlan[]> {
+// Product shots come from the brand's own sales websites first (found with
+// Google web + image search that skip marketplaces / social sites), then a
+// general Google Images search — still without those sites (admin: Motion Search).
+async function enrichBroll(moments: BRollPlan[], guard = false, brand?: string, product?: string): Promise<BRollPlan[]> {
   if (!moments.length) return [];
-  const results = await Promise.all(moments.map((m) => searchImages(m.query, { num: 8 }).catch(() => null)));
+  const prefs = await getSitePrefs();
+  // Finding the sales site uses the full product name (medical words included —
+  // it's only a lookup; whatever is printed on its photos gets taped later).
+  const brandName = String(brand || "").trim();
+  const token = brandName.toLowerCase().split(/\s+/)[0]?.replace(/[^a-z0-9]/g, "") || "";
+  const productName = String(product || "").split(",")[0];
+  const sites = prefs.brandFirst && token.length >= 3
+    ? await findBrandSites(brandName, prefs, productName).catch(() => [] as string[])
+    : [];
+  const noSites = excludeOperators(prefs.exclude);
+  const usable = (hits: ImageHit[] | undefined) => dropExcluded((hits ?? []).filter(goodImage), prefs.exclude);
+  const pool = sites.length ? usable(await brandImagePool(sites, brandName, productName, prefs.exclude).catch(() => [])) : [];
+
+  // Product shots draw from the brand-site pool — the photos best matching the
+  // moment's words first, each moment getting different ones — topped up by a
+  // general search when the pool runs short; other shots search generally.
+  const words = (s: string) => new Set(s.toLowerCase().split(/[^a-z0-9]+/).filter((w) => w.length >= 3));
+  const used = new Map<string, number>();
+  const fromPool = moments.map((m) => {
+    const aboutProduct = !!token && m.query.toLowerCase().replace(/[^a-z0-9 ]/g, "").includes(token);
+    if (!aboutProduct || !pool.length) return [] as ImageHit[];
+    const q = words(m.query);
+    const ranked = [...pool].sort((a, b) => {
+      const sa = [...words(`${a.title ?? ""} ${a.url}`)].filter((w) => q.has(w)).length - (used.get(a.url) ?? 0) * 3;
+      const sb = [...words(`${b.title ?? ""} ${b.url}`)].filter((w) => q.has(w)).length - (used.get(b.url) ?? 0) * 3;
+      return sb - sa;
+    }).slice(0, 4);
+    for (const h of ranked) used.set(h.url, (used.get(h.url) ?? 0) + 1);
+    return ranked;
+  });
+  const results = await Promise.all(moments.map(async (m, k) => {
+    let hits = fromPool[k];
+    if (hits.length < 3) {
+      const more = usable((await searchImages(`${m.query} ${noSites}`, { num: 10 }).catch(() => null))?.hits);
+      const seen = new Set(hits.map((h) => h.url));
+      hits = [...hits, ...more.filter((h) => !seen.has(h.url))];
+    }
+    return hits;
+  }));
   const withHits = moments
-    .map((m, k) => ({ m, hits: (results[k]?.hits ?? []).filter(goodImage) }))
+    .map((m, k) => ({ m, hits: results[k] }))
     .filter((x) => x.hits.length > 0);
   if (!withHits.length) return [];
 
-  // One vision call: for each moment show up to 3 thumbnails, ask which fits.
-  const picks = await visionPick(withHits, guard).catch(() => null);
+  // Vision picks the best of the first 3 per moment — batches of ≤ 8 moments
+  // (24 images) per call, all batches in parallel.
+  const batches: (typeof withHits)[] = [];
+  for (let i = 0; i < withHits.length; i += 8) batches.push(withHits.slice(i, i + 8));
+  const picked = await Promise.all(batches.map((b) => visionPick(b, guard).catch(() => null)));
+  const picks: (number | undefined)[] = batches.flatMap((b, i) => b.map((_, k) => picked[i]?.[k]));
   return withHits
     .map(({ m, hits }, k) => {
       const choice = picks?.[k];
@@ -314,7 +366,8 @@ async function visionPick(items: { m: BRollPlan; hits: ImageHit[] }[], guard = f
 // ── fact cards: Google web search + strict summariser ────────────────────────
 async function writeFacts(moments: { at: Cue; to?: Cue; query: string; topic: string }[], words: DirectorWord[]): Promise<FactPlan[]> {
   if (!moments.length) return [];
-  const res = await Promise.all(moments.map((m) => searchWeb(m.query, { num: 5 }).catch(() => null)));
+  const noSites = excludeOperators((await getSitePrefs()).exclude);
+  const res = await Promise.all(moments.map((m) => searchWeb(`${m.query} ${noSites}`, { num: 5 }).catch(() => null)));
   const blocks = moments.map((m, k) => {
     const hits: WebHit[] = res[k]?.hits ?? [];
     return `FACT ${k} — topic "${m.topic || m.query}"\n` + hits.slice(0, 5).map((h, j) => `  [${j}] (${h.domain}) ${h.title}: ${h.snippet}`).join("\n");

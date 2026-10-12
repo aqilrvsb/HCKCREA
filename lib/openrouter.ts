@@ -311,7 +311,10 @@ export async function orChat(opts: {
     | "model_viral"
     // Motion tab — script + scene spec (Buat Iklan) and caption/overlay plan
     // (Edit Video). Falls back to model_auto when admin hasn't set it.
-    | "model_motion";
+    | "model_motion"
+    // Motion "Check Guideline TikTok" reviewer (claims to cut / mute / tape,
+    // rewrites, product risk). Opt-in: unset → model_motion → model_auto.
+    | "model_motion_guard";
   /** Bypass app_settings entirely and use this exact model id.
    *  Callers with a specific model in mind (e.g. Storytelling script
    *  gen using its own storytelling_script_model setting) pass this
@@ -341,6 +344,7 @@ export async function orChat(opts: {
   // Editor must behave exactly as before — i.e. fall through to
   // model_custom_idea, not straight to model_auto.
   if (requestedKey === "model_editor_text") fetchKeys.push("model_custom_idea");
+  if (requestedKey === "model_motion_guard") fetchKeys.push("model_motion");
   const s = await getSettings(fetchKeys);
 
   // modelOverride bypasses cascade entirely (legacy callers).
@@ -369,6 +373,10 @@ export async function orChat(opts: {
   if (requestedKey === "model_editor_text") {
     const shared = parseModelSetting(s["model_custom_idea"]);
     if (shared) layers.push(shared);
+  }
+  if (requestedKey === "model_motion_guard") {
+    const motion = parseModelSetting(s["model_motion"]);
+    if (motion) layers.push(motion);
   }
   if (requestedKey !== "model_auto") {
     const auto = parseModelSetting(s["model_auto"]);

@@ -46,6 +46,8 @@ export async function POST(req: Request) {
             facts: plan.facts.map((f) => `${f.text} (${f.source})`), keywords: plan.keywords.length,
             rehook: plan.rehook?.text ?? null, cta: plan.cta?.text ?? null, words: words.length, ms: Date.now() - t0,
             ...(plan.guard ? { guard: plan.guard } : {}),
+            brand: plan.brand ?? null,
+            broll_src: plan.broll.map((b) => { try { return new URL(b.candidates[0]).hostname; } catch { return null; } }),
           },
           transcript: words.map((w: any) => w.w).join(" ").slice(0, 4000),
         },

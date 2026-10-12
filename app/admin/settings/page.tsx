@@ -316,6 +316,11 @@ export default function AdminSettings() {
   const [motionKnob, setMotionKnob] = useState<ModelKnobState>(emptyKnob(MOTION_MAX_FB));
   const [savingMotion, setSavingMotion] = useState(false);
   const [motionMsg, setMotionMsg] = useState<string | null>(null);
+  // Motion "Check Guideline TikTok" reviewer — own slot so it can run a
+  // faster model than the director; empty → reuses the Motion model.
+  const [motionGuardKnob, setMotionGuardKnob] = useState<ModelKnobState>(emptyKnob(MOTION_MAX_FB));
+  const [savingMotionGuard, setSavingMotionGuard] = useState(false);
+  const [motionGuardMsg, setMotionGuardMsg] = useState<string | null>(null);
   // Motion Search (Google) — app_settings.motion_search =
   //   { providers: [{ provider: "serper"|"brave"|"tavily", key }] }
   // Ordered main → fallbacks; read by lib/motion-search.ts.
@@ -323,6 +328,9 @@ export default function AdminSettings() {
     parseMotionSearchRows(null)
   );
   const [savingMotionSearch, setSavingMotionSearch] = useState(false);
+  // B-roll sources: brand's own sales site first; never these sites.
+  const [motionExcludeSites, setMotionExcludeSites] = useState("shopee, facebook, tiktok, lazada, mudah.my, youtube");
+  const [motionBrandFirst, setMotionBrandFirst] = useState(true);
   const [motionSearchMsg, setMotionSearchMsg] = useState<string | null>(null);
   const [motionSearchQuery, setMotionSearchQuery] = useState("");
   const [testingMotionSearch, setTestingMotionSearch] = useState(false);
@@ -498,7 +506,12 @@ export default function AdminSettings() {
         if (row.key === "model_custom_idea") setCustomIdeaKnob(parseKnob(row.value, CUSTOM_IDEA_MAX_FB));
         if (row.key === "model_editor_text") setEditorTextKnob(parseKnob(row.value, EDITOR_TEXT_MAX_FB));
         if (row.key === "model_motion") setMotionKnob(parseKnob(row.value, MOTION_MAX_FB));
-        if (row.key === "motion_search") setMotionSearchRows(parseMotionSearchRows(row.value));
+        if (row.key === "model_motion_guard") setMotionGuardKnob(parseKnob(row.value, MOTION_MAX_FB));
+        if (row.key === "motion_search") {
+          setMotionSearchRows(parseMotionSearchRows(row.value));
+          if (Array.isArray(row.value?.exclude_sites)) setMotionExcludeSites(row.value.exclude_sites.join(", "));
+          setMotionBrandFirst(row.value?.brand_site_first !== false);
+        }
         if (row.key === "model_viral") setViralKnob(parseKnob(row.value, VIRAL_MAX_FB));
         if (row.key === "model_clone") setCloneKnob(parseKnob(row.value, CLONE_MAX_FB));
         if (row.key === "model_auto") setAutoKnob(parseKnob(row.value, AUTO_MAX_FB));
@@ -1284,6 +1297,15 @@ export default function AdminSettings() {
       setMsg: setMotionMsg,
     });
   }
+  function saveMotionGuardModel() {
+    return saveCascadeKnob({
+      key: "model_motion_guard",
+      knob: motionGuardKnob,
+      label: "Motion Guideline Check",
+      setSaving: setSavingMotionGuard,
+      setMsg: setMotionGuardMsg,
+    });
+  }
 
   // Motion Search (Google) — serialise rows to { providers: [...] }.
   // A row's key is only overwritten when the admin typed a new one; else
@@ -1303,7 +1325,14 @@ export default function AdminSettings() {
       const res = await fetch("/api/admin/settings", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ key: "motion_search", value: { providers } }),
+        body: JSON.stringify({
+          key: "motion_search",
+          value: {
+            providers,
+            exclude_sites: motionExcludeSites.split(/[\s,]+/).map((s) => s.trim().toLowerCase()).filter(Boolean),
+            brand_site_first: motionBrandFirst,
+          },
+        }),
       });
       if (!res.ok) {
         const d = await res.json().catch(() => ({}));
@@ -1442,6 +1471,7 @@ export default function AdminSettings() {
     "model_custom_idea",
     "model_editor_text",
     "model_motion",
+    "model_motion_guard",
     "model_viral",
     "model_clone",
     "model_auto",
@@ -2765,6 +2795,16 @@ export default function AdminSettings() {
             recommendation="grsai/gpt-5.6-sol (closest to GPT-6 at ~half the cost) → grsai/gpt-5.6-terra → grsai/gemini-3.8-flash → grsai/gpt-6-astra"
           />
           <ModelKnob
+            label="Motion Guideline Check Model (Check Guideline TikTok)"
+            value={motionGuardKnob}
+            onChange={setMotionGuardKnob}
+            onSave={saveMotionGuardModel}
+            saving={savingMotionGuard}
+            msg={motionGuardMsg}
+            usedBy="Motion tab ✅ Check Guideline TikTok — claim sentences to cut, words to mute, printed box text to tape, rewrites of risky copy, product-risk warning. Empty → reuses the Motion Model."
+            recommendation="grsai/gpt-5.6-terra (benchmark: 8 s, 18/18 claim words, 0 false cuts) → grsai/gemini-3.8-flash → grsai/gpt-5.6-sol"
+          />
+          <ModelKnob
             label="Viral Talking Object Model"
             value={viralKnob}
             onChange={setViralKnob}
@@ -2915,6 +2955,30 @@ export default function AdminSettings() {
               </div>
             );
           })}
+        </div>
+        <div className="mt-4 space-y-2">
+          <label className="flex items-start gap-2 text-xs cursor-pointer" style={{ color: "var(--color-text-primary)" }}>
+            <input type="checkbox" checked={motionBrandFirst} onChange={(e) => setMotionBrandFirst(e.target.checked)} className="mt-0.5" />
+            <span>
+              <b>Cari website jualan produk dulu</b> — Google cari laman jualan / laman brand produk (cth. website Gluvera),
+              ambil gambar produk dari situ dulu; kalau tak cukup baru fallback ke carian Google biasa.
+            </span>
+          </label>
+          <div>
+            <div className="text-[10px] font-mono uppercase tracking-widest font-bold mb-1" style={{ color: "var(--color-text-muted)" }}>
+              Jangan ambil dari laman ini (gambar + fakta)
+            </div>
+            <input
+              value={motionExcludeSites}
+              onChange={(e) => setMotionExcludeSites(e.target.value)}
+              placeholder="shopee, facebook, tiktok, lazada, mudah.my, youtube"
+              className="input w-full text-xs"
+              style={{ color: "var(--color-text-primary)" }}
+            />
+            <p className="text-[10px] mt-1" style={{ color: "var(--color-text-muted)" }}>
+              Pisahkan dengan koma. Nama (shopee) atau domain (mudah.my) — CDN gambar laman itu juga dikecualikan.
+            </p>
+          </div>
         </div>
         <div className="flex flex-wrap items-center gap-2 mt-4">
           <button

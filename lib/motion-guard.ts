@@ -115,7 +115,7 @@ const cleanRisk = (r: any): ProductRisk | null => {
 
 const RISK_RULE = `"risk": rate the PRODUCT itself (from the seller context + content) for TikTok Shop Malaysia 2026: {"level": "high"|"medium"|"low", "reason": "≤25 words, Bahasa Melayu"}. high = positioned to treat / control a disease (any Act 290 Schedule condition such as diabetes), a medical device or therapeutic patch (all medical devices are "unsupported" on TikTok Shop MY since 14/07/2026), a slimming product (weight-management products prohibited), a sexual-function product, or a medicine/supplement that looks unregistered — such products can be removed or penalised whatever the edit. medium = health/beauty/supplement product that is OK only without claims. low = everything else.`;
 
-const SPEECH_SYSTEM = `You are a TikTok Shop Malaysia compliance EDITOR (2026 rules + Act 290, the LIU 2025 guideline, MAB 4.2026, Medical Device Act 2012). A seller recorded a talking video; we edit it so it makes no non-compliant claim. We REMOVE claims, we never disguise them.
+export const SPEECH_SYSTEM = `You are a TikTok Shop Malaysia compliance EDITOR (2026 rules + Act 290, the LIU 2025 guideline, MAB 4.2026, Medical Device Act 2012). A seller recorded a talking video; we edit it so it makes no non-compliant claim. We REMOVE claims, we never disguise them.
 
 You get the transcript as indexed words. Return:
 "cut": [[from, to], ...] — inclusive word-index ranges of every COMPLETE statement (clause / sentence) that makes a non-compliant claim: names a disease / condition in a treatment or benefit context, any medical / cure / treat / prevent / control / "bantu" + condition claim, euphemistic health claims ("jaga gula", "sugar level turun", "bacaan normal"), guaranteed / absolute / timeframe results, weight-loss numbers, before/after, doctor / approval / "lulus KKM" claims, fear, other people's results, fake urgency. Cut the whole clause so no implied claim is left (e.g. "patch ni boleh bantu kawal gula darah dalam seminggu" → cut all of it). Never cut neutral usage instructions, product description without claims, prices, delivery, the CTA, greetings — keep the story watchable.
@@ -129,13 +129,13 @@ export async function guardSpeech(opts: { words: { i: number; w: string }[]; pro
   if (!words.length) return { cut: [], censor: [], risk: null };
   const maxWord = words.reduce((m, w) => Math.max(m, w.i + 1), 0);
   const r = await orChat({
-    modelKey: "model_motion",
+    modelKey: "model_motion_guard",
     systemPrompt: SPEECH_SYSTEM,
     userPrompt: (opts.product ? `SELLER CONTEXT: ${String(opts.product).slice(0, 400)}\n\n` : "") +
       `TRANSCRIPT (index:word):\n${words.map((w) => `${w.i}:${w.w}`).join(" ")}\n\nJSON only.`,
     temperature: 0,
     maxTokens: 2500,
-    timeoutMs: 100_000,
+    timeoutMs: 45_000,
     stream: true,
   });
   if (!r.ok || !r.content) return null;
@@ -155,13 +155,13 @@ export async function guardClassify(opts: { kind: string; texts: string[]; produ
   const texts = opts.texts.slice(0, 200);
   if (!texts.length) return { risky: [] };
   const r = await orChat({
-    modelKey: "model_motion",
+    modelKey: "model_motion_guard",
     systemPrompt: CLASSIFY_SYSTEM,
     userPrompt: (opts.product ? `SELLER CONTEXT: ${String(opts.product).slice(0, 300)}\n` : "") +
       `SOURCE: ${opts.kind}\n\nOCR LINES:\n${texts.map((t, k) => `${k}: ${t}`).join("\n")}\n\nJSON only.`,
     temperature: 0,
     maxTokens: 1200,
-    timeoutMs: 90_000,
+    timeoutMs: 45_000,
     stream: true,
   });
   if (!r.ok || !r.content) return null;
@@ -172,12 +172,12 @@ export async function guardClassify(opts: { kind: string; texts: string[]; produ
 /** Buat Iklan: risk-rate the product from the brief (pre-flight warning). */
 export async function guardProductRisk(brief: string): Promise<ProductRisk | null> {
   const r = await orChat({
-    modelKey: "model_motion",
+    modelKey: "model_motion_guard",
     systemPrompt: `You are a TikTok Shop Malaysia compliance reviewer. ${RISK_RULE}\nAnswer ONLY JSON: {"risk": {...}}`,
     userPrompt: `PRODUCT BRIEF:\n${brief.slice(0, 1800)}\n\nJSON only.`,
     temperature: 0,
     maxTokens: 300,
-    timeoutMs: 45_000,
+    timeoutMs: 30_000,
     stream: true,
   }).catch(() => null);
   const j = r?.ok && r.content ? parseJson(r.content) : null;
@@ -191,12 +191,12 @@ Answer ONLY JSON: {"out": [string | null, ...]} in the same order.`;
 export async function guardRewrite(texts: string[], product?: string): Promise<(string | null)[]> {
   if (!texts.length) return [];
   const r = await orChat({
-    modelKey: "model_motion",
+    modelKey: "model_motion_guard",
     systemPrompt: REWRITE_SYSTEM,
     userPrompt: (product ? `PRODUCT: ${String(product).slice(0, 200)}\n` : "") + JSON.stringify({ in: texts }),
     temperature: 0.3,
     maxTokens: 2000,
-    timeoutMs: 60_000,
+    timeoutMs: 40_000,
     stream: true,
   }).catch(() => null);
   const j = r?.ok && r.content ? parseJson(r.content) : null;

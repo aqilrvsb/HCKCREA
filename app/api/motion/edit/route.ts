@@ -127,7 +127,8 @@ export async function POST(req: Request) {
   const { data: cur } = await admin.from("history").select("metadata").eq("id", hist.id).maybeSingle();
   await admin
     .from("history")
-    .update({ task_id: start.callId, metadata: { ...(cur?.metadata || {}), stage: "render", provider: "modal-motion" } })
+    // "queued" until Modal reports its own stage (shown on the History placeholder)
+    .update({ task_id: start.callId, metadata: { ...(cur?.metadata || {}), stage: "queued", provider: "modal-motion" } })
     .eq("id", hist.id);
 
   return NextResponse.json({ ok: true, id: hist.id, estimate, rate });

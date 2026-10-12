@@ -670,7 +670,7 @@ export async function runAdJob(historyId: string): Promise<void> {
         : {}),
     });
     if (!start.ok) throw new Error(start.error);
-    await patchMeta(historyId, { stage: "render", provider: "modal-motion", call_started_at: new Date().toISOString() }, { task_id: start.callId });
+    await patchMeta(historyId, { stage: "queued", provider: "modal-motion", call_started_at: new Date().toISOString() }, { task_id: start.callId });
   } catch (e: any) {
     await failMotionRow({ ...row, task_id: null } as any, e?.message || "Motion pipeline error");
   }
