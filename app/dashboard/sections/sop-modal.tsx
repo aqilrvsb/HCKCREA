@@ -310,7 +310,8 @@ export function SopButton(_props: { sop: SopPage | null }) {
       rel="noopener noreferrer"
       title="SOP Video"
       aria-label="Buka SOP Video"
-      className="fixed top-3 right-3 z-30 h-10 lg:h-11 px-3 lg:px-4 rounded-full flex items-center gap-2 transition-transform hover:scale-105"
+      // phones: a 36 px icon button so it doesn't cover the top bar's project chips
+      className="fixed top-3 right-3 z-30 h-9 w-9 justify-center md:w-auto md:h-10 lg:h-11 md:px-3 lg:px-4 rounded-full flex items-center gap-2 transition-transform hover:scale-105"
       style={{
         background: "linear-gradient(135deg, #fde047 0%, #facc15 100%)",
         color: "#000",
@@ -319,7 +320,7 @@ export function SopButton(_props: { sop: SopPage | null }) {
       }}
     >
       <BookOpen className="w-5 h-5 flex-shrink-0" strokeWidth={2.5} />
-      <span className="font-extrabold text-xs lg:text-sm tracking-tight whitespace-nowrap">
+      <span className="hidden md:inline font-extrabold text-xs lg:text-sm tracking-tight whitespace-nowrap">
         SOP VIDEO
       </span>
     </a>

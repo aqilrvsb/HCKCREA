@@ -111,7 +111,8 @@ export default function ActivityFeed() {
         <button
           onClick={() => setOpen(true)}
           title="See who else is creating right now"
-          className="fixed right-0 top-1/3 z-40 px-2 py-3 rounded-l-lg flex flex-col items-center gap-1.5 transition-transform hover:scale-105"
+          // phones: a slim icon-only tab so it doesn't cover the form's right edge
+          className="fixed right-0 top-1/3 z-40 px-1 py-2 md:px-2 md:py-3 rounded-l-lg flex flex-col items-center gap-1.5 opacity-90 md:opacity-100 transition-transform hover:scale-105"
           style={{
             background: "var(--color-orange, #facc15)",
             color: "#1a1a1a",
@@ -123,10 +124,10 @@ export default function ActivityFeed() {
             {/* Pulsing dot — signals "live" without taking extra width */}
             <span className="absolute -top-0.5 -right-0.5 w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
           </span>
-          <span className="text-[9px] font-mono font-bold uppercase tracking-wider [writing-mode:vertical-rl]">
+          <span className="hidden md:inline text-[9px] font-mono font-bold uppercase tracking-wider [writing-mode:vertical-rl]">
             Live · {items.length}
           </span>
-          <ChevronLeft className="w-3 h-3" />
+          <ChevronLeft className="hidden md:block w-3 h-3" />
         </button>
       )}
 
