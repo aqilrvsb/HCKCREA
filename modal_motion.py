@@ -1747,13 +1747,15 @@ def _upload_sig_ok(key: str, exp: str, sig: str) -> bool:
             return False
     except ValueError:
         return False
-    if not re.fullmatch(r"motion-uploads/[A-Za-z0-9_-]+/[A-Za-z0-9_-]+\.(mp4|mov|webm|m4v)", key):
+    if not (re.fullmatch(r"motion-uploads/[A-Za-z0-9_-]+/[A-Za-z0-9_-]+\.(mp4|mov|webm|m4v)", key)
+            or re.fullmatch(r"motion-images/[A-Za-z0-9_-]+/[A-Za-z0-9_-]+\.(jpg|jpeg|png|webp)", key)):
         return False
     mac = hmac.new(want.encode(), f"{key}|{exp}".encode(), hashlib.sha256).hexdigest()
     return hmac.compare_digest(mac, sig)
 
 
 MAX_UPLOAD = 300 * 1024 * 1024
+MAX_IMAGE_UPLOAD = 12 * 1024 * 1024
 upload_image = web_image.pip_install("boto3==1.34.0")
 
 
@@ -1815,20 +1817,24 @@ def api():
         import asyncio
         if not _upload_sig_ok(key, exp, sig):
             return JSONResponse({"ok": False, "error": "invalid or expired upload link"}, status_code=403)
-        ctype = (request.headers.get("content-type") or "video/mp4").split(";")[0].strip()
-        if not ctype.startswith("video/"):
-            return JSONResponse({"ok": False, "error": "video files only"}, status_code=415)
+        # motion-uploads/… = the client's video; motion-images/… = their product photos
+        is_image = key.startswith("motion-images/")
+        ctype = (request.headers.get("content-type") or ("image/jpeg" if is_image else "video/mp4")).split(";")[0].strip()
+        if not ctype.startswith("image/" if is_image else "video/"):
+            return JSONResponse({"ok": False, "error": "image files only" if is_image else "video files only"}, status_code=415)
+        limit = MAX_IMAGE_UPLOAD if is_image else MAX_UPLOAD
+        too_big = "image too large (max 12MB)" if is_image else "video too large (max 300MB)"
         declared = int(request.headers.get("content-length") or 0)
-        if declared > MAX_UPLOAD:
-            return JSONResponse({"ok": False, "error": "video too large (max 300MB)"}, status_code=413)
+        if declared > limit:
+            return JSONResponse({"ok": False, "error": too_big}, status_code=413)
         with tempfile.NamedTemporaryFile(suffix=Path(key).suffix, delete=False) as f:
             tmp = Path(f.name)
             n = 0
             async for chunk in request.stream():
                 n += len(chunk)
-                if n > MAX_UPLOAD:
+                if n > limit:
                     tmp.unlink(missing_ok=True)
-                    return JSONResponse({"ok": False, "error": "video too large (max 300MB)"}, status_code=413)
+                    return JSONResponse({"ok": False, "error": too_big}, status_code=413)
                 f.write(chunk)
         try:
             if n < 1024:

@@ -10,8 +10,9 @@
 // finished video with its guideline summary.
 
 import { useEffect, useState } from "react";
-import { Clapperboard, Loader2, Upload, X, Sparkles, Scissors, Brain, Wand2, ShieldCheck } from "lucide-react";
+import { Clapperboard, Loader2, Upload, X, Sparkles, Scissors, Brain, Wand2, ShieldCheck, Trash2 } from "lucide-react";
 import { uploadImage } from "@/lib/upload-image";
+import { compressImageIfNeeded } from "@/lib/compress-image";
 import { MOTION_AD_PRESETS, MOTION_EDIT_PRESETS, type MotionPreset } from "@/lib/motion-prompts";
 import { MOTION_STYLES, type MotionStyleId } from "@/lib/motion-styles";
 
@@ -200,13 +201,27 @@ export default function MotionTab({ projectId }: { projectId?: string }) {
   const [editLang, setEditLang] = useState<"ms" | "en" | "auto">("ms");
   const [captionPos, setCaptionPos] = useState<"low" | "mid">("low");
   const [editMusic, setEditMusic] = useState(false);
-  const [jumpcut, setJumpcut] = useState(true);
-  const [broll, setBroll] = useState(true);
-  const [facts, setFacts] = useState(true);
+  // Jump cut, B-roll and fact cards: always on (no toggles in the form).
+  const jumpcut = true;
+  const broll = true;
+  const facts = true;
   const [editPrompt, setEditPrompt] = useState(MOTION_EDIT_PRESETS[0]?.prompt ?? "");
-  const [context, setContext] = useState("");
   const [editImages, setEditImages] = useState<string[]>([]);
   const [readingVideos, setReadingVideos] = useState(false);
+  const [editImgError, setEditImgError] = useState<string | null>(null);
+  // the client's product photo gallery (/api/motion/photos) — reuse or delete
+  const [gallery, setGallery] = useState<{ id: string; url: string }[]>([]);
+  const [showGallery, setShowGallery] = useState(false);
+  useEffect(() => {
+    fetch("/api/motion/photos").then((r) => r.json()).then((d) => setGallery(Array.isArray(d?.photos) ? d.photos : [])).catch(() => undefined);
+  }, []);
+  const toggleFromGallery = (url: string) => setEditImages((cur) =>
+    cur.includes(url) ? cur.filter((x) => x !== url) : cur.length >= MAX_EDIT_IMAGES ? cur : [...cur, url]);
+  async function deleteFromGallery(id: string, url: string) {
+    setGallery((g) => g.filter((p) => p.id !== id));
+    setEditImages((cur) => cur.filter((x) => x !== url));
+    await fetch(`/api/motion/photos?id=${encodeURIComponent(id)}`, { method: "DELETE" }).catch(() => undefined);
+  }
 
   // Running jobs live in the History grid (placeholder cards poll their own status).
   // A client may have "Buat Iklan" switched off (profiles.settings.hidden_modes).
@@ -243,18 +258,39 @@ export default function MotionTab({ projectId }: { projectId?: string }) {
       setImgBusy(false);
     }
   }
-  // Edit Video: the seller's own product photos — every product B-roll shot comes from these.
+  // Edit Video: the seller's own product photos — every product B-roll shot comes
+  // from these. Same browser → Modal → B2 path as the video (signed URL), so it
+  // doesn't depend on a third-party image host.
+  async function uploadProductPhoto(input: File): Promise<string> {
+    const { file } = await compressImageIfNeeded(input);
+    const r = await fetch("/api/motion/upload-url", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: file.name, size: file.size, kind: "image" }),
+    });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok || !d?.upload_url) throw new Error(d?.error || "Tak dapat link upload");
+    const up = await fetch(d.upload_url, { method: "POST", headers: { "Content-Type": file.type || "image/jpeg" }, body: file });
+    const j = await up.json().catch(() => ({}));
+    if (!up.ok || !j?.url) throw new Error(j?.error || `Upload gagal (${up.status})`);
+    return String(j.url);
+  }
   async function addEditImages(files: FileList | null) {
     if (!files || files.length === 0) return;
-    setError(null);
+    const picked = Array.from(files); // copy now — the input is cleared right after
+    setEditImgError(null);
     setImgBusy(true);
     try {
-      for (const f of Array.from(files).slice(0, Math.max(0, MAX_EDIT_IMAGES - editImages.length))) {
-        const r = await uploadImage(f);
-        setEditImages((cur) => (cur.includes(r.url) ? cur : [...cur, r.url].slice(0, MAX_EDIT_IMAGES)));
+      for (const f of picked.slice(0, Math.max(0, MAX_EDIT_IMAGES - editImages.length))) {
+        const url = await uploadProductPhoto(f);
+        setEditImages((cur) => (cur.includes(url) ? cur : [...cur, url].slice(0, MAX_EDIT_IMAGES)));
+        // remember it in the client's gallery for the next video (best-effort)
+        fetch("/api/motion/photos", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ url }) })
+          .then((r) => r.json()).then((d) => { if (d?.photo) setGallery((g) => [d.photo, ...g.filter((p) => p.url !== url)]); })
+          .catch(() => undefined);
       }
     } catch (e: unknown) {
-      setError(e instanceof Error && e.message ? e.message : "Upload gambar gagal");
+      setEditImgError(e instanceof Error && e.message ? `Upload gambar gagal: ${e.message}` : "Upload gambar gagal");
     } finally {
       setImgBusy(false);
     }
@@ -362,7 +398,7 @@ export default function MotionTab({ projectId }: { projectId?: string }) {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
-              video_url: url, duration_sec: v.dur, language: editLang, prompt: editPrompt, product: context,
+              video_url: url, duration_sec: v.dur, language: editLang, prompt: editPrompt,
               product_images: editImages,
               captions, caption_style: captionStyle, caption_pos: captionPos, music: editMusic, sfx,
               accent: accent || undefined, project_id: projectId, style, resolution, jumpcut, broll, facts, guard,
@@ -443,18 +479,12 @@ export default function MotionTab({ projectId }: { projectId?: string }) {
             </div>
             <PromptBox value={editPrompt} onChange={setEditPrompt} presets={presets} placeholder="cth. Jadikan video jualan beg kuning: hook kuat, tick setiap kelebihan, tutup dengan CTA tekan beg kuning." />
             <GuardBox on={guard} onChange={setGuard} />
-            <div className="grid sm:grid-cols-2 gap-3">
-              <div>
-                <label className={label}>Produk / konteks (optional)</label>
-                <input className={inputCls} style={inputStyle} value={context} maxLength={300} onChange={(e) => setContext(e.target.value)} placeholder="cth. Gluvera patch, RM39, beg kuning" />
-              </div>
-              <div>
-                <label className={label}>Bahasa dalam video</label>
-                <div className="flex gap-2">
-                  <Chip active={editLang === "ms"} onClick={() => setEditLang("ms")}>Melayu</Chip>
-                  <Chip active={editLang === "en"} onClick={() => setEditLang("en")}>English</Chip>
-                  <Chip active={editLang === "auto"} onClick={() => setEditLang("auto")}>Auto</Chip>
-                </div>
+            <div>
+              <label className={label}>Bahasa dalam video</label>
+              <div className="flex gap-2">
+                <Chip active={editLang === "ms"} onClick={() => setEditLang("ms")}>Melayu</Chip>
+                <Chip active={editLang === "en"} onClick={() => setEditLang("en")}>English</Chip>
+                <Chip active={editLang === "auto"} onClick={() => setEditLang("auto")}>Auto</Chip>
               </div>
             </div>
             <div>
@@ -478,15 +508,42 @@ export default function MotionTab({ projectId }: { projectId?: string }) {
                   </label>
                 )}
               </div>
+              {editImgError && <p className="text-[11px] mt-1 font-bold text-red-400">{editImgError}</p>}
+              {gallery.length > 0 && (
+                <div className="mt-2">
+                  <button type="button" onClick={() => setShowGallery((s) => !s)}
+                    className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-[11px] font-bold"
+                    style={{ background: THEME.faint, border: `1px solid ${THEME.soft}`, color: "var(--color-text-primary)" }}>
+                    🖼️ Guna gambar lama ({gallery.length}) {showGallery ? "▲" : "▼"}
+                  </button>
+                  {showGallery && (
+                    <div className="mt-2 p-2 rounded-xl grid grid-cols-4 sm:grid-cols-6 gap-2" style={{ background: "var(--color-bg)", border: "1px solid var(--color-border)" }}>
+                      {gallery.map((p) => {
+                        const on = editImages.includes(p.url);
+                        return (
+                          <div key={p.id} className="relative aspect-square rounded-lg overflow-hidden border-2 cursor-pointer"
+                            style={{ borderColor: on ? THEME.primary : "transparent", background: "#000" }}
+                            onClick={() => toggleFromGallery(p.url)} title={on ? "Buang dari video ni" : "Guna dalam video ni"}>
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img src={p.url} alt="" className="w-full h-full object-cover" loading="lazy" />
+                            {on && <span className="absolute top-0.5 left-0.5 rounded-full px-1 text-[10px] font-extrabold text-white" style={{ background: THEME.primary }}>✓</span>}
+                            <button type="button" aria-label="Padam gambar"
+                              onClick={(e) => { e.stopPropagation(); deleteFromGallery(p.id, p.url); }}
+                              className="absolute top-0.5 right-0.5 bg-black/70 rounded-full p-1">
+                              <Trash2 className="w-3 h-3 text-white" />
+                            </button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              )}
               <p className="text-[11px] mt-1 text-[var(--color-text-muted)]">
                 Wajib — gambar produk anda sendiri (kotak, produk, cara guna). Gambar kotak / produk dalam video diambil dari sini sahaja, tiada gambar jenama lain. Gambar umum (cth. tampal di bahu) auto cari Google tanpa jenama.
               </p>
             </div>
-            <div className="flex flex-wrap gap-2">
-              <Toggle on={jumpcut} onChange={setJumpcut}>✂️ Buang senyap & &quot;erm&quot;</Toggle>
-              <Toggle on={broll} onChange={setBroll}>🖼️ Gambar B-roll</Toggle>
-              <Toggle on={facts} onChange={setFacts}>💡 Fakta Google</Toggle>
-            </div>
+            {/* Jump cut, B-roll and fact cards are always on (no toggles shown). */}
           </div>
         ) : (
           <div className="space-y-4">

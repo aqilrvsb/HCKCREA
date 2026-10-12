@@ -331,6 +331,23 @@ export default function AdminSettings() {
   // B-roll sources: brand's own sales site first; never these sites.
   const [motionExcludeSites, setMotionExcludeSites] = useState("shopee, facebook, tiktok, lazada, mudah.my, youtube");
   const [motionBrandFirst, setMotionBrandFirst] = useState(true);
+  // Motion "Buat Iklan" for everyone — app_settings.motion_features.ad
+  const [motionAdOn, setMotionAdOn] = useState(true);
+  const [motionAdMsg, setMotionAdMsg] = useState<string | null>(null);
+  async function saveMotionAd(on: boolean) {
+    setMotionAdMsg(null);
+    const res = await fetch("/api/admin/settings", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ key: "motion_features", value: { ad: on } }),
+    }).catch(() => null);
+    if (res?.ok) {
+      setMotionAdOn(on);
+      setMotionAdMsg(on ? "✓ Buat Iklan dibuka untuk semua." : "✓ Buat Iklan disorok untuk semua.");
+    } else {
+      setMotionAdMsg("✗ Gagal simpan.");
+    }
+  }
   // Moving media keys (lib/motion-media.ts): stock clips + animated stickers.
   // saved* = what's stored (kept unless a new key is typed).
   const [mediaKeys, setMediaKeys] = useState({ pexels: "", pixabay: "", giphy: "" });
@@ -511,6 +528,7 @@ export default function AdminSettings() {
         if (row.key === "model_editor_text") setEditorTextKnob(parseKnob(row.value, EDITOR_TEXT_MAX_FB));
         if (row.key === "model_motion") setMotionKnob(parseKnob(row.value, MOTION_MAX_FB));
         if (row.key === "model_motion_guard") setMotionGuardKnob(parseKnob(row.value, MOTION_MAX_FB));
+        if (row.key === "motion_features") setMotionAdOn(row.value?.ad !== false);
         if (row.key === "motion_search") {
           setMotionSearchRows(parseMotionSearchRows(row.value));
           if (Array.isArray(row.value?.exclude_sites)) setMotionExcludeSites(row.value.exclude_sites.join(", "));
@@ -1460,6 +1478,8 @@ export default function AdminSettings() {
     "motion_modal",
     // Motion Search provider keys — dedicated "Motion Search (Google)" card.
     "motion_search",
+    // Motion "Buat Iklan" on/off — dedicated "Motion — mod" card.
+    "motion_features",
     // Manual Touch 'n Go top-up — edited via the dedicated card above.
     "tng_account",
     "tng_qr_url",
@@ -2879,6 +2899,20 @@ export default function AdminSettings() {
             {qaMsg}
           </div>
         )}
+      </div>
+
+      {/* Motion — which modes clients see. "Buat Iklan" off → the chip is
+          hidden for everyone and /api/motion/create refuses it. */}
+      <div className="card p-6 mb-6 border-2" style={{ borderColor: "rgba(139,92,246,0.3)" }}>
+        <h2 className="font-display font-bold text-lg text-[var(--color-text-primary)] mb-1">Motion — mod</h2>
+        <p className="text-sm text-[var(--color-text-secondary)] mb-3">
+          Edit Video sentiasa dibuka. &quot;Buat Iklan&quot; boleh disorok untuk semua orang buat sementara.
+        </p>
+        <label className="flex items-center gap-3 cursor-pointer select-none">
+          <input type="checkbox" checked={motionAdOn} onChange={(e) => saveMotionAd(e.target.checked)} className="w-4 h-4" />
+          <span className="text-sm font-bold text-[var(--color-text-primary)]">Buka &quot;Buat Iklan&quot; untuk semua</span>
+        </label>
+        {motionAdMsg && <p className="text-xs mt-2 text-[var(--color-text-secondary)]">{motionAdMsg}</p>}
       </div>
 
       {/* Motion Search (Google) — B-roll images + fact-card snippets for

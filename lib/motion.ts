@@ -130,6 +130,13 @@ export type EditInput = {
 // ── config + Modal client ─────────────────────────────────────────────────────
 type MotionCfg = { api_url: string; secret: string };
 
+/** Is Motion's "Buat Iklan" mode switched on for everyone? Admin toggle:
+ *  app_settings.motion_features = { ad: boolean } (unset → on). */
+export async function motionAdEnabled(): Promise<boolean> {
+  const f = await getSetting<any>("motion_features").catch(() => null);
+  return f?.ad !== false;
+}
+
 export async function getMotionConfig(): Promise<MotionCfg | null> {
   const c = await getSetting<any>("motion_modal");
   const api_url = String(c?.api_url || "").replace(/\/+$/, "");
@@ -180,12 +187,16 @@ export async function motionCheck(callId: string): Promise<MotionCheck> {
 
 /** Signed one-hour URL the browser POSTs the client video to (Modal → B2).
  *  Vercel caps request bodies at 4.5MB, so the file never touches Next. */
-export async function signMotionUpload(userId: string, fileName: string): Promise<{ uploadUrl: string; key: string } | null> {
+export async function signMotionUpload(userId: string, fileName: string, kind: "video" | "image" = "video"): Promise<{ uploadUrl: string; key: string } | null> {
   const cfg = await getMotionConfig();
   if (!cfg) return null;
-  const extRaw = (fileName.split(".").pop() || "mp4").toLowerCase();
-  const ext = ["mp4", "mov", "webm", "m4v"].includes(extRaw) ? extRaw : "mp4";
-  const key = `motion-uploads/${userId.replace(/[^A-Za-z0-9_-]/g, "")}/${randomUUID().replace(/-/g, "")}.${ext}`;
+  const extRaw = (fileName.split(".").pop() || "").toLowerCase();
+  // videos → motion-uploads/, product photos → motion-images/ (Modal checks both)
+  const ext = kind === "image"
+    ? (["jpg", "jpeg", "png", "webp"].includes(extRaw) ? extRaw : "jpg")
+    : (["mp4", "mov", "webm", "m4v"].includes(extRaw) ? extRaw : "mp4");
+  const folder = kind === "image" ? "motion-images" : "motion-uploads";
+  const key = `${folder}/${userId.replace(/[^A-Za-z0-9_-]/g, "")}/${randomUUID().replace(/-/g, "")}.${ext}`;
   const exp = String(Math.floor(Date.now() / 1000) + 3600);
   const sig = createHmac("sha256", cfg.secret).update(`${key}|${exp}`).digest("hex");
   const qs = new URLSearchParams({ key, exp, sig }).toString();

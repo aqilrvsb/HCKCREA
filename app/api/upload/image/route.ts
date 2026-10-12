@@ -104,7 +104,8 @@ export async function POST(req: Request) {
   if (rhJson?.code !== 0 && rhJson?.code !== 200) {
     return NextResponse.json(
       {
-        error: `RunningHub error: ${rhJson?.message || "unknown"}`,
+        // RunningHub puts the reason in `msg` (e.g. "API Key不存在" = invalid key)
+        error: `RunningHub error: ${rhJson?.message || rhJson?.msg || "unknown"}`,
         detail: rhJson,
       },
       { status: 502 }
