@@ -242,16 +242,28 @@ def _pcm16k(src: Path):
 
 # Whisper drops "erm/aah" unless the prompt shows them — the jump cut needs them.
 FILLER_PROMPT = "Erm, okay jadi… aah, macam ni, kan? Emm, korang tahu tak, uhh, ni produk dia."
+# Without fillers a Malay video still gets a Malay context, so unclear audio is
+# decoded toward Malay words rather than sound-alikes.
+MALAY_PROMPT = "Okey korang, hari ni saya nak share produk ni. Senang je nak guna, jom tengok sampai habis."
 
 
-def _transcribe(src: Path, language, vad: bool, keep_fillers: bool = False) -> list:
+def _asr_prompt(language, keep_fillers: bool, hint) -> str | None:
+    parts = [FILLER_PROMPT] if keep_fillers else ([MALAY_PROMPT] if language == "ms" else [])
+    hint = re.sub(r"\s+", " ", str(hint or "")).strip()[:120]
+    if hint:
+        parts.append(f"Produk: {hint}.")  # brand / product spelling
+    return " ".join(parts) or None
+
+
+def _transcribe(src: Path, language, vad: bool, keep_fillers: bool = False, hint=None) -> list:
     segs, _info = _whisper().transcribe(_pcm16k(src), language=language or None, word_timestamps=True,
                                         beam_size=5, vad_filter=vad,
-                                        initial_prompt=FILLER_PROMPT if keep_fillers else None)
+                                        initial_prompt=_asr_prompt(language, keep_fillers, hint))
     words = []
     for s in segs:
         for w in (s.words or []):
-            t = w.word.strip()
+            # Whisper glues a hyphen to the front of some words ("-satu", "-cepat")
+            t = re.sub(r"^[-–—]+(?=\w)", "", w.word.strip())
             if t:
                 words.append({"w": t, "t": round(float(w.start), 3), "e": round(float(w.end), 3)})
     return words
@@ -1432,7 +1444,8 @@ def _flow_edit(p: dict, d: Path, srv: _Serve) -> dict:
     jump = bool(p.get("jumpcut", True))
 
     _progress("transcribe", 8)
-    raw_words = _transcribe(src, None if lang == "auto" else lang, vad=True, keep_fillers=jump) if info["audio"] else []
+    raw_words = _transcribe(src, None if lang == "auto" else lang, vad=True, keep_fillers=jump,
+                            hint=p.get("hint")) if info["audio"] else []
     raw_words = [w for w in raw_words if w["t"] < span]
 
     for i, w in enumerate(raw_words):
@@ -1499,7 +1512,7 @@ def _flow_edit(p: dict, d: Path, srv: _Serve) -> dict:
         faces = []
 
     _progress("plan", 30)
-    plan, plan_fallback = None, False
+    plan, plan_fallback, late_fixes = None, False, []
     try:
         r = requests.post(p["plan_url"], json={"history_id": p["history_id"], "token": p["plan_token"], "duration": dur,
                                                "words": [{"i": i, **w} for i, w in enumerate(words)],
@@ -1509,10 +1522,12 @@ def _flow_edit(p: dict, d: Path, srv: _Serve) -> dict:
             plan = j["plan"]
         else:
             print("plan rejected:", str(j)[:400])
+            late_fixes = j.get("fixes") or [] if isinstance(j, dict) else []
     except Exception as e:  # noqa: BLE001
         print("plan call failed:", e)
     if not plan:
-        plan, plan_fallback = _fallback_plan(), True
+        # captions only — still with the language-anchored spelling fixes
+        plan, plan_fallback = {**_fallback_plan(), "fixes": late_fixes}, True
 
     # AI-corrected spelling for the captions (timing untouched, 1:1 by index)
     fixed = 0

@@ -28,3 +28,11 @@ test("guardCensorWords mutes single words and two-word phrases", () => {
   assert.deepEqual(guardCensorWords(words), [3, 4, 6, 7, 9]);
   assert.deepEqual(guardCensorWords([{ i: 0, w: "manis" }, { i: 1, w: "gula" }]), []);
 });
+
+test("caption tidy: Whisper's glued hyphen goes, real hyphenated words stay", async () => {
+  const { tidyToken } = await import("@/lib/motion-captions");
+  assert.equal(tidyToken("-satu"), "satu");
+  assert.equal(tidyToken("-cepat."), "cepat.");
+  assert.equal(tidyToken("bahan-bahan"), "bahan-bahan");
+  assert.equal(tidyToken("-"), "-");
+});

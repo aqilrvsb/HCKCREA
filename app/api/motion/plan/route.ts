@@ -40,6 +40,9 @@ export async function POST(req: Request) {
     .filter((w: any) => w.w);
 
   const t0 = Date.now();
+  // Caption spelling fixes are returned even when the director fails, so the
+  // captions-only fallback still reads in the video's language.
+  let fixing: Promise<[number, string][]> = Promise.resolve([]);
   try {
     const input = row.metadata?.input as EditInput;
     // The seller's website (optional) is read first — it grounds the director,
@@ -56,9 +59,11 @@ export async function POST(req: Request) {
     // Every AI call inside honours PLAN_BUDGET_MS, so a slow provider ends in a
     // leaner plan — never in Vercel killing the request (Modal would then fall
     // back to captions only).
+    fixing = withDeadline(t0 + PLAN_BUDGET_MS, () =>
+      fixTranscript(words.map((w: any) => ({ i: w.i, w: w.w })), context, input?.language)).catch(() => [] as [number, string][]);
     const [plan, fixes] = await withDeadline(t0 + PLAN_BUDGET_MS, () => Promise.all([
       directEdit({ words, duration, input, hasFace: b?.has_face !== false, site }),
-      fixTranscript(words.map((w: any) => ({ i: w.i, w: w.w })), context).catch(() => [] as [number, string][]),
+      fixing,
     ]));
     const { data: cur } = await admin.from("history").select("metadata").eq("id", id).maybeSingle();
     await admin
@@ -89,7 +94,9 @@ export async function POST(req: Request) {
       .eq("id", id);
     return NextResponse.json({ ok: true, plan: { ...plan, fixes } });
   } catch (e: any) {
-    // Modal falls back to captions-only when the plan fails.
-    return NextResponse.json({ ok: false, error: e?.message || "plan failed" }, { status: 502 });
+    // Modal falls back to captions-only when the plan fails — still with the
+    // caption fixes (that call is bounded by the same deadline).
+    const fixes = await fixing.catch(() => [] as [number, string][]);
+    return NextResponse.json({ ok: false, error: e?.message || "plan failed", fixes }, { status: 502 });
   }
 }

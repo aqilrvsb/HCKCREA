@@ -131,6 +131,8 @@ export async function POST(req: Request) {
     resolution: input.resolution,
     jumpcut: input.jumpcut,
     language: input.language,
+    // Whisper prompt: brand / product spelling (e.g. "Gluvera") for the captions
+    hint: input.product?.slice(0, 120),
     music: input.music,
     sfx: input.sfx,
     max_sec: MOTION_EDIT_MAX_SEC,
