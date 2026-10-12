@@ -31,7 +31,7 @@ export async function GET(req: Request) {
   for (let offset = 0; ; offset += PAGE) {
     let q = admin
       .from("history")
-      .select("id, user_id, status, cost, duration, created_at, updated_at, output_url, error_message, metadata")
+      .select("id, user_id, status, cost, duration, created_at, updated_at, output_url, error_message, task_id, metadata")
       .eq("tab", "motion")
       .order("created_at", { ascending: false })
       .range(offset, offset + PAGE - 1);
@@ -67,6 +67,13 @@ export async function GET(req: Request) {
       updated_at: h.updated_at,
       status: h.status,
       stage: str(m.stage),
+      // Modal account the render ran on ("<call id>@<account>"; plain id = main)
+      account: (() => {
+        const t = str(h.task_id) ?? "";
+        if (!t || t.startsWith("motion:")) return null;
+        const at = t.lastIndexOf("@");
+        return at > 0 ? t.slice(at + 1) : "main";
+      })(),
       error: str(h.error_message),
       mode: ad ? "ad" : "edit",
       cost: num(h.cost),

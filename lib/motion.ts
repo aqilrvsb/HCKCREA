@@ -137,29 +137,82 @@ export async function motionAdEnabled(): Promise<boolean> {
   return f?.ad !== false;
 }
 
-export async function getMotionConfig(): Promise<MotionCfg | null> {
+// Several Modal workspaces can share the render load (each has its own
+// container limit). app_settings.motion_modal = { api_url, secret } is the main
+// one; motion_modal.accounts = [{ id, api_url, secret, enabled? }] adds more.
+// A job started on an extra account carries it in its task id —
+// "<modal call id>@<account id>" — so status checks / settling reach the right
+// one; a plain call id = the main account (every job before multi-account).
+type MotionAccount = MotionCfg & { id: string };
+const MAIN_ACCOUNT = "main";
+
+/** Accounts that take new jobs; `includeDisabled` also returns switched-off
+ *  ones, so jobs already running there can still be checked to the end. */
+export async function getMotionAccounts(opts: { includeDisabled?: boolean } = {}): Promise<MotionAccount[]> {
   const c = await getSetting<any>("motion_modal");
-  const api_url = String(c?.api_url || "").replace(/\/+$/, "");
-  const secret = String(c?.secret || "");
-  return api_url && secret ? { api_url, secret } : null;
+  const norm = (a: any, id: string): MotionAccount | null => {
+    const api_url = String(a?.api_url || "").replace(/\/+$/, "");
+    const secret = String(a?.secret || "");
+    return api_url && secret ? { id, api_url, secret } : null;
+  };
+  const main = norm(c, MAIN_ACCOUNT);
+  const extra = (Array.isArray(c?.accounts) ? c.accounts : [])
+    .filter((a: any) => (opts.includeDisabled || a?.enabled !== false) && /^[a-z0-9-]{1,20}$/.test(String(a?.id || "")) && a.id !== MAIN_ACCOUNT)
+    .map((a: any) => norm(a, String(a.id)))
+    .filter(Boolean) as MotionAccount[];
+  return [...(main ? [main] : []), ...extra];
+}
+
+export async function getMotionConfig(): Promise<MotionCfg | null> {
+  return (await getMotionAccounts())[0] ?? null;
+}
+
+/** "fc-…@acc2" → { callId: "fc-…", account: "acc2" }; a plain id → the main account. */
+function splitTaskId(taskId: string): { callId: string; account: string } {
+  const at = taskId.lastIndexOf("@");
+  return at > 0 ? { callId: taskId.slice(0, at), account: taskId.slice(at + 1) } : { callId: taskId, account: MAIN_ACCOUNT };
+}
+
+/** The account with the fewest Motion jobs still running (ties → listed order). */
+async function pickMotionAccount(accounts: MotionAccount[]): Promise<MotionAccount> {
+  if (accounts.length < 2) return accounts[0];
+  const { data } = await createAdminClient()
+    .from("history").select("task_id").eq("tab", "motion").eq("status", "pending").not("task_id", "is", null).limit(1000);
+  const load = new Map(accounts.map((a) => [a.id, 0]));
+  for (const r of data ?? []) {
+    const t = String(r.task_id || "");
+    if (t.startsWith(MOTION_PLANNING_TASK)) continue;
+    const id = splitTaskId(t).account;
+    if (load.has(id)) load.set(id, (load.get(id) ?? 0) + 1);
+  }
+  return [...accounts].sort((a, b) => (load.get(a.id) ?? 0) - (load.get(b.id) ?? 0))[0];
 }
 
 export async function motionStart(payload: Record<string, any>): Promise<{ ok: true; callId: string } | { ok: false; error: string }> {
-  const cfg = await getMotionConfig();
-  if (!cfg) return { ok: false, error: "Motion renderer not configured (motion_modal)" };
-  try {
-    const r = await fetch(`${cfg.api_url}/start`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ...payload, secret: cfg.secret }),
-      signal: AbortSignal.timeout(60_000),
-    });
-    const j = await r.json().catch(() => ({}));
-    if (!r.ok || !j?.ok || !j?.call_id) return { ok: false, error: j?.error || `Modal HTTP ${r.status}` };
-    return { ok: true, callId: String(j.call_id) };
-  } catch (e: any) {
-    return { ok: false, error: `Modal start failed: ${e?.message || "network"}` };
+  const accounts = await getMotionAccounts();
+  if (!accounts.length) return { ok: false, error: "Motion renderer not configured (motion_modal)" };
+  const first = await pickMotionAccount(accounts);
+  // the least-busy account first; if it can't start the job, the others in turn
+  let lastErr = "";
+  for (const acc of [first, ...accounts.filter((a) => a.id !== first.id)]) {
+    try {
+      const r = await fetch(`${acc.api_url}/start`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...payload, secret: acc.secret }),
+        signal: AbortSignal.timeout(60_000),
+      });
+      const j = await r.json().catch(() => ({}));
+      if (r.ok && j?.ok && j?.call_id) {
+        const callId = String(j.call_id);
+        return { ok: true, callId: acc.id === MAIN_ACCOUNT ? callId : `${callId}@${acc.id}` };
+      }
+      lastErr = j?.error || `Modal HTTP ${r.status}`;
+    } catch (e: any) {
+      lastErr = `Modal start failed: ${e?.message || "network"}`;
+    }
   }
+  return { ok: false, error: lastErr };
 }
 
 export type MotionCheck =
@@ -168,9 +221,10 @@ export type MotionCheck =
   | { status: "failed"; error: string }
   | { status: "unknown"; error: string };
 
-export async function motionCheck(callId: string): Promise<MotionCheck> {
-  const cfg = await getMotionConfig();
-  if (!cfg) return { status: "unknown", error: "Motion renderer not configured" };
+export async function motionCheck(taskId: string): Promise<MotionCheck> {
+  const { callId, account } = splitTaskId(taskId);
+  const cfg = (await getMotionAccounts({ includeDisabled: true })).find((a) => a.id === account);
+  if (!cfg) return { status: "unknown", error: `Motion renderer account "${account}" not configured` };
   try {
     const u = `${cfg.api_url}/check?call_id=${encodeURIComponent(callId)}&secret=${encodeURIComponent(cfg.secret)}`;
     const r = await fetch(u, { signal: AbortSignal.timeout(30_000), cache: "no-store" });

@@ -19,6 +19,7 @@ type MotionRow = {
   updated_at: string | null;
   status: "pending" | "done" | "failed" | string;
   stage: string | null;
+  account: string | null;
   error: string | null;
   mode: "edit" | "ad";
   cost: number | null;
@@ -157,7 +158,7 @@ export default function AdminMotionPage() {
         <table className="w-full text-xs">
           <thead>
             <tr className="text-left text-[10px] uppercase tracking-widest text-[var(--color-text-secondary)]" style={{ background: "var(--color-bg-card)" }}>
-              {["Masa", "Klien", "Mod", "Status", "Video", "Caj", "Gaya", "AI plan", "Guideline", "Render", "Output"].map((h) => (
+              {["Masa", "Klien", "Mod", "Status", "Video", "Caj", "Gaya", "AI plan", "Guideline", "Render", "Akaun", "Output"].map((h) => (
                 <th key={h} className="px-3 py-2 font-bold whitespace-nowrap">{h}</th>
               ))}
             </tr>
@@ -206,6 +207,7 @@ export default function AdminMotionPage() {
                         : g ? <span className="text-green-500">bersih</span> : <span className="text-[var(--color-text-muted)]">—</span>}
                   </td>
                   <td className="px-3 py-2 whitespace-nowrap">{r.renderSec === null ? "—" : `${Math.round(r.renderSec / 6) / 10} min`}</td>
+                  <td className="px-3 py-2 whitespace-nowrap text-[var(--color-text-secondary)]">{r.account ?? "—"}</td>
                   <td className="px-3 py-2">
                     {r.output ? (
                       <a href={r.output} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 font-bold" style={{ color: "#a78bfa" }}>
@@ -221,7 +223,7 @@ export default function AdminMotionPage() {
               );
             })}
             {!shown.length && (
-              <tr><td colSpan={11} className="px-3 py-8 text-center text-[var(--color-text-muted)]">{loading ? "Memuatkan…" : "Tiada job Motion dalam julat ini."}</td></tr>
+              <tr><td colSpan={12} className="px-3 py-8 text-center text-[var(--color-text-muted)]">{loading ? "Memuatkan…" : "Tiada job Motion dalam julat ini."}</td></tr>
             )}
           </tbody>
         </table>
