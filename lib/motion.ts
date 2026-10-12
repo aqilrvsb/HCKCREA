@@ -752,6 +752,23 @@ export async function failMotionRow(hist: Pick<HistoryRow, "id" | "user_id" | "m
   const admin = createAdminClient();
   const { data: cur } = await admin.from("history").select("metadata").eq("id", hist.id).maybeSingle();
   const meta = cur?.metadata || hist.metadata || {};
+  // A failed free re-render puts the card back to the video it had before.
+  const prev = meta.resubmit_prev;
+  if (prev?.output_url) {
+    const { resubmit_prev: _drop, ...rest } = meta;
+    void _drop;
+    const { data: restored } = await admin
+      .from("history")
+      .update({
+        status: "done", output_url: prev.output_url, thumbnail_url: prev.output_url, cost: Number(prev.cost) || 0,
+        error_message: null,
+        metadata: { ...rest, ...(prev.metadata || {}), stage: "done", resubmit_error: String(error).slice(0, 300) },
+      })
+      .eq("id", hist.id)
+      .eq("status", "pending")
+      .select("id");
+    return !!restored?.length;
+  }
   const { data: flipped } = await admin
     .from("history")
     .update({ status: "failed", error_message: String(error).slice(0, 500), cost: 0, metadata: { ...meta, stage: "failed" } })
@@ -767,7 +784,8 @@ export async function failMotionRow(hist: Pick<HistoryRow, "id" | "user_id" | "m
 export async function settleMotionRow(hist: HistoryRow, pre?: MotionCheck): Promise<SettleResult> {
   if (hist.status !== "pending") return { state: "skipped", reason: "already settled" };
   const meta = hist.metadata || {};
-  const createdMs = new Date((hist as any).created_at || meta.created_at || Date.now()).getTime();
+  // a resubmitted (re-rendered in place) job times out from its new start
+  const createdMs = new Date(meta.resubmit_started_at || (hist as any).created_at || meta.created_at || Date.now()).getTime();
 
   // "motion:planning" = Buat Iklan row still in script/voice (stamped at insert
   // so the poll-pending cron, which only scans rows with a task_id, still
@@ -798,13 +816,15 @@ export async function settleMotionRow(hist: HistoryRow, pre?: MotionCheck): Prom
   const dur = Number(res.duration_sec) || 0;
   const rate = Number(meta.rate) || 0;
   const finalCost = costFor(dur, rate);
+  // a free re-render (resubmit) keeps showing what the client paid the first time
+  const paidBefore = Number(meta.resubmit_prev?.cost) || 0;
   const { data: flipped } = await admin
     .from("history")
     .update({
       status: "done",
       output_url: res.url,
       thumbnail_url: res.url,
-      cost: finalCost,
+      cost: round2(finalCost + paidBefore),
       duration: Math.round(dur),
       error_message: null,
       metadata: {

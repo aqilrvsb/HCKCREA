@@ -84,14 +84,24 @@ export function MotionGuardNote({ guard }: { guard: unknown }) {
   const g = motionGuardSummary(guard);
   if (!g) return null;
   const many = full ? Infinity : 0;
+  const clip = (t: string) => `"${!full && t.length > 160 ? `${t.slice(0, 160)}…` : t}"`;
   const rows: [string, string][] = [];
-  if (g.tapedTexts.length) rows.push(["Tulisan ditampal", quoted(g.tapedTexts, full ? many : 8)]);
-  if (g.tapedImagesUnlisted) rows.push(["Gambar B-roll ditampal", `${g.tapedImagesUnlisted} gambar`]);
-  if (g.cutText) rows.push(["Ayat claim dipotong", `"${!full && g.cutText.length > 160 ? `${g.cutText.slice(0, 160)}…` : g.cutText}"`]);
-  else if (g.cut) rows.push(["Ayat claim dipotong", `${g.cut} perkataan`]);
-  if (g.mutedWords.length) rows.push(["Di-mute & ditutup dalam caption", quoted(g.mutedWords, full ? many : 10)]);
-  else if (g.muted) rows.push(["Di-mute & ditutup dalam caption", `${g.muted} perkataan`]);
-  const truncated = g.tapedTexts.length > 8 || g.cutText.length > 160 || g.mutedWords.length > 10;
+  if (g.reportOnly) {
+    // current mode: the video is untouched — just what may break the guideline
+    if (g.flaggedSpeech) rows.push(["Ayat mungkin langgar guideline", clip(g.flaggedSpeech)]);
+    if (g.flaggedWords.length) rows.push(["Perkataan berisiko", quoted(g.flaggedWords, full ? many : 10)]);
+    if (g.flaggedTexts.length) rows.push(["Tulisan berisiko pada video", quoted(g.flaggedTexts, full ? many : 8)]);
+    if (g.brollReplaced) rows.push(["Gambar B-roll berisiko diganti", `${g.brollReplaced} gambar`]);
+  } else {
+    if (g.tapedTexts.length) rows.push(["Tulisan ditampal", quoted(g.tapedTexts, full ? many : 8)]);
+    if (g.tapedImagesUnlisted) rows.push(["Gambar B-roll ditampal", `${g.tapedImagesUnlisted} gambar`]);
+    if (g.cutText) rows.push(["Ayat claim dipotong", clip(g.cutText)]);
+    else if (g.cut) rows.push(["Ayat claim dipotong", `${g.cut} perkataan`]);
+    if (g.mutedWords.length) rows.push(["Di-mute & ditutup dalam caption", quoted(g.mutedWords, full ? many : 10)]);
+    else if (g.muted) rows.push(["Di-mute & ditutup dalam caption", `${g.muted} perkataan`]);
+  }
+  const truncated = g.tapedTexts.length > 8 || g.cutText.length > 160 || g.mutedWords.length > 10
+    || g.flaggedSpeech.length > 160 || g.flaggedWords.length > 10 || g.flaggedTexts.length > 8;
   return (
     <div
       className={`text-[10px] mb-2 leading-snug ${truncated ? "cursor-pointer" : ""}`}
@@ -100,7 +110,7 @@ export function MotionGuardNote({ guard }: { guard: unknown }) {
     >
       <span className="inline-flex items-center gap-1 font-bold text-green-500">
         <ShieldCheck className="w-3 h-3 flex-shrink-0" />
-        {rows.length ? "Guideline TikTok" : "Guideline TikTok: tiada claim berisiko dijumpai"}
+        {rows.length ? (g.reportOnly ? "Guideline TikTok (video tidak diubah)" : "Guideline TikTok") : "Guideline TikTok: tiada claim berisiko dijumpai"}
       </span>
       <div className={full ? "max-h-56 overflow-y-auto pr-1" : ""}>
         {rows.map(([k, v]) => (

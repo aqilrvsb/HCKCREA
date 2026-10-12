@@ -43,6 +43,7 @@ import ExtendDialog from "./extend-dialog";
 import AttachmentPicker from "./attachment-picker";
 import { CategoryPickModal } from "./attachments";
 import { MotionGuardNote, MotionProgress } from "./motion-progress";
+import { motionGuardTouched } from "@/lib/motion-guard-summary";
 import LazyVideo from "@/app/components/lazy-video";
 
 export type HistoryItem = {
@@ -2250,6 +2251,39 @@ function HistoryCardInner({
     toastTimer.current = setTimeout(() => setSubmitToast(null), ms);
   };
   const isStoryboard = (item.metadata as any)?.feature === "storyboard";
+  // Motion Edit Video spoiled by the old guideline mode (taped / muted / cut):
+  // one free in-place re-render. The product name is asked first when missing.
+  const [resubOpen, setResubOpen] = useState(false);
+  const [resubProduct, setResubProduct] = useState("");
+  const [resubBusy, setResubBusy] = useState(false);
+  const motionMeta = item.metadata as { feature?: string; resubmits?: unknown; guard?: unknown; input?: { product?: string } } | null | undefined;
+  const canMotionResubmit = item.tab === "motion" && item.status === "done"
+    && motionMeta?.feature === "motion-edit"
+    && !(Number(motionMeta?.resubmits) >= 1)
+    && motionGuardTouched(motionMeta?.guard);
+
+  async function handleMotionResubmit() {
+    const product = resubProduct.replace(/\s+/g, " ").trim();
+    if (!product || resubBusy) return;
+    setResubBusy(true);
+    try {
+      const r = await fetch("/api/motion/resubmit", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: item.id, product }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok || !d?.ok) {
+        alert(d?.error || `Gagal hantar semula (HTTP ${r.status})`);
+        return;
+      }
+      setResubOpen(false);
+      showToast("🔁 Video dihantar semula — kad ini akan diganti dengan video baru.");
+      window.dispatchEvent(new CustomEvent("history:refresh"));
+    } finally {
+      setResubBusy(false);
+    }
+  }
 
   // Generate a video FROM this storyboard (image1=storyboard blueprint,
   // image2=product ref). Lands in the Original Video history grid.
@@ -3413,6 +3447,59 @@ function HistoryCardInner({
             >
               Batal
             </button>
+          </div>
+        </div>
+        </Portal>
+      )}
+      {/* Motion Resubmit — product name (required) + free in-place re-render. */}
+      {resubOpen && canMotionResubmit && (
+        <Portal>
+        <div
+          className="fixed inset-0 z-[200] flex items-center justify-center p-4"
+          style={{ background: "rgba(0,0,0,0.72)" }}
+          onClick={() => !resubBusy && setResubOpen(false)}
+        >
+          <div
+            className="w-full max-w-sm rounded-2xl p-5"
+            style={{ background: "var(--color-bg-card)", border: "1px solid var(--color-border)" }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="text-[13px] font-extrabold text-[var(--color-text-primary)] mb-1">🔁 Render semula (percuma)</div>
+            <div className="text-[11px] text-[var(--color-text-muted)] mb-3 leading-snug">
+              Video ini akan diedit semula tanpa tampal / mute / potong. Kad ini akan diganti dengan video baru — sekali sahaja.
+            </div>
+            <label className="block text-[11px] font-bold text-[var(--color-text-primary)] mb-1">
+              Nama produk <span style={{ color: "#ef4444" }}>*</span>
+            </label>
+            <input
+              value={resubProduct}
+              onChange={(e) => setResubProduct(e.target.value.slice(0, 80))}
+              onKeyDown={(e) => { if (e.key === "Enter") void handleMotionResubmit(); }}
+              placeholder="Contoh: Minyak Herba Mak Dara"
+              autoFocus
+              className="w-full px-3 py-2 rounded-xl text-[12px] mb-1 outline-none"
+              style={{ border: "1px solid var(--color-border)", background: "var(--color-bg)", color: "var(--color-text-primary)" }}
+            />
+            <div className="text-[10px] text-[var(--color-text-muted)] mb-3">Ejaan betul nama produk — AI guna untuk caption & skrip.</div>
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                onClick={() => setResubOpen(false)}
+                disabled={resubBusy}
+                className="py-2 rounded-xl text-[12px] font-bold disabled:opacity-40"
+                style={{ border: "1px solid var(--color-border)", color: "var(--color-text-secondary)" }}
+              >
+                Batal
+              </button>
+              <button
+                onClick={() => void handleMotionResubmit()}
+                disabled={resubBusy || !resubProduct.trim()}
+                className="py-2 rounded-xl text-[12px] font-extrabold text-white flex items-center justify-center gap-1 disabled:opacity-40"
+                style={{ background: ACTION.retry }}
+              >
+                {resubBusy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RotateCw className="w-3.5 h-3.5" />}
+                Hantar semula
+              </button>
+            </div>
           </div>
         </div>
         </Portal>
@@ -4786,6 +4873,19 @@ function HistoryCardInner({
               {item.tab !== "video" && item.tab !== "auto" && item.tab !== "original-video" && !isMotionRow && (
                 <ActionBtn title="Improve Video" onClick={() => setShowEditModal(true)} bg={ACTION.edit}>
                   <Pencil className="w-3.5 h-3.5" strokeWidth={2.4} />
+                </ActionBtn>
+              )}
+              {canMotionResubmit && (
+                <ActionBtn
+                  title="Render semula (percuma) — tanpa tampal / mute"
+                  onClick={() => {
+                    setResubProduct(String(motionMeta?.input?.product || "").slice(0, 80));
+                    setResubOpen(true);
+                  }}
+                  bg={ACTION.retry}
+                  disabled={resubBusy}
+                >
+                  <RotateCw className="w-3.5 h-3.5" strokeWidth={2.4} />
                 </ActionBtn>
               )}
               <SaveTrafficLight

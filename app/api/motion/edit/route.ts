@@ -46,13 +46,17 @@ export async function POST(req: Request) {
   if (productImages.length === 0) {
     return NextResponse.json({ error: "Upload sekurang-kurangnya 1 gambar produk." }, { status: 400 });
   }
+  // Required: the product name as it should be spelt — the director, the
+  // caption fixer and the transcriber all use it.
+  const product = str(b?.product, 80);
+  if (!product) return NextResponse.json({ error: "Sila isi nama produk." }, { status: 400 });
 
   const input: EditInput = {
     videoUrl,
     durationSec,
     language: b?.language === "en" ? "en" : b?.language === "auto" ? "auto" : "ms",
     instructions: str(b?.prompt ?? b?.instructions, 900) || undefined,
-    product: str(b?.product, 300) || undefined,
+    product,
     productImages,
     captions: b?.captions !== false,
     captionStyle: style,

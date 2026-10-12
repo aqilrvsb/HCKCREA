@@ -471,15 +471,9 @@ def _prepare_images(images: list, d: Path, srv: "_Serve", p: dict = None) -> tup
             continue
         ext = ".png" if url.lower().split("?")[0].endswith(".png") else ".jpg"
         raws.append((k, im, _download(url, d / f"img{k}{ext}", 40 * 1024 * 1024)))
+    # The client's own product photos are used as they are — the guideline
+    # check never tapes, crops or drops the client's content.
     info = {}
-    if p and p.get("guard") and raws:
-        # The client's own product photo is never dropped — only taped.
-        try:
-            st = _guard_images([r for _k, _im, r in raws], p, "product", max_lines=99, max_area=1.0)
-            info = {"taped": sum(1 for v in st.values() if v == "taped")}
-        except Exception as e:  # noqa: BLE001
-            print("guard product images failed:", str(e)[:200])
-            info = {"error": str(e)[:160]}
     out = []
     for k, im, raw in raws:
         asset = {"url": srv.url(raw)}
@@ -683,9 +677,10 @@ def _fetch_broll(items: list, d: Path, srv: _Serve, p: dict = None) -> tuple:
     (too many claims) skipped."""
     from concurrent.futures import ThreadPoolExecutor
     guard = bool(p and p.get("guard"))
-    want = 2 if guard else 1
+    want = 3 if guard else 1  # spare candidates so a risky web image can be replaced
 
     clips = {}  # poster path → clip path (video cutaways)
+    own = set()  # local paths of the client's own product photos (never checked / dropped)
 
     def moment(kb):
         k, b = kb
@@ -702,9 +697,11 @@ def _fetch_broll(items: list, d: Path, srv: _Serve, p: dict = None) -> tuple:
                     x = _fetch_image(url, d / f"broll_{k}_{ci}.jpg")
                     if x:
                         got.append(x)
+                        if "/motion-images/" in url:
+                            own.add(str(x))
             except Exception as e:  # noqa: BLE001
                 print("broll candidate failed", k, ci, str(e)[:120])
-            if len(got) >= (1 if is_video else want):
+            if len(got) >= (1 if is_video or (got and str(got[0]) in own) else want):
                 break
         return k, b, got
 
@@ -712,19 +709,21 @@ def _fetch_broll(items: list, d: Path, srv: _Serve, p: dict = None) -> tuple:
         picks = list(ex.map(moment, list(enumerate(items[:16]))))
     info = {}
     if guard:
-        allp = [x for _k, _b, got in picks for x in got]
-        st, taped_lines = {}, {}
-        if allp:
+        # Guideline mode never tapes anything: a web image with a risky printed
+        # line is replaced by the moment's next candidate (or the moment goes
+        # without B-roll). The client's own photos are used as they are.
+        web = [x for _k, _b, got in picks for x in got if str(x) not in own]
+        st, risky_lines = {}, {}
+        if web:
             try:
-                st = _guard_images(allp, p, "broll", taped_out=taped_lines)
+                st = _guard_images(web, p, "broll", taped_out=risky_lines, tape=False)
             except Exception as e:  # noqa: BLE001
-                print("guard broll failed — dropping unchecked images:", str(e)[:200])
-                st = {str(x): "drop" for x in allp}
+                print("guard broll failed — dropping unchecked web images:", str(e)[:200])
+                st = {str(x): "drop" for x in web}
         picks = [(k, b, [x for x in got if st.get(str(x)) != "drop"]) for k, b, got in picks]
-        used = [str(got[0]) for _k, _b, got in picks if got]
-        shown_texts = list(dict.fromkeys(t for x in used for t in taped_lines.get(x, [])))
-        info = {"taped": sum(1 for x in used if st.get(x) == "taped"), "dropped": sum(1 for v in st.values() if v == "drop"),
-                "texts": shown_texts[:24]}
+        replaced = sum(1 for v in st.values() if v == "drop")
+        info = {"replaced": replaced, "dropped": replaced,
+                "replaced_texts": list(dict.fromkeys(t for lines in risky_lines.values() for t in lines))[:24]}
     out = []
     for k, b, got in picks:
         if not got:
@@ -1191,10 +1190,11 @@ def _bake_tape(path: Path, quads: list) -> None:
 
 
 def _guard_images(paths: list, p: dict, kind: str, max_lines: int = 12, max_area: float = 0.25,
-                  taped_out: dict | None = None) -> dict:
-    """OCR + classify + tape images in place → {path: clean | taped | drop}.
-    Images with too much risky text (a claims poster) are dropped instead.
-    `taped_out` (optional) gets {path: [the lines taped]} for the job summary."""
+                  taped_out: dict | None = None, tape: bool = True) -> dict:
+    """OCR + classify images → {path: clean | taped | drop}. With `tape` the
+    risky lines are taped in place (a claims poster is dropped); without it any
+    image with a risky line is dropped (the caller picks another one).
+    `taped_out` (optional) gets {path: [the risky lines]} for the job summary."""
     from PIL import Image
     res = guard_ocr_images.remote([(str(x), Path(x).read_bytes()) for x in paths])
     keys, texts = {}, []
@@ -1211,6 +1211,11 @@ def _guard_images(paths: list, p: dict, kind: str, max_lines: int = 12, max_area
         lines = [ln for ln in res.get(str(x), []) if ln["s"] >= 0.5 and _tkey(ln["x"]) in risky]
         if not lines:
             status[str(x)] = "clean"
+            continue
+        if not tape:
+            status[str(x)] = "drop"
+            if taped_out is not None:
+                taped_out[str(x)] = [ln["x"] for ln in lines]
             continue
         with Image.open(x) as im:
             area_img = float(im.width * im.height) or 1.0
@@ -1469,19 +1474,17 @@ def _flow_edit(p: dict, d: Path, srv: _Serve) -> dict:
 
     for i, w in enumerate(raw_words):
         w["ri"] = i
+    # "Check Guideline TikTok" only REPORTS: the client's footage and voice are
+    # never cut, taped or muted for it. The speech review below just lists the
+    # sentences / words that may break the guideline (shown on the History card).
     guard = bool(p.get("guard"))
     gspeech = {"cut": set(), "censor": set(), "risk": None}
     if guard and raw_words:
         _progress("guard", 12)
         gspeech = _guard_speech(raw_words, p)
-        if len(gspeech["cut"]) > 0.4 * len(raw_words):
-            # "mostly claims" = the model over-flagged; cutting would gut the
-            # video and muting every word of those sentences breaks the voice —
-            # mute only the hard rule hits inside them
-            gspeech["censor"] |= gspeech["cut"] & gspeech.get("rules", set())
-            gspeech["cut"], gspeech["cut_skipped"] = set(), True
-        _cap_censor(gspeech, len(raw_words))
-    claims = gspeech["cut"]
+    flagged_speech = " ".join(w["w"] for w in raw_words if w["ri"] in gspeech["cut"])[:600]
+    flagged_words = list(dict.fromkeys(raw_words[i]["w"] for i in sorted(gspeech["censor"]) if i < len(raw_words)))[:30]
+    claims = set()  # nothing is cut for the guideline
 
     words, segs, cut = raw_words, None, {}
     if (jump or claims) and raw_words:
@@ -1491,11 +1494,6 @@ def _flow_edit(p: dict, d: Path, srv: _Serve) -> dict:
             segs = sg
             words, _ = _remap_words(kept, sg)
             cut = {"removed_sec": round(span - kept_len, 2), "segments": len(sg)}
-        elif claims:
-            # couldn't cut → mute the hard rule hits inside the claims (not every word)
-            gspeech["censor"] |= claims & gspeech.get("rules", set())
-            _cap_censor(gspeech, len(raw_words))
-            claims = set()
     if not jump:
         words = [w for w in words if not _is_filler(w["w"])] or words
 
@@ -1505,8 +1503,6 @@ def _flow_edit(p: dict, d: Path, srv: _Serve) -> dict:
     except Exception as e:  # noqa: BLE001
         print("cut/normalise failed, retrying without cuts:", str(e)[:300])
         segs, words, cut = None, raw_words, {"error": "jumpcut skipped"}
-        gspeech["censor"] |= claims  # claims weren't cut → mute them
-        claims = set()
         vid = _normalise(src, d / "video.mp4", info, max_sec, None)
     dur = _probe(vid)["duration"] or span
 
@@ -1591,24 +1587,12 @@ def _flow_edit(p: dict, d: Path, srv: _Serve) -> dict:
         _progress("guard", 44)
         if gthread:
             gthread.join(timeout=300)
-        # mute risky spoken words: speech pass (raw indices → post-cut) ∪ /plan rules
-        pos = {w.get("ri"): k for k, w in enumerate(words) if "ri" in w}
-        censor = sorted({pos[ri] for ri in gspeech["censor"] if ri in pos}
-                        | {int(i) for i in (plan.get("censor") or []) if str(i).isdigit() and int(i) < len(words)})
-        if censor:
-            try:
-                props["video"] = srv.url(_mute_words(vid, words, censor, d / "video_guard.mp4"))
-                props["censor"] = censor
-            except Exception as e:  # noqa: BLE001
-                print("guard mute failed:", e)
-        props["tapes"] = gres.get("tracks") or []
-        guard_dbg = {"tapes": len(props["tapes"]), "muted_words": len(props.get("censor") or []),
-                     "muted": [words[i]["w"] for i in (props.get("censor") or [])][:30],
-                     "cut_words": len(claims), "cut": " ".join(w["w"] for w in raw_words if w["ri"] in claims)[:400],
+        # Report only — no mute, no tape: what in the client's own video may
+        # break the guideline (sentences, words, printed text on screen).
+        guard_dbg = {"mode": "report", "flagged_speech": flagged_speech, "flagged_words": flagged_words,
+                     "flagged_texts": gres.get("risky_texts") or [],
                      "risk": gspeech.get("risk"), "speech_via": gspeech.get("via"),
-                     **({"cut_skipped": True} if gspeech.get("cut_skipped") else {}),
-                     **({"censor_capped": True} if gspeech.get("censor_capped") else {}),
-                     "risky_texts": gres.get("risky_texts") or [], "texts": gres.get("texts"), "via": gres.get("via"),
+                     "texts": gres.get("texts"), "via": gres.get("via"),
                      "sec": gres.get("sec"), "broll": broll_guard, **({"error": gres["error"]} if gres.get("error") else {})}
     if p.get("music") and words:
         _progress("music", 44)
@@ -1643,22 +1627,7 @@ def _flow_edit(p: dict, d: Path, srv: _Serve) -> dict:
     _progress("render", 50)
     rinfo = _render_parallel("MotionEdit", props, d, out, _scale_for(p), 50, 92)
 
-    # Second QA on the FINISHED video (guideline mode): OCR the output; any
-    # claim text that still shows (a box the tracker lost, a sticker) gets a
-    # screen-space tape patch and the video is rendered once more.
-    final_qa = None
-    if guard:
-        _progress("qa", 92)
-        try:
-            final_qa = _final_check(d, out, dur, p, props)
-            if final_qa.get("patched"):
-                _progress("render", 93)
-                rinfo = _render_parallel("MotionEdit", props, d, out, _scale_for(p), 93, 95)
-        except Exception as e:  # noqa: BLE001
-            final_qa = {"error": str(e)[:200]}
-            print("final check failed:", e)
-    if guard_dbg is not None:
-        guard_dbg["final_qa"] = final_qa
+    # (No post-render tape patching: the guideline check only reports.)
     return {"out": out, "duration": dur, "poster_at": min(1.5, dur / 3),
             "debug": {"words": len(words), "overlays": len(props["overlays"]), "broll": len(broll), "facts": len(props["facts"]),
                       "faces": len(faces), "jumpcut": cut, "plan_fallback": plan_fallback, "qa": qa, "render": rinfo,
@@ -1725,11 +1694,14 @@ def run_job(payload: dict) -> dict:
     try:
         res = _flow_ad(payload, d, srv) if flow == "ad" else _flow_edit(payload, d, srv)
         _progress("upload", 96)
-        url = _upload_b2(res["out"], f"users/{uid}/motion/{hid}.mp4", "video/mp4")
+        # a re-render of the same History card gets its own file name — the
+        # first one is cached immutable for 30 days
+        suffix = re.sub(r"[^A-Za-z0-9_-]", "", str(payload.get("out_suffix") or ""))[:12]
+        url = _upload_b2(res["out"], f"users/{uid}/motion/{hid}{suffix}.mp4", "video/mp4")
         poster_url = None
         try:
             ptmp = Path(tempfile.gettempdir()) / f"{hid}_poster.jpg"
-            poster_url = _upload_b2(_poster(res["out"], res["poster_at"], ptmp), f"users/{uid}/motion/{hid}.jpg", "image/jpeg")
+            poster_url = _upload_b2(_poster(res["out"], res["poster_at"], ptmp), f"users/{uid}/motion/{hid}{suffix}.jpg", "image/jpeg")
         except Exception as e:  # noqa: BLE001
             print("poster failed", e)
         _progress("done", 100)

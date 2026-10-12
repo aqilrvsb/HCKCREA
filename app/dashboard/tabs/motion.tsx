@@ -110,13 +110,12 @@ function GuardBox({ on, onChange }: { on: boolean; onChange: (v: boolean) => voi
           <ShieldCheck className="w-3.5 h-3.5 text-green-500" /> Check Guideline TikTok
         </span>
         <span className="block text-[10px] text-[var(--color-text-secondary)] mt-0.5 leading-snug">
-          AI buang claim yang langgar polisi TikTok Shop Malaysia 2026 &amp; Akta Iklan Ubat: istilah penyakit / perubatan pada kotak ditampal
-          (macam salotape), ayat claim dipotong, perkataan berisiko di-mute &amp; caption ditutup, sticker / gambar B-roll disemak.
+          AI semak video ikut polisi TikTok Shop Malaysia 2026 &amp; Akta Iklan Ubat, dan senaraikan ayat / perkataan / tulisan yang mungkin
+          langgar guideline pada kad History. Video &amp; suara anda tidak diubah — tiada tampal, potong atau mute.
         </span>
         {on && (
           <span className="block text-[10px] mt-1 leading-snug" style={{ color: "#f59e0b" }}>
-            Ini membuang claim — bukan menyorok produk. Alat perubatan / patch, produk untuk penyakit (cth. diabetes) &amp; produk kurus memang
-            &quot;unsupported / prohibited&quot; di TikTok Shop MY walaupun videonya bersih — AI akan beri amaran jika produk anda berisiko.
+            Gambar B-roll dari Google yang ada tulisan berisiko ditukar dengan gambar lain. Gambar produk anda tidak disentuh.
           </span>
         )}
       </span>
@@ -207,6 +206,8 @@ export default function MotionTab({ projectId }: { projectId?: string }) {
   const facts = true;
   const [editPrompt, setEditPrompt] = useState(MOTION_EDIT_PRESETS[0]?.prompt ?? "");
   const [editImages, setEditImages] = useState<string[]>([]);
+  // product name as it should be spelt — required; the AI uses it for captions
+  const [editProduct, setEditProduct] = useState("");
   const [readingVideos, setReadingVideos] = useState(false);
   const [editImgError, setEditImgError] = useState<string | null>(null);
   // the client's product photo gallery (/api/motion/photos) — reuse or delete
@@ -386,6 +387,8 @@ export default function MotionTab({ projectId }: { projectId?: string }) {
     setError(null);
     setNotice(null);
     if (videos.length === 0) return setError("Pilih sekurang-kurangnya satu video.");
+    const productName = editProduct.replace(/\s+/g, " ").trim();
+    if (!productName) return setError("Sila isi nama produk (ejaan yang betul).");
     if (editImages.length === 0) return setError("Upload sekurang-kurangnya 1 gambar produk.");
     setSubmitting(true);
     const failed: string[] = [];
@@ -403,7 +406,7 @@ export default function MotionTab({ projectId }: { projectId?: string }) {
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
               video_url: url, duration_sec: v.dur, language: editLang, prompt: editPrompt,
-              product_images: editImages,
+              product: productName, product_images: editImages,
               captions, caption_style: captionStyle, caption_pos: captionPos, music: editMusic, sfx,
               accent: accent || undefined, project_id: projectId, style, resolution, jumpcut, broll, facts, guard,
             }),
@@ -490,6 +493,11 @@ export default function MotionTab({ projectId }: { projectId?: string }) {
                 <Chip active={editLang === "en"} onClick={() => setEditLang("en")}>English</Chip>
                 <Chip active={editLang === "auto"} onClick={() => setEditLang("auto")}>Auto</Chip>
               </div>
+            </div>
+            <div>
+              <label className={label}>Nama produk *</label>
+              <input className={inputCls} style={inputStyle} value={editProduct} maxLength={80} onChange={(e) => setEditProduct(e.target.value)} placeholder="cth. Kopi Pening" />
+              <p className="text-[10px] text-[var(--color-text-muted)] mt-1">Tulis ejaan yang betul — AI guna untuk caption &amp; skrip.</p>
             </div>
             <div>
               <label className={label}>Gambar produk * (1–{MAX_EDIT_IMAGES})</label>
