@@ -36,6 +36,22 @@ the claim; muting one word leaves an implied claim — whole claim statements ar
 Fail-safe: LLM down → rules still apply; OCR failure on B-roll → unchecked images dropped; >40 % of
 speech is claims → mute instead of cut.
 
+## Follow-ups shipped the same day
+- **Guard model slot** `model_motion_guard` (→ model_motion → model_auto, admin card). Benchmark on the real
+  transcript + an inserted claim passage: every GRSAI model cut 18/18 claim words with 0 false cuts;
+  gpt-5.6-terra fastest (8 s) → main; gemini-3.8-flash, gpt-5.6-sol fallbacks; 30–45 s per-attempt timeouts.
+- **Tape tracking v2**: 5 fps OCR, no position smoothing (it lagged a moving box), speed-aware padding,
+  tracks split at jump-cut boundaries and never held into the next shot; product boxes in B-roll are
+  taped (≤12 lines / ≤25 % area), only claim posters are dropped.
+- **Brand-site-first B-roll** (user spec): find the product's own sales websites (Google web + image
+  search, scored on brand + product type, parked / social / marketplace domains skipped), build a photo
+  pool with one `site:` image query per site (Google ignores `site:a OR site:b` for images), spread it
+  over the product shots; generic shots / empty pool → general search. Shopee, Facebook, TikTok, Lazada,
+  Mudah.my, YouTube (+ their image CDNs) excluded everywhere — admin-editable (`motion_search.exclude_sites`,
+  `brand_site_first`). Live check for Gluvera: gluveraformulation.com, gluverahq.com, gluverahealth.com → 22 photos.
+- **History placeholder**: each running Motion job is a History card with live stage + progress over a
+  preview of its source (shared /api/motion/status poller), shown the moment it's submitted.
+
 ## Verification
 - Unit: tests/motion/guard.test.ts (rule hits / non-hits, query strip, phrase muting).
 - E2E: original Gluvera video + synthetic clip (moving "Diabetic Patch" box + spoken claim).
