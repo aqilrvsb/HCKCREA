@@ -4,8 +4,6 @@ import { tokenMatches, type EditInput } from "@/lib/motion";
 import { directEdit } from "@/lib/motion-director";
 import { fixTranscript } from "@/lib/motion-captions";
 import { withDeadline } from "@/lib/openrouter";
-import { getSitePrefs } from "@/lib/motion-search";
-import { readProductSite } from "@/lib/motion-site";
 
 // POST /api/motion/plan — called BY the Modal Edit Video job once it has the
 // (jump-cut) transcript. Auth = the per-row plan_token minted at submit (only
@@ -18,7 +16,6 @@ export const maxDuration = 300;
 // Leaves room for the history update + response inside maxDuration (and
 // under Modal's 290 s request timeout).
 const PLAN_BUDGET_MS = 265_000;
-const SITE_READ_MS = 25_000;
 
 export async function POST(req: Request) {
   const b = await req.json().catch(() => ({} as any));
@@ -45,16 +42,7 @@ export async function POST(req: Request) {
   let fixing: Promise<[number, string][]> = Promise.resolve([]);
   try {
     const input = row.metadata?.input as EditInput;
-    // The seller's website (optional) is read first — it grounds the director,
-    // the caption spelling and the B-roll / fact pools. Capped so a slow site
-    // can't eat the plan's budget; a failed read just means "no website".
-    const site = input?.website
-      ? await Promise.race([
-          readProductSite(input.website, await getSitePrefs()).catch(() => null),
-          new Promise<null>((res) => setTimeout(() => res(null), SITE_READ_MS)),
-        ])
-      : null;
-    const context = [input?.product, site?.ok ? `${site.name} — ${site.title}` : ""].filter(Boolean).join(" | ") || undefined;
+    const context = input?.product || undefined;
     // Director + caption spelling clean-up run side by side (no added wait).
     // Every AI call inside honours PLAN_BUDGET_MS, so a slow provider ends in a
     // leaner plan — never in Vercel killing the request (Modal would then fall
@@ -62,7 +50,7 @@ export async function POST(req: Request) {
     fixing = withDeadline(t0 + PLAN_BUDGET_MS, () =>
       fixTranscript(words.map((w: any) => ({ i: w.i, w: w.w })), context, input?.language)).catch(() => [] as [number, string][]);
     const [plan, fixes] = await withDeadline(t0 + PLAN_BUDGET_MS, () => Promise.all([
-      directEdit({ words, duration, input, hasFace: b?.has_face !== false, site }),
+      directEdit({ words, duration, input, hasFace: b?.has_face !== false }),
       fixing,
     ]));
     const { data: cur } = await admin.from("history").select("metadata").eq("id", id).maybeSingle();
@@ -82,11 +70,7 @@ export async function POST(req: Request) {
             broll_kinds: plan.broll.map((b) => b.kind ?? "photo"),
             stickers: plan.overlays.filter((o) => o.t === "gif").map((o) => (o.src ? "giphy" : "emoji-fallback")),
             caption_fixes: fixes.slice(0, 40),
-            ...(input?.website ? {
-              site: site
-                ? { url: site.url, ok: site.ok, via: site.via, pages: site.pages, images: site.images.length, chars: site.text.length, ...(site.error ? { error: site.error } : {}) }
-                : { url: input.website, ok: false, error: "timeout" },
-            } : {}),
+            uploads: input?.productImages?.length ?? 0,
           },
           transcript: words.map((w: any) => w.w).join(" ").slice(0, 4000),
         },

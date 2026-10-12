@@ -18,7 +18,6 @@ import {
   findBrandSites,
   isExcludedHost,
   parseSitePrefs,
-  linkAllowed,
   type FetchLike,
   type SearchProviderCfg,
 } from "@/lib/motion-search";
@@ -406,15 +405,9 @@ test("searchWeb wrapper: cache read/write + settings failures never break search
 
 // ── site preferences: brand site first, marketplaces / social excluded ────────
 test("site prefs: defaults, admin list cleaning", () => {
-  assert.deepEqual(parseSitePrefs(null), { exclude: DEFAULT_EXCLUDE_SITES, brandFirst: true, linkAllow: ["tiktok"] });
-  const p = parseSitePrefs({ exclude_sites: ["https://www.Shopee.com.my/x", "mudah.my", "", "bad site!"], brand_site_first: false, link_platforms: ["tiktok", "Lazada"] });
-  assert.deepEqual(p, { exclude: ["shopee.com.my", "mudah.my"], brandFirst: false, linkAllow: ["tiktok", "lazada"] });
-});
-
-test("linkAllowed: own sites + allowed platforms (TikTok) yes; Shopee / Facebook / Lazada no", () => {
-  const prefs = parseSitePrefs(null);
-  for (const h of ["gluverahq.com", "gluveraformulation.com", "shop.tiktok.com", "www.tiktok.com"]) assert.ok(linkAllowed(h, prefs), h);
-  for (const h of ["shopee.com.my", "www.facebook.com", "m.facebook.com", "www.lazada.com.my", "youtube.com"]) assert.ok(!linkAllowed(h, prefs), h);
+  assert.deepEqual(parseSitePrefs(null), { exclude: DEFAULT_EXCLUDE_SITES, brandFirst: true });
+  const p = parseSitePrefs({ exclude_sites: ["https://www.Shopee.com.my/x", "mudah.my", "", "bad site!"], brand_site_first: false });
+  assert.deepEqual(p, { exclude: ["shopee.com.my", "mudah.my"], brandFirst: false });
 });
 
 test("excluded hosts include the sites' image CDNs; brand sites pass", () => {

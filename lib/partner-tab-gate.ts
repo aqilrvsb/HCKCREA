@@ -16,3 +16,13 @@ export async function isTabAllowedForUser(userId: string, tabKey: string): Promi
   if (!Array.isArray(vt) || vt.length === 0) return true; // no restriction
   return vt.includes(tabKey);
 }
+
+// A mode inside an allowed tab can be switched off per client too —
+// profiles.settings.hidden_modes, e.g. ["motion-ad"] hides Motion's "Buat
+// Iklan" (Edit Video stays). Absent / empty = nothing hidden.
+export async function hiddenModesForUser(userId: string): Promise<string[]> {
+  const admin = createAdminClient();
+  const { data } = await admin.from("profiles").select("settings").eq("id", userId).maybeSingle();
+  const hm = (data?.settings as any)?.hidden_modes;
+  return Array.isArray(hm) ? hm.map((x: unknown) => String(x)) : [];
+}

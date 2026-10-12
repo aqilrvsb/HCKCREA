@@ -20,6 +20,7 @@ type VideoPick = { key: string; file: File; dur: number; preview: string; upload
 
 const THEME = { primary: "#a855f7", soft: "rgba(168,85,247,0.35)", faint: "rgba(168,85,247,0.08)", gradient: "linear-gradient(135deg,#a855f7,#ec4899)" };
 const MAX_VIDEOS = 5;
+const MAX_EDIT_IMAGES = 5;
 const MAX_SEC = 180;
 
 const VOICES = [
@@ -181,11 +182,17 @@ export default function MotionTab({ projectId }: { projectId?: string }) {
   const [facts, setFacts] = useState(true);
   const [editPrompt, setEditPrompt] = useState(MOTION_EDIT_PRESETS[0]?.prompt ?? "");
   const [context, setContext] = useState("");
-  const [website, setWebsite] = useState("");
+  const [editImages, setEditImages] = useState<string[]>([]);
 
   // Running jobs live in the History grid (placeholder cards poll their own status).
+  // A client may have "Buat Iklan" switched off (profiles.settings.hidden_modes).
+  const [adAllowed, setAdAllowed] = useState(true);
   useEffect(() => {
-    fetch("/api/motion/rate").then((r) => r.json()).then((d) => { setRate(Number(d?.rate) || 0); setBrain(d?.brain || null); }).catch(() => setRate(0));
+    fetch("/api/motion/rate").then((r) => r.json()).then((d) => {
+      setRate(Number(d?.rate) || 0);
+      setBrain(d?.brain || null);
+      if (d?.modes?.ad === false) { setAdAllowed(false); setMode("edit"); }
+    }).catch(() => setRate(0));
   }, [projectId]);
 
   const adCost = rate !== null ? Math.ceil(seconds + 2) * rate * variations : null;
@@ -205,6 +212,22 @@ export default function MotionTab({ projectId }: { projectId?: string }) {
           const base = role === "presenter" ? cur.filter((i) => i.role !== "presenter") : cur;
           return [...base, { url: r.url, role }];
         });
+      }
+    } catch (e: any) {
+      setError(e?.message || "Upload gambar gagal");
+    } finally {
+      setImgBusy(false);
+    }
+  }
+  // Edit Video: the seller's own product photos — every product B-roll shot comes from these.
+  async function addEditImages(files: FileList | null) {
+    if (!files || files.length === 0) return;
+    setError(null);
+    setImgBusy(true);
+    try {
+      for (const f of Array.from(files).slice(0, Math.max(0, MAX_EDIT_IMAGES - editImages.length))) {
+        const r = await uploadImage(f);
+        setEditImages((cur) => (cur.includes(r.url) ? cur : [...cur, r.url].slice(0, MAX_EDIT_IMAGES)));
       }
     } catch (e: any) {
       setError(e?.message || "Upload gambar gagal");
@@ -308,7 +331,8 @@ export default function MotionTab({ projectId }: { projectId?: string }) {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
-              video_url: url, duration_sec: v.dur, language: editLang, prompt: editPrompt, product: context, website: website.trim() || undefined,
+              video_url: url, duration_sec: v.dur, language: editLang, prompt: editPrompt, product: context,
+              product_images: editImages,
               captions, caption_style: captionStyle, caption_pos: captionPos, music: editMusic, sfx,
               accent: accent || undefined, project_id: projectId, style, resolution, jumpcut, broll, facts, guard,
             }),
@@ -352,10 +376,12 @@ export default function MotionTab({ projectId }: { projectId?: string }) {
           caption berwarna, sound effect & CTA beg kuning yang sync dengan setiap perkataan. Boleh hantar banyak sekali; semua jalan di belakang tabir.
         </p>
 
-        <div className="grid grid-cols-2 gap-2 mb-5">
-          <Chip active={mode === "edit"} onClick={() => setMode("edit")}><Scissors className="inline w-3.5 h-3.5 mr-1" />Edit Video</Chip>
-          <Chip active={mode === "ad"} onClick={() => setMode("ad")}><Sparkles className="inline w-3.5 h-3.5 mr-1" />Buat Iklan</Chip>
-        </div>
+        {adAllowed && (
+          <div className="grid grid-cols-2 gap-2 mb-5">
+            <Chip active={mode === "edit"} onClick={() => setMode("edit")}><Scissors className="inline w-3.5 h-3.5 mr-1" />Edit Video</Chip>
+            <Chip active={mode === "ad"} onClick={() => setMode("ad")}><Sparkles className="inline w-3.5 h-3.5 mr-1" />Buat Iklan</Chip>
+          </div>
+        )}
 
         {mode === "edit" ? (
           <div className="space-y-4">
@@ -401,19 +427,36 @@ export default function MotionTab({ projectId }: { projectId?: string }) {
               </div>
             </div>
             <div>
-              <label className={label}>Website produk (optional)</label>
-              <input className={inputCls} style={inputStyle} type="url" inputMode="url" value={website} maxLength={300}
-                onChange={(e) => setWebsite(e.target.value)} placeholder="cth. gluverahq.com atau link TikTok Shop" />
+              <label className={label}>Gambar produk (optional, maks {MAX_EDIT_IMAGES})</label>
+              <div className="flex flex-wrap gap-2 items-center">
+                {editImages.map((url, i) => (
+                  <div key={url} className="relative w-20 h-20 rounded-lg overflow-hidden border" style={{ borderColor: THEME.soft, background: "#000" }}>
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={url} alt="" className="w-full h-full object-cover" />
+                    <span className="absolute bottom-0 left-0 right-0 text-[9px] text-center font-bold text-white" style={{ background: "rgba(0,0,0,0.6)" }}>Produk {i + 1}</span>
+                    <button type="button" onClick={() => setEditImages((cur) => cur.filter((x) => x !== url))} className="absolute top-0.5 right-0.5 bg-black/70 rounded-full p-0.5">
+                      <X className="w-3 h-3 text-white" />
+                    </button>
+                  </div>
+                ))}
+                {editImages.length < MAX_EDIT_IMAGES && (
+                  <label className="w-20 h-20 rounded-lg border border-dashed flex flex-col items-center justify-center text-[10px] font-bold cursor-pointer" style={{ borderColor: THEME.soft, color: "var(--color-text-secondary)" }}>
+                    {imgBusy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
+                    Produk
+                    <input type="file" accept="image/*" multiple className="hidden" onChange={(e) => { addEditImages(e.target.files); e.target.value = ""; }} />
+                  </label>
+                )}
+              </div>
               <p className="text-[11px] mt-1 text-[var(--color-text-muted)]">
-                {website.trim()
-                  ? "Gambar B-roll & fakta diambil dari link ini sahaja — tiada gambar jenama lain, tiada carian Google. (Kalau link tiada gambar, baru guna Google.)"
-                  : "Isi website jualan anda sendiri atau link TikTok (bukan Shopee / Facebook) — gambar & fakta diambil dari situ sahaja."}
+                {editImages.length
+                  ? "Gambar kotak / produk dalam video diambil dari gambar anda sahaja — tiada gambar jenama lain. Gambar umum (cth. tampal di bahu) auto cari Google tanpa jenama."
+                  : "Upload gambar produk anda sendiri (kotak, produk, cara guna) supaya B-roll produk 100% betul. Tanpa gambar — AI cari di Google."}
               </p>
             </div>
             <div className="flex flex-wrap gap-2">
               <Toggle on={jumpcut} onChange={setJumpcut}>✂️ Buang senyap & &quot;erm&quot;</Toggle>
-              <Toggle on={broll} onChange={setBroll}>{website.trim() ? "🖼️ Gambar website (B-roll)" : "🖼️ Gambar Google (B-roll)"}</Toggle>
-              <Toggle on={facts} onChange={setFacts}>{website.trim() ? "💡 Fakta website" : "💡 Fakta Google"}</Toggle>
+              <Toggle on={broll} onChange={setBroll}>🖼️ Gambar B-roll</Toggle>
+              <Toggle on={facts} onChange={setFacts}>💡 Fakta Google</Toggle>
             </div>
           </div>
         ) : (

@@ -331,7 +331,6 @@ export default function AdminSettings() {
   // B-roll sources: brand's own sales site first; never these sites.
   const [motionExcludeSites, setMotionExcludeSites] = useState("shopee, facebook, tiktok, lazada, mudah.my, youtube");
   const [motionBrandFirst, setMotionBrandFirst] = useState(true);
-  const [motionLinkPlatforms, setMotionLinkPlatforms] = useState("tiktok");
   // Moving media keys (lib/motion-media.ts): stock clips + animated stickers.
   // saved* = what's stored (kept unless a new key is typed).
   const [mediaKeys, setMediaKeys] = useState({ pexels: "", pixabay: "", giphy: "" });
@@ -515,7 +514,6 @@ export default function AdminSettings() {
         if (row.key === "motion_search") {
           setMotionSearchRows(parseMotionSearchRows(row.value));
           if (Array.isArray(row.value?.exclude_sites)) setMotionExcludeSites(row.value.exclude_sites.join(", "));
-          if (Array.isArray(row.value?.link_platforms)) setMotionLinkPlatforms(row.value.link_platforms.join(", "));
           setMotionBrandFirst(row.value?.brand_site_first !== false);
           const keyOf = (list: any, p: string) =>
             String((Array.isArray(list) ? list : []).find((x: any) => x?.provider === p)?.key || "");
@@ -1344,7 +1342,6 @@ export default function AdminSettings() {
             providers,
             exclude_sites: motionExcludeSites.split(/[\s,]+/).map((s) => s.trim().toLowerCase()).filter(Boolean),
             brand_site_first: motionBrandFirst,
-            link_platforms: motionLinkPlatforms.split(/[\s,]+/).map((s) => s.trim().toLowerCase()).filter(Boolean),
             video_providers: (["pexels", "pixabay"] as const)
               .map((p) => ({ provider: p, key: mediaKeys[p].trim() || savedMediaKeys[p] }))
               .filter((x) => x.key),
@@ -2995,21 +2992,6 @@ export default function AdminSettings() {
             />
             <p className="text-[10px] mt-1" style={{ color: "var(--color-text-muted)" }}>
               Pisahkan dengan koma. Nama (shopee) atau domain (mudah.my) — CDN gambar laman itu juga dikecualikan.
-            </p>
-          </div>
-          <div>
-            <div className="text-[10px] font-mono uppercase tracking-widest font-bold mb-1" style={{ color: "var(--color-text-muted)" }}>
-              Link produk dibenarkan dari laman di atas
-            </div>
-            <input
-              value={motionLinkPlatforms}
-              onChange={(e) => setMotionLinkPlatforms(e.target.value)}
-              placeholder="tiktok"
-              className="input w-full text-xs"
-              style={{ color: "var(--color-text-primary)" }}
-            />
-            <p className="text-[10px] mt-1" style={{ color: "var(--color-text-muted)" }}>
-              Medan &quot;Website produk&quot; (Edit Video) terima website jualan sendiri + link platform ini (cth. TikTok Shop). Shopee / Facebook tak boleh dibaca (perlu login); Lazada boleh jika ditambah.
             </p>
           </div>
           <div className="pt-2 space-y-2">

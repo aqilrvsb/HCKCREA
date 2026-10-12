@@ -2,7 +2,7 @@ import { NextResponse, after } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { priceFor, reserveCredit } from "@/lib/deduct";
-import { isTabAllowedForUser } from "@/lib/partner-tab-gate";
+import { hiddenModesForUser, isTabAllowedForUser } from "@/lib/partner-tab-gate";
 import {
   MOTION_AD_DURATIONS, MOTION_PLANNING_TASK, MOTION_VOICES, adEstimateSec, costFor, newPlanToken, runAdJob, type AdInput,
 } from "@/lib/motion";
@@ -23,6 +23,9 @@ export async function POST(req: Request) {
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   if (!(await isTabAllowedForUser(user.id, "motion"))) {
     return NextResponse.json({ error: "Tab ini tidak tersedia untuk akaun anda." }, { status: 403 });
+  }
+  if ((await hiddenModesForUser(user.id)).includes("motion-ad")) {
+    return NextResponse.json({ error: "Buat Iklan tidak tersedia untuk akaun anda." }, { status: 403 });
   }
 
   const b = await req.json().catch(() => ({} as any));

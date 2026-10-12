@@ -109,8 +109,8 @@ export type EditInput = {
   language: "ms" | "en" | "auto";
   instructions?: string;
   product?: string;
-  /** The seller's own product website — B-roll + facts come only from it (lib/motion-site.ts). */
-  website?: string;
+  /** The seller's own product photos (≤ 5) — every product B-roll shot comes from these. */
+  productImages?: string[];
   captions: boolean;
   captionStyle: "pop" | "karaoke" | "box" | "tiktok";
   captionPos: "low" | "mid";

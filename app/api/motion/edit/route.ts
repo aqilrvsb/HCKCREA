@@ -4,8 +4,6 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { priceFor, refundReserved, reserveCredit } from "@/lib/deduct";
 import { isTabAllowedForUser } from "@/lib/partner-tab-gate";
 import { MOTION_EDIT_MAX_SEC, costFor, motionStart, newPlanToken, siteUrl, type EditInput } from "@/lib/motion";
-import { getSitePrefs, linkAllowed } from "@/lib/motion-search";
-import { normalizeSiteUrl } from "@/lib/motion-site";
 
 // POST /api/motion/edit — Motion "Edit Video": animate the client's own video
 // (captions, word-synced stickers, zooms, optional music). The video was
@@ -38,18 +36,12 @@ export async function POST(req: Request) {
   const durationSec = Math.min(declared, MOTION_EDIT_MAX_SEC);
   const style = ["pop", "karaoke", "box", "tiktok"].includes(b?.caption_style) ? b.caption_style : "pop";
 
-  // Optional seller website: B-roll + facts come only from it. Marketplace /
-  // social links (admin's excluded sites) only for the platforms admin allows
-  // (default TikTok) — Shopee / Facebook pages can't be read (login wall).
-  let website: string | undefined;
-  if (String(b?.website ?? "").trim()) {
-    const norm = normalizeSiteUrl(b.website);
-    if (!norm) return NextResponse.json({ error: "Link website produk tidak sah." }, { status: 400 });
-    if (!linkAllowed(new URL(norm).hostname, await getSitePrefs())) {
-      return NextResponse.json({ error: "Link ini tak boleh dibaca (cth. Shopee / Facebook). Isi website jualan anda sendiri atau link TikTok — atau biarkan kosong." }, { status: 400 });
-    }
-    website = norm;
-  }
+  // Optional: the seller's own product photos (uploaded via /api/upload/image) —
+  // every product B-roll shot comes from these.
+  const productImages = (Array.isArray(b?.product_images) ? b.product_images : [])
+    .map((u: unknown) => String(u ?? "").trim())
+    .filter((u: string) => /^https:\/\/[^\s]+$/.test(u) && u.length <= 1000)
+    .slice(0, 5);
 
   const input: EditInput = {
     videoUrl,
@@ -57,7 +49,7 @@ export async function POST(req: Request) {
     language: b?.language === "en" ? "en" : b?.language === "auto" ? "auto" : "ms",
     instructions: str(b?.prompt ?? b?.instructions, 900) || undefined,
     product: str(b?.product, 300) || undefined,
-    website,
+    ...(productImages.length ? { productImages } : {}),
     captions: b?.captions !== false,
     captionStyle: style,
     captionPos: b?.caption_pos === "mid" ? "mid" : "low",

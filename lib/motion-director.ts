@@ -8,9 +8,9 @@
 //      ≤12-word fact cards strictly from the snippets (source domain shown,
 //      no medical / price / efficacy claims, null when unsupported).
 //   4. qaPatch(): vision review of rendered stills → small JSON patch.
-// With the seller's website (optional field, lib/motion-site.ts) steps 2–3
-// use that site only: its photos are the B-roll pool and its paragraphs are
-// the fact snippets — no Google search, never another brand's photo.
+// With the seller's own product photos (optional upload) every product shot
+// comes from them — never another brand's box; generic shots stay on Google
+// and must show no packaging / brand at all.
 // Every step is fail-soft: a failure drops that enrichment, never the job.
 
 import { currentDeadline, orChat, orChatVision } from "@/lib/openrouter";
@@ -18,7 +18,6 @@ import {
   brandImagePool, dropExcluded, excludeOperators, findBrandSites, getSitePrefs, searchImages, searchWeb, type ImageHit, type WebHit,
 } from "@/lib/motion-search";
 import { searchClips, searchStickers } from "@/lib/motion-media";
-import { rankSiteImages, siteBrief, siteSnippets, type SiteInfo } from "@/lib/motion-site";
 import { MOTION_MY_TIKTOK_GUIDE } from "@/lib/motion-prompts";
 import { extractJson, cleanItemPublic, type EditInput, type MotionItem } from "@/lib/motion";
 import { GUARD_RULES, guardCensorWords, guardFixSlots, guardHits, guardStripQuery } from "@/lib/motion-guard";
@@ -115,25 +114,19 @@ export async function directEdit(opts: {
   duration: number;
   input: EditInput & { style?: "gempak" | "clean"; broll?: boolean; facts?: boolean };
   hasFace?: boolean;
-  /** The seller's own product website, already read (lib/motion-site.ts). */
-  site?: SiteInfo | null;
 }): Promise<EditPlanV2> {
   const { words, duration, input } = opts;
-  const site = opts.site?.ok ? opts.site : null;
-  // The seller's link has photos → B-roll is 100 % those photos; the link gave
-  // no photos (unreadable / none) or no link → 100 % Google. Same for facts:
-  // the link's own text when it has some, else Google.
-  const brollSource: SiteInfo | null = site?.images.length ? site : null;
-  const factSource: SiteInfo | null = (site?.text.length ?? 0) >= 200 ? site : null;
+  // The seller's own product photos (uploaded with the video): product shots
+  // come ONLY from them; generic shots still come from Google (brand-free).
+  const uploads = (input.productImages ?? []).filter((u) => /^https:\/\//.test(u)).slice(0, 5);
   const style = input.style === "clean" ? "clean" : "gempak";
   const transcript = words.slice(0, 1400).map((w) => `${w.i}@${w.t.toFixed(2)} ${w.w}`).join("\n");
   const userPrompt =
     `VIDEO: ${duration.toFixed(1)} s, ${words.length} words, language ${input.language}. Face on screen: ${opts.hasFace === false ? "no" : "yes"}.\n` +
     (input.product ? `PRODUCT / CONTEXT: ${clean(input.product, 300)}\n` : "") +
-    (site ? `PRODUCT WEBSITE (the seller's own sales page — the source of truth for the brand / product name, ingredients and how to use; still never put a price, claim or number on screen that the speaker doesn't say):\n${siteBrief(site)}\n` +
-      (brollSource
-        ? `B-ROLL: photos come ONLY from this link — it has ${site.images.length} photo${site.images.length === 1 ? "" : "s"}: plan at most ${site.images.length} B-roll moment${site.images.length === 1 ? "" : "s"}, with queries that match those photos.\n`
-        : "") : "") +
+    (uploads.length
+      ? `SELLER'S PRODUCT PHOTOS: ${uploads.length} uploaded. Product shots (the box, packshot, the item itself or in use) come ONLY from these — plan at most ${uploads.length} such B-roll moment${uploads.length === 1 ? "" : "s"}, their queries starting with the brand name. Generic shots (a body part, an action, a place, an object) come from a Google search — never name a brand in those queries.\n`
+      : "") +
     (input.instructions ? `CLIENT PROMPT (follow it): ${clean(input.instructions, 900)}\n` : "") +
     (input.accent ? `PREFERRED ACCENT: ${input.accent}\n` : "") +
     (input.broll === false ? "B-ROLL: disabled — return \"broll\": [].\n" : "") +
@@ -170,7 +163,6 @@ export async function directEdit(opts: {
   if (!raw) throw new Error(`Director failed: ${lastErr}`);
 
   const plan = validateDirectorPlan(raw, words.length, duration, input, style);
-  if (!plan.brand && site?.name) plan.brand = site.name;
   const guard = !!input.guard;
   if (guard) await guardEditPlan(plan, words, input).catch(() => undefined);
 
@@ -179,8 +171,8 @@ export async function directEdit(opts: {
     .map((f) => (guard ? { ...f, query: guardStripQuery(f.query) } : f))
     .filter((f) => !guard || (f.query.length >= 3 && guardHits(f.topic).length === 0));
   const [broll, facts] = await Promise.all([
-    input.broll === false ? Promise.resolve([] as BRollPlan[]) : byDeadline(enrichBroll(plan.broll, guard, plan.brand, input.product, brollSource), [] as BRollPlan[]),
-    input.facts === false ? Promise.resolve([] as FactPlan[]) : byDeadline(writeFacts(factMoments, words, factSource), [] as FactPlan[]),
+    input.broll === false ? Promise.resolve([] as BRollPlan[]) : byDeadline(enrichBroll(plan.broll, guard, plan.brand, input.product, uploads), [] as BRollPlan[]),
+    input.facts === false ? Promise.resolve([] as FactPlan[]) : byDeadline(writeFacts(factMoments, words), [] as FactPlan[]),
     byDeadline(resolveStickers(plan.overlays, guard), undefined),
   ]);
   // A B-roll card label that repeats a sticker ("Cara guna" twice) is dropped.
@@ -342,45 +334,45 @@ function rawFacts(raw: any, nWords: number, duration: number) {
     .slice(0, 3) as { at: Cue; to?: Cue; query: string; topic: string }[];
 }
 
-// ── B-roll: Google Images + vision pick ──────────────────────────────────────
-// Product shots come from the brand's own sales websites first (found with
-// Google web + image search that skip marketplaces / social sites), then a
-// general Google Images search — still without those sites (admin: Motion Search).
-// A link with photos → 100 % that link (no Google, no stock clips — that's
-// where other brands' product shots come from): every moment draws from the
-// link's own photos only; few photos just means fewer B-roll moments (each
-// photo leads one moment at most), and vision answering -1 → no B-roll there.
-// No link, or a link that gave no photos → 100 % Google, as below.
-async function enrichBroll(moments: BRollPlan[], guard = false, brand?: string, product?: string, site?: SiteInfo | null): Promise<BRollPlan[]> {
+// ── B-roll: seller photos + Google Images + vision pick ──────────────────────
+// Product shots (the moment's query names the brand):
+//   • the seller uploaded product photos → ONLY those (each photo leads one
+//     moment; vision -1 → that moment has no B-roll) — never another brand's box
+//   • no uploads → the brand's own sales websites first (Google web + image
+//     search that skip marketplaces / social sites), then general Google Images
+// Generic shots (a body part, an action, a place) → stock clips / general
+// Google Images, and vision only accepts an image with NO product packaging,
+// label or brand on it — that's where competitors' boxes used to slip in.
+async function enrichBroll(moments: BRollPlan[], guard = false, brand?: string, product?: string, uploads: string[] = []): Promise<BRollPlan[]> {
   if (!moments.length) return [];
   const prefs = await getSitePrefs();
-  const linked = !!site;
   // Finding the sales site uses the full product name (medical words included —
   // it's only a lookup; whatever is printed on its photos gets taped later).
-  const brandName = String(brand || site?.name || "").trim();
-  const token = brandName.toLowerCase().split(/\s+/)[0]?.replace(/[^a-z0-9]/g, "") || "";
   const productName = String(product || "").split(",")[0];
-  const sites = !linked && prefs.brandFirst && token.length >= 3
+  const brandName = String(brand || productName).trim();
+  const token = brandName.toLowerCase().split(/\s+/)[0]?.replace(/[^a-z0-9]/g, "") || "";
+  const isProduct = (m: BRollPlan) => !!token && m.query.toLowerCase().replace(/[^a-z0-9 ]/g, "").includes(token);
+  const own: ImageHit[] = uploads.map((url, k) => ({ url, title: `seller product photo ${k + 1}` }));
+  const sites = !own.length && prefs.brandFirst && token.length >= 3 && moments.some(isProduct)
     ? await findBrandSites(brandName, prefs, productName).catch(() => [] as string[])
     : [];
   const noSites = excludeOperators(prefs.exclude);
   const usable = (hits: ImageHit[] | undefined) => dropExcluded((hits ?? []).filter(goodImage), prefs.exclude);
-  const pool = linked ? site!.images
+  const pool = own.length ? own
     : sites.length ? usable(await brandImagePool(sites, brandName, productName, prefs.exclude).catch(() => [])) : [];
 
-  // Product shots draw from the brand-site pool — the photos best matching the
-  // moment's words first, each moment getting different ones — topped up by a
-  // general search when the pool runs short; other shots search generally.
+  // Product shots draw from the pool — the photos best matching the moment's
+  // words first, each moment getting different ones; brand-site shots are
+  // topped up by a general search when the pool runs short.
   const words = (s: string) => new Set(s.toLowerCase().split(/[^a-z0-9]+/).filter((w) => w.length >= 3));
   const used = new Map<string, number>();
   const fromPool = moments.map((m) => {
-    if (linked) {
-      const ranked = rankSiteImages(pool, m.query, used);
+    if (!isProduct(m) || !pool.length) return [] as ImageHit[];
+    if (own.length) {
+      const ranked = rankImages(own, m.query, used);
       for (const h of ranked.slice(0, 3)) used.set(h.url, (used.get(h.url) ?? 0) + 1);
       return ranked;
     }
-    const aboutProduct = !!token && m.query.toLowerCase().replace(/[^a-z0-9 ]/g, "").includes(token);
-    if (!aboutProduct || !pool.length) return [] as ImageHit[];
     const q = words(m.query);
     const ranked = [...pool].sort((a, b) => {
       const sa = [...words(`${a.title ?? ""} ${a.url}`)].filter((w) => q.has(w)).length - (used.get(a.url) ?? 0) * 3;
@@ -391,24 +383,26 @@ async function enrichBroll(moments: BRollPlan[], guard = false, brand?: string, 
     return ranked;
   });
   const results = await Promise.all(moments.map(async (m, k) => {
+    const productShot = isProduct(m);
+    // The seller's own photos: those only — no search for a product shot.
+    if (productShot && own.length) return { kind: "photo" as const, hits: fromPool[k], source: "own" as const };
     // Moving cutaway: stock clips (vision sees their thumbnails); none → photos.
-    // With the seller's link everything comes from the link — no stock clips either.
-    if (m.kind === "video" && !linked) {
+    if (m.kind === "video") {
       const clips = await searchClips(m.query).catch(() => []);
       if (clips.length) {
-        return { kind: "video" as const, hits: clips.map((c) => ({ url: c.url, thumb: c.thumb, width: c.width, height: c.height, title: m.query })) };
+        return { kind: "video" as const, hits: clips.map((c) => ({ url: c.url, thumb: c.thumb, width: c.width, height: c.height, title: m.query })), source: "stock" as const };
       }
     }
     let hits = fromPool[k];
-    if (!linked && hits.length < 3) {
+    if (hits.length < 3) {
       const more = usable((await searchImages(`${m.query} ${noSites}`, { num: 10 }).catch(() => null))?.hits);
       const seen = new Set(hits.map((h) => h.url));
       hits = [...hits, ...more.filter((h) => !seen.has(h.url))];
     }
-    return { kind: "photo" as const, hits };
+    return { kind: "photo" as const, hits, source: productShot ? ("brand" as const) : ("generic" as const) };
   }));
   const withHits = moments
-    .map((m, k) => ({ m: { ...m, kind: results[k].kind }, hits: results[k].hits }))
+    .map((m, k) => ({ m: { ...m, kind: results[k].kind }, hits: results[k].hits, source: results[k].source }))
     .filter((x) => x.hits.length > 0);
   if (!withHits.length) return [];
 
@@ -420,12 +414,12 @@ async function enrichBroll(moments: BRollPlan[], guard = false, brand?: string, 
   const picks: (number | undefined)[] = batches.flatMap((b, i) => b.map((_, k) => picked[i]?.[k]));
   const shown = new Set<string>();
   return withHits
-    .map(({ m, hits }, k) => {
+    .map(({ m, hits, source }, k) => {
       const choice = picks?.[k];
       if (choice === -1) return null; // vision said none match
       let order = typeof choice === "number" && choice >= 0 && choice < hits.length ? [hits[choice], ...hits.filter((_, j) => j !== choice)] : hits;
-      if (linked && m.kind !== "video") {
-        // a link's few photos: each one leads one moment at most — no repeats
+      if (source === "own") {
+        // the seller's few photos: each one leads one moment at most — no repeats
         order = order.filter((h) => !shown.has(h.url));
         if (!order.length) return null;
         shown.add(order[0].url);
@@ -433,6 +427,14 @@ async function enrichBroll(moments: BRollPlan[], guard = false, brand?: string, 
       return { ...m, candidates: order.slice(0, 5).map((h) => h.url) };
     })
     .filter(Boolean) as BRollPlan[];
+}
+
+/** Photos best matching a B-roll query (title / file-name words), least-used first. */
+function rankImages(pool: ImageHit[], query: string, used: Map<string, number>, n = 5): ImageHit[] {
+  const set = (s: string) => new Set(s.toLowerCase().split(/[^a-z0-9]+/).filter((w) => w.length >= 3));
+  const q = set(query);
+  const score = (h: ImageHit) => [...set(`${h.title ?? ""} ${h.url}`)].filter((w) => q.has(w)).length - (used.get(h.url) ?? 0) * 2;
+  return pool.map((h, i) => ({ h, s: score(h), i })).sort((a, b) => b.s - a.s || a.i - b.i).slice(0, n).map((x) => x.h);
 }
 
 function goodImage(h: ImageHit): boolean {
@@ -443,12 +445,17 @@ function goodImage(h: ImageHit): boolean {
   return true;
 }
 
-async function visionPick(items: { m: BRollPlan; hits: ImageHit[] }[], guard = false, brand?: string): Promise<number[] | null> {
+const SOURCE_NOTE: Record<string, string> = {
+  own: " [the seller's own product photos — pick the one that best fits]",
+  generic: " [GENERIC SHOT — only an image with NO product packaging, box, label, logo or brand name on it; -1 if every option shows one]",
+};
+
+async function visionPick(items: { m: BRollPlan; hits: ImageHit[]; source?: string }[], guard = false, brand?: string): Promise<number[] | null> {
   const images: string[] = [];
   const lines: string[] = [];
-  items.forEach(({ m, hits }, k) => {
+  items.forEach(({ m, hits, source }, k) => {
     const opts = hits.slice(0, 3);
-    lines.push(`Moment ${k} — query "${m.query}"${m.label ? ` (label "${m.label}")` : ""}: images ${opts.map((_, j) => `#${images.length + j}`).join(", ")}`);
+    lines.push(`Moment ${k} — query "${m.query}"${m.label ? ` (label "${m.label}")` : ""}${SOURCE_NOTE[source ?? ""] ?? ""}: images ${opts.map((_, j) => `#${images.length + j}`).join(", ")}`);
     for (const h of opts) images.push(h.thumb || h.url);
   });
   if (images.length > 24) return null;
@@ -471,16 +478,11 @@ async function visionPick(items: { m: BRollPlan; hits: ImageHit[] }[], guard = f
   return Array.isArray(j?.picks) ? j.picks.map((x: any) => (Number.isInteger(x) ? x : 0)) : null;
 }
 
-// ── fact cards: Google web search (or the seller's website) + strict summariser ─
-async function writeFacts(moments: { at: Cue; to?: Cue; query: string; topic: string }[], words: DirectorWord[], site?: SiteInfo | null): Promise<FactPlan[]> {
+// ── fact cards: Google web search + strict summariser ────────────────────────
+async function writeFacts(moments: { at: Cue; to?: Cue; query: string; topic: string }[], words: DirectorWord[]): Promise<FactPlan[]> {
   if (!moments.length) return [];
-  // The seller's link text when it has some (the caller passes it only then), else Google.
-  const res: ({ hits: WebHit[] } | null)[] = site
-    ? moments.map((m) => ({ hits: siteSnippets(site, `${m.query} ${m.topic}`) }))
-    : await (async () => {
-      const noSites = excludeOperators((await getSitePrefs()).exclude);
-      return Promise.all(moments.map((m) => searchWeb(`${m.query} ${noSites}`, { num: 5 }).catch(() => null)));
-    })();
+  const noSites = excludeOperators((await getSitePrefs()).exclude);
+  const res = await Promise.all(moments.map((m) => searchWeb(`${m.query} ${noSites}`, { num: 5 }).catch(() => null)));
   const blocks = moments.map((m, k) => {
     const hits: WebHit[] = res[k]?.hits ?? [];
     return `FACT ${k} — topic "${m.topic || m.query}"\n` + hits.slice(0, 5).map((h, j) => `  [${j}] (${h.domain}) ${h.title}: ${h.snippet}`).join("\n");
