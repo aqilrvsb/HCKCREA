@@ -541,7 +541,11 @@ export async function motionSearchConfigured(): Promise<boolean> {
 // ────────────────────────────────────────────────────────────────────
 
 export const DEFAULT_EXCLUDE_SITES = ["shopee", "facebook", "tiktok", "lazada", "mudah.my", "youtube"];
-export type SitePrefs = { exclude: string[]; brandFirst: boolean };
+// Excluded from search, but a seller may still paste THEIR OWN product link from
+// these as the Edit Video "website" (their TikTok Shop page reads fine; Shopee /
+// Facebook pages are login-walled). Admin: motion_search.link_platforms.
+export const DEFAULT_LINK_PLATFORMS = ["tiktok"];
+export type SitePrefs = { exclude: string[]; brandFirst: boolean; linkAllow: string[] };
 
 // The image CDNs of the excluded sites (a Shopee photo is served from susercontent.com …).
 const SITE_ALIASES: Record<string, string[]> = {
@@ -562,11 +566,20 @@ const SITE_DOMAINS: Record<string, string[]> = {
 
 export function parseSitePrefs(raw: unknown): SitePrefs {
   const r = raw as any;
-  const list = Array.isArray(r?.exclude_sites)
-    ? r.exclude_sites.map((s: unknown) => String(s ?? "").trim().toLowerCase().replace(/^https?:\/\//, "").replace(/^www\./, "").replace(/\/.*$/, ""))
+  const sites = (v: unknown, dflt: string[]) => (Array.isArray(v)
+    ? v.map((s: unknown) => String(s ?? "").trim().toLowerCase().replace(/^https?:\/\//, "").replace(/^www\./, "").replace(/\/.*$/, ""))
         .filter((s: string) => /^[a-z0-9.-]{2,60}$/.test(s))
-    : DEFAULT_EXCLUDE_SITES;
-  return { exclude: [...new Set<string>(list)].slice(0, 30), brandFirst: r?.brand_site_first !== false };
+    : dflt);
+  return {
+    exclude: [...new Set<string>(sites(r?.exclude_sites, DEFAULT_EXCLUDE_SITES))].slice(0, 30),
+    brandFirst: r?.brand_site_first !== false,
+    linkAllow: [...new Set<string>(sites(r?.link_platforms, DEFAULT_LINK_PLATFORMS))].slice(0, 30),
+  };
+}
+
+/** May a seller paste this host as their product "website"? Own sites yes; excluded platforms only when allowed. */
+export function linkAllowed(host: string | undefined | null, prefs: Pick<SitePrefs, "exclude" | "linkAllow">): boolean {
+  return !isExcludedHost(host, prefs.exclude) || isExcludedHost(host, prefs.linkAllow);
 }
 
 export async function getSitePrefs(): Promise<SitePrefs> {

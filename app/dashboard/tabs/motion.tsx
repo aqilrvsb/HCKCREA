@@ -204,6 +204,7 @@ export default function MotionTab({ projectId }: { projectId?: string }) {
   const [facts, setFacts] = useState(true);
   const [editPrompt, setEditPrompt] = useState(MOTION_EDIT_PRESETS[0]?.prompt ?? "");
   const [context, setContext] = useState("");
+  const [website, setWebsite] = useState("");
 
   // jobs
   const [jobIds, setJobIds] = useState<string[]>([]);
@@ -379,7 +380,7 @@ export default function MotionTab({ projectId }: { projectId?: string }) {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
-              video_url: url, duration_sec: v.dur, language: editLang, prompt: editPrompt, product: context,
+              video_url: url, duration_sec: v.dur, language: editLang, prompt: editPrompt, product: context, website: website.trim() || undefined,
               captions, caption_style: captionStyle, caption_pos: captionPos, music: editMusic, sfx,
               accent: accent || undefined, project_id: projectId, style, resolution, jumpcut, broll, facts, guard,
             }),
@@ -473,10 +474,20 @@ export default function MotionTab({ projectId }: { projectId?: string }) {
                 </div>
               </div>
             </div>
+            <div>
+              <label className={label}>Website produk (optional)</label>
+              <input className={inputCls} style={inputStyle} type="url" inputMode="url" value={website} maxLength={300}
+                onChange={(e) => setWebsite(e.target.value)} placeholder="cth. gluverahq.com atau link TikTok Shop" />
+              <p className="text-[11px] mt-1 text-[var(--color-text-muted)]">
+                {website.trim()
+                  ? "Gambar B-roll & fakta diambil dari link ini sahaja — tiada gambar jenama lain, tiada carian Google."
+                  : "Isi website jualan anda sendiri atau link TikTok (bukan Shopee / Facebook) — gambar & fakta diambil dari situ sahaja."}
+              </p>
+            </div>
             <div className="flex flex-wrap gap-2">
               <Toggle on={jumpcut} onChange={setJumpcut}>✂️ Buang senyap & &quot;erm&quot;</Toggle>
-              <Toggle on={broll} onChange={setBroll}>🖼️ Gambar Google (B-roll)</Toggle>
-              <Toggle on={facts} onChange={setFacts}>💡 Fakta Google</Toggle>
+              <Toggle on={broll} onChange={setBroll}>{website.trim() ? "🖼️ Gambar website (B-roll)" : "🖼️ Gambar Google (B-roll)"}</Toggle>
+              <Toggle on={facts} onChange={setFacts}>{website.trim() ? "💡 Fakta website" : "💡 Fakta Google"}</Toggle>
             </div>
           </div>
         ) : (

@@ -8,6 +8,9 @@
 //      ≤12-word fact cards strictly from the snippets (source domain shown,
 //      no medical / price / efficacy claims, null when unsupported).
 //   4. qaPatch(): vision review of rendered stills → small JSON patch.
+// With the seller's website (optional field, lib/motion-site.ts) steps 2–3
+// use that site only: its photos are the B-roll pool and its paragraphs are
+// the fact snippets — no Google search, never another brand's photo.
 // Every step is fail-soft: a failure drops that enrichment, never the job.
 
 import { currentDeadline, orChat, orChatVision } from "@/lib/openrouter";
@@ -15,6 +18,7 @@ import {
   brandImagePool, dropExcluded, excludeOperators, findBrandSites, getSitePrefs, searchImages, searchWeb, type ImageHit, type WebHit,
 } from "@/lib/motion-search";
 import { searchClips, searchStickers } from "@/lib/motion-media";
+import { rankSiteImages, siteBrief, siteSnippets, type SiteInfo } from "@/lib/motion-site";
 import { MOTION_MY_TIKTOK_GUIDE } from "@/lib/motion-prompts";
 import { extractJson, cleanItemPublic, type EditInput, type MotionItem } from "@/lib/motion";
 import { GUARD_RULES, guardCensorWords, guardFixSlots, guardHits, guardStripQuery } from "@/lib/motion-guard";
@@ -111,13 +115,17 @@ export async function directEdit(opts: {
   duration: number;
   input: EditInput & { style?: "gempak" | "clean"; broll?: boolean; facts?: boolean };
   hasFace?: boolean;
+  /** The seller's own product website, already read (lib/motion-site.ts). */
+  site?: SiteInfo | null;
 }): Promise<EditPlanV2> {
   const { words, duration, input } = opts;
+  const site = opts.site?.ok ? opts.site : null;
   const style = input.style === "clean" ? "clean" : "gempak";
   const transcript = words.slice(0, 1400).map((w) => `${w.i}@${w.t.toFixed(2)} ${w.w}`).join("\n");
   const userPrompt =
     `VIDEO: ${duration.toFixed(1)} s, ${words.length} words, language ${input.language}. Face on screen: ${opts.hasFace === false ? "no" : "yes"}.\n` +
     (input.product ? `PRODUCT / CONTEXT: ${clean(input.product, 300)}\n` : "") +
+    (site ? `PRODUCT WEBSITE (the seller's own sales page — the source of truth for the brand / product name, ingredients and how to use; B-roll photos come ONLY from it, so write B-roll queries that match its photos; still never put a price, claim or number on screen that the speaker doesn't say):\n${siteBrief(site)}\n` : "") +
     (input.instructions ? `CLIENT PROMPT (follow it): ${clean(input.instructions, 900)}\n` : "") +
     (input.accent ? `PREFERRED ACCENT: ${input.accent}\n` : "") +
     (input.broll === false ? "B-ROLL: disabled — return \"broll\": [].\n" : "") +
@@ -154,6 +162,7 @@ export async function directEdit(opts: {
   if (!raw) throw new Error(`Director failed: ${lastErr}`);
 
   const plan = validateDirectorPlan(raw, words.length, duration, input, style);
+  if (!plan.brand && site?.name) plan.brand = site.name;
   const guard = !!input.guard;
   if (guard) await guardEditPlan(plan, words, input).catch(() => undefined);
 
@@ -162,8 +171,8 @@ export async function directEdit(opts: {
     .map((f) => (guard ? { ...f, query: guardStripQuery(f.query) } : f))
     .filter((f) => !guard || (f.query.length >= 3 && guardHits(f.topic).length === 0));
   const [broll, facts] = await Promise.all([
-    input.broll === false ? Promise.resolve([] as BRollPlan[]) : byDeadline(enrichBroll(plan.broll, guard, plan.brand, input.product), [] as BRollPlan[]),
-    input.facts === false ? Promise.resolve([] as FactPlan[]) : byDeadline(writeFacts(factMoments, words), [] as FactPlan[]),
+    input.broll === false ? Promise.resolve([] as BRollPlan[]) : byDeadline(enrichBroll(plan.broll, guard, plan.brand, input.product, site), [] as BRollPlan[]),
+    input.facts === false ? Promise.resolve([] as FactPlan[]) : byDeadline(writeFacts(factMoments, words, site), [] as FactPlan[]),
     byDeadline(resolveStickers(plan.overlays, guard), undefined),
   ]);
   // A B-roll card label that repeats a sticker ("Cara guna" twice) is dropped.
@@ -329,35 +338,49 @@ function rawFacts(raw: any, nWords: number, duration: number) {
 // Product shots come from the brand's own sales websites first (found with
 // Google web + image search that skip marketplaces / social sites), then a
 // general Google Images search — still without those sites (admin: Motion Search).
-async function enrichBroll(moments: BRollPlan[], guard = false, brand?: string, product?: string): Promise<BRollPlan[]> {
+// With the seller's website every photo comes from that site alone (vision
+// answers -1 → the moment is dropped, never filled from elsewhere). A link with
+// only a few photos (a TikTok listing) leads the brand-site pool instead, so
+// the edit doesn't repeat the same two shots.
+const SITE_ONLY_MIN_PHOTOS = 4;
+async function enrichBroll(moments: BRollPlan[], guard = false, brand?: string, product?: string, site?: SiteInfo | null): Promise<BRollPlan[]> {
   if (!moments.length) return [];
   const prefs = await getSitePrefs();
+  const onlySite = (site?.images.length ?? 0) >= SITE_ONLY_MIN_PHOTOS;
   // Finding the sales site uses the full product name (medical words included —
   // it's only a lookup; whatever is printed on its photos gets taped later).
-  const brandName = String(brand || "").trim();
+  const brandName = String(brand || site?.name || "").trim();
   const token = brandName.toLowerCase().split(/\s+/)[0]?.replace(/[^a-z0-9]/g, "") || "";
   const productName = String(product || "").split(",")[0];
-  const sites = prefs.brandFirst && token.length >= 3
+  const sites = !onlySite && prefs.brandFirst && token.length >= 3
     ? await findBrandSites(brandName, prefs, productName).catch(() => [] as string[])
     : [];
   const noSites = excludeOperators(prefs.exclude);
   const usable = (hits: ImageHit[] | undefined) => dropExcluded((hits ?? []).filter(goodImage), prefs.exclude);
-  const pool = sites.length ? usable(await brandImagePool(sites, brandName, productName, prefs.exclude).catch(() => [])) : [];
+  const pool = onlySite ? site!.images : [
+    ...(site?.images ?? []),
+    ...(sites.length ? usable(await brandImagePool(sites, brandName, productName, prefs.exclude).catch(() => [])) : []),
+  ];
 
   // Product shots draw from the brand-site pool — the photos best matching the
   // moment's words first, each moment getting different ones — topped up by a
   // general search when the pool runs short; other shots search generally.
   const words = (s: string) => new Set(s.toLowerCase().split(/[^a-z0-9]+/).filter((w) => w.length >= 3));
   const used = new Map<string, number>();
+  const linkPhotos = new Set((site?.images ?? []).map((h) => h.url));
   const fromPool = moments.map((m) => {
+    if (onlySite) {
+      const ranked = rankSiteImages(pool, m.query, used);
+      for (const h of ranked.slice(0, 3)) used.set(h.url, (used.get(h.url) ?? 0) + 1);
+      return ranked;
+    }
     const aboutProduct = !!token && m.query.toLowerCase().replace(/[^a-z0-9 ]/g, "").includes(token);
     if (!aboutProduct || !pool.length) return [] as ImageHit[];
     const q = words(m.query);
-    const ranked = [...pool].sort((a, b) => {
-      const sa = [...words(`${a.title ?? ""} ${a.url}`)].filter((w) => q.has(w)).length - (used.get(a.url) ?? 0) * 3;
-      const sb = [...words(`${b.title ?? ""} ${b.url}`)].filter((w) => q.has(w)).length - (used.get(b.url) ?? 0) * 3;
-      return sb - sa;
-    }).slice(0, 4);
+    // The seller's own link photos (often hash-named) come before the brand-site top-up.
+    const score = (h: ImageHit) => [...words(`${h.title ?? ""} ${h.url}`)].filter((w) => q.has(w)).length
+      + (linkPhotos.has(h.url) ? 2 : 0) - (used.get(h.url) ?? 0) * 3;
+    const ranked = [...pool].sort((a, b) => score(b) - score(a)).slice(0, 4);
     for (const h of ranked) used.set(h.url, (used.get(h.url) ?? 0) + 1);
     return ranked;
   });
@@ -370,7 +393,7 @@ async function enrichBroll(moments: BRollPlan[], guard = false, brand?: string, 
       }
     }
     let hits = fromPool[k];
-    if (hits.length < 3) {
+    if (!onlySite && hits.length < 3) {
       const more = usable((await searchImages(`${m.query} ${noSites}`, { num: 10 }).catch(() => null))?.hits);
       const seen = new Set(hits.map((h) => h.url));
       hits = [...hits, ...more.filter((h) => !seen.has(h.url))];
@@ -434,11 +457,15 @@ async function visionPick(items: { m: BRollPlan; hits: ImageHit[] }[], guard = f
   return Array.isArray(j?.picks) ? j.picks.map((x: any) => (Number.isInteger(x) ? x : 0)) : null;
 }
 
-// ── fact cards: Google web search + strict summariser ────────────────────────
-async function writeFacts(moments: { at: Cue; to?: Cue; query: string; topic: string }[], words: DirectorWord[]): Promise<FactPlan[]> {
+// ── fact cards: Google web search (or the seller's website) + strict summariser ─
+async function writeFacts(moments: { at: Cue; to?: Cue; query: string; topic: string }[], words: DirectorWord[], site?: SiteInfo | null): Promise<FactPlan[]> {
   if (!moments.length) return [];
-  const noSites = excludeOperators((await getSitePrefs()).exclude);
-  const res = await Promise.all(moments.map((m) => searchWeb(`${m.query} ${noSites}`, { num: 5 }).catch(() => null)));
+  const res: ({ hits: WebHit[] } | null)[] = site?.text
+    ? moments.map((m) => ({ hits: siteSnippets(site, `${m.query} ${m.topic}`) }))
+    : await (async () => {
+      const noSites = excludeOperators((await getSitePrefs()).exclude);
+      return Promise.all(moments.map((m) => searchWeb(`${m.query} ${noSites}`, { num: 5 }).catch(() => null)));
+    })();
   const blocks = moments.map((m, k) => {
     const hits: WebHit[] = res[k]?.hits ?? [];
     return `FACT ${k} — topic "${m.topic || m.query}"\n` + hits.slice(0, 5).map((h, j) => `  [${j}] (${h.domain}) ${h.title}: ${h.snippet}`).join("\n");
