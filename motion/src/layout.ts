@@ -8,8 +8,9 @@
 //   track, padded for punch-in zooms) − captions − hook − PiP card − stickers
 //   already on screen at the same time.
 // "top" stickers take the highest free gap, "bottom" ones sit just above the
-// captions, "middle" ones the roomiest gap; when nothing fits at full size the
-// sticker shrinks (down to 55 %) instead of covering the face.
+// captions, "middle" ones the roomiest gap. When nothing fits, a sticker
+// shrinks a little (never below 70 %), then may sit over the mouth / chin
+// (eyes stay clear) — it never overlaps another sticker.
 import { SAFE_X, W, fitSize, type Placed } from './lib';
 import type { Face, Item, Zone } from './types';
 
@@ -53,8 +54,8 @@ export function estHeight(it: Item): number {
   }
 }
 
-/** Speaker's face (px band, padded) during [s, e] frames, or null when no face is tracked. */
-function faceBand(faces: Face[] | undefined, s: number, e: number, fps: number): Span | null {
+/** Speaker's face (px band, padded; `eyes` = brows → nose only) during [s, e] frames, or null when no face is tracked. */
+function faceBand(faces: Face[] | undefined, s: number, e: number, fps: number): (Span & { eyes: Span }) | null {
   if (!faces?.length) return null;
   const t0 = s / fps - 0.25;
   const t1 = e / fps + 0.25;
@@ -67,8 +68,11 @@ function faceBand(faces: Face[] | undefined, s: number, e: number, fps: number):
   }
   const top = Math.min(...hits.map((f) => f.y)) * 1920;
   const bot = Math.max(...hits.map((f) => f.y + f.h)) * 1920;
-  const pad = (bot - top) * 0.18; // punch-in zooms grow the face around its centre
-  return { a: Math.max(0, top - pad - 50), b: Math.min(1920, bot + pad + 70) };
+  // The detector box already spans brows → chin; a small pad covers the
+  // punch-in zoom (≤ ~12 %) without eating the free space above and below.
+  const pad = (bot - top) * 0.07;
+  const a = Math.max(0, top - pad - 12);
+  return { a, b: Math.min(1920, bot + pad + 28), eyes: { a, b: top + (bot - top) * 0.6 } };
 }
 
 function freeGaps(busy: Span[]): Span[] {
@@ -90,45 +94,63 @@ export function layoutEdit(placed: Placed[], o: {
 }): Map<number, Slot> {
   const slots = new Map<number, Slot>();
   const done: { s: number; e: number; span: Span }[] = [];
-  for (const p of [...placed].sort((a, b) => a.s - b.s || a.key - b.key)) {
-    if (p.it.t === 'confetti') continue; // full-frame effect, no slot
-    const h = estHeight(p.it) + GAP;
-    const busy: Span[] = [];
-    const face = faceBand(o.faces, p.s, p.e, o.fps);
-    if (face) busy.push(face);
-    if (o.captions) busy.push(o.captions);
-    if (p.s < o.hookEnd) busy.push({ a: 190, b: 600 });
-    if (o.pips.some((b) => p.s < b.e && p.e > b.s)) busy.push({ a: 190, b: 880 });
-    if (o.labels?.some((b) => p.s < b.e && p.e > b.s)) busy.push({ a: 200, b: 350 });
-    for (const d of done) if (p.s < d.e && p.e > d.s) busy.push(d.span);
-    const gaps = freeGaps(busy);
+  const sorted = [...placed].sort((a, b) => a.s - b.s || a.key - b.key);
+  for (const p of sorted) {
+    if (p.it.t === 'confetti' || slots.has(p.key)) continue; // confetti = full-frame, no slot
+    // A checklist is one block: items that pop in while the first is still up
+    // get their room reserved together and read top → down.
+    const group = p.it.t === 'check'
+      ? sorted.filter((q) => q.it.t === 'check' && !slots.has(q.key) && q.s >= p.s && q.s < p.e)
+      : [p];
+    const hs = group.map((q) => estHeight(q.it) + GAP);
+    const h = hs.reduce((x, y) => x + y, 0);
+    const s = p.s;
+    const e = Math.max(...group.map((q) => q.e));
     const zone: Zone = p.it.zone ?? 'middle';
-    const order = [...gaps].sort((x, y) =>
+    const face = faceBand(o.faces, s, e, o.fps);
+    const base: Span[] = [];
+    if (o.captions) base.push(o.captions);
+    if (s < o.hookEnd) base.push({ a: 190, b: 600 });
+    if (o.pips.some((b) => s < b.e && e > b.s)) base.push({ a: 190, b: 880 });
+    if (o.labels?.some((b) => s < b.e && e > b.s)) base.push({ a: 200, b: 350 });
+    for (const d of done) if (s < d.e && e > d.s) base.push(d.span);
+    const gapsWith = (f: Span | null) => freeGaps(f ? [...base, f] : base);
+    const order = (gaps: Span[]) => [...gaps].sort((x, y) =>
       zone === 'top' ? x.a - y.a : zone === 'bottom' ? y.b - x.b : (y.b - y.a) - (x.b - x.a));
     const fit = (g: Span, scale: number): Slot => {
       const hh = h * scale;
       const y = zone === 'bottom' ? g.b - hh : zone === 'middle' ? g.a + (g.b - g.a - hh) / 2 : g.a;
       return { y: Math.round(y + GAP / 2), scale };
     };
-    let slot: Slot | null = null;
-    // 1) its own side (top stays on top…), shrinking a little if needed
-    const home = order[0];
-    if (home) for (const scale of [1, 0.9, 0.8]) if (home.b - home.a >= h * scale) { slot = fit(home, scale); break; }
-    // 2) any free gap, shrinking further
-    if (!slot) {
-      for (const scale of [1, 0.85, 0.7, 0.55]) {
-        const g = order.find((x) => x.b - x.a >= h * scale);
-        if (g) { slot = fit(g, scale); break; }
+    const tryGaps = (gaps: Span[], homeScales: number[], anyScales: number[]): Slot | null => {
+      const ord = order(gaps);
+      const home = ord[0];
+      if (home) for (const sc of homeScales) if (home.b - home.a >= h * sc) return fit(home, sc);
+      for (const sc of anyScales) {
+        const g = ord.find((x) => x.b - x.a >= h * sc);
+        if (g) return fit(g, sc);
       }
-    }
+      return null;
+    };
+    // 1) clear of the whole face, own side first, shrinking a little (never < 70 %)
+    // 2) over the mouth / chin / chest — the eyes stay clear (pro edits do this)
+    // 3) over the face, still clear of captions and other stickers
+    // 4) nothing free at all: roomiest spot at a readable size
+    let slot = tryGaps(gapsWith(face), [1, 0.9, 0.8], [1, 0.85, 0.7])
+      ?? (face ? tryGaps(gapsWith(face.eyes), [1, 0.9], [1, 0.85, 0.7]) : null)
+      ?? (face ? tryGaps(gapsWith(null), [1], [1, 0.85, 0.7]) : null);
     if (!slot) {
-      // Nothing free — squeeze into the roomiest gap (or the zone's home spot).
-      const g = [...gaps].sort((x, y) => (y.b - y.a) - (x.b - x.a))[0];
-      if (g) slot = { y: Math.round(g.a), scale: Math.max(0.45, Math.min(1, (g.b - g.a) / h)) };
-      else slot = { y: zone === 'top' ? 200 : zone === 'bottom' ? 1100 : 760, scale: 0.55 };
+      const g = [...gapsWith(null)].sort((x, y) => (y.b - y.a) - (x.b - x.a))[0];
+      const scale = 0.7;
+      if (g) slot = { y: Math.round(zone === 'bottom' ? Math.max(TOP_SAFE, g.b - h * scale) : g.a), scale };
+      else slot = { y: zone === 'top' ? 200 : zone === 'bottom' ? 1100 : 760, scale };
     }
-    slots.set(p.key, slot);
-    done.push({ s: p.s, e: p.e, span: { a: slot.y - GAP / 2, b: slot.y + h * slot.scale } });
+    let y = slot.y;
+    group.forEach((q, i) => {
+      slots.set(q.key, { y: Math.round(y), scale: slot.scale });
+      done.push({ s: q.s, e: q.e, span: { a: y - GAP / 2, b: y + hs[i] * slot.scale } });
+      y += hs[i] * slot.scale;
+    });
   }
   return slots;
 }

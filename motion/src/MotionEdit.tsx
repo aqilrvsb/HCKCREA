@@ -74,7 +74,7 @@ export const MotionEdit: React.FC<EditProps> = (p) => {
     const pips = broll.filter((b) => b.layout === 'pip').map((b) => ({ s: b.s, e: b.e }));
 
     // Face-aware slots: no sticker over the speaker's face.
-    const capH = cap.style === 'tiktok' ? 230 : 280;
+    const capH = cap.style === 'tiktok' ? 220 : 236; // two caption lines + a little air
     const slots = layoutEdit(placed, {
       faces: p.faces, fps, hookEnd, pips,
       labels: broll.filter((b) => b.layout === 'full' && b.label).map((b) => ({ s: b.s - 9, e: b.e })),

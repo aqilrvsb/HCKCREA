@@ -132,7 +132,9 @@ export async function directEdit(opts: {
       userPrompt: attempt === 0 ? userPrompt : `${userPrompt}\n\nYour previous answer was not valid JSON (${lastErr}). Return ONLY the JSON object.`,
       temperature: 0.7,
       maxTokens: 7000,
-      timeoutMs: 120_000,
+      // GRSAI latency swings (same job: 72 s … 162 s). 100 s per model, then the
+      // cascade moves on, so the whole plan stays inside the job's 290 s budget.
+      timeoutMs: 100_000,
       stream: true,
     });
     if (!r.ok || !r.content) { lastErr = r.error || "empty"; continue; }
