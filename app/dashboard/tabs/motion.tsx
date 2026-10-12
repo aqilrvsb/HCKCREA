@@ -10,7 +10,7 @@
 // finished video with its guideline summary.
 
 import { useEffect, useState } from "react";
-import { Clapperboard, Loader2, Upload, X, Sparkles, Scissors, Brain, Wand2, ShieldCheck } from "lucide-react";
+import { Clapperboard, Loader2, Upload, X, Sparkles, Scissors, Wand2 } from "lucide-react";
 import { uploadImage } from "@/lib/upload-image";
 import { MOTION_AD_PRESETS, MOTION_EDIT_PRESETS, type MotionPreset } from "@/lib/motion-prompts";
 import { MOTION_STYLES, type MotionStyleId } from "@/lib/motion-styles";
@@ -98,29 +98,6 @@ function PromptBox({ value, onChange, presets, placeholder }: { value: string; o
   );
 }
 
-// "Check Guideline TikTok" — sits right before the product field in both modes.
-function GuardBox({ on, onChange }: { on: boolean; onChange: (v: boolean) => void }) {
-  return (
-    <label className="flex gap-3 items-start p-3 rounded-xl cursor-pointer"
-      style={{ background: on ? "rgba(34,197,94,0.08)" : "var(--color-bg)", border: `1px solid ${on ? "rgba(34,197,94,0.55)" : "var(--color-border)"}` }}>
-      <input type="checkbox" checked={on} onChange={(e) => onChange(e.target.checked)} className="mt-0.5 w-4 h-4 accent-green-500 cursor-pointer" />
-      <span className="min-w-0">
-        <span className="flex items-center gap-1.5 text-xs font-extrabold text-[var(--color-text-primary)]">
-          <ShieldCheck className="w-3.5 h-3.5 text-green-500" /> Check Guideline TikTok
-        </span>
-        <span className="block text-[10px] text-[var(--color-text-secondary)] mt-0.5 leading-snug">
-          AI semak video ikut polisi TikTok Shop Malaysia 2026 &amp; Akta Iklan Ubat, dan senaraikan ayat / perkataan / tulisan yang mungkin
-          langgar guideline pada kad History. Video &amp; suara anda tidak diubah — tiada tampal, potong atau mute.
-        </span>
-        {on && (
-          <span className="block text-[10px] mt-1 leading-snug" style={{ color: "#f59e0b" }}>
-            Gambar B-roll dari Google yang ada tulisan berisiko ditukar dengan gambar lain. Gambar produk anda tidak disentuh.
-          </span>
-        )}
-      </span>
-    </label>
-  );
-}
 
 // iOS Safari never loads metadata for a detached <video> (and ignores
 // preload): attach it off-screen, muted + inline, call load(), accept
@@ -156,7 +133,6 @@ const readDuration = (url: string) =>
 export default function MotionTab({ projectId }: { projectId?: string }) {
   const [mode, setMode] = useState<Mode>("edit");
   const [rate, setRate] = useState<number | null>(null);
-  const [brain, setBrain] = useState<string | null>(null);
 
   // shared
   const [captions, setCaptions] = useState(true);
@@ -165,15 +141,9 @@ export default function MotionTab({ projectId }: { projectId?: string }) {
   const [resolution, setResolution] = useState<"1080" | "720">("1080");
   const [sfx, setSfx] = useState(true);
   const [accent, setAccent] = useState("");
-  // TikTok guideline check — on by default, the client's choice is remembered.
-  const [guard, setGuardState] = useState(true);
-  useEffect(() => {
-    try { const v = localStorage.getItem("motion:guard"); if (v !== null) setGuardState(v === "1"); } catch { /* storage blocked */ }
-  }, []);
-  const setGuard = (v: boolean) => {
-    setGuardState(v);
-    try { localStorage.setItem("motion:guard", v ? "1" : "0"); } catch { /* storage blocked */ }
-  };
+  // "Check Guideline TikTok" is always on (no box in the form): it only reports
+  // what may break the guideline on the History card — the video isn't changed.
+  const guard = true;
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -224,7 +194,6 @@ export default function MotionTab({ projectId }: { projectId?: string }) {
   useEffect(() => {
     fetch("/api/motion/rate").then((r) => r.json()).then((d) => {
       setRate(Number(d?.rate) || 0);
-      setBrain(d?.brain || null);
       const ok = d?.modes?.ad === true;
       setAdAllowed(ok);
       if (!ok) setMode("edit");
@@ -395,12 +364,6 @@ export default function MotionTab({ projectId }: { projectId?: string }) {
         <div className="flex items-center gap-2 mb-1 flex-wrap">
           <Clapperboard className="w-5 h-5" style={{ color: THEME.primary }} strokeWidth={2.4} />
           <h2 className="font-display font-extrabold text-lg text-[var(--color-text-primary)]">Motion</h2>
-          {brain && (
-            <span className="ml-auto inline-flex items-center gap-1 px-2 py-1 rounded-full text-[10px] font-bold"
-              style={{ background: THEME.faint, border: `1px solid ${THEME.soft}`, color: "var(--color-text-secondary)" }}>
-              <Brain className="w-3 h-3" /> AI: {brain}
-            </span>
-          )}
         </div>
         <p className="text-xs text-[var(--color-text-secondary)] mb-4">
           Edit macam editor pro TikTok — AI director potong senyap, tambah hook, sticker, gambar Google, fakta, zoom ke muka,
@@ -461,7 +424,6 @@ export default function MotionTab({ projectId }: { projectId?: string }) {
                 <PromptBox value={editPrompt} onChange={setEditPrompt} presets={presets} placeholder="cth. Jadikan video jualan beg kuning: hook kuat, tick setiap kelebihan, tutup dengan CTA tekan beg kuning." />
               </>
             )}
-            <GuardBox on={guard} onChange={setGuard} />
             <div>
               <label className={label}>Nama produk *</label>
               <input className={inputCls} style={inputStyle} value={editProduct} maxLength={80} onChange={(e) => setEditProduct(e.target.value)} placeholder="cth. Kopi Pening" />
@@ -478,7 +440,6 @@ export default function MotionTab({ projectId }: { projectId?: string }) {
           </div>
         ) : (
           <div className="space-y-4">
-            <GuardBox on={guard} onChange={setGuard} />
             <div className="grid sm:grid-cols-2 gap-3">
               <div>
                 <label className={label}>Nama produk *</label>
@@ -670,8 +631,6 @@ export default function MotionTab({ projectId }: { projectId?: string }) {
           </span>
         </div>
       </div>
-
-      <p className="text-[10px] text-[var(--color-text-muted)] text-center">Animated emoji: Google Noto Emoji Animation (CC BY 4.0). Sound effects: Kenney &amp; Freesound (CC0).</p>
     </div>
   );
 }
