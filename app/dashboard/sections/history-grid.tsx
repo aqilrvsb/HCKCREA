@@ -2250,15 +2250,14 @@ function HistoryCardInner({
     toastTimer.current = setTimeout(() => setSubmitToast(null), ms);
   };
   const isStoryboard = (item.metadata as any)?.feature === "storyboard";
-  // Motion Edit Video: in-place re-render of any finished job (first one free,
-  // later ones charged like a new edit). The product name is asked first.
+  // Motion Edit Video: in-place re-render of any finished job, charged like a
+  // new edit. The product name is asked first.
   const [resubOpen, setResubOpen] = useState(false);
   const [resubProduct, setResubProduct] = useState("");
   const [resubBusy, setResubBusy] = useState(false);
   const motionMeta = item.metadata as { feature?: string; resubmits?: unknown; input?: { product?: string; videoUrl?: string } } | null | undefined;
   const canMotionResubmit = item.tab === "motion" && item.status === "done"
     && motionMeta?.feature === "motion-edit" && !!motionMeta?.input?.videoUrl;
-  const resubFree = !(Number(motionMeta?.resubmits) >= 1);
 
   async function handleMotionResubmit() {
     const product = resubProduct.replace(/\s+/g, " ").trim();
@@ -3466,8 +3465,8 @@ function HistoryCardInner({
             <div className="text-[11px] text-[var(--color-text-muted)] mb-2 leading-snug">
               Video ini akan diedit semula (tanpa tampal / mute / potong). Kad ini akan diganti dengan video baru.
             </div>
-            <div className="text-[11px] font-bold mb-3" style={{ color: resubFree ? "#22c55e" : "#f59e0b" }}>
-              {resubFree ? "Percuma — kali pertama untuk video ini." : "Dicaj ikut tempoh video (macam edit baru)."}
+            <div className="text-[11px] font-bold mb-3" style={{ color: "#f59e0b" }}>
+              Dicaj ikut tempoh video (macam edit baru).
             </div>
             <label className="block text-[11px] font-bold text-[var(--color-text-primary)] mb-1">
               Nama produk <span style={{ color: "#ef4444" }}>*</span>
@@ -4878,7 +4877,7 @@ function HistoryCardInner({
               )}
               {canMotionResubmit && (
                 <ActionBtn
-                  title={resubFree ? "Render semula (percuma)" : "Render semula (dicaj ikut tempoh)"}
+                  title="Render semula (dicaj ikut tempoh)"
                   onClick={() => {
                     setResubProduct(String(motionMeta?.input?.product || "").slice(0, 80));
                     setResubOpen(true);

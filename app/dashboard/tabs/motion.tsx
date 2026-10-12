@@ -522,10 +522,10 @@ export default function MotionTab({ projectId }: { projectId?: string }) {
                     <button type="button" onClick={() => setEditImages((cur) => cur.filter((x) => x !== url))} className="absolute top-0.5 right-0.5 bg-black/70 rounded-full p-0.5">
                       <X className="w-3 h-3 text-white" />
                     </button>
-                    <button type="button" onClick={() => setTapeSrc(url)} disabled={submitting} title="Tampal tulisan pada gambar"
-                      className="absolute top-0.5 left-0.5 px-1.5 py-0.5 rounded-md text-[9px] font-extrabold text-white disabled:opacity-40"
+                    <button type="button" onClick={() => setTapeSrc(url)} disabled={submitting} title="Tampal tulisan pada gambar" aria-label="Tampal"
+                      className="absolute top-0.5 left-0.5 w-5 h-5 rounded-full flex items-center justify-center text-[10px] leading-none disabled:opacity-40"
                       style={{ background: "rgba(168,85,247,0.9)" }}>
-                      🩹 Tampal
+                      🩹
                     </button>
                   </div>
                 ))}
@@ -539,7 +539,7 @@ export default function MotionTab({ projectId }: { projectId?: string }) {
               </div>
               {editImgError && <p className="text-[11px] mt-1 font-bold text-red-400">{editImgError}</p>}
               {editImages.length > 0 && (
-                <p className="text-[10px] text-[var(--color-text-muted)] mt-1">Tekan 🩹 Tampal untuk tutup tulisan pada gambar (cth. claim) sebelum edit.</p>
+                <p className="text-[10px] text-[var(--color-text-muted)] mt-1">Tekan 🩹 pada gambar untuk tampal tulisan (cth. claim) sebelum edit.</p>
               )}
               {tapeSrc && (
                 <MotionTapeEditor src={tapeSrc} onClose={() => setTapeSrc(null)} onSave={(f) => saveTapedPhoto(tapeSrc, f)} />

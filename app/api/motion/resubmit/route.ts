@@ -8,13 +8,10 @@ import { styleEnergy } from "@/lib/motion-styles";
 // POST /api/motion/resubmit { id, product } — in-place re-render of a finished
 // Edit Video job. The SAME History card turns back into a live placeholder and
 // gets the new video (own file name — the first is cached immutable); if the
-// re-render fails the card goes back to its previous video (and any credit
-// held for it is refunded). The first resubmit of a job is free, later ones
-// are charged like a new edit; an admin resubmitting a client's job is free.
+// re-render fails the card goes back to its previous video (and the credit
+// held for it is refunded). Always charged like a new edit, to the job owner.
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-
-const FREE_RESUBMITS = 1;
 
 export async function POST(req: Request) {
   const sb = await createClient();
@@ -42,9 +39,8 @@ export async function POST(req: Request) {
   const input: EditInput = { ...oldInput, product };
   if (row.status !== "done") return NextResponse.json({ error: "Video ini belum siap." }, { status: 409 });
   const done = Number(meta.resubmits) || 0;
-  const free = done < FREE_RESUBMITS || (!!me?.is_admin && row.user_id !== user.id);
-  const rate = free ? 0 : await priceFor(row.user_id, "motion", "motion");
-  const estimate = free ? 0 : costFor(Math.min(Number(oldInput.durationSec) || 0, MOTION_EDIT_MAX_SEC), rate);
+  const rate = await priceFor(row.user_id, "motion", "motion");
+  const estimate = costFor(Math.min(Number(oldInput.durationSec) || 0, MOTION_EDIT_MAX_SEC), rate);
 
   // Back to pending with a fresh plan token; the old result is kept so a failed
   // re-render can restore it. Old guard / plan / render data is dropped so the
