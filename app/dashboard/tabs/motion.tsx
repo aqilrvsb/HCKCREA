@@ -15,6 +15,7 @@ import { uploadImage } from "@/lib/upload-image";
 import { compressImageIfNeeded } from "@/lib/compress-image";
 import { MOTION_AD_PRESETS, MOTION_EDIT_PRESETS, type MotionPreset } from "@/lib/motion-prompts";
 import { MOTION_STYLES, type MotionStyleId } from "@/lib/motion-styles";
+import MotionTapeEditor from "./motion-tape-editor";
 
 type Mode = "ad" | "edit";
 type CaptionStyle = "pop" | "karaoke" | "box" | "tiktok";
@@ -210,6 +211,8 @@ export default function MotionTab({ projectId }: { projectId?: string }) {
   const [editProduct, setEditProduct] = useState("");
   const [readingVideos, setReadingVideos] = useState(false);
   const [editImgError, setEditImgError] = useState<string | null>(null);
+  // product photo open in the tape editor (its URL), or null
+  const [tapeSrc, setTapeSrc] = useState<string | null>(null);
   // the client's product photo gallery (/api/motion/photos) — reuse or delete
   const [gallery, setGallery] = useState<{ id: string; url: string }[]>([]);
   const [showGallery, setShowGallery] = useState(false);
@@ -280,6 +283,17 @@ export default function MotionTab({ projectId }: { projectId?: string }) {
     if (!up.ok || !j?.url) throw new Error(j?.error || `Upload gagal (${up.status})`);
     return String(j.url);
   }
+  const rememberPhoto = (url: string) =>
+    fetch("/api/motion/photos", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ url }) })
+      .then((r) => r.json()).then((d) => { if (d?.photo) setGallery((g) => [d.photo, ...g.filter((p) => p.url !== url)]); })
+      .catch(() => undefined);
+  // taped photo → uploaded as a new photo that takes the original's place
+  async function saveTapedPhoto(original: string, file: File) {
+    const url = await uploadProductPhoto(file);
+    setEditImages((cur) => cur.map((u) => (u === original ? url : u)));
+    void rememberPhoto(url);
+    setTapeSrc(null);
+  }
   async function addEditImages(files: FileList | null) {
     if (!files || files.length === 0) return;
     const picked = Array.from(files); // copy now — the input is cleared right after
@@ -290,9 +304,7 @@ export default function MotionTab({ projectId }: { projectId?: string }) {
         const url = await uploadProductPhoto(f);
         setEditImages((cur) => (cur.includes(url) ? cur : [...cur, url].slice(0, MAX_EDIT_IMAGES)));
         // remember it in the client's gallery for the next video (best-effort)
-        fetch("/api/motion/photos", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ url }) })
-          .then((r) => r.json()).then((d) => { if (d?.photo) setGallery((g) => [d.photo, ...g.filter((p) => p.url !== url)]); })
-          .catch(() => undefined);
+        void rememberPhoto(url);
       }
     } catch (e: unknown) {
       setEditImgError(e instanceof Error && e.message ? `Upload gambar gagal: ${e.message}` : "Upload gambar gagal");
@@ -510,6 +522,11 @@ export default function MotionTab({ projectId }: { projectId?: string }) {
                     <button type="button" onClick={() => setEditImages((cur) => cur.filter((x) => x !== url))} className="absolute top-0.5 right-0.5 bg-black/70 rounded-full p-0.5">
                       <X className="w-3 h-3 text-white" />
                     </button>
+                    <button type="button" onClick={() => setTapeSrc(url)} disabled={submitting} title="Tampal tulisan pada gambar"
+                      className="absolute top-0.5 left-0.5 px-1.5 py-0.5 rounded-md text-[9px] font-extrabold text-white disabled:opacity-40"
+                      style={{ background: "rgba(168,85,247,0.9)" }}>
+                      🩹 Tampal
+                    </button>
                   </div>
                 ))}
                 {editImages.length < MAX_EDIT_IMAGES && (
@@ -521,6 +538,12 @@ export default function MotionTab({ projectId }: { projectId?: string }) {
                 )}
               </div>
               {editImgError && <p className="text-[11px] mt-1 font-bold text-red-400">{editImgError}</p>}
+              {editImages.length > 0 && (
+                <p className="text-[10px] text-[var(--color-text-muted)] mt-1">Tekan 🩹 Tampal untuk tutup tulisan pada gambar (cth. claim) sebelum edit.</p>
+              )}
+              {tapeSrc && (
+                <MotionTapeEditor src={tapeSrc} onClose={() => setTapeSrc(null)} onSave={(f) => saveTapedPhoto(tapeSrc, f)} />
+              )}
               {gallery.length > 0 && (
                 <div className="mt-2">
                   <button type="button" onClick={() => setShowGallery((s) => !s)}
