@@ -1,4 +1,4 @@
-// The 30 hook-opener sounds the AI director can pick from in AI Auto mode —
+// The hook-opener sounds the AI director can pick from in AI Auto mode —
 // what each one sounds like and what kind of hook it suits. Index = recipe
 // index in motion/src/sfx.ts (HOOKS); keep both lists in the same order.
 
@@ -33,6 +33,26 @@ export const HOOK_SOUNDS: readonly string[] = [
   "double hit — aggressive hard sell, price shock",
   "thud + whoosh + glitch — moody, edgy",
   "bass drop + record scratch — street, hype, trend",
+  "glitch into a boom — cyber reveal, tech product",
+  "glitch + stamp — breaking news, urgent verdict",
+  "whoosh + stamp — announcement, launch",
+  "whoosh + soft thud — smooth, friendly",
+  "whoosh slam + sparkle — glam reveal, beauty",
+  "deep whoosh into a boom — cinematic, premium",
+  "airy whoosh + soft thud — aesthetic, calm",
+  "whip crack + slam — aggressive hook, bold claim",
+  "swipe + stamp — verdict, rating, checklist",
+  "swipe into a boom — quick reveal",
+  "slide-in + hit — quick tip, hack",
+  "slide-in + soft thud — calm explainer",
+  "record scratch + stamp — plot twist with a verdict",
+  "confetti pop + hit — celebration, deal, giveaway",
+  "ding + hit — correct answer, smart tip",
+  "keyboard typing + slam — text message, news, question",
+  "camera flash + boom — paparazzi reveal, before/after",
+  "page turn + stamp — story, diary, lesson",
+  "transition sweep into a bass drop — hype montage",
+  "notification ping + soft thud — info, reminder",
 ];
 
 export const HOOK_SOUND_COUNT = HOOK_SOUNDS.length;

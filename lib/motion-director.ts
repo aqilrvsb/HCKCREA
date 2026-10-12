@@ -67,9 +67,30 @@ export type EditPlanV2 = {
 // angle, look, colour, captions, hook sound and music itself. Left to choose
 // from every option it lands on the same "best fit" each time (same video →
 // same look, same sound), so the CODE draws a random shortlist per call —
-// 2 of the 10 looks, 4 angles, 5 of the 30 hook sounds, 2 caption styles,
-// 3 hook formulas, an accent colour + a creative spark — and the AI picks the
-// best of those for this footage. Every generation differs; every pick fits.
+// 2 of the 10 looks, 4 of 31 angles, 5 of 50 hook sounds, 2 of 4 caption
+// styles, 3 of 25 hook formulas, 1 of 24 accent colours + 1 of 40 creative
+// sparks — and the AI picks the best of those for this footage. Every
+// generation differs; every pick fits. (Pure text pools: growing them costs
+// nothing per video — the prompt only ever carries the shortlist.)
+
+// Selling angles: the 16 prompt chips (lib/motion-prompts) + these, AI Auto only.
+const EXTRA_ANGLES: { label: string; desc: string }[] = [
+  { label: "Masalah → penyelesaian", desc: "open on the viewer's pain, then the product as the fix the speaker shows." },
+  { label: "Kesilapan biasa", desc: "the mistake most people make, and the right way the speaker does it." },
+  { label: "Rahsia / tip orang tak tahu", desc: "frame the key detail as an insider tip few people know." },
+  { label: "Storytime pengalaman", desc: "tell it as the speaker's own story with a turn in the middle." },
+  { label: "Mitos vs fakta", desc: "bust one belief with what the speaker actually says or shows." },
+  { label: "Cara lama vs cara baru", desc: "contrast the old hassle with the easier way in the video." },
+  { label: "Rutin harian", desc: "fit the product into a simple daily routine the speaker describes." },
+  { label: "Life hack", desc: "present the use as a smart shortcut that saves time or effort." },
+  { label: "3 sebab wajib cuba", desc: "count the spoken benefits on screen as clear numbered reasons." },
+  { label: "Untuk siapa produk ni", desc: "call out exactly who this is for, from what the speaker says." },
+  { label: "First impression", desc: "the speaker's first reaction and honest early verdict." },
+  { label: "Q&A pantas", desc: "turn the talk into quick questions and straight answers." },
+  { label: "Idea hadiah", desc: "position it as a thoughtful gift — only if the speaker's context allows." },
+  { label: "Satisfying detail", desc: "linger on the most satisfying visual / sound moment of using it." },
+  { label: "Cabaran penonton", desc: "challenge the viewer to try, guess or compare along with the video." },
+];
 
 const HOOK_FORMULAS = [
   "problem → fix (name the pain, promise the fix)", "a question that hits the viewer's pain", "a bold verdict / hot take",
@@ -77,6 +98,11 @@ const HOOK_FORMULAS = [
   "a number list (\"3 sebab…\", \"2 cara…\")", "a secret / thing nobody tells you", "POV — the viewer in the situation",
   "a price or promo shock (only a spoken price / promo)", "first try / first impression reaction", "myth vs fact",
   "a challenge to the viewer (\"Cuba teka…\")",
+  "call out one exact person (\"Yang selalu …, tengok ni\")", "a mistake confession (\"Saya silap selama ni…\")",
+  "a curiosity gap (\"Ramai tak tahu …\")", "a relatable complaint (\"Penat dah …\")", "a story opener (\"Semalam saya …\")",
+  "the direct benefit in 3–4 words", "a contradiction (\"Kecil tapi …\")", "a speed promise (\"Dalam 10 saat …\")",
+  "an instruction (\"Tengok cara saya …\")", "comparison (\"Biasa vs …\")", "spoken social proof (\"Dah ramai …\" — only if said)",
+  "an unexpected first word that makes people look twice", "a 'stop' pattern interrupt (\"STOP — sebelum beli …\")",
 ];
 const CAPTION_CHOICES = ["pop", "karaoke", "box", "tiktok"] as const;
 // Eye-catching accent colours — one is suggested per generation so the same
@@ -84,6 +110,8 @@ const CAPTION_CHOICES = ["pop", "karaoke", "box", "tiktok"] as const;
 const ACCENTS = [
   "electric yellow #FFE600", "hot pink #FF2E88", "electric blue #2F7BFF", "lime #A3FF12", "tangerine #FF7A00",
   "violet #8B5CF6", "teal #14B8A6", "cherry red #F43F5E", "mint #34D399", "coral #FF6B6B", "gold #F5B800", "cyan #22D3EE",
+  "royal purple #7C3AED", "neon green #39FF14", "sky blue #38BDF8", "peach #FFB38A", "magenta #E11D74", "sunset orange #FB923C",
+  "emerald #10B981", "lavender #C4B5FD", "crimson #DC2626", "aqua #2DD4BF", "lemon #FDE047", "rose gold #E8A39C",
 ];
 
 const SPARKS = [
@@ -93,6 +121,13 @@ const SPARKS = [
   "news-flash urgency", "day-in-the-life montage feel", "honest verdict stamp", "plot twist in the middle",
   "checklist race", "ingredient / feature spotlight", "challenge the viewer", "storytime with a cliffhanger re-hook",
   "hot take opener", "quiz — guess before the answer", "first-impression reaction",
+  "split feel — problem on one side, fix on the other (tags left / right)", "countdown energy toward the payoff",
+  "spotlight the one number that matters", "talk-show banter in the callouts", "director's commentary asides",
+  "game-show reveal of the key benefit", "detective investigation of the problem", "breaking-news ticker vibe",
+  "diary / journal entry tone", "teacher whiteboard explanation (circles, underlines, arrows)", "street-interview vibe",
+  "unboxing suspense", "speed-run tutorial", "ranking / tier-list framing", "chat-bubble style callouts",
+  "recipe-card steps", "sports-commentary energy", "close-up on the label or key detail", "mini-documentary tone",
+  "expectation vs reality (honest, only what is shown)",
 ];
 
 const shuffle = <T,>(a: readonly T[]): T[] => {
@@ -109,7 +144,11 @@ const firstSentence = (s: string) => (s.split(/(?<=[.!?:])\s/)[0] || s).slice(0,
 function autoBrief(): string {
   const looks = shuffle(MOTION_STYLES).slice(0, 2).map((l) =>
     `- ${l.id} (${l.label}: ${l.desc}) — ${l.edit} Palette: ${l.palette}. Max gap ${l.maxGap} s. Music mood: ${l.mood}.`).join("\n");
-  const angles = shuffle(MOTION_EDIT_PRESETS).slice(0, 4).map((a) => `- ${a.label.replace(/^\P{L}+/u, "")}: ${firstSentence(a.prompt)}`).join("\n");
+  const anglePool = [
+    ...MOTION_EDIT_PRESETS.map((a) => ({ label: a.label.replace(/^\P{L}+/u, ""), desc: firstSentence(a.prompt) })),
+    ...EXTRA_ANGLES,
+  ];
+  const angles = shuffle(anglePool).slice(0, 4).map((a) => `- ${a.label}: ${a.desc}`).join("\n");
   const sounds = shuffle(HOOK_SOUNDS.map((s, i) => `${i} = ${s}`)).slice(0, 5).join("\n");
   const formulas = shuffle(HOOK_FORMULAS).slice(0, 3).map((f) => `- ${f}`).join("\n");
   const caps = shuffle(CAPTION_CHOICES).slice(0, 2).map((c) => `"${c}"`).join(" or ");

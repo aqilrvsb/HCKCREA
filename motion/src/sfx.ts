@@ -60,7 +60,7 @@ const RULES: Record<SfxEventName, Layer[]> = {
   cut: [{ lib: ['transition_1', 'transition_2', 'transition_3'], proc: 'swoosh', vol: 0.12, delay: -2, gempakOnly: true }],
 };
 
-// The hook opener: one of 30 recipes per video (by the video's seed), so every
+// The hook opener: one of these recipes per video (AI Auto's pick, else the video's seed), so every
 // video doesn't open on the same electric glitch. Each one lands a punch
 // (impact / thud / boom / stamp / bass drop) within 0–6 frames — in time with
 // the hook text's visual hit — optionally led in by a whoosh, swipe, scratch,
@@ -87,7 +87,7 @@ const HOOKS: Layer[][] = [
   [H('boom_1', 'thump', 0.5), H('bass_drop_1', 'thump', 0.35, { gempakOnly: true })],
   [H('stamp_1', 'stamp', 0.55), H('boom_1', 'thump', 0.3, { delay: 1, gempakOnly: true })],
   [H('shutter_1', 'tick', 0.36), H('impact_2', 'thump', 0.52, { delay: 3 })],
-  [H('camera_1', 'tick', 0.36), H('whoosh_2', 'whoosh', 0.24, { delay: 2 }), H('impact_1', 'thump', 0.45, { delay: 5, gempakOnly: true })],
+  [H('camera_1', 'tick', 0.36), H('whoosh_2', 'whoosh', 0.24, { delay: 2 }), H('impact_1', 'thump', 0.45, { delay: 5 })],
   [H('rsfx_shutter', 'tick', 0.36), H('thud_1', 'thump', 0.5, { delay: 3 })],
   [H('transition_1', 'swoosh', 0.3), H('impact_1', 'thump', 0.52, { delay: 4 })],
   [H('transition_2', 'swoosh', 0.3), H('boom_1', 'thump', 0.45, { delay: 4 })],
@@ -97,6 +97,27 @@ const HOOKS: Layer[][] = [
   [H('impact_1', 'thump', 0.52), H('impact_2', 'thump', 0.42, { delay: 6 })],
   [H('thud_1', 'thump', 0.52), H('whoosh_4', 'whoosh', 0.24, { delay: 2 }), H('glitch_1', 'swoosh', 0.2, { delay: 4, gempakOnly: true })],
   [H('bass_drop_1', 'thump', 0.5), H('scratch_2', 'swoosh', 0.3, { delay: 3 })],
+  // 30–49 (AI Auto pool expansion) — keep in step with lib/motion-hook-sounds.ts
+  [H('glitch_2', 'swoosh', 0.26), H('boom_1', 'thump', 0.45, { delay: 3 })],
+  [H('glitch_1', 'swoosh', 0.26), H('stamp_1', 'stamp', 0.5, { delay: 3 })],
+  [H('whoosh_1', 'whoosh', 0.32), H('stamp_1', 'stamp', 0.5, { delay: 4 })],
+  [H('whoosh_2', 'whoosh', 0.3), H('thud_1', 'thump', 0.48, { delay: 4 })],
+  [H('whoosh_3', 'whoosh', 0.32), H('impact_2', 'thump', 0.5, { delay: 4 }), H('sparkle_1', 'sparkle', 0.2, { delay: 8, gempakOnly: true })],
+  [H('whoosh_5', 'whoosh', 0.32), H('boom_1', 'thump', 0.45, { delay: 4 })],
+  [H('rsfx_whoosh', 'whoosh', 0.3), H('thud_2', 'thump', 0.46, { delay: 4 })],
+  [H('rsfx_whip', 'swoosh', 0.32), H('impact_1', 'thump', 0.52, { delay: 3 })],
+  [H('swipe_1', 'swoosh', 0.3), H('stamp_1', 'stamp', 0.5, { delay: 3 })],
+  [H('swipe_2', 'swoosh', 0.3), H('boom_1', 'thump', 0.44, { delay: 3 })],
+  [H('slide_1', 'swoosh', 0.3), H('impact_2', 'thump', 0.5, { delay: 3 })],
+  [H('slide_2', 'swoosh', 0.3), H('thud_1', 'thump', 0.46, { delay: 3 })],
+  [H('scratch_1', 'swoosh', 0.4), H('stamp_1', 'stamp', 0.5, { delay: 4 })],
+  [H('confetti_1', 'sparkle', 0.36), H('impact_1', 'thump', 0.48)],
+  [H('ding_1', 'tick', 0.38), H('impact_2', 'thump', 0.48, { delay: 3 })],
+  [H('typing_1', 'tick', 0.32, { len: 20 }), H('impact_1', 'thump', 0.5, { delay: 6 })],
+  [H('camera_2', 'tick', 0.36), H('boom_1', 'thump', 0.44, { delay: 3 })],
+  [H('rsfx_page_turn', 'paper', 0.34), H('stamp_1', 'stamp', 0.5, { delay: 4 })],
+  [H('transition_1', 'swoosh', 0.3), H('bass_drop_1', 'thump', 0.45, { delay: 4 })],
+  [H('notify_2', 'pop', 0.4), H('thud_2', 'thump', 0.46, { delay: 3 })],
 ];
 
 /** A stable number from a video's own content — identical in every render
