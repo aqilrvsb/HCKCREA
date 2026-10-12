@@ -767,7 +767,11 @@ export async function failMotionRow(hist: Pick<HistoryRow, "id" | "user_id" | "m
       .eq("id", hist.id)
       .eq("status", "pending")
       .select("id");
-    return !!restored?.length;
+    if (!restored?.length) return false;
+    // a paid re-render gives back what it held
+    const held = Number(meta.reserved) || 0;
+    if (held > 0) await refundReserved(hist.user_id, "motion", held, hist.id);
+    return true;
   }
   const { data: flipped } = await admin
     .from("history")

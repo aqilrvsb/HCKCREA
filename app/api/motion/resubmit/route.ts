@@ -1,20 +1,20 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { MOTION_EDIT_MAX_SEC, motionStart, newPlanToken, siteUrl, type EditInput } from "@/lib/motion";
-import { motionGuardTouched } from "@/lib/motion-guard-summary";
+import { MOTION_EDIT_MAX_SEC, costFor, motionStart, newPlanToken, siteUrl, type EditInput } from "@/lib/motion";
+import { priceFor, refundReserved, reserveCredit } from "@/lib/deduct";
 import { styleEnergy } from "@/lib/motion-styles";
 
-// POST /api/motion/resubmit { id } — free, in-place re-render of a finished
-// Edit Video job that the old guideline mode spoiled (taped / muted / cut).
-// The SAME History card turns back into a live placeholder and gets the new
-// video (own file name — the first is cached immutable); nothing is charged
-// (rate 0), the card keeps what was paid the first time, and if the
-// re-render fails the card goes back to its previous video. Once per job.
+// POST /api/motion/resubmit { id, product } — in-place re-render of a finished
+// Edit Video job. The SAME History card turns back into a live placeholder and
+// gets the new video (own file name — the first is cached immutable); if the
+// re-render fails the card goes back to its previous video (and any credit
+// held for it is refunded). The first resubmit of a job is free, later ones
+// are charged like a new edit; an admin resubmitting a client's job is free.
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const MAX_RESUBMITS = 1;
+const FREE_RESUBMITS = 1;
 
 export async function POST(req: Request) {
   const sb = await createClient();
@@ -42,18 +42,24 @@ export async function POST(req: Request) {
   const input: EditInput = { ...oldInput, product };
   if (row.status !== "done") return NextResponse.json({ error: "Video ini belum siap." }, { status: 409 });
   const done = Number(meta.resubmits) || 0;
-  if (done >= MAX_RESUBMITS) return NextResponse.json({ error: "Video ini sudah dihantar semula." }, { status: 409 });
-  if (!motionGuardTouched(meta.guard)) {
-    return NextResponse.json({ error: "Video ini tidak ditampal / di-mute — tiada perlu hantar semula." }, { status: 400 });
-  }
+  const free = done < FREE_RESUBMITS || (!!me?.is_admin && row.user_id !== user.id);
+  const rate = free ? 0 : await priceFor(row.user_id, "motion", "motion");
+  const estimate = free ? 0 : costFor(Math.min(Number(oldInput.durationSec) || 0, MOTION_EDIT_MAX_SEC), rate);
 
   // Back to pending with a fresh plan token; the old result is kept so a failed
   // re-render can restore it. Old guard / plan / render data is dropped so the
   // new run's report isn't mixed with the old one.
-  const { guard: _g, plan: _p, render: _r, qa: _q, transcript: _t, poster_url: _pu, ...rest } = meta;
-  void _g; void _p; void _r; void _q; void _t;
+  const { guard: _g, plan: _p, render: _r, qa: _q, transcript: _t, poster_url: _pu, resubmit_error: _e, ...rest } = meta;
+  void _g; void _p; void _r; void _q; void _t; void _e;
   const planToken = newPlanToken();
   const n = done + 1;
+  if (estimate > 0 && !(await reserveCredit(row.user_id, "motion", estimate, id))) {
+    return NextResponse.json(
+      { error: `Kredit tidak mencukupi — perlu RM${estimate.toFixed(2)} untuk render semula.`, needed: estimate },
+      { status: 402 },
+    );
+  }
+  const refund = () => (estimate > 0 ? refundReserved(row.user_id, "motion", estimate, id) : Promise.resolve());
   const { data: flipped } = await admin
     .from("history")
     .update({
@@ -65,8 +71,8 @@ export async function POST(req: Request) {
         ...rest,
         input,
         stage: "queued",
-        rate: 0,
-        reserved: 0,
+        rate,
+        reserved: estimate,
         plan_token: planToken,
         resubmits: n,
         resubmit_started_at: new Date().toISOString(),
@@ -76,7 +82,10 @@ export async function POST(req: Request) {
     .eq("id", id)
     .eq("status", "done")
     .select("id");
-  if (!flipped?.length) return NextResponse.json({ error: "Video sedang diproses." }, { status: 409 });
+  if (!flipped?.length) {
+    await refund();
+    return NextResponse.json({ error: "Video sedang diproses." }, { status: 409 });
+  }
 
   const start = await motionStart({
     flow: "edit",
@@ -102,6 +111,7 @@ export async function POST(req: Request) {
   if (!start.ok) {
     // restore the card exactly as it was
     await admin.from("history").update({ status: "done", task_id: row.task_id, metadata: meta }).eq("id", id);
+    await refund();
     return NextResponse.json({ error: `Gagal mula render: ${start.error}` }, { status: 502 });
   }
   const { data: cur } = await admin.from("history").select("metadata").eq("id", id).maybeSingle();
