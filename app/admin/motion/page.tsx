@@ -62,29 +62,59 @@ type Peek = { src: string; poster: string | null; label: string; top: number; le
 
 /** Large 9:16 preview of a finished video, playing while the output thumbnail
  *  (or the preview itself) is hovered — one shared player, so sweeping the
- *  pointer down the column flips straight from video to video. Starts with
- *  sound when the viewer turned it on (falls back to muted if the browser
- *  blocks it). */
+ *  pointer down the column flips straight from video to video. Plays with
+ *  sound (unless turned off). Browsers only allow sound after the viewer has
+ *  clicked / pressed a key on the page once — until then it plays muted and
+ *  says so, and the first click anywhere turns the sound on. */
 function PeekVideo({ peek, sound, onSound, onEnter, onLeave }: {
   peek: Peek; sound: boolean; onSound: () => void; onEnter: () => void; onLeave: () => void;
 }) {
   const ref = useRef<HTMLVideoElement | null>(null);
+  const [blocked, setBlocked] = useState(false);
+  const unlockedAt = useRef(0); // the click that unlocked sound mustn't also toggle it off
   useEffect(() => {
     const v = ref.current;
     if (!v) return;
     v.muted = !sound;
-    v.play().catch(() => { v.muted = true; void v.play().catch(() => undefined); });
+    v.play().then(() => setBlocked(false)).catch(() => {
+      if (!sound) return;
+      setBlocked(true);
+      v.muted = true;
+      void v.play().catch(() => undefined);
+    });
   }, [peek.src, sound]);
+  // sound blocked: the first click / key press on the page unlocks it
+  useEffect(() => {
+    if (!blocked) return;
+    const unlock = () => {
+      const v = ref.current;
+      if (!v) return;
+      unlockedAt.current = Date.now();
+      v.muted = false;
+      v.play().then(() => setBlocked(false)).catch(() => { v.muted = true; });
+    };
+    window.addEventListener("pointerdown", unlock, { once: true, capture: true });
+    window.addEventListener("keydown", unlock, { once: true, capture: true });
+    return () => {
+      window.removeEventListener("pointerdown", unlock, { capture: true });
+      window.removeEventListener("keydown", unlock, { capture: true });
+    };
+  }, [blocked]);
   return (
     <div className="fixed z-[300] rounded-2xl overflow-hidden"
       style={{ top: peek.top, left: peek.left, width: peek.w, height: peek.h, background: "#000", border: "1px solid rgba(167,139,250,0.55)", boxShadow: "0 18px 50px rgba(0,0,0,0.6)" }}
       onMouseEnter={onEnter} onMouseLeave={onLeave}>
       <video ref={ref} src={peek.src} poster={peek.poster ?? undefined} playsInline loop preload="auto" className="w-full h-full object-contain" />
       <span className="absolute top-2 left-2 right-12 truncate text-[10px] font-bold text-white px-2 py-1 rounded-md" style={{ background: "rgba(0,0,0,0.55)" }}>{peek.label}</span>
-      <button type="button" onClick={onSound} title={sound ? "Tutup bunyi" : "Buka bunyi"}
+      <button type="button" onClick={() => { if (Date.now() - unlockedAt.current > 800) onSound(); }} title={sound ? "Tutup bunyi" : "Buka bunyi"}
         className="absolute top-2 right-2 w-8 h-8 rounded-full flex items-center justify-center text-white" style={{ background: "rgba(0,0,0,0.6)" }}>
-        {sound ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4" />}
+        {sound && !blocked ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4" />}
       </button>
+      {sound && blocked && (
+        <span className="absolute bottom-3 left-1/2 -translate-x-1/2 whitespace-nowrap text-[11px] font-bold text-white px-3 py-1.5 rounded-full" style={{ background: "rgba(0,0,0,0.7)" }}>
+          🔇 Klik sekali untuk bunyi
+        </span>
+      )}
     </div>
   );
 }
@@ -101,7 +131,8 @@ export default function AdminMotionPage() {
   // hover preview of the output video (desktop); the thumbnail still opens it in a new tab
   const [peek, setPeek] = useState<Peek | null>(null);
   const [sound, setSound] = useState(() => {
-    try { return typeof window !== "undefined" && localStorage.getItem("motion-monitor:sound") === "1"; } catch { return false; }
+    // on unless this viewer turned it off
+    try { return typeof window === "undefined" || localStorage.getItem("motion-monitor:sound") !== "0"; } catch { return true; }
   });
   const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const keepPeek = () => { if (hideTimer.current) clearTimeout(hideTimer.current); };
