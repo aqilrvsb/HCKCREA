@@ -26,6 +26,9 @@ type MotionRow = {
   reserved: number | null;
   duration: number | null;
   style: string | null;
+  /** AI Auto job: style is the director's pick; angle = its selling angle. */
+  auto?: boolean;
+  angle?: string | null;
   language: string | null;
   guardOn: boolean;
   uploads: number;
@@ -284,7 +287,11 @@ export default function AdminMotionPage() {
                   </td>
                   <td className="px-3 py-2 whitespace-nowrap">{r.duration === null ? "—" : `${Math.round(r.duration)}s`}{r.language ? <span className="block text-[10px] text-[var(--color-text-muted)]">{r.language.toUpperCase()}</span> : null}</td>
                   <td className="px-3 py-2 whitespace-nowrap">{r.status === "done" ? rm(r.cost) : r.status === "failed" ? "dipulangkan" : <span className="text-[var(--color-text-muted)]">tahan {rm(r.reserved)}</span>}</td>
-                  <td className="px-3 py-2 whitespace-nowrap">{look ? `${look.emoji} ${look.label}` : "—"}</td>
+                  <td className="px-3 py-2 whitespace-nowrap">
+                    {r.auto && <span className="text-[10px] font-bold mr-1" style={{ color: "#a78bfa" }} title="AI Auto — AI pilih gaya">🤖</span>}
+                    {look ? `${look.emoji} ${look.label}` : r.auto ? "AI Auto" : "—"}
+                    {r.angle && <span className="block text-[10px] text-[var(--color-text-muted)] max-w-[160px] truncate" title={r.angle}>{r.angle}</span>}
+                  </td>
                   <td className="px-3 py-2 min-w-[150px]">
                     {r.fallback ? <span className="font-bold text-red-400">Caption sahaja (plan gagal)</span>
                       : r.plan ? (

@@ -108,7 +108,9 @@ export const MotionEdit: React.FC<EditProps> = (p) => {
     // render chunk of the same video agrees
     const vseed = seedFrom(`${p.hook?.text ?? ''}|${(p.words ?? []).slice(0, 60).map((w) => w.w).join(' ')}|${durationInFrames}`);
     const events: SfxEvent[] = [];
-    if (p.hook?.text) events.push(...sfxFor('hook', 1, style, vseed));
+    // AI Auto names the hook sound itself; otherwise the video's seed picks one
+    const hookPick = Number.isInteger(p.hookSfx) && (p.hookSfx as number) >= 0 ? (p.hookSfx as number) : vseed;
+    if (p.hook?.text) events.push(...sfxFor('hook', 1, style, hookPick));
     placed.forEach((pl, k) => {
       const isRehook = p.rehook?.text && pl.it.t === 'tape' && pl.it.text === p.rehook.text;
       const ev: SfxEventName | undefined = isRehook ? 'rehook' : EVENT_FOR[pl.it.t];
@@ -122,7 +124,7 @@ export const MotionEdit: React.FC<EditProps> = (p) => {
       placed, slots, zooms, broll, impacts, sweeps, confetti, cutFrames, sfx: events, hookEnd,
       pages: cap.on ? toPages(p.words ?? [], Math.min(6, Math.max(1, cap.maxWords || 3))) : [],
     };
-  }, [p.words, p.overlays, p.zooms, p.hook, p.facts, p.rehook, p.cta, p.broll, p.faces, p.cuts, fps, durationInFrames,
+  }, [p.words, p.overlays, p.zooms, p.hook, p.facts, p.rehook, p.cta, p.broll, p.faces, p.cuts, p.hookSfx, fps, durationInFrames,
     cap.on, cap.maxWords, cap.style, capCenter, style, gempak]);
 
   // Jump-cut masking: every other segment is framed tighter (instant, like a

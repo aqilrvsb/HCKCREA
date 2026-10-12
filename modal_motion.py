@@ -1551,6 +1551,14 @@ def _flow_edit(p: dict, d: Path, srv: _Serve) -> dict:
         # captions only — still with the language-anchored spelling fixes
         plan, plan_fallback = {**_fallback_plan(), "fixes": late_fixes}, True
 
+    # AI Auto: the director chose the look (render energy), the music and the
+    # hook-opener sound from the video itself
+    auto = bool(p.get("auto"))
+    if auto and plan.get("energy") in ("gempak", "clean"):
+        style = plan["energy"]
+    music_on = plan.get("music") is True if auto else bool(p.get("music"))
+    hook_sfx = plan.get("hookSound") if isinstance(plan.get("hookSound"), int) else None
+
     # AI-corrected spelling for the captions (timing untouched, 1:1 by index)
     fixed = 0
     for fx in plan.get("fixes") or []:
@@ -1582,7 +1590,7 @@ def _flow_edit(p: dict, d: Path, srv: _Serve) -> dict:
         "sfx": bool(p.get("sfx", True)), "style": style, "faces": faces, "broll": broll,
         "facts": plan.get("facts") or [], "keywords": plan.get("keywords") or [], "rehook": plan.get("rehook"),
         "cta": plan.get("cta"), "lottie": lottie, "progress": style == "gempak",
-        "cuts": cut_marks,
+        "cuts": cut_marks, **({"hookSfx": hook_sfx} if hook_sfx is not None else {}),
     }
     guard_dbg = None
     if guard:
@@ -1596,7 +1604,7 @@ def _flow_edit(p: dict, d: Path, srv: _Serve) -> dict:
                      "risk": gspeech.get("risk"), "speech_via": gspeech.get("via"),
                      "texts": gres.get("texts"), "via": gres.get("via"),
                      "sec": gres.get("sec"), "broll": broll_guard, **({"error": gres["error"]} if gres.get("error") else {})}
-    if p.get("music") and words:
+    if music_on and words:
         _progress("music", 44)
         spans, cur = [], None
         for w in words:

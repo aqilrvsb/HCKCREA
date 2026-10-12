@@ -71,6 +71,11 @@ export async function POST(req: Request) {
             stickers: plan.overlays.filter((o) => o.t === "gif").map((o) => (o.src ? "giphy" : "emoji-fallback")),
             caption_fixes: fixes.slice(0, 40),
             uploads: input?.productImages?.length ?? 0,
+            // AI Auto: what the director chose for this video (admin monitor)
+            ...(plan.look ? {
+              look: plan.look, angle: plan.angle ?? null, hook_sound: plan.hookSound ?? null, music: plan.music ?? null,
+              mood: plan.mood, captions: plan.captions.style, accent: plan.accent,
+            } : {}),
           },
           transcript: words.map((w: any) => w.w).join(" ").slice(0, 4000),
         },

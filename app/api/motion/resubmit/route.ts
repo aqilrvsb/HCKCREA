@@ -109,6 +109,7 @@ export async function POST(req: Request) {
     music: input.music,
     sfx: input.sfx,
     max_sec: MOTION_EDIT_MAX_SEC,
+    auto: !!input.auto,
     out_suffix: `-r${n}`,
   });
   if (!start.ok) {

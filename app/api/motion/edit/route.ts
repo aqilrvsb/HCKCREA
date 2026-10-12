@@ -51,25 +51,29 @@ export async function POST(req: Request) {
   const product = str(b?.product, 80);
   if (!product) return NextResponse.json({ error: "Sila isi nama produk." }, { status: 400 });
 
+  // AI Auto: the director picks angle, look, colour, captions, hook sound and
+  // music from the video itself — the manual choices are ignored.
+  const auto = b?.auto === true;
   const input: EditInput = {
     videoUrl,
     durationSec,
     language: b?.language === "en" ? "en" : b?.language === "auto" ? "auto" : "ms",
-    instructions: str(b?.prompt ?? b?.instructions, 900) || undefined,
+    instructions: auto ? undefined : str(b?.prompt ?? b?.instructions, 900) || undefined,
     product,
     productImages,
-    captions: b?.captions !== false,
-    captionStyle: style,
-    captionPos: b?.caption_pos === "mid" ? "mid" : "low",
-    music: !!b?.music,
-    sfx: b?.sfx !== false,
-    accent: /^#[0-9a-f]{6}$/i.test(String(b?.accent || "")) ? String(b.accent) : undefined,
-    style: isMotionStyle(b?.style) ? b.style : "gempak",
+    captions: b?.captions !== false, // the one choice AI Auto leaves to the client
+    captionStyle: auto ? "pop" : style,
+    captionPos: auto ? "low" : b?.caption_pos === "mid" ? "mid" : "low",
+    music: auto ? false : !!b?.music,
+    sfx: auto || b?.sfx !== false,
+    accent: !auto && /^#[0-9a-f]{6}$/i.test(String(b?.accent || "")) ? String(b.accent) : undefined,
+    style: !auto && isMotionStyle(b?.style) ? b.style : "gempak",
     resolution: b?.resolution === "720" ? "720" : "1080",
     jumpcut: b?.jumpcut !== false,
     broll: b?.broll !== false,
     facts: b?.facts !== false,
     guard: b?.guard === true,
+    ...(auto ? { auto: true } : {}),
   };
   const projectId = b?.project_id ? String(b.project_id) : null;
 
@@ -137,6 +141,8 @@ export async function POST(req: Request) {
     music: input.music,
     sfx: input.sfx,
     max_sec: MOTION_EDIT_MAX_SEC,
+    // AI Auto: Modal takes energy, music and the hook sound from the plan
+    auto: !!input.auto,
   });
   if (!start.ok) {
     await admin.from("history").update({ status: "failed", error_message: start.error, cost: 0 }).eq("id", hist.id);

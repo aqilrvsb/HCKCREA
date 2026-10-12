@@ -206,6 +206,10 @@ export default function MotionTab({ projectId }: { projectId?: string }) {
   const broll = true;
   const facts = true;
   const [editPrompt, setEditPrompt] = useState(MOTION_EDIT_PRESETS[0]?.prompt ?? "");
+  // AI Auto (default): the AI watches the video and picks angle, look, colour,
+  // captions, hook sound and music itself; "Saya nak pilih sendiri" = manual
+  const [editAuto, setEditAuto] = useState(true);
+  const autoOn = mode === "edit" && editAuto;
   const [editImages, setEditImages] = useState<string[]>([]);
   // product name as it should be spelt — required; the AI uses it for captions
   const [editProduct, setEditProduct] = useState("");
@@ -358,8 +362,8 @@ export default function MotionTab({ projectId }: { projectId?: string }) {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
-              video_url: url, duration_sec: v.dur, language: editLang, prompt: editPrompt,
-              product: productName, product_images: editImages,
+              video_url: url, duration_sec: v.dur, language: editLang, prompt: editAuto ? undefined : editPrompt,
+              product: productName, product_images: editImages, auto: editAuto,
               captions, caption_style: captionStyle, caption_pos: captionPos, music: editMusic, sfx,
               accent: accent || undefined, project_id: projectId, style, resolution, jumpcut, broll, facts, guard,
             }),
@@ -437,7 +441,26 @@ export default function MotionTab({ projectId }: { projectId?: string }) {
                 )}
               </div>
             </div>
-            <PromptBox value={editPrompt} onChange={setEditPrompt} presets={presets} placeholder="cth. Jadikan video jualan beg kuning: hook kuat, tick setiap kelebihan, tutup dengan CTA tekan beg kuning." />
+            {editAuto ? (
+              <div className="rounded-xl p-3" style={{ background: THEME.faint, border: `1px solid ${THEME.soft}` }}>
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-xs font-extrabold text-[var(--color-text-primary)]">🤖 AI Auto — AI tonton video anda &amp; rancang semuanya</span>
+                  <button type="button" onClick={() => setEditAuto(false)} className="ml-auto text-[11px] font-bold underline" style={{ color: THEME.primary }}>
+                    Saya nak pilih sendiri
+                  </button>
+                </div>
+                <p className="text-[11px] text-[var(--color-text-secondary)] mt-1 leading-snug">
+                  Sudut jualan, gaya edit, warna, caption, sticker, bunyi hook &amp; muzik — AI fikir idea baru untuk setiap video, direka untuk tarik penonton &amp; masuk FYP.
+                </p>
+              </div>
+            ) : (
+              <>
+                <button type="button" onClick={() => setEditAuto(true)} className="text-[11px] font-bold underline" style={{ color: THEME.primary }}>
+                  🤖 Guna AI Auto (AI pilih semua)
+                </button>
+                <PromptBox value={editPrompt} onChange={setEditPrompt} presets={presets} placeholder="cth. Jadikan video jualan beg kuning: hook kuat, tick setiap kelebihan, tutup dengan CTA tekan beg kuning." />
+              </>
+            )}
             <GuardBox on={guard} onChange={setGuard} />
             <div>
               <label className={label}>Nama produk *</label>
@@ -544,8 +567,9 @@ export default function MotionTab({ projectId }: { projectId?: string }) {
           </div>
         )}
 
-        {/* shared style controls */}
+        {/* shared style controls (AI Auto decides all but the resolution) */}
         <div className="mt-5 pt-4 border-t space-y-3" style={{ borderColor: "var(--color-border)" }}>
+          {!autoOn && (
           <div>
             <span className={label}>Gaya edit</span>
             <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
@@ -564,11 +588,20 @@ export default function MotionTab({ projectId }: { projectId?: string }) {
               })}
             </div>
           </div>
+          )}
           <div className="flex flex-wrap gap-2 items-center">
             <span className={`${label} !mb-0 mr-1`}>Resolusi</span>
             <Chip active={resolution === "1080"} onClick={() => setResolution("1080")}>HD 1080p</Chip>
             <Chip active={resolution === "720"} onClick={() => setResolution("720")}>720p laju</Chip>
           </div>
+          {autoOn && (
+            // AI Auto: the client only says captions on / off — AI picks their style & place
+            <div className="flex flex-wrap gap-2 items-center">
+              <Toggle on={captions} onChange={setCaptions}>Caption</Toggle>
+            </div>
+          )}
+          {!autoOn && (
+          <>
           <div className="flex flex-wrap gap-2 items-center">
             <Toggle on={captions} onChange={setCaptions}>Caption</Toggle>
             {captions && (
@@ -604,6 +637,8 @@ export default function MotionTab({ projectId }: { projectId?: string }) {
                 className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" />
             </label>
           </div>
+          </>
+          )}
         </div>
 
         {error && (

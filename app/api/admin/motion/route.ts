@@ -79,7 +79,10 @@ export async function GET(req: Request) {
       cost: num(h.cost),
       reserved: num(m.reserved),
       duration: num(render?.duration_sec) ?? num(h.duration) ?? num(input.durationSec),
-      style: str(input.style),
+      // AI Auto: the look the director chose (null until it has planned)
+      auto: !!input.auto,
+      style: input.auto ? str(plan?.look) : str(input.style),
+      angle: input.auto ? str(plan?.angle) : null,
       language: str(input.language),
       guardOn: !!input.guard,
       uploads: Array.isArray(input.productImages) ? input.productImages.length : 0,

@@ -176,4 +176,6 @@ export type EditProps = {
   cuts?: number[];
   /** Final-QA tape patches in SCREEN space (found by OCR on the rendered video). */
   patchTapes?: TapeTrack[];
+  /** AI Auto: the hook-opener sound the director chose (index into sfx.ts HOOKS). */
+  hookSfx?: number;
 };

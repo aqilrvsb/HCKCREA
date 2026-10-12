@@ -125,6 +125,9 @@ export type EditInput = {
   facts?: boolean;
   /** "Check Guideline TikTok" — compliant copy, tape over risky printed text, mute risky words. */
   guard?: boolean;
+  /** AI Auto: the director decides angle, look, colour, captions, hook sound and
+   *  music from the video itself (style / caption / music / accent fields unused). */
+  auto?: boolean;
 };
 
 // ── config + Modal client ─────────────────────────────────────────────────────

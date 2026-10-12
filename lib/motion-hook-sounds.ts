@@ -1,0 +1,38 @@
+// The 30 hook-opener sounds the AI director can pick from in AI Auto mode —
+// what each one sounds like and what kind of hook it suits. Index = recipe
+// index in motion/src/sfx.ts (HOOKS); keep both lists in the same order.
+
+export const HOOK_SOUNDS: readonly string[] = [
+  "electric glitch + slam + bass drop — shocking, techy, hype",
+  "glitch punch — sharp, techy, fast",
+  "glitch into a thud — edgy, mysterious",
+  "glitch into a boom — dramatic reveal",
+  "whoosh slam — classic punchy opener",
+  "whoosh + hit — fast, energetic",
+  "whoosh into a boom — big, dramatic",
+  "whoosh + soft thud — smooth, clean, calm",
+  "whoosh into a bass drop — hype, Gen-Z",
+  "airy whoosh + slam — modern, clean",
+  "whip + stamp — bold statement, promo, deal",
+  "swipe + hit — snappy, quick tip",
+  "swipe + soft thud — light, casual chat",
+  "record scratch + slam — wait-what, plot twist",
+  "record scratch + boom — surprising confession",
+  "record scratch + thud — funny, relatable",
+  "boom + sparkle — premium reveal, beauty, glow",
+  "boom + bass drop — cinematic, heavy",
+  "stamp + boom — announcement, verdict, news",
+  "camera shutter + hit — review, proof, before/after",
+  "camera click + whoosh + hit — unboxing, first look",
+  "shutter + thud — clean honest review",
+  "transition sweep + slam — montage, day-in-life",
+  "transition sweep + boom — story turn",
+  "transition sweep + stamp — tutorial, step by step",
+  "notification ping + hit — listen up, tips, info",
+  "notification ping + boom — alert, news flash",
+  "double hit — aggressive hard sell, price shock",
+  "thud + whoosh + glitch — moody, edgy",
+  "bass drop + record scratch — street, hype, trend",
+];
+
+export const HOOK_SOUND_COUNT = HOOK_SOUNDS.length;

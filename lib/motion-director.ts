@@ -18,8 +18,9 @@ import {
   brandImagePool, dropExcluded, excludeOperators, findBrandSites, getSitePrefs, searchImages, searchWeb, type ImageHit, type WebHit,
 } from "@/lib/motion-search";
 import { searchClips, searchStickers } from "@/lib/motion-media";
-import { MOTION_MY_TIKTOK_GUIDE } from "@/lib/motion-prompts";
-import { motionStyle, type MotionStyleId } from "@/lib/motion-styles";
+import { MOTION_EDIT_PRESETS, MOTION_MY_TIKTOK_GUIDE } from "@/lib/motion-prompts";
+import { MOTION_STYLES, motionStyle, type MotionEnergy, type MotionStyleId } from "@/lib/motion-styles";
+import { HOOK_SOUNDS } from "@/lib/motion-hook-sounds";
 import { extractJson, cleanItemPublic, type EditInput, type MotionItem } from "@/lib/motion";
 import { GUARD_RULES, guardCensorWords, guardFixSlots, guardHits, guardStripQuery } from "@/lib/motion-guard";
 
@@ -49,7 +50,71 @@ export type EditPlanV2 = {
   /** TikTok guard: word indices the rules always mute (Modal adds the LLM's). */
   censor?: number[];
   guard?: { fixed: number; dropped: number };
+  // ── AI Auto only: what the director chose for this video ──
+  /** The selling angle it went for (≤6 words). */
+  angle?: string;
+  /** The look it picked, and its render energy. */
+  look?: MotionStyleId;
+  energy?: MotionEnergy;
+  /** Music bed or not (mood above). */
+  music?: boolean;
+  /** Hook-opener sound: index into HOOK_SOUNDS / the Remotion HOOKS recipes. */
+  hookSound?: number;
 };
+
+// ── AI Auto ──────────────────────────────────────────────────────────────────
+// The client picks nothing: the director reads the video and decides the
+// angle, look, colour, captions, hook sound and music itself — thought up
+// fresh for every video. Each call gets the menus in a new random order and a
+// random creative spark (plus a higher temperature), so no two generations
+// come out the same.
+
+const SPARKS = [
+  "myth vs fact", "POV — the viewer is the one with the problem", "a question the viewer can't scroll past",
+  "price shock (only with a price that is spoken)", "3 reasons, counted on screen", "the mistake everyone makes",
+  "secret / hidden detail reveal", "before → after contrast (only what is actually shown or said)", "reply-to-a-comment energy",
+  "news-flash urgency", "day-in-the-life montage feel", "honest verdict stamp", "plot twist in the middle",
+  "checklist race", "ingredient / feature spotlight", "challenge the viewer", "storytime with a cliffhanger re-hook",
+  "hot take opener", "quiz — guess before the answer", "first-impression reaction",
+];
+
+const shuffle = <T,>(a: readonly T[]): T[] => {
+  const out = [...a];
+  for (let i = out.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [out[i], out[j]] = [out[j], out[i]];
+  }
+  return out;
+};
+const firstSentence = (s: string) => (s.split(/(?<=[.!?:])\s/)[0] || s).slice(0, 150);
+
+/** The AUTO section of the director prompt — menus shuffled, one random spark. */
+function autoBrief(): string {
+  const looks = shuffle(MOTION_STYLES).map((l) =>
+    `- ${l.id} (${l.label}: ${l.desc}) — ${l.edit} Palette: ${l.palette}. Max gap ${l.maxGap} s. Music mood: ${l.mood}.`).join("\n");
+  const angles = shuffle(MOTION_EDIT_PRESETS).map((a) => `- ${a.label.replace(/^\P{L}+/u, "")}: ${firstSentence(a.prompt)}`).join("\n");
+  const sounds = shuffle(HOOK_SOUNDS.map((s, i) => `${i} = ${s}`)).join("\n");
+  const spark = SPARKS[Math.floor(Math.random() * SPARKS.length)];
+  return `AI AUTO — YOU ARE THE CREATIVE DIRECTOR AND THE EDITOR. The client chose nothing: read the WHOLE transcript first, understand the product, the speaker's energy and what actually happens in the video, then decide EVERYTHING yourself. Goal: stop the scroll, keep people watching to the end, push the beg kuning — and beat what a skilled human TikTok editor would make of this footage, so it has its best shot at the For You Page.
+Decide, in this order:
+1. "angle": the selling angle that fits what the speaker really does (pick from ANGLES or invent a better one) — ≤6 words.
+2. "look": the id from LOOKS that suits the product, the speaker's energy and the angle. Then follow that look's pace rules and choose "accent" from its palette.
+3. "captions": {"style": "pop" | "karaoke" | "box" | "tiktok", "pos": "low" | "mid"} — "mid" only when hands / the product fill the bottom of the frame (ignored when the client switched captions off).
+4. "hook_sound": the index from HOOK SOUNDS whose feel matches the hook (it plays as the hook text lands).
+5. "music": true when a music bed lifts it (selling energy, montage feel, light talk with breathing gaps); false when the voice must carry it alone (emotional story, dense fast talk, ASMR, a detailed tutorial). "mood" sets its feel.
+6. Then the edit itself — hook, stickers, B-roll, zooms, keywords, re-hook, CTA — built around the angle.
+FYP CRAFT: the first 1.5 s decides — hook text, hook sound and the first visual hit land together on the strongest promise in the video; something new on screen at the chosen look's pace; a pattern interrupt around the middle; end on the beg kuning CTA. Every sticker earns its place — no clutter, never cover the face for long.
+THINK IT UP FRESH: treat this video as a brand-new creative brief — no default template, no safe go-to look, no stock hook line. Find the idea that is special about THIS footage and build the whole edit around it. Creative spark for this edit: "${spark}" — use it for one signature move only if it fits the content honestly; ignore it if it doesn't.
+
+LOOKS (id — feel — pace rules — palette — max gap — music mood):
+${looks}
+
+ANGLES:
+${angles}
+
+HOOK SOUNDS (index = sound — suits):
+${sounds}`;
+}
 
 const HEX = /^#[0-9a-f]{6}$/i;
 const EDIT_CUE = /^w\d{1,4}(?:\$)?(?:[+-]\d{0,2}(?:\.\d+)?)?$/i;
@@ -60,17 +125,21 @@ const clean = (s: unknown, max: number) => String(s ?? "").replace(/\s+/g, " ").
 // should prefer these so stickers and caption emoji move.
 const ANIMATED_EMOJI = "🔥 😱 🤯 😍 🥰 😂 🤣 😭 😋 🤩 😎 🤔 👀 👍 👏 🙏 💪 🎉 💯 ✅ ❤️ ✨ ⭐ 🚀 ⚡ 💥 🥳 🎁 ⏰ 🛒 😮 🤑 👇 👉 💡";
 
-export const DIRECTOR_SYSTEM = (style: MotionStyleId, guard = false) => {
+/** `auto` = the AI Auto brief (autoBrief()); without it the client's chosen style rules. */
+export const DIRECTOR_SYSTEM = (style: MotionStyleId, guard = false, auto?: string) => {
   const look = motionStyle(style);
+  const maxGap = auto ? "the chosen look's max gap" : `${look.maxGap} s`;
   return `You are PeningLab's TikTok video DIRECTOR. A Malaysian seller/creator uploaded their own talking video. You get its timed transcript and plan a professional short-form edit on top of it: hook, word-synced motion graphics, web B-roll cutaways, fact cards, punch-in zooms, keyword-coloured captions, a re-hook and the beg-kuning CTA. Captions are rendered automatically — you only choose which words get a colour/emoji.
 
 ${MOTION_MY_TIKTOK_GUIDE}
 
-STYLE = ${look.label.toUpperCase()} — ${look.edit}
-Colour palette for this style: ${look.palette} — choose "accent" from it. Music "mood": usually "${look.mood}".
+${auto ?? `STYLE = ${look.label.toUpperCase()} — ${look.edit}
+Colour palette for this style: ${look.palette} — choose "accent" from it. Music "mood": usually "${look.mood}".`}
 
 Return ONLY one JSON object:
-{
+{${auto ? `
+  "angle": string (≤6 words), "look": LOOK id, "hook_sound": HOOK SOUND index, "music": true | false,
+  "captions": {"style": "pop" | "karaoke" | "box" | "tiktok", "pos": "low" | "mid"},` : ""}
   "brand": string | null (the product / brand name as spoken or given, e.g. "Gluvera" — used to find the product's own website photos),
   "hook": {"text": string (≤5 words), "sub"?: string (≤5 words)} | null,
   "accent": "#RRGGBB",
@@ -101,12 +170,12 @@ RULES
 - Every overlay sits on the word it illustrates. Max 2 overlays on screen at once. Zones: top = headline/tag/tape/callout/arrow/fact area; bottom = chips/checks/cta (just above captions); middle = bigword/emoji/stamp/price only, briefly (don't cover the face for long).
 - B-ROLL: pick moments where the speaker names something visual — the product, an ingredient, a place, a body part, an object, a brand, a problem. "query" = what to search on Google Images (English or Malay, specific). For shots of the product itself (box, packshot, the item in use) START the query with the brand name (e.g. "Gluvera patch box") — those come from the brand's own website first; for generic shots (a body part, an object, a place) leave the brand out. 1 B-roll every 6–10 s, each 1.5–3 s; "full" for the product / big reveals, "pip" (card over the upper half) otherwise. Never during the first 1.5 s or the CTA. "kind": "photo" for the product itself (its own website photos), "video" for a moving stock clip of a generic action or scene (someone sticking a patch on an arm, drinking water, walking, cooking) — the query for a video is plain English ("woman applying patch on arm"), never a brand.
 - Mix the tools — a pro edit uses variety: circle / underline the key words, a point toward the product or the beg kuning, 0–2 gif reactions, 0–2 confetti, not the same sticker type twice in a row. The STYLE line wins over these defaults (a style that says "no emoji" / "no confetti" means none).
-- SPREAD the edit over the WHOLE runtime: the middle and the last third get as many overlays as the opening — never more than ${look.maxGap} s without a new overlay or B-roll (zooms alone don't count). Viewers drop off in the middle; that's where a callout, circle, check or re-hook keeps them.
+- SPREAD the edit over the WHOLE runtime: the middle and the last third get as many overlays as the opening — never more than ${maxGap} without a new overlay or B-roll (zooms alone don't count). Viewers drop off in the middle; that's where a callout, circle, check or re-hook keeps them.
 - FACTS: 0–2 per video, only for checkable, non-medical background facts the speaker mentions (what an ingredient is, how something works in general, a brand/origin fact). "query" = a Google search that would confirm it. NEVER health/medical/cure/efficacy, price or "best/No.1" claims.
 - KEYWORDS: 1 per caption page at most; colour product/brand names (brand), benefits (benefit), prices/numbers (price), problems (pain); add an emoji on ≤ 1 in 3.
 - RE-HOOK: one, around 40–60 % of the runtime, only if the video is > 25 s ("Tapi tunggu…", "Ni paling penting…").
 - CTA: only if the video sells something; place it on the last sentence (final 3–5 s). Use "Tekan beg kuning" unless the speaker says another CTA.
-- Never invent prices, ratings, sales numbers, stock levels, claims or facts. Follow the CLIENT PROMPT (it overrides style choices, never the honesty rules).${guard ? `
+- Never invent prices, ratings, sales numbers, stock levels, claims or facts — no angle, look or spark changes that. Follow the CLIENT PROMPT (it overrides style choices, never the honesty rules).${guard ? `
 
 ${GUARD_RULES}
 Risky spoken words are muted and taped in the captions automatically — never quote them on screen, never colour them as keywords, and steer the hook / stickers / re-hook to safe angles (how to use, convenience, routine, personal experience, price, beg kuning).` : ""}`;
@@ -119,10 +188,14 @@ export async function directEdit(opts: {
   hasFace?: boolean;
 }): Promise<EditPlanV2> {
   const { words, duration, input } = opts;
+  const auto = !!input.auto;
+  const brief = auto ? autoBrief() : undefined;
   // The seller's own product photos (uploaded with the video): product shots
   // come ONLY from them; generic shots still come from Google (brand-free).
   const uploads = (input.productImages ?? []).filter((u) => /^https:\/\//.test(u)).slice(0, 5);
   const style = motionStyle(input.style).id;
+  // AI Auto: the plan is checked against the look the director chose itself
+  const lookOf = (raw: { look?: unknown } | null | undefined): MotionStyleId => (auto ? motionStyle(raw?.look).id : style);
   const transcript = words.slice(0, 1400).map((w) => `${w.i}@${w.t.toFixed(2)} ${w.w}`).join("\n");
   const userPrompt =
     `VIDEO: ${duration.toFixed(1)} s, ${words.length} words, language ${input.language}. Face on screen: ${opts.hasFace === false ? "no" : "yes"}.\n` +
@@ -144,9 +217,9 @@ export async function directEdit(opts: {
   for (let attempt = 0; attempt < 2 && !raw; attempt++) {
     const r = await orChat({
       modelKey: "model_motion",
-      systemPrompt: DIRECTOR_SYSTEM(style, !!input.guard),
+      systemPrompt: DIRECTOR_SYSTEM(style, !!input.guard, brief),
       userPrompt: attempt === 0 ? userPrompt : `${userPrompt}\n\nYour previous answer was not valid JSON (${lastErr}). Return ONLY the JSON object.`,
-      temperature: 0.7,
+      temperature: auto ? 0.9 : 0.7, // AI Auto: fresher ideas from video to video
       maxTokens: 7000,
       // GRSAI latency swings (same prompt: 25 s on a flash model, 72 … 200 s on
       // the GPT ones). No answer in 40 s → the next model races alongside; the
@@ -155,7 +228,7 @@ export async function directEdit(opts: {
       timeoutMs: 150_000,
       hedgeAfterMs: 40_000,
       validate: (c) => {
-        try { validateDirectorPlan(extractJson(c), words.length, duration, input, style); return true; } catch { return false; }
+        try { const j = extractJson(c); validateDirectorPlan(j, words.length, duration, input, lookOf(j), auto); return true; } catch { return false; }
       },
       ...(end ? { deadline: end - ENRICH_RESERVE } : {}),
       stream: true,
@@ -165,7 +238,7 @@ export async function directEdit(opts: {
   }
   if (!raw) throw new Error(`Director failed: ${lastErr}`);
 
-  const plan = validateDirectorPlan(raw, words.length, duration, input, style);
+  const plan = validateDirectorPlan(raw, words.length, duration, input, lookOf(raw), auto);
   const guard = !!input.guard;
   if (guard) await guardEditPlan(plan, words, input).catch(() => undefined);
 
@@ -266,8 +339,21 @@ const capPerType = (caps: Record<string, number>) => {
   };
 };
 
-export function validateDirectorPlan(raw: any, nWords: number, duration: number, input: EditInput, style: MotionStyleId): EditPlanV2 & { broll: BRollPlan[] } {
+const CAPTION_STYLES = new Set(["pop", "karaoke", "box", "tiktok"]);
+
+export function validateDirectorPlan(raw: any, nWords: number, duration: number, input: EditInput, style: MotionStyleId, auto = false): EditPlanV2 & { broll: BRollPlan[] } {
   const look = motionStyle(style);
+  // AI Auto: captions, music and the hook sound are the director's call too
+  const capStyle = auto && CAPTION_STYLES.has(raw?.captions?.style) ? raw.captions.style as EditPlanV2["captions"]["style"] : input.captionStyle;
+  const capPos = auto ? (raw?.captions?.pos === "mid" ? "mid" : "low") : input.captionPos;
+  const hs = Number(raw?.hook_sound);
+  const autoPicks: Partial<EditPlanV2> = auto ? {
+    angle: clean(raw?.angle, 60) || undefined,
+    look: look.id,
+    energy: look.energy,
+    music: typeof raw?.music === "boolean" ? raw.music : look.energy === "gempak",
+    hookSound: Number.isInteger(hs) && hs >= 0 && hs < HOOK_SOUNDS.length ? hs : Math.floor(Math.random() * HOOK_SOUNDS.length),
+  } : {};
   const maxOverlays = Math.max(3, Math.ceil(duration / look.overlayEvery));
   const overlays = (Array.isArray(raw?.overlays) ? raw.overlays : [])
     .map((it: any) => cleanItemPublic(it, EDIT_CUE))
@@ -314,7 +400,8 @@ export function validateDirectorPlan(raw: any, nWords: number, duration: number,
     hook: hookText && duration >= 5 ? { text: hookText, ...(raw?.hook?.sub ? { sub: clean(raw.hook.sub, 40) } : {}) } : null,
     accent,
     mood: MOODS.has(raw?.mood) ? raw.mood : look.mood,
-    captions: { on: input.captions, style: input.captionStyle, pos: input.captionPos, maxWords: input.captionStyle === "karaoke" ? 4 : 3 },
+    captions: { on: input.captions, style: capStyle, pos: capPos, maxWords: capStyle === "karaoke" ? 4 : 3 },
+    ...autoPicks,
     overlays,
     zooms,
     broll,
