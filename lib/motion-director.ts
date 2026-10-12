@@ -10,7 +10,7 @@
 //   4. qaPatch(): vision review of rendered stills → small JSON patch.
 // Every step is fail-soft: a failure drops that enrichment, never the job.
 
-import { orChat, orChatVision } from "@/lib/openrouter";
+import { currentDeadline, orChat, orChatVision } from "@/lib/openrouter";
 import {
   brandImagePool, dropExcluded, excludeOperators, findBrandSites, getSitePrefs, searchImages, searchWeb, type ImageHit, type WebHit,
 } from "@/lib/motion-search";
@@ -123,6 +123,9 @@ export async function directEdit(opts: {
     (input.facts === false ? "FACTS: disabled — return \"facts\": [].\n" : "") +
     `\nTRANSCRIPT (index@seconds word):\n${transcript || "(no speech detected)"}\n\nDirect the edit now. JSON only.`;
 
+  // Inside the plan route's withDeadline(): the director may use the budget
+  // minus ENRICH_RESERVE, so guard / B-roll / facts always get their turn.
+  const end = currentDeadline();
   let raw: any = null;
   let lastErr = "";
   for (let attempt = 0; attempt < 2 && !raw; attempt++) {
@@ -132,9 +135,16 @@ export async function directEdit(opts: {
       userPrompt: attempt === 0 ? userPrompt : `${userPrompt}\n\nYour previous answer was not valid JSON (${lastErr}). Return ONLY the JSON object.`,
       temperature: 0.7,
       maxTokens: 7000,
-      // GRSAI latency swings (same job: 72 s … 162 s). 100 s per model, then the
-      // cascade moves on, so the whole plan stays inside the job's 290 s budget.
-      timeoutMs: 100_000,
+      // GRSAI latency swings (same prompt: 25 s on a flash model, 72 … 200 s on
+      // the GPT ones). No answer in 40 s → the next model races alongside; the
+      // first USABLE plan wins (a truncated / non-JSON answer keeps the race
+      // going), and nothing runs past the plan's deadline.
+      timeoutMs: 150_000,
+      hedgeAfterMs: 40_000,
+      validate: (c) => {
+        try { validateDirectorPlan(extractJson(c), words.length, duration, input, style); return true; } catch { return false; }
+      },
+      ...(end ? { deadline: end - ENRICH_RESERVE } : {}),
       stream: true,
     });
     if (!r.ok || !r.content) { lastErr = r.error || "empty"; continue; }
@@ -151,14 +161,25 @@ export async function directEdit(opts: {
     .map((f) => (guard ? { ...f, query: guardStripQuery(f.query) } : f))
     .filter((f) => !guard || (f.query.length >= 3 && guardHits(f.topic).length === 0));
   const [broll, facts] = await Promise.all([
-    input.broll === false ? Promise.resolve([] as BRollPlan[]) : enrichBroll(plan.broll, guard, plan.brand, input.product).catch(() => [] as BRollPlan[]),
-    input.facts === false ? Promise.resolve([] as FactPlan[]) : writeFacts(factMoments, words).catch(() => [] as FactPlan[]),
-    resolveStickers(plan.overlays, guard).catch(() => undefined),
+    input.broll === false ? Promise.resolve([] as BRollPlan[]) : byDeadline(enrichBroll(plan.broll, guard, plan.brand, input.product), [] as BRollPlan[]),
+    input.facts === false ? Promise.resolve([] as FactPlan[]) : byDeadline(writeFacts(factMoments, words), [] as FactPlan[]),
+    byDeadline(resolveStickers(plan.overlays, guard), undefined),
   ]);
   // A B-roll card label that repeats a sticker ("Cara guna" twice) is dropped.
   const said = new Set(plan.overlays.map((o) => String(o.text || "").toLowerCase().replace(/[^a-z0-9]/g, "")).filter(Boolean));
   const dedupedBroll = broll.map((b) => (b.label && said.has(b.label.toLowerCase().replace(/[^a-z0-9]/g, "")) ? { ...b, label: undefined } : b));
   return { ...plan, broll: dedupedBroll, facts: guard ? facts.filter((f) => guardHits(f.text).length === 0) : facts };
+}
+
+/** Time kept for guard + B-roll + facts after the director answers. */
+const ENRICH_RESERVE = 90_000;
+
+/** A fail-soft enrichment step, given up (→ fallback) when the plan deadline arrives. */
+function byDeadline<T>(p: Promise<T>, fallback: T): Promise<T> {
+  const safe = p.catch(() => fallback);
+  const end = currentDeadline();
+  if (!end) return safe;
+  return Promise.race([safe, new Promise<T>((res) => setTimeout(() => res(fallback), Math.max(0, end - Date.now() - 2000)))]);
 }
 
 // ── animated stickers ────────────────────────────────────────────────────────
@@ -403,6 +424,7 @@ async function visionPick(items: { m: BRollPlan; hits: ImageHit[] }[], guard = f
     temperature: 0.2,
     maxTokens: 400,
     timeoutMs: 60_000,
+    hedgeAfterMs: 25_000,
     stream: true,
   });
   if (!r.ok || !r.content) return null;
@@ -427,6 +449,7 @@ async function writeFacts(moments: { at: Cue; to?: Cue; query: string; topic: st
     temperature: 0.2,
     maxTokens: 900,
     timeoutMs: 60_000,
+    hedgeAfterMs: 25_000,
     stream: true,
   });
   if (!r.ok || !r.content) return [];
@@ -464,6 +487,7 @@ export async function qaPatch(opts: {
     temperature: 0.2,
     maxTokens: 700,
     timeoutMs: 90_000,
+    hedgeAfterMs: 40_000,
     stream: true,
   });
   if (!r.ok || !r.content) return null;

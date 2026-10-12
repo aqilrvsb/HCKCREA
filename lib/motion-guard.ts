@@ -123,6 +123,10 @@ You get the transcript as indexed words. Return:
 ${RISK_RULE}
 Answer ONLY JSON: {"cut": [[a,b],...], "censor": [...], "risk": {...}}`;
 
+// Guard calls are short; when the guard model hasn't answered in this long
+// the next one in its cascade races alongside (GRSAI latency swings).
+export const GUARD_HEDGE_MS = 20_000;
+
 /** Spoken-transcript compliance pass (before the jump cut). */
 export async function guardSpeech(opts: { words: { i: number; w: string }[]; product?: string }): Promise<{ cut: [number, number][]; censor: number[]; risk: ProductRisk | null } | null> {
   const words = opts.words.slice(0, 3000);
@@ -136,6 +140,7 @@ export async function guardSpeech(opts: { words: { i: number; w: string }[]; pro
     temperature: 0,
     maxTokens: 2500,
     timeoutMs: 45_000,
+    hedgeAfterMs: GUARD_HEDGE_MS,
     stream: true,
   });
   if (!r.ok || !r.content) return null;
@@ -162,6 +167,7 @@ export async function guardClassify(opts: { kind: string; texts: string[]; produ
     temperature: 0,
     maxTokens: 1200,
     timeoutMs: 45_000,
+    hedgeAfterMs: GUARD_HEDGE_MS,
     stream: true,
   });
   if (!r.ok || !r.content) return null;
@@ -178,6 +184,7 @@ export async function guardProductRisk(brief: string): Promise<ProductRisk | nul
     temperature: 0,
     maxTokens: 300,
     timeoutMs: 30_000,
+    hedgeAfterMs: GUARD_HEDGE_MS,
     stream: true,
   }).catch(() => null);
   const j = r?.ok && r.content ? parseJson(r.content) : null;
@@ -197,6 +204,7 @@ export async function guardRewrite(texts: string[], product?: string): Promise<(
     temperature: 0.3,
     maxTokens: 2000,
     timeoutMs: 40_000,
+    hedgeAfterMs: GUARD_HEDGE_MS,
     stream: true,
   }).catch(() => null);
   const j = r?.ok && r.content ? parseJson(r.content) : null;

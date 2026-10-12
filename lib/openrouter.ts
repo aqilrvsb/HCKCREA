@@ -17,8 +17,28 @@
 // Both expose the OpenAI-compatible POST /v1/chat/completions endpoint.
 // Add a new provider by extending callProvider() below.
 
+import { AsyncLocalStorage } from "node:async_hooks";
 import { getSettings } from "@/lib/settings";
 import { createAdminClient } from "@/lib/supabase/admin";
+
+// Wall-clock deadline (epoch ms) for every orChat / orChatVision call made
+// inside withDeadline(): each cascade attempt gets at most the time left and
+// the cascade stops once it's gone — so a route with a hard platform limit
+// (Vercel maxDuration) fails soft instead of being killed mid-request.
+const deadlineStore = new AsyncLocalStorage<number>();
+export function withDeadline<T>(at: number, fn: () => Promise<T>): Promise<T> {
+  return deadlineStore.run(at, fn);
+}
+/** The active withDeadline() deadline (epoch ms), if any. */
+export function currentDeadline(): number | undefined {
+  return deadlineStore.getStore();
+}
+const MIN_ATTEMPT_MS = 4000;
+const attemptBudget = (timeoutMs: number | undefined, end: number): number | undefined => {
+  if (!Number.isFinite(end)) return timeoutMs;
+  const left = end - Date.now();
+  return timeoutMs ? Math.min(timeoutMs, left) : left;
+};
 
 export type Provider = "openrouter" | "grsai";
 
@@ -167,6 +187,8 @@ async function callProvider(opts: {
   key: string;
   /** Abort this one attempt after N ms so the cascade can move on (opt-in). */
   timeoutMs?: number;
+  /** External abort (a hedged cascade cancels the losers). */
+  signal?: AbortSignal;
   /** SSE streaming (opt-in). Long generations through Grsai's gateway get a
    *  502 after ~60 s when not streamed; streaming keeps the connection alive. */
   stream?: boolean;
@@ -185,6 +207,9 @@ async function callProvider(opts: {
     messages.push({ role: "user", content: opts.userPrompt });
   }
 
+  const signals = [opts.timeoutMs ? AbortSignal.timeout(opts.timeoutMs) : null, opts.signal ?? null]
+    .filter((x): x is AbortSignal => !!x);
+  const signal = signals.length > 1 ? AbortSignal.any(signals) : signals[0];
   let res: Response;
   try {
     res = await fetch(`${opts.base}/chat/completions`, {
@@ -200,7 +225,7 @@ async function callProvider(opts: {
         max_tokens: opts.maxTokens ?? 4000,
         stream: !!opts.stream,
       }),
-      ...(opts.timeoutMs ? { signal: AbortSignal.timeout(opts.timeoutMs) } : {}),
+      ...(signal ? { signal } : {}),
     });
   } catch (e: any) {
     return { ok: false, error: `${opts.provider} network error: ${e?.message || "fetch failed"}` };
@@ -280,6 +305,88 @@ export async function providerCreds(
   return { base: "", key: "" };
 }
 
+type ChatResult = { ok: boolean; content?: string; finishReason?: string; error?: string };
+
+// Walk a cascade of model slots. Default: one after another. With
+// hedgeAfterMs (for providers whose latency swings): whenever no running
+// attempt has answered for that long — or one fails — the next slot starts
+// alongside; the first success wins and the rest are aborted. Either way each
+// attempt gets at most timeoutMs and nothing runs past the deadline.
+async function runCascade(
+  slots: ProviderSlot[],
+  attempt: (slot: ProviderSlot, timeoutMs: number | undefined, signal?: AbortSignal) => Promise<ChatResult>,
+  o: {
+    timeoutMs?: number; deadline?: number; hedgeAfterMs?: number; trace?: CascadeAttempt[]; fallbackError: string;
+    validate?: (content: string) => boolean;
+  },
+): Promise<ChatResult> {
+  const end = Math.min(o.deadline ?? Infinity, currentDeadline() ?? Infinity);
+  const record = (slot: ProviderSlot, r: ChatResult, t0: number) =>
+    o.trace?.push({ provider: slot.provider, model: slot.model, ok: r.ok, error: r.ok ? undefined : r.error, ms: Date.now() - t0 });
+  const run = (slot: ProviderSlot, signal?: AbortSignal) =>
+    attempt(slot, attemptBudget(o.timeoutMs, end), signal)
+      .then((r): ChatResult => (r.ok && o.validate && !o.validate(r.content ?? "")
+        ? { ok: false, error: `${slot.model}: unusable output (finish_reason=${r.finishReason || "unknown"})` }
+        : r))
+      .catch((e: any): ChatResult => ({ ok: false, error: e?.message || "call failed" }));
+
+  if (!o.hedgeAfterMs) {
+    let lastError = o.fallbackError;
+    for (const slot of slots) {
+      if (end - Date.now() < MIN_ATTEMPT_MS) return { ok: false, error: `deadline reached (${lastError})` };
+      const t0 = Date.now();
+      const r = await run(slot);
+      record(slot, r, t0);
+      if (r.ok) return r;
+      lastError = r.error || lastError;
+    }
+    return { ok: false, error: lastError };
+  }
+
+  // The same model twice in one race only doubles the wait.
+  const seen = new Set<string>();
+  const queue = slots.filter((x) => !seen.has(`${x.provider}:${x.model}`) && !!seen.add(`${x.provider}:${x.model}`));
+  return new Promise<ChatResult>((resolve) => {
+    const ctrls: AbortController[] = [];
+    let next = 0;
+    let running = 0;
+    let settled = false;
+    let lastError = o.fallbackError;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const finish = (r: ChatResult) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      for (const c of ctrls) c.abort();
+      resolve(r);
+    };
+    const launch = () => {
+      clearTimeout(timer);
+      if (settled) return;
+      if (next >= queue.length || end - Date.now() < MIN_ATTEMPT_MS) {
+        if (next < queue.length) lastError = `deadline reached (${lastError})`;
+        if (running === 0) finish({ ok: false, error: lastError });
+        return;
+      }
+      const slot = queue[next++];
+      const ctrl = new AbortController();
+      ctrls.push(ctrl);
+      running++;
+      const t0 = Date.now();
+      void run(slot, ctrl.signal).then((r) => {
+        running--;
+        if (settled) return;
+        record(slot, r, t0);
+        if (r.ok) return finish(r);
+        lastError = r.error || lastError;
+        launch(); // a failure brings the next model in right away
+      });
+      if (next < queue.length) timer = setTimeout(launch, o.hedgeAfterMs);
+    };
+    launch();
+  });
+}
+
 export async function orChat(opts: {
   // Per-feature model keys. Admin can configure each one independently
   // in /admin/settings, OR leave them empty to fall back to model_auto.
@@ -327,6 +434,14 @@ export async function orChat(opts: {
   maxTokens?: number;
   /** Per-attempt timeout (ms) — a slow model falls through to the next one. */
   timeoutMs?: number;
+  /** Whole-cascade deadline (epoch ms); also capped by withDeadline(). */
+  deadline?: number;
+  /** Hedged cascade: when no model has answered for this long, the next one
+   *  starts alongside; first success wins (see runCascade). */
+  hedgeAfterMs?: number;
+  /** Reject an answer (e.g. not parseable JSON) — counts as that model failing,
+   *  so the cascade / race carries on instead of returning it. */
+  validate?: (content: string) => boolean;
   /** Stream the completion (see callProvider). */
   stream?: boolean;
   /** Tag for the admin Usage Chat log. When set, every cascade attempt
@@ -389,47 +504,40 @@ export async function orChat(opts: {
   // Walk the layers in order, trying main → fallbacks[0] → fallbacks[1]
   // → ... on each layer. Stop at the first success. If every attempt
   // fails return the last error so the caller surfaces something concrete.
-  let lastError = "All providers exhausted";
   const trace: CascadeAttempt[] = [];
-  for (const layer of layers) {
-    const chain: ProviderSlot[] = [layer.main, ...layer.fallbacks];
-    for (const slot of chain) {
+  const r = await runCascade(
+    layers.flatMap((l) => [l.main, ...l.fallbacks]),
+    async (slot, timeoutMs, signal) => {
       const { base, key } = await providerCreds(slot.provider, s);
-      const t0 = Date.now();
-      const r = await callProvider({
+      return callProvider({
         provider: slot.provider,
         model: slot.model,
         systemPrompt: opts.systemPrompt,
         userPrompt: opts.userPrompt,
         temperature: opts.temperature,
         maxTokens: opts.maxTokens,
-        timeoutMs: opts.timeoutMs,
+        timeoutMs,
+        signal,
         stream: opts.stream,
         base, key,
       });
-      trace.push({
-        provider: slot.provider,
-        model: slot.model,
-        ok: r.ok,
-        error: r.ok ? undefined : r.error,
-        ms: Date.now() - t0,
+    },
+    { timeoutMs: opts.timeoutMs, deadline: opts.deadline, hedgeAfterMs: opts.hedgeAfterMs, validate: opts.validate, trace, fallbackError: "All providers exhausted" },
+  );
+  if (r.ok) {
+    if (opts.logFeature) {
+      logChatUsage({
+        feature: opts.logFeature,
+        modelKey: requestedKey,
+        userId: opts.logUserId,
+        cascadeTrace: trace,
+        succeeded: true,
+        promptSnippet: opts.userPrompt,
       });
-      if (r.ok) {
-        if (opts.logFeature) {
-          logChatUsage({
-            feature: opts.logFeature,
-            modelKey: requestedKey,
-            userId: opts.logUserId,
-            cascadeTrace: trace,
-            succeeded: true,
-            promptSnippet: opts.userPrompt,
-          });
-        }
-        return r;
-      }
-      lastError = r.error || lastError;
     }
+    return r;
   }
+  const lastError = r.error || "All providers exhausted";
   if (opts.logFeature) {
     logChatUsage({
       feature: opts.logFeature,
@@ -459,6 +567,10 @@ export async function orChatVision(opts: {
   temperature?: number;
   maxTokens?: number;
   timeoutMs?: number;
+  /** Whole-cascade deadline (epoch ms); also capped by withDeadline(). */
+  deadline?: number;
+  /** Hedged cascade (see orChat). */
+  hedgeAfterMs?: number;
   stream?: boolean;
 }): Promise<{ ok: boolean; content?: string; finishReason?: string; error?: string }> {
   const requestedKey = opts.modelKey || "model_clone";
@@ -492,12 +604,11 @@ export async function orChatVision(opts: {
     return { ok: false, error: "No vision model configured" };
   }
 
-  let lastError = "All providers exhausted (vision)";
-  for (const layer of layers) {
-    const chain: ProviderSlot[] = [layer.main, ...layer.fallbacks];
-    for (const slot of chain) {
+  return runCascade(
+    layers.flatMap((l) => [l.main, ...l.fallbacks]),
+    async (slot, timeoutMs, signal) => {
       const { base, key } = await providerCreds(slot.provider, s);
-      const r = await callProvider({
+      return callProvider({
         provider: slot.provider,
         model: slot.model,
         systemPrompt: opts.systemPrompt,
@@ -506,13 +617,12 @@ export async function orChatVision(opts: {
         textPrompt: opts.textPrompt,
         temperature: opts.temperature ?? 0.5,
         maxTokens: opts.maxTokens ?? 4000,
-        timeoutMs: opts.timeoutMs,
+        timeoutMs,
+        signal,
         stream: opts.stream,
         base, key,
       });
-      if (r.ok) return r;
-      lastError = r.error || lastError;
-    }
-  }
-  return { ok: false, error: lastError };
+    },
+    { timeoutMs: opts.timeoutMs, deadline: opts.deadline, hedgeAfterMs: opts.hedgeAfterMs, fallbackError: "All providers exhausted (vision)" },
+  );
 }

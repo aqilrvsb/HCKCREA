@@ -26,6 +26,7 @@ export async function fixTranscript(words: { i: number; w: string }[], product?:
     temperature: 0,
     maxTokens: 2500,
     timeoutMs: 45_000,
+    hedgeAfterMs: 20_000,
     stream: true,
   }).catch(() => null);
   if (!r?.ok || !r.content) return [];
