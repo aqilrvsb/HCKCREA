@@ -143,7 +143,10 @@ export async function directEdit(opts: {
     input.broll === false ? Promise.resolve([] as BRollPlan[]) : enrichBroll(plan.broll, guard, plan.brand, input.product).catch(() => [] as BRollPlan[]),
     input.facts === false ? Promise.resolve([] as FactPlan[]) : writeFacts(factMoments, words).catch(() => [] as FactPlan[]),
   ]);
-  return { ...plan, broll, facts: guard ? facts.filter((f) => guardHits(f.text).length === 0) : facts };
+  // A B-roll card label that repeats a sticker ("Cara guna" twice) is dropped.
+  const said = new Set(plan.overlays.map((o) => String(o.text || "").toLowerCase().replace(/[^a-z0-9]/g, "")).filter(Boolean));
+  const dedupedBroll = broll.map((b) => (b.label && said.has(b.label.toLowerCase().replace(/[^a-z0-9]/g, "")) ? { ...b, label: undefined } : b));
+  return { ...plan, broll: dedupedBroll, facts: guard ? facts.filter((f) => guardHits(f.text).length === 0) : facts };
 }
 
 // ── TikTok guard on the director's own copy ──────────────────────────────────
@@ -333,7 +336,7 @@ function goodImage(h: ImageHit): boolean {
   if (!/^https:\/\//i.test(h.url)) return false;
   if (/\.(svg|gif)(\?|$)/i.test(h.url)) return false;
   if (h.width && h.height && Math.min(h.width, h.height) < 400) return false;
-  if (/(lookaside\.fbsbx|instagram\.f|tiktokcdn|x\.com\/|twimg)/i.test(h.url)) return false; // usually blocked / expiring
+  if (/(lookaside\.fbsbx|lookaside\.instagram|instagram\.f|cdninstagram|tiktokcdn|x\.com\/|twimg)/i.test(h.url)) return false; // usually blocked / expiring
   return true;
 }
 

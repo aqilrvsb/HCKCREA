@@ -968,10 +968,35 @@ def _guard_speech(words: list, p: dict) -> dict:
     return out
 
 
+def _scene_cuts(video: Path, thr: float = 0.1) -> list:
+    """Hard shot changes inside the video (pre-edited client footage, a box
+    that pops into frame). Measured: a box appearing scores ~0.11–0.18,
+    talking / hand movement stays < 0.07."""
+    r = subprocess.run(["ffmpeg", "-hide_banner", "-i", str(video), "-an", "-vf", f"scale=192:-2,select='gt(scene,{thr})',showinfo",
+                        "-f", "null", "-"], capture_output=True, text=True, errors="replace", timeout=300)
+    cuts = []
+    for m in re.finditer(r"pts_time:([0-9.]+)", r.stderr):
+        t = round(float(m.group(1)), 3)
+        if not cuts or t - cuts[-1] > 0.2:
+            cuts.append(t)
+    return cuts
+
+
 def _guard_video(d: Path, dur: float, p: dict, cuts: list = None) -> dict:
     """OCR the whole (jump-cut) video in parallel containers, classify the
-    unique printed lines in one call, build the tape tracks."""
+    unique printed lines in one call, build the tape tracks. Tracks never
+    cross a jump cut or a hard shot change."""
     t0 = time.time()
+    scenes = []
+
+    def _sc():
+        try:
+            scenes.extend(_scene_cuts(d / "video.mp4"))
+        except Exception as e:  # noqa: BLE001
+            print("scene detect failed:", str(e)[:160])
+
+    sth = threading.Thread(target=_sc, daemon=True)
+    sth.start()
     total = int(dur * GUARD_FPS)
     n = max(1, min(12, math.ceil(dur / 8)))
     cf = math.ceil(total / n) if total else 0
@@ -997,8 +1022,9 @@ def _guard_video(d: Path, dur: float, p: dict, cuts: list = None) -> dict:
     texts = [best[k]["x"] for k in keys]
     cls = _guard_classify(p, "video", texts)
     risky = {keys[i] for i in cls["risky"]}
-    tracks = _guard_tracks(dets, risky, GUARD_FPS, cuts)
-    return {"tracks": tracks, "texts": len(texts),
+    sth.join(timeout=120)
+    tracks = _guard_tracks(dets, risky, GUARD_FPS, sorted(set((cuts or []) + scenes)))
+    return {"tracks": tracks, "texts": len(texts), "scene_cuts": len(scenes),
             "risky_texts": [texts[i] for i in sorted(cls["risky"])][:24], "via": cls["via"],
             "chunks": len(jobs), "failed_chunks": failed, "sec": round(time.time() - t0, 1)}
 
