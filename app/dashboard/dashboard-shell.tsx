@@ -142,6 +142,7 @@ export default function DashboardShell({
   planExpiresAt,
   isAffiliate = false,
   partnerVisibleTabs = null,
+  motionAllowed = true,
 }: {
   email: string;
   name: string;
@@ -159,6 +160,8 @@ export default function DashboardShell({
   /** For a PARTNER's client (e.g. HQNL's): the project-tab keys the partner
    *  allows. null = no restriction (show all). Server-resolved in page.tsx. */
   partnerVisibleTabs?: string[] | null;
+  /** Motion limited to named accounts (app_settings.motion_access) — false hides the tab. */
+  motionAllowed?: boolean;
 }) {
   const [projects, setProjects] = useState<Project[]>([]);
   const [projectLimit, setProjectLimit] = useState(4);
@@ -205,7 +208,7 @@ export default function DashboardShell({
   // project tabs their partner ticked). The "image" tab row is shown when EITHER
   // its Image or Storyboard sub-mode is allowed. null/empty = no restriction.
   const visibleTabs = (() => {
-    const base = canAutoUgc ? TABS : TABS.filter((t) => t.key !== "auto-ugc");
+    const base = TABS.filter((t) => (t.key !== "auto-ugc" || canAutoUgc) && (t.key !== "motion" || motionAllowed));
     if (partnerRestricted) {
       return base.filter((t) =>
         t.key === "image"

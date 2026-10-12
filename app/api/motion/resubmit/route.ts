@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { MOTION_EDIT_MAX_SEC, costFor, motionStart, newPlanToken, siteUrl, type EditInput } from "@/lib/motion";
 import { priceFor, refundReserved, reserveCredit } from "@/lib/deduct";
+import { isTabAllowedForUser } from "@/lib/partner-tab-gate";
 import { styleEnergy } from "@/lib/motion-styles";
 
 // POST /api/motion/resubmit { id, product } — in-place re-render of a finished
@@ -17,6 +18,9 @@ export async function POST(req: Request) {
   const sb = await createClient();
   const { data: { user } } = await sb.auth.getUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (!(await isTabAllowedForUser(user.id, "motion"))) {
+    return NextResponse.json({ error: "Motion tidak dibuka untuk akaun ini." }, { status: 403 });
+  }
   const b = await req.json().catch(() => ({} as Record<string, unknown>));
   const id = String(b?.id ?? "");
   if (!/^[0-9a-f-]{36}$/i.test(id)) return NextResponse.json({ error: "id required" }, { status: 400 });

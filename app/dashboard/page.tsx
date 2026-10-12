@@ -4,6 +4,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { isPlanKey, isLivehost } from "@/lib/plans";
 import { canManageUsers } from "@/lib/manage-users";
 import { isPartnerManager } from "@/lib/partners";
+import { motionAccessAllowed } from "@/lib/partner-tab-gate";
 import PartnerConsole from "./partner-console";
 import DashboardShell from "./dashboard-shell";
 import LivehostDashboard from "./livehost-dashboard";
@@ -84,6 +85,8 @@ export default async function DashboardPage() {
   const ownTabs = (profile?.settings as any)?.visible_tabs;
   const partnerVisibleTabs: string[] | null =
     Array.isArray(ownTabs) && ownTabs.length > 0 ? ownTabs : null;
+  // Motion can be limited to named accounts for everyone (admins always see it)
+  const motionAllowed = await motionAccessAllowed(user.id, isAdmin);
 
   // Livehost is a SEPARATE package — render its own (blank) dashboard
   // instead of the generation studio. Billing inside it shows only the
@@ -109,6 +112,7 @@ export default async function DashboardPage() {
       planExpiresAt={planExpiresAt}
       isAffiliate={isAffiliate}
       partnerVisibleTabs={partnerVisibleTabs}
+      motionAllowed={motionAllowed}
     />
   );
 }
