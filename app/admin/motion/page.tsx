@@ -299,6 +299,7 @@ export default function AdminMotionPage() {
                   <td className="px-3 py-2 whitespace-nowrap">{r.mode === "ad" ? "Buat Iklan" : "Edit Video"}{r.uploads ? <span className="block text-[10px] text-[var(--color-text-muted)]">{r.uploads} gambar produk</span> : null}</td>
                   <td className="px-3 py-2 min-w-[150px]">
                     {r.status === "done" && <span className="font-bold text-green-500">Siap</span>}
+                    {r.status === "review" && <span className="font-bold" style={{ color: "#facc15" }}>📝 Menunggu semakan skrip</span>}
                     {r.status === "failed" && <span className="font-bold text-red-400">Gagal</span>}
                     {r.status === "pending" && (
                       <span className="font-bold" style={{ color: stuck ? "#f87171" : "#f59e0b" }}>

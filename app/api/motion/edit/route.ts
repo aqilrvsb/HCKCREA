@@ -54,6 +54,9 @@ export async function POST(req: Request) {
   // AI Auto: the director picks angle, look, colour, captions, hook sound and
   // music from the video itself — the manual choices are ignored.
   const auto = b?.auto === true;
+  // 2-step flow (mandatory): stop after the script + captions so the client
+  // reviews them ("Jana Video" on the History card renders — /api/motion/render)
+  const review = true;
   const input: EditInput = {
     videoUrl,
     durationSec,
@@ -104,6 +107,7 @@ export async function POST(req: Request) {
         input,
         plan_token: planToken,
         aspectRatio: "9:16",
+        ...(review ? { review: true } : {}),
       },
     })
     .select("id")
@@ -143,6 +147,7 @@ export async function POST(req: Request) {
     max_sec: MOTION_EDIT_MAX_SEC,
     // AI Auto: Modal takes energy, music and the hook sound from the plan
     auto: !!input.auto,
+    ...(review ? { phase: "draft" } : {}),
   });
   if (!start.ok) {
     await admin.from("history").update({ status: "failed", error_message: start.error, cost: 0 }).eq("id", hist.id);

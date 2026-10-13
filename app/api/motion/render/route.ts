@@ -1,0 +1,119 @@
+import { NextResponse } from "next/server";
+import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
+import { MOTION_EDIT_MAX_SEC, motionStart, siteUrl, type EditInput } from "@/lib/motion";
+import { isTabAllowedForUser } from "@/lib/partner-tab-gate";
+import { styleEnergy } from "@/lib/motion-styles";
+import { applyDraftEdits, type DraftEdits, type DraftPlan, type DraftWord } from "@/lib/motion-review";
+
+// POST /api/motion/render { id, edits } — step 2 of the Edit Video 2-step
+// flow. The job is in "review" (step 1 stopped after the script + captions);
+// the client's corrections (caption lines, hook, on-screen texts, re-hook,
+// CTA) are applied to the stored draft and Modal renders exactly that — same
+// History card, back to a live placeholder. The credit held at step 1 pays
+// for it (trued up to the real length when it settles).
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
+const asMap = (v: unknown, max: number): Record<string, string> => {
+  const out: Record<string, string> = {};
+  if (v && typeof v === "object") {
+    for (const [k, s] of Object.entries(v as Record<string, unknown>).slice(0, 2000)) {
+      if (/^\d{1,4}$/.test(k) && typeof s === "string") out[k] = s.slice(0, max);
+    }
+  }
+  return out;
+};
+
+export async function POST(req: Request) {
+  const sb = await createClient();
+  const { data: { user } } = await sb.auth.getUser();
+  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (!(await isTabAllowedForUser(user.id, "motion"))) {
+    return NextResponse.json({ error: "Motion tidak dibuka untuk akaun ini." }, { status: 403 });
+  }
+  const b = await req.json().catch(() => ({} as Record<string, unknown>));
+  const id = String(b?.id ?? "");
+  if (!/^[0-9a-f-]{36}$/i.test(id)) return NextResponse.json({ error: "id required" }, { status: 400 });
+
+  const admin = createAdminClient();
+  const [{ data: row }, { data: me }] = await Promise.all([
+    admin.from("history").select("id, user_id, tab, status, metadata").eq("id", id).maybeSingle(),
+    admin.from("profiles").select("is_admin").eq("id", user.id).maybeSingle(),
+  ]);
+  if (!row || (row.user_id !== user.id && !me?.is_admin)) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  const meta = (row.metadata ?? {}) as Record<string, unknown>;
+  const input = meta.input as EditInput | undefined;
+  const draft = meta.draft as { words?: DraftWord[]; plan?: Record<string, unknown>; video_url?: string } | undefined;
+  if (row.tab !== "motion" || meta.feature !== "motion-edit" || !input || !draft?.video_url || !Array.isArray(draft.words)) {
+    return NextResponse.json({ error: "Skrip untuk video ini tidak dijumpai." }, { status: 400 });
+  }
+  if (row.status !== "review") return NextResponse.json({ error: "Video ini sudah diproses." }, { status: 409 });
+
+  // the client's corrections → the words + plan the render uses
+  const e = (b?.edits ?? {}) as Record<string, unknown>;
+  const hook = e.hook as Record<string, unknown> | undefined;
+  const cta = e.cta as Record<string, unknown> | undefined;
+  const overlays: DraftEdits["overlays"] = {};
+  if (e.overlays && typeof e.overlays === "object") {
+    for (const [k, v] of Object.entries(e.overlays as Record<string, unknown>).slice(0, 200)) {
+      const o = v as Record<string, unknown> | null;
+      if (/^\d{1,3}$/.test(k) && o && typeof o === "object") {
+        overlays[k] = { ...(typeof o.text === "string" ? { text: o.text } : {}), ...(typeof o.sub === "string" ? { sub: o.sub } : {}) };
+      }
+    }
+  }
+  const edits: DraftEdits = {
+    lines: asMap(e.lines, 400),
+    ...(hook ? { hook: { text: typeof hook.text === "string" ? hook.text : undefined, sub: typeof hook.sub === "string" ? hook.sub : undefined } } : {}),
+    ...(typeof e.rehook === "string" ? { rehook: e.rehook } : {}),
+    ...(cta ? { cta: { text: typeof cta.text === "string" ? cta.text : undefined, sub: typeof cta.sub === "string" ? cta.sub : undefined } } : {}),
+    overlays,
+  };
+  const reviewed = applyDraftEdits({ words: draft.words, plan: (draft.plan ?? {}) as DraftPlan }, edits);
+
+  // review → pending (same card, live placeholder again)
+  const { data: flipped } = await admin
+    .from("history")
+    .update({
+      status: "pending",
+      error_message: null,
+      task_id: null,
+      metadata: { ...meta, stage: "queued", render_started_at: new Date().toISOString(), reviewed: { edits, at: new Date().toISOString() } },
+    })
+    .eq("id", id)
+    .eq("status", "review")
+    .select("id");
+  if (!flipped?.length) return NextResponse.json({ error: "Video ini sedang diproses." }, { status: 409 });
+
+  const start = await motionStart({
+    flow: "edit",
+    phase: "render",
+    history_id: id,
+    user_id: row.user_id,
+    draft: { ...draft, words: reviewed.words, plan: reviewed.plan },
+    qa_url: `${siteUrl()}/api/motion/qa`,
+    guard_url: `${siteUrl()}/api/motion/guard`,
+    guard: !!input.guard,
+    plan_token: meta.plan_token,
+    style: styleEnergy(input.style),
+    look: input.style,
+    resolution: input.resolution,
+    jumpcut: input.jumpcut,
+    language: input.language,
+    hint: input.product?.slice(0, 120),
+    music: input.music,
+    sfx: input.sfx,
+    max_sec: MOTION_EDIT_MAX_SEC,
+    auto: !!input.auto,
+    // a resubmitted job renders to its own file name ("-r1"…)
+    ...(typeof meta.out_suffix === "string" ? { out_suffix: meta.out_suffix } : {}),
+  });
+  if (!start.ok) {
+    await admin.from("history").update({ status: "review", metadata: meta }).eq("id", id);
+    return NextResponse.json({ error: `Gagal mula render: ${start.error}` }, { status: 502 });
+  }
+  const { data: cur } = await admin.from("history").select("metadata").eq("id", id).maybeSingle();
+  await admin.from("history").update({ task_id: start.callId, metadata: { ...(cur?.metadata || {}), provider: "modal-motion" } }).eq("id", id);
+  return NextResponse.json({ ok: true });
+}

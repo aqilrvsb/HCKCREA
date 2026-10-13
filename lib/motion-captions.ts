@@ -24,10 +24,20 @@ ${ANCHOR[lang]}
 - drop stray symbols glued to a word ("-satu" → "satu", "-cepat" → "cepat")
 - the product / brand name exactly as in SELLER CONTEXT
 - keep the speaker's colloquial words and slang as they are (tak, nak, je, korang, kan, dia, lah, aja, dekat) — don't formalise, don't translate whole phrases, don't censor, don't add or remove words
+- NEVER turn a token into a vulgar, sexual, explicit or insulting word (Malay or English). Sellers of intimate / feminine-care products speak in polite euphemisms ("bunga", "kewanitaan", "area sensitif", "bahagian bawah") — an unclear token there is one of those polite words (use the one the speaker says elsewhere), never a crude anatomical word. If you're not sure, leave the token unchanged.
 - one-for-one: a correction replaces exactly one token (it may contain a space); keep punctuation attached as it was; never repeat the word right before or after it
 Answer ONLY JSON: {"fix": [[index, "corrected"], ...]}`;
 
 const bare = (s: string | undefined) => String(s ?? "").toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "");
+
+// Words a "fix" may never introduce (a model once turned an unclear "bunga" —
+// the seller's polite word — into a crude one). Kept only if the speaker's own
+// token already was that word.
+const VULGAR = new Set([
+  "cipap", "puki", "pukimak", "pepek", "burit", "kote", "konek", "butuh", "pantat", "lancau", "jubur", "sundal", "pelacur",
+  "fuck", "fucking", "shit", "pussy", "dick", "cock", "cunt", "bitch", "slut", "whore", "penis", "vagina",
+]);
+const isVulgar = (w: string) => w.split(/\s+/).some((p) => VULGAR.has(bare(p)));
 
 /** Whisper artifacts fixed without a model: a hyphen glued to the front of a word ("-satu"). */
 export function tidyToken(w: string): string {
@@ -66,6 +76,7 @@ export async function fixTranscript(words: { i: number; w: string }[], product?:
       const w = tidyToken(String(f?.[1] ?? "").replace(/\s+/g, " ").trim());
       const orig = byIndex.get(i);
       if (orig === undefined || !w || w.length > 40 || w === orig) continue;
+      if (isVulgar(w) && !isVulgar(orig)) continue; // never put a crude word in the speaker's mouth
       const parts = w.split(" ");
       if (parts.length > 3) continue; // a fix, not a rewrite
       // "pakaian di" → "pacak di" + the "di" that follows = "di di": a split that

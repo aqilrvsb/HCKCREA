@@ -220,7 +220,7 @@ export async function motionStart(payload: Record<string, any>): Promise<{ ok: t
 
 export type MotionCheck =
   | { status: "running"; progress?: { stage?: string; pct?: number } | null }
-  | { status: "done"; result: { url: string; poster_url?: string | null; duration_sec: number; render_sec?: number; [k: string]: any } }
+  | { status: "done"; result: { url?: string; poster_url?: string | null; duration_sec: number; render_sec?: number; draft?: Record<string, any>; [k: string]: any } }
   | { status: "failed"; error: string }
   | { status: "unknown"; error: string };
 
@@ -233,7 +233,8 @@ export async function motionCheck(taskId: string): Promise<MotionCheck> {
     const r = await fetch(u, { signal: AbortSignal.timeout(30_000), cache: "no-store" });
     const j = await r.json().catch(() => ({}));
     if (j?.status === "running") return { status: "running", progress: j.progress ?? null };
-    if (j?.status === "done" && j?.result?.url) return { status: "done", result: j.result };
+    // a finished render (url) or a finished 2-step draft (draft = the state to review)
+    if (j?.status === "done" && (j?.result?.url || j?.result?.draft)) return { status: "done", result: j.result };
     if (j?.status === "failed") return { status: "failed", error: String(j.error || "render failed") };
     return { status: "unknown", error: `Modal check HTTP ${r.status}` };
   } catch (e: any) {
@@ -791,8 +792,8 @@ export async function failMotionRow(hist: Pick<HistoryRow, "id" | "user_id" | "m
 export async function settleMotionRow(hist: HistoryRow, pre?: MotionCheck): Promise<SettleResult> {
   if (hist.status !== "pending") return { state: "skipped", reason: "already settled" };
   const meta = hist.metadata || {};
-  // a resubmitted (re-rendered in place) job times out from its new start
-  const createdMs = new Date(meta.resubmit_started_at || (hist as any).created_at || meta.created_at || Date.now()).getTime();
+  // a resubmitted / reviewed-then-rendered job times out from its new start
+  const createdMs = new Date(meta.render_started_at || meta.resubmit_started_at || (hist as any).created_at || meta.created_at || Date.now()).getTime();
 
   // "motion:planning" = Buat Iklan row still in script/voice (stamped at insert
   // so the poll-pending cron, which only scans rows with a task_id, still
@@ -820,6 +821,25 @@ export async function settleMotionRow(hist: HistoryRow, pre?: MotionCheck): Prom
 
   const res = r.result;
   const admin = createAdminClient();
+
+  // 2-step flow, step 1 finished: the script / captions wait for the client's
+  // review. Nothing is charged yet — the credit stays held until the render.
+  if (res.draft && !res.url) {
+    const { data: drafted } = await admin
+      .from("history")
+      .update({
+        status: "review",
+        task_id: null,
+        error_message: null,
+        metadata: { ...meta, stage: "review", draft: res.draft, review_at: new Date().toISOString() },
+      })
+      .eq("id", hist.id)
+      .eq("status", "pending")
+      .select("id");
+    if (!drafted?.length) return { state: "skipped", reason: "settled concurrently" };
+    return { state: "settled", status: "review" };
+  }
+
   const dur = Number(res.duration_sec) || 0;
   const rate = Number(meta.rate) || 0;
   const finalCost = costFor(dur, rate);

@@ -200,9 +200,10 @@ export async function DELETE(req: Request) {
     .eq("user_id", ownerId);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-  // A Motion job deleted while still running gives back the credit it held
-  // (it can't settle any more — its row is gone).
-  if (target.tab === "motion" && target.status === "pending") {
+  // A Motion job deleted while still running — or waiting for its script
+  // review (2-step flow) — gives back the credit it held (it can't settle any
+  // more — its row is gone).
+  if (target.tab === "motion" && (target.status === "pending" || target.status === "review")) {
     const held = Number((target.metadata as { reserved?: unknown } | null)?.reserved) || 0;
     if (held > 0) await refundReserved(ownerId, "motion", held, id).catch(() => undefined);
   }

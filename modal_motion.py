@@ -1457,6 +1457,17 @@ def _fallback_plan() -> dict:
 
 
 def _flow_edit(p: dict, d: Path, srv: _Serve) -> dict:
+    """Edit Video in one go (prepare → finish)."""
+    return _edit_finish(p, d, srv, _edit_prepare(p, d, srv))
+
+
+GRES_KEYS = ("risky_texts", "texts", "via", "sec", "error")
+
+
+def _edit_prepare(p: dict, d: Path, srv: _Serve) -> dict:
+    """Download → transcribe → guideline report → jump cut → faces → AI plan →
+    caption fixes. Returns the state the render needs; the 2-step flow stores it
+    as a draft the client reviews (captions, hook, stickers) before rendering."""
     import requests
     max_sec = float(p.get("max_sec") or 180)
     style = p.get("style") or "gempak"
@@ -1569,6 +1580,25 @@ def _flow_edit(p: dict, d: Path, srv: _Serve) -> dict:
                 fixed += 1
         except Exception:  # noqa: BLE001
             continue
+
+    return {"vid": str(vid), "dur": dur, "words": words, "faces": faces, "cut_marks": cut_marks, "plan": plan,
+            "plan_fallback": plan_fallback, "fixed": fixed, "style": style, "music_on": music_on, "hook_sfx": hook_sfx,
+            "guard": guard, "flagged_speech": flagged_speech, "flagged_words": flagged_words,
+            "gspeech": {"risk": gspeech.get("risk"), "via": gspeech.get("via")}, "cut": cut,
+            # live only (not part of a stored draft): the guideline video scan thread
+            "_gthread": gthread, "_gres": gres}
+
+
+def _edit_finish(p: dict, d: Path, srv: _Serve, st: dict) -> dict:
+    """B-roll / stickers → guideline report → music → QA → render, from a
+    prepared state (straight after _edit_prepare, or a reviewed draft)."""
+    vid, dur, words, faces = Path(st["vid"]), float(st["dur"]), st["words"], st.get("faces") or []
+    cut_marks, plan, plan_fallback, fixed = st.get("cut_marks") or [], st["plan"], bool(st.get("plan_fallback")), int(st.get("fixed") or 0)
+    style, music_on, hook_sfx, guard = st.get("style") or "gempak", bool(st.get("music_on")), st.get("hook_sfx"), bool(st.get("guard"))
+    flagged_speech, flagged_words = st.get("flagged_speech") or "", st.get("flagged_words") or []
+    gspeech, cut = st.get("gspeech") or {}, st.get("cut") or {}
+    gthread = st.get("_gthread")
+    gres = st["_gres"] if st.get("_gres") is not None else (st.get("gres") or {})
 
     _progress("assets", 40)
     broll_guard = {}
@@ -1701,8 +1731,28 @@ def run_job(payload: dict) -> dict:
     d = Path(JOBS_ROOT) / f"{re.sub(r'[^A-Za-z0-9_-]', '', hid)[:60]}-{int(t0)}"
     d.mkdir(parents=True, exist_ok=True)
     srv = _Serve(d)
+    # Edit Video 2-step flow: "draft" stops after the plan (the jump-cut video
+    # goes to B2, the state comes back for the client to review / edit);
+    # "render" resumes from that reviewed draft. No phase = everything at once.
+    phase = str(payload.get("phase") or "")
     try:
-        res = _flow_ad(payload, d, srv) if flow == "ad" else _flow_edit(payload, d, srv)
+        if flow != "ad" and phase == "draft":
+            st = _edit_prepare(payload, d, srv)
+            gthread, gres = st.pop("_gthread", None), st.pop("_gres", None) or {}
+            if gthread:
+                gthread.join(timeout=300)
+            st["gres"] = {k: gres.get(k) for k in GRES_KEYS if gres.get(k) is not None}
+            _progress("upload", 92)
+            st["video_url"] = _upload_b2(Path(st.pop("vid")), f"motion-drafts/{uid}/{hid}.mp4", "video/mp4")
+            _progress("review", 100)
+            return {"ok": True, "draft": st, "duration_sec": round(float(st["dur"]), 2), "render_sec": round(time.time() - t0, 1)}
+        if flow != "ad" and phase == "render":
+            st = dict(payload.get("draft") or {})
+            _progress("download", 3)
+            st["vid"] = str(_download(str(st.get("video_url") or ""), d / "video.mp4"))
+            res = _edit_finish(payload, d, srv, st)
+        else:
+            res = _flow_ad(payload, d, srv) if flow == "ad" else _flow_edit(payload, d, srv)
         _progress("upload", 96)
         # a re-render of the same History card gets its own file name — the
         # first one is cached immutable for 30 days

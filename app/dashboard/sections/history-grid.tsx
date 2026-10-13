@@ -44,6 +44,7 @@ import AttachmentPicker from "./attachment-picker";
 import { CategoryPickModal } from "./attachments";
 import { MotionGuardNote, MotionProgress } from "./motion-progress";
 import MotionResubmitDialog from "./motion-resubmit-dialog";
+import MotionReviewDialog, { type ReviewDraft } from "./motion-review-dialog";
 import LazyVideo from "@/app/components/lazy-video";
 
 export type HistoryItem = {
@@ -2255,7 +2256,10 @@ function HistoryCardInner({
   // new edit. The product name and product photos (1–5; ones no longer in
   // storage drop out, so they're uploaded again — tape too) are asked first.
   const [resubOpen, setResubOpen] = useState(false);
-  const motionMeta = item.metadata as { feature?: string; resubmits?: unknown; input?: { product?: string; videoUrl?: string; productImages?: string[] } } | null | undefined;
+  // 2-step flow: the script + captions are ready ("review") — read & fix, then render
+  const [reviewOpen, setReviewOpen] = useState(false);
+  const motionMeta = item.metadata as { feature?: string; resubmits?: unknown; draft?: ReviewDraft; input?: { product?: string; videoUrl?: string; productImages?: string[] } } | null | undefined;
+  const isMotionReview = item.tab === "motion" && item.status === "review";
   const canMotionResubmit = item.tab === "motion" && item.status === "done"
     && motionMeta?.feature === "motion-edit" && !!motionMeta?.input?.videoUrl;
 
@@ -3066,9 +3070,10 @@ function HistoryCardInner({
       className="rounded-xl overflow-hidden border flex flex-col h-full"
       style={{
         background: "var(--color-bg-card)",
-        // Near-duplicate cards get a RED border so they stand out in the grid.
-        borderColor: dupSimilar ? "#ef4444" : "var(--color-border)",
-        borderWidth: dupSimilar ? 2 : undefined,
+        // Near-duplicate cards get a RED border so they stand out in the grid;
+        // a Motion script waiting for the client's review gets a YELLOW one.
+        borderColor: dupSimilar ? "#ef4444" : isMotionReview ? "#facc15" : "var(--color-border)",
+        borderWidth: dupSimilar || isMotionReview ? 2 : undefined,
         position: "relative",
       }}
     >
@@ -3425,6 +3430,19 @@ function HistoryCardInner({
         </div>
         </Portal>
       )}
+      {/* Motion 2-step flow — review / fix the script + captions, then render. */}
+      {reviewOpen && isMotionReview && (
+        <MotionReviewDialog
+          id={item.id}
+          draft={motionMeta?.draft ?? {}}
+          onClose={() => setReviewOpen(false)}
+          onDone={() => {
+            setReviewOpen(false);
+            showToast("🎬 Video sedang dijana — kad ini akan dikemas kini.");
+            window.dispatchEvent(new CustomEvent("history:refresh"));
+          }}
+        />
+      )}
       {/* Motion Resubmit — product name + photos, then an in-place re-render. */}
       {resubOpen && canMotionResubmit && (
         <MotionResubmitDialog
@@ -3483,6 +3501,21 @@ function HistoryCardInner({
             + output_url when finished. Showing "Failed" prematurely
             confused clients into deleting + re-merging, which wasted
             credits. */}
+        {/* Motion 2-step flow: script + captions ready — open the review box. */}
+        {isMotionReview && (
+          <button type="button" onClick={() => setReviewOpen(true)} className="absolute inset-0 overflow-hidden text-left">
+            {item.reference_url && (
+              <video src={`${item.reference_url}#t=0.5`} muted playsInline preload="metadata" className="absolute inset-0 w-full h-full object-cover opacity-40" />
+            )}
+            <div className="absolute inset-0" style={{ background: "linear-gradient(180deg, rgba(0,0,0,0.2), rgba(0,0,0,0.78))" }} />
+            <div className="absolute inset-0 flex flex-col items-center justify-center gap-1.5 px-3 text-center">
+              <span className="text-2xl">📝</span>
+              <span className="text-[12px] font-extrabold text-white leading-tight">Skrip &amp; caption sedia</span>
+              <span className="text-[10px] text-white/80 leading-tight">Semak &amp; betulkan dulu, kemudian jana video</span>
+              <span className="mt-1.5 px-3 py-1.5 rounded-lg text-[11px] font-extrabold" style={{ background: "#facc15", color: "#1a1a1a" }}>Semak skrip</span>
+            </div>
+          </button>
+        )}
         {(item.status === "pending" ||
           (item.type === "fairytale" && item.status === "failed")) && (
           <>
@@ -4840,6 +4873,24 @@ function HistoryCardInner({
               <ActionBtn title="Download" onClick={handleDownload} bg={ACTION.download}>
                 <Download className="w-3.5 h-3.5" strokeWidth={2.4} />
               </ActionBtn>
+              <ActionBtn title="Delete" onClick={handleDelete} bg={ACTION.delete} disabled={deleting}>
+                <Trash2 className="w-3.5 h-3.5" strokeWidth={2.4} />
+              </ActionBtn>
+            </>
+          )}
+
+          {/* MOTION REVIEW — script + captions ready: review & render, or delete
+              (deleting returns the held credit). */}
+          {!editorMode && !donePostMode && isMotionReview && (
+            <>
+              <button
+                onClick={() => setReviewOpen(true)}
+                title="Semak skrip & caption, kemudian jana video"
+                className="flex-1 h-7 rounded-lg text-[9px] font-extrabold uppercase tracking-wider flex items-center justify-center gap-1 transition-transform hover:scale-105"
+                style={{ background: "#facc15", color: "#1a1a1a", boxShadow: "0 2px 6px rgba(250,204,21,0.35)" }}
+              >
+                📝 Semak &amp; Jana
+              </button>
               <ActionBtn title="Delete" onClick={handleDelete} bg={ACTION.delete} disabled={deleting}>
                 <Trash2 className="w-3.5 h-3.5" strokeWidth={2.4} />
               </ActionBtn>

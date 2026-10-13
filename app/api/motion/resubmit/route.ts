@@ -61,8 +61,11 @@ export async function POST(req: Request) {
   // Back to pending with a fresh plan token; the old result is kept so a failed
   // re-render can restore it. Old guard / plan / render data is dropped so the
   // new run's report isn't mixed with the old one.
-  const { guard: _g, plan: _p, render: _r, qa: _q, transcript: _t, poster_url: _pu, resubmit_error: _e, ...rest } = meta;
-  void _g; void _p; void _r; void _q; void _t; void _e;
+  const {
+    guard: _g, plan: _p, render: _r, qa: _q, transcript: _t, poster_url: _pu, resubmit_error: _e,
+    draft: _d, reviewed: _rv, review_at: _ra, render_started_at: _rs, ...rest
+  } = meta;
+  void _g; void _p; void _r; void _q; void _t; void _e; void _d; void _rv; void _ra; void _rs;
   const planToken = newPlanToken();
   const n = done + 1;
   if (estimate > 0 && !(await reserveCredit(row.user_id, "motion", estimate, id))) {
@@ -88,6 +91,10 @@ export async function POST(req: Request) {
         plan_token: planToken,
         resubmits: n,
         resubmit_started_at: new Date().toISOString(),
+        // 2-step flow: script + captions first (review), then "Jana Video";
+        // the render keeps this re-render's own file name
+        review: true,
+        out_suffix: `-r${n}`,
         resubmit_prev: wasDone && row.output_url
           ? { output_url: row.output_url, cost: row.cost, metadata: { guard: meta.guard, plan: meta.plan, render: meta.render, poster_url: _pu } }
           : null,
@@ -121,7 +128,7 @@ export async function POST(req: Request) {
     sfx: input.sfx,
     max_sec: MOTION_EDIT_MAX_SEC,
     auto: !!input.auto,
-    out_suffix: `-r${n}`,
+    phase: "draft",
   });
   if (!start.ok) {
     // restore the card exactly as it was

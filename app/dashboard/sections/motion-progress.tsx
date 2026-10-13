@@ -29,6 +29,7 @@ export const MOTION_STAGE_LABEL: Record<string, string> = {
   qa: "AI semak hasil (QA)",
   render: "Render animasi (selari)",
   upload: "Upload video siap",
+  review: "Skrip & caption sedia — semak",
   done: "Siap",
   failed: "Gagal",
 };

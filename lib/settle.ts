@@ -845,7 +845,8 @@ async function tryAutoRetry(
 }
 
 export type SettleResult =
-  | { state: "settled"; status: "done" | "failed"; outputUrl?: string; error?: string }
+  // "review" = Motion 2-step flow: the script / captions are ready for the client
+  | { state: "settled"; status: "done" | "failed" | "review"; outputUrl?: string; error?: string }
   | { state: "pending"; p2Status: string }
   | { state: "skipped"; reason: string };
 

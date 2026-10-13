@@ -353,6 +353,7 @@ export default function MotionTab({ projectId }: { projectId?: string }) {
     await Promise.all([worker(), worker()]);
     window.dispatchEvent(new CustomEvent("history:refresh"));
     if (failed.length) setError(failed.join(" · "));
+    else setNotice("📝 Skrip & caption sedang dijana. Bila kad History bertukar border kuning, tekan \"Semak skrip\", betulkan jika perlu, kemudian \"Jana Video\".");
     setSubmitting(false);
   }
 
@@ -618,7 +619,7 @@ export default function MotionTab({ projectId }: { projectId?: string }) {
             style={{ background: THEME.gradient, boxShadow: `0 6px 18px ${THEME.soft}` }}
           >
             {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Wand2 className="w-4 h-4" />}
-            {submitting ? "Menghantar…" : mode === "ad" ? (variations > 1 ? `Jana ${variations} Iklan` : "Jana Iklan") : videos.length > 1 ? `Edit ${videos.length} Video` : "Edit Video"}
+            {submitting ? "Menghantar…" : mode === "ad" ? (variations > 1 ? `Jana ${variations} Iklan` : "Jana Iklan") : videos.length > 1 ? `Jana Skrip & Caption (${videos.length} video)` : "Jana Skrip & Caption"}
           </button>
           <span className="text-xs text-[var(--color-text-secondary)]">
             {rate === null
