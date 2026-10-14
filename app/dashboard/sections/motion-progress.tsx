@@ -21,6 +21,7 @@ export const MOTION_STAGE_LABEL: Record<string, string> = {
   images: "Potong gambar produk",
   download: "Muat turun video",
   transcribe: "Transkrip suara",
+  captions: "AI betulkan ejaan caption",
   guard: "Semak guideline TikTok",
   normalise: "Potong senyap & sediakan video",
   faces: "Kesan muka",

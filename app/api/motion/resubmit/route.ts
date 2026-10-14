@@ -128,6 +128,7 @@ export async function POST(req: Request) {
     sfx: input.sfx,
     max_sec: MOTION_EDIT_MAX_SEC,
     auto: !!input.auto,
+    captions: input.captions,
     phase: "draft",
   });
   if (!start.ok) {

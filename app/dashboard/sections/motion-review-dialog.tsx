@@ -2,8 +2,9 @@
 
 // Motion Edit Video — step 2 of the 2-step flow. The script + captions are
 // ready (History card in "review", yellow border): the client reads every
-// caption line, the hook, the on-screen texts, the re-hook and the CTA, fixes
-// anything wrong, then "Jana Video" renders exactly that (/api/motion/render).
+// line, fixes anything wrong, then "Jana Video" (/api/motion/render) cuts the
+// video, lets the AI plan the edit on those words and renders it. (Drafts made
+// before step 1 was slimmed down also show their hook / stickers / CTA.)
 
 import { useMemo, useState } from "react";
 import { Clapperboard, Loader2, ShieldAlert, X } from "lucide-react";
@@ -20,6 +21,8 @@ export type ReviewDraft = {
   };
   flagged_speech?: string;
   flagged_words?: string[];
+  /** false = captions off: the lines are the script the AI plans from */
+  captions?: boolean;
 };
 
 const OVERLAY_LABEL: Record<string, string> = {
@@ -39,6 +42,7 @@ export default function MotionReviewDialog({ id, draft, onClose, onDone }: {
   onDone: () => void;
 }) {
   const lines = useMemo(() => captionLines(draft.words ?? []), [draft.words]);
+  const capsOn = draft.captions !== false;
   const plan = draft.plan ?? {};
   const overlays = (plan.overlays ?? []).map((o, k) => ({ o, k })).filter(({ o }) => EDITABLE_OVERLAY.has(String(o.t)) && o.text);
   const [lineEdits, setLineEdits] = useState<Record<string, string>>({});
@@ -75,13 +79,16 @@ export default function MotionReviewDialog({ id, draft, onClose, onDone }: {
       <div className="fixed inset-0 z-[200] flex items-center justify-center p-3" style={{ background: "rgba(0,0,0,0.75)" }} onClick={() => !busy && onClose()}>
         <div className="w-full max-w-xl rounded-2xl flex flex-col max-h-[92vh]" style={{ background: "var(--color-bg-card)", border: "2px solid #facc15" }} onClick={(e) => e.stopPropagation()}>
           <div className="flex items-center gap-2 px-5 pt-4 pb-2">
-            <span className="text-[14px] font-extrabold text-[var(--color-text-primary)]">📝 Semak skrip &amp; caption</span>
+            <span className="text-[14px] font-extrabold text-[var(--color-text-primary)]">📝 {capsOn ? "Semak skrip & caption" : "Semak skrip"}</span>
             <button type="button" onClick={onClose} disabled={busy} className="ml-auto p-1 rounded-lg disabled:opacity-40" aria-label="Tutup">
               <X className="w-4 h-4 text-[var(--color-text-secondary)]" />
             </button>
           </div>
           <p className="px-5 text-[11px] text-[var(--color-text-muted)] leading-snug mb-3">
-            Betulkan apa-apa ejaan / ayat yang salah. Video dijana tepat ikut apa yang ada di sini — suara anda tidak diubah, cuma tulisan pada skrin.
+            {capsOn
+              ? "Betulkan apa-apa ejaan / ayat yang salah. Caption dalam video ikut tepat apa yang ada di sini — suara anda tidak diubah, cuma tulisan pada skrin."
+              : "Betulkan apa-apa ejaan / ayat yang salah. Caption dimatikan — AI guna skrip ini untuk rancang hook & sticker video."}
+            {!draft.plan && " Hook, sticker & B-roll dirancang AI selepas anda klik Jana Video."}
           </p>
 
           <div className="px-5 pb-3 overflow-y-auto space-y-4">
@@ -104,7 +111,7 @@ export default function MotionReviewDialog({ id, draft, onClose, onDone }: {
             )}
 
             <div>
-              <span className={label}>Caption — ayat yang anda tuturkan ({lines.length} baris{changed ? `, ${changed} diubah` : ""})</span>
+              <span className={label}>{capsOn ? "Caption" : "Skrip"} — ayat yang anda tuturkan ({lines.length} baris{changed ? `, ${changed} diubah` : ""})</span>
               <div className="space-y-1.5">
                 {lines.map((ln, k) => {
                   const v = lineEdits[String(k)] ?? ln.text;

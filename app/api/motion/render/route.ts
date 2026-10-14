@@ -8,10 +8,12 @@ import { applyDraftEdits, type DraftEdits, type DraftPlan, type DraftWord } from
 
 // POST /api/motion/render { id, edits } — step 2 of the Edit Video 2-step
 // flow. The job is in "review" (step 1 stopped after the script + captions);
-// the client's corrections (caption lines, hook, on-screen texts, re-hook,
-// CTA) are applied to the stored draft and Modal renders exactly that — same
-// History card, back to a live placeholder. The credit held at step 1 pays
-// for it (trued up to the real length when it settles).
+// the client's caption corrections are applied to the stored words, then
+// Modal cuts the video, the AI director plans the edit on those words and it
+// renders — same History card, back to a live placeholder. The credit held at
+// step 1 pays for it (trued up to the real length when it settles).
+// (Drafts made before step 1 was slimmed down also carry the cut video and
+// the plan; their hook / sticker / re-hook / CTA edits still apply.)
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
@@ -45,7 +47,7 @@ export async function POST(req: Request) {
   const meta = (row.metadata ?? {}) as Record<string, unknown>;
   const input = meta.input as EditInput | undefined;
   const draft = meta.draft as { words?: DraftWord[]; plan?: Record<string, unknown>; video_url?: string } | undefined;
-  if (row.tab !== "motion" || meta.feature !== "motion-edit" || !input || !draft?.video_url || !Array.isArray(draft.words)) {
+  if (row.tab !== "motion" || meta.feature !== "motion-edit" || !input?.videoUrl || !draft || !Array.isArray(draft.words)) {
     return NextResponse.json({ error: "Skrip untuk video ini tidak dijumpai." }, { status: 400 });
   }
   if (row.status !== "review") return NextResponse.json({ error: "Video ini sudah diproses." }, { status: 409 });
@@ -91,7 +93,9 @@ export async function POST(req: Request) {
     phase: "render",
     history_id: id,
     user_id: row.user_id,
-    draft: { ...draft, words: reviewed.words, plan: reviewed.plan },
+    draft: { ...draft, words: reviewed.words, ...(draft.plan ? { plan: reviewed.plan } : {}) },
+    video_url: input.videoUrl,
+    plan_url: `${siteUrl()}/api/motion/plan`,
     qa_url: `${siteUrl()}/api/motion/qa`,
     guard_url: `${siteUrl()}/api/motion/guard`,
     guard: !!input.guard,
@@ -106,6 +110,7 @@ export async function POST(req: Request) {
     sfx: input.sfx,
     max_sec: MOTION_EDIT_MAX_SEC,
     auto: !!input.auto,
+    captions: input.captions,
     // a resubmitted job renders to its own file name ("-r1"…)
     ...(typeof meta.out_suffix === "string" ? { out_suffix: meta.out_suffix } : {}),
   });

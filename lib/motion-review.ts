@@ -1,10 +1,11 @@
 // Motion Edit Video — 2-step flow ("Jana Skrip & Caption" → review → "Jana
-// Video"). Step 1 stops after the AI plan and stores a draft: the jump-cut
-// video's words (captions, already spelling-fixed) and the edit plan. The
-// client reads / edits the caption lines, the hook, the on-screen texts, the
-// re-hook and the CTA; step 2 renders exactly that. Pure helpers shared by the
-// review box (client) and /api/motion/render (server), so both see the same
-// caption lines.
+// Video"). Step 1 only transcribes and stores a draft: the words on the
+// jump-cut timeline (captions, already spelling-fixed). The client reads /
+// edits the caption lines; step 2 cuts the video, the AI plans the edit on
+// those words and renders. (Older drafts also carry the plan, so their hook,
+// on-screen texts, re-hook and CTA are editable too.) Pure helpers shared by
+// the review box (client) and /api/motion/render (server), so both see the
+// same caption lines.
 
 export type DraftWord = { w: string; t: number; e?: number; ri?: number };
 /** The director's plan as stored (free-form JSON from the AI, validated upstream). */

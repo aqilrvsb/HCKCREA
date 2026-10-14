@@ -147,6 +147,8 @@ export async function POST(req: Request) {
     max_sec: MOTION_EDIT_MAX_SEC,
     // AI Auto: Modal takes energy, music and the hook sound from the plan
     auto: !!input.auto,
+    // step 1 fixes the caption spelling only when the captions are on
+    captions: input.captions,
     ...(review ? { phase: "draft" } : {}),
   });
   if (!start.ok) {

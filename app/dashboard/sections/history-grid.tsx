@@ -3510,7 +3510,7 @@ function HistoryCardInner({
             <div className="absolute inset-0" style={{ background: "linear-gradient(180deg, rgba(0,0,0,0.2), rgba(0,0,0,0.78))" }} />
             <div className="absolute inset-0 flex flex-col items-center justify-center gap-1.5 px-3 text-center">
               <span className="text-2xl">📝</span>
-              <span className="text-[12px] font-extrabold text-white leading-tight">Skrip &amp; caption sedia</span>
+              <span className="text-[12px] font-extrabold text-white leading-tight">{motionMeta?.draft?.captions === false ? "Skrip sedia" : "Skrip & caption sedia"}</span>
               <span className="text-[10px] text-white/80 leading-tight">Semak &amp; betulkan dulu, kemudian jana video</span>
               <span className="mt-1.5 px-3 py-1.5 rounded-lg text-[11px] font-extrabold" style={{ background: "#facc15", color: "#1a1a1a" }}>Semak skrip</span>
             </div>

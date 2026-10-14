@@ -1457,21 +1457,33 @@ def _fallback_plan() -> dict:
 
 
 def _flow_edit(p: dict, d: Path, srv: _Serve) -> dict:
-    """Edit Video in one go (prepare → finish)."""
-    return _edit_finish(p, d, srv, _edit_prepare(p, d, srv))
+    """Edit Video in one go (script → cut + plan → render)."""
+    return _edit_finish(p, d, srv, _edit_direct(p, d, srv, _edit_script(p, d, srv)))
 
 
-GRES_KEYS = ("risky_texts", "texts", "via", "sec", "error")
-
-
-def _edit_prepare(p: dict, d: Path, srv: _Serve) -> dict:
-    """Download → transcribe → guideline report → jump cut → faces → AI plan →
-    caption fixes. Returns the state the render needs; the 2-step flow stores it
-    as a draft the client reviews (captions, hook, stickers) before rendering."""
+def _caption_fixes(words: list, p: dict) -> list:
+    """AI spelling clean-up of the transcript for the captions (one fast LLM
+    call through /api/motion/plan, mode "fixes"). [[index, word], ...]; [] on error."""
     import requests
+    if not p.get("plan_url") or not words:
+        return []
+    try:
+        r = requests.post(p["plan_url"], json={"history_id": p["history_id"], "token": p["plan_token"], "mode": "fixes",
+                                               "words": [{"i": i, "w": w["w"]} for i, w in enumerate(words)]}, timeout=150)
+        j = r.json()
+        return j.get("fixes") or [] if isinstance(j, dict) else []
+    except Exception as e:  # noqa: BLE001
+        print("caption fixes failed:", e)
+        return []
+
+
+def _edit_script(p: dict, d: Path, srv: _Serve) -> dict:
+    """Step 1 of Edit Video: download → transcribe → guideline speech report →
+    jump-cut map (times only) → caption spelling fixes (captions on only).
+    Nothing is encoded or planned yet, so it is quick. The client reviews these
+    words before step 2 (_edit_direct) cuts the video and the AI plans the edit."""
     max_sec = float(p.get("max_sec") or 180)
-    style = p.get("style") or "gempak"
-    _progress("download", 3)
+    _progress("download", 5)
     src = _download(p["video_url"], d / "src_video")
     info = _probe(src)
     if info["duration"] <= 0.5:
@@ -1480,42 +1492,113 @@ def _edit_prepare(p: dict, d: Path, srv: _Serve) -> dict:
     lang = p.get("language") or "ms"
     jump = bool(p.get("jumpcut", True))
 
-    _progress("transcribe", 8)
+    _progress("transcribe", 15)
     raw_words = _transcribe(src, None if lang == "auto" else lang, vad=True, keep_fillers=jump,
                             hint=p.get("hint")) if info["audio"] else []
     raw_words = [w for w in raw_words if w["t"] < span]
-
     for i, w in enumerate(raw_words):
         w["ri"] = i
-    # "Check Guideline TikTok" only REPORTS: the client's footage and voice are
-    # never cut, taped or muted for it. The speech review below just lists the
-    # sentences / words that may break the guideline (shown on the History card).
+
+    # "Check Guideline TikTok" only REPORTS (the footage and voice are never cut,
+    # taped or muted for it). It runs beside the caption fixes.
     guard = bool(p.get("guard"))
     gspeech = {"cut": set(), "censor": set(), "risk": None}
+    gt = None
     if guard and raw_words:
-        _progress("guard", 12)
-        gspeech = _guard_speech(raw_words, p)
-    flagged_speech = " ".join(w["w"] for w in raw_words if w["ri"] in gspeech["cut"])[:600]
-    flagged_words = list(dict.fromkeys(raw_words[i]["w"] for i in sorted(gspeech["censor"]) if i < len(raw_words)))[:30]
-    claims = set()  # nothing is cut for the guideline
+        def _gs():
+            try:
+                gspeech.update(_guard_speech(raw_words, p))
+            except Exception as e:  # noqa: BLE001
+                print("guard speech failed:", e)
 
-    words, segs, cut = raw_words, None, {}
-    if (jump or claims) and raw_words:
-        sg, kept = _keep_segments(raw_words, span, drop=claims) if jump else _claim_segments(raw_words, span, claims)
-        kept_len = sum(e - s for s, e in sg)
-        if sg and 0.5 * span <= kept_len < span - 0.3:
-            segs = sg
+        gt = threading.Thread(target=_gs, daemon=True)
+        gt.start()
+
+    # jump cut: which time ranges stay. The words move onto the cut timeline
+    # now; the video itself is cut in step 2 with these same segments.
+    words, segs, cut, kept_len = raw_words, None, {}, span
+    if jump and raw_words:
+        sg, kept = _keep_segments(raw_words, span)
+        kl = sum(e - s for s, e in sg)
+        if sg and 0.5 * span <= kl < span - 0.3:
+            segs, kept_len = sg, kl
             words, _ = _remap_words(kept, sg)
-            cut = {"removed_sec": round(span - kept_len, 2), "segments": len(sg)}
+            cut = {"removed_sec": round(span - kl, 2), "segments": len(sg)}
     if not jump:
         words = [w for w in words if not _is_filler(w["w"])] or words
 
-    _progress("normalise", 16)
+    # AI-corrected spelling for the captions (timing untouched, 1:1 by index)
+    captions = p.get("captions") is not False
+    fixed = 0
+    if captions and words:
+        _progress("captions", 55)
+        for fx in _caption_fixes(words, p):
+            try:
+                i, w = int(fx[0]), str(fx[1]).strip()
+                if 0 <= i < len(words) and w and len(w) <= 40:
+                    words[i]["w"] = w
+                    fixed += 1
+            except Exception:  # noqa: BLE001
+                continue
+    if gt:
+        _progress("guard", 80)
+        gt.join(timeout=240)
+    flagged_speech = " ".join(w["w"] for w in raw_words if w["ri"] in gspeech["cut"])[:600]
+    flagged_words = list(dict.fromkeys(raw_words[i]["w"] for i in sorted(gspeech["censor"]) if i < len(raw_words)))[:30]
+
+    return {"words": words, "segs": segs, "span": round(span, 3), "kept": round(kept_len, 3), "cut": cut,
+            "fixed": fixed, "captions": captions, "guard": guard,
+            "flagged_speech": flagged_speech, "flagged_words": flagged_words,
+            "gspeech": {"risk": gspeech.get("risk"), "via": gspeech.get("via")},
+            # live only (not part of a stored draft): the downloaded source
+            "_src": str(src), "_info": info}
+
+
+def _unmap_words(words: list, segs: list) -> list:
+    """Cut-timeline word times back onto the source (the cut was skipped)."""
+    spans, acc = [], 0.0
+    for s, e in segs:
+        spans.append((acc, s, e - s))
+        acc += e - s
+
+    def back(t: float) -> float:
+        for a, s, ln in spans:
+            if t <= a + ln + 1e-3:
+                return round(s + max(0.0, t - a), 3)
+        a, s, ln = spans[-1]
+        return round(s + ln, 3)
+
+    out = []
+    for w in words:
+        t = back(float(w["t"]))
+        out.append({**w, "t": t, "e": round(max(back(float(w.get("e") or w["t"] + 0.3)), t + 0.05), 3)})
+    return out
+
+
+def _edit_direct(p: dict, d: Path, srv: _Serve, st: dict) -> dict:
+    """Step 2 of Edit Video, up to the plan: cut + normalise the source with the
+    step-1 segments → guideline video scan (background) → faces → AI director
+    on the (client-reviewed) words. Returns the state _edit_finish renders."""
+    import requests
+    max_sec = float(p.get("max_sec") or 180)
+    style = p.get("style") or "gempak"
+    src = Path(st["_src"]) if st.get("_src") else None
+    if not src or not src.exists():
+        _progress("download", 3)
+        src = _download(p["video_url"], d / "src_video")
+    info = st.get("_info") or _probe(src)
+    words, segs, cut = list(st.get("words") or []), st.get("segs") or None, st.get("cut") or {}
+    span = float(st.get("span") or min(info["duration"], max_sec))
+    guard = bool(st.get("guard"))
+
+    _progress("normalise", 10)
     try:
         vid = _normalise(src, d / "video.mp4", info, max_sec, segs)
     except Exception as e:  # noqa: BLE001
         print("cut/normalise failed, retrying without cuts:", str(e)[:300])
-        segs, words, cut = None, raw_words, {"error": "jumpcut skipped"}
+        if segs:
+            words = _unmap_words(words, segs)
+        segs, cut = None, {"error": "jumpcut skipped"}
         vid = _normalise(src, d / "video.mp4", info, max_sec, None)
     dur = _probe(vid)["duration"] or span
 
@@ -1537,30 +1620,32 @@ def _edit_prepare(p: dict, d: Path, srv: _Serve) -> dict:
         gthread = threading.Thread(target=_g, daemon=True)
         gthread.start()
 
-    _progress("faces", 24)
+    _progress("faces", 20)
     try:
         faces = _faces(vid)
     except Exception as e:  # noqa: BLE001
         print("face track failed:", str(e)[:200])
         faces = []
 
-    _progress("plan", 30)
-    plan, plan_fallback, late_fixes = None, False, []
+    _progress("plan", 26)
+    plan, plan_fallback = None, False
     try:
-        r = requests.post(p["plan_url"], json={"history_id": p["history_id"], "token": p["plan_token"], "duration": dur,
-                                               "words": [{"i": i, **w} for i, w in enumerate(words)],
+        # the words were spell-fixed in step 1 (and reviewed by the client):
+        # the director only plans, no second round of fixes
+        r = requests.post(p["plan_url"], json={"history_id": p["history_id"], "token": p["plan_token"], "mode": "plan",
+                                               "duration": dur, "words": [{"i": i, **w} for i, w in enumerate(words)],
                                                "has_face": bool(faces)}, timeout=290)
         j = r.json()
         if r.ok and j.get("ok") and isinstance(j.get("plan"), dict):
             plan = j["plan"]
         else:
             print("plan rejected:", str(j)[:400])
-            late_fixes = j.get("fixes") or [] if isinstance(j, dict) else []
     except Exception as e:  # noqa: BLE001
         print("plan call failed:", e)
     if not plan:
-        # captions only — still with the language-anchored spelling fixes
-        plan, plan_fallback = {**_fallback_plan(), "fixes": late_fixes}, True
+        plan, plan_fallback = _fallback_plan(), True  # captions only
+    if st.get("captions") is False and isinstance(plan.get("captions"), dict):
+        plan["captions"] = {**plan["captions"], "on": False}
 
     # AI Auto: the director chose the look (render energy), the music and the
     # hook-opener sound from the video itself
@@ -1570,28 +1655,17 @@ def _edit_prepare(p: dict, d: Path, srv: _Serve) -> dict:
     music_on = plan.get("music") is True if auto else bool(p.get("music"))
     hook_sfx = plan.get("hookSound") if isinstance(plan.get("hookSound"), int) else None
 
-    # AI-corrected spelling for the captions (timing untouched, 1:1 by index)
-    fixed = 0
-    for fx in plan.get("fixes") or []:
-        try:
-            i, w = int(fx[0]), str(fx[1]).strip()
-            if 0 <= i < len(words) and w and len(w) <= 40:
-                words[i]["w"] = w
-                fixed += 1
-        except Exception:  # noqa: BLE001
-            continue
-
     return {"vid": str(vid), "dur": dur, "words": words, "faces": faces, "cut_marks": cut_marks, "plan": plan,
-            "plan_fallback": plan_fallback, "fixed": fixed, "style": style, "music_on": music_on, "hook_sfx": hook_sfx,
-            "guard": guard, "flagged_speech": flagged_speech, "flagged_words": flagged_words,
-            "gspeech": {"risk": gspeech.get("risk"), "via": gspeech.get("via")}, "cut": cut,
-            # live only (not part of a stored draft): the guideline video scan thread
+            "plan_fallback": plan_fallback, "fixed": int(st.get("fixed") or 0), "style": style, "music_on": music_on,
+            "hook_sfx": hook_sfx, "guard": guard, "flagged_speech": st.get("flagged_speech") or "",
+            "flagged_words": st.get("flagged_words") or [], "gspeech": st.get("gspeech") or {}, "cut": cut,
+            # live only: the guideline video scan thread
             "_gthread": gthread, "_gres": gres}
 
 
 def _edit_finish(p: dict, d: Path, srv: _Serve, st: dict) -> dict:
     """B-roll / stickers → guideline report → music → QA → render, from a
-    prepared state (straight after _edit_prepare, or a reviewed draft)."""
+    prepared state (from _edit_direct, or an older draft that already had its plan)."""
     vid, dur, words, faces = Path(st["vid"]), float(st["dur"]), st["words"], st.get("faces") or []
     cut_marks, plan, plan_fallback, fixed = st.get("cut_marks") or [], st["plan"], bool(st.get("plan_fallback")), int(st.get("fixed") or 0)
     style, music_on, hook_sfx, guard = st.get("style") or "gempak", bool(st.get("music_on")), st.get("hook_sfx"), bool(st.get("guard"))
@@ -1731,26 +1805,28 @@ def run_job(payload: dict) -> dict:
     d = Path(JOBS_ROOT) / f"{re.sub(r'[^A-Za-z0-9_-]', '', hid)[:60]}-{int(t0)}"
     d.mkdir(parents=True, exist_ok=True)
     srv = _Serve(d)
-    # Edit Video 2-step flow: "draft" stops after the plan (the jump-cut video
-    # goes to B2, the state comes back for the client to review / edit);
-    # "render" resumes from that reviewed draft. No phase = everything at once.
+    # Edit Video 2-step flow: "draft" = the script + captions only (transcript,
+    # jump-cut map, spelling fixes, guideline speech report) for the client to
+    # review; "render" = cut, plan and render from that reviewed draft.
+    # No phase = everything at once.
     phase = str(payload.get("phase") or "")
     try:
         if flow != "ad" and phase == "draft":
-            st = _edit_prepare(payload, d, srv)
-            gthread, gres = st.pop("_gthread", None), st.pop("_gres", None) or {}
-            if gthread:
-                gthread.join(timeout=300)
-            st["gres"] = {k: gres.get(k) for k in GRES_KEYS if gres.get(k) is not None}
-            _progress("upload", 92)
-            st["video_url"] = _upload_b2(Path(st.pop("vid")), f"motion-drafts/{uid}/{hid}.mp4", "video/mp4")
+            st = _edit_script(payload, d, srv)
+            st.pop("_src", None)
+            st.pop("_info", None)
             _progress("review", 100)
-            return {"ok": True, "draft": st, "duration_sec": round(float(st["dur"]), 2), "render_sec": round(time.time() - t0, 1)}
+            return {"ok": True, "draft": st, "duration_sec": round(float(st["kept"]), 2), "render_sec": round(time.time() - t0, 1)}
         if flow != "ad" and phase == "render":
             st = dict(payload.get("draft") or {})
-            _progress("download", 3)
-            st["vid"] = str(_download(str(st.get("video_url") or ""), d / "video.mp4"))
-            res = _edit_finish(payload, d, srv, st)
+            if isinstance(st.get("plan"), dict) and st.get("video_url"):
+                # a draft made before step 1 was slimmed down: the video was
+                # already cut (on B2) and the plan already made
+                _progress("download", 3)
+                st["vid"] = str(_download(str(st["video_url"]), d / "video.mp4"))
+                res = _edit_finish(payload, d, srv, st)
+            else:
+                res = _edit_finish(payload, d, srv, _edit_direct(payload, d, srv, st))
         else:
             res = _flow_ad(payload, d, srv) if flow == "ad" else _flow_edit(payload, d, srv)
         _progress("upload", 96)

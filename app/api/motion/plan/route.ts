@@ -10,6 +10,10 @@ import { withDeadline } from "@/lib/openrouter";
 // Modal has it). Runs the director (model_motion cascade) + Serper Google
 // image/fact grounding here, so admin's provider/fallback/search settings
 // apply, and returns the full edit plan for the render.
+//   mode "fixes" — 2-step flow, step 1: caption spelling fixes only (fast)
+//   mode "plan"  — step 2: the director only (the words were fixed in step 1
+//                  and reviewed by the client)
+//   no mode      — both, side by side (one-shot render)
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -37,18 +41,28 @@ export async function POST(req: Request) {
     .filter((w: any) => w.w);
 
   const t0 = Date.now();
+  const mode = b?.mode === "fixes" || b?.mode === "plan" ? b.mode : "both";
+  const input = row.metadata?.input as EditInput;
+  if (mode === "fixes") {
+    const fixes = await withDeadline(t0 + PLAN_BUDGET_MS, () =>
+      fixTranscript(words.map((w: { i: number; w: string }) => ({ i: w.i, w: w.w })), input?.product || undefined, input?.language)).catch(() => [] as [number, string][]);
+    const { data: cur } = await admin.from("history").select("metadata").eq("id", id).maybeSingle();
+    await admin.from("history").update({ metadata: { ...(cur?.metadata || {}), caption_fixes: fixes.slice(0, 40) } }).eq("id", id);
+    return NextResponse.json({ ok: true, fixes });
+  }
   // Caption spelling fixes are returned even when the director fails, so the
   // captions-only fallback still reads in the video's language.
   let fixing: Promise<[number, string][]> = Promise.resolve([]);
   try {
-    const input = row.metadata?.input as EditInput;
     const context = input?.product || undefined;
     // Director + caption spelling clean-up run side by side (no added wait).
     // Every AI call inside honours PLAN_BUDGET_MS, so a slow provider ends in a
     // leaner plan — never in Vercel killing the request (Modal would then fall
     // back to captions only).
-    fixing = withDeadline(t0 + PLAN_BUDGET_MS, () =>
-      fixTranscript(words.map((w: any) => ({ i: w.i, w: w.w })), context, input?.language)).catch(() => [] as [number, string][]);
+    if (mode === "both") {
+      fixing = withDeadline(t0 + PLAN_BUDGET_MS, () =>
+        fixTranscript(words.map((w: any) => ({ i: w.i, w: w.w })), context, input?.language)).catch(() => [] as [number, string][]);
+    }
     const [plan, fixes] = await withDeadline(t0 + PLAN_BUDGET_MS, () => Promise.all([
       directEdit({ words, duration, input, hasFace: b?.has_face !== false }),
       fixing,
@@ -69,7 +83,7 @@ export async function POST(req: Request) {
             broll_src: plan.broll.map((b) => { try { return new URL(b.candidates[0]).hostname; } catch { return null; } }),
             broll_kinds: plan.broll.map((b) => b.kind ?? "photo"),
             stickers: plan.overlays.filter((o) => o.t === "gif").map((o) => (o.src ? "giphy" : "emoji-fallback")),
-            caption_fixes: fixes.slice(0, 40),
+            caption_fixes: (mode === "plan" ? cur?.metadata?.caption_fixes ?? [] : fixes).slice(0, 40),
             uploads: input?.productImages?.length ?? 0,
             director: plan.director ?? null, // which provider/model wrote the plan
             // AI Auto: what the director chose for this video (admin monitor)
