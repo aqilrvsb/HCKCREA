@@ -35,6 +35,7 @@ import {
   Hash,
   Clapperboard,
   Send,
+  FileText,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import Portal from "./portal";
@@ -2262,6 +2263,11 @@ function HistoryCardInner({
   const isMotionReview = item.tab === "motion" && item.status === "review";
   const canMotionResubmit = item.tab === "motion" && item.status === "done"
     && motionMeta?.feature === "motion-edit" && !!motionMeta?.input?.videoUrl;
+  // 📝 Skrip: the latest script of a finished Edit Video — read / fix / save
+  // (the video stays as it is; Resubmit renders a new one from this script)
+  const hasMotionScript = item.tab === "motion" && motionMeta?.feature === "motion-edit"
+    && (item.status === "done" || item.status === "failed") && (motionMeta?.draft?.words?.length ?? 0) > 0;
+  const [scriptOpen, setScriptOpen] = useState(false);
 
   // Generate a video FROM this storyboard (image1=storyboard blueprint,
   // image2=product ref). Lands in the Original Video history grid.
@@ -3444,9 +3450,23 @@ function HistoryCardInner({
         />
       )}
       {/* Motion Resubmit — product name + photos, then an in-place re-render. */}
+      {scriptOpen && hasMotionScript && (
+        <MotionReviewDialog
+          id={item.id}
+          mode="script"
+          draft={motionMeta?.draft ?? {}}
+          onClose={() => setScriptOpen(false)}
+          onDone={() => {
+            setScriptOpen(false);
+            showToast("📝 Skrip disimpan. Tekan Resubmit untuk jana video baru ikut skrip ini.");
+            window.dispatchEvent(new CustomEvent("history:refresh"));
+          }}
+        />
+      )}
       {resubOpen && canMotionResubmit && (
         <MotionResubmitDialog
           id={item.id}
+          hasScript={hasMotionScript}
           product={motionMeta?.input?.product}
           images={motionMeta?.input?.productImages}
           onClose={() => setResubOpen(false)}
@@ -4841,6 +4861,11 @@ function HistoryCardInner({
               {item.tab !== "video" && item.tab !== "auto" && item.tab !== "original-video" && !isMotionRow && (
                 <ActionBtn title="Improve Video" onClick={() => setShowEditModal(true)} bg={ACTION.edit}>
                   <Pencil className="w-3.5 h-3.5" strokeWidth={2.4} />
+                </ActionBtn>
+              )}
+              {hasMotionScript && (
+                <ActionBtn title="Skrip — baca & edit (video tidak berubah)" onClick={() => setScriptOpen(true)} bg={ACTION.edit}>
+                  <FileText className="w-3.5 h-3.5" strokeWidth={2.4} />
                 </ActionBtn>
               )}
               {canMotionResubmit && (

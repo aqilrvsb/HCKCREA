@@ -1585,7 +1585,9 @@ def _edit_direct(p: dict, d: Path, srv: _Serve, st: dict) -> dict:
     src = Path(st["_src"]) if st.get("_src") else None
     if not src or not src.exists():
         _progress("download", 3)
-        src = _download(p["video_url"], d / "src_video")
+        # an older draft carries its already-cut video (words on its timeline,
+        # no segments); otherwise the client's source video
+        src = _download(str(st.get("video_url") or p["video_url"]), d / "src_video")
     info = st.get("_info") or _probe(src)
     words, segs, cut = list(st.get("words") or []), st.get("segs") or None, st.get("cut") or {}
     span = float(st.get("span") or min(info["duration"], max_sec))
@@ -1644,7 +1646,7 @@ def _edit_direct(p: dict, d: Path, srv: _Serve, st: dict) -> dict:
         print("plan call failed:", e)
     if not plan:
         plan, plan_fallback = _fallback_plan(), True  # captions only
-    if st.get("captions") is False and isinstance(plan.get("captions"), dict):
+    if st.get("captions", p.get("captions")) is False and isinstance(plan.get("captions"), dict):
         plan["captions"] = {**plan["captions"], "on": False}
 
     # AI Auto: the director chose the look (render energy), the music and the

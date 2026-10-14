@@ -11,6 +11,10 @@ import { styleEnergy } from "@/lib/motion-styles";
 // gets the new video (own file name — the first is cached immutable); if the
 // re-render fails the card goes back to its previous video (and the credit
 // held for it is refunded). Always charged like a new edit, to the job owner.
+// The new video is rendered straight from the card's LATEST script (reviewed
+// in step 2 / saved in the 📝 Skrip box) — no new transcript, no review. Jobs
+// from before the 2-step flow have no script: they start again from the
+// script + captions step (review, then "Jana Video").
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
@@ -48,6 +52,10 @@ export async function POST(req: Request) {
     .slice(0, 5);
   if (!productImages.length) return NextResponse.json({ error: "Upload sekurang-kurangnya 1 gambar produk." }, { status: 400 });
   const input: EditInput = { ...oldInput, product, productImages };
+  // the latest script; an older draft's plan is dropped so the director plans afresh
+  const { plan: _dp, ...script } = (meta.draft ?? {}) as Record<string, unknown>;
+  void _dp;
+  const fromScript = Array.isArray(script.words) && script.words.length > 0;
   // a finished job re-renders in place (a failed re-render restores its video);
   // a failed job just gets another go (a failed retry refunds and stays failed)
   if (row.status !== "done" && row.status !== "failed") {
@@ -91,9 +99,10 @@ export async function POST(req: Request) {
         plan_token: planToken,
         resubmits: n,
         resubmit_started_at: new Date().toISOString(),
-        // 2-step flow: script + captions first (review), then "Jana Video";
-        // the render keeps this re-render's own file name
-        review: true,
+        // render from the latest script, or (no script yet) the 2-step flow:
+        // script + captions first (review), then "Jana Video"
+        ...(fromScript ? { draft: script } : { review: true }),
+        // this re-render's own file name
         out_suffix: `-r${n}`,
         resubmit_prev: wasDone && row.output_url
           ? { output_url: row.output_url, cost: row.cost, metadata: { guard: meta.guard, plan: meta.plan, render: meta.render, poster_url: _pu } }
@@ -129,7 +138,7 @@ export async function POST(req: Request) {
     max_sec: MOTION_EDIT_MAX_SEC,
     auto: !!input.auto,
     captions: input.captions,
-    phase: "draft",
+    ...(fromScript ? { phase: "render", draft: script, out_suffix: `-r${n}` } : { phase: "draft" }),
   });
   if (!start.ok) {
     // restore the card exactly as it was

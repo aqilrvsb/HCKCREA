@@ -44,6 +44,7 @@ type MotionRow = {
   productName?: string | null;
   productImages?: string[];
   canResubmit?: boolean;
+  hasScript?: boolean;
 };
 
 const STUCK_MIN = 40;
@@ -371,6 +372,7 @@ export default function AdminMotionPage() {
       {resubFor && (
         <MotionResubmitDialog
           id={resubFor.id}
+          hasScript={!!resubFor.hasScript}
           product={resubFor.productName ?? undefined}
           images={resubFor.productImages}
           note={`Caj ditolak daripada kredit ${resubFor.email}.`}

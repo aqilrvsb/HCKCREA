@@ -91,6 +91,8 @@ export async function GET(req: Request) {
       productName: str(input.product),
       productImages: Array.isArray(input.productImages) ? input.productImages.map(String) : [],
       canResubmit: !ad && !!input.videoUrl && (h.status === "done" || h.status === "failed"),
+      // the job has a saved script: Resubmit renders straight from it
+      hasScript: Array.isArray(obj(m.draft)?.words) && (obj(m.draft)?.words as unknown[]).length > 0,
       plan: plan
         ? {
           sec: num(plan.ms) !== null ? Math.round(Number(plan.ms) / 1000) : null,

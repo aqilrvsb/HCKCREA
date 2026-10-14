@@ -5,9 +5,12 @@
 // line, fixes anything wrong, then "Jana Video" (/api/motion/render) cuts the
 // video, lets the AI plan the edit on those words and renders it. (Drafts made
 // before step 1 was slimmed down also show their hook / stickers / CTA.)
+// mode "script" — the 📝 Skrip box of a finished video: read / fix the latest
+// script and save it (/api/motion/script). The video isn't changed; Resubmit
+// renders a new one from this script.
 
 import { useMemo, useState } from "react";
-import { Clapperboard, Loader2, ShieldAlert, X } from "lucide-react";
+import { Clapperboard, Loader2, Save, ShieldAlert, X } from "lucide-react";
 import Portal from "./portal";
 import { captionLines, EDITABLE_OVERLAY, type DraftEdits, type DraftWord } from "@/lib/motion-review";
 
@@ -35,15 +38,18 @@ const inputCls = "w-full px-3 py-2 rounded-lg text-[12px] outline-none";
 const inputStyle = { border: "1px solid var(--color-border)", background: "var(--color-bg)", color: "var(--color-text-primary)" } as const;
 const changedStyle = { border: "1px solid #facc15", background: "rgba(250,204,21,0.08)", color: "var(--color-text-primary)" } as const;
 
-export default function MotionReviewDialog({ id, draft, onClose, onDone }: {
+export default function MotionReviewDialog({ id, draft, mode = "review", onClose, onDone }: {
   id: string;
   draft: ReviewDraft;
+  mode?: "review" | "script";
   onClose: () => void;
   onDone: () => void;
 }) {
   const lines = useMemo(() => captionLines(draft.words ?? []), [draft.words]);
   const capsOn = draft.captions !== false;
-  const plan = draft.plan ?? {};
+  const scriptMode = mode === "script";
+  // the script box edits the words only (Resubmit plans the rest afresh)
+  const plan: NonNullable<ReviewDraft["plan"]> = scriptMode ? {} : draft.plan ?? {};
   const overlays = (plan.overlays ?? []).map((o, k) => ({ o, k })).filter(({ o }) => EDITABLE_OVERLAY.has(String(o.t)) && o.text);
   const [lineEdits, setLineEdits] = useState<Record<string, string>>({});
   const [hook, setHook] = useState({ text: plan.hook?.text ?? "", sub: plan.hook?.sub ?? "" });
@@ -52,6 +58,20 @@ export default function MotionReviewDialog({ id, draft, onClose, onDone }: {
   const [ovEdits, setOvEdits] = useState<Record<string, { text?: string; sub?: string }>>({});
   const [busy, setBusy] = useState(false);
   const changed = Object.keys(lineEdits).filter((k) => lineEdits[k] !== lines[Number(k)]?.text).length;
+
+  async function save() {
+    if (busy) return;
+    setBusy(true);
+    try {
+      const changedLines = Object.fromEntries(Object.entries(lineEdits).filter(([k, v]) => v !== lines[Number(k)]?.text));
+      const r = await fetch("/api/motion/script", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, lines: changedLines }) });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok || !d?.ok) { alert(d?.error || `Gagal simpan skrip (HTTP ${r.status})`); return; }
+      onDone();
+    } finally {
+      setBusy(false);
+    }
+  }
 
   async function render() {
     if (busy) return;
@@ -77,22 +97,26 @@ export default function MotionReviewDialog({ id, draft, onClose, onDone }: {
   return (
     <Portal>
       <div className="fixed inset-0 z-[200] flex items-center justify-center p-3" style={{ background: "rgba(0,0,0,0.75)" }} onClick={() => !busy && onClose()}>
-        <div className="w-full max-w-xl rounded-2xl flex flex-col max-h-[92vh]" style={{ background: "var(--color-bg-card)", border: "2px solid #facc15" }} onClick={(e) => e.stopPropagation()}>
+        <div className="w-full max-w-xl rounded-2xl flex flex-col max-h-[92vh]" style={{ background: "var(--color-bg-card)", border: scriptMode ? "1px solid var(--color-border)" : "2px solid #facc15" }} onClick={(e) => e.stopPropagation()}>
           <div className="flex items-center gap-2 px-5 pt-4 pb-2">
-            <span className="text-[14px] font-extrabold text-[var(--color-text-primary)]">📝 {capsOn ? "Semak skrip & caption" : "Semak skrip"}</span>
+            <span className="text-[14px] font-extrabold text-[var(--color-text-primary)]">📝 {scriptMode ? "Skrip video" : capsOn ? "Semak skrip & caption" : "Semak skrip"}</span>
             <button type="button" onClick={onClose} disabled={busy} className="ml-auto p-1 rounded-lg disabled:opacity-40" aria-label="Tutup">
               <X className="w-4 h-4 text-[var(--color-text-secondary)]" />
             </button>
           </div>
           <p className="px-5 text-[11px] text-[var(--color-text-muted)] leading-snug mb-3">
-            {capsOn
-              ? "Betulkan apa-apa ejaan / ayat yang salah. Caption dalam video ikut tepat apa yang ada di sini — suara anda tidak diubah, cuma tulisan pada skrin."
-              : "Betulkan apa-apa ejaan / ayat yang salah. Caption dimatikan — AI guna skrip ini untuk rancang hook & sticker video."}
-            {!draft.plan && " Hook, sticker & B-roll dirancang AI selepas anda klik Jana Video."}
+            {scriptMode
+              ? "Skrip terkini video ini. Edit & simpan — video ini TIDAK berubah. Tekan Resubmit untuk jana video baru ikut skrip ini."
+              : <>
+                {capsOn
+                  ? "Betulkan apa-apa ejaan / ayat yang salah. Caption dalam video ikut tepat apa yang ada di sini — suara anda tidak diubah, cuma tulisan pada skrin."
+                  : "Betulkan apa-apa ejaan / ayat yang salah. Caption dimatikan — AI guna skrip ini untuk rancang hook & sticker video."}
+                {!draft.plan && " Hook, sticker & B-roll dirancang AI selepas anda klik Jana Video."}
+              </>}
           </p>
 
           <div className="px-5 pb-3 overflow-y-auto space-y-4">
-            {(draft.flagged_speech || (draft.flagged_words?.length ?? 0) > 0) && (
+            {!scriptMode && (draft.flagged_speech || (draft.flagged_words?.length ?? 0) > 0) && (
               <div className="rounded-xl p-3 text-[11px] leading-snug" style={{ background: "rgba(245,158,11,0.08)", border: "1px solid rgba(245,158,11,0.45)" }}>
                 <span className="flex items-center gap-1.5 font-extrabold text-amber-500 mb-1"><ShieldAlert className="w-3.5 h-3.5" /> Guideline TikTok — semak sebelum jana</span>
                 {draft.flagged_speech && <span className="block text-[var(--color-text-secondary)]"><b>Ayat mungkin langgar:</b> &quot;{draft.flagged_speech.slice(0, 300)}&quot;</span>}
@@ -169,14 +193,23 @@ export default function MotionReviewDialog({ id, draft, onClose, onDone }: {
           <div className="grid grid-cols-2 gap-2 px-5 py-4 border-t" style={{ borderColor: "var(--color-border)" }}>
             <button type="button" onClick={onClose} disabled={busy} className="py-2.5 rounded-xl text-[12px] font-bold disabled:opacity-40"
               style={{ border: "1px solid var(--color-border)", color: "var(--color-text-secondary)" }}>
-              Tutup (sambung nanti)
+              {scriptMode ? "Tutup" : "Tutup (sambung nanti)"}
             </button>
-            <button type="button" onClick={() => void render()} disabled={busy}
-              className="py-2.5 rounded-xl text-[12px] font-extrabold text-white inline-flex items-center justify-center gap-1.5 disabled:opacity-50"
-              style={{ background: "linear-gradient(135deg, #22c55e, #4ade80)" }}>
-              {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Clapperboard className="w-4 h-4" />}
-              {busy ? "Menghantar…" : "🎬 Jana Video"}
-            </button>
+            {scriptMode ? (
+              <button type="button" onClick={() => void save()} disabled={busy || !changed}
+                className="py-2.5 rounded-xl text-[12px] font-extrabold text-white inline-flex items-center justify-center gap-1.5 disabled:opacity-50"
+                style={{ background: "linear-gradient(135deg, #3b82f6, #60a5fa)" }}>
+                {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                {busy ? "Menyimpan…" : "Simpan skrip"}
+              </button>
+            ) : (
+              <button type="button" onClick={() => void render()} disabled={busy}
+                className="py-2.5 rounded-xl text-[12px] font-extrabold text-white inline-flex items-center justify-center gap-1.5 disabled:opacity-50"
+                style={{ background: "linear-gradient(135deg, #22c55e, #4ade80)" }}>
+                {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Clapperboard className="w-4 h-4" />}
+                {busy ? "Menghantar…" : "🎬 Jana Video"}
+              </button>
+            )}
           </div>
         </div>
       </div>

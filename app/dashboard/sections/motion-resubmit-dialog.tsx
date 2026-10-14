@@ -4,7 +4,8 @@
 // and the admin Motion monitor. Asks for the product name and product photos
 // (1–5: upload / 🩹 tape / gallery; photos no longer in storage drop out so
 // they're uploaded again), then POSTs /api/motion/resubmit: the SAME card
-// re-renders in place, charged like a new edit to the job's owner.
+// re-renders in place from the latest script (📝 Skrip), charged like a new
+// edit to the job's owner. A job without a script goes through review first.
 
 import { useState } from "react";
 import { Loader2, RotateCw } from "lucide-react";
@@ -13,8 +14,10 @@ import MotionPhotoPicker from "../tabs/motion-photo-picker";
 
 const GREEN = "linear-gradient(135deg, #22c55e, #4ade80)";
 
-export default function MotionResubmitDialog({ id, product: product0, images: images0, note, onClose, onDone }: {
+export default function MotionResubmitDialog({ id, product: product0, images: images0, note, hasScript, onClose, onDone }: {
   id: string;
+  /** The card has a saved script — the new video is rendered straight from it. */
+  hasScript?: boolean;
   /** The job's current product name / photos (pre-filled). */
   product?: string;
   images?: string[];
@@ -58,7 +61,9 @@ export default function MotionResubmitDialog({ id, product: product0, images: im
           onClick={(e) => e.stopPropagation()}>
           <div className="text-[13px] font-extrabold text-[var(--color-text-primary)] mb-1">🔁 Render semula</div>
           <div className="text-[11px] text-[var(--color-text-muted)] mb-2 leading-snug">
-            Video ini akan diedit semula (tanpa tampal / mute / potong). Kad ini akan diganti dengan video baru.
+            {hasScript
+              ? "Video baru dijana terus ikut skrip terkini (ikon 📝 Skrip untuk baca & edit dulu). Kad ini akan diganti dengan video baru."
+              : "Skrip & caption dijana dulu untuk anda semak, kemudian tekan Jana Video. Kad ini akan diganti dengan video baru."}
           </div>
           <div className="text-[11px] font-bold mb-3" style={{ color: "#f59e0b" }}>
             Dicaj ikut tempoh video (macam edit baru).

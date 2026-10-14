@@ -73,6 +73,8 @@ export async function POST(req: Request) {
     overlays,
   };
   const reviewed = applyDraftEdits({ words: draft.words, plan: (draft.plan ?? {}) as DraftPlan }, edits);
+  // the reviewed words become the card's latest script (📝 Skrip box, Resubmit)
+  const latest = { ...draft, words: reviewed.words, ...(draft.plan ? { plan: reviewed.plan } : {}) };
 
   // review → pending (same card, live placeholder again)
   const { data: flipped } = await admin
@@ -81,7 +83,10 @@ export async function POST(req: Request) {
       status: "pending",
       error_message: null,
       task_id: null,
-      metadata: { ...meta, stage: "queued", render_started_at: new Date().toISOString(), reviewed: { edits, at: new Date().toISOString() } },
+      metadata: {
+        ...meta, stage: "queued", draft: latest,
+        render_started_at: new Date().toISOString(), reviewed: { edits, at: new Date().toISOString() },
+      },
     })
     .eq("id", id)
     .eq("status", "review")
@@ -93,7 +98,7 @@ export async function POST(req: Request) {
     phase: "render",
     history_id: id,
     user_id: row.user_id,
-    draft: { ...draft, words: reviewed.words, ...(draft.plan ? { plan: reviewed.plan } : {}) },
+    draft: latest,
     video_url: input.videoUrl,
     plan_url: `${siteUrl()}/api/motion/plan`,
     qa_url: `${siteUrl()}/api/motion/qa`,
