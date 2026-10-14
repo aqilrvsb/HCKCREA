@@ -138,7 +138,8 @@ export default function MotionTab({ projectId }: { projectId?: string }) {
   const [captions, setCaptions] = useState(true);
   const [captionStyle, setCaptionStyle] = useState<CaptionStyle>("pop");
   const [style, setStyle] = useState<MotionStyleId>("gempak");
-  const [resolution, setResolution] = useState<"1080" | "720">("1080");
+  // always HD 1080p (the picker is hidden)
+  const resolution = "1080";
   const [sfx, setSfx] = useState(true);
   const [accent, setAccent] = useState("");
   // "Check Guideline TikTok" is always on (no box in the form): it only reports
@@ -529,7 +530,7 @@ export default function MotionTab({ projectId }: { projectId?: string }) {
           </div>
         )}
 
-        {/* shared style controls (AI Auto decides all but the resolution) */}
+        {/* shared style controls (AI Auto decides them all; caption on / off is the client's) */}
         <div className="mt-5 pt-4 border-t space-y-3" style={{ borderColor: "var(--color-border)" }}>
           {!autoOn && (
           <div>
@@ -551,11 +552,6 @@ export default function MotionTab({ projectId }: { projectId?: string }) {
             </div>
           </div>
           )}
-          <div className="flex flex-wrap gap-2 items-center">
-            <span className={`${label} !mb-0 mr-1`}>Resolusi</span>
-            <Chip active={resolution === "1080"} onClick={() => setResolution("1080")}>HD 1080p</Chip>
-            <Chip active={resolution === "720"} onClick={() => setResolution("720")}>720p laju</Chip>
-          </div>
           {autoOn && (
             // AI Auto: the client only says captions on / off — AI picks their style & place
             <div className="flex flex-wrap gap-2 items-center">
