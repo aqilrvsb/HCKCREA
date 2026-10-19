@@ -9,7 +9,7 @@
 // below (stage + progress, sections/motion-progress.tsx), which turns into the
 // finished video with its guideline summary.
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Clapperboard, Loader2, Upload, X, Sparkles, Scissors, Wand2 } from "lucide-react";
 import { uploadImage } from "@/lib/upload-image";
 import { MOTION_AD_PRESETS, MOTION_EDIT_PRESETS, type MotionPreset } from "@/lib/motion-prompts";
@@ -18,10 +18,14 @@ import MotionPhotoPicker, { MAX_PRODUCT_PHOTOS, withRetry } from "./motion-photo
 
 type Mode = "ad" | "edit";
 type CaptionStyle = "pop" | "karaoke" | "box" | "tiktok";
-type VideoPick = { key: string; file: File; dur: number; preview: string; uploadedUrl?: string; pct?: number | null; error?: string | null };
+// sending = already sent (uploading / starting its job) — the form stays free for the next videos
+type VideoPick = { key: string; file: File; dur: number; preview: string; uploadedUrl?: string; pct?: number | null; error?: string | null; sending?: boolean };
 
 const THEME = { primary: "#a855f7", soft: "rgba(168,85,247,0.35)", faint: "rgba(168,85,247,0.08)", gradient: "linear-gradient(135deg,#a855f7,#ec4899)" };
-const MAX_VIDEOS = 5;
+const MAX_VIDEOS = 20;
+// uploads at once, across every send (the client's bandwidth is shared) — each
+// video starts its own job the moment its upload is done
+const UPLOAD_SLOTS = 6;
 const MAX_SEC = 180;
 
 const VOICES = [
@@ -202,7 +206,9 @@ export default function MotionTab({ projectId }: { projectId?: string }) {
   }, [projectId]);
 
   const adCost = rate !== null ? Math.ceil(seconds + 2) * rate * variations : null;
-  const editSec = videos.reduce((s, v) => s + Math.ceil(Math.min(v.dur || 0, MAX_SEC)), 0);
+  const toSend = videos.filter((v) => !v.sending);
+  const sendingCount = videos.length - toSend.length;
+  const editSec = toSend.reduce((s, v) => s + Math.ceil(Math.min(v.dur || 0, MAX_SEC)), 0);
   const editCost = rate !== null && editSec > 0 ? editSec * rate : null;
 
   // ── images ──
@@ -282,6 +288,21 @@ export default function MotionTab({ projectId }: { projectId?: string }) {
     return withRetry(send);
   }
 
+  // UPLOAD_SLOTS uploads at a time; the rest start as soon as a slot frees up
+  const slots = useRef({ free: UPLOAD_SLOTS, waiting: [] as (() => void)[] });
+  async function withUploadSlot<T>(fn: () => Promise<T>): Promise<T> {
+    const q = slots.current;
+    if (q.free > 0) q.free--;
+    else await new Promise<void>((res) => q.waiting.push(res));
+    try {
+      return await fn();
+    } finally {
+      const next = q.waiting.shift();
+      if (next) next();
+      else q.free++;
+    }
+  }
+
   // ── submit ──
   async function submitAd() {
     setError(null);
@@ -310,52 +331,59 @@ export default function MotionTab({ projectId }: { projectId?: string }) {
     }
   }
 
+  // Every video is its own job, in parallel: it uploads (UPLOAD_SLOTS at a
+  // time), then starts on Modal the moment its own upload is done — no video
+  // waits for another. The form isn't locked: more videos can be added and
+  // sent while these upload.
   async function submitEdit() {
     setError(null);
     setNotice(null);
-    if (videos.length === 0) return setError("Pilih sekurang-kurangnya satu video.");
+    const batch = videos.filter((v) => !v.sending);
+    if (batch.length === 0) return setError("Pilih sekurang-kurangnya satu video.");
     const productName = editProduct.replace(/\s+/g, " ").trim();
     if (!productName) return setError("Sila isi nama produk (ejaan yang betul).");
     if (editImages.length === 0) return setError("Upload sekurang-kurangnya 1 gambar produk.");
-    setSubmitting(true);
-    const failed: string[] = [];
-    // Two uploads at a time; every video becomes its own background job.
-    const queue = [...videos];
-    const worker = async () => {
-      while (queue.length) {
-        const v = queue.shift()!;
-        try {
-          patchVideo(v.key, { error: null, pct: 0 });
-          const url = v.uploadedUrl || (await uploadVideo(v));
-          patchVideo(v.key, { uploadedUrl: url, pct: 100 });
-          const r = await fetch("/api/motion/edit", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              video_url: url, duration_sec: v.dur, language: editLang, prompt: editAuto ? undefined : editPrompt,
-              product: productName, product_images: editImages, auto: editAuto,
-              captions, caption_style: captionStyle, caption_pos: captionPos, music: editMusic, sfx,
-              accent: accent || undefined, project_id: projectId, style, resolution, jumpcut, broll, facts, guard,
-            }),
-          });
-          const d = await r.json();
-          if (!r.ok || !d?.ok) throw new Error(d?.error || "Gagal hantar");
-          removeVideo(v.key);
-          // its placeholder (live progress) shows up in History right away
-          window.dispatchEvent(new CustomEvent("history:refresh"));
-          if (r.status === 402) break;
-        } catch (e: any) {
-          patchVideo(v.key, { error: e?.message || "Gagal" });
-          failed.push(`${v.file.name}: ${e?.message || "gagal"}`);
-          if (String(e?.message || "").startsWith("Kredit")) { queue.length = 0; }
-        }
-      }
+    // the settings as they are now — the form may change for the next videos
+    const settings = {
+      language: editLang, prompt: editAuto ? undefined : editPrompt,
+      product: productName, product_images: editImages, auto: editAuto,
+      captions, caption_style: captionStyle, caption_pos: captionPos, music: editMusic, sfx,
+      accent: accent || undefined, project_id: projectId, style, resolution, jumpcut, broll, facts, guard,
     };
-    await Promise.all([worker(), worker()]);
+    const keys = new Set(batch.map((v) => v.key));
+    setVideos((cur) => cur.map((v) => (keys.has(v.key) ? { ...v, sending: true, error: null, pct: v.uploadedUrl ? 100 : 0 } : v)));
+    setNotice(`📤 ${batch.length} video dihantar — setiap video terus diproses sebaik upload siap. Boleh tambah video lain sementara menunggu.`);
+    const failed: string[] = [];
+    let noCredit = false;
+    await Promise.all(batch.map(async (v) => {
+      try {
+        const url = v.uploadedUrl || (await withUploadSlot(() => {
+          if (noCredit) throw new Error("Kredit tidak mencukupi.");
+          return uploadVideo(v);
+        }));
+        patchVideo(v.key, { uploadedUrl: url, pct: 100 });
+        const r = await fetch("/api/motion/edit", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ...settings, video_url: url, duration_sec: v.dur }),
+        });
+        const d = await r.json();
+        if (!r.ok || !d?.ok) {
+          if (r.status === 402) noCredit = true;
+          throw new Error(d?.error || "Gagal hantar");
+        }
+        removeVideo(v.key);
+        // its placeholder (live progress) shows up in History right away
+        window.dispatchEvent(new CustomEvent("history:refresh"));
+      } catch (e: any) {
+        patchVideo(v.key, { sending: false, error: e?.message || "Gagal" });
+        failed.push(`${v.file.name}: ${e?.message || "gagal"}`);
+        if (String(e?.message || "").startsWith("Kredit")) noCredit = true;
+      }
+    }));
     window.dispatchEvent(new CustomEvent("history:refresh"));
     if (failed.length) setError(failed.join(" · "));
     else setNotice("📝 Skrip & caption sedang dijana. Bila kad History bertukar border kuning, tekan \"Semak skrip\", betulkan jika perlu, kemudian \"Jana Video\".");
-    setSubmitting(false);
   }
 
   const presets = mode === "ad" ? MOTION_AD_PRESETS : MOTION_EDIT_PRESETS;
@@ -387,11 +415,19 @@ export default function MotionTab({ projectId }: { projectId?: string }) {
                 {videos.map((v) => (
                   <div key={v.key} className="relative w-28">
                     <video src={v.preview} className="w-28 rounded-lg bg-black" style={{ aspectRatio: "9/16", objectFit: "cover" }} muted playsInline />
-                    <button type="button" onClick={() => removeVideo(v.key)} disabled={submitting} className="absolute top-1 right-1 bg-black/70 rounded-full p-0.5">
-                      <X className="w-3 h-3 text-white" />
-                    </button>
+                    {v.sending ? (
+                      <div className="absolute inset-x-0 top-0 rounded-lg flex flex-col items-center justify-center gap-1 text-white text-[10px] font-extrabold"
+                        style={{ aspectRatio: "9/16", background: "rgba(0,0,0,0.55)" }}>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        {typeof v.pct === "number" && v.pct < 100 ? (v.pct > 0 ? `Upload ${v.pct}%` : "Menunggu giliran upload") : "Mula proses…"}
+                      </div>
+                    ) : (
+                      <button type="button" onClick={() => removeVideo(v.key)} className="absolute top-1 right-1 bg-black/70 rounded-full p-0.5">
+                        <X className="w-3 h-3 text-white" />
+                      </button>
+                    )}
                     <div className="text-[10px] mt-1 text-[var(--color-text-secondary)] truncate">{v.file.name}</div>
-                    <div className="text-[10px] text-[var(--color-text-muted)]">{v.dur.toFixed(1)}s{v.dur > MAX_SEC ? " (3 min pertama)" : ""}{typeof v.pct === "number" && v.pct < 100 ? ` · ${v.pct}%` : ""}</div>
+                    <div className="text-[10px] text-[var(--color-text-muted)]">{v.dur.toFixed(1)}s{v.dur > MAX_SEC ? " (3 min pertama)" : ""}</div>
                     {v.error && <div className="text-[10px] text-red-400 line-clamp-2">{v.error}</div>}
                   </div>
                 ))}
@@ -609,14 +645,21 @@ export default function MotionTab({ projectId }: { projectId?: string }) {
         <div className="mt-5 flex flex-wrap items-center gap-3">
           <button
             type="button"
-            disabled={submitting || imgBusy || (mode === "edit" && (videos.length === 0 || editImgBusy))}
+            disabled={mode === "ad" ? submitting || imgBusy : toSend.length === 0 || editImgBusy}
             onClick={mode === "ad" ? submitAd : submitEdit}
             className="px-5 py-3 rounded-xl text-sm font-extrabold text-white disabled:opacity-50 inline-flex items-center gap-2"
             style={{ background: THEME.gradient, boxShadow: `0 6px 18px ${THEME.soft}` }}
           >
-            {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Wand2 className="w-4 h-4" />}
-            {submitting ? "Menghantar…" : mode === "ad" ? (variations > 1 ? `Jana ${variations} Iklan` : "Jana Iklan") : videos.length > 1 ? `Jana Skrip & Caption (${videos.length} video)` : "Jana Skrip & Caption"}
+            {submitting && mode === "ad" ? <Loader2 className="w-4 h-4 animate-spin" /> : <Wand2 className="w-4 h-4" />}
+            {mode === "ad"
+              ? submitting ? "Menghantar…" : variations > 1 ? `Jana ${variations} Iklan` : "Jana Iklan"
+              : toSend.length > 1 ? `Jana Skrip & Caption (${toSend.length} video)` : "Jana Skrip & Caption"}
           </button>
+          {mode === "edit" && sendingCount > 0 && (
+            <span className="text-xs font-bold inline-flex items-center gap-1" style={{ color: THEME.primary }}>
+              <Loader2 className="w-3.5 h-3.5 animate-spin" /> {sendingCount} video sedang dihantar
+            </span>
+          )}
           <span className="text-xs text-[var(--color-text-secondary)]">
             {rate === null
               ? "…"

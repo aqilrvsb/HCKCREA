@@ -176,7 +176,8 @@ function splitTaskId(taskId: string): { callId: string; account: string } {
   return at > 0 ? { callId: taskId.slice(0, at), account: taskId.slice(at + 1) } : { callId: taskId, account: MAIN_ACCOUNT };
 }
 
-/** The account with the fewest Motion jobs still running (ties → listed order). */
+/** The account with the fewest Motion jobs still running (ties → listed order,
+ *  main first). Every video is its own job, so they all run side by side. */
 async function pickMotionAccount(accounts: MotionAccount[]): Promise<MotionAccount> {
   if (accounts.length < 2) return accounts[0];
   const { data } = await createAdminClient()
