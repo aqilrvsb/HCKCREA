@@ -351,7 +351,8 @@ export default function MotionTab({ projectId }: { projectId?: string }) {
       accent: accent || undefined, project_id: projectId, style, resolution, jumpcut, broll, facts, guard,
     };
     const keys = new Set(batch.map((v) => v.key));
-    setVideos((cur) => cur.map((v) => (keys.has(v.key) ? { ...v, sending: true, error: null, pct: v.uploadedUrl ? 100 : 0 } : v)));
+    // pct null = waiting for an upload slot
+    setVideos((cur) => cur.map((v) => (keys.has(v.key) ? { ...v, sending: true, error: null, pct: v.uploadedUrl ? 100 : null } : v)));
     setNotice(`📤 ${batch.length} video dihantar — setiap video terus diproses sebaik upload siap. Boleh tambah video lain sementara menunggu.`);
     const failed: string[] = [];
     let noCredit = false;
@@ -359,6 +360,7 @@ export default function MotionTab({ projectId }: { projectId?: string }) {
       try {
         const url = v.uploadedUrl || (await withUploadSlot(() => {
           if (noCredit) throw new Error("Kredit tidak mencukupi.");
+          patchVideo(v.key, { pct: 0 });
           return uploadVideo(v);
         }));
         patchVideo(v.key, { uploadedUrl: url, pct: 100 });
@@ -419,7 +421,7 @@ export default function MotionTab({ projectId }: { projectId?: string }) {
                       <div className="absolute inset-x-0 top-0 rounded-lg flex flex-col items-center justify-center gap-1 text-white text-[10px] font-extrabold"
                         style={{ aspectRatio: "9/16", background: "rgba(0,0,0,0.55)" }}>
                         <Loader2 className="w-4 h-4 animate-spin" />
-                        {typeof v.pct === "number" && v.pct < 100 ? (v.pct > 0 ? `Upload ${v.pct}%` : "Menunggu giliran upload") : "Mula proses…"}
+                        {typeof v.pct !== "number" ? "Menunggu giliran upload" : v.pct < 100 ? `Upload ${v.pct}%` : "Mula proses…"}
                       </div>
                     ) : (
                       <button type="button" onClick={() => removeVideo(v.key)} className="absolute top-1 right-1 bg-black/70 rounded-full p-0.5">
