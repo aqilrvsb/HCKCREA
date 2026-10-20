@@ -166,7 +166,9 @@ const Line: React.FC<{ l: PlacedLine; frame: number; look: Look; accent: string;
   const single = (full.match(/\d[\d.,]*/g) ?? []).length === 1;
   const text = l.fx === 'count' && single && d >= 0 ? countText(full, d) : full;
   const base = SIZE[l.size ?? 'md'];
-  const size = fitFace(text, base, W - 160, 1, face, 30);
+  // the estimate from the face's average letter, then the measured width (wide letters like "M" run long)
+  const est = fitFace(text, base, W - 160, 1, face, 30);
+  const size = Math.max(30, Math.min(est, Math.floor((est * (W - 150 - (l.box && l.box !== 'none' ? est * 0.36 : 0))) / Math.max(1, textWidth(text, face, est)))));
   const box = l.box && l.box !== 'none' ? l.box : null;
   const boxBg = box === 'yellow' ? '#FFD93B' : box === 'black' ? '#111' : box === 'white' ? '#fff' : box === 'accent' ? look.hi : 'transparent';
   let color = toneColor(l.tone, look, accent);
@@ -572,7 +574,8 @@ export const SideWords: React.FC<{ side: PlacedSide; frame: number; look: Look; 
   // sizes are relative within the stack: its biggest word is always full size (a lone "sm" word never comes out tiny)
   const top1 = Math.max(...side.words.map((w) => SIDE_K[w.size ?? 'lg']));
   const k = (w: PlacedSide['words'][number]) => SIDE_K[w.size ?? 'lg'] / top1;
-  const base = Math.min(center ? 250 : 178, ...side.words.map((w) => Math.floor(maxW / (Math.max(3, w.text.length) * face.charW * k(w)))));
+  // measured at 100 px, then scaled: the widest word fits its band
+  const base = Math.min(center ? 250 : 178, ...side.words.map((w) => Math.floor((maxW * 100) / (Math.max(1, textWidth(face.upper ? w.text.toUpperCase() : w.text, face, 100)) * k(w)))));
   const origin = center ? 'center center' : side.align === 'left' ? 'left center' : 'right center';
   const sizeOf = (w: PlacedSide['words'][number]) => Math.max(52, base * k(w));
   // the stack ends just above the head (a centred word may sit on the hair line), never under the TikTok tabs

@@ -12,6 +12,7 @@ import React from 'react';
 import { AbsoluteFill, Easing, interpolate, spring, useVideoConfig } from 'remotion';
 import { W, clamp, fitSize } from '../../motion/src/lib';
 import type { Look } from './look';
+import { textWidth } from './scenesKit';
 
 const TOP = 260;
 
@@ -22,17 +23,23 @@ const keyIndex = (words: string[]) => {
   return key;
 };
 
-/** Greedy line breaking for the measured face. */
-const toLines = (words: string[], size: number, charW: number, maxW: number) => {
+/** A word's rendered width — measured with the page's font (an "M" is far wider than the average letter), + its stroke. */
+const wordW = (w: string, size: number, face: Look['display']) => textWidth(w, face, size) + size * 0.1;
+
+/** Greedy line breaking on measured widths. */
+const toLines = (words: string[], size: number, face: Look['display'], maxW: number) => {
   const lines: number[][] = [[]];
   let width = 0;
   words.forEach((w, i) => {
-    const ww = w.length * size * charW;
+    const ww = wordW(w, size, face);
     const add = (lines[lines.length - 1].length ? size * 0.3 : 0) + ww;
     if (lines[lines.length - 1].length && width + add > maxW) { lines.push([i]); width = ww; } else { lines[lines.length - 1].push(i); width += add; }
   });
   return lines;
 };
+/** The widest line (px) of a layout. */
+const widest = (words: string[], lines: number[][], size: number, face: Look['display']) =>
+  Math.max(0, ...lines.map((ln) => ln.reduce((a, i, k) => a + wordW(words[i], size, face) + (k ? size * 0.3 : 0), 0)));
 
 const splitWords = (s: string, upper: boolean) => {
   const raw = s.replace(/\s+/g, ' ').trim().split(' ').filter(Boolean);
@@ -45,19 +52,20 @@ function headlineLayout(text: string, sub: string | undefined, look: Look) {
   const maxW = W - 130;
   let top = splitWords(text, face.upper).slice(0, 12);
   let box = sub ? splitWords(sub, face.upper).slice(0, 6) : [];
-  const size = fitSize(top.join(' '), face.charW < 0.5 ? 132 : 104, maxW, 2, face.charW, 52);
-  let lines = toLines(top, size, face.charW, maxW);
+  let size = fitSize(top.join(' '), face.charW < 0.5 ? 132 : 104, maxW, 2, face.charW, 52);
+  let lines = toLines(top, size, face, maxW);
+  while (size > 52 && widest(top, lines, size, face) > maxW) { size -= 4; lines = toLines(top, size, face, maxW); }
   if (!box.length && lines.length > 1) {
     box = lines[lines.length - 1].map((i) => top[i]);
     top = top.slice(0, lines[lines.length - 1][0]);
-    lines = toLines(top, size, face.charW, maxW);
+    lines = toLines(top, size, face, maxW);
   } else if (!box.length && top.length >= 3) {
     const cut = Math.ceil(top.length * 0.55);
     box = top.slice(cut);
     top = top.slice(0, cut);
-    lines = toLines(top, size, face.charW, maxW);
+    lines = toLines(top, size, face, maxW);
   }
-  const boxSize = box.length ? Math.min(size, fitSize(box.join(' '), size, maxW - 60, 1, face.charW, 40)) : 0;
+  const boxSize = box.length ? Math.max(40, Math.min(size, Math.floor((size * (maxW - 60)) / Math.max(1, textWidth(box.join(' '), face, size))))) : 0;
   return { size, top, lines, box, boxSize, height: lines.length * size * 1.06 + (box.length ? boxSize * 1.24 + 14 : 0) };
 }
 
@@ -70,8 +78,8 @@ export function hookBottom(text: string, sub: string | undefined, look: Look, fa
   if (look.hook === 'stack') return TOP + room + (sub ? 96 : 0);
   const maxW = W - 130;
   let size = fitSize(words.join(' '), face.charW < 0.5 ? 190 : 150, maxW, 3, face.charW, 64);
-  let lines = toLines(words, size, face.charW, maxW);
-  while (size > 64 && lines.length * size * 1.06 > room) { size -= 4; lines = toLines(words, size, face.charW, maxW); }
+  let lines = toLines(words, size, face, maxW);
+  while (size > 64 && (lines.length * size * 1.06 > room || widest(words, lines, size, face) > maxW)) { size -= 4; lines = toLines(words, size, face, maxW); }
   return TOP + lines.length * size * (look.hook === 'blocks' ? 1.18 : 1.06) + (sub ? 96 : 0);
 }
 
@@ -118,9 +126,11 @@ export const HookPro: React.FC<{ text: string; sub?: string; frame: number; end:
   const maxW = W - 130;
   const stack = look.hook === 'stack';
   let size = stack ? Math.min(200, Math.floor(room / Math.min(words.length, 5) / 1.0)) : fitSize(words.join(' '), face.charW < 0.5 ? 190 : 150, maxW, 3, face.charW, 64);
-  let lines = stack ? words.map((_, i) => [i]) : toLines(words, size, face.charW, maxW);
-  while (!stack && size > 64 && lines.length * size * 1.06 > room) { size -= 4; lines = toLines(words, size, face.charW, maxW); }
+  let lines = stack ? words.map((_, i) => [i]) : toLines(words, size, face, maxW);
+  while (!stack && size > 64 && (lines.length * size * 1.06 > room || widest(words, lines, size, face) > maxW)) { size -= 4; lines = toLines(words, size, face, maxW); }
   if (stack && words.length > 5) { size = Math.floor(room / 5); }
+  // a stacked word never runs past the frame either
+  if (stack) size = Math.min(size, ...words.map((w) => Math.floor((size * maxW) / Math.max(1, wordW(w, size, face)))));
   const out = interpolate(frame, [end - 7, end], [0, 1], clamp);
   const stroke = Math.max(7, Math.round(size / 9));
   const lineH = size * (stack ? 0.98 : 1.06);
