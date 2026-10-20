@@ -10,6 +10,7 @@
     "gsap": "3.14.2",
     "lottie-web": "5.12.2",
     "preact": "10.26.9",
+    "preact-render-to-string": "6.5.13",
     "simplex-noise": "4.0.3"
   },
   "devDependencies": {

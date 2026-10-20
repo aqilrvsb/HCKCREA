@@ -66,6 +66,14 @@ BARTY_COMMIT = "3d83d987d658601d8a1269eb691622bdcd427335"    # Barty-Bart/motion
 GSAPSK_COMMIT = "aed9cfd3277740755f6bfc1155c7aa645403b760"   # greensock/gsap-skills — MIT
 HERK_COMMIT = "10511e5af86fc47756ea89803b397422e2d89284"     # nateherkai/herk-edit-kit — MIT (+ pipeline-use permission)
 SFX_DIR = "/opt/sfx"
+MMAX_COMMIT = "8c8ec0f2a6f6c9a0da15cd24f7b1298ab298368c"     # Tejashmakwana/motionmaxxing — Apache-2.0 (references, measured moments, lint/look scripts)
+COMMUNITY_COMMIT = "ba7a0bb6d3567d124c51f6074625043bfe0b32eb"  # heygen-com/hyperframes-community-skills — Apache-2.0 (render-safe seams)
+# Pending licence (the owner's call, 2026-10-20: use now, apply for permission later). Kept apart in
+# /opt/pending-license with LICENSE-PENDING.md so each can be removed in one step:
+TAREABOX_COMMIT = "caa6e9bf9c55f9d8010ede7bd59ba3078eac5701"   # Tareabox/tareabox-catalog-free — "Tareabox Free Catalog License v1.0"
+VIBE_COMMIT = "4c86c0d016a3ba22ee673428a494f3c44f84111f"       # vibe-motion/skills — no licence (disney-animation-rule-skill only)
+MISBAHSY_COMMIT = "04ddc6620eaee3bdd45307f02b9275edaba45ff2"   # misbahsy/tiktok-ig-shorts — no licence (sound-design reference only)
+PENDING = "/opt/pending-license"
 CRITIC_ROUNDS = 2        # critic -> fix -> verifying critic -> fix
 CRITIC_BUDGET = 8 * 60   # one critic session
 FIX_MIN = 9 * 60         # don't start a fix round with less time than this left
@@ -126,6 +134,41 @@ image = (
         f" && for f in .claude/skills/short-form-edit/references/quality-gates.md .claude/skills/short-form-edit/references/curiosity-and-entertainment.md"
         f" .claude/skills/short-form-edit/references/plan-schema.md MOTION_PHILOSOPHY.md LICENSE licenses/PIPELINE-USE-PERMISSION.txt; do"
         f" curl -fsSL https://raw.githubusercontent.com/nateherkai/herk-edit-kit/{HERK_COMMIT}/$f -o $(basename $f); done && ls",
+        # motionmaxxing (Apache-2.0): its references + measured moments + checks, as reading material (its
+        # SKILL.md claims to override HyperFrames' style rules, so it is NOT installed as an auto skill)
+        f"git init -q /tmp/mm && git -C /tmp/mm fetch -q --depth 1 https://github.com/Tejashmakwana/motionmaxxing {MMAX_COMMIT}"
+        f" && git -C /tmp/mm checkout -q FETCH_HEAD && mkdir -p /opt/refs/motionmaxxing"
+        f" && cp -r /tmp/mm/references /tmp/mm/library /tmp/mm/LICENSE /tmp/mm/NOTICE /tmp/mm/SKILL.md /opt/refs/motionmaxxing/"
+        f" && mkdir -p /opt/refs/motionmaxxing/scripts && cp /tmp/mm/scripts/lint.mjs /tmp/mm/scripts/look.py /opt/refs/motionmaxxing/scripts/"
+        f" && rm -rf /tmp/mm && ls /opt/refs/motionmaxxing/references",
+        f"mkdir -p /opt/refs/community && curl -fsSL https://raw.githubusercontent.com/heygen-com/hyperframes-community-skills/{COMMUNITY_COMMIT}"
+        f"/skills/vox-explainer/references/render-safe-seams.md -o /opt/refs/community/render-safe-seams.md"
+        f" && curl -fsSL https://raw.githubusercontent.com/heygen-com/hyperframes-community-skills/{COMMUNITY_COMMIT}/LICENSE"
+        f" -o /opt/refs/community/LICENSE || echo 'community refs not fetched'",
+        # ── pending licence ──
+        # Tareabox: only the 9:16 (-v) blocks/components, html + registry-item.json — no tb-media (reaction clips of
+        # unknown source, the author's likeness) and nothing that streams Pexels / Mixkit / ytimg / pravatar media
+        f"git init -q /tmp/tb && git -C /tmp/tb fetch -q --depth 1 https://github.com/Tareabox/tareabox-catalog-free {TAREABOX_COMMIT}"
+        f" && git -C /tmp/tb checkout -q FETCH_HEAD && mkdir -p {PENDING}/tareabox && cp /tmp/tb/LICENSE {PENDING}/tareabox/"
+        f" && for d in /tmp/tb/registry/blocks/*-v /tmp/tb/registry/components/*-v; do"
+        f"   n=$(basename $d); grep -qiE 'pexels|mixkit|ytimg|pravatar|tb-subject|presenter-cutout|tb-luisa' $d/$n.html && continue;"
+        f"   mkdir -p {PENDING}/tareabox/$n && cp $d/$n.html $d/registry-item.json {PENDING}/tareabox/$n/ 2>/dev/null || true; done"
+        f" && rm -rf /tmp/tb && ls {PENDING}/tareabox | wc -l",
+        f"mkdir -p {PENDING}/disney-animation-rule-skill/references && cd {PENDING}/disney-animation-rule-skill"
+        f" && for f in SKILL.md references/clawd-jump-case-study.md references/implementation-patterns.md references/twelve-principles.md; do"
+        f" curl -fsSL https://raw.githubusercontent.com/vibe-motion/skills/{VIBE_COMMIT}/disney-animation-rule-skill/$f -o $f; done"
+        f" && cp -r {PENDING}/disney-animation-rule-skill {HF_SKILLS}/disney-animation-rule-skill && ls -R",
+        f"mkdir -p {PENDING}/misbahsy && (curl -fsSL https://raw.githubusercontent.com/misbahsy/tiktok-ig-shorts/{MISBAHSY_COMMIT}"
+        f"/skills/social-talking-head-video/references/sound-design.md -o {PENDING}/misbahsy/sound-design.md"
+        f" || curl -fsSL https://raw.githubusercontent.com/misbahsy/tiktok-ig-shorts/{MISBAHSY_COMMIT}/references/sound-design.md"
+        f" -o {PENDING}/misbahsy/sound-design.md || echo 'misbahsy sound-design not found')",
+        f"printf '%s\\n' '# Pending licences (Motion engine)' ''"
+        f" 'Used in the PeningLab Motion engine before permission was granted (owner decision 2026-10-20). Remove a folder to drop it.' ''"
+        f" '| Folder | Source (pinned) | Licence |' '|---|---|---|'"
+        f" '| tareabox/ | github.com/Tareabox/tareabox-catalog-free @ {TAREABOX_COMMIT} | Tareabox Free Catalog License v1.0 (no catalog redistribution) |'"
+        f" '| disney-animation-rule-skill/ | github.com/vibe-motion/skills @ {VIBE_COMMIT} | none stated |'"
+        f" '| misbahsy/ | github.com/misbahsy/tiktok-ig-shorts @ {MISBAHSY_COMMIT} | none stated |'"
+        f" > {PENDING}/LICENSE-PENDING.md && cat {PENDING}/LICENSE-PENDING.md",
     )
     .env({"HYPERFRAMES_NO_TELEMETRY": "1", "DO_NOT_TRACK": "1", "HYPERFRAMES_SKIP_SKILLS": "1"})
     # procedural soundtrack / SFX by code (the VGC prompts ask for it)
@@ -194,7 +237,15 @@ ENGINE_RULES = """
   pinned registry is on disk at /opt/hf-registry (blocks/, components/, examples/) to read or copy from directly.
 - GSAP skills are installed too (gsap-core, gsap-timeline, gsap-plugins: SplitText, MorphSVG, DrawSVG, CustomEase,
   CustomWiggle, CustomBounce, MotionPath…). Never ScrollTrigger / Draggable / Inertia / Observer; any randomness
-  through a seeded gsap.utils.random.
+  through a seeded gsap.utils.random. The disney-animation-rule-skill covers squash, anticipation, follow-through.
+- Professional motion references (read what the beat needs, not everything):
+  /opt/refs/motionmaxxing/references/motion.md (easing curves measured from 53 pro films), transitions.md, type.md,
+  layout.md, sound-sync.md, and slop.md (patterns that make video look AI-made — avoid them). Ignore its ban on
+  counters / stat callouts: a TikTok Shop ad may show the price. /opt/refs/community/render-safe-seams.md for cuts.
+- Ready 9:16 blocks to adapt (copy into the project, load GSAP locally, never from a CDN):
+  /opt/pending-license/tareabox/* — chat / comment cards, pricing card (counts up "RM…"), checklists, metric flips,
+  text effects (outline-to-fill, gravity drop, freeze pop…). Chat / comment / testimonial cards may only show words
+  the client actually gave — never invent customer messages, reviews or ratings.
 - Before rendering: `hyperframes lint` (fix every error AND every timeline warning) and `hyperframes check`.
 - Render with `hyperframes render` (use all 8 CPU cores where it allows), then put the MP4 at ./out/preview.mp4
   (1080x1920, 30 fps).
@@ -724,7 +775,9 @@ Method:
      transitions carry an object or a direction instead of a slideshow of unrelated slide-ins.
    - Product: the client's real product photo appears clearly — undistorted, not badly cropped, not covered by text.
    - Captions (if any): match the spoken words and timing in bahan/captions.json; never cover the face or the product.
-   - Truth: no price, offer, claim, testimonial or number that is not in BRIEF.md.
+   - Truth: no price, offer, claim, testimonial, chat message, review or number that is not in BRIEF.md.
+   - Not AI-looking (see /opt/refs/motionmaxxing/references/slop.md): no generic centred card stacks, no gradient-blob
+     filler, every scene a different composition and scale, motion that lands with weight.
    - CTA: unmistakable on mute, readable for >= 1.5 s at the end.
    - Length: the duration the brief asks for (an ad far shorter or longer than asked is a top defect).
    - Footage edits: graphics never cover the speaker's face; product cards sit above / below it.

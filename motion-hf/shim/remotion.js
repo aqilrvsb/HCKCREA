@@ -12,8 +12,11 @@
 import { h, createContext, Fragment } from "preact";
 import { useContext } from "preact/hooks";
 import * as lib from "../runtime/lib.js";
+import { COLLECT, record } from "../runtime/collect.js";
 
-export const FrameContext = createContext({ frame: 0 });
+// frame = the local frame; abs = the absolute frame where local 0 sits; dur = the
+// enclosing Sequence's length (Infinity at the top level)
+export const FrameContext = createContext({ frame: 0, abs: 0, dur: Infinity });
 
 let VIDEO_CONFIG = { fps: 30, durationInFrames: 1, width: 1080, height: 1920, id: "main", defaultProps: {} };
 export const setVideoConfig = (cfg) => { VIDEO_CONFIG = { ...VIDEO_CONFIG, ...cfg }; };
@@ -40,9 +43,10 @@ const FILL = { position: "absolute", top: 0, left: 0, right: 0, bottom: 0, width
 export const AbsoluteFill = ({ style, className, children }) => h("div", { className, style: { ...FILL, ...(style || {}) } }, children);
 
 export const Sequence = ({ from = 0, durationInFrames = Infinity, layout, style, children }) => {
-  const frame = useContext(FrameContext).frame - from;
+  const parent = useContext(FrameContext);
+  const frame = parent.frame - from;
   if (frame < 0 || frame >= durationInFrames) return null;
-  const inner = h(FrameContext.Provider, { value: { frame } }, children);
+  const inner = h(FrameContext.Provider, { value: { frame, abs: parent.abs + from, dur: durationInFrames } }, children);
   return layout === "none" ? inner : h("div", { style: { ...FILL, ...(style || {}) } }, inner);
 };
 
@@ -66,12 +70,25 @@ const cssObj = (style) => {
   return out;
 };
 const MediaSlot = ({ src, style }) => h("div", { ref: adopt(src, style), style: { position: "relative", width: "100%", height: "100%" } });
+const vol = (v) => (typeof v === "number" ? v : 1);
 
-export const OffthreadVideo = ({ src, style }) => h(MediaSlot, { src, style });
+export const OffthreadVideo = ({ src, style, muted, volume }) => {
+  const ctx = useContext(FrameContext);
+  if (COLLECT.on) record("video", src, ctx, { muted: !!muted, volume: vol(volume) });
+  return h(MediaSlot, { src, style });
+};
 export const Video = OffthreadVideo;
-export const AnimatedImage = ({ src, style, width, height }) =>
-  h(MediaSlot, { src, style: { ...(style || {}), ...(width ? { width } : {}), ...(height ? { height } : {}) } });
-export const Audio = () => null;
+export const AnimatedImage = ({ src, style, width, height }) => {
+  const ctx = useContext(FrameContext);
+  if (COLLECT.on) record("image", src, ctx);
+  return h(MediaSlot, { src, style: { ...(style || {}), ...(width ? { width } : {}), ...(height ? { height } : {}) } });
+};
+// sound is a static <audio> element emitted by the build step
+export const Audio = ({ src, volume }) => {
+  const ctx = useContext(FrameContext);
+  if (COLLECT.on) record("audio", src, ctx, { volume: vol(volume) });
+  return null;
+};
 
 // ── misc ──────────────────────────────────────────────────────────────────────
 export const staticFile = (p) => String(p).replace(/^\/+/, "");
@@ -79,7 +96,23 @@ let handles = 0;
 export const delayRender = () => ++handles;
 export const continueRender = () => {};
 export const cancelRender = (e) => { throw e instanceof Error ? e : new Error(String(e)); };
-export const random = (seed) => lib.rnd(typeof seed === "number" ? seed : lib.seedOf(seed));
+// Remotion's random(): mulberry32 over a string hash / scaled number (same values)
+const mulberry32 = (a) => {
+  let t = a + 0x6d2b79f5;
+  t = Math.imul(t ^ (t >>> 15), t | 1);
+  t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+  return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+};
+const hashCode = (str) => {
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) { hash = (hash << 5) - hash + str.charCodeAt(i); hash |= 0; }
+  return hash;
+};
+export const random = (seed) => {
+  if (seed === null) throw new Error("random(null) is not deterministic");
+  if (typeof seed === "string") return mulberry32(hashCode(seed));
+  return mulberry32(seed * 10000000000);
+};
 export const Composition = () => null;
 export const registerRoot = () => {};
 export { Fragment };

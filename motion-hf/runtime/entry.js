@@ -24,7 +24,7 @@ function draw(t) {
   const frame = Math.min(total - 1, Math.max(0, Math.round(t * fps)));
   if (frame === last) return;
   last = frame;
-  render(h(FrameContext.Provider, { value: { frame } }, h(Comp, data.props)), root);
+  render(h(FrameContext.Provider, { value: { frame, abs: 0, dur: Infinity } }, h(Comp, data.props)), root);
 }
 
 // everything a frame needs must be in memory before the first frame is drawn
