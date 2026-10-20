@@ -209,6 +209,12 @@ export async function motionStart(payload: Record<string, any>): Promise<{ ok: t
   const accounts = await getMotionAccounts();
   if (!accounts.length) return { ok: false, error: "Motion renderer not configured (motion_modal)" };
   const first = await pickMotionAccount(accounts);
+  // Laju renderer: the admin switch (app_settings.motion_renderer); a payload that
+  // names one (an A/B test) keeps it. HyperFrames falls back to Remotion by itself.
+  const setting = await getSetting<{ renderer?: string }>("motion_renderer");
+  const renderer = payload.renderer === "hyperframes" || payload.renderer === "remotion"
+    ? payload.renderer
+    : setting?.renderer === "hyperframes" ? "hyperframes" : "remotion";
   // the least-busy account first; if it can't start the job, the others in turn
   let lastErr = "";
   for (const acc of [first, ...accounts.filter((a) => a.id !== first.id)]) {
@@ -216,7 +222,7 @@ export async function motionStart(payload: Record<string, any>): Promise<{ ok: t
       const r = await fetch(`${acc.api_url}/start`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...payload, secret: acc.secret }),
+        body: JSON.stringify({ ...payload, renderer, secret: acc.secret }),
         signal: AbortSignal.timeout(60_000),
       });
       const j = await r.json().catch(() => ({}));

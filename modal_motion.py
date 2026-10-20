@@ -91,6 +91,32 @@ render_image = (
 )
 
 
+# Laju v2: the same compositions rendered by HyperFrames (motion-hf/: the
+# Remotion components compiled against a Preact shim). HyperFrames needs Node
+# 22, installed beside the image's Node 20 (which Remotion keeps using): only
+# the HyperFrames calls put /opt/node22/bin first on PATH.
+NODE22 = "/opt/node22"
+NODE22_VERSION = "v22.12.0"
+HF_VERSION = "0.8.181"
+HF_DIR = "/app/motion-hf"
+hf_render_image = (
+    render_image
+    .apt_install("xz-utils")
+    .run_commands(
+        f"curl -fsSL https://nodejs.org/dist/{NODE22_VERSION}/node-{NODE22_VERSION}-linux-x64.tar.xz | tar -xJ -C /opt"
+        f" && mv /opt/node-{NODE22_VERSION}-linux-x64 {NODE22} && {NODE22}/bin/node --version",
+        f"PATH={NODE22}/bin:$PATH npm install -g hyperframes@{HF_VERSION} --no-audit --no-fund",
+        f"PATH={NODE22}/bin:$PATH hyperframes browser ensure",
+    )
+    .env({"HYPERFRAMES_NO_TELEMETRY": "1", "DO_NOT_TRACK": "1", "HYPERFRAMES_SKIP_SKILLS": "1"})
+    .add_local_dir("motion-hf", HF_DIR, copy=True, ignore=["node_modules", "dist"])
+    .run_commands(
+        f"cd {HF_DIR} && PATH={NODE22}/bin:$PATH PUPPETEER_SKIP_DOWNLOAD=true npm ci --no-audit --no-fund",
+        f"cd {HF_DIR} && PATH={NODE22}/bin:$PATH node build/bundle.mjs && ls -la dist",
+    )
+)
+
+
 web_image = modal.Image.debian_slim(python_version="3.11").pip_install("fastapi[standard]==0.115.0")
 
 PROGRESS = modal.Dict.from_name("peninglab-motion-progress", create_if_missing=True)
@@ -416,6 +442,187 @@ def render_chunk(job: str, comp: str, start: int, end: int, idx: int, scale: flo
         return {"ok": True, "idx": idx, "sec": round(time.time() - t0, 1), "data": out.read_bytes(), "audio": wav.read_bytes()}
     finally:
         srv.close()
+
+
+# ── Laju v2: HyperFrames, distributed ─────────────────────────────────────────
+# The orchestrator builds the page and the Plan v2 (audio mixed once), the
+# chunk containers render frame ranges in parallel, the orchestrator stitches
+# them. Chunk containers are started before planning so their cold start
+# overlaps it; they wait for the plan on the Volume.
+HF_MAX_CHUNKS = 32
+HF_PLAN = "hfplan"
+HF_READY = "hfplan.ready"
+_LOCAL_URL = re.compile(r"http://127\.0\.0\.1:\d+/([^\"?#\\]+)")
+
+
+def _hf_env() -> dict:
+    return {**os.environ, "PATH": f"{NODE22}/bin:" + os.environ.get("PATH", "")}
+
+
+def _hf_node(args: list, what: str, timeout: int = 900) -> dict:
+    """Run a Node 22 script of motion-hf; it prints one JSON line ({ok, …})."""
+    r = subprocess.run([f"{NODE22}/bin/node", *args], capture_output=True, text=True, timeout=timeout, env=_hf_env(), cwd=HF_DIR)
+    lines = [ln for ln in r.stdout.splitlines() if ln.startswith("{")]
+    try:
+        j = json.loads(lines[-1]) if lines else {}
+    except ValueError:
+        j = {}
+    if r.returncode != 0 or not j.get("ok"):
+        raise RuntimeError(f"{what} failed: " + str(j.get("error") or (r.stdout + r.stderr)[-1200:])[:1500])
+    return j
+
+
+def _hf_chunk_frames(total: int) -> int:
+    """Frames per chunk: whole seconds (HyperFrames lags the footage one frame in
+    a chunk that starts mid-second — see motion-hf/build/dist.mjs), at most
+    HF_MAX_CHUNKS chunks."""
+    return 30 * max(1, math.ceil(total / (30 * HF_MAX_CHUNKS)))
+
+
+@app.function(image=hf_render_image, cpu=4.0, memory=8192, timeout=900, volumes={JOBS_ROOT: JOBS})
+def hf_chunk(job: str, idx: int) -> dict:
+    """Render chunk `idx` of a job's HyperFrames plan (waits for the plan to land on the Volume)."""
+    import shutil
+    t_up = time.time()
+    d = Path(JOBS_ROOT) / job
+    ready = d / HF_READY
+    while True:
+        JOBS.reload()
+        if ready.exists():
+            break
+        if time.time() - t_up > 420:
+            raise RuntimeError("plan never arrived")
+        time.sleep(0.4)
+    waited = round(time.time() - t_up, 1)
+    count = int(json.loads(ready.read_text())["chunkCount"])
+    if idx >= count:
+        return {"ok": True, "idx": idx, "skip": True}
+    t0 = time.time()
+    plan = Path(tempfile.mkdtemp(prefix="hfplan_"))
+    shutil.copytree(d / HF_PLAN, plan, dirs_exist_ok=True)
+    out = Path(tempfile.gettempdir()) / f"{job}_hf_{idx:02d}.mp4"
+    info = _hf_node([f"{HF_DIR}/build/dist.mjs", "chunk", str(plan), str(idx), str(out)], f"chunk {idx}", 600)
+    data = out.read_bytes()
+    shutil.rmtree(plan, ignore_errors=True)
+    return {"ok": True, "idx": idx, "waited": waited, "sec": round(time.time() - t0, 1), "info": info, "data": data}
+
+
+def _render_hf(comp: str, props: dict, d: Path, out: Path, pct_from: int, pct_to: int) -> dict:
+    """Render the composition with HyperFrames across hf_chunk containers → out (loudness-normalised).
+    Raises on any failure (the caller then renders with Remotion)."""
+    import shutil
+    t0 = time.time()
+    T = {}
+    total = int(props["durationInFrames"])
+    size = _hf_chunk_frames(total)
+    n = math.ceil(total / size)
+    job = d.name
+    ready, plan_vol = d / HF_READY, d / HF_PLAN
+    ready.unlink(missing_ok=True)
+    shutil.rmtree(plan_vol, ignore_errors=True)
+    JOBS.commit()
+    calls = [hf_chunk.spawn(job, i) for i in range(n)]
+    proj = Path(tempfile.mkdtemp(prefix="hfproj_"))
+    plan_root = Path(tempfile.mkdtemp(prefix="hfplan_"))
+    plan = plan_root / "plan"  # planV2 creates it (it refuses an existing folder)
+    tmp = Path(tempfile.mkdtemp(prefix="hfchunks_"))
+    done = False
+    try:
+        # a project folder with only the files the composition uses (the job folder also holds the
+        # client's original upload, which must not travel into the plan)
+        blob = json.dumps(props, ensure_ascii=False)
+        for name in sorted(set(_LOCAL_URL.findall(blob))):
+            src = d / name
+            if src.is_file():
+                shutil.copy2(src, proj / name)
+        (proj / "props.json").write_text(blob, encoding="utf-8")
+        page = _hf_node([f"{HF_DIR}/build/laju-page.mjs", str(proj), comp, f"{MOTION_DIR}/public"], "page", 300)
+        T["page"] = round(time.time() - t0, 1)
+        t = time.time()
+        pinfo = _hf_node([f"{HF_DIR}/build/dist.mjs", "plan", str(proj), str(plan), str(size)], "plan", 600)
+        if int(pinfo["totalFrames"]) != total:
+            raise RuntimeError(f"plan has {pinfo['totalFrames']} frames, the composition {total}")
+        count = int(pinfo["chunkCount"])
+        T["plan"] = round(time.time() - t, 1)
+        t = time.time()
+        shutil.copytree(plan, plan_vol)
+        ready.write_text(json.dumps({"chunkCount": count}))
+        JOBS.commit()
+        T["publish"] = round(time.time() - t, 1)
+        calls += [hf_chunk.spawn(job, i) for i in range(n, count)]
+        _progress("render", pct_from + 4)
+        t = time.time()
+        got, stats = {}, []
+        for c in calls:
+            try:
+                res = c.get(timeout=900)
+            except Exception as e:  # noqa: BLE001
+                print("hf chunk failed:", str(e)[:300], flush=True)
+                continue
+            if res.get("skip"):
+                continue
+            got[res["idx"]] = res["data"]
+            stats.append((res["idx"], res.get("waited"), res.get("sec")))
+            _progress("render", pct_from + 4 + (pct_to - pct_from - 8) * len(got) // max(1, count))
+        for i in range(count):  # one retry each
+            if i not in got:
+                try:
+                    res = hf_chunk.remote(job, i)
+                    got[i] = res["data"]
+                except Exception as e:  # noqa: BLE001
+                    print("hf chunk retry failed:", i, str(e)[:300], flush=True)
+        missing = [i for i in range(count) if i not in got]
+        if missing:
+            raise RuntimeError(f"chunks missing: {missing}")
+        T["chunks"] = round(time.time() - t, 1)
+        t = time.time()
+        paths = []
+        for i in range(count):
+            p = tmp / f"c{i:02d}.mp4"
+            p.write_bytes(got[i])
+            paths.append(str(p))
+        _hf_node([f"{HF_DIR}/build/dist.mjs", "assemble", str(plan), str(out), *paths], "assemble", 600)
+        _loudnorm_inplace(out)
+        T["assemble"] = round(time.time() - t, 1)
+        got_sec, want = _probe(out)["duration"], total / 30.0
+        if abs(got_sec - want) > 0.5:
+            raise RuntimeError(f"duration {got_sec:.2f}s vs {want:.2f}s")
+        done = True
+        T["total"] = round(time.time() - t0, 1)
+        return {"mode": "hyperframes", "chunks": count, "chunk_frames": size, "media": page.get("media"),
+                "timings": T, "slowest_chunk": max((s[2] or 0) for s in stats) if stats else None}
+    finally:
+        if not done:
+            for c in calls:
+                try:
+                    c.cancel()
+                except Exception:  # noqa: BLE001
+                    pass
+        ready.unlink(missing_ok=True)
+        shutil.rmtree(plan_vol, ignore_errors=True)
+        try:
+            JOBS.commit()
+        except Exception:  # noqa: BLE001
+            pass
+        for p in (proj, plan_root, tmp):
+            shutil.rmtree(p, ignore_errors=True)
+
+
+def _render(comp: str, props: dict, d: Path, out: Path, scale: float, pct_from: int, pct_to: int, p: dict) -> dict:
+    """Render with the renderer PeningLab asked for (payload "renderer"). HyperFrames
+    renders 1080p; any HyperFrames failure re-renders the job with Remotion."""
+    t = time.time()
+    if str(p.get("renderer") or "") == "hyperframes" and scale == 1.0:
+        try:
+            info = _render_hf(comp, props, d, out, pct_from, pct_to)
+            return {"renderer": "hyperframes", "render_phase_sec": round(time.time() - t, 1), **info}
+        except Exception as e:  # noqa: BLE001
+            why = str(e)[:400]
+            print("hyperframes render failed → Remotion:", why, flush=True)
+            info = _render_parallel(comp, props, d, out, scale, pct_from, pct_to)
+            return {"renderer": "remotion", "hf_fallback": why, "render_phase_sec": round(time.time() - t, 1), **info}
+    info = _render_parallel(comp, props, d, out, scale, pct_from, pct_to)
+    return {"renderer": "remotion", "render_phase_sec": round(time.time() - t, 1), **info}
 
 
 
@@ -1412,7 +1619,7 @@ def _flow_ad(p: dict, d: Path, srv: _Serve) -> dict:
     }
     out = d / "out.mp4"
     _progress("render", 42)
-    rinfo = _render_parallel("MotionAd", props, d, out, _scale_for(p), 42, 95)
+    rinfo = _render("MotionAd", props, d, out, _scale_for(p), 42, 95, p)
     return {"out": out, "duration": total, "poster_at": min(2.0, total / 3),
             "debug": {"lines": len(lines_out), "images": len(images), "render": rinfo,
                       **({"guard": guard_info} if p.get("guard") else {})}}
@@ -1756,7 +1963,7 @@ def _edit_finish(p: dict, d: Path, srv: _Serve, st: dict) -> dict:
 
     out = d / "out.mp4"
     _progress("render", 50)
-    rinfo = _render_parallel("MotionEdit", props, d, out, _scale_for(p), 50, 92)
+    rinfo = _render("MotionEdit", props, d, out, _scale_for(p), 50, 92, p)
 
     # (No post-render tape patching: the guideline check only reports.)
     return {"out": out, "duration": dur, "poster_at": min(1.5, dur / 3),
@@ -1812,7 +2019,7 @@ def _final_check(d: Path, out: Path, dur: float, p: dict, props: dict) -> dict:
 
 
 # ── job + endpoints ───────────────────────────────────────────────────────────
-@app.function(image=render_image, cpu=8.0, memory=16384, timeout=2400, secrets=SECRETS, volumes={JOBS_ROOT: JOBS})
+@app.function(image=hf_render_image, cpu=8.0, memory=16384, timeout=2400, secrets=SECRETS, volumes={JOBS_ROOT: JOBS})
 def run_job(payload: dict) -> dict:
     import shutil
     t0 = time.time()

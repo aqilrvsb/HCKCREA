@@ -31,7 +31,9 @@ const FONT_RULES = [
 ].join("\n");
 
 export function writePage({ outDir, composition, props, fps = 30, durationInFrames, media = [], runtime = "runtime.js" }) {
-  const dur = durationInFrames / fps;
+  // HyperFrames renders ceil(duration × fps) frames: N / fps written with 3 decimals
+  // (1295 / 30 → "43.167" → 1295.01) would add a frame, so end a quarter frame early
+  const dur = Number(num((durationInFrames - 0.25) / fps));
   const items = media.map((m, i) => {
     const id = `hf-m${i}`;
     const timing = `data-start="${num(m.start || 0)}"${m.duration ? ` data-duration="${num(m.duration)}"` : ""}`
@@ -79,7 +81,7 @@ ${items.join("\n")}
     var now = 0, clock = {};
     Object.defineProperty(clock, "t", { get: function () { return now; }, set: function (v) { now = v; window.__laju.draw(v); } });
     var tl = gsap.timeline({ paused: true });
-    tl.to(clock, { t: window.__laju.duration, duration: window.__laju.duration, ease: "none", lazy: false }, 0);
+    tl.to(clock, { t: ${num(dur)}, duration: ${num(dur)}, ease: "none", lazy: false }, 0);
     window.__timelines["main"] = tl;
   });
 </script>

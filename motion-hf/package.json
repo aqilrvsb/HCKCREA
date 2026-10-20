@@ -7,6 +7,7 @@
     "bundle": "node build/bundle.mjs"
   },
   "dependencies": {
+    "@hyperframes/producer": "0.8.181",
     "gsap": "3.14.2",
     "lottie-web": "5.12.2",
     "preact": "10.26.9",

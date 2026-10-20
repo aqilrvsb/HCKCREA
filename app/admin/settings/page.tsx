@@ -348,6 +348,26 @@ export default function AdminSettings() {
       setMotionAdMsg("✗ Gagal simpan.");
     }
   }
+  // Motion Default (Laju) renderer — app_settings.motion_renderer = { renderer }.
+  // "hyperframes" falls back to Remotion by itself if a render fails.
+  const [motionRenderer, setMotionRenderer] = useState<"remotion" | "hyperframes">("remotion");
+  const [motionRendererMsg, setMotionRendererMsg] = useState<string | null>(null);
+  async function saveMotionRenderer(renderer: "remotion" | "hyperframes") {
+    setMotionRendererMsg(null);
+    const res = await fetch("/api/admin/settings", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ key: "motion_renderer", value: { renderer } }),
+    }).catch(() => null);
+    if (res?.ok) {
+      setMotionRenderer(renderer);
+      setMotionRendererMsg(renderer === "hyperframes"
+        ? "✓ Default (Laju) kini dirender dengan HyperFrames (Remotion sebagai sandaran)."
+        : "✓ Default (Laju) kini dirender dengan Remotion.");
+    } else {
+      setMotionRendererMsg("✗ Gagal simpan.");
+    }
+  }
   // Moving media keys (lib/motion-media.ts): stock clips + animated stickers.
   // saved* = what's stored (kept unless a new key is typed).
   const [mediaKeys, setMediaKeys] = useState({ pexels: "", pixabay: "", giphy: "" });
@@ -529,6 +549,7 @@ export default function AdminSettings() {
         if (row.key === "model_motion") setMotionKnob(parseKnob(row.value, MOTION_MAX_FB));
         if (row.key === "model_motion_guard") setMotionGuardKnob(parseKnob(row.value, MOTION_MAX_FB));
         if (row.key === "motion_features") setMotionAdOn(row.value?.ad !== false);
+        if (row.key === "motion_renderer") setMotionRenderer(row.value?.renderer === "hyperframes" ? "hyperframes" : "remotion");
         if (row.key === "motion_search") {
           setMotionSearchRows(parseMotionSearchRows(row.value));
           if (Array.isArray(row.value?.exclude_sites)) setMotionExcludeSites(row.value.exclude_sites.join(", "));
@@ -2913,6 +2934,19 @@ export default function AdminSettings() {
           <span className="text-sm font-bold text-[var(--color-text-primary)]">Buka &quot;Buat Iklan&quot; untuk semua</span>
         </label>
         {motionAdMsg && <p className="text-xs mt-2 text-[var(--color-text-secondary)]">{motionAdMsg}</p>}
+        <div className="mt-4 pt-4 border-t border-[var(--color-border)]">
+          <div className="text-sm font-bold text-[var(--color-text-primary)] mb-1">Enjin render Default (Laju)</div>
+          <p className="text-xs text-[var(--color-text-secondary)] mb-2">
+            Templat sama. HyperFrames render secara teragih; kalau gagal, kerja itu dirender semula dengan Remotion secara automatik.
+          </p>
+          {(["remotion", "hyperframes"] as const).map((r) => (
+            <label key={r} className="flex items-center gap-3 cursor-pointer select-none mb-1">
+              <input type="radio" name="motion-renderer" checked={motionRenderer === r} onChange={() => saveMotionRenderer(r)} className="w-4 h-4" />
+              <span className="text-sm text-[var(--color-text-primary)]">{r === "remotion" ? "Remotion" : "HyperFrames"}</span>
+            </label>
+          ))}
+          {motionRendererMsg && <p className="text-xs mt-2 text-[var(--color-text-secondary)]">{motionRendererMsg}</p>}
+        </div>
       </div>
 
       {/* Motion Search (Google) — B-roll images + fact-card snippets for
