@@ -42,7 +42,10 @@ function transform(rel, buf) {
       .replace("</head>", `<link rel="stylesheet" href="/vgc/peninglab.css?v=${version}">\n</head>`)
       .replace("</body>", `<script src="/vgc/peninglab.js?v=${version}"></script>\n</body>`);
   } else if (ext === ".js") {
-    s = s.replace(/fetch\('\/content\.json'\)/g, "fetch('/vgc/content.json')").replace(/(["'`])\/assets\//g, "$1/vgc/assets/");
+    s = s
+      .replace(/fetch\('\/content\.json'\)/g, "fetch('/vgc/content.json')")
+      .replace(/(["'`])\/assets\//g, "$1/vgc/assets/")
+      .replace(/(["'`])assets\//g, "$1/vgc/assets/"); // relative <img src="assets/…"> too
   } else {
     s = s.replace(/url\((['"]?)\/assets\//g, "url($1/vgc/assets/");
   }

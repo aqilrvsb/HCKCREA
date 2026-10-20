@@ -425,6 +425,12 @@ export default function MotionTab({ projectId }: { projectId?: string }) {
             <b> 🎬 Jana Video</b>. AI bina & render terus di sini — tak perlu copy ke Claude Code. Hasil masuk ke History di bawah.
           </p>
           {lookSwitch}
+          <div className="flex justify-end mb-2">
+            <a href={`/vgc${projectId ? `?p=${encodeURIComponent(projectId)}` : ""}`} target="_blank" rel="noopener"
+              className="text-[11px] font-bold underline" style={{ color: THEME.primary }}>
+              Buka skrin penuh ↗
+            </a>
+          </div>
           <iframe
             src={`/vgc${projectId ? `?p=${encodeURIComponent(projectId)}` : ""}`}
             title="VGC Custom Style"
