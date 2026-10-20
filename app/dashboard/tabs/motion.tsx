@@ -438,8 +438,8 @@ export default function MotionTab({ projectId }: { projectId?: string }) {
         <div className="rounded-2xl p-5 border" style={{ background: `linear-gradient(135deg, ${THEME.faint}, transparent)`, borderColor: THEME.soft }}>
           {header}
           <p className="text-xs text-[var(--color-text-secondary)] mb-4">
-            Custom Style — VGC (edit Video Guna Code) oleh Coach Am. Pilih flow & style, isi info, tambah bahan, kemudian tekan
-            <b> 🎬 Jana Video</b>. AI bina & render terus di sini — tak perlu copy ke Claude Code. Hasil masuk ke History di bawah.
+            Custom Style — VGC Fast Track (edit Video Guna Code) oleh Coach Am. Pilih jenis video, isi info, tambah bahan &amp; suara,
+            kemudian tekan <b>🎬 Jana Video</b>. AI bina, render &amp; semak terus di sini — tak perlu copy ke Claude Code. Hasil masuk ke History di bawah.
           </p>
           {lookSwitch}
           <div className="flex justify-end mb-2">
