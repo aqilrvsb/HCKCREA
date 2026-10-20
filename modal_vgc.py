@@ -19,7 +19,11 @@ loudness-mastered for phones.
 
 Every History card gets its own workspace on the `peninglab-vgc-work` Volume
 (project files + the Claude Code session), so a later step of the same flow
-(Idea Clarity step 2, V2 after review, …) resumes the same session.
+(Idea Clarity step 2, V2 after review, …) resumes the same session. A run
+works on the container's local disk (/root/ws): the Volume can't make hard
+links (HyperFrames' `init` needs them) and is slow for render output. The
+workspace is restored from the Volume at the start and saved back after every
+Claude Code session.
 
 The VGC Master Knowledge skill is NOT in this repo (the repo is public and the
 knowledge is Coach Am's paid material): it lives on the private
@@ -60,6 +64,7 @@ CRITIC_ROUNDS = 2        # critic -> fix -> verifying critic -> fix
 CRITIC_BUDGET = 8 * 60   # one critic session
 FIX_MIN = 9 * 60         # don't start a fix round with less time than this left
 GAUNTLET_DIR = ".gauntlet"
+LOCAL_WS = Path("/root/ws")  # the run's working copy (fixed path: one run per container at a time)
 
 image = (
     modal.Image.debian_slim(python_version="3.11")
@@ -89,7 +94,7 @@ image = (
         f" && mkdir -p {MVK_DIR} && cp -r /tmp/mvk/business-motion-film/references /tmp/mvk/business-motion-film/scripts"
         f" /tmp/mvk/LICENSE {MVK_DIR}/ && rm -rf /tmp/mvk && ls {MVK_DIR}/references",
     )
-    .env({"HYPERFRAMES_NO_TELEMETRY": "1", "DO_NOT_TRACK": "1"})
+    .env({"HYPERFRAMES_NO_TELEMETRY": "1", "DO_NOT_TRACK": "1", "HYPERFRAMES_SKIP_SKILLS": "1"})
     # procedural soundtrack / SFX by code (the VGC prompts ask for it)
     .pip_install("requests==2.31.0", "boto3==1.34.0", "fastapi[standard]==0.115.0", "numpy<2", "scipy==1.13.1", "pillow==10.4.0")
     .add_local_dir("vgc-template", TEMPLATE, copy=True, ignore=["node_modules", "out"])
@@ -140,7 +145,9 @@ ENGINE_RULES = """
 - The `hyperframes` CLI is installed globally (run `hyperframes …`) with its own headless Chrome; its skills are in
   ./.claude/skills — start with the `hyperframes` router skill and read the SKILL.md of every workflow you use
   (product videos: its product-launch / launch-film workflow; captions on footage: embedded-captions; audio:
-  hyperframes-audio). Put the project in ./video/.
+  hyperframes-audio). Put the project in ./video/ — scaffold it with
+  `hyperframes init video --non-interactive --resolution portrait --example blank`
+  (add `--video ./bahan/footage.mp4` when the brief has footage).
 - Compositions are HTML + GSAP. EVERY animated composition must register its timeline exactly as the skills show
   (a paused GSAP timeline registered on window.__timelines). An unregistered timeline does not play in the render
   and the video comes out blank.
@@ -796,6 +803,49 @@ def _verdict(report: str) -> str:
     return m.group(1).upper() if m else ""
 
 
+def _ignore_heavy(dirpath: str, names: list) -> list:
+    """Not saved to the Volume: installed packages (a symlinked node_modules is kept) and caches."""
+    out = []
+    for n in names:
+        q = Path(dirpath) / n
+        if n in (".cache", "__pycache__") or n.startswith(".hf-create-") or (n == "node_modules" and not q.is_symlink()):
+            out.append(n)
+    return out
+
+
+def _copy_if_changed(src: str, dst: str) -> str:
+    try:
+        if os.path.exists(dst) and os.path.getsize(src) == os.path.getsize(dst) and os.path.getmtime(src) <= os.path.getmtime(dst):
+            return dst
+    except OSError:
+        pass
+    return shutil.copy2(src, dst)
+
+
+def _restore_ws(vol: Path, ws: Path) -> None:
+    """The card's workspace from the Volume onto local disk; Claude Code sessions
+    saved under an older working path are made visible under /root/ws too."""
+    shutil.rmtree(ws, ignore_errors=True)
+    if vol.exists():
+        shutil.copytree(vol, ws, symlinks=True, ignore=_ignore_heavy)
+    ws.mkdir(parents=True, exist_ok=True)
+    projects = ws / ".claude-home" / "projects"
+    if projects.exists():
+        key = projects / re.sub(r"[^A-Za-z0-9]", "-", str(ws))
+        key.mkdir(parents=True, exist_ok=True)
+        for f in projects.glob("*/*.jsonl"):
+            if f.parent != key and not (key / f.name).exists():
+                shutil.copy2(f, key / f.name)
+
+
+def _save_ws(ws: Path, vol: Path) -> None:
+    try:
+        shutil.copytree(ws, vol, symlinks=True, ignore=_ignore_heavy, copy_function=_copy_if_changed, dirs_exist_ok=True)
+        WORK.commit()
+    except Exception as e:  # noqa: BLE001
+        print("workspace save failed:", str(e)[:300], flush=True)
+
+
 def _find_video(ws: Path, since: float) -> Path | None:
     skip = {"bahan", "node_modules", ".claude-home", ".claude", "public", GAUNTLET_DIR}
     found = [p for p in ws.rglob("*.mp4") if not (set(p.relative_to(ws).parts[:-1]) & skip) and p.stat().st_mtime >= since - 1]
@@ -817,7 +867,13 @@ def run_vgc(payload: dict) -> dict:
         return {"ok": False, "error": "empty prompt"}
     # the workspace: one per card (Custom Style steps share it); a Padat
     # re-render gets a fresh one (ws_id) so nothing stale carries over
-    ws = Path(WORK_ROOT) / (re.sub(r"[^A-Za-z0-9_-]", "", str(payload.get("ws_id") or ""))[:80] or hid)
+    vol_ws = Path(WORK_ROOT) / (re.sub(r"[^A-Za-z0-9_-]", "", str(payload.get("ws_id") or ""))[:80] or hid)
+    try:
+        WORK.reload()  # the latest saved state (an earlier step may have run in another container)
+    except Exception as e:  # noqa: BLE001
+        print("volume reload failed:", e, flush=True)
+    ws = LOCAL_WS
+    _restore_ws(vol_ws, ws)
     home = ws / ".claude-home"
     (ws / "bahan").mkdir(parents=True, exist_ok=True)
     (ws / "out").mkdir(exist_ok=True)
@@ -945,10 +1001,7 @@ def run_vgc(payload: dict) -> dict:
         finally:
             if proc.poll() is None:
                 proc.kill()
-            try:
-                WORK.commit()  # the project + session survive for the next step
-            except Exception:  # noqa: BLE001
-                pass
+            _save_ws(ws, vol_ws)  # the project + session survive for the next step
         return out
 
     expect_video = payload.get("expect_video", True) is not False
@@ -1048,10 +1101,7 @@ def run_vgc(payload: dict) -> dict:
             ledger[-1]["fix"] = "re-rendered"
             prev = report
         video = best
-        try:
-            WORK.commit()
-        except Exception:  # noqa: BLE001
-            pass
+        _save_ws(ws, vol_ws)
 
     result = runs[keep]["result"] or {}
     session_id = runs[-1]["session_id"]

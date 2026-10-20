@@ -144,7 +144,7 @@
     go.disabled = busy || uploading > 0;
     const price = pricing ? (video ? pricing.video : pricing.text) : null;
     const parts = [];
-    parts.push(video ? 'AI bina & render preview MP4 terus dalam PeningLab (~5–10 min).' : 'AI jawab langkah ini terus dalam PeningLab — baca jawapan dalam kad History.');
+    parts.push(video ? 'AI bina, render & semak (AI pengkritik) preview MP4 terus dalam PeningLab (~20–40 min).' : 'AI jawab langkah ini terus dalam PeningLab — baca jawapan dalam kad History.');
     if (price !== null) parts.push(price > 0 ? `Caj RM${price.toFixed(2)}.` : 'Percuma.');
     const vo = voices.find((v) => v.key === voice);
     if (vo) parts.push(`Voice-over AI: <b>${esc(vo.label)}</b>.`);
