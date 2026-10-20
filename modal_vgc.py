@@ -677,6 +677,8 @@ Method:
    - Captions (if any): match the spoken words and timing in bahan/captions.json; never cover the face or the product.
    - Truth: no price, offer, claim, testimonial or number that is not in BRIEF.md.
    - CTA: unmistakable on mute, readable for >= 1.5 s at the end.
+   - Length: the duration the brief asks for (an ad far shorter or longer than asked is a top defect).
+   - Footage edits: graphics never cover the speaker's face; product cards sit above / below it.
    - Audio (MEASURE.txt): one voice at a time (no stacked voice-over), no long silent gaps, music under the voice, SFX on
      real visual events. The final master is loudness-normalised automatically: judge balance, not absolute level.
 4. Write ./report.md (under 700 words):
@@ -772,19 +774,21 @@ def _measure(video: Path) -> str:
 
 
 def _master(video: Path, out: Path) -> Path:
-    """Phone master: -14 LUFS integrated, true peak <= -1.5 dBTP (two-pass loudnorm); the video stream is copied.
+    """Phone master: -14 LUFS integrated, true peak under -1 dBTP (two-pass loudnorm + limiter); the video stream is copied.
     Any problem -> the unmastered cut is delivered."""
     try:
         info = _probe(video)
         if not info["audio"]:
             return video
-        r = subprocess.run(["ffmpeg", "-hide_banner", "-i", str(video), "-af", "loudnorm=I=-14:TP=-1.5:LRA=11:print_format=json",
+        r = subprocess.run(["ffmpeg", "-hide_banner", "-i", str(video), "-af", "loudnorm=I=-14:TP=-2:LRA=11:print_format=json",
                             "-f", "null", "-"], capture_output=True, text=True, timeout=900)
         m = json.loads(r.stderr[r.stderr.rindex("{"):r.stderr.rindex("}") + 1])
         if float(m["input_i"]) < -60:
             return video  # (near) silent: nothing to master
-        af = (f"loudnorm=I=-14:TP=-1.5:LRA=11:measured_I={m['input_i']}:measured_TP={m['input_tp']}"
-              f":measured_LRA={m['input_lra']}:measured_thresh={m['input_thresh']}:offset={m['target_offset']}:linear=true")
+        af = (f"loudnorm=I=-14:TP=-2:LRA=11:measured_I={m['input_i']}:measured_TP={m['input_tp']}"
+              f":measured_LRA={m['input_lra']}:measured_thresh={m['input_thresh']}:offset={m['target_offset']}:linear=true"
+              # back to 48 kHz, then a hard ceiling at -2 dBFS (level=0: no auto gain) so the AAC encode stays under -1 dBTP
+              ",aresample=48000,alimiter=limit=0.79:level=0:attack=5:release=60")
         r = subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", str(video), "-map", "0:v:0", "-map", "0:a:0", "-c:v", "copy",
                             "-af", af, "-ar", "48000", "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart", str(out)],
                            capture_output=True, text=True, timeout=900)
@@ -844,6 +848,26 @@ def _save_ws(ws: Path, vol: Path) -> None:
         WORK.commit()
     except Exception as e:  # noqa: BLE001
         print("workspace save failed:", str(e)[:300], flush=True)
+
+
+API_FATAL = re.compile(r"API Error: (401|402|403)|Insufficient user quota|Not enough quota|Failed to authenticate|invalid api key", re.I)
+API_TRANSIENT = re.compile(r"API Error: (408|409|425|429|5\d\d)|overloaded|Request timed out|Connection error|ECONNRESET|socket hang up", re.I)
+API_ERROR_MSG = "Enjin AI tidak dapat dihubungi (kuota / sambungan) — tiada video dihantar. Sila cuba lagi sebentar lagi."
+
+
+def _api_error(run: dict) -> str:
+    """The API error a Claude Code session ended on ('' when it ended normally).
+    Such a session stopped mid-work: whatever it rendered so far may be unfinished."""
+    res = run.get("result") or {}
+    text = str(res.get("result") or "")
+    tail = " ".join(run.get("tail") or [])
+    if API_FATAL.search(text) or API_TRANSIENT.search(text):
+        return text[:400]
+    if res.get("is_error") and (API_FATAL.search(tail) or API_TRANSIENT.search(tail) or not text):
+        return (text or tail)[:400] or "session ended with an error"
+    if not res and (API_FATAL.search(tail) or API_TRANSIENT.search(tail)):
+        return tail[-400:]
+    return ""
 
 
 def _find_video(ws: Path, since: float) -> Path | None:
@@ -1014,19 +1038,39 @@ def run_vgc(payload: dict) -> dict:
     # for "ok" in a chat): with no one to answer, resume and ask it to build.
     # A render that shows only the background (the animation never played in
     # the renderer) gets the same treatment: resume and have it fixed.
-    for _ in range(MAX_CONTINUES):
+    # A session cut off by a passing API error (overload, 5xx, timeout) is
+    # resumed after a pause; a fatal one (quota, auth) ends the run.
+    for _ in range(MAX_CONTINUES + 1):
         last = runs[-1]
         said = str((last["result"] or {}).get("result") or "")
+        err = _api_error(last)
+        if err and API_FATAL.search(err):
+            print("[runner] fatal API error:", err[:200], flush=True)
+            break
         if (not expect_video or "PERLU_INPUT" in said or not last["session_id"] or deadline - time.time() < 8 * 60):
             break
+        if err:
+            print("[runner] API error — resuming the session in 30 s:", err[:200], flush=True)
+            time.sleep(30)
+            runs.append(claude(CONTINUE_PROMPT, last["session_id"], deadline - time.time()))
+            continue
         found = _find_video(ws, run_start)
         if found and not _looks_blank(found):
+            break
+        if len(runs) > MAX_CONTINUES:
             break
         why = "blank render" if found else "no video yet"
         print(f"[runner] {why} — continuing the session", flush=True)
         runs.append(claude(BLANK_PROMPT if found else CONTINUE_PROMPT, last["session_id"], deadline - time.time()))
 
     step = re.sub(r"[^A-Za-z0-9_-]", "", str(payload.get("step") or "v1"))[:20]
+    build_err = _api_error(runs[-1])
+    if build_err:
+        # the builder stopped mid-work: what it rendered so far may be unfinished
+        _progress("done", 100)
+        return {"ok": False, "url": None, "error": API_ERROR_MSG, "api_error": build_err,
+                "session_id": runs[-1]["session_id"], "runs": len(runs), "run_sec": round(time.time() - run_start, 1),
+                "cost_usd": round(sum(float((r["result"] or {}).get("total_cost_usd") or 0) for r in runs), 4)}
     video = _find_video(ws, run_start) if expect_video else None
     gdir = ws / GAUNTLET_DIR
     ledger, keep = [], len(runs) - 1  # keep = the run whose cut is delivered (its summary describes it)
@@ -1078,6 +1122,7 @@ def run_vgc(payload: dict) -> dict:
                 print("[gauntlet] critic failed:", e, flush=True)
                 report = None
             if not report:
+                ledger.append({"round": rnd, "verdict": "", "fix": "critic unavailable"})
                 break
             verdict = _verdict(report)
             (gdir / f"{step}-r{rnd}-report.md").write_text(report, encoding="utf-8")
@@ -1090,6 +1135,10 @@ def run_vgc(payload: dict) -> dict:
             fix_start = time.time()
             runs.append(claude(FIX_PROMPT.format(report=report), runs[-1]["session_id"], deadline - time.time() - 60))
             new = _find_video(ws, fix_start)
+            if _api_error(runs[-1]):
+                print("[gauntlet] the fix round hit an API error — keeping the previous cut", flush=True)
+                ledger[-1]["fix"] = "failed (API error): kept the previous cut"
+                break
             if not new or _looks_blank(new) or _probe(new)["duration"] < 3:
                 # never trade a good cut for a broken one
                 print("[gauntlet] the fix round gave no usable video — keeping the previous cut", flush=True)

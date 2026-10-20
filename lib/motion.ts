@@ -935,7 +935,7 @@ export async function settleMotionRow(hist: HistoryRow, pre?: MotionCheck): Prom
     return { state: "pending", p2Status: r.status === "running" ? String(r.progress?.stage || "render") : "unknown" };
   }
   if (r.status === "failed") {
-    await failMotionRow(hist, `Motion render failed: ${r.error}`.slice(0, 500));
+    await failMotionRow(hist, (padatRun ? `Motion Padat: ${r.error} — kredit dipulangkan.` : `Motion render failed: ${r.error}`).slice(0, 500));
     return { state: "settled", status: "failed", error: r.error };
   }
 

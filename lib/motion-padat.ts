@@ -57,6 +57,8 @@ export function editBrief(input: EditInput, durSec: number, photos: number): str
     caps,
     `GAMBAR PRODUK: ./bahan/produk/ (${photos} gambar asli klien) — tunjukkan produk dengan jelas (kad produk / panel / B-roll) ` +
       "bila produk disebut; jangan herot, jangan potong teruk, jangan guna gambar produk lain.",
+    "MUKA PENUTUR: jangan sekali-kali tutup muka penutur. Kad produk, teks dan grafik di bahagian atas atau bawah muka " +
+      "(atau skrin dibahagi sekejap), kad produk maksimum ~40% tinggi skrin.",
     input.auto ? "GAYA: pilih sendiri gaya, warna dan tenaga yang paling sesuai dengan video ini." : `GAYA: ${styleLine(input.style, input.accent)}.`,
     ...(input.instructions ? [`ARAHAN KLIEN: ${input.instructions}`] : []),
     music,
@@ -94,7 +96,8 @@ export function adBrief(input: AdInput, photos: number): string {
     photos
       ? `GAMBAR: ./bahan/produk/ (${photos} gambar asli klien) — tunjukkan produk dengan jelas dan besar, jangan herot, jangan guna gambar produk lain.`
       : "GAMBAR: tiada — bina visual dengan tipografi, bentuk dan ikon sahaja; jangan reka rupa produk.",
-    `TEMPOH: ~${input.seconds || 30}s (±3s).`,
+    `TEMPOH WAJIB: ${Math.max(5, (input.seconds || 30) - 2)}–${(input.seconds || 30) + 2} saat — tulis skrip VO yang cukup panjang untuk mengisinya ` +
+      "(semak tempoh vo-track sebelum membina babak).",
     `BAHASA: ${langLine(input.language)}.`,
     `VOICE-OVER: suara AI "${voice}" (izin klien diberi). Tulis skrip VO ~${words} patah perkataan, pecah ikut ayat, ` +
       `jana setiap ayat: \`pl-tts --out ./bahan/vo-01.mp3 --speed ${input.speed ?? 1} "Ayat."\`, sambung dengan pl-vo-track ` +
