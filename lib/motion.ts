@@ -80,6 +80,11 @@ export type EditPlan = {
   zooms: { at: Cue; to?: Cue; scale?: number }[];
 };
 
+/** Default Motion engine: "laju" = Remotion templates (fast, concise);
+ *  "padat" = Claude Code builds the edit on HyperFrames (slower, richer). */
+export type MotionEngine = "laju" | "padat";
+export const asEngine = (v: unknown): MotionEngine => (v === "padat" ? "padat" : "laju");
+
 export type AdInput = {
   product: string;
   description: string;
@@ -106,6 +111,7 @@ export type AdInput = {
   variant?: { index: number; total: number };
   /** "Check Guideline TikTok" — compliant script, tape over risky text on product photos. */
   guard?: boolean;
+  engine?: MotionEngine;
 };
 
 export type EditInput = {
@@ -132,6 +138,7 @@ export type EditInput = {
   /** AI Auto: the director decides angle, look, colour, captions, hook sound and
    *  music from the video itself (style / caption / music / accent fields unused). */
   auto?: boolean;
+  engine?: MotionEngine;
 };
 
 // ── config + Modal client ─────────────────────────────────────────────────────
@@ -918,8 +925,10 @@ export async function settleMotionRow(hist: HistoryRow, pre?: MotionCheck): Prom
 
   const r = pre ?? (await motionCheck(hist.task_id));
   if (meta.feature === "motion-vgc") return settleVgcRow(hist, r, createdMs);
+  // a Default · Padat run (Claude Code on HyperFrames + critic rounds) takes longer
+  const padatRun = hist.task_id.startsWith(VGC_TASK_PREFIX);
   if (r.status === "running" || r.status === "unknown") {
-    if (Date.now() - createdMs > RENDER_STALE_MS) {
+    if (Date.now() - createdMs > (padatRun ? VGC_STALE_MS : RENDER_STALE_MS)) {
       await failMotionRow(hist, "Motion: render timed out — credit refunded.");
       return { state: "settled", status: "failed", error: "render timed out" };
     }
@@ -932,6 +941,14 @@ export async function settleMotionRow(hist: HistoryRow, pre?: MotionCheck): Prom
 
   const res = r.result;
   const admin = createAdminClient();
+
+  // a Padat run that ended without a video (it asked for missing input, or
+  // stopped): nothing to deliver — refund (a resubmit gets its old video back)
+  if (padatRun && !res.url) {
+    const why = String(res.error || res.summary || "tiada video dihasilkan").replace(/\s+/g, " ").slice(0, 300);
+    await failMotionRow(hist, `Motion Padat: ${why} — kredit dipulangkan.`.slice(0, 500));
+    return { state: "settled", status: "failed", error: why };
+  }
 
   // 2-step flow, step 1 finished: the script / captions wait for the client's
   // review. Nothing is charged yet — the credit stays held until the render.
@@ -953,7 +970,8 @@ export async function settleMotionRow(hist: HistoryRow, pre?: MotionCheck): Prom
 
   const dur = Number(res.duration_sec) || 0;
   const rate = Number(meta.rate) || 0;
-  const finalCost = costFor(dur, rate);
+  // Padat: never less than its minimum (the Custom Style video price)
+  const finalCost = round2(Math.max(costFor(dur, rate), Number(meta.padat_min) || 0));
   // a free re-render (resubmit) keeps showing what the client paid the first time
   const paidBefore = Number(meta.resubmit_prev?.cost) || 0;
   const { data: flipped } = await admin
@@ -969,7 +987,18 @@ export async function settleMotionRow(hist: HistoryRow, pre?: MotionCheck): Prom
         ...meta,
         stage: "done",
         poster_url: res.poster_url || meta.poster_url || null,
-        render: { duration_sec: dur, render_sec: res.render_sec ?? null, plan_fallback: !!res.plan_fallback },
+        render: { duration_sec: dur, render_sec: res.render_sec ?? res.run_sec ?? null, plan_fallback: !!res.plan_fallback },
+        // Padat: what Claude Code did + the critic rounds (verdicts) for the admin
+        ...(padatRun ? {
+          padat: {
+            ...(meta.padat || {}),
+            summary: String(res.summary || "").slice(0, 4000),
+            gauntlet: Array.isArray(res.gauntlet)
+              ? res.gauntlet.map((g: { round?: number; verdict?: string; fix?: string | null }) => ({ round: g.round, verdict: g.verdict, fix: g.fix ?? null }))
+              : [],
+            session_id: res.session_id ?? null, cost_usd: res.cost_usd ?? null, run_sec: res.run_sec ?? null,
+          },
+        } : {}),
         ...(res.guard || meta.guard ? { guard: { ...(meta.guard || {}), ...(res.guard || {}) } } : {}),
         settled_at: new Date().toISOString(),
       },

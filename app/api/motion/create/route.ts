@@ -4,14 +4,18 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { priceFor, reserveCredit } from "@/lib/deduct";
 import { hiddenModesForUser, isTabAllowedForUser } from "@/lib/partner-tab-gate";
 import {
-  MOTION_AD_DURATIONS, MOTION_PLANNING_TASK, MOTION_VOICES, adEstimateSec, costFor, motionAdEnabled, newPlanToken, runAdJob, type AdInput,
+  MOTION_AD_DURATIONS, MOTION_PLANNING_TASK, MOTION_VOICES, adEstimateSec, asEngine, costFor, motionAdEnabled, newPlanToken, round2, runAdJob,
+  type AdInput,
 } from "@/lib/motion";
 import { isMotionStyle } from "@/lib/motion-styles";
+import { padatMin, startPadatAdRow } from "@/lib/motion-padat";
 
 // POST /api/motion/create — Motion "Buat Iklan": generate a motion-graphics ad
 // from a product brief. Reserves the estimated cost, inserts a pending row,
 // returns immediately; after() writes the script (model_motion), voices each
 // line (MiniMax) and starts the Modal render. settleMotionRow finishes it.
+// Engine "padat": Claude Code writes, voices (pl-tts) and builds the whole ad
+// on HyperFrames instead (lib/motion-padat.ts).
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -69,12 +73,15 @@ export async function POST(req: Request) {
     style: isMotionStyle(b?.style) ? b.style : "gempak",
     resolution: b?.resolution === "720" ? "720" : "1080",
     guard: b?.guard === true,
+    engine: asEngine(b?.engine),
   };
+  const padat = input.engine === "padat";
   const variations = Math.max(1, Math.min(3, Math.round(Number(b?.variations) || 1)));
   const projectId = b?.project_id ? String(b.project_id) : null;
 
   const rate = await priceFor(user.id, "motion", "motion");
-  const estimate = costFor(adEstimateSec(seconds), rate);
+  const minCost = padat ? await padatMin(rate) : 0;
+  const estimate = round2(Math.max(costFor(adEstimateSec(seconds), rate), minCost));
 
   const admin = createAdminClient();
   const ids: string[] = [];
@@ -105,6 +112,8 @@ export async function POST(req: Request) {
           plan_token: newPlanToken(),
           aspectRatio: "9:16",
           ...(variations > 1 ? { variation: `${v + 1}/${variations}` } : {}),
+          // Padat: the run's own token for the AI voice (/api/vgc/tts)
+          ...(padat ? { padat_min: minCost, padat: { tts: { voice: input.voice, token: newPlanToken(), calls: 0 } } } : {}),
         },
       })
       .select("id")
@@ -122,8 +131,9 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: stopError || "Gagal mula", needed: estimate }, { status: stopError?.startsWith("Kredit") ? 402 : 500 });
   }
 
-  // Each variation writes its own script + voice in parallel, in the background.
-  after(() => Promise.all(ids.map((id) => runAdJob(id))).then(() => undefined));
+  // Each variation writes its own script + voice in parallel, in the background
+  // (Padat: each starts its own Claude Code run at once — all in parallel).
+  after(() => Promise.all(ids.map((id) => (padat ? startPadatAdRow(id) : runAdJob(id)))).then(() => undefined));
 
   return NextResponse.json({ ok: true, id: ids[0], ids, estimate, rate, ...(stopError ? { warning: stopError } : {}) });
 }

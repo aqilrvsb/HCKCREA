@@ -5,8 +5,9 @@ import { tokenMatches } from "@/lib/motion";
 
 // POST /api/vgc/tts — called BY Claude Code inside a Custom Style (VGC) run
 // (the `pl-tts` command in modal_vgc.py) when the client picked an AI voice
-// (Mira, Afifah…) for the voice-over. Auth = the run's own tts token; only the
-// chosen voice, only while the card is running. The MiniMax key stays here.
+// (Mira, Afifah…) for the voice-over — and by a Motion Buat Iklan "Padat" run
+// (metadata.padat.tts). Auth = the run's own tts token; only the chosen voice,
+// only while the card is running. The MiniMax key stays here.
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
@@ -25,8 +26,10 @@ export async function POST(req: Request) {
   const admin = createAdminClient();
   const { data: row } = await admin.from("history").select("id, user_id, status, metadata").eq("id", id).maybeSingle();
   const meta = (row?.metadata ?? {}) as Record<string, any>;
-  const tts = meta.vgc?.tts as { voice?: string; token?: string; calls?: number } | undefined;
-  if (!row || meta.feature !== "motion-vgc" || !tts?.token || !tokenMatches(token, tts.token)) {
+  // where this card keeps its voice token: Custom Style → vgc, Motion Padat → padat
+  const slot = meta.feature === "motion-vgc" ? "vgc" : meta.input?.engine === "padat" ? "padat" : null;
+  const tts = (slot ? meta[slot]?.tts : undefined) as { voice?: string; token?: string; calls?: number } | undefined;
+  if (!row || !slot || !tts?.token || !tokenMatches(token, tts.token)) {
     return NextResponse.json({ ok: false, error: "forbidden" }, { status: 403 });
   }
   if (row.status !== "pending") return NextResponse.json({ ok: false, error: "run not active" }, { status: 409 });
@@ -34,11 +37,12 @@ export async function POST(req: Request) {
 
   const emotion = String(b?.emotion ?? "fluent");
   const speed = Number(b?.speed) || 1;
-  const r = await synthesizeSpeech({ text, voice: tts.voice, emotion, speed, language: "ms", keyPrefix: `vgc-tts/${row.user_id}` });
+  const language = meta.input?.language === "en" ? "en" : "ms";
+  const r = await synthesizeSpeech({ text, voice: tts.voice, emotion, speed, language, keyPrefix: `vgc-tts/${row.user_id}` });
   if (!r.ok) return NextResponse.json({ ok: false, error: r.error }, { status: 502 });
 
   const { data: cur } = await admin.from("history").select("metadata").eq("id", id).maybeSingle();
   const m = (cur?.metadata ?? meta) as Record<string, any>;
-  await admin.from("history").update({ metadata: { ...m, vgc: { ...m.vgc, tts: { ...m.vgc?.tts, calls: (m.vgc?.tts?.calls ?? 0) + 1 } } } }).eq("id", id);
+  await admin.from("history").update({ metadata: { ...m, [slot]: { ...m[slot], tts: { ...m[slot]?.tts, calls: (m[slot]?.tts?.calls ?? 0) + 1 } } } }).eq("id", id);
   return NextResponse.json({ ok: true, url: r.audioUrl, duration_sec: r.durationSec ?? null, voice: tts.voice });
 }

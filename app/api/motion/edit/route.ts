@@ -3,8 +3,9 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { priceFor, refundReserved, reserveCredit } from "@/lib/deduct";
 import { isTabAllowedForUser } from "@/lib/partner-tab-gate";
-import { MOTION_EDIT_MAX_SEC, costFor, motionStart, newPlanToken, siteUrl, type EditInput } from "@/lib/motion";
+import { MOTION_EDIT_MAX_SEC, asEngine, costFor, motionStart, newPlanToken, round2, siteUrl, type EditInput } from "@/lib/motion";
 import { isMotionStyle, styleEnergy } from "@/lib/motion-styles";
+import { padatMin } from "@/lib/motion-padat";
 
 // POST /api/motion/edit — Motion "Edit Video": animate the client's own video
 // (captions, word-synced stickers, zooms, optional music). The video was
@@ -77,11 +78,15 @@ export async function POST(req: Request) {
     facts: b?.facts !== false,
     guard: b?.guard === true,
     ...(auto ? { auto: true } : {}),
+    // "laju" = Remotion templates; "padat" = step 2 built by Claude Code on HyperFrames
+    engine: asEngine(b?.engine),
   };
   const projectId = b?.project_id ? String(b.project_id) : null;
 
   const rate = await priceFor(user.id, "motion", "motion");
-  const estimate = costFor(durationSec, rate);
+  // Padat costs at least the Custom Style video price (held now, trued up at the end)
+  const minCost = input.engine === "padat" ? await padatMin(rate) : 0;
+  const estimate = round2(Math.max(costFor(durationSec, rate), minCost));
   const planToken = newPlanToken();
 
   const admin = createAdminClient();
@@ -108,6 +113,7 @@ export async function POST(req: Request) {
         plan_token: planToken,
         aspectRatio: "9:16",
         ...(review ? { review: true } : {}),
+        ...(minCost > 0 ? { padat_min: minCost } : {}),
       },
     })
     .select("id")

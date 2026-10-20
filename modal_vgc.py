@@ -2,12 +2,20 @@
 PeningLab VGC engine — Claude Code in the cloud ("Custom Style" in the Motion tab).
 
 The VGC Prompt Vault (Coach Am) writes prompts for Claude Code: the student
-pastes one, attaches their material, and Claude Code writes a Remotion project
+pastes one, attaches their material, and Claude Code writes a code-built video
 and renders the MP4. Here the same happens without the copy-paste: the filled
 VGC prompt + the client's material go to `run_vgc`, which runs Claude Code
 headless (model: Claude Sonnet through DragonAPI's Anthropic-format endpoint)
-in a workspace with Remotion, ffmpeg and the VGC Master Knowledge skill, then
-uploads the rendered video to B2.
+in a workspace with HyperFrames, ffmpeg and the VGC Master Knowledge skill, then
+uploads the rendered video to B2. Motion Default · Padat (mode "edit" / "ad")
+runs on the same engine with PeningLab's own brief instead of the VGC kit.
+
+Quality loop ("Gauntlet", after motion-video-kit, MIT): the builder never grades
+its own work. After it renders, a fresh Claude session that sees only the
+pixels, the brief and measured numbers writes a critic report; the builder
+fixes and re-renders, and a new critic verifies. A fix that breaks the video
+is discarded (the previous cut is kept). The delivered cut's audio is then
+loudness-mastered for phones.
 
 Every History card gets its own workspace on the `peninglab-vgc-work` Volume
 (project files + the Claude Code session), so a later step of the same flow
@@ -35,6 +43,8 @@ import modal
 app = modal.App("peninglab-vgc")
 
 TEMPLATE = "/opt/vgc-template"
+HF_VERSION = "0.8.181"
+HF_SKILLS = "/opt/hf-skills"
 KIT = modal.Volume.from_name("peninglab-vgc-kit", create_if_missing=True)
 WORK = modal.Volume.from_name("peninglab-vgc-work", create_if_missing=True)
 KIT_ROOT, WORK_ROOT = "/kit", "/work"
@@ -43,7 +53,13 @@ PROGRESS = modal.Dict.from_name("peninglab-vgc-progress", create_if_missing=True
 MODEL = "claude-sonnet-5-5"
 DRAGON_BASE = "https://newapi.dragon3api.com"
 MAX_TURNS = 150
-RUN_TIMEOUT = 50 * 60  # one Claude Code run (build + render)
+RUN_TIMEOUT = 55 * 60  # one step: build + render + critic rounds (VGC_STALE_MS in lib/motion.ts is 75 min)
+MVK_DIR = "/opt/mvk"  # motion-video-kit references (MIT), pinned
+MVK_COMMIT = "e4b1c0004080fe6a0deb883631bad5eba1e5f339"
+CRITIC_ROUNDS = 2        # critic -> fix -> verifying critic -> fix
+CRITIC_BUDGET = 8 * 60   # one critic session
+FIX_MIN = 9 * 60         # don't start a fix round with less time than this left
+GAUNTLET_DIR = ".gauntlet"
 
 image = (
     modal.Image.debian_slim(python_version="3.11")
@@ -59,6 +75,17 @@ image = (
         "curl -fsSL https://deb.nodesource.com/setup_22.x | bash -",
         "apt-get install -y nodejs",
         "npm install -g @anthropic-ai/claude-code --no-audit --no-fund",
+        # HyperFrames (Apache-2.0): the motion engine of Custom Style and Default · Padat.
+        # Its puppeteer Chrome downloads here, into the image — never during a job.
+        f"npm install -g hyperframes@{HF_VERSION} --no-audit --no-fund",
+        f"git clone --depth 1 --branch v{HF_VERSION} https://github.com/heygen-com/hyperframes /tmp/hf"
+        " || git clone --depth 1 https://github.com/heygen-com/hyperframes /tmp/hf",
+        f"mkdir -p {HF_SKILLS} && cp -r /tmp/hf/skills/* {HF_SKILLS}/ && rm -rf /tmp/hf && ls {HF_SKILLS}",
+        "hyperframes doctor || true",
+        # motion-video-kit (MIT): motion grammar + quality bar for the builder and the critic
+        f"git clone https://github.com/echris6/motion-video-kit /tmp/mvk && git -C /tmp/mvk checkout {MVK_COMMIT}"
+        f" && mkdir -p {MVK_DIR} && cp -r /tmp/mvk/business-motion-film/references /tmp/mvk/business-motion-film/scripts"
+        f" /tmp/mvk/LICENSE {MVK_DIR}/ && rm -rf /tmp/mvk && ls {MVK_DIR}/references",
     )
     # procedural soundtrack / SFX by code (the VGC prompts ask for it)
     .pip_install("requests==2.31.0", "boto3==1.34.0", "fastapi[standard]==0.115.0", "numpy<2", "scipy==1.13.1", "pillow==10.4.0")
@@ -79,59 +106,104 @@ SECRETS = [
 
 # The client can't answer mid-run, the machine is ours: house rules for this
 # workspace on top of the VGC skill (written once per History card).
-WORKSPACE_RULES = """# PeningLab — VGC cloud workspace
+HEAD_VGC = """# PeningLab — VGC cloud workspace (Motion · Custom Style)
 
 You are running headless in PeningLab's cloud for a client of the VGC (edit VIDEO GUNA CODE) method.
-Use the vgc-master-knowledge skill for every video decision.
+Use the vgc-master-knowledge skill for every content, direction, pacing and audio decision.
+PeningLab builds every Custom Style video with HyperFrames (a code-based engine, which the VGC prompts allow):
+where a prompt says "Remotion + ffmpeg", build with HyperFrames + ffmpeg instead.
+"""
 
+HEAD_DEFAULT = """# PeningLab — Motion Default · Padat workspace
+
+You are running headless in PeningLab's cloud as a senior motion designer + video editor, producing a TikTok Shop
+video ad for a Malaysian seller. Follow the brief exactly; the client's facts are the only facts.
+"""
+
+COMMON_RULES = """
 ## The client cannot reply during this run
-- Do NOT stop to ask questions. If something non-essential is missing, choose a sensible option,
+- Do NOT stop to ask questions or for approval. If something non-essential is missing, choose a sensible option,
   state the assumption in your final summary, and continue to the requested output.
-- Only stop without a video if an essential input is truly missing (e.g. Edit Footage with no footage);
+- Only stop without a video if an essential input is truly missing (e.g. footage to edit that isn't there);
   then explain exactly what the client must provide.
 - "Wait for approval before final export" means: deliver the preview MP4 now; the client approves in PeningLab.
 
 ## Material
-- The client's files are in ./bahan/ (images, logo, footage, voice-over). Never modify or delete them.
+- The client's files are in ./bahan/ (images, logo, footage, voice-over, captions). Never modify or delete them.
+"""
 
-## Tools already installed (do not reinstall)
-- A ready Remotion project: /opt/vgc-template (Remotion 4.0.534 + React 19, node_modules installed,
-  Chrome Headless Shell ready). Start a project with:
-    mkdir -p video && cp -r /opt/vgc-template/package.json /opt/vgc-template/tsconfig.json /opt/vgc-template/remotion.config.ts /opt/vgc-template/src video/ && ln -s /opt/vgc-template/node_modules video/node_modules
-  Installed packages: remotion, @remotion/{cli,renderer,bundler,transitions,google-fonts,shapes,paths,noise,
-  motion-blur,light-leaks,layout-utils,lottie,media-utils,animated-emoji,effects,rounded-text-box,starburst,sfx}.
-  Copy the client's files you use into video/public/ and load them with staticFile().
-- ffmpeg / ffprobe, python3 with numpy + scipy (procedural soundtrack and SFX as WAV), Noto fonts.
-- 8 CPU cores: render with --concurrency=8. Check frames with `npx remotion still` before the full render.
+ENGINE_RULES = """
+## Video engine: HyperFrames (installed — do not reinstall)
+- The `hyperframes` CLI is installed globally (run `hyperframes …`) with its own headless Chrome; its skills are in
+  ./.claude/skills — start with the `hyperframes` router skill and read the SKILL.md of every workflow you use
+  (product videos: its product-launch / launch-film workflow; captions on footage: embedded-captions; audio:
+  hyperframes-audio). Put the project in ./video/.
+- Compositions are HTML + GSAP. EVERY animated composition must register its timeline exactly as the skills show
+  (a paused GSAP timeline registered on window.__timelines). An unregistered timeline does not play in the render
+  and the video comes out blank.
+- Use the block catalog (`hyperframes catalog`, `hyperframes add …`) for captions, transitions and effects.
+- Before rendering: `hyperframes lint` (fix every error AND every timeline warning) and `hyperframes check`.
+- Render with `hyperframes render` (use all 8 CPU cores where it allows), then put the MP4 at ./out/preview.mp4
+  (1080x1920, 30 fps).
+- Only if HyperFrames truly cannot render after 2 real attempts: build it in Remotion instead (a ready project is at
+  /opt/vgc-template: copy package.json, tsconfig.json, remotion.config.ts and src into ./video and symlink
+  /opt/vgc-template/node_modules) and say so in the summary.
+"""
 
-## Audio in Remotion — check every video (common mistakes)
-- To PLAY a sound at frame N: `<Sequence from={N}><Audio src={staticFile('x.wav')} /></Sequence>`.
-  `startFrom` / `trimBefore` on <Audio> CUTS the beginning of the file — it does NOT delay it. Never schedule with it.
-- Voice-over: clips play one after another from their REAL lengths and never overlap. Simplest: join them with
-  `pl-vo-track --out video/public/vo-track.wav vo-01.mp3 vo-02.mp3 …` (prints each clip's start/end in seconds),
-  play that one track from frame 0, and time every scene from the printed starts (seconds × fps).
-- Every SFX you make must be placed on the timeline at its visual cue (whoosh/swoosh on transitions, pop/tick when
-  an item appears, thump/stamp on a key word, sparkle on the CTA). A generated SFX that is not placed does nothing.
-  Ready code-generated SFX: `node /opt/vgc-template/scripts/sfx.mjs video/public/sfx` → pop, tick, whoosh, swoosh,
-  thump, stamp, sparkle, paper, marker (.wav) — or synthesize your own.
-- Music bed: duck to ~0.12–0.18 volume under the VO; SFX clearly audible (~0.5–0.8) but never louder than the voice.
-- After the render run `pl-audio-check out/preview.mp4`: it prints the loudness timeline and the detected sound
-  onsets. Confirm the VO plays at the planned times (no stacked voices, no long silent gaps) and the SFX hits exist;
-  fix and re-render if not. It measures levels only — say "diukur", not "didengar".
+CRAFT_RULES = """
+## Motion craft — the premium bar (execution quality; where the brief or the vgc-master-knowledge skill says otherwise, they win)
+- Plan before building: a beat table in ./video/STORYBOARD.md (time -> what the viewer sees -> its selling job -> how it
+  exits). For ~30 s: 10-14 distinct compositions, beats of 1.4-3.5 s; vary scale (product macro -> wide -> type impact -> detail).
+  Read /opt/mvk/references/motion-grammar.md (mechanism catalog) and quality-bar.md first.
+- Frame 0 is already a finished, striking composition (never a half-entered word); the first 2 s hook.
+- The lead subject (product / speaker / key word) fills 60-85% of the usable frame in feature beats — no small card in an empty field.
+- Change speed: land -> readable hold -> fast exit. Nothing static for more than ~0.6 s (a hold gets a slow 3-5% push),
+  except while the CTA is read.
+- One persistent actor (the product, a shape, a colour rail) carries across scenes; transitions keep a carried object or a
+  matched direction — never a slideshow of unrelated slide-ins. The outgoing title leaves before the incoming one enters.
+- Hierarchy: one primary move + supporting staggers + fine detail; 1-2 reading targets at a time.
+- Every animated action produces a visible result (cause -> effect).
+- Deterministic: every animated state is a pure function of timeline time — no free-running requestAnimationFrame,
+  Date.now(), CSS transitions outside the timeline, or unseeded randomness.
+- An independent critic reviews your render after you finish. When its report comes back, fix what it lists.
+"""
 
+AUDIO_RULES = """
+## Audio — every video
+- Voice-over clips play one after another and never overlap. Join generated VO clips with
+  `pl-vo-track --out video/vo-track.wav vo-01.mp3 vo-02.mp3 …` (prints each clip's start/end in seconds),
+  play that one track from 0, and time every scene from the printed starts.
+- Music bed (code-generated, no licence issue): `pl-music --sec <video length> --mood chill|upbeat|hype
+  --speech <the VO track or the footage> --out video/music.wav` — it already ducks under the speech; play it
+  from 0 under everything at volume ~0.3.
+- SFX (code-generated): `node /opt/vgc-template/scripts/sfx.mjs video/sfx` gives pop, tick, whoosh, swoosh, thump,
+  stamp, sparkle, paper, marker (.wav). Place every SFX you use at its visual cue (an <audio> element with the
+  right start). A generated SFX that is not placed does nothing. SFX clearly audible, never louder than the voice.
+- After the render run `pl-audio-check out/preview.mp4`: confirm the voice plays where planned (no stacked voices,
+  no long silent gaps), the music is there if requested, and the SFX hits exist; fix and re-render if not.
+  It measures levels only — say "diukur", not "didengar".
+"""
+
+LOOK_RULES = """
 ## Look at the video before you finish (mandatory)
 - After the render run `pl-frames out/preview.mp4`: it writes 8 evenly spaced frames + out/frames/sheet.png.
   Open the sheet (and any frame you doubt) with your Read tool and confirm the text, product and graphics are
   really visible and correct. A render whose frames show only the background means the animation never played
-  in the renderer — fix the cause (e.g. register the timeline the way the engine requires, elements stuck at
-  opacity 0) and render again.
+  in the renderer — fix the cause (e.g. a timeline not registered, elements stuck at opacity 0) and render again.
+- No two text blocks may overlap, nothing is cut off at the frame edge, and text stays inside the 9:16 safe area
+  (not under TikTok's right-side buttons or the bottom caption bar).
 - Never claim visual quality you have not seen in those frames.
+"""
 
+OUTPUT_RULES = """
 ## Output
-- Render the preview to ./out/preview.mp4 (create ./out). One full render; re-render only to fix a real problem.
+- ./out/preview.mp4 (create ./out). One full render; re-render only to fix a real problem.
 - Finish with a short summary in Bahasa Melayu: the direction you chose, what you checked, and what the client should review.
 - Never print, echo or read environment variables or secrets.
 """
+
+WORKSPACE_RULES = HEAD_VGC + COMMON_RULES + ENGINE_RULES + CRAFT_RULES + AUDIO_RULES + LOOK_RULES + OUTPUT_RULES
+DEFAULT_RULES = HEAD_DEFAULT + COMMON_RULES + ENGINE_RULES + CRAFT_RULES + AUDIO_RULES + LOOK_RULES + OUTPUT_RULES
 
 
 # Bake-off runs (comparing motion technologies on the same brief): the
@@ -152,7 +224,8 @@ skill's own tooling fails to install or run after 2 real attempts — then say s
 - Chrome Headless Shell: /opt/vgc-template/node_modules/.remotion/chrome-headless-shell/linux64/chrome-headless-shell-linux64/chrome-headless-shell
   (puppeteer / the skill's own installer may download Chrome too).
 - `pl-tts --out ./bahan/vo-01.mp3 "Ayat."` = the client's AI voice (permission given). `pl-vo-track` joins VO clips back to back
-  without overlap and prints their start/end; `pl-audio-check out/preview.mp4` prints the loudness timeline of a render.
+  without overlap and prints their start/end; `pl-music` makes a code-generated music bed that ducks under speech;
+  `pl-audio-check out/preview.mp4` prints the loudness timeline of a render; `pl-frames` samples frames to look at.
 
 ## Look at the video before you finish (mandatory)
 - After the render run `pl-frames out/preview.mp4`: it writes 8 evenly spaced frames + out/frames/sheet.png.
@@ -182,7 +255,7 @@ RUN_ADDENDUM_TEXT = """
 --- PENINGLAB CLOUD RUN ---
 Run ini berjalan automatik dalam cloud PeningLab. Klien akan membaca jawapan akhir anda dalam PeningLab, kemudian sambung ke langkah seterusnya dalam sesi yang sama.
 Siapkan langkah ini sepenuhnya dalam satu jawapan akhir yang lengkap dan jelas (Bahasa Melayu). Jangan render video melainkan langkah ini memintanya."""
-CONTINUE_PROMPT = ("Teruskan sekarang tanpa menunggu kelulusan: bina projek Remotion dan render preview ke ./out/preview.mp4, "
+CONTINUE_PROMPT = ("Teruskan sekarang tanpa menunggu kelulusan: bina projek video dan render preview ke ./out/preview.mp4, "
                    "kemudian beri ringkasan akhir. Jika input penting benar-benar tiada, mulakan jawapan dengan \"PERLU_INPUT:\".")
 MAX_CONTINUES = 2
 
@@ -290,6 +363,50 @@ subprocess.run(cmd, check=True)
 print("sheet:", sheet, "- open it with the Read tool")
 """
 
+# `pl-music`: the Motion renderer's code-generated music bed (no samples, no
+# licence issue), ducked under the speech found in a VO track or the footage.
+PL_MUSIC = r"""#!/usr/bin/env python3
+# pl-music - code-generated music bed (no samples, no licence issue) that ducks under the speech.
+# Usage: pl-music --sec 24 --mood upbeat --speech video/vo-track.wav --out video/music.wav [--seed 7]
+#   --speech: any audio/video whose speech the music should duck under (optional)
+import argparse, json, os, random, subprocess, tempfile
+import numpy as np
+ap = argparse.ArgumentParser(description="code-generated music bed")
+ap.add_argument("--sec", type=float, required=True)
+ap.add_argument("--mood", choices=["chill", "upbeat", "hype"], default="upbeat")
+ap.add_argument("--speech")
+ap.add_argument("--out", required=True)
+ap.add_argument("--seed", type=int, default=None)
+a = ap.parse_args()
+spans = []
+if a.speech:
+    SR, WIN = 16000, 800  # 50 ms windows
+    raw = subprocess.run(["ffmpeg", "-v", "error", "-i", a.speech, "-vn", "-ac", "1", "-ar", str(SR), "-f", "f32le", "-"],
+                         capture_output=True).stdout
+    x = np.frombuffer(raw, np.float32)
+    cur = None
+    for i in range(0, len(x), WIN):
+        on = 20 * np.log10(np.sqrt(np.mean(x[i:i + WIN] ** 2)) + 1e-9) > -38
+        t = i / SR
+        if on and cur is None:
+            cur = [t, t + WIN / SR]
+        elif on:
+            cur[1] = t + WIN / SR
+        elif cur is not None and t - cur[1] > 0.35:
+            if cur[1] - cur[0] >= 0.15:
+                spans.append([round(cur[0], 2), round(cur[1], 2)])
+            cur = None
+    if cur is not None and cur[1] - cur[0] >= 0.15:
+        spans.append([round(cur[0], 2), round(cur[1], 2)])
+os.makedirs(os.path.dirname(os.path.abspath(a.out)) or ".", exist_ok=True)
+job = {"totalSec": a.sec, "seed": a.seed if a.seed is not None else random.randint(1, 99999), "mood": a.mood,
+       "speech": spans, "marks": {}, "bedOut": os.path.abspath(a.out)}
+with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as f:
+    json.dump(job, f)
+subprocess.run(["node", "/opt/vgc-template/scripts/music.mjs", f.name], check=True)
+print(f"{a.out} {a.sec:.2f}s mood={a.mood} speech spans={len(spans)} - play it from 0 at volume ~0.3")
+"""
+
 # `pl-audio-check`: loudness timeline + sound onsets of a render, so the VO
 # placement and SFX hits can be verified (measured, not heard).
 PL_AUDIO_CHECK = r"""#!/usr/bin/env python3
@@ -387,9 +504,9 @@ def _safe_name(name: str, i: int) -> str:
 def _stage_of(tool: str, inp: dict) -> tuple:
     """A tool call → (stage label, rough %)."""
     cmd = str(inp.get("command") or "")
-    if tool == "Bash" and "remotion render" in cmd:
+    if tool == "Bash" and re.search(r"(remotion|hyperframes) render", cmd):
         return "render", 75
-    if tool == "Bash" and "remotion still" in cmd:
+    if tool == "Bash" and re.search(r"remotion still|hyperframes (lint|check|snapshot)|pl-frames|pl-audio-check", cmd):
         return "check", 65
     if tool == "Bash" and re.search(r"ffmpeg|python3? .*(wav|audio|sfx|music)", cmd):
         return "audio", 55
@@ -426,8 +543,256 @@ BLANK_PROMPT = ("Video yang dirender KOSONG: hampir semua frame hanya latar tanp
                 "untuk sahkan visual benar-benar kelihatan. Beri ringkasan akhir.")
 
 
+def _probe(path: Path) -> dict:
+    j = json.loads(subprocess.run(["ffprobe", "-v", "error", "-print_format", "json", "-show_streams", "-show_format", str(path)],
+                                  capture_output=True, text=True, timeout=60).stdout or "{}")
+    v = next((x for x in j.get("streams", []) if x.get("codec_type") == "video"), {})
+    return {"duration": float(j.get("format", {}).get("duration") or 0), "w": int(v.get("width") or 0),
+            "h": int(v.get("height") or 0), "audio": any(x.get("codec_type") == "audio" for x in j.get("streams", []))}
+
+
+def _normalise(src: Path, out: Path, info: dict, max_sec: float, segs=None) -> Path:
+    """The Motion renderer's cut: 1080x1920 30 fps H.264, voice clean-up, and with
+    `segs` only those time ranges (the client-reviewed jump cut)."""
+    w, h = info["w"] or 1080, info["h"] or 1920
+    ar = w / h if h else 0.5625
+    sharpen = ",unsharp=5:5:0.7:5:5:0.0" if w < 900 else ""
+    expr = "+".join(f"between(t,{s0:.3f},{e0:.3f})" for s0, e0 in segs) if segs else ""
+    vpre = f"fps=30,select='{expr}',setpts=N/(30*TB)," if segs else "fps=30,"
+    grade = ",eq=contrast=1.04:saturation=1.1:gamma=1.02"
+    if 0.53 <= ar <= 0.6:
+        fc = (f"[0:v]{vpre}scale=1080:1920:force_original_aspect_ratio=increase:flags=lanczos,crop=1080:1920"
+              f"{sharpen}{grade},setsar=1,format=yuv420p[v]")
+    else:
+        fc = (f"[0:v]{vpre}split[a][b];"
+              "[a]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,boxblur=28:6,eq=brightness=-0.08[bg];"
+              f"[b]scale=1080:1920:force_original_aspect_ratio=decrease:flags=lanczos{sharpen}{grade}[fg];"
+              "[bg][fg]overlay=(W-w)/2:(H-h)/2,setsar=1,format=yuv420p[v]")
+    amap = "0:a:0" if info["audio"] else "1:a"
+    voice = "highpass=f=75,afftdn=nr=10:nf=-32,acompressor=threshold=-20dB:ratio=2.5:attack=8:release=160:makeup=1.6,alimiter=limit=0.95"
+    if segs and info["audio"]:
+        fc += f";[0:a]aselect='{expr}',asetpts=N/SR/TB,{voice}[aout]"
+        amap = "[aout]"
+    elif info["audio"]:
+        fc += f";[0:a]{voice}[aout]"
+        amap = "[aout]"
+    script = out.with_suffix(".filter.txt")
+    script.write_text(fc, encoding="utf-8")
+    cmd = ["ffmpeg", "-v", "error", "-y", "-i", str(src)]
+    if not info["audio"]:
+        cmd += ["-f", "lavfi", "-i", "anullsrc=r=48000:cl=stereo"]
+    if not segs:
+        cmd += ["-t", f"{max_sec:.2f}"]
+    cmd += ["-filter_complex_script", str(script), "-map", "[v]", "-map", amap,
+            "-c:v", "libx264", "-preset", "veryfast", "-crf", "17", "-c:a", "aac", "-b:a", "192k", "-ar", "48000", "-ac", "2"]
+    if not info["audio"]:
+        cmd += ["-shortest"]
+    r = subprocess.run(cmd + [str(out)], capture_output=True, text=True, timeout=900)
+    script.unlink(missing_ok=True)
+    if r.returncode != 0 or not out.exists():
+        raise RuntimeError("cut/normalise failed: " + (r.stderr or "")[-400:])
+    return out
+
+
+def _unmap_words(words: list, segs: list) -> list:
+    """Cut-timeline word times back onto the source (when the cut had to be skipped)."""
+    spans, acc = [], 0.0
+    for s0, e0 in segs:
+        spans.append((acc, s0, e0 - s0))
+        acc += e0 - s0
+
+    def back(t: float) -> float:
+        for a0, s0, ln in spans:
+            if t <= a0 + ln + 1e-3:
+                return round(s0 + max(0.0, t - a0), 3)
+        a0, s0, ln = spans[-1]
+        return round(s0 + ln, 3)
+
+    return [{**w, "t": back(float(w["t"])), "e": back(float(w.get("e") or float(w["t"]) + 0.3))} for w in words]
+
+
+def _prepare_footage(ws: Path, payload: dict) -> str:
+    """Default · Padat edit: the client's video, cut exactly as reviewed, at
+    ./bahan/footage.mp4 + the approved caption words at ./bahan/captions.json."""
+    foot = ws / "bahan" / "footage.mp4"
+    if foot.exists():
+        return "ready"
+    src = ws / "src_video"
+    _download(str(payload["video_url"]), src)
+    info = _probe(src)
+    if info["duration"] <= 0.5:
+        raise RuntimeError("footage has no duration (unreadable file?)")
+    max_sec = float(payload.get("max_sec") or 180)
+    segs = payload.get("segs") or None
+    words = list(payload.get("words") or [])
+    try:
+        _normalise(src, foot, info, max_sec, segs)
+    except Exception as e:  # noqa: BLE001
+        print("cut failed, using the uncut video:", str(e)[:300], flush=True)
+        if segs:
+            words = _unmap_words(words, segs)
+        _normalise(src, foot, info, max_sec, None)
+    caps = [{"w": str(w.get("w") or ""), "t": round(float(w["t"]), 3), "e": round(float(w.get("e") or float(w["t"]) + 0.3), 3)}
+            for w in words if str(w.get("w") or "").strip()]
+    (ws / "bahan" / "captions.json").write_text(json.dumps(caps, ensure_ascii=False), encoding="utf-8")
+    src.unlink(missing_ok=True)
+    return f"{_probe(foot)['duration']:.2f}s, {len(caps)} caption words"
+
+
+CRITIC_PROMPT = """You are an independent, harsh motion-design critic for TikTok Shop video ads. You did NOT build this video:
+judge only the rendered pixels and the measured numbers, never intentions.
+
+Files in this folder:
+- film.mp4 — the render ({dur:.1f}s, 9:16, with audio). The only artifact you judge.
+- BRIEF.md — what the client asked for: the only source of truth for facts, claims, prices and the CTA.
+- sheets/sheet-*.jpg — contact sheets, one frame every {step:.2f}s, time stamped (yellow, top-left). Open EVERY sheet with your Read tool.
+- MEASURE.txt — measured: frozen stretches, big visual changes, loudness, the audio level timeline (voice / SFX onsets).
+- bahan/ — the client's material (product photos{caps}).
+{prev}
+Method:
+1. Read BRIEF.md and MEASURE.txt, then open every contact sheet.
+2. Look closer wherever something seems off and around transitions: extract native frames with ffmpeg
+   (e.g. `ffmpeg -v error -ss 4.20 -i film.mp4 -frames:v 1 c-4.20.png`, or a 1/30 s burst across a transition) and open them.
+3. Judge against this bar (a vertical TikTok Shop ad, watched on a phone, often on mute):
+   - Hook: frame 0 is already a finished, striking composition; the first 2 s give a reason to keep watching.
+   - No text collisions on ANY frame, including mid-transition; nothing cut off at the edges; key text inside the safe area
+     (not in the bottom ~18%, not under the right-side buttons ~13% from the right edge).
+   - Readable: every line stays long enough to read, strong contrast, correct Malay spelling, consistent type.
+   - No blank or near-empty frames; no small element floating in a big empty field; the lead subject fills most of the frame.
+   - Motion: no dead stretch over ~0.6 s (the CTA end card may hold but still drifts); land -> read -> fast exit;
+     transitions carry an object or a direction instead of a slideshow of unrelated slide-ins.
+   - Product: the client's real product photo appears clearly — undistorted, not badly cropped, not covered by text.
+   - Captions (if any): match the spoken words and timing in bahan/captions.json; never cover the face or the product.
+   - Truth: no price, offer, claim, testimonial or number that is not in BRIEF.md.
+   - CTA: unmistakable on mute, readable for >= 1.5 s at the end.
+   - Audio (MEASURE.txt): one voice at a time (no stacked voice-over), no long silent gaps, music under the voice, SFX on
+     real visual events. The final master is loudness-normalised automatically: judge balance, not absolute level.
+4. Write ./report.md (under 700 words):
+   - First line exactly `VERDICT: SHIP` (a demanding client would publish it as is) or `VERDICT: {fail}`.
+   - Defects ranked by severity, each with timestamps and screen region.
+   - `## Top fixes` — at most {nfix}, highest impact first, concrete and implementable in code (HTML/CSS/GSAP timeline/audio).
+Be blunt; no padding. Do not modify film.mp4 or bahan/.
+"""
+
+CRITIC_PREV = """- previous-report.md — the previous critic's report on the earlier cut. First, for every item in its defects and
+  Top fixes give FIXED / PARTLY / STILL PRESENT with timestamps; then look for NEW defects (regressions: overlaps,
+  clipped text, glitch frames, audio problems).
+"""
+
+FIX_PROMPT = """Seorang pengkritik bebas (bukan anda) telah menilai render ./out/preview.mp4. Laporannya:
+
+{report}
+
+Tugas sekarang:
+1. Betulkan isu dalam "Top fixes" ikut keutamaan (impak paling besar dahulu), dan kecacatan lain yang jelas dalam laporan.
+   Jangan rosakkan apa yang sudah baik; jangan tambah fakta, harga atau dakwaan baru.
+2. Render semula ke ./out/preview.mp4 (lint/check dahulu).
+3. Jalankan `pl-frames out/preview.mp4` dan buka sheet.png, serta `pl-audio-check out/preview.mp4` — sahkan pembetulan
+   benar-benar kelihatan / terukur dan tiada kecacatan baharu.
+4. Ringkasan akhir dalam Bahasa Melayu untuk klien: arah video, apa yang diperbaiki, apa yang klien patut semak."""
+
+IMG_EXTS = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".svg", ".avif"}
+
+
+def _sheets(video: Path, out_dir: Path, dur: float, max_frames: int = 60) -> tuple:
+    """Time-stamped contact sheets (6x5 tiles) of a render, for the critic."""
+    from PIL import Image, ImageDraw, ImageFont
+    step = max(0.5, round(dur / max_frames, 2))
+    tmp = out_dir / "f"
+    tmp.mkdir(parents=True, exist_ok=True)
+    subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", str(video), "-vf", f"fps=1/{step},scale=216:-2", str(tmp / "%04d.png")],
+                   check=True, timeout=600)
+    frames = sorted(tmp.glob("*.png"))
+    try:
+        font = ImageFont.truetype("/usr/share/fonts/truetype/noto/NotoSans-Bold.ttf", 22)
+    except Exception:  # noqa: BLE001
+        try:
+            font = ImageFont.load_default(size=22)
+        except Exception:  # noqa: BLE001
+            font = ImageFont.load_default()
+    cols, rows, sheets = 6, 5, []
+    for s0 in range(0, len(frames), cols * rows):
+        chunk = frames[s0:s0 + cols * rows]
+        w, h = Image.open(chunk[0]).size
+        sheet = Image.new("RGB", (cols * w, ((len(chunk) + cols - 1) // cols) * h), "black")
+        d = ImageDraw.Draw(sheet)
+        for i, f in enumerate(chunk):
+            x, y = (i % cols) * w, (i // cols) * h
+            sheet.paste(Image.open(f).convert("RGB"), (x, y))
+            d.rectangle([x, y, x + 74, y + 30], fill="black")
+            d.text((x + 4, y + 2), f"{(s0 + i) * step:.1f}s", fill="yellow", font=font)
+        out = out_dir / f"sheet-{len(sheets) + 1}.jpg"
+        sheet.save(out, quality=88)
+        sheets.append(out)
+    shutil.rmtree(tmp, ignore_errors=True)
+    return sheets, step
+
+
+def _measure(video: Path) -> str:
+    """Measured facts about a render for the critic (pixels + audio, no opinions)."""
+    info = _probe(video)
+    dur = info["duration"]
+    lines = [f"duration {dur:.2f}s, {info['w']}x{info['h']}, audio stream: {'yes' if info['audio'] else 'NONE'}"]
+    r = subprocess.run(["ffmpeg", "-hide_banner", "-i", str(video), "-vf", "freezedetect=d=0.6", "-map", "0:v:0", "-f", "null", "-"],
+                       capture_output=True, text=True, timeout=900)
+    st = [float(x) for x in re.findall(r"freeze_start: ([\d.]+)", r.stderr)]
+    en = [float(x) for x in re.findall(r"freeze_end: ([\d.]+)", r.stderr)]
+    spans = [(a, en[i] if i < len(en) else dur) for i, a in enumerate(st)]
+    lines.append("frozen stretches (no visible change for >= 0.6 s): "
+                 + (", ".join(f"{a:.1f}-{b:.1f}s" for a, b in spans) or "none")
+                 + f" — total {sum(b - a for a, b in spans):.1f}s")
+    r = subprocess.run(["ffmpeg", "-hide_banner", "-i", str(video), "-vf", "select='gt(scene,0.3)',showinfo", "-an", "-f", "null", "-"],
+                       capture_output=True, text=True, timeout=900)
+    cuts = [float(x) for x in re.findall(r"pts_time:([\d.]+)", r.stderr)]
+    lines.append("big visual changes (cuts / transitions) at: " + (", ".join(f"{c:.2f}s" for c in cuts) or "none"))
+    if info["audio"]:
+        r = subprocess.run(["ffmpeg", "-hide_banner", "-i", str(video), "-af", "ebur128=peak=true", "-f", "null", "-"],
+                           capture_output=True, text=True, timeout=900)
+        tail = r.stderr[r.stderr.rfind("Summary:"):]
+        i = re.search(r"I:\s*(-?[\d.]+|-inf) LUFS", tail)
+        lra = re.search(r"LRA:\s*([\d.]+) LU", tail)
+        pk = re.search(r"Peak:\s*(-?[\d.]+|-inf) dBFS", tail)
+        lines.append(f"loudness: integrated {i.group(1) if i else '?'} LUFS, range {lra.group(1) if lra else '?'} LU, "
+                     f"true peak {pk.group(1) if pk else '?'} dBFS (mastered to -14 LUFS afterwards)")
+        r = subprocess.run(["pl-audio-check", str(video), "--step", "0.5"], capture_output=True, text=True, timeout=600)
+        lines += ["", "audio level timeline (pl-audio-check, 0.5 s steps):", (r.stdout or r.stderr)[-9000:]]
+    return "\n".join(lines)
+
+
+def _master(video: Path, out: Path) -> Path:
+    """Phone master: -14 LUFS integrated, true peak <= -1.5 dBTP (two-pass loudnorm); the video stream is copied.
+    Any problem -> the unmastered cut is delivered."""
+    try:
+        info = _probe(video)
+        if not info["audio"]:
+            return video
+        r = subprocess.run(["ffmpeg", "-hide_banner", "-i", str(video), "-af", "loudnorm=I=-14:TP=-1.5:LRA=11:print_format=json",
+                            "-f", "null", "-"], capture_output=True, text=True, timeout=900)
+        m = json.loads(r.stderr[r.stderr.rindex("{"):r.stderr.rindex("}") + 1])
+        if float(m["input_i"]) < -60:
+            return video  # (near) silent: nothing to master
+        af = (f"loudnorm=I=-14:TP=-1.5:LRA=11:measured_I={m['input_i']}:measured_TP={m['input_tp']}"
+              f":measured_LRA={m['input_lra']}:measured_thresh={m['input_thresh']}:offset={m['target_offset']}:linear=true")
+        r = subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", str(video), "-map", "0:v:0", "-map", "0:a:0", "-c:v", "copy",
+                            "-af", af, "-ar", "48000", "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart", str(out)],
+                           capture_output=True, text=True, timeout=900)
+        if r.returncode != 0 or not out.exists() or abs(_probe(out)["duration"] - info["duration"]) > 0.3:
+            print("master skipped:", (r.stderr or "")[-300:], flush=True)
+            return video
+        print(f"[master] {float(m['input_i']):.1f} LUFS -> -14 LUFS", flush=True)
+        return out
+    except Exception as e:  # noqa: BLE001
+        print("master failed:", e, flush=True)
+        return video
+
+
+def _verdict(report: str) -> str:
+    m = re.search(r"VERDICT:\s*\**\s*(SHIP|REVISE|ONE MORE PASS)", report or "", re.I)
+    return m.group(1).upper() if m else ""
+
+
 def _find_video(ws: Path, since: float) -> Path | None:
-    skip = {"bahan", "node_modules", ".claude-home", ".claude", "public"}
+    skip = {"bahan", "node_modules", ".claude-home", ".claude", "public", GAUNTLET_DIR}
     found = [p for p in ws.rglob("*.mp4") if not (set(p.relative_to(ws).parts[:-1]) & skip) and p.stat().st_mtime >= since - 1]
     if not found:
         return None
@@ -445,11 +810,20 @@ def run_vgc(payload: dict) -> dict:
     prompt = str(payload.get("prompt") or "").strip()
     if not prompt:
         return {"ok": False, "error": "empty prompt"}
-    ws = Path(WORK_ROOT) / hid
+    # the workspace: one per card (Custom Style steps share it); a Padat
+    # re-render gets a fresh one (ws_id) so nothing stale carries over
+    ws = Path(WORK_ROOT) / (re.sub(r"[^A-Za-z0-9_-]", "", str(payload.get("ws_id") or ""))[:80] or hid)
     home = ws / ".claude-home"
     (ws / "bahan").mkdir(parents=True, exist_ok=True)
     (ws / "out").mkdir(exist_ok=True)
-    bakeoff = payload.get("mode") == "bakeoff"
+    mode = str(payload.get("mode") or "vgc")
+    bakeoff = mode == "bakeoff"
+    if not bakeoff and Path(HF_SKILLS).exists():
+        # the HyperFrames skills for every PeningLab run (Custom Style + Default · Padat)
+        for sk in Path(HF_SKILLS).iterdir():
+            dst = ws / ".claude" / "skills" / sk.name
+            if sk.is_dir() and not dst.exists():
+                shutil.copytree(sk, dst)
     if bakeoff:
         # the technology under test: its own skill(s), set up by shell commands
         (ws / ".claude" / "skills").mkdir(parents=True, exist_ok=True)
@@ -459,6 +833,10 @@ def run_vgc(payload: dict) -> dict:
             for cmd in payload.get("setup") or []:
                 r = subprocess.run(cmd, shell=True, cwd=ws, env=setup_env, capture_output=True, text=True, timeout=900)
                 print(f"[setup] rc={r.returncode} {cmd[:120]} :: {(r.stdout + r.stderr)[-300:]}", flush=True)
+    elif mode in ("edit", "ad"):
+        # Default · Padat: PeningLab's own brief on HyperFrames (no VGC kit)
+        if not (ws / "CLAUDE.md").exists():
+            (ws / "CLAUDE.md").write_text(DEFAULT_RULES, encoding="utf-8")
     else:
         skill_src = Path(KIT_ROOT) / "vgc-master-knowledge"
         skill_dst = ws / ".claude" / "skills" / "vgc-master-knowledge"  # project skill: always loaded from the cwd
@@ -468,11 +846,20 @@ def run_vgc(payload: dict) -> dict:
             shutil.copytree(skill_src, skill_dst)
         if not (ws / "CLAUDE.md").exists():
             (ws / "CLAUDE.md").write_text(WORKSPACE_RULES, encoding="utf-8")
+    if mode == "edit":
+        _progress("normalise", 4)
+        try:
+            print("[footage]", _prepare_footage(ws, payload), flush=True)
+        except Exception as e:  # noqa: BLE001
+            return {"ok": False, "error": f"footage prep failed: {str(e)[:400]}"}
 
     _progress("download", 3)
+    # Default · Padat: the product photos in their own folder (the brief points there)
+    mat_dir = ws / "bahan" / "produk" if mode in ("edit", "ad") else ws / "bahan"
+    mat_dir.mkdir(parents=True, exist_ok=True)
     for i, m in enumerate(payload.get("materials") or []):
         name = _safe_name(str(m.get("name") or ""), i)
-        dest = ws / "bahan" / name
+        dest = mat_dir / name
         if dest.exists():
             continue
         if m.get("url"):
@@ -496,7 +883,8 @@ def run_vgc(payload: dict) -> dict:
     for k in list(env):
         if k.startswith(("B2_", "MOTION_", "MODAL_")):
             env.pop(k, None)
-    for name, body in (("pl-vo-track", PL_VO_TRACK), ("pl-audio-check", PL_AUDIO_CHECK), ("pl-frames", PL_FRAMES)):
+    for name, body in (("pl-vo-track", PL_VO_TRACK), ("pl-audio-check", PL_AUDIO_CHECK), ("pl-frames", PL_FRAMES),
+                       ("pl-music", PL_MUSIC)):
         tool = Path("/usr/local/bin") / name
         if not tool.exists():
             tool.write_text(body, encoding="utf-8")
@@ -508,13 +896,15 @@ def run_vgc(payload: dict) -> dict:
             tool.write_text(PL_TTS, encoding="utf-8")
             tool.chmod(0o755)
         env.update({"PL_TTS_URL": str(tts["url"]), "PL_TTS_TOKEN": str(tts["token"]), "PL_TTS_HID": str(payload.get("history_id") or "")})
-    def claude(text: str, session: str | None, budget: float) -> dict:
+    def claude(text: str, session: str | None, budget: float, cwd: Path | None = None, run_env: dict | None = None,
+               stage: str | None = None, turns: int | None = None) -> dict:
         """One `claude -p` invocation (optionally resuming); streams progress."""
         cmd = ["claude", "-p", text, "--output-format", "stream-json", "--verbose",
-               "--permission-mode", "bypassPermissions", "--max-turns", str(int(payload.get("max_turns") or MAX_TURNS)),
+               "--permission-mode", "bypassPermissions", "--max-turns", str(int(turns or payload.get("max_turns") or MAX_TURNS)),
                "--model", MODEL] + (["--resume", session] if session else [])
         began = time.time()
-        proc = subprocess.Popen(cmd, cwd=ws, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, errors="replace")
+        proc = subprocess.Popen(cmd, cwd=cwd or ws, env=run_env or env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                text=True, errors="replace")
         out = {"session_id": session, "result": None, "tail": []}
         try:
             for line in proc.stdout:
@@ -535,12 +925,12 @@ def run_vgc(payload: dict) -> dict:
                     for c in (ev.get("message") or {}).get("content") or []:
                         if c.get("type") == "tool_use":
                             state["tools"] += 1
-                            stage, p = _stage_of(c.get("name", ""), c.get("input") or {})
+                            st, p = _stage_of(c.get("name", ""), c.get("input") or {})
                             state["pct"] = max(state["pct"], p)
                             inp = c.get("input") or {}
                             last = f"{c.get('name')}: {str(inp.get('command') or inp.get('file_path') or '')[:120]}"
-                            print(f"[{int(time.time() - t0)}s] {last}", flush=True)
-                            _progress(stage, state["pct"], tools=state["tools"], last=last)
+                            print(f"[{int(time.time() - t0)}s]{' [' + stage + ']' if stage else ''} {last}", flush=True)
+                            _progress(stage or st, state["pct"], tools=state["tools"], last=last)
                         elif c.get("type") == "text" and c.get("text"):
                             print(f"[{int(time.time() - t0)}s] » {c['text'][:200]}", flush=True)
                 elif ev.get("type") == "result":
@@ -578,7 +968,87 @@ def run_vgc(payload: dict) -> dict:
         print(f"[runner] {why} — continuing the session", flush=True)
         runs.append(claude(BLANK_PROMPT if found else CONTINUE_PROMPT, last["session_id"], deadline - time.time()))
 
-    result = runs[-1]["result"] or {}
+    step = re.sub(r"[^A-Za-z0-9_-]", "", str(payload.get("step") or "v1"))[:20]
+    video = _find_video(ws, run_start) if expect_video else None
+    gdir = ws / GAUNTLET_DIR
+    ledger, keep = [], len(runs) - 1  # keep = the run whose cut is delivered (its summary describes it)
+
+    def critic(cut: Path, rnd: int, prev: str | None) -> str | None:
+        """A fresh Claude session that sees only the render, the brief and measurements."""
+        cdir = Path("/tmp/gauntlet") / f"{hid}-{step}-r{rnd}"
+        shutil.rmtree(cdir, ignore_errors=True)
+        (cdir / "bahan").mkdir(parents=True)
+        shutil.copy2(cut, cdir / "film.mp4")
+        (cdir / "BRIEF.md").write_text(str(payload.get("brief") or prompt), encoding="utf-8")
+        caps = False
+        for f in (ws / "bahan").rglob("*"):
+            if f.is_file() and (f.suffix.lower() in IMG_EXTS or f.name == "captions.json"):
+                shutil.copy2(f, cdir / "bahan" / f.name)
+                caps = caps or f.name == "captions.json"
+        dur = _probe(cut)["duration"]
+        _, every = _sheets(cut, cdir / "sheets", dur)
+        (cdir / "MEASURE.txt").write_text(_measure(cut), encoding="utf-8")
+        if prev:
+            (cdir / "previous-report.md").write_text(prev, encoding="utf-8")
+        text = CRITIC_PROMPT.format(dur=dur, step=every, caps=", the approved caption words captions.json" if caps else "",
+                                    prev=CRITIC_PREV if prev else "", fail="ONE MORE PASS" if prev else "REVISE",
+                                    nfix=3 if prev else 6)
+        cenv = {k: v for k, v in env.items() if not k.startswith("PL_TTS")}
+        cenv["CLAUDE_CONFIG_DIR"] = "/tmp/gauntlet-home"
+        out = claude(text, None, min(CRITIC_BUDGET, deadline - time.time() - FIX_MIN / 3), cwd=cdir, run_env=cenv,
+                     stage="critic", turns=60)
+        rp = cdir / "report.md"
+        report = rp.read_text(encoding="utf-8", errors="replace") if rp.exists() else str((out["result"] or {}).get("result") or "")
+        return report.strip() if _verdict(report) else None
+
+    critic_on = (video is not None and not bakeoff and payload.get("critic", True) is not False
+                 and runs[-1]["session_id"] and not _looks_blank(video))
+    if critic_on:
+        gdir.mkdir(exist_ok=True)
+        best = gdir / f"{step}-r0.mp4"
+        shutil.copy2(video, best)
+        prev = None
+        for rnd in range(1, CRITIC_ROUNDS + 1):
+            if deadline - time.time() < CRITIC_BUDGET + FIX_MIN:
+                print("[gauntlet] not enough time left for another round", flush=True)
+                break
+            state["pct"] = max(state["pct"], 80 + 6 * (rnd - 1))
+            _progress("critic", state["pct"], round=rnd)
+            try:
+                report = critic(best, rnd, prev)
+            except Exception as e:  # noqa: BLE001
+                print("[gauntlet] critic failed:", e, flush=True)
+                report = None
+            if not report:
+                break
+            verdict = _verdict(report)
+            (gdir / f"{step}-r{rnd}-report.md").write_text(report, encoding="utf-8")
+            ledger.append({"round": rnd, "verdict": verdict, "report": report[:2500]})
+            print(f"[gauntlet] round {rnd}: {verdict}", flush=True)
+            if verdict == "SHIP" or deadline - time.time() < FIX_MIN:
+                break
+            state["pct"] = max(state["pct"], 83 + 6 * (rnd - 1))
+            _progress("revise", state["pct"], round=rnd)
+            fix_start = time.time()
+            runs.append(claude(FIX_PROMPT.format(report=report), runs[-1]["session_id"], deadline - time.time() - 60))
+            new = _find_video(ws, fix_start)
+            if not new or _looks_blank(new) or _probe(new)["duration"] < 3:
+                # never trade a good cut for a broken one
+                print("[gauntlet] the fix round gave no usable video — keeping the previous cut", flush=True)
+                ledger[-1]["fix"] = "failed: kept the previous cut"
+                break
+            best = gdir / f"{step}-r{rnd}.mp4"
+            shutil.copy2(new, best)
+            keep = len(runs) - 1
+            ledger[-1]["fix"] = "re-rendered"
+            prev = report
+        video = best
+        try:
+            WORK.commit()
+        except Exception:  # noqa: BLE001
+            pass
+
+    result = runs[keep]["result"] or {}
     session_id = runs[-1]["session_id"]
     tail = runs[-1]["tail"]
     tools = state["tools"]
@@ -590,8 +1060,8 @@ def run_vgc(payload: dict) -> dict:
         "usage": result.get("usage"), "runs": len(runs),
         "run_sec": round(time.time() - run_start, 1), "summary": summary[:6000],
         "subtype": result.get("subtype"), "needs_input": summary.startswith("PERLU_INPUT") or "PERLU_INPUT:" in summary[:200],
+        "gauntlet": ledger,
     }
-    video = _find_video(ws, run_start)
     if video and _looks_blank(video):
         # never hand a client an empty video: fail the step (refunded) instead
         _progress("done", 100)
@@ -601,8 +1071,11 @@ def run_vgc(payload: dict) -> dict:
         _progress("done", 100)
         return {"ok": bool(summary), "url": None, "error": None if summary else err, **meta}
 
+    if not bakeoff:
+        _progress("master", 94)
+        gdir.mkdir(exist_ok=True)
+        video = _master(video, gdir / f"{step}-final.mp4")
     _progress("upload", 95)
-    step = re.sub(r"[^A-Za-z0-9_-]", "", str(payload.get("step") or "v1"))[:20]
     url = _upload_b2(video, f"users/{uid}/vgc/{hid}-{step}.mp4", "video/mp4")
     poster = None
     try:

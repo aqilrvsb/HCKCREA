@@ -135,18 +135,31 @@ const readDuration = (url: string) =>
   });
 
 const LOOK_KEY = "motion-look";
+const ENGINE_KEY = "motion-engine";
+type Engine = "laju" | "padat";
 
 export default function MotionTab({ projectId }: { projectId?: string }) {
   // Default = PeningLab's own Edit Video / Buat Iklan; Custom Style = the VGC
   // vault (Coach Am) at /vgc, generated directly (remembered per browser)
   const [look, setLookState] = useState<"default" | "custom">("default");
+  // Default engine: "Laju · Ringkas" (Remotion templates) or "Padat · Lambat"
+  // (Claude Code on HyperFrames + critic rounds) — remembered per browser too
+  const [engine, setEngineState] = useState<Engine>("laju");
   useEffect(() => {
-    try { if (localStorage.getItem(LOOK_KEY) === "custom") setLookState("custom"); } catch { /* private mode */ }
+    try {
+      if (localStorage.getItem(LOOK_KEY) === "custom") setLookState("custom");
+      if (localStorage.getItem(ENGINE_KEY) === "padat") setEngineState("padat");
+    } catch { /* private mode */ }
   }, []);
   const setLook = (v: "default" | "custom") => {
     setLookState(v);
     try { localStorage.setItem(LOOK_KEY, v); } catch { /* private mode */ }
   };
+  const setEngine = (v: Engine) => {
+    setEngineState(v);
+    try { localStorage.setItem(ENGINE_KEY, v); } catch { /* private mode */ }
+  };
+  const [padatMin, setPadatMin] = useState(0);
   const [mode, setMode] = useState<Mode>("edit");
   const [rate, setRate] = useState<number | null>(null);
 
@@ -211,17 +224,20 @@ export default function MotionTab({ projectId }: { projectId?: string }) {
   useEffect(() => {
     fetch("/api/motion/rate").then((r) => r.json()).then((d) => {
       setRate(Number(d?.rate) || 0);
+      setPadatMin(Number(d?.padat_min) || 0);
       const ok = d?.modes?.ad === true;
       setAdAllowed(ok);
       if (!ok) setMode("edit");
     }).catch(() => setRate(0));
   }, [projectId]);
 
-  const adCost = rate !== null ? Math.ceil(seconds + 2) * rate * variations : null;
+  // Padat: each video costs at least padatMin
+  const perVideo = (sec: number) => (rate === null ? 0 : engine === "padat" ? Math.max(sec * rate, padatMin) : sec * rate);
+  const adCost = rate !== null ? perVideo(Math.ceil(seconds + 2)) * variations : null;
   const toSend = videos.filter((v) => !v.sending);
   const sendingCount = videos.length - toSend.length;
   const editSec = toSend.reduce((s, v) => s + Math.ceil(Math.min(v.dur || 0, MAX_SEC)), 0);
-  const editCost = rate !== null && editSec > 0 ? editSec * rate : null;
+  const editCost = rate !== null && editSec > 0 ? toSend.reduce((s, v) => s + perVideo(Math.ceil(Math.min(v.dur || 0, MAX_SEC))), 0) : null;
 
   // ── images ──
   async function addImages(files: FileList | null, role: "product" | "presenter") {
@@ -329,7 +345,7 @@ export default function MotionTab({ projectId }: { projectId?: string }) {
         body: JSON.stringify({
           product, description, price, old_price: oldPrice, cta, handle, prompt: adPrompt, seconds, voice, language,
           captions, caption_style: captionStyle, music, sfx, accent: accent || undefined, images, project_id: projectId,
-          style, resolution, variations, guard,
+          style, resolution, variations, guard, engine,
         }),
       });
       const d = await r.json();
@@ -360,7 +376,7 @@ export default function MotionTab({ projectId }: { projectId?: string }) {
       language: editLang, prompt: editAuto ? undefined : editPrompt,
       product: productName, product_images: editImages, auto: editAuto,
       captions, caption_style: captionStyle, caption_pos: captionPos, music: editMusic, sfx,
-      accent: accent || undefined, project_id: projectId, style, resolution, jumpcut, broll, facts, guard,
+      accent: accent || undefined, project_id: projectId, style, resolution, jumpcut, broll, facts, guard, engine,
     };
     const keys = new Set(batch.map((v) => v.key));
     // pct null = waiting for an upload slot
@@ -397,7 +413,8 @@ export default function MotionTab({ projectId }: { projectId?: string }) {
     }));
     window.dispatchEvent(new CustomEvent("history:refresh"));
     if (failed.length) setError(failed.join(" · "));
-    else setNotice("📝 Skrip & caption sedang dijana. Bila kad History bertukar border kuning, tekan \"Semak skrip\", betulkan jika perlu, kemudian \"Jana Video\".");
+    else setNotice("📝 Skrip & caption sedang dijana. Bila kad History bertukar border kuning, tekan \"Semak skrip\", betulkan jika perlu, kemudian \"Jana Video\"."
+      + (settings.engine === "padat" ? " 💎 Padat: selepas Jana Video, AI bina & semak video ~20–40 minit." : ""));
   }
 
   const presets = mode === "ad" ? MOTION_AD_PRESETS : MOTION_EDIT_PRESETS;
@@ -458,6 +475,35 @@ export default function MotionTab({ projectId }: { projectId?: string }) {
             <Chip active={mode === "ad"} onClick={() => setMode("ad")}><Sparkles className="inline w-3.5 h-3.5 mr-1" />Buat Iklan</Chip>
           </div>
         )}
+
+        <div className="mb-5">
+          <label className={label}>Gaya penghasilan</label>
+          <div role="radiogroup" className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            {([
+              { key: "laju", title: "⚡ Laju · Ringkas", desc: "Template motion siap pakai — video siap dalam beberapa minit." },
+              {
+                key: "padat", title: "💎 Padat · Lambat",
+                desc: `AI bina motion graphics dari kosong (HyperFrames), disemak & dibaiki oleh AI pengkritik — ~20–40 minit setiap video${padatMin > 0 ? `, min RM${padatMin.toFixed(2)}` : ""}.`,
+              },
+            ] as const).map((o) => {
+              const on = engine === o.key;
+              return (
+                <button key={o.key} type="button" role="radio" aria-checked={on} onClick={() => setEngine(o.key)}
+                  className="text-left rounded-xl p-3 border transition-colors flex gap-2.5 items-start"
+                  style={{ borderColor: on ? THEME.primary : "var(--color-border)", background: on ? THEME.faint : "transparent" }}>
+                  <span className="mt-0.5 w-4 h-4 rounded-full border-2 flex items-center justify-center shrink-0"
+                    style={{ borderColor: on ? THEME.primary : "var(--color-text-muted)" }}>
+                    {on && <span className="w-2 h-2 rounded-full" style={{ background: THEME.primary }} />}
+                  </span>
+                  <span>
+                    <span className="block text-xs font-extrabold text-[var(--color-text-primary)]">{o.title}</span>
+                    <span className="block text-[11px] text-[var(--color-text-secondary)] leading-snug mt-0.5">{o.desc}</span>
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
 
         {mode === "edit" ? (
           <div className="space-y-4">
@@ -716,10 +762,10 @@ export default function MotionTab({ projectId }: { projectId?: string }) {
             {rate === null
               ? "…"
               : mode === "ad"
-                ? `Anggaran RM${(adCost ?? 0).toFixed(2)} (${variations} × ~${seconds + 2}s × RM${rate.toFixed(2)}/s). Caj ikut tempoh sebenar.`
+                ? `Anggaran RM${(adCost ?? 0).toFixed(2)} (${variations} × ~${seconds + 2}s × RM${rate.toFixed(2)}/s${engine === "padat" && padatMin > 0 ? `, min RM${padatMin.toFixed(2)} setiap iklan` : ""}). Caj ikut tempoh sebenar.`
                 : editCost !== null
-                  ? `Anggaran RM${editCost.toFixed(2)} (${editSec}s × RM${rate.toFixed(2)}/s). Caj ikut tempoh selepas potong senyap.`
-                  : `RM${rate.toFixed(2)} sesaat video`}
+                  ? `Anggaran RM${editCost.toFixed(2)} (${editSec}s × RM${rate.toFixed(2)}/s${engine === "padat" && padatMin > 0 ? `, min RM${padatMin.toFixed(2)} setiap video` : ""}). Caj ikut tempoh selepas potong senyap.`
+                  : `RM${rate.toFixed(2)} sesaat video${engine === "padat" && padatMin > 0 ? ` (Padat: min RM${padatMin.toFixed(2)} setiap video)` : ""}`}
           </span>
         </div>
       </div>

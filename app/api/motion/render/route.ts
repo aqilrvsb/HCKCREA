@@ -4,6 +4,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { MOTION_EDIT_MAX_SEC, motionStart, siteUrl, type EditInput } from "@/lib/motion";
 import { isTabAllowedForUser } from "@/lib/partner-tab-gate";
 import { styleEnergy } from "@/lib/motion-styles";
+import { startPadatEdit } from "@/lib/motion-padat";
 import { applyDraftEdits, type DraftEdits, type DraftPlan, type DraftWord } from "@/lib/motion-review";
 
 // POST /api/motion/render { id, edits } — step 2 of the Edit Video 2-step
@@ -93,37 +94,43 @@ export async function POST(req: Request) {
     .select("id");
   if (!flipped?.length) return NextResponse.json({ error: "Video ini sedang diproses." }, { status: 409 });
 
-  const start = await motionStart({
-    flow: "edit",
-    phase: "render",
-    history_id: id,
-    user_id: row.user_id,
-    draft: latest,
-    video_url: input.videoUrl,
-    plan_url: `${siteUrl()}/api/motion/plan`,
-    qa_url: `${siteUrl()}/api/motion/qa`,
-    guard_url: `${siteUrl()}/api/motion/guard`,
-    guard: !!input.guard,
-    plan_token: meta.plan_token,
-    style: styleEnergy(input.style),
-    look: input.style,
-    resolution: input.resolution,
-    jumpcut: input.jumpcut,
-    language: input.language,
-    hint: input.product?.slice(0, 120),
-    music: input.music,
-    sfx: input.sfx,
-    max_sec: MOTION_EDIT_MAX_SEC,
-    auto: !!input.auto,
-    captions: input.captions,
-    // a resubmitted job renders to its own file name ("-r1"…)
-    ...(typeof meta.out_suffix === "string" ? { out_suffix: meta.out_suffix } : {}),
-  });
+  // Padat: Claude Code builds it on HyperFrames from the reviewed cut + words
+  // (a resubmitted job renders to its own file name and a fresh workspace)
+  const suffix = typeof meta.out_suffix === "string" ? meta.out_suffix : "";
+  const padat = input.engine === "padat";
+  const start = padat
+    ? await startPadatEdit({ id, userId: row.user_id, input, draft: latest, step: suffix ? suffix.replace(/^-/, "") : "v1", ws: id + suffix })
+    : await motionStart({
+      flow: "edit",
+      phase: "render",
+      history_id: id,
+      user_id: row.user_id,
+      draft: latest,
+      video_url: input.videoUrl,
+      plan_url: `${siteUrl()}/api/motion/plan`,
+      qa_url: `${siteUrl()}/api/motion/qa`,
+      guard_url: `${siteUrl()}/api/motion/guard`,
+      guard: !!input.guard,
+      plan_token: meta.plan_token,
+      style: styleEnergy(input.style),
+      look: input.style,
+      resolution: input.resolution,
+      jumpcut: input.jumpcut,
+      language: input.language,
+      hint: input.product?.slice(0, 120),
+      music: input.music,
+      sfx: input.sfx,
+      max_sec: MOTION_EDIT_MAX_SEC,
+      auto: !!input.auto,
+      captions: input.captions,
+      // a resubmitted job renders to its own file name ("-r1"…)
+      ...(suffix ? { out_suffix: suffix } : {}),
+    });
   if (!start.ok) {
     await admin.from("history").update({ status: "review", metadata: meta }).eq("id", id);
     return NextResponse.json({ error: `Gagal mula render: ${start.error}` }, { status: 502 });
   }
   const { data: cur } = await admin.from("history").select("metadata").eq("id", id).maybeSingle();
-  await admin.from("history").update({ task_id: start.callId, metadata: { ...(cur?.metadata || {}), provider: "modal-motion" } }).eq("id", id);
+  await admin.from("history").update({ task_id: start.callId, metadata: { ...(cur?.metadata || {}), provider: padat ? "modal-vgc" : "modal-motion" } }).eq("id", id);
   return NextResponse.json({ ok: true });
 }
