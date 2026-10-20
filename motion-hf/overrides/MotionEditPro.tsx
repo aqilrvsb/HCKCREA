@@ -190,6 +190,14 @@ export const MotionEditPro: React.FC<ProProps> = (p) => {
       }
       // never sit on a finished scene: cut back to the speaker ~3.5 s after its last item lands (a card may hold 11 s, as in the reference)
       const items = [...(sc.lines ?? []), ...(sc.entries ?? []), ...(sc.stickers ?? []), ...(sc.bars ?? [])].map((x) => x.f);
+      if (sc.kind !== 'card') {
+        const head = !!(sc.heading || sc.title || sc.kicker);
+        // too thin to cut away for: the speaker carries it
+        if (items.length + (head ? 1 : 0) < 2) continue;
+        // no empty opening frame: without a heading the scene opens on its first item
+        const first = Math.min(...items);
+        if (!head && first - sc.s > fr(0.4)) sc.s = first - 3;
+      }
       const hold = sc.kind === 'card' ? sc.s + fr(11) : Math.max(sc.s, ...items) + fr(3.5);
       sc.e = Math.max(sc.s + fr(1.5), Math.min(sc.e, hold));
       (float ? floats : scenes).push(sc);

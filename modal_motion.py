@@ -600,32 +600,67 @@ def _render_hf(comp: str, props: dict, d: Path, out: Path, pct_from: int, pct_to
         calls += [hf_chunk.spawn(job, i) for i in range(n, count)]
         _progress("render", pct_from + 4)
         t = time.time()
-        got, stats = {}, []
-        for c in calls:
-            try:
-                res = c.get(timeout=900)
-            except Exception as e:  # noqa: BLE001
-                print("hf chunk failed:", str(e)[:300], flush=True)
-                continue
-            if res.get("skip"):
-                continue
-            got[res["idx"]] = res["data"]
-            inf = res.get("info") or {}
-            stats.append((res["idx"], res.get("waited"), res.get("sec"), res.get("copy"), inf.get("boot"), inf.get("capture"), inf.get("encode"), inf.get("ms")))
-            _progress("render", pct_from + 4 + (pct_to - pct_from - 8) * len(got) // max(1, count))
-        for attempt in range(2):  # up to two retries per chunk, the missing ones side by side
-            retry = [(i, hf_chunk.spawn(job, i)) for i in range(count) if i not in got]
-            if not retry:
+        # collect as chunks finish; a failed chunk is re-run at once (≤ 2 extra runs), and once most are in, a
+        # straggler running far past the median gets a twin — the first copy to finish wins (tail latency: one
+        # chunk on a slow host used to hold the whole render 60–80 s)
+        got, stats, runs, extra, hedged = {}, [], {}, {}, set()
+        for i, c in enumerate(calls):
+            if i < count:
+                runs.setdefault(i, []).append((c, time.time()))
+        sec_done = []
+        while len(got) < count and time.time() - t < 900:
+            for i in range(count):
+                if i in got:
+                    continue
+                for c, started in list(runs.get(i, [])):
+                    try:
+                        res = c.get(timeout=0)
+                    except (TimeoutError, modal.exception.TimeoutError):
+                        continue
+                    except Exception as e:  # noqa: BLE001
+                        runs[i].remove((c, started))
+                        print("hf chunk failed:", i, str(e)[:300], flush=True)
+                        if not runs[i] and extra.get(i, 0) < 2:
+                            extra[i] = extra.get(i, 0) + 1
+                            c2 = hf_chunk.spawn(job, i)
+                            calls.append(c2)
+                            runs[i].append((c2, time.time()))
+                        continue
+                    if res.get("skip"):
+                        continue
+                    got[i] = res["data"]
+                    sec_done.append(time.time() - started)
+                    inf = res.get("info") or {}
+                    stats.append((i, res.get("waited"), res.get("sec"), res.get("copy"), inf.get("boot"), inf.get("capture"), inf.get("encode"), inf.get("ms")))
+                    _progress("render", pct_from + 4 + (pct_to - pct_from - 8) * len(got) // max(1, count))
+                    break
+                if i not in got and not runs.get(i) and extra.get(i, 0) >= 2:
+                    raise RuntimeError(f"chunk {i} failed 3 times")
+            if len(got) >= count:
                 break
-            for i, c in retry:
-                try:
-                    got[i] = c.get(timeout=900)["data"]
-                except Exception as e:  # noqa: BLE001
-                    print("hf chunk retry failed:", attempt + 1, i, str(e)[:300], flush=True)
+            if len(got) >= max(1, int(count * 0.75)) and sec_done:
+                med = sorted(sec_done)[len(sec_done) // 2]
+                for i in range(count):
+                    if i in got or i in hedged or not runs.get(i):
+                        continue
+                    oldest = min(st for _, st in runs[i])
+                    if time.time() - oldest > max(20.0, 1.8 * med):
+                        hedged.add(i)
+                        c2 = hf_chunk.spawn(job, i)
+                        calls.append(c2)
+                        runs[i].append((c2, time.time()))
+                        print(f"hf chunk {i} hedged after {time.time() - oldest:.0f}s (median {med:.0f}s)", flush=True)
+            time.sleep(0.5)
+        for c in calls:  # the losing twins and any leftovers
+            try:
+                c.cancel()
+            except Exception:  # noqa: BLE001
+                pass
         missing = [i for i in range(count) if i not in got]
         if missing:
             raise RuntimeError(f"chunks missing: {missing}")
         T["chunks"] = round(time.time() - t, 1)
+        T["hedged"] = len(hedged)
         t = time.time()
         paths = []
         for i in range(count):
