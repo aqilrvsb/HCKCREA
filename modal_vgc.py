@@ -64,7 +64,7 @@ GAUNTLET_DIR = ".gauntlet"
 image = (
     modal.Image.debian_slim(python_version="3.11")
     .apt_install(
-        "ffmpeg", "curl", "ca-certificates", "gnupg", "git", "procps",
+        "ffmpeg", "curl", "ca-certificates", "gnupg", "git", "procps", "unzip",
         "fonts-noto-core", "fonts-noto-color-emoji",
         # Chrome Headless Shell runtime deps (Remotion docs, Debian)
         "libnss3", "libdbus-1-3", "libatk1.0-0", "libgbm-dev", "libasound2", "libxrandr2",
@@ -78,6 +78,8 @@ image = (
         # HyperFrames (Apache-2.0): the motion engine of Custom Style and Default · Padat.
         # Its puppeteer Chrome downloads here, into the image — never during a job.
         f"npm install -g hyperframes@{HF_VERSION} --no-audit --no-fund",
+        # its pinned Chrome Headless Shell, cached in the image (~/.cache/hyperframes) — no download per run
+        "hyperframes browser ensure",
         f"git clone --depth 1 --branch v{HF_VERSION} https://github.com/heygen-com/hyperframes /tmp/hf"
         " || git clone --depth 1 https://github.com/heygen-com/hyperframes /tmp/hf",
         f"mkdir -p {HF_SKILLS} && cp -r /tmp/hf/skills/* {HF_SKILLS}/ && rm -rf /tmp/hf && ls {HF_SKILLS}",
@@ -87,6 +89,7 @@ image = (
         f" && mkdir -p {MVK_DIR} && cp -r /tmp/mvk/business-motion-film/references /tmp/mvk/business-motion-film/scripts"
         f" /tmp/mvk/LICENSE {MVK_DIR}/ && rm -rf /tmp/mvk && ls {MVK_DIR}/references",
     )
+    .env({"HYPERFRAMES_NO_TELEMETRY": "1", "DO_NOT_TRACK": "1"})
     # procedural soundtrack / SFX by code (the VGC prompts ask for it)
     .pip_install("requests==2.31.0", "boto3==1.34.0", "fastapi[standard]==0.115.0", "numpy<2", "scipy==1.13.1", "pillow==10.4.0")
     .add_local_dir("vgc-template", TEMPLATE, copy=True, ignore=["node_modules", "out"])
@@ -145,6 +148,8 @@ ENGINE_RULES = """
 - Before rendering: `hyperframes lint` (fix every error AND every timeline warning) and `hyperframes check`.
 - Render with `hyperframes render` (use all 8 CPU cores where it allows), then put the MP4 at ./out/preview.mp4
   (1080x1920, 30 fps).
+- Its Chrome is pre-installed (never run `browser ensure`). Do not install whisper / Kokoro / MusicGen: the voice is
+  pl-tts, the music is pl-music, and the footage's words are already in ./bahan/captions.json when there is footage.
 - Only if HyperFrames truly cannot render after 2 real attempts: build it in Remotion instead (a ready project is at
   /opt/vgc-template: copy package.json, tsconfig.json, remotion.config.ts and src into ./video and symlink
   /opt/vgc-template/node_modules) and say so in the summary.
