@@ -532,7 +532,9 @@ def _hf_stills(props: dict, d: Path, comp: str, frames: list, out_dir: Path) -> 
     fps = props["fps"]
     proj = Path(tempfile.mkdtemp(prefix="hfqa_"))
     try:
-        _hf_project(props, d, comp, proj)
+        # stills need no sound: every <audio> element (SFX, music) makes the snapshot wait on it — an 83 s edit
+        # with ~55 SFX took minutes, the same page without audio seconds
+        _hf_project({**props, "sfx": False, "music": None}, d, comp, proj)
         snap = proj / "_snap"
         times = [f / fps for f in frames]
         r = subprocess.run(["hyperframes", "snapshot", "--at", ",".join(f"{t:.3f}" for t in times), "--no-end", "--timeout", "30000",

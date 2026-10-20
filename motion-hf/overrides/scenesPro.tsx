@@ -40,6 +40,7 @@ export type SideSize = 'sm' | 'md' | 'lg';
 export type PlacedSide = { s: number; e: number; words: { f: number; text: string; tone?: Tone; size?: SideSize }[]; align: 'left' | 'right' | 'center' };
 
 const TOP = 400; // the content block sits in the upper-middle of the frame, like a pro explainer
+const TOP_BUILD = 450; // builds grow downward from a little lower (≤ 6 lines end above the captions)
 
 export const toneColor = (t: Tone | undefined, look: Look, accent: string): string => {
   switch (t) {
@@ -97,7 +98,7 @@ const enterStyle = (d: number, kind: 'slam' | 'slide' = 'slam'): React.CSSProper
   return { transform: `scale(${1.7 - 0.7 * p})`, filter: p < 0.98 ? `blur(${(10 * (1 - p)).toFixed(1)}px)` : undefined, opacity: Math.min(1, 0.3 + p) };
 };
 
-const SIZE = { sm: 54, md: 100, lg: 142, xl: 210 };
+const SIZE = { sm: 64, md: 118, lg: 160, xl: 224 };
 
 const normWord = (w: string) => w.toLowerCase().replace(/[^\p{L}\p{N}]/gu, '');
 
@@ -136,7 +137,8 @@ const Line: React.FC<{ l: PlacedLine; frame: number; look: Look; accent: string;
   const face = look.display;
   const d = frame - l.f;
   const full = face.upper ? l.text.toUpperCase() : l.text;
-  const text = l.fx === 'count' && d >= 0 ? countText(full, d) : full;
+  const single = (full.match(/\d[\d.,]*/g) ?? []).length === 1;
+  const text = l.fx === 'count' && single && d >= 0 ? countText(full, d) : full;
   const base = SIZE[l.size ?? 'md'];
   const size = fitSize(text, base, W - 160, 1, face.charW, 30);
   const box = l.box && l.box !== 'none' ? l.box : null;
@@ -288,34 +290,34 @@ const Sticker: React.FC<{ st: PlacedSticker; frame: number; look: Look; accent: 
   const text = st.text.toUpperCase();
   if (st.kind === 'burst') {
     const color = st.tone === 'red' ? '#F2443F' : st.tone === 'yellow' ? '#FFD93B' : st.tone === 'green' ? '#3DDC97' : '#8EC9EE';
-    const size = 300;
+    const size = 340;
     return (
       <div style={{ position: 'relative', width: size, height: size, transform: `scale(${p}) rotate(${rot * 2}deg)` }}>
         <Burst size={size} color={color} />
         <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', textAlign: 'center', padding: 40 }}>
-          <span style={{ fontFamily: face.family, fontWeight: face.weight, fontSize: fitSize(text, 78, 250, 2, face.charW, 30), color: '#111', lineHeight: 1 }}>{text}</span>
-          {st.sub && <span style={{ fontFamily: face.family, fontSize: 24, color: '#111', marginTop: 6 }}>{st.sub.toUpperCase()}</span>}
+          <span style={{ fontFamily: face.family, fontWeight: face.weight, fontSize: fitSize(text, 88, 270, 2, face.charW, 32), color: '#111', lineHeight: 1 }}>{text}</span>
+          {st.sub && <span style={{ fontFamily: face.family, fontSize: 28, color: '#111', marginTop: 8 }}>{st.sub.toUpperCase()}</span>}
         </div>
       </div>
     );
   }
   if (st.kind === 'note') {
     return (
-      <div style={{ transform: `scale(${p}) rotate(${rot}deg)`, background: '#FFD93B', padding: '22px 30px', boxShadow: '8px 10px 0 rgba(0,0,0,0.28)',
-        fontFamily: "'Anton', 'Bebas Neue', sans-serif", fontSize: fitSize(text, 104, 440, 2, 0.48, 46), lineHeight: 1.04, color: '#111', maxWidth: 500 }}>{text}</div>
+      <div style={{ transform: `scale(${p}) rotate(${rot}deg)`, background: '#FFD93B', padding: '24px 34px', boxShadow: '8px 10px 0 rgba(0,0,0,0.28)',
+        fontFamily: "'Anton', 'Bebas Neue', sans-serif", fontSize: fitSize(text, 124, 500, 2, 0.48, 50), lineHeight: 1.04, color: '#111', maxWidth: 580 }}>{text}</div>
     );
   }
   if (st.kind === 'strip') {
     const bg = st.tone === 'red' ? '#F2443F' : st.tone === 'yellow' ? '#FFD93B' : st.tone === 'blue' ? '#4FB3FF' : '#7FD7A6';
     return (
       <div style={{ transform: `translateX(${(1 - p) * -300}px) rotate(${-1.5}deg)`, background: bg, border: '4px solid #111',
-        padding: '10px 28px', fontFamily: face.family, fontWeight: face.weight, fontSize: fitSize(text, 66, 900, 1, face.charW, 30), color: '#111' }}>{text}</div>
+        padding: '12px 30px', fontFamily: face.family, fontWeight: face.weight, fontSize: fitSize(text, 78, 900, 1, face.charW, 32), color: '#111' }}>{text}</div>
     );
   }
   // tag: black marker text on white tape
   return (
     <div style={{ transform: `scale(${p}) rotate(${rot}deg)`, background: '#fff', padding: '8px 24px',
-      boxShadow: '5px 6px 0 rgba(0,0,0,0.25)', fontFamily: face.family, fontWeight: face.weight, fontSize: fitSize(text, 72, 860, 1, face.charW, 30), color: toneColor(st.tone === 'white' || st.tone === 'yellow' ? 'black' : st.tone, look, accent) }}>{text}</div>
+      boxShadow: '5px 6px 0 rgba(0,0,0,0.25)', fontFamily: face.family, fontWeight: face.weight, fontSize: fitSize(text, 92, 860, 1, face.charW, 34), color: toneColor(st.tone === 'white' || st.tone === 'yellow' ? 'black' : st.tone, look, accent) }}>{text}</div>
   );
 };
 
@@ -330,7 +332,7 @@ export const ScenePro: React.FC<{ sc: PlacedScene; frame: number; look: Look; ac
     body = (
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }}>
         {sc.heading && (
-          <div style={{ fontFamily: face.family, fontWeight: face.weight, fontSize: fitSize(sc.heading.toUpperCase(), 50, W - 200, 1, face.charW, 26), color: ink, marginBottom: 10,
+          <div style={{ fontFamily: face.family, fontWeight: face.weight, fontSize: fitSize(sc.heading.toUpperCase(), 58, W - 200, 1, face.charW, 28), color: ink, marginBottom: 12,
             ...enterStyle(f, 'slide') }}>{sc.heading.toUpperCase()}</div>
         )}
         {(sc.lines ?? []).map((l, i) => <Line key={i} l={l} frame={frame} look={look} accent={accent} bg={sc.bg} />)}
@@ -382,7 +384,29 @@ export const ScenePro: React.FC<{ sc: PlacedScene; frame: number; look: Look; ac
     const sweep = interpolate(f, [14, 26], [0, 1], { ...clamp, easing: Easing.inOut(Easing.quad) });
     const heading = sc.heading && <div style={{ fontFamily: face.family, fontWeight: face.weight, fontSize: fitSize(sc.heading.toUpperCase(), 46, W - 200, 1, face.charW, 24), color: dark ? '#FFD93B' : '#111', ...enterStyle(f, 'slide') }}>{sc.heading.toUpperCase()}</div>;
     const lift = `translateY(${(1 - p) * 80}px) rotate(${-2 + (1 - p) * 4}deg) scale(${0.85 + 0.15 * p})`;
-    if (sc.style === 'article') {
+    if (!sc.image) {
+      const cap = sc.caption ?? sc.title ?? '';
+      const article = sc.style === 'article';
+      body = (
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 30 }}>
+          {heading}
+          <div style={{ position: 'relative', width: 900, background: '#fff', padding: '54px 56px 46px', borderRadius: 14, boxShadow: '0 30px 60px rgba(0,0,0,0.45)', transform: lift }}>
+            {article && <div style={{ position: 'absolute', top: 0, right: 0, width: 64, height: 64, borderTopRightRadius: 14, background: `linear-gradient(225deg, ${sc.bg === 'accent' ? accent : BG_COLOR[sc.bg]} 50%, #d4d4d4 50%)` }} />}
+            {!article && <div style={{ position: 'absolute', left: 36, top: -34, fontFamily: 'Georgia, serif', fontSize: 170, lineHeight: 1, color: look.hi === '#FFD93B' ? '#F2443F' : look.hi }}>“</div>}
+            <div style={{ fontFamily: article ? "'Inter', sans-serif" : face.family, fontWeight: article ? 800 : face.weight, color: '#141414', lineHeight: 1.16,
+              fontSize: article ? fitSize(cap, 76, 790, 4, 0.56, 40) : fitSize(face.upper ? cap.toUpperCase() : cap, 92, 790, 4, face.charW, 44) }}>
+              <Highlighted text={article || !face.upper ? cap : cap.toUpperCase()} words={sc.highlight} p={sweep} />
+            </div>
+            {(sc.source || sc.date) && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginTop: 24 }}>
+                {sc.source && <span style={{ fontFamily: "'Inter', sans-serif", fontWeight: 800, fontSize: 26, color: '#222', letterSpacing: 1 }}>{sc.source.toUpperCase()}</span>}
+                {sc.date && <span style={{ fontFamily: "'Inter', sans-serif", fontWeight: 700, fontSize: 24, color: '#888' }}>{sc.date}</span>}
+              </div>
+            )}
+          </div>
+        </div>
+      );
+    } else if (sc.style === 'article') {
       const cap = sc.caption ?? sc.title ?? '';
       body = (
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 26, marginTop: -40 }}>
@@ -420,7 +444,7 @@ export const ScenePro: React.FC<{ sc: PlacedScene; frame: number; look: Look; ac
   return (
     <AbsoluteFill style={sceneEnter(sc.enter, f)}>
       <SceneBg bg={sc.bg} f={f} accent={accent} />
-      <div style={{ position: 'absolute', left: 0, right: 0, top: TOP }}>{body}</div>
+      <div style={{ position: 'absolute', left: 0, right: 0, top: sc.kind === 'build' ? TOP_BUILD : TOP }}>{body}</div>
     </AbsoluteFill>
   );
 };
@@ -462,7 +486,7 @@ export const FloatCard: React.FC<{ sc: PlacedScene; frame: number; look: Look }>
 
 const SIDE_K: Record<SideSize, number> = { sm: 0.4, md: 0.68, lg: 1 };
 
-export const SideWords: React.FC<{ side: PlacedSide; frame: number; look: Look; accent: string }> = ({ side, frame, look, accent }) => {
+export const SideWords: React.FC<{ side: PlacedSide; frame: number; look: Look; accent: string; faceTop?: number }> = ({ side, frame, look, accent, faceTop = 700 }) => {
   const face = look.display;
   const out = interpolate(frame, [side.e - 5, side.e], [1, 0], clamp);
   const center = side.align === 'center';
@@ -470,14 +494,18 @@ export const SideWords: React.FC<{ side: PlacedSide; frame: number; look: Look; 
   // one base size for the stack; each word is a share of it, the widest one fits the band
   const base = Math.min(center ? 250 : 178, ...side.words.map((w) => Math.floor(maxW / (Math.max(3, w.text.length) * face.charW * SIDE_K[w.size ?? 'lg']))));
   const origin = center ? 'center center' : side.align === 'left' ? 'left center' : 'right center';
+  const sizeOf = (w: PlacedSide['words'][number]) => Math.max(52, base * SIDE_K[w.size ?? 'lg']);
+  // the stack ends just above the head (a centred word may sit on the hair line), never under the TikTok tabs
+  const stackH = side.words.reduce((h, w) => h + sizeOf(w) * 0.98, 0);
+  const top = Math.max(250, Math.round(faceTop + (center ? 30 : 24) - stackH));
   return (
-    <div style={{ position: 'absolute', top: center ? 250 : 280, ...(center ? { left: 0, right: 0 } : { [side.align]: 64 }), display: 'flex', flexDirection: 'column',
+    <div style={{ position: 'absolute', top, ...(center ? { left: 0, right: 0 } : { [side.align]: 64 }), display: 'flex', flexDirection: 'column',
       alignItems: center ? 'center' : side.align === 'left' ? 'flex-start' : 'flex-end', opacity: out } as React.CSSProperties}>
       {side.words.map((w, i) => {
         const tone = w.tone ?? (center ? 'white' : i === side.words.length - 1 && side.words.length > 1 ? 'yellow' : 'white');
         // a big centred white word reads as embossed metal (gradient face, hard shadow); the rest are flat colour
         const gloss = center && tone === 'white';
-        const size = base * SIDE_K[w.size ?? 'lg'];
+        const size = sizeOf(w);
         return (
           <span key={i} style={{ fontFamily: face.family, fontWeight: face.weight, fontSize: size, lineHeight: 0.98, letterSpacing: face.track,
             ...(gloss

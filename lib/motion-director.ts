@@ -244,11 +244,15 @@ const PRO_FEEL: Record<string, Record<string, string>> = {
   end_card: { pill: "big pressing button", badge: "round bag badge + label", banner: "diagonal banner", none: "no end card — the speaker says the CTA, side words may carry it (the explainer ending)" },
   progress: { bar: "thin top bar", thick: "rounded glowing bar", dots: "segmented dots", none: "no bar" },
 };
-const shortlist = (key: string, n: number) => shuffle(Object.keys(PRO_FEEL[key])).slice(0, n).map((k) => `"${k}" (${PRO_FEEL[key][k]})`).join(" | ");
+/** n options drawn at random; `keep` is always among them (the reference-level choice stays on the menu). */
+const shortlist = (key: string, n: number, keep?: string) => {
+  const rest = shuffle(Object.keys(PRO_FEEL[key]).filter((k) => k !== keep)).slice(0, keep ? n - 1 : n);
+  return shuffle(keep ? [keep, ...rest] : rest).map((k) => `"${k}" (${PRO_FEEL[key][k]})`).join(" | ");
+};
 
 export const PRO_DIRECTION = (recent: string[]) => `PRO FINISH — you are also the MASTER DIRECTING EDITOR of this video's finish. The render engine (HyperFrames) gives you the craft below; nothing is preset. Decide the treatment that serves THIS footage, speaker, product and angle — the way a top human TikTok editor would — and return it in "direction". This generation's options were drawn at random (another generation of the same video gets different ones on purpose): choose the best of them for this footage.
 "direction": {
-  "hook_style": ${shortlist("hook_style", 3)},
+  "hook_style": ${shortlist("hook_style", 3, "headline")},
   "font": face of the hook and end card — ${shortlist("font", 3)},
   "caption_font": face of the captions — ${shortlist("font", 3)},
   "caption_fx": ${shortlist("caption_fx", 2)},
@@ -258,7 +262,7 @@ export const PRO_DIRECTION = (recent: string[]) => `PRO FINISH — you are also 
   "camera": virtual camera feel on the speaker — ${shortlist("camera", 2)},
   "transitions": one per B-roll cutaway, in order, from — ${shortlist("transition", 4)},
   "break_fx": light at section breaks — ${shortlist("break_fx", 2)},
-  "end_card": ${shortlist("end_card", 2)},
+  "end_card": ${shortlist("end_card", 2, "none")},
   "progress": ${shortlist("progress", 2)},
   "second": "#RRGGBB" (a second colour that pairs with the accent),
   "moves": [{"at": CUE, "move": "crash" | "punch" | "whip" | "shake" | "bump", "power"?: 0.6–1.4}] — signature camera moves on the words that earn them (e.g. a crash zoom on the reveal, a punch-in on the price, a whip at a topic turn, a shake on a shock line); a few per video, at least 2 s apart, none in the last 3 s,
@@ -280,7 +284,12 @@ export const PRO_DIRECTION = (recent: string[]) => `PRO FINISH — you are also 
   "side": [{"at": CUE, "to"?: CUE, "align": "left" | "right" | "center", "words": [{"at": CUE, "text": ≤12, "tone"?: TONE, "size"?: "sm" | "md" | "lg"}] (1–3, stacked)}] — big words beside the speaker's head on the line that deserves them; mix sizes like an editor ("KEPUTUSAN" sm → "RHB" lg → "SENDIRI" md yellow), or "center" for ONE huge embossed word over the head on a punchline ("PALSU").
 Every scene / side word shows ONLY words, numbers and facts the speaker actually says — short, punchy, in their language.
 THE REFERENCE LEVEL (a top Malaysian news-explainer TikTok, the bar to reach when the content allows): a calm "headline" hook title with a float card of the source (badge "VIRAL") under it; the speaker states each point while side words land on the strongest words; every point then cuts (hard cut) to its own scene, numbered "1. … / 2. … / 3. …": a dark build whose lines slam in word by word ("TAKDE CHARGE" green → "BAYAR RM100" → "TOLAK RM100 JE" on a yellow box), a red stat build ("NAMA DIA" → "MDR" xl → "0.35%" count, yellow → "0.6%" → "KAD KREDIT" on a black box), a cork / paper collage (tag heading "CONTOHNYA", yellow note, starburst price, red strip), an article card of the news with its key words highlighted, a timeline of dates (green / red / yellow dots), a compare of two numbers; between scenes the speaker with side words; a closing question build right before the CTA ("JADI KORANG RASA…?" → "KOMEN KAT BAWAH" on a yellow box); "captions": "subtle", "fx": "light", no end card or a quiet one. For a selling / product video the same kit tells the product story (a stat build of the result, a compare of before → after or price vs value, a card of the product, a collage of variants / uses, a timeline of the routine) — still built from what is said.
-HOW A TOP EXPLAINER EDITOR BUILDS THIS VIDEO (judgement, not a quota): the scenes are your main storytelling tool, not an extra. Whenever the speaker explains, teaches, lists, compares, gives steps, places, prices or numbers, cut to a scene that builds that point on screen as it is said — for a typical 30–60 s talking video that is about 4–8 scenes covering roughly 40–60 % of the runtime, each a different kind / background where it fits (a numbered "1. / 2." build, a stat build, a collage of options, a timeline of steps, a closing question before the CTA). Between scenes the speaker carries the moment with side words on the strongest lines and a few stickers. Choose "captions": "subtle" when the scenes carry the message. Only a purely emotional story or a one-line video gets few or no scenes.
+HOW A TOP EXPLAINER EDITOR BUILDS THIS VIDEO — this is the default bar for every talking video; step away from it only when the footage clearly calls for something else (a purely emotional story, a one-line clip, a product demo that must stay on the hands):
+- The scenes are the main storytelling tool, not an extra. Whenever the speaker explains, teaches, lists, compares, gives steps, places, prices or numbers, cut to a scene that builds that point on screen as it is said — about 50–65 % of the runtime in scenes (the reference sits near 60 %), typically 4–8 scenes in 30–60 s, each a different kind / background (numbered "1. / 2." builds, a stat build, a collage of options, an article / polaroid card of the product or source, a timeline of steps, a compare of two numbers or choices, a closing question before the CTA).
+- Every scene keeps building like the reference: a new line / entry / sticker lands on its word every 1–2 spoken seconds, 3–7 of them per scene, filling the frame's upper two-thirds; never leave a scene sitting on one or two lines for more than ~2.5 s — add the next spoken phrase as a line, or end the scene and cut back to the speaker. Lines are short spoken phrases (1–4 words), mixed sizes (a small lead-in, then the big word, then what it means), colour and boxes for the key one.
+- While the speaker is on screen between scenes, side words land on the strongest line almost every time (small lead-in + big word, or one huge centred word on a punchline), with few stickers — never a sticker and side words at the same moment.
+- Open with the hook title and, when there is a product / source picture, a float card with a badge under it; keep the speaker on screen for the hook, any moment they show the product to camera, emotional lines and the CTA.
+- Subtle captions and fx "light" are the reference look (the scenes carry the message); end on a closing question scene and the spoken CTA (no end card, or a quiet one).
 Craft notes (judgement, not rules): one main transition usually carries most cutaways with one or two accents; full-screen hits (shake, flash, crash) land hardest when rare; captions and stickers must stay readable over the grade; every choice must suit the product, the speaker's energy and the angle.
 VARIETY — TikTok pushes down near-identical videos. ${recent.length ? `This client's recent edits used: ${recent.join(" | ")}. Give this one a clearly different combination (at least a different hook style, font, grade and end card).` : "Give this edit a combination of its own."}`;
 

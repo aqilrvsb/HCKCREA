@@ -477,7 +477,8 @@ export const MotionEditPro: React.FC<ProProps> = (p) => {
         <BRollPipLayer items={plan.broll} />
         <SlotStack placed={plan.placed} slots={plan.slots} ink="#ffffff" accent={accent} style={style} lottie={p.lottie} />
         {gempak && <BreakFxLayer at={plan.breaks} kind={look.breakFx} />}
-        {plan.sides.map((sd, i) => (frame >= sd.s && frame < sd.e ? <SideWords key={`sd${i}`} side={sd} frame={frame} look={look} accent={accent} /> : null))}
+        {plan.sides.map((sd, i) => (frame >= sd.s && frame < sd.e
+          ? <SideWords key={`sd${i}`} side={sd} frame={frame} look={look} accent={accent} faceTop={(faceAt(p.faces, sd.s / fps)?.y ?? 0.36) * 1920} /> : null))}
         {plan.floats.map((fc, i) => (frame >= fc.s && frame < fc.e ? <FloatCard key={`fc${i}`} sc={fc} frame={frame} look={look} /> : null))}
         {plan.scenes.map((sc, i) => (frame >= sc.s && frame < sc.e ? <ScenePro key={`sc${i}`} sc={sc} frame={frame} look={look} accent={accent} /> : null))}
 
