@@ -62,6 +62,15 @@ export type EditPlanV2 = {
   hookSound?: number;
   /** "<provider>/<model>" of the cascade slot that wrote this plan. */
   director?: string;
+  /** HyperFrames (Laju v2 Pro) craft choices: hook / caption / font / grade / camera / transitions / end card /
+   *  signature camera moves — see PRO_DIRECTION and motion-hf/overrides/look.ts. */
+  direction?: ProDirection;
+};
+
+export type ProDirection = {
+  hook_style?: string; font?: string; caption_font?: string; caption_fx?: string; marker?: boolean; emoji?: "above" | "beside";
+  grade?: string; grain?: boolean; camera?: string; transitions?: string[]; break_fx?: string; end_card?: string; progress?: string;
+  second?: string; moves?: { at: Cue; move: string; power?: number }[];
 };
 
 // ── AI Auto ──────────────────────────────────────────────────────────────────
@@ -193,6 +202,77 @@ HOOK SOUNDS — pick one (index = sound — suits):
 ${sounds}`;
 }
 
+// ── PRO direction (Laju v2 on HyperFrames) ───────────────────────────────────
+// The render engine offers the craft; the director decides how THIS video uses
+// it. Each option is described by its feel, never assigned to a content type
+// as a rule — the model weighs footage, speaker, product and angle itself.
+const PRO_SETS = {
+  hook_style: ["slam", "rise", "blocks", "marker", "stack"],
+  font: ["montserrat", "archivo", "anton", "bebas", "poppins", "inter"],
+  caption_fx: ["pop", "color", "box", "underline"],
+  grade: ["warm", "punchy", "clean", "cool", "matte", "vivid"],
+  camera: ["calm", "handheld", "energetic"],
+  transition: ["whip", "zoom", "push", "flash", "glitch", "iris"],
+  break_fx: ["sweep", "leak", "burn"],
+  end_card: ["pill", "badge", "banner"],
+  progress: ["bar", "thick", "dots", "none"],
+  move: ["crash", "punch", "whip", "shake", "bump"],
+} as const;
+
+export const PRO_DIRECTION = (recent: string[]) => `PRO FINISH — you are also the MASTER DIRECTING EDITOR of this video's finish. The render engine (HyperFrames) gives you the full craft below; nothing is preset. Decide the treatment that serves THIS footage, speaker, product and angle — the way a top human TikTok editor would — and return it in "direction":
+"direction": {
+  "hook_style": "slam" (each word slams in with a blur, punchy) | "rise" (words rise blur-to-sharp, smooth) | "blocks" (each line on a colour block, bold / editorial) | "marker" (the line lands, a highlighter sweeps the key word and an underline draws — explainer feel) | "stack" (one big word per line, poster feel; hook ≤ 4 words),
+  "font": face of the hook and end card — "montserrat" | "archivo" | "anton" | "bebas" | "poppins" | "inter",
+  "caption_font": face of the captions (same set — condensed anton / bebas read tall and loud, poppins / montserrat friendly and round, inter clean, archivo heavy),
+  "caption_fx": how the spoken word lights up — "pop" (scales up) | "color" (turns the accent) | "box" (accent box behind it) | "underline" (accent bar under it),
+  "marker": true | false (coloured keywords get a highlighter sweep), "emoji": "above" | "beside" (where a keyword's emoji pops),
+  "grade": colour grade of the footage — "warm" | "punchy" | "clean" | "cool" | "matte" | "vivid",
+  "grain": true | false (fine film grain for texture),
+  "camera": virtual camera feel on the speaker — "calm" | "handheld" | "energetic",
+  "transitions": one per B-roll cutaway, in order — "whip" | "zoom" (zoom-through) | "push" | "flash" | "glitch" (RGB split) | "iris",
+  "break_fx": light at section breaks — "sweep" | "leak" (soft light leak) | "burn" (film burn),
+  "end_card": "pill" (big button) | "badge" (round bag badge + label) | "banner" (diagonal banner),
+  "progress": "bar" | "thick" | "dots" | "none",
+  "second": "#RRGGBB" (a second colour that pairs with the accent),
+  "moves": [{"at": CUE, "move": "crash" | "punch" | "whip" | "shake" | "bump", "power"?: 0.6–1.4}] — signature camera moves on the words that earn them (e.g. a crash zoom on the reveal, a punch-in on the price, a whip at a topic turn, a shake on a shock line); a few per video, at least 2 s apart, none in the last 3 s.
+}
+Craft notes (judgement, not rules): one main transition usually carries most cutaways with one or two accents; full-screen hits (shake, flash, crash) land hardest when rare; captions and stickers must stay readable over the grade; every choice must suit the product, the speaker's energy and the angle.
+VARIETY — TikTok pushes down near-identical videos. ${recent.length ? `This client's recent edits used: ${recent.join(" | ")}. Give this one a clearly different combination (at least a different hook style, font, grade and end card).` : "Give this edit a combination of its own."}`;
+
+function cleanDirection(d: any, nWords: number, duration: number): ProDirection | undefined {
+  if (!d || typeof d !== "object") return undefined;
+  const pick = (v: unknown, set: readonly string[]) => (typeof v === "string" && set.includes(v.trim().toLowerCase()) ? v.trim().toLowerCase() : undefined);
+  const out: ProDirection = {
+    hook_style: pick(d.hook_style, PRO_SETS.hook_style),
+    font: pick(d.font, PRO_SETS.font),
+    caption_font: pick(d.caption_font, PRO_SETS.font),
+    caption_fx: pick(d.caption_fx, PRO_SETS.caption_fx),
+    ...(typeof d.marker === "boolean" ? { marker: d.marker } : {}),
+    ...(d.emoji === "above" || d.emoji === "beside" ? { emoji: d.emoji } : {}),
+    grade: pick(d.grade, PRO_SETS.grade),
+    ...(typeof d.grain === "boolean" ? { grain: d.grain } : {}),
+    camera: pick(d.camera, PRO_SETS.camera),
+    transitions: Array.isArray(d.transitions) ? d.transitions.map((t: unknown) => pick(t, PRO_SETS.transition)).filter(Boolean).slice(0, 16) as string[] : undefined,
+    break_fx: pick(d.break_fx, PRO_SETS.break_fx),
+    end_card: pick(d.end_card, PRO_SETS.end_card),
+    progress: pick(d.progress, PRO_SETS.progress),
+    ...(typeof d.second === "string" && /^#[0-9a-f]{6}$/i.test(d.second) ? { second: d.second } : {}),
+    moves: Array.isArray(d.moves) ? d.moves.map((m: any) => {
+      const at = cueIn(m?.at, nWords, duration);
+      const move = pick(m?.move, PRO_SETS.move);
+      if (at === undefined || !move) return null;
+      const power = Number(m?.power);
+      return { at, move, ...(Number.isFinite(power) ? { power: Math.min(1.4, Math.max(0.6, power)) } : {}) };
+    }).filter(Boolean).slice(0, 10) as ProDirection["moves"] : undefined,
+  };
+  for (const k of Object.keys(out) as (keyof ProDirection)[]) if (out[k] === undefined || (Array.isArray(out[k]) && !(out[k] as unknown[]).length)) delete out[k];
+  return Object.keys(out).length ? out : undefined;
+}
+
+/** One line per earlier edit (for the VARIETY note). */
+export const directionSummary = (d: ProDirection | undefined | null): string | null =>
+  d ? [d.hook_style, d.font, d.grade, d.end_card, d.caption_fx, d.camera].filter(Boolean).join("/") || null : null;
+
 const HEX = /^#[0-9a-f]{6}$/i;
 const EDIT_CUE = /^w\d{1,4}(?:\$)?(?:[+-]\d{0,2}(?:\.\d+)?)?$/i;
 const KEY_COLORS = new Set(["benefit", "price", "pain", "brand", "accent"]);
@@ -263,8 +343,13 @@ export async function directEdit(opts: {
   duration: number;
   input: EditInput;
   hasFace?: boolean;
+  /** Rendered on HyperFrames: the director also decides the PRO finish ("direction"). */
+  pro?: boolean;
+  /** The client's recent PRO finishes (directionSummary), so this one differs. */
+  recent?: string[];
 }): Promise<EditPlanV2> {
   const { words, duration, input } = opts;
+  const pro = !!opts.pro;
   const auto = !!input.auto;
   const brief = auto ? autoBrief() : undefined;
   // The seller's own product photos (uploaded with the video): product shots
@@ -295,10 +380,10 @@ export async function directEdit(opts: {
   for (let attempt = 0; attempt < 2 && !raw; attempt++) {
     const r = await orChat({
       modelKey: "model_motion",
-      systemPrompt: DIRECTOR_SYSTEM(style, !!input.guard, brief),
+      systemPrompt: DIRECTOR_SYSTEM(style, !!input.guard, brief) + (pro ? `\n\n${PRO_DIRECTION(opts.recent ?? [])}\nInclude "direction" in the JSON object.` : ""),
       userPrompt: attempt === 0 ? userPrompt : `${userPrompt}\n\nYour previous answer was not valid JSON (${lastErr}). Return ONLY the JSON object.`,
       temperature: auto ? 0.9 : 0.7, // AI Auto: fresher ideas from video to video
-      maxTokens: 7000,
+      maxTokens: pro ? 8000 : 7000,
       // GRSAI latency swings (same prompt: 25 s on a flash model, 72 … 200 s on
       // the GPT ones). No answer in 40 s → the next model races alongside; the
       // first USABLE plan wins (a truncated / non-JSON answer keeps the race
@@ -317,6 +402,10 @@ export async function directEdit(opts: {
   if (!raw) throw new Error(`Director failed: ${lastErr}`);
 
   const plan = validateDirectorPlan(raw, words.length, duration, input, lookOf(raw), auto);
+  if (pro) {
+    const direction = cleanDirection(raw?.direction, words.length, duration);
+    if (direction) plan.direction = direction;
+  }
   const guard = !!input.guard;
   if (guard) await guardEditPlan(plan, words, input).catch(() => undefined);
 

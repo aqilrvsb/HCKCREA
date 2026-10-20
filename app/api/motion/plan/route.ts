@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { tokenMatches, type EditInput } from "@/lib/motion";
-import { directEdit } from "@/lib/motion-director";
+import { directEdit, directionSummary, type ProDirection } from "@/lib/motion-director";
+import { getSetting } from "@/lib/settings";
 import { fixTranscript } from "@/lib/motion-captions";
 import { withDeadline } from "@/lib/openrouter";
 
@@ -28,7 +29,7 @@ export async function POST(req: Request) {
   if (!id || !token) return NextResponse.json({ ok: false, error: "history_id + token required" }, { status: 400 });
 
   const admin = createAdminClient();
-  const { data: row } = await admin.from("history").select("id, tab, status, metadata").eq("id", id).maybeSingle();
+  const { data: row } = await admin.from("history").select("id, user_id, tab, status, metadata").eq("id", id).maybeSingle();
   if (!row || row.tab !== "motion" || !tokenMatches(token, row.metadata?.plan_token)) {
     return NextResponse.json({ ok: false, error: "forbidden" }, { status: 403 });
   }
@@ -63,8 +64,18 @@ export async function POST(req: Request) {
       fixing = withDeadline(t0 + PLAN_BUDGET_MS, () =>
         fixTranscript(words.map((w: any) => ({ i: w.i, w: w.w })), context, input?.language)).catch(() => [] as [number, string][]);
     }
+    // Rendered on HyperFrames (the admin switch, or a job that asked for it): the director also
+    // decides the PRO finish, told what this client's last edits looked like so this one differs
+    const rendererSetting = await getSetting<{ renderer?: string }>("motion_renderer").catch(() => null);
+    const pro = b?.renderer === "hyperframes" || row.metadata?.renderer === "hyperframes" || rendererSetting?.renderer === "hyperframes";
+    let recent: string[] = [];
+    if (pro && row.user_id) {
+      const { data: past } = await admin.from("history").select("metadata->plan->direction")
+        .eq("user_id", row.user_id).eq("tab", "motion").neq("id", id).order("created_at", { ascending: false }).limit(12);
+      recent = (past ?? []).map((r: any) => directionSummary(r?.direction as ProDirection)).filter((x): x is string => !!x).slice(0, 5);
+    }
     const [plan, fixes] = await withDeadline(t0 + PLAN_BUDGET_MS, () => Promise.all([
-      directEdit({ words, duration, input, hasFace: b?.has_face !== false }),
+      directEdit({ words, duration, input, hasFace: b?.has_face !== false, pro, recent }),
       fixing,
     ]));
     const { data: cur } = await admin.from("history").select("metadata").eq("id", id).maybeSingle();
@@ -86,6 +97,7 @@ export async function POST(req: Request) {
             caption_fixes: (mode === "plan" ? cur?.metadata?.caption_fixes ?? [] : fixes).slice(0, 40),
             uploads: input?.productImages?.length ?? 0,
             director: plan.director ?? null, // which provider/model wrote the plan
+            ...(plan.direction ? { direction: plan.direction } : {}), // the PRO finish it chose (HyperFrames)
             // AI Auto: what the director chose for this video (admin monitor)
             ...(plan.look ? {
               look: plan.look, angle: plan.angle ?? null, hook_sound: plan.hookSound ?? null, music: plan.music ?? null,

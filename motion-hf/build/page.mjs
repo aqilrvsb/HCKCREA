@@ -28,6 +28,11 @@ const FONT_RULES = [
   ".hf-f6{font-family:'Inter',sans-serif;font-weight:900}",
   ".hf-f7{font-family:'Montserrat',sans-serif;font-weight:800}",
   ".hf-f8{font-family:'Montserrat',sans-serif;font-weight:900}",
+  // the Pro looks' extra display faces (OFL)
+  ".hf-f9{font-family:'Anton',sans-serif}",
+  ".hf-f10{font-family:'Bebas Neue',sans-serif}",
+  ".hf-f11{font-family:'Poppins',sans-serif;font-weight:800}",
+  ".hf-f12{font-family:'Poppins',sans-serif;font-weight:900}",
 ].join("\n");
 
 export function writePage({ outDir, composition, props, fps = 30, durationInFrames, media = [], runtime = "runtime.js" }) {

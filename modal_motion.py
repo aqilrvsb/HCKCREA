@@ -331,6 +331,7 @@ def _node_render(comp: str, props_path: Path, out: Path, extra: list, scale: flo
 
 
 LOUDNORM = "loudnorm=I=-14:TP=-1.5:LRA=11"  # TikTok / Reels loudness target
+MUSIC_BPM = {"chill": 88, "upbeat": 100, "hype": 116}  # the tempos motion/scripts/music.mjs plays
 
 
 def _loudnorm_inplace(out: Path) -> None:
@@ -536,6 +537,16 @@ def _render_hf(comp: str, props: dict, d: Path, out: Path, pct_from: int, pct_to
             if src.is_file():
                 shutil.copy2(src, proj / name)
         (proj / "props.json").write_text(blob, encoding="utf-8")
+        music = _LOCAL_URL.search(str(props.get("music") or ""))
+        if music and (proj / music.group(1)).is_file():
+            bed, tmp_bed = proj / music.group(1), proj / ("faded_" + music.group(1))
+            dur_s = total / 30.0
+            try:
+                _run(["ffmpeg", "-v", "error", "-y", "-i", str(bed), "-af",
+                      f"afade=t=in:d=0.8,afade=t=out:st={max(0.0, dur_s - 1.7):.2f}:d=1.7", str(tmp_bed)], "music fade", 120)
+                tmp_bed.replace(bed)
+            except Exception as e:  # noqa: BLE001
+                print("music fade skipped:", str(e)[:160])
         page = _hf_node([f"{HF_DIR}/build/laju-page.mjs", str(proj), comp, f"{MOTION_DIR}/public"], "page", 300)
         T["page"] = round(time.time() - t0, 1)
         t = time.time()
@@ -1858,7 +1869,7 @@ def _edit_direct(p: dict, d: Path, srv: _Serve, st: dict) -> dict:
         # the director only plans, no second round of fixes
         r = requests.post(p["plan_url"], json={"history_id": p["history_id"], "token": p["plan_token"], "mode": "plan",
                                                "duration": dur, "words": [{"i": i, **w} for i, w in enumerate(words)],
-                                               "has_face": bool(faces)}, timeout=290)
+                                               "has_face": bool(faces), "renderer": str(p.get("renderer") or "")}, timeout=290)
         j = r.json()
         if r.ok and j.get("ok") and isinstance(j.get("plan"), dict):
             plan = j["plan"]
@@ -1920,6 +1931,13 @@ def _edit_finish(p: dict, d: Path, srv: _Serve, st: dict) -> dict:
         "cta": plan.get("cta"), "lottie": lottie, "progress": style == "gempak",
         "cuts": cut_marks, **({"hookSfx": hook_sfx} if hook_sfx is not None else {}),
     }
+    hf = str(p.get("renderer") or "") == "hyperframes"
+    if hf:
+        import hashlib
+        if isinstance(plan.get("direction"), dict):
+            props["direction"] = plan["direction"]
+        key = f"{p.get('history_id') or ''}{p.get('out_suffix') or ''}"
+        props["lookSeed"] = int(hashlib.md5(key.encode()).hexdigest()[:8], 16)
     guard_dbg = None
     if guard:
         _progress("guard", 44)
@@ -1945,8 +1963,19 @@ def _edit_finish(p: dict, d: Path, srv: _Serve, st: dict) -> dict:
         if cur:
             spans.append(cur)
         mood = plan.get("mood") or p.get("mood") or ("upbeat" if style == "gempak" else "chill")
+        marks = {}
+        if hf:
+            bpm = MUSIC_BPM.get(mood, 100)
+            beat = 60.0 / bpm
+            snap = lambda t: round(round(max(0.0, t) / beat) * beat, 3)  # noqa: E731
+            if plan.get("hook"):
+                marks["reveal"] = snap(_cue_sec((plan.get("hook") or {}).get("to"), words, 2.4))
+            if plan.get("cta"):
+                marks["cta"] = snap(_cue_sec((plan.get("cta") or {}).get("at"), words, dur * 0.85))
+            marks["final"] = snap(dur - 2.5)
+            props["musicBpm"] = bpm
         job = {"totalSec": dur, "seed": int(time.time()) % 100000, "mood": mood,
-               "speech": spans, "marks": {}, "bedOut": str(d / "bed.wav")}
+               "speech": spans, "marks": marks, "bedOut": str(d / "bed.wav")}
         (d / "music.json").write_text(json.dumps(job), encoding="utf-8")
         _run(["node", f"{MOTION_DIR}/scripts/music.mjs", str(d / "music.json")], "music", 600)
         props["music"] = srv.url(d / "bed.wav")
