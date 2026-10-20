@@ -817,6 +817,8 @@ export async function runAdJob(historyId: string): Promise<void> {
       ...(input.guard && row.metadata?.plan_token
         ? { guard_url: `${siteUrl()}/api/motion/guard`, plan_token: row.metadata.plan_token }
         : {}),
+      // an admin A/B row can pin its renderer; otherwise the admin switch decides (motionStart)
+      ...(row.metadata?.renderer === "hyperframes" || row.metadata?.renderer === "remotion" ? { renderer: row.metadata.renderer } : {}),
     });
     if (!start.ok) throw new Error(start.error);
     await patchMeta(historyId, { stage: "queued", provider: "modal-motion", call_started_at: new Date().toISOString() }, { task_id: start.callId });

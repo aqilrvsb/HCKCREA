@@ -253,7 +253,7 @@ export const PRO_DIRECTION = (recent: string[]) => `PRO FINISH — you are also 
   "progress": ${shortlist("progress", 2)},
   "second": "#RRGGBB" (a second colour that pairs with the accent),
   "moves": [{"at": CUE, "move": "crash" | "punch" | "whip" | "shake" | "bump", "power"?: 0.6–1.4}] — signature camera moves on the words that earn them (e.g. a crash zoom on the reveal, a punch-in on the price, a whip at a topic turn, a shake on a shock line); a few per video, at least 2 s apart, none in the last 3 s,
-  "graphics": [GRAPHIC] — optional motion-design moments in the band above the face (0–2 per video, each block type once, never during a B-roll card, the hook or the end card):
+  "graphics": [GRAPHIC] — optional motion-design moments in the band above the face (0–2 per video, each block type once, never during a B-roll card, the hook or the end card; a graphic replaces a sticker at that moment — never repeat a sticker's words or put both on the same beat):
     {"block": "count-up", "at": CUE, "to"?: CUE, "end": number, "start"?: number, "prefix"?: string (≤4, e.g. "RM"), "suffix"?: string (≤4, e.g. "%", " jam")} — a number counts up and lands: ONLY a number the speaker says,
     {"block": "star-rating-fill", "at": CUE, "to"?: CUE, "rating": 0–5} — stars fill to a rating: ONLY a rating the speaker says,
     {"block": "shutter-slam", "at": CUE, "to"?: CUE, "text": 1–2 words (≤14 chars)} — one word thrown through shutter-blurred beats: the single most important spoken word.
