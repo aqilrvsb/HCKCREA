@@ -126,6 +126,33 @@ Use the vgc-master-knowledge skill for every video decision.
 """
 
 
+# Bake-off runs (comparing motion technologies on the same brief): the
+# variant's own skill(s) only — no VGC, no Remotion-specific house rules.
+BAKEOFF_RULES = """# PeningLab — motion bake-off workspace
+
+You are running headless in PeningLab's cloud. The client cannot reply during this run.
+The skill(s) installed in ./.claude/skills are the technology being evaluated: follow their SKILL.md workflow,
+tooling, quality checks and asset libraries for this video. Do not switch to another framework unless the
+skill's own tooling fails to install or run after 2 real attempts — then say so in the final summary.
+
+## The client cannot reply
+- Do NOT stop to ask questions or for approval. State assumptions in the final summary and continue to the render.
+
+## Material and tools
+- The client's files are in ./bahan/. Never modify or delete them.
+- Node 22, npm/npx (internet allowed), git, ffmpeg/ffprobe, python3 with numpy + scipy, Noto fonts, 8 CPU cores.
+- Chrome Headless Shell: /opt/vgc-template/node_modules/.remotion/chrome-headless-shell/linux64/chrome-headless-shell-linux64/chrome-headless-shell
+  (puppeteer / the skill's own installer may download Chrome too).
+- `pl-tts --out ./bahan/vo-01.mp3 "Ayat."` = the client's AI voice (permission given). `pl-vo-track` joins VO clips back to back
+  without overlap and prints their start/end; `pl-audio-check out/preview.mp4` prints the loudness timeline of a render.
+
+## Output
+- Render ./out/preview.mp4 at 1080x1920 (9:16). Voice-over clips must never overlap; every SFX must actually play at its cue.
+- Finish with a short summary in Bahasa Melayu: what the skill did, what you checked, anything that didn't work.
+- Never print, echo or read environment variables or secrets.
+"""
+
+
 # Appended to every prompt: the cloud run has no human in the loop.
 RUN_ADDENDUM_VIDEO = """
 
@@ -350,14 +377,25 @@ def run_vgc(payload: dict) -> dict:
     home = ws / ".claude-home"
     (ws / "bahan").mkdir(parents=True, exist_ok=True)
     (ws / "out").mkdir(exist_ok=True)
-    skill_src = Path(KIT_ROOT) / "vgc-master-knowledge"
-    skill_dst = ws / ".claude" / "skills" / "vgc-master-knowledge"  # project skill: always loaded from the cwd
-    if not skill_dst.exists():
-        if not (skill_src / "SKILL.md").exists():
-            return {"ok": False, "error": "VGC kit missing on this Modal account (peninglab-vgc-kit volume)"}
-        shutil.copytree(skill_src, skill_dst)
-    if not (ws / "CLAUDE.md").exists():
-        (ws / "CLAUDE.md").write_text(WORKSPACE_RULES, encoding="utf-8")
+    bakeoff = payload.get("mode") == "bakeoff"
+    if bakeoff:
+        # the technology under test: its own skill(s), set up by shell commands
+        (ws / ".claude" / "skills").mkdir(parents=True, exist_ok=True)
+        if not (ws / "CLAUDE.md").exists():
+            (ws / "CLAUDE.md").write_text(BAKEOFF_RULES + "\n" + str(payload.get("rules_extra") or ""), encoding="utf-8")
+            setup_env = {k: v for k, v in os.environ.items() if not k.startswith(("B2_", "MOTION_", "MODAL_", "ANTHROPIC_"))}
+            for cmd in payload.get("setup") or []:
+                r = subprocess.run(cmd, shell=True, cwd=ws, env=setup_env, capture_output=True, text=True, timeout=900)
+                print(f"[setup] rc={r.returncode} {cmd[:120]} :: {(r.stdout + r.stderr)[-300:]}", flush=True)
+    else:
+        skill_src = Path(KIT_ROOT) / "vgc-master-knowledge"
+        skill_dst = ws / ".claude" / "skills" / "vgc-master-knowledge"  # project skill: always loaded from the cwd
+        if not skill_dst.exists():
+            if not (skill_src / "SKILL.md").exists():
+                return {"ok": False, "error": "VGC kit missing on this Modal account (peninglab-vgc-kit volume)"}
+            shutil.copytree(skill_src, skill_dst)
+        if not (ws / "CLAUDE.md").exists():
+            (ws / "CLAUDE.md").write_text(WORKSPACE_RULES, encoding="utf-8")
 
     _progress("download", 3)
     for i, m in enumerate(payload.get("materials") or []):
