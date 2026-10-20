@@ -19,11 +19,12 @@ export async function POST(req: Request) {
   const size = Number(b?.size) || 0;
   // kind "image" = the seller's product photos (Edit Video) — same browser →
   // Modal → B2 path as the video, so it doesn't depend on any third party.
-  const kind = b?.kind === "image" ? "image" : "video";
+  // kind "vgc" = Custom Style material (image, footage or voice-over).
+  const kind = b?.kind === "image" ? "image" : b?.kind === "vgc" ? "vgc" : "video";
   if (kind === "image" && size > 12 * 1024 * 1024) {
     return NextResponse.json({ error: "Gambar terlalu besar (maks 12MB)." }, { status: 413 });
   }
-  if (kind === "video" && size > MOTION_EDIT_MAX_MB * 1024 * 1024) {
+  if (kind !== "image" && size > MOTION_EDIT_MAX_MB * 1024 * 1024) {
     return NextResponse.json({ error: `Video terlalu besar (maks ${MOTION_EDIT_MAX_MB}MB).` }, { status: 413 });
   }
   const signed = await signMotionUpload(user.id, String(b?.name || (kind === "image" ? "photo.jpg" : "video.mp4")), kind);

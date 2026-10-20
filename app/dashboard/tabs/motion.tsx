@@ -134,7 +134,19 @@ const readDuration = (url: string) =>
     v.load();
   });
 
+const LOOK_KEY = "motion-look";
+
 export default function MotionTab({ projectId }: { projectId?: string }) {
+  // Default = PeningLab's own Edit Video / Buat Iklan; Custom Style = the VGC
+  // vault (Coach Am) at /vgc, generated directly (remembered per browser)
+  const [look, setLookState] = useState<"default" | "custom">("default");
+  useEffect(() => {
+    try { if (localStorage.getItem(LOOK_KEY) === "custom") setLookState("custom"); } catch { /* private mode */ }
+  }, []);
+  const setLook = (v: "default" | "custom") => {
+    setLookState(v);
+    try { localStorage.setItem(LOOK_KEY, v); } catch { /* private mode */ }
+  };
   const [mode, setMode] = useState<Mode>("edit");
   const [rate, setRate] = useState<number | null>(null);
 
@@ -390,17 +402,49 @@ export default function MotionTab({ projectId }: { projectId?: string }) {
 
   const presets = mode === "ad" ? MOTION_AD_PRESETS : MOTION_EDIT_PRESETS;
 
+  const lookSwitch = (
+    <div className="grid grid-cols-2 gap-2 mb-4">
+      <Chip active={look === "default"} onClick={() => setLook("default")}><Wand2 className="inline w-3.5 h-3.5 mr-1" />Default</Chip>
+      <Chip active={look === "custom"} onClick={() => setLook("custom")}><Sparkles className="inline w-3.5 h-3.5 mr-1" />Custom Style</Chip>
+    </div>
+  );
+  const header = (
+    <div className="flex items-center gap-2 mb-1 flex-wrap">
+      <Clapperboard className="w-5 h-5" style={{ color: THEME.primary }} strokeWidth={2.4} />
+      <h2 className="font-display font-extrabold text-lg text-[var(--color-text-primary)]">Motion</h2>
+    </div>
+  );
+
+  if (look === "custom") {
+    return (
+      <div className="space-y-5">
+        <div className="rounded-2xl p-5 border" style={{ background: `linear-gradient(135deg, ${THEME.faint}, transparent)`, borderColor: THEME.soft }}>
+          {header}
+          <p className="text-xs text-[var(--color-text-secondary)] mb-4">
+            Custom Style — VGC (edit Video Guna Code) oleh Coach Am. Pilih flow & style, isi info, tambah bahan, kemudian tekan
+            <b> 🎬 Jana Video</b>. AI bina & render terus di sini — tak perlu copy ke Claude Code. Hasil masuk ke History di bawah.
+          </p>
+          {lookSwitch}
+          <iframe
+            src={`/vgc${projectId ? `?p=${encodeURIComponent(projectId)}` : ""}`}
+            title="VGC Custom Style"
+            className="w-full rounded-xl border block"
+            style={{ height: "88vh", minHeight: 640, borderColor: "var(--color-border)", background: "#fff" }}
+          />
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-5">
       <div className="rounded-2xl p-5 border" style={{ background: `linear-gradient(135deg, ${THEME.faint}, transparent)`, borderColor: THEME.soft }}>
-        <div className="flex items-center gap-2 mb-1 flex-wrap">
-          <Clapperboard className="w-5 h-5" style={{ color: THEME.primary }} strokeWidth={2.4} />
-          <h2 className="font-display font-extrabold text-lg text-[var(--color-text-primary)]">Motion</h2>
-        </div>
+        {header}
         <p className="text-xs text-[var(--color-text-secondary)] mb-4">
           Edit macam editor pro TikTok — AI director potong senyap, tambah hook, sticker, gambar Google, fakta, zoom ke muka,
           caption berwarna, sound effect & CTA beg kuning yang sync dengan setiap perkataan. Boleh hantar banyak sekali; semua jalan di belakang tabir.
         </p>
+        {lookSwitch}
 
         {adAllowed && (
           <div className="grid grid-cols-2 gap-2 mb-5">

@@ -31,6 +31,14 @@ export const MOTION_STAGE_LABEL: Record<string, string> = {
   render: "Render animasi (selari)",
   upload: "Upload video siap",
   review: "Skrip & caption sedia — semak",
+  // Custom Style (VGC): Claude Code at work
+  start: "AI mula projek",
+  knowledge: "AI baca VGC Master Knowledge",
+  scan: "AI semak bahan",
+  work: "AI sedang bekerja",
+  build: "AI tulis kod video",
+  audio: "AI jana muzik & SFX",
+  check: "AI semak frame",
   done: "Siap",
   failed: "Gagal",
 };

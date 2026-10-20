@@ -2,3 +2,5 @@
 # never on Vercel. Root-anchored: an unanchored "motion/" also matches
 # app/api/motion/ and drops the Motion API routes from the deployment.
 /motion
+/vgc-template
+/vgc-bridge

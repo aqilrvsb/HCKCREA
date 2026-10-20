@@ -36,6 +36,10 @@ const WORDS_PER_SEC = 2.5;
 const PLANNING_STALE_MS = 12 * 60 * 1000;
 // Modal job timeout is 30 min; anything pending long past that is dead.
 const RENDER_STALE_MS = 50 * 60 * 1000;
+// Custom Style (VGC): Claude Code builds + renders, up to ~60 min on Modal.
+const VGC_STALE_MS = 75 * 60 * 1000;
+/** Task ids of Custom Style (VGC) jobs: "vgc:<modal call id>[@<account>]". */
+export const VGC_TASK_PREFIX = "vgc:";
 export const MOTION_PLANNING_TASK = "motion:planning";
 
 export const MOTION_VOICES = [
@@ -146,7 +150,8 @@ export async function motionAdEnabled(): Promise<boolean> {
 // A job started on an extra account carries it in its task id —
 // "<modal call id>@<account id>" — so status checks / settling reach the right
 // one; a plain call id = the main account (every job before multi-account).
-type MotionAccount = MotionCfg & { id: string };
+// vgc_url = the account's Custom Style (VGC) app (modal_vgc.py), same secret.
+type MotionAccount = MotionCfg & { id: string; vgc_url?: string };
 const MAIN_ACCOUNT = "main";
 
 /** Accounts that take new jobs; `includeDisabled` also returns switched-off
@@ -156,7 +161,8 @@ export async function getMotionAccounts(opts: { includeDisabled?: boolean } = {}
   const norm = (a: any, id: string): MotionAccount | null => {
     const api_url = String(a?.api_url || "").replace(/\/+$/, "");
     const secret = String(a?.secret || "");
-    return api_url && secret ? { id, api_url, secret } : null;
+    const vgc_url = String(a?.vgc_api_url || "").replace(/\/+$/, "") || undefined;
+    return api_url && secret ? { id, api_url, secret, vgc_url } : null;
   };
   const main = norm(c, MAIN_ACCOUNT);
   const extra = (Array.isArray(c?.accounts) ? c.accounts : [])
@@ -186,7 +192,7 @@ async function pickMotionAccount(accounts: MotionAccount[]): Promise<MotionAccou
   for (const r of data ?? []) {
     const t = String(r.task_id || "");
     if (t.startsWith(MOTION_PLANNING_TASK)) continue;
-    const id = splitTaskId(t).account;
+    const id = splitTaskId(t.startsWith(VGC_TASK_PREFIX) ? t.slice(VGC_TASK_PREFIX.length) : t).account;
     if (load.has(id)) load.set(id, (load.get(id) ?? 0) + 1);
   }
   return [...accounts].sort((a, b) => (load.get(a.id) ?? 0) - (load.get(b.id) ?? 0))[0];
@@ -219,6 +225,34 @@ export async function motionStart(payload: Record<string, any>): Promise<{ ok: t
   return { ok: false, error: lastErr };
 }
 
+/** Start a Custom Style (VGC) run on the least busy account that has the VGC
+ *  app (main first on a tie). Task id: "vgc:<call id>[@<account>]". */
+export async function vgcStart(payload: Record<string, any>): Promise<{ ok: true; callId: string } | { ok: false; error: string }> {
+  const accounts = (await getMotionAccounts()).filter((a) => a.vgc_url);
+  if (!accounts.length) return { ok: false, error: "Custom Style belum disediakan (motion_modal.vgc_api_url)" };
+  const first = await pickMotionAccount(accounts);
+  let lastErr = "";
+  for (const acc of [first, ...accounts.filter((a) => a.id !== first.id)]) {
+    try {
+      const r = await fetch(`${acc.vgc_url}/start`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...payload, secret: acc.secret }),
+        signal: AbortSignal.timeout(60_000),
+      });
+      const j = await r.json().catch(() => ({}));
+      if (r.ok && j?.ok && j?.call_id) {
+        const id = String(j.call_id);
+        return { ok: true, callId: VGC_TASK_PREFIX + (acc.id === MAIN_ACCOUNT ? id : `${id}@${acc.id}`) };
+      }
+      lastErr = j?.error || `Modal HTTP ${r.status}`;
+    } catch (e: any) {
+      lastErr = `Modal start failed: ${e?.message || "network"}`;
+    }
+  }
+  return { ok: false, error: lastErr };
+}
+
 export type MotionCheck =
   | { status: "running"; progress?: { stage?: string; pct?: number } | null }
   | { status: "done"; result: { url?: string; poster_url?: string | null; duration_sec: number; render_sec?: number; draft?: Record<string, any>; [k: string]: any } }
@@ -226,16 +260,20 @@ export type MotionCheck =
   | { status: "unknown"; error: string };
 
 export async function motionCheck(taskId: string): Promise<MotionCheck> {
-  const { callId, account } = splitTaskId(taskId);
+  const vgc = taskId.startsWith(VGC_TASK_PREFIX);
+  const { callId, account } = splitTaskId(vgc ? taskId.slice(VGC_TASK_PREFIX.length) : taskId);
   const cfg = (await getMotionAccounts({ includeDisabled: true })).find((a) => a.id === account);
   if (!cfg) return { status: "unknown", error: `Motion renderer account "${account}" not configured` };
+  const base = vgc ? cfg.vgc_url : cfg.api_url;
+  if (!base) return { status: "unknown", error: `Custom Style app not configured on "${account}"` };
   try {
-    const u = `${cfg.api_url}/check?call_id=${encodeURIComponent(callId)}&secret=${encodeURIComponent(cfg.secret)}`;
+    const u = `${base}/check?call_id=${encodeURIComponent(callId)}&secret=${encodeURIComponent(cfg.secret)}`;
     const r = await fetch(u, { signal: AbortSignal.timeout(30_000), cache: "no-store" });
     const j = await r.json().catch(() => ({}));
     if (j?.status === "running") return { status: "running", progress: j.progress ?? null };
     // a finished render (url) or a finished 2-step draft (draft = the state to review)
-    if (j?.status === "done" && (j?.result?.url || j?.result?.draft)) return { status: "done", result: j.result };
+    // (a Custom Style step may finish with an answer and no video)
+    if (j?.status === "done" && (j?.result?.url || j?.result?.draft || (vgc && j?.result))) return { status: "done", result: j.result };
     if (j?.status === "failed") return { status: "failed", error: String(j.error || "render failed") };
     return { status: "unknown", error: `Modal check HTTP ${r.status}` };
   } catch (e: any) {
@@ -246,15 +284,20 @@ export async function motionCheck(taskId: string): Promise<MotionCheck> {
 
 /** Signed one-hour URL the browser POSTs the client video to (Modal → B2).
  *  Vercel caps request bodies at 4.5MB, so the file never touches Next. */
-export async function signMotionUpload(userId: string, fileName: string, kind: "video" | "image" = "video"): Promise<{ uploadUrl: string; key: string } | null> {
+const VGC_EXTS = ["jpg", "jpeg", "png", "webp", "mp4", "mov", "webm", "m4v", "mp3", "wav", "m4a", "aac", "ogg"];
+
+export async function signMotionUpload(userId: string, fileName: string, kind: "video" | "image" | "vgc" = "video"): Promise<{ uploadUrl: string; key: string } | null> {
   const cfg = await getMotionConfig();
   if (!cfg) return null;
   const extRaw = (fileName.split(".").pop() || "").toLowerCase();
-  // videos → motion-uploads/, product photos → motion-images/ (Modal checks both)
+  // videos → motion-uploads/, product photos → motion-images/, Custom Style
+  // (VGC) material of any kind → vgc-uploads/ (Modal checks all three)
   const ext = kind === "image"
     ? (["jpg", "jpeg", "png", "webp"].includes(extRaw) ? extRaw : "jpg")
-    : (["mp4", "mov", "webm", "m4v"].includes(extRaw) ? extRaw : "mp4");
-  const folder = kind === "image" ? "motion-images" : "motion-uploads";
+    : kind === "vgc"
+      ? (VGC_EXTS.includes(extRaw) ? extRaw : "bin")
+      : (["mp4", "mov", "webm", "m4v"].includes(extRaw) ? extRaw : "mp4");
+  const folder = kind === "image" ? "motion-images" : kind === "vgc" ? "vgc-uploads" : "motion-uploads";
   const key = `${folder}/${userId.replace(/[^A-Za-z0-9_-]/g, "")}/${randomUUID().replace(/-/g, "")}.${ext}`;
   const exp = String(Math.floor(Date.now() / 1000) + 3600);
   const sig = createHmac("sha256", cfg.secret).update(`${key}|${exp}`).digest("hex");
@@ -790,11 +833,77 @@ export async function failMotionRow(hist: Pick<HistoryRow, "id" | "user_id" | "m
   return true;
 }
 
+/** Custom Style (VGC) run finished / failed / still going. Each step is added
+ *  to the card's project (metadata.vgc.steps); the newest video becomes the
+ *  card's video. A failed step leaves earlier results on the card and refunds
+ *  its own hold; a build step that ends without a video isn't charged. */
+async function settleVgcRow(hist: HistoryRow, r: MotionCheck, startedMs: number): Promise<SettleResult> {
+  const admin = createAdminClient();
+  const meta = hist.metadata || {};
+  const vgc = meta.vgc || {};
+  const steps: any[] = Array.isArray(vgc.steps) ? vgc.steps : [];
+  const cur = vgc.current || {};
+  const reserved = Number(meta.reserved) || 0;
+  const fail = async (msg: string): Promise<SettleResult> => {
+    if (!steps.length) {
+      await failMotionRow(hist, msg);
+      return { state: "settled", status: "failed", error: msg };
+    }
+    const { data: flipped } = await admin
+      .from("history")
+      .update({ status: "done", error_message: msg.slice(0, 500), metadata: { ...meta, stage: "done", reserved: 0, vgc: { ...vgc, current: null, last_error: msg.slice(0, 300) } } })
+      .eq("id", hist.id)
+      .eq("status", "pending")
+      .select("id");
+    if (flipped?.length && reserved > 0) await refundReserved(hist.user_id, "motion", reserved, hist.id);
+    return { state: "settled", status: "done", error: msg };
+  };
+
+  if (r.status === "running" || r.status === "unknown") {
+    if (Date.now() - startedMs > VGC_STALE_MS) return fail("Custom Style: masa tamat — kredit dipulangkan.");
+    return { state: "pending", p2Status: r.status === "running" ? String(r.progress?.stage || "work") : "unknown" };
+  }
+  if (r.status === "failed") return fail(`Custom Style gagal: ${r.error}`.slice(0, 500));
+
+  const res = r.result;
+  const madeVideo = !!res.url;
+  const charged = cur.video && !madeVideo ? 0 : reserved;
+  const step = {
+    id: cur.id ?? null, title: cur.title ?? null, video: !!cur.video,
+    url: res.url || null, poster: res.poster_url || null,
+    summary: String(res.summary || "").slice(0, 6000), needs_input: !!res.needs_input,
+    at: new Date().toISOString(), sec: res.run_sec ?? null, charged,
+  };
+  const spent = round2((Number(vgc.spent) || 0) + charged);
+  const { data: flipped } = await admin
+    .from("history")
+    .update({
+      status: "done",
+      cost: spent,
+      error_message: null,
+      ...(madeVideo ? { output_url: res.url, thumbnail_url: res.url, duration: Math.round(Number(res.duration_sec) || 0) } : {}),
+      metadata: {
+        ...meta,
+        stage: "done",
+        reserved: 0,
+        poster_url: res.poster_url || meta.poster_url || null,
+        vgc: { ...vgc, session_id: res.session_id || vgc.session_id || null, current: null, steps: [...steps, step], spent, last_error: null },
+        settled_at: new Date().toISOString(),
+      },
+    })
+    .eq("id", hist.id)
+    .eq("status", "pending")
+    .select("id");
+  if (!flipped?.length) return { state: "skipped", reason: "settled concurrently" };
+  if (reserved - charged >= 0.01) await refundReserved(hist.user_id, "motion", round2(reserved - charged), hist.id);
+  return { state: "settled", status: "done", ...(res.url ? { outputUrl: res.url } : {}) };
+}
+
 export async function settleMotionRow(hist: HistoryRow, pre?: MotionCheck): Promise<SettleResult> {
   if (hist.status !== "pending") return { state: "skipped", reason: "already settled" };
   const meta = hist.metadata || {};
   // a resubmitted / reviewed-then-rendered job times out from its new start
-  const createdMs = new Date(meta.render_started_at || meta.resubmit_started_at || (hist as any).created_at || meta.created_at || Date.now()).getTime();
+  const createdMs = new Date(meta.step_started_at || meta.render_started_at || meta.resubmit_started_at || (hist as any).created_at || meta.created_at || Date.now()).getTime();
 
   // "motion:planning" = Buat Iklan row still in script/voice (stamped at insert
   // so the poll-pending cron, which only scans rows with a task_id, still
@@ -808,6 +917,7 @@ export async function settleMotionRow(hist: HistoryRow, pre?: MotionCheck): Prom
   }
 
   const r = pre ?? (await motionCheck(hist.task_id));
+  if (meta.feature === "motion-vgc") return settleVgcRow(hist, r, createdMs);
   if (r.status === "running" || r.status === "unknown") {
     if (Date.now() - createdMs > RENDER_STALE_MS) {
       await failMotionRow(hist, "Motion: render timed out — credit refunded.");

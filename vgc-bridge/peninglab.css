@@ -1,0 +1,24 @@
+/* PeningLab bridge (vgc-bridge/peninglab.js) — uses the vault's own colours. */
+.pl-materials { margin: 14px 0 10px; padding: 12px; border: 1px dashed currentColor; border-radius: 12px; opacity: 0.95; }
+.pl-mat-head { display: flex; flex-direction: column; gap: 2px; margin-bottom: 8px; }
+.pl-mat-head strong { font-size: 13px; }
+.pl-mat-head span { font-size: 11px; opacity: 0.7; line-height: 1.35; }
+.pl-mat-list { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+.pl-mat-empty { font-size: 11px; opacity: 0.55; }
+.pl-chip { display: inline-flex; align-items: center; gap: 6px; max-width: 100%; padding: 4px 8px; border-radius: 999px; font-size: 11px;
+  border: 1px solid rgba(127, 127, 127, 0.4); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pl-chip b { font-weight: 700; opacity: 0.75; }
+.pl-chip button { border: 0; background: none; cursor: pointer; font-size: 11px; opacity: 0.7; padding: 0 0 0 2px; color: inherit; }
+.pl-chip-busy { opacity: 0.6; }
+.pl-mat-add { position: relative; display: inline-flex; align-items: center; padding: 6px 12px; border-radius: 10px; font-size: 12px; font-weight: 700;
+  border: 1px solid rgba(127, 127, 127, 0.5); cursor: pointer; }
+.pl-mat-add input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+.pl-generate { white-space: nowrap; }
+.pl-generate:disabled { opacity: 0.55; cursor: wait; }
+.pl-run-note { margin-top: 8px; font-size: 11px; line-height: 1.45; opacity: 0.8; }
+.pl-run-note a { text-decoration: underline; }
+.pl-voice { margin-top: 12px; padding-top: 10px; border-top: 1px dashed rgba(127, 127, 127, 0.4); }
+.pl-voice-list { display: flex; flex-wrap: wrap; gap: 6px; }
+.pl-voice-chip { padding: 5px 11px; border-radius: 999px; font-size: 12px; font-weight: 700; cursor: pointer; color: inherit;
+  background: transparent; border: 1px solid rgba(127, 127, 127, 0.45); }
+.pl-voice-chip.on { background: #a855f7; border-color: #a855f7; color: #fff; }

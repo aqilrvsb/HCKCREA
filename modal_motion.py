@@ -1946,13 +1946,18 @@ def api():
         import asyncio
         if not _upload_sig_ok(key, exp, sig):
             return JSONResponse({"ok": False, "error": "invalid or expired upload link"}, status_code=403)
-        # motion-uploads/… = the client's video; motion-images/… = their product photos
+        # motion-uploads/… = the client's video; motion-images/… = their product photos;
+        # vgc-uploads/… = Custom Style (VGC) material: images, footage or a voice-over
         is_image = key.startswith("motion-images/")
+        is_vgc = key.startswith("vgc-uploads/")
         ctype = (request.headers.get("content-type") or ("image/jpeg" if is_image else "video/mp4")).split(";")[0].strip()
-        if not ctype.startswith("image/" if is_image else "video/"):
+        if is_vgc:
+            if not ctype.startswith(("image/", "video/", "audio/")):
+                return JSONResponse({"ok": False, "error": "image, video or audio files only"}, status_code=415)
+        elif not ctype.startswith("image/" if is_image else "video/"):
             return JSONResponse({"ok": False, "error": "image files only" if is_image else "video files only"}, status_code=415)
         limit = MAX_IMAGE_UPLOAD if is_image else MAX_UPLOAD
-        too_big = "image too large (max 12MB)" if is_image else "video too large (max 300MB)"
+        too_big = "image too large (max 12MB)" if is_image else "file too large (max 300MB)" if is_vgc else "video too large (max 300MB)"
         declared = int(request.headers.get("content-length") or 0)
         if declared > limit:
             return JSONResponse({"ok": False, "error": too_big}, status_code=413)

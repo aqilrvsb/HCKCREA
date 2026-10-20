@@ -14,6 +14,10 @@ const eslintConfig = defineConfig([
     "next-env.d.ts",
     // Remotion renderer — own package, built into the Modal image.
     "motion/**",
+    // VGC engine starter — built into the Modal image (modal_vgc.py).
+    "vgc-template/**",
+    // runs inside the VGC vault page (uploaded by scripts/vgc-sync.mjs), not the app
+    "vgc-bridge/**",
   ]),
 ]);
 

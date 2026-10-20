@@ -30,5 +30,5 @@
     ".next/dev/types/**/*.ts",
     "**/*.mts"
   ],
-  "exclude": ["node_modules", "motion"]
+  "exclude": ["node_modules", "motion", "vgc-template", "vgc-bridge"]
 }

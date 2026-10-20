@@ -46,6 +46,7 @@ import { CategoryPickModal } from "./attachments";
 import { MotionGuardNote, MotionProgress } from "./motion-progress";
 import MotionResubmitDialog from "./motion-resubmit-dialog";
 import MotionReviewDialog, { type ReviewDraft } from "./motion-review-dialog";
+import VgcAnswerDialog, { type VgcStepView } from "./vgc-answer-dialog";
 import LazyVideo from "@/app/components/lazy-video";
 
 export type HistoryItem = {
@@ -2268,6 +2269,12 @@ function HistoryCardInner({
   const hasMotionScript = item.tab === "motion" && motionMeta?.feature === "motion-edit"
     && (item.status === "done" || item.status === "failed") && (motionMeta?.draft?.words?.length ?? 0) > 0;
   const [scriptOpen, setScriptOpen] = useState(false);
+  // Custom Style (VGC): the project's answers + previews, step by step
+  const vgcMeta = (item.metadata as { vgc?: { steps?: VgcStepView[]; last_error?: string | null } } | null | undefined)?.vgc;
+  const isVgc = item.tab === "motion" && motionMeta?.feature === "motion-vgc";
+  const vgcSteps = vgcMeta?.steps ?? [];
+  const vgcLast = vgcSteps[vgcSteps.length - 1];
+  const [vgcOpen, setVgcOpen] = useState(false);
 
   // Generate a video FROM this storyboard (image1=storyboard blueprint,
   // image2=product ref). Lands in the Original Video history grid.
@@ -3450,6 +3457,9 @@ function HistoryCardInner({
         />
       )}
       {/* Motion Resubmit — product name + photos, then an in-place re-render. */}
+      {vgcOpen && isVgc && (
+        <VgcAnswerDialog steps={vgcSteps} lastError={vgcMeta?.last_error} onClose={() => setVgcOpen(false)} />
+      )}
       {scriptOpen && hasMotionScript && (
         <MotionReviewDialog
           id={item.id}
@@ -3521,6 +3531,18 @@ function HistoryCardInner({
             + output_url when finished. Showing "Failed" prematurely
             confused clients into deleting + re-merging, which wasted
             credits. */}
+        {/* Custom Style (VGC): a step that answered in text (no video yet) */}
+        {isVgc && item.status === "done" && !item.output_url && (
+          <button type="button" onClick={() => setVgcOpen(true)} className="absolute inset-0 overflow-hidden text-left"
+            style={{ background: "linear-gradient(160deg, rgba(168,85,247,0.25), rgba(0,0,0,0.85))" }}>
+            <div className="absolute inset-0 flex flex-col items-center justify-center gap-1.5 px-3 text-center">
+              <span className="text-2xl">📄</span>
+              <span className="text-[12px] font-extrabold text-white leading-tight">{vgcLast?.needs_input ? "AI perlukan input" : "Jawapan AI sedia"}</span>
+              <span className="text-[10px] text-white/80 leading-tight line-clamp-2">{vgcLast?.title || "Custom Style"}</span>
+              <span className="mt-1.5 px-3 py-1.5 rounded-lg text-[11px] font-extrabold text-white" style={{ background: "linear-gradient(135deg,#a855f7,#ec4899)" }}>Baca jawapan</span>
+            </div>
+          </button>
+        )}
         {/* Motion 2-step flow: script + captions ready — open the review box. */}
         {isMotionReview && (
           <button type="button" onClick={() => setReviewOpen(true)} className="absolute inset-0 overflow-hidden text-left">
@@ -4610,6 +4632,13 @@ function HistoryCardInner({
 
         {/* Motion: what "Check Guideline TikTok" did (taped / cut / muted + product risk). */}
         {isMotionRow && item.status === "done" && <MotionGuardNote guard={(item.metadata as any)?.guard} />}
+        {isVgc && item.status === "done" && (
+          <div className="px-2 pb-1 text-[10px] leading-snug">
+            <span className="font-bold" style={{ color: "#a855f7" }}>✨ Custom Style</span>
+            <span className="text-[var(--color-text-secondary)]"> · {vgcSteps.length} langkah{vgcLast?.title ? ` · ${vgcLast.title}` : ""}</span>
+            {vgcMeta?.last_error && <span className="block text-red-400">Langkah terakhir gagal — kredit dipulangkan.</span>}
+          </div>
+        )}
 
         {/* EDITOR / DONE POST / READY AFFILIATE — show the generated text inline
             (Main + Sub + Caption) so the client reads it straight off the card,
@@ -4861,6 +4890,11 @@ function HistoryCardInner({
               {item.tab !== "video" && item.tab !== "auto" && item.tab !== "original-video" && !isMotionRow && (
                 <ActionBtn title="Improve Video" onClick={() => setShowEditModal(true)} bg={ACTION.edit}>
                   <Pencil className="w-3.5 h-3.5" strokeWidth={2.4} />
+                </ActionBtn>
+              )}
+              {isVgc && (
+                <ActionBtn title="Jawapan AI & langkah projek (Custom Style)" onClick={() => setVgcOpen(true)} bg={ACTION.edit}>
+                  <FileText className="w-3.5 h-3.5" strokeWidth={2.4} />
                 </ActionBtn>
               )}
               {hasMotionScript && (

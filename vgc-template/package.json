@@ -1,0 +1,37 @@
+{
+  "name": "peninglab-vgc-template",
+  "private": true,
+  "type": "module",
+  "description": "Remotion starter for the VGC engine (modal_vgc.py). Installed once into the Modal image at /opt/vgc-template; Claude Code copies it into each job's workspace and writes the video there.",
+  "scripts": {
+    "render": "remotion render src/index.ts",
+    "still": "remotion still src/index.ts"
+  },
+  "dependencies": {
+    "@remotion/animated-emoji": "4.0.534",
+    "@remotion/bundler": "4.0.534",
+    "@remotion/cli": "4.0.534",
+    "@remotion/effects": "4.0.534",
+    "@remotion/google-fonts": "4.0.534",
+    "@remotion/layout-utils": "4.0.534",
+    "@remotion/light-leaks": "4.0.534",
+    "@remotion/lottie": "4.0.534",
+    "@remotion/media-utils": "4.0.534",
+    "@remotion/motion-blur": "4.0.534",
+    "@remotion/noise": "4.0.534",
+    "@remotion/paths": "4.0.534",
+    "@remotion/renderer": "4.0.534",
+    "@remotion/rounded-text-box": "4.0.534",
+    "@remotion/shapes": "4.0.534",
+    "@remotion/starburst": "4.0.534",
+    "@remotion/transitions": "4.0.534",
+    "lottie-web": "5.12.2",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "remotion": "4.0.534"
+  },
+  "devDependencies": {
+    "@types/react": "19.3.0",
+    "typescript": "5.6.3"
+  }
+}
