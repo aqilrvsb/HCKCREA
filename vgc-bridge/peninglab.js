@@ -1,6 +1,7 @@
 /* PeningLab bridge — loaded into the VGC Prompt Vault at /vgc (Motion → Custom Style).
-   The vault (Coach Am) stays exactly as it is; this adds what its "copy, paste into
-   Claude Code" step needs to run directly in PeningLab:
+   The vault's files (Coach Am) stay exactly as they are; this shows only its Fast
+   Track flow and adds what its "copy, paste into Claude Code" step needs to run
+   directly in PeningLab:
    - 📎 Bahan: the client's images / logo / footage / voice-over, uploaded here
    - 🎙️ Voice-over AI: one of PeningLab's voices (Mira, Afifah…) — Claude Code
      writes the VO and voices it with `pl-tts` during the run
@@ -9,6 +10,13 @@
      (same Claude Code session), like staying in one chat. */
 (() => {
   'use strict';
+  // Fast Track only (the owner's call, 2026-10-20): Custom Style opens straight on
+  // Fast Track; every other flow and page of the vault is hidden (peninglab.css)
+  // and any navigation to one lands back on Fast Track.
+  const ONLY = 'fast-track';
+  const lockRoute = () => { if (location.hash.slice(1) !== ONLY) location.replace('#' + ONLY); };
+  lockRoute();
+  window.addEventListener('hashchange', lockRoute);
   const params = new URLSearchParams(location.search);
   const projectId = params.get('p') || '';
   const CARD_KEY = 'pl-vgc-cards:' + projectId;

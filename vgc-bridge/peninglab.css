@@ -22,3 +22,11 @@
 .pl-voice-chip { padding: 5px 11px; border-radius: 999px; font-size: 12px; font-weight: 700; cursor: pointer; color: inherit;
   background: transparent; border: 1px solid rgba(127, 127, 127, 0.45); }
 .pl-voice-chip.on { background: #a855f7; border-color: #a855f7; color: #fff; }
+
+/* Fast Track only: no sidebar (its links lead to the other flows and guides), the page
+   takes the full width, and the in-page links / "next" button to other flows are gone. */
+.sidebar, .skip { display: none !important; }
+.app { display: block !important; }
+.flow-footer, #next, .setup-workflows, a[href="#start"], a[href="#script-ready"], a[href="#step-1"],
+a[href="#reference-1"], a[href="#video-review"], a[href="#model-guide"], a[href="#style-library"],
+a[href="#broll-assets"], a[href="#setup"], [data-path="guided"], [data-path="reference"] { display: none !important; }

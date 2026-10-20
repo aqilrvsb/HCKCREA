@@ -60,6 +60,12 @@ MAX_TURNS = 150
 RUN_TIMEOUT = 55 * 60  # one step: build + render + critic rounds (VGC_STALE_MS in lib/motion.ts is 75 min)
 MVK_DIR = "/opt/mvk"  # motion-video-kit references (MIT), pinned
 MVK_COMMIT = "e4b1c0004080fe6a0deb883631bad5eba1e5f339"
+# Vendored from GitHub (licences checked 2026-10-20), every one pinned to a commit:
+SFXKIT_COMMIT = "92780e7ab0cdfb557497a988089c47f46e8c7412"   # wyzowl/sfx-kit — CC0, 320 synthesized SFX + sounds.json
+BARTY_COMMIT = "3d83d987d658601d8a1269eb691622bdcd427335"    # Barty-Bart/motion-graphics — MIT; only its 103 CC0 "bundled" sounds
+GSAPSK_COMMIT = "aed9cfd3277740755f6bfc1155c7aa645403b760"   # greensock/gsap-skills — MIT
+HERK_COMMIT = "10511e5af86fc47756ea89803b397422e2d89284"     # nateherkai/herk-edit-kit — MIT (+ pipeline-use permission)
+SFX_DIR = "/opt/sfx"
 CRITIC_ROUNDS = 2        # critic -> fix -> verifying critic -> fix
 CRITIC_BUDGET = 8 * 60   # one critic session
 FIX_MIN = 9 * 60         # don't start a fix round with less time than this left
@@ -96,6 +102,30 @@ image = (
         f"git clone https://github.com/echris6/motion-video-kit /tmp/mvk && git -C /tmp/mvk checkout {MVK_COMMIT}"
         f" && mkdir -p {MVK_DIR} && cp -r /tmp/mvk/business-motion-film/references /tmp/mvk/business-motion-film/scripts"
         f" /tmp/mvk/LICENSE {MVK_DIR}/ && rm -rf /tmp/mvk && ls {MVK_DIR}/references",
+        # the pinned HyperFrames registry, offline (210 blocks + 237 components)
+        f"git clone --depth 1 --branch v{HF_VERSION} https://github.com/heygen-com/hyperframes /tmp/hfr"
+        f" && cp -r /tmp/hfr/registry /opt/hf-registry && rm -rf /tmp/hfr && ls /opt/hf-registry | head",
+        # SFX libraries (CC0)
+        f"mkdir -p {SFX_DIR} && git init -q /tmp/sk && git -C /tmp/sk fetch -q --depth 1 https://github.com/wyzowl/sfx-kit {SFXKIT_COMMIT}"
+        f" && git -C /tmp/sk checkout -q FETCH_HEAD && mkdir -p {SFX_DIR}/sfxkit"
+        f" && cp -r /tmp/sk/sounds /tmp/sk/sounds.json /tmp/sk/GUIDE.md /tmp/sk/catalogue.md /tmp/sk/LICENSE /tmp/sk/README.md {SFX_DIR}/sfxkit/"
+        f" && rm -rf /tmp/sk && ls {SFX_DIR}/sfxkit/sounds | wc -l",
+        f"git init -q /tmp/bb && git -C /tmp/bb fetch -q --depth 1 https://github.com/Barty-Bart/motion-graphics {BARTY_COMMIT}"
+        f" && git -C /tmp/bb checkout -q FETCH_HEAD && mkdir -p {SFX_DIR}/cc0"
+        f" && cp -r /tmp/bb/skills/sound-effects/sfx/. {SFX_DIR}/cc0/ && cp /tmp/bb/skills/sound-effects/LICENSES.md /tmp/bb/LICENSE {SFX_DIR}/cc0/"
+        # keep only the CC0 bundled files in the manifest: its "runtime" list points at Mixkit, which forbids redistribution in tools
+        f" && python3 -c \"import json;p='{SFX_DIR}/cc0/manifest.json';m=json.load(open(p));m.pop('runtime',None);json.dump(m,open(p,'w'),indent=1)\""
+        f" && rm -rf /tmp/bb && find {SFX_DIR}/cc0 -type f | wc -l",
+        # GSAP skills (core / timeline / plugins / utils / performance) next to the HyperFrames skills
+        f"git init -q /tmp/gs && git -C /tmp/gs fetch -q --depth 1 https://github.com/greensock/gsap-skills {GSAPSK_COMMIT}"
+        f" && git -C /tmp/gs checkout -q FETCH_HEAD"
+        f" && for k in gsap-core gsap-timeline gsap-plugins gsap-utils gsap-performance; do cp -r /tmp/gs/skills/$k {HF_SKILLS}/$k; done"
+        f" && cp /tmp/gs/LICENSE {HF_SKILLS}/gsap-core/LICENSE-gsap-skills && rm -rf /tmp/gs && ls {HF_SKILLS}",
+        # herk-edit-kit: the 9:16 short-ad quality gates + motion philosophy (the repo is 400+ MB: fetch just these)
+        f"mkdir -p {MVK_DIR}/herk && cd {MVK_DIR}/herk"
+        f" && for f in .claude/skills/short-form-edit/references/quality-gates.md .claude/skills/short-form-edit/references/curiosity-and-entertainment.md"
+        f" .claude/skills/short-form-edit/references/plan-schema.md MOTION_PHILOSOPHY.md LICENSE licenses/PIPELINE-USE-PERMISSION.txt; do"
+        f" curl -fsSL https://raw.githubusercontent.com/nateherkai/herk-edit-kit/{HERK_COMMIT}/$f -o $(basename $f); done && ls",
     )
     .env({"HYPERFRAMES_NO_TELEMETRY": "1", "DO_NOT_TRACK": "1", "HYPERFRAMES_SKIP_SKILLS": "1"})
     # procedural soundtrack / SFX by code (the VGC prompts ask for it)
@@ -160,7 +190,11 @@ ENGINE_RULES = """
   and the video comes out blank.
 - ALL motion goes through that GSAP timeline: no CSS @keyframes / `animation:` / `transition:`, no infinite or
   repeat:-1 loops (use finite repeats that end inside the clip), no setTimeout / setInterval / requestAnimationFrame.
-- Use the block catalog (`hyperframes catalog`, `hyperframes add …`) for captions, transitions and effects.
+- Use the block catalog (`hyperframes catalog`, `hyperframes add …`) for captions, transitions and effects. The same
+  pinned registry is on disk at /opt/hf-registry (blocks/, components/, examples/) to read or copy from directly.
+- GSAP skills are installed too (gsap-core, gsap-timeline, gsap-plugins: SplitText, MorphSVG, DrawSVG, CustomEase,
+  CustomWiggle, CustomBounce, MotionPath…). Never ScrollTrigger / Draggable / Inertia / Observer; any randomness
+  through a seeded gsap.utils.random.
 - Before rendering: `hyperframes lint` (fix every error AND every timeline warning) and `hyperframes check`.
 - Render with `hyperframes render` (use all 8 CPU cores where it allows), then put the MP4 at ./out/preview.mp4
   (1080x1920, 30 fps).
@@ -175,7 +209,8 @@ CRAFT_RULES = """
 ## Motion craft — the premium bar (execution quality; where the brief or the vgc-master-knowledge skill says otherwise, they win)
 - Plan before building: a beat table in ./video/STORYBOARD.md (time -> what the viewer sees -> its selling job -> how it
   exits). For ~30 s: 10-14 distinct compositions, beats of 1.4-3.5 s; vary scale (product macro -> wide -> type impact -> detail).
-  Read /opt/mvk/references/motion-grammar.md (mechanism catalog) and quality-bar.md first.
+  Read /opt/mvk/references/motion-grammar.md (mechanism catalog), quality-bar.md and /opt/mvk/herk/quality-gates.md
+  (9:16 short-ad gates: the 3-second reason to stay, word timing, safe framing) first.
 - Frame 0 is already a finished, striking composition (never a half-entered word); the first 2 s hook.
 - The lead subject (product / speaker / key word) fills 60-85% of the usable frame in feature beats — no small card in an empty field.
 - Change speed: land -> readable hold -> fast exit. Nothing static for more than ~0.6 s (a hold gets a slow 3-5% push),
@@ -197,9 +232,13 @@ AUDIO_RULES = """
 - Music bed (code-generated, no licence issue): `pl-music --sec <video length> --mood chill|upbeat|hype
   --speech <the VO track or the footage> --out video/music.wav` — it already ducks under the speech; play it
   from 0 under everything at volume ~0.3.
-- SFX (code-generated): `node /opt/vgc-template/scripts/sfx.mjs video/sfx` gives pop, tick, whoosh, swoosh, thump,
-  stamp, sparkle, paper, marker (.wav). Place every SFX you use at its visual cue (an <audio> element with the
-  right start). A generated SFX that is not placed does nothing. SFX clearly audible, never louder than the voice.
+- SFX library (CC0, licence-clean): /opt/sfx/sfxkit — 320 sounds in 28 categories; /opt/sfx/sfxkit/sounds.json gives
+  each one use_for / avoid_for / sync.at (seconds into the file where the hit lands: start the clip at cue - sync.at)
+  and under_voiceover_db (its level under speech). Also /opt/sfx/cc0 (103 CC0 sounds, manifest.json, default_kit) and
+  the code-generated basics `node /opt/vgc-template/scripts/sfx.mjs video/sfx` (pop, tick, whoosh, swoosh, thump,
+  stamp, sparkle, paper, marker). Pick by use_for, one clean sound per real event (no random clutter), place each at
+  its visual cue (an <audio> element with the right start) — a sound that is not placed does nothing. SFX clearly
+  audible, never louder than the voice. Copy the files you use into the project.
 - After the render run `pl-audio-check out/preview.mp4`: confirm the voice plays where planned (no stacked voices,
   no long silent gaps), the music is there if requested, and the SFX hits exist; fix and re-render if not.
   It measures levels only — say "diukur", not "didengar".
@@ -674,7 +713,8 @@ Method:
 1. Read BRIEF.md and MEASURE.txt, then open every contact sheet.
 2. Look closer wherever something seems off and around transitions: extract native frames with ffmpeg
    (e.g. `ffmpeg -v error -ss 4.20 -i film.mp4 -frames:v 1 c-4.20.png`, or a 1/30 s burst across a transition) and open them.
-3. Judge against this bar (a vertical TikTok Shop ad, watched on a phone, often on mute):
+3. Judge against this bar (a vertical TikTok Shop ad, watched on a phone, often on mute), and the short-form gates in
+   /opt/mvk/herk/quality-gates.md:
    - Hook: frame 0 is already a finished, striking composition; the first 2 s give a reason to keep watching.
    - No text collisions on ANY frame, including mid-transition; nothing cut off at the edges; key text inside the safe area
      (not in the bottom ~18%, not under the right-side buttons ~13% from the right edge).

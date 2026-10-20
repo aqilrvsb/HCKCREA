@@ -1866,7 +1866,10 @@ def run_job(payload: dict) -> dict:
     finally:
         srv.close()
         try:
-            shutil.rmtree(d, ignore_errors=True)
+            # keep_job: an internal A/B test keeps props.json + assets on the Volume, so the very same
+            # job can be rendered again by another renderer (never set for client jobs)
+            if not payload.get("keep_job"):
+                shutil.rmtree(d, ignore_errors=True)
             JOBS.commit()
         except Exception:  # noqa: BLE001
             pass

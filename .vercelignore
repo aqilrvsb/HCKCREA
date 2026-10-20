@@ -3,4 +3,5 @@
 # app/api/motion/ and drops the Motion API routes from the deployment.
 /motion
 /vgc-template
+/motion-hf
 /vgc-bridge
