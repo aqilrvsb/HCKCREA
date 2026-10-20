@@ -488,18 +488,23 @@ export const FloatCard: React.FC<{ sc: PlacedScene; frame: number; look: Look }>
 
 const SIDE_K: Record<SideSize, number> = { sm: 0.4, md: 0.68, lg: 1 };
 
-export const SideWords: React.FC<{ side: PlacedSide; frame: number; look: Look; accent: string; faceTop?: number }> = ({ side, frame, look, accent, faceTop = 700 }) => {
+export const SideWords: React.FC<{ side: PlacedSide; frame: number; look: Look; accent: string; faceTop?: number | null }> = ({ side, frame, look, accent, faceTop }) => {
   const face = look.display;
   const out = interpolate(frame, [side.e - 5, side.e], [1, 0], clamp);
   const center = side.align === 'center';
   const maxW = center ? W - 180 : 560;
   // one base size for the stack; each word is a share of it, the widest one fits the band
-  const base = Math.min(center ? 250 : 178, ...side.words.map((w) => Math.floor(maxW / (Math.max(3, w.text.length) * face.charW * SIDE_K[w.size ?? 'lg']))));
+  // sizes are relative within the stack: its biggest word is always full size (a lone "sm" word never comes out tiny)
+  const top1 = Math.max(...side.words.map((w) => SIDE_K[w.size ?? 'lg']));
+  const k = (w: PlacedSide['words'][number]) => SIDE_K[w.size ?? 'lg'] / top1;
+  const base = Math.min(center ? 250 : 178, ...side.words.map((w) => Math.floor(maxW / (Math.max(3, w.text.length) * face.charW * k(w)))));
   const origin = center ? 'center center' : side.align === 'left' ? 'left center' : 'right center';
-  const sizeOf = (w: PlacedSide['words'][number]) => Math.max(52, base * SIDE_K[w.size ?? 'lg']);
+  const sizeOf = (w: PlacedSide['words'][number]) => Math.max(52, base * k(w));
   // the stack ends just above the head (a centred word may sit on the hair line), never under the TikTok tabs
   const stackH = side.words.reduce((h, w) => h + sizeOf(w) * 0.98, 0);
-  const top = Math.max(250, Math.round(faceTop + (center ? 30 : 24) - stackH));
+  // no face tracked then (the speaker holds the product up to the lens): the words keep to the top band
+  // (the tracked box starts at the brows and the virtual camera zooms in up to ~1.2×: end well above it)
+  const top = faceTop == null ? 250 : Math.max(250, Math.round(faceTop - (center ? 50 : 70) - stackH));
   return (
     <div style={{ position: 'absolute', top, ...(center ? { left: 0, right: 0 } : { [side.align]: 64 }), display: 'flex', flexDirection: 'column',
       alignItems: center ? 'center' : side.align === 'left' ? 'flex-start' : 'flex-end', opacity: out } as React.CSSProperties}>

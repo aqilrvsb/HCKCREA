@@ -188,6 +188,10 @@ export const MotionEditPro: React.FC<ProProps> = (p) => {
           .filter((b) => b.label && b.value);
         if (sc.bars.length < 2) continue;
       }
+      // never sit on a finished scene: cut back to the speaker ~3.5 s after its last item lands (a card may hold 11 s, as in the reference)
+      const items = [...(sc.lines ?? []), ...(sc.entries ?? []), ...(sc.stickers ?? []), ...(sc.bars ?? [])].map((x) => x.f);
+      const hold = sc.kind === 'card' ? sc.s + fr(11) : Math.max(sc.s, ...items) + fr(3.5);
+      sc.e = Math.max(sc.s + fr(1.5), Math.min(sc.e, hold));
       (float ? floats : scenes).push(sc);
     }
     scenes.sort((a, b) => a.s - b.s);
@@ -485,7 +489,12 @@ export const MotionEditPro: React.FC<ProProps> = (p) => {
         <SlotStack placed={plan.placed} slots={plan.slots} ink="#ffffff" accent={accent} style={style} lottie={p.lottie} />
         {gempak && <BreakFxLayer at={plan.breaks} kind={look.breakFx} />}
         {plan.sides.map((sd, i) => (frame >= sd.s && frame < sd.e
-          ? <SideWords key={`sd${i}`} side={sd} frame={frame} look={look} accent={accent} faceTop={(faceAt(p.faces, sd.s / fps)?.y ?? 0.36) * 1920} /> : null))}
+          ? <SideWords key={`sd${i}`} side={sd} frame={frame} look={look} accent={accent}
+              faceTop={(() => {
+                // the highest face top around that moment; a lone detection (the product held up to the lens) doesn't count
+                const near = (p.faces ?? []).filter((x) => Math.abs(x.t - sd.s / fps) < 0.6);
+                return near.length >= 2 ? Math.min(...near.map((x) => x.y)) * 1920 : null;
+              })()} /> : null))}
         {plan.floats.map((fc, i) => (frame >= fc.s && frame < fc.e ? <FloatCard key={`fc${i}`} sc={fc} frame={frame} look={look} /> : null))}
         {plan.scenes.map((sc, i) => (frame >= sc.s && frame < sc.e ? <ScenePro key={`sc${i}`} sc={sc} frame={frame} look={look} accent={accent} /> : null))}
 

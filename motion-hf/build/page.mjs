@@ -98,7 +98,11 @@ ${items.join("\n")}
 <script>
   // HyperFrames clock: one linear tween whose setter draws the seeked frame (see runtime/entry.js)
   window.__timelines = window.__timelines || {};
-  window.__laju.ready.then(function () {
+  // the HyperFrames runtime holds render-ready until every window.__hf.buildReady promise settles: without
+  // this a slow asset preload let the engine read the duration before the clock existed → "zero duration"
+  window.__hf = window.__hf || {};
+  window.__hf.buildReady = window.__hf.buildReady || {};
+  window.__hf.buildReady["laju"] = window.__laju.ready.then(function () {
     var now = 0, clock = {};
     Object.defineProperty(clock, "t", { get: function () { return now; }, set: function (v) { now = v; window.__laju.draw(v); } });
     var tl = gsap.timeline({ paused: true });

@@ -613,13 +613,15 @@ def _render_hf(comp: str, props: dict, d: Path, out: Path, pct_from: int, pct_to
             inf = res.get("info") or {}
             stats.append((res["idx"], res.get("waited"), res.get("sec"), res.get("copy"), inf.get("boot"), inf.get("capture"), inf.get("encode"), inf.get("ms")))
             _progress("render", pct_from + 4 + (pct_to - pct_from - 8) * len(got) // max(1, count))
-        for i in range(count):  # one retry each
-            if i not in got:
+        for attempt in range(2):  # up to two retries per chunk, the missing ones side by side
+            retry = [(i, hf_chunk.spawn(job, i)) for i in range(count) if i not in got]
+            if not retry:
+                break
+            for i, c in retry:
                 try:
-                    res = hf_chunk.remote(job, i)
-                    got[i] = res["data"]
+                    got[i] = c.get(timeout=900)["data"]
                 except Exception as e:  # noqa: BLE001
-                    print("hf chunk retry failed:", i, str(e)[:300], flush=True)
+                    print("hf chunk retry failed:", attempt + 1, i, str(e)[:300], flush=True)
         missing = [i for i in range(count) if i not in got]
         if missing:
             raise RuntimeError(f"chunks missing: {missing}")
