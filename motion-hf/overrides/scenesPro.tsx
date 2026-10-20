@@ -11,30 +11,41 @@
 //             sweep on chosen words) or a FLOAT card over the speaker with a badge ("VIRAL")
 //   compare:  2–4 columns (value · bar · label) that grow on their words — a vs b, before / after
 //   side:     1–3 big words beside the speaker's head (sizes mixed, or one huge word centred)
-// Lines can strike through, get a marker sweep or count up to their number.
+// Lines can strike through, get a marker sweep or count up to their number, get a hand-drawn circle /
+// underline / arrow / box or sparkles, enter as type / scramble / letters / rise, carry an animated emoji.
+//   checklist · steps · ring and the phone card, notebook / chalk / grid / gradient backgrounds: scenesKit.tsx
 // Backgrounds: dark (charcoal, warm glow, faint grid) · red · accent · paper · cork · yellow · blue.
 // Entries: slam = 1.7× → 1 with a 10 px blur in 3 frames; slide = from the left with a blur in 4 frames.
 import React from 'react';
 import { AbsoluteFill, Easing, Img, interpolate, useVideoConfig } from 'remotion';
 import { W, clamp, fitSize } from '../../motion/src/lib';
 import type { Look } from './look';
+import { LottieEmoji } from './emoji';
+import type { LottieMap } from '../../motion/src/types';
+import {
+  ChecklistBody, EnterText, HandMark, KitBackground, PhoneCard, RingsBody, Sparkles, StepsBody, kitBgLight, seedOf, textWidth,
+  type CheckItem, type KitBg, type Mark, type Ring, type Step, type TextEnter,
+} from './scenesKit';
 
 export type Tone = 'white' | 'yellow' | 'green' | 'red' | 'blue' | 'accent' | 'black';
-export type Bg = 'dark' | 'red' | 'accent' | 'paper' | 'cork' | 'yellow' | 'blue';
-export type LineFx = 'strike' | 'marker' | 'count';
-export type PlacedLine = { f: number; text: string; tone?: Tone; box?: 'yellow' | 'black' | 'white' | 'accent' | 'none'; size?: 'sm' | 'md' | 'lg' | 'xl'; enter?: 'slam' | 'slide'; fx?: LineFx };
+export type Bg = 'dark' | 'red' | 'accent' | 'paper' | 'cork' | 'yellow' | 'blue' | KitBg;
+export type LineFx = 'strike' | 'marker' | 'count' | Mark | 'sparkle';
+export type LineEnter = 'slam' | 'slide' | TextEnter;
+export type PlacedLine = { f: number; text: string; tone?: Tone; box?: 'yellow' | 'black' | 'white' | 'accent' | 'none'; size?: 'sm' | 'md' | 'lg' | 'xl'; enter?: LineEnter; fx?: LineFx; emoji?: string };
 export type PlacedEntry = { f: number; date: string; lines: string[]; tone?: Tone };
 export type PlacedSticker = { f: number; text: string; sub?: string; kind: 'note' | 'strip' | 'burst' | 'tag'; tone?: Tone };
 export type PlacedBar = { f: number; label: string; value: string; tone?: Tone };
-export type CardStyle = 'polaroid' | 'article' | 'float';
-export type SceneEnter = 'cut' | 'push' | 'zoom' | 'whip';
+export type CardStyle = 'polaroid' | 'article' | 'float' | 'phone';
+export type SceneEnter = 'cut' | 'push' | 'zoom' | 'whip' | 'wipe' | 'rise' | 'iris';
+export type { CheckItem, Ring, Step };
 export type PlacedScene = {
-  kind: 'build' | 'timeline' | 'collage' | 'card' | 'compare'; s: number; e: number; bg: Bg;
+  kind: 'build' | 'timeline' | 'collage' | 'card' | 'compare' | 'checklist' | 'steps' | 'ring'; s: number; e: number; bg: Bg;
   heading?: string; kicker?: string; title?: string; caption?: string; image?: string;
   /** card look; a float card sits over the speaker (no background) at `top`, scaled by `scale` */
   style?: CardStyle; source?: string; date?: string; badge?: string; highlight?: string[]; top?: number; scale?: number;
   enter?: SceneEnter;
   lines?: PlacedLine[]; entries?: PlacedEntry[]; stickers?: PlacedSticker[]; bars?: PlacedBar[];
+  items?: CheckItem[]; steps?: Step[]; rings?: Ring[];
 };
 export type SideSize = 'sm' | 'md' | 'lg';
 export type PlacedSide = { s: number; e: number; words: { f: number; text: string; tone?: Tone; size?: SideSize }[]; align: 'left' | 'right' | 'center' };
@@ -56,11 +67,14 @@ export const toneColor = (t: Tone | undefined, look: Look, accent: string): stri
 
 const BG_COLOR: Record<Bg, string> = {
   dark: '#121517', red: '#EF4B4F', accent: '#222', paper: '#E9E0CC', cork: '#8C6B4B', yellow: '#FFD93B', blue: '#2F7BFF',
+  notebook: '#FBF8EF', chalk: '#1E3A2F', grid: '#F5F6F1', gradient: '#160F2E',
 };
+const KIT_BGS = new Set<string>(['notebook', 'chalk', 'grid', 'gradient']);
 /** Text on a light background reads dark. */
-const lightBg = (bg: Bg) => bg === 'paper' || bg === 'yellow';
+const lightBg = (bg: Bg) => bg === 'paper' || bg === 'yellow' || kitBgLight(bg);
 
 export const SceneBg: React.FC<{ bg: Bg; f: number; accent: string }> = ({ bg, f, accent }) => {
+  if (KIT_BGS.has(bg)) return <KitBackground bg={bg as KitBg} f={f} accent={accent} />;
   const base = bg === 'accent' ? accent : BG_COLOR[bg];
   const drift = Math.sin(f / 70) * 30;
   return (
@@ -137,7 +151,10 @@ const Highlighted: React.FC<{ text: string; words?: string[]; p: number; color?:
   );
 };
 
-const Line: React.FC<{ l: PlacedLine; frame: number; look: Look; accent: string; bg: Bg }> = ({ l, frame, look, accent, bg }) => {
+const TEXT_ENTERS = new Set<string>(['type', 'scramble', 'letters', 'rise']);
+const MARKS = new Set<string>(['circle', 'underline', 'arrow', 'box']);
+
+const Line: React.FC<{ l: PlacedLine; frame: number; look: Look; accent: string; bg: Bg; lottie?: LottieMap }> = ({ l, frame, look, accent, bg, lottie }) => {
   const face = look.display;
   const d = frame - l.f;
   const full = face.upper ? l.text.toUpperCase() : l.text;
@@ -155,16 +172,34 @@ const Line: React.FC<{ l: PlacedLine; frame: number; look: Look; accent: string;
   const mk = l.fx === 'marker' && !box ? interpolate(d, [3, 11], [0, 1], { ...clamp, easing: Easing.out(Easing.quad) }) : 0;
   const st = l.fx === 'strike' ? interpolate(d, [7, 13], [0, 1], { ...clamp, easing: Easing.out(Easing.cubic) }) : 0;
   if (mk > 0.4) color = '#111';
+  const textEnter = l.enter && TEXT_ENTERS.has(l.enter) ? (l.enter as TextEnter) : null;
+  const seed = seedOf(`${l.text}|${l.f}`);
+  const textStyle: React.CSSProperties = {
+    position: 'relative', fontFamily: face.family, fontWeight: face.weight, fontSize: size, lineHeight: 1.02, letterSpacing: face.track, color,
+    background: boxBg, padding: box ? `${size * 0.04}px ${size * 0.18}px` : 0, borderRadius: box ? 6 : 0, opacity: st > 0 ? 1 - 0.3 * st : 1,
+    transform: box ? 'rotate(-1.2deg)' : undefined, whiteSpace: 'nowrap', display: 'inline-block',
+  };
+  // the block the hand marks / sparkles frame: the measured text (+ the box padding)
+  const bw = textWidth(text, face, size) + (box ? size * 0.36 : 0);
+  const bh = size * 1.02 + (box ? size * 0.08 : 0);
+  const markColor = lightBg(bg) ? '#F2443F' : '#FFD93B';
+  const es = l.emoji ? interpolate(d - 2, [0, 6], [0, 1], { ...clamp, easing: Easing.out(Easing.back(2.2)) }) : 0;
   return (
-    <div style={{ display: 'flex', justifyContent: 'center', ...enterStyle(d, l.enter ?? (l.size === 'sm' ? 'slide' : 'slam')) }}>
+    <div style={{ display: 'flex', justifyContent: 'center', ...(textEnter ? (d < 0 ? { opacity: 0 } : {}) : enterStyle(d, (l.enter as 'slam' | 'slide' | undefined) ?? (l.size === 'sm' ? 'slide' : 'slam'))) }}>
       <span style={{ position: 'relative', display: 'inline-block' }}>
         {mk > 0 && <span style={{ position: 'absolute', left: -size * 0.12, right: -size * 0.12, top: size * 0.1, bottom: size * 0.02, background: '#FFE45C',
           transform: `scaleX(${mk}) rotate(-1.2deg)`, transformOrigin: 'left center', borderRadius: size * 0.06 }} />}
-        <span style={{ position: 'relative', fontFamily: face.family, fontWeight: face.weight, fontSize: size, lineHeight: 1.02, letterSpacing: face.track, color,
-          background: boxBg, padding: box ? `${size * 0.04}px ${size * 0.18}px` : 0, borderRadius: box ? 6 : 0, opacity: st > 0 ? 1 - 0.3 * st : 1,
-          transform: box ? 'rotate(-1.2deg)' : undefined, whiteSpace: 'nowrap', display: 'inline-block' }}>{text}</span>
+        {textEnter ? <EnterText text={text} kind={textEnter} d={d} seed={seed} style={textStyle} /> : <span style={textStyle}>{text}</span>}
         {st > 0 && <span style={{ position: 'absolute', left: -size * 0.08, right: -size * 0.08, top: '50%', height: Math.max(8, size * 0.1), marginTop: -Math.max(4, size * 0.05),
           background: '#F2443F', transform: `scaleX(${st}) rotate(-4deg)`, transformOrigin: 'left center', borderRadius: 4, boxShadow: '0 3px 0 rgba(0,0,0,0.3)' }} />}
+        {l.fx && MARKS.has(l.fx) && <HandMark mark={l.fx as Mark} w={bw} h={bh} d={d} color={markColor} seed={seed} />}
+        {l.fx === 'sparkle' && <Sparkles w={bw} h={bh} d={d} seed={seed} color={lightBg(bg) ? '#F2443F' : '#FFE45C'} />}
+        {l.emoji && es > 0 && (
+          // a sticker on the line's top-right corner (beside a centred line it would leave the frame)
+          <span style={{ position: 'absolute', right: -Math.min(size, 120) * 0.62, top: -Math.min(size, 120) * 0.55, transform: `scale(${es.toFixed(3)}) rotate(${(12 - (1 - es) * 30).toFixed(1)}deg)` }}>
+            <LottieEmoji char={l.emoji} size={Math.max(70, Math.min(size, 120) * 0.95)} lottie={lottie} />
+          </span>
+        )}
       </span>
     </div>
   );
@@ -326,7 +361,7 @@ const Sticker: React.FC<{ st: PlacedSticker; frame: number; look: Look; accent: 
   );
 };
 
-export const ScenePro: React.FC<{ sc: PlacedScene; frame: number; look: Look; accent: string }> = ({ sc, frame, look, accent }) => {
+export const ScenePro: React.FC<{ sc: PlacedScene; frame: number; look: Look; accent: string; lottie?: LottieMap }> = ({ sc, frame, look, accent, lottie }) => {
   const { fps } = useVideoConfig();
   const f = frame - sc.s;
   const face = look.display;
@@ -340,7 +375,7 @@ export const ScenePro: React.FC<{ sc: PlacedScene; frame: number; look: Look; ac
           <div style={{ fontFamily: face.family, fontWeight: face.weight, fontSize: fitFace(sc.heading.toUpperCase(), 58, W - 200, 1, face, 28), color: ink, marginBottom: 12,
             ...enterStyle(f, 'slide') }}>{sc.heading.toUpperCase()}</div>
         )}
-        {(sc.lines ?? []).map((l, i) => <Line key={i} l={l} frame={frame} look={look} accent={accent} bg={sc.bg} />)}
+        {(sc.lines ?? []).map((l, i) => <Line key={i} l={l} frame={frame} look={look} accent={accent} bg={sc.bg} lottie={lottie} />)}
       </div>
     );
   } else if (sc.kind === 'timeline') {
@@ -384,12 +419,30 @@ export const ScenePro: React.FC<{ sc: PlacedScene; frame: number; look: Look; ac
     );
   } else if (sc.kind === 'compare') {
     body = <Compare sc={sc} frame={frame} look={look} accent={accent} ink={ink} />;
+  } else if (sc.kind === 'checklist' || sc.kind === 'steps' || sc.kind === 'ring') {
+    const colorOf = (t?: string) => (t ? toneColor(t as Tone, look, accent) : '');
+    const heading = sc.heading && (
+      <div style={{ fontFamily: face.family, fontWeight: face.weight, fontSize: fitFace(sc.heading.toUpperCase(), 64, W - 200, 1, face, 30), color: dark ? '#FFD93B' : '#111', ...enterStyle(f, 'slide') }}>{sc.heading.toUpperCase()}</div>
+    );
+    body = sc.kind === 'checklist'
+      ? <ChecklistBody items={sc.items ?? []} frame={frame} face={face} ink={ink} dark={dark} heading={heading} colorOf={colorOf} />
+      : sc.kind === 'steps'
+        ? <StepsBody steps={sc.steps ?? []} frame={frame} face={face} ink={ink} dark={dark} heading={heading} colorOf={colorOf} />
+        : <RingsBody rings={sc.rings ?? []} frame={frame} face={face} ink={ink} dark={dark} heading={heading} colorOf={colorOf} />;
   } else if (sc.kind === 'card') {
     const p = interpolate(f, [0, 6], [0, 1], { ...clamp, easing: Easing.out(Easing.back(1.4)) });
     const sweep = interpolate(f, [14, 26], [0, 1], { ...clamp, easing: Easing.inOut(Easing.quad) });
     const heading = sc.heading && <div style={{ fontFamily: face.family, fontWeight: face.weight, fontSize: fitFace(sc.heading.toUpperCase(), 46, W - 200, 1, face, 24), color: dark ? '#FFD93B' : '#111', ...enterStyle(f, 'slide') }}>{sc.heading.toUpperCase()}</div>;
     const lift = `translateY(${(1 - p) * 80}px) rotate(${-2 + (1 - p) * 4}deg) scale(${0.85 + 0.15 * p})`;
-    if (!sc.image) {
+    if (sc.style === 'phone' && sc.image) {
+      const cap = sc.caption ?? sc.title ?? '';
+      body = (
+        <PhoneCard image={sc.image} f={f} heading={heading} caption={cap ? (
+          <div style={{ fontFamily: face.family, fontWeight: face.weight, fontSize: fitFace(face.upper ? cap.toUpperCase() : cap, 58, W - 180, 2, face, 30), color: ink, textAlign: 'center',
+            padding: '0 80px', lineHeight: 1.08, ...enterStyle(f - 8, 'slide') }}><Highlighted text={face.upper ? cap.toUpperCase() : cap} words={sc.highlight} p={sweep} /></div>
+        ) : undefined} />
+      );
+    } else if (!sc.image) {
       const cap = sc.caption ?? sc.title ?? '';
       const article = sc.style === 'article';
       body = (
@@ -462,6 +515,9 @@ const sceneEnter = (kind: SceneEnter | undefined, f: number): React.CSSPropertie
   const p = interpolate(f, [0, 6], [0, 1], { ...clamp, easing: Easing.out(Easing.cubic) });
   if (kind === 'push') return { transform: `translateX(${((1 - p) * W).toFixed(1)}px)` };
   if (kind === 'zoom') return { transform: `scale(${(1.35 - 0.35 * p).toFixed(4)})`, filter: p < 0.98 ? `blur(${(14 * (1 - p)).toFixed(1)}px)` : undefined, opacity: Math.min(1, 0.2 + p) };
+  if (kind === 'wipe') return { clipPath: `inset(0 ${((1 - p) * 100).toFixed(1)}% 0 0)` };
+  if (kind === 'rise') return { transform: `translateY(${((1 - p) * 700).toFixed(1)}px)`, opacity: Math.min(1, 0.3 + p) };
+  if (kind === 'iris') return { clipPath: `circle(${(p * 120).toFixed(1)}% at 50% 42%)` };
   return { transform: `translateX(${((1 - p) * -W * 0.9).toFixed(1)}px)`, filter: p < 0.98 ? `blur(${(26 * (1 - p)).toFixed(1)}px)` : undefined };
 };
 

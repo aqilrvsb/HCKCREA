@@ -76,6 +76,12 @@ export async function POST(req: Request) {
     engine: await allowedEngine(b?.engine, user.id),
   };
   const padat = input.engine === "padat";
+  // admins may pin the renderer of a test ad (HyperFrames sign-off); clients always follow the switch
+  let pinRenderer: "hyperframes" | "remotion" | null = null;
+  if (b?.renderer === "hyperframes" || b?.renderer === "remotion") {
+    const { data: prof } = await createAdminClient().from("profiles").select("is_admin").eq("id", user.id).maybeSingle();
+    if (prof?.is_admin) pinRenderer = b.renderer;
+  }
   const variations = Math.max(1, Math.min(3, Math.round(Number(b?.variations) || 1)));
   const projectId = b?.project_id ? String(b.project_id) : null;
 
@@ -112,6 +118,7 @@ export async function POST(req: Request) {
           plan_token: newPlanToken(),
           aspectRatio: "9:16",
           ...(variations > 1 ? { variation: `${v + 1}/${variations}` } : {}),
+          ...(pinRenderer ? { renderer: pinRenderer } : {}),
           // Padat: the run's own token for the AI voice (/api/vgc/tts)
           ...(padat ? { padat_min: minCost, padat: { tts: { voice: input.voice, token: newPlanToken(), calls: 0 } } } : {}),
         },

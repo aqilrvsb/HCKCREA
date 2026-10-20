@@ -273,13 +273,16 @@ export const PRO_DIRECTION = (recent: string[]) => `PRO FINISH — you are also 
   "captions": "big" (bold TikTok captions) | "subtle" (small caps words that build as spoken — the explainer look, when scenes carry the message),
   "fx": "full" (flashes, confetti, light breaks, automatic shakes on the big hits) | "light" (none of those — only your own "moves"; the calm news / explainer feel),
   "scenes": [SCENE] — EXPLAINER SCENES: full-screen motion-graphic scenes that cut away from the speaker while the voice keeps playing (the news / explainer TikTok style); each line, entry or sticker enters on the word that says it:
-    {"kind": "build", "at": CUE, "to": CUE, "bg": BG, "heading"?: small caps label (≤40, e.g. "1. Cara guna", "Nama dia"), "lines": [{"at": CUE, "text": ≤26, "size": "sm"|"md"|"lg"|"xl", "tone"?: TONE, "box"?: "yellow"|"black"|"white"|"accent", "enter"?: "slam"|"slide", "fx"?: "count" (its number counts up) | "marker" (a highlighter sweeps it) | "strike" (it gets crossed out — a myth, a wrong belief, the old price)}] (≤6)} — numbered points, a stat that builds (a word, then the big number, then what it means), a punchline, a closing question to the viewer,
+    {"kind": "build", "at": CUE, "to": CUE, "bg": BG, "heading"?: small caps label (≤40, e.g. "1. Cara guna", "Nama dia"), "lines": [{"at": CUE, "text": ≤26, "size": "sm"|"md"|"lg"|"xl", "tone"?: TONE, "box"?: "yellow"|"black"|"white"|"accent", "enter"?: "slam" | "slide" | "type" (typewriter with a caret) | "scramble" (glyphs settle into the word — a reveal, a secret) | "letters" (letters pop in one by one) | "rise" (wipes up out of a mask), "fx"?: "count" (its number counts up) | "marker" (a highlighter sweeps it) | "strike" (it gets crossed out — a myth, a wrong belief, the old price) | "circle" (a hand-drawn marker loop around it) | "underline" (a hand-drawn underline) | "arrow" (a hand-drawn arrow points at it) | "box" (a hand-drawn box) | "sparkle" (stars pop around a punchline), "emoji"?: one emoji that pops on its corner (🔥 ✅ ❌ 💡 😱 👍 ⚠️ …)}] (≤6)} — numbered points, a stat that builds (a word, then the big number, then what it means), a punchline, a closing question to the viewer,
     {"kind": "timeline", "at": CUE, "to": CUE, "bg": BG, "kicker"?: ≤24, "title": ≤30, "entries": [{"at": CUE, "date": ≤20 (a date, a step or a "when" word), "lines": [≤24, ≤24?], "tone"?: TONE}] (≤4)} — steps, a before → after, what happens over time,
     {"kind": "collage", "at": CUE, "to": CUE, "bg": BG, "title"?: ≤22 (ransom-note letter tiles), "stickers": [{"at": CUE, "text": ≤24, "sub"?: ≤20, "kind": "note"|"strip"|"burst"|"tag", "tone"?: TONE}] (≤4)} — places / options / prices pinned up like a mood board (burst = a starburst for a price or number),
-    {"kind": "card", "at": CUE, "to": CUE, "bg": BG, "style": "polaroid" | "article" | "float", "heading"?: ≤40, "caption"?: ≤110 (the headline / point in the speaker's words), "source"?: ≤24 (only a source the speaker names), "date"?: ≤24 (only a spoken date), "badge"?: ≤14 (float, e.g. "VIRAL", "TERKINI", "BARU"), "highlight"?: [words of the caption a highlighter sweeps]} — a picture card: plan a B-roll at the same moment and its picture is shown here. "polaroid" = photo + caption; "article" = a web-news card (headline · source · date · picture) for a rule, a claim or news the speaker cites; "float" = a smaller card floating over the speaker with a badge — it may OPEN the video right under the hook title, and never covers the face,
+    {"kind": "card", "at": CUE, "to": CUE, "bg": BG, "style": "polaroid" | "article" | "float" | "phone", "heading"?: ≤40, "caption"?: ≤110 (the headline / point in the speaker's words), "source"?: ≤24 (only a source the speaker names), "date"?: ≤24 (only a spoken date), "badge"?: ≤14 (float, e.g. "VIRAL", "TERKINI", "BARU"), "highlight"?: [words of the caption a highlighter sweeps]} — a picture card: plan a B-roll at the same moment and its picture is shown here. "polaroid" = photo + caption; "article" = a web-news card (headline · source · date · picture) for a rule, a claim or news the speaker cites; "float" = a smaller card floating over the speaker with a badge — it may OPEN the video right under the hook title, and never covers the face; "phone" = the picture on a phone screen (an app, a shop page, a screenshot, a chat),
     {"kind": "compare", "at": CUE, "to": CUE, "bg": BG, "title"?: ≤30, "bars": [{"at": CUE, "label": ≤16, "value": ≤12, "tone"?: TONE}] (2–4)} — columns that grow on their words: numbers become bar heights (0.35% vs 0.6%, RM100 vs RM99.65, 2 jam vs 10 minit), words alone read as A vs B,
-    BG = "dark" (charcoal, warm glow, faint grid) | "red" | "accent" | "paper" | "cork" | "yellow" | "blue"; TONE = "white" | "yellow" | "green" | "red" | "blue" | "accent";
-    any scene may set "enter": "cut" (default — the hard explainer cut) | "push" | "zoom" | "whip";
+    {"kind": "checklist", "at": CUE, "to": CUE, "bg": BG, "heading"?: ≤40, "items": [{"at": CUE, "text": ≤28, "mark": "check" | "cross", "tone"?: TONE}] (≤6)} — each box ticks ✓ (or crosses ✗ for a don't) on its word: benefits, where to apply, do / don't lists, what's inside,
+    {"kind": "steps", "at": CUE, "to": CUE, "bg": BG, "heading"?: ≤40, "steps": [{"at": CUE, "title": ≤22, "sub"?: ≤30, "tone"?: TONE}] (2–4)} — numbered circles joined by a line that draws to the next step: how to use, a routine, a process,
+    {"kind": "ring", "at": CUE, "to": CUE, "bg": BG, "heading"?: ≤40, "rings": [{"at": CUE, "value": 0–100, "label": ≤20, "tone"?: TONE}] (1–3)} — percentage rings that fill while the number counts: ONLY a percentage the speaker says (or a plain share like "9 daripada 10" = 90),
+    BG = "dark" (charcoal, warm glow, faint grid) | "red" | "accent" | "paper" | "cork" | "yellow" | "blue" | "notebook" (lined school paper, red margin — tips, tutorials) | "chalk" (green chalkboard in a wooden frame — teacher, lessons) | "grid" (graph paper — numbers, plans) | "gradient" (deep night with drifting colour light — premium, emotional); TONE = "white" | "yellow" | "green" | "red" | "blue" | "accent";
+    any scene may set "enter": "cut" (default — the hard explainer cut) | "push" | "zoom" | "whip" | "wipe" | "rise" | "iris";
     a scene lasts 1.5–14 s, never during the hook (a float card may) or the CTA; stickers and B-roll pause under it; keep the speaker on screen for the hook, the personal / emotional moments and the CTA,
   "side": [{"at": CUE, "to"?: CUE, "align": "left" | "right" | "center", "words": [{"at": CUE, "text": ≤16, "tone"?: TONE, "size"?: "sm" | "md" | "lg"}] (1–3, stacked)}] — big words beside the speaker's head on the line that deserves them; mix sizes like an editor ("KEPUTUSAN" sm → "RHB" lg → "SENDIRI" md yellow), or "center" for ONE huge embossed word over the head on a punchline ("PALSU").
 Every scene / side word shows ONLY words, numbers and facts the speaker actually says — short, punchy, in their language.
@@ -363,12 +366,14 @@ function cleanDirection(d: any, nWords: number, duration: number): ProDirection 
 }
 
 const SCENE_TONES = new Set(["white", "yellow", "green", "red", "blue", "accent", "black"]);
-const SCENE_BGS = new Set(["dark", "red", "accent", "paper", "cork", "yellow", "blue"]);
+const SCENE_BGS = new Set(["dark", "red", "accent", "paper", "cork", "yellow", "blue", "notebook", "chalk", "grid", "gradient"]);
+/** One emoji (a pictographic cluster) or nothing. */
+const emojiOf = (v: unknown) => (typeof v === "string" && v.length <= 8 && /\p{Extended_Pictographic}/u.test(v) ? v.trim() : undefined);
 
 /** One explainer scene, cleaned to what scenesPro.tsx draws (unknown fields dropped, text clipped). */
 function cleanScene(sc: any, nWords: number, duration: number): Record<string, unknown> | null {
   const kind = String(sc?.kind || "");
-  if (!["build", "timeline", "collage", "card", "compare"].includes(kind)) return null;
+  if (!["build", "timeline", "collage", "card", "compare", "checklist", "steps", "ring"].includes(kind)) return null;
   const at = cueIn(sc?.at, nWords, duration);
   if (at === undefined) return null;
   const to = cueIn(sc?.to, nWords, duration);
@@ -379,9 +384,9 @@ function cleanScene(sc: any, nWords: number, duration: number): Record<string, u
     if (v) out[k] = v;
   }
   const tone = (v: unknown) => (SCENE_TONES.has(v as string) ? { tone: v } : {});
-  if (["cut", "push", "zoom", "whip"].includes(sc?.enter)) out.enter = sc.enter;
+  if (["cut", "push", "zoom", "whip", "wipe", "rise", "iris"].includes(sc?.enter)) out.enter = sc.enter;
   if (kind === "card") {
-    out.style = ["polaroid", "article", "float"].includes(sc?.style) ? sc.style : "polaroid";
+    out.style = ["polaroid", "article", "float", "phone"].includes(sc?.style) ? sc.style : "polaroid";
     for (const [k, n] of [["source", 24], ["date", 24], ["badge", 14]] as const) {
       const v = clean(sc?.[k], n);
       if (v) out[k] = v;
@@ -396,8 +401,9 @@ function cleanScene(sc: any, nWords: number, duration: number): Record<string, u
         at: cueOr(l?.at), text, ...tone(l?.tone),
         size: ["sm", "md", "lg", "xl"].includes(l?.size) ? l.size : "md",
         ...(["yellow", "black", "white", "accent"].includes(l?.box) ? { box: l.box } : {}),
-        ...(l?.enter === "slide" || l?.enter === "slam" ? { enter: l.enter } : {}),
-        ...(["count", "marker", "strike"].includes(l?.fx) ? { fx: l.fx } : {}),
+        ...(["slam", "slide", "type", "scramble", "letters", "rise"].includes(l?.enter) ? { enter: l.enter } : {}),
+        ...(["count", "marker", "strike", "circle", "underline", "arrow", "box", "sparkle"].includes(l?.fx) ? { fx: l.fx } : {}),
+        ...(emojiOf(l?.emoji) ? { emoji: emojiOf(l.emoji) } : {}),
       } : null;
     }).filter(Boolean).slice(0, 6);
     if (!lines.length) return null;
@@ -419,6 +425,28 @@ function cleanScene(sc: any, nWords: number, duration: number): Record<string, u
     if (!stickers.length && !out.title) return null;
     out.title = out.title ? clean(out.title, 22) : undefined;
     out.stickers = stickers;
+  } else if (kind === "checklist") {
+    const items = (Array.isArray(sc?.items) ? sc.items : []).map((it: any) => {
+      const text = clean(it?.text, 28);
+      return text ? { at: cueOr(it?.at), text, mark: it?.mark === "cross" ? "cross" : "check", ...tone(it?.tone) } : null;
+    }).filter(Boolean).slice(0, 6);
+    if (!items.length) return null;
+    out.items = items;
+  } else if (kind === "steps") {
+    const steps = (Array.isArray(sc?.steps) ? sc.steps : []).map((st: any) => {
+      const title = clean(st?.title, 22);
+      return title ? { at: cueOr(st?.at), title, ...(clean(st?.sub, 30) ? { sub: clean(st.sub, 30) } : {}), ...tone(st?.tone) } : null;
+    }).filter(Boolean).slice(0, 4);
+    if (steps.length < 2) return null;
+    out.steps = steps;
+  } else if (kind === "ring") {
+    const rings = (Array.isArray(sc?.rings) ? sc.rings : []).map((rg: any) => {
+      const value = Number(rg?.value);
+      const label = clean(rg?.label, 20);
+      return Number.isFinite(value) && label ? { at: cueOr(rg?.at), value: Math.max(0, Math.min(100, value)), label, ...tone(rg?.tone) } : null;
+    }).filter(Boolean).slice(0, 3);
+    if (!rings.length) return null;
+    out.rings = rings;
   } else if (kind === "compare") {
     const bars = (Array.isArray(sc?.bars) ? sc.bars : []).map((b: any) => {
       const label = clean(b?.label, 16);

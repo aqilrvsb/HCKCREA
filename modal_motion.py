@@ -699,18 +699,25 @@ def _render_hf(comp: str, props: dict, d: Path, out: Path, pct_from: int, pct_to
 
 
 def _render(comp: str, props: dict, d: Path, out: Path, scale: float, pct_from: int, pct_to: int, p: dict) -> dict:
-    """Render with the renderer PeningLab asked for (payload "renderer"). HyperFrames
-    renders 1080p; any HyperFrames failure re-renders the job with Remotion."""
+    """Render with the renderer PeningLab asked for (payload "renderer"). HyperFrames only, no Remotion
+    fallback: a failed HyperFrames render is tried once more from scratch, then the job fails. It always
+    renders 1080p; a 720p job is scaled down afterwards."""
     t = time.time()
-    if str(p.get("renderer") or "") == "hyperframes" and scale == 1.0:
-        try:
-            info = _render_hf(comp, props, d, out, pct_from, pct_to)
-            return {"renderer": "hyperframes", "render_phase_sec": round(time.time() - t, 1), **info}
-        except Exception as e:  # noqa: BLE001
-            why = str(e)[:400]
-            print("hyperframes render failed → Remotion:", why, flush=True)
-            info = _render_parallel(comp, props, d, out, scale, pct_from, pct_to)
-            return {"renderer": "remotion", "hf_fallback": why, "render_phase_sec": round(time.time() - t, 1), **info}
+    if str(p.get("renderer") or "") == "hyperframes":
+        tries = []
+        for attempt in range(2):
+            try:
+                info = _render_hf(comp, props, d, out, pct_from, pct_to)
+                if scale != 1.0:
+                    small = out.with_name(out.stem + "_sd.mp4")
+                    _run(["ffmpeg", "-v", "error", "-y", "-i", str(out), "-vf", f"scale={int(1080 * scale) // 2 * 2}:-2:flags=lanczos",
+                          "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-c:a", "copy", "-movflags", "+faststart", str(small)], "downscale", 600)
+                    small.replace(out)
+                return {"renderer": "hyperframes", "render_phase_sec": round(time.time() - t, 1), **({"hf_retries": tries} if tries else {}), **info}
+            except Exception as e:  # noqa: BLE001
+                tries.append(str(e)[:300])
+                print(f"hyperframes render failed (try {attempt + 1}):", tries[-1], flush=True)
+        raise RuntimeError(f"HyperFrames render failed twice: {tries[-1]}")
     info = _render_parallel(comp, props, d, out, scale, pct_from, pct_to)
     return {"renderer": "remotion", "render_phase_sec": round(time.time() - t, 1), **info}
 
@@ -1597,12 +1604,14 @@ def _qa(props: dict, d: Path, p: dict) -> tuple:
     pp = d / "props.json"
     pp.write_text(json.dumps(props, ensure_ascii=False), encoding="utf-8")
     via = "remotion"
-    if str(p.get("renderer") or "") == "hyperframes" and _scale_for(p) == 1.0:
+    if str(p.get("renderer") or "") == "hyperframes":
+        # HyperFrames only: stills of the edit as it will render; if they fail, QA is skipped (never Remotion stills)
         try:
             _hf_stills(props, d, "MotionEdit", frames, sd)
             via = "hyperframes"
         except Exception as e:  # noqa: BLE001
-            print("hf qa stills failed → Remotion stills:", str(e)[:300], flush=True)
+            print("hf qa stills failed → QA skipped:", str(e)[:300], flush=True)
+            return props, {"qa": f"skipped (stills: {str(e)[:100]})"}
     if via == "remotion":
         _run(["node", f"{MOTION_DIR}/scripts/stills.mjs", f"{MOTION_DIR}/build", "MotionEdit", str(pp), str(sd), ",".join(map(str, frames)), "0.45"],
              "qa stills", 400)
@@ -2007,6 +2016,10 @@ def _edit_finish(p: dict, d: Path, srv: _Serve, st: dict) -> dict:
     chars = [o.get("text") for o in (plan.get("overlays") or []) if o.get("t") == "emoji"]
     chars += [o.get("sub") or "👇" for o in (plan.get("overlays") or []) if o.get("t") == "point"]
     chars += [k.get("emoji") for k in (plan.get("keywords") or []) if k.get("emoji")]
+    # emoji the Pro director put on scene lines (HyperFrames) animate too
+    direction = plan.get("direction") if isinstance(plan.get("direction"), dict) else {}
+    chars += [ln.get("emoji") for sc in (direction.get("scenes") or []) if isinstance(sc, dict)
+              for ln in (sc.get("lines") or []) if isinstance(ln, dict) and ln.get("emoji")]
     lottie = _fetch_lottie(chars, d, srv)
 
     props = {

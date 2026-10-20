@@ -24,7 +24,7 @@ import { CaptionsPro } from './captionsPro';
 import { EndCardPro } from './endCardPro';
 import { BreakFxLayer, Grain, ProgressPro } from './fxPro';
 import { HookPro, hookBottom } from './hookPro';
-import { FloatCard, ScenePro, SideWords, type Bg, type CardStyle, type LineFx, type PlacedScene, type PlacedSide, type SceneEnter, type SideSize, type Tone } from './scenesPro';
+import { FloatCard, ScenePro, SideWords, type Bg, type CardStyle, type LineEnter, type LineFx, type PlacedScene, type PlacedSide, type SceneEnter, type SideSize, type Tone } from './scenesPro';
 import { lookFor, type Direction } from './look';
 import { BLOCKS, BLOCK_BOX } from './blocks';
 import { recordBlock } from '../runtime/collect.js';
@@ -54,9 +54,15 @@ const IMPACT_TYPES = new Set<ItemType>(['bigword', 'stamp', 'price']);
 const CONFETTI_COLORS = (accent: string, second: string) => ['#FFD93B', '#ffffff', accent, second === '#111111' ? '#ff5c8a' : second, '#22c55e', '#38bdf8'];
 
 const TONES = new Set<Tone>(['white', 'yellow', 'green', 'red', 'blue', 'accent', 'black']);
-const BGS = new Set<Bg>(['dark', 'red', 'accent', 'paper', 'cork', 'yellow', 'blue']);
-const ENTERS = new Set<SceneEnter>(['cut', 'push', 'zoom', 'whip']);
-const LINE_FX = new Set<LineFx>(['strike', 'marker', 'count']);
+const BGS = new Set<Bg>(['dark', 'red', 'accent', 'paper', 'cork', 'yellow', 'blue', 'notebook', 'chalk', 'grid', 'gradient']);
+const ENTERS = new Set<SceneEnter>(['cut', 'push', 'zoom', 'whip', 'wipe', 'rise', 'iris']);
+const LINE_FX = new Set<LineFx>(['strike', 'marker', 'count', 'circle', 'underline', 'arrow', 'box', 'sparkle']);
+const LINE_ENTERS = new Set<string>(['slam', 'slide', 'type', 'scramble', 'letters', 'rise']);
+/** One emoji (a pictographic cluster, ≤ 8 code units) or nothing. */
+const emojiOf = (v: unknown) => (typeof v === 'string' && v.length <= 8 && /\p{Extended_Pictographic}/u.test(v) ? v.trim() : undefined);
+/** Every item of a scene that lands on a word (for timing rules, events and SFX). */
+const sceneItems = (sc: PlacedScene) => [...(sc.lines ?? []), ...(sc.entries ?? []), ...(sc.stickers ?? []), ...(sc.bars ?? []),
+  ...(sc.items ?? []), ...(sc.steps ?? []), ...(sc.rings ?? [])].map((x) => x.f);
 const SIDE_SIZES = new Set<SideSize>(['sm', 'md', 'lg']);
 const txt = (v: unknown, n: number) => {
   if (typeof v !== 'string') return '';
@@ -151,7 +157,7 @@ export const MotionEditPro: React.FC<ProProps> = (p) => {
     const floats: PlacedScene[] = [];
     for (const raw of arr(p.direction?.scenes).slice(0, 16)) {
       const kind = String(raw.kind);
-      if (!['build', 'timeline', 'collage', 'card', 'compare'].includes(kind)) continue;
+      if (!['build', 'timeline', 'collage', 'card', 'compare', 'checklist', 'steps', 'ring'].includes(kind)) continue;
       const float = kind === 'card' && raw.style === 'float';
       const s = onBeat(fr(cue(raw.at as string | number, -1)));
       // a float card may open the video (under the hook title); full-screen scenes wait for the hook to end
@@ -165,7 +171,7 @@ export const MotionEditPro: React.FC<ProProps> = (p) => {
         heading: txt(raw.heading, 40) || undefined, kicker: txt(raw.kicker, 24) || undefined, title: txt(raw.title, 30) || undefined,
         caption: txt(raw.caption, 110) || undefined, enter: ENTERS.has(raw.enter as SceneEnter) ? (raw.enter as SceneEnter) : undefined };
       if (kind === 'card') {
-        sc.style = (['polaroid', 'article', 'float'].includes(String(raw.style)) ? raw.style : 'polaroid') as CardStyle;
+        sc.style = (['polaroid', 'article', 'float', 'phone'].includes(String(raw.style)) ? raw.style : 'polaroid') as CardStyle;
         sc.source = txt(raw.source, 24) || undefined;
         sc.date = txt(raw.date, 24) || undefined;
         sc.badge = txt(raw.badge, 14) || undefined;
@@ -176,8 +182,9 @@ export const MotionEditPro: React.FC<ProProps> = (p) => {
           f: at(l.at), text: txt(l.text, 26), tone: tone(l.tone),
           box: (['yellow', 'black', 'white', 'accent', 'none'].includes(String(l.box)) ? l.box : 'none') as 'yellow' | 'black' | 'white' | 'accent' | 'none',
           size: (['sm', 'md', 'lg', 'xl'].includes(String(l.size)) ? l.size : 'md') as 'sm' | 'md' | 'lg' | 'xl',
-          enter: l.enter === 'slide' ? 'slide' as const : l.enter === 'slam' ? 'slam' as const : undefined,
+          enter: LINE_ENTERS.has(String(l.enter)) ? (l.enter as LineEnter) : undefined,
           fx: LINE_FX.has(l.fx as LineFx) ? (l.fx as LineFx) : undefined,
+          emoji: emojiOf(l.emoji),
         })).filter((l) => l.text);
         if (!sc.lines.length) continue;
       } else if (kind === 'timeline') {
@@ -195,9 +202,21 @@ export const MotionEditPro: React.FC<ProProps> = (p) => {
         sc.bars = arr(raw.bars).slice(0, 4).map((b) => ({ f: at(b.at), label: txt(b.label, 16), value: txt(b.value, 12), tone: tone(b.tone) }))
           .filter((b) => b.label && b.value);
         if (sc.bars.length < 2) continue;
+      } else if (kind === 'checklist') {
+        sc.items = arr(raw.items).slice(0, 6).map((it) => ({ f: at(it.at), text: txt(it.text, 28), mark: it.mark === 'cross' ? 'cross' as const : 'check' as const, tone: tone(it.tone) }))
+          .filter((it) => it.text);
+        if (!sc.items.length) continue;
+      } else if (kind === 'steps') {
+        sc.steps = arr(raw.steps).slice(0, 4).map((st) => ({ f: at(st.at), title: txt(st.title, 22), sub: txt(st.sub, 30) || undefined, tone: tone(st.tone) }))
+          .filter((st) => st.title);
+        if (sc.steps.length < 2) continue;
+      } else if (kind === 'ring') {
+        sc.rings = arr(raw.rings).slice(0, 3).map((rg) => ({ f: at(rg.at), value: Math.max(0, Math.min(100, Number(rg.value))), label: txt(rg.label, 20), tone: tone(rg.tone) }))
+          .filter((rg) => Number.isFinite(rg.value) && rg.label);
+        if (!sc.rings.length) continue;
       }
       // never sit on a finished scene: cut back to the speaker ~3.5 s after its last item lands (a card may hold 11 s, as in the reference)
-      const items = [...(sc.lines ?? []), ...(sc.entries ?? []), ...(sc.stickers ?? []), ...(sc.bars ?? [])].map((x) => x.f);
+      const items = sceneItems(sc);
       if (sc.kind !== 'card') {
         const head = !!(sc.heading || sc.title || sc.kicker);
         // too thin to cut away for: the speaker carries it
@@ -214,7 +233,7 @@ export const MotionEditPro: React.FC<ProProps> = (p) => {
     // the last item that lands gets ≥ 1.1 s on screen (a scene that ends on its own punchline wastes it),
     // as far as the next scene and the CTA allow
     scenes.forEach((sc, i) => {
-      const items = [...(sc.lines ?? []), ...(sc.entries ?? []), ...(sc.stickers ?? []), ...(sc.bars ?? [])].map((x) => x.f);
+      const items = sceneItems(sc);
       if (!items.length) return;
       const want = Math.max(...items) + fr(1.1);
       const room = Math.min(scenes[i + 1] ? scenes[i + 1].s - 2 : last, ctaStart >= 0 ? ctaStart - 2 : last);
@@ -337,7 +356,7 @@ export const MotionEditPro: React.FC<ProProps> = (p) => {
     for (const k of p.keywords ?? []) { const w = words[k.i]; if (w) tryBump(fr(w.t)); }
     const events = [
       ...placed.map((pl) => pl.s), ...blocks.map((b) => b.s), ...broll.map((b) => b.s),
-      ...scenes.flatMap((sc) => [sc.s, sc.e, ...(sc.lines ?? []).map((l) => l.f), ...(sc.entries ?? []).map((x) => x.f), ...(sc.stickers ?? []).map((x) => x.f), ...(sc.bars ?? []).map((x) => x.f)]),
+      ...scenes.flatMap((sc) => [sc.s, sc.e, ...sceneItems(sc)]),
       ...floats.map((x) => x.s),
       ...sides.map((x) => x.s), ...zooms.map((z) => z.s), ...cutFrames, ...bumps,
       hookEnd, ...(ctaStart >= 0 ? [ctaStart] : [durationInFrames]),
@@ -410,6 +429,10 @@ export const MotionEditPro: React.FC<ProProps> = (p) => {
       (sc.entries ?? []).forEach((x, j) => sfx.push(...sfxFor('check', x.f, style, vseed + 90 + k * 7 + j)));
       (sc.stickers ?? []).forEach((x, j) => sfx.push(...sfxFor(x.kind === 'burst' ? 'stamp' : x.kind === 'note' ? 'note' : x.kind === 'strip' ? 'tape' : 'tag', x.f, style, vseed + 100 + k * 7 + j)));
       (sc.bars ?? []).forEach((x, j) => sfx.push(...sfxFor(j === 0 ? 'counter' : 'chip', x.f, style, vseed + 110 + k * 7 + j)));
+      (sc.items ?? []).forEach((x, j) => sfx.push(...sfxFor('check', x.f + 3, style, vseed + 150 + k * 7 + j)));
+      (sc.steps ?? []).forEach((x, j) => sfx.push(...sfxFor('chip', x.f, style, vseed + 160 + k * 7 + j)));
+      (sc.rings ?? []).forEach((x, j) => sfx.push(...sfxFor('counter', x.f, style, vseed + 170 + k * 7 + j)));
+      (sc.lines ?? []).forEach((l, j) => { if (l.fx === 'circle' || l.fx === 'underline' || l.fx === 'arrow' || l.fx === 'box') sfx.push(...sfxFor('scribble', l.f + 5, style, vseed + 180 + k * 7 + j)); });
       (sc.lines ?? []).forEach((l, j) => { if (l.fx === 'strike') sfx.push(...sfxFor('scribble', l.f + 7, style, vseed + 130 + k * 7 + j)); });
     });
     floats.forEach((x, k) => sfx.push(...sfxFor('fact', x.s, style, vseed + 140 + k)));
@@ -525,7 +548,7 @@ export const MotionEditPro: React.FC<ProProps> = (p) => {
                 return near.length >= 2 ? Math.min(...near.map((x) => x.y)) * 1920 : null;
               })()} /> : null))}
         {plan.floats.map((fc, i) => (frame >= fc.s && frame < fc.e ? <FloatCard key={`fc${i}`} sc={fc} frame={frame} look={look} /> : null))}
-        {plan.scenes.map((sc, i) => (frame >= sc.s && frame < sc.e ? <ScenePro key={`sc${i}`} sc={sc} frame={frame} look={look} accent={accent} /> : null))}
+        {plan.scenes.map((sc, i) => (frame >= sc.s && frame < sc.e ? <ScenePro key={`sc${i}`} sc={sc} frame={frame} look={look} accent={accent} lottie={p.lottie} /> : null))}
 
         {cap.on && (
           <CaptionsPro pages={plan.pages} style={cap.style} accent={accent} centerY={capCenter} look={look} subtle={p.direction?.captions === 'subtle' || plan.scenes.some((sc) => frame >= sc.s && frame < sc.e)}
