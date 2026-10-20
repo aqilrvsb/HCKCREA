@@ -97,6 +97,14 @@ export const MotionEditPro: React.FC<ProProps> = (p) => {
     const vseed = seedFrom(`${p.hook?.text ?? ''}|${words.slice(0, 60).map((w) => w.w).join(' ')}|${durationInFrames}`);
     const look = lookFor(Number.isInteger(p.lookSeed) ? (p.lookSeed as number) : vseed, accent, style, p.direction,
       (p.hook?.text ?? '').trim().split(/\s+/).filter(Boolean).length);
+    // the virtual camera zooms in around the face (jump cut × breathing push × overscan): everything that keeps
+    // clear of the face plans against the face as it appears on screen, not the raw tracked box
+    const camK = Math.min(1.3, look.camera.jump * (1 + look.camera.push) * OVERSCAN);
+    const faces: Face[] = (p.faces ?? []).map((fc) => {
+      const w = Math.min(1, fc.w * camK);
+      const h = Math.min(1, fc.h * camK);
+      return { ...fc, x: Math.max(0, fc.x + fc.w / 2 - w / 2), y: Math.max(0, fc.y + fc.h / 2 - h / 2), w, h };
+    });
     const hookEnd = p.hook?.text ? Math.min(last, fr(cue(p.hook.to, 2.4))) : 0;
     const ctaStart = p.cta?.text ? Math.min(Math.max(0, fr(cue(p.cta.at, 0))), Math.max(0, last - fr(1.6))) : -1;
 
@@ -134,7 +142,7 @@ export const MotionEditPro: React.FC<ProProps> = (p) => {
       if (prev && s < prev.e + 4) s = prev.e + 4;
       if (e - s < fr(1)) continue;
       let layout = b.layout;
-      const box = layout === 'pip' ? fitPip(p.faces, s / fps, e / fps, b.label) : null;
+      const box = layout === 'pip' ? fitPip(faces, s / fps, e / fps, b.label) : null;
       if (layout === 'pip' && !box) layout = 'full';
       broll.push({ s, e, src: b.src, video: b.video, blur: b.blur, layout, label: b.label, k, ...(box ? { box } : {}) });
     }
@@ -248,7 +256,7 @@ export const MotionEditPro: React.FC<ProProps> = (p) => {
     // (a speaker framed high leaves no room under the hook title: the card then waits for the title to clear)
     for (let i = floats.length - 1; i >= 0; i--) {
       const fc = floats[i];
-      const faceY = (faceAt(p.faces, fc.s / fps)?.y ?? 0.36) * 1920;
+      const faceY = (faceAt(faces, fc.s / fps)?.y ?? 0.36) * 1920;
       const h = fc.image ? 430 : 260; // card height at scale 1 (600 px wide)
       const fit = (top: number) => Math.min(1, (faceY + 150 - top) / h);
       let top = 270;
@@ -296,7 +304,7 @@ export const MotionEditPro: React.FC<ProProps> = (p) => {
 
     const capH = cap.style === 'tiktok' ? 220 : 250;
     const slots = layoutEdit(placed, {
-      faces: p.faces, fps, hookEnd, pips: [...pips, ...blocks.map((b) => ({ s: b.s, e: b.e })), ...sides.map((x) => ({ s: x.s, e: x.e })), ...floats.map((x) => ({ s: x.s, e: x.e }))],
+      faces, fps, hookEnd, pips: [...pips, ...blocks.map((b) => ({ s: b.s, e: b.e })), ...sides.map((x) => ({ s: x.s, e: x.e })), ...floats.map((x) => ({ s: x.s, e: x.e }))],
       labels: broll.filter((b) => b.layout === 'full' && b.label).map((b) => ({ s: b.s - 9, e: b.e })),
       captions: cap.on ? { a: capCenter - capH / 2, b: capCenter + capH / 2 } : null,
     });
@@ -410,7 +418,7 @@ export const MotionEditPro: React.FC<ProProps> = (p) => {
     whips.forEach((w, k) => sfx.push(...sfxFor('broll_full', w.f - 4, style, vseed + 53 + k)));
 
     return {
-      look, placed, slots, zooms, broll, scenes, floats, sides, shakes, flashes, breaks, confetti, cutFrames, bumps, crashes, punches, whips, sfx, hookEnd, ctaStart,
+      look, faces, placed, slots, zooms, broll, scenes, floats, sides, shakes, flashes, breaks, confetti, cutFrames, bumps, crashes, punches, whips, sfx, hookEnd, ctaStart,
       pages: cap.on ? toPages(words, Math.min(6, Math.max(1, cap.maxWords || 3))) : [],
     };
   }, [p.words, p.overlays, p.zooms, p.hook, p.facts, p.rehook, p.cta, p.broll, p.faces, p.cuts, p.hookSfx, p.keywords, p.music, p.musicBpm,
@@ -486,8 +494,8 @@ export const MotionEditPro: React.FC<ProProps> = (p) => {
   const hr = cam.drift * 0.3 * noise2D('cam-r', t * 0.22, 7.1);
 
   const shake = gempak ? shakeOffset(frame, plan.shakes, 14) : { x: 0, y: 0, r: 0 };
-  const faceTop = (faceAt(p.faces, 1)?.y ?? 0.38) * 1920;
-  const ctaFace = (faceAt(p.faces, Math.max(0, plan.ctaStart) / fps)?.y ?? 0.38) * 1920;
+  const faceTop = (faceAt(plan.faces, 1)?.y ?? 0.38) * 1920;
+  const ctaFace = (faceAt(plan.faces, Math.max(0, plan.ctaStart) / fps)?.y ?? 0.38) * 1920;
 
   return (
     <AbsoluteFill style={{ background: '#000' }}>
@@ -513,7 +521,7 @@ export const MotionEditPro: React.FC<ProProps> = (p) => {
           ? <SideWords key={`sd${i}`} side={sd} frame={frame} look={look} accent={accent}
               faceTop={(() => {
                 // the highest face top around that moment; a lone detection (the product held up to the lens) doesn't count
-                const near = (p.faces ?? []).filter((x) => Math.abs(x.t - sd.s / fps) < 0.6);
+                const near = plan.faces.filter((x) => Math.abs(x.t - sd.s / fps) < 0.6);
                 return near.length >= 2 ? Math.min(...near.map((x) => x.y)) * 1920 : null;
               })()} /> : null))}
         {plan.floats.map((fc, i) => (frame >= fc.s && frame < fc.e ? <FloatCard key={`fc${i}`} sc={fc} frame={frame} look={look} /> : null))}
