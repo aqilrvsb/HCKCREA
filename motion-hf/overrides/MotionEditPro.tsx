@@ -218,6 +218,8 @@ export const MotionEditPro: React.FC<ProProps> = (p) => {
       const sc = scenes.find((x) => x.s > s);
       if (sc && e > sc.s) e = sc.s;
       if (e - s < fr(1) || sides.some((x) => s < x.e && e > x.s) || floats.some((x) => s < x.e && e > x.s)) continue;
+      // the band above the head is shared with B-roll cards and fact cards: those keep it
+      if (broll.some((x) => x.layout === 'pip' && s < x.e + 4 && e > x.s - 4) || placed.some((pl) => pl.it.t === 'fact' && s < pl.e && e > pl.s)) continue;
       const words = arr(raw.words).slice(0, 3).map((w) => ({ f: Math.min(Math.max(fr(cue(w.at as string | number, s / fps)), s), e - 6), text: txt(w.text, 16), tone: tone(w.tone),
         size: SIDE_SIZES.has(w.size as SideSize) ? (w.size as SideSize) : undefined }))
         .filter((w) => w.text);
@@ -250,6 +252,8 @@ export const MotionEditPro: React.FC<ProProps> = (p) => {
     for (let i = placed.length - 1; i >= 0; i--) {
       const pl = placed[i];
       if (inScene(pl.s)) { placed.splice(i, 1); continue; }
+      // side words carry that line (the reference look): a sticker on the same moment would repeat it
+      if (pl.it.t !== 'confetti' && sides.some((x) => pl.s < x.e && pl.e > x.s)) { placed.splice(i, 1); continue; }
       const next = scenes.find((sc) => sc.s > pl.s && sc.s < pl.e);
       if (next) placed[i] = { ...pl, e: Math.max(pl.s + 14, next.s) };
     }

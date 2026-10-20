@@ -98,6 +98,10 @@ const enterStyle = (d: number, kind: 'slam' | 'slide' = 'slam'): React.CSSProper
   return { transform: `scale(${1.7 - 0.7 * p})`, filter: p < 0.98 ? `blur(${(10 * (1 - p)).toFixed(1)}px)` : undefined, opacity: Math.min(1, 0.3 + p) };
 };
 
+/** fitSize for the display face: a condensed face (Anton, Bebas) reads ~20 % smaller at the same size, so it gets more. */
+const fitFace = (text: string, base: number, width: number, lines: number, face: Look['display'], min: number) =>
+  fitSize(text, base * (face.charW < 0.5 ? 1.22 : 1), width, lines, face.charW, min);
+
 const SIZE = { sm: 64, md: 118, lg: 160, xl: 224 };
 
 const normWord = (w: string) => w.toLowerCase().replace(/[^\p{L}\p{N}]/gu, '');
@@ -140,7 +144,7 @@ const Line: React.FC<{ l: PlacedLine; frame: number; look: Look; accent: string;
   const single = (full.match(/\d[\d.,]*/g) ?? []).length === 1;
   const text = l.fx === 'count' && single && d >= 0 ? countText(full, d) : full;
   const base = SIZE[l.size ?? 'md'];
-  const size = fitSize(text, base, W - 160, 1, face.charW, 30);
+  const size = fitFace(text, base, W - 160, 1, face, 30);
   const box = l.box && l.box !== 'none' ? l.box : null;
   const boxBg = box === 'yellow' ? '#FFD93B' : box === 'black' ? '#111' : box === 'white' ? '#fff' : box === 'accent' ? look.hi : 'transparent';
   let color = toneColor(l.tone, look, accent);
@@ -180,7 +184,7 @@ const Compare: React.FC<{ sc: PlacedScene; frame: number; look: Look; accent: st
     const tileW = Math.min(400, Math.floor((W - 120 - gap * (bars.length - 1)) / bars.length));
     return (
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 44, marginTop: -20 }}>
-        {sc.title && <div style={{ fontFamily: face.family, fontWeight: face.weight, fontSize: fitSize(sc.title.toUpperCase(), 84, W - 200, 1, face.charW, 32), color: ink, ...enterStyle(frame - sc.s, 'slam') }}>{sc.title.toUpperCase()}</div>}
+        {sc.title && <div style={{ fontFamily: face.family, fontWeight: face.weight, fontSize: fitFace(sc.title.toUpperCase(), 84, W - 200, 1, face, 32), color: ink, ...enterStyle(frame - sc.s, 'slam') }}>{sc.title.toUpperCase()}</div>}
         <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'stretch', gap, position: 'relative' }}>
           {bars.map((b, i) => {
             const d = frame - b.f;
@@ -193,9 +197,9 @@ const Compare: React.FC<{ sc: PlacedScene; frame: number; look: Look; accent: st
                 transform: `scale(${(0.6 + 0.4 * p).toFixed(3)}) rotate(${(i % 2 ? 2 : -2) * p}deg)` }}>
                 <div style={{ width: '100%', minHeight: 300, background: col, borderRadius: 18, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24,
                   boxShadow: '10px 12px 0 rgba(0,0,0,0.28)' }}>
-                  <span style={{ fontFamily: face.family, fontWeight: face.weight, fontSize: fitSize(v, 104, tileW - 56, /\s/.test(v) ? 2 : 1, face.charW, 36), color: dark ? '#fff' : '#111', lineHeight: 1, textAlign: 'center' }}>{v}</span>
+                  <span style={{ fontFamily: face.family, fontWeight: face.weight, fontSize: fitFace(v, 104, tileW - 56, /\s/.test(v) ? 2 : 1, face, 36), color: dark ? '#fff' : '#111', lineHeight: 1, textAlign: 'center' }}>{v}</span>
                 </div>
-                <span style={{ fontFamily: face.family, fontWeight: face.weight, fontSize: fitSize(b.label.toUpperCase(), 50, tileW, 2, face.charW, 24), color: ink, textAlign: 'center', lineHeight: 1.05 }}>{b.label.toUpperCase()}</span>
+                <span style={{ fontFamily: face.family, fontWeight: face.weight, fontSize: fitFace(b.label.toUpperCase(), 50, tileW, 2, face, 24), color: ink, textAlign: 'center', lineHeight: 1.05 }}>{b.label.toUpperCase()}</span>
               </div>
             );
           })}
@@ -210,7 +214,7 @@ const Compare: React.FC<{ sc: PlacedScene; frame: number; look: Look; accent: st
   }
   return (
     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 34, marginTop: -40 }}>
-      {sc.title && <div style={{ fontFamily: face.family, fontWeight: face.weight, fontSize: fitSize(sc.title.toUpperCase(), 78, W - 200, 1, face.charW, 32), color: ink, ...enterStyle(frame - sc.s, 'slam') }}>{sc.title.toUpperCase()}</div>}
+      {sc.title && <div style={{ fontFamily: face.family, fontWeight: face.weight, fontSize: fitFace(sc.title.toUpperCase(), 78, W - 200, 1, face, 32), color: ink, ...enterStyle(frame - sc.s, 'slam') }}>{sc.title.toUpperCase()}</div>}
       <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'center', gap: 40, height: H + 150, position: 'relative' }}>
         {bars.map((b, i) => {
           const d = frame - b.f;
@@ -220,10 +224,10 @@ const Compare: React.FC<{ sc: PlacedScene; frame: number; look: Look; accent: st
           const v = face.upper ? b.value.toUpperCase() : b.value;
           return (
             <div key={i} style={{ width: colW, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12, opacity: d < 0 ? 0 : 1 }}>
-              <span style={{ fontFamily: face.family, fontWeight: face.weight, fontSize: fitSize(v, 84, colW + 30, 1, face.charW, 34), color: col, lineHeight: 1, ...enterStyle(d - 4, 'slam') }}>{numeric ? countText(v, d) : v}</span>
+              <span style={{ fontFamily: face.family, fontWeight: face.weight, fontSize: fitFace(v, 84, colW + 30, 1, face, 34), color: col, lineHeight: 1, ...enterStyle(d - 4, 'slam') }}>{numeric ? countText(v, d) : v}</span>
               <div style={{ width: '100%', height: h, background: col, borderRadius: '14px 14px 0 0', transform: `scaleY(${grow})`, transformOrigin: 'bottom center',
                 boxShadow: 'inset 0 -12px 0 rgba(0,0,0,0.18)' }} />
-              <span style={{ fontFamily: face.family, fontWeight: face.weight, fontSize: fitSize(b.label.toUpperCase(), 46, colW + 40, 2, face.charW, 24), color: ink, textAlign: 'center', lineHeight: 1.05 }}>{b.label.toUpperCase()}</span>
+              <span style={{ fontFamily: face.family, fontWeight: face.weight, fontSize: fitFace(b.label.toUpperCase(), 46, colW + 40, 2, face, 24), color: ink, textAlign: 'center', lineHeight: 1.05 }}>{b.label.toUpperCase()}</span>
             </div>
           );
         })}
@@ -295,7 +299,7 @@ const Sticker: React.FC<{ st: PlacedSticker; frame: number; look: Look; accent: 
       <div style={{ position: 'relative', width: size, height: size, transform: `scale(${p}) rotate(${rot * 2}deg)` }}>
         <Burst size={size} color={color} />
         <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', textAlign: 'center', padding: 40 }}>
-          <span style={{ fontFamily: face.family, fontWeight: face.weight, fontSize: fitSize(text, 88, 270, 2, face.charW, 32), color: '#111', lineHeight: 1 }}>{text}</span>
+          <span style={{ fontFamily: face.family, fontWeight: face.weight, fontSize: fitFace(text, 88, 270, 2, face, 32), color: '#111', lineHeight: 1 }}>{text}</span>
           {st.sub && <span style={{ fontFamily: face.family, fontSize: 28, color: '#111', marginTop: 8 }}>{st.sub.toUpperCase()}</span>}
         </div>
       </div>
@@ -311,13 +315,13 @@ const Sticker: React.FC<{ st: PlacedSticker; frame: number; look: Look; accent: 
     const bg = st.tone === 'red' ? '#F2443F' : st.tone === 'yellow' ? '#FFD93B' : st.tone === 'blue' ? '#4FB3FF' : '#7FD7A6';
     return (
       <div style={{ transform: `translateX(${(1 - p) * -300}px) rotate(${-1.5}deg)`, background: bg, border: '4px solid #111',
-        padding: '12px 30px', fontFamily: face.family, fontWeight: face.weight, fontSize: fitSize(text, 78, 900, 1, face.charW, 32), color: '#111' }}>{text}</div>
+        padding: '12px 30px', fontFamily: face.family, fontWeight: face.weight, fontSize: fitFace(text, 78, 900, 1, face, 32), color: '#111' }}>{text}</div>
     );
   }
   // tag: black marker text on white tape
   return (
     <div style={{ transform: `scale(${p}) rotate(${rot}deg)`, background: '#fff', padding: '8px 24px',
-      boxShadow: '5px 6px 0 rgba(0,0,0,0.25)', fontFamily: face.family, fontWeight: face.weight, fontSize: fitSize(text, 92, 860, 1, face.charW, 34), color: toneColor(st.tone === 'white' || st.tone === 'yellow' ? 'black' : st.tone, look, accent) }}>{text}</div>
+      boxShadow: '5px 6px 0 rgba(0,0,0,0.25)', fontFamily: face.family, fontWeight: face.weight, fontSize: fitFace(text, 92, 860, 1, face, 34), color: toneColor(st.tone === 'white' || st.tone === 'yellow' ? 'black' : st.tone, look, accent) }}>{text}</div>
   );
 };
 
@@ -332,7 +336,7 @@ export const ScenePro: React.FC<{ sc: PlacedScene; frame: number; look: Look; ac
     body = (
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }}>
         {sc.heading && (
-          <div style={{ fontFamily: face.family, fontWeight: face.weight, fontSize: fitSize(sc.heading.toUpperCase(), 58, W - 200, 1, face.charW, 28), color: ink, marginBottom: 12,
+          <div style={{ fontFamily: face.family, fontWeight: face.weight, fontSize: fitFace(sc.heading.toUpperCase(), 58, W - 200, 1, face, 28), color: ink, marginBottom: 12,
             ...enterStyle(f, 'slide') }}>{sc.heading.toUpperCase()}</div>
         )}
         {(sc.lines ?? []).map((l, i) => <Line key={i} l={l} frame={frame} look={look} accent={accent} bg={sc.bg} />)}
@@ -343,7 +347,7 @@ export const ScenePro: React.FC<{ sc: PlacedScene; frame: number; look: Look; ac
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', padding: '0 100px', gap: 30, marginTop: -60 }}>
         <div style={{ alignSelf: 'center', textAlign: 'center' }}>
           {sc.kicker && <div style={{ fontFamily: face.family, fontWeight: face.weight, fontSize: 42, color: '#FFD93B', ...enterStyle(f, 'slide') }}>{sc.kicker.toUpperCase()}</div>}
-          {sc.title && <div style={{ fontFamily: face.family, fontWeight: face.weight, fontSize: fitSize(sc.title.toUpperCase(), 78, W - 200, 1, face.charW, 32), color: ink, ...enterStyle(f - 2, 'slam') }}>{sc.title.toUpperCase()}</div>}
+          {sc.title && <div style={{ fontFamily: face.family, fontWeight: face.weight, fontSize: fitFace(sc.title.toUpperCase(), 78, W - 200, 1, face, 32), color: ink, ...enterStyle(f - 2, 'slam') }}>{sc.title.toUpperCase()}</div>}
         </div>
         {(sc.entries ?? []).map((en, i) => {
           const d = frame - en.f;
@@ -355,7 +359,7 @@ export const ScenePro: React.FC<{ sc: PlacedScene; frame: number; look: Look; ac
                 <span style={{ alignSelf: 'flex-start', background: '#fff', color: '#111', fontFamily: face.family, fontWeight: face.weight, fontSize: 48, padding: '2px 16px',
                   transform: d >= 0 && d < 4 ? `skewX(${-14 * (1 - d / 4)}deg)` : undefined }}>{en.date.toUpperCase()}</span>
                 {en.lines.slice(0, 2).map((t, j) => (
-                  <span key={j} style={{ fontFamily: face.family, fontWeight: face.weight, fontSize: fitSize(t.toUpperCase(), 70, W - 320, 1, face.charW, 30), lineHeight: 1.05,
+                  <span key={j} style={{ fontFamily: face.family, fontWeight: face.weight, fontSize: fitFace(t.toUpperCase(), 70, W - 320, 1, face, 30), lineHeight: 1.05,
                     color: j === 0 ? ink : col }}>{t.toUpperCase()}</span>
                 ))}
               </div>
@@ -369,7 +373,7 @@ export const ScenePro: React.FC<{ sc: PlacedScene; frame: number; look: Look; ac
       <div style={{ display: 'flex', flexDirection: 'column', gap: 46, marginTop: -60 }}>
         {sc.heading && (
           <div style={{ alignSelf: 'flex-start', marginLeft: 80, background: '#111', color: '#fff', padding: '8px 22px', transform: 'rotate(-2deg)', boxShadow: '5px 6px 0 rgba(0,0,0,0.25)',
-            fontFamily: face.family, fontWeight: face.weight, fontSize: fitSize(sc.heading.toUpperCase(), 54, W - 240, 1, face.charW, 28), ...enterStyle(f, 'slide') }}>{sc.heading.toUpperCase()}</div>
+            fontFamily: face.family, fontWeight: face.weight, fontSize: fitFace(sc.heading.toUpperCase(), 54, W - 240, 1, face, 28), ...enterStyle(f, 'slide') }}>{sc.heading.toUpperCase()}</div>
         )}
         {sc.title && <Ransom text={sc.title} f={f} />}
         <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'center', alignItems: 'center', columnGap: 36, rowGap: 30, padding: '0 60px', maxHeight: 760 }}>
@@ -382,7 +386,7 @@ export const ScenePro: React.FC<{ sc: PlacedScene; frame: number; look: Look; ac
   } else if (sc.kind === 'card') {
     const p = interpolate(f, [0, 6], [0, 1], { ...clamp, easing: Easing.out(Easing.back(1.4)) });
     const sweep = interpolate(f, [14, 26], [0, 1], { ...clamp, easing: Easing.inOut(Easing.quad) });
-    const heading = sc.heading && <div style={{ fontFamily: face.family, fontWeight: face.weight, fontSize: fitSize(sc.heading.toUpperCase(), 46, W - 200, 1, face.charW, 24), color: dark ? '#FFD93B' : '#111', ...enterStyle(f, 'slide') }}>{sc.heading.toUpperCase()}</div>;
+    const heading = sc.heading && <div style={{ fontFamily: face.family, fontWeight: face.weight, fontSize: fitFace(sc.heading.toUpperCase(), 46, W - 200, 1, face, 24), color: dark ? '#FFD93B' : '#111', ...enterStyle(f, 'slide') }}>{sc.heading.toUpperCase()}</div>;
     const lift = `translateY(${(1 - p) * 80}px) rotate(${-2 + (1 - p) * 4}deg) scale(${0.85 + 0.15 * p})`;
     if (!sc.image) {
       const cap = sc.caption ?? sc.title ?? '';
@@ -394,7 +398,7 @@ export const ScenePro: React.FC<{ sc: PlacedScene; frame: number; look: Look; ac
             {article && <div style={{ position: 'absolute', top: 0, right: 0, width: 64, height: 64, borderTopRightRadius: 14, background: `linear-gradient(225deg, ${sc.bg === 'accent' ? accent : BG_COLOR[sc.bg]} 50%, #d4d4d4 50%)` }} />}
             {!article && <div style={{ position: 'absolute', left: 36, top: -34, fontFamily: 'Georgia, serif', fontSize: 170, lineHeight: 1, color: look.hi === '#FFD93B' ? '#F2443F' : look.hi }}>“</div>}
             <div style={{ fontFamily: article ? "'Inter', sans-serif" : face.family, fontWeight: article ? 800 : face.weight, color: '#141414', lineHeight: 1.16,
-              fontSize: article ? fitSize(cap, 76, 790, 4, 0.56, 40) : fitSize(face.upper ? cap.toUpperCase() : cap, 92, 790, 4, face.charW, 44) }}>
+              fontSize: article ? fitSize(cap, 76, 790, 4, 0.56, 40) : fitFace(face.upper ? cap.toUpperCase() : cap, cap.length < 44 ? 112 : 92, 790, 4, face, 44) }}>
               <Highlighted text={article || !face.upper ? cap : cap.toUpperCase()} words={sc.highlight} p={sweep} />
             </div>
             {(sc.source || sc.date) && (
