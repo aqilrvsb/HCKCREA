@@ -20,6 +20,10 @@ export const Probe: React.FC<{ video: string; image: string }> = ({ video, image
         fontSize: 120, color: "#FFD93B", WebkitTextStroke: "10px #000", paintOrder: "stroke fill", transform: `scale(${0.3 + 0.7 * pop})` }}>
         FRAME {frame}
       </div>
+      <div style={{ position: "absolute", top: 520, left: 0, right: 0, textAlign: "center", fontFamily: "'Permanent Marker', cursive",
+        fontSize: 90, color: "#fff", textShadow: "4px 4px 0 #000" }}>Tampal sekarang!</div>
+      <div style={{ position: "absolute", top: 660, left: 0, right: 0, textAlign: "center", fontFamily: "'Patrick Hand', cursive",
+        fontSize: 80, color: "#FFD93B", textShadow: "4px 4px 0 #000" }}>Pakai 8–12 jam</div>
       <Img src={image} style={{ position: "absolute", left: 290, top: 1150, width: 500, borderRadius: 24,
         transform: `translateY(${(1 - pop) * 200}px)`, boxShadow: "0 20px 60px rgba(0,0,0,0.5)" }} />
     </AbsoluteFill>

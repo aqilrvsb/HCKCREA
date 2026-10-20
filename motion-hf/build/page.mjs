@@ -12,8 +12,13 @@ import path from "node:path";
 const esc = (s) => String(s).replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
 const num = (n) => Number(n).toFixed(3).replace(/\.?0+$/, "");
 
-// Families the Laju compositions use. Declared in CSS so the HyperFrames
-// compiler fetches them and injects deterministic @font-face rules.
+// Families the Laju compositions use. The CSS declarations alone let the HyperFrames
+// compiler fetch them and inject deterministic @font-face rules.
+const FONT_FACES = [
+  // not in HyperFrames' auto-resolved Google list: shipped with the page (fonts/, OFL / Apache-2.0)
+  "@font-face{font-family:'Permanent Marker';font-style:normal;font-weight:400;font-display:block;src:url(fonts/PermanentMarker-latin.woff2) format('woff2')}",
+  "@font-face{font-family:'Patrick Hand';font-style:normal;font-weight:400;font-display:block;src:url(fonts/PatrickHand-latin.woff2) format('woff2')}",
+].join("\n");
 const FONT_RULES = [
   ".hf-f1{font-family:'Permanent Marker',cursive}",
   ".hf-f2{font-family:'Patrick Hand',cursive}",
@@ -52,6 +57,7 @@ html,body{margin:0;padding:0;background:#000}
 #hf-stage{position:absolute;inset:0}
 #hf-park{position:absolute;inset:0;visibility:hidden;pointer-events:none}
 .hf-parked{position:absolute;inset:0;width:100%;height:100%}
+${FONT_FACES}
 ${FONT_RULES}
 </style>
 </head>
@@ -61,14 +67,31 @@ ${FONT_RULES}
 <div id="hf-park">
 ${items.join("\n")}
 </div>
-<div class="hf-fonts" style="position:absolute;left:-9999px;top:0" aria-hidden="true"><span class="hf-f1">a</span><span class="hf-f2">a</span><span class="hf-f3">a</span><span class="hf-f4">a</span><span class="hf-f5">a</span><span class="hf-f6">a</span><span class="hf-f7">a</span><span class="hf-f8">a</span></div>
+
 </div>
 <script id="hf-data" type="application/json">${data}</script>
+<script src="gsap.min.js"></script>
 <script src="${esc(runtime)}"></script>
+<script>
+  // HyperFrames clock: one linear tween whose setter draws the seeked frame (see runtime/entry.js)
+  window.__timelines = window.__timelines || {};
+  window.__laju.ready.then(function () {
+    var now = 0, clock = {};
+    Object.defineProperty(clock, "t", { get: function () { return now; }, set: function (v) { now = v; window.__laju.draw(v); } });
+    var tl = gsap.timeline({ paused: true });
+    tl.to(clock, { t: window.__laju.duration, duration: window.__laju.duration, ease: "none", lazy: false }, 0);
+    window.__timelines["main"] = tl;
+  });
+</script>
 </body>
 </html>
 `;
-  fs.mkdirSync(outDir, { recursive: true });
+  fs.mkdirSync(path.join(outDir, "fonts"), { recursive: true });
+  const fontsSrc = new URL("../fonts/", import.meta.url);
+  for (const f of ["PermanentMarker-latin.woff2", "PatrickHand-latin.woff2"]) {
+    fs.copyFileSync(new URL(f, fontsSrc), path.join(outDir, "fonts", f));
+  }
+  fs.copyFileSync(new URL("../node_modules/gsap/dist/gsap.min.js", import.meta.url), path.join(outDir, "gsap.min.js"));
   fs.writeFileSync(path.join(outDir, "index.html"), html);
   // same shape `hyperframes init` writes, registry pinned to the tag we run
   fs.writeFileSync(path.join(outDir, "hyperframes.json"), JSON.stringify({
