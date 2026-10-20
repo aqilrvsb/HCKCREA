@@ -1,4 +1,4 @@
-// Laju v2 "Pro" hook titles — five styles (the video's look picks one). All
+// Laju v2 "Pro" hook titles — six styles (the video's look picks one). All
 // sit in the band between TikTok's top tabs (y ≥ 250) and the speaker's face,
 // show their first word on frame 0, have every word in by ~0.5 s, hold, and
 // clear in the last 7 frames of the hook.
@@ -7,6 +7,7 @@
 //   blocks: each line on its own colour block, sliding in from alternate sides
 //   marker: the line lands at once, then a marker sweeps the key word and an underline draws
 //   stack:  one word per line in the display face, popping in turn, colours alternating
+//   headline: the news-explainer title — white stroked line(s), then the last part wiped in on a colour box
 import React from 'react';
 import { AbsoluteFill, Easing, interpolate, spring, useVideoConfig } from 'remotion';
 import { W, clamp, fitSize } from '../../motion/src/lib';
@@ -33,11 +34,85 @@ const toLines = (words: string[], size: number, charW: number, maxW: number) => 
   return lines;
 };
 
-export const HookPro: React.FC<{ text: string; sub?: string; frame: number; end: number; look: Look; faceTop: number }> = ({ text, sub, frame, end, look, faceTop }) => {
+const splitWords = (s: string, upper: boolean) => {
+  const raw = s.replace(/\s+/g, ' ').trim().split(' ').filter(Boolean);
+  return upper ? raw.map((w) => w.toUpperCase()) : raw;
+};
+
+/** "headline": the title in white (stroked) lines, then its last part on a colour box — the news-explainer hook. */
+function headlineLayout(text: string, sub: string | undefined, look: Look) {
+  const face = look.display;
+  const maxW = W - 130;
+  let top = splitWords(text, face.upper).slice(0, 12);
+  let box = sub ? splitWords(sub, face.upper).slice(0, 6) : [];
+  const size = fitSize(top.join(' '), face.charW < 0.5 ? 132 : 104, maxW, 2, face.charW, 52);
+  let lines = toLines(top, size, face.charW, maxW);
+  if (!box.length && lines.length > 1) {
+    box = lines[lines.length - 1].map((i) => top[i]);
+    top = top.slice(0, lines[lines.length - 1][0]);
+    lines = toLines(top, size, face.charW, maxW);
+  } else if (!box.length && top.length >= 3) {
+    const cut = Math.ceil(top.length * 0.55);
+    box = top.slice(cut);
+    top = top.slice(0, cut);
+    lines = toLines(top, size, face.charW, maxW);
+  }
+  const boxSize = box.length ? Math.min(size, fitSize(box.join(' '), size, maxW - 60, 1, face.charW, 40)) : 0;
+  return { size, top, lines, box, boxSize, height: lines.length * size * 1.06 + (box.length ? boxSize * 1.24 + 14 : 0) };
+}
+
+/** Where the hook's text block ends (y, px): a float card shown during the hook sits below it. */
+export function hookBottom(text: string, sub: string | undefined, look: Look, faceTop: number): number {
+  if (look.hook === 'headline') return TOP + headlineLayout(text, sub, look).height;
+  const face = look.display;
+  const words = splitWords(text, face.upper).slice(0, 12);
+  const room = Math.max(300, Math.min(600, faceTop - 50 - TOP - (sub ? 96 : 0)));
+  if (look.hook === 'stack') return TOP + room + (sub ? 96 : 0);
+  const maxW = W - 130;
+  let size = fitSize(words.join(' '), face.charW < 0.5 ? 190 : 150, maxW, 3, face.charW, 64);
+  let lines = toLines(words, size, face.charW, maxW);
+  while (size > 64 && lines.length * size * 1.06 > room) { size -= 4; lines = toLines(words, size, face.charW, maxW); }
+  return TOP + lines.length * size * (look.hook === 'blocks' ? 1.18 : 1.06) + (sub ? 96 : 0);
+}
+
+const Headline: React.FC<{ text: string; sub?: string; frame: number; end: number; look: Look }> = ({ text, sub, frame, end, look }) => {
   const { fps } = useVideoConfig();
   const face = look.display;
-  const raw = text.replace(/\s+/g, ' ').trim().split(' ').filter(Boolean).slice(0, 12);
-  const words = face.upper ? raw.map((w) => w.toUpperCase()) : raw;
+  const L = headlineLayout(text, sub, look);
+  const out = interpolate(frame, [end - 7, end], [0, 1], clamp);
+  const stroke = Math.max(6, Math.round(L.size / 10));
+  const wipe = interpolate(frame, [5, 12], [0, 1], { ...clamp, easing: Easing.out(Easing.cubic) });
+  return (
+    <AbsoluteFill style={{ pointerEvents: 'none' }}>
+      <AbsoluteFill style={{ background: 'linear-gradient(180deg, rgba(0,0,0,0.5) 0%, rgba(0,0,0,0.25) 26%, rgba(0,0,0,0) 42%)', opacity: 1 - out }} />
+      <div style={{ position: 'absolute', left: 0, right: 0, top: TOP, display: 'flex', flexDirection: 'column', alignItems: 'center', opacity: 1 - out, transform: `translateY(${-out * 40}px)` }}>
+        {L.lines.map((ln, li) => {
+          const s = spring({ frame: frame - li * 2 + 3, fps, config: { damping: 16, stiffness: 240, mass: 0.7 } });
+          return (
+            <div key={li} style={{ display: 'flex', justifyContent: 'center', columnGap: L.size * 0.26, height: L.size * 1.06, opacity: Math.min(1, s * 1.4), transform: `translateY(${(1 - s) * -30}px)` }}>
+              {ln.map((i) => (
+                <span key={i} style={{ fontFamily: face.family, fontWeight: face.weight, fontSize: L.size, lineHeight: 1.04, letterSpacing: face.track, color: '#fff',
+                  WebkitTextStroke: `${stroke}px #000`, paintOrder: 'stroke fill', textShadow: '0 6px 0 rgba(0,0,0,0.3)' } as React.CSSProperties}>{L.top[i]}</span>
+              ))}
+            </div>
+          );
+        })}
+        {L.box.length > 0 && (
+          <div style={{ marginTop: 14, background: look.hi, padding: `${L.boxSize * 0.04}px ${L.boxSize * 0.22}px`, borderRadius: 6, transform: 'rotate(-1deg)',
+            clipPath: `inset(0 ${((1 - wipe) * 100).toFixed(1)}% 0 0)`, boxShadow: '0 10px 0 rgba(0,0,0,0.3)' }}>
+            <span style={{ fontFamily: face.family, fontWeight: face.weight, fontSize: L.boxSize, lineHeight: 1.1, letterSpacing: face.track, color: '#111', whiteSpace: 'nowrap' }}>{L.box.join(' ')}</span>
+          </div>
+        )}
+      </div>
+    </AbsoluteFill>
+  );
+};
+
+export const HookPro: React.FC<{ text: string; sub?: string; frame: number; end: number; look: Look; faceTop: number }> = ({ text, sub, frame, end, look, faceTop }) => {
+  const { fps } = useVideoConfig();
+  if (look.hook === 'headline') return <Headline text={text} sub={sub} frame={frame} end={end} look={look} />;
+  const face = look.display;
+  const words = splitWords(text, face.upper).slice(0, 12);
   const key = keyIndex(words);
   const room = Math.max(300, Math.min(600, faceTop - 50 - TOP - (sub ? 96 : 0)));
   const maxW = W - 130;

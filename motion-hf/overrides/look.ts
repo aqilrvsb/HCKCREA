@@ -6,10 +6,10 @@
 // so a client's feed never reads as one template stamped over and over.
 import { highlight } from '../../motion/src/lib';
 
-export type HookStyle = 'slam' | 'rise' | 'blocks' | 'marker' | 'stack';
+export type HookStyle = 'slam' | 'rise' | 'blocks' | 'marker' | 'stack' | 'headline';
 export type ActiveWord = 'pop' | 'color' | 'box' | 'underline';
 export type Transition = 'whip' | 'zoom' | 'push' | 'flash' | 'glitch' | 'iris';
-export type EndCardStyle = 'pill' | 'badge' | 'banner';
+export type EndCardStyle = 'pill' | 'badge' | 'banner' | 'none';
 export type ProgressStyle = 'bar' | 'thick' | 'dots' | 'none';
 export type BreakFx = 'sweep' | 'leak' | 'burn';
 
@@ -25,12 +25,14 @@ export type Direction = {
   transitions?: Transition[]; break_fx?: BreakFx; end_card?: EndCardStyle; progress?: ProgressStyle;
   second?: string;
   moves?: { at: string | number; move: 'crash' | 'punch' | 'whip' | 'shake' | 'bump'; power?: number }[];
+  /** "light" = no flashes / confetti / break light, shakes only where the director put them (explainer restraint) */
+  fx?: 'full' | 'light';
   /** "subtle" = explainer captions (small words building); "big" (default) = the TikTok captions */
   captions?: 'big' | 'subtle';
   /** Full-screen explainer scenes over the speaker (overrides/scenesPro.tsx). */
   scenes?: ({ kind: string; at: string | number; to?: string | number; bg?: string } & Record<string, unknown>)[];
   /** Big stacked words beside the speaker. */
-  side?: { at: string | number; to?: string | number; align?: string; words: ({ at: string | number; text: string; tone?: string })[] }[];
+  side?: { at: string | number; to?: string | number; align?: string; words: ({ at: string | number; text: string; tone?: string; size?: string })[] }[];
   /** HyperFrames registry blocks (overrides/blocks.ts): block id, moment, zone and the block's own fields. */
   graphics?: ({ block: string; at: string | number; to?: string | number; zone?: string } & Record<string, unknown>)[];
 };
@@ -134,7 +136,7 @@ export function pickLook(seed: number, accent: string, style: 'gempak' | 'clean'
   const display = pick(FACES);
   // captions stay on the wider faces (condensed ones get a bigger size, see captionsPro)
   const caption = r() < 0.7 ? pick([FACES[0], FACES[1], FACES[4], FACES[5]]) : pick(FACES);
-  const hook = pick(['slam', 'rise', 'blocks', 'marker', 'stack'] as const);
+  const hook = pick(['slam', 'rise', 'blocks', 'marker', 'stack', 'headline'] as const);
   const active = pick(['pop', 'color', 'box', 'underline'] as const);
   const all: Transition[] = gempak ? ['whip', 'zoom', 'flash', 'glitch', 'push', 'iris'] : ['push', 'zoom', 'iris', 'whip', 'flash', 'glitch'];
   const main = all[Math.floor(r() * (gempak ? 4 : 3))];
