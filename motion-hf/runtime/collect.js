@@ -38,3 +38,17 @@ export function collected(fps, totalFrames) {
   }
   return out.sort((a, b) => a.start - b.start);
 }
+
+// HyperFrames registry blocks (overrides/blocks.ts) the composition placed:
+// each becomes a sub-composition clip in the page at its slot's box.
+COLLECT.blocks = new Map();
+
+/** Called by the Pro edit while collecting: one entry per placed block (by key). */
+export function recordBlock(entry) {
+  if (!COLLECT.on || COLLECT.blocks.has(entry.key)) return;
+  COLLECT.blocks.set(entry.key, entry);
+}
+
+export function collectedBlocks() {
+  return [...COLLECT.blocks.values()].sort((a, b) => a.start - b.start);
+}

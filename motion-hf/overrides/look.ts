@@ -25,6 +25,8 @@ export type Direction = {
   transitions?: Transition[]; break_fx?: BreakFx; end_card?: EndCardStyle; progress?: ProgressStyle;
   second?: string;
   moves?: { at: string | number; move: 'crash' | 'punch' | 'whip' | 'shake' | 'bump'; power?: number }[];
+  /** HyperFrames registry blocks (overrides/blocks.ts): block id, moment, zone and the block's own fields. */
+  graphics?: ({ block: string; at: string | number; to?: string | number; zone?: string } & Record<string, unknown>)[];
 };
 
 export type Look = {

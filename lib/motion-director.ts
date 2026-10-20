@@ -71,6 +71,8 @@ export type ProDirection = {
   hook_style?: string; font?: string; caption_font?: string; caption_fx?: string; marker?: boolean; emoji?: "above" | "beside";
   grade?: string; grain?: boolean; camera?: string; transitions?: string[]; break_fx?: string; end_card?: string; progress?: string;
   second?: string; moves?: { at: Cue; move: string; power?: number }[];
+  /** HyperFrames registry blocks (motion-hf/overrides/blocks.ts) with their own fields. */
+  graphics?: ({ block: string; at: Cue; to?: Cue } & Record<string, unknown>)[];
 };
 
 // ── AI Auto ──────────────────────────────────────────────────────────────────
@@ -250,7 +252,11 @@ export const PRO_DIRECTION = (recent: string[]) => `PRO FINISH — you are also 
   "end_card": ${shortlist("end_card", 2)},
   "progress": ${shortlist("progress", 2)},
   "second": "#RRGGBB" (a second colour that pairs with the accent),
-  "moves": [{"at": CUE, "move": "crash" | "punch" | "whip" | "shake" | "bump", "power"?: 0.6–1.4}] — signature camera moves on the words that earn them (e.g. a crash zoom on the reveal, a punch-in on the price, a whip at a topic turn, a shake on a shock line); a few per video, at least 2 s apart, none in the last 3 s.
+  "moves": [{"at": CUE, "move": "crash" | "punch" | "whip" | "shake" | "bump", "power"?: 0.6–1.4}] — signature camera moves on the words that earn them (e.g. a crash zoom on the reveal, a punch-in on the price, a whip at a topic turn, a shake on a shock line); a few per video, at least 2 s apart, none in the last 3 s,
+  "graphics": [GRAPHIC] — optional motion-design moments in the band above the face (0–2 per video, each block type once, never during a B-roll card, the hook or the end card):
+    {"block": "count-up", "at": CUE, "to"?: CUE, "end": number, "start"?: number, "prefix"?: string (≤4, e.g. "RM"), "suffix"?: string (≤4, e.g. "%", " jam")} — a number counts up and lands: ONLY a number the speaker says,
+    {"block": "star-rating-fill", "at": CUE, "to"?: CUE, "rating": 0–5} — stars fill to a rating: ONLY a rating the speaker says,
+    {"block": "shutter-slam", "at": CUE, "to"?: CUE, "text": 1–2 words (≤14 chars)} — one word thrown through shutter-blurred beats: the single most important spoken word.
 }
 Craft notes (judgement, not rules): one main transition usually carries most cutaways with one or two accents; full-screen hits (shake, flash, crash) land hardest when rare; captions and stickers must stay readable over the grade; every choice must suit the product, the speaker's energy and the angle.
 VARIETY — TikTok pushes down near-identical videos. ${recent.length ? `This client's recent edits used: ${recent.join(" | ")}. Give this one a clearly different combination (at least a different hook style, font, grade and end card).` : "Give this edit a combination of its own."}`;
@@ -280,6 +286,30 @@ function cleanDirection(d: any, nWords: number, duration: number): ProDirection 
       const power = Number(m?.power);
       return { at, move, ...(Number.isFinite(power) ? { power: Math.min(1.4, Math.max(0.6, power)) } : {}) };
     }).filter(Boolean).slice(0, 10) as ProDirection["moves"] : undefined,
+    graphics: Array.isArray(d.graphics) ? d.graphics.map((g: any) => {
+      const block = typeof g?.block === "string" ? g.block.trim() : "";
+      const at = cueIn(g?.at, nWords, duration);
+      if (!["count-up", "star-rating-fill", "shutter-slam"].includes(block) || at === undefined) return null;
+      const to = cueIn(g?.to, nWords, duration);
+      const out: Record<string, unknown> = { block, at, ...(to !== undefined ? { to } : {}) };
+      if (block === "count-up") {
+        const end = Number(g?.end);
+        if (!Number.isFinite(end)) return null;
+        out.end = end;
+        if (Number.isFinite(Number(g?.start))) out.start = Number(g.start);
+        out.prefix = clean(g?.prefix, 4);
+        out.suffix = clean(g?.suffix, 6);
+      } else if (block === "star-rating-fill") {
+        const r = Number(g?.rating);
+        if (!(r > 0 && r <= 5)) return null;
+        out.rating = r;
+      } else {
+        const text = clean(g?.text, 14);
+        if (!text) return null;
+        out.text = text;
+      }
+      return out;
+    }).filter(Boolean).slice(0, 2) as ProDirection["graphics"] : undefined,
   };
   for (const k of Object.keys(out) as (keyof ProDirection)[]) if (out[k] === undefined || (Array.isArray(out[k]) && !(out[k] as unknown[]).length)) delete out[k];
   return Object.keys(out).length ? out : undefined;

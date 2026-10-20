@@ -20,6 +20,9 @@ now. The owner will apply for permission, and each such item is kept in
 | 103 CC0 sounds (the Mixkit "runtime" list is removed) | `/opt/sfx/cc0` | Barty-Bart/motion-graphics @ 3d83d98 | MIT / CC0 |
 | GSAP 3.14.2, Preact, lottie-web, simplex-noise, preact-render-to-string | `motion-hf/` | npm | GSAP no-charge licence; MIT |
 | Permanent Marker / Patrick Hand fonts | `motion-hf/fonts` | Google Fonts | Apache-2.0 / OFL |
+| HyperFrames registry blocks: count-up, star-rating-fill, shutter-slam (jsDelivr GSAP tag removed) | `motion-hf/blocks` | heygen-com/hyperframes @ ae02e5a | Apache-2.0 |
+| HyperFrames distributed renderer (`@hyperframes/producer`) | `motion-hf` dependency | npm 0.8.181 | Apache-2.0 |
+| Anton, Bebas Neue, Poppins, Archivo Black, Inter, Montserrat (fetched by HyperFrames from Google Fonts at render) | Laju v2 Pro looks | Google Fonts | OFL |
 
 ## Pending licence (permission to be requested)
 
@@ -34,3 +37,10 @@ now. The owner will apply for permission, and each such item is kept in
 AGPL repos whose ideas inform our own rubric and rules: geekjourneyx/hyperframes-motion-director
 (anti-slideshow gates), op7418/guizang-product-video-skill (SFX onset placement, first-frame
 check), calesthio/OpenMontage (distinct-composition check).
+
+## Techniques taken as ideas (no code copied)
+
+Laju v2 Pro numbers come from public write-ups and repos: TikTok / Reels safe zones (Socialync, Upload-Post),
+caption sizing and active-word pops (remotion-dev/template-tiktok — no licence, ideas only; Upload-Post/avatar-mix — MIT),
+crash-zoom and SFX alignment rules (Vincentwei1021/video-shotcraft — Apache-2.0), handheld-drift octaves and
+transition durations (HyperFrames skills — Apache-2.0).

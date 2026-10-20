@@ -35,7 +35,7 @@ const FONT_RULES = [
   ".hf-f12{font-family:'Poppins',sans-serif;font-weight:900}",
 ].join("\n");
 
-export function writePage({ outDir, composition, props, fps = 30, durationInFrames, media = [], runtime = "runtime.js" }) {
+export function writePage({ outDir, composition, props, fps = 30, durationInFrames, media = [], blocks = [], runtime = "runtime.js" }) {
   // HyperFrames renders ceil(duration × fps) frames: N / fps written with 3 decimals
   // (1295 / 30 → "43.167" → 1295.01) would add a frame, so end a quarter frame early
   const dur = Number(num((durationInFrames - 0.25) / fps));
@@ -53,6 +53,21 @@ export function writePage({ outDir, composition, props, fps = 30, durationInFram
     return `<video id="${id}" class="hf-parked" data-hf-src="${esc(m.src)}" src="${esc(m.src)}" ${timing} ${sound} playsinline></video>`;
   });
   const data = JSON.stringify({ composition, fps, durationInFrames, props }).replace(/</g, "\\u003c");
+  // HyperFrames registry blocks the edit placed: sub-composition clips at their slot boxes, themed by the
+  // video's look (inside each block: green → --brand, blue → --accent, violet → --accent-2)
+  const attr = (v) => String(v).replace(/&/g, "&amp;").replace(/'/g, "&#39;").replace(/</g, "&lt;");
+  const blockClips = blocks.map((b, i) => {
+    const t = b.theme || {};
+    const style = [
+      "position:absolute", `left:${Math.round(b.box.left)}px`, `top:${Math.round(b.box.top)}px`,
+      `width:${Math.round(b.box.width)}px`, `height:${Math.round(b.box.height)}px`, `z-index:${30 + i}`, "pointer-events:none",
+      `--brand:${t.brand || "#FFD93B"}`, `--accent:${t.accent || "#2EC4FF"}`, `--accent-2:${t.accent2 || "#FF3D7F"}`,
+      "--fg:#ffffff", "--bg:transparent", `--font-display:${t.font || "Montserrat, sans-serif"}`,
+    ].join(";");
+    return `<div class="clip hf-block" id="hfb-${i}" data-composition-id="${esc(b.block)}" data-composition-src="blocks/${esc(b.block)}.html" `
+      + `data-start="${num(b.start)}" data-duration="${num(b.duration)}" data-track-index="${10 + i}" `
+      + `data-variable-values='${attr(JSON.stringify(b.vars || {}))}' style="${esc(style)}"></div>`;
+  }).join("\n");
   const html = `<!doctype html>
 <html lang="ms">
 <head>
@@ -71,6 +86,7 @@ ${FONT_RULES}
 <body>
 <div id="hf-root" data-composition-id="main" data-start="0" data-duration="${num(dur)}" data-width="1080" data-height="1920">
 <div id="hf-stage"></div>
+${blockClips}
 <div id="hf-park">
 ${items.join("\n")}
 </div>

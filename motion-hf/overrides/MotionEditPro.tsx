@@ -25,6 +25,8 @@ import { EndCardPro } from './endCardPro';
 import { BreakFxLayer, Grain, ProgressPro } from './fxPro';
 import { HookPro } from './hookPro';
 import { lookFor, type Direction } from './look';
+import { BLOCKS, BLOCK_BOX } from './blocks';
+import { recordBlock } from '../runtime/collect.js';
 import { ConfettiRain, Flash, shakeOffset, type Impact } from '../../motion/src/effects';
 import { TapeLayer } from '../../motion/src/guard';
 import { layoutEdit } from '../../motion/src/layout';
@@ -121,14 +123,39 @@ export const MotionEditPro: React.FC<ProProps> = (p) => {
     }
     const pips = broll.filter((b) => b.layout === 'pip').map((b) => ({ s: b.s, e: b.e }));
 
+    // director-placed HyperFrames registry blocks: one sticker slot each, so the layout keeps them off the
+    // face, the captions and the other stickers; one instance per block type, clear of the hook and end card
+    const blocks: { key: number; block: string; vars: Record<string, string | number | boolean>; s: number; e: number }[] = [];
+    for (const [k, g] of (p.direction?.graphics ?? []).slice(0, 4).entries()) {
+      const def = BLOCKS[String(g?.block)];
+      if (!def || blocks.some((b) => b.block === g.block)) continue;
+      const vars = def.vars(g as Record<string, unknown>);
+      if (!vars) continue;
+      const s = onBeat(fr(cue(g.at, -1)));
+      if (s < 0 || s < hookEnd + 4 || (ctaStart >= 0 && s > ctaStart - fr(def.min))) continue;
+      let e = g.to !== undefined ? fr(cue(g.to, s / fps + def.min)) : s + fr(def.min + 0.6);
+      e = Math.min(Math.max(e, s + fr(def.min)), s + fr(def.max), ctaStart >= 0 ? ctaStart : last);
+      if (e - s < fr(def.min) - 1) continue;
+      // the band above the face is the block's: never while a B-roll card, a cutaway or another block is up
+      if (broll.some((x) => s < x.e + 4 && e > x.s - 4) || blocks.some((x) => s < x.e + 6 && e > x.s - 6)) continue;
+      blocks.push({ key: 900 + k, block: String(g.block), vars, s, e });
+    }
+
     const capH = cap.style === 'tiktok' ? 220 : 250;
     const slots = layoutEdit(placed, {
-      faces: p.faces, fps, hookEnd, pips,
+      faces: p.faces, fps, hookEnd, pips: [...pips, ...blocks.map((b) => ({ s: b.s, e: b.e }))],
       labels: broll.filter((b) => b.layout === 'full' && b.label).map((b) => ({ s: b.s - 9, e: b.e })),
       captions: cap.on ? { a: capCenter - capH / 2, b: capCenter + capH / 2 } : null,
     });
 
     // 1080p phone footage goes soft beyond ~1.25×
+    for (const b of blocks) {
+      recordBlock({
+        key: b.key, block: b.block, vars: b.vars, start: b.s / fps, duration: (b.e - b.s) / fps, box: BLOCK_BOX,
+        theme: { brand: look.hi, accent: look.second === '#111111' ? '#2EC4FF' : look.second, accent2: accent, font: look.display.family },
+      });
+    }
+
     const zooms = (p.zooms ?? []).slice(0, 40).map((z) => {
       const s = fr(cue(z.at, 0));
       const e = z.to !== undefined ? fr(cue(z.to, s / fps + 1.6)) : s + fr(1.6);
@@ -148,7 +175,7 @@ export const MotionEditPro: React.FC<ProProps> = (p) => {
     };
     for (const k of p.keywords ?? []) { const w = words[k.i]; if (w) tryBump(fr(w.t)); }
     const events = [
-      ...placed.map((pl) => pl.s), ...broll.map((b) => b.s), ...zooms.map((z) => z.s), ...cutFrames, ...bumps,
+      ...placed.map((pl) => pl.s), ...blocks.map((b) => b.s), ...broll.map((b) => b.s), ...zooms.map((z) => z.s), ...cutFrames, ...bumps,
       hookEnd, ...(ctaStart >= 0 ? [ctaStart] : [durationInFrames]),
     ].sort((a, b) => a - b);
     for (let i = 1; i < events.length; i++) {
@@ -211,6 +238,7 @@ export const MotionEditPro: React.FC<ProProps> = (p) => {
     if (gempak) zooms.forEach((z, k) => sfx.push(...sfxFor('zoom', z.s, style, vseed + k)));
     cutFrames.forEach((c, k) => { if (k % 2 === 0) sfx.push(...sfxFor('cut', c, style, vseed + k)); });
     if (ctaStart >= 0) sfx.push(...sfxFor('cta', ctaStart, style, vseed + 7));
+    blocks.forEach((b, k) => sfx.push(...sfxFor(k % 2 ? 'bigword' : 'headline', b.s, style, vseed + 61 + k)));
     crashes.forEach((c, k) => sfx.push(...sfxFor('bigword', c.f, style, vseed + 41 + k)));
     whips.forEach((w, k) => sfx.push(...sfxFor('broll_full', w.f - 4, style, vseed + 53 + k)));
 

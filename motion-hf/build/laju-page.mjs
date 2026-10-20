@@ -10,7 +10,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { writePage } from "./page.mjs";
-import { planMedia } from "../dist/planner.mjs";
+import { planPage } from "../dist/planner.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const [jobDir, composition, publicDir] = process.argv.slice(2);
@@ -31,7 +31,12 @@ const t0 = Date.now();
 const props = relink(JSON.parse(fs.readFileSync(path.join(jobDir, "props.json"), "utf8")));
 const fps = props.fps || 30;
 const total = Math.max(30, Math.round(props.durationInFrames || 300));
-const media = planMedia(composition, props, fps, total);
+const { media, blocks } = planPage(composition, props, fps, total);
+// registry blocks the edit placed: their sub-composition files travel with the page
+for (const b of blocks) {
+  fs.mkdirSync(path.join(jobDir, "blocks"), { recursive: true });
+  fs.copyFileSync(path.join(here, "..", "blocks", `${b.block}.html`), path.join(jobDir, "blocks", `${b.block}.html`));
+}
 const tPlan = Date.now() - t0;
 
 // SFX / static files the composition references (sfx-lib/…, sfx/…) → copy in
@@ -49,9 +54,9 @@ for (const m of media) {
   }
 }
 fs.copyFileSync(path.join(here, "..", "dist", "runtime.js"), path.join(jobDir, "runtime.js"));
-writePage({ outDir: jobDir, composition, props, fps, durationInFrames: total, media });
+writePage({ outDir: jobDir, composition, props, fps, durationInFrames: total, media, blocks });
 console.log(JSON.stringify({
   ok: true, composition, frames: total, media: media.length,
   video: media.filter((m) => m.kind === "video").length, audio: media.filter((m) => m.kind === "audio").length,
-  images: media.filter((m) => m.kind === "image").length, copied, plan_ms: tPlan,
+  images: media.filter((m) => m.kind === "image").length, blocks: blocks.map((b) => b.block), copied, plan_ms: tPlan,
 }));

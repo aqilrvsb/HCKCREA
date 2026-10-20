@@ -4,7 +4,7 @@ import { h } from "preact";
 import { renderToString } from "preact-render-to-string";
 import { FrameContext, setVideoConfig } from "remotion";
 import { COMPOSITIONS } from "./compositions.js";
-import { COLLECT, collected } from "./collect.js";
+import { COLLECT, collected, collectedBlocks } from "./collect.js";
 
 export function planMedia(composition, props, fps, totalFrames) {
   const Comp = COMPOSITIONS[composition];
@@ -12,6 +12,7 @@ export function planMedia(composition, props, fps, totalFrames) {
   setVideoConfig({ fps, durationInFrames: totalFrames, width: 1080, height: 1920, id: composition });
   COLLECT.on = true;
   COLLECT.seen.clear();
+  COLLECT.blocks.clear();
   try {
     for (let f = 0; f < totalFrames; f++) {
       COLLECT.frame = f;
@@ -21,4 +22,10 @@ export function planMedia(composition, props, fps, totalFrames) {
     COLLECT.on = false;
   }
   return collected(fps, totalFrames);
+}
+
+/** Media + the registry blocks the composition placed (seconds / px). */
+export function planPage(composition, props, fps, totalFrames) {
+  const media = planMedia(composition, props, fps, totalFrames);
+  return { media, blocks: collectedBlocks() };
 }

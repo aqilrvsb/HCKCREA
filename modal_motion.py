@@ -484,7 +484,7 @@ def _hf_chunk_frames(total: int) -> int:
     return 30 * max(1, math.ceil(total / (30 * HF_MAX_CHUNKS)))
 
 
-@app.function(image=hf_render_image, cpu=8.0, memory=12288, timeout=900, volumes={JOBS_ROOT: JOBS})
+@app.function(image=hf_render_image, cpu=4.0, memory=8192, timeout=900, volumes={JOBS_ROOT: JOBS})
 def hf_chunk(job: str, idx: int) -> dict:
     """Render chunk `idx` of a job's HyperFrames plan (waits for the plan to land on the Volume)."""
     import shutil
@@ -513,6 +513,44 @@ def hf_chunk(job: str, idx: int) -> dict:
     return {"ok": True, "idx": idx, "waited": waited, "copy": copy, "sec": round(time.time() - t0, 1), "info": info, "data": data}
 
 
+def _hf_project(props: dict, d: Path, comp: str, proj: Path) -> dict:
+    """A HyperFrames project for the composition in `proj`: only the files the props use (the job folder also
+    holds the client's original upload, which must not travel into the plan), the page, the registry blocks."""
+    import shutil
+    blob = json.dumps(props, ensure_ascii=False)
+    for name in sorted(set(_LOCAL_URL.findall(blob))):
+        src = d / name
+        if src.is_file():
+            shutil.copy2(src, proj / name)
+    (proj / "props.json").write_text(blob, encoding="utf-8")
+    return _hf_node([f"{HF_DIR}/build/laju-page.mjs", str(proj), comp, f"{MOTION_DIR}/public"], "page", 300)
+
+
+def _hf_stills(props: dict, d: Path, comp: str, frames: list, out_dir: Path) -> list:
+    """QA stills of the composition as HyperFrames draws it (the Pro edit), 486 px wide JPEGs still_<frame>.jpg."""
+    import shutil
+    fps = props["fps"]
+    proj = Path(tempfile.mkdtemp(prefix="hfqa_"))
+    try:
+        _hf_project(props, d, comp, proj)
+        snap = proj / "_snap"
+        times = [f / fps for f in frames]
+        r = subprocess.run(["hyperframes", "snapshot", "--at", ",".join(f"{t:.3f}" for t in times), "--no-end", "--timeout", "30000",
+                            "--describe", "false", "-o", str(snap), str(proj)],
+                           capture_output=True, text=True, timeout=240, env=_hf_env(), cwd=str(proj))
+        pngs = sorted(snap.glob("frame-*.png"))
+        if r.returncode != 0 or len(pngs) != len(frames):
+            raise RuntimeError(f"snapshot: {len(pngs)}/{len(frames)} {(r.stdout + r.stderr)[-400:]}")
+        out = []
+        for fr, png in zip(frames, pngs):
+            jpg = out_dir / f"still_{fr}.jpg"
+            _run(["ffmpeg", "-v", "error", "-y", "-i", str(png), "-vf", "scale=486:-2", "-q:v", "4", str(jpg)], "qa still", 60)
+            out.append(jpg)
+        return out
+    finally:
+        shutil.rmtree(proj, ignore_errors=True)
+
+
 def _render_hf(comp: str, props: dict, d: Path, out: Path, pct_from: int, pct_to: int) -> dict:
     """Render the composition with HyperFrames across hf_chunk containers → out (loudness-normalised).
     Raises on any failure (the caller then renders with Remotion)."""
@@ -534,14 +572,7 @@ def _render_hf(comp: str, props: dict, d: Path, out: Path, pct_from: int, pct_to
     tmp = Path(tempfile.mkdtemp(prefix="hfchunks_"))
     done = False
     try:
-        # a project folder with only the files the composition uses (the job folder also holds the
-        # client's original upload, which must not travel into the plan)
-        blob = json.dumps(props, ensure_ascii=False)
-        for name in sorted(set(_LOCAL_URL.findall(blob))):
-            src = d / name
-            if src.is_file():
-                shutil.copy2(src, proj / name)
-        (proj / "props.json").write_text(blob, encoding="utf-8")
+        page = _hf_project(props, d, comp, proj)
         music = _LOCAL_URL.search(str(props.get("music") or ""))
         if music and (proj / music.group(1)).is_file():
             bed, tmp_bed = proj / music.group(1), proj / ("faded_" + music.group(1))
@@ -552,7 +583,6 @@ def _render_hf(comp: str, props: dict, d: Path, out: Path, pct_from: int, pct_to
                 tmp_bed.replace(bed)
             except Exception as e:  # noqa: BLE001
                 print("music fade skipped:", str(e)[:160])
-        page = _hf_node([f"{HF_DIR}/build/laju-page.mjs", str(proj), comp, f"{MOTION_DIR}/public"], "page", 300)
         T["page"] = round(time.time() - t0, 1)
         t = time.time()
         pinfo = _hf_node([f"{HF_DIR}/build/dist.mjs", "plan", str(proj), str(plan), str(size)], "plan", 600)
@@ -1527,8 +1557,16 @@ def _qa(props: dict, d: Path, p: dict) -> tuple:
     sd = Path(tempfile.mkdtemp(prefix="qa_"))
     pp = d / "props.json"
     pp.write_text(json.dumps(props, ensure_ascii=False), encoding="utf-8")
-    _run(["node", f"{MOTION_DIR}/scripts/stills.mjs", f"{MOTION_DIR}/build", "MotionEdit", str(pp), str(sd), ",".join(map(str, frames)), "0.45"],
-         "qa stills", 400)
+    via = "remotion"
+    if str(p.get("renderer") or "") == "hyperframes" and _scale_for(p) == 1.0:
+        try:
+            _hf_stills(props, d, "MotionEdit", frames, sd)
+            via = "hyperframes"
+        except Exception as e:  # noqa: BLE001
+            print("hf qa stills failed → Remotion stills:", str(e)[:300], flush=True)
+    if via == "remotion":
+        _run(["node", f"{MOTION_DIR}/scripts/stills.mjs", f"{MOTION_DIR}/build", "MotionEdit", str(pp), str(sd), ",".join(map(str, frames)), "0.45"],
+             "qa stills", 400)
     shots = []
     for fr in frames:
         f = sd / f"still_{fr}.jpg"
@@ -1563,7 +1601,7 @@ def _qa(props: dict, d: Path, p: dict) -> tuple:
         if str(i).isdigit() and int(i) < len(br):
             br[int(i)] = {**br[int(i)], "layout": "pip"}
     props["broll"] = [b for i, b in enumerate(br) if i not in bdrop]
-    return props, {"qa": "applied", "drop": len(drop), "moved": len(patch.get("move") or []), "broll_drop": len(bdrop),
+    return props, {"qa": "applied", "stills": via, "drop": len(drop), "moved": len(patch.get("move") or []), "broll_drop": len(bdrop),
                    "notes": str(patch.get("notes") or "")[:200]}
 
 
