@@ -168,7 +168,11 @@ def _upload_b2(local_path: Path, b2_key: str, content_type: str) -> str:
 
 
 # ── small helpers ─────────────────────────────────────────────────────────────
+_STAGES: dict = {}  # stage → first time it was reported (this job), for the timing breakdown
+
+
 def _progress(stage: str, pct: int = 0):
+    _STAGES.setdefault(stage, time.time())
     try:
         cid = modal.current_function_call_id()
         if cid:
@@ -480,7 +484,7 @@ def _hf_chunk_frames(total: int) -> int:
     return 30 * max(1, math.ceil(total / (30 * HF_MAX_CHUNKS)))
 
 
-@app.function(image=hf_render_image, cpu=4.0, memory=8192, timeout=900, volumes={JOBS_ROOT: JOBS})
+@app.function(image=hf_render_image, cpu=8.0, memory=12288, timeout=900, volumes={JOBS_ROOT: JOBS})
 def hf_chunk(job: str, idx: int) -> dict:
     """Render chunk `idx` of a job's HyperFrames plan (waits for the plan to land on the Volume)."""
     import shutil
@@ -501,11 +505,12 @@ def hf_chunk(job: str, idx: int) -> dict:
     t0 = time.time()
     plan = Path(tempfile.mkdtemp(prefix="hfplan_"))
     shutil.copytree(d / HF_PLAN, plan, dirs_exist_ok=True)
+    copy = round(time.time() - t0, 1)
     out = Path(tempfile.gettempdir()) / f"{job}_hf_{idx:02d}.mp4"
     info = _hf_node([f"{HF_DIR}/build/dist.mjs", "chunk", str(plan), str(idx), str(out)], f"chunk {idx}", 600)
     data = out.read_bytes()
     shutil.rmtree(plan, ignore_errors=True)
-    return {"ok": True, "idx": idx, "waited": waited, "sec": round(time.time() - t0, 1), "info": info, "data": data}
+    return {"ok": True, "idx": idx, "waited": waited, "copy": copy, "sec": round(time.time() - t0, 1), "info": info, "data": data}
 
 
 def _render_hf(comp: str, props: dict, d: Path, out: Path, pct_from: int, pct_to: int) -> dict:
@@ -573,7 +578,8 @@ def _render_hf(comp: str, props: dict, d: Path, out: Path, pct_from: int, pct_to
             if res.get("skip"):
                 continue
             got[res["idx"]] = res["data"]
-            stats.append((res["idx"], res.get("waited"), res.get("sec")))
+            inf = res.get("info") or {}
+            stats.append((res["idx"], res.get("waited"), res.get("sec"), res.get("copy"), inf.get("boot"), inf.get("capture"), inf.get("encode"), inf.get("ms")))
             _progress("render", pct_from + 4 + (pct_to - pct_from - 8) * len(got) // max(1, count))
         for i in range(count):  # one retry each
             if i not in got:
@@ -600,8 +606,12 @@ def _render_hf(comp: str, props: dict, d: Path, out: Path, pct_from: int, pct_to
             raise RuntimeError(f"duration {got_sec:.2f}s vs {want:.2f}s")
         done = True
         T["total"] = round(time.time() - t0, 1)
+        med = lambda k: sorted((s[k] or 0) for s in stats)[len(stats) // 2] if stats else None  # noqa: E731
         return {"mode": "hyperframes", "chunks": count, "chunk_frames": size, "media": page.get("media"),
-                "timings": T, "slowest_chunk": max((s[2] or 0) for s in stats) if stats else None}
+                "timings": T, "slowest_chunk": max((s[2] or 0) for s in stats) if stats else None,
+                "chunk_median": {"waited": med(1), "sec": med(2), "copy": med(3), "boot_ms": med(4), "capture_ms": med(5),
+                                 "encode_ms": med(6), "node_ms": med(7)},
+                "chunk_max_waited": max((s[1] or 0) for s in stats) if stats else None}
     finally:
         if not done:
             for c in calls:
@@ -2052,6 +2062,7 @@ def _final_check(d: Path, out: Path, dur: float, p: dict, props: dict) -> dict:
 def run_job(payload: dict) -> dict:
     import shutil
     t0 = time.time()
+    _STAGES.clear()
     flow = payload.get("flow")
     uid = str(payload.get("user_id") or "anon")
     hid = str(payload.get("history_id") or f"job{int(t0)}")
@@ -2094,8 +2105,11 @@ def run_job(payload: dict) -> dict:
         except Exception as e:  # noqa: BLE001
             print("poster failed", e)
         _progress("done", 100)
+        marks = sorted(_STAGES.items(), key=lambda kv: kv[1])
+        stages = {k: round((marks[i + 1][1] if i + 1 < len(marks) else time.time()) - v, 1) for i, (k, v) in enumerate(marks) if k != "done"}
         return {"ok": True, "url": url, "poster_url": poster_url, "duration_sec": round(float(res["duration"]), 2),
-                "render_sec": round(time.time() - t0, 1), **res.get("debug", {})}
+                "render_sec": round(time.time() - t0, 1), "stages": {"start": round(marks[0][1] - t0, 1) if marks else 0, **stages},
+                **res.get("debug", {})}
     except Exception as e:  # noqa: BLE001
         _progress("failed", 100)
         return {"ok": False, "error": str(e)[:900]}

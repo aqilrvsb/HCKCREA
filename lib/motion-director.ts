@@ -219,20 +219,36 @@ const PRO_SETS = {
   move: ["crash", "punch", "whip", "shake", "bump"],
 } as const;
 
-export const PRO_DIRECTION = (recent: string[]) => `PRO FINISH — you are also the MASTER DIRECTING EDITOR of this video's finish. The render engine (HyperFrames) gives you the full craft below; nothing is preset. Decide the treatment that serves THIS footage, speaker, product and angle — the way a top human TikTok editor would — and return it in "direction":
+const PRO_FEEL: Record<string, Record<string, string>> = {
+  hook_style: {
+    slam: "each word slams in with a blur — punchy", rise: "words rise blur-to-sharp — smooth", blocks: "each line on a colour block — bold, editorial",
+    marker: "the line lands, a highlighter sweeps the key word and an underline draws — explainer", stack: "one big word per line — poster feel (hook ≤ 4 words)",
+  },
+  font: { montserrat: "round, friendly, heavy", archivo: "wide and heavy", anton: "condensed, tall, loud", bebas: "condensed caps, clean and tall", poppins: "geometric, friendly", inter: "clean, modern" },
+  caption_fx: { pop: "the spoken word scales up", color: "it turns the accent colour", box: "an accent box behind it", underline: "an accent bar under it" },
+  grade: { warm: "warm, golden skin", punchy: "high contrast, saturated", clean: "bright and neutral", cool: "slightly cool, crisp", matte: "soft, lifted blacks, gentle", vivid: "very saturated, poppy" },
+  camera: { calm: "steady, slow breathing push", handheld: "natural handheld float", energetic: "livelier float, bigger punches" },
+  transition: { whip: "fast whip with motion blur", zoom: "zoom-through", push: "clean push", flash: "flash cut", glitch: "RGB-split glitch", iris: "iris / circle reveal" },
+  break_fx: { sweep: "warm light band", leak: "soft light leak", burn: "film burn from an edge" },
+  end_card: { pill: "big pressing button", badge: "round bag badge + label", banner: "diagonal banner" },
+  progress: { bar: "thin top bar", thick: "rounded glowing bar", dots: "segmented dots", none: "no bar" },
+};
+const shortlist = (key: string, n: number) => shuffle(Object.keys(PRO_FEEL[key])).slice(0, n).map((k) => `"${k}" (${PRO_FEEL[key][k]})`).join(" | ");
+
+export const PRO_DIRECTION = (recent: string[]) => `PRO FINISH — you are also the MASTER DIRECTING EDITOR of this video's finish. The render engine (HyperFrames) gives you the craft below; nothing is preset. Decide the treatment that serves THIS footage, speaker, product and angle — the way a top human TikTok editor would — and return it in "direction". This generation's options were drawn at random (another generation of the same video gets different ones on purpose): choose the best of them for this footage.
 "direction": {
-  "hook_style": "slam" (each word slams in with a blur, punchy) | "rise" (words rise blur-to-sharp, smooth) | "blocks" (each line on a colour block, bold / editorial) | "marker" (the line lands, a highlighter sweeps the key word and an underline draws — explainer feel) | "stack" (one big word per line, poster feel; hook ≤ 4 words),
-  "font": face of the hook and end card — "montserrat" | "archivo" | "anton" | "bebas" | "poppins" | "inter",
-  "caption_font": face of the captions (same set — condensed anton / bebas read tall and loud, poppins / montserrat friendly and round, inter clean, archivo heavy),
-  "caption_fx": how the spoken word lights up — "pop" (scales up) | "color" (turns the accent) | "box" (accent box behind it) | "underline" (accent bar under it),
+  "hook_style": ${shortlist("hook_style", 3)},
+  "font": face of the hook and end card — ${shortlist("font", 3)},
+  "caption_font": face of the captions — ${shortlist("font", 3)},
+  "caption_fx": ${shortlist("caption_fx", 2)},
   "marker": true | false (coloured keywords get a highlighter sweep), "emoji": "above" | "beside" (where a keyword's emoji pops),
-  "grade": colour grade of the footage — "warm" | "punchy" | "clean" | "cool" | "matte" | "vivid",
+  "grade": colour grade of the footage — ${shortlist("grade", 3)},
   "grain": true | false (fine film grain for texture),
-  "camera": virtual camera feel on the speaker — "calm" | "handheld" | "energetic",
-  "transitions": one per B-roll cutaway, in order — "whip" | "zoom" (zoom-through) | "push" | "flash" | "glitch" (RGB split) | "iris",
-  "break_fx": light at section breaks — "sweep" | "leak" (soft light leak) | "burn" (film burn),
-  "end_card": "pill" (big button) | "badge" (round bag badge + label) | "banner" (diagonal banner),
-  "progress": "bar" | "thick" | "dots" | "none",
+  "camera": virtual camera feel on the speaker — ${shortlist("camera", 2)},
+  "transitions": one per B-roll cutaway, in order, from — ${shortlist("transition", 4)},
+  "break_fx": light at section breaks — ${shortlist("break_fx", 2)},
+  "end_card": ${shortlist("end_card", 2)},
+  "progress": ${shortlist("progress", 2)},
   "second": "#RRGGBB" (a second colour that pairs with the accent),
   "moves": [{"at": CUE, "move": "crash" | "punch" | "whip" | "shake" | "bump", "power"?: 0.6–1.4}] — signature camera moves on the words that earn them (e.g. a crash zoom on the reveal, a punch-in on the price, a whip at a topic turn, a shake on a shock line); a few per video, at least 2 s apart, none in the last 3 s.
 }
