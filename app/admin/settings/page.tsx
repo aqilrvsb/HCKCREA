@@ -348,6 +348,23 @@ export default function AdminSettings() {
       setMotionAdMsg("✗ Gagal simpan.");
     }
   }
+  // Default · Padat for clients — app_settings.motion_padat = { on } (unset → hidden; admins always see it)
+  const [motionPadatOn, setMotionPadatOn] = useState(false);
+  const [motionPadatMsg, setMotionPadatMsg] = useState<string | null>(null);
+  async function saveMotionPadat(on: boolean) {
+    setMotionPadatMsg(null);
+    const res = await fetch("/api/admin/settings", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ key: "motion_padat", value: { on } }),
+    }).catch(() => null);
+    if (res?.ok) {
+      setMotionPadatOn(on);
+      setMotionPadatMsg(on ? "✓ Padat ditunjuk kepada pelanggan." : "✓ Padat disorok (admin masih nampak).");
+    } else {
+      setMotionPadatMsg("✗ Gagal simpan.");
+    }
+  }
   // Motion Default (Laju) renderer — app_settings.motion_renderer = { renderer }.
   // "hyperframes" falls back to Remotion by itself if a render fails.
   const [motionRenderer, setMotionRenderer] = useState<"remotion" | "hyperframes">("remotion");
@@ -549,6 +566,7 @@ export default function AdminSettings() {
         if (row.key === "model_motion") setMotionKnob(parseKnob(row.value, MOTION_MAX_FB));
         if (row.key === "model_motion_guard") setMotionGuardKnob(parseKnob(row.value, MOTION_MAX_FB));
         if (row.key === "motion_features") setMotionAdOn(row.value?.ad !== false);
+        if (row.key === "motion_padat") setMotionPadatOn(row.value?.on === true);
         if (row.key === "motion_renderer") setMotionRenderer(row.value?.renderer === "hyperframes" ? "hyperframes" : "remotion");
         if (row.key === "motion_search") {
           setMotionSearchRows(parseMotionSearchRows(row.value));
@@ -2934,6 +2952,12 @@ export default function AdminSettings() {
           <span className="text-sm font-bold text-[var(--color-text-primary)]">Buka &quot;Buat Iklan&quot; untuk semua</span>
         </label>
         {motionAdMsg && <p className="text-xs mt-2 text-[var(--color-text-secondary)]">{motionAdMsg}</p>}
+        <label className="flex items-center gap-3 cursor-pointer select-none mt-3">
+          <input type="checkbox" checked={motionPadatOn} onChange={(e) => saveMotionPadat(e.target.checked)} className="w-4 h-4" />
+          <span className="text-sm font-bold text-[var(--color-text-primary)]">Tunjuk &quot;💎 Padat&quot; kepada pelanggan</span>
+        </label>
+        <p className="text-xs text-[var(--color-text-secondary)] mt-1">Bila disorok, pelanggan hanya nampak Laju (admin masih nampak Padat untuk ujian). Custom Style tidak terjejas.</p>
+        {motionPadatMsg && <p className="text-xs mt-2 text-[var(--color-text-secondary)]">{motionPadatMsg}</p>}
         <div className="mt-4 pt-4 border-t border-[var(--color-border)]">
           <div className="text-sm font-bold text-[var(--color-text-primary)] mb-1">Enjin render Default (Laju)</div>
           <p className="text-xs text-[var(--color-text-secondary)] mb-2">

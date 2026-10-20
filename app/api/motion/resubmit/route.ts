@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { MOTION_EDIT_MAX_SEC, asEngine, costFor, motionStart, newPlanToken, round2, siteUrl, type EditInput } from "@/lib/motion";
+import { MOTION_EDIT_MAX_SEC, allowedEngine, costFor, motionStart, newPlanToken, round2, siteUrl, type EditInput } from "@/lib/motion";
 import { padatMin, startPadatEdit } from "@/lib/motion-padat";
 import { priceFor, refundReserved, reserveCredit } from "@/lib/deduct";
 import { isTabAllowedForUser } from "@/lib/partner-tab-gate";
@@ -52,8 +52,8 @@ export async function POST(req: Request) {
     .filter((u: string) => /^https:\/\/[^\s]+$/.test(u) && u.length <= 1000)
     .slice(0, 5);
   if (!productImages.length) return NextResponse.json({ error: "Upload sekurang-kurangnya 1 gambar produk." }, { status: 400 });
-  // the engine can be switched at resubmit (Laju <-> Padat); default: the job's own
-  const engine = b?.engine === undefined ? asEngine(oldInput.engine) : asEngine(b.engine);
+  // the engine can be switched at resubmit (Laju <-> Padat); default: the job's own (Padat only where allowed)
+  const engine = await allowedEngine(b?.engine === undefined ? oldInput.engine : b.engine, user.id);
   const input: EditInput = { ...oldInput, product, productImages, engine };
   // the latest script; an older draft's plan is dropped so the director plans afresh
   const { plan: _dp, ...script } = (meta.draft ?? {}) as Record<string, unknown>;

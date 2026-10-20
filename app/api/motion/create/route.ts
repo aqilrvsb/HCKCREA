@@ -4,7 +4,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { priceFor, reserveCredit } from "@/lib/deduct";
 import { hiddenModesForUser, isTabAllowedForUser } from "@/lib/partner-tab-gate";
 import {
-  MOTION_AD_DURATIONS, MOTION_PLANNING_TASK, MOTION_VOICES, adEstimateSec, asEngine, costFor, motionAdEnabled, newPlanToken, round2, runAdJob,
+  MOTION_AD_DURATIONS, MOTION_PLANNING_TASK, MOTION_VOICES, adEstimateSec, allowedEngine, costFor, motionAdEnabled, newPlanToken, round2, runAdJob,
   type AdInput,
 } from "@/lib/motion";
 import { isMotionStyle } from "@/lib/motion-styles";
@@ -73,7 +73,7 @@ export async function POST(req: Request) {
     style: isMotionStyle(b?.style) ? b.style : "gempak",
     resolution: b?.resolution === "720" ? "720" : "1080",
     guard: b?.guard === true,
-    engine: asEngine(b?.engine),
+    engine: await allowedEngine(b?.engine, user.id),
   };
   const padat = input.engine === "padat";
   const variations = Math.max(1, Math.min(3, Math.round(Number(b?.variations) || 1)));

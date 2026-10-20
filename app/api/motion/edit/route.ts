@@ -3,7 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { priceFor, refundReserved, reserveCredit } from "@/lib/deduct";
 import { isTabAllowedForUser } from "@/lib/partner-tab-gate";
-import { MOTION_EDIT_MAX_SEC, asEngine, costFor, motionStart, newPlanToken, round2, siteUrl, type EditInput } from "@/lib/motion";
+import { MOTION_EDIT_MAX_SEC, allowedEngine, costFor, motionStart, newPlanToken, round2, siteUrl, type EditInput } from "@/lib/motion";
 import { isMotionStyle, styleEnergy } from "@/lib/motion-styles";
 import { padatMin } from "@/lib/motion-padat";
 
@@ -78,8 +78,9 @@ export async function POST(req: Request) {
     facts: b?.facts !== false,
     guard: b?.guard === true,
     ...(auto ? { auto: true } : {}),
-    // "laju" = Remotion templates; "padat" = step 2 built by Claude Code on HyperFrames
-    engine: asEngine(b?.engine),
+    // "laju" = the templates; "padat" = step 2 built by Claude Code on HyperFrames (hidden from clients
+    // unless app_settings.motion_padat is on — a hidden Padat request runs as Laju)
+    engine: await allowedEngine(b?.engine, user.id),
   };
   const projectId = b?.project_id ? String(b.project_id) : null;
 

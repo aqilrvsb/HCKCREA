@@ -151,6 +151,23 @@ export async function motionAdEnabled(): Promise<boolean> {
   return f?.ad !== false;
 }
 
+/** Default · "Padat" (Claude Code on HyperFrames) for this user: hidden from
+ *  clients unless app_settings.motion_padat = { on: true }; admins always keep
+ *  it (to compare). A hidden engine request runs as Laju. */
+export async function padatAllowed(userId: string | null | undefined): Promise<boolean> {
+  const s = await getSetting<{ on?: boolean }>("motion_padat").catch(() => null);
+  if (s?.on === true) return true;
+  if (!userId) return false;
+  const { data } = await createAdminClient().from("profiles").select("is_admin").eq("id", userId).maybeSingle();
+  return !!data?.is_admin;
+}
+
+/** The engine a request may use: Padat only where it is allowed. */
+export async function allowedEngine(v: unknown, userId: string | null | undefined): Promise<MotionEngine> {
+  const e = asEngine(v);
+  return e === "padat" && !(await padatAllowed(userId)) ? "laju" : e;
+}
+
 // Several Modal workspaces can share the render load (each has its own
 // container limit). app_settings.motion_modal = { api_url, secret } is the main
 // one; motion_modal.accounts = [{ id, api_url, secret, enabled? }] adds more.

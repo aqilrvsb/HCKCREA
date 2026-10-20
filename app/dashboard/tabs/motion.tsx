@@ -221,12 +221,17 @@ export default function MotionTab({ projectId }: { projectId?: string }) {
   // client (profiles.settings.hidden_modes). Hidden until the server says it's
   // allowed — starting visible made it flash on every tab open.
   const [adAllowed, setAdAllowed] = useState(false);
+  // "Padat" can be hidden from clients (app_settings.motion_padat); hidden → Laju only
+  const [padatShown, setPadatShown] = useState(false);
   useEffect(() => {
     fetch("/api/motion/rate").then((r) => r.json()).then((d) => {
       setRate(Number(d?.rate) || 0);
       setPadatMin(Number(d?.padat_min) || 0);
       const ok = d?.modes?.ad === true;
       setAdAllowed(ok);
+      const pd = d?.modes?.padat === true;
+      setPadatShown(pd);
+      if (!pd) setEngineState("laju");
       if (!ok) setMode("edit");
     }).catch(() => setRate(0));
   }, [projectId]);
@@ -476,7 +481,7 @@ export default function MotionTab({ projectId }: { projectId?: string }) {
           </div>
         )}
 
-        <div className="mb-5">
+        {padatShown && <div className="mb-5">
           <label className={label}>Gaya penghasilan</label>
           <div role="radiogroup" className="grid grid-cols-1 sm:grid-cols-2 gap-2">
             {([
@@ -503,7 +508,7 @@ export default function MotionTab({ projectId }: { projectId?: string }) {
               );
             })}
           </div>
-        </div>
+        </div>}
 
         {mode === "edit" ? (
           <div className="space-y-4">
