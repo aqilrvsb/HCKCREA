@@ -431,7 +431,7 @@ export const MotionEditPro: React.FC<ProProps> = (p) => {
         {plan.scenes.map((sc, i) => (frame >= sc.s && frame < sc.e ? <ScenePro key={`sc${i}`} sc={sc} frame={frame} look={look} accent={accent} /> : null))}
 
         {cap.on && (
-          <CaptionsPro pages={plan.pages} style={cap.style} accent={accent} centerY={capCenter} look={look} subtle={p.direction?.captions === 'subtle'}
+          <CaptionsPro pages={plan.pages} style={cap.style} accent={accent} centerY={capCenter} look={look} subtle={p.direction?.captions === 'subtle' || plan.scenes.some((sc) => frame >= sc.s && frame < sc.e)}
             keywords={p.keywords} lottie={p.lottie} gempak={gempak} censor={p.censor} />
         )}
         {p.cta?.text && plan.ctaStart >= 0 && (
