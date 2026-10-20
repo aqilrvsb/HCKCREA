@@ -1877,7 +1877,8 @@ def _upload_sig_ok(key: str, exp: str, sig: str) -> bool:
     except ValueError:
         return False
     if not (re.fullmatch(r"motion-uploads/[A-Za-z0-9_-]+/[A-Za-z0-9_-]+\.(mp4|mov|webm|m4v)", key)
-            or re.fullmatch(r"motion-images/[A-Za-z0-9_-]+/[A-Za-z0-9_-]+\.(jpg|jpeg|png|webp)", key)):
+            or re.fullmatch(r"motion-images/[A-Za-z0-9_-]+/[A-Za-z0-9_-]+\.(jpg|jpeg|png|webp)", key)
+            or re.fullmatch(r"vgc-uploads/[A-Za-z0-9_-]+/[A-Za-z0-9_-]+\.(jpg|jpeg|png|webp|mp4|mov|webm|m4v|mp3|wav|m4a|aac|ogg|bin)", key)):
         return False
     mac = hmac.new(want.encode(), f"{key}|{exp}".encode(), hashlib.sha256).hexdigest()
     return hmac.compare_digest(mac, sig)
