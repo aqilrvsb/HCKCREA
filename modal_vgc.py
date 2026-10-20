@@ -298,13 +298,17 @@ AUDIO_RULES = """
 
 LOOK_RULES = """
 ## Look at the video before you finish (mandatory)
-- After the render run `pl-frames out/preview.mp4`: it writes 8 evenly spaced frames + out/frames/sheet.png.
+- After the render run `pl-frames out/preview.mp4`: it writes 12 evenly spaced frames + out/frames/sheet.png.
   Open the sheet (and any frame you doubt) with your Read tool and confirm the text, product and graphics are
   really visible and correct. A render whose frames show only the background means the animation never played
   in the renderer — fix the cause (e.g. a timeline not registered, elements stuck at opacity 0) and render again.
 - No two text blocks may overlap, nothing is cut off at the frame edge, and text stays inside the 9:16 safe area
   (not under TikTok's right-side buttons or the bottom caption bar).
 - Never claim visual quality you have not seen in those frames.
+- pl-frames ends with GATES (measured) and a RESULT line. It must say PASS before you finish. Fix every FAIL:
+  dead motion -> a slow push / drift / staggered reveal, or cut sooner; empty first frame -> frame 0 already a finished
+  composition; sparse -> the lead subject fills 60-85% of the frame, bigger type, fuller layouts (no small card on an
+  empty field). Render again and re-run pl-frames. Up to 2 fix renders; if a gate still fails, say which in the summary.
 """
 
 OUTPUT_RULES = """
@@ -340,7 +344,7 @@ skill's own tooling fails to install or run after 2 real attempts — then say s
   `pl-audio-check out/preview.mp4` prints the loudness timeline of a render; `pl-frames` samples frames to look at.
 
 ## Look at the video before you finish (mandatory)
-- After the render run `pl-frames out/preview.mp4`: it writes 8 evenly spaced frames + out/frames/sheet.png.
+- After the render run `pl-frames out/preview.mp4`: it writes 12 evenly spaced frames + out/frames/sheet.png.
   Open the sheet (and any frame you doubt) with your Read tool and confirm the text, product and graphics are
   really visible and correct. A render whose frames show only the background means the animation never played
   in the renderer — fix the cause (e.g. register the timeline the way the engine requires, elements stuck at
@@ -370,6 +374,9 @@ Siapkan langkah ini sepenuhnya dalam satu jawapan akhir yang lengkap dan jelas (
 CONTINUE_PROMPT = ("Teruskan sekarang tanpa menunggu kelulusan: bina projek video dan render preview ke ./out/preview.mp4, "
                    "kemudian beri ringkasan akhir. Jika input penting benar-benar tiada, mulakan jawapan dengan \"PERLU_INPUT:\".")
 MAX_CONTINUES = 2
+RESUME_PROMPT = ("Sesi tadi terputus kerana ralat sambungan API. Sambung tugas yang sama dari tempat ia berhenti (jangan mula "
+                 "semula): siapkan pembetulan, render semula ke ./out/preview.mp4, jalankan `pl-frames out/preview.mp4` dan "
+                 "beri ringkasan akhir.")
 
 
 # `pl-tts`: the client's AI voice (Mira, Afifah…) for Claude Code, through
@@ -443,16 +450,21 @@ wavfile.write(a.out, SR, (np.clip(y, -1, 1) * 32767).astype(np.int16))
 print(json.dumps({"out": a.out, "total": round(len(y) / SR, 3), "clips": info}, indent=1))
 """
 
-# `pl-frames`: 8 evenly spaced frames + a contact sheet, so the agent can look
-# at what it rendered (Read tool on the PNGs).
+# `pl-frames`: 12 evenly spaced frames + a contact sheet, so the agent can look
+# at what it rendered (Read tool on the PNGs), then measured gates (dead motion,
+# an empty first frame, sparse frames) that the builder must pass before it finishes.
 PL_FRAMES = r"""#!/usr/bin/env python3
-# pl-frames - 8 evenly spaced frames of a video + out/frames/sheet.png, to LOOK at the render.
-# Usage: pl-frames out/preview.mp4 [--n 8] [--dir out/frames]
-import argparse, os, subprocess
-ap = argparse.ArgumentParser(description="sample frames of a render")
+# pl-frames - evenly spaced frames of a video + out/frames/sheet.png to LOOK at, then measured motion gates
+# (dead / frozen motion, an empty first frame, sparse mostly-empty frames). Every FAIL must be fixed.
+# Usage: pl-frames out/preview.mp4 [--n 12] [--dir out/frames] [--hold 2.5]
+#   --hold: seconds at the end where a still CTA is allowed (default 2.5)
+import argparse, os, re, subprocess
+import numpy as np
+ap = argparse.ArgumentParser(description="sample frames of a render + measured motion gates")
 ap.add_argument("file")
-ap.add_argument("--n", type=int, default=8)
+ap.add_argument("--n", type=int, default=12)
 ap.add_argument("--dir", default="out/frames")
+ap.add_argument("--hold", type=float, default=2.5)
 a = ap.parse_args()
 dur = float(subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", a.file],
                            capture_output=True, text=True).stdout.strip() or 0)
@@ -473,6 +485,62 @@ cmd += ["-filter_complex", "".join(f"[{i}]" for i in range(half)) + f"hstack=inp
         + "".join(f"[{i}]" for i in range(half, len(paths))) + f"hstack=inputs={len(paths) - half}[b];[t][b]vstack", sheet]
 subprocess.run(cmd, check=True)
 print("sheet:", sheet, "- open it with the Read tool")
+
+# ── measured gates ──
+W, H, B = 135, 240, 5  # analysis size and block size (27 x 48 blocks)
+
+
+def grab(t):
+    raw = subprocess.run(["ffmpeg", "-v", "error", "-ss", f"{max(0.0, t):.3f}", "-i", a.file, "-frames:v", "1",
+                          "-vf", f"scale={W}:{H}", "-f", "rawvideo", "-pix_fmt", "rgb24", "-"], capture_output=True).stdout
+    return np.frombuffer(raw[:W * H * 3], np.uint8).reshape(H, W, 3).astype(np.float32) if len(raw) >= W * H * 3 else None
+
+
+def coverage(img):
+    # share of the frame holding something other than the plain background (0-1)
+    blk = img.reshape(H // B, B, W // B, B, 3)
+    mean = blk.mean(axis=(1, 3))
+    std = blk.std(axis=(1, 3)).mean(axis=-1)
+    bg = np.median(mean.reshape(-1, 3), axis=0)
+    content = (np.abs(mean - bg).max(axis=-1) > 28) | (std > 14)
+    return float(content.mean())
+
+
+fails = []
+r = subprocess.run(["ffmpeg", "-hide_banner", "-i", a.file, "-vf", "freezedetect=d=0.6", "-map", "0:v:0", "-f", "null", "-"],
+                   capture_output=True, text=True)
+st = [float(x) for x in re.findall(r"freeze_start: ([\d.]+)", r.stderr)]
+en = [float(x) for x in re.findall(r"freeze_end: ([\d.]+)", r.stderr)] + [dur]
+dead = [(s, e) for s, e in zip(st, en) if s < dur - a.hold - 0.1]
+dead = [(s, min(e, dur - a.hold)) for s, e in dead if min(e, dur - a.hold) - s >= 0.6]
+print("\nGATES (measured):")
+if dead:
+    fails.append("dead motion")
+    print("  FAIL dead motion: nothing moves at " + ", ".join(f"{s:.1f}-{e:.1f}s" for s, e in dead)
+          + f" (rule: nothing static > 0.6 s outside the last {a.hold:g} s) - add a slow push, drift, a reveal or cut sooner")
+else:
+    print("  ok   motion: no still stretch > 0.6 s before the end hold")
+f0 = grab(0.0)
+if f0 is not None:
+    c0, l0 = coverage(f0), float(f0.mean())
+    if c0 < 0.12 or l0 < 6:
+        fails.append("empty first frame")
+        print(f"  FAIL first frame: {c0:.0%} of it has content - frame 0 must already be a finished, striking composition")
+    else:
+        print(f"  ok   first frame: {c0:.0%} content")
+ts = [dur * (k + 0.5) / 24 for k in range(24)]
+cov = [(t, coverage(img)) for t in ts if (img := grab(t)) is not None]
+sparse = [(t, c) for t, c in cov if c < 0.18]
+if cov:
+    avg = sum(c for _, c in cov) / len(cov)
+    if len(sparse) * 3 >= len(cov):
+        fails.append("sparse frames")
+        print(f"  FAIL sparse: {len(sparse)}/{len(cov)} sampled frames are mostly empty background ("
+              + ", ".join(f"{t:.1f}s {c:.0%}" for t, c in sparse[:12])
+              + ") - make the lead subject fill 60-85% of the frame, bigger type, fuller layouts")
+    else:
+        print(f"  ok   fill: average {avg:.0%} of the frame has content" + (f"; thin at " + ", ".join(f"{t:.1f}s" for t, _ in sparse) if sparse else ""))
+print("RESULT: " + ("FAIL (" + ", ".join(fails) + ") - fix, render again and re-run pl-frames" if fails else "PASS"))
 """
 
 # `pl-music`: the Motion renderer's code-generated music bed (no samples, no
@@ -805,7 +873,7 @@ Tugas sekarang:
    Jangan rosakkan apa yang sudah baik; jangan tambah fakta, harga atau dakwaan baru.
 2. Render semula ke ./out/preview.mp4 (lint/check dahulu).
 3. Jalankan `pl-frames out/preview.mp4` dan buka sheet.png, serta `pl-audio-check out/preview.mp4` — sahkan pembetulan
-   benar-benar kelihatan / terukur dan tiada kecacatan baharu.
+   benar-benar kelihatan / terukur, tiada kecacatan baharu, dan GATES pl-frames berakhir dengan "RESULT: PASS".
 4. Ringkasan akhir dalam Bahasa Melayu untuk klien: arah video, apa yang diperbaiki, apa yang klien patut semak."""
 
 IMG_EXTS = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".svg", ".avif"}
@@ -1313,6 +1381,19 @@ def run_vgc(payload: dict) -> dict:
     gdir = ws / GAUNTLET_DIR
     ledger, keep = [], len(runs) - 1  # keep = the run whose cut is delivered (its summary describes it)
 
+    def fix_run(text: str) -> dict:
+        """A fix round on the builder's session. A passing API error (overload, 5xx, timeout, stall) is
+        resumed after 30 s, up to twice; a fatal one (quota, auth) ends the round."""
+        runs.append(claude(text, runs[-1]["session_id"], deadline - time.time() - 60))
+        for _ in range(2):
+            err = _api_error(runs[-1])
+            if not err or API_FATAL.search(err) or not runs[-1]["session_id"] or deadline - time.time() < FIX_MIN / 2:
+                break
+            print("[runner] API error in a fix round — resuming in 30 s:", err[:200], flush=True)
+            time.sleep(30)
+            runs.append(claude(RESUME_PROMPT, runs[-1]["session_id"], deadline - time.time() - 60))
+        return runs[-1]
+
     def critic(cut: Path, rnd: int, prev: str | None) -> str | None:
         """A fresh Claude session that sees only the render, the brief and measurements."""
         cdir = Path("/tmp/gauntlet") / f"{hid}-{step}-r{rnd}"
@@ -1356,8 +1437,7 @@ def run_vgc(payload: dict) -> dict:
                 return
             _progress("revise", state["pct"], round=f"check {label}")
             start = time.time()
-            runs.append(claude(CHECK_PROMPT.format(project=res["project"], errors=json.dumps(res["errors"], ensure_ascii=False, indent=1)),
-                               runs[-1]["session_id"], deadline - time.time() - 60))
+            fix_run(CHECK_PROMPT.format(project=res["project"], errors=json.dumps(res["errors"], ensure_ascii=False, indent=1)))
             new = _find_video(ws, start)
             if _api_error(runs[-1]) or not new or _looks_blank(new) or _probe(new)["duration"] < 3:
                 ledger.append({"round": f"check-{label}", "verdict": f"{len(res['errors'])} errors", "fix": "fix failed: kept the cut"})
@@ -1383,11 +1463,16 @@ def run_vgc(payload: dict) -> dict:
                 break
             state["pct"] = max(state["pct"], 80 + 6 * (rnd - 1))
             _progress("critic", state["pct"], round=rnd)
-            try:
-                report = critic(best, rnd, prev)
-            except Exception as e:  # noqa: BLE001
-                print("[gauntlet] critic failed:", e, flush=True)
-                report = None
+            report = None
+            for _try in range(2):
+                try:
+                    report = critic(best, rnd, prev)
+                except Exception as e:  # noqa: BLE001
+                    print("[gauntlet] critic failed:", e, flush=True)
+                    report = None
+                if report or deadline - time.time() < CRITIC_BUDGET + FIX_MIN:
+                    break
+                print("[gauntlet] no verdict from the critic — one more try", flush=True)
             if not report:
                 ledger.append({"round": rnd, "verdict": "", "fix": "critic unavailable"})
                 break
@@ -1400,7 +1485,7 @@ def run_vgc(payload: dict) -> dict:
             state["pct"] = max(state["pct"], 83 + 6 * (rnd - 1))
             _progress("revise", state["pct"], round=rnd)
             fix_start = time.time()
-            runs.append(claude(FIX_PROMPT.format(report=report), runs[-1]["session_id"], deadline - time.time() - 60))
+            fix_run(FIX_PROMPT.format(report=report))
             new = _find_video(ws, fix_start)
             if _api_error(runs[-1]):
                 print("[gauntlet] the fix round hit an API error — keeping the previous cut", flush=True)
@@ -1434,6 +1519,9 @@ def run_vgc(payload: dict) -> dict:
         "subtype": result.get("subtype"), "needs_input": summary.startswith("PERLU_INPUT") or "PERLU_INPUT:" in summary[:200],
         "gauntlet": ledger,
     }
+    fatal = next((e for e in (_api_error(r) for r in runs) if e and API_FATAL.search(e)), "")
+    if fatal:
+        meta["api_error"] = fatal[:400]
     if video and _looks_blank(video):
         # never hand a client an empty video: fail the step (refunded) instead
         _progress("done", 100)

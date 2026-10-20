@@ -263,7 +263,7 @@ export async function vgcStart(payload: Record<string, any>): Promise<{ ok: true
 export type MotionCheck =
   | { status: "running"; progress?: { stage?: string; pct?: number } | null }
   | { status: "done"; result: { url?: string; poster_url?: string | null; duration_sec: number; render_sec?: number; draft?: Record<string, any>; [k: string]: any } }
-  | { status: "failed"; error: string }
+  | { status: "failed"; error: string; apiError?: string }
   | { status: "unknown"; error: string };
 
 export async function motionCheck(taskId: string): Promise<MotionCheck> {
@@ -281,7 +281,7 @@ export async function motionCheck(taskId: string): Promise<MotionCheck> {
     // a finished render (url) or a finished 2-step draft (draft = the state to review)
     // (a Custom Style step may finish with an answer and no video)
     if (j?.status === "done" && (j?.result?.url || j?.result?.draft || (vgc && j?.result))) return { status: "done", result: j.result };
-    if (j?.status === "failed") return { status: "failed", error: String(j.error || "render failed") };
+    if (j?.status === "failed") return { status: "failed", error: String(j.error || "render failed"), apiError: j?.result?.api_error ? String(j.result.api_error) : undefined };
     return { status: "unknown", error: `Modal check HTTP ${r.status}` };
   } catch (e: any) {
     // Network blips must never fail a row — the next poll retries.
@@ -803,6 +803,32 @@ export async function runAdJob(historyId: string): Promise<void> {
 }
 
 // ── settle ────────────────────────────────────────────────────────────────────
+// DragonAPI refused the key (balance out, key revoked): every Padat / Custom
+// Style run fails until it is topped up, so the admins hear it on WhatsApp —
+// at most once every 3 hours.
+const DRAGON_FATAL = /\b(401|402|403)\b|quota|authenticate|invalid api key/i;
+const DRAGON_ALERT_KEY = "dragon_alert_at";
+async function alertDragonFatal(apiError: unknown): Promise<void> {
+  const err = String(apiError || "");
+  if (!err || !DRAGON_FATAL.test(err)) return;
+  try {
+    const admin = createAdminClient();
+    const { data } = await admin.from("app_settings").select("value").eq("key", DRAGON_ALERT_KEY).maybeSingle();
+    const last = Date.parse(String((data?.value as { at?: string } | null)?.at || "")) || 0;
+    if (Date.now() - last < 3 * 3600_000) return;
+    const now = new Date().toISOString();
+    await admin.from("app_settings").upsert({ key: DRAGON_ALERT_KEY, value: { at: now }, category: "motion", updated_at: now });
+    const { notifyAdmins } = await import("@/lib/whatsapp");
+    await notifyAdmins([
+      "⚠️ *PeningLab — DragonAPI menolak permintaan*",
+      "Motion Padat / Custom Style tidak boleh berjalan (kredit pelanggan dipulangkan). Biasanya baki DragonAPI habis — sila topup.",
+      `Ralat: ${err.replace(/\(request id:[^)]*\)/i, "").replace(/\s+/g, " ").trim().slice(0, 200)}`,
+    ].join("\n"));
+  } catch (e) {
+    console.warn("[motion] DragonAPI alert failed:", (e as Error)?.message);
+  }
+}
+
 export async function failMotionRow(hist: Pick<HistoryRow, "id" | "user_id" | "metadata">, error: string): Promise<boolean> {
   const admin = createAdminClient();
   const { data: cur } = await admin.from("history").select("metadata").eq("id", hist.id).maybeSingle();
@@ -870,9 +896,13 @@ async function settleVgcRow(hist: HistoryRow, r: MotionCheck, startedMs: number)
     if (Date.now() - startedMs > VGC_STALE_MS) return fail("Custom Style: masa tamat — kredit dipulangkan.");
     return { state: "pending", p2Status: r.status === "running" ? String(r.progress?.stage || "work") : "unknown" };
   }
-  if (r.status === "failed") return fail(`Custom Style gagal: ${r.error}`.slice(0, 500));
+  if (r.status === "failed") {
+    await alertDragonFatal(r.apiError);
+    return fail(`Custom Style gagal: ${r.error}`.slice(0, 500));
+  }
 
   const res = r.result;
+  await alertDragonFatal(res.api_error); // a later round hit it after the video was made
   const madeVideo = !!res.url;
   const charged = cur.video && !madeVideo ? 0 : reserved;
   const step = {
@@ -935,12 +965,14 @@ export async function settleMotionRow(hist: HistoryRow, pre?: MotionCheck): Prom
     return { state: "pending", p2Status: r.status === "running" ? String(r.progress?.stage || "render") : "unknown" };
   }
   if (r.status === "failed") {
+    if (padatRun) await alertDragonFatal(r.apiError);
     await failMotionRow(hist, (padatRun ? `Motion Padat: ${r.error} — kredit dipulangkan.` : `Motion render failed: ${r.error}`).slice(0, 500));
     return { state: "settled", status: "failed", error: r.error };
   }
 
   const res = r.result;
   const admin = createAdminClient();
+  if (padatRun) await alertDragonFatal(res.api_error); // a later round hit it after the video was made
 
   // a Padat run that ended without a video (it asked for missing input, or
   // stopped): nothing to deliver — refund (a resubmit gets its old video back)
