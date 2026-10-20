@@ -104,6 +104,21 @@ Use the vgc-master-knowledge skill for every video decision.
 - ffmpeg / ffprobe, python3 with numpy + scipy (procedural soundtrack and SFX as WAV), Noto fonts.
 - 8 CPU cores: render with --concurrency=8. Check frames with `npx remotion still` before the full render.
 
+## Audio in Remotion — check every video (common mistakes)
+- To PLAY a sound at frame N: `<Sequence from={N}><Audio src={staticFile('x.wav')} /></Sequence>`.
+  `startFrom` / `trimBefore` on <Audio> CUTS the beginning of the file — it does NOT delay it. Never schedule with it.
+- Voice-over: clips play one after another from their REAL lengths and never overlap. Simplest: join them with
+  `pl-vo-track --out video/public/vo-track.wav vo-01.mp3 vo-02.mp3 …` (prints each clip's start/end in seconds),
+  play that one track from frame 0, and time every scene from the printed starts (seconds × fps).
+- Every SFX you make must be placed on the timeline at its visual cue (whoosh/swoosh on transitions, pop/tick when
+  an item appears, thump/stamp on a key word, sparkle on the CTA). A generated SFX that is not placed does nothing.
+  Ready code-generated SFX: `node /opt/vgc-template/scripts/sfx.mjs video/public/sfx` → pop, tick, whoosh, swoosh,
+  thump, stamp, sparkle, paper, marker (.wav) — or synthesize your own.
+- Music bed: duck to ~0.12–0.18 volume under the VO; SFX clearly audible (~0.5–0.8) but never louder than the voice.
+- After the render run `pl-audio-check out/preview.mp4`: it prints the loudness timeline and the detected sound
+  onsets. Confirm the VO plays at the planned times (no stacked voices, no long silent gaps) and the SFX hits exist;
+  fix and re-render if not. It measures levels only — say "diukur", not "didengar".
+
 ## Output
 - Render the preview to ./out/preview.mp4 (create ./out). One full render; re-render only to fix a real problem.
 - Finish with a short summary in Bahasa Melayu: the direction you chose, what you checked, and what the client should review.
@@ -163,6 +178,87 @@ urllib.request.urlretrieve(j["url"], a.out)
 dur = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", a.out],
                      capture_output=True, text=True).stdout.strip()
 print(f"{a.out} {float(dur or 0):.2f}s voice={j.get('voice')}")
+"""
+
+
+# `pl-vo-track`: voice-over clips joined back to back (never overlapping), with
+# each clip's start/end printed for scene timing.
+PL_VO_TRACK = r"""#!/usr/bin/env python3
+# pl-vo-track - join voice-over clips one after another (never overlapping) into one track.
+# Usage: pl-vo-track --out video/public/vo-track.wav [--gap 0.3] [--lead 0.2] vo-01.mp3 vo-02.mp3 ...
+# Prints JSON {"total": sec, "clips": [{"file", "start", "end"}]}: time scenes from the starts and play the
+# track once from frame 0: <Audio src={staticFile('vo-track.wav')} />
+import argparse, json, os, subprocess, sys
+import numpy as np
+from scipy.io import wavfile
+SR = 48000
+ap = argparse.ArgumentParser(description="join VO clips back to back")
+ap.add_argument("clips", nargs="+")
+ap.add_argument("--out", required=True)
+ap.add_argument("--gap", type=float, default=0.3, help="silence between clips (s)")
+ap.add_argument("--lead", type=float, default=0.2, help="silence before the first clip (s)")
+a = ap.parse_args()
+parts, info, t = [np.zeros(int(a.lead * SR), np.float32)], [], a.lead
+for i, f in enumerate(a.clips):
+    raw = subprocess.run(["ffmpeg", "-v", "error", "-i", f, "-ac", "1", "-ar", str(SR), "-f", "f32le", "-"],
+                         capture_output=True, check=True).stdout
+    x = np.frombuffer(raw, np.float32)
+    info.append({"file": f, "start": round(t, 3), "end": round(t + len(x) / SR, 3)})
+    parts.append(x)
+    t += len(x) / SR
+    if i < len(a.clips) - 1:
+        parts.append(np.zeros(int(a.gap * SR), np.float32))
+        t += a.gap
+os.makedirs(os.path.dirname(os.path.abspath(a.out)) or ".", exist_ok=True)
+y = np.concatenate(parts)
+wavfile.write(a.out, SR, (np.clip(y, -1, 1) * 32767).astype(np.int16))
+print(json.dumps({"out": a.out, "total": round(len(y) / SR, 3), "clips": info}, indent=1))
+"""
+
+# `pl-audio-check`: loudness timeline + sound onsets of a render, so the VO
+# placement and SFX hits can be verified (measured, not heard).
+PL_AUDIO_CHECK = r"""#!/usr/bin/env python3
+# pl-audio-check - loudness timeline + detected sound onsets of a video's audio (measured, not heard).
+# Usage: pl-audio-check out/preview.mp4 [--step 0.25]
+import argparse, subprocess
+import numpy as np
+SR = 16000
+ap = argparse.ArgumentParser(description="audio timeline of a render")
+ap.add_argument("file")
+ap.add_argument("--step", type=float, default=0.25)
+a = ap.parse_args()
+raw = subprocess.run(["ffmpeg", "-v", "error", "-i", a.file, "-vn", "-ac", "1", "-ar", str(SR), "-f", "f32le", "-"],
+                     capture_output=True).stdout
+x = np.frombuffer(raw, np.float32)
+if not len(x):
+    raise SystemExit("NO AUDIO STREAM in " + a.file)
+n = max(1, int(a.step * SR))
+db = [20 * np.log10(np.sqrt(np.mean(x[i:i + n] ** 2)) + 1e-9) for i in range(0, len(x), n)]
+peak = float(np.max(np.abs(x)))
+print(f"duration {len(x) / SR:.2f}s  peak {20 * np.log10(peak + 1e-9):.1f} dBFS  clipped samples {int(np.sum(np.abs(x) >= 0.999))}")
+print("time    dB   level")
+for k, d in enumerate(db):
+    bar = "#" * max(0, int((d + 60) / 2))
+    onset = "  <- onset" if k and d - db[k - 1] >= 8 and d > -40 else ""
+    print(f"{k * a.step:6.2f}s {d:6.1f} {bar}{onset}")
+quiet, start = [], None
+for k, d in enumerate(db + [0]):
+    if d < -45 and start is None:
+        start = k
+    elif d >= -45 and start is not None:
+        if (k - start) * a.step >= 0.75:
+            quiet.append(f"{start * a.step:.2f}-{k * a.step:.2f}s")
+        start = None
+print("silent spans (<-45 dB, >=0.75 s): " + (", ".join(quiet) or "none"))
+flat, start = [], 0
+for k in range(1, len(db) + 1):
+    if k == len(db) or abs(db[k] - db[k - 1]) > 0.6:
+        if (k - start) * a.step >= 3:
+            flat.append(f"{start * a.step:.2f}-{k * a.step:.2f}s")
+        start = k
+if flat:
+    print("WARNING level almost constant (only the music bed?) at: " + ", ".join(flat) +
+          " - check the VO / SFX really play there (<Sequence from>, not startFrom)")
 """
 
 
@@ -290,6 +386,11 @@ def run_vgc(payload: dict) -> dict:
     for k in list(env):
         if k.startswith(("B2_", "MOTION_", "MODAL_")):
             env.pop(k, None)
+    for name, body in (("pl-vo-track", PL_VO_TRACK), ("pl-audio-check", PL_AUDIO_CHECK)):
+        tool = Path("/usr/local/bin") / name
+        if not tool.exists():
+            tool.write_text(body, encoding="utf-8")
+            tool.chmod(0o755)
     tts = payload.get("tts") or {}
     if tts.get("url") and tts.get("token"):
         tool = Path("/usr/local/bin/pl-tts")
