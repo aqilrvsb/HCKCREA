@@ -151,7 +151,8 @@ const Line: React.FC<{ l: PlacedLine; frame: number; look: Look; accent: string;
   if (box === 'yellow' || box === 'white' || (box === 'accent' && look.hi !== '#111111')) color = '#111';
   if (box === 'black') color = l.tone && l.tone !== 'white' && l.tone !== 'black' ? color : '#fff';
   if (!box && lightBg(bg) && (!l.tone || l.tone === 'white')) color = '#111';
-  const mk = l.fx === 'marker' ? interpolate(d, [3, 11], [0, 1], { ...clamp, easing: Easing.out(Easing.quad) }) : 0;
+  // a boxed line already carries its emphasis: a marker sweep under the box would only turn its text dark
+  const mk = l.fx === 'marker' && !box ? interpolate(d, [3, 11], [0, 1], { ...clamp, easing: Easing.out(Easing.quad) }) : 0;
   const st = l.fx === 'strike' ? interpolate(d, [7, 13], [0, 1], { ...clamp, easing: Easing.out(Easing.cubic) }) : 0;
   if (mk > 0.4) color = '#111';
   return (
