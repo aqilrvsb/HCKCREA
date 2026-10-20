@@ -119,6 +119,14 @@ Use the vgc-master-knowledge skill for every video decision.
   onsets. Confirm the VO plays at the planned times (no stacked voices, no long silent gaps) and the SFX hits exist;
   fix and re-render if not. It measures levels only — say "diukur", not "didengar".
 
+## Look at the video before you finish (mandatory)
+- After the render run `pl-frames out/preview.mp4`: it writes 8 evenly spaced frames + out/frames/sheet.png.
+  Open the sheet (and any frame you doubt) with your Read tool and confirm the text, product and graphics are
+  really visible and correct. A render whose frames show only the background means the animation never played
+  in the renderer — fix the cause (e.g. register the timeline the way the engine requires, elements stuck at
+  opacity 0) and render again.
+- Never claim visual quality you have not seen in those frames.
+
 ## Output
 - Render the preview to ./out/preview.mp4 (create ./out). One full render; re-render only to fix a real problem.
 - Finish with a short summary in Bahasa Melayu: the direction you chose, what you checked, and what the client should review.
@@ -145,6 +153,14 @@ skill's own tooling fails to install or run after 2 real attempts — then say s
   (puppeteer / the skill's own installer may download Chrome too).
 - `pl-tts --out ./bahan/vo-01.mp3 "Ayat."` = the client's AI voice (permission given). `pl-vo-track` joins VO clips back to back
   without overlap and prints their start/end; `pl-audio-check out/preview.mp4` prints the loudness timeline of a render.
+
+## Look at the video before you finish (mandatory)
+- After the render run `pl-frames out/preview.mp4`: it writes 8 evenly spaced frames + out/frames/sheet.png.
+  Open the sheet (and any frame you doubt) with your Read tool and confirm the text, product and graphics are
+  really visible and correct. A render whose frames show only the background means the animation never played
+  in the renderer — fix the cause (e.g. register the timeline the way the engine requires, elements stuck at
+  opacity 0) and render again.
+- Never claim visual quality you have not seen in those frames.
 
 ## Output
 - Render ./out/preview.mp4 at 1080x1920 (9:16). Voice-over clips must never overlap; every SFX must actually play at its cue.
@@ -240,6 +256,38 @@ os.makedirs(os.path.dirname(os.path.abspath(a.out)) or ".", exist_ok=True)
 y = np.concatenate(parts)
 wavfile.write(a.out, SR, (np.clip(y, -1, 1) * 32767).astype(np.int16))
 print(json.dumps({"out": a.out, "total": round(len(y) / SR, 3), "clips": info}, indent=1))
+"""
+
+# `pl-frames`: 8 evenly spaced frames + a contact sheet, so the agent can look
+# at what it rendered (Read tool on the PNGs).
+PL_FRAMES = r"""#!/usr/bin/env python3
+# pl-frames - 8 evenly spaced frames of a video + out/frames/sheet.png, to LOOK at the render.
+# Usage: pl-frames out/preview.mp4 [--n 8] [--dir out/frames]
+import argparse, os, subprocess
+ap = argparse.ArgumentParser(description="sample frames of a render")
+ap.add_argument("file")
+ap.add_argument("--n", type=int, default=8)
+ap.add_argument("--dir", default="out/frames")
+a = ap.parse_args()
+dur = float(subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", a.file],
+                           capture_output=True, text=True).stdout.strip() or 0)
+os.makedirs(a.dir, exist_ok=True)
+paths = []
+for k in range(a.n):
+    t = dur * (k + 0.5) / a.n
+    out = os.path.join(a.dir, f"f{k + 1:02d}.png")
+    subprocess.run(["ffmpeg", "-v", "error", "-y", "-ss", f"{t:.2f}", "-i", a.file, "-frames:v", "1", "-vf", "scale=360:-2", out], check=True)
+    paths.append(out)
+    print(f"{out}  t={t:.2f}s")
+sheet = os.path.join(a.dir, "sheet.png")
+cmd = ["ffmpeg", "-v", "error", "-y"]
+for q in paths:
+    cmd += ["-i", q]
+half = (len(paths) + 1) // 2
+cmd += ["-filter_complex", "".join(f"[{i}]" for i in range(half)) + f"hstack=inputs={half}[t];"
+        + "".join(f"[{i}]" for i in range(half, len(paths))) + f"hstack=inputs={len(paths) - half}[b];[t][b]vstack", sheet]
+subprocess.run(cmd, check=True)
+print("sheet:", sheet, "- open it with the Read tool")
 """
 
 # `pl-audio-check`: loudness timeline + sound onsets of a render, so the VO
@@ -354,6 +402,30 @@ def _stage_of(tool: str, inp: dict) -> tuple:
     return "work", 30
 
 
+def _looks_blank(video: Path, n: int = 8) -> bool:
+    """True when most sampled frames are a flat background (nothing rendered on it)."""
+    try:
+        import numpy as np
+        dur = float(subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", str(video)],
+                                   capture_output=True, text=True, timeout=30).stdout.strip() or 0)
+        flat = 0
+        for k in range(n):
+            raw = subprocess.run(["ffmpeg", "-v", "error", "-ss", f"{dur * (k + 0.5) / n:.2f}", "-i", str(video), "-frames:v", "1",
+                                  "-vf", "scale=54:96,format=gray", "-f", "rawvideo", "-"], capture_output=True, timeout=30).stdout
+            if raw and float(np.frombuffer(raw, np.uint8).std()) < 4:
+                flat += 1
+        return flat >= max(2, int(n * 0.75))
+    except Exception as e:  # noqa: BLE001
+        print("blank check failed:", e)
+        return False
+
+
+BLANK_PROMPT = ("Video yang dirender KOSONG: hampir semua frame hanya latar tanpa teks atau visual — animasi tidak dimainkan "
+                "semasa render. Cari puncanya (contoh: timeline tidak didaftarkan mengikut API enjin, elemen kekal opacity 0), "
+                "betulkan, render semula ke ./out/preview.mp4, kemudian jalankan `pl-frames out/preview.mp4` dan buka sheet.png "
+                "untuk sahkan visual benar-benar kelihatan. Beri ringkasan akhir.")
+
+
 def _find_video(ws: Path, since: float) -> Path | None:
     skip = {"bahan", "node_modules", ".claude-home", ".claude", "public"}
     found = [p for p in ws.rglob("*.mp4") if not (set(p.relative_to(ws).parts[:-1]) & skip) and p.stat().st_mtime >= since - 1]
@@ -424,7 +496,7 @@ def run_vgc(payload: dict) -> dict:
     for k in list(env):
         if k.startswith(("B2_", "MOTION_", "MODAL_")):
             env.pop(k, None)
-    for name, body in (("pl-vo-track", PL_VO_TRACK), ("pl-audio-check", PL_AUDIO_CHECK)):
+    for name, body in (("pl-vo-track", PL_VO_TRACK), ("pl-audio-check", PL_AUDIO_CHECK), ("pl-frames", PL_FRAMES)):
         tool = Path("/usr/local/bin") / name
         if not tool.exists():
             tool.write_text(body, encoding="utf-8")
@@ -492,14 +564,19 @@ def run_vgc(payload: dict) -> dict:
     runs = [claude(prompt + (RUN_ADDENDUM_VIDEO if expect_video else RUN_ADDENDUM_TEXT), payload.get("session_id"), RUN_TIMEOUT)]
     # Claude Code sometimes stops after recommending a direction (it would wait
     # for "ok" in a chat): with no one to answer, resume and ask it to build.
+    # A render that shows only the background (the animation never played in
+    # the renderer) gets the same treatment: resume and have it fixed.
     for _ in range(MAX_CONTINUES):
         last = runs[-1]
         said = str((last["result"] or {}).get("result") or "")
-        if (not expect_video or _find_video(ws, run_start) or "PERLU_INPUT" in said
-                or not last["session_id"] or deadline - time.time() < 8 * 60):
+        if (not expect_video or "PERLU_INPUT" in said or not last["session_id"] or deadline - time.time() < 8 * 60):
             break
-        print("[runner] no video yet — continuing the session", flush=True)
-        runs.append(claude(CONTINUE_PROMPT, last["session_id"], deadline - time.time()))
+        found = _find_video(ws, run_start)
+        if found and not _looks_blank(found):
+            break
+        why = "blank render" if found else "no video yet"
+        print(f"[runner] {why} — continuing the session", flush=True)
+        runs.append(claude(BLANK_PROMPT if found else CONTINUE_PROMPT, last["session_id"], deadline - time.time()))
 
     result = runs[-1]["result"] or {}
     session_id = runs[-1]["session_id"]
@@ -515,6 +592,10 @@ def run_vgc(payload: dict) -> dict:
         "subtype": result.get("subtype"), "needs_input": summary.startswith("PERLU_INPUT") or "PERLU_INPUT:" in summary[:200],
     }
     video = _find_video(ws, run_start)
+    if video and _looks_blank(video):
+        # never hand a client an empty video: fail the step (refunded) instead
+        _progress("done", 100)
+        return {"ok": False, "url": None, "error": "rendered video is blank (no visuals) after retries", **meta}
     if not video:
         err = "no video rendered" if summary else "Claude Code stopped: " + " | ".join(tail[-5:])[-800:]
         _progress("done", 100)
