@@ -64,6 +64,9 @@ CRITIC_ROUNDS = 2        # critic -> fix -> verifying critic -> fix
 CRITIC_BUDGET = 8 * 60   # one critic session
 FIX_MIN = 9 * 60         # don't start a fix round with less time than this left
 GAUNTLET_DIR = ".gauntlet"
+CHECK_FIXES = 2          # rounds the builder gets to clear `hyperframes check` errors
+HF_REGISTRY = ("https://raw.githubusercontent.com/heygen-com/hyperframes/"
+               "ae02e5aceff4742e5d72c20f0859eb3e6b449035/registry")  # = tag v0.8.181 (`add` would track main)
 LOCAL_WS = Path("/root/ws")  # the run's working copy (fixed path: one run per container at a time)
 
 image = (
@@ -147,10 +150,16 @@ ENGINE_RULES = """
   (product videos: its product-launch / launch-film workflow; captions on footage: embedded-captions; audio:
   hyperframes-audio). Put the project in ./video/ — scaffold it with
   `hyperframes init video --non-interactive --resolution portrait --example blank`
-  (add `--video ./bahan/footage.mp4` when the brief has footage).
+  (add `--video ./bahan/footage.mp4` when the brief has footage). Then set `"registry": "https://raw.githubusercontent.com/heygen-com/hyperframes/ae02e5aceff4742e5d72c20f0859eb3e6b449035/registry"`
+  in video/hyperframes.json so `hyperframes add` installs the pinned blocks.
+- Zero layout errors: run `hyperframes check --json --samples 24 --at-transitions --max-transition-samples 200` and fix EVERY error (clipped_text,
+  text_box_overflow, content_overlap, contrast, sweep_static, lint/runtime errors) before the final render. The run is
+  checked again automatically after you finish; errors send the video back to you.
 - Compositions are HTML + GSAP. EVERY animated composition must register its timeline exactly as the skills show
   (a paused GSAP timeline registered on window.__timelines). An unregistered timeline does not play in the render
   and the video comes out blank.
+- ALL motion goes through that GSAP timeline: no CSS @keyframes / `animation:` / `transition:`, no infinite or
+  repeat:-1 loops (use finite repeats that end inside the clip), no setTimeout / setInterval / requestAnimationFrame.
 - Use the block catalog (`hyperframes catalog`, `hyperframes add …`) for captions, transitions and effects.
 - Before rendering: `hyperframes lint` (fix every error AND every timeline warning) and `hyperframes check`.
 - Render with `hyperframes render` (use all 8 CPU cores where it allows), then put the MP4 at ./out/preview.mp4
@@ -775,7 +784,7 @@ def _measure(video: Path) -> str:
 
 def _master(video: Path, out: Path) -> Path:
     """Phone master: -14 LUFS integrated, true peak under -1 dBTP (two-pass loudnorm + limiter); the video stream is copied.
-    Any problem -> the unmastered cut is delivered."""
+    If the limiter chain can't run on this ffmpeg, loudnorm alone; any other problem -> the unmastered cut is delivered."""
     try:
         info = _probe(video)
         if not info["audio"]:
@@ -785,18 +794,26 @@ def _master(video: Path, out: Path) -> Path:
         m = json.loads(r.stderr[r.stderr.rindex("{"):r.stderr.rindex("}") + 1])
         if float(m["input_i"]) < -60:
             return video  # (near) silent: nothing to master
-        af = (f"loudnorm=I=-14:TP=-2:LRA=11:measured_I={m['input_i']}:measured_TP={m['input_tp']}"
-              f":measured_LRA={m['input_lra']}:measured_thresh={m['input_thresh']}:offset={m['target_offset']}:linear=true"
-              # back to 48 kHz, then a hard ceiling at -2 dBFS (level=0: no auto gain) so the AAC encode stays under -1 dBTP
-              ",aresample=48000,alimiter=limit=0.79:level=0:attack=5:release=60")
-        r = subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", str(video), "-map", "0:v:0", "-map", "0:a:0", "-c:v", "copy",
-                            "-af", af, "-ar", "48000", "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart", str(out)],
-                           capture_output=True, text=True, timeout=900)
-        if r.returncode != 0 or not out.exists() or abs(_probe(out)["duration"] - info["duration"]) > 0.3:
-            print("master skipped:", (r.stderr or "")[-300:], flush=True)
-            return video
-        print(f"[master] {float(m['input_i']):.1f} LUFS -> -14 LUFS", flush=True)
-        return out
+        norm = (f"loudnorm=I=-14:TP=-2:LRA=11:measured_I={m['input_i']}:measured_TP={m['input_tp']}"
+                f":measured_LRA={m['input_lra']}:measured_thresh={m['input_thresh']}:offset={m['target_offset']}:linear=true")
+        chains = [
+            # explicit format between the stages (ffmpeg 5.1 can't negotiate the layout otherwise), then a hard
+            # ceiling at -2 dBFS (level=0: no auto gain) so the AAC encode stays under -1 dBTP
+            "aformat=channel_layouts=stereo," + norm + ",aresample=48000,aformat=sample_fmts=fltp:sample_rates=48000"
+            ":channel_layouts=stereo,alimiter=limit=0.79:level=0:attack=5:release=60",
+            "aformat=channel_layouts=stereo," + norm + ",aresample=48000",
+        ]
+        err = ""
+        for af in chains:
+            r = subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", str(video), "-map", "0:v:0", "-map", "0:a:0", "-c:v", "copy",
+                                "-af", af, "-ar", "48000", "-ac", "2", "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart", str(out)],
+                               capture_output=True, text=True, timeout=900)
+            if r.returncode == 0 and out.exists() and abs(_probe(out)["duration"] - info["duration"]) <= 0.3:
+                print(f"[master] {float(m['input_i']):.1f} LUFS -> -14 LUFS ({'limiter' if 'alimiter' in af else 'loudnorm only'})", flush=True)
+                return out
+            err = (r.stderr or "")[-300:]
+        print("master skipped:", err, flush=True)
+        return video
     except Exception as e:  # noqa: BLE001
         print("master failed:", e, flush=True)
         return video
@@ -868,6 +885,98 @@ def _api_error(run: dict) -> str:
     if not res and (API_FATAL.search(tail) or API_TRANSIENT.search(tail)):
         return tail[-400:]
     return ""
+
+
+def _hf_project(ws: Path) -> Path | None:
+    """The HyperFrames project the builder made (newest hyperframes.json), or None (e.g. a Remotion fallback)."""
+    found = [q.parent for q in ws.rglob("hyperframes.json")
+             if not ({"node_modules", ".claude", ".claude-home", GAUNTLET_DIR} & set(q.relative_to(ws).parts))]
+    return max(found, key=lambda d: d.stat().st_mtime) if found else None
+
+
+def _layout_copy(ws: Path, proj: Path) -> Path:
+    """A throwaway copy of the workspace for the layout check, with every big video replaced by a light proxy of
+    the same name and length in open codecs: overlay geometry doesn't depend on the footage's pixels, and the
+    checker's browser never gets ready on H.264 / AAC footage."""
+    dst = Path("/tmp/hfcheck")
+    shutil.rmtree(dst, ignore_errors=True)
+    skip = {".claude-home", ".claude", "node_modules", "out", GAUNTLET_DIR, ".hyperframes"}
+    shutil.copytree(ws, dst, symlinks=True, ignore=lambda d, names: [n for n in names if n in skip])
+    for v in list(dst.rglob("*")):
+        if v.is_file() and not v.is_symlink() and v.suffix.lower() in (".mp4", ".mov", ".webm", ".m4v") and v.stat().st_size > 3_000_000:
+            tmp = v.with_name(v.stem + ".proxy" + v.suffix)
+            # open codecs (VP9 + Opus): the checker's Chrome Headless Shell can't decode H.264 / AAC
+            r = subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", str(v), "-vf", "scale=270:-2,fps=10", "-c:v", "libvpx-vp9",
+                                "-deadline", "realtime", "-cpu-used", "8", "-b:v", "250k", "-c:a", "libopus", "-b:a", "32k",
+                                str(tmp)], capture_output=True, text=True, timeout=600)
+            if r.returncode == 0 and tmp.exists():
+                tmp.replace(v)
+    # an infinite CSS animation never settles, so the checker would wait forever: one iteration is enough here
+    for h in (dst / proj.relative_to(ws)).rglob("*.html"):
+        t = h.read_text(encoding="utf-8", errors="replace")
+        if "</head>" in t:
+            h.write_text(t.replace("</head>", "<style>*,*::before,*::after{animation-iteration-count:1!important}</style></head>", 1),
+                         encoding="utf-8")
+    return dst / proj.relative_to(ws)
+
+
+def _hf_check(ws: Path) -> dict | None:
+    """`hyperframes check --json` on the builder's project: {ok, errors: [...]}, or None if it can't run."""
+    proj = _hf_project(ws)
+    if not proj:
+        return None
+    try:
+        where = _layout_copy(ws, proj)
+    except Exception as e:  # noqa: BLE001
+        print("[check] could not prepare:", str(e)[:200], flush=True)
+        return None
+    j = None
+    # Transition samples catch defects that only exist mid-animation (a headline overflowing while it scales up).
+    # Word-by-word captions can have hundreds of tween edges, and an uncapped run outlives the checker's deadline:
+    # try a generous cap first, then a small one (the dense 8 fps geometry pass covers the timeline either way).
+    for cap in ("200", "48"):
+        try:
+            r = subprocess.run(["hyperframes", "check", "--json", "--samples", "24", "--at-transitions",
+                                "--max-transition-samples", cap, "--max-issues", "60", "--timeout", "60000"],
+                               cwd=where, capture_output=True, text=True, timeout=600)
+            out = r.stdout
+            j = json.loads(out[out.index("{"):out.rindex("}") + 1])
+        except Exception as e:  # noqa: BLE001
+            print(f"[check] cap {cap} could not run:", str(e)[:200], flush=True)
+            j = None
+            continue
+        failed = any(f.get("code") == "check_runtime_failure" for f in (j.get("runtime") or {}).get("findings") or [])
+        if not failed:
+            break
+        print(f"[check] cap {cap}: checker ran out of time", flush=True)
+    if j is None:
+        return None
+    errors = []
+    for sec in ("lint", "runtime", "layout", "motion", "contrast"):
+        part = j.get(sec) or {}
+        items = part.get("findings") or part.get("issues") or (part if isinstance(part, list) else [])
+        for f in items if isinstance(items, list) else []:
+            if str(f.get("severity")) == "error":
+                errors.append({"section": sec, "code": f.get("code"), "selector": f.get("selector"),
+                               "time": f.get("time"), "times": (f.get("times") or [])[:6], "bbox": f.get("bbox"),
+                               "file": f.get("sourceFile"), "hint": str(f.get("fixHint") or f.get("message") or "")[:240]})
+    if any(e["code"] == "check_runtime_failure" for e in errors):
+        # the checker itself didn't finish (not a defect of the video): skip the gate rather than loop on it
+        print("[check] checker did not finish — gate skipped", flush=True)
+        return None
+    ok = bool(j.get("ok")) and not errors
+    print(f"[check] {'ok' if ok else str(len(errors)) + ' errors'} in {proj.relative_to(ws)}", flush=True)
+    return {"ok": ok, "errors": errors[:40], "project": str(proj.relative_to(ws))}
+
+
+CHECK_PROMPT = """Semakan automatik `hyperframes check` mendapati ralat pada projek {project}. Video belum boleh dihantar.
+Senarai ralat (JSON: section, code, selector, time/times dalam saat, bbox, file, hint):
+
+{errors}
+
+Betulkan SEMUA ralat ini (teks terpotong / melimpah, elemen bertindih, kontras, masa beku, ralat lint/runtime) tanpa
+merosakkan bahagian lain. Kemudian jalankan `hyperframes check --json --samples 24 --at-transitions --max-transition-samples 200` sendiri sehingga
+tiada ralat, render semula ke ./out/preview.mp4, jalankan pl-frames dan buka sheet.png. Beri ringkasan akhir."""
 
 
 def _find_video(ws: Path, since: float) -> Path | None:
@@ -1089,7 +1198,10 @@ def run_vgc(payload: dict) -> dict:
                 caps = caps or f.name == "captions.json"
         dur = _probe(cut)["duration"]
         _, every = _sheets(cut, cdir / "sheets", dur)
-        (cdir / "MEASURE.txt").write_text(_measure(cut), encoding="utf-8")
+        chk = _hf_check(ws)
+        (cdir / "MEASURE.txt").write_text(_measure(cut) + ("" if chk is None else "\n\nhyperframes check (automatic): "
+                                          + ("no errors" if chk["ok"] else json.dumps(chk["errors"][:15], ensure_ascii=False))),
+                                          encoding="utf-8")
         if prev:
             (cdir / "previous-report.md").write_text(prev, encoding="utf-8")
         text = CRITIC_PROMPT.format(dur=dur, step=every, caps=", the approved caption words captions.json" if caps else "",
@@ -1102,6 +1214,32 @@ def run_vgc(payload: dict) -> dict:
         rp = cdir / "report.md"
         report = rp.read_text(encoding="utf-8", errors="replace") if rp.exists() else str((out["result"] or {}).get("result") or "")
         return report.strip() if _verdict(report) else None
+
+    def check_gate(label: str) -> None:
+        """Send the build back until `hyperframes check` reports no errors (CHECK_FIXES rounds)."""
+        nonlocal video, keep
+        for k in range(CHECK_FIXES):
+            if video is None or bakeoff or not runs[-1]["session_id"] or deadline - time.time() < FIX_MIN:
+                return
+            res = _hf_check(ws)
+            if res is None or res["ok"]:
+                ledger.append({"round": f"check-{label}", "verdict": "OK" if res else "n/a"})
+                return
+            _progress("revise", state["pct"], round=f"check {label}")
+            start = time.time()
+            runs.append(claude(CHECK_PROMPT.format(project=res["project"], errors=json.dumps(res["errors"], ensure_ascii=False, indent=1)),
+                               runs[-1]["session_id"], deadline - time.time() - 60))
+            new = _find_video(ws, start)
+            if _api_error(runs[-1]) or not new or _looks_blank(new) or _probe(new)["duration"] < 3:
+                ledger.append({"round": f"check-{label}", "verdict": f"{len(res['errors'])} errors", "fix": "fix failed: kept the cut"})
+                return
+            video, keep = new, len(runs) - 1
+            ledger.append({"round": f"check-{label}", "verdict": f"{len(res['errors'])} errors", "fix": "re-rendered"})
+        res = _hf_check(ws)
+        ledger.append({"round": f"check-{label}", "verdict": "OK" if (res is None or res["ok"]) else f"{len(res['errors'])} errors left"})
+
+    if video is not None and not _looks_blank(video):
+        check_gate("build")
 
     critic_on = (video is not None and not bakeoff and payload.get("critic", True) is not False
                  and runs[-1]["session_id"] and not _looks_blank(video))
@@ -1144,10 +1282,11 @@ def run_vgc(payload: dict) -> dict:
                 print("[gauntlet] the fix round gave no usable video — keeping the previous cut", flush=True)
                 ledger[-1]["fix"] = "failed: kept the previous cut"
                 break
-            best = gdir / f"{step}-r{rnd}.mp4"
-            shutil.copy2(new, best)
-            keep = len(runs) - 1
+            video, keep = new, len(runs) - 1
             ledger[-1]["fix"] = "re-rendered"
+            check_gate(f"r{rnd}")
+            best = gdir / f"{step}-r{rnd}.mp4"
+            shutil.copy2(video, best)
             prev = report
         video = best
         _save_ws(ws, vol_ws)
