@@ -23,10 +23,13 @@ const MAX_W = W - 220; // narrower than the frame: clear of TikTok's right-hand 
 export const CaptionsPro: React.FC<{
   pages: Page[]; style: CaptionStyle; accent: string; centerY: number; look: Look;
   keywords?: CaptionKey[]; lottie?: LottieMap; gempak?: boolean; censor?: number[];
+  /** explainer look: small words building one by one (the graphics carry the message) */
+  subtle?: boolean;
 }> = (props) => {
-  const { pages, style, centerY, look, keywords, lottie, gempak, censor } = props;
+  const { pages, style, centerY, look, keywords, lottie, gempak, censor, subtle } = props;
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
+  if (subtle) return <SubtleCaptions pages={pages} centerY={centerY} look={look} keywords={keywords} censor={censor} />;
   if (style === 'tiktok') {
     return <SharedCaptions pages={pages} style={style} accent={props.accent} centerY={centerY} keywords={keywords} lottie={lottie} gempak={gempak} censor={censor} />;
   }
@@ -105,6 +108,40 @@ export const CaptionsPro: React.FC<{
                   <LottieEmoji char={key!.emoji!} size={size * 1.0} lottie={lottie} />
                 </span>
               ))}
+            </span>
+          );
+        })}
+      </div>
+    </AbsoluteFill>
+  );
+};
+
+// Explainer captions: small caps words that build as they are spoken, the next word
+// faintly previewed; keywords take their colour. No pops — the scenes are the show.
+const SubtleCaptions: React.FC<{ pages: Page[]; centerY: number; look: Look; keywords?: CaptionKey[]; censor?: number[] }> = ({ pages, centerY, look, keywords, censor }) => {
+  const frame = useCurrentFrame();
+  const { fps } = useVideoConfig();
+  const t = frame / fps;
+  const page = pages.find((p) => t >= p.start - 0.06 && t < p.end);
+  if (!page) return null;
+  const keyOf = new Map<number, CaptionKey>((keywords ?? []).map((k) => [k.i, k]));
+  const taped = new Set(censor ?? []);
+  const face = look.caption;
+  let cur = -1;
+  page.words.forEach((w, k) => { if (t >= w.t - 0.02) cur = k; });
+  const size = face.charW < 0.5 ? 66 : 54;
+  return (
+    <AbsoluteFill style={{ pointerEvents: 'none' }}>
+      <div style={{ position: 'absolute', left: 110, right: 150, top: centerY, transform: 'translateY(-50%)', display: 'flex', flexWrap: 'wrap',
+        justifyContent: 'center', columnGap: size * 0.3, rowGap: 4 }}>
+        {page.words.map((w, k) => {
+          if (k > cur + 1) return null;
+          const key = keyOf.get(w.gi);
+          const col = taped.has(w.gi) ? '#d9ccaa' : key ? (key.color === 'brand' || key.color === 'accent' ? look.hi : KEY_COLOR[key.color]) : '#fff';
+          return (
+            <span key={k} style={{ fontFamily: face.family, fontWeight: face.weight, fontSize: size, letterSpacing: 1, color: col, opacity: k <= cur ? 1 : 0.32,
+              textShadow: '0 3px 10px rgba(0,0,0,0.6)', WebkitTextStroke: '2px rgba(0,0,0,0.35)', paintOrder: 'stroke fill' } as React.CSSProperties}>
+              {taped.has(w.gi) ? '▇▇▇' : w.w.toUpperCase()}
             </span>
           );
         })}

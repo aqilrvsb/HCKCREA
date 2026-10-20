@@ -25,6 +25,12 @@ export type Direction = {
   transitions?: Transition[]; break_fx?: BreakFx; end_card?: EndCardStyle; progress?: ProgressStyle;
   second?: string;
   moves?: { at: string | number; move: 'crash' | 'punch' | 'whip' | 'shake' | 'bump'; power?: number }[];
+  /** "subtle" = explainer captions (small words building); "big" (default) = the TikTok captions */
+  captions?: 'big' | 'subtle';
+  /** Full-screen explainer scenes over the speaker (overrides/scenesPro.tsx). */
+  scenes?: ({ kind: string; at: string | number; to?: string | number; bg?: string } & Record<string, unknown>)[];
+  /** Big stacked words beside the speaker. */
+  side?: { at: string | number; to?: string | number; align?: string; words: ({ at: string | number; text: string; tone?: string })[] }[];
   /** HyperFrames registry blocks (overrides/blocks.ts): block id, moment, zone and the block's own fields. */
   graphics?: ({ block: string; at: string | number; to?: string | number; zone?: string } & Record<string, unknown>)[];
 };

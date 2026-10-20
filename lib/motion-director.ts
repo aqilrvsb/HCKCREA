@@ -73,6 +73,12 @@ export type ProDirection = {
   second?: string; moves?: { at: Cue; move: string; power?: number }[];
   /** HyperFrames registry blocks (motion-hf/overrides/blocks.ts) with their own fields. */
   graphics?: ({ block: string; at: Cue; to?: Cue } & Record<string, unknown>)[];
+  /** "subtle" = explainer captions (small words building), "big" = TikTok captions. */
+  captions?: "big" | "subtle";
+  /** Full-screen explainer scenes over the voice (motion-hf/overrides/scenesPro.tsx). */
+  scenes?: Record<string, unknown>[];
+  /** Big stacked words beside the speaker. */
+  side?: Record<string, unknown>[];
 };
 
 // ── AI Auto ──────────────────────────────────────────────────────────────────
@@ -256,8 +262,17 @@ export const PRO_DIRECTION = (recent: string[]) => `PRO FINISH — you are also 
   "graphics": [GRAPHIC] — optional motion-design moments in the band above the face (0–2 per video, each block type once, never during a B-roll card, the hook or the end card; a graphic replaces a sticker at that moment — never repeat a sticker's words or put both on the same beat):
     {"block": "count-up", "at": CUE, "to"?: CUE, "end": number, "start"?: number, "prefix"?: string (≤4, e.g. "RM"), "suffix"?: string (≤4, e.g. "%", " jam")} — a number counts up and lands: ONLY a number the speaker says,
     {"block": "star-rating-fill", "at": CUE, "to"?: CUE, "rating": 0–5} — stars fill to a rating: ONLY a rating the speaker says,
-    {"block": "shutter-slam", "at": CUE, "to"?: CUE, "text": 1–2 words (≤14 chars)} — one word thrown through shutter-blurred beats: the single most important spoken word.
-}
+    {"block": "shutter-slam", "at": CUE, "to"?: CUE, "text": 1–2 words (≤14 chars)} — one word thrown through shutter-blurred beats: the single most important spoken word,
+  "captions": "big" (bold TikTok captions) | "subtle" (small caps words that build as spoken — the explainer look, when scenes carry the message),
+  "scenes": [SCENE] — EXPLAINER SCENES: full-screen motion-graphic scenes that cut away from the speaker while the voice keeps playing (the news / explainer TikTok style); each line, entry or sticker enters on the word that says it:
+    {"kind": "build", "at": CUE, "to": CUE, "bg": BG, "heading"?: small caps label (≤40, e.g. "1. Cara guna", "Nama dia"), "lines": [{"at": CUE, "text": ≤26, "size": "sm"|"md"|"lg"|"xl", "tone"?: TONE, "box"?: "yellow"|"black"|"white"|"accent", "enter"?: "slam"|"slide"}] (≤6)} — numbered points, a stat that builds (a word, then the big number, then what it means), a punchline, a closing question to the viewer,
+    {"kind": "timeline", "at": CUE, "to": CUE, "bg": BG, "kicker"?: ≤24, "title": ≤30, "entries": [{"at": CUE, "date": ≤20 (a date, a step or a "when" word), "lines": [≤24, ≤24?], "tone"?: TONE}] (≤4)} — steps, a before → after, what happens over time,
+    {"kind": "collage", "at": CUE, "to": CUE, "bg": BG, "title"?: ≤16 (ransom-note letter tiles), "stickers": [{"at": CUE, "text": ≤24, "sub"?: ≤20, "kind": "note"|"strip"|"burst"|"tag", "tone"?: TONE}] (≤4)} — places / options / prices pinned up like a mood board (burst = a starburst for a price or number),
+    {"kind": "card", "at": CUE, "to": CUE, "bg": BG, "heading"?: ≤40, "caption"?: ≤110} — a picture card: plan a B-roll at the same moment and its picture is shown here (a product shot, a news-like source),
+    BG = "dark" (charcoal, warm glow, faint grid) | "red" | "accent" | "paper" | "cork" | "yellow" | "blue"; TONE = "white" | "yellow" | "green" | "red" | "blue" | "accent";
+    a scene lasts 1.5–14 s, never during the hook or the CTA; stickers and B-roll pause under it; keep the speaker on screen for the hook, the personal / emotional moments and the CTA,
+  "side": [{"at": CUE, "to"?: CUE, "align": "left" | "right", "words": [{"at": CUE, "text": ≤12, "tone"?: TONE}] (1–3, stacked; the last one usually yellow)}] — big words stacked beside the speaker's head on the line that deserves them.
+Every scene / side word shows ONLY words, numbers and facts the speaker actually says — short, punchy, in their language.
 Craft notes (judgement, not rules): one main transition usually carries most cutaways with one or two accents; full-screen hits (shake, flash, crash) land hardest when rare; captions and stickers must stay readable over the grade; every choice must suit the product, the speaker's energy and the angle.
 VARIETY — TikTok pushes down near-identical videos. ${recent.length ? `This client's recent edits used: ${recent.join(" | ")}. Give this one a clearly different combination (at least a different hook style, font, grade and end card).` : "Give this edit a combination of its own."}`;
 
@@ -310,9 +325,72 @@ function cleanDirection(d: any, nWords: number, duration: number): ProDirection 
       }
       return out;
     }).filter(Boolean).slice(0, 2) as ProDirection["graphics"] : undefined,
+    ...(d.captions === "subtle" || d.captions === "big" ? { captions: d.captions } : {}),
+    scenes: Array.isArray(d.scenes) ? d.scenes.map((sc: any) => cleanScene(sc, nWords, duration)).filter(Boolean).slice(0, 14) as Record<string, unknown>[] : undefined,
+    side: Array.isArray(d.side) ? d.side.map((x: any) => {
+      const at = cueIn(x?.at, nWords, duration);
+      if (at === undefined) return null;
+      const to = cueIn(x?.to, nWords, duration);
+      const words = (Array.isArray(x?.words) ? x.words : []).map((w: any) => {
+        const wat = cueIn(w?.at, nWords, duration) ?? at;
+        const text = clean(w?.text, 12);
+        return text ? { at: wat, text, ...(SCENE_TONES.has(w?.tone) ? { tone: w.tone } : {}) } : null;
+      }).filter(Boolean).slice(0, 3);
+      return words.length ? { at, ...(to !== undefined ? { to } : {}), align: x?.align === "right" ? "right" : "left", words } : null;
+    }).filter(Boolean).slice(0, 8) as Record<string, unknown>[] : undefined,
   };
   for (const k of Object.keys(out) as (keyof ProDirection)[]) if (out[k] === undefined || (Array.isArray(out[k]) && !(out[k] as unknown[]).length)) delete out[k];
   return Object.keys(out).length ? out : undefined;
+}
+
+const SCENE_TONES = new Set(["white", "yellow", "green", "red", "blue", "accent", "black"]);
+const SCENE_BGS = new Set(["dark", "red", "accent", "paper", "cork", "yellow", "blue"]);
+
+/** One explainer scene, cleaned to what scenesPro.tsx draws (unknown fields dropped, text clipped). */
+function cleanScene(sc: any, nWords: number, duration: number): Record<string, unknown> | null {
+  const kind = String(sc?.kind || "");
+  if (!["build", "timeline", "collage", "card"].includes(kind)) return null;
+  const at = cueIn(sc?.at, nWords, duration);
+  if (at === undefined) return null;
+  const to = cueIn(sc?.to, nWords, duration);
+  const cueOr = (c: unknown) => cueIn(c, nWords, duration) ?? at;
+  const out: Record<string, unknown> = { kind, at, ...(to !== undefined ? { to } : {}), bg: SCENE_BGS.has(sc?.bg) ? sc.bg : "dark" };
+  for (const [k, n] of [["heading", 40], ["kicker", 24], ["title", 30], ["caption", 110]] as const) {
+    const v = clean(sc?.[k], n);
+    if (v) out[k] = v;
+  }
+  const tone = (v: unknown) => (SCENE_TONES.has(v as string) ? { tone: v } : {});
+  if (kind === "build") {
+    const lines = (Array.isArray(sc?.lines) ? sc.lines : []).map((l: any) => {
+      const text = clean(l?.text, 26);
+      return text ? {
+        at: cueOr(l?.at), text, ...tone(l?.tone),
+        size: ["sm", "md", "lg", "xl"].includes(l?.size) ? l.size : "md",
+        ...(["yellow", "black", "white", "accent"].includes(l?.box) ? { box: l.box } : {}),
+        ...(l?.enter === "slide" || l?.enter === "slam" ? { enter: l.enter } : {}),
+      } : null;
+    }).filter(Boolean).slice(0, 6);
+    if (!lines.length) return null;
+    out.lines = lines;
+  } else if (kind === "timeline") {
+    const entries = (Array.isArray(sc?.entries) ? sc.entries : []).map((en: any) => {
+      const date = clean(en?.date, 20);
+      const lines = (Array.isArray(en?.lines) ? en.lines : [en?.text]).map((x: unknown) => clean(x, 24)).filter(Boolean).slice(0, 2);
+      return date && lines.length ? { at: cueOr(en?.at), date, lines, ...tone(en?.tone) } : null;
+    }).filter(Boolean).slice(0, 4);
+    if (!entries.length) return null;
+    out.entries = entries;
+  } else if (kind === "collage") {
+    const stickers = (Array.isArray(sc?.stickers) ? sc.stickers : []).map((st: any) => {
+      const text = clean(st?.text, 24);
+      return text ? { at: cueOr(st?.at), text, ...(clean(st?.sub, 20) ? { sub: clean(st.sub, 20) } : {}),
+        kind: ["note", "strip", "burst", "tag"].includes(st?.kind) ? st.kind : "tag", ...tone(st?.tone) } : null;
+    }).filter(Boolean).slice(0, 4);
+    if (!stickers.length && !out.title) return null;
+    out.title = out.title ? String(out.title).slice(0, 16) : undefined;
+    out.stickers = stickers;
+  }
+  return out;
 }
 
 /** One line per earlier edit (for the VARIETY note). */
@@ -429,7 +507,7 @@ export async function directEdit(opts: {
       systemPrompt: DIRECTOR_SYSTEM(style, !!input.guard, brief) + (pro ? `\n\n${PRO_DIRECTION(opts.recent ?? [])}\nInclude "direction" in the JSON object.` : ""),
       userPrompt: attempt === 0 ? userPrompt : `${userPrompt}\n\nYour previous answer was not valid JSON (${lastErr}). Return ONLY the JSON object.`,
       temperature: auto ? 0.9 : 0.7, // AI Auto: fresher ideas from video to video
-      maxTokens: pro ? 8000 : 7000,
+      maxTokens: pro ? 11000 : 7000,
       // GRSAI latency swings (same prompt: 25 s on a flash model, 72 … 200 s on
       // the GPT ones). No answer in 40 s → the next model races alongside; the
       // first USABLE plan wins (a truncated / non-JSON answer keeps the race

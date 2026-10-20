@@ -24,6 +24,7 @@ import { CaptionsPro } from './captionsPro';
 import { EndCardPro } from './endCardPro';
 import { BreakFxLayer, Grain, ProgressPro } from './fxPro';
 import { HookPro } from './hookPro';
+import { ScenePro, SideWords, type Bg, type PlacedScene, type PlacedSide, type Tone } from './scenesPro';
 import { lookFor, type Direction } from './look';
 import { BLOCKS, BLOCK_BOX } from './blocks';
 import { recordBlock } from '../runtime/collect.js';
@@ -51,6 +52,12 @@ const EVENT_FOR: Partial<Record<ItemType, SfxEventName>> = {
 };
 const IMPACT_TYPES = new Set<ItemType>(['bigword', 'stamp', 'price']);
 const CONFETTI_COLORS = (accent: string, second: string) => ['#FFD93B', '#ffffff', accent, second === '#111111' ? '#ff5c8a' : second, '#22c55e', '#38bdf8'];
+
+const TONES = new Set<Tone>(['white', 'yellow', 'green', 'red', 'blue', 'accent', 'black']);
+const BGS = new Set<Bg>(['dark', 'red', 'accent', 'paper', 'cork', 'yellow', 'blue']);
+const txt = (v: unknown, n: number) => (typeof v === 'string' ? v.replace(/\s+/g, ' ').trim().slice(0, n) : '');
+const tone = (v: unknown): Tone | undefined => (TONES.has(v as Tone) ? (v as Tone) : undefined);
+const arr = (v: unknown): Record<string, unknown>[] => (Array.isArray(v) ? (v as Record<string, unknown>[]).filter((x) => x && typeof x === 'object') : []);
 
 const smooth = (x: number) => { const t = Math.min(1, Math.max(0, x)); return t * t * (3 - 2 * t); };
 
@@ -121,7 +128,75 @@ export const MotionEditPro: React.FC<ProProps> = (p) => {
       if (layout === 'pip' && !box) layout = 'full';
       broll.push({ s, e, src: b.src, video: b.video, blur: b.blur, layout, label: b.label, k, ...(box ? { box } : {}) });
     }
+    // explainer scenes: full-screen motion graphics over the voice, each line on its spoken word
+    const scenes: PlacedScene[] = [];
+    for (const raw of arr(p.direction?.scenes).slice(0, 14)) {
+      const kind = String(raw.kind);
+      if (!['build', 'timeline', 'collage', 'card'].includes(kind)) continue;
+      const s = onBeat(fr(cue(raw.at as string | number, -1)));
+      if (s < 0 || s <= hookEnd) continue;
+      let e = raw.to !== undefined ? fr(cue(raw.to as string | number, s / fps + 3)) : s + fr(3);
+      e = Math.min(Math.max(e, s + fr(1.5)), s + fr(14), ctaStart >= 0 ? ctaStart - 2 : last);
+      if (e - s < fr(1.2) || scenes.some((x) => s < x.e + 2 && e > x.s - 2)) continue;
+      const at = (c: unknown) => Math.min(Math.max(fr(cue(c as string | number, s / fps)), s), e - 8);
+      const sc: PlacedScene = { kind: kind as PlacedScene['kind'], s, e, bg: BGS.has(raw.bg as Bg) ? (raw.bg as Bg) : 'dark',
+        heading: txt(raw.heading, 40) || undefined, kicker: txt(raw.kicker, 24) || undefined, title: txt(raw.title, 30) || undefined,
+        caption: txt(raw.caption, 110) || undefined };
+      if (kind === 'build') {
+        sc.lines = arr(raw.lines).slice(0, 6).map((l) => ({
+          f: at(l.at), text: txt(l.text, 26), tone: tone(l.tone),
+          box: (['yellow', 'black', 'white', 'accent', 'none'].includes(String(l.box)) ? l.box : 'none') as 'yellow' | 'black' | 'white' | 'accent' | 'none',
+          size: (['sm', 'md', 'lg', 'xl'].includes(String(l.size)) ? l.size : 'md') as 'sm' | 'md' | 'lg' | 'xl',
+          enter: l.enter === 'slide' ? 'slide' as const : l.enter === 'slam' ? 'slam' as const : undefined,
+        })).filter((l) => l.text);
+        if (!sc.lines.length) continue;
+      } else if (kind === 'timeline') {
+        sc.entries = arr(raw.entries).slice(0, 4).map((en) => ({
+          f: at(en.at), date: txt(en.date, 20), lines: (Array.isArray(en.lines) ? en.lines : [en.text]).map((x) => txt(x, 24)).filter(Boolean).slice(0, 2), tone: tone(en.tone),
+        })).filter((en) => en.date && en.lines.length);
+        if (!sc.entries.length) continue;
+      } else if (kind === 'collage') {
+        sc.stickers = arr(raw.stickers).slice(0, 4).map((st) => ({
+          f: at(st.at), text: txt(st.text, 24), sub: txt(st.sub, 20) || undefined,
+          kind: (['note', 'strip', 'burst', 'tag'].includes(String(st.kind)) ? st.kind : 'tag') as 'note' | 'strip' | 'burst' | 'tag', tone: tone(st.tone),
+        })).filter((st) => st.text);
+        if (!sc.title && !sc.stickers.length) continue;
+      }
+      scenes.push(sc);
+    }
+    scenes.sort((a, b) => a.s - b.s);
+    // a card shows the picture of the B-roll planned at that moment; a scene replaces any B-roll under it
+    for (const sc of scenes) {
+      const under = broll.filter((b) => b.s < sc.e && b.e > sc.s);
+      if (sc.kind === 'card' && !sc.image && under.length) sc.image = under[0].src;
+    }
+    for (let i = broll.length - 1; i >= 0; i--) if (scenes.some((sc) => broll[i].s < sc.e && broll[i].e > sc.s)) broll.splice(i, 1);
+    const inScene = (f: number) => scenes.some((sc) => f >= sc.s && f < sc.e);
+
+    // big stacked words beside the speaker (never during a scene)
+    const sides: PlacedSide[] = [];
+    for (const raw of arr(p.direction?.side).slice(0, 8)) {
+      const s = fr(cue(raw.at as string | number, -1));
+      if (s < 0 || s <= hookEnd || inScene(s) || (ctaStart >= 0 && s >= ctaStart - fr(1))) continue;
+      let e = raw.to !== undefined ? fr(cue(raw.to as string | number, s / fps + 2)) : s + fr(2.2);
+      e = Math.min(Math.max(e, s + fr(1.2)), s + fr(4), ctaStart >= 0 ? ctaStart : last);
+      const sc = scenes.find((x) => x.s > s);
+      if (sc && e > sc.s) e = sc.s;
+      if (e - s < fr(1) || sides.some((x) => s < x.e && e > x.s)) continue;
+      const words = arr(raw.words).slice(0, 3).map((w) => ({ f: Math.min(Math.max(fr(cue(w.at as string | number, s / fps)), s), e - 6), text: txt(w.text, 12), tone: tone(w.tone) }))
+        .filter((w) => w.text);
+      if (!words.length) continue;
+      sides.push({ s, e, words, align: raw.align === 'right' ? 'right' : 'left' });
+    }
+
     const pips = broll.filter((b) => b.layout === 'pip').map((b) => ({ s: b.s, e: b.e }));
+
+    for (let i = placed.length - 1; i >= 0; i--) {
+      const pl = placed[i];
+      if (inScene(pl.s)) { placed.splice(i, 1); continue; }
+      const next = scenes.find((sc) => sc.s > pl.s && sc.s < pl.e);
+      if (next) placed[i] = { ...pl, e: Math.max(pl.s + 14, next.s) };
+    }
 
     // director-placed HyperFrames registry blocks: one sticker slot each, so the layout keeps them off the
     // face, the captions and the other stickers; one instance per block type, clear of the hook and end card
@@ -137,13 +212,14 @@ export const MotionEditPro: React.FC<ProProps> = (p) => {
       e = Math.min(Math.max(e, s + fr(def.min)), s + fr(def.max), ctaStart >= 0 ? ctaStart : last);
       if (e - s < fr(def.min) - 1) continue;
       // the band above the face is the block's: never while a B-roll card, a cutaway or another block is up
-      if (broll.some((x) => s < x.e + 4 && e > x.s - 4) || blocks.some((x) => s < x.e + 6 && e > x.s - 6)) continue;
+      if (broll.some((x) => s < x.e + 4 && e > x.s - 4) || blocks.some((x) => s < x.e + 6 && e > x.s - 6)
+        || scenes.some((x) => s < x.e && e > x.s) || sides.some((x) => s < x.e && e > x.s)) continue;
       blocks.push({ key: 900 + k, block: String(g.block), vars, s, e });
     }
 
     const capH = cap.style === 'tiktok' ? 220 : 250;
     const slots = layoutEdit(placed, {
-      faces: p.faces, fps, hookEnd, pips: [...pips, ...blocks.map((b) => ({ s: b.s, e: b.e }))],
+      faces: p.faces, fps, hookEnd, pips: [...pips, ...blocks.map((b) => ({ s: b.s, e: b.e })), ...sides.map((x) => ({ s: x.s, e: x.e }))],
       labels: broll.filter((b) => b.layout === 'full' && b.label).map((b) => ({ s: b.s - 9, e: b.e })),
       captions: cap.on ? { a: capCenter - capH / 2, b: capCenter + capH / 2 } : null,
     });
@@ -168,14 +244,16 @@ export const MotionEditPro: React.FC<ProProps> = (p) => {
     const inZoom = (f: number) => zooms.some((z) => f >= z.s - 6 && f <= z.e + 10);
     const bumps: number[] = [];
     const tryBump = (f: number) => {
-      if (f <= hookEnd + 6 || (ctaStart >= 0 && f >= ctaStart - 6) || inZoom(f)) return false;
+      if (f <= hookEnd + 6 || (ctaStart >= 0 && f >= ctaStart - 6) || inZoom(f) || inScene(f)) return false;
       if (bumps.some((b) => Math.abs(b - f) < fr(2.4))) return false;
       bumps.push(f);
       return true;
     };
     for (const k of p.keywords ?? []) { const w = words[k.i]; if (w) tryBump(fr(w.t)); }
     const events = [
-      ...placed.map((pl) => pl.s), ...blocks.map((b) => b.s), ...broll.map((b) => b.s), ...zooms.map((z) => z.s), ...cutFrames, ...bumps,
+      ...placed.map((pl) => pl.s), ...blocks.map((b) => b.s), ...broll.map((b) => b.s),
+      ...scenes.flatMap((sc) => [sc.s, sc.e, ...(sc.lines ?? []).map((l) => l.f), ...(sc.entries ?? []).map((x) => x.f), ...(sc.stickers ?? []).map((x) => x.f)]),
+      ...sides.map((x) => x.s), ...zooms.map((z) => z.s), ...cutFrames, ...bumps,
       hookEnd, ...(ctaStart >= 0 ? [ctaStart] : [durationInFrames]),
     ].sort((a, b) => a - b);
     for (let i = 1; i < events.length; i++) {
@@ -239,11 +317,18 @@ export const MotionEditPro: React.FC<ProProps> = (p) => {
     cutFrames.forEach((c, k) => { if (k % 2 === 0) sfx.push(...sfxFor('cut', c, style, vseed + k)); });
     if (ctaStart >= 0) sfx.push(...sfxFor('cta', ctaStart, style, vseed + 7));
     blocks.forEach((b, k) => sfx.push(...sfxFor(k % 2 ? 'bigword' : 'headline', b.s, style, vseed + 61 + k)));
+    scenes.forEach((sc, k) => {
+      sfx.push(...sfxFor('broll_full', sc.s - 6, style, vseed + 71 + k));
+      (sc.lines ?? []).forEach((l, j) => { if (l.f > sc.s + 2) sfx.push(...sfxFor(l.size === 'xl' || l.size === 'lg' ? 'bigword' : 'chip', l.f, style, vseed + 80 + k * 7 + j)); });
+      (sc.entries ?? []).forEach((x, j) => sfx.push(...sfxFor('check', x.f, style, vseed + 90 + k * 7 + j)));
+      (sc.stickers ?? []).forEach((x, j) => sfx.push(...sfxFor(x.kind === 'burst' ? 'stamp' : x.kind === 'note' ? 'note' : x.kind === 'strip' ? 'tape' : 'tag', x.f, style, vseed + 100 + k * 7 + j)));
+    });
+    sides.forEach((x, k) => sfx.push(...sfxFor('headline', x.words[0].f, style, vseed + 120 + k)));
     crashes.forEach((c, k) => sfx.push(...sfxFor('bigword', c.f, style, vseed + 41 + k)));
     whips.forEach((w, k) => sfx.push(...sfxFor('broll_full', w.f - 4, style, vseed + 53 + k)));
 
     return {
-      look, placed, slots, zooms, broll, shakes, flashes, breaks, confetti, cutFrames, bumps, crashes, punches, whips, sfx, hookEnd, ctaStart,
+      look, placed, slots, zooms, broll, scenes, sides, shakes, flashes, breaks, confetti, cutFrames, bumps, crashes, punches, whips, sfx, hookEnd, ctaStart,
       pages: cap.on ? toPages(words, Math.min(6, Math.max(1, cap.maxWords || 3))) : [],
     };
   }, [p.words, p.overlays, p.zooms, p.hook, p.facts, p.rehook, p.cta, p.broll, p.faces, p.cuts, p.hookSfx, p.keywords, p.music, p.musicBpm,
@@ -342,9 +427,11 @@ export const MotionEditPro: React.FC<ProProps> = (p) => {
         <BRollPipLayer items={plan.broll} />
         <SlotStack placed={plan.placed} slots={plan.slots} ink="#ffffff" accent={accent} style={style} lottie={p.lottie} />
         {gempak && <BreakFxLayer at={plan.breaks} kind={look.breakFx} />}
+        {plan.sides.map((sd, i) => (frame >= sd.s && frame < sd.e ? <SideWords key={`sd${i}`} side={sd} frame={frame} look={look} accent={accent} /> : null))}
+        {plan.scenes.map((sc, i) => (frame >= sc.s && frame < sc.e ? <ScenePro key={`sc${i}`} sc={sc} frame={frame} look={look} accent={accent} /> : null))}
 
         {cap.on && (
-          <CaptionsPro pages={plan.pages} style={cap.style} accent={accent} centerY={capCenter} look={look}
+          <CaptionsPro pages={plan.pages} style={cap.style} accent={accent} centerY={capCenter} look={look} subtle={p.direction?.captions === 'subtle'}
             keywords={p.keywords} lottie={p.lottie} gempak={gempak} censor={p.censor} />
         )}
         {p.cta?.text && plan.ctaStart >= 0 && (
