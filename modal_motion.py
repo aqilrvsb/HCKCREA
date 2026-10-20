@@ -75,7 +75,9 @@ render_image = (
         "apt-get install -y nodejs",
     )
     .pip_install(
-        "faster-whisper==1.0.3", "rembg[cpu]==2.0.59", "pillow==10.4.0", "numpy<2", "scipy==1.13.1",
+        # 1.0.3's word alignment crashed on some phone videos with VAD on
+        # ("boolean index did not match indexed array …"); fixed in 1.1.x
+        "faster-whisper==1.1.1", "rembg[cpu]==2.0.59", "pillow==10.4.0", "numpy<2", "scipy==1.13.1",
         "mediapipe==0.10.21", "requests==2.31.0", "boto3==1.34.0", "fastapi[standard]==0.115.0",
     )
     .run_commands("mkdir -p /models")
@@ -258,9 +260,22 @@ def _asr_prompt(language, keep_fillers: bool, hint) -> str | None:
 
 
 def _transcribe(src: Path, language, vad: bool, keep_fillers: bool = False, hint=None) -> list:
-    segs, _info = _whisper().transcribe(_pcm16k(src), language=language or None, word_timestamps=True,
-                                        beam_size=5, vad_filter=vad,
-                                        initial_prompt=_asr_prompt(language, keep_fillers, hint))
+    pcm = _pcm16k(src)
+
+    def run(use_vad: bool):
+        segs, _info = _whisper().transcribe(pcm, language=language or None, word_timestamps=True,
+                                            beam_size=5, vad_filter=use_vad,
+                                            initial_prompt=_asr_prompt(language, keep_fillers, hint))
+        return list(segs)  # the segments are lazy: decode (and fail) here
+
+    try:
+        segs = run(vad)
+    except Exception as e:  # noqa: BLE001
+        if not vad:
+            raise
+        # a word-alignment failure on one segment must not fail the client's job
+        print("transcribe with VAD failed, retrying without:", str(e)[:200], flush=True)
+        segs = run(False)
     words = []
     for s in segs:
         for w in (s.words or []):
