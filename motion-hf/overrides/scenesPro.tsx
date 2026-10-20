@@ -444,7 +444,9 @@ export const ScenePro: React.FC<{ sc: PlacedScene; frame: number; look: Look; ac
   return (
     <AbsoluteFill style={sceneEnter(sc.enter, f)}>
       <SceneBg bg={sc.bg} f={f} accent={accent} />
-      <div style={{ position: 'absolute', left: 0, right: 0, top: sc.kind === 'build' ? TOP_BUILD : TOP }}>{body}</div>
+      {/* a slow push-in keeps a long scene alive (a card holds 10 s+ in the reference) */}
+      <div style={{ position: 'absolute', left: 0, right: 0, top: sc.kind === 'build' ? TOP_BUILD : TOP, transformOrigin: '50% 30%',
+        transform: `scale(${(1 + (sc.kind === 'card' ? 0.04 : 0.035) * Math.min(1, f / Math.max(1, sc.e - sc.s))).toFixed(4)})` }}>{body}</div>
     </AbsoluteFill>
   );
 };

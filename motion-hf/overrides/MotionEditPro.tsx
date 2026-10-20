@@ -58,7 +58,14 @@ const BGS = new Set<Bg>(['dark', 'red', 'accent', 'paper', 'cork', 'yellow', 'bl
 const ENTERS = new Set<SceneEnter>(['cut', 'push', 'zoom', 'whip']);
 const LINE_FX = new Set<LineFx>(['strike', 'marker', 'count']);
 const SIDE_SIZES = new Set<SideSize>(['sm', 'md', 'lg']);
-const txt = (v: unknown, n: number) => (typeof v === 'string' ? v.replace(/\s+/g, ' ').trim().slice(0, n) : '');
+const txt = (v: unknown, n: number) => {
+  if (typeof v !== 'string') return '';
+  const t = v.replace(/\s+/g, ' ').trim();
+  if (t.length <= n) return t;
+  const cut = t.slice(0, n);
+  const sp = cut.lastIndexOf(' ');
+  return (sp >= n * 0.6 ? cut.slice(0, sp) : cut).trim(); // clip at a word boundary
+};
 const tone = (v: unknown): Tone | undefined => (TONES.has(v as Tone) ? (v as Tone) : undefined);
 const arr = (v: unknown): Record<string, unknown>[] => (Array.isArray(v) ? (v as Record<string, unknown>[]).filter((x) => x && typeof x === 'object') : []);
 
@@ -207,7 +214,7 @@ export const MotionEditPro: React.FC<ProProps> = (p) => {
       const sc = scenes.find((x) => x.s > s);
       if (sc && e > sc.s) e = sc.s;
       if (e - s < fr(1) || sides.some((x) => s < x.e && e > x.s) || floats.some((x) => s < x.e && e > x.s)) continue;
-      const words = arr(raw.words).slice(0, 3).map((w) => ({ f: Math.min(Math.max(fr(cue(w.at as string | number, s / fps)), s), e - 6), text: txt(w.text, 12), tone: tone(w.tone),
+      const words = arr(raw.words).slice(0, 3).map((w) => ({ f: Math.min(Math.max(fr(cue(w.at as string | number, s / fps)), s), e - 6), text: txt(w.text, 16), tone: tone(w.tone),
         size: SIDE_SIZES.has(w.size as SideSize) ? (w.size as SideSize) : undefined }))
         .filter((w) => w.text);
       if (!words.length) continue;

@@ -275,21 +275,22 @@ export const PRO_DIRECTION = (recent: string[]) => `PRO FINISH — you are also 
   "scenes": [SCENE] — EXPLAINER SCENES: full-screen motion-graphic scenes that cut away from the speaker while the voice keeps playing (the news / explainer TikTok style); each line, entry or sticker enters on the word that says it:
     {"kind": "build", "at": CUE, "to": CUE, "bg": BG, "heading"?: small caps label (≤40, e.g. "1. Cara guna", "Nama dia"), "lines": [{"at": CUE, "text": ≤26, "size": "sm"|"md"|"lg"|"xl", "tone"?: TONE, "box"?: "yellow"|"black"|"white"|"accent", "enter"?: "slam"|"slide", "fx"?: "count" (its number counts up) | "marker" (a highlighter sweeps it) | "strike" (it gets crossed out — a myth, a wrong belief, the old price)}] (≤6)} — numbered points, a stat that builds (a word, then the big number, then what it means), a punchline, a closing question to the viewer,
     {"kind": "timeline", "at": CUE, "to": CUE, "bg": BG, "kicker"?: ≤24, "title": ≤30, "entries": [{"at": CUE, "date": ≤20 (a date, a step or a "when" word), "lines": [≤24, ≤24?], "tone"?: TONE}] (≤4)} — steps, a before → after, what happens over time,
-    {"kind": "collage", "at": CUE, "to": CUE, "bg": BG, "title"?: ≤16 (ransom-note letter tiles), "stickers": [{"at": CUE, "text": ≤24, "sub"?: ≤20, "kind": "note"|"strip"|"burst"|"tag", "tone"?: TONE}] (≤4)} — places / options / prices pinned up like a mood board (burst = a starburst for a price or number),
+    {"kind": "collage", "at": CUE, "to": CUE, "bg": BG, "title"?: ≤22 (ransom-note letter tiles), "stickers": [{"at": CUE, "text": ≤24, "sub"?: ≤20, "kind": "note"|"strip"|"burst"|"tag", "tone"?: TONE}] (≤4)} — places / options / prices pinned up like a mood board (burst = a starburst for a price or number),
     {"kind": "card", "at": CUE, "to": CUE, "bg": BG, "style": "polaroid" | "article" | "float", "heading"?: ≤40, "caption"?: ≤110 (the headline / point in the speaker's words), "source"?: ≤24 (only a source the speaker names), "date"?: ≤24 (only a spoken date), "badge"?: ≤14 (float, e.g. "VIRAL", "TERKINI", "BARU"), "highlight"?: [words of the caption a highlighter sweeps]} — a picture card: plan a B-roll at the same moment and its picture is shown here. "polaroid" = photo + caption; "article" = a web-news card (headline · source · date · picture) for a rule, a claim or news the speaker cites; "float" = a smaller card floating over the speaker with a badge — it may OPEN the video right under the hook title, and never covers the face,
     {"kind": "compare", "at": CUE, "to": CUE, "bg": BG, "title"?: ≤30, "bars": [{"at": CUE, "label": ≤16, "value": ≤12, "tone"?: TONE}] (2–4)} — columns that grow on their words: numbers become bar heights (0.35% vs 0.6%, RM100 vs RM99.65, 2 jam vs 10 minit), words alone read as A vs B,
     BG = "dark" (charcoal, warm glow, faint grid) | "red" | "accent" | "paper" | "cork" | "yellow" | "blue"; TONE = "white" | "yellow" | "green" | "red" | "blue" | "accent";
     any scene may set "enter": "cut" (default — the hard explainer cut) | "push" | "zoom" | "whip";
     a scene lasts 1.5–14 s, never during the hook (a float card may) or the CTA; stickers and B-roll pause under it; keep the speaker on screen for the hook, the personal / emotional moments and the CTA,
-  "side": [{"at": CUE, "to"?: CUE, "align": "left" | "right" | "center", "words": [{"at": CUE, "text": ≤12, "tone"?: TONE, "size"?: "sm" | "md" | "lg"}] (1–3, stacked)}] — big words beside the speaker's head on the line that deserves them; mix sizes like an editor ("KEPUTUSAN" sm → "RHB" lg → "SENDIRI" md yellow), or "center" for ONE huge embossed word over the head on a punchline ("PALSU").
+  "side": [{"at": CUE, "to"?: CUE, "align": "left" | "right" | "center", "words": [{"at": CUE, "text": ≤16, "tone"?: TONE, "size"?: "sm" | "md" | "lg"}] (1–3, stacked)}] — big words beside the speaker's head on the line that deserves them; mix sizes like an editor ("KEPUTUSAN" sm → "RHB" lg → "SENDIRI" md yellow), or "center" for ONE huge embossed word over the head on a punchline ("PALSU").
 Every scene / side word shows ONLY words, numbers and facts the speaker actually says — short, punchy, in their language.
 THE REFERENCE LEVEL (a top Malaysian news-explainer TikTok, the bar to reach when the content allows): a calm "headline" hook title with a float card of the source (badge "VIRAL") under it; the speaker states each point while side words land on the strongest words; every point then cuts (hard cut) to its own scene, numbered "1. … / 2. … / 3. …": a dark build whose lines slam in word by word ("TAKDE CHARGE" green → "BAYAR RM100" → "TOLAK RM100 JE" on a yellow box), a red stat build ("NAMA DIA" → "MDR" xl → "0.35%" count, yellow → "0.6%" → "KAD KREDIT" on a black box), a cork / paper collage (tag heading "CONTOHNYA", yellow note, starburst price, red strip), an article card of the news with its key words highlighted, a timeline of dates (green / red / yellow dots), a compare of two numbers; between scenes the speaker with side words; a closing question build right before the CTA ("JADI KORANG RASA…?" → "KOMEN KAT BAWAH" on a yellow box); "captions": "subtle", "fx": "light", no end card or a quiet one. For a selling / product video the same kit tells the product story (a stat build of the result, a compare of before → after or price vs value, a card of the product, a collage of variants / uses, a timeline of the routine) — still built from what is said.
-HOW A TOP EXPLAINER EDITOR BUILDS THIS VIDEO — this is the default bar for every talking video; step away from it only when the footage clearly calls for something else (a purely emotional story, a one-line clip, a product demo that must stay on the hands):
+HOW A TOP EXPLAINER EDITOR BUILDS THIS VIDEO — this is the default bar for every talking video (selling, tutorial, review, tips, news); step away from it only for a purely emotional story or a clip under ~12 s. A client prompt or selling recipe (checklists, price tags, zooms, a CTA) is delivered INSIDE this structure — a checklist build with ticks, a price starburst in a collage, a compare of old vs new price, a punch-in while the product is shown — never instead of it:
 - The scenes are the main storytelling tool, not an extra. Whenever the speaker explains, teaches, lists, compares, gives steps, places, prices or numbers, cut to a scene that builds that point on screen as it is said — about 50–65 % of the runtime in scenes (the reference sits near 60 %), typically 4–8 scenes in 30–60 s, each a different kind / background (numbered "1. / 2." builds, a stat build, a collage of options, an article / polaroid card of the product or source, a timeline of steps, a compare of two numbers or choices, a closing question before the CTA).
 - Every scene keeps building like the reference: a new line / entry / sticker lands on its word every 1–2 spoken seconds, 3–7 of them per scene, filling the frame's upper two-thirds; never leave a scene sitting on one or two lines for more than ~2.5 s — add the next spoken phrase as a line, or end the scene and cut back to the speaker. Lines are short spoken phrases (1–4 words), mixed sizes (a small lead-in, then the big word, then what it means), colour and boxes for the key one.
 - While the speaker is on screen between scenes, side words land on the strongest line almost every time (small lead-in + big word, or one huge centred word on a punchline), with few stickers — never a sticker and side words at the same moment.
-- Open with the hook title and, when there is a product / source picture, a float card with a badge under it; keep the speaker on screen for the hook, any moment they show the product to camera, emotional lines and the CTA.
+- Open with the hook title and, when there is a product / source picture, a float card with a badge under it; keep the speaker on screen for the hook, the moments they hold the product up to camera, emotional lines and the CTA — and cut to scenes for everything they explain around those moments.
 - Subtle captions and fx "light" are the reference look (the scenes carry the message); end on a closing question scene and the spoken CTA (no end card, or a quiet one).
+CHECK BEFORE YOU ANSWER (fix the plan if any is "no"): do the scenes cover about half the runtime or more? does every scene build 3–7 items, a new one every 1–2 spoken seconds? do side words land on the speaker's strongest lines between scenes? does each scene differ in kind or background from its neighbours?
 Craft notes (judgement, not rules): one main transition usually carries most cutaways with one or two accents; full-screen hits (shake, flash, crash) land hardest when rare; captions and stickers must stay readable over the grade; every choice must suit the product, the speaker's energy and the angle.
 VARIETY — TikTok pushes down near-identical videos. ${recent.length ? `This client's recent edits used: ${recent.join(" | ")}. Give this one a clearly different combination (at least a different hook style, font, grade and end card).` : "Give this edit a combination of its own."}`;
 
@@ -351,7 +352,7 @@ function cleanDirection(d: any, nWords: number, duration: number): ProDirection 
       const to = cueIn(x?.to, nWords, duration);
       const words = (Array.isArray(x?.words) ? x.words : []).map((w: any) => {
         const wat = cueIn(w?.at, nWords, duration) ?? at;
-        const text = clean(w?.text, 12);
+        const text = clean(w?.text, 16);
         return text ? { at: wat, text, ...(SCENE_TONES.has(w?.tone) ? { tone: w.tone } : {}), ...(["sm", "md", "lg"].includes(w?.size) ? { size: w.size } : {}) } : null;
       }).filter(Boolean).slice(0, 3);
       return words.length ? { at, ...(to !== undefined ? { to } : {}), align: ["right", "center"].includes(x?.align) ? x.align : "left", words } : null;
@@ -416,7 +417,7 @@ function cleanScene(sc: any, nWords: number, duration: number): Record<string, u
         kind: ["note", "strip", "burst", "tag"].includes(st?.kind) ? st.kind : "tag", ...tone(st?.tone) } : null;
     }).filter(Boolean).slice(0, 4);
     if (!stickers.length && !out.title) return null;
-    out.title = out.title ? String(out.title).slice(0, 16) : undefined;
+    out.title = out.title ? clean(out.title, 22) : undefined;
     out.stickers = stickers;
   } else if (kind === "compare") {
     const bars = (Array.isArray(sc?.bars) ? sc.bars : []).map((b: any) => {
@@ -439,7 +440,14 @@ const HEX = /^#[0-9a-f]{6}$/i;
 const EDIT_CUE = /^w\d{1,4}(?:\$)?(?:[+-]\d{0,2}(?:\.\d+)?)?$/i;
 const KEY_COLORS = new Set(["benefit", "price", "pain", "brand", "accent"]);
 const MOODS = new Set(["chill", "upbeat", "hype"]);
-const clean = (s: unknown, max: number) => String(s ?? "").replace(/\s+/g, " ").trim().slice(0, max);
+/** Whitespace-normalised and clipped to `max` — at a word boundary when one is near (no "Tampal dekat man"). */
+const clean = (s: unknown, max: number) => {
+  const t = String(s ?? "").replace(/\s+/g, " ").trim();
+  if (t.length <= max) return t;
+  const cut = t.slice(0, max);
+  const sp = cut.lastIndexOf(" ");
+  return (sp >= max * 0.6 ? cut.slice(0, sp) : cut).trim();
+};
 // Google Noto emoji that have an animated (Lottie) version — the director
 // should prefer these so stickers and caption emoji move.
 const ANIMATED_EMOJI = "🔥 😱 🤯 😍 🥰 😂 🤣 😭 😋 🤩 😎 🤔 👀 👍 👏 🙏 💪 🎉 💯 ✅ ❤️ ✨ ⭐ 🚀 ⚡ 💥 🥳 🎁 ⏰ 🛒 😮 🤑 👇 👉 💡";
