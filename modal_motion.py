@@ -2020,6 +2020,7 @@ def _edit_finish(p: dict, d: Path, srv: _Serve, st: dict) -> dict:
     direction = plan.get("direction") if isinstance(plan.get("direction"), dict) else {}
     chars += [ln.get("emoji") for sc in (direction.get("scenes") or []) if isinstance(sc, dict)
               for ln in (sc.get("lines") or []) if isinstance(ln, dict) and ln.get("emoji")]
+    chars += [sc.get("rain") for sc in (direction.get("scenes") or []) if isinstance(sc, dict) and sc.get("rain")]
     lottie = _fetch_lottie(chars, d, srv)
 
     props = {

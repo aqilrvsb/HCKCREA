@@ -9,11 +9,18 @@
 //   steps              numbered circles joined by a line that draws to the next step
 //   rings              percentage rings that fill while the number counts up
 //   phone              a phone-screen card for an app / page / screenshot picture
-//   backgrounds        notebook · chalk · grid · gradient
+//   backgrounds        notebook · chalk · grid · gradient · burst (a rotating sunburst)
+//   chart              a line / area / bar chart that draws on its spoken points, the value riding the tip
+//   number roll        odometer digits that spin into place · outline-to-fill · 3D extrude · shine sweep
+//   rain               an emoji rain over a scene (closed-form fall, seeded) · torn-paper scene entrance
+// Ideas from the HyperFrames registry (chart-story, decline-chart, hw-* boil, torn-paper-rip, Apache-2.0) and
+// Remocn (rolling-number, outline-fill-track-text, extrude-pop, MIT) — re-written here as pure frame math.
 import React from 'react';
 import { AbsoluteFill, Easing, Img, interpolate } from 'remotion';
 import { W, clamp, fitSize } from '../../motion/src/lib';
 import type { Look } from './look';
+import { LottieEmoji } from './emoji';
+import type { LottieMap } from '../../motion/src/types';
 
 // ── measuring and seeds ──────────────────────────────────────────────────────
 
@@ -70,8 +77,9 @@ const pathOf = (pts: Pt[]) => {
 };
 
 /** A marker loop around a w×h box: a little over one turn, wobbling, starting top-left. */
-export const roughEllipse = (w: number, h: number, seed: number) => {
+export const roughEllipse = (w: number, h: number, seed: number, boil = 0) => {
   const r = rng(seed);
+  const jb = boil ? rng(boil) : null;
   const start = -Math.PI * (0.62 + r() * 0.16);
   const turn = (1.1 + r() * 0.12) * Math.PI * 2;
   const ph = r() * 6;
@@ -80,7 +88,9 @@ export const roughEllipse = (w: number, h: number, seed: number) => {
     const u = i / 56;
     const t = start + u * turn;
     const wob = 1 + 0.035 * Math.sin(3 * t + ph) + (r() - 0.5) * 0.02 + 0.05 * u;
-    pts.push([w / 2 + Math.cos(t) * (w / 2) * wob, h / 2 + Math.sin(t) * (h / 2) * wob]);
+    const jx = jb ? (jb() - 0.5) * 3 : 0;
+    const jy = jb ? (jb() - 0.5) * 3 : 0;
+    pts.push([w / 2 + Math.cos(t) * (w / 2) * wob + jx, h / 2 + Math.sin(t) * (h / 2) * wob + jy]);
   }
   return pathOf(pts);
 };
@@ -138,8 +148,10 @@ export const HandMark: React.FC<{ mark: Mark; w: number; h: number; d: number; c
   const sw = Math.max(7, h * 0.07);
   const box = { left: -pad, top: -pad, width: w + pad * 2, height: h + pad * 2 };
   let paths: React.ReactNode;
+  // once drawn, the ink "boils": a seeded jitter that changes every 3 frames (hand-drawn animation feel)
+  const boil = p >= 1 ? seed + Math.floor(d / 3) * 977 : 0;
   if (mark === 'circle') {
-    const e = roughEllipse(w + pad * 1.6, h + pad * 0.55, seed);
+    const e = roughEllipse(w + pad * 1.6, h + pad * 0.55, seed, boil);
     paths = <g transform={`translate(${pad * 0.2} ${pad * 0.72})`}><Stroke d={e.d} len={e.len} p={p} color={color} width={sw} /></g>;
   } else if (mark === 'underline') {
     const u = roughUnderline(pad - h * 0.05, pad + w + h * 0.05, pad + h * 1.02, seed);
@@ -169,7 +181,7 @@ export const HandMark: React.FC<{ mark: Mark; w: number; h: number; d: number; c
 
 // ── text entrances ───────────────────────────────────────────────────────────
 
-export type TextEnter = 'type' | 'scramble' | 'letters' | 'rise';
+export type TextEnter = 'type' | 'scramble' | 'letters' | 'rise' | 'outline';
 const GLYPHS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789#%&?';
 
 /** The line's text as it enters: the full text keeps its width (hidden letters are transparent), so nothing jumps. */
@@ -209,6 +221,17 @@ export const EnterText: React.FC<{ text: string; kind: TextEnter; d: number; see
           const p = interpolate(d - i * 0.9, [0, 5], [0, 1], { ...clamp, easing: Easing.out(Easing.back(2.2)) });
           return <span key={i} style={{ display: 'inline-block', transform: `translateY(${((1 - p) * 0.5).toFixed(3)}em) scale(${p.toFixed(3)})`, opacity: p > 0 ? 1 : 0 }}>{ch}</span>;
         })}
+      </span>
+    );
+  }
+  if (kind === 'outline') {
+    // the outline lands first, then the fill sweeps across it
+    const p = interpolate(d, [4, 14], [0, 1], { ...clamp, easing: Easing.inOut(Easing.cubic) });
+    const col = (style.color as string) || '#fff';
+    return (
+      <span style={{ position: 'relative', display: 'inline-block' }}>
+        <span style={{ ...style, color: 'transparent', WebkitTextStroke: `3px ${col}` } as React.CSSProperties}>{text}</span>
+        <span style={{ ...style, position: 'absolute', left: 0, top: 0, clipPath: `inset(0 ${((1 - p) * 100).toFixed(1)}% 0 0)` }}>{text}</span>
       </span>
     );
   }
@@ -427,4 +450,191 @@ export const KitBackground: React.FC<{ bg: KitBg; f: number; accent: string }> =
       <AbsoluteFill style={{ backgroundImage: 'radial-gradient(rgba(255,255,255,0.05) 1px, transparent 1.6px)', backgroundSize: '7px 7px' }} />
     </AbsoluteFill>
   );
+};
+
+
+// ── number roll · extrude · shine ────────────────────────────────────────────
+
+/** Odometer digits: every digit spins into place (the right-most spins most), the rest of the text stays. */
+export const RollText: React.FC<{ text: string; d: number; style: React.CSSProperties; measure?: (ch: string) => number }> = ({ text, d, style, measure }) => {
+  const chars = Array.from(text);
+  const digitIdx = chars.map((c, i) => (/\d/.test(c) ? i : -1)).filter((i) => i >= 0);
+  return (
+    <span style={{ ...style, display: 'inline-flex', alignItems: 'flex-start' }}>
+      {chars.map((ch, i) => {
+        if (!/\d/.test(ch)) return <span key={i} style={{ whiteSpace: 'pre' }}>{ch}</span>;
+        const rank = digitIdx.length - 1 - digitIdx.indexOf(i); // 0 = right-most
+        const target = Number(ch);
+        const spins = 1 + rank;
+        const p = interpolate(d, [0, 14 + rank * 3], [0, 1], { ...clamp, easing: Easing.out(Easing.cubic) });
+        const pos = p * (spins * 10 + target);
+        return (
+          // each column is as wide as its final digit (the widest digit would leave gaps: "1 2")
+          <span key={i} style={{ display: 'inline-block', height: '1.02em', overflow: 'hidden', lineHeight: '1.02em', ...(measure ? { width: measure(ch), textAlign: 'center' as const } : {}) }}>
+            <span style={{ display: 'block', transform: `translateY(${(-pos * 1.02).toFixed(3)}em)` }}>
+              {Array.from({ length: spins * 10 + target + 1 }, (_, k) => <span key={k} style={{ display: 'block', height: '1.02em' }}>{k % 10}</span>)}
+            </span>
+          </span>
+        );
+      })}
+    </span>
+  );
+};
+
+/** A stacked 3D extrude (grows in with a spring-ish ease) for a text style. */
+export const extrudeShadow = (d: number, color = 'rgba(0,0,0,0.55)') => {
+  const n = Math.round(interpolate(d, [0, 8], [0, 10], { ...clamp, easing: Easing.out(Easing.back(1.6)) }));
+  return Array.from({ length: Math.max(0, n) }, (_, i) => `${i + 1}px ${i + 1}px 0 ${color}`).join(', ') || 'none';
+};
+
+/** A gloss band that sweeps once across the text (overlay copy, background-clipped). */
+export const Shine: React.FC<{ text: string; d: number; style: React.CSSProperties }> = ({ text, d, style }) => {
+  const p = interpolate(d, [6, 20], [0, 1], { ...clamp, easing: Easing.inOut(Easing.quad) });
+  if (p <= 0 || p >= 1) return null;
+  return (
+    <span style={{ ...style, position: 'absolute', left: 0, top: 0, color: 'transparent', background: 'none', boxShadow: 'none', textShadow: 'none', WebkitTextStroke: '0px',
+      backgroundImage: 'linear-gradient(110deg, rgba(255,255,255,0) 40%, rgba(255,255,255,0.95) 50%, rgba(255,255,255,0) 60%)', backgroundSize: '250% 100%',
+      backgroundPosition: `${(150 - p * 200).toFixed(1)}% 0`, WebkitBackgroundClip: 'text', backgroundClip: 'text', pointerEvents: 'none' } as React.CSSProperties}>{text}</span>
+  );
+};
+
+// ── chart ────────────────────────────────────────────────────────────────────
+
+export type ChartPoint = { f: number; label: string; value: number };
+const fmtNum = (v: number, dec: number) => v.toFixed(dec).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+
+/** A line / area / bar chart: each point lands on its word, the line draws to it, the value rides the tip. */
+export const ChartBody: React.FC<{ points: ChartPoint[]; type: 'line' | 'area' | 'bars'; unit?: string; frame: number; face: Look['display']; ink: string; dark: boolean;
+  heading?: React.ReactNode; color: string }> = ({ points, type, unit, frame, face, ink, dark, heading, color }) => {
+  const Wp = 880;
+  const Hp = 520;
+  const n = points.length;
+  const vals = points.map((pt) => pt.value);
+  const lo = Math.min(0, ...vals);
+  const hi = Math.max(...vals) * 1.12 || 1;
+  const dec = vals.some((v) => !Number.isInteger(v)) ? Math.min(2, Math.max(...vals.map((v) => (String(v).split('.')[1] ?? '').length))) : 0;
+  const pre = unit && /^[A-Za-z$£€¥]/.test(unit) && unit.length <= 3 && !/%|jam|hari/i.test(unit) ? unit : '';
+  const suf = pre ? '' : unit ?? '';
+  const x = (i: number) => (n === 1 ? Wp / 2 : 40 + (i * (Wp - 80)) / (n - 1));
+  const y = (v: number) => Hp - ((v - lo) / (hi - lo)) * Hp;
+  const grid = dark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.1)';
+  const labelSize = fitSize(points.map((pt) => pt.label).join('  ').toUpperCase(), 36, Wp, 1, face.charW, 20);
+  if (type === 'bars') {
+    const bw = Math.min(150, (Wp - 40) / n - 28);
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 26, marginTop: -30 }}>
+        {heading}
+        <div style={{ position: 'relative', width: Wp, height: Hp + 70 }}>
+          <div style={{ position: 'absolute', left: 0, right: 0, top: Hp, height: 4, background: grid }} />
+          {points.map((pt, i) => {
+            const d = frame - pt.f;
+            const g = interpolate(d, [0, 10], [0, 1], { ...clamp, easing: Easing.out(Easing.back(1.3)) });
+            const h = (Hp - y(pt.value)) * g;
+            return (
+              <div key={i} style={{ position: 'absolute', left: x(i) - bw / 2, width: bw, top: 0, height: Hp + 70, opacity: d < 0 ? 0 : 1 }}>
+                <div style={{ position: 'absolute', bottom: 70, left: 0, right: 0, height: h, background: color, borderRadius: '12px 12px 0 0', boxShadow: 'inset 0 -10px 0 rgba(0,0,0,0.18)' }} />
+                <div style={{ position: 'absolute', bottom: 70 + h + 8, left: -30, right: -30, textAlign: 'center', fontFamily: face.family, fontWeight: face.weight, fontSize: Math.min(52, bw * 0.5), color: ink }}>
+                  {pre}{fmtNum(pt.value * g, dec)}{suf}</div>
+                <div style={{ position: 'absolute', bottom: 18, left: -30, right: -30, textAlign: 'center', fontFamily: face.family, fontWeight: face.weight, fontSize: labelSize, color: ink }}>{pt.label.toUpperCase()}</div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    );
+  }
+  // line / area: the drawn length follows the landed points (each segment draws in the 8 frames before its point lands)
+  const seg = points.slice(1).map((pt, i) => Math.hypot(x(i + 1) - x(i), y(pt.value) - y(points[i].value)));
+  const total = seg.reduce((a, b) => a + b, 0) || 1;
+  let drawn = 0;
+  let tip: [number, number, number] = [x(0), y(points[0].value), points[0].value];
+  seg.forEach((len, i) => {
+    const sp = interpolate(frame - points[i + 1].f, [-8, 0], [0, 1], { ...clamp, easing: Easing.inOut(Easing.quad) });
+    if (sp <= 0) return;
+    drawn += len * sp;
+    const a = points[i];
+    const b = points[i + 1];
+    tip = [x(i) + (x(i + 1) - x(i)) * sp, y(a.value) + (y(b.value) - y(a.value)) * sp, a.value + (b.value - a.value) * sp];
+  });
+  const started = frame - points[0].f >= 0;
+  const d = points.map((pt, i) => `${i ? 'L' : 'M'}${x(i).toFixed(1)} ${y(pt.value).toFixed(1)}`).join(' ');
+  const falling = vals[vals.length - 1] < vals[0];
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 26, marginTop: -30, opacity: started ? 1 : 0 }}>
+      {heading}
+      <div style={{ position: 'relative', width: Wp, height: Hp + 70 }}>
+        <svg width={Wp} height={Hp} style={{ position: 'absolute', left: 0, top: 0, overflow: 'visible' }}>
+          {[0.25, 0.5, 0.75, 1].map((k) => <line key={k} x1={0} x2={Wp} y1={Hp * k} y2={Hp * k} stroke={grid} strokeWidth={2} />)}
+          {type === 'area' && (
+            <>
+              <defs>
+                <linearGradient id="chartFill" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor={color} stopOpacity={0.55} /><stop offset="1" stopColor={color} stopOpacity={0.02} /></linearGradient>
+                <clipPath id="chartClip"><rect x={0} y={-40} width={Math.max(0, tip[0])} height={Hp + 80} /></clipPath>
+              </defs>
+              <path d={`${d} L${x(n - 1)} ${Hp} L${x(0)} ${Hp} Z`} fill="url(#chartFill)" clipPath="url(#chartClip)" />
+            </>
+          )}
+          <path d={d} fill="none" stroke={color} strokeWidth={12} strokeLinecap="round" strokeLinejoin="round"
+            strokeDasharray={total.toFixed(1)} strokeDashoffset={(total - drawn).toFixed(1)} />
+          {points.map((pt, i) => (frame - pt.f >= 0 ? <circle key={i} cx={x(i)} cy={y(pt.value)} r={13} fill={dark ? '#fff' : '#111'} stroke={color} strokeWidth={6} /> : null))}
+        </svg>
+        {/* the value rides the tip of the line */}
+        <div style={{ position: 'absolute', left: tip[0], top: tip[1] - 96, transform: 'translateX(-50%)', background: falling ? '#F2443F' : color, color: '#111',
+          fontFamily: face.family, fontWeight: face.weight, fontSize: 56, padding: '4px 18px', borderRadius: 10, whiteSpace: 'nowrap', boxShadow: '0 8px 0 rgba(0,0,0,0.25)' }}>
+          {pre}{fmtNum(tip[2], dec)}{suf}
+        </div>
+        {points.map((pt, i) => (
+          <div key={i} style={{ position: 'absolute', left: x(i), top: Hp + 18, transform: 'translateX(-50%)', fontFamily: face.family, fontWeight: face.weight,
+            fontSize: labelSize, color: ink, opacity: frame - pt.f >= 0 ? 1 : 0.25, whiteSpace: 'nowrap' }}>{pt.label.toUpperCase()}</div>
+        ))}
+      </div>
+    </div>
+  );
+};
+
+// ── rain · burst background · torn-paper entrance ────────────────────────────
+
+/** An emoji rain for a scene (closed-form fall per seeded particle; f = frames into the scene). */
+export const Rain: React.FC<{ emoji: string; f: number; fps: number; seed: number; lottie?: LottieMap }> = ({ emoji, f, fps, seed, lottie }) => {
+  const r = rng(seed);
+  const t = f / fps;
+  return (
+    <AbsoluteFill style={{ pointerEvents: 'none', overflow: 'hidden' }}>
+      {Array.from({ length: 12 }, (_, i) => {
+        const x0 = r() * 1080;
+        const delay = r() * 1.6;
+        const v = 700 + r() * 600;
+        const size = 80 + r() * 70;
+        const spin = (r() - 0.5) * 220;
+        const tt = t - delay;
+        if (tt < 0) return null;
+        const yy = -180 + v * tt + 140 * tt * tt;
+        if (yy > 2000) return null;
+        return (
+          <div key={i} style={{ position: 'absolute', left: x0 - size / 2, top: yy, transform: `rotate(${(spin * tt).toFixed(1)}deg)`, opacity: 0.95 }}>
+            <LottieEmoji char={emoji} size={size} lottie={lottie} />
+          </div>
+        );
+      })}
+    </AbsoluteFill>
+  );
+};
+
+/** A sunburst that turns slowly behind a slammed word (two tones of the colour, vignetted). */
+export const BurstBackground: React.FC<{ f: number; color: string }> = ({ f, color }) => (
+  <AbsoluteFill style={{ background: color }}>
+    <AbsoluteFill style={{ background: `repeating-conic-gradient(from ${(f * 0.5).toFixed(1)}deg at 50% 42%, rgba(255,255,255,0.13) 0deg 9deg, rgba(0,0,0,0) 9deg 18deg)` }} />
+    <AbsoluteFill style={{ background: 'radial-gradient(ellipse at 50% 42%, rgba(0,0,0,0) 30%, rgba(0,0,0,0.42) 100%)' }} />
+  </AbsoluteFill>
+);
+
+/** Torn-paper entrance: the scene rises with a jagged top edge (seeded) over 9 frames. */
+export const tearClip = (f: number, seed: number): React.CSSProperties => {
+  if (f >= 9) return {};
+  const p = interpolate(f, [0, 8], [0, 1], { ...clamp, easing: Easing.out(Easing.cubic) });
+  const r = rng(seed);
+  const edge = (1 - p) * 1920;
+  const pts: string[] = [];
+  for (let i = 0; i <= 18; i++) pts.push(`${((i / 18) * 100).toFixed(2)}% ${(edge + (r() - 0.5) * 70).toFixed(1)}px`);
+  return { clipPath: `polygon(${pts.join(', ')}, 100% 100%, 0% 100%)` };
 };

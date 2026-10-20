@@ -252,9 +252,8 @@ ENGINE_RULES = """
   (1080x1920, 30 fps).
 - Its Chrome is pre-installed (never run `browser ensure`). Do not install whisper / Kokoro / MusicGen: the voice is
   pl-tts, the music is pl-music, and the footage's words are already in ./bahan/captions.json when there is footage.
-- Only if HyperFrames truly cannot render after 2 real attempts: build it in Remotion instead (a ready project is at
-  /opt/vgc-template: copy package.json, tsconfig.json, remotion.config.ts and src into ./video and symlink
-  /opt/vgc-template/node_modules) and say so in the summary.
+- HyperFrames only — never switch to another engine (no Remotion). If a render fails, find the cause (`hyperframes
+  lint` / `check` errors, a timeline not registered, a missing asset, a heavy effect), fix it and render again.
 """
 
 CRAFT_RULES = """
@@ -318,8 +317,42 @@ OUTPUT_RULES = """
 - Never print, echo or read environment variables or secrets.
 """
 
-WORKSPACE_RULES = HEAD_VGC + COMMON_RULES + ENGINE_RULES + CRAFT_RULES + AUDIO_RULES + LOOK_RULES + OUTPUT_RULES
-DEFAULT_RULES = HEAD_DEFAULT + COMMON_RULES + ENGINE_RULES + CRAFT_RULES + AUDIO_RULES + LOOK_RULES + OUTPUT_RULES
+EXPLAINER_RULES = """
+## Explainer craft — PeningLab's reference level (a toolbox: the brief / the chosen VGC style decides the look;
+## use these wherever a talking video explains, teaches, lists, compares, prices or gives numbers)
+- The bar is a top Malaysian news-explainer TikTok: hook title in the first frame (a white stroked line + its key
+  part on a colour box) with, when there is a source / product picture, a small card under it with a badge
+  ("VIRAL", "TERKINI"); then the speaker states each point while BIG side words land beside their head on the
+  strongest words (a small lead-in word, the big word, sometimes one huge embossed word centred over the head);
+  then a HARD CUT to a full-screen scene that builds that point word by word, numbered "1. / 2. / 3."; back to the
+  speaker; a closing question scene ("JADI KORANG RASA…?" → "KOMEN KAT BAWAH" on a yellow box) before the CTA.
+  Scenes carry ~50–65 % of a talking video; a new item lands on its spoken word every 1–2 s, 3–7 per scene; never
+  hold a scene on one line > ~2.5 s. Captions small and building word by word while scenes carry the message.
+- Scene vocabulary (pick per point; vary kinds and backgrounds; each item enters ON its word from captions.json):
+  build (lines slam 1.7×→1 with a 10 px blur in 3 frames, or slide in; mixed sizes; one key line on a yellow / black
+  box), stat build (a word, the big number counting up, what it means), timeline (coloured dots + date pills),
+  collage (ransom-note letter title, sticky notes, starburst price, tape strips on cork / paper), checklist (boxes
+  that tick ✓ / cross ✗ as they are said), numbered steps (circles joined by a line that draws), percentage ring,
+  line / area / bar chart that draws with the value riding the tip, compare (two numbers as bars or A-vs-B tiles),
+  web-article card (headline · source · date · picture, a highlighter sweeping the key words), phone-screen card,
+  quote card. Backgrounds: charcoal with a warm glow + faint grid, red, cork, paper, notebook (lined, red margin),
+  chalkboard, graph paper, a turning sunburst behind a slammed price.
+- Text and marks: typewriter, scramble-decode, letter cascade, outline-to-fill, 3D extrude, gloss sweep, odometer
+  digits for prices, strike-through for a myth / old price, highlighter sweep, hand-drawn circle / underline / arrow
+  / box drawn on with a stroke (seeded wobble, DrawSVG or strokeDashoffset), sparkles on a punchline, an emoji rain
+  for one emotional beat. Scene entrances: hard cut (default), push, zoom-through, whip, wipe, iris, torn paper.
+- Ready HyperFrames pieces for these beats in /opt/hf-registry (read the registry-item.json, copy or `hyperframes add`):
+  components/vox-annotate (mark + connector + note), marker-highlight, hw-callout-circle (+ its seeded "boil"),
+  whiteboard-ink, svg-stroke-trace, chart-story (bars / line / donut / progress), decline-chart,
+  conic-progress-ring, before-after-wipe, kinetic-type-swap, headline-slam, char-slam-explode, text-shimmer,
+  gloss-sweep, slot-machine-roll, torn-paper-rip, paper-collage-reveal, notification-stack / chat-thread (ONLY words
+  the client or speaker really gave — never invented comments); blocks/split-flap-board, bar-chart-race,
+  news-ticker are 16:9 — re-lay them out for 9:16 before use.
+- Only words, numbers and facts that are really said or given appear on screen.
+"""
+
+WORKSPACE_RULES = HEAD_VGC + COMMON_RULES + ENGINE_RULES + CRAFT_RULES + EXPLAINER_RULES + AUDIO_RULES + LOOK_RULES + OUTPUT_RULES
+DEFAULT_RULES = HEAD_DEFAULT + COMMON_RULES + ENGINE_RULES + CRAFT_RULES + EXPLAINER_RULES + AUDIO_RULES + LOOK_RULES + OUTPUT_RULES
 
 
 # Bake-off runs (comparing motion technologies on the same brief): the

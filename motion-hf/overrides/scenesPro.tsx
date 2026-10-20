@@ -23,29 +23,33 @@ import type { Look } from './look';
 import { LottieEmoji } from './emoji';
 import type { LottieMap } from '../../motion/src/types';
 import {
-  ChecklistBody, EnterText, HandMark, KitBackground, PhoneCard, RingsBody, Sparkles, StepsBody, kitBgLight, seedOf, textWidth,
-  type CheckItem, type KitBg, type Mark, type Ring, type Step, type TextEnter,
+  BurstBackground, ChartBody, ChecklistBody, EnterText, HandMark, KitBackground, PhoneCard, Rain, RingsBody, RollText, Shine, Sparkles, StepsBody,
+  extrudeShadow, kitBgLight, seedOf, tearClip, textWidth,
+  type ChartPoint, type CheckItem, type KitBg, type Mark, type Ring, type Step, type TextEnter,
 } from './scenesKit';
 
 export type Tone = 'white' | 'yellow' | 'green' | 'red' | 'blue' | 'accent' | 'black';
-export type Bg = 'dark' | 'red' | 'accent' | 'paper' | 'cork' | 'yellow' | 'blue' | KitBg;
-export type LineFx = 'strike' | 'marker' | 'count' | Mark | 'sparkle';
+export type Bg = 'dark' | 'red' | 'accent' | 'paper' | 'cork' | 'yellow' | 'blue' | KitBg | 'burst';
+export type LineFx = 'strike' | 'marker' | 'count' | Mark | 'sparkle' | 'roll' | 'extrude' | 'shine';
 export type LineEnter = 'slam' | 'slide' | TextEnter;
 export type PlacedLine = { f: number; text: string; tone?: Tone; box?: 'yellow' | 'black' | 'white' | 'accent' | 'none'; size?: 'sm' | 'md' | 'lg' | 'xl'; enter?: LineEnter; fx?: LineFx; emoji?: string };
 export type PlacedEntry = { f: number; date: string; lines: string[]; tone?: Tone };
 export type PlacedSticker = { f: number; text: string; sub?: string; kind: 'note' | 'strip' | 'burst' | 'tag'; tone?: Tone };
 export type PlacedBar = { f: number; label: string; value: string; tone?: Tone };
 export type CardStyle = 'polaroid' | 'article' | 'float' | 'phone';
-export type SceneEnter = 'cut' | 'push' | 'zoom' | 'whip' | 'wipe' | 'rise' | 'iris';
-export type { CheckItem, Ring, Step };
+export type SceneEnter = 'cut' | 'push' | 'zoom' | 'whip' | 'wipe' | 'rise' | 'iris' | 'tear';
+export type { ChartPoint, CheckItem, Ring, Step };
 export type PlacedScene = {
-  kind: 'build' | 'timeline' | 'collage' | 'card' | 'compare' | 'checklist' | 'steps' | 'ring'; s: number; e: number; bg: Bg;
+  kind: 'build' | 'timeline' | 'collage' | 'card' | 'compare' | 'checklist' | 'steps' | 'ring' | 'chart'; s: number; e: number; bg: Bg;
   heading?: string; kicker?: string; title?: string; caption?: string; image?: string;
   /** card look; a float card sits over the speaker (no background) at `top`, scaled by `scale` */
   style?: CardStyle; source?: string; date?: string; badge?: string; highlight?: string[]; top?: number; scale?: number;
   enter?: SceneEnter;
   lines?: PlacedLine[]; entries?: PlacedEntry[]; stickers?: PlacedSticker[]; bars?: PlacedBar[];
   items?: CheckItem[]; steps?: Step[]; rings?: Ring[];
+  chart?: { type: 'line' | 'area' | 'bars'; unit?: string; points: ChartPoint[] };
+  /** an emoji raining over the scene */
+  rain?: string;
 };
 export type SideSize = 'sm' | 'md' | 'lg';
 export type PlacedSide = { s: number; e: number; words: { f: number; text: string; tone?: Tone; size?: SideSize }[]; align: 'left' | 'right' | 'center' };
@@ -67,7 +71,7 @@ export const toneColor = (t: Tone | undefined, look: Look, accent: string): stri
 
 const BG_COLOR: Record<Bg, string> = {
   dark: '#121517', red: '#EF4B4F', accent: '#222', paper: '#E9E0CC', cork: '#8C6B4B', yellow: '#FFD93B', blue: '#2F7BFF',
-  notebook: '#FBF8EF', chalk: '#1E3A2F', grid: '#F5F6F1', gradient: '#160F2E',
+  notebook: '#FBF8EF', chalk: '#1E3A2F', grid: '#F5F6F1', gradient: '#160F2E', burst: '#E23B3B',
 };
 const KIT_BGS = new Set<string>(['notebook', 'chalk', 'grid', 'gradient']);
 /** Text on a light background reads dark. */
@@ -75,6 +79,7 @@ const lightBg = (bg: Bg) => bg === 'paper' || bg === 'yellow' || kitBgLight(bg);
 
 export const SceneBg: React.FC<{ bg: Bg; f: number; accent: string }> = ({ bg, f, accent }) => {
   if (KIT_BGS.has(bg)) return <KitBackground bg={bg as KitBg} f={f} accent={accent} />;
+  if (bg === 'burst') return <BurstBackground f={f} color={accent} />;
   const base = bg === 'accent' ? accent : BG_COLOR[bg];
   const drift = Math.sin(f / 70) * 30;
   return (
@@ -151,7 +156,7 @@ const Highlighted: React.FC<{ text: string; words?: string[]; p: number; color?:
   );
 };
 
-const TEXT_ENTERS = new Set<string>(['type', 'scramble', 'letters', 'rise']);
+const TEXT_ENTERS = new Set<string>(['type', 'scramble', 'letters', 'rise', 'outline']);
 const MARKS = new Set<string>(['circle', 'underline', 'arrow', 'box']);
 
 const Line: React.FC<{ l: PlacedLine; frame: number; look: Look; accent: string; bg: Bg; lottie?: LottieMap }> = ({ l, frame, look, accent, bg, lottie }) => {
@@ -178,7 +183,9 @@ const Line: React.FC<{ l: PlacedLine; frame: number; look: Look; accent: string;
     position: 'relative', fontFamily: face.family, fontWeight: face.weight, fontSize: size, lineHeight: 1.02, letterSpacing: face.track, color,
     background: boxBg, padding: box ? `${size * 0.04}px ${size * 0.18}px` : 0, borderRadius: box ? 6 : 0, opacity: st > 0 ? 1 - 0.3 * st : 1,
     transform: box ? 'rotate(-1.2deg)' : undefined, whiteSpace: 'nowrap', display: 'inline-block',
+    ...(l.fx === 'extrude' && !box ? { textShadow: extrudeShadow(d, lightBg(bg) ? 'rgba(0,0,0,0.35)' : 'rgba(0,0,0,0.6)') } : {}),
   };
+  const roll = l.fx === 'roll' && /\d/.test(text) && !(l.enter && TEXT_ENTERS.has(l.enter));
   // the block the hand marks / sparkles frame: the measured text (+ the box padding)
   const bw = textWidth(text, face, size) + (box ? size * 0.36 : 0);
   const bh = size * 1.02 + (box ? size * 0.08 : 0);
@@ -189,7 +196,8 @@ const Line: React.FC<{ l: PlacedLine; frame: number; look: Look; accent: string;
       <span style={{ position: 'relative', display: 'inline-block' }}>
         {mk > 0 && <span style={{ position: 'absolute', left: -size * 0.12, right: -size * 0.12, top: size * 0.1, bottom: size * 0.02, background: '#FFE45C',
           transform: `scaleX(${mk}) rotate(-1.2deg)`, transformOrigin: 'left center', borderRadius: size * 0.06 }} />}
-        {textEnter ? <EnterText text={text} kind={textEnter} d={d} seed={seed} style={textStyle} /> : <span style={textStyle}>{text}</span>}
+        {textEnter ? <EnterText text={text} kind={textEnter} d={d} seed={seed} style={textStyle} /> : roll ? <RollText text={text} d={d} style={textStyle} measure={(ch) => textWidth(ch, face, size)} /> : <span style={textStyle}>{text}</span>}
+        {l.fx === 'shine' && <Shine text={text} d={d} style={textStyle} />}
         {st > 0 && <span style={{ position: 'absolute', left: -size * 0.08, right: -size * 0.08, top: '50%', height: Math.max(8, size * 0.1), marginTop: -Math.max(4, size * 0.05),
           background: '#F2443F', transform: `scaleX(${st}) rotate(-4deg)`, transformOrigin: 'left center', borderRadius: 4, boxShadow: '0 3px 0 rgba(0,0,0,0.3)' }} />}
         {l.fx && MARKS.has(l.fx) && <HandMark mark={l.fx as Mark} w={bw} h={bh} d={d} color={markColor} seed={seed} />}
@@ -419,6 +427,12 @@ export const ScenePro: React.FC<{ sc: PlacedScene; frame: number; look: Look; ac
     );
   } else if (sc.kind === 'compare') {
     body = <Compare sc={sc} frame={frame} look={look} accent={accent} ink={ink} />;
+  } else if (sc.kind === 'chart' && sc.chart) {
+    const heading = sc.heading && (
+      <div style={{ fontFamily: face.family, fontWeight: face.weight, fontSize: fitFace(sc.heading.toUpperCase(), 64, W - 200, 1, face, 30), color: dark ? '#FFD93B' : '#111', ...enterStyle(f, 'slide') }}>{sc.heading.toUpperCase()}</div>
+    );
+    body = <ChartBody points={sc.chart.points} type={sc.chart.type} unit={sc.chart.unit} frame={frame} face={face} ink={ink} dark={dark} heading={heading}
+      color={sc.bg === 'yellow' ? '#111' : look.hi === '#111111' ? '#FFD93B' : sc.bg === 'red' || sc.bg === 'burst' ? '#FFD93B' : look.hi} />;
   } else if (sc.kind === 'checklist' || sc.kind === 'steps' || sc.kind === 'ring') {
     const colorOf = (t?: string) => (t ? toneColor(t as Tone, look, accent) : '');
     const heading = sc.heading && (
@@ -498,10 +512,10 @@ export const ScenePro: React.FC<{ sc: PlacedScene; frame: number; look: Look; ac
       );
     }
   }
-  void fps;
   return (
-    <AbsoluteFill style={sceneEnter(sc.enter, f)}>
+    <AbsoluteFill style={sc.enter === 'tear' ? tearClip(f, seedOf(`${sc.s}|tear`)) : sceneEnter(sc.enter, f)}>
       <SceneBg bg={sc.bg} f={f} accent={accent} />
+      {sc.rain && <Rain emoji={sc.rain} f={f} fps={fps} seed={seedOf(`${sc.s}|rain`)} lottie={lottie} />}
       {/* a slow push-in keeps a long scene alive (a card holds 10 s+ in the reference) */}
       <div style={{ position: 'absolute', left: 0, right: 0, top: sc.kind === 'build' ? TOP_BUILD : TOP, transformOrigin: '50% 30%',
         transform: `scale(${(1 + (sc.kind === 'card' ? 0.04 : 0.035) * Math.min(1, f / Math.max(1, sc.e - sc.s))).toFixed(4)})` }}>{body}</div>

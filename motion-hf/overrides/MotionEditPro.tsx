@@ -54,15 +54,15 @@ const IMPACT_TYPES = new Set<ItemType>(['bigword', 'stamp', 'price']);
 const CONFETTI_COLORS = (accent: string, second: string) => ['#FFD93B', '#ffffff', accent, second === '#111111' ? '#ff5c8a' : second, '#22c55e', '#38bdf8'];
 
 const TONES = new Set<Tone>(['white', 'yellow', 'green', 'red', 'blue', 'accent', 'black']);
-const BGS = new Set<Bg>(['dark', 'red', 'accent', 'paper', 'cork', 'yellow', 'blue', 'notebook', 'chalk', 'grid', 'gradient']);
-const ENTERS = new Set<SceneEnter>(['cut', 'push', 'zoom', 'whip', 'wipe', 'rise', 'iris']);
-const LINE_FX = new Set<LineFx>(['strike', 'marker', 'count', 'circle', 'underline', 'arrow', 'box', 'sparkle']);
-const LINE_ENTERS = new Set<string>(['slam', 'slide', 'type', 'scramble', 'letters', 'rise']);
+const BGS = new Set<Bg>(['dark', 'red', 'accent', 'paper', 'cork', 'yellow', 'blue', 'notebook', 'chalk', 'grid', 'gradient', 'burst']);
+const ENTERS = new Set<SceneEnter>(['cut', 'push', 'zoom', 'whip', 'wipe', 'rise', 'iris', 'tear']);
+const LINE_FX = new Set<LineFx>(['strike', 'marker', 'count', 'circle', 'underline', 'arrow', 'box', 'sparkle', 'roll', 'extrude', 'shine']);
+const LINE_ENTERS = new Set<string>(['slam', 'slide', 'type', 'scramble', 'letters', 'rise', 'outline']);
 /** One emoji (a pictographic cluster, ≤ 8 code units) or nothing. */
 const emojiOf = (v: unknown) => (typeof v === 'string' && v.length <= 8 && /\p{Extended_Pictographic}/u.test(v) ? v.trim() : undefined);
 /** Every item of a scene that lands on a word (for timing rules, events and SFX). */
 const sceneItems = (sc: PlacedScene) => [...(sc.lines ?? []), ...(sc.entries ?? []), ...(sc.stickers ?? []), ...(sc.bars ?? []),
-  ...(sc.items ?? []), ...(sc.steps ?? []), ...(sc.rings ?? [])].map((x) => x.f);
+  ...(sc.items ?? []), ...(sc.steps ?? []), ...(sc.rings ?? []), ...(sc.chart?.points ?? [])].map((x) => x.f);
 const SIDE_SIZES = new Set<SideSize>(['sm', 'md', 'lg']);
 const txt = (v: unknown, n: number) => {
   if (typeof v !== 'string') return '';
@@ -157,7 +157,7 @@ export const MotionEditPro: React.FC<ProProps> = (p) => {
     const floats: PlacedScene[] = [];
     for (const raw of arr(p.direction?.scenes).slice(0, 16)) {
       const kind = String(raw.kind);
-      if (!['build', 'timeline', 'collage', 'card', 'compare', 'checklist', 'steps', 'ring'].includes(kind)) continue;
+      if (!['build', 'timeline', 'collage', 'card', 'compare', 'checklist', 'steps', 'ring', 'chart'].includes(kind)) continue;
       const float = kind === 'card' && raw.style === 'float';
       const s = onBeat(fr(cue(raw.at as string | number, -1)));
       // a float card may open the video (under the hook title); full-screen scenes wait for the hook to end
@@ -202,6 +202,12 @@ export const MotionEditPro: React.FC<ProProps> = (p) => {
         sc.bars = arr(raw.bars).slice(0, 4).map((b) => ({ f: at(b.at), label: txt(b.label, 16), value: txt(b.value, 12), tone: tone(b.tone) }))
           .filter((b) => b.label && b.value);
         if (sc.bars.length < 2) continue;
+      } else if (kind === 'chart') {
+        const ch = (raw.chart && typeof raw.chart === 'object' ? raw.chart : raw) as Record<string, unknown>;
+        const points = arr(ch.points).slice(0, 8).map((pt) => ({ f: at(pt.at), label: txt(pt.label, 10), value: Number(pt.value) }))
+          .filter((pt) => pt.label && Number.isFinite(pt.value));
+        if (points.length < 2) continue;
+        sc.chart = { type: ch.type === 'bars' ? 'bars' : ch.type === 'area' ? 'area' : 'line', unit: txt(ch.unit, 6) || undefined, points };
       } else if (kind === 'checklist') {
         sc.items = arr(raw.items).slice(0, 6).map((it) => ({ f: at(it.at), text: txt(it.text, 28), mark: it.mark === 'cross' ? 'cross' as const : 'check' as const, tone: tone(it.tone) }))
           .filter((it) => it.text);
@@ -227,6 +233,8 @@ export const MotionEditPro: React.FC<ProProps> = (p) => {
       }
       const hold = sc.kind === 'card' ? sc.s + fr(11) : Math.max(sc.s, ...items) + fr(3.5);
       sc.e = Math.max(sc.s + fr(1.5), Math.min(sc.e, hold));
+      const rain = emojiOf(raw.rain);
+      if (rain && !float) sc.rain = rain;
       (float ? floats : scenes).push(sc);
     }
     scenes.sort((a, b) => a.s - b.s);
