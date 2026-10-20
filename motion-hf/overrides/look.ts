@@ -57,13 +57,16 @@ export type Look = {
 };
 
 const FONT_IDS: FontId[] = ['montserrat', 'archivo', 'anton', 'bebas', 'poppins', 'inter'];
+// charW = the face's average capital advance (em), measured from the font files on Malay caption text
+// (Montserrat 900 0.688, Archivo Black 0.760, Anton 0.460, Poppins 900 0.686, Inter 900 0.665) plus a little
+// air — too low an estimate lets a line overflow the frame (an Archivo hook ran edge to edge)
 const FACES: Face[] = [
-  { family: "'Montserrat', sans-serif", weight: 900, charW: 0.66, upper: true, track: -0.5 },
-  { family: "'Archivo Black', sans-serif", weight: 400, charW: 0.68, upper: true, track: 0 },
-  { family: "'Anton', sans-serif", weight: 400, charW: 0.46, upper: true, track: 0.5 },
+  { family: "'Montserrat', sans-serif", weight: 900, charW: 0.70, upper: true, track: -0.5 },
+  { family: "'Archivo Black', sans-serif", weight: 400, charW: 0.77, upper: true, track: 0 },
+  { family: "'Anton', sans-serif", weight: 400, charW: 0.47, upper: true, track: 0.5 },
   { family: "'Bebas Neue', sans-serif", weight: 400, charW: 0.42, upper: true, track: 1 },
-  { family: "'Poppins', sans-serif", weight: 900, charW: 0.66, upper: true, track: -0.5 },
-  { family: "'Inter', sans-serif", weight: 900, charW: 0.62, upper: true, track: -1 },
+  { family: "'Poppins', sans-serif", weight: 900, charW: 0.70, upper: true, track: -0.5 },
+  { family: "'Inter', sans-serif", weight: 900, charW: 0.68, upper: true, track: -1 },
 ];
 
 const GRADE_IDS: Grade[] = ['warm', 'punchy', 'clean', 'cool', 'matte', 'vivid'];

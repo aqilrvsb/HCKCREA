@@ -394,11 +394,11 @@ export const ScenePro: React.FC<{ sc: PlacedScene; frame: number; look: Look; ac
       body = (
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 30 }}>
           {heading}
-          <div style={{ position: 'relative', width: 900, background: '#fff', padding: '54px 56px 46px', borderRadius: 14, boxShadow: '0 30px 60px rgba(0,0,0,0.45)', transform: lift }}>
+          <div style={{ position: 'relative', width: 860, background: '#fff', padding: '54px 56px 46px', borderRadius: 14, boxShadow: '0 30px 60px rgba(0,0,0,0.45)', transform: lift }}>
             {article && <div style={{ position: 'absolute', top: 0, right: 0, width: 64, height: 64, borderTopRightRadius: 14, background: `linear-gradient(225deg, ${sc.bg === 'accent' ? accent : BG_COLOR[sc.bg]} 50%, #d4d4d4 50%)` }} />}
             {!article && <div style={{ position: 'absolute', left: 36, top: -34, fontFamily: 'Georgia, serif', fontSize: 170, lineHeight: 1, color: look.hi === '#FFD93B' ? '#F2443F' : look.hi }}>“</div>}
             <div style={{ fontFamily: article ? "'Inter', sans-serif" : face.family, fontWeight: article ? 800 : face.weight, color: '#141414', lineHeight: 1.16,
-              fontSize: article ? fitSize(cap, 76, 790, 4, 0.56, 40) : fitFace(face.upper ? cap.toUpperCase() : cap, cap.length < 44 ? 112 : 92, 790, 4, face, 44) }}>
+              fontSize: article ? fitSize(cap, 76, 790, 4, 0.56, 40) : fitFace(face.upper ? cap.toUpperCase() : cap, cap.length < 44 ? 112 : 92, 750, 4, face, 44) }}>
               <Highlighted text={article || !face.upper ? cap : cap.toUpperCase()} words={sc.highlight} p={sweep} />
             </div>
             {(sc.source || sc.date) && (

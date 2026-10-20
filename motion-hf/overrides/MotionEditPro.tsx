@@ -203,6 +203,15 @@ export const MotionEditPro: React.FC<ProProps> = (p) => {
       (float ? floats : scenes).push(sc);
     }
     scenes.sort((a, b) => a.s - b.s);
+    // the last item that lands gets ≥ 1.1 s on screen (a scene that ends on its own punchline wastes it),
+    // as far as the next scene and the CTA allow
+    scenes.forEach((sc, i) => {
+      const items = [...(sc.lines ?? []), ...(sc.entries ?? []), ...(sc.stickers ?? []), ...(sc.bars ?? [])].map((x) => x.f);
+      if (!items.length) return;
+      const want = Math.max(...items) + fr(1.1);
+      const room = Math.min(scenes[i + 1] ? scenes[i + 1].s - 2 : last, ctaStart >= 0 ? ctaStart - 2 : last);
+      if (sc.e < want) sc.e = Math.max(sc.e, Math.min(want, room));
+    });
     // a float card never shares the screen with a full-screen scene
     for (let i = floats.length - 1; i >= 0; i--) if (scenes.some((sc) => floats[i].s < sc.e && floats[i].e > sc.s)) floats.splice(i, 1);
     // a card shows the picture of the B-roll planned at that moment; a scene or a float card replaces any B-roll under it
