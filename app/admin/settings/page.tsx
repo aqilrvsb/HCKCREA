@@ -365,21 +365,23 @@ export default function AdminSettings() {
       setMotionPadatMsg("✗ Gagal simpan.");
     }
   }
-  // Motion Default (Laju) renderer — app_settings.motion_renderer = { renderer }.
-  // "hyperframes" falls back to Remotion by itself if a render fails.
+  // Motion Default (Laju) renderer — app_settings.motion_renderer = { renderer, ads }.
+  // "hyperframes" falls back to Remotion by itself if a render fails; Buat Iklan follows it only with ads: true.
   const [motionRenderer, setMotionRenderer] = useState<"remotion" | "hyperframes">("remotion");
+  const [motionRendererAds, setMotionRendererAds] = useState(false);
   const [motionRendererMsg, setMotionRendererMsg] = useState<string | null>(null);
-  async function saveMotionRenderer(renderer: "remotion" | "hyperframes") {
+  async function saveMotionRenderer(renderer: "remotion" | "hyperframes", ads = motionRendererAds) {
     setMotionRendererMsg(null);
     const res = await fetch("/api/admin/settings", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ key: "motion_renderer", value: { renderer } }),
+      body: JSON.stringify({ key: "motion_renderer", value: { renderer, ads } }),
     }).catch(() => null);
     if (res?.ok) {
       setMotionRenderer(renderer);
+      setMotionRendererAds(ads);
       setMotionRendererMsg(renderer === "hyperframes"
-        ? "✓ Default (Laju) kini dirender dengan HyperFrames (Remotion sebagai sandaran)."
+        ? `✓ Edit Video${ads ? " dan Buat Iklan" : ""} kini dirender dengan HyperFrames (Remotion sebagai sandaran).`
         : "✓ Default (Laju) kini dirender dengan Remotion.");
     } else {
       setMotionRendererMsg("✗ Gagal simpan.");
@@ -567,7 +569,10 @@ export default function AdminSettings() {
         if (row.key === "model_motion_guard") setMotionGuardKnob(parseKnob(row.value, MOTION_MAX_FB));
         if (row.key === "motion_features") setMotionAdOn(row.value?.ad !== false);
         if (row.key === "motion_padat") setMotionPadatOn(row.value?.on === true);
-        if (row.key === "motion_renderer") setMotionRenderer(row.value?.renderer === "hyperframes" ? "hyperframes" : "remotion");
+        if (row.key === "motion_renderer") {
+          setMotionRenderer(row.value?.renderer === "hyperframes" ? "hyperframes" : "remotion");
+          setMotionRendererAds(row.value?.ads === true);
+        }
         if (row.key === "motion_search") {
           setMotionSearchRows(parseMotionSearchRows(row.value));
           if (Array.isArray(row.value?.exclude_sites)) setMotionExcludeSites(row.value.exclude_sites.join(", "));
@@ -2961,7 +2966,7 @@ export default function AdminSettings() {
         <div className="mt-4 pt-4 border-t border-[var(--color-border)]">
           <div className="text-sm font-bold text-[var(--color-text-primary)] mb-1">Enjin render Default (Laju)</div>
           <p className="text-xs text-[var(--color-text-secondary)] mb-2">
-            Templat sama. HyperFrames render secara teragih; kalau gagal, kerja itu dirender semula dengan Remotion secara automatik.
+            HyperFrames: edit Pro (adegan explainer, AI director pilih gaya setiap video), render secara teragih; kalau gagal, kerja itu dirender semula dengan Remotion secara automatik.
           </p>
           {(["remotion", "hyperframes"] as const).map((r) => (
             <label key={r} className="flex items-center gap-3 cursor-pointer select-none mb-1">
@@ -2969,6 +2974,12 @@ export default function AdminSettings() {
               <span className="text-sm text-[var(--color-text-primary)]">{r === "remotion" ? "Remotion" : "HyperFrames"}</span>
             </label>
           ))}
+          {motionRenderer === "hyperframes" && (
+            <label className="flex items-center gap-3 cursor-pointer select-none mt-2">
+              <input type="checkbox" checked={motionRendererAds} onChange={(e) => saveMotionRenderer("hyperframes", e.target.checked)} className="w-4 h-4" />
+              <span className="text-sm text-[var(--color-text-primary)]">Buat Iklan juga guna HyperFrames</span>
+            </label>
+          )}
           {motionRendererMsg && <p className="text-xs mt-2 text-[var(--color-text-secondary)]">{motionRendererMsg}</p>}
         </div>
       </div>

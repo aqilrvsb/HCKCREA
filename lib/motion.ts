@@ -228,10 +228,12 @@ export async function motionStart(payload: Record<string, any>): Promise<{ ok: t
   const first = await pickMotionAccount(accounts);
   // Laju renderer: the admin switch (app_settings.motion_renderer); a payload that
   // names one (an A/B test) keeps it. HyperFrames falls back to Remotion by itself.
-  const setting = await getSetting<{ renderer?: string }>("motion_renderer");
+  // Buat Iklan follows it only once ads are signed off on HyperFrames (setting.ads).
+  const setting = await getSetting<{ renderer?: string; ads?: boolean }>("motion_renderer");
+  const hf = setting?.renderer === "hyperframes" && (payload.flow !== "ad" || setting?.ads === true);
   const renderer = payload.renderer === "hyperframes" || payload.renderer === "remotion"
     ? payload.renderer
-    : setting?.renderer === "hyperframes" ? "hyperframes" : "remotion";
+    : hf ? "hyperframes" : "remotion";
   // the least-busy account first; if it can't start the job, the others in turn
   let lastErr = "";
   for (const acc of [first, ...accounts.filter((a) => a.id !== first.id)]) {
