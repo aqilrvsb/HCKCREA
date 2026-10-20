@@ -29,7 +29,10 @@ export async function POST(req: Request) {
   if (!(await isTabAllowedForUser(user.id, "motion"))) {
     return NextResponse.json({ error: "Tab ini tidak tersedia untuk akaun anda." }, { status: 403 });
   }
-  if (!(await motionAdEnabled())) {
+  // admins keep Buat Iklan while it is closed to clients (to test / sign it off)
+  const { data: prof } = await createAdminClient().from("profiles").select("is_admin").eq("id", user.id).maybeSingle();
+  const isAdmin = !!prof?.is_admin;
+  if (!(await motionAdEnabled()) && !isAdmin) {
     return NextResponse.json({ error: "Buat Iklan belum dibuka buat masa ini." }, { status: 403 });
   }
   if ((await hiddenModesForUser(user.id)).includes("motion-ad")) {
@@ -77,11 +80,7 @@ export async function POST(req: Request) {
   };
   const padat = input.engine === "padat";
   // admins may pin the renderer of a test ad (HyperFrames sign-off); clients always follow the switch
-  let pinRenderer: "hyperframes" | "remotion" | null = null;
-  if (b?.renderer === "hyperframes" || b?.renderer === "remotion") {
-    const { data: prof } = await createAdminClient().from("profiles").select("is_admin").eq("id", user.id).maybeSingle();
-    if (prof?.is_admin) pinRenderer = b.renderer;
-  }
+  const pinRenderer: "hyperframes" | "remotion" | null = isAdmin && (b?.renderer === "hyperframes" || b?.renderer === "remotion") ? b.renderer : null;
   const variations = Math.max(1, Math.min(3, Math.round(Number(b?.variations) || 1)));
   const projectId = b?.project_id ? String(b.project_id) : null;
 
