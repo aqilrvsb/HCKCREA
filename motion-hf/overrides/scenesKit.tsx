@@ -315,9 +315,12 @@ export type Step = { f: number; title: string; sub?: string; tone?: string };
 export const StepsBody: React.FC<{ steps: Step[]; frame: number; face: Look['display']; ink: string; dark: boolean; heading?: React.ReactNode; colorOf: (t?: string) => string }> =
   ({ steps, frame, face, ink, dark, heading, colorOf }) => {
     const n = steps.length;
-    const circle = n > 3 ? 92 : 110;
-    const titleSize = Math.min(...steps.map((st) => fitSize(face.upper ? st.title.toUpperCase() : st.title, 84 * (face.charW < 0.5 ? 1.22 : 1), W - 340, 1, face.charW, 36)));
-    const gap = n > 3 ? 46 : 62;
+    const circle = n > 3 ? 104 : 124;
+    const gap = n > 3 ? 40 : 56;
+    // the circle carries the number: "1. Tampal" → "Tampal"
+    const titleOf = (t: string) => { const x = t.replace(/^\s*(\d+|[a-z])\s*[.):\-]\s*/i, '').trim() || t; return face.upper ? x.toUpperCase() : x; };
+    // one size for every title; long ones wrap onto a second line instead of shrinking the rest
+    const titleSize = Math.min(...steps.map((st) => fitSize(titleOf(st.title), (n > 3 ? 92 : 104) * (face.charW < 0.5 ? 1.22 : 1), W - 360, 2, face.charW, 44)));
     return (
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', padding: '0 90px', marginTop: -40 }}>
         {heading && <div style={{ alignSelf: 'center', marginBottom: 28 }}>{heading}</div>}
@@ -326,7 +329,7 @@ export const StepsBody: React.FC<{ steps: Step[]; frame: number; face: Look['dis
           const pop = interpolate(d, [0, 5], [0, 1], { ...clamp, easing: Easing.out(Easing.back(2)) });
           const line = interpolate(d, [-6, 2], [0, 1], { ...clamp, easing: Easing.inOut(Easing.quad) });
           const col = colorOf(st.tone) || '#FFD93B';
-          const title = face.upper ? st.title.toUpperCase() : st.title;
+          const title = titleOf(st.title);
           return (
             <div key={i} style={{ display: 'flex', flexDirection: 'column' }}>
               {i > 0 && <div style={{ width: 10, height: gap, marginLeft: circle / 2 - 5, background: dark ? 'rgba(255,255,255,0.85)' : '#111', borderRadius: 5,
@@ -337,8 +340,8 @@ export const StepsBody: React.FC<{ steps: Step[]; frame: number; face: Look['dis
                   <span style={{ fontFamily: "'Archivo Black', sans-serif", fontSize: circle * 0.52, color: '#111', lineHeight: 1 }}>{i + 1}</span>
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column', ...slideIn(d - 1) }}>
-                  <span style={{ fontFamily: face.family, fontWeight: face.weight, fontSize: titleSize, lineHeight: 1.04, color: ink, letterSpacing: face.track }}>{title}</span>
-                  {st.sub && <span style={{ fontFamily: face.family, fontWeight: face.weight, fontSize: fitSize(st.sub.toUpperCase(), 44, W - 340, 1, face.charW, 26), color: dark ? 'rgba(255,255,255,0.72)' : 'rgba(0,0,0,0.62)', marginTop: 4 }}>{st.sub.toUpperCase()}</span>}
+                  <span style={{ fontFamily: face.family, fontWeight: face.weight, fontSize: titleSize, lineHeight: 1.0, color: ink, letterSpacing: face.track, maxWidth: W - 360 }}>{title}</span>
+                  {st.sub && <span style={{ fontFamily: face.family, fontWeight: face.weight, fontSize: fitSize(st.sub.toUpperCase(), 50 * (face.charW < 0.5 ? 1.2 : 1), W - 360, 1, face.charW, 28), color: dark ? 'rgba(255,255,255,0.72)' : 'rgba(0,0,0,0.62)', marginTop: 6 }}>{st.sub.toUpperCase()}</span>}
                 </div>
               </div>
             </div>

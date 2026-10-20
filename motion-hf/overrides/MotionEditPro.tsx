@@ -213,7 +213,7 @@ export const MotionEditPro: React.FC<ProProps> = (p) => {
           .filter((it) => it.text);
         if (!sc.items.length) continue;
       } else if (kind === 'steps') {
-        sc.steps = arr(raw.steps).slice(0, 4).map((st) => ({ f: at(st.at), title: txt(st.title, 22), sub: txt(st.sub, 30) || undefined, tone: tone(st.tone) }))
+        sc.steps = arr(raw.steps).slice(0, 4).map((st) => ({ f: at(st.at), title: txt(st.title, 28), sub: txt(st.sub, 30) || undefined, tone: tone(st.tone) }))
           .filter((st) => st.title);
         if (sc.steps.length < 2) continue;
       } else if (kind === 'ring') {
@@ -560,6 +560,7 @@ export const MotionEditPro: React.FC<ProProps> = (p) => {
 
         {cap.on && (
           <CaptionsPro pages={plan.pages} style={cap.style} accent={accent} centerY={capCenter} look={look} subtle={p.direction?.captions === 'subtle' || plan.scenes.some((sc) => frame >= sc.s && frame < sc.e)}
+            onLight={plan.scenes.some((sc) => frame >= sc.s && frame < sc.e && ['paper', 'yellow', 'notebook', 'grid'].includes(sc.bg))}
             keywords={p.keywords} lottie={p.lottie} gempak={gempak} censor={p.censor} />
         )}
         {p.cta?.text && plan.ctaStart >= 0 && look.endcard !== 'none' && (
