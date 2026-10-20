@@ -78,6 +78,7 @@ CRITIC_ROUNDS = 2        # critic -> fix -> verifying critic -> fix
 CRITIC_BUDGET = 8 * 60   # one critic session
 FIX_MIN = 9 * 60         # don't start a fix round with less time than this left
 GAUNTLET_DIR = ".gauntlet"
+STALL_SEC = 15 * 60      # no stream event for this long = the session hung (a long single Write still emits within it)
 CHECK_FIXES = 2          # rounds the builder gets to clear `hyperframes check` errors
 HF_REGISTRY = ("https://raw.githubusercontent.com/heygen-com/hyperframes/"
                "ae02e5aceff4742e5d72c20f0859eb3e6b449035/registry")  # = tag v0.8.181 (`add` would track main)
@@ -961,13 +962,15 @@ def _save_ws(ws: Path, vol: Path) -> None:
 
 
 API_FATAL = re.compile(r"API Error: (401|402|403)|Insufficient user quota|Not enough quota|Failed to authenticate|invalid api key", re.I)
-API_TRANSIENT = re.compile(r"API Error: (408|409|425|429|5\d\d)|overloaded|Request timed out|Connection error|ECONNRESET|socket hang up", re.I)
+API_TRANSIENT = re.compile(r"API Error: (408|409|425|429|5\d\d)|overloaded|Request timed out|Connection error|ECONNRESET|socket hang up|session stalled", re.I)
 API_ERROR_MSG = "Enjin AI tidak dapat dihubungi (kuota / sambungan) — tiada video dihantar. Sila cuba lagi sebentar lagi."
 
 
 def _api_error(run: dict) -> str:
     """The API error a Claude Code session ended on ('' when it ended normally).
     Such a session stopped mid-work: whatever it rendered so far may be unfinished."""
+    if run.get("stalled"):
+        return "session stalled (no output) — resumable"
     res = run.get("result") or {}
     text = str(res.get("result") or "")
     tail = " ".join(run.get("tail") or [])
@@ -1193,11 +1196,41 @@ def run_vgc(payload: dict) -> dict:
         proc = subprocess.Popen(cmd, cwd=cwd or ws, env=run_env or env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                                 text=True, errors="replace")
         out = {"session_id": session, "result": None, "tail": []}
+        # A reader thread feeds a queue, so the budget and the stall watchdog are
+        # checked every few seconds even when the session prints nothing (a hung
+        # API call once left a run silent for 50 minutes).
+        import queue
+        import threading
+        lines: "queue.Queue[str | None]" = queue.Queue()
+
+        def pump():
+            try:
+                for ln in proc.stdout:
+                    lines.put(ln)
+            finally:
+                lines.put(None)
+
+        threading.Thread(target=pump, daemon=True).start()
+        last_event = time.time()
         try:
-            for line in proc.stdout:
-                if time.time() - began > budget:
+            while True:
+                now = time.time()
+                if now - began > budget:
+                    print("[runner] time budget reached — stopping the session", flush=True)
                     proc.kill()
                     break
+                if now - last_event > STALL_SEC:
+                    print(f"[runner] no output for {STALL_SEC // 60} min — the session stalled; stopping it", flush=True)
+                    out["stalled"] = True
+                    proc.kill()
+                    break
+                try:
+                    line = lines.get(timeout=5)
+                except queue.Empty:
+                    continue
+                if line is None:
+                    break
+                last_event = time.time()
                 line = line.strip()
                 if not line:
                     continue
@@ -1223,7 +1256,10 @@ def run_vgc(payload: dict) -> dict:
                 elif ev.get("type") == "result":
                     out["result"] = ev
                     out["session_id"] = ev.get("session_id") or out["session_id"]
-            proc.wait(timeout=60)
+            try:
+                proc.wait(timeout=60)
+            except subprocess.TimeoutExpired:
+                proc.kill()
         finally:
             if proc.poll() is None:
                 proc.kill()
