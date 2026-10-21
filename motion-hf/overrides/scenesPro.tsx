@@ -174,19 +174,38 @@ const Highlighted: React.FC<{ text: string; words?: string[]; p: number; color?:
 const TEXT_ENTERS = new Set<string>(['type', 'scramble', 'letters', 'rise', 'outline']);
 const MARKS = new Set<string>(['circle', 'underline', 'arrow', 'box']);
 
-const Line: React.FC<{ l: PlacedLine; frame: number; look: Look; accent: string; bg: Bg; lottie?: LottieMap }> = ({ l, frame, look, accent, bg, lottie }) => {
+const Line: React.FC<{ l: PlacedLine; frame: number; look: Look; accent: string; bg: Bg; lottie?: LottieMap; boost?: number }> = ({ l, frame, look, accent, bg, lottie, boost = 1 }) => {
   const face = look.display;
   const d = frame - l.f;
   const full = face.upper ? l.text.toUpperCase() : l.text;
   const single = (full.match(/\d[\d.,]*/g) ?? []).length === 1;
   const text = l.fx === 'count' && single && d >= 0 ? countText(full, d) : full;
-  const base = SIZE[l.size ?? 'md'];
+  const base = SIZE[l.size ?? 'md'] * boost;
   // a swap slot is as wide as its widest word
   const swap = l.enter === 'swap' && l.options?.length ? l.options.map((o) => (face.upper ? o.toUpperCase() : o)) : null;
   const fitText = swap ? [text, ...swap].reduce((a, b) => (textWidth(b, face, 100) > textWidth(a, face, 100) ? b : a)) : text;
   // the estimate from the face's average letter, then the measured width (wide letters like "M" run long)
   const est = fitFace(fitText, base, W - 160, 1, face, 30);
-  const size = Math.max(30, Math.min(est, Math.floor((est * (W - 150 - (l.box && l.box !== 'none' ? est * 0.36 : 0))) / Math.max(1, textWidth(fitText, face, est)))));
+  let size = Math.max(30, Math.min(est, Math.floor((est * (W - 150 - (l.box && l.box !== 'none' ? est * 0.36 : 0))) / Math.max(1, textWidth(fitText, face, est)))));
+  // a big line of several words that would shrink on one line wraps onto two balanced lines instead
+  // (plain entrances only: the typed / scrambled / rolled / swapped / struck / shined lines stay on one line)
+  let rows: string[] = [text];
+  const words = text.split(' ').filter(Boolean);
+  const plain = !(l.enter && TEXT_ENTERS.has(l.enter)) && l.enter !== 'swap' && l.fx !== 'roll' && l.fx !== 'count' && l.fx !== 'strike' && l.fx !== 'shine';
+  if (plain && words.length >= 2 && l.size !== 'sm' && size < base * 0.8) {
+    let best: { a: string; b: string; w: number } | null = null;
+    for (let i = 1; i < words.length; i++) {
+      const a = words.slice(0, i).join(' ');
+      const b = words.slice(i).join(' ');
+      const w = Math.max(textWidth(a, face, 100), textWidth(b, face, 100));
+      if (!best || w < best.w) best = { a, b, w };
+    }
+    if (best) {
+      const room = W - 150 - (l.box && l.box !== 'none' ? base * 0.36 : 0);
+      const two = Math.min(base, Math.floor((room * 100) / best.w));
+      if (two > size * 1.25) { size = two; rows = [best.a, best.b]; }
+    }
+  }
   const box = l.box && l.box !== 'none' ? l.box : null;
   const boxBg = box === 'yellow' ? '#FFD93B' : box === 'black' ? '#111' : box === 'white' ? '#fff' : box === 'accent' ? look.hi : 'transparent';
   let color = toneColor(l.tone, look, accent);
@@ -207,8 +226,8 @@ const Line: React.FC<{ l: PlacedLine; frame: number; look: Look; accent: string;
   };
   const roll = l.fx === 'roll' && /\d/.test(text) && !(l.enter && TEXT_ENTERS.has(l.enter)) && !swap;
   // the block the hand marks / sparkles frame: the measured text (+ the box padding)
-  const bw = textWidth(text, face, size) + (box ? size * 0.36 : 0);
-  const bh = size * 1.02 + (box ? size * 0.08 : 0);
+  const bw = Math.max(...rows.map((r) => textWidth(r, face, size))) + (box ? size * 0.36 : 0);
+  const bh = size * 1.02 * rows.length + (box ? size * 0.08 : 0);
   const markColor = lightBg(bg) ? '#F2443F' : '#FFD93B';
   const es = l.emoji ? interpolate(d - 2, [0, 6], [0, 1], { ...clamp, easing: Easing.out(Easing.back(2.2)) }) : 0;
   return (
@@ -217,7 +236,8 @@ const Line: React.FC<{ l: PlacedLine; frame: number; look: Look; accent: string;
         {mk > 0 && <span style={{ position: 'absolute', left: -size * 0.12, right: -size * 0.12, top: size * 0.1, bottom: size * 0.02, background: '#FFE45C',
           transform: `scaleX(${mk}) rotate(-1.2deg)`, transformOrigin: 'left center', borderRadius: size * 0.06 }} />}
         {swap ? <SwapText text={text} options={swap} d={d} style={textStyle} measure={(t) => textWidth(t, face, size)} />
-          : textEnter ? <EnterText text={text} kind={textEnter} d={d} seed={seed} style={textStyle} /> : roll ? <RollText text={text} d={d} style={textStyle} measure={(ch) => textWidth(ch, face, size)} /> : <span style={textStyle}>{text}</span>}
+          : textEnter ? <EnterText text={text} kind={textEnter} d={d} seed={seed} style={textStyle} /> : roll ? <RollText text={text} d={d} style={textStyle} measure={(ch) => textWidth(ch, face, size)} />
+          : rows.length > 1 ? <span style={{ ...textStyle, textAlign: 'center' }}>{rows[0]}<br />{rows[1]}</span> : <span style={textStyle}>{text}</span>}
         {l.fx === 'shine' && <Shine text={text} d={d} style={textStyle} />}
         {st > 0 && <span style={{ position: 'absolute', left: -size * 0.08, right: -size * 0.08, top: '50%', height: Math.max(8, size * 0.1), marginTop: -Math.max(4, size * 0.05),
           background: '#F2443F', transform: `scaleX(${st}) rotate(-4deg)`, transformOrigin: 'left center', borderRadius: 4, boxShadow: '0 3px 0 rgba(0,0,0,0.3)' }} />}
@@ -404,7 +424,13 @@ export const ScenePro: React.FC<{ sc: PlacedScene; frame: number; look: Look; ac
           <div style={{ fontFamily: face.family, fontWeight: face.weight, fontSize: fitFace(sc.heading.toUpperCase(), 58, W - 200, 1, face, 28), color: ink, marginBottom: 12,
             ...enterStyle(f, 'slide') }}>{sc.heading.toUpperCase()}</div>
         )}
-        {(sc.lines ?? []).map((l, i) => <Line key={i} l={l} frame={frame} look={look} accent={accent} bg={sc.bg} lottie={lottie} />)}
+        {(() => {
+          // a sparse build grows to fill the frame's upper two-thirds (lines still fit the width)
+          const ls = sc.lines ?? [];
+          const natural = ls.reduce((h, l) => h + SIZE[l.size ?? 'md'] * 1.08, 0) + (sc.heading ? 90 : 0);
+          const boost = Math.max(1, Math.min(1.4, 720 / Math.max(1, natural)));
+          return ls.map((l, i) => <Line key={i} l={l} frame={frame} look={look} accent={accent} bg={sc.bg} lottie={lottie} boost={boost} />);
+        })()}
       </div>
     );
   } else if (sc.kind === 'timeline') {

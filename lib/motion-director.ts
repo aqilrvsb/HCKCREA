@@ -320,7 +320,7 @@ HOW A TOP EXPLAINER EDITOR BUILDS THIS VIDEO — this is the default bar for eve
 - While the speaker is on screen between scenes, side words land on the strongest line almost every time (small lead-in + big word, or one huge centred word on a punchline), with few stickers — never a sticker and side words at the same moment.
 - Open with the hook title and, when there is a product / source picture, a float card with a badge under it; keep the speaker on screen for the hook, the moments they hold the product up to camera, emotional lines and the CTA — and cut to scenes for everything they explain around those moments.
 - Subtle captions and fx "light" are the reference look (the scenes carry the message); end on a closing question scene and the spoken CTA (no end card, or a quiet one).
-CHECK BEFORE YOU ANSWER (fix the plan if any is "no"): do the scenes cover about half the runtime or more? does every scene build 3–7 items, a new one every 1–2 spoken seconds? do side words land on the speaker's strongest lines between scenes? does each scene differ in kind or background from its neighbours?
+CHECK BEFORE YOU ANSWER (fix the plan if any is "no"): do the scenes cover about half the runtime or more? does every scene build 3–7 items, a new one every 1–2 spoken seconds? do side words land on the speaker's strongest lines between scenes? does each scene differ in kind or background from its neighbours? is every "behind" word's index OUTSIDE every scene's at…to range (a word inside a scene can't show)?
 Craft notes (judgement, not rules): one main transition usually carries most cutaways with one or two accents; full-screen hits (shake, flash, crash) land hardest when rare; captions and stickers must stay readable over the grade; every choice must suit the product, the speaker's energy and the angle.
 VARIETY — TikTok pushes down near-identical videos. ${recent.length ? `This client's recent edits used: ${recent.join(" | ")}. Give this one a clearly different combination (at least a different hook style, font, grade and end card).` : "Give this edit a combination of its own."}`;
 
@@ -405,6 +405,12 @@ function cleanDirection(d: any, nWords: number, duration: number): ProDirection 
       return { at, ...(to !== undefined ? { to } : {}), tag: clean(b?.tag, 12) || "TERKINI", text, ...(clean(b?.ticker, 90) ? { ticker: clean(b.ticker, 90) } : {}) };
     }).filter(Boolean).slice(0, 2) as Record<string, unknown>[] : undefined,
   };
+  // a word behind the speaker inside a full-screen scene can never show (the scene hides the speaker): drop it
+  if (out.behind?.length && out.scenes?.length) {
+    const wi = (c: unknown) => { const m = /^w(\d+)/i.exec(String(c ?? "")); return m ? Number(m[1]) : NaN; };
+    const spans = out.scenes.filter((sc) => !(sc.kind === "card" && sc.style === "float")).map((sc) => [wi(sc.at), wi(sc.to ?? sc.at)]);
+    out.behind = out.behind.filter((b) => { const i = wi(b.at); return !Number.isFinite(i) || !spans.some(([a, z]) => i >= a && i <= z); });
+  }
   for (const k of Object.keys(out) as (keyof ProDirection)[]) if (out[k] === undefined || (Array.isArray(out[k]) && !(out[k] as unknown[]).length)) delete out[k];
   return Object.keys(out).length ? out : undefined;
 }

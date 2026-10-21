@@ -46,6 +46,8 @@ Microsoft Fluent Emoji 3D (MIT; spring pop + idle bob) and useAnimations / Remoc
 
 ### 5. Sound polish
 - [ ] Normalise every SFX one-shot to −18 LUFS momentary max at build time; per-category offsets under the voice.
+  Measured 2026-10-21: the 48 measurable files span −22.5 … −12.1 LUFS (most −17 … −13); 26 are shorter than the
+  400 ms momentary window and need a peak / RMS measure. Low priority: the per-event `vol` values were tuned by ear.
 - [ ] Riser ending exactly on reveals; whoosh peak on the cut frame.
 
 ### 6. Custom Style parity

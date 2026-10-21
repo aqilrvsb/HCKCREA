@@ -51,6 +51,27 @@ export const textWidth = (text: string, face: Look['display'], size: number): nu
   return w;
 };
 
+/** Greedy word wrap with measured widths. */
+export const wrapLines = (text: string, face: Look['display'], size: number, maxW: number): string[] => {
+  const lines: string[] = [];
+  let cur = '';
+  for (const w of text.split(/\s+/).filter(Boolean)) {
+    const next = cur ? `${cur} ${w}` : w;
+    if (cur && textWidth(next, face, size) > maxW) { lines.push(cur); cur = w; } else cur = next;
+  }
+  if (cur) lines.push(cur);
+  return lines.length ? lines : [''];
+};
+
+/** The largest size ≤ base at which `text` wraps into ≤ maxLines lines of ≤ maxW (each line measured). */
+export const fitWrap = (text: string, face: Look['display'], base: number, maxW: number, maxLines: number, min: number) => {
+  for (let s = base; s > min; s -= 2) {
+    const ls = wrapLines(text, face, s, maxW);
+    if (ls.length <= maxLines && ls.every((l) => textWidth(l, face, s) <= maxW)) return s;
+  }
+  return min;
+};
+
 /** mulberry32 — the same stream on every render chunk. */
 export const rng = (seed: number) => {
   let a = (seed * 2654435761) >>> 0;
@@ -289,7 +310,9 @@ export type CheckItem = { f: number; text: string; mark: 'check' | 'cross'; tone
 /** Checklist rows: the box lands with its text, then the tick / cross draws in. */
 export const ChecklistBody: React.FC<{ items: CheckItem[]; frame: number; face: Look['display']; ink: string; dark: boolean; heading?: React.ReactNode; colorOf: (t?: string) => string }> =
   ({ items, frame, face, ink, dark, heading, colorOf }) => {
-    const size = Math.min(...items.map((it) => fitSize((face.upper ? it.text.toUpperCase() : it.text), 84 * (face.charW < 0.5 ? 1.22 : 1), W - 330, 1, face.charW, 36)));
+    // one size for every row; a long row wraps onto a second line instead of shrinking them all
+    const base = (items.length <= 3 ? 104 : items.length <= 4 ? 92 : 80) * (face.charW < 0.5 ? 1.22 : 1);
+    const size = Math.min(...items.map((it) => fitWrap(face.upper ? it.text.toUpperCase() : it.text, face, base, W - 330, 2, 40)));
     return (
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 30, padding: '0 90px', marginTop: -30 }}>
         {heading && <div style={{ alignSelf: 'center', marginBottom: 6 }}>{heading}</div>}
@@ -309,7 +332,7 @@ export const ChecklistBody: React.FC<{ items: CheckItem[]; frame: number; face: 
                     : <Stroke d={tick.d} len={tick.len} p={p} color={col} width={13} />}
                 </svg>
               </div>
-              <span style={{ fontFamily: face.family, fontWeight: face.weight, fontSize: size, lineHeight: 1.05, letterSpacing: face.track, color: ink,
+              <span style={{ fontFamily: face.family, fontWeight: face.weight, fontSize: size, lineHeight: 1.02, letterSpacing: face.track, color: ink, maxWidth: W - 330,
                 opacity: it.mark === 'cross' && p > 0.9 ? 0.82 : 1 }}>{face.upper ? it.text.toUpperCase() : it.text}</span>
             </div>
           );
@@ -328,7 +351,7 @@ export const StepsBody: React.FC<{ steps: Step[]; frame: number; face: Look['dis
     // the circle carries the number: "1. Tampal" → "Tampal"
     const titleOf = (t: string) => { const x = t.replace(/^\s*(\d+|[a-z])\s*[.):\-]\s*/i, '').trim() || t; return face.upper ? x.toUpperCase() : x; };
     // one size for every title; long ones wrap onto a second line instead of shrinking the rest
-    const titleSize = Math.min(...steps.map((st) => fitSize(titleOf(st.title), (n > 3 ? 92 : 104) * (face.charW < 0.5 ? 1.22 : 1), W - 360, 2, face.charW, 44)));
+    const titleSize = Math.min(...steps.map((st) => fitWrap(titleOf(st.title), face, (n > 3 ? 96 : 112) * (face.charW < 0.5 ? 1.22 : 1), W - 360, 2, 44)));
     return (
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', padding: '0 90px', marginTop: -40 }}>
         {heading && <div style={{ alignSelf: 'center', marginBottom: 28 }}>{heading}</div>}

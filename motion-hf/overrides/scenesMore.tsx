@@ -15,33 +15,14 @@ import React from 'react';
 import { AbsoluteFill, Easing, interpolate } from 'remotion';
 import { W, clamp, fitSize } from '../../motion/src/lib';
 import type { Face } from './look';
-import { HandMark, Stroke, pathOf, rng, roughArrow, textWidth } from './scenesKit';
+import { HandMark, Stroke, fitWrap, pathOf, rng, roughArrow, textWidth, wrapLines } from './scenesKit';
+export { fitWrap, wrapLines };
 
 const UI: Face = { family: "'Inter', sans-serif", weight: 700, charW: 0.56, upper: false, track: 0 };
 const UI_BOLD: Face = { family: "'Inter', sans-serif", weight: 800, charW: 0.58, upper: false, track: 0 };
 const HAND = "'Permanent Marker', cursive";
 const HAND_FACE: Face = { family: HAND, weight: 400, charW: 0.62, upper: false, track: 0 };
 
-/** Greedy word wrap with measured widths. */
-export const wrapLines = (text: string, face: Face, size: number, maxW: number): string[] => {
-  const lines: string[] = [];
-  let cur = '';
-  for (const w of text.split(/\s+/).filter(Boolean)) {
-    const next = cur ? `${cur} ${w}` : w;
-    if (cur && textWidth(next, face, size) > maxW) { lines.push(cur); cur = w; } else cur = next;
-  }
-  if (cur) lines.push(cur);
-  return lines.length ? lines : [''];
-};
-
-/** The largest size ≤ base at which `text` wraps into ≤ maxLines lines of ≤ maxW (each line measured). */
-export const fitWrap = (text: string, face: Face, base: number, maxW: number, maxLines: number, min: number) => {
-  for (let s = base; s > min; s -= 2) {
-    const ls = wrapLines(text, face, s, maxW);
-    if (ls.length <= maxLines && ls.every((l) => textWidth(l, face, s) <= maxW)) return s;
-  }
-  return min;
-};
 
 const ease = (x: number) => { const t = Math.min(1, Math.max(0, x)); return t * t * (3 - 2 * t); };
 const popIn = (d: number, n = 6, k = 1.7) => interpolate(d, [0, n], [0, 1], { ...clamp, easing: Easing.out(Easing.back(k)) });
