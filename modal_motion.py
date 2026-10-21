@@ -2125,16 +2125,24 @@ def _matte_plan(direction: dict, words: list, dur: float, fps: int = 30) -> list
     """The [first, end) frame windows the speaker cut-out is needed for: text behind the speaker, a spotlight,
     a scene that keeps the speaker on screen as a sticker. Merged, ≤ 30 s in all (later ones dropped)."""
     win = []
+    # full-screen scenes hide the speaker: a word behind them / a spotlight inside one never shows
+    scene_spans = []
+    for sc in direction.get("scenes") or []:
+        if isinstance(sc, dict) and not (sc.get("kind") == "card" and sc.get("style") == "float"):
+            a = _cue_sec(sc.get("at"), words, -1)
+            if a >= 0:
+                scene_spans.append((a, _cue_sec(sc.get("to"), words, a + 3) if sc.get("to") is not None else a + 3))
+    in_scene = lambda t: any(a <= t < b for a, b in scene_spans)  # noqa: E731
     for b in direction.get("behind") or []:
         if isinstance(b, dict) and b.get("text"):
             a = _cue_sec(b.get("at"), words, -1)
-            if a >= 0:
+            if a >= 0 and not in_scene(a):
                 e = _cue_sec(b.get("to"), words, a + 2.5) if b.get("to") is not None else a + 2.5
                 win.append((a - 0.2, min(e, a + 4.0) + 0.2))
     for m in direction.get("moves") or []:
         if isinstance(m, dict) and m.get("move") == "spotlight":
             a = _cue_sec(m.get("at"), words, -1)
-            if a >= 0:
+            if a >= 0 and not in_scene(a):
                 win.append((a - 0.1, a + 2.6))
     for sc in direction.get("scenes") or []:
         if isinstance(sc, dict) and sc.get("speaker") in ("left", "right"):
