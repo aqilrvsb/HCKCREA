@@ -60,7 +60,7 @@ const IMPACT_TYPES = new Set<ItemType>(['bigword', 'stamp', 'price']);
 const CONFETTI_COLORS = (accent: string, second: string) => ['#FFD93B', '#ffffff', accent, second === '#111111' ? '#ff5c8a' : second, '#22c55e', '#38bdf8'];
 
 const TONES = new Set<Tone>(['white', 'yellow', 'green', 'red', 'blue', 'accent', 'black']);
-const BGS = new Set<Bg>(['dark', 'red', 'accent', 'paper', 'cork', 'yellow', 'blue', 'notebook', 'chalk', 'grid', 'gradient', 'burst']);
+const BGS = new Set<Bg>(['dark', 'red', 'accent', 'paper', 'cork', 'yellow', 'blue', 'notebook', 'chalk', 'grid', 'gradient', 'burst', 'style']);
 const ENTERS = new Set<SceneEnter>(['cut', 'push', 'zoom', 'whip', 'wipe', 'rise', 'iris', 'tear']);
 const LINE_FX = new Set<LineFx>(['strike', 'marker', 'count', 'circle', 'underline', 'arrow', 'box', 'sparkle', 'roll', 'extrude', 'shine']);
 const LINE_ENTERS = new Set<string>(['slam', 'slide', 'type', 'scramble', 'letters', 'rise', 'outline', 'swap']);
