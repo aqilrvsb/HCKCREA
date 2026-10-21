@@ -27,7 +27,9 @@ export async function POST(req: Request) {
   const stills = (Array.isArray(b?.stills) ? b.stills : [])
     .filter((s: any) => typeof s?.image === "string" && s.image.startsWith("data:image/") && s.image.length < 1_500_000)
     .slice(0, 6)
-    .map((s: any) => ({ frame: Number(s.frame) || 0, t: Number(s.t) || 0, active: Array.isArray(s.active) ? s.active.map(String).slice(0, 8) : [], image: s.image }));
+    .map((s: any) => ({ frame: Number(s.frame) || 0, t: Number(s.t) || 0, active: Array.isArray(s.active) ? s.active.map(String).slice(0, 8) : [], image: s.image,
+      eyes: Array.isArray(s.eyes) && s.eyes.length === 2 && s.eyes.every((v: unknown) => typeof v === "number" && v >= 0 && v <= 1)
+        ? [Number(s.eyes[0]), Number(s.eyes[1])] as [number, number] : null }));
   try {
     const patch = await qaPatch({
       stills,

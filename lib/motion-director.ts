@@ -1263,22 +1263,29 @@ async function writeFacts(moments: { at: Cue; to?: Cue; query: string; topic: st
 export type QaPatch = { drop_overlays: number[]; move: { idx: number; zone: "top" | "middle" | "bottom" }[]; drop_broll: number[]; pip_broll: number[]; notes?: string; via?: string };
 
 export async function qaPatch(opts: {
-  stills: { frame: number; t: number; active: string[]; image: string }[];
+  /** eyes = the band of the speaker's eyes in that still from the face tracker ([top, bottom] fractions of the height) */
+  stills: { frame: number; t: number; active: string[]; image: string; eyes?: [number, number] | null }[];
   overlays: { idx: number; t?: string; text?: string; zone?: string }[];
   broll: { idx: number; layout?: string }[];
 }): Promise<QaPatch | null> {
   const stills = opts.stills.slice(0, 6);
   if (!stills.length) return null;
-  const desc = stills.map((s, k) => `Still ${k} @${s.t.toFixed(1)}s — active: ${s.active.join(" | ") || "none"}`).join("\n");
+  const eyesOf = (s: { eyes?: [number, number] | null }): [number, number] | null =>
+    (Array.isArray(s.eyes) && s.eyes.length === 2 && s.eyes.every((v) => typeof v === "number" && v >= 0 && v <= 1) && s.eyes[0] < s.eyes[1] ? s.eyes : null);
+  const desc = stills.map((s, k) => { const e = eyesOf(s); return `Still ${k} @${s.t.toFixed(1)}s — active: ${s.active.join(" | ") || "none"}`
+    + (e ? ` — the eyes (face tracker) are between ${e[0].toFixed(2)} and ${e[1].toFixed(2)} of the height` : ""); }).join("\n");
   const r = await orChatVision({
     modelKey: "model_motion",
-    // the sticker layout already keeps the eyes, the captions and the other stickers clear (layout.ts): QA flagged
-    // stickers on the hijab / above the head as "covering eyes" and moved them for nothing — say exactly what counts
-    systemPrompt: "You are the QA editor of an automated TikTok edit (9:16). Look at the stills and find REAL problems only: an overlay that actually covers the speaker's EYES (it overlaps the eyes or the glasses themselves), overlays overlapping each other or the captions, text cut off at the frame edge, unreadable text, a B-roll image that is wrong/irrelevant/watermarked/low-quality, a full-screen B-roll hiding an important moment. NOT problems (pro edits do this on purpose): a sticker on the forehead, hair, hijab or above the head; a sticker on the chin, chest or briefly over the mouth; big text behind or above the head. Only flag what you clearly see in a still. Fix with the smallest change. Answer ONLY JSON: {\"drop_overlays\":[idx], \"move\":[{\"idx\":n,\"zone\":\"top|middle|bottom\"}], \"drop_broll\":[idx], \"pip_broll\":[idx], \"notes\":\"≤20 words\"}. Use the overlay/broll idx numbers from the lists. Empty arrays when it looks good.",
+    // The sticker layout already keeps the eyes, the captions and the other stickers clear (layout.ts). Asked only
+    // for problems, the model kept reporting stickers on the hijab / above the head as "covering eyes" (asked to
+    // describe the same still it put the word at 15 % and the eyes at 40 %), so every fix now carries what it
+    // measured in the still, and an "eyes" fix whose box doesn't reach the eyes is thrown away. Even then it put the
+    // eyes at 24 % (they sat at ~43 %), so the eyes come from the face tracker (a band) whenever the job has one.
+    systemPrompt: "You are the QA editor of an automated TikTok edit (9:16). Look at the stills and find REAL problems only: an overlay that actually covers the speaker's EYES (its box overlaps the eye line), overlays overlapping each other or the captions, text cut off at the frame edge, unreadable text, a B-roll image that is wrong/irrelevant/watermarked/low-quality, a full-screen B-roll hiding an important moment. NOT problems (pro edits do this on purpose): a sticker on the forehead, hair, hijab or above the head; a sticker on the chin, chest or briefly over the mouth; big text behind or above the head. An overlay's zone in the list is only its preferred band — the layout already moved it clear of the face — so judge ONLY from what each still shows. For every overlay you would change, first MEASURE it in the still: its vertical extent as fractions of the still's height (0 = top edge, 1 = bottom edge) and, for an eyes problem, the eye line. Fix with the smallest change. Answer ONLY JSON: {\"issues\":[{\"idx\":n, \"still\":k, \"why\":\"eyes|overlap|captions|cutoff|unreadable\", \"box\":[top,bottom], \"eyes\":0.0-1.0 (eyes only), \"fix\":\"drop|top|middle|bottom\"}], \"drop_broll\":[idx], \"pip_broll\":[idx], \"notes\":\"≤20 words\"}. Use the overlay/broll idx numbers from the lists. Empty arrays when it looks good.",
     textPrompt: `${desc}\n\nOVERLAYS: ${JSON.stringify(opts.overlays).slice(0, 4000)}\nBROLL: ${JSON.stringify(opts.broll)}`,
     images: stills.map((s) => s.image),
     temperature: 0.2,
-    maxTokens: 700,
+    maxTokens: 900,
     timeoutMs: 90_000,
     hedgeAfterMs: 40_000,
     stream: true,
@@ -1288,15 +1295,34 @@ export async function qaPatch(opts: {
   const ints = (a: any, max: number) => (Array.isArray(a) ? a.map(Number).filter((n) => Number.isInteger(n) && n >= 0 && n < max) : []);
   const nO = opts.overlays.length;
   const nB = opts.broll.length;
-  const dropO = ints(j?.drop_overlays, nO).slice(0, Math.ceil(nO / 3)); // never strip the edit bare
+  const frac = (v: unknown) => (typeof v === "number" && Number.isFinite(v) && v >= 0 && v <= 1 ? v : null);
+  // an "eyes" fix stands only when the measured box reaches the eyes — the face tracker's eye band for that still
+  // when known (the model's own guess drifts), else its eye line ±2 % of the height
+  const rejected: number[] = [];
+  const issues = (Array.isArray(j?.issues) ? j.issues : []).filter((x: any) => {
+    const idx = Number(x?.idx);
+    if (!Number.isInteger(idx) || idx < 0 || idx >= nO || !["drop", "top", "middle", "bottom"].includes(x?.fix)) return false;
+    if (x?.why !== "eyes") return true;
+    const box = Array.isArray(x?.box) ? x.box.map(frac) : [];
+    const k = Number(x?.still);
+    const tracked = Number.isInteger(k) && k >= 0 && k < stills.length ? eyesOf(stills[k]) : null;
+    const own = frac(x?.eyes);
+    const band: [number, number] | null = tracked ?? (own !== null ? [own - 0.02, own + 0.02] : null);
+    const ok = box.length === 2 && box[0] !== null && box[1] !== null && band !== null
+      && Math.min(box[0], box[1]) <= band[1] && Math.max(box[0], box[1]) >= band[0];
+    if (!ok) rejected.push(idx);
+    return ok;
+  });
+  const dropO = [...new Set(issues.filter((x: any) => x.fix === "drop").map((x: any) => Number(x.idx)))].slice(0, Math.ceil(nO / 3)) as number[]; // never strip the edit bare
+  const move = issues.filter((x: any) => x.fix !== "drop" && !dropO.includes(Number(x.idx)))
+    .map((x: any) => ({ idx: Number(x.idx), zone: x.fix as "top" | "middle" | "bottom" }));
+  const notes = clean(j?.notes, 160);
   return {
     drop_overlays: dropO,
-    move: (Array.isArray(j?.move) ? j.move : [])
-      .map((m: any) => ({ idx: Number(m?.idx), zone: m?.zone }))
-      .filter((m: any) => Number.isInteger(m.idx) && m.idx >= 0 && m.idx < nO && ["top", "middle", "bottom"].includes(m.zone)),
+    move,
     drop_broll: ints(j?.drop_broll, nB),
     pip_broll: ints(j?.pip_broll, nB),
-    notes: clean(j?.notes, 160),
+    notes: rejected.length ? `${notes ?? ""} [ignored ${rejected.length} unmeasured eyes claim(s)]`.trim() : notes,
     // which model judged the stills ("provider/model"), like plan.director
     via: (() => { const m = r as { provider?: string; model?: string }; return m.provider && m.model ? `${m.provider}/${m.model}` : undefined; })(),
   };

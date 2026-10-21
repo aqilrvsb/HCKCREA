@@ -1698,7 +1698,17 @@ def _qa(props: dict, d: Path, p: dict) -> tuple:
         if f.exists():
             t = fr / fps
             act = [x[4] + f"#{x[2]}{x[3]}" for x in spans if x[0] <= t < x[1]]
-            shots.append({"frame": fr, "t": round(t, 2), "active": act,
+            # the band of the speaker's eyes in this still from the face tracker (QA's "covers the eyes" must reach
+            # it): brows → mid-face of the detector box, widened for the camera zoom about the face centre
+            near = [fc for fc in (props.get("faces") or []) if abs(float(fc.get("t", -9)) - t) <= 0.6]
+            eyes = None
+            if near:
+                fc = min(near, key=lambda x: abs(float(x["t"]) - t))
+                fy, fh = float(fc["y"]), float(fc["h"])
+                cy = fy + fh / 2
+                a, b = cy + (fy + fh * 0.12 - cy) * 1.15, cy + (fy + fh * 0.5 - cy) * 1.15
+                eyes = [round(max(0.0, a), 3), round(min(1.0, b), 3)]
+            shots.append({"frame": fr, "t": round(t, 2), "active": act, "eyes": eyes,
                           "image": "data:image/jpeg;base64," + base64.b64encode(f.read_bytes()).decode()})
     if not shots:
         return props, {"qa": "no stills"}
